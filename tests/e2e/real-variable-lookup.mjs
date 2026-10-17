@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {readFile,writeFile,readdir,copyFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {parse,stringify} from 'yaml'
-import {parseSessionLog} from '../../tavern-plugin/lib/domain/legacy-session-migration.js'
+import {parseSessionLog} from '../../tavern-plugin/lib/domain/session-log-codec.js'
 export async function setupRealVariables({root,profile,data,runtimeHome}){
  const settings=parse(await readFile(join(runtimeHome,'settings.yaml'),'utf8'))
  const selection={...settings['agent-default-model'],reasoningEffort:'low'}

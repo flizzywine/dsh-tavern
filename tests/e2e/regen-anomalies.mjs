@@ -137,7 +137,7 @@ function nativeRounds(events) {
 // edits, then checks the story save and the native surface still agree.
 export async function regenTemplateChecks({ page, step, savedChat, output, report, root }) {
   const { readFile, readdir } = await import('node:fs/promises')
-  const { parseSessionLog } = await import('../../tavern-plugin/lib/domain/legacy-session-migration.js')
+  const { parseSessionLog } = await import('../../tavern-plugin/lib/domain/session-log-codec.js')
   const composer = () => page.getByRole('textbox', { name: /发消息|Message/ })
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
   const rpcErrors = []

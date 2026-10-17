@@ -81,7 +81,7 @@ export const featureCaptures = Object.fromEntries(Object.entries(entries).map(([
 
 // Explicit coverage: no catch-all fallback that hides a missing feature capture.
 export const featurePages = {
-  a01:['play','workbench'], a02:['install-terminal','install-profile'], a03:['model-setup'], a04:['opening','play-input'], a05:['play'], a06:['tavern-settings'],
+  a01:['play','workbench'], a02:[], a03:['model-setup'], a04:['opening','play-input'], a05:['play'], a06:['tavern-settings'],
   b01:['card-picker'], b02:['opening'], b03:['player-name'], b04:['play-input'], b05:['candidates','candidate-selection'], b06:['candidate-regenerate'], b07:['body-rewrite'], b08:['rollback-controls','rollback-undo'], b09:['guide-posture'], b10:['message-reasoning'],
   c01:['script-start'], c02:['script-choice'], c03:['script-progress'], c04:['script-progress'],
   d01:['guide-posture'], d02:['play','variable-receipt'], d03:['variable-receipt'], d04:['settlement-retry'], d05:['worldbook-triggers'], d06:['history-recall'], d07:['compaction','global-settings'], d08:['play','card-extensions'], d09:['card-extensions'], d10:['advanced-design','character-design','character-design-saved'], d11:['card-picker','card-extensions'],

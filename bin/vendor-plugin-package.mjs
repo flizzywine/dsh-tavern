@@ -12,20 +12,20 @@ if (JSON.parse(readFileSync(path.join(web, 'package.json'), 'utf8')).version !==
 
 const sidebar = path.join(root, 'node_modules/dsh-better-sidebar')
 const pkg = JSON.parse(readFileSync(path.join(sidebar, 'package.json'), 'utf8'))
-if (pkg.version !== '0.19.1') throw new Error('侧栏版本与现有兼容补丁不符')
+if (pkg.version !== JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).devDependencies['dsh-better-sidebar']) throw new Error('侧栏版本与现有兼容补丁不符')
 const hostCode = readFileSync(path.join(sidebar, 'lib/index.js'), 'utf8')
-if (!hostCode.includes('function threadBoundaryEvents(') || !hostCode.includes('handle.header?.seedLength')) throw new Error('侧栏尚未应用 Tavern 的兼容补丁，请先 pnpm install --frozen-lockfile')
+if (!hostCode.includes('function threadOwnLogEvents(') || !hostCode.includes('session/end-seed')) throw new Error('侧栏尚未应用 Tavern 的兼容补丁，请先 pnpm install --frozen-lockfile')
 
 writeFileSync(path.join(root, 'config/plugin-web.patch.yml'), `# Vendored from @deepseek-ai/dsh-web-app ${policy.adaptedDshVersion} (MIT).\n# Fixed Tavern host baseline; refresh only with an explicit compatibility upgrade.\n` + readFileSync(path.join(web, 'cordis.patch.yml'), 'utf8'))
 copyFileSync(path.join(web, 'LICENSE'), path.join(root, 'config/plugin-web.LICENSE'))
 const target = path.join(root, 'tavern-plugin/packages/dsh-better-sidebar')
 mkdirSync(path.join(target, 'lib'), { recursive: true })
-for (const name of ['index.js', 'client.js', 'client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'invariant.js']) {
+for (const name of ['index.js', 'client.js', 'client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'client-locale.js']) {
   copyFileSync(path.join(sidebar, 'lib', name), path.join(target, 'lib', name))
 }
 copyFileSync(path.join(sidebar, 'LICENSE'), path.join(target, 'LICENSE'))
 const manifest = Object.fromEntries(['name', 'version', 'type', 'main', 'dsh'].map(key => [key, pkg[key]]))
 manifest.private = true
-manifest.exports = { '.': './lib/index.js', './client': './lib/client.js', './invariant': './lib/invariant.js', './package.json': './package.json' }
+manifest.exports = { '.': './lib/index.js', './client': './lib/client.js', './package.json': './package.json' }
 writeFileSync(path.join(target, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
 await import('./build-plugin-package.mjs')

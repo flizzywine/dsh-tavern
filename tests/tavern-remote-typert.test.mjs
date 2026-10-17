@@ -114,8 +114,8 @@ test('客户端面清单同样携带 create() 工厂，且与宿主面声明一�
   }
 })
 
-test('0.2.0-rc.2 宿主真实的 validateTypertManifest 接受该清单', { skip: desktopSkip }, async () => {
-  const require = createRequire(join(desktopResources, 'app.asar', 'dsh', 'package.json'))
+test('目标宿主真实的 validateTypertManifest 接受该清单', { skip: process.env.DSH_BOOT_MODULE ? false : desktopSkip }, async () => {
+  const require = createRequire(process.env.DSH_BOOT_MODULE || join(desktopResources, 'app.asar', 'dsh', 'package.json'))
   const loader = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-typert-loader')).href)
   const { TYPERT } = await load('typert.host.js')
   // 真机日志里抛错的就是这个函数；它不再抛错即表示 dsh-tavern-remote 能注册成功。

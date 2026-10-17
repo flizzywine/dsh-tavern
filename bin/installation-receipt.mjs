@@ -4,12 +4,12 @@ import path from 'node:path'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
 const RECEIPT_FILE = 'tavern-installation.json'
-async function installationFingerprint(sourceRoot, dshHome) {
+async function installationFingerprint(sourceRoot, dshHome, host) {
   const files = [
     path.join(sourceRoot, 'package.json'),
     path.join(sourceRoot, 'pnpm-lock.yaml'),
     path.join(sourceRoot, '.dsh-tavern-local.json'),
-    ...['package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml'].map(file => path.join(dshHome, 'profiles/tavern', file)),
+    ...['package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml'].map(file => path.join(dshHome, 'profiles', host === 'desktop' ? 'desktop' : 'tavern', file)),
   ]
   const digest = createHash('sha256')
   for (const file of files) digest.update(file).update('\0').update(await readFile(file)).update('\0')
@@ -25,7 +25,7 @@ async function installationFingerprint(sourceRoot, dshHome) {
 }
 export async function recordInstallationReceipt({ sourceRoot, dshHome, host, attemptId, verifiedAt = Date.now() }) {
   const receipt = { schemaVersion: 1, sourceRoot: path.resolve(sourceRoot), dshHome: path.resolve(dshHome), host, attemptId, verifiedAt,
-    fingerprint: await installationFingerprint(path.resolve(sourceRoot), path.resolve(dshHome)) }
+    fingerprint: await installationFingerprint(path.resolve(sourceRoot), path.resolve(dshHome), host) }
   await createProfileDataStore({ dataRoot: path.join(dshHome, 'logs') }).writeJson(RECEIPT_FILE, receipt)
   return receipt
 }
@@ -34,6 +34,6 @@ export async function readInstallationReceipt({ sourceRoot, dshHome, host, attem
     const receipt = await createProfileDataStore({ dataRoot: path.join(dshHome, 'logs') }).readJson(RECEIPT_FILE)
     if (receipt?.schemaVersion !== 1 || receipt.sourceRoot !== path.resolve(sourceRoot) || receipt.dshHome !== path.resolve(dshHome)
       || receipt.host !== host || receipt.verifiedAt <= after || (attemptId && receipt.attemptId !== attemptId)) return null
-    return receipt.fingerprint === await installationFingerprint(path.resolve(sourceRoot), path.resolve(dshHome)) ? receipt : null
+    return receipt.fingerprint === await installationFingerprint(path.resolve(sourceRoot), path.resolve(dshHome), host) ? receipt : null
   } catch { return null }
 }

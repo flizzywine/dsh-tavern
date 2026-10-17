@@ -1,3 +1,4 @@
+import { storyEventTurn } from './session-upgrade-references.js'
 import { sessionEvents } from './session-events.js'
 
 // Fork buttons are keyed by the reply the player actually sees: the last model
@@ -19,7 +20,7 @@ export function forkTurnsByMessageId(session, regeneratedDshTurns = {}) {
   const lastReply = new Map()
   const completed = new Set()
   for (const event of sessionEvents(session)) {
-    const turn = Number(event.data?.turn)
+    const turn = storyEventTurn(event)
     if (!Number.isSafeInteger(turn) || turn < 1) continue
     if (event.type === 'turn/start') { lastReply.delete(turn); completed.delete(turn) }
     else if (event.type === 'assistant/message' && event.data?.message?.source?.kind === 'model' && event.data.message.id) lastReply.set(turn, String(event.data.message.id))

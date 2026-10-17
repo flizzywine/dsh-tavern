@@ -360,6 +360,6 @@
         function buildTavernHelperScriptDocument(input) {
 			const parts = buildTavernHelperScriptParts(input);
 			return '<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; img-src https: http: data: blob:; style-src \'unsafe-inline\' https: http:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; script-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src dsh-app://app/api/dsh-tavern/ https: http: wss: data: blob:; img-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; style-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' https: http:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
 				+ parts.head + '</head><body>' + parts.body + '</body></html>';
         }

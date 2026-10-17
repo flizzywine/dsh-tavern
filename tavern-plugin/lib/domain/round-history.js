@@ -716,7 +716,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
       version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn,
       beforeRevision: Number(originalChat._storageRevision || 0),
       ...(Number(originalChat._storageRevision || 0) ? {} : { before: structuredClone(originalChat) }),
-      foreground: { sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
+      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
     }
     if (undo.before) delete undo.before.rollbackUndo
     const rolled = storyTimeline.apply({ chat, intent: rollbackIntent })
@@ -814,7 +814,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const undo = {
       version: 1, id: randomUUID(), ready: false, turn: expectedTurn || hiddenTurn, beforeRevision: revision,
-      foreground: { sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
+      foreground: { formatVersion: 4, sessionId: session.id || chat.sessionId, nodes: [...nodes] }, background: []
     }
     const rolled = storyTimeline.apply({ chat: { ...header, messages: [] }, intent: { kind: 'turn.rollback', turn: hiddenTurn, beforeChat: { ...checkpointHeader, messages: [] } } }).chat
     rolled.rollbackUndo = undo
@@ -945,8 +945,8 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           } finally { clearTimeout(timeout) }
         }
         if (typeof sessions.flush !== 'function') throw new Error('当前宿主未提供后台会话保存接口')
-        const checkpoint = { sessionId: participant.sessionId, nodes: [...background.surface.nodes] }
-        rewindBackgroundSurface(background, participant.rewindTo)
+        const checkpoint = { formatVersion: 4, sessionId: participant.sessionId, nodes: [...background.surface.nodes] }
+        rewindBackgroundSurface(background, participant.rewindTo, worker, participant.formatVersion || 3)
         checkpoint.afterCount = sessionEvents(background).length
         undo.background.push(checkpoint)
         await sessions.flush(background)
@@ -1006,17 +1006,17 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
           const handle = await sessions.resume(checkpoint.sessionId)
           handles.push(handle); worker = handle.agent; background = worker?.session
         }
-        if (!background || worker?.phase?.kind === 'running' || !unchangedSinceRollback(background, checkpoint.afterCount)) throw new Error('后台上下文已有变化，不能撤销回退')
+        if (!background || worker?.phase?.kind === 'running' || !unchangedSinceRollback(background, checkpoint.afterCount, checkpoint.formatVersion || 3)) throw new Error('后台上下文已有变化，不能撤销回退')
         targets.push({ session: background, saved: checkpoint })
       }
       // The foreground context comes back from the save if its saved nodes cannot be restored.
       let repairForeground = false
-      try { preflightSurfaceRestore(session, saved.foreground.nodes) }
+      try { preflightSurfaceRestore(session, saved.foreground.nodes, saved.foreground.formatVersion || 3) }
       catch (error) { if (typeof repairNative !== 'function') throw error; repairForeground = true; targets.shift() }
-      for (const target of targets) if (target.session !== session) preflightSurfaceRestore(target.session, target.saved.nodes)
+      for (const target of targets) if (target.session !== session) preflightSurfaceRestore(target.session, target.saved.nodes, target.saved.formatVersion || 3)
       for (const target of targets) {
         changed.push({ session: target.session, nodes: [...target.session.surface.nodes] })
-        restoreSurface(target.session, target.saved.nodes)
+        restoreSurface(target.session, target.saved.nodes, target.saved.formatVersion || 3)
         if (sessions.flush) await sessions.flush(target.session)
       }
       const undo = current => {
@@ -1026,7 +1026,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         for (const participant of Object.values(result.timeline.participants)) {
           const target = targets.find(item => item.saved.sessionId === participant.sessionId)
           if (target) Object.assign(participant, { status: 'current', syncedRevision: result.timeline.revision,
-            boundary: target.session.surface.nodes.at(-1) ?? -1, rewindTo: null })
+            boundary: target.session.surface.nodes.at(-1) ?? -1, formatVersion: 4, rewindTo: null })
         }
         return result
       }

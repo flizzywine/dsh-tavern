@@ -37,7 +37,7 @@ for(const source of ['journal','compatible','flat'])test(`${source}: verified na
  assert.equal((await createChatJournalStore({dataRoot}).read('old')).messages[0].variables[0].stat_data.gold,9)
  assert.deepEqual(await reopened.readRevision('old',revision),before)
  if(source!=='flat')assert.deepEqual(await reopened.readRevision('old',1),first)
- assert.equal((await reopened.migrateNative('old')).alreadyActive,true)
+ assert.equal((await reopened.upgradeStorage('old')).alreadyActive,true)
  await assert.rejects(reopened.restoreLegacy('old'),/Native conversations/)
  assert.ok((await readdir(join(dataRoot,'chats','old'))).includes('head.json'))
 })
@@ -55,12 +55,12 @@ test('source mutation and disk failure during import leave the legacy authority 
    if(fault==='disk')throw Error('disk failure')
    writeFileSync(snapshot,JSON.stringify({...chat,external:'changed'}))
   }})
-  await assert.rejects(store.migrateNative('old'),fault==='disk'?/disk failure/:/Source changed/)
+  await assert.rejects(store.upgradeStorage('old'),fault==='disk'?/disk failure/:/Source changed/)
   assert.equal(await createNativeConversationStorage({dataRoot}).version('old'),null)
   const current=await old.read('old')
   if(fault==='source')assert.equal(current.external,'changed')
   await old.update('old',value=>({...value,_storageRevision:2,afterFailure:true}))
-  assert.equal((await old.migrateNative('old')).status,'native')
+  assert.equal((await old.upgradeStorage('old')).status,'native')
   assert.equal((await old.read('old')).afterFailure,true)
  }
 })
@@ -71,10 +71,10 @@ for(const separate of [false,true])test(`online migration rejects busy games and
  const chat={id:'old',_storageRevision:1,messages:[],variables:{gold:1}}
  await store.update('old',()=>chat)
  await writer.read('old') // A second client has the old representation cached.
- await assert.rejects(store.migrateNative('old',{assertCanMigrate:()=>{throw Error('busy')}}),/busy/)
+ await assert.rejects(store.upgradeStorage('old',{assertCanMigrate:()=>{throw Error('busy')}}),/busy/)
  assert.equal(await createNativeConversationStorage({dataRoot}).version('old'),null)
  let write
- await store.migrateNative('old',{onProgress:stage=>{
+ await store.upgradeStorage('old',{onProgress:stage=>{
   if(stage==='converting')write=writer.patch('old',1,[{op:'set',path:['variables','gold'],value:2},{op:'set',path:['_storageRevision'],value:2}]).then(()=>null,error=>error)
  }})
  const conflict=await write

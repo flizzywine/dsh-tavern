@@ -44,15 +44,21 @@ try {
     & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe "/out:$owned/DSH Desktop.exe" $fixture
     if($LASTEXITCODE -ne 0){throw 'Fixture compilation failed'}
     Copy-Item "$owned/DSH Desktop.exe" "$other/DSH Desktop.exe"
+    Copy-Item "$owned/DSH Desktop.exe" "$owned/DeepSeek Harness.exe"
+    Copy-Item "$owned/DSH Desktop.exe" "$other/DeepSeek Harness.exe"
+    $official=Start-Process "$owned/DeepSeek Harness.exe" -PassThru -WindowStyle Hidden
+    $otherOfficial=Start-Process "$other/DeepSeek Harness.exe" -PassThru -WindowStyle Hidden
     $old=Start-Process "$owned/DSH Desktop.exe" -PassThru -WindowStyle Hidden
     $unrelated=Start-Process "$other/DSH Desktop.exe" -PassThru -WindowStyle Hidden
     try {
         $type.GetMethod('StopInstallationProcesses',$flags).Invoke($form,@())
         if(!$old.WaitForExit(1000)){throw 'FAIL: old installation process remains alive'}
+        if(!$official.WaitForExit(1000)){throw 'FAIL: official installation process remains alive'}
+        if($otherOfficial.HasExited){throw 'FAIL: unrelated official installation was stopped'}
         if($unrelated.HasExited){throw 'FAIL: another installation was stopped'}
         Write-Output 'PASS: old process is stopped; neighboring installation is untouched'
     } finally {
-        foreach($process in @($old,$unrelated)){if(!$process.HasExited){$process.Kill()};$process.Dispose()}
+        foreach($process in @($old,$unrelated,$official,$otherOfficial)){if(!$process.HasExited){$process.Kill()};$process.Dispose()}
     }
     $form.Dispose()
 } finally {

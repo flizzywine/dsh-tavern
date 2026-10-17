@@ -1145,7 +1145,7 @@
 				!picking && error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				h("div", { className: "dsh-tavern-update" },
 					h("div", { className: "dsh-tavern-update-row" },
-						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel),
+						h("div", { className: "dsh-tavern-update-identity", title: "DSH Tavern " + currentVersionLabel + " · " + currentCommitLabel + " · " + updateHostLabel }, "DSH Tavern " + currentVersionLabel + " · 测试版 · DSH 0.2.1 · " + currentCommitLabel),
 						updateActions),
                     h(TavernHostCompatibility),
 					updateStatus.phase === "idle" || updateStatus.phase === "loading" ? null : h("div", { className: "dsh-tavern-update-status" + (updateStatus.phase === "failed" || updateStatus.phase === "check-failed" || updateStatus.phase === "blocked" || updateStatus.stalled ? " error" : "") }, updateMessage)
@@ -1175,6 +1175,26 @@
 					document.body.classList.remove("dsh-tavern-shell-active");
 				};
 			}, "dsh-tavern: shell marker");
+			// Keep the native account menu, but present its launcher as Settings.
+			ctx.effect(function () {
+				const originals = new Map();
+				function sync() {
+					for (const button of document.querySelectorAll('[data-slot="settings.launcher"] button[data-signed-out]')) {
+						if (!originals.has(button)) originals.set(button, button.getAttribute("aria-label"));
+						if (button.getAttribute("aria-label") !== "设置") button.setAttribute("aria-label", "设置");
+					}
+				}
+				const observer = new MutationObserver(sync);
+				observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-label"] });
+				sync();
+				return function () {
+					observer.disconnect();
+					for (const [button, label] of originals) {
+						if (label === null) button.removeAttribute("aria-label");
+						else button.setAttribute("aria-label", label);
+					}
+				};
+			}, "dsh-tavern: settings launcher label");
 			// Until the session list first loads, the host cannot tell whether it will
 			// restore the last conversation, so it paints the hero and then jumps away.
 			// Keep the hero blank while the list is pending.

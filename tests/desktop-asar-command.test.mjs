@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -27,10 +27,10 @@ test('0.2.0 桌面 asar shim 解析为 Electron 可执行文件 + asar CLI 的�
   const { shim, executable } = await shimFixture(t, { body: exe => `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${exe}" --expose-internals "${ASAR_CLI}" %*\r\nexit /b %errorlevel%\r\n` })
   const resolved = resolveDesktopAsarCommand({ dsh: shim, platform: 'win32' })
   assert.ok(resolved, '应识别为 asar 形态')
-  assert.equal(resolved.command, executable)
-  assert.equal(resolved.entry, ASAR_CLI)
+  assert.equal(await realpath(resolved.command), await realpath(executable))
+  assert.equal(resolved.entry, path.resolve(ASAR_CLI))
   assert.deepEqual(resolved.env, { ELECTRON_RUN_AS_NODE: '1' })
-  assert.deepEqual(['--expose-internals', resolved.entry, '--profile', 'tavern'], ['--expose-internals', ASAR_CLI, '--profile', 'tavern'])
+  assert.deepEqual(['--expose-internals', resolved.entry, '--profile', 'tavern'], ['--expose-internals', path.resolve(ASAR_CLI), '--profile', 'tavern'])
 })
 
 test('shim 指向真实 Node 入口时保持原行为（返回 null，交给 resolveDshCliEntry）', async t => {
@@ -50,7 +50,7 @@ test('引号形态没被解析但 shim 确实指向 asar 时，退回 Electron �
   })
   const resolved = resolveDesktopAsarCommand({ dsh: shim, platform: 'win32', env: { ...process.env, DSH_DESKTOP_NODE_EXECUTABLE: executable } })
   assert.ok(resolved, '应退回派生路径')
-  assert.equal(resolved.command, executable)
+  assert.equal(await realpath(resolved.command), await realpath(executable))
   assert.match(resolved.entry, /resources[\\/]app\.asar[\\/]dsh[\\/]node_modules[\\/]@deepseek-ai[\\/]dsh-desktop-host[\\/]lib[\\/]cli\.js$/)
   assert.deepEqual(resolved.env, { ELECTRON_RUN_AS_NODE: '1' })
 })
@@ -70,10 +70,10 @@ test('真实 dsh.cmd 的 %~dp0 相对形态可解析（无需任何环境变量�
   const executable = path.join(root, 'DeepSeek Harness.exe')
   await writeFile(executable, '')
   const shim = path.join(bin, 'dsh.cmd')
-  await writeFile(shim, '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%~dp0..\\..\\..\\..\\DeepSeek Harness.exe" --expose-internals "%~dp0..\\..\\..\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" %*\r\nexit /b %errorlevel%\r\n')
+  await writeFile(shim, '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%~dp0..\\..\\..\\..\\DeepSeek Harness.exe" --expose-internals "%~dp0..\\..\\..\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" %*\r\nexit /b %errorlevel%\r\n'.replaceAll('\\', path.sep))
   const resolved = resolveDesktopAsarCommand({ dsh: shim, platform: 'win32', env: { PATH: '' }, execPath: 'C:\\missing\\node.exe' })
   assert.ok(resolved, '应展开 %~dp0 后解析出 Electron 与 asar 入口')
-  assert.equal(resolved.command, executable)
+  assert.equal(await realpath(resolved.command), await realpath(executable))
   assert.match(resolved.entry, /app\.asar[\\/]dsh[\\/]node_modules[\\/]@deepseek-ai[\\/]dsh-desktop-host[\\/]lib[\\/]cli\.js$/)
   assert.ok(path.isAbsolute(resolved.entry), resolved.entry)
   assert.deepEqual(resolved.env, { ELECTRON_RUN_AS_NODE: '1' })
@@ -98,7 +98,7 @@ test('%~dp0 相对形态的 shim 也能兜底（不依赖任何环境变量）',
   const executable = path.join(root, 'DeepSeek Harness.exe')
   await writeFile(executable, '')
   const shim = path.join(bin, 'dsh.cmd')
-  await writeFile(shim, '@echo off\r\n"%~dp0..\\..\\..\\DeepSeek Harness.exe" --expose-internals "%~dp0..\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" %*\r\n')
+  await writeFile(shim, '@echo off\r\n"%~dp0..\\..\\..\\DeepSeek Harness.exe" --expose-internals "%~dp0..\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" %*\r\n'.replaceAll('\\', path.sep))
   assert.equal(desktopElectronExecutable({ env: {}, execPath: 'C:\\Program Files\\nodejs\\node.exe', platform: 'win32', commandFile: shim }), executable)
 })
 

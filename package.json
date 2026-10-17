@@ -1,6 +1,6 @@
 {
   "name": "dsh-profile-tavern",
-  "version": "2.8.0",
+  "version": "2.7.0",
   "scripts": {
     "build:client": "node bin/build-tavern-client.mjs",
     "check:client": "node bin/build-tavern-client.mjs --check",
@@ -25,8 +25,7 @@
     "check:plugin-package": "node bin/build-plugin-package.mjs --check",
     "prepublishOnly": "npm run check:client && npm run check:plugin-package",
     "test:card-memory": "node --test tests/card-memory.test.mjs",
-    "test:e2e:card-memory": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-memory",
-    "test:fast": "node bin/test-tavern.mjs --fast"
+    "test:e2e:card-memory": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-memory"
   },
   "dependencies": {
     "acorn": "8.15.0",
@@ -38,7 +37,7 @@
     "zod": "^4.4.3",
     "ws": "8.21.3",
     "schemastery": "3.18.0",
-    "dsh-mnemon": "0.5.29",
+    "dsh-mnemon": "0.5.31",
     "dsh-mnemon-source-runtime": "0.5.14",
     "dsh-mnemon-source-documents": "0.5.10"
   },
@@ -65,7 +64,7 @@
     "scheduler": "0.27.0",
     "dsh-tavern-plugin": "link:./tavern-plugin",
     "dsh-tavern-remote": "link:./tavern-plugin/packages/dsh-tavern-remote",
-    "dsh-pocket": "2.11.0",
+    "dsh-pocket": "2.12.0",
     "dsh-web-mobile": "3.1.0",
     "dsh-better-sidebar": "0.28.0",
     "dsh-dream-skin": "link:./tavern-plugin/packages/dsh-dream-skin"

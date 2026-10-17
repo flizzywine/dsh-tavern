@@ -42,10 +42,10 @@ export async function apply(ctx, config) {
 `
 }
 
-export function userPluginPaths(dataRoot, dshHome = path.resolve(dataRoot, '../../..')) {
+export function userPluginPaths(dataRoot, dshHome = path.resolve(dataRoot, '../../..'), host = process.env.DSH_TAVERN_RUNTIME_HOST || (process.versions.electron ? 'desktop' : 'cli')) {
   return {
     plugins: path.join(path.resolve(dataRoot), 'plugins'),
-    profile: path.join(path.resolve(dshHome), 'profiles', 'tavern'),
+    profile: path.join(path.resolve(dshHome), 'profiles', host === 'desktop' ? 'desktop' : 'tavern'),
   }
 }
 

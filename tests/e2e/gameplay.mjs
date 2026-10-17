@@ -1,3 +1,4 @@
+import { installV3SaveFixture } from './session-upgrade-fixture.mjs'
 import { helperApiChecks, helperApiScript } from './helper-api.mjs'
 import { backgroundFailureChecks } from './background-failure.mjs'
 import { createConversationPageStore } from '../../tavern-plugin/lib/domain/conversation-page-store.js'
@@ -27,7 +28,7 @@ import { sidebarUpgrade } from './sidebar-upgrade.mjs'
 import { pinPanelChecks } from './pin-panel.mjs'
 import { mobileSidebarChecks } from './mobile-sidebar.mjs'
 import { compactedEditedLegacySession } from '../fixtures/compacted-legacy-session.mjs'
-import { encodeMigratedSessionLog, parseSessionLog } from '../../tavern-plugin/lib/domain/legacy-session-migration.js'
+import { encodeMigratedSessionLog, parseSessionLog } from '../../tavern-plugin/lib/domain/session-log-codec.js'
 import { compactionChecks } from './compaction.mjs'
 import assert from 'node:assert/strict'
 import { presetSwitch } from './preset-switch.mjs'
@@ -100,7 +101,7 @@ async function assertNativeStorage() {
   if(latest)assert.deepEqual(view.state.world.variables,latest.variables[latest.swipeId||0])
   const files=await readdir(join(data,'chats',chat.id))
   assert.ok(files.includes('head.json')&&files.includes('blocks'))
-  if(!process.argv.includes('--migrate-native'))assert.ok(!files.includes('snapshots')&&!files.includes('journals')&&!files.includes('storage-format.json'))
+  if(!process.argv.includes('--upgrade-save'))assert.ok(!files.includes('snapshots')&&!files.includes('journals')&&!files.includes('storage-format.json'))
   report.nativeFormat={format:view.metadata.format,chatId:chat.id,messageCount:view.messageCount,revision:view.state.chatRevision,gold:view.state.world.variables.stat_data?.gold,files}
 }
 function inspectSaved(chat) {
@@ -565,14 +566,15 @@ try {
     }finally{release();await page.unrouteAll({behavior:'wait'})}
     await inspectScreen()
   })
-  if(process.argv.includes('--migrate-native'))await step('通过酒馆状态按钮迁移旧 journal 存档',async()=>{
-    let history, original
+  if(process.argv.includes('--upgrade-save'))await step('统一升级旧会话日志与 journal 存档',async()=>{
+    let history, original, legacySession
     await restartServer(async()=>{
       original=await savedChat();history=[]
       const old=createChatJournalStore({dataRoot:data})
       for(let revision=1;revision<=original._storageRevision;revision++)history.push(await old.readRevision(original.id,revision))
       assert.ok(history.every(Boolean),'夹具必须保留全部迁移前版本')
-      // Isolated generated fixture only; never alter the host Session log.
+      legacySession = await installV3SaveFixture({ sessionsRoot: join(root, 'profile-data/tavern/sessions'), sessionId: original.sessionId, runtime })
+      // Both sources belong only to this generated test profile.
       await rm(join(data,'chats',original.id),{recursive:true,force:true})
       const legacy=createChatJournalStore({dataRoot:data})
       for(const snapshot of history)await legacy.update(original.id,()=>snapshot)
@@ -580,8 +582,10 @@ try {
       assert.deepEqual(await legacy.read(original.id),original)
     })
     await inspectScreen()
-    const migration=page.getByRole('region',{name:'存档格式',exact:true})
-    const button=migration.getByRole('button',{name:'迁移旧存档',exact:true})
+    assert.deepEqual(await readFile(legacySession.oldFile), legacySession.bytes)
+    assert.equal(parseSessionLog(await readFile(legacySession.newFile)).header.version, 4)
+    const migration=page.getByRole('region',{name:'存档迁移',exact:true})
+    const button=migration.getByRole('button',{name:'迁移存档',exact:true})
     await button.waitFor()
     await page.screenshot({path:join(output,'migration-before.png'),fullPage:true})
     await page.setViewportSize({width:390,height:844})
@@ -591,19 +595,19 @@ try {
     await page.screenshot({path:join(output,'migration-mobile.png'),fullPage:true})
     const started=Date.now()
     await button.click()
-    await migration.getByText('已迁移为新版存档，旧文件和历史版本已保留。',{exact:true}).waitFor()
+    await migration.waitFor({state:'hidden'})
     const migrated=createChatJournalStore({dataRoot:data})
     for(let i=0;i<history.length;i++)assert.deepEqual(await migrated.readRevision(original.id,i+1),history[i])
     // Live iframe diagnostics can change when the viewport changes; migration
     // history above remains byte-for-byte equivalent at each original revision.
     const story=messages=>messages.map(({displayRuntime,...message})=>message)
     assert.deepEqual(story((await migrated.read(original.id)).messages),story(original.messages))
-    report.migration={status:'native',via:'status-button',elapsedMs:Date.now()-started,retainedRevisions:history.length}
+    report.migration={status:'native',sessionVersion:4,oldSessionPreserved:true,via:'status-button',elapsedMs:Date.now()-started,retainedRevisions:history.length}
     await page.setViewportSize({width:1440,height:1000})
     await page.screenshot({path:join(output,'migration-complete.png'),fullPage:true})
     await page.reload({waitUntil:'domcontentloaded'})
     await inspectScreen()
-    assert.equal(await page.getByRole('button',{name:'迁移旧存档',exact:true}).count(),0)
+    assert.equal(await page.getByRole('button',{name:'迁移存档',exact:true}).count(),0)
     await assertNativeStorage()
   })
   if (process.argv.includes('--settlement-performance')) {
@@ -846,7 +850,7 @@ try {
     report.serverScripts.coldSettleMs = Date.now() - coldStarted
     await page.goto(origin + '/', { waitUntil: 'domcontentloaded' })
   })
-  if((process.argv.includes('--native-format')||process.argv.includes('--migrate-native')) && !process.argv.includes('--opening-only'))await step('服务重启后打开同一原生存档并核对当前变量',async()=>{
+  if((process.argv.includes('--native-format')||process.argv.includes('--upgrade-save')) && !process.argv.includes('--opening-only'))await step('服务重启后打开同一原生存档并核对当前变量',async()=>{
     const before=await savedChat()
     await restartServer()
     const expected=[...before.messages].reverse().find(row=>row.variables?.[row.swipeId||0]).variables[0].stat_data.gold

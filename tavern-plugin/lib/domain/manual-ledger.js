@@ -94,6 +94,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
         task: 'ledger', persistent: true,
         persistentSessionId: taskRun.participantRequest.sessionId,
         rewindTo: taskRun.participantRequest.rewindTo,
+        rewindFormatVersion: taskRun.participantRequest.formatVersion,
         onPersistentSessionReady: id => taskRun.bindSession(id), sessionId, chatId: chat.id, selection: model,
         backgroundTasks: { variables: false, posture: false, characterDesign: false },
         system: LEDGER_ITEM.system({ from: backlog.from + 1, through: backlog.through }),

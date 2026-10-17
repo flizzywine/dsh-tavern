@@ -88,7 +88,7 @@ class Launcher : Form {
    if(!installationSelected){if(!SelectInstallation()){Close();return;}installationSelected=true;elapsed.Restart();lastProgress=TimeSpan.Zero;}
    await Task.Run((Action)Run);
    try{File.Delete(Path.Combine(root,"launcher-error.txt"));}catch{}
-   if(showCompletion&&TestRoot==null)MessageBox.Show("安装完成，酒馆已启动。\n\n以后请从桌面或开始菜单打开「DSH Tavern」。\n\n程序位置："+root+"\n数据位置："+data+"\n\n下载的安装包可以删除。请勿直接运行 runtime 文件夹中的 DSH Desktop.exe。", "DSH Tavern",MessageBoxButtons.OK,MessageBoxIcon.Information);
+   if(showCompletion&&TestRoot==null)MessageBox.Show("安装完成，酒馆已启动。\n\n以后请从桌面或开始菜单打开「DSH Tavern」。\n\n程序位置："+root+"\n数据位置："+data+"\n\n下载的安装包可以删除。请勿直接运行 runtime 文件夹中的 DeepSeek Harness.exe。", "DSH Tavern",MessageBoxButtons.OK,MessageBoxIcon.Information);
    Close(); return; } catch(Exception e) {
    try {Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"launcher-error.txt"),e.ToString());}catch{}
    if(TestRoot!=null){Environment.ExitCode=1;Close();return;}
@@ -161,7 +161,7 @@ class Launcher : Form {
   if(TestRoot==null)using(var key=Registry.CurrentUser.CreateSubKey(@"Software\DSH-Tavern"))key.SetValue("InstallRoot",root);
   CreateShortcut(TestRoot==null?Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory):Path.Combine(TestRoot,"Desktop"));
   CreateShortcut(TestRoot==null?Environment.GetFolderPath(Environment.SpecialFolder.Programs):Path.Combine(TestRoot,"StartMenu"));
-  File.WriteAllText(Path.Combine(root,"如何启动.txt"),"以后请从桌面或开始菜单打开 DSH Tavern，也可双击本目录的 DSH Tavern.exe。\r\n程序位置："+root+"\r\n数据位置："+data+"\r\n请保留数据目录；不要单独运行 runtime 文件夹中的 DSH Desktop.exe。\r\n",Encoding.UTF8);
+  File.WriteAllText(Path.Combine(root,"如何启动.txt"),"以后请从桌面或开始菜单打开 DSH Tavern，也可双击本目录的 DSH Tavern.exe。\r\n程序位置："+root+"\r\n数据位置："+data+"\r\n请保留数据目录；不要单独运行 runtime 文件夹中的 DeepSeek Harness.exe。\r\n",Encoding.UTF8);
  }
  // WScript.Shell converts paths to the ANSI code page: on a non-Chinese Windows a Chinese
  // install path or user name becomes '?' and Save fails with E_INVALIDARG. IShellLinkW is Unicode.
@@ -173,7 +173,7 @@ class Launcher : Form {
    link.SetPath(installedLauncher);
    link.SetWorkingDirectory(root);
    link.SetDescription("打开 DSH Tavern 酒馆");
-   link.SetIconLocation(Path.Combine(runtime,"DSH Desktop.exe"),0);
+   link.SetIconLocation(Path.Combine(runtime,"DeepSeek Harness.exe"),0);
    // Without its own AppUserModelID the shortcut is grouped with the user's DSH Desktop.
    var store=(IPropertyStore)link;
    var key=new PropertyKey{FormatId=new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),PropertyId=5};
@@ -210,22 +210,22 @@ class Launcher : Form {
      pi.UseShellExecute=false;pi.CreateNoWindow=true;pi.RedirectStandardOutput=true;
      pi.EnvironmentVariables["TEMP"]=stage;pi.EnvironmentVariables["TMP"]=stage;
      using(var p=Process.Start(pi)) {char[] buf=new char[256];int n;while((n=p.StandardOutput.Read(buf,0,buf.Length))>0){var m=Regex.Match(new string(buf,0,n),@"(\d{1,3})%");if(m.Success)Status("首次准备运行环境："+m.Value,int.Parse(m.Groups[1].Value));}p.WaitForExit();if(p.ExitCode!=0)throw new Exception("解压失败，代码 "+p.ExitCode);}
-     if(!File.Exists(Path.Combine(app,"DSH Desktop.exe")))throw new Exception("运行环境不完整");
+     if(!File.Exists(Path.Combine(app,"DeepSeek Harness.exe")))throw new Exception("运行环境不完整");
      Status("本地处理：解压完成，正在配置运行环境…");
-     // Desktop's own pnpm runs under Electron; the runtime itself is used unmodified.
+     // Official pnpm runs under Electron; the build payload already contains the Tavern entry.
      Resource("setupUpgrade",Path.Combine(app,@"resources\setup-upgrade.mjs"));
      Resource("downloadModule",Path.Combine(app,@"resources\download.cjs"));
      Resource("powershellInstaller",Path.Combine(app,@"resources\install.ps1"));
      });
      // Payload files may be read-only; Directory.Delete then throws UnauthorizedAccessException
-     // ("Access to the path 'DSH Desktop.exe' is denied") and can mask a finished prepare.
+     // ("Access to the path 'DeepSeek Harness.exe' is denied") and can mask a finished prepare.
      } finally {TryDeleteTree(stage);}
     }
     if(Array.IndexOf(args,"--prepare-only")<0)EnsureTavern();
    }finally{if(locked)mutex.ReleaseMutex();}
   }
   if(Array.IndexOf(args,"--prepare-only")>=0)return;
-  Status("正在打开 DSH Tavern…"); var start=new ProcessStartInfo(Path.Combine(runtime,"DSH Desktop.exe"));
+  Status("正在打开 DSH Tavern…"); var start=new ProcessStartInfo(Path.Combine(runtime,"DeepSeek Harness.exe"));
   start.UseShellExecute=false;start.WorkingDirectory=runtime;
   start.EnvironmentVariables["DSH_TAVERN_TEST_DATA"]=data;
   start.EnvironmentVariables["PORTABLE_EXECUTABLE_FILE"]=installedLauncher;
@@ -236,7 +236,7 @@ class Launcher : Form {
   using(var p=Process.Start(start)){if(Array.IndexOf(args,"--tavern-smoke")>=0){p.WaitForExit();if(p.ExitCode!=0)throw new Exception("启动检查失败");}}
  }
  static bool IsRuntimeReady(string path) {
-  try {return File.Exists(Path.Combine(path,"DSH Desktop.exe"))&&File.ReadAllText(Path.Combine(path,"ready"))==Version;}
+  try {return File.Exists(Path.Combine(path,"DeepSeek Harness.exe"))&&File.ReadAllText(Path.Combine(path,"ready"))==Version;}
   catch(IOException){return false;}
   catch(UnauthorizedAccessException){return false;}
  }
@@ -260,7 +260,7 @@ class Launcher : Form {
   Directory.CreateDirectory(runtime);
   try {
    prepare(runtime);
-   if(!File.Exists(Path.Combine(runtime,"DSH Desktop.exe")))throw new IOException("运行环境不完整："+runtime);
+   if(!File.Exists(Path.Combine(runtime,"DeepSeek Harness.exe")))throw new IOException("运行环境不完整："+runtime);
    File.WriteAllText(Path.Combine(runtime,"ready"),Version);
    complete=true;
   } finally {if(!complete)TryDeleteTree(runtime);}
@@ -269,7 +269,7 @@ class Launcher : Form {
   if(!NeedsUpgrade())return;
   File.Delete(Path.Combine(data,".launcher-upgrade-ready"));
   Status("正在联网安装或更新酒馆，保留现有数据…");
-  var pi=new ProcessStartInfo(Path.Combine(runtime,"DSH Desktop.exe"),"--expose-internals "+Quote(Path.Combine(runtime,@"resources\setup-upgrade.mjs"))+" "+Quote(data));
+  var pi=new ProcessStartInfo(Path.Combine(runtime,"DeepSeek Harness.exe"),"--expose-internals "+Quote(Path.Combine(runtime,@"resources\setup-upgrade.mjs"))+" "+Quote(data));
   pi.UseShellExecute=false;pi.CreateNoWindow=true;pi.RedirectStandardOutput=true;pi.RedirectStandardError=true;
   pi.StandardOutputEncoding=Encoding.UTF8;pi.StandardErrorEncoding=Encoding.UTF8;
   pi.EnvironmentVariables["ELECTRON_RUN_AS_NODE"]="1";pi.EnvironmentVariables["NODE_USE_ENV_PROXY"]="1";
@@ -290,7 +290,7 @@ class Launcher : Form {
   return showCompletion || !File.Exists(Path.Combine(source,"package.json")) || File.Exists(Path.Combine(source,".portable-install-pending.json")) || !File.Exists(marker) || File.ReadAllText(marker)!=Version;
  }
  bool OwnsDesktop(string executable) {
-  if(string.IsNullOrEmpty(executable)||!string.Equals(Path.GetFileName(executable),"DSH Desktop.exe",StringComparison.OrdinalIgnoreCase))return false;
+  if(string.IsNullOrEmpty(executable)||!(string.Equals(Path.GetFileName(executable),"DeepSeek Harness.exe",StringComparison.OrdinalIgnoreCase)||string.Equals(Path.GetFileName(executable),"DSH Desktop.exe",StringComparison.OrdinalIgnoreCase)))return false;
   var directory=Path.GetDirectoryName(Path.GetFullPath(executable));
   return Path.GetFileName(directory).StartsWith("runtime-",StringComparison.OrdinalIgnoreCase) && SamePath(Path.GetDirectoryName(directory),root);
  }
@@ -298,7 +298,7 @@ class Launcher : Form {
   Status("正在关闭此安装目录中的酒馆，以便更新…");
   var owned=new System.Collections.Generic.List<Process>();
   try {
-   foreach(var p in Process.GetProcessesByName("DSH Desktop")) {
+   foreach(var name in new[]{"DSH Desktop","DeepSeek Harness"}) foreach(var p in Process.GetProcessesByName(name)) {
     bool keep=false;
     try {if(OwnsDesktop(p.MainModule.FileName)){owned.Add(p);keep=true;p.CloseMainWindow();}}
     catch(System.ComponentModel.Win32Exception){throw new Exception("无法检查或关闭运行中的酒馆，请退出此安装的 DSH Tavern 后重试。");}

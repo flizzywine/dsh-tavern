@@ -15,7 +15,7 @@ import { installPluginDependencies, resolveHostDependencies } from './plugin-dep
 import { isAsarPath } from './desktop-host-paths.mjs'
 import { migrateLegacyTavernData, resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extensions.js'
-import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
+import { beginProfileConfigurationUpdate, mergeDesktopLegacyProfile, mergeProfilePatchTexts, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
@@ -50,11 +50,15 @@ function verifySource() {
 
 function prepareProfileConfiguration(host, dshVersion) {
   const source = JSON.parse(readFileSync(path.join(SOURCE_ROOT, 'package.json'), 'utf8'))
-  const current = loadProfileManifest({ profileDir: PROFILE_DIR })
-  if (current.name && current.name !== 'dsh-profile-tavern') {
+  let current = loadProfileManifest({ profileDir: PROFILE_DIR })
+  if (current.name && current.name !== 'dsh-profile-tavern' && !(host === 'desktop' && current.name === 'dsh-profile-desktop')) {
     throw new Error(`目标 profile 已属于其他项目：${current.name}`)
   }
 
+  const oldProfile = path.join(DSH_ROOT, 'profiles', 'tavern')
+  const migrateDesktop = host === 'desktop' && !current.dshTavern?.officialDesktop
+  const legacy = migrateDesktop ? loadProfileManifest({ profileDir: oldProfile }) : {}
+  if (migrateDesktop) current = mergeDesktopLegacyProfile(current, legacy)
   const pluginPath = path.join(SOURCE_ROOT, 'tavern-plugin')
   const manifest = mergeProfileManifest({
     source,
@@ -64,12 +68,21 @@ function prepareProfileConfiguration(host, dshVersion) {
     host,
     dshVersion,
   })
-  const patchText = prepareProfilePatch({
+  let patchText = prepareProfilePatch({
     profileDir: PROFILE_DIR,
     templateText: readFileSync(path.join(SOURCE_ROOT, 'cordis.patch.yml'), 'utf8'),
     legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
     profileConfigurationVersion: current.dshTavern && current.dshTavern.profileConfigurationVersion,
   })
+  if (host === 'desktop') manifest.dshTavern.officialDesktop = true
+  if (migrateDesktop && existsSync(path.join(oldProfile, 'cordis.patch.yml'))) {
+    const oldPatch = prepareProfilePatch({ profileDir: oldProfile, templateText: '[]',
+      legacyManagedText: readFileSync(path.join(SOURCE_ROOT, 'config', 'legacy-profile-patch-v0.6.yml'), 'utf8'),
+      profileConfigurationVersion: legacy.dshTavern?.profileConfigurationVersion })
+      ?? readFileSync(path.join(oldProfile, 'cordis.patch.yml'), 'utf8')
+    const currentPatch = patchText ?? readFileSync(path.join(PROFILE_DIR, 'cordis.patch.yml'), 'utf8')
+    patchText = mergeProfilePatchTexts(oldPatch, currentPatch)
+  }
   return { manifest, patchText }
 }
 
@@ -296,7 +309,8 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
       // This generated profile changes dependencies and patch settings on upgrade.
       // Its previous lockfile is not the source repository's frozen lockfile.
       await runInstall('pnpm', ['install', '--no-frozen-lockfile'], { cwd: PROFILE_DIR })
-      await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000 })
+      if (host === 'desktop') await runInstall('node', [path.join(SOURCE_ROOT, 'bin', 'validate-desktop-profile.mjs')], { label: '验证官方 Desktop 配置', timeoutMs: 60_000 })
+      else await runDsh(dsh, ['--profile', PROFILE, '--dump-config'], { host, timeoutMs: 60_000 })
       // --dump-config never imports the plugin; a partial node_modules would only fail after restart.
       assertRuntimeDependencies(SOURCE_ROOT)
       ensureSidebarDefaults()
@@ -324,7 +338,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     console.log('DSH Tavern 已安装。')
     console.log(host === 'cli' ? `已安装独立 DSH ${dshVersion}：${CLI_RUNTIME_ROOT}；不使用全局 DSH。` : `已复用当前 DSH ${dshVersion} 的本地依赖；未升级或降级宿主。`)
     if (host === 'desktop') {
-      console.log('请重启 DSH Desktop，然后从托盘的 Profile 菜单切换到 tavern。')
+      console.log('请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置；原 Tavern 数据目录保持不变。')
     } else if (host === 'android') {
       console.log('Android Tavern Profile 已配置。')
     } else {

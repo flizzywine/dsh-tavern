@@ -1,3 +1,4 @@
+import { upgradeReferences } from './session-upgrade-references.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { editableReplyParts } from './reply-presentation.js'
@@ -20,12 +21,14 @@ function token(chat, message) {
 
 /** Reconcile a durable Chat edit to native Surface; retries never duplicate history. */
 export async function synchronizeBodyEdits(session, chat, flush, persistChat) {
+  const references = upgradeReferences(sessionEvents(session))
   const recorded = new Set(sessionEvents(session).filter(event => event.type === 'assistant/message').map(event => event.data?.message?.id))
   const cleared = []
   let sessionDirty = false
   for (const message of chat.messages || []) {
     if (!message?.bodyEdit) continue
-    const { id, seq, turn } = message.bodyEdit
+    const { id, turn } = message.bodyEdit
+    const seq = references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion)
     if (recorded.has(id)) continue
     let targetSeq = session.surface?.nodes.includes(seq) ? seq : null
     // Migration renumbers seqs and may fold the body-edit injection onto its
@@ -41,7 +44,7 @@ export async function synchronizeBodyEdits(session, chat, flush, persistChat) {
       delete message.bodyEdit
       continue
     }
-    if (targetSeq !== seq) message.bodyEdit = { id, seq: targetSeq, turn }
+    if (targetSeq !== seq) message.bodyEdit = { id, seq: targetSeq, turn, formatVersion: 4 }
     replaceSessionSurface(session, 'assistant/message', {
       turn, step: 1,
       message: { id, role: 'assistant', content: [{ type: 'text', text: message.text }], source: { kind: 'model', provider: 'dsh-tavern', model: 'body-edit' } }
@@ -145,7 +148,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
       const patch = {
         sourceText: text, projectionText: text, text: reply.sessionText,
         displayText: reply.displayText, displayMode: reply.displayMode,
-        ...(target ? { bodyEdit: { id: 'tavern-body-edit:' + randomUUID(), seq: target.assistantSeq, turn: target.turn } } : {})
+        ...(target ? { bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:' + randomUUID(), seq: target.assistantSeq, turn: target.turn } } : {})
       }
       if (Array.isArray(message.swipes)) {
         patch.swipes = structuredClone(message.swipes)

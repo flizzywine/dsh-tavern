@@ -11,11 +11,13 @@ allowBuilds:
   node-pty: false
 minimumReleaseAgeExclude:
   - dsh-mnemon-source-runtime@0.5.14
-  - dsh-mnemon-strategy-default-three-tier@0.5.8
-  - dsh-mnemon@0.5.29
+  - dsh-mnemon-strategy-default-three-tier@0.5.9
+  - dsh-mnemon@0.5.31
+  - dsh-mnemon-source-memory-spaces@0.5.21
+  - dsh-pocket@2.12.0
   - '@deepseek-ai/cosmokit@1.8.6'
   - '@deepseek-ai/schemastery@3.18.5'
   - dsh-better-sidebar@0.28.0
 patchedDependencies:
-  dsh-pocket@2.11.0: patches/dsh-pocket@2.11.0.patch
+  dsh-pocket@2.12.0: patches/dsh-pocket@2.12.0.patch
   dsh-web-mobile@3.1.0: patches/dsh-web-mobile@3.1.0.patch

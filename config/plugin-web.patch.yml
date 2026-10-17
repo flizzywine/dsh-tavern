@@ -1,4 +1,4 @@
-# Vendored from @deepseek-ai/dsh-web-app 0.2.0-rc.2 (MIT).
+# Vendored from @deepseek-ai/dsh-web-app 0.2.1-rc.2 (MIT).
 # Fixed Tavern host baseline; refresh only with an explicit compatibility upgrade.
 # The dsh-web-app bundle patch: the browser surface over the dsh-base layer.
 # Applied after dsh-base's insert; rows here override base rows by id, with
@@ -9,15 +9,15 @@
 #
 # The web-startup plugin injects `cmdlineArgs` and provides `webStartup` as an
 # ordinary Cordis service. Rows configured from flags inject that service, so
-# Loader resolves their expressions only after it exists. The web runtime then
-# provides bind-dependent `webRuntime` values to the trust fence.
-# `dsh --profile web --help` provides neither service, so no server binds.
+# Loader resolves their expressions only after it exists. The web-runtime row
+# validates the advertised public URL; Connection reads invocation authorities
+# directly from `webStartup`.
+# `dsh --profile web --help` provides no `webStartup`, so no server binds.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
 - id: system-prompt
   config:
-    personaSuffix: Your working directory is {{cwd}}.
     personaPrefix: >-
       You are a coding agent powered by the {{model}} model.
 
@@ -33,7 +33,7 @@
 
 - id: tools
   config:
-    # TEMPORARY workaround: DSH_TOOLS_MODE (native|ptc|both) opts a whole dsh
+    # TEMPORARY workaround: DSH_TOOLS_MODE (native|ptc) opts a whole dsh
     # process into PTC mode while per-session tool-presentation selection is being
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
@@ -134,6 +134,13 @@
     - id: workspace-files
       name: '@deepseek-ai/dsh-api-workspace-files'
 
+    # The Schedule service owns the task store and delivers each due occurrence
+    # as a follow-up in its original Session. The clock reading and the four
+    # reminder tools belong to the `standard`, `cordis`, and `ptc` presets,
+    # which declare them in their own scope.
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+
     # Configuration-surface reads and writes over Typert Remote. Each method
     # reports an actionable error when its settings-domain provider is absent.
     - id: ui-settings-account
@@ -166,36 +173,45 @@
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
     # Plain route-registration carrier; host and port come from the app's
-    # webStartup provider, with these deployment fallbacks. The dist is served by
-    # the web-runtime row below through the fallback seat.
+    # webStartup provider, with these deployment fallbacks. The dist is served
+    # by the web-runtime row below through the fallback seat. Routing and
+    # browser-facing asset paths do not depend on the advertised URL, which the
+    # web-runtime row owns; Connection reads trust authorities from webStartup.
+    # This row rejects wildcard binds.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
       config:
         host: !!js ctx.webStartup.host ?? '127.0.0.1'
         port: !!js ctx.webStartup.port ?? 3080
+        tls: !!js ctx.webStartup.tls
         compression: gzip
         compressionLevel: 1
         compressionThresholdBytes: 1024
 
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
-    # frontend-static fallback owner, registers the web-surface prompt
-    # section and the bash runtime variable, prints the URL line, and opens the
-    # canonical local URL after the full Loader tree settles and the required-
-    # entry audit passes. The
-    # webStartup provider supplies invocation-only values; after the server binds, this row samples
-    # LAN trust once and provides `webRuntime`. A complete agent-preset persona
-    # suppresses the prompt section for that agent while retaining the host-owned
-    # shell variable.
+    # frontend-static fallback owner, registers the bash runtime variable,
+    # prints the URL line, and opens the canonical URL after the full Loader
+    # tree settles and the required-entry audit passes. Invocation-only values
+    # come from the webStartup provider; the advertised application URL is
+    # this row's `publicUrl`, otherwise the bind-address URL.
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
       config:
         openBrowser: !!js ctx.webStartup.openBrowser
         printUrl: true
+        publicUrl: !!js ctx.webStartup.publicUrl
         surfaceContext: true
-        trustedHosts: !!js ctx.webStartup.trustedHosts
+
+    # Model context for an agent that inspects or extends the harness serving
+    # this GUI: value-free prompt sections plus the current checkout and GUI
+    # URL as optional runtime context. A complete agent-preset persona replaces
+    # the sections, and a persona that suppresses optional runtime context
+    # also drops the two value lines.
+    - id: harness-dev-context
+      name: '@deepseek-ai/dsh-harness-dev-context'
 
     # The client-plugin reload chain, always mounted: it is idle until a
     # rebuild watcher (pnpm run dev:web) actually rewrites client bundles. It
@@ -214,15 +230,17 @@
       name: '@deepseek-ai/dsh-client-modules'
 
     # Owns both ends of the web transport: node half binds the gateway to the
-    # webserver under /api; browser half is the fetch/SSE client.
+    # webserver under /api; browser half is the fetch/SSE client. Every API
+    # request and upgrade passes the loopback, listener-bind, or trustedHosts
+    # policy; an advertised public URL contributes nothing to it.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
-      inject: [webRuntime]
+      inject: [webStartup]
       config:
-        # LAN literals derived from the active bind plus --trusted-host extras.
-        # A deployment adding authorities keeps this expression and concatenates
-        # its literals, for example: ['app.internal', ...ctx.webRuntime.trustedHosts].
-        trustedHosts: !!js ctx.webRuntime.trustedHosts
+        # Keep invocation authorities (each --trusted-host value) when adding
+        # deployment values, for example: ['app.internal', ...ctx.webStartup.trustedHosts].
+        # The listener's bind IP is accepted separately from this list.
+        trustedHosts: !!js ctx.webStartup.trustedHosts
 
     # Raw Blob and ReadableStream uploads run independently of Connection's
     # RPC and generation service.
@@ -367,11 +385,20 @@
     - id: ui-reference
       name: '@deepseek-ai/dsh-client-ui-reference'
 
+    # Display masking for recognized credentials in sent user text; remove
+    # this entry to draw credentials as written.
+    - id: ui-secret-mask
+      name: '@deepseek-ai/dsh-client-ui-secret-mask'
 
     # Background jobs: the session-header roster with on-demand streaming
     # record panels over the session job-output service.
     - id: ui-jobs
       name: '@deepseek-ai/dsh-client-ui-jobs'
+
+    # Task management and Session reminder catalog over the Host Schedule
+    # service mounted above.
+    - id: ui-schedule
+      name: '@deepseek-ai/dsh-client-ui-schedule'
 
     # Goal surface: GoalBar in the input dock over the goal session projection.
     - id: ui-goal
@@ -386,6 +413,9 @@
     # Model selection: the /model popupSelect + composer seat over session.models.
     - id: ui-model-selection
       name: '@deepseek-ai/dsh-client-ui-model-selection'
+
+    - id: ui-deepseek-model-label-1017
+      name: '@deepseek-ai/dsh-client-ui-deepseek-model-label-1017'
 
     - id: ui-permission
       name: '@deepseek-ai/dsh-client-ui-permission-presets'
@@ -456,8 +486,8 @@
   disabled: true
 
 # The background-job REGISTRY stays on the host plane; only the model-facing
-# `job_*` controls move. Its producers — `tool-bash` here, `tool-terminal` and a
-# non-continuable `tool-subagent` elsewhere — are preset rows that resolve it
+# `job_*` controls move. Its producers — `tool-bash` here and `tool-terminal`
+# elsewhere — are preset rows that resolve it
 # with `ctx.get`, and an entry-local realm around the registry is invisible to
 # every sibling row outside that realm, so `run_in_background` answered
 # "background jobs unavailable" while the controls sat in the catalog. That is
@@ -540,12 +570,6 @@
   disabled: true
 
 - id: tool-workflow
-  disabled: true
-
-# `base` ships this row disabled; the preset-plane gate reads declared row ids
-# without regard to `disabled`, so this row must stay to keep `tool-ralph` off
-# the host plane and out of collision with every preset's row.
-- id: tool-ralph
   disabled: true
 
 - id: agent-instructions

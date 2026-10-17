@@ -224,8 +224,10 @@ Task State reader 为候选同步、活动与启动恢复检查提供只读头�
 
 最终万轮 E2E run-rZVvyd：状态栏 3.005 秒，正文 1.637 秒，重新结算 4.464 秒，MVU 完成到落盘 0.954 秒；首屏及后续空闲诊断全历史摘要遍历为 0。严格检查用 `TAVERN_PERF_REQUIRE_BOUNDED_STATE=1`，测试与剩余边界见 `docs/verification/current-header-opening-20260928.md`。宿主事件恢复等工作仍随历史增长，不能宣称整体 O(1)。
 
-## Native Save Migration
+## Unified Save Upgrade
 
-显式 `migrateNative` / `bin/migrate-conversation-storage.mjs --native` 将旧 JSON、journal 或兼容增量树转换为新局的原生分页布局。发布前完整读回比对并检查源版本，迁移与当前写入共用 conversation lock。保留旧文件；`legacyInitialRevision` 使迁移前 revision 继续由原存储解析，新进度只写原生布局。原生存档暂不支持 `--restore-legacy`，旧文件不代表最新进度。没有自动批量切换，也没有修改 DSH 本体。真实浏览器迁移后游玩、结算、编辑、回退/撤销、预设切换与重启通过，见 `docs/verification/native-save-migration-20260928.md`。
+DSH 0.2.1 存档升级由 `save-upgrade.js` 统一管理。启动时先在宿主打开会话前通过 `session-upgrade.js` 升级旧 DSH 日志；界面的「升级存档」检查前台、后台和撤销回退关联会话均已就绪，再通过 `chatJournalStore.upgradeStorage` 将旧 JSON、journal 或兼容增量树转为原生分页布局。后台任务提供阶段、错误和重试；新版存档隐藏入口。诊断 CLI `bin/migrate-conversation-storage.mjs --native` 保留。
 
-酒馆状态已提供旧档「迁移旧存档」按钮，通过 `conversation-migration.js` 的后台任务与轮询展示阶段、错误/重试及成功结果。服务端 `migrateNative` 在共享锁内检查当前游戏是否空闲；迁移期间同一服务内的其他存档写入排队，独立进程的并发写入被锁拒绝，可稍后重试。新版存档默认隐藏入口。仅运行中的任务进度保存在内存，重启后通过磁盘 head 判定结果，不影响原子发布/失败重试语义。
+会话转换使用宿主的历史格式链及父子会话目录，严格验证正文、工具结果、摘要和引用后原子发布新的 v4 文件，保留原文件，不覆盖已有新版。升级元数据保存旧事件位置到新位置的映射；剧情轮号、回退锚点、编辑记录、后台边界和撤销回退沿此映射恢复。不能证明安全的异常日志拒绝升级并报告原因。
+
+剧情存储转换与写入共用 conversation lock，发布前完整读回比对并检查源版本。`legacyInitialRevision` 让旧 revision 继续由原存储解析，新进度只写原生布局；旧文件不代表升级后的最新进度。未修改已安装 DSH 本体。验证范围与异常旧档边界见 `docs/verification/dsh-021-save-upgrade.md`。

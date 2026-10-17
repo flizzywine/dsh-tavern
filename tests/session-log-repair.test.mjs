@@ -1,3 +1,4 @@
+import { encodeCurrentGeneration } from '../tavern-plugin/lib/domain/session-log-codec.js'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -5,7 +6,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { encodeCurrentGeneration, repairCurrentSessionBuffer, repairCurrentSessionFile, repairStoredSessionLog } from '../tavern-plugin/lib/domain/legacy-session-migration.js'
+import { repairCurrentSessionBuffer, repairCurrentSessionFile, repairStoredSessionLog } from '../tavern-plugin/lib/domain/session-log-repair.js'
 
 // The host catalog is the only judge of whether a log opens, so these tests use it
 // instead of a stand-in. Without a boot module the whole file is skipped.

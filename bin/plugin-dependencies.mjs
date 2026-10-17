@@ -306,7 +306,8 @@ export function resolveDesktopAsarCommand({ dsh, env = process.env, execPath = p
 
 // Invoke npm through Node on Windows so private prefixes containing spaces or
 // shell metacharacters are passed as argv, never reparsed by cmd.exe.
-export function resolveNpmCliEntry({ env = process.env, platform = process.platform } = {}) {  const commandFile = resolveCommandFile('npm', env, platform)
+export function resolveNpmCliEntry({ env = process.env, platform = process.platform } = {}) {
+  const commandFile = resolveCommandFile('npm', env, platform)
   const cli = findCommandPackage('npm', commandFile)
   if (!cli) throw new Error(`无法定位 npm CLI 包：${commandFile}`)
   const manifest = JSON.parse(readFileSync(path.join(cli.directory, 'package.json'), 'utf8'))

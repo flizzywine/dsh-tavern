@@ -221,3 +221,16 @@ assert.equal(sawContext, undefined)
 assert.equal(saved.candidates, undefined)
 assert.equal(Object.keys(saved.timeline.operations).length, 0)
 })
+
+test('候选准备期间剧情变化时拒绝启动，不写入旧候选', async () => {
+let serial=0
+const timeline=createStoryTimeline({id:p=>p+'-'+(++serial),now:Date.now})
+let saved=timeline.apply({chat:{id:'c',sessionId:'s',mode:'story',cardPath:'cards/a.json',messages:[{role:'assistant',text:'OLD STORY'}],settleStatus:'idle'},intent:{kind:'ensure'}}).chat
+let sawContext, basedOn
+const store={chatForSession:async()=>structuredClone(saved),readChat:async()=>structuredClone(saved),readCard:async()=>({name:'A'}),writeChat:async c=>{saved=structuredClone(c)},updateChat:async(id,fn)=>{saved=await fn(structuredClone(saved));return structuredClone(saved)}}
+const candidate=createCandidateGenerator({store,timeline,prompt:()=>'',scripts:{},planner:{async plan({chat}){const old=chat.messages.at(-1).text; saved.timeline.branchId='after-rollback';saved.timeline.revision++;saved.messages=[{role:'assistant',text:'NEW STORY'}];return {taskText:'generate for '+old,stableText:'',dynamicText:old}}},model:{selection:()=>({provider:'test',model:'test'}),async runCandidate(options){sawContext=options.turnContext;await options.onToolCall({name:'candidate_submit_choices',arguments:{actions:['a','b','c','d'],scene:'scene'}});return {text:'',traceSessionId:'b'}}}})
+await assert.rejects(candidate.generate({sessionId:'s',messageId:'old-message'}), /剧情已变化/)
+assert.equal(sawContext, undefined)
+assert.equal(saved.candidates, undefined)
+assert.equal(Object.keys(saved.timeline.operations).length, 0)
+})

@@ -3,7 +3,7 @@ import { readFile, writeFile, copyFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parse, stringify } from 'yaml'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
-import { parseSessionLog } from '../../tavern-plugin/lib/domain/legacy-session-migration.js'
+import { parseSessionLog } from '../../tavern-plugin/lib/domain/session-log-codec.js'
 import { checkMvuCard, looksLikeMvuCard } from '../../tavern-plugin/lib/domain/mvu-card-check.js'
 
 // Measures what one real card-workbench edit costs: steps and provider usage.

@@ -7,7 +7,7 @@ export async function migrateConversationStorage({dataRoot,chatId,restoreLegacy=
  if(!dataRoot||!chatId)throw Error('Required: --data PATH --chat ID')
  if(restoreLegacy&&native)throw Error('--native and --restore-legacy cannot be combined')
  const store=createChatJournalStore({dataRoot:path.resolve(dataRoot)})
- return native?store.migrateNative(chatId):restoreLegacy?store.restoreLegacy(chatId):store.migrateCompatibility(chatId,{force:true})
+ return native?store.upgradeStorage(chatId):restoreLegacy?store.restoreLegacy(chatId):store.migrateCompatibility(chatId,{force:true})
 }
 async function main(){
  const args=process.argv.slice(2),values={}

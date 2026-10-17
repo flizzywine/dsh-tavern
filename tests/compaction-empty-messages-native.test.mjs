@@ -20,9 +20,9 @@ for (const side of ['foreground', 'background']) {
       agent = handle.agent
     }
     await ensureSessionStablePrefix(agent.session, '不可丢失的固定背景')
-    appendSessionEvent(agent.session, 'user/message', { id: 'frame', role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-tavern', form: 'foreground-frame' } }, { surfaceOp: 'append' })
+    appendSessionEvent(agent.session, 'user/message', { id: 'frame', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern', form: 'foreground-frame' } }, { surfaceOp: 'append' })
     await ensureSessionStablePrefix(agent.session, '不可丢失的固定背景：更新后的世界书', undefined, 1)
-    appendSessionEvent(agent.session, 'user/message', { id: 'cleanup', role: 'user', content: [], source: { kind: 'plugin', plugin: 'dsh-tavern-failed-turn-cleanup' } }, { surfaceOp: 'append' })
+    appendSessionEvent(agent.session, 'user/message', { id: 'cleanup', role: 'user', content: [], source: { kind: 'plugin:dsh-tavern-failed-turn-cleanup' } }, { surfaceOp: 'append' })
     // The prefix writer reserved an opening turn that no greeting fills, and this
     // test drives the Agent directly: close it the way Tavern's own turn starters do.
     releaseOpeningTurn(agent.session, agent)
@@ -39,7 +39,7 @@ for (const side of ['foreground', 'background']) {
       }
       return next()
     })
-    const result = await new BasicCompactionEngine(h.ctx, { auto: false }).compactNow(agent, new AbortController().signal)
+    const result = await new BasicCompactionEngine(h.ctx, { auto: false, maxTokens: 4096 }).compactNow(agent, new AbortController().signal).catch(error => { throw error.cause || error })
     assert.ok(requests.length, 'must reach the real summary request')
     assert.ok(result, 'compaction must produce a summary instead of failing on an empty user message')
     assert.ok(sessionEvents(agent.session).some(e => e.type === 'compaction/summary'))

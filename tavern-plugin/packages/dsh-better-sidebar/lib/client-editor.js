@@ -619,6 +619,16 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		return (code0 - 55296 << 10) + (code1 - 56320) + 65536;
 	}
 	/**
+	Given a Unicode codepoint, return the JavaScript string that
+	respresents it (like
+	[`String.fromCodePoint`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/fromCodePoint)).
+	*/
+	function fromCodePoint(code) {
+		if (code <= 65535) return String.fromCharCode(code);
+		code -= 65536;
+		return String.fromCharCode((code >> 10) + 55296, (code & 1023) + 56320);
+	}
+	/**
 	The amount of positions a character takes up in a JavaScript string.
 	*/
 	function codePointSize(code) {
@@ -3654,6 +3664,29 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		if (name == "Right") name = "ArrowRight";
 		if (name == "Down") name = "ArrowDown";
 		return name;
+	}
+	//#endregion
+	//#region node_modules/.pnpm/crelt@1.0.7/node_modules/crelt/index.js
+	function crelt() {
+		var elt = arguments[0];
+		if (typeof elt == "string") elt = document.createElement(elt);
+		var i = 1, next = arguments[1];
+		if (next && typeof next == "object" && next.nodeType == null && !Array.isArray(next)) {
+			for (var name in next) if (Object.prototype.hasOwnProperty.call(next, name)) {
+				var value = next[name];
+				if (typeof value == "string") elt.setAttribute(name, value);
+				else if (value != null) elt[name] = value;
+			}
+			i++;
+		}
+		for (; i < arguments.length; i++) add(elt, arguments[i]);
+		return elt;
+	}
+	function add(elt, child) {
+		if (typeof child == "string") elt.appendChild(document.createTextNode(child));
+		else if (child == null) {} else if (child.nodeType != null) elt.appendChild(child);
+		else if (Array.isArray(child)) for (var i = 0; i < child.length; i++) add(elt, child[i]);
+		else throw new RangeError("Unsupported child node: " + child);
 	}
 	//#endregion
 	//#region node_modules/.pnpm/@codemirror+view@6.43.9/node_modules/@codemirror/view/dist/index.js
@@ -8168,12 +8201,12 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			return new BlockInfo(this.from, this.length + other.length, this.top, this.height + other.height, content);
 		}
 	};
-	var QueryType = /*@__PURE__*/ (function(QueryType) {
+	var QueryType$1 = /*@__PURE__*/ (function(QueryType) {
 		QueryType[QueryType["ByPos"] = 0] = "ByPos";
 		QueryType[QueryType["ByHeight"] = 1] = "ByHeight";
 		QueryType[QueryType["ByPosNoHeight"] = 2] = "ByPosNoHeight";
 		return QueryType;
-	})(QueryType || (QueryType = {}));
+	})(QueryType$1 || (QueryType$1 = {}));
 	const Epsilon = .001;
 	var HeightMap = class HeightMap {
 		constructor(length, height, flags = 2) {
@@ -8206,15 +8239,15 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			let me = this, doc = oracle.doc;
 			for (let i = changes.length - 1; i >= 0; i--) {
 				let { fromA, toA, fromB, toB } = changes[i];
-				let start = me.lineAt(fromA, QueryType.ByPosNoHeight, oracle.setDoc(oldDoc), 0, 0);
-				let end = start.to >= toA ? start : me.lineAt(toA, QueryType.ByPosNoHeight, oracle, 0, 0);
+				let start = me.lineAt(fromA, QueryType$1.ByPosNoHeight, oracle.setDoc(oldDoc), 0, 0);
+				let end = start.to >= toA ? start : me.lineAt(toA, QueryType$1.ByPosNoHeight, oracle, 0, 0);
 				toB += end.to - toA;
 				toA = end.to;
 				while (i > 0 && start.from <= changes[i - 1].toA) {
 					fromA = changes[i - 1].fromA;
 					fromB = changes[i - 1].fromB;
 					i--;
-					if (fromA < start.from) start = me.lineAt(fromA, QueryType.ByPosNoHeight, oracle, 0, 0);
+					if (fromA < start.from) start = me.lineAt(fromA, QueryType$1.ByPosNoHeight, oracle, 0, 0);
 				}
 				fromB += start.from - fromA;
 				fromA = start.from;
@@ -8285,7 +8318,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			return this.spaceAbove ? this.blockAt(0, oracle, top, offset).join(main) : main;
 		}
 		forEachLine(from, to, oracle, top, offset, f) {
-			if (from <= offset + this.length && to >= offset) f(this.lineAt(0, QueryType.ByPos, oracle, top, offset));
+			if (from <= offset + this.length && to >= offset) f(this.lineAt(0, QueryType$1.ByPos, oracle, top, offset));
 		}
 		setMeasuredHeight(measured) {
 			let next = measured.heights[measured.index++];
@@ -8371,8 +8404,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			}
 		}
 		lineAt(value, type, oracle, top, offset) {
-			if (type == QueryType.ByHeight) return this.blockAt(value, oracle, top, offset);
-			if (type == QueryType.ByPosNoHeight) {
+			if (type == QueryType$1.ByHeight) return this.blockAt(value, oracle, top, offset);
+			if (type == QueryType$1.ByPosNoHeight) {
 				let { from, to } = oracle.doc.lineAt(value);
 				return new BlockInfo(from, to - from, 0, 0, 0);
 			}
@@ -8468,10 +8501,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		}
 		lineAt(value, type, oracle, top, offset) {
 			let rightTop = top + this.left.height, rightOffset = offset + this.left.length + this.break;
-			let left = type == QueryType.ByHeight ? value < rightTop : value < rightOffset;
+			let left = type == QueryType$1.ByHeight ? value < rightTop : value < rightOffset;
 			let base = left ? this.left.lineAt(value, type, oracle, top, offset) : this.right.lineAt(value, type, oracle, rightTop, rightOffset);
 			if (this.break || (left ? base.to < rightOffset : base.from > rightOffset)) return base;
-			let subQuery = type == QueryType.ByPosNoHeight ? QueryType.ByPosNoHeight : QueryType.ByPos;
+			let subQuery = type == QueryType$1.ByPosNoHeight ? QueryType$1.ByPosNoHeight : QueryType$1.ByPos;
 			if (left) return base.join(this.right.lineAt(rightOffset, subQuery, oracle, rightTop, rightOffset));
 			else return this.left.lineAt(rightOffset, subQuery, oracle, top, offset).join(base);
 		}
@@ -8481,7 +8514,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				if (from < rightOffset) this.left.forEachLine(from, to, oracle, top, offset, f);
 				if (to >= rightOffset) this.right.forEachLine(from, to, oracle, rightTop, rightOffset, f);
 			} else {
-				let mid = this.lineAt(rightOffset, QueryType.ByPos, oracle, top, offset);
+				let mid = this.lineAt(rightOffset, QueryType$1.ByPos, oracle, top, offset);
 				if (from < mid.from) this.left.forEachLine(from, mid.from - 1, oracle, top, offset, f);
 				if (mid.to >= from && mid.from <= to) f(mid);
 				if (to > mid.to) this.right.forEachLine(mid.to + 1, to, oracle, rightTop, rightOffset, f);
@@ -8944,28 +8977,28 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			let marginTop = .5 - Math.max(-.5, Math.min(.5, bias / 1e3 / 2));
 			let map = this.heightMap, oracle = this.heightOracle;
 			let { visibleTop, visibleBottom } = this;
-			let viewport = new Viewport(map.lineAt(visibleTop - marginTop * 1e3, QueryType.ByHeight, oracle, 0, 0).from, map.lineAt(visibleBottom + (1 - marginTop) * 1e3, QueryType.ByHeight, oracle, 0, 0).to);
+			let viewport = new Viewport(map.lineAt(visibleTop - marginTop * 1e3, QueryType$1.ByHeight, oracle, 0, 0).from, map.lineAt(visibleBottom + (1 - marginTop) * 1e3, QueryType$1.ByHeight, oracle, 0, 0).to);
 			if (scrollTarget) {
 				let { head } = scrollTarget.range;
 				if (head < viewport.from || head > viewport.to) {
 					let viewHeight = Math.min(this.editorHeight, this.pixelViewport.bottom - this.pixelViewport.top);
-					let block = map.lineAt(head, QueryType.ByPos, oracle, 0, 0), topPos;
+					let block = map.lineAt(head, QueryType$1.ByPos, oracle, 0, 0), topPos;
 					if (scrollTarget.y == "center") topPos = (block.top + block.bottom) / 2 - viewHeight / 2;
 					else if (scrollTarget.y == "start" || scrollTarget.y == "nearest" && head < viewport.from) topPos = block.top;
 					else topPos = block.bottom - viewHeight;
-					viewport = new Viewport(map.lineAt(topPos - 500, QueryType.ByHeight, oracle, 0, 0).from, map.lineAt(topPos + viewHeight + 500, QueryType.ByHeight, oracle, 0, 0).to);
+					viewport = new Viewport(map.lineAt(topPos - 500, QueryType$1.ByHeight, oracle, 0, 0).from, map.lineAt(topPos + viewHeight + 500, QueryType$1.ByHeight, oracle, 0, 0).to);
 				}
 			}
 			return viewport;
 		}
 		mapViewport(viewport, changes) {
 			let from = changes.mapPos(viewport.from, -1), to = changes.mapPos(viewport.to, 1);
-			return new Viewport(this.heightMap.lineAt(from, QueryType.ByPos, this.heightOracle, 0, 0).from, this.heightMap.lineAt(to, QueryType.ByPos, this.heightOracle, 0, 0).to);
+			return new Viewport(this.heightMap.lineAt(from, QueryType$1.ByPos, this.heightOracle, 0, 0).from, this.heightMap.lineAt(to, QueryType$1.ByPos, this.heightOracle, 0, 0).to);
 		}
 		viewportIsAppropriate({ from, to }, bias = 0) {
 			if (!this.inView) return true;
-			let { top } = this.heightMap.lineAt(from, QueryType.ByPos, this.heightOracle, 0, 0);
-			let { bottom } = this.heightMap.lineAt(to, QueryType.ByPos, this.heightOracle, 0, 0);
+			let { top } = this.heightMap.lineAt(from, QueryType$1.ByPos, this.heightOracle, 0, 0);
+			let { bottom } = this.heightMap.lineAt(to, QueryType$1.ByPos, this.heightOracle, 0, 0);
 			let { visibleTop, visibleBottom } = this;
 			return (from == 0 || top <= visibleTop - Math.max(10, Math.min(-bias, 250))) && (to == this.state.doc.length || bottom >= visibleBottom + Math.max(10, Math.min(bias, 250))) && top > visibleTop - 2e3 && bottom < visibleBottom + 2e3;
 		}
@@ -9085,10 +9118,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			return changed;
 		}
 		lineBlockAt(pos) {
-			return pos >= this.viewport.from && pos <= this.viewport.to && this.viewportLines.find((b) => b.from <= pos && b.to >= pos) || scaleBlock(this.heightMap.lineAt(pos, QueryType.ByPos, this.heightOracle, 0, 0), this.scaler);
+			return pos >= this.viewport.from && pos <= this.viewport.to && this.viewportLines.find((b) => b.from <= pos && b.to >= pos) || scaleBlock(this.heightMap.lineAt(pos, QueryType$1.ByPos, this.heightOracle, 0, 0), this.scaler);
 		}
 		lineBlockAtHeight(height) {
-			return height >= this.viewportLines[0].top && height <= this.viewportLines[this.viewportLines.length - 1].bottom && this.viewportLines.find((l) => l.top <= height && l.bottom >= height) || scaleBlock(this.heightMap.lineAt(this.scaler.fromDOM(height), QueryType.ByHeight, this.heightOracle, 0, 0), this.scaler);
+			return height >= this.viewportLines[0].top && height <= this.viewportLines[this.viewportLines.length - 1].bottom && this.viewportLines.find((l) => l.top <= height && l.bottom >= height) || scaleBlock(this.heightMap.lineAt(this.scaler.fromDOM(height), QueryType$1.ByHeight, this.heightOracle, 0, 0), this.scaler);
 		}
 		getScrollOffset() {
 			return (this.scrollParent == this.view.scrollDOM ? this.scrollParent.scrollTop : (this.scrollParent ? this.scrollParent.getBoundingClientRect().top : 0) - this.view.contentDOM.getBoundingClientRect().top) * this.scaleY;
@@ -9186,8 +9219,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		constructor(oracle, heightMap, viewports) {
 			let vpHeight = 0, base = 0, domBase = 0;
 			this.viewports = viewports.map(({ from, to }) => {
-				let top = heightMap.lineAt(from, QueryType.ByPos, oracle, 0, 0).top;
-				let bottom = heightMap.lineAt(to, QueryType.ByPos, oracle, 0, 0).bottom;
+				let top = heightMap.lineAt(from, QueryType$1.ByPos, oracle, 0, 0).top;
+				let bottom = heightMap.lineAt(to, QueryType$1.ByPos, oracle, 0, 0).bottom;
 				vpHeight += bottom - top;
 				return {
 					from,
@@ -9251,7 +9284,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			}) : main + " " + sel;
 		} });
 	}
-	const baseTheme$1 = /*@__PURE__*/ buildTheme("." + baseThemeID, {
+	const baseTheme$1$1 = /*@__PURE__*/ buildTheme("." + baseThemeID, {
 		"&": {
 			position: "relative !important",
 			boxSizing: "border-box",
@@ -10458,7 +10491,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		mountStyles() {
 			this.styleModules = this.state.facet(styleModule);
 			let nonce = this.state.facet(EditorView.cspNonce);
-			StyleModule.mount(this.root, this.styleModules.concat(baseTheme$1).reverse(), nonce ? { nonce } : void 0);
+			StyleModule.mount(this.root, this.styleModules.concat(baseTheme$1$1).reverse(), nonce ? { nonce } : void 0);
 		}
 		readMeasured() {
 			if (this.updateState == 2) throw new Error("Reading the editor layout isn't allowed during an update");
@@ -11196,6 +11229,14 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		if (!map) Keymaps.set(bindings, map = buildKeymap(bindings.reduce((a, b) => a.concat(b), [])));
 		return map;
 	}
+	/**
+	Run the key handlers registered for a given scope. The event
+	object should be a `"keydown"` event. Returns true if any of the
+	handlers handled it.
+	*/
+	function runScopeHandlers(view, event, scope) {
+		return runHandlers(getKeymap(view.state), event, view, scope);
+	}
 	let storedPrefix = null;
 	const PrefixTimeout = 4e3;
 	function buildKeymap(bindings, platform = currentPlatform) {
@@ -11307,6 +11348,876 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	}
 	browser.gecko && browser.gecko_version;
 	/x/.unicode;
+	const Outside = "-10000px";
+	var TooltipViewManager = class {
+		constructor(view, facet, createTooltipView, removeTooltipView) {
+			this.facet = facet;
+			this.createTooltipView = createTooltipView;
+			this.removeTooltipView = removeTooltipView;
+			this.input = view.state.facet(facet);
+			this.tooltips = this.input.filter((t) => t);
+			let prev = null;
+			this.tooltipViews = this.tooltips.map((t) => prev = createTooltipView(t, prev));
+		}
+		update(update, above) {
+			var _a;
+			let input = update.state.facet(this.facet);
+			let tooltips = input.filter((x) => x);
+			if (input === this.input) {
+				for (let t of this.tooltipViews) if (t.update) t.update(update);
+				return false;
+			}
+			let tooltipViews = [], newAbove = above ? [] : null;
+			for (let i = 0; i < tooltips.length; i++) {
+				let tip = tooltips[i], known = -1;
+				if (!tip) continue;
+				for (let i = 0; i < this.tooltips.length; i++) {
+					let other = this.tooltips[i];
+					if (other && other.create == tip.create) known = i;
+				}
+				if (known < 0) {
+					tooltipViews[i] = this.createTooltipView(tip, i ? tooltipViews[i - 1] : null);
+					if (newAbove) newAbove[i] = !!tip.above;
+				} else {
+					let tooltipView = tooltipViews[i] = this.tooltipViews[known];
+					if (newAbove) newAbove[i] = above[known];
+					if (tooltipView.update) tooltipView.update(update);
+				}
+			}
+			for (let t of this.tooltipViews) if (tooltipViews.indexOf(t) < 0) {
+				this.removeTooltipView(t);
+				(_a = t.destroy) === null || _a === void 0 || _a.call(t);
+			}
+			if (above) {
+				newAbove.forEach((val, i) => above[i] = val);
+				above.length = newAbove.length;
+			}
+			this.input = input;
+			this.tooltips = tooltips;
+			this.tooltipViews = tooltipViews;
+			return true;
+		}
+	};
+	function windowSpace(view) {
+		let docElt = view.dom.ownerDocument.documentElement;
+		return {
+			top: 0,
+			left: 0,
+			bottom: docElt.clientHeight,
+			right: docElt.clientWidth
+		};
+	}
+	const tooltipConfig = /*@__PURE__*/ Facet.define({ combine: (values) => {
+		var _a, _b, _c;
+		return {
+			position: browser.ios ? "absolute" : ((_a = values.find((conf) => conf.position)) === null || _a === void 0 ? void 0 : _a.position) || "fixed",
+			parent: ((_b = values.find((conf) => conf.parent)) === null || _b === void 0 ? void 0 : _b.parent) || null,
+			tooltipSpace: ((_c = values.find((conf) => conf.tooltipSpace)) === null || _c === void 0 ? void 0 : _c.tooltipSpace) || windowSpace
+		};
+	} });
+	const knownHeight = /*@__PURE__*/ new WeakMap();
+	const tooltipPlugin = /*@__PURE__*/ ViewPlugin.fromClass(class {
+		constructor(view) {
+			this.view = view;
+			this.above = [];
+			this.inView = true;
+			this.madeAbsolute = false;
+			this.lastTransaction = 0;
+			this.measureTimeout = -1;
+			let config = view.state.facet(tooltipConfig);
+			this.position = config.position;
+			this.parent = config.parent;
+			this.classes = view.themeClasses;
+			this.createContainer();
+			this.measureReq = {
+				read: this.readMeasure.bind(this),
+				write: this.writeMeasure.bind(this),
+				key: this
+			};
+			this.resizeObserver = typeof ResizeObserver == "function" ? new ResizeObserver(() => this.measureSoon()) : null;
+			this.manager = new TooltipViewManager(view, showTooltip, (t, p) => this.createTooltip(t, p), (t) => {
+				if (this.resizeObserver) this.resizeObserver.unobserve(t.dom);
+				t.dom.remove();
+			});
+			this.above = this.manager.tooltips.map((t) => !!t.above);
+			this.intersectionObserver = typeof IntersectionObserver == "function" ? new IntersectionObserver((entries) => {
+				if (Date.now() > this.lastTransaction - 50 && entries.length > 0 && entries[entries.length - 1].intersectionRatio < 1) this.measureSoon();
+			}, { threshold: [1] }) : null;
+			this.observeIntersection();
+			view.win.addEventListener("resize", this.measureSoon = this.measureSoon.bind(this));
+			this.maybeMeasure();
+		}
+		createContainer() {
+			if (this.parent) {
+				this.container = document.createElement("div");
+				this.container.style.position = "relative";
+				this.container.className = this.view.themeClasses;
+				this.parent.appendChild(this.container);
+			} else this.container = this.view.dom;
+		}
+		observeIntersection() {
+			if (this.intersectionObserver) {
+				this.intersectionObserver.disconnect();
+				for (let tooltip of this.manager.tooltipViews) this.intersectionObserver.observe(tooltip.dom);
+			}
+		}
+		measureSoon() {
+			if (this.measureTimeout < 0) this.measureTimeout = setTimeout(() => {
+				this.measureTimeout = -1;
+				this.maybeMeasure();
+			}, 50);
+		}
+		update(update) {
+			if (update.transactions.length) this.lastTransaction = Date.now();
+			let updated = this.manager.update(update, this.above);
+			if (updated) this.observeIntersection();
+			let shouldMeasure = updated || update.geometryChanged;
+			let newConfig = update.state.facet(tooltipConfig);
+			if (newConfig.position != this.position && !this.madeAbsolute) {
+				this.position = newConfig.position;
+				for (let t of this.manager.tooltipViews) t.dom.style.position = this.position;
+				shouldMeasure = true;
+			}
+			if (newConfig.parent != this.parent) {
+				if (this.parent) this.container.remove();
+				this.parent = newConfig.parent;
+				this.createContainer();
+				for (let t of this.manager.tooltipViews) this.container.appendChild(t.dom);
+				shouldMeasure = true;
+			} else if (this.parent && this.view.themeClasses != this.classes) this.classes = this.container.className = this.view.themeClasses;
+			if (shouldMeasure) this.maybeMeasure();
+		}
+		createTooltip(tooltip, prev) {
+			let tooltipView = tooltip.create(this.view);
+			let before = prev ? prev.dom : null;
+			tooltipView.dom.classList.add("cm-tooltip");
+			if (tooltip.arrow && !tooltipView.dom.querySelector(".cm-tooltip > .cm-tooltip-arrow")) {
+				let arrow = document.createElement("div");
+				arrow.className = "cm-tooltip-arrow";
+				tooltipView.dom.appendChild(arrow);
+			}
+			tooltipView.dom.style.position = this.position;
+			tooltipView.dom.style.top = Outside;
+			tooltipView.dom.style.left = "0px";
+			this.container.insertBefore(tooltipView.dom, before);
+			if (tooltipView.mount) tooltipView.mount(this.view);
+			if (this.resizeObserver) this.resizeObserver.observe(tooltipView.dom);
+			return tooltipView;
+		}
+		destroy() {
+			var _a, _b, _c;
+			this.view.win.removeEventListener("resize", this.measureSoon);
+			for (let tooltipView of this.manager.tooltipViews) {
+				tooltipView.dom.remove();
+				(_a = tooltipView.destroy) === null || _a === void 0 || _a.call(tooltipView);
+			}
+			if (this.parent) this.container.remove();
+			(_b = this.resizeObserver) === null || _b === void 0 || _b.disconnect();
+			(_c = this.intersectionObserver) === null || _c === void 0 || _c.disconnect();
+			clearTimeout(this.measureTimeout);
+		}
+		readMeasure() {
+			let scaleX = 1, scaleY = 1, makeAbsolute = false;
+			if (this.position == "fixed" && this.manager.tooltipViews.length) {
+				let { dom } = this.manager.tooltipViews[0];
+				if (browser.safari) {
+					let rect = dom.getBoundingClientRect();
+					makeAbsolute = Math.abs(rect.top + 1e4) > 1 || Math.abs(rect.left) > 1;
+				} else makeAbsolute = !!dom.offsetParent && dom.offsetParent != this.container.ownerDocument.body;
+			}
+			if (makeAbsolute || this.position == "absolute") {
+				if (this.parent) {
+					let rect = this.parent.getBoundingClientRect();
+					if (rect.width && rect.height) {
+						scaleX = rect.width / this.parent.offsetWidth;
+						scaleY = rect.height / this.parent.offsetHeight;
+					}
+				} else ({scaleX, scaleY} = this.view.viewState);
+			}
+			let visible = this.view.scrollDOM.getBoundingClientRect(), margins = getScrollMargins(this.view);
+			return {
+				visible: {
+					left: visible.left + margins.left,
+					top: visible.top + margins.top,
+					right: visible.right - margins.right,
+					bottom: visible.bottom - margins.bottom
+				},
+				parent: this.parent ? this.container.getBoundingClientRect() : this.view.dom.getBoundingClientRect(),
+				pos: this.manager.tooltips.map((t, i) => {
+					let tv = this.manager.tooltipViews[i];
+					return tv.getCoords ? tv.getCoords(t.pos) : this.view.coordsAtPos(t.pos);
+				}),
+				size: this.manager.tooltipViews.map(({ dom }) => dom.getBoundingClientRect()),
+				space: this.view.state.facet(tooltipConfig).tooltipSpace(this.view),
+				scaleX,
+				scaleY,
+				makeAbsolute
+			};
+		}
+		writeMeasure(measured) {
+			var _a;
+			if (measured.makeAbsolute) {
+				this.madeAbsolute = true;
+				this.position = "absolute";
+				for (let t of this.manager.tooltipViews) t.dom.style.position = "absolute";
+			}
+			let { visible, space, scaleX, scaleY } = measured;
+			let others = [];
+			for (let i = 0; i < this.manager.tooltips.length; i++) {
+				let tooltip = this.manager.tooltips[i], tView = this.manager.tooltipViews[i], { dom } = tView;
+				let pos = measured.pos[i], size = measured.size[i];
+				if (!pos || tooltip.clip !== false && (pos.bottom <= Math.max(visible.top, space.top) || pos.top >= Math.min(visible.bottom, space.bottom) || pos.right < Math.max(visible.left, space.left) - .1 || pos.left > Math.min(visible.right, space.right) + .1)) {
+					dom.style.top = Outside;
+					continue;
+				}
+				let arrow = tooltip.arrow ? tView.dom.querySelector(".cm-tooltip-arrow") : null;
+				let arrowHeight = arrow ? 7 : 0;
+				let width = size.right - size.left, height = (_a = knownHeight.get(tView)) !== null && _a !== void 0 ? _a : size.bottom - size.top;
+				let offset = tView.offset || noOffset, ltr = this.view.textDirection == Direction.LTR;
+				let left = size.width > space.right - space.left ? ltr ? space.left : space.right - size.width : ltr ? Math.max(space.left, Math.min(pos.left - (arrow ? 14 : 0) + offset.x, space.right - width)) : Math.min(Math.max(space.left, pos.left - width + (arrow ? 14 : 0) - offset.x), space.right - width);
+				let above = this.above[i];
+				if (!tooltip.strictSide && (above ? pos.top - height - arrowHeight - offset.y < space.top : pos.bottom + height + arrowHeight + offset.y > space.bottom) && above == space.bottom - pos.bottom > pos.top - space.top) above = this.above[i] = !above;
+				let spaceVert = (above ? pos.top - space.top : space.bottom - pos.bottom) - arrowHeight;
+				if (spaceVert < height && tView.resize !== false) {
+					if (spaceVert < this.view.defaultLineHeight) {
+						dom.style.top = Outside;
+						continue;
+					}
+					knownHeight.set(tView, height);
+					dom.style.height = (height = spaceVert) / scaleY + "px";
+				} else if (dom.style.height) dom.style.height = "";
+				let top = above ? pos.top - height - arrowHeight - offset.y : pos.bottom + arrowHeight + offset.y;
+				let right = left + width;
+				if (tView.overlap !== true) {
+					for (let r of others) if (r.left < right && r.right > left && r.top < top + height && r.bottom > top) top = above ? r.top - height - 2 - arrowHeight : r.bottom + arrowHeight + 2;
+				}
+				if (this.position == "absolute") {
+					dom.style.top = (top - measured.parent.top) / scaleY + "px";
+					setLeftStyle(dom, (left - measured.parent.left) / scaleX);
+				} else {
+					dom.style.top = top / scaleY + "px";
+					setLeftStyle(dom, left / scaleX);
+				}
+				if (arrow) {
+					let arrowLeft = pos.left + (ltr ? offset.x : -offset.x) - (left + 14 - 7);
+					arrow.style.left = arrowLeft / scaleX + "px";
+				}
+				if (tView.overlap !== true) others.push({
+					left,
+					top,
+					right,
+					bottom: top + height
+				});
+				dom.classList.toggle("cm-tooltip-above", above);
+				dom.classList.toggle("cm-tooltip-below", !above);
+				if (tView.positioned) tView.positioned(measured.space);
+			}
+		}
+		maybeMeasure() {
+			if (this.manager.tooltips.length) {
+				if (this.view.inView) this.view.requestMeasure(this.measureReq);
+				if (this.inView != this.view.inView) {
+					this.inView = this.view.inView;
+					if (!this.inView) for (let tv of this.manager.tooltipViews) tv.dom.style.top = Outside;
+				}
+			}
+		}
+	}, { eventObservers: { scroll() {
+		this.maybeMeasure();
+	} } });
+	function setLeftStyle(elt, value) {
+		let current = parseInt(elt.style.left, 10);
+		if (isNaN(current) || Math.abs(value - current) > 1) elt.style.left = value + "px";
+	}
+	const baseTheme$2 = /*@__PURE__*/ EditorView.baseTheme({
+		".cm-tooltip": {
+			zIndex: 500,
+			boxSizing: "border-box"
+		},
+		"&light .cm-tooltip": {
+			border: "1px solid #bbb",
+			backgroundColor: "#f5f5f5"
+		},
+		"&light .cm-tooltip-section:not(:first-child)": { borderTop: "1px solid #bbb" },
+		"&dark .cm-tooltip": {
+			backgroundColor: "#333338",
+			color: "white"
+		},
+		".cm-tooltip-arrow": {
+			height: `7px`,
+			width: `14px`,
+			position: "absolute",
+			zIndex: -1,
+			overflow: "hidden",
+			"&:before, &:after": {
+				content: "''",
+				position: "absolute",
+				width: 0,
+				height: 0,
+				borderLeft: `7px solid transparent`,
+				borderRight: `7px solid transparent`
+			},
+			".cm-tooltip-above &": {
+				bottom: `-7px`,
+				"&:before": { borderTop: `7px solid #bbb` },
+				"&:after": {
+					borderTop: `7px solid #f5f5f5`,
+					bottom: "1px"
+				}
+			},
+			".cm-tooltip-below &": {
+				top: `-7px`,
+				"&:before": { borderBottom: `7px solid #bbb` },
+				"&:after": {
+					borderBottom: `7px solid #f5f5f5`,
+					top: "1px"
+				}
+			}
+		},
+		"&dark .cm-tooltip .cm-tooltip-arrow": {
+			"&:before": {
+				borderTopColor: "#333338",
+				borderBottomColor: "#333338"
+			},
+			"&:after": {
+				borderTopColor: "transparent",
+				borderBottomColor: "transparent"
+			}
+		}
+	});
+	const noOffset = {
+		x: 0,
+		y: 0
+	};
+	/**
+	Facet to which an extension can add a value to show a tooltip.
+	*/
+	const showTooltip = /*@__PURE__*/ Facet.define({ enables: [tooltipPlugin, baseTheme$2] });
+	const showHoverTooltip = /*@__PURE__*/ Facet.define({ combine: (inputs) => inputs.reduce((a, i) => a.concat(i), []) });
+	var HoverTooltipHost = class HoverTooltipHost {
+		static create(view) {
+			return new HoverTooltipHost(view);
+		}
+		constructor(view) {
+			this.view = view;
+			this.mounted = false;
+			this.dom = document.createElement("div");
+			this.dom.classList.add("cm-tooltip-hover");
+			this.manager = new TooltipViewManager(view, showHoverTooltip, (t, p) => this.createHostedView(t, p), (t) => t.dom.remove());
+		}
+		createHostedView(tooltip, prev) {
+			let hostedView = tooltip.create(this.view);
+			hostedView.dom.classList.add("cm-tooltip-section");
+			this.dom.insertBefore(hostedView.dom, prev ? prev.dom.nextSibling : this.dom.firstChild);
+			if (this.mounted && hostedView.mount) hostedView.mount(this.view);
+			return hostedView;
+		}
+		mount(view) {
+			for (let hostedView of this.manager.tooltipViews) if (hostedView.mount) hostedView.mount(view);
+			this.mounted = true;
+		}
+		positioned(space) {
+			for (let hostedView of this.manager.tooltipViews) if (hostedView.positioned) hostedView.positioned(space);
+		}
+		update(update) {
+			this.manager.update(update);
+		}
+		destroy() {
+			var _a;
+			for (let t of this.manager.tooltipViews) (_a = t.destroy) === null || _a === void 0 || _a.call(t);
+		}
+		passProp(name) {
+			let value = void 0;
+			for (let view of this.manager.tooltipViews) {
+				let given = view[name];
+				if (given !== void 0) {
+					if (value === void 0) value = given;
+					else if (value !== given) return void 0;
+				}
+			}
+			return value;
+		}
+		get offset() {
+			return this.passProp("offset");
+		}
+		get getCoords() {
+			return this.passProp("getCoords");
+		}
+		get overlap() {
+			return this.passProp("overlap");
+		}
+		get resize() {
+			return this.passProp("resize");
+		}
+	};
+	const showHoverTooltipHost = /*@__PURE__*/ showTooltip.compute([showHoverTooltip], (state) => {
+		let tooltips = state.facet(showHoverTooltip);
+		if (tooltips.length === 0) return null;
+		return {
+			pos: Math.min(...tooltips.map((t) => t.pos)),
+			end: Math.max(...tooltips.map((t) => {
+				var _a;
+				return (_a = t.end) !== null && _a !== void 0 ? _a : t.pos;
+			})),
+			create: HoverTooltipHost.create,
+			above: tooltips[0].above,
+			arrow: tooltips.some((t) => t.arrow)
+		};
+	});
+	const hoverPlugin = /*@__PURE__*/ Facet.define();
+	var HoverPlugin = class {
+		constructor(view, source, field, locked, setHover, hoverTime) {
+			this.view = view;
+			this.source = source;
+			this.field = field;
+			this.locked = locked;
+			this.setHover = setHover;
+			this.hoverTime = hoverTime;
+			this.hoverTimeout = -1;
+			this.restartTimeout = -1;
+			this.pending = null;
+			this.lastMove = {
+				x: 0,
+				y: 0,
+				target: view.dom,
+				time: 0
+			};
+			this.checkHover = this.checkHover.bind(this);
+			view.dom.addEventListener("mouseleave", this.mouseleave = this.mouseleave.bind(this));
+			view.dom.addEventListener("mousemove", this.mousemove = this.mousemove.bind(this));
+		}
+		update(update) {
+			if (this.pending) {
+				this.pending = null;
+				clearTimeout(this.restartTimeout);
+				this.restartTimeout = setTimeout(() => this.startHover(), 20);
+			}
+		}
+		get active() {
+			return this.view.state.field(this.field);
+		}
+		checkHover() {
+			this.hoverTimeout = -1;
+			if (this.active.length) return;
+			let hovered = Date.now() - this.lastMove.time;
+			if (hovered < this.hoverTime) this.hoverTimeout = setTimeout(this.checkHover, this.hoverTime - hovered);
+			else this.startHover();
+		}
+		startHover() {
+			clearTimeout(this.restartTimeout);
+			let { view, lastMove } = this;
+			let tile = view.docView.tile.nearest(lastMove.target);
+			if (!tile) return;
+			let pos, side = 1;
+			if (tile.isWidget()) pos = tile.posAtStart;
+			else {
+				pos = view.posAtCoords(lastMove);
+				if (pos == null) return;
+				let posCoords = view.coordsAtPos(pos);
+				if (!posCoords || lastMove.y < posCoords.top || lastMove.y > posCoords.bottom || lastMove.x < posCoords.left - view.defaultCharacterWidth || lastMove.x > posCoords.right + view.defaultCharacterWidth) return;
+				let bidi = view.bidiSpans(view.state.doc.lineAt(pos)).find((s) => s.from <= pos && s.to >= pos);
+				let rtl = bidi && bidi.dir == Direction.RTL ? -1 : 1;
+				side = lastMove.x < posCoords.left ? -rtl : rtl;
+			}
+			this.activateHover(view, pos, side);
+		}
+		activateHover(view, pos, side, locked) {
+			let open = this.source(view, pos, side);
+			let done = (value) => {
+				if (value && !(Array.isArray(value) && !value.length)) {
+					let tooltips = Array.isArray(value) ? value : [value];
+					if (locked) this.locked.set(tooltips, locked);
+					view.dispatch({ effects: this.setHover.of(tooltips) });
+				}
+			};
+			if (open && "then" in open) {
+				let pending = this.pending = { pos };
+				open.then((result) => {
+					if (this.pending == pending) {
+						this.pending = null;
+						done(result);
+					}
+				}, (e) => logException(view.state, e, "hover tooltip"));
+			} else done(open);
+		}
+		get tooltip() {
+			let plugin = this.view.plugin(tooltipPlugin);
+			let index = plugin ? plugin.manager.tooltips.findIndex((t) => t.create == HoverTooltipHost.create) : -1;
+			return index > -1 ? plugin.manager.tooltipViews[index] : null;
+		}
+		mousemove(event) {
+			var _a, _b;
+			this.lastMove = {
+				x: event.clientX,
+				y: event.clientY,
+				target: event.target,
+				time: Date.now()
+			};
+			if (this.hoverTimeout < 0) this.hoverTimeout = setTimeout(this.checkHover, this.hoverTime);
+			let { active, tooltip } = this;
+			if (active.length && !this.locked.has(active) && tooltip && !isInTooltip(tooltip.dom, event) || this.pending) {
+				let { pos } = active[0] || this.pending, end = (_b = (_a = active[0]) === null || _a === void 0 ? void 0 : _a.end) !== null && _b !== void 0 ? _b : pos;
+				if (pos == end ? this.view.posAtCoords(this.lastMove) != pos : !isOverRange(this.view, pos, end, event.clientX, event.clientY)) {
+					this.view.dispatch({ effects: this.setHover.of([]) });
+					this.pending = null;
+				}
+			}
+		}
+		mouseleave(event) {
+			clearTimeout(this.hoverTimeout);
+			this.hoverTimeout = -1;
+			let { active } = this;
+			if (active.length && !this.locked.has(active)) {
+				let { tooltip } = this;
+				if (!(tooltip && tooltip.dom.contains(event.relatedTarget))) this.view.dispatch({ effects: this.setHover.of([]) });
+				else this.watchTooltipLeave(tooltip.dom);
+			}
+		}
+		watchTooltipLeave(tooltip) {
+			let watch = (event) => {
+				tooltip.removeEventListener("mouseleave", watch);
+				let { active } = this;
+				if (active.length && !this.locked.has(active) && !this.view.dom.contains(event.relatedTarget)) this.view.dispatch({ effects: this.setHover.of([]) });
+			};
+			tooltip.addEventListener("mouseleave", watch);
+		}
+		destroy() {
+			clearTimeout(this.hoverTimeout);
+			clearTimeout(this.restartTimeout);
+			this.view.dom.removeEventListener("mouseleave", this.mouseleave);
+			this.view.dom.removeEventListener("mousemove", this.mousemove);
+		}
+	};
+	const tooltipMargin = 4;
+	function isInTooltip(tooltip, event) {
+		let { left, right, top, bottom } = tooltip.getBoundingClientRect(), arrow;
+		if (arrow = tooltip.querySelector(".cm-tooltip-arrow")) {
+			let arrowRect = arrow.getBoundingClientRect();
+			top = Math.min(arrowRect.top, top);
+			bottom = Math.max(arrowRect.bottom, bottom);
+		}
+		return event.clientX >= left - tooltipMargin && event.clientX <= right + tooltipMargin && event.clientY >= top - tooltipMargin && event.clientY <= bottom + tooltipMargin;
+	}
+	function isOverRange(view, from, to, x, y, margin) {
+		let rect = view.scrollDOM.getBoundingClientRect();
+		let docBottom = view.documentTop + view.documentPadding.top + view.contentHeight;
+		if (rect.left > x || rect.right < x || rect.top > y || Math.min(rect.bottom, docBottom) < y) return false;
+		let pos = view.posAtCoords({
+			x,
+			y
+		}, false);
+		return pos >= from && pos <= to;
+	}
+	/**
+	Set up a hover tooltip, which shows up when the pointer hovers
+	over ranges of text. The callback is called when the mouse hovers
+	over the document text. It should, if there is a tooltip
+	associated with position `pos`, return the tooltip description
+	(either directly or in a promise). The `side` argument indicates
+	on which side of the position the pointer is—it will be -1 if the
+	pointer is before the position, 1 if after the position.
+	
+	Note that all hover tooltips are hosted within a single tooltip
+	container element. This allows multiple tooltips over the same
+	range to be "merged" together without overlapping.
+	
+	The return value is a valid [editor extension](https://codemirror.net/6/docs/ref/#state.Extension)
+	but also provides an `active` property holding a state field that
+	can be used to read the currently active tooltips produced by this
+	extension.
+	*/
+	function hoverTooltip(source, options = {}) {
+		let setHover = StateEffect.define();
+		let locked = /* @__PURE__ */ new WeakMap();
+		let hoverState = StateField.define({
+			create() {
+				return [];
+			},
+			update(value, tr) {
+				let lock = locked.get(value);
+				if (value.length) {
+					if (options.hideOnChange && (tr.docChanged || tr.selection)) value = [];
+					else if (lock && lock(tr)) value = [];
+					else if (options.hideOn) value = value.filter((v) => !options.hideOn(tr, v));
+				}
+				if (tr.docChanged && value.length) {
+					let mapped = [];
+					for (let tooltip of value) {
+						let newPos = tr.changes.mapPos(tooltip.pos, -1, MapMode.TrackDel);
+						if (newPos != null) {
+							let copy = Object.assign(Object.create(null), tooltip);
+							copy.pos = newPos;
+							if (copy.end != null) copy.end = tr.changes.mapPos(copy.end);
+							mapped.push(copy);
+						}
+					}
+					value = mapped;
+				}
+				for (let effect of tr.effects) {
+					if (effect.is(setHover)) {
+						value = effect.value;
+						lock = void 0;
+					}
+					if (effect.is(closeHoverTooltipEffect) && !effect.value || effect.value == hoverState) value = [];
+				}
+				if (value.length && lock) locked.set(value, lock);
+				return value;
+			},
+			provide: (f) => showHoverTooltip.from(f)
+		});
+		const plugin = ViewPlugin.define((view) => new HoverPlugin(view, source, hoverState, locked, setHover, options.hoverTime || 300));
+		return {
+			active: hoverState,
+			extension: [
+				hoverState,
+				plugin,
+				hoverPlugin.of(plugin),
+				showHoverTooltipHost
+			]
+		};
+	}
+	const closeHoverTooltipEffect = /*@__PURE__*/ StateEffect.define();
+	const panelConfig = /*@__PURE__*/ Facet.define({ combine(configs) {
+		let topContainer, bottomContainer;
+		for (let c of configs) {
+			topContainer = topContainer || c.topContainer;
+			bottomContainer = bottomContainer || c.bottomContainer;
+		}
+		return {
+			topContainer,
+			bottomContainer
+		};
+	} });
+	/**
+	Get the active panel created by the given constructor, if any.
+	This can be useful when you need access to your panels' DOM
+	structure.
+	*/
+	function getPanel(view, panel) {
+		let plugin = view.plugin(panelPlugin);
+		let index = plugin ? plugin.specs.indexOf(panel) : -1;
+		return index > -1 ? plugin.panels[index] : null;
+	}
+	const panelPlugin = /*@__PURE__*/ ViewPlugin.fromClass(class {
+		constructor(view) {
+			this.input = view.state.facet(showPanel);
+			this.specs = this.input.filter((s) => s);
+			this.panels = this.specs.map((spec) => spec(view));
+			let conf = view.state.facet(panelConfig);
+			this.top = new PanelGroup(view, true, conf.topContainer);
+			this.bottom = new PanelGroup(view, false, conf.bottomContainer);
+			this.top.sync(this.panels.filter((p) => p.top));
+			this.bottom.sync(this.panels.filter((p) => !p.top));
+			for (let p of this.panels) {
+				p.dom.classList.add("cm-panel");
+				if (p.mount) p.mount();
+			}
+		}
+		update(update) {
+			let conf = update.state.facet(panelConfig);
+			if (this.top.container != conf.topContainer) {
+				this.top.sync([]);
+				this.top = new PanelGroup(update.view, true, conf.topContainer);
+			}
+			if (this.bottom.container != conf.bottomContainer) {
+				this.bottom.sync([]);
+				this.bottom = new PanelGroup(update.view, false, conf.bottomContainer);
+			}
+			this.top.syncClasses();
+			this.bottom.syncClasses();
+			let input = update.state.facet(showPanel);
+			if (input != this.input) {
+				let specs = input.filter((x) => x);
+				let panels = [], top = [], bottom = [], mount = [];
+				for (let spec of specs) {
+					let known = this.specs.indexOf(spec), panel;
+					if (known < 0) {
+						panel = spec(update.view);
+						mount.push(panel);
+					} else {
+						panel = this.panels[known];
+						if (panel.update) panel.update(update);
+					}
+					panels.push(panel);
+					(panel.top ? top : bottom).push(panel);
+				}
+				this.specs = specs;
+				this.panels = panels;
+				this.top.sync(top);
+				this.bottom.sync(bottom);
+				for (let p of mount) {
+					p.dom.classList.add("cm-panel");
+					if (p.mount) p.mount();
+				}
+			} else for (let p of this.panels) if (p.update) p.update(update);
+		}
+		destroy() {
+			this.top.sync([]);
+			this.bottom.sync([]);
+		}
+	}, { provide: (plugin) => EditorView.scrollMargins.of((view) => {
+		let value = view.plugin(plugin);
+		return value && {
+			top: value.top.scrollMargin(),
+			bottom: value.bottom.scrollMargin()
+		};
+	}) });
+	var PanelGroup = class {
+		constructor(view, top, container) {
+			this.view = view;
+			this.top = top;
+			this.container = container;
+			this.dom = void 0;
+			this.classes = "";
+			this.panels = [];
+			this.syncClasses();
+		}
+		sync(panels) {
+			for (let p of this.panels) if (p.destroy && panels.indexOf(p) < 0) p.destroy();
+			this.panels = panels;
+			this.syncDOM();
+		}
+		syncDOM() {
+			if (this.panels.length == 0) {
+				if (this.dom) {
+					this.dom.remove();
+					this.dom = void 0;
+				}
+				return;
+			}
+			if (!this.dom) {
+				this.dom = document.createElement("div");
+				this.dom.className = this.top ? "cm-panels cm-panels-top" : "cm-panels cm-panels-bottom";
+				let parent = this.container || this.view.dom;
+				parent.insertBefore(this.dom, this.top ? parent.firstChild : null);
+			}
+			let curDOM = this.dom.firstChild;
+			for (let panel of this.panels) if (panel.dom.parentNode == this.dom) {
+				while (curDOM != panel.dom) curDOM = rm(curDOM);
+				curDOM = curDOM.nextSibling;
+			} else this.dom.insertBefore(panel.dom, curDOM);
+			while (curDOM) curDOM = rm(curDOM);
+		}
+		scrollMargin() {
+			return !this.dom || this.container ? 0 : Math.max(0, this.top ? this.dom.getBoundingClientRect().bottom - Math.max(0, this.view.scrollDOM.getBoundingClientRect().top) : Math.min(innerHeight, this.view.scrollDOM.getBoundingClientRect().bottom) - this.dom.getBoundingClientRect().top);
+		}
+		syncClasses() {
+			if (!this.container || this.classes == this.view.themeClasses) return;
+			for (let cls of this.classes.split(" ")) if (cls) this.container.classList.remove(cls);
+			for (let cls of (this.classes = this.view.themeClasses).split(" ")) if (cls) this.container.classList.add(cls);
+		}
+	};
+	function rm(node) {
+		let next = node.nextSibling;
+		node.remove();
+		return next;
+	}
+	/**
+	Opening a panel is done by providing a constructor function for
+	the panel through this facet. (The panel is closed again when its
+	constructor is no longer provided.) Values of `null` are ignored.
+	*/
+	const showPanel = /*@__PURE__*/ Facet.define({ enables: panelPlugin });
+	/**
+	Show a panel above or below the editor to show the user a message
+	or prompt them for input. Returns an effect that can be dispatched
+	to close the dialog, and a promise that resolves when the dialog
+	is closed or a form inside of it is submitted.
+	
+	You are encouraged, if your handling of the result of the promise
+	dispatches a transaction, to include the `close` effect in it. If
+	you don't, this function will automatically dispatch a separate
+	transaction right after.
+	*/
+	function showDialog(view, config) {
+		let resolve;
+		let promise = new Promise((r) => resolve = r);
+		let panelCtor = (view) => createDialog(view, config, resolve);
+		if (view.state.field(dialogField, false)) view.dispatch({ effects: openDialogEffect.of(panelCtor) });
+		else view.dispatch({ effects: StateEffect.appendConfig.of(dialogField.init(() => [panelCtor])) });
+		let close = closeDialogEffect.of(panelCtor);
+		return {
+			close,
+			result: promise.then((form) => {
+				(view.win.queueMicrotask || ((f) => view.win.setTimeout(f, 10)))(() => {
+					if (view.state.field(dialogField).indexOf(panelCtor) > -1) view.dispatch({ effects: close });
+				});
+				return form;
+			})
+		};
+	}
+	const dialogField = /*@__PURE__*/ StateField.define({
+		create() {
+			return [];
+		},
+		update(dialogs, tr) {
+			for (let e of tr.effects) if (e.is(openDialogEffect)) dialogs = [e.value].concat(dialogs);
+			else if (e.is(closeDialogEffect)) dialogs = dialogs.filter((d) => d != e.value);
+			return dialogs;
+		},
+		provide: (f) => showPanel.computeN([f], (state) => state.field(f))
+	});
+	const openDialogEffect = /*@__PURE__*/ StateEffect.define();
+	const closeDialogEffect = /*@__PURE__*/ StateEffect.define();
+	function createDialog(view, config, result) {
+		let content = config.content ? config.content(view, () => done(null)) : null;
+		if (!content) {
+			content = crelt("form");
+			if (config.input) {
+				let input = crelt("input", config.input);
+				if (/^(text|password|number|email|tel|url)$/.test(input.type)) input.classList.add("cm-textfield");
+				if (!input.name) input.name = "input";
+				content.appendChild(crelt("label", (config.label || "") + ": ", input));
+			} else content.appendChild(document.createTextNode(config.label || ""));
+			content.appendChild(document.createTextNode(" "));
+			content.appendChild(crelt("button", {
+				class: "cm-button",
+				type: "submit"
+			}, config.submitLabel || "OK"));
+		}
+		let forms = content.nodeName == "FORM" ? [content] : content.querySelectorAll("form");
+		for (let i = 0; i < forms.length; i++) {
+			let form = forms[i];
+			form.addEventListener("keydown", (event) => {
+				if (event.keyCode == 27) {
+					event.preventDefault();
+					done(null);
+				} else if (event.keyCode == 13) {
+					event.preventDefault();
+					done(form);
+				}
+			});
+			form.addEventListener("submit", (event) => {
+				event.preventDefault();
+				done(form);
+			});
+		}
+		let panel = crelt("div", content, crelt("button", {
+			onclick: () => done(null),
+			"aria-label": view.state.phrase("close"),
+			class: "cm-dialog-close",
+			type: "button"
+		}, ["×"]));
+		if (config.class) panel.className = config.class;
+		panel.classList.add("cm-dialog");
+		function done(form) {
+			if (panel.contains(panel.ownerDocument.activeElement)) view.focus();
+			result(form);
+		}
+		return {
+			dom: panel,
+			top: config.top,
+			mount: () => {
+				if (config.focus) {
+					let focus;
+					if (typeof config.focus == "string") focus = content.querySelector(config.focus);
+					else focus = content.querySelector("input") || content.querySelector("button");
+					if (focus && "select" in focus) focus.select();
+					else if (focus && "focus" in focus) focus.focus();
+				}
+			}
+		};
+	}
 	/**
 	A gutter marker represents a bit of information attached to a line
 	in a specific gutter. Your own custom markers have to extend this
@@ -11349,7 +12260,30 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	Should not provide widgets with a `toDOM` method.
 	*/
 	const gutterWidgetClass = /*@__PURE__*/ Facet.define();
+	const defaults$2 = {
+		class: "",
+		renderEmptyElements: false,
+		elementStyle: "",
+		markers: () => RangeSet.empty,
+		lineMarker: () => null,
+		widgetMarker: () => null,
+		lineMarkerChange: null,
+		initialSpacer: null,
+		updateSpacer: null,
+		domEventHandlers: {},
+		side: "before"
+	};
 	const activeGutters = /*@__PURE__*/ Facet.define();
+	/**
+	Define an editor gutter. The order in which the gutters appear is
+	determined by their extension priority.
+	*/
+	function gutter(config) {
+		return [gutters(), activeGutters.of({
+			...defaults$2,
+			...config
+		})];
+	}
 	const unfixGutters = /*@__PURE__*/ Facet.define({ combine: (values) => values.some((x) => x) });
 	/**
 	The gutter-drawing plugin is automatically enabled when you add a
@@ -13608,7 +14542,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		return result;
 	}
 	//#endregion
-	//#region node_modules/.pnpm/@lezer+highlight@1.2.3/node_modules/@lezer/highlight/dist/index.js
+	//#region node_modules/.pnpm/@lezer+highlight@1.2.5/node_modules/@lezer/highlight/dist/index.js
 	let nextTagID = 0;
 	/**
 	Highlighting tags are markers that denote a highlighting category.
@@ -13789,7 +14723,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	const ruleNodeProp = new NodeProp({ combine(a, b) {
 		let cur, root, take;
 		while (a || b) {
-			if (!a || b && a.depth >= b.depth) {
+			if (!a || b && a.depth <= b.depth) {
 				take = b;
 				b = b.next;
 			} else {
@@ -13972,7 +14906,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	constructs would fill a stack of books, and be impractical to
 	write themes for. So try to make do with this set. If all else
 	fails, [open an
-	issue](https://github.com/codemirror/codemirror.next) to propose a
+	issue](https://code.haverbeke.berlin/codemirror/dev/issues) to propose a
 	new tag, or [define](#highlight.Tag^define) a local custom tag for
 	your use case.
 	
@@ -15921,7 +16855,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				if (line.length) {
 					let indentation = overrideIndentation ? overrideIndentation(line.from) : -1;
 					let stream = new StringStream(line.text, cx.state.tabSize, cx.unit, indentation < 0 ? void 0 : indentation);
-					while (stream.pos < end - line.from) readToken$1(this.streamParser.token, stream, state);
+					while (stream.pos < end - line.from) readToken$2(this.streamParser.token, stream, state);
 				} else this.streamParser.blankLine(state, cx.unit);
 				if (end == cx.pos) break;
 				statePos = line.to + 1;
@@ -16076,7 +17010,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			let stream = new StringStream(line, context ? context.state.tabSize : 4, context ? getIndentUnit(context.state) : 2);
 			if (stream.eol()) streamParser.blankLine(this.state, stream.indentUnit);
 			else while (!stream.eol()) {
-				let token = readToken$1(streamParser.token, stream, this.state);
+				let token = readToken$2(streamParser.token, stream, this.state);
 				if (token) offset = this.emitToken(this.lang.tokenTable.resolve(token), this.parsedPos + stream.start, this.parsedPos + stream.pos, offset);
 				if (stream.start > 1e4) break;
 			}
@@ -16105,7 +17039,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			return new Tree(this.lang.topNode, this.chunks, this.chunkPos, this.parsedPos - this.ranges[0].from).balance();
 		}
 	};
-	function readToken$1(token, stream, state) {
+	function readToken$2(token, stream, state) {
 		stream.start = stream.pos;
 		for (let i = 0; i < 10; i++) {
 			let result = token(stream, state);
@@ -17900,6 +18834,1075 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		}
 	].concat(standardKeymap);
 	//#endregion
+	//#region node_modules/.pnpm/@codemirror+search@6.7.1/node_modules/@codemirror/search/dist/index.js
+	const basicNormalize = typeof String.prototype.normalize == "function" ? (x) => x.normalize("NFKD") : (x) => x;
+	/**
+	A search cursor provides an iterator over text matches in a
+	document.
+	*/
+	var SearchCursor = class {
+		/**
+		Create a text cursor. The query is the search string, `from` to
+		`to` provides the region to search.
+		
+		When `normalize` is given, it will be called, on both the query
+		string and the content it is matched against, before comparing.
+		You can, for example, create a case-insensitive search by
+		passing `s => s.toLowerCase()`.
+		
+		Text is always normalized with
+		[`.normalize("NFKD")`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/normalize)
+		(when supported).
+		*/
+		constructor(text, query, from = 0, to = text.length, normalize, test) {
+			this.test = test;
+			/**
+			The current match (only holds a meaningful value after
+			[`next`](https://codemirror.net/6/docs/ref/#search.SearchCursor.next) has been called and when
+			`done` is false).
+			
+			The `precise` flag will be set to false if the match starts or
+			ends _inside_ a character that, when normalized, expands to
+			multiple characters. It indicates that the `from`-`to` range
+			covers content that isn't part of the actual match.
+			*/
+			this.value = {
+				from: 0,
+				to: 0,
+				precise: false
+			};
+			/**
+			Whether the end of the iterated region has been reached.
+			*/
+			this.done = false;
+			this.matches = [];
+			this.buffer = "";
+			this.bufferPos = 0;
+			this.iter = text.iterRange(from, to);
+			this.bufferStart = from;
+			this.normalize = normalize ? (x) => normalize(basicNormalize(x)) : basicNormalize;
+			this.query = this.normalize(query);
+		}
+		peek() {
+			if (this.bufferPos == this.buffer.length) {
+				this.bufferStart += this.buffer.length;
+				this.iter.next();
+				if (this.iter.done) return -1;
+				this.bufferPos = 0;
+				this.buffer = this.iter.value;
+			}
+			return codePointAt(this.buffer, this.bufferPos);
+		}
+		/**
+		Look for the next match. Updates the iterator's
+		[`value`](https://codemirror.net/6/docs/ref/#search.SearchCursor.value) and
+		[`done`](https://codemirror.net/6/docs/ref/#search.SearchCursor.done) properties. Should be called
+		at least once before using the cursor.
+		*/
+		next() {
+			while (this.matches.length) this.matches.pop();
+			return this.nextOverlapping();
+		}
+		/**
+		The `next` method will ignore matches that partially overlap a
+		previous match. This method behaves like `next`, but includes
+		such matches.
+		*/
+		nextOverlapping() {
+			for (;;) {
+				let next = this.peek();
+				if (next < 0) {
+					this.done = true;
+					return this;
+				}
+				let str = fromCodePoint(next), start = this.bufferStart + this.bufferPos;
+				this.bufferPos += codePointSize(next);
+				let norm = this.normalize(str);
+				if (norm.length) for (let i = 0, pos = start, posPrecise = true;; i++) {
+					let code = norm.charCodeAt(i);
+					let match = this.match(code, pos, posPrecise, this.bufferPos + this.bufferStart, i == norm.length - 1);
+					if (match) {
+						this.value = match;
+						return this;
+					}
+					if (i == norm.length - 1) break;
+					if (posPrecise && i < str.length && str.charCodeAt(i) == code) pos++;
+					else posPrecise = false;
+				}
+			}
+		}
+		match(code, pos, posPrecise, end, endPrecise) {
+			let match = null;
+			for (let i = 0; i < this.matches.length;) {
+				let partial = this.matches[i], keep = false;
+				if (this.query.charCodeAt(partial.index) == code) {
+					if (partial.index == this.query.length - 1) match = {
+						from: partial.from,
+						to: end,
+						precise: endPrecise && partial.precise
+					};
+					else {
+						partial.index++;
+						keep = true;
+					}
+				}
+				if (keep) i++;
+				else this.matches.splice(i, 1);
+			}
+			if (this.query.charCodeAt(0) == code) {
+				if (this.query.length == 1) match = {
+					from: pos,
+					to: end,
+					precise: posPrecise && endPrecise
+				};
+				else this.matches.push({
+					from: pos,
+					index: 1,
+					precise: posPrecise
+				});
+			}
+			if (match && this.test && !this.test(match.from, match.to, this.buffer, this.bufferStart)) match = null;
+			return match;
+		}
+	};
+	if (typeof Symbol != "undefined") SearchCursor.prototype[Symbol.iterator] = function() {
+		return this;
+	};
+	const empty = {
+		from: -1,
+		to: -1,
+		match: /*@__PURE__*/ /.*/.exec(""),
+		precise: true
+	};
+	const baseFlags = "gm" + (/x/.unicode == null ? "" : "u");
+	/**
+	This class is similar to [`SearchCursor`](https://codemirror.net/6/docs/ref/#search.SearchCursor)
+	but searches for a regular expression pattern instead of a plain
+	string.
+	*/
+	var RegExpCursor = class {
+		/**
+		Create a cursor that will search the given range in the given
+		document. `query` should be the raw pattern (as you'd pass it to
+		`new RegExp`).
+		*/
+		constructor(text, query, options, from = 0, to = text.length) {
+			this.text = text;
+			this.to = to;
+			this.curLine = "";
+			/**
+			Set to `true` when the cursor has reached the end of the search
+			range.
+			*/
+			this.done = false;
+			/**
+			Will contain an object with the extent of the match and the
+			match object when [`next`](https://codemirror.net/6/docs/ref/#search.RegExpCursor.next)
+			sucessfully finds a match. The `precise` flag is always true for
+			this type of cursor, and only there to make sure this cursor is
+			a subtype of `SearchCursor`.
+			*/
+			this.value = empty;
+			if (/\\[sWDnr]|\n|\r|\[\^/.test(query)) return new MultilineRegExpCursor(text, query, options, from, to);
+			this.re = new RegExp(query, baseFlags + ((options === null || options === void 0 ? void 0 : options.ignoreCase) ? "i" : ""));
+			this.test = options === null || options === void 0 ? void 0 : options.test;
+			this.iter = text.iter();
+			let startLine = text.lineAt(from);
+			this.curLineStart = startLine.from;
+			this.matchPos = toCharEnd(text, from);
+			this.getLine(this.curLineStart);
+		}
+		getLine(skip) {
+			this.iter.next(skip);
+			if (this.iter.lineBreak) this.curLine = "";
+			else {
+				this.curLine = this.iter.value;
+				if (this.curLineStart + this.curLine.length > this.to) this.curLine = this.curLine.slice(0, this.to - this.curLineStart);
+				this.iter.next();
+			}
+		}
+		nextLine() {
+			this.curLineStart = this.curLineStart + this.curLine.length + 1;
+			if (this.curLineStart > this.to) this.curLine = "";
+			else this.getLine(0);
+		}
+		/**
+		Move to the next match, if there is one.
+		*/
+		next() {
+			for (let off = this.matchPos - this.curLineStart;;) {
+				this.re.lastIndex = off;
+				let match = this.matchPos <= this.to && this.re.exec(this.curLine);
+				if (match) {
+					let from = this.curLineStart + match.index, to = from + match[0].length;
+					this.matchPos = toCharEnd(this.text, to + (from == to ? 1 : 0));
+					if (from == this.curLineStart + this.curLine.length) this.nextLine();
+					if ((from < to || from > this.value.to) && (!this.test || this.test(from, to, match))) {
+						this.value = {
+							from,
+							to,
+							precise: true,
+							match
+						};
+						return this;
+					}
+					off = this.matchPos - this.curLineStart;
+				} else if (this.curLineStart + this.curLine.length < this.to) {
+					this.nextLine();
+					off = 0;
+				} else {
+					this.done = true;
+					return this;
+				}
+			}
+		}
+	};
+	const flattened = /*@__PURE__*/ new WeakMap();
+	var FlattenedDoc = class FlattenedDoc {
+		constructor(from, text) {
+			this.from = from;
+			this.text = text;
+		}
+		get to() {
+			return this.from + this.text.length;
+		}
+		static get(doc, from, to) {
+			let cached = flattened.get(doc);
+			if (!cached || cached.from >= to || cached.to <= from) {
+				let flat = new FlattenedDoc(from, doc.sliceString(from, to));
+				flattened.set(doc, flat);
+				return flat;
+			}
+			if (cached.from == from && cached.to == to) return cached;
+			let { text, from: cachedFrom } = cached;
+			if (cachedFrom > from) {
+				text = doc.sliceString(from, cachedFrom) + text;
+				cachedFrom = from;
+			}
+			if (cached.to < to) text += doc.sliceString(cached.to, to);
+			flattened.set(doc, new FlattenedDoc(cachedFrom, text));
+			return new FlattenedDoc(from, text.slice(from - cachedFrom, to - cachedFrom));
+		}
+	};
+	var MultilineRegExpCursor = class {
+		constructor(text, query, options, from, to) {
+			this.text = text;
+			this.to = to;
+			this.done = false;
+			this.value = empty;
+			this.matchPos = toCharEnd(text, from);
+			this.re = new RegExp(query, baseFlags + ((options === null || options === void 0 ? void 0 : options.ignoreCase) ? "i" : ""));
+			this.test = options === null || options === void 0 ? void 0 : options.test;
+			this.flat = FlattenedDoc.get(text, from, this.chunkEnd(from + 5e3));
+		}
+		chunkEnd(pos) {
+			return pos >= this.to ? this.to : this.text.lineAt(pos).to;
+		}
+		next() {
+			for (;;) {
+				let off = this.re.lastIndex = this.matchPos - this.flat.from;
+				let match = this.re.exec(this.flat.text);
+				if (match && !match[0] && match.index == off) {
+					this.re.lastIndex = off + 1;
+					match = this.re.exec(this.flat.text);
+				}
+				if (match) {
+					let from = this.flat.from + match.index, to = from + match[0].length;
+					if ((this.flat.to >= this.to || match.index + match[0].length <= this.flat.text.length - 10) && (!this.test || this.test(from, to, match))) {
+						this.value = {
+							from,
+							to,
+							precise: true,
+							match
+						};
+						this.matchPos = toCharEnd(this.text, to + (from == to ? 1 : 0));
+						return this;
+					}
+				}
+				if (this.flat.to == this.to) {
+					this.done = true;
+					return this;
+				}
+				this.flat = FlattenedDoc.get(this.text, this.flat.from, this.chunkEnd(this.flat.from + this.flat.text.length * 2));
+			}
+		}
+	};
+	if (typeof Symbol != "undefined") RegExpCursor.prototype[Symbol.iterator] = MultilineRegExpCursor.prototype[Symbol.iterator] = function() {
+		return this;
+	};
+	function validRegExp(source) {
+		try {
+			new RegExp(source, baseFlags);
+			return true;
+		} catch (_a) {
+			return false;
+		}
+	}
+	function toCharEnd(text, pos) {
+		if (pos >= text.length) return pos;
+		let line = text.lineAt(pos), next;
+		while (pos < line.to && (next = line.text.charCodeAt(pos - line.from)) >= 56320 && next < 57344) pos++;
+		return pos;
+	}
+	/**
+	Command that shows a dialog asking the user for a line number, and
+	when a valid position is provided, moves the cursor to that line.
+	
+	Supports line numbers, relative line offsets prefixed with `+` or
+	`-`, document percentages suffixed with `%`, and an optional
+	column position by adding `:` and a second number after the line
+	number.
+	*/
+	const gotoLine = (view) => {
+		let { state } = view;
+		let line = String(state.doc.lineAt(view.state.selection.main.head).number);
+		let { close, result } = showDialog(view, {
+			label: state.phrase("Go to line"),
+			input: {
+				type: "text",
+				name: "line",
+				value: line
+			},
+			focus: true,
+			submitLabel: state.phrase("go")
+		});
+		result.then((form) => {
+			let match = form && /^([+-])?(\d+)?(:\d+)?(%)?$/.exec(form.elements["line"].value);
+			if (!match) {
+				view.dispatch({ effects: close });
+				return;
+			}
+			let startLine = state.doc.lineAt(state.selection.main.head);
+			let [, sign, ln, cl, percent] = match;
+			let col = cl ? +cl.slice(1) : 0;
+			let line = ln ? +ln : startLine.number;
+			if (ln && percent) {
+				let pc = line / 100;
+				if (sign) pc = pc * (sign == "-" ? -1 : 1) + startLine.number / state.doc.lines;
+				line = Math.round(state.doc.lines * pc);
+			} else if (ln && sign) line = line * (sign == "-" ? -1 : 1) + startLine.number;
+			let docLine = state.doc.line(Math.max(1, Math.min(state.doc.lines, line)));
+			let selection = EditorSelection.cursor(docLine.from + Math.max(0, Math.min(col, docLine.length)));
+			view.dispatch({
+				effects: [close, EditorView.scrollIntoView(selection.from, { y: "center" })],
+				selection
+			});
+		});
+		return true;
+	};
+	const selectWord = ({ state, dispatch }) => {
+		let { selection } = state;
+		let newSel = EditorSelection.create(selection.ranges.map((range) => state.wordAt(range.head) || EditorSelection.cursor(range.head)), selection.mainIndex);
+		if (newSel.eq(selection)) return false;
+		dispatch(state.update({ selection: newSel }));
+		return true;
+	};
+	function findNextOccurrence(state, query) {
+		let { main, ranges } = state.selection;
+		let word = state.wordAt(main.head), fullWord = word && word.from == main.from && word.to == main.to;
+		for (let cycled = false, cursor = new SearchCursor(state.doc, query, ranges[ranges.length - 1].to);;) {
+			cursor.next();
+			if (cursor.done) {
+				if (cycled) return null;
+				cursor = new SearchCursor(state.doc, query, 0, Math.max(0, ranges[ranges.length - 1].from - 1));
+				cycled = true;
+			} else {
+				if (cycled && ranges.some((r) => r.from == cursor.value.from)) continue;
+				if (fullWord) {
+					let word = state.wordAt(cursor.value.from);
+					if (!word || word.from != cursor.value.from || word.to != cursor.value.to) continue;
+				}
+				return cursor.value;
+			}
+		}
+	}
+	/**
+	Select next occurrence of the current selection. Expand selection
+	to the surrounding word when the selection is empty.
+	*/
+	const selectNextOccurrence = ({ state, dispatch }) => {
+		let { ranges } = state.selection;
+		if (ranges.some((sel) => sel.from === sel.to)) return selectWord({
+			state,
+			dispatch
+		});
+		let searchedText = state.sliceDoc(ranges[0].from, ranges[0].to);
+		if (state.selection.ranges.some((r) => state.sliceDoc(r.from, r.to) != searchedText)) return false;
+		let range = findNextOccurrence(state, searchedText);
+		if (!range) return false;
+		dispatch(state.update({
+			selection: state.selection.addRange(EditorSelection.range(range.from, range.to), false),
+			effects: EditorView.scrollIntoView(range.to)
+		}));
+		return true;
+	};
+	const searchConfigFacet = /*@__PURE__*/ Facet.define({ combine(configs) {
+		return combineConfig(configs, {
+			top: false,
+			caseSensitive: false,
+			literal: false,
+			regexp: false,
+			wholeWord: false,
+			createPanel: (view) => new SearchPanel(view),
+			scrollToMatch: (range) => EditorView.scrollIntoView(range)
+		});
+	} });
+	/**
+	Add search state to the editor configuration, and optionally
+	configure the search extension.
+	([`openSearchPanel`](https://codemirror.net/6/docs/ref/#search.openSearchPanel) will automatically
+	enable this if it isn't already on).
+	*/
+	function search(config) {
+		return config ? [searchConfigFacet.of(config), searchExtensions] : searchExtensions;
+	}
+	/**
+	A search query. Part of the editor's search state.
+	*/
+	var SearchQuery = class {
+		/**
+		Create a query object.
+		*/
+		constructor(config) {
+			this.search = config.search;
+			this.caseSensitive = !!config.caseSensitive;
+			this.literal = !!config.literal;
+			this.regexp = !!config.regexp;
+			this.replace = config.replace || "";
+			this.valid = !!this.search && (!this.regexp || validRegExp(this.search));
+			this.unquoted = this.unquote(this.search);
+			this.wholeWord = !!config.wholeWord;
+			this.test = config.test;
+		}
+		/**
+		@internal
+		*/
+		unquote(text) {
+			return this.literal ? text : text.replace(/\\([nrt\\])/g, (_, ch) => ch == "n" ? "\n" : ch == "r" ? "\r" : ch == "t" ? "	" : "\\");
+		}
+		/**
+		Compare this query to another query.
+		*/
+		eq(other) {
+			return this.search == other.search && this.replace == other.replace && this.caseSensitive == other.caseSensitive && this.regexp == other.regexp && this.wholeWord == other.wholeWord && this.test == other.test;
+		}
+		/**
+		@internal
+		*/
+		create() {
+			return this.regexp ? new RegExpQuery(this) : new StringQuery(this);
+		}
+		/**
+		Get a search cursor for this query, searching through the given
+		range in the given state.
+		*/
+		getCursor(state, from = 0, to) {
+			let st = state.doc ? state : EditorState.create({ doc: state });
+			if (to == null) to = st.doc.length;
+			return this.regexp ? regexpCursor(this, st, from, to) : stringCursor(this, st, from, to);
+		}
+	};
+	var QueryType = class {
+		constructor(spec) {
+			this.spec = spec;
+		}
+	};
+	function wrapStringTest(test, state, inner) {
+		return (from, to, buffer, bufferPos) => {
+			if (inner && !inner(from, to, buffer, bufferPos)) return false;
+			return test(from >= bufferPos && to <= bufferPos + buffer.length ? buffer.slice(from - bufferPos, to - bufferPos) : state.doc.sliceString(from, to), state, from, to);
+		};
+	}
+	function stringCursor(spec, state, from, to) {
+		let test;
+		if (spec.wholeWord) test = stringWordTest(state.doc, state.charCategorizer(state.selection.main.head));
+		if (spec.test) test = wrapStringTest(spec.test, state, test);
+		return new SearchCursor(state.doc, spec.unquoted, from, to, spec.caseSensitive ? void 0 : (x) => x.toLowerCase(), test);
+	}
+	function stringWordTest(doc, categorizer) {
+		return (from, to, buf, bufPos) => {
+			if (bufPos > from || bufPos + buf.length < to) {
+				bufPos = Math.max(0, from - 2);
+				buf = doc.sliceString(bufPos, Math.min(doc.length, to + 2));
+			}
+			return (categorizer(charBefore(buf, from - bufPos)) != CharCategory.Word || categorizer(charAfter(buf, from - bufPos)) != CharCategory.Word) && (categorizer(charAfter(buf, to - bufPos)) != CharCategory.Word || categorizer(charBefore(buf, to - bufPos)) != CharCategory.Word);
+		};
+	}
+	var StringQuery = class extends QueryType {
+		constructor(spec) {
+			super(spec);
+		}
+		nextMatch(state, curFrom, curTo) {
+			let cursor = stringCursor(this.spec, state, curTo, state.doc.length).nextOverlapping();
+			if (cursor.done) {
+				let end = Math.min(state.doc.length, curFrom + this.spec.unquoted.length);
+				cursor = stringCursor(this.spec, state, 0, end).nextOverlapping();
+			}
+			return cursor.done || cursor.value.from == curFrom && cursor.value.to == curTo ? null : cursor.value;
+		}
+		prevMatchInRange(state, from, to) {
+			for (let pos = to;;) {
+				let start = Math.max(from, pos - 1e4 - this.spec.unquoted.length);
+				let cursor = stringCursor(this.spec, state, start, pos), range = null;
+				while (!cursor.nextOverlapping().done) range = cursor.value;
+				if (range) return range;
+				if (start == from) return null;
+				pos -= 1e4;
+			}
+		}
+		prevMatch(state, curFrom, curTo) {
+			let found = this.prevMatchInRange(state, 0, curFrom);
+			if (!found) found = this.prevMatchInRange(state, Math.max(0, curTo - this.spec.unquoted.length), state.doc.length);
+			return found && (found.from != curFrom || found.to != curTo) ? found : null;
+		}
+		getReplacement(_result) {
+			return this.spec.unquote(this.spec.replace);
+		}
+		matchAll(state, limit) {
+			let cursor = stringCursor(this.spec, state, 0, state.doc.length), ranges = [];
+			while (!cursor.next().done) {
+				if (ranges.length >= limit) return null;
+				ranges.push(cursor.value);
+			}
+			return ranges;
+		}
+		highlight(state, from, to, add) {
+			let cursor = stringCursor(this.spec, state, Math.max(0, from - this.spec.unquoted.length), Math.min(to + this.spec.unquoted.length, state.doc.length));
+			while (!cursor.next().done) add(cursor.value.from, cursor.value.to);
+		}
+	};
+	function wrapRegexpTest(test, state, inner) {
+		return (from, to, match) => {
+			return (!inner || inner(from, to, match)) && test(match[0], state, from, to);
+		};
+	}
+	function regexpCursor(spec, state, from, to) {
+		let test;
+		if (spec.wholeWord) test = regexpWordTest(state.charCategorizer(state.selection.main.head));
+		if (spec.test) test = wrapRegexpTest(spec.test, state, test);
+		return new RegExpCursor(state.doc, spec.search, {
+			ignoreCase: !spec.caseSensitive,
+			test
+		}, from, to);
+	}
+	function charBefore(str, index) {
+		return str.slice(findClusterBreak(str, index, false), index);
+	}
+	function charAfter(str, index) {
+		return str.slice(index, findClusterBreak(str, index));
+	}
+	function regexpWordTest(categorizer) {
+		return (_from, _to, match) => !match[0].length || (categorizer(charBefore(match.input, match.index)) != CharCategory.Word || categorizer(charAfter(match.input, match.index)) != CharCategory.Word) && (categorizer(charAfter(match.input, match.index + match[0].length)) != CharCategory.Word || categorizer(charBefore(match.input, match.index + match[0].length)) != CharCategory.Word);
+	}
+	var RegExpQuery = class extends QueryType {
+		nextMatch(state, curFrom, curTo) {
+			let cursor = regexpCursor(this.spec, state, curTo, state.doc.length).next();
+			if (cursor.done) cursor = regexpCursor(this.spec, state, 0, curFrom).next();
+			return cursor.done ? null : cursor.value;
+		}
+		prevMatchInRange(state, from, to) {
+			for (let size = 1;; size++) {
+				let start = Math.max(from, to - size * 1e4);
+				let cursor = regexpCursor(this.spec, state, start, to), range = null;
+				while (!cursor.next().done) range = cursor.value;
+				if (range && (start == from || range.from > start + 10)) return range;
+				if (start == from) return null;
+			}
+		}
+		prevMatch(state, curFrom, curTo) {
+			return this.prevMatchInRange(state, 0, curFrom) || this.prevMatchInRange(state, curTo, state.doc.length);
+		}
+		getReplacement(result) {
+			return this.spec.unquote(this.spec.replace).replace(/\$([$&]|\d+)/g, (m, i) => {
+				if (i == "&") return result.match[0];
+				if (i == "$") return "$";
+				for (let l = i.length; l > 0; l--) {
+					let n = +i.slice(0, l);
+					if (n > 0 && n < result.match.length) return result.match[n] + i.slice(l);
+				}
+				return m;
+			});
+		}
+		matchAll(state, limit) {
+			let cursor = regexpCursor(this.spec, state, 0, state.doc.length), ranges = [];
+			while (!cursor.next().done) {
+				if (ranges.length >= limit) return null;
+				ranges.push(cursor.value);
+			}
+			return ranges;
+		}
+		highlight(state, from, to, add) {
+			let cursor = regexpCursor(this.spec, state, Math.max(0, from - 250), Math.min(to + 250, state.doc.length));
+			while (!cursor.next().done) add(cursor.value.from, cursor.value.to);
+		}
+	};
+	/**
+	A state effect that updates the current search query. Note that
+	this only has an effect if the search state has been initialized
+	(by including [`search`](https://codemirror.net/6/docs/ref/#search.search) in your configuration or
+	by running [`openSearchPanel`](https://codemirror.net/6/docs/ref/#search.openSearchPanel) at least
+	once).
+	*/
+	const setSearchQuery = /*@__PURE__*/ StateEffect.define();
+	const togglePanel = /*@__PURE__*/ StateEffect.define();
+	const searchState = /*@__PURE__*/ StateField.define({
+		create(state) {
+			return new SearchState(defaultQuery(state).create(), null);
+		},
+		update(value, tr) {
+			for (let effect of tr.effects) if (effect.is(setSearchQuery)) value = new SearchState(effect.value.create(), value.panel);
+			else if (effect.is(togglePanel)) value = new SearchState(value.query, effect.value ? createSearchPanel : null);
+			return value;
+		},
+		provide: (f) => showPanel.from(f, (val) => val.panel)
+	});
+	var SearchState = class {
+		constructor(query, panel) {
+			this.query = query;
+			this.panel = panel;
+		}
+	};
+	const matchMark = /*@__PURE__*/ Decoration.mark({ class: "cm-searchMatch" });
+	const selectedMatchMark = /*@__PURE__*/ Decoration.mark({ class: "cm-searchMatch cm-searchMatch-selected" });
+	const searchHighlighter = /*@__PURE__*/ ViewPlugin.fromClass(class {
+		constructor(view) {
+			this.view = view;
+			this.decorations = this.highlight(view.state.field(searchState));
+		}
+		update(update) {
+			let state = update.state.field(searchState);
+			if (state != update.startState.field(searchState) || update.docChanged || update.selectionSet || update.viewportChanged) this.decorations = this.highlight(state);
+		}
+		highlight({ query, panel }) {
+			if (!panel || !query.spec.valid) return Decoration.none;
+			let { view } = this;
+			let builder = new RangeSetBuilder();
+			for (let i = 0, ranges = view.visibleRanges, l = ranges.length; i < l; i++) {
+				let { from, to } = ranges[i];
+				while (i < l - 1 && to > ranges[i + 1].from - 500) to = ranges[++i].to;
+				query.highlight(view.state, from, to, (from, to) => {
+					let selected = view.state.selection.ranges.some((r) => r.from == from && r.to == to);
+					builder.add(from, to, selected ? selectedMatchMark : matchMark);
+				});
+			}
+			return builder.finish();
+		}
+	}, { decorations: (v) => v.decorations });
+	function searchCommand(f) {
+		return (view) => {
+			let state = view.state.field(searchState, false);
+			return state && state.query.spec.valid ? f(view, state) : openSearchPanel(view);
+		};
+	}
+	/**
+	Open the search panel if it isn't already open, and move the
+	selection to the first match after the current main selection.
+	Will wrap around to the start of the document when it reaches the
+	end.
+	*/
+	const findNext = /*@__PURE__*/ searchCommand((view, { query }) => {
+		let { to } = view.state.selection.main;
+		let next = query.nextMatch(view.state, to, to);
+		if (!next) return false;
+		let selection = EditorSelection.single(next.from, next.to);
+		let config = view.state.facet(searchConfigFacet);
+		view.dispatch({
+			selection,
+			effects: [announceMatch(view, next), config.scrollToMatch(selection.main, view)],
+			userEvent: "select.search"
+		});
+		selectSearchInput(view);
+		return true;
+	});
+	/**
+	Move the selection to the previous instance of the search query,
+	before the current main selection. Will wrap past the start
+	of the document to start searching at the end again.
+	*/
+	const findPrevious = /*@__PURE__*/ searchCommand((view, { query }) => {
+		let { state } = view, { from } = state.selection.main;
+		let prev = query.prevMatch(state, from, from);
+		if (!prev) return false;
+		let selection = EditorSelection.single(prev.from, prev.to);
+		let config = view.state.facet(searchConfigFacet);
+		view.dispatch({
+			selection,
+			effects: [announceMatch(view, prev), config.scrollToMatch(selection.main, view)],
+			userEvent: "select.search"
+		});
+		selectSearchInput(view);
+		return true;
+	});
+	/**
+	Select all instances of the search query.
+	*/
+	const selectMatches = /*@__PURE__*/ searchCommand((view, { query }) => {
+		let ranges = query.matchAll(view.state, 1e3);
+		if (!ranges || !ranges.length) return false;
+		view.dispatch({
+			selection: EditorSelection.create(ranges.map((r) => EditorSelection.range(r.from, r.to))),
+			userEvent: "select.search.matches"
+		});
+		return true;
+	});
+	/**
+	Select all instances of the currently selected text.
+	*/
+	const selectSelectionMatches = ({ state, dispatch }) => {
+		let sel = state.selection;
+		if (sel.ranges.length > 1 || sel.main.empty) return false;
+		let { from, to } = sel.main;
+		let ranges = [], main = 0;
+		for (let cur = new SearchCursor(state.doc, state.sliceDoc(from, to)); !cur.next().done;) {
+			if (ranges.length > 1e3) return false;
+			if (cur.value.from == from) main = ranges.length;
+			ranges.push(EditorSelection.range(cur.value.from, cur.value.to));
+		}
+		dispatch(state.update({
+			selection: EditorSelection.create(ranges, main),
+			userEvent: "select.search.matches"
+		}));
+		return true;
+	};
+	/**
+	Replace the current match of the search query.
+	*/
+	const replaceNext = /*@__PURE__*/ searchCommand((view, { query }) => {
+		let { state } = view, { from, to } = state.selection.main;
+		if (state.readOnly) return false;
+		let match = query.nextMatch(state, from, from);
+		if (!match) return false;
+		let next = match;
+		let changes = [], selection, replacement;
+		let effects = [];
+		if (!next.precise) next = query.nextMatch(state, next.from, next.to);
+		else if (next.from == from && next.to == to) {
+			replacement = state.toText(query.getReplacement(next));
+			changes.push({
+				from: next.from,
+				to: next.to,
+				insert: replacement
+			});
+			next = query.nextMatch(state, next.from, next.to);
+			effects.push(EditorView.announce.of(state.phrase("replaced match on line $", state.doc.lineAt(from).number) + "."));
+		}
+		let changeSet = view.state.changes(changes);
+		if (next) {
+			selection = EditorSelection.single(next.from, next.to).map(changeSet);
+			effects.push(announceMatch(view, next));
+			effects.push(state.facet(searchConfigFacet).scrollToMatch(selection.main, view));
+		}
+		view.dispatch({
+			changes: changeSet,
+			selection,
+			effects,
+			userEvent: "input.replace"
+		});
+		return true;
+	});
+	/**
+	Replace all instances of the search query with the given
+	replacement.
+	*/
+	const replaceAll = /*@__PURE__*/ searchCommand((view, { query }) => {
+		if (view.state.readOnly) return false;
+		let changes = [];
+		for (let match of query.matchAll(view.state, 1e9)) {
+			let { from, to, precise } = match;
+			if (precise) changes.push({
+				from,
+				to,
+				insert: query.getReplacement(match)
+			});
+		}
+		if (!changes.length) return false;
+		let announceText = view.state.phrase("replaced $ matches", changes.length) + ".";
+		view.dispatch({
+			changes,
+			effects: EditorView.announce.of(announceText),
+			userEvent: "input.replace.all"
+		});
+		return true;
+	});
+	function createSearchPanel(view) {
+		return view.state.facet(searchConfigFacet).createPanel(view);
+	}
+	function defaultQuery(state, fallback) {
+		var _a, _b, _c, _d, _e;
+		let sel = state.selection.main;
+		let selText = sel.empty || sel.to > sel.from + 100 ? "" : state.sliceDoc(sel.from, sel.to);
+		if (fallback && !selText) return fallback;
+		let config = state.facet(searchConfigFacet);
+		return new SearchQuery({
+			search: ((_a = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _a !== void 0 ? _a : config.literal) ? selText : selText.replace(/\n/g, "\\n"),
+			caseSensitive: (_b = fallback === null || fallback === void 0 ? void 0 : fallback.caseSensitive) !== null && _b !== void 0 ? _b : config.caseSensitive,
+			literal: (_c = fallback === null || fallback === void 0 ? void 0 : fallback.literal) !== null && _c !== void 0 ? _c : config.literal,
+			regexp: (_d = fallback === null || fallback === void 0 ? void 0 : fallback.regexp) !== null && _d !== void 0 ? _d : config.regexp,
+			wholeWord: (_e = fallback === null || fallback === void 0 ? void 0 : fallback.wholeWord) !== null && _e !== void 0 ? _e : config.wholeWord
+		});
+	}
+	function getSearchInput(view) {
+		let panel = getPanel(view, createSearchPanel);
+		return panel && panel.dom.querySelector("[main-field]");
+	}
+	function selectSearchInput(view) {
+		let input = getSearchInput(view);
+		if (input && input == view.root.activeElement) input.select();
+	}
+	/**
+	Make sure the search panel is open and focused.
+	*/
+	const openSearchPanel = (view) => {
+		let state = view.state.field(searchState, false);
+		if (state && state.panel) {
+			let searchInput = getSearchInput(view);
+			if (searchInput && searchInput != view.root.activeElement) {
+				let query = defaultQuery(view.state, state.query.spec);
+				if (query.valid) view.dispatch({ effects: setSearchQuery.of(query) });
+				searchInput.focus();
+				searchInput.select();
+			}
+		} else view.dispatch({ effects: [togglePanel.of(true), state ? setSearchQuery.of(defaultQuery(view.state, state.query.spec)) : StateEffect.appendConfig.of(searchExtensions)] });
+		return true;
+	};
+	/**
+	Close the search panel.
+	*/
+	const closeSearchPanel = (view) => {
+		let state = view.state.field(searchState, false);
+		if (!state || !state.panel) return false;
+		let panel = getPanel(view, createSearchPanel);
+		if (panel && panel.dom.contains(view.root.activeElement)) view.focus();
+		view.dispatch({ effects: togglePanel.of(false) });
+		return true;
+	};
+	/**
+	Default search-related key bindings.
+	
+	- Mod-f: [`openSearchPanel`](https://codemirror.net/6/docs/ref/#search.openSearchPanel)
+	- F3, Mod-g: [`findNext`](https://codemirror.net/6/docs/ref/#search.findNext)
+	- Shift-F3, Shift-Mod-g: [`findPrevious`](https://codemirror.net/6/docs/ref/#search.findPrevious)
+	- Mod-Alt-g: [`gotoLine`](https://codemirror.net/6/docs/ref/#search.gotoLine)
+	- Mod-d: [`selectNextOccurrence`](https://codemirror.net/6/docs/ref/#search.selectNextOccurrence)
+	*/
+	const searchKeymap = [
+		{
+			key: "Mod-f",
+			run: openSearchPanel,
+			scope: "editor search-panel"
+		},
+		{
+			key: "F3",
+			run: findNext,
+			shift: findPrevious,
+			scope: "editor search-panel",
+			preventDefault: true
+		},
+		{
+			key: "Mod-g",
+			run: findNext,
+			shift: findPrevious,
+			scope: "editor search-panel",
+			preventDefault: true
+		},
+		{
+			key: "Escape",
+			run: closeSearchPanel,
+			scope: "editor search-panel"
+		},
+		{
+			key: "Mod-Shift-l",
+			run: selectSelectionMatches
+		},
+		{
+			key: "Mod-Alt-g",
+			run: gotoLine
+		},
+		{
+			key: "Mod-d",
+			run: selectNextOccurrence,
+			preventDefault: true
+		}
+	];
+	var SearchPanel = class {
+		constructor(view) {
+			this.view = view;
+			let query = this.query = view.state.field(searchState).query.spec;
+			this.commit = this.commit.bind(this);
+			this.searchField = crelt("input", {
+				value: query.search,
+				placeholder: phrase(view, "Find"),
+				"aria-label": phrase(view, "Find"),
+				class: "cm-textfield",
+				name: "search",
+				form: "",
+				"main-field": "true",
+				onchange: this.commit,
+				onkeyup: this.commit
+			});
+			this.replaceField = crelt("input", {
+				value: query.replace,
+				placeholder: phrase(view, "Replace"),
+				"aria-label": phrase(view, "Replace"),
+				class: "cm-textfield",
+				name: "replace",
+				form: "",
+				onchange: this.commit,
+				onkeyup: this.commit
+			});
+			this.caseField = crelt("input", {
+				type: "checkbox",
+				name: "case",
+				form: "",
+				checked: query.caseSensitive,
+				onchange: this.commit
+			});
+			this.reField = crelt("input", {
+				type: "checkbox",
+				name: "re",
+				form: "",
+				checked: query.regexp,
+				onchange: this.commit
+			});
+			this.wordField = crelt("input", {
+				type: "checkbox",
+				name: "word",
+				form: "",
+				checked: query.wholeWord,
+				onchange: this.commit
+			});
+			function button(name, onclick, content) {
+				return crelt("button", {
+					class: "cm-button",
+					name,
+					onclick,
+					type: "button"
+				}, content);
+			}
+			this.dom = crelt("div", {
+				onkeydown: (e) => this.keydown(e),
+				class: "cm-search"
+			}, [
+				this.searchField,
+				button("next", () => findNext(view), [phrase(view, "next")]),
+				button("prev", () => findPrevious(view), [phrase(view, "previous")]),
+				button("select", () => selectMatches(view), [phrase(view, "all")]),
+				crelt("label", null, [this.caseField, phrase(view, "match case")]),
+				crelt("label", null, [this.reField, phrase(view, "regexp")]),
+				crelt("label", null, [this.wordField, phrase(view, "by word")]),
+				...view.state.readOnly ? [] : [
+					crelt("br"),
+					this.replaceField,
+					button("replace", () => replaceNext(view), [phrase(view, "replace")]),
+					button("replaceAll", () => replaceAll(view), [phrase(view, "replace all")])
+				],
+				crelt("button", {
+					name: "close",
+					onclick: () => closeSearchPanel(view),
+					"aria-label": phrase(view, "close"),
+					type: "button"
+				}, ["×"])
+			]);
+		}
+		commit() {
+			let query = new SearchQuery({
+				search: this.searchField.value,
+				caseSensitive: this.caseField.checked,
+				regexp: this.reField.checked,
+				wholeWord: this.wordField.checked,
+				replace: this.replaceField.value
+			});
+			if (!query.eq(this.query)) {
+				this.query = query;
+				this.view.dispatch({ effects: setSearchQuery.of(query) });
+			}
+		}
+		keydown(e) {
+			if (runScopeHandlers(this.view, e, "search-panel")) e.preventDefault();
+			else if (e.keyCode == 13 && e.target == this.searchField) {
+				e.preventDefault();
+				(e.shiftKey ? findPrevious : findNext)(this.view);
+			} else if (e.keyCode == 13 && e.target == this.replaceField) {
+				e.preventDefault();
+				replaceNext(this.view);
+			}
+		}
+		update(update) {
+			for (let tr of update.transactions) for (let effect of tr.effects) if (effect.is(setSearchQuery) && !effect.value.eq(this.query)) this.setQuery(effect.value);
+		}
+		setQuery(query) {
+			this.query = query;
+			this.searchField.value = query.search;
+			this.replaceField.value = query.replace;
+			this.caseField.checked = query.caseSensitive;
+			this.reField.checked = query.regexp;
+			this.wordField.checked = query.wholeWord;
+		}
+		mount() {
+			this.searchField.select();
+		}
+		get pos() {
+			return 80;
+		}
+		get top() {
+			return this.view.state.facet(searchConfigFacet).top;
+		}
+	};
+	function phrase(view, phrase) {
+		return view.state.phrase(phrase);
+	}
+	const AnnounceMargin = 30;
+	const Break = /[\s\.,:;?!]/;
+	function announceMatch(view, { from, to }) {
+		let line = view.state.doc.lineAt(from), lineEnd = view.state.doc.lineAt(to).to;
+		let start = Math.max(line.from, from - AnnounceMargin), end = Math.min(lineEnd, to + AnnounceMargin);
+		let text = view.state.sliceDoc(start, end);
+		if (start != line.from) {
+			for (let i = 0; i < AnnounceMargin; i++) if (!Break.test(text[i + 1]) && Break.test(text[i])) {
+				text = text.slice(i);
+				break;
+			}
+		}
+		if (end != lineEnd) {
+			for (let i = text.length - 1; i > text.length - AnnounceMargin; i--) if (!Break.test(text[i - 1]) && Break.test(text[i])) {
+				text = text.slice(0, i);
+				break;
+			}
+		}
+		return EditorView.announce.of(`${view.state.phrase("current match")}. ${text} ${view.state.phrase("on line")} ${line.number}.`);
+	}
+	const baseTheme$1 = /*@__PURE__*/ EditorView.baseTheme({
+		".cm-panel.cm-search": {
+			padding: "2px 6px 4px",
+			position: "relative",
+			"& [name=close]": {
+				position: "absolute",
+				top: "0",
+				right: "4px",
+				backgroundColor: "inherit",
+				border: "none",
+				font: "inherit",
+				padding: 0,
+				margin: 0
+			},
+			"& input, & button, & label": { margin: ".2em .6em .2em 0" },
+			"& input[type=checkbox]": { marginRight: ".2em" },
+			"& label": {
+				fontSize: "80%",
+				whiteSpace: "pre"
+			}
+		},
+		"&light .cm-searchMatch": { backgroundColor: "#ffff0054" },
+		"&dark .cm-searchMatch": { backgroundColor: "#00ffff8a" },
+		"&light .cm-searchMatch-selected": { backgroundColor: "#ff6a0054" },
+		"&dark .cm-searchMatch-selected": { backgroundColor: "#ff00ff8a" }
+	});
+	const searchExtensions = [
+		searchState,
+		/*@__PURE__*/ Prec.low(searchHighlighter),
+		baseTheme$1
+	];
+	//#endregion
 	//#region src/client/markdown-labels.tsx
 	/** MarkdownText props carrying the nested chrome labels. */
 	function markdownTextProps(text, labels) {
@@ -17908,7 +19911,12 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			labels: {
 				code: {
 					copyLabel: labels.copyLabel,
-					copiedLabel: labels.copiedLabel
+					copiedLabel: labels.copiedLabel,
+					toolbarLabels: {
+						codeLabel: labels.codeLabel,
+						wrapLabel: labels.wrapLabel,
+						unwrapLabel: labels.unwrapLabel
+					}
 				},
 				footnotes: ""
 			}
@@ -17925,13 +19933,203 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		return `${HTML_ROUTE_PREFIX}${encodeURIComponent(sessionId)}/${unc ? "/" : ""}${segments.map(encodeURIComponent).join("/")}`;
 	}
 	//#endregion
+	//#region src/client/desktop-env.ts
+	/**
+	* Absolute base for the plugin's own host transports — the HTTP routes
+	* (`/sidebar/api/*`, `/sidebar/file`, `/sidebar/bundle/*`, …) and the
+	* WebSockets (`/sidebar/ws/*`) resolve through the same source
+	* (see `host-route-url.ts`).
+	*
+	* A desktop shell may serve the GUI from a custom scheme: the official Electron
+	* shell uses `dsh-app://app/`, whose `location.host` is the literal string
+	* `app`. Resolving a route against that origin produces `ws://app/...`, which
+	* can never complete a DNS lookup — every socket the sidebar opens then fails
+	* with a connection error. The shell publishes the Host's real base through
+	* `__DSH_TRANSPORT__.streamBaseUrl`, the same source DSH's own downlink mux
+	* resolves through (`stream-client.ts` in `@deepseek-ai/dsh-api-gateway`), so
+	* prefer it and fall back to `document.baseURI` for ordinary http(s) pages —
+	* that base is also what carries a reverse-proxy directory prefix.
+	*
+	* This is the ONE shell fact the client still reads: the shell's own desktop
+	* stamps (`dsh-desktop-mode` / `-platform` / `-titlebar-inset`) and the
+	* `ctx.desktopWindow` geometry contract used to feed a title-bar "strip" the
+	* sidebar yielded at the top; that whole mechanism was removed (the plugin
+	* draws no top chrome, so nothing ever consumed the value — see
+	* docs/plans/2026-10-05-remove-titlebar-compat-strip.md).
+	* @returns A URL string usable as the base argument of `new URL`, or '' when
+	* neither source exists (non-DOM specs); route resolution then substitutes a
+	* placeholder origin it never actually requests.
+	*/
+	function hostTransportBase() {
+		const base = globalThis.__DSH_TRANSPORT__?.streamBaseUrl;
+		if (base !== void 0 && base !== "") return base;
+		return typeof document !== "undefined" && typeof document.baseURI === "string" ? document.baseURI : "";
+	}
+	/**
+	* Base for the plugin's own HTTP routes (`/sidebar/api/*`, `/sidebar/file`,
+	* `/sidebar/bundle/*`, …): the PAGE's own base, not the injected transport
+	* origin.
+	*
+	* The desktop shell makes those two different — page `dsh-app://app/`, injected
+	* `streamBaseUrl` = the Host's `http://127.0.0.1:<port>`. HTTP must stay on the
+	* page: the shell's `protocol.handle` forwards every non-static `dsh-app://app`
+	* path to the Host same-origin (that is how `fetch('/sidebar/api/…')` reached it
+	* before the prefix fix), while the Host's plugin routes answer no
+	* `Access-Control-Allow-*` headers, so a cross-origin `fetch` to the injected
+	* origin is blocked by the browser outright ("Failed to fetch"). WebSockets go
+	* the other way round — see `hostTransportBase` and `host-route-url.ts`.
+	*
+	* `document.baseURI` carries a reverse-proxy directory prefix too, so one rule
+	* covers both deployments.
+	* @returns A URL string usable as the base argument of `new URL`; the transport
+	* base only when no page base exists (specs, SSR).
+	*/
+	function hostHttpBase() {
+		const base = typeof document !== "undefined" ? document.baseURI : void 0;
+		if (typeof base === "string" && base !== "") return base;
+		return hostTransportBase();
+	}
+	//#endregion
+	//#region src/client/host-route-url.ts
+	/**
+	* Prefix-safe resolution of the plugin's own host routes (HTTP and WebSocket).
+	*
+	* The client half talks to the Host at `/sidebar/*`. Built with a leading
+	* slash those URLs pin themselves to the ORIGIN ROOT, so a GUI served under a
+	* reverse-proxy directory (`https://host/dataops/proxy/3080/`) sends every
+	* request OUTSIDE the prefix: the JSON API answers 404, lazy chunks never
+	* load, media and HTML previews stay blank, and the WebSockets close with
+	* 1006. Resolving a RELATIVE path against the page's own base keeps the
+	* request under the page's own directory.
+	*
+	* The two transports need DIFFERENT bases, and the desktop shell is why:
+	*
+	* - **HTTP** rides the PAGE base (`document.baseURI`). In the Electron shell
+	*   the page is `dsh-app://app/`, and the shell's protocol handler forwards
+	*   every non-static path to the Host (`protocol.handle` → `forwardWebRequest`
+	*   in the shell's `main.js`), so `dsh-app://app/sidebar/api/…` reaches the
+	*   Host same-origin — the exact shape `fetch('/sidebar/api/…')` produced
+	*   before the prefix fix. The shell also publishes
+	*   `__DSH_TRANSPORT__.streamBaseUrl` = the Host's real origin
+	*   (`new URL(hostUrl).origin`), which is a DIFFERENT origin from the page:
+	*   sending the plugin's JSON POSTs there makes them cross-origin, and the
+	*   plugin's routes answer no `Access-Control-Allow-*` headers (the shell's own
+	*   UI avoids this by going through the same-origin forwarding), so the browser
+	*   rejects them — every tree/git/editor request fails as "Failed to fetch".
+	* - **WebSocket** needs that injected base: a custom scheme cannot host `ws:`,
+	*   and `dsh-app://app`'s host is the literal string `app`, whose DNS lookup
+	*   never completes (see `desktop-env.ts`). The Host accepts the shell page's
+	*   origin on those sockets.
+	*/
+	/** Placeholder origin for the non-DOM case (specs / SSR): resolution needs an
+	*  absolute base, but the caller never issues the resulting request. */
+	const PLACEHOLDER_ORIGIN = "http://dsh.internal/";
+	/**
+	* Resolve one host route against the injected base. Leading slashes are
+	* stripped on purpose — keeping one would discard a reverse-proxy prefix.
+	* @param path - The route, with or without a leading slash
+	* (`sidebar/api/fs.tree`, `sidebar/ws/fs-watch`).
+	* @param baseUrl - Override for the shared transport base; specs pass a static
+	* prefix so resolution stays pure.
+	* @returns The absolute route URL (the base's origin + any prefix included).
+	*/
+	function hostRouteUrl(path, baseUrl = hostHttpBase()) {
+		return new URL(path.replace(/^\/+/, ""), directoryBase(baseUrl));
+	}
+	/**
+	* Turn any transport base into a directory base: drop the query (the launch
+	* token rides there) and the hash, then force a trailing slash. DSH serves the
+	* GUI from a directory, so a base without the final slash is the same prefix
+	* with the browser's own trailing-slash elision — resolving against it
+	* verbatim would replace its last segment instead of appending to it.
+	*/
+	function directoryBase(baseUrl) {
+		const url = new URL(baseUrl === "" ? PLACEHOLDER_ORIGIN : baseUrl, PLACEHOLDER_ORIGIN);
+		url.search = "";
+		url.hash = "";
+		if (!url.pathname.endsWith("/")) url.pathname += "/";
+		return url.href;
+	}
+	//#endregion
+	//#region src/client/paths.ts
+	/**
+	* Path projection helpers shared by the explorer rows: workspace-relative
+	* mentions and session-cwd-relative "copy relative path".
+	* The fs-tree joins with '/' even on Windows, so both separators normalize
+	* to '/' before comparison.
+	*
+	* This module is dependency-free (no node:path in the client bundle): the
+	* host is the authority for path semantics, so this mirror deliberately
+	* accepts a SUPERSET of absolute forms — anything a Windows host would emit
+	* (drive letters, UNC) plus POSIX roots. A form the host would reject
+	* (e.g. a backslash UNC path on a POSIX host) passes through here and then
+	* fails loudly in the host's requireAbsolute instead of being silently
+	* joined onto the cwd.
+	*/
+	/**
+	* Mirror of the host's absolute-path notion (see fs-tree.requireAbsolute):
+	* POSIX roots, Windows drive letters, and Windows UNC network shares in
+	* both backslash (`\\server\share\...`) and forward-slash
+	* (`//server/share/...`) form. Deliberately a superset — see the module
+	* comment — so a produced UNC path is never joined onto the cwd.
+	*/
+	function isAbsolutePath$1(path) {
+		return path === "~" || path.startsWith("~/") || path.startsWith("~\\") || path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path);
+	}
+	/**
+	* The path relative to the session's working directory.
+	* @param cwd - the explorer root (absolute).
+	* @param path - an absolute entry path from the fs-tree.
+	* @returns the relative path with '/' separators ('.' for the cwd itself),
+	* or `path` unchanged when it lies outside the cwd.
+	*
+	* The prefix test is case-insensitive: Windows paths (and macOS's
+	* case-insensitive volumes) may arrive with different casing than the cwd
+	* row, and the containment decision must not depend on it. The returned
+	* relative text keeps the caller's own casing.
+	*/
+	function relativeTo(cwd, path) {
+		const base = cwd.replace(/[\\/]+$/, "");
+		const norm = (value) => value.replace(/\\/g, "/");
+		const nBase = norm(base);
+		const nPath = norm(path);
+		if (nPath === nBase) return ".";
+		if (nPath.toLowerCase().startsWith(`${nBase.toLowerCase()}/`)) return nPath.slice(nBase.length + 1);
+		return path;
+	}
+	/**
+	* The lowercased file extension of a path ('' when none). The dot must sit
+	* inside the last segment — a dot in a directory name is not an extension.
+	* Shared by the editor language mapping (lang.ts) and the viewer registry's
+	* extension matching (service.ts), which both live in the core bundle.
+	*/
+	function extOf(path) {
+		const at = path.lastIndexOf(".");
+		if (at === -1) return "";
+		const base = path.slice(at + 1).toLowerCase();
+		return base.includes("/") || base.includes("\\") ? "" : base;
+	}
+	/**
+	* Resolve a (possibly relative) path against the session cwd for the sidebar.
+	* Absolute detection mirrors the host (see {@link isAbsolutePath}): POSIX
+	* roots, drive letters and UNC shares must not be joined onto the cwd.
+	*/
+	function resolveSidebarPath(cwd, path) {
+		if (isAbsolutePath$1(path)) return path;
+		const base = cwd ?? "";
+		if (base === "") return path;
+		const separator = base.includes("\\") ? "\\" : "/";
+		return `${base.replace(/[\\/]+$/, "")}${separator}${path}`;
+	}
+	//#endregion
 	//#region src/client/api.ts
 	/**
-	* Typed fetch wrapper over the /sidebar JSON API. Every call posts to
-	* `/sidebar/api/<method>` with the sessionId and — when known — the session's
-	* cwd from the client's own list summary. The host prefers its attached
-	* session header and uses the summary cwd only while the session is still
-	* hydrating at page load (a detached session would otherwise fail the
+	* Typed fetch wrapper over the /sidebar JSON API. Every call posts through
+	* {@link hostRouteUrl} to `/sidebar/api/<method>` with the sessionId and —
+	* when known — the session's cwd from the client's own list summary (the
+	* route keeps a reverse-proxy prefix; see host-route-url.ts). The host prefers
+	* its attached session header and uses the summary cwd only while the session
+	* is still hydrating at page load (a detached session would otherwise fail the
 	* request). Failures surface as {@link SidebarApiError} with the wire code.
 	*/
 	/** One wire failure. */
@@ -17957,7 +20155,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	async function call$1(method, payload, signal) {
 		let response;
 		try {
-			response = await fetch(`/sidebar/api/${method}`, {
+			response = await fetch(hostRouteUrl(`sidebar/api/${method}`).href, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(payload),
@@ -17967,6 +20165,30 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			throw new SidebarApiError("network", error instanceof Error ? error.message : String(error));
 		}
 		return readEnvelope(response);
+	}
+	/**
+	* One team-task write with the rejection turned back into a RESULT. Every
+	* other `/sidebar/api` caller lets a failed envelope throw (that is what
+	* {@link readEnvelope} is for); here the route's error CODE is data the task
+	* window needs — `team-conflict` means "someone changed this task, refresh",
+	* which is a different sentence from every other failure.
+	* @param method - `teams.taskCreate` or `teams.taskUpdate`.
+	* @param payload - the request plus its `rootSessionId`.
+	*/
+	async function writeTask(method, payload) {
+		try {
+			return {
+				ok: true,
+				value: await call$1(method, payload)
+			};
+		} catch (error) {
+			if (error instanceof SidebarApiError) return {
+				ok: false,
+				code: error.code,
+				message: error.message
+			};
+			throw error;
+		}
 	}
 	/**
 	* Upload one file to the sidebar's raw upload route: the File goes straight
@@ -17984,7 +20206,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
 		let response;
 		try {
-			response = await fetch(`/sidebar/upload?${params.toString()}`, {
+			response = await fetch(hostRouteUrl(`sidebar/upload?${params.toString()}`).href, {
 				method: "POST",
 				headers: { "content-type": "application/octet-stream" },
 				body,
@@ -17992,6 +20214,41 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			});
 		} catch (error) {
 			if (error instanceof DOMException && error.name === "AbortError") throw error;
+			throw new SidebarApiError("network", error instanceof Error ? error.message : String(error));
+		}
+		return readEnvelope(response);
+	}
+	/**
+	* Save one document through the sidebar's raw write route: the text IS the
+	* POST body, so the request never grows a JSON escaping layer and nothing caps
+	* the size a save can carry.
+	*
+	* The document is transported with LF line endings (CodeMirror has no other
+	* line model); the host restores the file's own encoding and line ending
+	* before writing, exactly as the old JSON route did.
+	*
+	* @param scope - the session scope.
+	* @param path - the file to write (absolute or session-relative).
+	* @param content - the document, LF line endings.
+	* @param expectedMtimeMs - the draft's baseline; a mismatch refuses with
+	*  `fs-conflict`. Omitted = no gate.
+	* @returns the fresh mtime baseline after the write.
+	*/
+	async function fetchWrite(scope, path, content, expectedMtimeMs) {
+		const params = new URLSearchParams({
+			sessionId: scope.sessionId,
+			path
+		});
+		if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
+		if (expectedMtimeMs !== void 0) params.set("expectedMtimeMs", String(expectedMtimeMs));
+		let response;
+		try {
+			response = await fetch(hostRouteUrl(`sidebar/write?${params.toString()}`).href, {
+				method: "POST",
+				headers: { "content-type": "text/plain; charset=utf-8" },
+				body: content
+			});
+		} catch (error) {
 			throw new SidebarApiError("network", error instanceof Error ? error.message : String(error));
 		}
 		return readEnvelope(response);
@@ -18046,15 +20303,53 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	/** The sidebar API surface (session scope threaded through every call). */
 	const api = {
 		sessionCwd: (scope, signal) => call$1("session.cwd", scopePayload(scope, {}), signal),
-		fsTree: (scope, path, signal) => call$1("fs.tree", scopePayload(scope, { path }), signal),
-		/** Global recursive file-name search rooted at the session cwd (the editor
-		*  side panel's search box); matches are cwd-relative '/'-separated paths. */
-		fsSearch: (scope, query, signal) => call$1("fs.search", scopePayload(scope, { query }), signal),
-		fsRead: (scope, path, signal) => call$1("fs.read", scopePayload(scope, { path }), signal),
-		fsWrite: (scope, path, content) => call$1("fs.write", scopePayload(scope, {
+		fsTree: (scope, path, exclude, signal) => call$1("fs.tree", scopePayload(scope, {
 			path,
-			content
-		})),
+			exclude
+		}), signal),
+		/**
+		* Batch listing: every requested level in ONE request (the tree's mount and
+		* refresh send the expanded set instead of N `fsTree` calls). A level that
+		* failed carries `error` in place — the batch itself still succeeds.
+		* `exclude` carries the explorerExclude pref: matched entries never arrive
+		* (the host filters, so no client-side pass is needed).
+		*/
+		fsTrees: (scope, paths, exclude, signal) => call$1("fs.trees", scopePayload(scope, {
+			paths: [...paths],
+			exclude
+		}), signal),
+		/** Global recursive file search rooted at the session cwd (the editor
+		*  side panel's search box). A name query matches cwd-relative
+		*  '/'-separated paths; a separator-carrying fragment matches by PATH;
+		*  a query naming one path (absolute, `~/…`, `./x`, `../x`) is stat'ed
+		*  through the same resolution fs.read uses and yields the RESOLVED
+		*  absolute target as the single match. `dirs` names the subset that is a
+		*  directory (the list navigates the tree for those — `fs.read` refuses a
+		*  directory). `exclude` carries the explorerExclude pref: matched entries
+		*  never match and are never descended (host-side, in lockstep with the
+		*  tree; a pasted direct-open path is explicit intent and skips it). */
+		fsSearch: (scope, query, exclude, signal) => call$1("fs.search", scopePayload(scope, {
+			query,
+			exclude
+		}), signal),
+		fsRead: (scope, path, signal) => call$1("fs.read", scopePayload(scope, { path }), signal),
+		/** One page of a large text file, for the read-only paged preview.
+		*  `offset` is the byte position to start at (0 for the first page); the
+		*  response carries where to continue. */
+		fsReadPage: (scope, path, offset, signal) => call$1("fs.readPage", scopePayload(scope, {
+			path,
+			offset
+		}), signal),
+		/** Save a file through the raw `/sidebar/write` route (the document IS the
+		*  request body — no JSON escaping, so nothing caps the saved size).
+		*  `expectedMtimeMs` is the mtime the draft was based on: a file that
+		*  changed on disk since refuses with code `fs-conflict` (the editor then
+		*  offers a reload) instead of clobbering those bytes — and so does a file
+		*  that is no longer there at all, because a numeric baseline proves it was
+		*  read from an existing file. `null` (the file did not exist yet) and
+		*  omitted (older callers) both mean no gate. The response carries the
+		*  fresh baseline. */
+		fsWrite: (scope, path, content, expectedMtimeMs) => fetchWrite(scope, path, content, expectedMtimeMs ?? void 0),
 		/** Rename one tree row within its directory (single-segment name; the
 		*  server refuses existing destinations, the workspace root, and — while
 		*  the fence is armed — anything resolving outside the workspace). */
@@ -18065,6 +20360,20 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		/** Permanently delete one tree row (recursive for directories; a symlink
 		*  row unlinks the link only). The UI confirms before calling this. */
 		fsRemove: (scope, path) => call$1("fs.remove", scopePayload(scope, { path })),
+		/** Create one directory row inside `path` (single-segment name; the server
+		*  refuses existing destinations, the workspace root, and — while the fence
+		*  is armed — anything resolving outside the workspace). */
+		fsMkdir: (scope, path, name) => call$1("fs.mkdir", scopePayload(scope, {
+			path,
+			name
+		})),
+		/** Create one EMPTY file row inside `path` (single-segment name; the server
+		*  refuses existing destinations — without truncating them — plus the
+		*  characters and Windows device names a file name may not use). */
+		fsCreateFile: (scope, path, name) => call$1("fs.createFile", scopePayload(scope, {
+			path,
+			name
+		})),
 		/** Upload one file's raw bytes into `dir` (keeps the folder tree via
 		*  `relativePath`); the host streams it under the session workspace. */
 		uploadFile: (scope, dir, relativePath, body, signal) => fetchUpload(scope, dir, relativePath, body, signal),
@@ -18077,8 +20386,28 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		gitStage: (scope, path, worktree) => call$1("git.stage", gitPayload(scope, worktree, { ...path !== void 0 ? { path } : {} })),
 		gitUnstage: (scope, path, worktree) => call$1("git.unstage", gitPayload(scope, worktree, { ...path !== void 0 ? { path } : {} })),
 		gitCommit: (scope, message, worktree) => call$1("git.commit", gitPayload(scope, worktree, { message })),
+		/** Push the selected checkout's branch to its upstream; git's own failure
+		*  message (no upstream, auth, non-fast-forward) crosses the wire as-is. */
+		gitPush: (scope, worktree) => call$1("git.push", gitPayload(scope, worktree, {})),
+		/** Pull into the selected checkout (`--ff-only` host-side: a diverged branch
+		*  fails loudly rather than opening a merge editor nobody can answer). */
+		gitPull: (scope, worktree) => call$1("git.pull", gitPayload(scope, worktree, {})),
+		/** Ask the host to generate a commit message from the pending changes: it
+		*  streams the diff through the harness LLM on the pinned route (or the
+		*  conversation's own) and answers with the route actually used.
+		*  `language` follows the sidebar's active locale ('zh' | 'en'). */
+		gitSuggestMessage: (scope, language, worktree) => call$1("git.suggest-message", gitPayload(scope, worktree, { language })),
+		/** The discoverable provider/model catalog for the Git card's pinned-route
+		*  setting (advisory; empty when the harness exposes no LLM service). */
+		gitModels: (scope, signal) => call$1("git.models", scopePayload(scope, {}), signal),
+		/** The route the NEXT commit-message suggestion would use (pinned → the
+		*  conversation's own → the harness default); absent when none resolves.
+		*  Cheaper than `gitModels`: no catalog discovery. */
+		gitCommitModel: (scope, signal) => call$1("git.commit-model", scopePayload(scope, {}), signal),
 		gitBranch: (scope, worktree, signal) => call$1("git.branch", gitPayload(scope, worktree, {}), signal),
 		gitCheckout: (scope, branch, worktree) => call$1("git.checkout", gitPayload(scope, worktree, { branch })),
+		/** Read-only topological history; stale cursors require a fresh first page. */
+		gitGraph: (scope, options = {}, worktree, signal) => call$1("git.graph", gitPayload(scope, worktree, { ...options }), signal),
 		/** Recent commit history, lazily pageable (skip/count; defaults 0/30). */
 		gitLog: (scope, count, skip, worktree, signal) => call$1("git.log", gitPayload(scope, worktree, {
 			...count !== void 0 ? { count } : {},
@@ -18093,47 +20422,57 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			rev,
 			path
 		}), signal),
-		/** The session's file-tool events for the changes tab's session lens: the
-		*  `tool/call` + `tool/result` rows past `afterSeq` (0 = whole window),
-		*  capped to the recent window host-side. The client runtime exposes no
-		*  event-log face, so the lens polls this delta route. */
-		changesOps: (scope, afterSeq, signal) => call$1("changes.ops", scopePayload(scope, { ...afterSeq !== void 0 && afterSeq > 0 ? { afterSeq } : {} }), signal),
+		/** ONE file's whole uncommitted change (worktree against HEAD, staged and
+		*  unstaged in one patch). The editor's change gutter maps this onto the
+		*  buffer's line numbers; untracked files are marked from the status store
+		*  instead, because no diff side ever lists them. */
+		gitDiffHead: (scope, path, worktree, signal) => call$1("git.diff-head", gitPayload(scope, worktree, { path }), signal),
+		/** Blame ONE line range (`git blame --porcelain -L`). Never throws: every
+		*  failure (untracked file, not a repository, command failure) answers with
+		*  an empty list. Called on hover only — a file is never prefetched. */
+		gitBlame: (scope, path, startLine, endLine, worktree, signal) => call$1("git.blame", gitPayload(scope, worktree, {
+			path,
+			startLine,
+			endLine
+		}), signal),
+		/** The session's file-tool events past `afterSeq` (absent = whole window,
+		*  floored at -1 host-side so a log opening on seq 0 is not dropped). With
+		*  `wait` the host parks the request until the next tool event (or 25 s)
+		*  instead of re-reading an unchanged window. */
+		changesOps: (scope, afterSeq, signal, wait = false) => call$1("changes.ops", scopePayload(scope, {
+			...afterSeq !== void 0 ? { afterSeq } : {},
+			...wait ? { wait: true } : {}
+		}), signal),
 		/** Discard the worktree changes of one file (the index is untouched). */
 		gitDiscard: (scope, path, worktree) => call$1("git.discard", gitPayload(scope, worktree, { path })),
 		/** Revert one commit onto the current branch. */
 		gitRevert: (scope, hash, worktree) => call$1("git.revert", gitPayload(scope, worktree, { hash })),
 		/** Cherry-pick one commit onto the current branch. */
 		gitCherryPick: (scope, hash, worktree) => call$1("git.cherry-pick", gitPayload(scope, worktree, { hash })),
-		/** Release a terminal's process immediately (tab closed; the WS close frame
-		*  may be unreachable while the socket is down, so the host also accepts
-		*  this explicit route). */
-		ptyClose: (scope, tab) => call$1("pty.close", scopePayload(scope, { tab })),
-		/** Release an agent terminal by uuid (tab closed while WS was down). */
-		agentPtyClose: (uuid) => call$1("agent-pty.close", { uuid }),
-		/** Skip every active terminal_wait_for on one agent terminal (the wait
-		*  banner's skip button). Idempotent: {skipped:0} when none is active. */
-		agentSkipWait: (uuid) => call$1("agent-pty.skip-wait", { uuid }),
-		/** Terminal dependency status (issue #140): after a WS close 1011 with
-		*  reason `pty-deps-missing` the view fetches the full repair details here
-		*  (the close reason itself is capped at 123 bytes). */
-		terminalDeps: () => call$1("terminal.deps", {}),
-		/**
-		* The output the model has read so far for one background job (replayed
-		* from the owner session's event log — never the model's job_output
-		* cursor). The scope MUST be the job's OWNER session.
-		*/
-		jobOutput: (scope, id, signal) => call$1("jobs.output", scopePayload(scope, { id }), signal),
-		/** Request cancellation of one background job (live jobs flip to stopping). */
-		jobKill: (scope, id, reason) => call$1("jobs.kill", scopePayload(scope, {
-			id,
-			...reason !== void 0 ? { reason } : {}
-		})),
 		/**
 		* One batch live-preview fetch for the whole Subagent tree. The payload is
 		* the already-resolved topology ROOT (not a session scope); the host
-		* enumerates descendants once and folds running children's activity.
+		* enumerates descendants once and folds every child's newest process range
+		* into the main agent's merged-activity summary.
 		*/
 		subagentsLive: (rootSessionId, signal) => call$1("subagents.live", { rootSessionId }, signal),
+		/**
+		* The workflow runs of the whole tree, folded host-side from the
+		* `tool-workflow/*` session events (the same four types the official
+		* workflow-run panel folds). Empty when the tree never ran a workflow —
+		* absence is the normal case, never an error.
+		*/
+		workflowsList: (rootSessionId, signal) => call$1("workflows.list", { rootSessionId }, signal),
+		/** Create one shared task on the root-led team. */
+		teamsTaskCreate: (rootSessionId, req) => writeTask("teams.taskCreate", {
+			rootSessionId,
+			...req
+		}),
+		/** CAS-mutate one shared task; a stale revision yields `team-conflict`. */
+		teamsTaskUpdate: (rootSessionId, req) => writeTask("teams.taskUpdate", {
+			rootSessionId,
+			...req
+		}),
 		/** Create a Side Chat thread: a child session seeded with the parent's
 		*  full log up to now. Empty question = immediate create (Codex-style):
 		*  the thread opens empty, the first prompt carries the boundary. */
@@ -18157,13 +20496,35 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		*  `afterSeq` narrows the response to the delta beyond it (poll tail).
 		*  `live` is the thread's in-flight model deltas (DSH 0.1.5 publishes them
 		*  outside the session log) — the CURRENT attempt on every pull, never a
-		*  delta, so the caller replaces its live set instead of appending. */
+		*  delta, so the caller replaces its live set instead of appending.
+		*  `pending` is the thread's live UNCLAIMED inbox in claim order (all
+		*  `next-step` entries, then the queued turns): the view renders those as
+		*  pending bubbles, deduped by id against the durable `user/message` rows
+		*  the claim later writes. */
 		sidechatEvents: (childId, afterSeq, signal) => call$1("sidechat.events", {
 			childId,
 			...afterSeq !== void 0 ? { afterSeq } : {}
 		}, signal),
-		/** The effective terminal shell and its display name (plugin-global). */
-		shellGet: () => call$1("shell.get", {}),
+		/** Drop one pending inbox message (no `messageId` = drop the whole queue).
+		*  `removed` is how many the host actually took out; a cold thread answers
+		*  `0` rather than failing. */
+		sidechatDequeue: (childId, messageId) => call$1("sidechat.dequeue", {
+			childId,
+			...messageId !== void 0 ? { messageId } : {}
+		}),
+		/** The host's own model catalog for the per-thread picker. `available:
+		*  false` means no catalog was readable (headless or older host) — the
+		*  picker then offers only "inherit the parent conversation". */
+		sidechatModels: () => call$1("sidechat.models", {}),
+		/** Pin one Side Chat thread's model route (the host disables its own picker
+		*  for subagent-origin sessions, so this is the only switch a side thread
+		*  has). `reasoningEffort` is omitted unless chosen. */
+		sidechatModel: (childId, provider, model, reasoningEffort) => call$1("sidechat.model", {
+			childId,
+			provider,
+			model,
+			...reasoningEffort !== void 0 ? { reasoningEffort } : {}
+		}),
 		/** Read the side card preferences (plugin-global, no session scope). */
 		settingsGet: () => call$1("settings.get", {}),
 		/** Merge a patch into the side card preferences (revision-guarded). */
@@ -18171,14 +20532,26 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			patch,
 			...expectedRevision !== void 0 ? { expectedRevision } : {}
 		}),
-		/** Probe a URL's response headers (the sidebar browser's embeddability
-		*  check; see the host's browser.probe route). */
-		browserProbe: (url, signal) => call$1("browser.probe", { url }, signal),
 		/** External open for the file tree's "open with" menu. Remote SSH editor
 		*  URLs are launched on the browser/client machine; reveal and local URLs
 		*  keep using the host's platform opener. */
 		openExternal
 	};
+	/** Absolute URL of the download route: serves raw bytes (binary-safe) with
+	*  `Content-Disposition: attachment`, so the browser saves the file. */
+	function downloadUrl(scope, path) {
+		return fileUrl(scope, path, true);
+	}
+	/** Shared URL builder for the /sidebar/file route (media vs download). */
+	function fileUrl(scope, path, download) {
+		const params = new URLSearchParams({
+			sessionId: scope.sessionId,
+			path: resolveSidebarPath(scope.cwd, path)
+		});
+		if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
+		if (download) params.set("download", "1");
+		return hostRouteUrl(`sidebar/file?${params.toString()}`).href;
+	}
 	/**
 	* Absolute URL of the HTML preview route (see html-route.ts): the path is
 	* fully encoded so the previewed page's relative assets resolve back into
@@ -18188,7 +20561,2645 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	* client-side platform signal is needed.
 	*/
 	function htmlUrl(scope, path) {
-		return encodeHtmlUrl(scope.sessionId, path);
+		return hostRouteUrl(encodeHtmlUrl(scope.sessionId, resolveSidebarPath(scope.cwd, path))).href;
+	}
+	//#endregion
+	//#region src/client/diff/rows.ts
+	/**
+	* Pair each del-run with the add-run that follows it: the overlapping
+	* `min(len)` rows on both sides become 'mod' so rewrites tint distinctly and
+	* receive intra-line highlighting. Pure — returns a new array when anything
+	* changed. Shared by the LCS walk and the unified-diff converter so git
+	* hunks rewrite-pair exactly like session ops do.
+	*/
+	function pairMods(rows) {
+		const out = rows.slice();
+		let k = 0;
+		while (k < out.length) {
+			if (out[k].kind !== "del") {
+				k += 1;
+				continue;
+			}
+			const delStart = k;
+			while (k < out.length && out[k].kind === "del") k += 1;
+			const addStart = k;
+			while (k < out.length && out[k].kind === "add") k += 1;
+			const pairs = Math.min(addStart - delStart, k - addStart);
+			for (let p = 0; p < pairs; p += 1) {
+				out[delStart + p] = {
+					...out[delStart + p],
+					kind: "mod"
+				};
+				out[addStart + p] = {
+					...out[addStart + p],
+					kind: "mod"
+				};
+			}
+		}
+		return out;
+	}
+	/** Parse the hunk header `@@ -a[,b] +c[,d] @@ section` (section may contain '@@'). */
+	function parseHunkHeader(line) {
+		const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(line);
+		if (match === null) return null;
+		return {
+			oldStart: Number(match[1]),
+			newStart: Number(match[3]),
+			header: match[5] ?? ""
+		};
+	}
+	/** A git C-quoted path literal (`"a/x y.md"`, escapes included). */
+	const QUOTED_PATH = "\"(?:[^\"\\\\]|\\\\.)*\"";
+	/** git's single-character C escapes, mapped to their byte. */
+	const C_ESCAPES = {
+		a: 7,
+		b: 8,
+		t: 9,
+		n: 10,
+		v: 11,
+		f: 12,
+		r: 13,
+		"\"": 34,
+		"\\": 92
+	};
+	const pathEncoder = new TextEncoder();
+	const pathDecoder = new TextDecoder();
+	/**
+	* Undo git's C-quoting of a path (`"a/\346\226\207.md"` → `a/中文.md`).
+	* git quotes a path holding a byte outside ASCII, a control character, a
+	* quote or a backslash; `-c core.quotePath=false` (see `runGit`) already
+	* removes the non-ASCII half for our own commands, so this is the remaining
+	* defensive half — and what keeps replayed/pasted diff text readable.
+	* Unquoted input comes back unchanged.
+	* @param raw - the path as it appears in the diff text.
+	* @returns the literal path.
+	*/
+	function decodeGitPath(raw) {
+		if (raw.length < 2 || !raw.startsWith("\"") || !raw.endsWith("\"")) return raw;
+		const body = raw.slice(1, -1);
+		const bytes = [];
+		for (let i = 0; i < body.length; i += 1) {
+			const char = body[i];
+			if (char !== "\\") {
+				for (const byte of pathEncoder.encode(char)) bytes.push(byte);
+				continue;
+			}
+			const escaped = body[i + 1];
+			const simple = escaped === void 0 ? void 0 : C_ESCAPES[escaped];
+			if (simple !== void 0) {
+				bytes.push(simple);
+				i += 1;
+				continue;
+			}
+			const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+			if (octal !== null) {
+				bytes.push(Number.parseInt(octal[0], 8));
+				i += octal[0].length;
+				continue;
+			}
+			for (const byte of pathEncoder.encode(char)) bytes.push(byte);
+		}
+		return pathDecoder.decode(new Uint8Array(bytes));
+	}
+	/** A `---`/`+++` header value: git appends a TAB when the path has a space. */
+	function headerPath(raw) {
+		return decodeGitPath(raw.endsWith("	") ? raw.slice(0, -1) : raw);
+	}
+	/**
+	* Both sides of a `diff --git` header, or null when it cannot be split.
+	* Needed for the sections that never reach `---`/`+++` — a mode-only change
+	* (its path is the same on both sides, which is what the split looks for).
+	*/
+	function pathsFromGitHeader(rest) {
+		const quoted = new RegExp(`^(${QUOTED_PATH}) (${QUOTED_PATH})$`).exec(rest);
+		if (quoted !== null) return {
+			oldPath: decodeGitPath(quoted[1]),
+			newPath: decodeGitPath(quoted[2])
+		};
+		for (let at = rest.indexOf(" b/"); at !== -1; at = rest.indexOf(" b/", at + 1)) {
+			const oldPath = rest.slice(0, at);
+			const newPath = rest.slice(at + 1);
+			if (oldPath.startsWith("a/") && newPath.startsWith("b/") && oldPath.slice(2) === newPath.slice(2)) return {
+				oldPath,
+				newPath
+			};
+		}
+		return null;
+	}
+	/** Both sides of a `Binary files A and B differ` line (A or B may be /dev/null). */
+	function pathsFromBinaryLine(raw) {
+		const body = raw.slice(13).replace(/ differ$/, "");
+		const quoted = new RegExp(`^(${QUOTED_PATH}) and (${QUOTED_PATH})$`).exec(body);
+		if (quoted !== null) return {
+			oldPath: decodeGitPath(quoted[1]),
+			newPath: decodeGitPath(quoted[2])
+		};
+		for (let at = body.indexOf(" and "); at !== -1; at = body.indexOf(" and ", at + 1)) {
+			const oldPath = decodeGitPath(body.slice(0, at));
+			const newPath = decodeGitPath(body.slice(at + 5));
+			const oldSide = oldPath === "/dev/null" || oldPath.startsWith("a/");
+			const newSide = newPath === "/dev/null" || newPath.startsWith("b/");
+			if (oldSide && newSide) return {
+				oldPath,
+				newPath
+			};
+		}
+		return null;
+	}
+	/**
+	* Parse `git diff --no-color` output into file sections and hunks. Rows
+	* outside a file section (leading noise) and metadata rows between the
+	* `diff --git`/`---`/`+++` headers and the first hunk (index lines, mode
+	* changes, rename/similarity lines) are skipped.
+	*
+	* Paths come from whichever header names them: `---`/`+++` win when present,
+	* otherwise the section's own `rename from|to`, `Binary files … differ` or
+	* `diff --git` line supplies them. git emits no `---`/`+++` at all for a
+	* binary file, a pure rename and a mode-only change, so without those
+	* fallbacks the section renders as an anonymous header (the badge with no
+	* file name the reader cannot place).
+	*
+	* Both of those header branches are gated on `!inHunk`, because a hunk line can
+	* wear the same prefix: a deleted line is `-` plus its text, so deleting `-- x`
+	* emits `--- x` — a hunk line that starts exactly like the separator, and one
+	* that used to be read as a NEW file's header (truncating the hunk here, then
+	* stamping the deleted text onto the path). The hunk is the tiebreaker: git
+	* never writes `---`/`+++` inside one.
+	*/
+	function parseUnifiedDiff(text) {
+		const files = [];
+		let current = null;
+		let inHunk = false;
+		let hunk = null;
+		let oldNum = 0;
+		let newNum = 0;
+		const flushHunk = () => {
+			if (current !== null && hunk !== null) current.hunks.push(hunk);
+			hunk = null;
+			inHunk = false;
+		};
+		for (const raw of text.split("\n")) {
+			if (raw.startsWith("diff --git ")) {
+				flushHunk();
+				current = {
+					oldPath: "",
+					newPath: "",
+					binary: false,
+					hunks: []
+				};
+				const headPaths = pathsFromGitHeader(raw.slice(11));
+				if (headPaths !== null) {
+					current.oldPath = headPaths.oldPath;
+					current.newPath = headPaths.newPath;
+				}
+				files.push(current);
+				continue;
+			}
+			if (current === null) continue;
+			if (raw.startsWith("rename from ")) {
+				current.oldPath = decodeGitPath(raw.slice(12));
+				continue;
+			}
+			if (raw.startsWith("rename to ")) {
+				current.newPath = decodeGitPath(raw.slice(10));
+				continue;
+			}
+			if (raw.startsWith("Binary files ") || raw === "GIT binary patch") {
+				flushHunk();
+				current.binary = true;
+				if (raw.startsWith("Binary files ")) {
+					const binPaths = pathsFromBinaryLine(raw);
+					if (binPaths !== null) {
+						current.oldPath = binPaths.oldPath;
+						current.newPath = binPaths.newPath;
+					}
+				}
+				continue;
+			}
+			if (!inHunk && raw.startsWith("--- ")) {
+				flushHunk();
+				current.oldPath = headerPath(raw.slice(4));
+				continue;
+			}
+			if (!inHunk && raw.startsWith("+++ ")) {
+				current.newPath = headerPath(raw.slice(4));
+				continue;
+			}
+			const header = parseHunkHeader(raw);
+			if (header !== null) {
+				flushHunk();
+				hunk = {
+					oldStart: header.oldStart,
+					newStart: header.newStart,
+					header: header.header,
+					lines: []
+				};
+				oldNum = header.oldStart;
+				newNum = header.newStart;
+				inHunk = true;
+				continue;
+			}
+			if (!inHunk || hunk === null) continue;
+			const marker = raw[0];
+			if (marker === "\\") {
+				hunk.lines.push({
+					kind: "meta",
+					text: raw.slice(1),
+					oldNum: null,
+					newNum: null
+				});
+				continue;
+			}
+			if (marker === " ") {
+				hunk.lines.push({
+					kind: "ctx",
+					text: raw.slice(1),
+					oldNum,
+					newNum
+				});
+				oldNum += 1;
+				newNum += 1;
+			} else if (marker === "-") {
+				hunk.lines.push({
+					kind: "del",
+					text: raw.slice(1),
+					oldNum,
+					newNum: null
+				});
+				oldNum += 1;
+			} else if (marker === "+") {
+				hunk.lines.push({
+					kind: "add",
+					text: raw.slice(1),
+					oldNum: null,
+					newNum
+				});
+				newNum += 1;
+			} else flushHunk();
+		}
+		flushHunk();
+		return { files };
+	}
+	/** One DiffLine row mapped onto the shared DiffRow model. */
+	function rowOfLine(line) {
+		if (line.kind === "meta") return {
+			kind: "meta",
+			text: line.text
+		};
+		const kind = line.kind === "ctx" ? "context" : line.kind;
+		if (line.kind === "del") return {
+			kind,
+			oldLine: line.oldNum ?? void 0,
+			text: line.text
+		};
+		if (line.kind === "add") return {
+			kind,
+			newLine: line.newNum ?? void 0,
+			text: line.text
+		};
+		return {
+			kind,
+			oldLine: line.oldNum ?? void 0,
+			newLine: line.newNum ?? void 0,
+			text: line.text
+		};
+	}
+	/**
+	* Convert one parsed unified-diff file into renderer segments: each hunk's
+	* lines become a paired-mod hunk segment, and the unemitted context gaps
+	* between hunks (git already trimmed them) become non-expandable folds that
+	* still carry their old/new line ranges. The rewrite pairing applies within
+	* each hunk, exactly like session-op diffs.
+	*/
+	function unifiedSegments(file) {
+		const segments = [];
+		file.hunks.forEach((hunk, index) => {
+			const rows = pairMods(hunk.lines.map(rowOfLine));
+			const prev = file.hunks[index - 1];
+			if (prev !== void 0) {
+				const prevOldEnd = prev.oldStart + prev.lines.filter((line) => line.oldNum !== null).length - 1;
+				const prevNewEnd = prev.newStart + prev.lines.filter((line) => line.newNum !== null).length - 1;
+				const oldGap = hunk.oldStart - prevOldEnd - 1;
+				const newGap = hunk.newStart - prevNewEnd - 1;
+				if (oldGap > 0 || newGap > 0) segments.push({
+					kind: "fold",
+					count: Math.max(oldGap, newGap, 0),
+					oldStart: prevOldEnd + 1,
+					oldEnd: Math.max(hunk.oldStart - 1, prevOldEnd),
+					newStart: prevNewEnd + 1,
+					newEnd: Math.max(hunk.newStart - 1, prevNewEnd)
+				});
+			} else if (hunk.oldStart > 1 || hunk.newStart > 1) segments.push({
+				kind: "fold",
+				count: Math.max(hunk.oldStart - 1, hunk.newStart - 1, 0),
+				oldStart: 1,
+				oldEnd: hunk.oldStart - 1,
+				newStart: 1,
+				newEnd: hunk.newStart - 1
+			});
+			segments.push({
+				kind: "hunk",
+				rows
+			});
+		});
+		return segments;
+	}
+	//#endregion
+	//#region src/client/locales.ts
+	/**
+	* Minimal zh/en/ja copy for the sidebar. The copy follows the DSH i18n system:
+	* the client apply attaches the locale service (`ctx.locale`, provided by
+	* `@deepseek-ai/dsh-client-locale`) through {@link attachLocale}, and
+	* `t()`/`isZh()` resolve the active locale from it — the Host-backed
+	* `locale.preference` wins over the raw browser language and switches live.
+	* Without an attached service (standalone/test compositions) the browser
+	* language is used, matching the previous behavior. The dictionaries are
+	* also registered into the DSH locale registry under {@link LOCALE_NS}.
+	*
+	* ja (Japanese) is opt-in through `@huanlin/dsh-plugin-better-locale`: when
+	* that plugin is installed, the client apply also calls
+	* {@link attachBetterLocale} with the override store. `t()` then consults
+	* the store's active override id first; if it is `'ja'` (or any id whose
+	* dict has the requested key) the ja text wins, otherwise the existing
+	* zh/en chain runs unchanged. better-locale itself patches
+	* `LocaleRuntime.prototype.lookup` so DSH's own translate chain also
+	* returns ja where the `betterSidebar` namespace has a ja entry — that
+	* path covers external callers of `ctx.locale.bind('betterSidebar')`,
+	* while the override-aware `t()` here covers better-sidebar's own
+	* components (which bypass `ctx.locale` and call `t()` directly).
+	*/
+	/** The zh dictionary (also registered into the DSH locale registry under {@link LOCALE_NS}). */
+	const zh = {
+		files: "文件",
+		guideDescFiles: "浏览工作区文件树，点开即预览或编辑",
+		guideDescGit: "Git 变更与本轮文件改动，双视角合一",
+		guideDescSubagent: "工作流图 · 团队任务板 · 后台任务，实时状态",
+		guideDescSidechat: "继承当前会话上下文的独立追问线程",
+		guideDescTerminal: "真实 shell 终端（xterm + pty），断线重连",
+		guideDescBrowser: "内嵌网页浏览器，可接管聊天里的外链",
+		changesSessionEmpty: "本会话还没有文件操作",
+		changesRead: "读取",
+		changesMdReading: "阅读",
+		changesMdRaw: "原文",
+		changesHtmlRender: "渲染",
+		changesHtmlRaw: "原文",
+		changesWrite: "写入",
+		changesEdit: "编辑",
+		changesRunning: "执行中",
+		changesError: "出错",
+		changesRedactOn: "已开启脱敏：敏感内容以 [REDACTED] 显示；点击关闭（自担风险）",
+		changesRedactOff: "脱敏已关闭：将原样显示文件内容；点击开启",
+		changesRedactOnLabel: "脱敏中",
+		changesRedactOffLabel: "脱敏关",
+		changesRedactBanner: "已脱敏",
+		changesFold: "{count} 行…点击展开",
+		changesFoldLoading: "展开中…",
+		changesFoldUnavailable: "上下文未加载",
+		changesContext: "上下文",
+		changesPriorUnknown: "变更前的内容不在窗口内，显示为全新增",
+		explorer: "资源管理器",
+		terminal: "终端",
+		editor: "编辑器",
+		editorExplorer: "文件打开方式",
+		editorExplorerDesc: "控制文件打开方式",
+		editorExplorerMerged: "合并",
+		editorExplorerMergedDesc: "文件在同一窗口内原地切换；新窗口默认展开文件树",
+		editorExplorerSplit: "独立",
+		editorExplorerSplitDesc: "无路径窗口即资源管理器（仅文件树）；文件各自新开窗口（带文件树，默认收起）",
+		explorerExclude: "排除模式",
+		explorerExcludeDesc: "从文件树与搜索中彻底移除匹配条目（支持 * 与 ?，双星杠头匹配任意深度）；匹配项不阻塞面包屑折叠",
+		explorerExcludePlaceholder: "添加模式，如 node_modules、*.log、**/.git",
+		explorerExcludeAdd: "添加",
+		explorerExcludeRemove: "移除",
+		editorTreeToggle: "文件树面板",
+		editorPathPlaceholder: "输入文件路径（相对会话目录或绝对路径），Enter 打开",
+		editorSearchPlaceholder: "按文件名搜索…",
+		editorSearchNoResults: "无匹配文件",
+		editorSearchTruncated: "结果过多，仅显示部分匹配",
+		editorEmptyHint: "从右侧文件树或上方路径输入框选择文件开始预览",
+		openFileNewTab: "在新 Tab 中打开",
+		openFileSide: "在侧边打开",
+		settingsOpenWithPluginTitle: "始终显示插件自研的打开方式",
+		settingsOpenWithPluginDesc: "默认只在宿主探测不到本机关联应用时显示插件自研的打开方式（资源管理器 / VS Code / Cursor / Zed / 自定义编辑器、SSH 远端）；打开后宿主应用与插件目标并存",
+		zipDownload: "压缩并下载",
+		zipDownloadCount: "压缩并下载（{count} 项）",
+		zipFailed: "打包失败：{message}",
+		archiveToolMissing: "系统上没有可用的打包命令（zip 或 tar 都没有），无法打包下载",
+		openWithMenu: "在应用中打开",
+		openWithSshSuffix: " (SSH)",
+		pinOpenWith: "固定到菜单",
+		unpinOpenWith: "取消固定",
+		openWithExplorer: "资源管理器",
+		openWithVscode: "VS Code",
+		openWithCursor: "Cursor",
+		openWithZed: "Zed",
+		openWithSettingsSshTitle: "SSH 远端主机",
+		openWithSettingsSshDesc: "留空为本地工作区；填入 user@host 或 SSH 别名后，VSCode 系打开方式将改用 vscode-remote/ssh-remote 协议，资源管理器 / Zed / 非 VSCode 系自定义编辑器将从菜单隐藏",
+		openWithSettingsSshPlaceholder: "user@host 或 SSH 别名",
+		openWithSettingsCustomTitle: "自定义编辑器",
+		openWithSettingsCustomDesc: "名称 + URL 模板（{path} 占位符）+ 是否 VSCode 系；SSH 模式下仅 VSCode 系可打开远端",
+		openWithSettingsAdd: "添加",
+		openWithSettingsName: "名称",
+		openWithSettingsTemplate: "如 cursor://file/{path}",
+		openWithSettingsFamily: "VSCode 系",
+		openWithSettingsFamilyDesc: "该编辑器使用 VSCode 的 URL 协议（支持 SSH 远端打开）",
+		openWithSettingsRemove: "删除",
+		openWithSettingsInvalidHint: "名称或模板（需含 {path} 且以 scheme:// 开头）未填写的编辑器不会出现在菜单中",
+		openInAppDefault: "用默认应用打开",
+		openInAppEmpty: "没有可用于打开它的应用",
+		openInAppFailed: "无法打开：{path}",
+		revealInFileManager: "在文件管理器中显示",
+		filesSelected: "已选择 {count} 项",
+		clearSelection: "取消选择",
+		copyPaths: "复制路径",
+		deleteSelected: "删除所选",
+		deleteSelectedTitle: "删除选中的 {count} 项？",
+		deleteSelectedDesc: "这些文件与文件夹将被永久删除，无法恢复。",
+		newFolder: "新建文件夹",
+		newFolderPlaceholder: "文件夹名称",
+		newFolderInvalid: "文件夹名称无效",
+		newFile: "新建文件",
+		newFilePlaceholder: "文件名称",
+		newFileInvalid: "文件名称无效",
+		newFileExists: "同名文件已存在",
+		sort: "排序",
+		sortByName: "按名称排序",
+		sortByType: "按类型排序",
+		sortFoldersFirst: "文件夹优先",
+		filesTruncated: "该目录条目过多，仅显示前一部分",
+		gitStatusModified: "已修改",
+		gitStatusAdded: "新增",
+		gitStatusDeleted: "已删除",
+		gitStatusUntracked: "未跟踪",
+		gitStatusRenamed: "已重命名",
+		gitStatusConflict: "有冲突",
+		changesClean: "工作区没有变更",
+		changesNewFile: "新文件",
+		changesStageFailed: "暂存失败：{message}",
+		changesOpGone: "该操作已不在会话记录中",
+		newTab: "新建标签页",
+		brokenSymlink: "失效的软链接",
+		close: "关闭",
+		closeOtherTabs: "关闭其他页签",
+		tabUnread: "有未查看的新页面",
+		closeLeftTabs: "关闭左侧页签",
+		closeRightTabs: "关闭右侧页签",
+		closeAllTabs: "关闭全部页签",
+		revealTabInFileManager: "在资源管理器中定位",
+		pinTerminal: "固定终端",
+		pinAgentTerminal: "固定 Agent 终端",
+		pinToWorkspace: "固定到工作区",
+		pinToGlobal: "固定到全局",
+		unpinTerminal: "取消固定",
+		collapseBottomPanel: "折叠底部面板",
+		expandBottomPanel: "展开底部面板",
+		terminalError: "终端连接失败",
+		terminalConnectFailed: "终端多次连接失败",
+		terminalRetry: "重试",
+		terminalWaitBanner: "Agent 正在等待 {needle}",
+		terminalSkipWait: "跳过等待",
+		terminalDepsFailed: "终端依赖 node-pty 加载失败",
+		terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
+		terminalDepsProfile: "（检测到 profile：{profile}）",
+		terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
+		terminalUnavailable: "宿主未提供终端能力",
+		terminalGone: "该终端进程已不存在，可新建一个",
+		terminalNew: "新建终端",
+		preview: "预览",
+		toc: "目录",
+		edit: "编辑",
+		mermaidError: "Mermaid 渲染失败",
+		mermaidZoomIn: "放大",
+		mermaidZoomOut: "缩小",
+		mermaidZoomReset: "重置",
+		mermaidZoomHint: "滚轮缩放 · 拖拽平移 · Esc 关闭",
+		refresh: "刷新",
+		refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
+		closeUnsavedConfirm: "该文件有未保存的编辑，关闭后将丢弃。继续吗？",
+		save: "保存",
+		saved: "已保存",
+		unsaved: "未保存",
+		saveFailed: "保存失败",
+		saveConflict: "文件已在磁盘上被其他来源修改。保存已中止，你的修改仍在编辑器中。",
+		saveConflictReload: "重新载入磁盘内容",
+		previewOnlyNotice: "文件过大（{size}），仅提供分页预览；{limit} 以内可编辑",
+		largeFileEmpty: "（空文件）",
+		pagedLineRange: "第 {from}–{to} 行",
+		loadAll: "加载全部",
+		loadAllProgress: "加载中 {loaded} / {total}",
+		previewRowLimit: "已达 {rows} 行的预览上限，其余请下载查看",
+		jsonlRecordRange: "第 {from}–{to} 条记录",
+		jsonlInvalidRecord: "这一行不是合法 JSON",
+		jsonCopyPath: "复制路径",
+		jsonCopyPrettyJson: "复制为格式化 JSON",
+		jsonCopyCompactJson: "复制为紧凑 JSON",
+		jsonCopyFailed: "复制失败",
+		jsonCollapseNode: "折叠",
+		jsonExpandNode: "展开",
+		jsonCopyButtonTitle: "复制：{action}",
+		searchFind: "查找",
+		searchReplace: "替换",
+		searchNext: "下一个",
+		searchPrevious: "上一个",
+		searchAll: "全选匹配",
+		searchMatchCase: "区分大小写",
+		searchWholeWord: "全词匹配",
+		searchRegexp: "正则表达式",
+		searchReplaceAll: "全部替换",
+		searchCurrentMatch: "当前匹配",
+		searchOnLine: "所在行号",
+		searchReplacedMatches: "已替换 $ 处匹配",
+		searchReplacedMatchOnLine: "已替换第 $ 行的匹配",
+		searchGoToLine: "跳转到行",
+		searchGo: "跳转",
+		binary: "二进制文件，无法预览",
+		loading: "加载中…",
+		error: "加载失败",
+		retry: "重试",
+		notRepo: "当前目录不是 git 仓库",
+		statusTruncated: "变更过多，仅显示前 2000 条",
+		stage: "暂存",
+		unstage: "取消暂存",
+		stageAll: "全部暂存",
+		unstageAll: "全部取消暂存",
+		gitChanges: "更改",
+		gitGraph: "提交图",
+		gitMergeChanges: "合并更改",
+		gitStagedChanges: "暂存的更改",
+		gitMoreActions: "更多操作",
+		gitRepository: "仓库",
+		gitDetached: "游离 HEAD",
+		gitBranchesUnavailable: "没有可用分支",
+		gitNoUpstream: "未设置上游",
+		gitSyncUnavailable: "同步不可用",
+		gitSync: "同步更改",
+		commitPlaceholder: "Message ({shortcut} to commit on \"{branch}\")",
+		commit: "提交",
+		generateCommitMessage: "生成提交信息",
+		generateCommitMessageWith: "生成提交信息（使用 {model}）",
+		generatingCommitMessage: "正在生成提交信息…",
+		committingMessage: "正在提交…",
+		suggestCommitError: "生成提交信息失败",
+		suggestCommitEmpty: "当前没有可提交的改动",
+		commitModelTitle: "提交信息生成模型",
+		commitModelDesc: "选择生成提交信息时使用的模型；默认跟随当前对话所用的模型。",
+		commitModelFollow: "跟随当前对话",
+		commitModelSearchPlaceholder: "搜索：输入 provider/model",
+		commitModelCurrent: "当前：{route}",
+		commitModelInvalid: "请按 provider/model 格式填写",
+		commitModelUnavailable: "当前部署未暴露模型服务，只能跟随当前对话",
+		commitModelEmpty: "未发现可用模型（可在上方直接输入 provider/model）",
+		commitModelDefaultNote: "默认",
+		commitModelRecentNote: "本会话用过",
+		push: "推送",
+		pull: "拉取",
+		pushError: "推送失败",
+		pullError: "拉取失败",
+		branch: "分支",
+		worktree: "工作树",
+		checkoutError: "切换分支失败",
+		history: "历史",
+		changes: "Git",
+		changesGitLens: "Git",
+		graphAllBranches: "所有分支",
+		graphBranchFilter: "分支筛选",
+		graphEmpty: "暂无提交",
+		graphLoadError: "加载提交历史失败",
+		graphStale: "提交历史已变化，请刷新",
+		graphDetails: "提交详情",
+		graphParents: "父提交",
+		graphLoadMore: "加载更多",
+		changesSessionLens: "本轮文件",
+		changesFilterAll: "全部",
+		changesFilterEmpty: "没有此类操作",
+		changesOpenDiffTab: "在独立页签中打开",
+		changesDiffTab: "差异",
+		changesContentTab: "内容",
+		changesNoCommit: "未选择提交",
+		changesNoContent: "此视图暂无内容",
+		changesReadNoDiff: "读取没有差异",
+		changesClosePreview: "关闭预览",
+		changesResizePreview: "调整预览高度",
+		changesLoadError: "会话文件记录暂不可用",
+		staged: "已暂存",
+		unstaged: "未暂存",
+		cancel: "取消",
+		diffEmpty: "没有文本差异",
+		diffLoadError: "加载差异失败",
+		diffBinary: "二进制",
+		diffAdded: "新增",
+		diffDeleted: "删除",
+		diffRenamed: "重命名",
+		diffExpand: "展开其余 {count} 行",
+		discard: "放弃更改",
+		discardTitle: "放弃更改",
+		discardDesc: "将丢弃「{path}」的工作区修改（不可恢复）。",
+		viewCommitDiff: "查看提交差异",
+		copyShortHash: "复制短哈希",
+		copyFullHash: "复制完整哈希",
+		copySubject: "复制提交信息",
+		revertCommit: "还原此提交",
+		revertTitle: "还原此提交",
+		revertDesc: "将在当前分支创建一个反转「{subject}」的新提交。",
+		cherryPickCommit: "捡取此提交",
+		cherryPickTitle: "捡取此提交",
+		cherryPickDesc: "将「{subject}」的更改应用到当前分支。",
+		timeJustNow: "刚刚",
+		timeMinutesAgo: "{n} 分钟前",
+		timeHoursAgo: "{n} 小时前",
+		timeYesterday: "昨天",
+		loadMore: "加载更多",
+		produced: "本次产出",
+		showInFolder: "在文件夹中显示",
+		disconnected: "终端连接断开，重连中…",
+		exited: "终端进程已退出",
+		noSession: "选择一个会话以使用侧边栏",
+		pluginNotLoaded: "插件未加载，标签页暂不可用：",
+		parent: "上级目录",
+		copied: "已复制",
+		copy: "复制",
+		openEditor: "打开编辑器",
+		referenceFile: "@文件",
+		addToConversation: "添加到对话",
+		copyRelative: "复制相对地址",
+		copyAbsolute: "复制绝对地址",
+		rename: "重命名",
+		renameInvalid: "名称不能为空，且不能包含路径分隔符。",
+		delete: "删除",
+		deleteTitle: "删除「{name}」？",
+		deleteDescFile: "将永久删除该文件，此操作不可撤销。",
+		deleteDescDir: "将永久删除该目录及其全部内容，此操作不可撤销。",
+		dismiss: "关闭",
+		download: "下载",
+		uploadFiles: "上传文件",
+		uploadFolder: "上传文件夹",
+		uploadHere: "上传到此处",
+		uploadDropHint: "拖拽文件/文件夹到此处上传",
+		uploadDropChat: "拖放到聊天区：添加图片到对话",
+		uploadTo: "上传到 {dir}",
+		uploadingTo: "正在上传到 {dir}…",
+		uploadProgress: "正在上传 {done}/{total}: {name}",
+		uploadDone: "已上传 {count} 个文件",
+		uploadFailed: "上传失败：{error}",
+		uploadFailedUnknown: "未知错误",
+		uploadTooLarge: "文件过大，超出上传上限",
+		uploadCancelled: "上传已取消",
+		settingsNav: "侧边卡片",
+		settingsIntro: "管理侧边卡片的显示内容与默认行为",
+		settingsPopupDesc: "为「{feature}」配置相关选项",
+		settingsDone: "完成",
+		settingsOpenToolsTitle: "为模型注入侧边栏打开工具",
+		settingsOpenToolsDesc: "开启后，模型可通过 sidebar_open 工具在侧边栏主动打开文件、文件夹和 HTTP(S) 网页（默认关闭）",
+		settingsCustomCssTitle: "自定义 CSS",
+		settingsCustomCssPlaceholder: "/* 例：底部工作台面板换用等宽字体 */\n[data-dsh-bottom-panel] {\n  font-family: var(--dsw-font-mono);\n}",
+		settingsSaveFailed: "保存失败",
+		settingsConflict: "设置已被其他窗口修改，请重试",
+		binaryNoPreview: "此文件类型不支持预览",
+		downloadToView: "下载查看",
+		settingsSubagentTitle: "检测到子代理时自动激活任务管理页",
+		settingsSubagentDesc: "当前会话产生新的子代理时，在侧边栏创建任务管理页并标记未读红点；若侧边栏正展开在其他页面则不抢焦点，点红点即可前往；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后不再自动创建",
+		settingsJobsTitle: "有新后台任务时自动激活任务管理页",
+		settingsJobsDesc: "当前会话出现新的后台任务时，在侧边栏创建任务管理页并标记未读红点（每个新任务都会触发）；若侧边栏正展开在其他页面则不抢焦点，点红点即可前往；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后不再自动创建",
+		settingsToolsTitle: "为模型注入终端工具",
+		settingsToolsDesc: "开启后，模型可通过 terminal_create 等 8 个工具创建并操作侧边栏终端（默认关闭）",
+		settingsBottomTerminalTitle: "底部面板首次展开自动开终端",
+		settingsBottomTerminalDesc: "每次会话中第一次展开底部面板时，尝试在底部面板自动打开一个新终端标签（终端数量上限仍会限制；默认开启）",
+		settingsFontFamilyTitle: "终端字体",
+		settingsFontFamilyDesc: "自定义终端字体族（CSS font-family，如 \"JetBrains Mono\", monospace；留空跟随主题等宽字体）",
+		settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
+		settingsFontSizeTitle: "终端字号",
+		settingsFontSizeDesc: "终端字号（9–32，默认 13）",
+		settingsShellTitle: "Shell 路径",
+		settingsShellDesc: "UI 与模型终端启动的 shell（绝对路径或可执行名）。留空按既有顺序解析：yaml 的 config.shell → $SHELL / 登录 shell / Windows 的 powershell.exe。对之后打开的终端生效",
+		settingsShellPlaceholder: "如 /bin/zsh（留空自动解析）",
+		settingsShellArgsTitle: "Shell 参数",
+		settingsShellArgsDesc: "显式 shell 启动参数，空格分隔；非空时完全替换默认参数（与 yaml 的 shellArgs 契约一致）",
+		settingsShellArgsPlaceholder: "如 -l（留空用默认参数）",
+		settingsTabsTitle: "侧边栏内容",
+		settingsViewersTitle: "文件预览",
+		settingsMobileTitle: "手机",
+		settingsMobileNoAutoOpenTitle: "窄屏时不自动弹出",
+		settingsMobileNoAutoOpenDesc: "在手机 / 窄屏下，新的子代理或后台任务都不再自动切到任务页（页内仍可手动打开）",
+		settingsMobileTreeTitle: "窄屏时任务页默认树状图",
+		settingsMobileTreeDesc: "手机 / 窄屏下任务页默认用经典树，而不是工作流图；页内切换仍可临时改成图",
+		settingsGeneralTitle: "常规",
+		settingsPopup: "功能设置",
+		settingsViewerCatchAll: "兜底：任意文件",
+		viewerMarkdown: "Markdown",
+		viewerCode: "代码",
+		viewerHtml: "HTML",
+		viewerJsonl: "JSONL",
+		browser: "浏览器",
+		browserPlaceholder: "输入网址，例如 example.com",
+		browserGo: "前往",
+		browserBack: "后退",
+		browserForward: "前进",
+		browserStart: "输入网址开始浏览（沙箱模式）",
+		browserBlockedScheme: "已阻止：仅支持 http/https 链接",
+		browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
+		browserInvalid: "无效的网址",
+		htmlNoSandboxWarning: "沙箱已关闭：此 HTML 与界面同源，可读取会话文件与内部接口（可在设置中恢复）",
+		sandboxStatusOn: "沙箱模式：已启用 · 页面无法访问界面数据与本地文件，登录态与第三方 Cookie 可能不可用",
+		sandboxUnlock: "临时解锁（不安全）",
+		sandboxRestore: "恢复沙箱",
+		settingsHtmlDefaultUnsafeTitle: "HTML 预览默认以非沙箱模式打开（不安全）",
+		settingsHtmlDefaultUnsafeDesc: "开启后，每次打开 HTML 文件时预览默认处于非沙箱状态（与界面同源，可读取会话文件与内部接口）；可在状态行临时恢复沙箱",
+		settingsHtmlSandboxTitle: "关闭 HTML 预览沙箱（不安全）",
+		settingsHtmlSandboxDesc: "关闭后，预览的 HTML 将与界面同源运行，可读取会话文件、本地存储并调用内部接口。仅对完全可信的文件开启",
+		settingsEditorGitGutterTitle: "编辑器未提交变更提示",
+		settingsEditorGitGutterDesc: "在代码编辑器的行号槽用颜色标出未提交的变更，并在鼠标悬停时显示该行 blame（作者、时间与提交摘要）；关闭后编辑器不显示任何变更标记",
+		settingsBrowserSandboxTitle: "关闭浏览器沙箱（不安全）",
+		settingsBrowserSandboxDesc: "关闭后，访问的任何网站都将与界面同源运行，可读取会话数据并冒充你的登录状态。仅对完全可信的站点开启",
+		settingsBrowserLoopbackTitle: "允许访问的本机地址",
+		settingsBrowserLoopbackDesc: "逗号分隔的本地回环地址白名单（如 localhost:5174 或 127.0.0.1:8080），侧边栏浏览器可访问这些本地服务；默认留空则本机地址全部拦截。沙箱隔离仍然生效，页面无法读取界面数据",
+		settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
+		browserOpenExternal: "在浏览器中打开",
+		browserEmbedBlocked: "{host} 拒绝了嵌入请求",
+		browserEmbedBlockedDesc: "该站点通过 X-Frame-Options / frame-ancestors 禁止在其它页面中显示，无法在侧边栏内加载。可在浏览器中直接打开",
+		browserEmbedAnyway: "仍然加载",
+		subagent: "任务管理",
+		subagentMainAgent: "主代理",
+		subagentEmpty: "暂无子代理",
+		subagentEmptyDesc: "当前主代理派生的子代理将显示在这里",
+		subagentInactive: "空闲",
+		subagentModeOneShot: "一次性",
+		subagentModeContinuable: "可续接",
+		subagentCount: "{count} 个子代理",
+		subagentCountRunning: "{count} 个子代理 · {running} 运行中",
+		subagentThinking: "思考中…",
+		sideChat: "侧边对话(beta)",
+		sideChatNew: "新建对话",
+		sideChatUntitled: "新对话",
+		sideChatEmpty: "暂无侧边对话",
+		sideChatEmptyDesc: "每个侧边对话是标签栏里的独立 Tab，继承当前会话的上下文运行，不会进入主会话",
+		sideChatCreating: "正在创建侧边对话…",
+		sideChatRetry: "重试",
+		sideChatThreads: "切换线程 / 新建",
+		sideChatSave: "保存为新会话",
+		sideChatSaveTitle: "把该线程提升为顶层会话，出现在主会话列表中",
+		sideChatArchive: "归档这条侧边对话（在会话列表的「显示已归档」里可找回）",
+		sideChatArchiveRunning: "该线程正在运行，停止后才能归档",
+		sideChatSaved: "已保存为新会话",
+		sideChatNoTurn: "至少完成一轮对话后才能保存",
+		sideChatPendingDrop: "最后一条未完成的追问不会包含在新会话中",
+		sideChatQueued: "排队中",
+		sideChatSending: "发送中…",
+		sideChatDequeue: "从队列移除",
+		sideChatRunError: "运行失败：{message}",
+		sideChatModel: "模型",
+		sideChatModelInherit: "继承主对话（宿主未提供模型目录）",
+		sideChatReasoning: "推理强度",
+		sideChatFirstPlaceholder: "输入第一个问题，已继承当前会话上下文…",
+		sideChatComposerPlaceholder: "追问…",
+		sideChatThinking: "正在深入…",
+		sideChatThink: "思考过程",
+		sideChatInjection: "已注入上下文",
+		sideChatSend: "发送",
+		sideChatCancelTitle: "中止当前回合（保留队列）",
+		sideChatError: "侧边对话出错：{message}",
+		sideChatTurnUsage: "输入 {input} tok · 输出 {output} tok",
+		sideChatBlockCollapse: "收起",
+		sideChatBlockCollapseAria: "收起",
+		sideChatBlockExpand: "展开 {hidden} 行",
+		sideChatBlockExpandAria: "展开其余 {hidden} 行",
+		sideChatBlockSignal: "信号终止：{signal}",
+		sideChatBlockExitCode: "退出码 {code}",
+		sideChatBlockNoExitCode: "已结束（无退出码）",
+		sideChatBlockRunning: "运行中",
+		sideChatBlockFailed: "失败",
+		sideChatBlockDone: "完成",
+		sideChatBlockNoOutput: "（无输出）",
+		sideChatBlockCommandLine: "命令第 {line} 行",
+		codeBlockTitle: "代码块",
+		codeBlockWrap: "自动换行",
+		codeBlockUnwrap: "取消自动换行",
+		sideChatBlockWindow: "共 {total} 行 · 显示 {shown} 行",
+		sideChatConnDisconnected: "连接已断开，点击立即重连",
+		sideChatConnConnecting: "正在重连…",
+		sideChatConnRecovered: "连接已恢复",
+		sideChatConnReconnectAction: "立即重连",
+		sideChatConnRestartAction: "重新发起连接",
+		jobs: "后台任务",
+		jobsCount: "{count} 个后台任务",
+		jobsCountRunning: "{count} 个后台任务 · {running} 运行中",
+		jobStatusRunning: "运行中",
+		jobStatusStopping: "终止中",
+		jobStatusCompleted: "已完成",
+		jobStatusKilled: "已终止",
+		jobStatusFailed: "失败",
+		jobDurationSeconds: "{seconds} 秒",
+		jobDurationMinutes: "{minutes} 分 {seconds} 秒",
+		jobDurationHours: "{hours} 小时 {minutes} 分",
+		jobViewOutput: "查看输出",
+		jobNoOutput: "暂无输出",
+		jobNotReadYet: "等待模型读取该任务的输出（模型执行 job_output 后，输出会显示在这里）",
+		jobOutputTruncated: "输出过长，已截断显示",
+		jobOutputError: "输出读取失败",
+		jobKill: "终止",
+		jobKillConfirm: "再次点击确认终止",
+		jobKillError: "终止失败",
+		tasksViewGraph: "工作流图",
+		tasksViewTree: "树状图",
+		tasksViewSwitchToGraph: "切换为工作流图",
+		tasksViewSwitchToTree: "切换为树状图",
+		settingsViewModeTitle: "任务管理默认视图",
+		settingsViewModeDesc: "任务管理页打开时的默认展示方式（页内仍可临时切换）",
+		settingsViewModeGraph: "工作流图",
+		settingsViewModeGraphDesc: "分层节点图，可缩放平移",
+		settingsViewModeTree: "树状图",
+		settingsViewModeTreeDesc: "经典缩进树，键盘可导航",
+		tasksFoldIdleGroup: "{count} 个待命",
+		tasksFoldIdle: "{count} 待命",
+		tasksFoldCompleted: "✓ {count} 已完成",
+		tasksFoldOne: "收进已完成聚合",
+		tasksFoldExpand: "展开已完成的节点",
+		tasksFoldCollapse: "折叠已完成的节点",
+		tasksZoomIn: "放大",
+		tasksZoomOut: "缩小",
+		tasksZoomFit: "适应画布",
+		tasksNodeJump: "查看转录",
+		tasksNodeDetail: "节点详情",
+		workflowRun: "工作流",
+		tasksNodeState: "状态",
+		tasksFoldExpandShort: "展开",
+		tasksTreeCollapseAll: "全部收起",
+		tasksTreeExpandAll: "全部展开",
+		tasksTreeCollapseRow: "收起子级",
+		tasksTreeExpandRow: "展开子级",
+		tasksNodeTokens: "Token 用量",
+		tasksNodeDuration: "耗时",
+		tasksNodeOpenMain: "在主窗口中打开",
+		tasksNodeMode: "模式",
+		tasksNodeModel: "模型",
+		tasksNodeTeamRole: "团队角色",
+		tasksStateRunning: "运行中",
+		tasksStateIdle: "待命",
+		tasksStateProvisioning: "部署中",
+		tasksStateDone: "已完成",
+		tasksStateError: "出错",
+		tasksKindSubagent: "子代理",
+		tasksKindTeammate: "成员",
+		tasksKindWorkflow: "工作流",
+		taskWindowCreate: "新建任务",
+		taskWindowDetail: "任务详情",
+		teamBoard: "团队任务板",
+		teamChip: "团队 {members} 成员 · {tasks} 任务",
+		teamTasksEmpty: "暂无共享任务",
+		teamTaskCreate: "新建任务",
+		teamTaskSubject: "标题",
+		teamTaskDescription: "描述",
+		teamTaskOwner: "负责人",
+		teamTaskUnowned: "未认领",
+		teamTaskPending: "待办",
+		teamTaskInProgress: "进行中",
+		teamTaskCompleted: "已完成",
+		teamTaskBlocked: "阻塞",
+		teamTaskClaim: "认领",
+		teamTaskComplete: "完成",
+		teamTaskReopen: "重开",
+		teamTaskDelete: "删除",
+		teamTaskDeleteConfirm: "确认删除",
+		teamTaskEdit: "编辑",
+		teamTaskSave: "保存",
+		teamTaskCancel: "取消",
+		teamTaskConflict: "任务已被他人修改，已刷新",
+		teamTaskError: "操作失败：{message}",
+		teamTaskDeleted: "已删除",
+		teamTaskActions: "任务操作",
+		teamTaskDetail: "任务详情",
+		teamTaskNoDescription: "暂无描述，点击「编辑」补充",
+		teamTaskBlockedBy: "被阻塞",
+		teamTaskSubjectPlaceholder: "一句话说明要做什么",
+		teamTaskDescriptionPlaceholder: "补充说明（可选）",
+		teamFilterAll: "全部",
+		tasksNodeTasks: "共享任务",
+		jobCopyOutput: "复制输出",
+		jobCopied: "已复制",
+		jobFollowTail: "跟随最新",
+		jobDragHint: "拖动浮窗",
+		workflowRunning: "进行中",
+		workflowCompleted: "已完成",
+		workflowCancelled: "已取消",
+		workflowFailed: "失败",
+		workflowPhaseUnnamed: "未命名阶段",
+		workflowMembers: "{done}/{total} 成员",
+		jobsAutoCollapsed: "代理较多，已自动折叠",
+		contextDiagnostics: "上下文诊断",
+		contextDiagnosticsTarget: "当前会话",
+		contextDiagnosticsFailed: "无法打开「{label}」的上下文诊断",
+		contextDiagnosticsUnavailable: "dsh-context 的「上下文」页面不可用（未安装或未注册）",
+		contextDiagnosticsNavigation: "无法定位到该会话",
+		contextDiagnosticsTimeout: "打开超时，请重试",
+		contextDiagnosticsOpenFailed: "页面打开失败",
+		contextDiagnosticsDismiss: "关闭提示",
+		catalogLoadFailed: "{count} 个分支加载失败",
+		addPluginsTabCard: "添加 Tab 插件",
+		addPluginsTabCardDesc: "注册新的侧边栏页面",
+		addPluginsViewerCard: "添加预览插件",
+		addPluginsViewerCardDesc: "注册新的文件类型预览",
+		addPluginsTabDesc: "侧边栏页面（Tab）可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
+		addPluginsViewerDesc: "文件预览器可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
+		addPluginsBrowseMore: "在 GitHub 上浏览更多插件（topic: dsh-better-sidebar）",
+		addPluginsSearch: "搜索插件名称 / 描述…",
+		addPluginsNoMatch: "没有匹配的插件",
+		addPluginsRecommended: "推荐插件",
+		addPluginsEmpty: "暂未收录插件，欢迎在 GitHub topic 下发布你的插件",
+		openPlugin: "跳转",
+		copyInstall: "复制安装命令",
+		pluginMdExportDesc: "在 better-sidebar 的 Markdown 工具栏上新增「导出」按钮：一键把当前 .md 渲染为独立 HTML（表格/代码块/Mermaid 图表内联，布局跟随预览主题）直接保存到同目录，或通过打印对话框导出为 PDF",
+		pluginAgentPersonaDesc: "按工作区或会话分发 system prompt 人设：一条人设可同时作用于多个工作区目录与会话，支持完全一致 / 前缀 / 包含 / 正则，越具体越优先，可标一条默认人设兜底；在设置页与对话页「人设」Tab 里管理，改完下一条消息生效",
+		pluginOfficeDesc: "为 better-sidebar 编辑器提供 Office 三件套预览（.docx / .xlsx / .pptx），把重型 Office 渲染库拆出主包、按需安装",
+		pluginFlowglassDesc: "实时会话流程图：三列泳道展示用户、助手与工具调用，支持并行分组、子代理支线、逐层钻取和实时状态；安装 better-sidebar 后注册原生「流镜」Tab，未安装时保留独立抽屉",
+		pluginGitForgeDesc: "better-sidebar「Git 凭据」Tab：GitHub/Gitea 等 Forge 账号库 + 按项目授权 + push 策略硬拦；token 仅存本地 secrets，不进模型上下文；提供只读 GitForge 工具与 agent HTTPS credential helper",
+		pluginGithubWorkbenchDesc: "better-sidebar「GitHub 工作台」Tab：远端仓库目录树 + Issues / Pull requests / Actions 页签，读之外支持新建 Issue/PR、评论、编辑、关闭重开、squash·merge·rebase 合并（强确认）与重跑/取消 CI；仓库弹层自动拉取有权限列表并支持公开仓搜索；未装 better-sidebar 时自动降级为独立右侧面板",
+		pluginIdeGitDesc: "better-sidebar「Git」Tab：分支树（ahead/behind 角标、worktree 占用标记）、提交图谱与文本/分支/作者/日期/路径筛选、逐文件行级 diff、变更分组与提交框，外加合并、变基、优选、重置、贮藏与标签操作；破坏性动作二次确认，删除与丢弃工作区都可撤回。未装 better-sidebar 时自动注册到 DSH 原生右侧栏，可单独使用",
+		pluginSuhuangScrollDesc: "把本地苏黄共阅 Runtime 接入 DSH 设置与 better-sidebar，支持模型配置、连接测试和连续阅卷控制；使用前需安装 Suhuang Scroll Runtime 与 dsh-better-sidebar",
+		pluginBetterOverleafDesc: "better-sidebar 的 Overleaf 标签页：直连 CDP 浏览器登录（支持第三方 Chromium），项目列表/切换，<workspace>/overleaf/ 本地 git 镜像，git 双向同步（API 只读兜底），文件预览走侧边栏工作台",
+		pluginSentinelDesc: "条件驱动的 agent 唤醒系统：文件/进程/端口/HTTP/命令/webhook 传感器，条件达成自动唤醒休眠会话；注册「哨兵」Tab 展示服务器全局监控表",
+		pluginServerDeckDesc: "服务器卡片仪表盘：每台服务器一张卡片，展示在线状态、OS、运行时长、CPU/内存/磁盘用量与延迟；点卡片进入 xterm.js 交互终端，支持 ~/.ssh/config 一键导入（自动跳过 Git 托管别名）；安装 better-sidebar 后注册原生「服务器」Tab，未安装时保留独立抽屉",
+		pluginSidebarQaDesc: "基于 better-sidebar 的划选提问tab分页: 对话划选 → 右侧面板提问 → 同工作区独立追问会话（❓追问·主题）：快速无思考模型压缩主对话上下文后与引文一起注入，不打断主对话；追问可嵌套、可继续、可归档",
+		pluginSidenoteDesc: "Codex 风格侧边聊天与划选注释：从当前会话 fork 出独立侧边会话（归档隐藏、多实例并存、/side 命令、刷新/重启后恢复、模型跟随主会话）；assistant 消息划选 → 编号角标 + 注解编辑器 →「N 条注释」chip 随消息发出，也可直接进入侧边聊天提问",
+		pluginSshTunnelDesc: "better-sidebar「SSH 隧道」Tab：多机主机清单 + 按项目授权 + 密钥本地保管；模型工具 SSHManager（exec/SFTP/会话策略）；中央交互终端与双栏 SFTP",
+		pluginVideoPreviewDesc: "在 better-sidebar 编辑器内联预览视频文件（.mp4/.webm/.mov/.mkv/.avi 等），自带支持 HTTP Range（206）的 /video 宿主路由，无需整份下载即可播放，进度条可随意拖动",
+		pluginAudioDesc: "在 better-sidebar 编辑器内联预览音频文件（.mp3/.wav/.flac/.ogg/.m4a/.aac/.opus），自带波形播放器与实时频谱：可缩放波形、点击/拖动定位、A-B 循环、声道切换、实时频谱与全曲频谱图；媒体路由支持 HTTP Range，任意大小都能拖动进度",
+		pluginCodeNavDesc: "代码预览导航：按文件类型自动识别语言并高亮语法，符号大纲（类/方法/变量筛选 + 一键跳转），文件内查找（全部匹配高亮、上/下一处、区分大小写），接管 better-sidebar 的代码文件预览",
+		pluginDevGitGraphDesc: "vscode-git-graph 忠实移植的提交图 Tab：唯一入口为 better-sidebar 原生 tab，自动绑定会话工作区，checkout/merge/rebase/push/tag/stash 全套 git 操作，明暗主题跟随，点文件 diff 直接打开内置 DiffTab；需先安装 dsh-better-sidebar",
+		pluginDocsPanelDesc: "DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）",
+		pluginTylinaDesc: "Typst 文档编辑工具：与当前会话共用工作区，WYSIWYG 编辑排版 Typst 文档，可用于编写和排版论文、报告、试卷、简历、图表、海报、乐谱和 PPTX 格式导出的 Slides",
+		pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 better-sidebar 时自动注册 Tab，没装则退回浮动浮窗",
+		pluginBilingualReaderDesc: "在 DSH 侧边栏读论文 PDF：原生 PDF 显示，选中一段文字即用大模型划词翻译，结合上下文、完全隔离主对话，只作阅读辅助",
+		pluginDshMemoryDeltaDesc: "跨会话记忆：只注入变化的部分（无变化时零注入），带到期复核提醒、相关度排序检索和侧边栏页签。",
+		pluginAgentPersonaName: "dsh-agent-persona Agent 人设",
+		pluginSentinelName: "dsh-sentinel 唤醒系统",
+		pluginFileTraceName: "dsh-file-trace 文件追踪",
+		pluginFileTraceDesc: "记录模型读取/写入/编辑的每一个文件，按文件分组查看内容与逐行 diff；含 Markdown 阅读模式与敏感内容脱敏，未装 better-sidebar 时为独立浮动窗",
+		pluginMnemeName: "dsh-mneme 记忆库",
+		pluginMnemeDesc: "跨会话记忆引擎：autoDream 后台巩固、会话总结与用户画像，SQLite + 可人工编辑的 Markdown 镜像，完全离线私有；安装 better-sidebar 后注册「记忆库」Tab（记忆/实体/状态/设置四视图），未安装时保留侧边栏独立面板",
+		pluginEgoBrowserName: "ego-browser Agent 浏览器",
+		pluginBetterOverleafName: "dsh-better-overleaf Overleaf 标签页",
+		pluginDocsPanelName: "dsh-docs-panel 全局文档",
+		pluginTylinaName: "dsh-tylina Typst 文档编辑器",
+		pluginFlowglassName: "dsh-flowglass 流镜",
+		pluginGitForgeName: "dsh-git-forge Git 凭据",
+		pluginGithubWorkbenchName: "dsh-github-workbench GitHub 工作台",
+		pluginIdeGitName: "dsh-ide-git Git 工具窗口",
+		pluginSidebarQaName: "dsh-sidebar-qa 划选追问",
+		pluginSidenoteName: "dsh-sidenote 侧边聊天",
+		pluginServerDeckName: "dsh-server-deck 服务器甲板",
+		pluginSuhuangScrollName: "dsh-suhuang-scroll 苏黄共阅",
+		pluginSshTunnelName: "dsh-ssh-tunnel SSH 隧道",
+		pluginBilingualReaderName: "dsh-bilingual-reader 双语阅读",
+		pluginOfficeName: "Office 预览插件",
+		pluginMdExportName: "Markdown 导出插件",
+		pluginCodeNavName: "代码预览导航",
+		pluginVideoPreviewName: "视频预览插件",
+		pluginAudioName: "音频预览插件",
+		pluginTurnOutlineName: "dsh-turn-outline 轮次轨迹",
+		pluginTurnOutlineDesc: "把会话按用户轮次折叠成「输入 + 工具步骤 + 输出」摘要，点击任意步骤一键跳回对话原位；零 LLM 调用、只读",
+		pluginDshMemoryDeltaName: "dsh-memory-delta 记忆"
+	};
+	/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
+	const en = {
+		files: "Files",
+		guideDescFiles: "Browse the workspace tree; click a file to preview or edit",
+		guideDescGit: "Git changes and this session's file edits, in one tab",
+		guideDescSubagent: "Workflow graph, team task board, and background jobs, live",
+		guideDescSidechat: "An independent follow-up thread inheriting this session's context",
+		guideDescTerminal: "A real shell (xterm + pty) with reconnect",
+		guideDescBrowser: "An embedded browser that can take over chat links",
+		changesSessionEmpty: "No file operations in this session yet",
+		changesRead: "Read",
+		changesMdReading: "Reading",
+		changesMdRaw: "Raw",
+		changesHtmlRender: "Render",
+		changesHtmlRaw: "Raw",
+		changesWrite: "Write",
+		changesEdit: "Edit",
+		changesRunning: "running",
+		changesError: "error",
+		changesRedactOn: "Redaction on: secrets render as [REDACTED]; click to disable (at your own risk)",
+		changesRedactOff: "Redaction off: file content renders verbatim; click to enable",
+		changesRedactOnLabel: "Redacting",
+		changesRedactOffLabel: "Redaction off",
+		changesRedactBanner: "Redacted",
+		changesFold: "{count} lines…click to expand",
+		changesFoldLoading: "Expanding…",
+		changesFoldUnavailable: "Context unavailable",
+		changesContext: "context",
+		changesPriorUnknown: "Prior content is outside the loaded window; shown as all-added",
+		explorer: "Explorer",
+		terminal: "Terminal",
+		editor: "Editor",
+		editorExplorer: "File open behavior",
+		editorExplorerDesc: "Controls how files open",
+		editorExplorerMerged: "Merged",
+		editorExplorerMergedDesc: "Files switch in place in the same window; new windows start with the tree open",
+		editorExplorerSplit: "Separate",
+		editorExplorerSplitDesc: "Path-less windows are the standalone explorer (tree only); each file opens its own window (tree docked, closed by default)",
+		explorerExclude: "Exclude patterns",
+		explorerExcludeDesc: "Remove matching entries from the file tree and search entirely (VS Code files.exclude style; * and ? wildcards, a doublestar-slash head matches any depth); excluded entries never block the breadcrumb fold",
+		explorerExcludePlaceholder: "Add a pattern, e.g. node_modules, *.log, **/.git",
+		explorerExcludeAdd: "Add",
+		explorerExcludeRemove: "Remove",
+		editorTreeToggle: "File tree panel",
+		editorPathPlaceholder: "File path (relative to the session directory or absolute), Enter to open",
+		editorSearchPlaceholder: "Search files by name…",
+		editorSearchNoResults: "No matching files",
+		editorSearchTruncated: "Too many results — showing a partial list",
+		editorEmptyHint: "Pick a file from the tree panel or the path input above to start previewing",
+		openFileNewTab: "Open in New Tab",
+		openFileSide: "Open to the Side",
+		settingsOpenWithPluginTitle: "Always show the plugin’s own Open with targets",
+		settingsOpenWithPluginDesc: "By default the plugin’s own targets (file manager / VS Code / Cursor / Zed / custom editors, SSH remotes) show only when the host reports no local associated application; turn this on to keep both side by side",
+		zipDownload: "Zip and download",
+		zipDownloadCount: "Zip and download ({count} items)",
+		zipFailed: "Archive failed: {message}",
+		archiveToolMissing: "No archive command is available on this system (neither zip nor tar), so the selection cannot be packed for download",
+		openWithMenu: "Open with",
+		openWithSshSuffix: " (SSH)",
+		pinOpenWith: "Pin to menu",
+		unpinOpenWith: "Unpin",
+		openWithExplorer: "File Manager",
+		openWithVscode: "VS Code",
+		openWithCursor: "Cursor",
+		openWithZed: "Zed",
+		openWithSettingsSshTitle: "SSH remote host",
+		openWithSettingsSshDesc: "Empty = local workspace; with a user@host or SSH alias, VSCode-family openers switch to the vscode-remote/ssh-remote protocol and the File Manager / Zed / non-VSCode-family custom editors are hidden from the menu",
+		openWithSettingsSshPlaceholder: "user@host or SSH alias",
+		openWithSettingsCustomTitle: "Custom editors",
+		openWithSettingsCustomDesc: "Name + URL template ({path} placeholder) + VSCode-family flag; in remote mode only VSCode-family editors can open a remote path",
+		openWithSettingsAdd: "Add",
+		openWithSettingsName: "Name",
+		openWithSettingsTemplate: "e.g. cursor://file/{path}",
+		openWithSettingsFamily: "VSCode-family",
+		openWithSettingsFamilyDesc: "This editor speaks the VSCode URL dialect (supports SSH-remote opens)",
+		openWithSettingsRemove: "Remove",
+		openWithSettingsInvalidHint: "Editors with a missing name or a template without {path} / scheme:// are not shown in the menu",
+		openInAppDefault: "Open with default app",
+		openInAppEmpty: "No application can open it",
+		openInAppFailed: "Could not open: {path}",
+		revealInFileManager: "Reveal in File Manager",
+		filesSelected: "{count} selected",
+		clearSelection: "Clear selection",
+		copyPaths: "Copy paths",
+		deleteSelected: "Delete selected",
+		deleteSelectedTitle: "Delete {count} selected items?",
+		deleteSelectedDesc: "These files and folders will be permanently deleted. This cannot be undone.",
+		newFolder: "New folder",
+		newFolderPlaceholder: "Folder name",
+		newFolderInvalid: "Invalid folder name",
+		newFile: "New file",
+		newFilePlaceholder: "File name",
+		newFileInvalid: "Invalid file name",
+		newFileExists: "A file with this name already exists",
+		sort: "Sort",
+		sortByName: "Sort by name",
+		sortByType: "Sort by type",
+		sortFoldersFirst: "Folders first",
+		filesTruncated: "This folder has too many entries; only the first ones are shown",
+		gitStatusModified: "Modified",
+		gitStatusAdded: "Added",
+		gitStatusDeleted: "Deleted",
+		gitStatusUntracked: "Untracked",
+		gitStatusRenamed: "Renamed",
+		gitStatusConflict: "Conflicted",
+		changesClean: "No changes in the working tree",
+		changesNewFile: "New file",
+		changesStageFailed: "Staging failed: {message}",
+		changesOpGone: "This operation is no longer in the session log",
+		newTab: "New tab",
+		brokenSymlink: "Broken symlink",
+		close: "Close",
+		closeOtherTabs: "Close Other Tabs",
+		tabUnread: "There is a new page you have not viewed",
+		closeLeftTabs: "Close Tabs to the Left",
+		closeRightTabs: "Close Tabs to the Right",
+		closeAllTabs: "Close All Tabs",
+		revealTabInFileManager: "Reveal in File Manager",
+		pinTerminal: "Pin Terminal",
+		pinAgentTerminal: "Pin Agent Terminal",
+		pinToWorkspace: "Pin to Workspace",
+		pinToGlobal: "Pin Globally",
+		unpinTerminal: "Unpin",
+		collapseBottomPanel: "Collapse bottom panel",
+		expandBottomPanel: "Expand bottom panel",
+		terminalError: "Terminal connection failed",
+		terminalConnectFailed: "Terminal failed to connect repeatedly",
+		terminalRetry: "Retry",
+		terminalWaitBanner: "Agent is waiting for {needle}",
+		terminalSkipWait: "Skip wait",
+		terminalDepsFailed: "Terminal dependency node-pty failed to load",
+		terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
+		terminalDepsProfile: " (detected profile: {profile})",
+		terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
+		terminalUnavailable: "The host provides no terminal capability",
+		terminalGone: "That terminal no longer exists — start a new one",
+		terminalNew: "New terminal",
+		preview: "Preview",
+		toc: "Table of contents",
+		edit: "Edit",
+		mermaidError: "Mermaid render failed",
+		mermaidZoomIn: "Zoom in",
+		mermaidZoomOut: "Zoom out",
+		mermaidZoomReset: "Reset",
+		mermaidZoomHint: "Scroll to zoom · drag to pan · Esc to close",
+		refresh: "Refresh",
+		refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
+		closeUnsavedConfirm: "This file has unsaved edits. Closing the tab will discard them. Continue?",
+		save: "Save",
+		saved: "Saved",
+		unsaved: "Unsaved",
+		saveFailed: "Save failed",
+		saveConflict: "The file changed on disk since it was loaded. The save was stopped; your edits are still in the editor.",
+		saveConflictReload: "Reload from disk",
+		previewOnlyNotice: "File is too large ({size}) — paged preview only; editable up to {limit}",
+		largeFileEmpty: "(empty file)",
+		pagedLineRange: "Lines {from}–{to}",
+		loadAll: "Load all",
+		loadAllProgress: "Loading {loaded} / {total}",
+		previewRowLimit: "Preview is capped at {rows} rows — download the rest",
+		jsonlRecordRange: "Records {from}–{to}",
+		jsonlInvalidRecord: "This line is not valid JSON",
+		jsonCopyPath: "Copy path",
+		jsonCopyPrettyJson: "Copy as formatted JSON",
+		jsonCopyCompactJson: "Copy as compact JSON",
+		jsonCopyFailed: "Copy failed",
+		jsonCollapseNode: "Collapse",
+		jsonExpandNode: "Expand",
+		jsonCopyButtonTitle: "Copy: {action}",
+		searchFind: "Find",
+		searchReplace: "Replace",
+		searchNext: "next",
+		searchPrevious: "previous",
+		searchAll: "all",
+		searchMatchCase: "match case",
+		searchWholeWord: "by word",
+		searchRegexp: "regexp",
+		searchReplaceAll: "replace all",
+		searchCurrentMatch: "current match",
+		searchOnLine: "on line",
+		searchReplacedMatches: "replaced $ matches",
+		searchReplacedMatchOnLine: "replaced match on line $",
+		searchGoToLine: "Go to line",
+		searchGo: "go",
+		binary: "Binary file, preview unavailable",
+		loading: "Loading…",
+		error: "Failed to load",
+		retry: "Retry",
+		notRepo: "This directory is not a git repository",
+		statusTruncated: "Too many changes; showing the first 2,000 entries",
+		stage: "Stage",
+		unstage: "Unstage",
+		stageAll: "Stage all",
+		unstageAll: "Unstage all",
+		gitChanges: "Changes",
+		gitGraph: "Graph",
+		gitMergeChanges: "Merge Changes",
+		gitStagedChanges: "Staged Changes",
+		gitMoreActions: "More Actions",
+		gitRepository: "Repository",
+		gitDetached: "Detached HEAD",
+		gitBranchesUnavailable: "No branches available",
+		gitNoUpstream: "No upstream",
+		gitSyncUnavailable: "Sync unavailable",
+		gitSync: "Sync Changes",
+		commitPlaceholder: "Message ({shortcut} to commit on \"{branch}\")",
+		commit: "Commit",
+		generateCommitMessage: "Generate commit message",
+		generateCommitMessageWith: "Generate commit message (using {model})",
+		generatingCommitMessage: "Generating commit message…",
+		committingMessage: "Committing…",
+		suggestCommitError: "Failed to generate commit message",
+		suggestCommitEmpty: "No pending changes to summarize",
+		commitModelTitle: "Commit message model",
+		commitModelDesc: "Pick the model that drafts commit messages; by default it follows the model of the current conversation.",
+		commitModelFollow: "Follow the conversation",
+		commitModelSearchPlaceholder: "Search: type provider/model",
+		commitModelCurrent: "Current: {route}",
+		commitModelInvalid: "use the provider/model form",
+		commitModelUnavailable: "this deployment exposes no model service; only following is possible",
+		commitModelEmpty: "No models discovered (type provider/model above instead)",
+		commitModelDefaultNote: "default",
+		commitModelRecentNote: "used here",
+		push: "Push",
+		pull: "Pull",
+		pushError: "Push failed",
+		pullError: "Pull failed",
+		branch: "Branch",
+		worktree: "Worktree",
+		checkoutError: "Branch switch failed",
+		history: "History",
+		changes: "Git",
+		changesGitLens: "Git",
+		graphAllBranches: "All branches",
+		graphBranchFilter: "Branch filter",
+		graphEmpty: "No commits",
+		graphLoadError: "Failed to load commit history",
+		graphStale: "History has changed. Refresh to continue.",
+		graphDetails: "Commit details",
+		graphParents: "Parents",
+		graphLoadMore: "Load more",
+		changesSessionLens: "Session",
+		changesFilterAll: "All",
+		changesFilterEmpty: "No operations of this kind",
+		changesOpenDiffTab: "Open in a diff tab",
+		changesDiffTab: "Diff",
+		changesContentTab: "Content",
+		changesNoCommit: "No commit selected",
+		changesNoContent: "Nothing to show here",
+		changesReadNoDiff: "A read has no diff",
+		changesClosePreview: "Close preview",
+		changesResizePreview: "Resize preview",
+		changesLoadError: "Session file records are unavailable right now",
+		staged: "Staged",
+		unstaged: "Unstaged",
+		cancel: "Cancel",
+		diffEmpty: "No text changes",
+		diffLoadError: "Failed to load diff",
+		diffBinary: "Binary",
+		diffAdded: "Added",
+		diffDeleted: "Deleted",
+		diffRenamed: "Renamed",
+		diffExpand: "Expand {count} more rows",
+		discard: "Discard changes",
+		discardTitle: "Discard changes",
+		discardDesc: "This discards the worktree changes of \"{path}\" (not recoverable).",
+		viewCommitDiff: "View commit diff",
+		copyShortHash: "Copy short hash",
+		copyFullHash: "Copy full hash",
+		copySubject: "Copy subject",
+		revertCommit: "Revert commit",
+		revertTitle: "Revert commit",
+		revertDesc: "Create a new commit on the current branch that reverts \"{subject}\".",
+		cherryPickCommit: "Cherry-pick commit",
+		cherryPickTitle: "Cherry-pick commit",
+		cherryPickDesc: "Apply the changes of \"{subject}\" to the current branch.",
+		timeJustNow: "just now",
+		timeMinutesAgo: "{n} min ago",
+		timeHoursAgo: "{n} h ago",
+		timeYesterday: "yesterday",
+		loadMore: "Load more",
+		produced: "Produced",
+		showInFolder: "Show in folder",
+		disconnected: "Terminal disconnected, reconnecting…",
+		exited: "Terminal process exited",
+		noSession: "Select a conversation to use the sidebar",
+		pluginNotLoaded: "Plugin not loaded; tab unavailable:",
+		parent: "Parent directory",
+		copied: "Copied",
+		copy: "Copy",
+		openEditor: "Open editor",
+		referenceFile: "@file",
+		addToConversation: "Add to conversation",
+		copyRelative: "Copy relative path",
+		copyAbsolute: "Copy absolute path",
+		rename: "Rename",
+		renameInvalid: "The name cannot be empty or contain path separators.",
+		delete: "Delete",
+		deleteTitle: "Delete \"{name}\"?",
+		deleteDescFile: "This permanently deletes the file. This cannot be undone.",
+		deleteDescDir: "This permanently deletes the directory and everything inside it. This cannot be undone.",
+		dismiss: "Dismiss",
+		download: "Download",
+		uploadFiles: "Upload files",
+		uploadFolder: "Upload folder",
+		uploadHere: "Upload here",
+		uploadDropHint: "Drop files/folders here to upload",
+		uploadDropChat: "Drop onto the chat to add images",
+		uploadTo: "Upload into {dir}",
+		uploadingTo: "Uploading into {dir}…",
+		uploadProgress: "Uploading {done}/{total}: {name}",
+		uploadDone: "Uploaded {count} file(s)",
+		uploadFailed: "Upload failed: {error}",
+		uploadFailedUnknown: "Unknown error",
+		uploadTooLarge: "File too large (over the upload limit)",
+		uploadCancelled: "Upload cancelled",
+		settingsNav: "Side card",
+		settingsIntro: "Manage what the side card shows and how it behaves",
+		settingsPopupDesc: "Configure related options for {feature}",
+		settingsDone: "Done",
+		settingsOpenToolsTitle: "Inject the sidebar-open tool for the model",
+		settingsOpenToolsDesc: "When enabled, the model can actively open files, folders, and HTTP(S) pages in the sidebar through the sidebar_open tool (off by default)",
+		settingsCustomCssTitle: "Custom CSS",
+		settingsCustomCssPlaceholder: "/* e.g. switch the bottom workbench to the monospace font */\n[data-dsh-bottom-panel] {\n  font-family: var(--dsw-font-mono);\n}",
+		settingsSaveFailed: "Failed to save",
+		settingsConflict: "The setting changed in another window — please retry",
+		binaryNoPreview: "This file type cannot be previewed",
+		downloadToView: "Download to view",
+		settingsSubagentTitle: "Auto-activate the Tasks page when a subagent appears",
+		settingsSubagentDesc: "When the current conversation spawns a new subagent, create the Tasks page in the side card and mark it with an unread dot; a side card already expanded on another page is left alone instead of being taken over — click the dot to go there; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to stop creating it automatically",
+		settingsJobsTitle: "Auto-activate the Tasks page on a new background job",
+		settingsJobsDesc: "Whenever a new background job appears for the current conversation, create the Tasks page in the side card and mark it with an unread dot (every new job triggers); a side card already expanded on another page is left alone instead of being taken over — click the dot to go there; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to stop creating it automatically",
+		settingsToolsTitle: "Inject terminal tools for the model",
+		settingsToolsDesc: "When enabled, the model can create and drive sidebar terminals through the 8 terminal_* tools (off by default)",
+		settingsBottomTerminalTitle: "Auto-open a terminal on the bottom panel's first expansion",
+		settingsBottomTerminalDesc: "When the bottom panel is expanded for the first time in a session, try to open a fresh terminal tab there (the terminal quota still applies; on by default)",
+		settingsFontFamilyTitle: "Terminal font family",
+		settingsFontFamilyDesc: "Custom terminal font family (a CSS font-family stack like \"JetBrains Mono\", monospace; leave empty to follow the theme's monospace font)",
+		settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
+		settingsFontSizeTitle: "Terminal font size",
+		settingsShellTitle: "Shell path",
+		settingsShellDesc: "Shell spawned for UI and model terminals (absolute path or bare executable). Empty keeps the legacy order: yaml config.shell → $SHELL / login shell / Windows powershell.exe. Applies to terminals opened afterwards",
+		settingsShellPlaceholder: "e.g. /bin/zsh (empty = auto)",
+		settingsShellArgsTitle: "Shell arguments",
+		settingsShellArgsDesc: "Explicit shell arguments, space-separated; when non-empty they fully replace the defaults (same contract as the yaml shellArgs)",
+		settingsShellArgsPlaceholder: "e.g. -l (empty = defaults)",
+		settingsFontSizeDesc: "Terminal font size in px (9–32, default 13)",
+		settingsTabsTitle: "Sidebar content",
+		settingsViewersTitle: "File viewers",
+		settingsMobileTitle: "Mobile",
+		settingsMobileNoAutoOpenTitle: "Don't auto-open on narrow screens",
+		settingsMobileNoAutoOpenDesc: "On a phone / narrow viewport, a new subagent or background job no longer switches to the Tasks page by itself (you can still open it by hand)",
+		settingsMobileTreeTitle: "Default the Tasks page to the tree",
+		settingsMobileTreeDesc: "On a phone / narrow viewport the Tasks page opens as the classic tree instead of the workflow graph; the in-page toggle still switches it ad hoc",
+		settingsGeneralTitle: "General",
+		settingsPopup: "Feature settings",
+		settingsViewerCatchAll: "Catch-all: any file",
+		viewerMarkdown: "Markdown",
+		viewerCode: "Code",
+		viewerHtml: "HTML",
+		viewerJsonl: "JSONL",
+		browser: "Browser",
+		browserPlaceholder: "Enter a URL, e.g. example.com",
+		browserGo: "Go",
+		browserBack: "Back",
+		browserForward: "Forward",
+		browserStart: "Enter a URL to start browsing (sandbox mode)",
+		browserBlockedScheme: "Blocked: only http/https URLs are allowed",
+		browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
+		browserInvalid: "Invalid URL",
+		htmlNoSandboxWarning: "Sandbox off: this HTML runs with full GUI privileges (re-enable in settings)",
+		sandboxStatusOn: "Sandbox mode: on · pages cannot access the GUI's data or local files; logins and third-party cookies may not work",
+		sandboxUnlock: "Temporarily disable (unsafe)",
+		sandboxRestore: "Restore sandbox",
+		settingsHtmlDefaultUnsafeTitle: "Open HTML previews unsandboxed by default (unsafe)",
+		settingsHtmlDefaultUnsafeDesc: "When on, every newly opened HTML preview starts in the unsandboxed state (same origin as the GUI — it can read session files and internal APIs); the status row still offers a one-tap restore",
+		settingsHtmlSandboxTitle: "Disable HTML preview sandbox (unsafe)",
+		settingsHtmlSandboxDesc: "With the sandbox off, previewed HTML runs with the same origin as the GUI: it can read session files, local storage and call internal APIs. Only enable for fully trusted files",
+		settingsEditorGitGutterTitle: "Editor uncommitted-change markers",
+		settingsEditorGitGutterDesc: "Tint the line-number gutter of the code editor for uncommitted changes and show that line's blame (author, time and commit summary) on hover; off hides every marker",
+		settingsBrowserSandboxTitle: "Disable browser sandbox (unsafe)",
+		settingsBrowserSandboxDesc: "With the sandbox off, any visited site runs with the same origin as the GUI: it can read session data and act as your logged-in session. Only enable for fully trusted sites",
+		settingsBrowserLoopbackTitle: "Allowed local addresses",
+		settingsBrowserLoopbackDesc: "Comma-separated allowlist of loopback addresses (e.g. localhost:5174 or 127.0.0.1:8080) the sidebar browser may visit; empty blocks all local addresses by default. The sandbox still applies — pages cannot read GUI data",
+		settingsBrowserLoopbackPlaceholder: "e.g. localhost:5174, 127.0.0.1:8080",
+		browserOpenExternal: "Open in browser",
+		browserEmbedBlocked: "{host} refused to be embedded",
+		browserEmbedBlockedDesc: "The site forbids being displayed inside other pages (X-Frame-Options / frame-ancestors), so it cannot load in the sidebar. Open it directly in your browser instead.",
+		browserEmbedAnyway: "Load anyway",
+		subagent: "Tasks",
+		subagentMainAgent: "Main agent",
+		subagentEmpty: "No subagents",
+		subagentEmptyDesc: "Subagents spawned under the main agent will appear here",
+		subagentInactive: "Inactive",
+		subagentModeOneShot: "One-shot",
+		subagentModeContinuable: "Continuable",
+		subagentCount: "{count} subagents",
+		subagentCountRunning: "{count} subagents · {running} running",
+		subagentThinking: "Thinking…",
+		sideChat: "Side Chat (beta)",
+		sideChatNew: "New thread",
+		sideChatUntitled: "New thread",
+		sideChatEmpty: "No side conversations",
+		sideChatEmptyDesc: "Every side conversation is its own tab in the tab strip — it inherits the current session's context and never enters the main conversation",
+		sideChatCreating: "Creating side conversation…",
+		sideChatRetry: "Retry",
+		sideChatThreads: "Switch thread / new",
+		sideChatSave: "Save as new session",
+		sideChatSaveTitle: "Promote this thread to a top-level session in the main session list",
+		sideChatArchive: "Archive this side conversation (find it again via “Show archived” in the session list)",
+		sideChatArchiveRunning: "This thread is running — stop it before archiving",
+		sideChatSaved: "Saved as a new session",
+		sideChatNoTurn: "Save is available after the first completed turn",
+		sideChatPendingDrop: "The last unanswered follow-up will not be included in the saved session",
+		sideChatQueued: "Queued",
+		sideChatSending: "Sending…",
+		sideChatDequeue: "Remove from the queue",
+		sideChatRunError: "Run failed: {message}",
+		sideChatModel: "Model",
+		sideChatModelInherit: "Inherit the main conversation (no model catalog available)",
+		sideChatReasoning: "Reasoning effort",
+		sideChatFirstPlaceholder: "Ask the first question — context inherited…",
+		sideChatComposerPlaceholder: "Ask a follow-up…",
+		sideChatThinking: "Deep diving…",
+		sideChatThink: "Thinking",
+		sideChatInjection: "Context injected",
+		sideChatSend: "Send",
+		sideChatCancelTitle: "Abort the running turn (queued work is kept)",
+		sideChatError: "Side Chat error: {message}",
+		sideChatTurnUsage: "Input {input} tok · Output {output} tok",
+		sideChatBlockCollapse: "Collapse",
+		sideChatBlockCollapseAria: "Collapse",
+		sideChatBlockExpand: "Expand {hidden} lines",
+		sideChatBlockExpandAria: "Expand {hidden} more lines",
+		sideChatBlockSignal: "Killed by signal: {signal}",
+		sideChatBlockExitCode: "Exit code {code}",
+		sideChatBlockNoExitCode: "Ended without an exit code",
+		sideChatBlockRunning: "Running",
+		sideChatBlockFailed: "Failed",
+		sideChatBlockDone: "Done",
+		sideChatBlockNoOutput: "(no output)",
+		sideChatBlockCommandLine: "Command line {line}",
+		codeBlockTitle: "Code block",
+		codeBlockWrap: "Wrap lines",
+		codeBlockUnwrap: "Do not wrap lines",
+		sideChatBlockWindow: "{shown} of {total} lines",
+		sideChatConnDisconnected: "Disconnected, reconnect now",
+		sideChatConnConnecting: "Reconnecting…",
+		sideChatConnRecovered: "Connection restored",
+		sideChatConnReconnectAction: "Reconnect now",
+		sideChatConnRestartAction: "Restart connection",
+		jobs: "Background jobs",
+		jobsCount: "{count} background jobs",
+		jobsCountRunning: "{count} background jobs · {running} running",
+		jobStatusRunning: "Running",
+		jobStatusStopping: "Stopping",
+		jobStatusCompleted: "Completed",
+		jobStatusKilled: "Killed",
+		jobStatusFailed: "Failed",
+		jobDurationSeconds: "{seconds}s",
+		jobDurationMinutes: "{minutes}m {seconds}s",
+		jobDurationHours: "{hours}h {minutes}m",
+		jobViewOutput: "View output",
+		jobNoOutput: "No output yet",
+		jobNotReadYet: "Waiting for the model to read this job; its output appears here once the model runs job_output",
+		jobOutputTruncated: "Output truncated",
+		jobOutputError: "Failed to read output",
+		jobKill: "Kill",
+		jobKillConfirm: "Click again to confirm kill",
+		jobKillError: "Kill failed",
+		tasksViewGraph: "Workflow graph",
+		tasksViewTree: "Tree",
+		tasksViewSwitchToGraph: "Switch to the workflow graph",
+		tasksViewSwitchToTree: "Switch to the tree",
+		settingsViewModeTitle: "Tasks page default view",
+		settingsViewModeDesc: "How the Tasks page renders on open (the in-page toggle still flips it ad hoc)",
+		settingsViewModeGraph: "Workflow graph",
+		settingsViewModeGraphDesc: "Layered node graph with zoom and pan",
+		settingsViewModeTree: "Tree",
+		settingsViewModeTreeDesc: "Classic indentation tree, keyboard navigable",
+		tasksFoldIdleGroup: "{count} waiting",
+		tasksFoldIdle: "Idle {count}",
+		tasksFoldCompleted: "✓ {count} completed",
+		tasksFoldOne: "Fold into completed",
+		tasksFoldExpand: "Expand the completed nodes",
+		tasksFoldCollapse: "Collapse the completed nodes",
+		tasksZoomIn: "Zoom in",
+		tasksZoomOut: "Zoom out",
+		tasksZoomFit: "Fit to canvas",
+		tasksNodeJump: "Open transcript",
+		tasksNodeDetail: "Node detail",
+		workflowRun: "Workflow",
+		tasksNodeState: "State",
+		tasksFoldExpandShort: "Expand",
+		tasksTreeCollapseAll: "Collapse all",
+		tasksTreeExpandAll: "Expand all",
+		tasksTreeCollapseRow: "Collapse children",
+		tasksTreeExpandRow: "Expand children",
+		tasksNodeTokens: "Tokens",
+		tasksNodeDuration: "Duration",
+		tasksNodeOpenMain: "Open in the main window",
+		tasksNodeMode: "Mode",
+		tasksNodeModel: "Model",
+		tasksNodeTeamRole: "Team role",
+		tasksStateRunning: "Running",
+		tasksStateIdle: "Idle",
+		tasksStateProvisioning: "Provisioning",
+		tasksStateDone: "Done",
+		tasksStateError: "Error",
+		tasksKindSubagent: "Subagent",
+		tasksKindTeammate: "Teammate",
+		tasksKindWorkflow: "Workflow",
+		taskWindowCreate: "New task",
+		taskWindowDetail: "Task detail",
+		teamBoard: "Team task board",
+		teamChip: "Team {members} members · {tasks} tasks",
+		teamTasksEmpty: "No shared tasks yet",
+		teamTaskCreate: "New task",
+		teamTaskSubject: "Subject",
+		teamTaskDescription: "Description",
+		teamTaskOwner: "Owner",
+		teamTaskUnowned: "Unclaimed",
+		teamTaskPending: "Pending",
+		teamTaskInProgress: "In progress",
+		teamTaskCompleted: "Completed",
+		teamTaskBlocked: "Blocked",
+		teamTaskClaim: "Claim",
+		teamTaskComplete: "Complete",
+		teamTaskReopen: "Reopen",
+		teamTaskDelete: "Delete",
+		teamTaskDeleteConfirm: "Confirm delete",
+		teamTaskEdit: "Edit",
+		teamTaskSave: "Save",
+		teamTaskCancel: "Cancel",
+		teamTaskConflict: "The task changed elsewhere; refreshed",
+		teamTaskError: "Operation failed: {message}",
+		teamTaskDeleted: "Deleted",
+		teamTaskActions: "Task actions",
+		teamTaskDetail: "Task detail",
+		teamTaskNoDescription: "No description yet — click Edit to add one",
+		teamTaskBlockedBy: "Blocked by",
+		teamTaskSubjectPlaceholder: "One line describing the work",
+		teamTaskDescriptionPlaceholder: "Extra context (optional)",
+		teamFilterAll: "All",
+		tasksNodeTasks: "Shared tasks",
+		jobCopyOutput: "Copy output",
+		jobCopied: "Copied",
+		jobFollowTail: "Follow latest",
+		jobDragHint: "Drag to move",
+		workflowRunning: "Running",
+		workflowCompleted: "Completed",
+		workflowCancelled: "Cancelled",
+		workflowFailed: "Failed",
+		workflowPhaseUnnamed: "Unnamed phase",
+		workflowMembers: "{done}/{total} members",
+		jobsAutoCollapsed: "Auto-collapsed (many agents)",
+		contextDiagnostics: "Context diagnostics",
+		contextDiagnosticsTarget: "Current session",
+		contextDiagnosticsFailed: "Could not open Context diagnostics for \"{label}\"",
+		contextDiagnosticsUnavailable: "The dsh-context \"Context\" page is unavailable (not installed or not registered)",
+		contextDiagnosticsNavigation: "Could not locate that conversation",
+		contextDiagnosticsTimeout: "Opening timed out — try again",
+		contextDiagnosticsOpenFailed: "The page could not be opened",
+		contextDiagnosticsDismiss: "Dismiss",
+		catalogLoadFailed: "{count} branches failed to load",
+		addPluginsTabCard: "Add tab plugins",
+		addPluginsTabCardDesc: "Register a new sidebar page",
+		addPluginsViewerCard: "Add preview plugins",
+		addPluginsViewerCardDesc: "Register a file-type preview",
+		addPluginsTabDesc: "Sidebar pages (tabs) can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
+		addPluginsViewerDesc: "File previewers can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
+		addPluginsBrowseMore: "Browse more plugins on GitHub (topic: dsh-better-sidebar)",
+		addPluginsSearch: "Search by plugin name or description…",
+		addPluginsNoMatch: "No plugins match",
+		addPluginsRecommended: "Recommended plugins",
+		addPluginsEmpty: "No plugins curated yet — publish yours under the GitHub topic",
+		openPlugin: "Open",
+		copyInstall: "Copy install command",
+		pluginMdExportDesc: "Adds an \"Export\" button to the Markdown toolbar in better-sidebar: one click renders the current .md into standalone HTML (tables / code blocks / Mermaid diagrams inlined, layout follows the preview theme) and saves it next to the .md, or exports to PDF via the print dialog",
+		pluginAgentPersonaDesc: "System-prompt personas by workspace or session: one persona can cover several workspace directories and several sessions, matched exactly, by prefix, by substring or by regex, most specific wins, and one persona can be marked as the default; managed from a settings page and a 「人设」tab on the conversation, effective on the next message",
+		pluginOfficeDesc: "Office-suite preview (.docx / .xlsx / .pptx) for the better-sidebar editor, keeping the heavy Office render libraries out of the core bundle",
+		pluginFlowglassDesc: "Live session flowgraph with three lanes for user, assistant, and tool calls, plus parallel groups, sub-agent branches, drill-down, and live status; registers a native Flowglass tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
+		pluginGitForgeDesc: "Git Forge tab: GitHub/Gitea (and other forge) account library + per-project grants + hard push policy; tokens stay in local secrets (never in model context); read-only GitForge tool and agent HTTPS credential helper",
+		pluginGithubWorkbenchDesc: "GitHub Workbench tab: remote repo tree + Issues / Pull requests / Actions with full write support — create Issue/PR, comment, edit, close/reopen, squash·merge·rebase merge (strong confirm), re-run/cancel CI; the repo switcher auto-lists accessible repos and searches public ones; falls back to a standalone right-side panel without better-sidebar",
+		pluginIdeGitDesc: "Git tab for better-sidebar: branch tree (ahead/behind badges, worktree marker), commit graph with text/branch/author/date/path filters, per-file line diff, changes and commit box, plus merge, rebase, cherry-pick, reset, stash and tags; destructive actions confirm first and deletes or discards can be undone. Without better-sidebar it registers into the DSH right sidebar instead, so it works on its own",
+		pluginServerDeckDesc: "Server card dashboard: one card per host showing online status, OS, uptime and CPU/mem/disk usage with latency; click a card to open an interactive xterm.js terminal; one-click ~/.ssh/config import (git-hosting aliases auto-skipped). Registers a native \"Servers\" tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
+		pluginSentinelDesc: "Condition-driven agent wakeup: file/process/port/http/command/webhook sensors wake dormant sessions when conditions fire; registers a \"Sentinel\" tab with the server-wide watch table",
+		pluginSidebarQaDesc: "Select-and-ask: Select conversation text → ask in the right-side panel → a dedicated follow-up session (❓追问) in the same workspace; a fast no-thinking model compresses the main context and injects it with the quote, without interrupting the main conversation. Follow-ups nest, continue, and archive",
+		pluginSidenoteDesc: "Codex-style side chat + selection annotations: fork the current session into a persistent side panel (archived out of the session list, multi-instance, /side command, survives reload, model follows the main session); select assistant text → numbered badge + note editor → an \"N annotations\" chip that rides your next message, or ask straight into a side chat",
+		pluginSshTunnelDesc: "SSH Tunnel tab: multi-host inventory + per-project grants + local secrets; SSHManager tool (exec/SFTP/session strategies); center interactive terminal and dual-pane SFTP",
+		pluginSuhuangScrollDesc: "Connect the local Suhuang Scroll Runtime to DSH settings and better-sidebar for model configuration, connection tests, and continuous grading controls; requires Suhuang Scroll Runtime and dsh-better-sidebar",
+		pluginVideoPreviewDesc: "Inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) for the better-sidebar editor, backed by a dedicated /video host route with HTTP Range (206) support — scrubbing works and playback starts before the whole file is fetched",
+		pluginAudioDesc: "Inline audio preview (.mp3/.wav/.flac/.ogg/.m4a/.aac/.opus) for the better-sidebar editor: a zoomable waveform player (click/drag seek, A-B loop, channel switch) plus a live spectrum and a whole-file spectrogram — its own media route supports HTTP Range, so any size seeks",
+		pluginCodeNavDesc: "Code preview navigator: detects the language by file type and highlights syntax, symbol outline (class / method / variable filters + one-click jump), and in-file search (highlight all matches, prev/next, match case) — takes over code file preview in the better-sidebar editor",
+		pluginDevGitGraphDesc: "A vscode-git-graph-faithful commit-graph tab: mounts as a better-sidebar native tab auto-bound to the session workspace, with the full git toolset (checkout/merge/rebase/push/tag/stash), light/dark theme tracking, and click-a-file diff via the built-in DiffTab; requires dsh-better-sidebar installed first",
+		pluginDocsPanelDesc: "Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)",
+		pluginTylinaDesc: "A Typst document editor sharing the current session workspace, with WYSIWYG typesetting for papers, reports, exams, resumes, charts, posters, sheet music, and slides exported as PPTX",
+		pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when better-sidebar is present, otherwise falls back to a floating bubble",
+		pluginBetterOverleafDesc: "Overleaf tab for better-sidebar: direct-CDP browser login (third-party Chromium supported), project list/switch, local git mirrors under <workspace>/overleaf/, two-way git sync with read-only API fallback, and file preview through the sidebar workbench",
+		pluginBilingualReaderDesc: "Read paper PDFs in the DSH sidebar: native PDF rendering, select text to translate it with the LLM, using context while staying fully isolated from the main conversation — a reading aid only",
+		pluginDshMemoryDeltaDesc: "Cross-session memory that injects only what changed — nothing at all when nothing changed — with review-date reminders, relevance-ranked search and a sidebar tab.",
+		pluginAgentPersonaName: "dsh-agent-persona Personas",
+		pluginSentinelName: "dsh-sentinel Wake-up System",
+		pluginFileTraceName: "dsh-file-trace File Tracing",
+		pluginFileTraceDesc: "Records every file the model reads, writes, or edits; grouped list with content and line diffs, Markdown reading mode and secret redaction; standalone floating window without better-sidebar",
+		pluginMnemeName: "dsh-mneme Memory Library",
+		pluginMnemeDesc: "Cross-session memory engine: autoDream background consolidation, session summarization and user profile; SQLite + human-editable Markdown mirrors, fully offline and private. Registers a \"Memory Library\" tab (memories/entities/status/settings views) when better-sidebar is present and keeps its standalone sidebar panel as a fallback",
+		pluginEgoBrowserName: "ego-browser Agent Browser",
+		pluginBetterOverleafName: "dsh-better-overleaf Overleaf Tab",
+		pluginDocsPanelName: "dsh-docs-panel Global Docs",
+		pluginTylinaName: "dsh-tylina Typst Document Editor",
+		pluginFlowglassName: "dsh-flowglass Flowglass",
+		pluginGitForgeName: "dsh-git-forge Git Credentials",
+		pluginGithubWorkbenchName: "dsh-github-workbench GitHub Workbench",
+		pluginIdeGitName: "dsh-ide-git Git Tool Window",
+		pluginSidebarQaName: "dsh-sidebar-qa Select & Ask",
+		pluginSidenoteName: "dsh-sidenote Side Chat",
+		pluginServerDeckName: "dsh-server-deck Server Deck",
+		pluginSuhuangScrollName: "dsh-suhuang-scroll Suhuang Scroll",
+		pluginSshTunnelName: "dsh-ssh-tunnel SSH Tunnel",
+		pluginBilingualReaderName: "dsh-bilingual-reader Bilingual Reader",
+		pluginOfficeName: "Office Preview",
+		pluginMdExportName: "Markdown Export",
+		pluginCodeNavName: "Code Preview Navigator",
+		pluginVideoPreviewName: "Video Preview",
+		pluginAudioName: "Audio Preview",
+		pluginTurnOutlineName: "dsh-turn-outline Turn Outline",
+		pluginTurnOutlineDesc: "Fold the session into user turns (input + tool steps + output) and click any step to jump back to its exact spot in the conversation — no LLM calls, read-only",
+		pluginDshMemoryDeltaName: "dsh-memory-delta Memory"
+	};
+	/**
+	* The active locale id ('zh' | 'en'): the DSH locale service's snapshot when
+	* attached, else the browser language.
+	*/
+	function activeLocale() {
+		return (typeof navigator !== "undefined" ? navigator.language : "") ?? "en";
+	}
+	/** Translate a copy key; `{name}` placeholders interpolate from `params`. */
+	function t(key, params) {
+		let text = void 0;
+		if (text === void 0) text = (activeLocale().toLowerCase().startsWith("zh") ? zh : en)[key];
+		if (text === void 0) text = key;
+		if (params !== void 0) for (const [name, value] of Object.entries(params)) text = text.replaceAll(`{${name}}`, String(value));
+		return text;
+	}
+	/**
+	* A signature of the effective UI language: the DSH locale service's active
+	* id plus the better-locale override id when one is actually in force (the
+	* override only borrows DSH's `en` slot, so it is inert while DSH is on
+	* `zh`). `t()` resolves copy from exactly these two inputs, so a component
+	* that caches localized text OUTSIDE React state — e.g. CodeMirror's
+	* `phrases` facet, which is baked into an EditorState — can use this string
+	* as an effect dependency to know when to re-resolve it.
+	*/
+	function localeSignature() {
+		return `:`;
+	}
+	/** Format an ISO 8601 author date relative to now (刚刚 / N 分钟前 / N 小时前 / 昨天 / date). */
+	function relativeTime(iso) {
+		const then = Date.parse(iso);
+		if (Number.isNaN(then)) return iso;
+		const seconds = Math.floor((Date.now() - then) / 1e3);
+		if (seconds < 60) return t("timeJustNow");
+		if (seconds < 3600) return t("timeMinutesAgo", { n: Math.floor(seconds / 60) });
+		if (seconds < 86400) return t("timeHoursAgo", { n: Math.floor(seconds / 3600) });
+		if (seconds < 172800) return t("timeYesterday");
+		const date = new Date(then);
+		const pad = (value) => String(value).padStart(2, "0");
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+	}
+	//#endregion
+	//#region src/client/ui/git-status.ts
+	/**
+	* The plugin's ONE git-status store.
+	*
+	* Before this module the git status was fetched by the changes tab alone
+	* (a 2 s poll inside `changes/GitLens.tsx`) while the file tree had no git
+	* data at all — so a VS Code-style "color the changed rows" feature would
+	* have added a SECOND poller of the same `git status --porcelain` call. The
+	* store keeps one snapshot per `sessionId + cwd + repoRoot + worktree`, one poller per
+	* key while at least one VISIBLE consumer is subscribed, and one path index
+	* built lazily per snapshot, so the tree (coloring) and the changes page
+	* (list) read the same answer.
+	*
+	* The path index is keyed case-insensitively with '/' separators: git reports
+	* repo-root-relative POSIX paths while the tree rows carry host paths (a
+	* Windows host mixes separators), and a color lookup must not depend on that
+	* difference. The cost is that two paths differing only in case share an
+	* entry — invisible in the tree, which lists one of them anyway.
+	*
+	* Coalescing: a `refresh()` that lands while a fetch is in flight is queued
+	* once and re-run when it settles — never dropped (the old `GitLens.refresh`
+	* returned early, so a click during the poll silently did nothing).
+	*
+	* Cadence: the fetch behind this store is `git status --untracked-files=all`
+	* plus two `--numstat` diffs, and on a repository holding a large UNIGNORED
+	* tree (a nested `node_modules`, a pnpm store) that is megabytes of output and
+	* a fifth of a second of CPU. It therefore runs on a SLOW baseline (30 s) and
+	* drops a tier whenever the last round trip came back slow — 2x, then 6x (the
+	* user's "60 s / 180 s"), and finally no automatic timer at all — so a
+	* pathological repository cannot keep a git process running forever. Every
+	* consumer keeps the event-driven refreshes (`refresh()`,
+	* `invalidateGitStatus`) at full speed, and any fast answer climbs back to the
+	* baseline, so the ladder is self-correcting rather than sticky.
+	*
+	* Two kinds of consumer exist, and the store separates them: one that WANTS
+	* the timer (`poll`, the default — the file tree's ink and the changes page)
+	* and one that only wants the answer (`poll: false` — the editor's gutter,
+	* which refreshes on mount and after a save). A non-polling consumer can never
+	* be the reason a timer runs, and it can never delay one either.
+	*
+	* Idle polls are silent: a fetch that returns the same status notifies nobody.
+	* Bumping the version on every tick re-rendered every consumer — the file
+	* tree's rows included — once per cadence for no reason, which is what the
+	* snapshot identity check above exists to prevent.
+	*
+	* Retention: remembering a key is not a lease on memory. The last consumer of
+	* a slot going away (unmount, a parked tab, a scope change) DROPS the slot —
+	* snapshot, index and listeners and all — so a long session that walks through
+	* files, worktrees and cwds cannot grow the map for the page's lifetime. Since
+	* v0.25 every visited native tab body stays mounted, so there is no host-side
+	* teardown that would have bounded this for us.
+	*
+	* Dropping is invisible to a consumer that still carries the slot object: its
+	* next render re-mints the key (`slotOf`) and `retain` re-registers that same
+	* object, so the next retain performs a FRESH fetch rather than serving a
+	* stale answer (and never mints a second slot for one key — two slots would
+	* mean two pollers). A slot with a fetch in flight is never dropped mid-flight
+	* (the answer has to land somewhere); it goes when that fetch settles. As a
+	* second bound the registry is capped at {@link SLOT_CAP} keys, because a
+	* consumer that mounts while invisible mints a slot it never retains and never
+	* releases — eviction only ever takes a slot with no retained consumer and no
+	* fetch in flight.
+	*/
+	/** The porcelain letter → tone rule (both sides share one vocabulary). */
+	function toneOfLetter(letter) {
+		switch (letter) {
+			case "M": return "modified";
+			case "T": return "modified";
+			case "A": return "added";
+			case "D": return "deleted";
+			case "R": return "renamed";
+			case "C": return "copied";
+			case "U": return "conflict";
+			default: return;
+		}
+	}
+	/**
+	* Derive one path's status from its porcelain `XY` code, or `undefined` for a
+	* clean (`'  '`) or ignored (`'!!'`) entry. Untracked (`??`) reports 'U' —
+	* git's own letter for "not in the index" would be a blank.
+	*/
+	function statusOfXY(xy) {
+		if (xy === "??") return {
+			letter: "U",
+			tone: "untracked",
+			staged: false,
+			unstaged: true
+		};
+		if (xy.length < 2 || xy === "!!") return void 0;
+		const x = xy[0];
+		const y = xy[1];
+		if (x === " " && y === " ") return void 0;
+		const staged = x !== " " && x !== "?";
+		const unstaged = y !== " " && y !== "?";
+		const tone = x === "U" || y === "U" || x === "A" && y === "A" || x === "D" && y === "D" ? "conflict" : toneOfLetter(x !== " " && x !== "?" ? x : y) ?? "modified";
+		return {
+			letter: x !== " " && x !== "?" ? x : y,
+			tone,
+			staged,
+			unstaged
+		};
+	}
+	/** The store's normalized path key (case-insensitive, '/' separators). */
+	function normPath(path) {
+		return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+	}
+	/** Join a repo-root-relative git path onto the repo root. */
+	function joinRoot(root, rel) {
+		return `${root.replace(/[\\/]+$/, "")}/${rel.replace(/^[\\/]+/, "")}`;
+	}
+	/**
+	* Whether two sides carry the same line counts (both absent counts as equal —
+	* the entry simply has no reading on that side).
+	*/
+	function sameCounts(left, right) {
+		if (left === right) return true;
+		if (left === void 0 || right === void 0) return false;
+		if ("additions" in left && "additions" in right) return left.additions === right.additions && left.deletions === right.deletions;
+		return "binary" in left && "binary" in right;
+	}
+	/**
+	* Whether two status snapshots carry the same information. Compared field by
+	* field (never by serializing the whole object): the entries are the payload
+	* and their order is stable, so a length + pairwise compare is enough.
+	*
+	* Both sides' counts are compared, each on its own: a numstat-only change — an
+	* edit that adds lines without touching either porcelain letter, e.g. more
+	* lines appended to an already-modified file — must still publish a NEW
+	* snapshot, because keeping the previous identity would freeze the row's
+	* numbers at their first reading for as long as the porcelain codes stay put.
+	*/
+	function sameStatus(a, b) {
+		if (a === b) return true;
+		if (a.isRepo !== b.isRepo || a.branch !== b.branch || a.root !== b.root || a.upstream !== b.upstream || a.ahead !== b.ahead || a.behind !== b.behind || a.detached !== b.detached || a.operation !== b.operation || a.truncated !== b.truncated || a.entries.length !== b.entries.length) return false;
+		if (a.repositories?.length !== b.repositories?.length) return false;
+		if (a.repositories !== void 0 && b.repositories !== void 0 && a.repositories.some((root, index) => root !== b.repositories[index])) return false;
+		return a.entries.every((entry, index) => {
+			const other = b.entries[index];
+			return entry.path === other.path && entry.xy === other.xy && sameCounts(entry.staged, other.staged) && sameCounts(entry.unstaged, other.unstaged);
+		});
+	}
+	/** Build the lookup index for one snapshot (once per snapshot, O(rows × depth)). */
+	function buildIndex(snapshot) {
+		const files = /* @__PURE__ */ new Map();
+		const dirs = /* @__PURE__ */ new Set();
+		const root = snapshot.root;
+		if (!snapshot.isRepo || root === void 0) return {
+			files,
+			dirs
+		};
+		for (const entry of snapshot.entries) {
+			const status = statusOfXY(entry.xy);
+			if (status === void 0) continue;
+			const absolute = normPath(joinRoot(root, entry.path));
+			files.set(absolute, status);
+			let at = absolute.lastIndexOf("/");
+			while (at > 0) {
+				const dir = absolute.slice(0, at);
+				if (dirs.has(dir)) break;
+				dirs.add(dir);
+				at = dir.lastIndexOf("/");
+			}
+		}
+		return {
+			files,
+			dirs
+		};
+	}
+	/**
+	* The baseline cadence of an automatic poll. Deliberately slow: one fetch is a
+	* full `git status --untracked-files=all` (plus two `--numstat` diffs), and the
+	* ink it drives is decoration — the file tree's own listing comes from
+	* `fs.trees` and never waits for git. Every user-visible git action
+	* (stage / commit / discard, a manual refresh, a save in the editor) refreshes
+	* through `invalidateGitStatus` / `refresh()` immediately, so the cadence only
+	* governs how fast an EXTERNAL change shows up.
+	*/
+	const POLL_BASE_MS = 3e4;
+	/** Round trips slower than these drop the slot one tier (measured client-side,
+	*  so it covers both git's work and the transport). */
+	const SLOW_TIERS_MS = [
+		750,
+		2e3,
+		5e3
+	];
+	/** The interval factor of each tier: 30 s, 60 s, 180 s, then no timer at all. */
+	const TIER_FACTORS = [
+		1,
+		2,
+		6,
+		null
+	];
+	const slots = /* @__PURE__ */ new Map();
+	/**
+	* The registry's hard ceiling. The primary rule is release-driven (see
+	* {@link release}); this cap is the backstop for keys nobody ever released —
+	* a consumer that mounts while invisible mints its slot without retaining it,
+	* and only the cap bounds that path. Eviction never touches a slot a consumer
+	* holds or one with a fetch in flight, so the cap is soft while many slots are
+	* genuinely live.
+	*/
+	const SLOT_CAP = 256;
+	/** Whether nothing depends on this slot: no consumer holds the answer and no
+	*  fetch is in flight. */
+	function evictable(slot) {
+		return slot.visible === 0 && !slot.running;
+	}
+	/** Drop one slot from the registry. Identity-checked, so a key that was
+	*  re-minted meanwhile keeps its live entry. */
+	function forget(slot) {
+		if (slots.get(slot.key) === slot) slots.delete(slot.key);
+	}
+	/** Make room for one key about to be minted: evict the oldest slots nobody
+	*  holds while the registry is at {@link SLOT_CAP}. Map order is mint order. */
+	function trimSlots() {
+		if (slots.size < SLOT_CAP) return;
+		for (const slot of slots.values()) {
+			if (slots.size < SLOT_CAP) break;
+			if (evictable(slot)) forget(slot);
+		}
+	}
+	/** The automatic cadence of one slot; `null` = no timer (tier 3). */
+	function intervalOf(slot) {
+		const factor = TIER_FACTORS[slot.tier] ?? null;
+		return factor === null ? null : slot.pollMs * factor;
+	}
+	function slotOf(scope, worktree) {
+		const { sessionId, cwd, repoRoot } = scope;
+		const key = `${sessionId}\u0000${cwd ?? ""}\u0000${repoRoot ?? ""}\u0000${worktree ?? ""}`;
+		const existing = slots.get(key);
+		if (existing !== void 0) return existing;
+		trimSlots();
+		const slot = {
+			key,
+			sessionId,
+			cwd,
+			repoRoot,
+			worktree,
+			snapshot: null,
+			loading: false,
+			error: false,
+			version: 0,
+			generation: 0,
+			running: false,
+			pending: false,
+			visible: 0,
+			pollers: 0,
+			pollMs: POLL_BASE_MS,
+			tier: 0,
+			timer: void 0,
+			listeners: /* @__PURE__ */ new Set(),
+			index: null,
+			indexSource: null
+		};
+		slots.set(key, slot);
+		return slot;
+	}
+	function notify(slot) {
+		slot.version += 1;
+		for (const listener of slot.listeners) listener();
+	}
+	/**
+	* Move the slot to the tier the last round trip belongs in and re-arm the
+	* timer when that changed. The tier is a pure function of the most recent
+	* measurement, so a repository that recovers climbs straight back to the
+	* baseline — no streak counters, no stuck ladder.
+	*/
+	function noteFetchDuration(slot, durationMs) {
+		const tier = SLOW_TIERS_MS.filter((threshold) => durationMs >= threshold).length;
+		if (tier === slot.tier) return;
+		slot.tier = tier;
+		reschedule(slot);
+	}
+	/** Fetch one snapshot; a concurrent call just marks the slot dirty. */
+	function fetchSlot(slot) {
+		if (slot.running) {
+			slot.pending = true;
+			return;
+		}
+		slot.running = true;
+		const generation = ++slot.generation;
+		const wasLoading = slot.loading;
+		slot.loading = slot.snapshot === null;
+		if (slot.loading !== wasLoading) notify(slot);
+		let changed = false;
+		const startedAt = Date.now();
+		const scope = {
+			sessionId: slot.sessionId,
+			cwd: slot.cwd,
+			repoRoot: slot.repoRoot
+		};
+		api.gitStatus(scope, slot.worktree).then((snapshot) => {
+			if (generation !== slot.generation) return;
+			if (slot.snapshot !== null && sameStatus(slot.snapshot, snapshot)) {
+				if (slot.error) {
+					slot.error = false;
+					changed = true;
+				}
+				return;
+			}
+			slot.snapshot = snapshot;
+			slot.error = false;
+			changed = true;
+		}).catch(() => {
+			if (generation !== slot.generation) return;
+			if (!slot.error) {
+				slot.error = true;
+				changed = true;
+			}
+		}).finally(() => {
+			if (generation !== slot.generation) return;
+			slot.running = false;
+			const stillLoading = slot.loading;
+			slot.loading = false;
+			if (changed || stillLoading) notify(slot);
+			noteFetchDuration(slot, Date.now() - startedAt);
+			if (slot.pending) {
+				slot.pending = false;
+				fetchSlot(slot);
+			}
+			if (evictable(slot)) forget(slot);
+		});
+	}
+	function startTimer(slot) {
+		if (slot.timer !== void 0) return;
+		const interval = intervalOf(slot);
+		if (interval === null) return;
+		slot.timer = window.setInterval(() => {
+			fetchSlot(slot);
+		}, interval);
+	}
+	function stopTimer(slot) {
+		if (slot.timer === void 0) return;
+		window.clearInterval(slot.timer);
+		slot.timer = void 0;
+	}
+	/**
+	* Re-arm the timer after the tier moved. A cadence change means a new handle
+	* (the interval is baked into the old one); a slot whose tier 3 stopped the
+	* timer stays stopped, and one with no polling consumer is left alone.
+	*/
+	function reschedule(slot) {
+		if (slot.pollers === 0) return;
+		stopTimer(slot);
+		startTimer(slot);
+	}
+	function retain(slot, poll) {
+		if (!slots.has(slot.key)) slots.set(slot.key, slot);
+		slot.visible += 1;
+		if (poll) slot.pollers += 1;
+		if (slot.visible === 1 && slot.snapshot === null) fetchSlot(slot);
+		if (poll && slot.pollers === 1) startTimer(slot);
+	}
+	function release(slot, poll) {
+		slot.visible = Math.max(0, slot.visible - 1);
+		if (poll) {
+			slot.pollers = Math.max(0, slot.pollers - 1);
+			if (slot.pollers === 0) stopTimer(slot);
+		}
+		if (slot.visible === 0) {
+			stopTimer(slot);
+			slot.pollers = 0;
+			slot.snapshot = null;
+			slot.index = null;
+			slot.indexSource = null;
+			notify(slot);
+			if (!slot.running) forget(slot);
+		}
+	}
+	/** The index for the current snapshot, rebuilt only when the snapshot changed. */
+	function indexOf(slot) {
+		if (slot.index === null || slot.indexSource !== slot.snapshot) {
+			slot.index = slot.snapshot === null ? {
+				files: /* @__PURE__ */ new Map(),
+				dirs: /* @__PURE__ */ new Set()
+			} : buildIndex(slot.snapshot);
+			slot.indexSource = slot.snapshot;
+		}
+		return slot.index;
+	}
+	/**
+	* Subscribe to the shared git status of one session (optionally of one linked
+	* worktree). While `visible` is true the consumer holds the answer; while
+	* `poll` is also true it holds the automatic timer (at `pollMs`, escalated by
+	* the slow tiers). `poll: false` is for a consumer that wants one reading and
+	* event-driven refreshes — the editor's gutter — so it can never keep a git
+	* process running in the background.
+	*/
+	function useGitStatus(scope, options = {}) {
+		const { worktree, visible = true, pollMs = POLL_BASE_MS, poll = true } = options;
+		const slot = slotOf(scope, worktree);
+		const subscribe = (0, react.useCallback)((listener) => {
+			slot.listeners.add(listener);
+			return () => {
+				slot.listeners.delete(listener);
+			};
+		}, [slot]);
+		(0, react.useSyncExternalStore)(subscribe, () => slot.version, () => slot.version);
+		(0, react.useEffect)(() => {
+			if (poll) slot.pollMs = pollMs;
+			if (!visible) return void 0;
+			retain(slot, poll);
+			return () => {
+				release(slot, poll);
+			};
+		}, [
+			slot,
+			visible,
+			pollMs,
+			poll
+		]);
+		const refresh = (0, react.useCallback)(() => {
+			fetchSlot(slot);
+		}, [slot]);
+		const statusOf = (0, react.useCallback)((absolutePath) => indexOf(slot).files.get(normPath(absolutePath)), [slot]);
+		const dirHasChanges = (0, react.useCallback)((absoluteDir) => indexOf(slot).dirs.has(normPath(absoluteDir)), [slot]);
+		return {
+			snapshot: slot.snapshot,
+			loading: slot.loading,
+			error: slot.error,
+			refresh,
+			statusOf,
+			dirHasChanges
+		};
+	}
+	//#endregion
+	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/src/client/sidebar.module.css.mjs
+	const css$2 = "[data-dsh-panel-host]{z-index:25;pointer-events:none;height:100vh;position:fixed;inset:0;overflow:clip}html[data-platform] body>[data-dsh-better-sidebar],[data-dsh-panel-host]{-webkit-app-region:initial!important}[data-dsh-panel-host]>*{-webkit-app-region:no-drag}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.nArs4W_dockFallback{z-index:40;align-items:center;gap:2px;display:inline-flex;position:fixed}.nArs4W_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.nArs4W_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_toggleButton:disabled,.nArs4W_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.nArs4W_panelBody{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_bottomPanel{z-index:40;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2);pointer-events:auto;padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;bottom:0}.nArs4W_bottomPanelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translateY(102%)}.nArs4W_bottomPanel[data-dragging]{transition:none}.nArs4W_bottomPanel{contain:layout style}body[data-dsh-sidebar-dragging] .nArs4W_panel,body[data-dsh-sidebar-dragging] .nArs4W_bottomPanel{will-change:transform}.nArs4W_bottomResize{cursor:row-resize;z-index:2;touch-action:none;height:8px;position:absolute;top:-4px;left:0;right:0}.nArs4W_bottomResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_bottomClose{z-index:4;width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;position:absolute;top:3px;right:6px}.nArs4W_bottomClose:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_bottomPanel .nArs4W_tabBar{padding-right:40px}.nArs4W_toggleButton,.nArs4W_tabBar{-webkit-app-region:no-drag}.nArs4W_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_iconButton:disabled{opacity:.4;cursor:default}.nArs4W_workbench,.nArs4W_split{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_splitRow{flex-direction:row}.nArs4W_splitCol{flex-direction:column}.nArs4W_splitChild{display:flex;position:relative;overflow:hidden}.nArs4W_divider{z-index:3;touch-action:none;flex:none;position:relative}.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.nArs4W_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.nArs4W_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.nArs4W_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.nArs4W_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.nArs4W_divider:hover:after,.nArs4W_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.nArs4W_dropLeft{width:25%;top:0;bottom:0;left:0}.nArs4W_dropRight{width:25%;top:0;bottom:0;right:0}.nArs4W_dropUp{height:25%;top:0;left:0;right:0}.nArs4W_dropDown{height:25%;bottom:0;left:0;right:0}.nArs4W_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.nArs4W_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.nArs4W_chipIcon{flex:none;align-items:center;margin-right:6px;display:inline-flex}.nArs4W_chipUnread{background:var(--dsw-alias-danger);vertical-align:middle;border-radius:50%;width:6px;height:6px;margin-left:6px;display:inline-block}.nArs4W_tabUnreadDot{background:var(--dsw-alias-danger);border-radius:50%;flex:none;width:7px;height:7px}.nArs4W_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_paneTabHidden{display:none}.nArs4W_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));align-content:start;gap:12px;min-height:0;padding:12px;display:grid;overflow:hidden}.nArs4W_paneCard{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-1);min-width:0;min-height:56px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);cursor:pointer;text-align:left;border-radius:24px;flex-direction:row;justify-content:flex-start;align-items:center;gap:14px;padding:14px 20px;display:flex}.nArs4W_paneCard>svg{color:var(--dsw-alias-label-secondary);flex:none}.nArs4W_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l4)}.nArs4W_paneCard:disabled{opacity:.45;cursor:default}.nArs4W_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.nArs4W_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.nArs4W_tabList::-webkit-scrollbar{display:none}.nArs4W_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.nArs4W_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.nArs4W_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.nArs4W_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tabBarRightActions{flex:0 auto;justify-content:flex-end;align-items:center;gap:2px;min-width:0;padding-right:4px;display:flex;overflow:hidden}.nArs4W_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.nArs4W_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.nArs4W_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:28px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:4px;align-items:center;gap:6px;padding:0 8px;display:flex;position:relative}.nArs4W_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_explorerRowSelected{background:var(--dsw-alias-interactive-bg-active)}.nArs4W_explorerRowSelected:before{content:\"\";background:var(--dsw-alias-state-business-primary);border-radius:1px;width:2px;position:absolute;top:4px;bottom:4px;left:0}.nArs4W_explorerGitName[data-git-tone=modified]{color:var(--dsw-alias-state-warn-primary)}.nArs4W_explorerGitName[data-git-tone=added],.nArs4W_explorerGitName[data-git-tone=untracked]{color:var(--dsw-alias-state-success-primary)}.nArs4W_explorerGitName[data-git-tone=deleted]{color:var(--dsw-alias-state-error-primary)}.nArs4W_explorerGitName[data-git-tone=renamed]{color:var(--dsw-alias-state-business-primary)}.nArs4W_explorerGitName[data-git-tone=copied]{color:var(--dsw-alias-state-success-primary)}.nArs4W_explorerGitName[data-git-tone=conflict]{color:var(--dsw-alias-state-error-primary)}.nArs4W_explorerDirChanged{color:var(--dsw-alias-state-business-primary)}.nArs4W_explorerRowRevealed{background:var(--dsw-alias-state-business-tertiary)}.nArs4W_explorerRowRevealed+.nArs4W_explorerRowRevealed{border-top-left-radius:0;border-top-right-radius:0}.nArs4W_explorerRowRevealed:has(+.nArs4W_explorerRowRevealed){border-bottom-right-radius:0;border-bottom-left-radius:0}.nArs4W_explorerDir{font:var(--dsw-font-xxs-strong-12)}.nArs4W_explorerHidden{opacity:.45}.nArs4W_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerBroken .nArs4W_explorerName{color:var(--dsw-alias-state-error-primary)}.nArs4W_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.nArs4W_explorerRenaming{cursor:text}.nArs4W_explorerRenameInput{box-sizing:border-box;border:1px solid var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-1);min-width:0;height:22px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:3px;flex:auto;padding:0 6px}.nArs4W_explorerRenameInput:focus{border-color:var(--dsw-alias-state-business-primary);outline:none}.nArs4W_explorerActionError{box-sizing:border-box;border:1px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px;align-items:flex-start;gap:6px;width:100%;margin-bottom:4px;padding:6px 8px;display:flex}.nArs4W_explorerActionErrorText{overflow-wrap:anywhere;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex:auto}.nArs4W_explorerSelectionBar{z-index:1;box-sizing:border-box;background:var(--dsw-alias-bg-layer-2);border-radius:4px;align-items:center;gap:6px;width:100%;min-height:28px;margin-top:4px;padding:2px 8px;display:flex;position:sticky;bottom:0}.nArs4W_explorerSelectionText{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);flex:auto;overflow:hidden}.nArs4W_explorerSelectionActions{flex-wrap:wrap;flex:none;justify-content:flex-end;gap:4px;max-width:72%;display:flex}.nArs4W_explorerAppIcon{object-fit:contain;width:14px;height:14px;display:block}.nArs4W_explorerHiddenPane{display:none}.nArs4W_explorerRef,.nArs4W_explorerCopied{margin-left:auto}.nArs4W_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.nArs4W_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_explorerRow:hover .nArs4W_explorerRef,.nArs4W_explorerRow:focus-within .nArs4W_explorerRef{display:inline-flex}.nArs4W_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes nArs4W_dsh-row-in{0%{opacity:0}}.nArs4W_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover-accent);outline:1px dashed var(--dsw-alias-state-business-primary);outline-offset:-1px}.nArs4W_uploadDropMask{z-index:1001;pointer-events:none;background:color-mix(in srgb, var(--dsw-alias-bg-base) 62%, transparent);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);position:fixed;inset:0}.nArs4W_uploadDropZone{z-index:1002;pointer-events:none;border:2px dashed var(--dsw-alias-border-l2);background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 4%, transparent);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);border-radius:8px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.nArs4W_uploadDropHero{flex-direction:column;align-items:center;gap:8px;max-width:100%;padding-top:8px;display:flex}.nArs4W_uploadDropArtPrimary{color:var(--dsw-alias-state-business-primary)}.nArs4W_uploadDropArtAccent{color:var(--dsw-alias-state-business-tertiary)}.nArs4W_uploadDropArtCut{color:var(--dsw-alias-bg-layer-1)}.nArs4W_uploadDropZonePill{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);max-width:100%;height:28px;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);border-radius:999px;align-items:center;gap:6px;padding:0 12px;display:flex}.nArs4W_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadDropChatHint{z-index:1003;pointer-events:none;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.nArs4W_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);flex-direction:column;align-items:center;gap:10px;display:flex}.nArs4W_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.nArs4W_uploadOverlayCard{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);min-width:240px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:8px;flex-direction:column;gap:10px;padding:16px;display:flex}.nArs4W_uploadOverlayTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);align-items:center;gap:6px;display:flex}.nArs4W_uploadOverlayTitle>svg{flex:none}.nArs4W_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.nArs4W_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.nArs4W_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.nArs4W_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxxs-11);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:4px;align-self:flex-end;padding:0 12px}.nArs4W_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.nArs4W_editor{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.nArs4W_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_editorBody{flex:1;min-height:0;display:flex}.nArs4W_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.nArs4W_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.nArs4W_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.nArs4W_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.nArs4W_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_editorTreePanelFull{flex:1}.nArs4W_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.nArs4W_editorSearchResult{box-sizing:border-box;width:100%;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:6px;padding:0 8px;line-height:28px;display:flex;overflow:hidden}.nArs4W_editorSearchResultDir{color:var(--dsw-alias-label-secondary)}.nArs4W_editorSearchResultLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.nArs4W_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorStatusError{color:var(--dsw-alias-state-error-primary)}.nArs4W_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.nArs4W_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.nArs4W_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.nArs4W_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.nArs4W_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.nArs4W_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.nArs4W_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.nArs4W_editorBannerAction{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;margin-left:8px;padding:0;text-decoration:underline}.nArs4W_editorGitAdd{color:var(--dsw-alias-state-success-primary)}.nArs4W_editorGitMod{color:var(--dsw-alias-state-warn-primary)}.nArs4W_editorGitDel{color:var(--dsw-alias-state-error-primary)}.nArs4W_editorGitBarGutter{width:2px;min-width:2px}.nArs4W_editorGitBar,.nArs4W_editorGitBarSpacer{width:2px;height:100%}.nArs4W_editorGitBarAdd{background:var(--dsw-alias-state-success-primary)}.nArs4W_editorGitBarMod{background:var(--dsw-alias-state-warn-primary)}.nArs4W_editorGitBarDel{background:var(--dsw-alias-state-error-primary)}.nArs4W_editorBlame{max-width:420px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-primary);padding:4px 8px}.nArs4W_editorBlameHead{color:var(--dsw-alias-label-secondary)}.nArs4W_editorBlameSummary{color:var(--dsw-alias-label-primary);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px}.nArs4W_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.nArs4W_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.nArs4W_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.nArs4W_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.nArs4W_sandboxStatusOff .nArs4W_sandboxDot{background:var(--dsw-alias-state-error-primary)}.nArs4W_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.nArs4W_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browser{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.nArs4W_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.nArs4W_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.nArs4W_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.nArs4W_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.nArs4W_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.nArs4W_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.nArs4W_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.nArs4W_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.nArs4W_editorCmHidden{display:none}.nArs4W_editorCm .cm-editor{height:100%}.nArs4W_editorCm .cm-scroller{padding:12px 16px}.nArs4W_editorCm .cm-editor.cm-focused{outline:none}.nArs4W_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.nArs4W_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.nArs4W_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.nArs4W_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.nArs4W_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.nArs4W_editorMd .md-code-block:not([data-mermaid-processed])>div:first-child{z-index:auto;position:static}.nArs4W_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.nArs4W_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.nArs4W_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.nArs4W_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.nArs4W_mermaidBody svg{max-width:100%;height:auto}.nArs4W_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.nArs4W_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.nArs4W_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.nArs4W_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0;-webkit-app-region:initial!important}.nArs4W_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.nArs4W_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.nArs4W_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.nArs4W_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.nArs4W_mermaidModalStage svg:active{cursor:grabbing}.nArs4W_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.nArs4W_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-menu);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.nArs4W_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover-solid)}.nArs4W_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.nArs4W_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.nArs4W_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_editorPdfFrameBlocked{pointer-events:none}.nArs4W_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.nArs4W_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .nArs4W_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .nArs4W_editorPdfDragShield{pointer-events:auto!important}.nArs4W_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.nArs4W_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.nArs4W_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.nArs4W_nativeTabHost{flex-direction:column;height:100%;min-height:0;display:flex}.nArs4W_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.nArs4W_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.nArs4W_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.nArs4W_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.nArs4W_toggleButton:focus-visible,.nArs4W_bottomClose:focus-visible,.nArs4W_iconButton:focus-visible,.nArs4W_tab:focus-visible,.nArs4W_tabClose:focus-visible,.nArs4W_tabBarPlus:focus-visible,.nArs4W_paneCard:focus-visible,.nArs4W_explorerRow:focus-visible,.nArs4W_explorerRef:focus-visible,.nArs4W_terminalRetry:focus-visible,.nArs4W_editorModeButton:focus-visible,.nArs4W_editorDownloadLink:focus-visible,.nArs4W_editorPptxButton:focus-visible,.nArs4W_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.nArs4W_bottomPanel,.nArs4W_bottomPanelHidden,.nArs4W_toggleButton,.nArs4W_tab,.nArs4W_tabBarPlus,.nArs4W_paneCard,.nArs4W_explorerRow,.nArs4W_divider,.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.nArs4W_tab{min-width:48px;max-width:128px}}.nArs4W_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.nArs4W_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.nArs4W_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_openWithPin{width:16px;height:16px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.nArs4W_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.nArs4W_editorHtmlBlock{margin:8px 0}.nArs4W_editorHtmlBlock img,.nArs4W_editorHtmlBlock video{max-width:100%}.nArs4W_editorHtmlBlock details{margin:4px 0;padding:4px 0}.nArs4W_editorHtmlBlock summary,.nArs4W_editorMd details>summary{cursor:pointer}.nArs4W_tocBar{z-index:7;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.nArs4W_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.nArs4W_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.nArs4W_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.nArs4W_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocItem[data-level=\"2\"]{padding-left:18px}.nArs4W_tocItem[data-level=\"3\"]{padding-left:28px}.nArs4W_tocItem[data-level=\"4\"]{padding-left:38px}.nArs4W_tocItem[data-level=\"5\"]{padding-left:48px}.nArs4W_tocItem[data-level=\"6\"]{padding-left:58px}.nArs4W_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes nArs4W_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.nArs4W_tocFlash{border-radius:4px;animation:1.2s ease-out nArs4W_dsh-toc-flash}.nArs4W_largeFile{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_largeFileNotice{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.nArs4W_largeFileDownload{color:inherit;text-decoration:underline}.nArs4W_largeFileNoticeAction{font:inherit;color:inherit;cursor:pointer;background:0 0;border:1px solid;border-radius:4px;margin-left:auto;padding:0 6px}.nArs4W_largeFileNoticeAction:disabled{opacity:.5;cursor:default}.nArs4W_largeFileBody{flex:1;min-height:0;overflow:auto}.nArs4W_largeFileRecords{padding:4px 0}.nArs4W_largeFileList{margin:0;padding:0;list-style:none}.nArs4W_largeFileRecord{gap:8px;padding:2px 8px;display:flex}.nArs4W_largeFileRecordExpanded{background:var(--dsw-alias-bg-layer-1)}.nArs4W_largeFileRecordInvalid{color:var(--dsw-alias-state-error-primary)}.nArs4W_largeFileRecordNo{text-align:right;min-width:4ch;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);user-select:none;flex:none}.nArs4W_largeFileRecordBody{flex:1;min-width:0}.nArs4W_largeFileRecordSummary{text-align:left;width:100%;font:var(--ds-font-family-code);color:var(--dsw-alias-label-primary);white-space:pre;text-overflow:ellipsis;cursor:pointer;background:0 0;border:0;padding:0;font-size:12px;display:block;overflow:hidden}.nArs4W_largeFileRecordSummary:disabled{cursor:default}.nArs4W_largeFileRecordRaw{font:var(--ds-font-family-code);white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere;margin:2px 0 0;font-size:12px}.nArs4W_largeFileRecordTree{font:var(--ds-font-family-code);margin-top:2px;font-size:12px}.nArs4W_largeFileLines{font:var(--ds-font-family-code);white-space:pre;padding:4px 0;font-size:12px}.nArs4W_largeFileLine{gap:8px;padding:0 8px;display:flex}.nArs4W_largeFileLineNo{text-align:right;min-width:5ch;color:var(--dsw-alias-label-tertiary);user-select:none;flex:none}.nArs4W_largeFileLineText{color:var(--dsw-alias-label-primary);flex:none}.nArs4W_largeFilePager{border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);flex:none;align-items:center;gap:4px;padding:2px 8px;display:flex}.nArs4W_largeFilePageLabel{text-align:center;min-width:0;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary);white-space:nowrap;text-overflow:ellipsis;flex:1;overflow:hidden}";
+	const tagId = "dsh-better-sidebar/sidebar.module.css";
+	if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
+		const tag = document.createElement("style");
+		tag.dataset.plugin = "dsh-better-sidebar";
+		tag.dataset.pluginCss = tagId;
+		tag.textContent = css$2;
+		document.head.appendChild(tag);
+	}
+	var sidebar_module_css_default = {
+		"gitPlaceholder": "nArs4W_gitPlaceholder",
+		"tabBadge": "nArs4W_tabBadge",
+		"explorerBroken": "nArs4W_explorerBroken",
+		"dockFallback": "nArs4W_dockFallback",
+		"tocBar": "nArs4W_tocBar",
+		"tocItemText": "nArs4W_tocItemText",
+		"uploadOverlayProgress": "nArs4W_uploadOverlayProgress",
+		"largeFileLine": "nArs4W_largeFileLine",
+		"explorerEmpty": "nArs4W_explorerEmpty",
+		"editorBinary": "nArs4W_editorBinary",
+		"explorerRow": "nArs4W_explorerRow",
+		"tocItem": "nArs4W_tocItem",
+		"editorCm": "nArs4W_editorCm",
+		"editorHtml": "nArs4W_editorHtml",
+		"iconButton": "nArs4W_iconButton",
+		"explorerRenameInput": "nArs4W_explorerRenameInput",
+		"editorDocxZoomRange": "nArs4W_editorDocxZoomRange",
+		"editorStatus": "nArs4W_editorStatus",
+		"browserBlockedActions": "nArs4W_browserBlockedActions",
+		"explorerName": "nArs4W_explorerName",
+		"largeFile": "nArs4W_largeFile",
+		"editorGitAdd": "nArs4W_editorGitAdd",
+		"dividerRow": "nArs4W_dividerRow",
+		"chipIcon": "nArs4W_chipIcon",
+		"editorGitBarSpacer": "nArs4W_editorGitBarSpacer",
+		"editorTitle": "nArs4W_editorTitle",
+		"editorPptxButton": "nArs4W_editorPptxButton",
+		"uploadDropArtAccent": "nArs4W_uploadDropArtAccent",
+		"dividerActive": "nArs4W_dividerActive",
+		"explorerRenaming": "nArs4W_explorerRenaming",
+		"explorerError": "nArs4W_explorerError",
+		"uploadDropArtCut": "nArs4W_uploadDropArtCut",
+		"browserBlockedTitle": "nArs4W_browserBlockedTitle",
+		"editorGitBarGutter": "nArs4W_editorGitBarGutter",
+		"editorGitBarMod": "nArs4W_editorGitBarMod",
+		"sandboxStatusOn": "nArs4W_sandboxStatusOn",
+		"sandboxStatusText": "nArs4W_sandboxStatusText",
+		"explorer": "nArs4W_explorer",
+		"splitChild": "nArs4W_splitChild",
+		"tabBarPlus": "nArs4W_tabBarPlus",
+		"editorSearchInput": "nArs4W_editorSearchInput",
+		"browserBar": "nArs4W_browserBar",
+		"browserBlocked": "nArs4W_browserBlocked",
+		"editorMd": "nArs4W_editorMd",
+		"splitRow": "nArs4W_splitRow",
+		"mermaidError": "nArs4W_mermaidError",
+		"editorTreeToggleActive": "nArs4W_editorTreeToggleActive",
+		"mermaidModalHint": "nArs4W_mermaidModalHint",
+		"boundaryError": "nArs4W_boundaryError",
+		"editorBannerAction": "nArs4W_editorBannerAction",
+		"tabBoundaryError": "nArs4W_tabBoundaryError",
+		"largeFileRecordNo": "nArs4W_largeFileRecordNo",
+		"browserInput": "nArs4W_browserInput",
+		"uploadDropZone": "nArs4W_uploadDropZone",
+		"largeFileRecordTree": "nArs4W_largeFileRecordTree",
+		"paneContent": "nArs4W_paneContent",
+		"largeFileLineText": "nArs4W_largeFileLineText",
+		"dropCenter": "nArs4W_dropCenter",
+		"editorTreePanel": "nArs4W_editorTreePanel",
+		"editorTreePanelFull": "nArs4W_editorTreePanelFull",
+		"bottomPanel": "nArs4W_bottomPanel",
+		"largeFileRecordExpanded": "nArs4W_largeFileRecordExpanded",
+		"editorPdfStage": "nArs4W_editorPdfStage",
+		"editorPdfDragShieldActive": "nArs4W_editorPdfDragShieldActive",
+		"editorError": "nArs4W_editorError",
+		"editorSearchResultDir": "nArs4W_editorSearchResultDir",
+		"dropUp": "nArs4W_dropUp",
+		"editorBlameSummary": "nArs4W_editorBlameSummary",
+		"browserBlockedButton": "nArs4W_browserBlockedButton",
+		"splitCol": "nArs4W_splitCol",
+		"editorModeButton": "nArs4W_editorModeButton",
+		"browserMessage": "nArs4W_browserMessage",
+		"toggleButton": "nArs4W_toggleButton",
+		"sandboxStatusOff": "nArs4W_sandboxStatusOff",
+		"explorerBody": "nArs4W_explorerBody",
+		"dirtyDot": "nArs4W_dirtyDot",
+		"browserStart": "nArs4W_browserStart",
+		"mermaidMarkdown": "nArs4W_mermaidMarkdown",
+		"explorerActionErrorText": "nArs4W_explorerActionErrorText",
+		"uploadOverlay": "nArs4W_uploadOverlay",
+		"largeFileNotice": "nArs4W_largeFileNotice",
+		"pane": "nArs4W_pane",
+		"editorBlameHead": "nArs4W_editorBlameHead",
+		"sandboxStatus": "nArs4W_sandboxStatus",
+		"split": "nArs4W_split",
+		"editorTreeResize": "nArs4W_editorTreeResize",
+		"uploadOverlayProgressFill": "nArs4W_uploadOverlayProgressFill",
+		"editorPdf": "nArs4W_editorPdf",
+		"mermaidModalToolbar": "nArs4W_mermaidModalToolbar",
+		"tocPanel": "nArs4W_tocPanel",
+		"tabClose": "nArs4W_tabClose",
+		"mermaidModalStage": "nArs4W_mermaidModalStage",
+		"explorerSelectionBar": "nArs4W_explorerSelectionBar",
+		"selectionPopup": "nArs4W_selectionPopup",
+		"paneEmptyCards": "nArs4W_paneEmptyCards",
+		"openWithName": "nArs4W_openWithName",
+		"editorHeader": "nArs4W_editorHeader",
+		"bottomResizeActive": "nArs4W_bottomResizeActive",
+		"uploadDropArtPrimary": "nArs4W_uploadDropArtPrimary",
+		"uploadDropZonePill": "nArs4W_uploadDropZonePill",
+		"editorPlaceholder": "nArs4W_editorPlaceholder",
+		"explorerRowRevealed": "nArs4W_explorerRowRevealed",
+		"dropDown": "nArs4W_dropDown",
+		"panelBody": "nArs4W_panelBody",
+		"paneTab": "nArs4W_paneTab",
+		"explorerRoot": "nArs4W_explorerRoot",
+		"dropRight": "nArs4W_dropRight",
+		"uploadDropHero": "nArs4W_uploadDropHero",
+		"editor": "nArs4W_editor",
+		"bottomClose": "nArs4W_bottomClose",
+		"tabBarDrop": "nArs4W_tabBarDrop",
+		"editorBanner": "nArs4W_editorBanner",
+		"editorGitMod": "nArs4W_editorGitMod",
+		"mermaidInfo": "nArs4W_mermaidInfo",
+		"mermaidCode": "nArs4W_mermaidCode",
+		"editorPdfDragShield": "nArs4W_editorPdfDragShield",
+		"gitDiffTab": "nArs4W_gitDiffTab",
+		"gitDiffTabTitle": "nArs4W_gitDiffTabTitle",
+		"editorTreeSearch": "nArs4W_editorTreeSearch",
+		"dividerCol": "nArs4W_dividerCol",
+		"workbench": "nArs4W_workbench",
+		"openWithLabel": "nArs4W_openWithLabel",
+		"paneTabHidden": "nArs4W_paneTabHidden",
+		"dsh-toc-flash": "nArs4W_dsh-toc-flash",
+		"tabActive": "nArs4W_tabActive",
+		"largeFileRecord": "nArs4W_largeFileRecord",
+		"tabBarRightActions": "nArs4W_tabBarRightActions",
+		"editorMain": "nArs4W_editorMain",
+		"largeFileRecordInvalid": "nArs4W_largeFileRecordInvalid",
+		"largeFileLineNo": "nArs4W_largeFileLineNo",
+		"sandboxDot": "nArs4W_sandboxDot",
+		"mermaidHeader": "nArs4W_mermaidHeader",
+		"explorerDir": "nArs4W_explorerDir",
+		"tabBar": "nArs4W_tabBar",
+		"explorerHiddenPane": "nArs4W_explorerHiddenPane",
+		"nativeTabHost": "nArs4W_nativeTabHost",
+		"editorGitBarAdd": "nArs4W_editorGitBarAdd",
+		"largeFilePageLabel": "nArs4W_largeFilePageLabel",
+		"bottomPanelHidden": "nArs4W_bottomPanelHidden",
+		"bottomResize": "nArs4W_bottomResize",
+		"explorerSelectionActions": "nArs4W_explorerSelectionActions",
+		"tabTitle": "nArs4W_tabTitle",
+		"tabUnreadDot": "nArs4W_tabUnreadDot",
+		"dropLeft": "nArs4W_dropLeft",
+		"explorerHeader": "nArs4W_explorerHeader",
+		"explorerCopied": "nArs4W_explorerCopied",
+		"editorPathInput": "nArs4W_editorPathInput",
+		"editorTreeDock": "nArs4W_editorTreeDock",
+		"orphanedType": "nArs4W_orphanedType",
+		"editorBlame": "nArs4W_editorBlame",
+		"uploadOverlayStatus": "nArs4W_uploadOverlayStatus",
+		"browser": "nArs4W_browser",
+		"uploadDropChatHint": "nArs4W_uploadDropChatHint",
+		"tab": "nArs4W_tab",
+		"browserBlockedDesc": "nArs4W_browserBlockedDesc",
+		"mermaidModal": "nArs4W_mermaidModal",
+		"mermaidModalButton": "nArs4W_mermaidModalButton",
+		"gitDiffTabHeader": "nArs4W_gitDiffTabHeader",
+		"explorerDirChanged": "nArs4W_explorerDirChanged",
+		"explorerGitName": "nArs4W_explorerGitName",
+		"editorSearchHint": "nArs4W_editorSearchHint",
+		"paneCard": "nArs4W_paneCard",
+		"paneDrop": "nArs4W_paneDrop",
+		"editorModeActive": "nArs4W_editorModeActive",
+		"editorSearchResultLabel": "nArs4W_editorSearchResultLabel",
+		"editorDownloadLink": "nArs4W_editorDownloadLink",
+		"mermaidWrap": "nArs4W_mermaidWrap",
+		"openWithPin": "nArs4W_openWithPin",
+		"explorerAppIcon": "nArs4W_explorerAppIcon",
+		"openWithPinActive": "nArs4W_openWithPinActive",
+		"mermaidCopy": "nArs4W_mermaidCopy",
+		"openWithChevron": "nArs4W_openWithChevron",
+		"tocItemLevel": "nArs4W_tocItemLevel",
+		"explorerActionError": "nArs4W_explorerActionError",
+		"uploadDropMask": "nArs4W_uploadDropMask",
+		"tocFlash": "nArs4W_tocFlash",
+		"uploadOverlayCard": "nArs4W_uploadOverlayCard",
+		"largeFileDownload": "nArs4W_largeFileDownload",
+		"largeFileBody": "nArs4W_largeFileBody",
+		"editorModeToggle": "nArs4W_editorModeToggle",
+		"uploadDropChatCard": "nArs4W_uploadDropChatCard",
+		"editorBody": "nArs4W_editorBody",
+		"explorerHidden": "nArs4W_explorerHidden",
+		"editorCmHidden": "nArs4W_editorCmHidden",
+		"editorPdfFrame": "nArs4W_editorPdfFrame",
+		"editorSearchResult": "nArs4W_editorSearchResult",
+		"editorGitBarDel": "nArs4W_editorGitBarDel",
+		"gitError": "nArs4W_gitError",
+		"editorHtmlBlock": "nArs4W_editorHtmlBlock",
+		"editorPdfToolbar": "nArs4W_editorPdfToolbar",
+		"explorerRowDropTarget": "nArs4W_explorerRowDropTarget",
+		"dsh-row-in": "nArs4W_dsh-row-in",
+		"editorGitBar": "nArs4W_editorGitBar",
+		"editorGitDel": "nArs4W_editorGitDel",
+		"editorPdfFrameBlocked": "nArs4W_editorPdfFrameBlocked",
+		"tocButton": "nArs4W_tocButton",
+		"largeFileRecords": "nArs4W_largeFileRecords",
+		"largeFileRecordSummary": "nArs4W_largeFileRecordSummary",
+		"largeFileRecordRaw": "nArs4W_largeFileRecordRaw",
+		"largeFilePager": "nArs4W_largeFilePager",
+		"explorerRowSelected": "nArs4W_explorerRowSelected",
+		"explorerRef": "nArs4W_explorerRef",
+		"sandboxAction": "nArs4W_sandboxAction",
+		"dropOverlay": "nArs4W_dropOverlay",
+		"largeFileList": "nArs4W_largeFileList",
+		"largeFileRecordBody": "nArs4W_largeFileRecordBody",
+		"divider": "nArs4W_divider",
+		"largeFileLines": "nArs4W_largeFileLines",
+		"panel": "nArs4W_panel",
+		"editorBinaryNotice": "nArs4W_editorBinaryNotice",
+		"editorStatusError": "nArs4W_editorStatusError",
+		"explorerSelectionText": "nArs4W_explorerSelectionText",
+		"chipUnread": "nArs4W_chipUnread",
+		"uploadDropZoneText": "nArs4W_uploadDropZoneText",
+		"uploadOverlayCancel": "nArs4W_uploadOverlayCancel",
+		"browserFrame": "nArs4W_browserFrame",
+		"uploadOverlayTitle": "nArs4W_uploadOverlayTitle",
+		"largeFileNoticeAction": "nArs4W_largeFileNoticeAction",
+		"tabList": "nArs4W_tabList",
+		"terminalRetry": "nArs4W_terminalRetry",
+		"explorerSymlink": "nArs4W_explorerSymlink",
+		"mermaidBody": "nArs4W_mermaidBody",
+		"gitEmpty": "nArs4W_gitEmpty"
+	};
+	//#endregion
+	//#region src/client/editor-git-gutter.ts
+	/**
+	* The editor's uncommitted-change gutter (issue #212), kept deliberately
+	* close to what VS Code shows and nothing more: the line-number gutter tints
+	* a changed line's number, a 2px bar sits at the left edge of the numbers
+	* (added / modified / deleted), and hovering a line reveals that line's
+	* blame as a PLAIN TEXT tooltip (author · time, then the commit summary). No
+	* end-of-line author widget, no badges, no animation, no gradient.
+	*
+	* Three rules shape the wiring:
+	*  - ONE git status source, and it is READ-ONLY here: `useGitStatus` (the
+	*    plugin's shared store, also behind the file tree's ink) decides WHICH
+	*    files changed and whether a file is untracked; this module never starts a
+	*    second poller AND never owns the shared one — it subscribes with
+	*    `poll: false` and refreshes on its own events (a file open, a save). The
+	*    line map itself comes from `git diff --no-color` through the existing
+	*    unified-diff parser (`diff/rows.ts`), so a line's class is git's own
+	*    answer — context rows are never marked.
+	*  - Only the `code` viewer carries the extensions (the caller passes null
+	*    for every other viewer and when the user switched the feature off), and
+	*    the bar/number colors come from the same `--dsw-alias-state-*` tones the
+	*    file tree already uses for its rows.
+	*  - Blame is fetched ON HOVER for the hovered line only, memoized per
+	*    session + path + line. Scrolling never re-requests a range, a file is
+	*    never prefetched, and the memo is dropped whenever the file's change set
+	*    is recomputed OR cleared — a new diff means new commits may be involved,
+	*    and a vanished diff (the file was committed or discarded) must not leave
+	*    the pre-commit line answering the next hover.
+	*/
+	/** The line-number ink of each class (the file tree's own tone mapping:
+	*  added/untracked green, modified amber, deleted red). */
+	const GIT_LINE_CLASS = {
+		add: sidebar_module_css_default.editorGitAdd ?? "",
+		mod: sidebar_module_css_default.editorGitMod ?? "",
+		del: sidebar_module_css_default.editorGitDel ?? ""
+	};
+	/** The class of the thin left bar's filled element, per class. */
+	const GIT_BAR_CLASS = {
+		add: sidebar_module_css_default.editorGitBarAdd ?? "",
+		mod: sidebar_module_css_default.editorGitBarMod ?? "",
+		del: sidebar_module_css_default.editorGitBarDel ?? ""
+	};
+	/** Structural class of the bar gutter (also the DOM hook tests query). */
+	const GIT_BAR_GUTTER_CLASS = "cm-dsh-git-gutter";
+	const EMPTY_KINDS = /* @__PURE__ */ new Map();
+	/**
+	* The changed NEW-side lines of a `git diff` patch, as line number → class.
+	*
+	* The patch is read through the shared unified-diff engine, so the pairing
+	* rules (a rewritten line is one `mod`, not a `del` plus an `add`) are the
+	* same ones every other diff surface in the plugin renders. Deletions have no
+	* line of their own on the new side: each unpaired deletion is anchored to
+	* the line ABOVE the gap — where VS Code draws it too — and to line 1 when
+	* the deleted run sits at the head of the file. Context rows contribute
+	* nothing, and the anchor never overwrites a line an addition or a rewrite
+	* already claimed.
+	* @param diffText - `git diff --no-color` output (unified, `-U3`).
+	* @returns the changed lines (1-based, worktree side).
+	*/
+	function gitLineKinds(diffText) {
+		const kinds = /* @__PURE__ */ new Map();
+		if (diffText === "") return kinds;
+		for (const file of parseUnifiedDiff(diffText).files) for (const segment of unifiedSegments(file)) {
+			if (segment.kind !== "hunk") continue;
+			let lastNew = 0;
+			for (const row of segment.rows) {
+				if (row.newLine !== void 0) lastNew = row.newLine;
+				if (row.kind === "add" && row.newLine !== void 0) kinds.set(row.newLine, "add");
+				else if (row.kind === "mod" && row.newLine !== void 0) kinds.set(row.newLine, "mod");
+				else if (row.kind === "del") {
+					const anchor = Math.max(1, lastNew);
+					if (!kinds.has(anchor)) kinds.set(anchor, "del");
+				}
+			}
+		}
+		return kinds;
+	}
+	/** Every line of a file that git does not track yet is an addition. */
+	function addedLineKinds(lineCount) {
+		const kinds = /* @__PURE__ */ new Map();
+		for (let line = 1; line <= lineCount; line += 1) kinds.set(line, "add");
+		return kinds;
+	}
+	const setGitLineKinds = StateEffect.define();
+	/** The changed lines of the open buffer (empty while the file is clean). */
+	const gitLineKindsField = StateField.define({
+		create: () => EMPTY_KINDS,
+		update: (value, transaction) => {
+			let next = value;
+			for (const effect of transaction.effects) if (effect.is(setGitLineKinds)) next = effect.value;
+			return next;
+		}
+	});
+	/** Marker carrying the line-number ink; `gutterLineClass` copies its class
+	*  onto every gutter element of that line (numbers included). */
+	var GitNumberMarker = class GitNumberMarker extends GutterMarker {
+		elementClass;
+		constructor(kind) {
+			super();
+			this.elementClass = GIT_LINE_CLASS[kind];
+		}
+		eq(other) {
+			return other instanceof GitNumberMarker && other.elementClass === this.elementClass;
+		}
+	};
+	/** Marker carrying the thin bar element drawn inside the bar gutter. */
+	var GitBarMarker = class GitBarMarker extends GutterMarker {
+		kind;
+		constructor(kind) {
+			super();
+			this.kind = kind;
+		}
+		eq(other) {
+			return other instanceof GitBarMarker && other.kind === this.kind;
+		}
+		toDOM() {
+			const bar = document.createElement("div");
+			bar.className = this.kind === null ? sidebar_module_css_default.editorGitBarSpacer ?? "" : `${sidebar_module_css_default.editorGitBar ?? ""} ${GIT_BAR_CLASS[this.kind]}`;
+			return bar;
+		}
+	};
+	/** The per-line classes of the line-number gutter (one entry per line). */
+	const gitLineNumberClasses = gutterLineClass.compute([gitLineKindsField], (state) => {
+		const ranges = [];
+		for (const [line, kind] of state.field(gitLineKindsField)) {
+			if (line < 1 || line > state.doc.lines) continue;
+			ranges.push(new GitNumberMarker(kind).range(state.doc.line(line).from));
+		}
+		return RangeSet.of(ranges, true);
+	});
+	/** The bar gutter, ordered BEFORE the line numbers by the caller. */
+	const gitBarGutter = gutter({
+		class: `${sidebar_module_css_default.editorGitBarGutter ?? ""} ${GIT_BAR_GUTTER_CLASS}`,
+		lineMarker: (view, block) => {
+			const kind = view.state.field(gitLineKindsField).get(view.state.doc.lineAt(block.from).number);
+			return kind === void 0 ? null : new GitBarMarker(kind);
+		},
+		lineMarkerChange: (update) => update.startState.field(gitLineKindsField) !== update.state.field(gitLineKindsField),
+		initialSpacer: () => new GitBarMarker(null)
+	});
+	/**
+	* The blame tooltip's surface. CodeMirror's own base theme paints
+	* `.cm-tooltip` light gray (`#f5f5f5` over `#bbb`, hardcoded), which on a dark
+	* skin is a light box holding light label text — so the one tooltip this
+	* editor can show takes its surface from the same tokens as every other
+	* layer.
+	*/
+	const gitGutterTheme = EditorView.theme({ ".cm-tooltip": {
+		border: "1px solid var(--dsw-alias-border-l2)",
+		backgroundColor: "var(--dsw-alias-bg-layer-2)",
+		color: "var(--dsw-alias-label-primary)"
+	} });
+	/** Build the gutter extensions for one view (empty = the feature is off). */
+	function gitGutterExtensions(host) {
+		if (host === null) return [];
+		const source = (view, pos) => {
+			const line = view.state.doc.lineAt(pos);
+			return loadBlameLine(host.scope, host.path, line.number).then((entry) => {
+				if (entry === null) return null;
+				return {
+					pos: line.from,
+					end: line.to,
+					above: true,
+					create: () => ({ dom: blameTooltipDom(entry) })
+				};
+			});
+		};
+		return [
+			gitLineKindsField,
+			gitLineNumberClasses,
+			gitBarGutter,
+			gitGutterTheme,
+			hoverTooltip(source, { hoverTime: 250 })
+		];
+	}
+	/** Push one change set into a live view (no-op without the extensions). */
+	function applyGitLineKinds(view, kinds) {
+		if (!view.state.field(gitLineKindsField, false)) return;
+		view.dispatch({ effects: setGitLineKinds.of(kinds) });
+	}
+	/**
+	* A Compartment holding the gutter extensions. Created once per editor view;
+	* flipping the setting dispatches `reconfigure(host)`, so the document, undo
+	* history, scroll and keymaps survive (host `null` = nothing is installed and
+	* no decoration exists at all).
+	*/
+	var CmGitGutterCompartment = class {
+		compartment = new Compartment();
+		/** `of(...)` payload for EditorState.create. */
+		of(host) {
+			return this.compartment.of(gitGutterExtensions(host));
+		}
+		/** Reconfigure for a setting flip (or a new file). */
+		reconfigure(host) {
+			return this.compartment.reconfigure(gitGutterExtensions(host));
+		}
+	};
+	/** Upper bound on memoized blame lines; the whole memo is dropped past it. */
+	const BLAME_CACHE_LIMIT = 500;
+	const blameCache = /* @__PURE__ */ new Map();
+	const blameKey = (sessionId, path, line) => `${sessionId}\u0000${path}\u0000${String(line)}`;
+	/** Drop the memo of one file (its change set was recomputed or cleared). */
+	function forgetBlame(sessionId, path) {
+		const prefix = `${sessionId}\u0000${path}\u0000`;
+		for (const key of [...blameCache.keys()]) if (key.startsWith(prefix)) blameCache.delete(key);
+	}
+	/** Blame one line, or null when git has no answer (untracked file, no
+	*  repository, command failure) — the tooltip then simply never shows. */
+	function loadBlameLine(scope, path, line) {
+		const key = blameKey(scope.sessionId, path, line);
+		const memo = blameCache.get(key);
+		if (memo !== void 0) return memo;
+		if (blameCache.size >= BLAME_CACHE_LIMIT) blameCache.clear();
+		const pending = api.gitBlame(scope, path, line, line).then((result) => result.lines.find((entry) => entry.line === line) ?? null, () => null);
+		blameCache.set(key, pending);
+		return pending;
+	}
+	/** The tooltip body: plain text, two lines (who/when, then the summary). */
+	function blameTooltipDom(entry) {
+		const dom = document.createElement("div");
+		dom.className = sidebar_module_css_default.editorBlame ?? "";
+		const head = document.createElement("div");
+		head.className = sidebar_module_css_default.editorBlameHead ?? "";
+		head.textContent = [entry.author, relativeTime(entry.date)].filter((part) => part !== "").join(" · ");
+		dom.append(head);
+		if (entry.summary !== "") {
+			const summary = document.createElement("div");
+			summary.className = sidebar_module_css_default.editorBlameSummary ?? "";
+			summary.textContent = entry.summary;
+			dom.append(summary);
+		}
+		return dom;
+	}
+	/**
+	* The changed lines of the open file, from the SHARED git status store (which
+	* decides whether the file is modified at all, and whether it is untracked)
+	* plus one `git diff HEAD` request per change. Clean files, unknown files and
+	* the disabled state all resolve to an empty map — no decoration.
+	*/
+	function useEditorGitGutter(options) {
+		const { enabled, visible, path, content, revision } = options;
+		const sessionId = options.scope.sessionId;
+		const cwd = options.scope.cwd;
+		const repoRoot = options.scope.repoRoot;
+		const scope = (0, react.useMemo)(() => ({
+			sessionId,
+			cwd,
+			...repoRoot !== void 0 ? { repoRoot } : {}
+		}), [
+			sessionId,
+			cwd,
+			repoRoot
+		]);
+		const active = enabled && visible;
+		const status = useGitStatus(scope, {
+			visible: active,
+			poll: false
+		});
+		const entry = active ? status.statusOf(path) : void 0;
+		const [kinds, setKinds] = (0, react.useState)(EMPTY_KINDS);
+		const refresh = status.refresh;
+		/**
+		* One event-driven re-read when the gutter's question changes: a DIFFERENT
+		* file, or the SAME file after a save. Deliberately not on mount — when no
+		* other surface holds the status, `retain` has already fetched one answer,
+		* and a second request in the same commit would only duplicate that scan.
+		*/
+		const lastAsk = (0, react.useRef)(null);
+		(0, react.useEffect)(() => {
+			if (!active) return;
+			const ask = `${path}\u0000${String(revision)}`;
+			const previous = lastAsk.current;
+			lastAsk.current = ask;
+			if (previous === null || previous === ask) return;
+			refresh();
+		}, [
+			active,
+			path,
+			revision,
+			refresh
+		]);
+		(0, react.useEffect)(() => {
+			forgetBlame(scope.sessionId, path);
+			if (!active || entry === void 0) {
+				setKinds(EMPTY_KINDS);
+				return;
+			}
+			let cancelled = false;
+			if (entry.tone === "untracked") {
+				setKinds(addedLineKinds(content === void 0 || content === "" ? 0 : content.split("\n").length));
+				return;
+			}
+			api.gitDiffHead(scope, path).then((result) => {
+				if (!cancelled) setKinds(gitLineKinds(result.diff));
+			}, () => {
+				if (!cancelled) setKinds(EMPTY_KINDS);
+			});
+			return () => {
+				cancelled = true;
+			};
+		}, [
+			active,
+			scope,
+			path,
+			content,
+			revision,
+			entry
+		]);
+		return kinds;
 	}
 	//#endregion
 	//#region src/client/markdown-frontmatter.ts
@@ -18218,63 +23229,121 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		return source;
 	}
 	//#endregion
-	//#region src/client/paths.ts
+	//#region src/client/markdown-code.ts
 	/**
-	* Path projection helpers shared by the explorer rows: a path relative to
-	* the session cwd (for the @-reference button and "copy relative path").
-	* The fs-tree joins with '/' even on Windows, so both separators normalize
-	* to '/' before comparison.
+	* The ONE code-region mask the two markdown source rewriters share
+	* (`markdown-images.ts` for image destinations, `markdown-navigation.ts` for
+	* link destinations).
 	*
-	* This module is dependency-free (no node:path in the client bundle): the
-	* host is the authority for path semantics, so this mirror deliberately
-	* accepts a SUPERSET of absolute forms — anything a Windows host would emit
-	* (drive letters, UNC) plus POSIX roots. A form the host would reject
-	* (e.g. a backslash UNC path on a POSIX host) passes through here and then
-	* fails loudly in the host's requireAbsolute instead of being silently
-	* joined onto the cwd.
+	* Both rewrites are regex passes over raw markdown, so anything that LOOKS like
+	* a link or an image inside a code region must be left verbatim: a README that
+	* documents `[x](./a.md#标题)` or `![i](./p.png)` means to show that syntax, not
+	* to have it rewritten. Masking preserves the region byte for byte — the
+	* sentinel is a NUL, which cannot appear in markdown source, and the original
+	* text goes back in after the pass.
+	*
+	* What counts as a code region is CommonMark's own rule: an INLINE code span
+	* (a backtick run closed by a run of the same length), and a FENCED block — an
+	* opening fence of three or more backticks OR three or more tildes, closed by a
+	* fence of the same character at least as long as the opener. The fence line
+	* itself is masked too (its leading run is what a backtick-span scan would
+	* otherwise mistake for a code span), and an unclosed fence runs to the end of
+	* the text, exactly as a renderer treats it.
+	*
+	* Both fence characters matter: `~~~` is a legal fence in CommonMark and in
+	* every renderer this plugin draws through, so an image or a link demonstrated
+	* inside one is as much an example as one inside ``` ``` ```.
 	*/
+	/** A backtick or tilde fence: three or more, at up to three spaces of indent. */
+	const FENCE_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/gm;
+	/** An inline code span: a backtick run, then the next run of the SAME length. */
+	const CODE_SPAN_RE = /(`+)[\s\S]*?\1/g;
+	/** A masked region's placeholder: NUL + index + NUL. */
+	const MASK_RE = /\u0000(\d+)\u0000/g;
 	/**
-	* Mirror of the host's absolute-path notion (see fs-tree.requireAbsolute):
-	* POSIX roots, Windows drive letters, and Windows UNC network shares in
-	* both backslash (`\\server\share\...`) and forward-slash
-	* (`//server/share/...`) form. Deliberately a superset — see the module
-	* comment — so a produced UNC path is never joined onto the cwd.
+	* The length of the fence run at the start of `line` — its leading `\`` or `~`
+	* characters. Zero when the line is not a fence (or not one of ours).
 	*/
-	function isAbsolutePath(path) {
-		return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]{2}[^\\/]/.test(path);
+	function fenceRun(line) {
+		const marker = line.charAt(0);
+		if (marker !== "`" && marker !== "~") return null;
+		let length = 0;
+		while (line.charAt(length) === marker) length += 1;
+		return length >= 3 ? {
+			marker,
+			length
+		} : null;
+	}
+	/** Whether a line closes a fence opened by `marker` × `length` (CommonMark).
+	*  The tail may carry a CRLF terminator: `\r` is the line's ending, not
+	*  content, and reading it as content left every fence in a CRLF document
+	*  unclosed — the masked region then ran to the end of the file and the link /
+	*  image passes skipped everything after the first fence. */
+	function closesFence(line, marker, length) {
+		if (line.charAt(0) !== marker) return false;
+		let run = 0;
+		while (line.charAt(run) === marker) run += 1;
+		return run >= length && /^[ \t\r]*$/.test(line.slice(run));
 	}
 	/**
-	* The path relative to the session's working directory.
-	* @param cwd - the explorer root (absolute).
-	* @param path - an absolute entry path from the fs-tree.
-	* @returns the relative path with '/' separators ('.' for the cwd itself),
-	* or `path` unchanged when it lies outside the cwd.
+	* Every fenced block in `text`, as half-open ranges that INCLUDE the fence
+	* lines.
 	*
-	* The prefix test is case-insensitive: Windows paths (and macOS's
-	* case-insensitive volumes) may arrive with different casing than the cwd
-	* row, and the containment decision must not depend on it. The returned
-	* relative text keeps the caller's own casing.
+	* The scan is a single forward walk that cannot be fooled by a fence-looking
+	* line inside a block or before the opener: a closing fence has to be the same
+	* character at least as long as its opener, and a fence nested inside a longer
+	* one is content, not a delimiter. An unclosed fence runs to the end of the
+	* text — the extent a renderer gives it.
 	*/
-	function relativeTo(cwd, path) {
-		const base = cwd.replace(/[\\/]+$/, "");
-		const norm = (value) => value.replace(/\\/g, "/");
-		const nBase = norm(base);
-		const nPath = norm(path);
-		if (nPath === nBase) return ".";
-		if (nPath.toLowerCase().startsWith(`${nBase.toLowerCase()}/`)) return nPath.slice(nBase.length + 1);
-		return path;
+	function fenceRegions(text) {
+		const regions = [];
+		let searchFrom = 0;
+		for (;;) {
+			FENCE_RE.lastIndex = searchFrom;
+			const opener = FENCE_RE.exec(text);
+			if (opener === null) break;
+			const start = opener.index;
+			const run = fenceRun(opener.at(1) ?? "");
+			const bodyStart = start + opener[0].length;
+			let end = text.length;
+			if (run !== null) {
+				let at = bodyStart;
+				while (at < text.length) {
+					if (text.charAt(at) === "\n") {
+						at += 1;
+						continue;
+					}
+					const lineEnd = text.indexOf("\n", at);
+					const stop = lineEnd === -1 ? text.length : lineEnd;
+					if (closesFence(text.slice(at, stop), run.marker, run.length)) {
+						end = stop;
+						break;
+					}
+					at = stop + 1;
+				}
+			}
+			regions.push([start, end]);
+			searchFrom = end;
+		}
+		return regions;
 	}
 	/**
-	* The lowercased file extension of a path ('' when none). The dot must sit
-	* inside the last segment — a dot in a directory name is not an extension.
-	* Shared by the editor language mapping (lang.ts) and the viewer registry's
-	* extension matching (service.ts), which both live in the core bundle.
+	* Mask the fenced blocks and inline code spans of one markdown text.
+	* @param text - the markdown source.
+	* @returns the masked text and its restore function.
 	*/
-	function extOf(path) {
-		const at = path.lastIndexOf(".");
-		if (at === -1) return "";
-		const base = path.slice(at + 1).toLowerCase();
-		return base.includes("/") || base.includes("\\") ? "" : base;
+	function maskCodeRegions(text) {
+		const masks = [];
+		const mask = (region) => {
+			masks.push(region);
+			return `\u0000${masks.length - 1}\u0000`;
+		};
+		let fenced = text;
+		for (const [start, end] of fenceRegions(text).reverse()) fenced = fenced.slice(0, start) + mask(text.slice(start, end)) + fenced.slice(end);
+		return {
+			masked: fenced.replace(CODE_SPAN_RE, (span) => mask(span)),
+			restore: (value) => value.replace(MASK_RE, (_m, index) => masks[Number(index)] ?? "")
+		};
 	}
 	//#endregion
 	//#region src/client/markdown-images.ts
@@ -18291,6 +23360,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	* (POSIX `/`), its Windows drive (`C:\`), or its UNC `\\server\share`
 	* prefix. The host's `requireAbsolute` (`path.resolve`) normalizes anyway,
 	* but producing a canonical path here keeps the `/sidebar/file` URL clean.
+	* Shared with the markdown navigation resolver (`markdown-navigation.ts`),
+	* which canonicalizes a claimed link target the same way.
 	*/
 	function normalizeLocalPath(path) {
 		const drive = /^([A-Za-z]:)[\\/]/.exec(path)?.[1];
@@ -18315,7 +23386,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	* destinations are left untouched for `MarkdownText`. Reference-style images
 	* (`![x][id]` + `[id]: url`) are covered by rewriting their definition lines.
 	*
-	* Code spans (`` `...` ``) and fenced code blocks (``` ```...``` ```) are
+	* Code regions — inline spans AND fenced blocks, the latter opened by ``` ``` ```
+	* OR `~~~` (see `markdown-code.ts`, the mask both source rewriters share) — are
 	* masked before rewriting so documentation that demonstrates `![alt](./img.png)`
 	* is not mutated into a `/sidebar/file` URL. Reference definitions are only
 	* rewritten when their label is actually referenced by an image (collapsed
@@ -18325,43 +23397,37 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	* @param text - The raw markdown source (inline + reference images).
 	* @param scope - The session scope (sessionId + cwd) for the media route.
 	* @param filePath - The absolute path of the opened `.md` file.
-	* @param origin - The GUI's own origin (`window.location.origin`); injected
-	* so the core rewrite stays pure and unit-testable.
+	* @param baseUrl - The injected transport base (`hostTransportBase()` in the
+	* renderers); injected so the core rewrite stays pure and unit-testable.
 	* @returns The markdown with local image destinations rewritten in place.
 	*/
 	/**
 	* Resolve one media destination against the session's media route: local
-	* (relative or absolute) paths become absolute `/sidebar/file` URLs (prefixed
-	* with the GUI's own origin so the shared MarkdownText http(s) allowlist
-	* accepts them), while remote URLs, `#`-anchors and empty destinations are
-	* returned untouched. Shared by the markdown image rewriter below and by the
+	* (relative or absolute) paths become absolute `/sidebar/file` URLs, resolved
+	* through `baseUrl` so the shared MarkdownText http(s) allowlist accepts them
+	* AND a reverse-proxy prefix is preserved, while remote URLs, `#`-anchors and
+	* empty destinations are returned untouched. Shared by the markdown image rewriter below and by the
 	* preview's raw-HTML sanitizer (`markdown-html.tsx`, which meets the same
 	* allowlist when rendering `<img src="./x.png">` inside HTML blocks).
 	*/
-	function resolveLocalMediaDest(dest, scope, filePath, origin) {
+	function resolveLocalMediaDest(dest, scope, filePath, baseUrl) {
 		const trimmed = dest.trim();
 		if (trimmed === "" || trimmed.startsWith("#")) return dest;
 		if (isRemoteUrl(trimmed)) return dest;
 		const slash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
 		const directory = slash === -1 ? "/" : filePath.slice(0, slash + 1);
-		const candidate = isAbsolutePath(trimmed) ? trimmed : directory + trimmed;
+		const candidate = isAbsolutePath$1(trimmed) ? trimmed : directory + trimmed;
 		const params = new URLSearchParams({
 			sessionId: scope.sessionId,
 			path: normalizeLocalPath(candidate)
 		});
 		if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
-		return `${origin}/sidebar/file?${params.toString()}`;
+		return hostRouteUrl(`sidebar/file?${params.toString()}`, baseUrl).href;
 	}
-	function rewriteLocalImageUrls(text, scope, filePath, origin) {
-		const resolve = (dest) => resolveLocalMediaDest(dest, scope, filePath, origin);
-		const masks = [];
-		const inline = text.replace(/```[\s\S]*?```/g, (block) => {
-			masks.push(block);
-			return `\u0000${masks.length - 1}\u0000`;
-		}).replace(/`[^`\n]*`/g, (span) => {
-			masks.push(span);
-			return `\u0000${masks.length - 1}\u0000`;
-		}).replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, alt, dest) => {
+	function rewriteLocalImageUrls(text, scope, filePath, baseUrl) {
+		const resolve = (dest) => resolveLocalMediaDest(dest, scope, filePath, baseUrl);
+		const { masked, restore } = maskCodeRegions(text);
+		const inline = masked.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_match, alt, dest) => {
 			return `![${alt}](${resolve(dest)})`;
 		});
 		const imageLabels = /* @__PURE__ */ new Set();
@@ -18372,10 +23438,438 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			const ref = labelMatch[2];
 			imageLabels.add(ref !== void 0 && ref !== "" ? ref.toLowerCase() : alt.toLowerCase());
 		}
-		return inline.replace(/^(\s*\[([^\]]+)\]:\s*)(<[^>]+>|[^\s]+)/gm, (match, head, label, dest) => {
+		return restore(inline.replace(/^(\s*\[([^\]]+)\]:\s*)(<[^>]+>|[^\s]+)/gm, (match, head, label, dest) => {
 			if (!imageLabels.has(label.toLowerCase())) return match;
 			return `${head}${resolve(dest.replace(/^<|>$/g, ""))}`;
-		}).replace(/\u0000(\d+)\u0000/g, (_m, index) => masks[Number(index)] ?? "");
+		}));
+	}
+	//#endregion
+	//#region src/client/markdown-navigation.ts
+	/**
+	* Cross-file / anchor navigation for the markdown the PLUGIN draws (the editor
+	* preview, the side-chat transcript, the changes reading pane, a task note).
+	*
+	* THE HOST CONTRACT this module works against (DSH 0.2.0-rc.1,
+	* `@deepseek-ai/dsh-client-ui-primitives`): `MarkdownText` renders a local
+	* destination as a clickable file link ONLY when a surrounding
+	* `MarkdownDelegateProvider` supplies `openFile` — otherwise the link is plain
+	* text, and there is no `a[href]` for a click listener to intercept. Worse for
+	* us, its `parseFileLink` accepts a fragment ONLY in the line grammar
+	* (`#L24` / `#L24-L30`); a heading fragment (`./other.md#标题`) makes the whole
+	* destination invalid, so the link would render as inert prose. That is why
+	* this module owns a SOURCE rewrite as well as a DOM pass — the same shape
+	* `markdown-images.ts` already has (images are rewritten into absolute
+	* `/sidebar/file` URLs because the renderer refuses relative ones):
+	*
+	* - {@link rewriteLocalMarkdownLinks} (source, before rendering): a claimed
+	*   link's non-line fragment is carried past the host parser as `%23` (an
+	*   encoded `#`, decoded back by the host into the path it hands `openFile`);
+	*   a local destination the plugin does NOT claim gets a `?` appended, which
+	*   `parseFileLink` refuses — the link keeps rendering as plain text instead of
+	*   becoming a file-mention button that would do nothing.
+	* - {@link markdownAnchorTarget} (pure judge): turns either shape back into
+	*   "same document fragment" / "file to open" / "not ours".
+	* - {@link assignHeadingIds} + {@link hideEmptyAnchors} (DOM, after rendering):
+	*   GitHub-style heading slugs (the renderer ships bare `h1..h6`), and the
+	*   explicit `<a id="x"></a>` anchors collapsed without losing their id.
+	*
+	* Relative targets resolve against the RENDERED DOCUMENT's own directory (a
+	* link in `/ws/docs/README.md` is relative to `/ws/docs`), falling back to the
+	* session cwd for prose surfaces that render no file at all.
+	*
+	* Cross-file fragments travel through {@link rememberMarkdownAnchor}: the click
+	* happens on the SOURCE document's surface while the jump belongs to the TARGET
+	* document, which does not exist yet — so the fragment is parked by session +
+	* absolute path and taken by the target's own surface once it mounts. The
+	* host's routing is untouched.
+	*
+	* KNOWN NARROW EDGES (deliberate, recorded rather than fixed — neither one
+	* corrupts anything):
+	* - A destination containing an ESCAPED parenthesis (`[x](./a\(1\).md)`) or a
+	*   single-quoted title (`[x](./a.md 'title')`) does not match the link grammar
+	*   below, so {@link rewriteLocalMarkdownLinks} never claims it. It keeps
+	*   rendering as plain text — exactly what it did before this feature existed,
+	*   i.e. no regression, but also no jump.
+	* - A `#L24` line destination belongs to the host's own grammar: the renderer
+	*   leaves the destination alone and hands the number over as `options.line`,
+	*   so the surface forwards it as the open's landing line (see
+	*   {@link lineOfHostFragment}) — it is NOT a heading anchor and never parks.
+	*/
+	/** Vertical breathing room above a jumped-to heading (px). */
+	const SCROLL_TOP_PADDING = 8;
+	/** How long a parked cross-file fragment stays eligible (ms). A click whose
+	*  open never lands must not make an unrelated later open of the same file
+	*  jump; the newest click for a key always replaces the previous one. */
+	const PENDING_TTL_MS = 15e3;
+	/** The fragment separator this module writes into a source destination
+	*  (`%23` = an encoded `#`) so a heading fragment survives the host's parser. */
+	const ENCODED_HASH = "%23";
+	/** A URL scheme (`https:`, `mailto:`, `data:`). */
+	const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+	/** A Windows drive prefix: `C:\x.md` matches {@link SCHEME_RE} but is a path. */
+	const DRIVE_RE = /^[A-Za-z]:[\\/]/;
+	/** The extensions a markdown link may claim (this batch claims markdown only —
+	*  a `.txt`/`.png`/`.ts` link keeps the browser's own behavior). */
+	const MARKDOWN_EXT_RE = /\.(?:md|markdown)$/i;
+	/** The host's own fragment grammar for a line destination (`#L24`, `#L24-L30`). */
+	const HOST_LINE_FRAGMENT_RE = /^L[1-9]\d*(?:-L[1-9]\d*)?$/;
+	/** Whether a fragment is the host's line destination rather than an anchor. */
+	function isHostLineFragment(fragment) {
+		return HOST_LINE_FRAGMENT_RE.test(fragment);
+	}
+	/**
+	* The FIRST line a host line fragment names (`L24` → 24, `L24-L30` → 24), or
+	* undefined when the fragment is a heading anchor.
+	*
+	* The host hands the same number over as `MarkdownDelegate.openFile`'s
+	* `options.line`, so this is the fallback for a caller that only has the
+	* destination (and the single place that knows the grammar — the editor has
+	* one caret, so a range contributes its start).
+	*/
+	function lineOfHostFragment(fragment) {
+		if (!isHostLineFragment(fragment)) return void 0;
+		const line = Number.parseInt(fragment.slice(1).split("-", 1)[0] ?? "", 10);
+		return Number.isSafeInteger(line) && line > 0 ? line : void 0;
+	}
+	/** Percent-decode one URL piece, tolerating a malformed escape (a literal `%`). */
+	function decodePercent(value) {
+		try {
+			return decodeURIComponent(value);
+		} catch {
+			return value;
+		}
+	}
+	/** The directory part of a path, trailing separator included (`''` when none). */
+	function directoryOf(path) {
+		const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+		return at === -1 ? "" : path.slice(0, at + 1);
+	}
+	/** Join a directory and a relative path with `/` (normalized by the caller). */
+	function joinPath(directory, relative) {
+		if (directory === "") return relative;
+		return `${directory.replace(/[\\/]+$/, "")}/${relative}`;
+	}
+	/**
+	* Find a destination's fragment separator — a literal `#` (as authored, or as
+	* the host hands a decoded destination back to `openFile`) or the encoded
+	* `%23` this module writes into the source. Returns null when there is none.
+	*/
+	function separatorOf(destination) {
+		const literal = destination.indexOf("#");
+		const encoded = destination.indexOf(ENCODED_HASH);
+		if (literal === -1 && encoded === -1) return null;
+		if (literal === -1) return {
+			at: encoded,
+			length: 3
+		};
+		if (encoded === -1 || literal < encoded) return {
+			at: literal,
+			length: 1
+		};
+		return {
+			at: encoded,
+			length: 3
+		};
+	}
+	/**
+	* The characters GitHub's heading slug DROPS beyond punctuation and symbols:
+	* pictographs (every emoji), the variation selectors that follow a good many of
+	* them (`🖼️` is U+1F5BC + U+FE0F — GitHub's own pipeline renders an emoji as an
+	* `<img>`, so neither character reaches the slug text), regional-indicator pairs
+	* (flag emoji, which are `\p{So}` but outside `Extended_Pictographic`), and the
+	* control/format/unassigned characters. Combining marks are deliberately NOT
+	* here — `\p{M}` survives, as it does on GitHub.
+	*/
+	const DROPPED_EXTRA_RE = /[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE00}-\u{FE0F}\u{1F1E6}-\u{1F1FF}\p{C}]/gu;
+	/**
+	* The GitHub heading slug of one heading's text — the id GitHub itself would
+	* give that heading, so the anchors a README's table of contents carries
+	* resolve. GitHub's slugger (`github-slugger`) lower-cases ASCII, drops
+	* punctuation and symbols, and turns EACH space into its own `-`; it does not
+	* trim and does not collapse runs, which is why `## 🛠️ Development & Build`
+	* has the id `-development--build` (the leading dash is the space the emoji
+	* left behind, the double dash is the removed `&`). Letters, digits and
+	* combining marks of ANY script survive, so a Chinese heading keeps its own
+	* text as its id.
+	*
+	* The one deliberate difference from `github-slugger` is where the emoji are
+	* removed: GitHub strips them while rendering the heading (to `<img>`), before
+	* the slugger ever sees the text, so a slugger run on plain text would keep
+	* `🚀` and produce `🚀-安装` instead of GitHub's real `-安装`. This function
+	* drops them here, in the same pass, which yields GitHub's actual ids.
+	* @param text - the heading's rendered text.
+	* @returns the slug (`''` for a heading with no letters or digits at all).
+	*/
+	function githubHeadingSlug(text) {
+		return text.toLowerCase().replace(DROPPED_EXTRA_RE, "").replace(/[^\p{L}\p{N}\p{M} _-]/gu, "").replace(/ /g, "-");
+	}
+	/**
+	* Give every heading under `root` a slug `id`, in document order, `-1`/`-2`
+	* suffixed on repeats. Authored ids are kept AND reserved first, so a generated
+	* slug can never collide with an explicit anchor later in the document; a
+	* heading whose text carries no letters or digits is left alone (an empty id
+	* resolves nothing). Idempotent: a second pass over the same tree — the
+	* mutation re-runs the surface installer depends on — changes nothing.
+	* @param root - the surface container (React owns the tree; ids live outside
+	*   React's props, so React never removes them).
+	*/
+	function assignHeadingIds(root) {
+		const headings = [...root.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+		const taken = /* @__PURE__ */ new Set();
+		for (const heading of headings) if (heading.id !== "") taken.add(heading.id);
+		for (const heading of headings) {
+			if (heading.id !== "") continue;
+			const base = githubHeadingSlug(heading.textContent ?? "");
+			if (base === "") continue;
+			let id = base;
+			for (let suffix = 1; taken.has(id); suffix += 1) id = `${base}-${suffix}`;
+			heading.id = id;
+			taken.add(id);
+		}
+	}
+	/**
+	* Collapse the explicit anchors GitHub-style READMEs carry (`<a id="x"></a>`):
+	* an `<a>` with an id, no child elements and no text is marked `hidden` — out
+	* of the way visually, still in the DOM, so `#x` deep links (and the jump
+	* helper below) still resolve. Anchors with any content are untouched.
+	* @param root - the surface container.
+	*/
+	function hideEmptyAnchors(root) {
+		for (const anchor of root.querySelectorAll("a[id]")) {
+			if (anchor.children.length > 0) continue;
+			if ((anchor.textContent ?? "").trim() !== "") continue;
+			anchor.hidden = true;
+		}
+	}
+	/** One post-render pass: heading ids plus empty-anchor collapsing. */
+	function prepareMarkdownAnchors(root) {
+		assignHeadingIds(root);
+		hideEmptyAnchors(root);
+	}
+	/**
+	* The pure link judge: what a destination inside a plugin markdown surface
+	* means, or null to leave it entirely alone.
+	*
+	* Fed either shape the pipeline produces — a destination as authored (the
+	* source rewriter's input) or the decoded destination the host hands
+	* `openFile` (where this module's `%23` has already become a `#`).
+	* @param destination - the link destination (a raw `href`-style string).
+	* @param docPath - the absolute path of the markdown document being rendered;
+	*   relative targets resolve against its directory. Absent for prose surfaces.
+	* @param cwd - the session workspace root, the base for prose surfaces.
+	* @returns the resolved target, or null for every link the plugin does not own.
+	*/
+	function markdownAnchorTarget(destination, docPath, cwd) {
+		const raw = destination.trim();
+		if (raw === "") return null;
+		const separator = separatorOf(raw);
+		const pathPart = separator === null ? raw : raw.slice(0, separator.at);
+		const fragment = separator === null ? "" : decodePercent(raw.slice(separator.at + separator.length));
+		if (pathPart === "") return {
+			kind: "same-page",
+			fragment
+		};
+		if (SCHEME_RE.test(pathPart) && !DRIVE_RE.test(pathPart)) return null;
+		if (pathPart.startsWith("//")) return null;
+		const path = decodePercent(pathPart);
+		if (!MARKDOWN_EXT_RE.test(path)) return null;
+		return {
+			kind: "file",
+			path: resolveTargetPath(path, docPath, cwd),
+			fragment
+		};
+	}
+	/**
+	* Resolve a claimed markdown destination against the document that authored it.
+	* Absolute paths (POSIX, drive, UNC) are normalized in place; a relative path
+	* joins the document's own directory (or the session cwd); with neither base
+	* known the relative spelling is handed on untouched for the opener to resolve
+	* against the session cwd.
+	*/
+	function resolveTargetPath(path, docPath, cwd) {
+		if (isAbsolutePath$1(path)) return normalizeLocalPath(path);
+		const directory = docPath !== void 0 && docPath !== "" ? directoryOf(docPath) : cwd ?? "";
+		if (directory === "") return path.replace(/^(?:\.\/)+/, "").replace(/\\/g, "/");
+		return normalizeLocalPath(joinPath(directory, path));
+	}
+	/**
+	* Whether a destination's path part is a LOCAL path the host would otherwise
+	* turn into a clickable file link (once a surface provides `openFile`). Remote
+	* URLs, scheme-relative URLs and anything already carrying a query (which
+	* `parseFileLink` refuses on its own) are excluded.
+	*/
+	function isLocalDestination(pathPart) {
+		if (pathPart === "" || pathPart.includes("?")) return false;
+		if (pathPart.startsWith("//")) return false;
+		if (SCHEME_RE.test(pathPart) && !DRIVE_RE.test(pathPart)) return false;
+		return true;
+	}
+	/**
+	* Rewrite ONE destination for the host renderer (see the module comment).
+	* Idempotent: an already-rewritten `%23` destination, a line destination and a
+	* fragment-less link all come back untouched.
+	*/
+	function rewriteDestination(destination, docPath, cwd) {
+		const separator = separatorOf(destination);
+		const pathPart = separator === null ? destination : destination.slice(0, separator.at);
+		const fragment = separator === null ? "" : destination.slice(separator.at + separator.length);
+		if (markdownAnchorTarget(destination, docPath, cwd) === null) {
+			if (!isLocalDestination(pathPart)) return destination;
+			return `${pathPart}?${separator === null ? "" : destination.slice(separator.at)}`;
+		}
+		if (separator === null || separator.length === 3) return destination;
+		if (isHostLineFragment(fragment)) return destination;
+		return `${pathPart}${ENCODED_HASH}${fragment.replace(/\?/g, "%3F")}`;
+	}
+	/**
+	* Make the host renderer able to SERVE the local links of one markdown text:
+	* a claimed `.md`/`.markdown` destination gets its heading fragment carried as
+	* `%23`, and every other local destination gets the `?` that keeps it inert.
+	*
+	* Code regions are masked first (see `maskCodeRegions` — fenced blocks opened
+	* by ``` ``` ``` OR `~~~`, and inline code spans), so documentation that
+	* demonstrates `[x](./a.md#标题)` is not mutated. Image destinations are left
+	* to `rewriteLocalImageUrls` (which must run FIRST: it rewrites the definitions
+	* an image uses into absolute media URLs, which this pass then ignores).
+	* @param text - the markdown source about to be rendered.
+	* @param docPath - the rendered document's absolute path (relative-link base).
+	* @param cwd - the session workspace root, the base for prose surfaces.
+	* @returns the markdown with local link destinations rewritten in place.
+	*/
+	function rewriteLocalMarkdownLinks(text, docPath, cwd) {
+		const { masked, restore } = maskCodeRegions(text);
+		return restore(masked.replace(/(?<!!)\[((?:[^[\]]|\[[^\]]*\])*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_match, label, destination, title) => `[${label}](${rewriteDestination(destination, docPath, cwd)}${title})`).replace(/^(\s*\[([^\]]+)\]:\s*)(<[^>]+>|[^\s]+)/gm, (_match, head, _label, destination) => {
+			const bracketed = destination.startsWith("<") && destination.endsWith(">");
+			const rewritten = rewriteDestination(bracketed ? destination.slice(1, -1) : destination, docPath, cwd);
+			return `${head}${bracketed ? `<${rewritten}>` : rewritten}`;
+		}));
+	}
+	/**
+	* The element a fragment names, or null. Both the fragment as written and its
+	* slug form are tried, so `#Some Heading` and `#some-heading` both land. The
+	* scan is a linear walk over `[id]` rather than a selector: ids come from
+	* arbitrary markdown text and need no CSS escaping this way.
+	* @param root - the surface container.
+	* @param fragment - the percent-decoded fragment.
+	*/
+	function findAnchorTarget(root, fragment) {
+		const wanted = /* @__PURE__ */ new Set([fragment, githubHeadingSlug(fragment)]);
+		wanted.delete("");
+		if (wanted.size === 0) return null;
+		for (const element of root.querySelectorAll("[id]")) if (wanted.has(element.id)) return element;
+		return null;
+	}
+	/** Whether an element can scroll its own content right now. */
+	function isScrollable(element) {
+		const overflowY = window.getComputedStyle(element).overflowY;
+		return (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") && element.scrollHeight > element.clientHeight;
+	}
+	/**
+	* The scroller a jump writes to: the nearest scrollable ancestor of the surface
+	* container — the preview's own scroll box — falling back to the container
+	* itself. Never `window.scrollTo` (nor `scrollIntoView`, which walks every
+	* scrollable ancestor and would drag the whole sidebar).
+	*/
+	function scrollHostFor(container) {
+		for (let node = container; node !== null; node = node.parentElement) if (isScrollable(node)) return node;
+		return container;
+	}
+	/**
+	* A `hidden` element has no layout box, so measuring it would report the
+	* viewport origin: resolve a hidden explicit anchor through its nearest visible
+	* ancestor, which is exactly where the id sits in the flow.
+	*/
+	function visibleAncestorOf(target) {
+		let node = target;
+		while (node.hidden && node.parentElement !== null) node = node.parentElement;
+		return node;
+	}
+	/**
+	* Scroll one element to the top of the surface's own scroller (the measured box
+	* of `container`, so nothing outside it moves).
+	* @param container - the surface container.
+	* @param target - the element to reveal.
+	*/
+	function scrollAnchorIntoView(container, target) {
+		const scroller = scrollHostFor(container);
+		const offset = visibleAncestorOf(target).getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+		scroller.scrollTop = Math.max(0, offset - SCROLL_TOP_PADDING);
+	}
+	/**
+	* Land `fragment` inside `container`: open a collapsed `<details>` ancestor
+	* (the same courtesy the preview's own outline pays) and scroll the surface's
+	* own scroller. A missing target is a silent no-op — a stale link must neither
+	* throw nor move the reader.
+	* @returns whether the document actually carries the fragment.
+	*/
+	function jumpToFragment(container, fragment) {
+		if (fragment === "") {
+			scrollHostFor(container).scrollTop = 0;
+			return true;
+		}
+		const target = findAnchorTarget(container, fragment);
+		if (target === null) return false;
+		target.closest("details:not([open])")?.setAttribute("open", "");
+		scrollAnchorIntoView(container, target);
+		return true;
+	}
+	/** The pending cross-file fragments, keyed by session + absolute target path. */
+	const pendingAnchors = /* @__PURE__ */ new Map();
+	/** The lookup key of one document: session + its path, separator- and
+	*  traversal-normalized so the two spellings a surface and the editor hold
+	*  (`/p/a.md` vs `\p\a.md`, cwd-relative vs absolute) meet. */
+	function anchorKey(sessionId, cwd, path) {
+		return `${sessionId}::${normalizeLocalPath(isAbsolutePath$1(path) ? path : joinPath(cwd ?? "", path)).replace(/\\/g, "/")}`;
+	}
+	/**
+	* Drop every parked fragment whose TTL ran out.
+	*
+	* The TTL is already honoured when a fragment is TAKEN, but a fragment parked
+	* for a document the reader never opens is never taken — it would sit in the
+	* map for the page's lifetime (since v0.25 every visited native tab body stays
+	* mounted, and every cross-file link click parks one entry). Sweeping on WRITE
+	* is what bounds it: a write is the only event that can add an entry.
+	*
+	* @returns how many expired entries were dropped.
+	*/
+	function sweepPendingAnchors() {
+		const now = Date.now();
+		let dropped = 0;
+		for (const [key, entry] of pendingAnchors) {
+			if (now - entry.at <= PENDING_TTL_MS) continue;
+			pendingAnchors.delete(key);
+			dropped += 1;
+		}
+		return dropped;
+	}
+	/**
+	* Park the fragment a cross-file link wants to land on, for the target
+	* document's own surface to take once it mounts.
+	* @param sessionId - the session both documents live in.
+	* @param cwd - that session's workspace root (path resolution).
+	* @param path - the target file (absolute, or cwd-relative).
+	* @param fragment - the decoded fragment (`''` parks nothing).
+	*/
+	function rememberMarkdownAnchor(sessionId, cwd, path, fragment) {
+		if (fragment === "") return;
+		sweepPendingAnchors();
+		pendingAnchors.set(anchorKey(sessionId, cwd, path), {
+			fragment,
+			at: Date.now()
+		});
+	}
+	/**
+	* Take (and clear) the fragment parked for one document. The entry is always
+	* consumed — a surface that takes it and finds no such heading does not leave
+	* it behind for a later, unrelated open.
+	* @returns the fragment, or null when nothing (fresh) is parked.
+	*/
+	function takeMarkdownAnchor(sessionId, cwd, path) {
+		const key = anchorKey(sessionId, cwd, path);
+		const entry = pendingAnchors.get(key);
+		if (entry === void 0) return null;
+		pendingAnchors.delete(key);
+		return Date.now() - entry.at > PENDING_TTL_MS ? null : entry.fragment;
 	}
 	//#endregion
 	//#region node_modules/.pnpm/@lezer+lr@1.4.10/node_modules/@lezer/lr/dist/index.js
@@ -19084,7 +24578,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		}
 		token(input, stack) {
 			let { parser } = stack.p;
-			readToken(this.data, input, stack, this.id, parser.data, parser.tokenPrecTable);
+			readToken$1(this.data, input, stack, this.id, parser.data, parser.tokenPrecTable);
 		}
 	};
 	TokenGroup.prototype.contextual = TokenGroup.prototype.fallback = TokenGroup.prototype.extend = false;
@@ -19101,7 +24595,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			let start = input.pos, skipped = 0;
 			for (;;) {
 				let atEof = input.next < 0, nextPos = input.resolveOffset(1, 1);
-				readToken(this.data, input, stack, 0, this.data, this.precTable);
+				readToken$1(this.data, input, stack, 0, this.data, this.precTable);
 				if (input.token.value > -1) break;
 				if (this.elseToken == null) return;
 				if (!atEof) skipped++;
@@ -19134,7 +24628,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			this.extend = !!options.extend;
 		}
 	};
-	function readToken(data, input, stack, group, precTable, precOffset) {
+	function readToken$1(data, input, stack, group, precTable, precOffset) {
 		let state = 0, groupMask = 1 << group, { dialect } = stack.p.parser;
 		scan: for (;;) {
 			if ((groupMask & data[state]) == 0) break;
@@ -21297,6 +26791,139 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	*/
 	function json$1() {
 		return new LanguageSupport(jsonLanguage);
+	}
+	//#endregion
+	//#region src/client/lang-jsonl.ts
+	/**
+	* A per-line JSON language for JSONL / NDJSON editing.
+	*
+	* Reusing `@codemirror/lang-json` here is not free: its grammar accepts ONE
+	* top-level value, so every record after the first lands in an error node —
+	* measured on a 400-record file, 402 error nodes. They are zero-width for
+	* well-formed lines so the tinting looks right, but the parse is structurally
+	* wrong: every diagnostic, fold and structure query built on it inherits the
+	* damage, and a genuinely broken line is indistinguishable from the boundary
+	* noise. (Verified directly against `@lezer/json` before writing this.)
+	*
+	* A JSONL line IS an independent JSON document, so the honest parse is one
+	* JSON tokenizer per line. This is that tokenizer, written as a CodeMirror
+	* `StreamLanguage`: it walks a line once, tags what it recognises, and marks
+	* what it does not — which is exactly the signal a broken record deserves.
+	*
+	* Only the concerns an editor needs are covered: strings (with escapes and an
+	* unterminated tail), numbers, `true`/`false`/`null`, structural punctuation,
+	* and property names (a string followed by `:`). No validation of duplicate
+	* keys, no nesting depth, no number grammar beyond JSON's shape — a tokenizer
+	* is not a parser and pretending otherwise would only produce false errors.
+	*/
+	/** JSON's number grammar (also used to decide whether a run IS a number). */
+	const NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
+	/** A bare word: `true` / `false` / `null`, or something that is not JSON. */
+	const WORD = /^[A-Za-z_][A-Za-z0-9_]*/;
+	/**
+	* Read one token starting at the stream's position.
+	*
+	* @param stream - the line stream, positioned at a non-space character.
+	* @returns the token's text and kind.
+	*/
+	function readToken(stream) {
+		const char = stream.peek();
+		if (char === "\"") {
+			stream.next();
+			let body = "\"";
+			for (;;) {
+				const next = stream.next();
+				if (next === void 0 || next === null) return {
+					text: body,
+					kind: "invalid"
+				};
+				body += next;
+				if (next === "\\") {
+					const escaped = stream.next();
+					if (escaped === void 0 || escaped === null) return {
+						text: body,
+						kind: "invalid"
+					};
+					body += escaped;
+					continue;
+				}
+				if (next === "\"") return {
+					text: body,
+					kind: "string"
+				};
+			}
+		}
+		if (char === "{" || char === "}" || char === "[" || char === "]" || char === ":" || char === ",") {
+			stream.next();
+			return {
+				text: char,
+				kind: "punctuation"
+			};
+		}
+		if (char !== void 0 && (char === "-" || char >= "0" && char <= "9")) {
+			const matched = NUMBER.exec(stream.string.slice(stream.pos));
+			if (matched !== null) {
+				const text = matched[0];
+				for (let index = 0; index < text.length; index += 1) stream.next();
+				return {
+					text,
+					kind: "number"
+				};
+			}
+			return {
+				text: stream.next() ?? "",
+				kind: "invalid"
+			};
+		}
+		const word = WORD.exec(stream.string.slice(stream.pos));
+		if (word !== null) {
+			const text = word[0];
+			for (let index = 0; index < text.length; index += 1) stream.next();
+			return text === "true" || text === "false" || text === "null" ? {
+				text,
+				kind: "keyword"
+			} : {
+				text,
+				kind: "invalid"
+			};
+		}
+		stream.next();
+		return {
+			text: char ?? "",
+			kind: "invalid"
+		};
+	}
+	/**
+	* The JSONL language: one JSON document per line, no cross-line state.
+	*
+	* A `StreamLanguage` carries a state object between lines; this grammar keeps
+	* none, because JSONL records are independent by definition — carrying
+	* anything would make line 2's tinting depend on line 1's.
+	*/
+	const jsonlLanguage = StreamLanguage.define({
+		name: "jsonl",
+		token(stream) {
+			if (stream.eatSpace()) return null;
+			switch (readToken(stream).kind) {
+				case "string": return isPropertyName(stream) ? "propertyName" : "string";
+				case "number": return "number";
+				case "keyword": return "atom";
+				case "punctuation": return "punctuation";
+				case "invalid": return "invalid";
+			}
+		},
+		startState() {
+			return {};
+		}
+	});
+	/**
+	* Whether a just-read string opens an object property: the next non-space
+	* character is a colon. JSON allows whitespace between the two, and a JSONL
+	* line commonly uses it after `{`.
+	*/
+	function isPropertyName(stream) {
+		const rest = stream.string.slice(stream.pos);
+		return /^\s*:/.test(rest);
 	}
 	//#endregion
 	//#region node_modules/.pnpm/@lezer+markdown@1.7.2/node_modules/@lezer/markdown/dist/index.js
@@ -24889,7 +30516,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	/**
 	Language support for CSS.
 	*/
-	function css$2() {
+	function css$1() {
 		return new LanguageSupport(cssLanguage, cssLanguage.data.of({ autocomplete: cssCompletionSource }));
 	}
 	//#endregion
@@ -25830,7 +31457,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			htmlLanguage.data.of({ autocomplete: htmlCompletionSourceWith(config) }),
 			config.autoCloseTags !== false ? autoCloseTags$1 : [],
 			javascript$1().support,
-			css$2().support
+			css$1().support
 		]);
 	}
 	const selfClosers = /*@__PURE__*/ new Set(/*@__PURE__*/ "area base br col command embed frame hr img input keygen link meta param source track wbr menuitem".split(" "));
@@ -43000,6 +48627,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			case "tsx": return "tsx";
 			case "json":
 			case "jsonc": return "json";
+			case "jsonl":
+			case "ndjson": return "jsonl";
 			case "md":
 			case "markdown": return "md";
 			case "py":
@@ -43089,10 +48718,11 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			jsx: true
 		}),
 		json: () => json$1(),
+		jsonl: () => jsonlLanguage,
 		md: () => markdown(),
 		python: () => python(),
 		html: () => html$2(),
-		css: () => css$2(),
+		css: () => css$1(),
 		xml: () => xml$1(),
 		yaml: () => yaml(),
 		sql: () => sql(),
@@ -43373,8 +49003,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		},
 		{
 			tag: tags$1.invalid,
-			color: ONE_DARK.white,
-			fontStyle: "bold"
+			color: ONE_DARK.red,
+			textDecoration: "underline wavy"
 		}
 	];
 	/** one-light syntax rules (the light counterpart; hues from one-dark-palette.ts). */
@@ -43460,8 +49090,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		},
 		{
 			tag: tags$1.invalid,
-			color: ONE_LIGHT.white,
-			fontStyle: "bold"
+			color: ONE_LIGHT.red,
+			textDecoration: "underline wavy"
 		}
 	];
 	/** The scheme-dependent extension pair (surface tint + syntax highlight). */
@@ -43482,6 +49112,135 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		/** Reconfigure for a new scheme. */
 		reconfigure(dark) {
 			return this.compartment.reconfigure(cmThemeExtensions(dark));
+		}
+	};
+	//#endregion
+	//#region src/client/cm-search.ts
+	/**
+	* Find-in-file for the sidebar editor: CodeMirror's own search extension,
+	* wired into every TextEditor view (code and markdown alike, edit and
+	* preview mode — the extension lives in the shared base extension list, not
+	* in an editable-only branch).
+	*
+	* Three pieces:
+	*  - `search({ top: true })` pins the panel to the TOP of the editor
+	*    (CodeMirror's default is the bottom), so it reads like a browser/IDE
+	*    find bar and never covers the caret's line.
+	*  - `keymap.of(searchKeymap)` binds the upstream default keys: Mod-f opens
+	*    the panel, Mod-g / Shift-Mod-g jump next/previous, Mod-Alt-g goes to a
+	*    line, Escape closes. The editor's own keymap is registered AFTER this
+	*    one, so upstream bindings never shadow it (the only shared key is
+	*    Escape, and `closeSearchPanel` returns false when no panel is open —
+	*    the editor's `simplifySelection` still runs then).
+	*  - the panel's copy comes from the `phrases` facet, which CodeMirror reads
+	*    at panel-build time. The facet is part of the EditorState, so a language
+	*    switch must reconfigure it — {@link CmSearchPhrases} is that
+	*    compartment (the document, history, and keymaps survive).
+	*
+	* The panel chrome is re-themed with the app's design tokens
+	* ({@link cmSearchTheme}): CodeMirror's stock panel paints its own light
+	* palette (`&light` selectors resolve as light because the editor theme does
+	* not declare `dark`), which would sit as a gray/white box inside a
+	* dark-mode sidebar. Only the token-driven chrome is overridden — the match
+	* highlight overlays stay CodeMirror's translucent defaults, which read on
+	* both schemes.
+	*/
+	/**
+	* CodeMirror's own phrase keys → this plugin's dictionary keys. The keys are
+	* the exact literals @codemirror/search looks up (see its SearchPanel /
+	* announceMatch / gotoLine panel); `$` inside a value is CodeMirror's
+	* placeholder, replaced with the caller's argument when the phrase is
+	* resolved (`EditorState.phrase`), so the dictionary entries keep it
+	* verbatim.
+	*/
+	function searchPhrases() {
+		return {
+			"Find": t("searchFind"),
+			"Replace": t("searchReplace"),
+			"next": t("searchNext"),
+			"previous": t("searchPrevious"),
+			"all": t("searchAll"),
+			"match case": t("searchMatchCase"),
+			"by word": t("searchWholeWord"),
+			"regexp": t("searchRegexp"),
+			"replace": t("searchReplace"),
+			"replace all": t("searchReplaceAll"),
+			"close": t("close"),
+			"current match": t("searchCurrentMatch"),
+			"on line": t("searchOnLine"),
+			"replaced $ matches": t("searchReplacedMatches"),
+			"replaced match on line $": t("searchReplacedMatchOnLine"),
+			"Go to line": t("searchGoToLine"),
+			"go": t("searchGo")
+		};
+	}
+	/** The search panel chrome on design tokens (no hardcoded colors). */
+	const cmSearchTheme = EditorView.theme({
+		".cm-panels.cm-panels-top": {
+			backgroundColor: "var(--dsw-alias-bg-layer-2)",
+			color: "var(--dsw-alias-label-primary)",
+			borderBottom: "1px solid var(--dsw-alias-border-l1)"
+		},
+		".cm-panel.cm-search": {
+			backgroundColor: "transparent",
+			color: "var(--dsw-alias-label-primary)"
+		},
+		".cm-panel.cm-search input.cm-textfield": {
+			backgroundColor: "var(--dsw-alias-bg-base)",
+			color: "var(--dsw-alias-label-primary)",
+			border: "1px solid var(--dsw-alias-border-l1)",
+			borderRadius: "3px"
+		},
+		".cm-panel.cm-search input.cm-textfield:focus": {
+			border: "1px solid var(--dsw-alias-brand-primary)",
+			outline: "none"
+		},
+		".cm-panel.cm-search button.cm-button": {
+			backgroundColor: "var(--dsw-alias-interactive-bg-hover)",
+			backgroundImage: "none",
+			color: "var(--dsw-alias-label-primary)",
+			border: "1px solid var(--dsw-alias-border-l1)"
+		},
+		".cm-panel.cm-search button.cm-button:hover": { backgroundColor: "var(--dsw-alias-interactive-bg-hover-accent)" },
+		".cm-panel.cm-search button.cm-button:active": {
+			backgroundColor: "var(--dsw-alias-interactive-bg-active)",
+			backgroundImage: "none"
+		},
+		".cm-panel.cm-search [name=close]": {
+			color: "var(--dsw-alias-label-secondary)",
+			cursor: "pointer"
+		},
+		".cm-panel.cm-search [name=close]:hover": { color: "var(--dsw-alias-label-primary)" },
+		".cm-panel.cm-search label": { color: "var(--dsw-alias-label-secondary)" }
+	});
+	/**
+	* The scheme-independent part of the find-in-file wiring: the top-pinned
+	* panel, its theme, and the upstream search keymap. The localized phrases
+	* are added separately through {@link CmSearchPhrases} (they are the only
+	* piece a language switch reconfigures).
+	*/
+	function cmSearchExtensions() {
+		return [
+			search({ top: true }),
+			cmSearchTheme,
+			keymap.of(searchKeymap)
+		];
+	}
+	/**
+	* A Compartment holding the localized `phrases` facet. Created once per
+	* editor view; a language switch dispatches `reconfigure()` on it, which
+	* rebuilds the panel copy on its next open without touching the document,
+	* undo history, or keymaps.
+	*/
+	var CmSearchPhrases = class {
+		compartment = new Compartment();
+		/** `of(...)` payload for EditorState.create. */
+		of() {
+			return this.compartment.of(EditorState.phrases.of(searchPhrases()));
+		}
+		/** Re-resolve the panel copy for the current language. */
+		reconfigure() {
+			return this.compartment.reconfigure(EditorState.phrases.of(searchPhrases()));
 		}
 	};
 	//#endregion
@@ -43528,1134 +49287,6 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			observer.disconnect();
 		};
 	}
-	//#endregion
-	//#region src/client/locales.ts
-	/**
-	* Minimal zh/en/ja copy for the sidebar. The copy follows the DSH i18n system:
-	* the client apply attaches the locale service (`ctx.locale`, provided by
-	* `@deepseek-ai/dsh-client-locale`) through {@link attachLocale}, and
-	* `t()`/`isZh()` resolve the active locale from it — the Host-backed
-	* `locale.preference` wins over the raw browser language and switches live.
-	* Without an attached service (standalone/test compositions) the browser
-	* language is used, matching the previous behavior. The dictionaries are
-	* also registered into the DSH locale registry under {@link LOCALE_NS}.
-	*
-	* ja (Japanese) is opt-in through `@huanlin/dsh-plugin-better-locale`: when
-	* that plugin is installed, the client apply also calls
-	* {@link attachBetterLocale} with the override store. `t()` then consults
-	* the store's active override id first; if it is `'ja'` (or any id whose
-	* dict has the requested key) the ja text wins, otherwise the existing
-	* zh/en chain runs unchanged. better-locale itself patches
-	* `LocaleRuntime.prototype.lookup` so DSH's own translate chain also
-	* returns ja where the `betterSidebar` namespace has a ja entry — that
-	* path covers external callers of `ctx.locale.bind('betterSidebar')`,
-	* while the override-aware `t()` here covers better-sidebar's own
-	* components (which bypass `ctx.locale` and call `t()` directly).
-	*/
-	/** The zh dictionary (also registered into the DSH locale registry under {@link LOCALE_NS}). */
-	const zh = {
-		files: "文件",
-		guideDescFiles: "浏览工作区文件树，点开即预览或编辑",
-		guideDescGit: "Git 变更与本轮文件改动，双视角合一",
-		guideDescSubagent: "子代理拓扑与后台任务，实时状态",
-		guideDescSidechat: "继承当前会话上下文的独立追问线程",
-		guideDescTerminal: "真实 shell 终端（xterm + pty），断线重连",
-		guideDescBrowser: "内嵌网页浏览器，可接管聊天里的外链",
-		changesSessionEmpty: "本会话还没有文件操作",
-		changesRead: "读取",
-		changesMdReading: "阅读",
-		changesMdRaw: "原文",
-		changesHtmlRender: "渲染",
-		changesHtmlRaw: "原文",
-		changesPdfRender: "渲染",
-		changesPdfRaw: "原文",
-		changesWrite: "写入",
-		changesEdit: "编辑",
-		changesRunning: "执行中",
-		changesError: "出错",
-		changesRedactOn: "已开启脱敏：敏感内容以 [REDACTED] 显示；点击关闭（自担风险）",
-		changesRedactOff: "脱敏已关闭：将原样显示文件内容；点击开启",
-		changesRedactOnLabel: "脱敏中",
-		changesRedactOffLabel: "脱敏关",
-		changesRedactBanner: "已脱敏",
-		changesFold: "{count} 行…点击展开",
-		changesFoldLoading: "展开中…",
-		changesFoldUnavailable: "上下文未加载",
-		changesContext: "上下文",
-		changesPriorUnknown: "变更前的内容不在窗口内，显示为全新增",
-		explorer: "资源管理器",
-		terminal: "终端",
-		editor: "编辑器",
-		editorExplorer: "文件打开方式",
-		editorExplorerDesc: "控制文件打开方式",
-		editorExplorerMerged: "合并",
-		editorExplorerMergedDesc: "文件在同一窗口内原地切换；新窗口默认展开文件树",
-		editorExplorerSplit: "独立",
-		editorExplorerSplitDesc: "无路径窗口即资源管理器（仅文件树）；文件各自新开窗口（带文件树，默认收起）",
-		editorTreeToggle: "文件树面板",
-		editorPathPlaceholder: "输入文件路径（相对会话目录或绝对路径），Enter 打开",
-		editorSearchPlaceholder: "按文件名搜索…",
-		editorSearchNoResults: "无匹配文件",
-		editorSearchTruncated: "结果过多，仅显示部分匹配",
-		editorEmptyHint: "从右侧文件树或上方路径输入框选择文件开始预览",
-		openFileNewTab: "在新 Tab 中打开",
-		openFileSide: "在侧边打开",
-		openWithMenu: "在应用中打开",
-		openWithSshSuffix: " (SSH)",
-		pinOpenWith: "固定到菜单",
-		unpinOpenWith: "取消固定",
-		openWithExplorer: "资源管理器",
-		openWithVscode: "VS Code",
-		openWithCursor: "Cursor",
-		openWithZed: "Zed",
-		openWithSettingsSshTitle: "SSH 远端主机",
-		openWithSettingsSshDesc: "留空为本地工作区；填入 user@host 或 SSH 别名后，VSCode 系打开方式将改用 vscode-remote/ssh-remote 协议，资源管理器 / Zed / 非 VSCode 系自定义编辑器将从菜单隐藏",
-		openWithSettingsSshPlaceholder: "user@host 或 SSH 别名",
-		openWithSettingsCustomTitle: "自定义编辑器",
-		openWithSettingsCustomDesc: "名称 + URL 模板（{path} 占位符）+ 是否 VSCode 系；SSH 模式下仅 VSCode 系可打开远端",
-		openWithSettingsAdd: "添加",
-		openWithSettingsName: "名称",
-		openWithSettingsTemplate: "如 cursor://file/{path}",
-		openWithSettingsFamily: "VSCode 系",
-		openWithSettingsFamilyDesc: "该编辑器使用 VSCode 的 URL 协议（支持 SSH 远端打开）",
-		openWithSettingsRemove: "删除",
-		openWithSettingsInvalidHint: "名称或模板（需含 {path} 且以 scheme:// 开头）未填写的编辑器不会出现在菜单中",
-		newTab: "新建标签页",
-		openExplorer: "资源管理器",
-		brokenSymlink: "失效的软链接",
-		openGit: "Git 面板",
-		newTerminal: "新终端",
-		terminalLimit: "终端数量已达上限 (3)",
-		close: "关闭",
-		closeOtherTabs: "关闭其他页签",
-		closeLeftTabs: "关闭左侧页签",
-		closeRightTabs: "关闭右侧页签",
-		floatDropHint: "松开以在自由窗口中打开",
-		dockToSidebar: "回到侧边栏",
-		pinTerminal: "固定终端",
-		pinAgentTerminal: "固定 Agent 终端",
-		pinToWorkspace: "固定到工作区",
-		pinToGlobal: "固定到全局",
-		unpinTerminal: "取消固定",
-		pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-		pinnedTerminalKindUi: "UI 终端",
-		pinnedTerminalKindAgent: "Agent 终端",
-		pinnedTerminalScopeWorkspace: "固定到工作区",
-		pinnedTerminalScopeGlobal: "固定到全局",
-		pinnedRailLabel: "固定终端",
-		closePinnedTerminal: "关闭终端",
-		collapseBottomPanel: "折叠底部面板",
-		expandBottomPanel: "展开底部面板",
-		terminalError: "终端连接失败",
-		terminalConnectFailed: "终端多次连接失败",
-		terminalRetry: "重试",
-		terminalWaitBanner: "Agent 正在等待 {needle}",
-		terminalSkipWait: "跳过等待",
-		terminalDepsFailed: "终端依赖 node-pty 加载失败",
-		terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
-		terminalDepsProfile: "（检测到 profile：{profile}）",
-		terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
-		preview: "预览",
-		toc: "目录",
-		edit: "编辑",
-		mermaidError: "Mermaid 渲染失败",
-		mermaidZoomIn: "放大",
-		mermaidZoomOut: "缩小",
-		mermaidZoomReset: "重置",
-		mermaidZoomHint: "滚轮缩放 · 拖拽平移 · Esc 关闭",
-		refresh: "刷新",
-		refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
-		save: "保存",
-		saved: "已保存",
-		unsaved: "未保存",
-		saveFailed: "保存失败",
-		truncation: "文件过大，仅显示前 512KB",
-		binary: "二进制文件，无法预览",
-		loading: "加载中…",
-		error: "加载失败",
-		retry: "重试",
-		splitLeft: "向左分栏",
-		splitRight: "向右分栏",
-		splitUp: "向上分栏",
-		splitDown: "向下分栏",
-		notRepo: "当前目录不是 git 仓库",
-		noChanges: "没有变更",
-		statusTruncated: "变更过多，仅显示前 2000 条",
-		stage: "暂存",
-		unstage: "取消暂存",
-		stageAll: "全部暂存",
-		unstageAll: "全部取消暂存",
-		commitPlaceholder: "提交信息 (Ctrl+Enter)",
-		commit: "提交",
-		commitError: "提交失败",
-		branch: "分支",
-		worktree: "工作树",
-		checkoutError: "切换分支失败",
-		history: "历史",
-		changes: "文件变动",
-		changesGitLens: "Git",
-		changesSessionLens: "本轮文件",
-		changesFilterAll: "全部",
-		changesFilterEmpty: "没有此类操作",
-		changesOpenDiffTab: "在独立页签中打开",
-		changesClosePreview: "关闭预览",
-		changesResizePreview: "调整预览高度",
-		changesLoadError: "会话文件记录暂不可用",
-		staged: "已暂存",
-		unstaged: "未暂存",
-		cancel: "取消",
-		diffEmpty: "没有文本差异",
-		diffLoadError: "加载差异失败",
-		diffBinary: "二进制",
-		diffAdded: "新增",
-		diffDeleted: "删除",
-		diffRenamed: "重命名",
-		diffExpand: "展开其余 {count} 行",
-		diffCollapse: "收起",
-		discard: "放弃更改",
-		discardTitle: "放弃更改",
-		discardDesc: "将丢弃「{path}」的工作区修改（不可恢复）。",
-		viewCommitDiff: "查看提交差异",
-		copyShortHash: "复制短哈希",
-		copyFullHash: "复制完整哈希",
-		copySubject: "复制提交信息",
-		revertCommit: "还原此提交",
-		revertTitle: "还原此提交",
-		revertDesc: "将在当前分支创建一个反转「{subject}」的新提交。",
-		cherryPickCommit: "捡取此提交",
-		cherryPickTitle: "捡取此提交",
-		cherryPickDesc: "将「{subject}」的更改应用到当前分支。",
-		timeJustNow: "刚刚",
-		timeMinutesAgo: "{n} 分钟前",
-		timeHoursAgo: "{n} 小时前",
-		timeYesterday: "昨天",
-		loadMore: "加载更多",
-		historyLoadError: "加载更多历史失败",
-		produced: "本次产出",
-		producedOpen: "在侧边栏中打开",
-		showInFolder: "在文件夹中显示",
-		disconnected: "终端连接断开，重连中…",
-		exited: "终端进程已退出",
-		noSession: "选择一个会话以使用侧边栏",
-		pluginNotLoaded: "插件未加载，标签页暂不可用：",
-		hiddenFiles: "隐藏文件",
-		parent: "上级目录",
-		copied: "已复制",
-		copy: "复制",
-		newFile: "新文件",
-		openEditor: "打开编辑器",
-		gitDetail: "查看变更详情",
-		referenceFile: "@文件",
-		addToConversation: "添加到对话",
-		copyRelative: "复制相对地址",
-		copyAbsolute: "复制绝对地址",
-		rename: "重命名",
-		renameInvalid: "名称不能为空，且不能包含路径分隔符。",
-		delete: "删除",
-		deleteTitle: "删除「{name}」？",
-		deleteDescFile: "将永久删除该文件，此操作不可撤销。",
-		deleteDescDir: "将永久删除该目录及其全部内容，此操作不可撤销。",
-		dismiss: "关闭",
-		download: "下载",
-		uploadFiles: "上传文件",
-		uploadFolder: "上传文件夹",
-		uploadHere: "上传到此处",
-		uploadDropHint: "拖拽文件/文件夹到此处上传",
-		uploadDropChat: "拖放到聊天区：添加图片到对话",
-		uploadTo: "上传到 {dir}",
-		uploadingTo: "正在上传到 {dir}…",
-		uploadProgress: "正在上传 {done}/{total}: {name}",
-		uploadDone: "已上传 {count} 个文件",
-		uploadFailed: "上传失败：{error}",
-		uploadFailedUnknown: "未知错误",
-		uploadTooLarge: "文件过大，超出上传上限",
-		uploadCancelled: "上传已取消",
-		settingsNav: "侧边卡片",
-		settingsIntro: "管理侧边卡片的显示内容与默认行为",
-		settingsPopupDesc: "为「{feature}」配置相关选项",
-		settingsDone: "完成",
-		settingsOpenToolsTitle: "为模型注入侧边栏打开工具",
-		settingsOpenToolsDesc: "开启后，模型可通过 sidebar_open 工具在侧边栏主动打开文件、文件夹和 HTTP(S) 网页（默认关闭）",
-		settingsTitleBarTitle: "位置兼容模式",
-		settingsTitleBarDesc: "选择顶栏兼容方案：自动检测（默认，保守）/ DSH官方Web / 已知桌面壳 / 自定义方案（下移距离 + 自定义 CSS）",
-		settingsTitleBarStripTitle: "下移距离",
-		settingsTitleBarStripDesc: "标题栏条带高度：侧边栏按钮与内容下移的像素数（0–120，默认 40；自定义方案下生效）",
-		settingsSchemeAutoTitle: "自动检测",
-		settingsSchemeAutoDesc: "保守方案：仅在 Window Controls Overlay 标准 API 可用时按真实标题栏高度让位；网页环境下不做任何修改",
-		settingsSchemeWebTitle: "DSH官方Web",
-		settingsSchemeWebDesc: "显式声明运行在官方网页版：不做任何适配（连标准 WCO 几何也不适用）",
-		settingsSchemeCustomTitle: "自定义方案",
-		settingsSchemeCustomDesc: "完全由你控制：注入自定义 CSS（可覆盖内置样式），并指定标题栏下移距离",
-		settingsSchemeDetectedSuffix: "已检测",
-		settingsCustomCssTitle: "自定义 CSS",
-		settingsCustomCssDesc: "追加到页面末尾的样式（同优先级下后写胜出；覆盖 JS 内联变量需用 !important）",
-		settingsCustomCssPlaceholder: "/* 例：为自绘标题栏的壳预留 36px */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-		settingsSaveFailed: "保存失败",
-		settingsConflict: "设置已被其他窗口修改，请重试",
-		binaryNoPreview: "此文件类型不支持预览",
-		downloadToView: "下载查看",
-		settingsSubagentTitle: "检测到子代理时自动激活任务管理页",
-		settingsSubagentDesc: "当前会话产生新的子代理时，自动激活任务管理页；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
-		settingsJobsTitle: "有新后台任务时自动激活任务管理页",
-		settingsJobsDesc: "当前会话出现新的后台任务时，自动激活任务管理页（每个新任务都会触发）；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
-		settingsToolsTitle: "为模型注入终端工具",
-		settingsToolsDesc: "开启后，模型可通过 terminal_create 等 8 个工具创建并操作侧边栏终端（默认关闭）",
-		settingsFenceTitle: "工作区路径检测",
-		settingsFenceDesc: "开启后，侧栏的文件功能仅能访问会话工作区内的路径（默认）；关闭后可访问主机上任意文件——关闭期间页面内脚本也将获得同等访问能力",
-		fenceErrorReason: "此路径在会话工作区之外，已被工作区检测拦截",
-		fenceDisableAction: "关闭工作区检测",
-		settingsBottomTerminalTitle: "底部面板首次展开自动开终端",
-		settingsBottomTerminalDesc: "每次会话中第一次展开底部面板时，尝试在底部面板自动打开一个新终端标签（终端数量上限仍会限制；默认开启）",
-		settingsFontFamilyTitle: "终端字体",
-		settingsFontFamilyDesc: "自定义终端字体族（CSS font-family，如 \"JetBrains Mono\", monospace；留空跟随主题等宽字体）",
-		settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-		settingsFontSizeTitle: "终端字号",
-		settingsFontSizeDesc: "终端字号（9–32，默认 13）",
-		settingsFontSizeSuffix: "px",
-		settingsShellTitle: "Shell 路径",
-		settingsShellDesc: "UI 与模型终端启动的 shell（绝对路径或可执行名）。留空按既有顺序解析：yaml 的 config.shell → $SHELL / 登录 shell / Windows 的 powershell.exe。对之后打开的终端生效",
-		settingsShellPlaceholder: "如 /bin/zsh（留空自动解析）",
-		settingsShellArgsTitle: "Shell 参数",
-		settingsShellArgsDesc: "显式 shell 启动参数，空格分隔；非空时完全替换默认参数（与 yaml 的 shellArgs 契约一致）",
-		settingsShellArgsPlaceholder: "如 -l（留空用默认参数）",
-		settingsTabsTitle: "侧边栏内容",
-		settingsViewersTitle: "文件预览",
-		settingsGeneralTitle: "常规",
-		settingsPopup: "功能设置",
-		settingsViewerCatchAll: "兜底：任意文件",
-		viewerImage: "图片",
-		viewerPdf: "PDF",
-		viewerMarkdown: "Markdown",
-		viewerCode: "代码",
-		viewerBinary: "二进制下载",
-		viewerHtml: "HTML",
-		browser: "浏览器",
-		browserPlaceholder: "输入网址，例如 example.com",
-		browserGo: "前往",
-		browserBack: "后退",
-		browserForward: "前进",
-		browserStart: "输入网址开始浏览（沙箱模式）",
-		browserBlockedScheme: "已阻止：仅支持 http/https 链接",
-		browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
-		browserInvalid: "无效的网址",
-		browserNoSandboxWarning: "沙箱已关闭：当前页面与界面同源，拥有完整会话权限（可在设置中恢复）",
-		htmlNoSandboxWarning: "沙箱已关闭：此 HTML 与界面同源，可读取会话文件与内部接口（可在设置中恢复）",
-		sandboxStatusOn: "沙箱模式：已启用 · 页面无法访问界面数据与本地文件，登录态与第三方 Cookie 可能不可用",
-		sandboxUnlock: "临时解锁（不安全）",
-		sandboxRestore: "恢复沙箱",
-		settingsHtmlDefaultUnsafeTitle: "HTML 预览默认以非沙箱模式打开（不安全）",
-		settingsHtmlDefaultUnsafeDesc: "开启后，每次打开 HTML 文件时预览默认处于非沙箱状态（与界面同源，可读取会话文件与内部接口）；可在状态行临时恢复沙箱",
-		settingsHtmlSandboxTitle: "关闭 HTML 预览沙箱（不安全）",
-		settingsHtmlSandboxDesc: "关闭后，预览的 HTML 将与界面同源运行，可读取会话文件、本地存储并调用内部接口。仅对完全可信的文件开启",
-		settingsBrowserSandboxTitle: "关闭浏览器沙箱（不安全）",
-		settingsBrowserSandboxDesc: "关闭后，访问的任何网站都将与界面同源运行，可读取会话数据并冒充你的登录状态。仅对完全可信的站点开启",
-		settingsBrowserLinksTitle: "聊天区外链在侧边栏打开",
-		settingsBrowserLinksDesc: "开启后，点击聊天或界面中的外链时在侧边栏打开，不再弹出新窗口；HTTP 与 HTTPS 可分别通过下方开关控制；Ctrl/Cmd 点击可临时放行",
-		settingsBrowserHttpTitle: "侧边打开HTTP网页",
-		settingsBrowserHttpDesc: "开启后，点击聊天或界面中的 HTTP 外链时在侧边栏打开（声明了 urlTarget 的插件页面优先）；Ctrl/Cmd 点击可临时放行",
-		settingsBrowserHttpsTitle: "侧边打开HTTPS网页",
-		settingsBrowserHttpsDesc: "开启后，点击聊天或界面中的 HTTPS 外链时在侧边栏打开。默认关闭：多数 HTTPS 站点拒绝被嵌入，走系统浏览器更顺畅",
-		settingsBrowserLoopbackTitle: "允许访问的本机地址",
-		settingsBrowserLoopbackDesc: "逗号分隔的本地回环地址白名单（如 localhost:5174 或 127.0.0.1:8080），侧边栏浏览器可访问这些本地服务；默认留空则本机地址全部拦截。沙箱隔离仍然生效，页面无法读取界面数据",
-		settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
-		browserOpenExternal: "在浏览器中打开",
-		browserEmbedBlocked: "{host} 拒绝了嵌入请求",
-		browserEmbedBlockedDesc: "该站点通过 X-Frame-Options / frame-ancestors 禁止在其它页面中显示，无法在侧边栏内加载。可在浏览器中直接打开",
-		browserEmbedAnyway: "仍然加载",
-		subagent: "任务管理",
-		openSubagent: "任务管理",
-		subagentMainAgent: "主代理",
-		subagentEmpty: "暂无子代理",
-		subagentEmptyDesc: "当前主代理派生的子代理将显示在这里",
-		subagentRunning: "运行中",
-		subagentInactive: "空闲",
-		subagentModeOneShot: "一次性",
-		subagentModeContinuable: "可续接",
-		subagentCount: "{count} 个子代理",
-		subagentCountRunning: "{count} 个子代理 · {running} 运行中",
-		subagentDiagCorrupt: "目录损坏",
-		subagentDiagUnsupported: "不支持的条目",
-		subagentDiagUnavailable: "不可用",
-		subagentThinking: "思考中…",
-		sideChat: "侧边对话(beta)",
-		sideChatNew: "新建对话",
-		sideChatUntitled: "新对话",
-		sideChatEmpty: "暂无侧边对话",
-		sideChatEmptyDesc: "每个侧边对话是标签栏里的独立 Tab，继承当前会话的上下文运行，不会进入主会话",
-		sideChatCreating: "正在创建侧边对话…",
-		sideChatRetry: "重试",
-		sideChatThreads: "切换线程 / 新建",
-		sideChatSave: "保存为新会话",
-		sideChatSaveTitle: "把该线程提升为顶层会话，出现在主会话列表中",
-		sideChatSaved: "已保存为新会话",
-		sideChatNoTurn: "至少完成一轮对话后才能保存",
-		sideChatPendingDrop: "最后一条未完成的追问不会包含在新会话中",
-		sideChatFirstPlaceholder: "输入第一个问题，已继承当前会话上下文…",
-		sideChatComposerPlaceholder: "追问…",
-		sideChatThinking: "正在深入…",
-		sideChatThink: "思考过程",
-		sideChatInjection: "已注入上下文",
-		sideChatSend: "发送",
-		sideChatCancel: "停止",
-		sideChatCancelTitle: "中止当前回合（保留队列）",
-		sideChatClose: "关闭线程",
-		sideChatCloseTitle: "释放线程的 agent（历史保留）",
-		sideChatError: "侧边对话出错：{message}",
-		sideChatTurnUsage: "输入 {input} tok · 输出 {output} tok",
-		sideChatBlockCollapse: "收起",
-		sideChatBlockCollapseAria: "收起",
-		sideChatBlockExpand: "展开 {hidden} 行",
-		sideChatBlockExpandAria: "展开其余 {hidden} 行",
-		sideChatBlockSignal: "信号终止：{signal}",
-		sideChatBlockExitCode: "退出码 {code}",
-		sideChatBlockRunning: "运行中",
-		sideChatBlockFailed: "失败",
-		sideChatBlockDone: "完成",
-		sideChatBlockNoOutput: "（无输出）",
-		sideChatBlockFiles: "{count} 个文件",
-		sideChatBlockWindow: "共 {total} 行 · 显示 {shown} 行",
-		sideChatConnDisconnected: "连接已断开",
-		sideChatConnReconnect: "重新连接",
-		sideChatConnConnecting: "正在重连…",
-		sideChatConnRecovered: "连接已恢复",
-		sideChatConnReconnectAction: "立即重连",
-		sideChatConnRestartAction: "重新发起连接",
-		jobs: "后台任务",
-		jobsCount: "{count} 个后台任务",
-		jobsCountRunning: "{count} 个后台任务 · {running} 运行中",
-		jobStatusRunning: "运行中",
-		jobStatusStopping: "终止中",
-		jobStatusCompleted: "已完成",
-		jobStatusKilled: "已终止",
-		jobStatusFailed: "失败",
-		jobDurationSeconds: "{seconds} 秒",
-		jobDurationMinutes: "{minutes} 分 {seconds} 秒",
-		jobDurationHours: "{hours} 小时 {minutes} 分",
-		jobViewOutput: "查看输出",
-		jobHideOutput: "收起输出",
-		jobNoOutput: "暂无输出",
-		jobNotReadYet: "等待模型读取该任务的输出（模型执行 job_output 后，输出会显示在这里）",
-		jobOutputTruncated: "输出过长，已截断显示",
-		jobOutputError: "输出读取失败",
-		jobKill: "终止",
-		jobKillConfirm: "再次点击确认终止",
-		jobKillError: "终止失败",
-		addPluginsTabCard: "添加 Tab 插件",
-		addPluginsTabCardDesc: "注册新的侧边栏页面",
-		addPluginsViewerCard: "添加预览插件",
-		addPluginsViewerCardDesc: "注册新的文件类型预览",
-		addPluginsTabDesc: "侧边栏页面（Tab）可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
-		addPluginsViewerDesc: "文件预览器可以由插件扩展。插件通过 ctx.betterSidebar 服务注册；点击「安装」复制安装命令，粘贴到 DSH 所在环境的终端执行。",
-		addPluginsBrowseMore: "在 GitHub 上浏览更多插件（topic: dsh-better-sidebar）",
-		addPluginsSearch: "搜索插件名称 / 描述…",
-		addPluginsNoMatch: "没有匹配的插件",
-		addPluginsRecommended: "推荐插件",
-		addPluginsEmpty: "暂未收录插件，欢迎在 GitHub topic 下发布你的插件",
-		openPlugin: "跳转",
-		copyInstall: "复制安装命令",
-		pluginMdExportDesc: "在 better-sidebar 的 Markdown 工具栏上新增「导出」按钮：一键把当前 .md 渲染为独立 HTML（表格/代码块/Mermaid 图表内联，布局跟随预览主题）直接保存到同目录，或通过打印对话框导出为 PDF",
-		pluginOfficeDesc: "为 better-sidebar 编辑器提供 Office 三件套预览（.docx / .xlsx / .pptx），把重型 Office 渲染库拆出主包、按需安装",
-		pluginFlowglassDesc: "实时会话流程图：三列泳道展示用户、助手与工具调用，支持并行分组、子代理支线、逐层钻取和实时状态；安装 better-sidebar 后注册原生「流镜」Tab，未安装时保留独立抽屉",
-		pluginGitForgeDesc: "better-sidebar「Git 凭据」Tab：GitHub/Gitea 等 Forge 账号库 + 按项目授权 + push 策略硬拦；token 仅存本地 secrets，不进模型上下文；提供只读 GitForge 工具与 agent HTTPS credential helper",
-		pluginGithubWorkbenchDesc: "better-sidebar「GitHub 工作台」Tab：远端仓库目录树 + Issues / Pull requests / Actions 页签，读之外支持新建 Issue/PR、评论、编辑、关闭重开、squash·merge·rebase 合并（强确认）与重跑/取消 CI；仓库弹层自动拉取有权限列表并支持公开仓搜索；未装 better-sidebar 时自动降级为独立右侧面板",
-		pluginSuhuangScrollDesc: "把本地苏黄共阅 Runtime 接入 DSH 设置与 better-sidebar，支持模型配置、连接测试和连续阅卷控制；使用前需安装 Suhuang Scroll Runtime 与 dsh-better-sidebar",
-		pluginBetterOverleafDesc: "better-sidebar 的 Overleaf 标签页：直连 CDP 浏览器登录（支持第三方 Chromium），项目列表/切换，<workspace>/overleaf/ 本地 git 镜像，git 双向同步（API 只读兜底），文件预览走侧边栏工作台",
-		pluginGitRemotesDesc: "better-sidebar Git 远程 Tab：看分支/上游/ahead-behind，fetch（可 prune）、ff-only pull、确认后才 push。不替换内置 Git 的暂存/提交，也不提供 force-push 或模型自动推送",
-		pluginSentinelDesc: "条件驱动的 agent 唤醒系统：文件/进程/端口/HTTP/命令/webhook 传感器，条件达成自动唤醒休眠会话；注册「哨兵」Tab 展示服务器全局监控表",
-		pluginServerDeckDesc: "服务器卡片仪表盘：每台服务器一张卡片，展示在线状态、OS、运行时长、CPU/内存/磁盘用量与延迟；点卡片进入 xterm.js 交互终端，支持 ~/.ssh/config 一键导入（自动跳过 Git 托管别名）；安装 better-sidebar 后注册原生「服务器」Tab，未安装时保留独立抽屉",
-		pluginSidebarQaDesc: "基于 better-sidebar 的划选提问tab分页: 对话划选 → 右侧面板提问 → 同工作区独立追问会话（❓追问·主题）：快速无思考模型压缩主对话上下文后与引文一起注入，不打断主对话；追问可嵌套、可继续、可归档",
-		pluginSidenoteDesc: "Codex 风格侧边聊天与划选注释：从当前会话 fork 出独立侧边会话（归档隐藏、多实例并存、/side 命令、刷新/重启后恢复、模型跟随主会话）；assistant 消息划选 → 编号角标 + 注解编辑器 →「N 条注释」chip 随消息发出，也可直接进入侧边聊天提问",
-		pluginSshTunnelDesc: "better-sidebar「SSH 隧道」Tab：多机主机清单 + 按项目授权 + 密钥本地保管；模型工具 SSHManager（exec/SFTP/会话策略）；中央交互终端与双栏 SFTP",
-		pluginTurnReviewDesc: "对「刚刚这一回合」的 diff 做 Approve / Request changes 的人闸门：只审上一回合，不 fork 会话；文件按主会话/子代理/未归因分组，按文件勾选打回 + 可选评语，点文件先看回合开始快照 vs 现在的 diff。不是 /rewind",
-		pluginVideoPreviewDesc: "在 better-sidebar 编辑器内联预览视频文件（.mp4/.webm/.mov/.mkv/.avi 等），自带支持 HTTP Range（206）的 /video 宿主路由，可拖动进度条、不受 20MB mediaLimit 限制",
-		pluginCodeNavDesc: "代码预览导航：按文件类型自动识别语言并高亮语法，符号大纲（类/方法/变量筛选 + 一键跳转），文件内查找（全部匹配高亮、上/下一处、区分大小写），接管 better-sidebar 的代码文件预览",
-		pluginDocsPanelDesc: "DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）",
-		pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 better-sidebar 时自动注册 Tab，没装则退回浮动浮窗",
-		pluginBilingualReaderDesc: "在 DSH 侧边栏读论文 PDF：原生 PDF 显示，选中一段文字即用大模型划词翻译，结合上下文、完全隔离主对话，只作阅读辅助",
-		pluginSentinelName: "dsh-sentinel 唤醒系统",
-		pluginEgoBrowserName: "ego-browser Agent 浏览器",
-		pluginBetterOverleafName: "dsh-better-overleaf Overleaf 标签页",
-		pluginDocsPanelName: "dsh-docs-panel 全局文档",
-		pluginFlowglassName: "dsh-flowglass 流镜",
-		pluginGitForgeName: "dsh-git-forge Git 凭据",
-		pluginGitRemotesName: "dsh-git-remotes Git 远程",
-		pluginGithubWorkbenchName: "dsh-github-workbench GitHub 工作台",
-		pluginSidebarQaName: "dsh-sidebar-qa 划选追问",
-		pluginSidenoteName: "dsh-sidenote 侧边聊天",
-		pluginServerDeckName: "dsh-server-deck 服务器甲板",
-		pluginSuhuangScrollName: "dsh-suhuang-scroll 苏黄共阅",
-		pluginSshTunnelName: "dsh-ssh-tunnel SSH 隧道",
-		pluginTurnReviewName: "dsh-turn-review 本轮审查",
-		pluginBilingualReaderName: "dsh-bilingual-reader 双语阅读",
-		pluginOfficeName: "Office 预览插件",
-		pluginMdExportName: "Markdown 导出插件",
-		pluginCodeNavName: "代码预览导航",
-		pluginVideoPreviewName: "视频预览插件",
-		presetDshDesktopDesc: "Electron 高级模式（无边框）：macOS 顶栏 20px、Windows 无 WCO 时 32px 标题栏让位"
-	};
-	/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
-	const en = {
-		files: "Files",
-		guideDescFiles: "Browse the workspace tree; click a file to preview or edit",
-		guideDescGit: "Git changes and this session's file edits, in one tab",
-		guideDescSubagent: "Subagent topology and background jobs, live",
-		guideDescSidechat: "An independent follow-up thread inheriting this session's context",
-		guideDescTerminal: "A real shell (xterm + pty) with reconnect",
-		guideDescBrowser: "An embedded browser that can take over chat links",
-		changesSessionEmpty: "No file operations in this session yet",
-		changesRead: "Read",
-		changesMdReading: "Reading",
-		changesMdRaw: "Raw",
-		changesHtmlRender: "Render",
-		changesHtmlRaw: "Raw",
-		changesPdfRender: "Render",
-		changesPdfRaw: "Raw",
-		changesWrite: "Write",
-		changesEdit: "Edit",
-		changesRunning: "running",
-		changesError: "error",
-		changesRedactOn: "Redaction on: secrets render as [REDACTED]; click to disable (at your own risk)",
-		changesRedactOff: "Redaction off: file content renders verbatim; click to enable",
-		changesRedactOnLabel: "Redacting",
-		changesRedactOffLabel: "Redaction off",
-		changesRedactBanner: "Redacted",
-		changesFold: "{count} lines…click to expand",
-		changesFoldLoading: "Expanding…",
-		changesFoldUnavailable: "Context unavailable",
-		changesContext: "context",
-		changesPriorUnknown: "Prior content is outside the loaded window; shown as all-added",
-		explorer: "Explorer",
-		terminal: "Terminal",
-		editor: "Editor",
-		editorExplorer: "File open behavior",
-		editorExplorerDesc: "Controls how files open",
-		editorExplorerMerged: "Merged",
-		editorExplorerMergedDesc: "Files switch in place in the same window; new windows start with the tree open",
-		editorExplorerSplit: "Separate",
-		editorExplorerSplitDesc: "Path-less windows are the standalone explorer (tree only); each file opens its own window (tree docked, closed by default)",
-		editorTreeToggle: "File tree panel",
-		editorPathPlaceholder: "File path (relative to the session directory or absolute), Enter to open",
-		editorSearchPlaceholder: "Search files by name…",
-		editorSearchNoResults: "No matching files",
-		editorSearchTruncated: "Too many results — showing a partial list",
-		editorEmptyHint: "Pick a file from the tree panel or the path input above to start previewing",
-		openFileNewTab: "Open in New Tab",
-		openFileSide: "Open to the Side",
-		openWithMenu: "Open with",
-		openWithSshSuffix: " (SSH)",
-		pinOpenWith: "Pin to menu",
-		unpinOpenWith: "Unpin",
-		openWithExplorer: "File Manager",
-		openWithVscode: "VS Code",
-		openWithCursor: "Cursor",
-		openWithZed: "Zed",
-		openWithSettingsSshTitle: "SSH remote host",
-		openWithSettingsSshDesc: "Empty = local workspace; with a user@host or SSH alias, VSCode-family openers switch to the vscode-remote/ssh-remote protocol and the File Manager / Zed / non-VSCode-family custom editors are hidden from the menu",
-		openWithSettingsSshPlaceholder: "user@host or SSH alias",
-		openWithSettingsCustomTitle: "Custom editors",
-		openWithSettingsCustomDesc: "Name + URL template ({path} placeholder) + VSCode-family flag; in remote mode only VSCode-family editors can open a remote path",
-		openWithSettingsAdd: "Add",
-		openWithSettingsName: "Name",
-		openWithSettingsTemplate: "e.g. cursor://file/{path}",
-		openWithSettingsFamily: "VSCode-family",
-		openWithSettingsFamilyDesc: "This editor speaks the VSCode URL dialect (supports SSH-remote opens)",
-		openWithSettingsRemove: "Remove",
-		openWithSettingsInvalidHint: "Editors with a missing name or a template without {path} / scheme:// are not shown in the menu",
-		newTab: "New tab",
-		openExplorer: "Explorer",
-		brokenSymlink: "Broken symlink",
-		openGit: "Git panel",
-		newTerminal: "New terminal",
-		terminalLimit: "Terminal limit reached (3)",
-		close: "Close",
-		closeOtherTabs: "Close Other Tabs",
-		closeLeftTabs: "Close Tabs to the Left",
-		closeRightTabs: "Close Tabs to the Right",
-		floatDropHint: "Release to open in a free window",
-		dockToSidebar: "Dock Back to Sidebar",
-		pinTerminal: "Pin Terminal",
-		pinAgentTerminal: "Pin Agent Terminal",
-		pinToWorkspace: "Pin to Workspace",
-		pinToGlobal: "Pin Globally",
-		unpinTerminal: "Unpin",
-		pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-		pinnedTerminalKindUi: "UI Terminal",
-		pinnedTerminalKindAgent: "Agent Terminal",
-		pinnedTerminalScopeWorkspace: "Pinned to workspace",
-		pinnedTerminalScopeGlobal: "Pinned globally",
-		pinnedRailLabel: "Pinned Terminals",
-		closePinnedTerminal: "Close Terminal",
-		collapseBottomPanel: "Collapse bottom panel",
-		expandBottomPanel: "Expand bottom panel",
-		terminalError: "Terminal connection failed",
-		terminalConnectFailed: "Terminal failed to connect repeatedly",
-		terminalRetry: "Retry",
-		terminalWaitBanner: "Agent is waiting for {needle}",
-		terminalSkipWait: "Skip wait",
-		terminalDepsFailed: "Terminal dependency node-pty failed to load",
-		terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
-		terminalDepsProfile: " (detected profile: {profile})",
-		terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
-		preview: "Preview",
-		toc: "Table of contents",
-		edit: "Edit",
-		mermaidError: "Mermaid render failed",
-		mermaidZoomIn: "Zoom in",
-		mermaidZoomOut: "Zoom out",
-		mermaidZoomReset: "Reset",
-		mermaidZoomHint: "Scroll to zoom · drag to pan · Esc to close",
-		refresh: "Refresh",
-		refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
-		save: "Save",
-		saved: "Saved",
-		unsaved: "Unsaved",
-		saveFailed: "Save failed",
-		truncation: "File too large — showing the first 512KB",
-		binary: "Binary file, preview unavailable",
-		loading: "Loading…",
-		error: "Failed to load",
-		retry: "Retry",
-		splitLeft: "Split left",
-		splitRight: "Split right",
-		splitUp: "Split up",
-		splitDown: "Split down",
-		notRepo: "This directory is not a git repository",
-		noChanges: "No changes",
-		statusTruncated: "Too many changes; showing the first 2,000 entries",
-		stage: "Stage",
-		unstage: "Unstage",
-		stageAll: "Stage all",
-		unstageAll: "Unstage all",
-		commitPlaceholder: "Commit message (Ctrl+Enter)",
-		commit: "Commit",
-		commitError: "Commit failed",
-		branch: "Branch",
-		worktree: "Worktree",
-		checkoutError: "Branch switch failed",
-		history: "History",
-		changes: "Changes",
-		changesGitLens: "Git",
-		changesSessionLens: "Session",
-		changesFilterAll: "All",
-		changesFilterEmpty: "No operations of this kind",
-		changesOpenDiffTab: "Open in a diff tab",
-		changesClosePreview: "Close preview",
-		changesResizePreview: "Resize preview",
-		changesLoadError: "Session file records are unavailable right now",
-		staged: "Staged",
-		unstaged: "Unstaged",
-		cancel: "Cancel",
-		diffEmpty: "No text changes",
-		diffLoadError: "Failed to load diff",
-		diffBinary: "Binary",
-		diffAdded: "Added",
-		diffDeleted: "Deleted",
-		diffRenamed: "Renamed",
-		diffExpand: "Expand {count} more rows",
-		diffCollapse: "Collapse",
-		discard: "Discard changes",
-		discardTitle: "Discard changes",
-		discardDesc: "This discards the worktree changes of \"{path}\" (not recoverable).",
-		viewCommitDiff: "View commit diff",
-		copyShortHash: "Copy short hash",
-		copyFullHash: "Copy full hash",
-		copySubject: "Copy subject",
-		revertCommit: "Revert commit",
-		revertTitle: "Revert commit",
-		revertDesc: "Create a new commit on the current branch that reverts \"{subject}\".",
-		cherryPickCommit: "Cherry-pick commit",
-		cherryPickTitle: "Cherry-pick commit",
-		cherryPickDesc: "Apply the changes of \"{subject}\" to the current branch.",
-		timeJustNow: "just now",
-		timeMinutesAgo: "{n} min ago",
-		timeHoursAgo: "{n} h ago",
-		timeYesterday: "yesterday",
-		loadMore: "Load more",
-		historyLoadError: "Failed to load more history",
-		produced: "Produced",
-		producedOpen: "Open in sidebar",
-		showInFolder: "Show in folder",
-		disconnected: "Terminal disconnected, reconnecting…",
-		exited: "Terminal process exited",
-		noSession: "Select a conversation to use the sidebar",
-		pluginNotLoaded: "Plugin not loaded; tab unavailable:",
-		hiddenFiles: "Hidden files",
-		parent: "Parent directory",
-		copied: "Copied",
-		copy: "Copy",
-		newFile: "New file",
-		openEditor: "Open editor",
-		gitDetail: "View change details",
-		referenceFile: "@file",
-		addToConversation: "Add to conversation",
-		copyRelative: "Copy relative path",
-		copyAbsolute: "Copy absolute path",
-		rename: "Rename",
-		renameInvalid: "The name cannot be empty or contain path separators.",
-		delete: "Delete",
-		deleteTitle: "Delete \"{name}\"?",
-		deleteDescFile: "This permanently deletes the file. This cannot be undone.",
-		deleteDescDir: "This permanently deletes the directory and everything inside it. This cannot be undone.",
-		dismiss: "Dismiss",
-		download: "Download",
-		uploadFiles: "Upload files",
-		uploadFolder: "Upload folder",
-		uploadHere: "Upload here",
-		uploadDropHint: "Drop files/folders here to upload",
-		uploadDropChat: "Drop onto the chat to add images",
-		uploadTo: "Upload into {dir}",
-		uploadingTo: "Uploading into {dir}…",
-		uploadProgress: "Uploading {done}/{total}: {name}",
-		uploadDone: "Uploaded {count} file(s)",
-		uploadFailed: "Upload failed: {error}",
-		uploadFailedUnknown: "Unknown error",
-		uploadTooLarge: "File too large (over the upload limit)",
-		uploadCancelled: "Upload cancelled",
-		settingsNav: "Side card",
-		settingsIntro: "Manage what the side card shows and how it behaves",
-		settingsPopupDesc: "Configure related options for {feature}",
-		settingsDone: "Done",
-		settingsOpenToolsTitle: "Inject the sidebar-open tool for the model",
-		settingsOpenToolsDesc: "When enabled, the model can actively open files, folders, and HTTP(S) pages in the sidebar through the sidebar_open tool (off by default)",
-		settingsTitleBarTitle: "Position compatibility mode",
-		settingsTitleBarDesc: "Pick the title-bar compatibility scheme: auto-detect (default, conservative) / DSH official web / known desktop shells / custom (shift distance + custom CSS)",
-		settingsTitleBarStripTitle: "Shift distance",
-		settingsTitleBarStripDesc: "Title-bar strip height: how far the sidebar buttons and content move down in px (0–120, default 40; applies under the custom scheme)",
-		settingsSchemeAutoTitle: "Auto-detect",
-		settingsSchemeAutoDesc: "Conservative: only the standard Window Controls Overlay API contributes (real caption-overlay height); plain web environments get no modification",
-		settingsSchemeWebTitle: "DSH official web",
-		settingsSchemeWebDesc: "Explicitly declare the official web UI: no adaptation at all (not even standard WCO geometry)",
-		settingsSchemeCustomTitle: "Custom",
-		settingsSchemeCustomDesc: "Full control: inject custom CSS (can override built-in styles) and set the title-bar shift distance",
-		settingsSchemeDetectedSuffix: "detected",
-		settingsCustomCssTitle: "Custom CSS",
-		settingsCustomCssDesc: "Styles appended at the end of the page (later in the cascade wins ties; use !important to override JS-written inline variables)",
-		settingsCustomCssPlaceholder: "/* e.g. reserve 36px for a shell with a custom-drawn title bar */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
-		settingsSaveFailed: "Failed to save",
-		settingsConflict: "The setting changed in another window — please retry",
-		binaryNoPreview: "This file type cannot be previewed",
-		downloadToView: "Download to view",
-		settingsSubagentTitle: "Auto-activate the Tasks page when a subagent appears",
-		settingsSubagentDesc: "Activate the Tasks page when the current conversation spawns a new subagent; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to open it manually",
-		settingsJobsTitle: "Auto-activate the Tasks page on a new background job",
-		settingsJobsDesc: "Activate the Tasks page whenever a new background job appears for the current conversation (every new job triggers); wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to open it manually",
-		settingsToolsTitle: "Inject terminal tools for the model",
-		settingsToolsDesc: "When enabled, the model can create and drive sidebar terminals through the 8 terminal_* tools (off by default)",
-		settingsFenceTitle: "Workspace path fence",
-		settingsFenceDesc: "On, the sidebar's file features only reach paths inside the session workspace (default); off, any file on the host is reachable — page scripts gain the same reach while it is off",
-		fenceErrorReason: "This path is outside the session workspace and was blocked by the workspace fence",
-		fenceDisableAction: "Turn off the workspace fence",
-		settingsBottomTerminalTitle: "Auto-open a terminal on the bottom panel's first expansion",
-		settingsBottomTerminalDesc: "When the bottom panel is expanded for the first time in a session, try to open a fresh terminal tab there (the terminal quota still applies; on by default)",
-		settingsFontFamilyTitle: "Terminal font family",
-		settingsFontFamilyDesc: "Custom terminal font family (a CSS font-family stack like \"JetBrains Mono\", monospace; leave empty to follow the theme's monospace font)",
-		settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
-		settingsFontSizeTitle: "Terminal font size",
-		settingsShellTitle: "Shell path",
-		settingsShellDesc: "Shell spawned for UI and model terminals (absolute path or bare executable). Empty keeps the legacy order: yaml config.shell → $SHELL / login shell / Windows powershell.exe. Applies to terminals opened afterwards",
-		settingsShellPlaceholder: "e.g. /bin/zsh (empty = auto)",
-		settingsShellArgsTitle: "Shell arguments",
-		settingsShellArgsDesc: "Explicit shell arguments, space-separated; when non-empty they fully replace the defaults (same contract as the yaml shellArgs)",
-		settingsShellArgsPlaceholder: "e.g. -l (empty = defaults)",
-		settingsFontSizeDesc: "Terminal font size in px (9–32, default 13)",
-		settingsFontSizeSuffix: "px",
-		settingsTabsTitle: "Sidebar content",
-		settingsViewersTitle: "File viewers",
-		settingsGeneralTitle: "General",
-		settingsPopup: "Feature settings",
-		settingsViewerCatchAll: "Catch-all: any file",
-		viewerImage: "Image",
-		viewerPdf: "PDF",
-		viewerMarkdown: "Markdown",
-		viewerCode: "Code",
-		viewerBinary: "Binary download",
-		viewerHtml: "HTML",
-		browser: "Browser",
-		browserPlaceholder: "Enter a URL, e.g. example.com",
-		browserGo: "Go",
-		browserBack: "Back",
-		browserForward: "Forward",
-		browserStart: "Enter a URL to start browsing (sandbox mode)",
-		browserBlockedScheme: "Blocked: only http/https URLs are allowed",
-		browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
-		browserInvalid: "Invalid URL",
-		browserNoSandboxWarning: "Sandbox off: the current page runs with full GUI privileges (re-enable in settings)",
-		htmlNoSandboxWarning: "Sandbox off: this HTML runs with full GUI privileges (re-enable in settings)",
-		sandboxStatusOn: "Sandbox mode: on · pages cannot access the GUI's data or local files; logins and third-party cookies may not work",
-		sandboxUnlock: "Temporarily disable (unsafe)",
-		sandboxRestore: "Restore sandbox",
-		settingsHtmlDefaultUnsafeTitle: "Open HTML previews unsandboxed by default (unsafe)",
-		settingsHtmlDefaultUnsafeDesc: "When on, every newly opened HTML preview starts in the unsandboxed state (same origin as the GUI — it can read session files and internal APIs); the status row still offers a one-tap restore",
-		settingsHtmlSandboxTitle: "Disable HTML preview sandbox (unsafe)",
-		settingsHtmlSandboxDesc: "With the sandbox off, previewed HTML runs with the same origin as the GUI: it can read session files, local storage and call internal APIs. Only enable for fully trusted files",
-		settingsBrowserSandboxTitle: "Disable browser sandbox (unsafe)",
-		settingsBrowserSandboxDesc: "With the sandbox off, any visited site runs with the same origin as the GUI: it can read session data and act as your logged-in session. Only enable for fully trusted sites",
-		settingsBrowserLinksTitle: "Open chat external links in the sidebar",
-		settingsBrowserLinksDesc: "When on, clicking an external link in the chat or GUI opens the sidebar instead of a new window; HTTP and HTTPS are controlled separately by the switches below; Ctrl/Cmd+click always bypasses",
-		settingsBrowserHttpTitle: "Open HTTP pages in the sidebar",
-		settingsBrowserHttpDesc: "When on, clicking an HTTP external link in the chat or GUI opens the sidebar (plugin pages declaring urlTarget win); Ctrl/Cmd+click always bypasses",
-		settingsBrowserHttpsTitle: "Open HTTPS pages in the sidebar",
-		settingsBrowserHttpsDesc: "When on, clicking an HTTPS external link in the chat or GUI opens the sidebar. Off by default: most HTTPS sites refuse to be embedded, so the system browser is the smoother default",
-		settingsBrowserLoopbackTitle: "Allowed local addresses",
-		settingsBrowserLoopbackDesc: "Comma-separated allowlist of loopback addresses (e.g. localhost:5174 or 127.0.0.1:8080) the sidebar browser may visit; empty blocks all local addresses by default. The sandbox still applies — pages cannot read GUI data",
-		settingsBrowserLoopbackPlaceholder: "e.g. localhost:5174, 127.0.0.1:8080",
-		browserOpenExternal: "Open in browser",
-		browserEmbedBlocked: "{host} refused to be embedded",
-		browserEmbedBlockedDesc: "The site forbids being displayed inside other pages (X-Frame-Options / frame-ancestors), so it cannot load in the sidebar. Open it directly in your browser instead.",
-		browserEmbedAnyway: "Load anyway",
-		subagent: "Tasks",
-		openSubagent: "Tasks",
-		subagentMainAgent: "Main agent",
-		subagentEmpty: "No subagents",
-		subagentEmptyDesc: "Subagents spawned under the main agent will appear here",
-		subagentRunning: "Running",
-		subagentInactive: "Inactive",
-		subagentModeOneShot: "One-shot",
-		subagentModeContinuable: "Continuable",
-		subagentCount: "{count} subagents",
-		subagentCountRunning: "{count} subagents · {running} running",
-		subagentDiagCorrupt: "Corrupt",
-		subagentDiagUnsupported: "Unsupported",
-		subagentDiagUnavailable: "Unavailable",
-		subagentThinking: "Thinking…",
-		sideChat: "Side Chat (beta)",
-		sideChatNew: "New thread",
-		sideChatUntitled: "New thread",
-		sideChatEmpty: "No side conversations",
-		sideChatEmptyDesc: "Every side conversation is its own tab in the tab strip — it inherits the current session's context and never enters the main conversation",
-		sideChatCreating: "Creating side conversation…",
-		sideChatRetry: "Retry",
-		sideChatThreads: "Switch thread / new",
-		sideChatSave: "Save as new session",
-		sideChatSaveTitle: "Promote this thread to a top-level session in the main session list",
-		sideChatSaved: "Saved as a new session",
-		sideChatNoTurn: "Save is available after the first completed turn",
-		sideChatPendingDrop: "The last unanswered follow-up will not be included in the saved session",
-		sideChatFirstPlaceholder: "Ask the first question — context inherited…",
-		sideChatComposerPlaceholder: "Ask a follow-up…",
-		sideChatThinking: "Deep diving…",
-		sideChatThink: "Thinking",
-		sideChatInjection: "Context injected",
-		sideChatSend: "Send",
-		sideChatCancel: "Stop",
-		sideChatCancelTitle: "Abort the running turn (queued work is kept)",
-		sideChatClose: "Close thread",
-		sideChatCloseTitle: "Release the thread's agent (history is kept)",
-		sideChatError: "Side Chat error: {message}",
-		sideChatTurnUsage: "Input {input} tok · Output {output} tok",
-		sideChatBlockCollapse: "Collapse",
-		sideChatBlockCollapseAria: "Collapse",
-		sideChatBlockExpand: "Expand {hidden} lines",
-		sideChatBlockExpandAria: "Expand {hidden} more lines",
-		sideChatBlockSignal: "Killed by signal: {signal}",
-		sideChatBlockExitCode: "Exit code {code}",
-		sideChatBlockRunning: "Running",
-		sideChatBlockFailed: "Failed",
-		sideChatBlockDone: "Done",
-		sideChatBlockNoOutput: "(no output)",
-		sideChatBlockFiles: "{count} files",
-		sideChatBlockWindow: "{shown} of {total} lines",
-		sideChatConnDisconnected: "Connection lost",
-		sideChatConnReconnect: "Reconnect",
-		sideChatConnConnecting: "Reconnecting…",
-		sideChatConnRecovered: "Connection restored",
-		sideChatConnReconnectAction: "Reconnect now",
-		sideChatConnRestartAction: "Restart connection",
-		jobs: "Background jobs",
-		jobsCount: "{count} background jobs",
-		jobsCountRunning: "{count} background jobs · {running} running",
-		jobStatusRunning: "Running",
-		jobStatusStopping: "Stopping",
-		jobStatusCompleted: "Completed",
-		jobStatusKilled: "Killed",
-		jobStatusFailed: "Failed",
-		jobDurationSeconds: "{seconds}s",
-		jobDurationMinutes: "{minutes}m {seconds}s",
-		jobDurationHours: "{hours}h {minutes}m",
-		jobViewOutput: "View output",
-		jobHideOutput: "Hide output",
-		jobNoOutput: "No output yet",
-		jobNotReadYet: "Waiting for the model to read this job; its output appears here once the model runs job_output",
-		jobOutputTruncated: "Output truncated",
-		jobOutputError: "Failed to read output",
-		jobKill: "Kill",
-		jobKillConfirm: "Click again to confirm kill",
-		jobKillError: "Kill failed",
-		addPluginsTabCard: "Add tab plugins",
-		addPluginsTabCardDesc: "Register a new sidebar page",
-		addPluginsViewerCard: "Add preview plugins",
-		addPluginsViewerCardDesc: "Register a file-type preview",
-		addPluginsTabDesc: "Sidebar pages (tabs) can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
-		addPluginsViewerDesc: "File previewers can be extended by plugins. Plugins register through the ctx.betterSidebar service; clicking Install copies the install command — paste it into a terminal where your DSH profile lives and run it.",
-		addPluginsBrowseMore: "Browse more plugins on GitHub (topic: dsh-better-sidebar)",
-		addPluginsSearch: "Search by plugin name or description…",
-		addPluginsNoMatch: "No plugins match",
-		addPluginsRecommended: "Recommended plugins",
-		addPluginsEmpty: "No plugins curated yet — publish yours under the GitHub topic",
-		openPlugin: "Open",
-		copyInstall: "Copy install command",
-		pluginMdExportDesc: "Adds an \"Export\" button to the Markdown toolbar in better-sidebar: one click renders the current .md into standalone HTML (tables / code blocks / Mermaid diagrams inlined, layout follows the preview theme) and saves it next to the .md, or exports to PDF via the print dialog",
-		pluginOfficeDesc: "Office-suite preview (.docx / .xlsx / .pptx) for the better-sidebar editor, keeping the heavy Office render libraries out of the core bundle",
-		pluginFlowglassDesc: "Live session flowgraph with three lanes for user, assistant, and tool calls, plus parallel groups, sub-agent branches, drill-down, and live status; registers a native Flowglass tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
-		pluginGitForgeDesc: "Git Forge tab: GitHub/Gitea (and other forge) account library + per-project grants + hard push policy; tokens stay in local secrets (never in model context); read-only GitForge tool and agent HTTPS credential helper",
-		pluginGithubWorkbenchDesc: "GitHub Workbench tab: remote repo tree + Issues / Pull requests / Actions with full write support — create Issue/PR, comment, edit, close/reopen, squash·merge·rebase merge (strong confirm), re-run/cancel CI; the repo switcher auto-lists accessible repos and searches public ones; falls back to a standalone right-side panel without better-sidebar",
-		pluginGitRemotesDesc: "Git Remotes tab: branch/upstream/ahead-behind, fetch (optional prune), ff-only pull, and push only after an in-tab confirm. Does not replace the built-in Git stage/commit tab, and does not offer force-push or a model auto-push tool",
-		pluginServerDeckDesc: "Server card dashboard: one card per host showing online status, OS, uptime and CPU/mem/disk usage with latency; click a card to open an interactive xterm.js terminal; one-click ~/.ssh/config import (git-hosting aliases auto-skipped). Registers a native \"Servers\" tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
-		pluginSentinelDesc: "Condition-driven agent wakeup: file/process/port/http/command/webhook sensors wake dormant sessions when conditions fire; registers a \"Sentinel\" tab with the server-wide watch table",
-		pluginSidebarQaDesc: "Select-and-ask: Select conversation text → ask in the right-side panel → a dedicated follow-up session (❓追问) in the same workspace; a fast no-thinking model compresses the main context and injects it with the quote, without interrupting the main conversation. Follow-ups nest, continue, and archive",
-		pluginSidenoteDesc: "Codex-style side chat + selection annotations: fork the current session into a persistent side panel (archived out of the session list, multi-instance, /side command, survives reload, model follows the main session); select assistant text → numbered badge + note editor → an \"N annotations\" chip that rides your next message, or ask straight into a side chat",
-		pluginSshTunnelDesc: "SSH Tunnel tab: multi-host inventory + per-project grants + local secrets; SSHManager tool (exec/SFTP/session strategies); center interactive terminal and dual-pane SFTP",
-		pluginSuhuangScrollDesc: "Connect the local Suhuang Scroll Runtime to DSH settings and better-sidebar for model configuration, connection tests, and continuous grading controls; requires Suhuang Scroll Runtime and dsh-better-sidebar",
-		pluginTurnReviewDesc: "A human gate on the just-finished turn: Approve / Request changes per path with an optional comment; paths grouped by main session / subagent / unattributed; inline snapshot-vs-now diff before you decide. No fork, no /rewind",
-		pluginVideoPreviewDesc: "Inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) for the better-sidebar editor, backed by a dedicated /video host route with HTTP Range (206) support — scrubbing works and files are not capped by the 20MB mediaLimit",
-		pluginCodeNavDesc: "Code preview navigator: detects the language by file type and highlights syntax, symbol outline (class / method / variable filters + one-click jump), and in-file search (highlight all matches, prev/next, match case) — takes over code file preview in the better-sidebar editor",
-		pluginDocsPanelDesc: "Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)",
-		pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when better-sidebar is present, otherwise falls back to a floating bubble",
-		pluginBetterOverleafDesc: "Overleaf tab for better-sidebar: direct-CDP browser login (third-party Chromium supported), project list/switch, local git mirrors under <workspace>/overleaf/, two-way git sync with read-only API fallback, and file preview through the sidebar workbench",
-		pluginBilingualReaderDesc: "Read paper PDFs in the DSH sidebar: native PDF rendering, select text to translate it with the LLM, using context while staying fully isolated from the main conversation — a reading aid only",
-		pluginSentinelName: "dsh-sentinel Wake-up System",
-		pluginEgoBrowserName: "ego-browser Agent Browser",
-		pluginBetterOverleafName: "dsh-better-overleaf Overleaf Tab",
-		pluginDocsPanelName: "dsh-docs-panel Global Docs",
-		pluginFlowglassName: "dsh-flowglass Flowglass",
-		pluginGitForgeName: "dsh-git-forge Git Credentials",
-		pluginGitRemotesName: "dsh-git-remotes Git Remotes",
-		pluginGithubWorkbenchName: "dsh-github-workbench GitHub Workbench",
-		pluginSidebarQaName: "dsh-sidebar-qa Select & Ask",
-		pluginSidenoteName: "dsh-sidenote Side Chat",
-		pluginServerDeckName: "dsh-server-deck Server Deck",
-		pluginSuhuangScrollName: "dsh-suhuang-scroll Suhuang Scroll",
-		pluginSshTunnelName: "dsh-ssh-tunnel SSH Tunnel",
-		pluginTurnReviewName: "dsh-turn-review Turn Review",
-		pluginBilingualReaderName: "dsh-bilingual-reader Bilingual Reader",
-		pluginOfficeName: "Office Preview",
-		pluginMdExportName: "Markdown Export",
-		pluginCodeNavName: "Code Preview Navigator",
-		pluginVideoPreviewName: "Video Preview",
-		presetDshDesktopDesc: "Electron advanced (frameless) mode: macOS reserves a 20px top strip; Windows reserves a 32px title bar when WCO is unavailable"
-	};
-	/**
-	* The active locale id ('zh' | 'en'): the DSH locale service's snapshot when
-	* attached, else the browser language.
-	*/
-	function activeLocale() {
-		return (typeof navigator !== "undefined" ? navigator.language : "") ?? "en";
-	}
-	/** Translate a copy key; `{name}` placeholders interpolate from `params`. */
-	function t(key, params) {
-		let text = void 0;
-		if (text === void 0) text = (activeLocale().toLowerCase().startsWith("zh") ? zh : en)[key];
-		if (text === void 0) text = key;
-		if (params !== void 0) for (const [name, value] of Object.entries(params)) text = text.replaceAll(`{${name}}`, String(value));
-		return text;
-	}
-	//#endregion
-	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/src/client/sidebar.module.css.mjs
-	const css = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:clip}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.nArs4W_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.nArs4W_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_toggleButton:disabled,.nArs4W_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.nArs4W_panelBody{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_bottomPanel{z-index:40;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2);pointer-events:auto;padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;bottom:0}.nArs4W_bottomPanelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translateY(102%)}.nArs4W_bottomPanel[data-dragging]{transition:none}.nArs4W_bottomPanel{contain:layout style}body[data-dsh-sidebar-dragging] .nArs4W_panel,body[data-dsh-sidebar-dragging] .nArs4W_bottomPanel{will-change:transform}.nArs4W_bottomResize{cursor:row-resize;z-index:2;touch-action:none;height:8px;position:absolute;top:-4px;left:0;right:0}.nArs4W_bottomResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_bottomClose{z-index:4;width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;position:absolute;top:3px;right:6px}.nArs4W_bottomClose:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_bottomPanel .nArs4W_tabBar{padding-right:40px}.nArs4W_toggleButton,.nArs4W_tabBar{-webkit-app-region:no-drag}.nArs4W_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_iconButton:disabled{opacity:.4;cursor:default}.nArs4W_workbench,.nArs4W_split{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_splitRow{flex-direction:row}.nArs4W_splitCol{flex-direction:column}.nArs4W_splitChild{display:flex;position:relative;overflow:hidden}.nArs4W_divider{z-index:3;touch-action:none;flex:none;position:relative}.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.nArs4W_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.nArs4W_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.nArs4W_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.nArs4W_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.nArs4W_divider:hover:after,.nArs4W_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.nArs4W_dropLeft{width:25%;top:0;bottom:0;left:0}.nArs4W_dropRight{width:25%;top:0;bottom:0;right:0}.nArs4W_dropUp{height:25%;top:0;left:0;right:0}.nArs4W_dropDown{height:25%;bottom:0;left:0;right:0}.nArs4W_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.nArs4W_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.nArs4W_chipIcon{flex:none;align-items:center;margin-right:6px;display:inline-flex}.nArs4W_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_paneTabHidden{display:none}.nArs4W_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.nArs4W_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.nArs4W_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.nArs4W_paneCard:disabled{opacity:.45;cursor:default}.nArs4W_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.nArs4W_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.nArs4W_tabList::-webkit-scrollbar{display:none}.nArs4W_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.nArs4W_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.nArs4W_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.nArs4W_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.nArs4W_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.nArs4W_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.nArs4W_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.nArs4W_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.nArs4W_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_explorerRowRevealed{background:var(--dsw-alias-state-business-tertiary)}.nArs4W_explorerRowRevealed+.nArs4W_explorerRowRevealed{border-top-left-radius:0;border-top-right-radius:0}.nArs4W_explorerRowRevealed:has(+.nArs4W_explorerRowRevealed){border-bottom-right-radius:0;border-bottom-left-radius:0}.nArs4W_explorerDir{font:var(--dsw-font-s-strong-14)}.nArs4W_explorerHidden{opacity:.45}.nArs4W_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerBroken .nArs4W_explorerName{color:var(--dsw-alias-state-error-primary)}.nArs4W_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.nArs4W_explorerRenaming{cursor:text}.nArs4W_explorerRenameInput{box-sizing:border-box;border:1px solid var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-1);min-width:0;height:24px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:auto;padding:0 6px}.nArs4W_explorerRenameInput:focus{border-color:var(--dsw-alias-state-business-primary);outline:none}.nArs4W_explorerActionError{box-sizing:border-box;border:1px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px;align-items:flex-start;gap:6px;width:100%;margin-bottom:4px;padding:6px 8px;display:flex}.nArs4W_explorerActionErrorText{overflow-wrap:anywhere;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex:auto}.nArs4W_explorerActionErrorClose{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_explorerActionErrorClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_explorerConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;margin:0}.nArs4W_explorerRef,.nArs4W_explorerCopied{margin-left:auto}.nArs4W_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.nArs4W_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_explorerRow:hover .nArs4W_explorerRef,.nArs4W_explorerRow:focus-within .nArs4W_explorerRef{display:inline-flex}.nArs4W_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes nArs4W_dsh-row-in{0%{opacity:0}}.nArs4W_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.nArs4W_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.nArs4W_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.nArs4W_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadDropChatHint{z-index:1002;pointer-events:none;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.nArs4W_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.nArs4W_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.nArs4W_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.nArs4W_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.nArs4W_uploadOverlayTitle>svg{flex:none}.nArs4W_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.nArs4W_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.nArs4W_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.nArs4W_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.nArs4W_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.nArs4W_editor{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.nArs4W_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_editorBody{flex:1;min-height:0;display:flex}.nArs4W_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.nArs4W_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.nArs4W_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.nArs4W_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.nArs4W_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_editorTreePanelFull{flex:1}.nArs4W_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.nArs4W_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.nArs4W_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorStatusError{color:var(--dsw-alias-state-error-primary)}.nArs4W_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.nArs4W_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.nArs4W_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.nArs4W_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.nArs4W_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.nArs4W_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.nArs4W_fenceError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-wrap:wrap;align-items:center;gap:8px;padding:8px 16px;display:flex}.nArs4W_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.nArs4W_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.nArs4W_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.nArs4W_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.nArs4W_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.nArs4W_sandboxStatusOff .nArs4W_sandboxDot{background:var(--dsw-alias-state-error-primary)}.nArs4W_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.nArs4W_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browser{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.nArs4W_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.nArs4W_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.nArs4W_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.nArs4W_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.nArs4W_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.nArs4W_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.nArs4W_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.nArs4W_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.nArs4W_editorCmHidden{display:none}.nArs4W_editorCm .cm-editor{height:100%}.nArs4W_editorCm .cm-scroller{padding:12px 16px}.nArs4W_editorCm .cm-editor.cm-focused{outline:none}.nArs4W_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.nArs4W_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.nArs4W_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.nArs4W_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.nArs4W_editorImageWrap{flex:1;justify-content:center;align-items:center;min-height:0;padding:12px;display:flex;overflow:auto}.nArs4W_editorImage{object-fit:contain;max-width:100%;max-height:100%}.nArs4W_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.nArs4W_editorMd .md-code-block:not([data-mermaid-processed])>div:first-child{z-index:auto;position:static}.nArs4W_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.nArs4W_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.nArs4W_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.nArs4W_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.nArs4W_mermaidBody svg{max-width:100%;height:auto}.nArs4W_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.nArs4W_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.nArs4W_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.nArs4W_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.nArs4W_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.nArs4W_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.nArs4W_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.nArs4W_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.nArs4W_mermaidModalStage svg:active{cursor:grabbing}.nArs4W_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.nArs4W_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.nArs4W_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.nArs4W_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.nArs4W_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_editorPdfFrameBlocked{pointer-events:none}.nArs4W_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.nArs4W_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .nArs4W_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .nArs4W_editorPdfDragShield{pointer-events:auto!important}.nArs4W_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.nArs4W_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.nArs4W_terminal .xterm{height:100%}.nArs4W_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.nArs4W_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.nArs4W_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.nArs4W_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.nArs4W_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.nArs4W_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.nArs4W_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.nArs4W_terminalDepsHint{opacity:.9}.nArs4W_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.nArs4W_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.nArs4W_terminalDepsNote{opacity:.85}.nArs4W_terminalDepsActions{align-items:center;gap:8px;display:flex}.nArs4W_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.nArs4W_nativeTabHost{flex-direction:column;height:100%;min-height:0;display:flex}.nArs4W_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.nArs4W_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.nArs4W_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.nArs4W_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.nArs4W_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.nArs4W_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.nArs4W_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.nArs4W_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_toggleButton:focus-visible,.nArs4W_bottomClose:focus-visible,.nArs4W_iconButton:focus-visible,.nArs4W_tab:focus-visible,.nArs4W_tabClose:focus-visible,.nArs4W_tabBarPlus:focus-visible,.nArs4W_paneCard:focus-visible,.nArs4W_explorerRow:focus-visible,.nArs4W_explorerRef:focus-visible,.nArs4W_terminalRetry:focus-visible,.nArs4W_editorModeButton:focus-visible,.nArs4W_editorDownloadLink:focus-visible,.nArs4W_editorPptxButton:focus-visible,.nArs4W_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.nArs4W_bottomPanel,.nArs4W_bottomPanelHidden,.nArs4W_toggleButton,.nArs4W_tab,.nArs4W_tabBarPlus,.nArs4W_paneCard,.nArs4W_explorerRow,.nArs4W_divider,.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.nArs4W_tab{min-width:48px;max-width:128px}}.nArs4W_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.nArs4W_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.nArs4W_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_openWithPin{width:16px;height:16px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.nArs4W_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.nArs4W_editorHtmlBlock{margin:8px 0}.nArs4W_editorHtmlBlock img,.nArs4W_editorHtmlBlock video{max-width:100%}.nArs4W_editorHtmlBlock details{margin:4px 0;padding:4px 0}.nArs4W_editorHtmlBlock summary{cursor:pointer}.nArs4W_tocBar{z-index:7;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.nArs4W_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.nArs4W_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.nArs4W_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.nArs4W_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocItem[data-level=\"2\"]{padding-left:18px}.nArs4W_tocItem[data-level=\"3\"]{padding-left:28px}.nArs4W_tocItem[data-level=\"4\"]{padding-left:38px}.nArs4W_tocItem[data-level=\"5\"]{padding-left:48px}.nArs4W_tocItem[data-level=\"6\"]{padding-left:58px}.nArs4W_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes nArs4W_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.nArs4W_tocFlash{border-radius:4px;animation:1.2s ease-out nArs4W_dsh-toc-flash}";
-	const tagId = "dsh-better-sidebar/sidebar.module.css";
-	if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
-		const tag = document.createElement("style");
-		tag.dataset.plugin = "dsh-better-sidebar";
-		tag.dataset.pluginCss = tagId;
-		tag.textContent = css;
-		document.head.appendChild(tag);
-	}
-	var sidebar_module_css_default = {
-		"openWithChevron": "nArs4W_openWithChevron",
-		"producedMore": "nArs4W_producedMore",
-		"bottomClose": "nArs4W_bottomClose",
-		"explorerHeader": "nArs4W_explorerHeader",
-		"paneCard": "nArs4W_paneCard",
-		"editorTreePanel": "nArs4W_editorTreePanel",
-		"browserFrame": "nArs4W_browserFrame",
-		"dividerRow": "nArs4W_dividerRow",
-		"uploadDropHero": "nArs4W_uploadDropHero",
-		"browserBlockedTitle": "nArs4W_browserBlockedTitle",
-		"editorModeToggle": "nArs4W_editorModeToggle",
-		"editorImageWrap": "nArs4W_editorImageWrap",
-		"editorPdf": "nArs4W_editorPdf",
-		"tabBoundaryError": "nArs4W_tabBoundaryError",
-		"mermaidModalToolbar": "nArs4W_mermaidModalToolbar",
-		"explorer": "nArs4W_explorer",
-		"boundaryError": "nArs4W_boundaryError",
-		"mermaidCopy": "nArs4W_mermaidCopy",
-		"editorHeader": "nArs4W_editorHeader",
-		"editorImage": "nArs4W_editorImage",
-		"producedChip": "nArs4W_producedChip",
-		"browserBlockedActions": "nArs4W_browserBlockedActions",
-		"explorerError": "nArs4W_explorerError",
-		"splitCol": "nArs4W_splitCol",
-		"mermaidModal": "nArs4W_mermaidModal",
-		"tabBar": "nArs4W_tabBar",
-		"terminalWaitBanner": "nArs4W_terminalWaitBanner",
-		"terminalDepsHint": "nArs4W_terminalDepsHint",
-		"dirtyDot": "nArs4W_dirtyDot",
-		"mermaidMarkdown": "nArs4W_mermaidMarkdown",
-		"nativeTabHost": "nArs4W_nativeTabHost",
-		"uploadOverlayTitle": "nArs4W_uploadOverlayTitle",
-		"openWithPin": "nArs4W_openWithPin",
-		"editor": "nArs4W_editor",
-		"terminalDepsCommandRow": "nArs4W_terminalDepsCommandRow",
-		"workbench": "nArs4W_workbench",
-		"editorDownloadLink": "nArs4W_editorDownloadLink",
-		"dropRight": "nArs4W_dropRight",
-		"sandboxDot": "nArs4W_sandboxDot",
-		"tabTitle": "nArs4W_tabTitle",
-		"mermaidBody": "nArs4W_mermaidBody",
-		"editorBanner": "nArs4W_editorBanner",
-		"uploadOverlayCancel": "nArs4W_uploadOverlayCancel",
-		"editorPdfFrame": "nArs4W_editorPdfFrame",
-		"terminal": "nArs4W_terminal",
-		"dsh-toc-flash": "nArs4W_dsh-toc-flash",
-		"tabBarDrop": "nArs4W_tabBarDrop",
-		"browserBlockedDesc": "nArs4W_browserBlockedDesc",
-		"editorPdfDragShield": "nArs4W_editorPdfDragShield",
-		"editorStatus": "nArs4W_editorStatus",
-		"editorPdfFrameBlocked": "nArs4W_editorPdfFrameBlocked",
-		"sandboxStatusOn": "nArs4W_sandboxStatusOn",
-		"tocBar": "nArs4W_tocBar",
-		"mermaidModalStage": "nArs4W_mermaidModalStage",
-		"bottomPanelHidden": "nArs4W_bottomPanelHidden",
-		"explorerRow": "nArs4W_explorerRow",
-		"editorSearchHint": "nArs4W_editorSearchHint",
-		"gitDiffTab": "nArs4W_gitDiffTab",
-		"uploadOverlayCard": "nArs4W_uploadOverlayCard",
-		"editorStatusError": "nArs4W_editorStatusError",
-		"uploadOverlayStatus": "nArs4W_uploadOverlayStatus",
-		"terminalBanner": "nArs4W_terminalBanner",
-		"iconButton": "nArs4W_iconButton",
-		"browserMessage": "nArs4W_browserMessage",
-		"browserBlocked": "nArs4W_browserBlocked",
-		"terminalDepsActions": "nArs4W_terminalDepsActions",
-		"explorerActionErrorClose": "nArs4W_explorerActionErrorClose",
-		"pinnedTab": "nArs4W_pinnedTab",
-		"paneContent": "nArs4W_paneContent",
-		"editorMain": "nArs4W_editorMain",
-		"editorTreeSearch": "nArs4W_editorTreeSearch",
-		"chipIcon": "nArs4W_chipIcon",
-		"explorerRowDropTarget": "nArs4W_explorerRowDropTarget",
-		"editorModeButton": "nArs4W_editorModeButton",
-		"editorTreePanelFull": "nArs4W_editorTreePanelFull",
-		"mermaidInfo": "nArs4W_mermaidInfo",
-		"gitError": "nArs4W_gitError",
-		"editorBinary": "nArs4W_editorBinary",
-		"editorHtml": "nArs4W_editorHtml",
-		"splitChild": "nArs4W_splitChild",
-		"editorCm": "nArs4W_editorCm",
-		"editorError": "nArs4W_editorError",
-		"terminalDepsBanner": "nArs4W_terminalDepsBanner",
-		"split": "nArs4W_split",
-		"panel": "nArs4W_panel",
-		"tocItemText": "nArs4W_tocItemText",
-		"sandboxStatusOff": "nArs4W_sandboxStatusOff",
-		"editorPathInput": "nArs4W_editorPathInput",
-		"selectionPopup": "nArs4W_selectionPopup",
-		"splitRow": "nArs4W_splitRow",
-		"panelBody": "nArs4W_panelBody",
-		"explorerSymlink": "nArs4W_explorerSymlink",
-		"explorerRef": "nArs4W_explorerRef",
-		"explorerCopied": "nArs4W_explorerCopied",
-		"editorTreeDock": "nArs4W_editorTreeDock",
-		"dividerActive": "nArs4W_dividerActive",
-		"fenceError": "nArs4W_fenceError",
-		"bottomResize": "nArs4W_bottomResize",
-		"dropOverlay": "nArs4W_dropOverlay",
-		"browserStart": "nArs4W_browserStart",
-		"explorerRowRevealed": "nArs4W_explorerRowRevealed",
-		"terminalWaitNeedle": "nArs4W_terminalWaitNeedle",
-		"tabList": "nArs4W_tabList",
-		"editorMd": "nArs4W_editorMd",
-		"terminalRepairCommand": "nArs4W_terminalRepairCommand",
-		"terminalDepsNote": "nArs4W_terminalDepsNote",
-		"bottomResizeActive": "nArs4W_bottomResizeActive",
-		"explorerName": "nArs4W_explorerName",
-		"browserInput": "nArs4W_browserInput",
-		"editorPdfStage": "nArs4W_editorPdfStage",
-		"uploadDropZonePill": "nArs4W_uploadDropZonePill",
-		"browser": "nArs4W_browser",
-		"gitDiffTabTitle": "nArs4W_gitDiffTabTitle",
-		"openWithPinActive": "nArs4W_openWithPinActive",
-		"explorerDir": "nArs4W_explorerDir",
-		"sandboxAction": "nArs4W_sandboxAction",
-		"toggleButton": "nArs4W_toggleButton",
-		"uploadOverlay": "nArs4W_uploadOverlay",
-		"browserBar": "nArs4W_browserBar",
-		"browserBlockedButton": "nArs4W_browserBlockedButton",
-		"explorerActionError": "nArs4W_explorerActionError",
-		"paneDrop": "nArs4W_paneDrop",
-		"explorerHidden": "nArs4W_explorerHidden",
-		"uploadOverlayProgress": "nArs4W_uploadOverlayProgress",
-		"editorTitle": "nArs4W_editorTitle",
-		"editorModeActive": "nArs4W_editorModeActive",
-		"explorerActionErrorText": "nArs4W_explorerActionErrorText",
-		"tabBadge": "nArs4W_tabBadge",
-		"editorPdfToolbar": "nArs4W_editorPdfToolbar",
-		"explorerBody": "nArs4W_explorerBody",
-		"orphanedType": "nArs4W_orphanedType",
-		"editorHtmlBlock": "nArs4W_editorHtmlBlock",
-		"terminalWrap": "nArs4W_terminalWrap",
-		"uploadDropChatHint": "nArs4W_uploadDropChatHint",
-		"pane": "nArs4W_pane",
-		"tab": "nArs4W_tab",
-		"mermaidCode": "nArs4W_mermaidCode",
-		"terminalRetry": "nArs4W_terminalRetry",
-		"producedRow": "nArs4W_producedRow",
-		"bottomPanel": "nArs4W_bottomPanel",
-		"uploadDropZoneText": "nArs4W_uploadDropZoneText",
-		"explorerRenameInput": "nArs4W_explorerRenameInput",
-		"editorTreeToggleActive": "nArs4W_editorTreeToggleActive",
-		"gitEmpty": "nArs4W_gitEmpty",
-		"editorBody": "nArs4W_editorBody",
-		"dsh-row-in": "nArs4W_dsh-row-in",
-		"tocPanel": "nArs4W_tocPanel",
-		"producedLabel": "nArs4W_producedLabel",
-		"tocItem": "nArs4W_tocItem",
-		"paneTab": "nArs4W_paneTab",
-		"dividerCol": "nArs4W_dividerCol",
-		"paneEmptyCards": "nArs4W_paneEmptyCards",
-		"explorerBroken": "nArs4W_explorerBroken",
-		"editorCmHidden": "nArs4W_editorCmHidden",
-		"gitPlaceholder": "nArs4W_gitPlaceholder",
-		"openWithLabel": "nArs4W_openWithLabel",
-		"tocFlash": "nArs4W_tocFlash",
-		"dropLeft": "nArs4W_dropLeft",
-		"sandboxStatus": "nArs4W_sandboxStatus",
-		"uploadOverlayProgressFill": "nArs4W_uploadOverlayProgressFill",
-		"editorTreeResize": "nArs4W_editorTreeResize",
-		"editorPlaceholder": "nArs4W_editorPlaceholder",
-		"uploadDropZone": "nArs4W_uploadDropZone",
-		"editorBinaryNotice": "nArs4W_editorBinaryNotice",
-		"mermaidError": "nArs4W_mermaidError",
-		"mermaidModalHint": "nArs4W_mermaidModalHint",
-		"terminalDepsTitle": "nArs4W_terminalDepsTitle",
-		"explorerConfirmDesc": "nArs4W_explorerConfirmDesc",
-		"sandboxStatusText": "nArs4W_sandboxStatusText",
-		"mermaidWrap": "nArs4W_mermaidWrap",
-		"explorerRenaming": "nArs4W_explorerRenaming",
-		"mermaidModalButton": "nArs4W_mermaidModalButton",
-		"uploadDropChatCard": "nArs4W_uploadDropChatCard",
-		"mermaidHeader": "nArs4W_mermaidHeader",
-		"tabActive": "nArs4W_tabActive",
-		"editorPdfDragShieldActive": "nArs4W_editorPdfDragShieldActive",
-		"dropDown": "nArs4W_dropDown",
-		"dropCenter": "nArs4W_dropCenter",
-		"terminalBannerUrl": "nArs4W_terminalBannerUrl",
-		"editorDocxZoomRange": "nArs4W_editorDocxZoomRange",
-		"tocButton": "nArs4W_tocButton",
-		"tabClose": "nArs4W_tabClose",
-		"tocItemLevel": "nArs4W_tocItemLevel",
-		"gitDiffTabHeader": "nArs4W_gitDiffTabHeader",
-		"tabBarPlus": "nArs4W_tabBarPlus",
-		"explorerEmpty": "nArs4W_explorerEmpty",
-		"openWithName": "nArs4W_openWithName",
-		"editorSearchInput": "nArs4W_editorSearchInput",
-		"paneTabHidden": "nArs4W_paneTabHidden",
-		"editorSearchResult": "nArs4W_editorSearchResult",
-		"editorPptxButton": "nArs4W_editorPptxButton",
-		"explorerRoot": "nArs4W_explorerRoot",
-		"dropUp": "nArs4W_dropUp",
-		"divider": "nArs4W_divider"
-	};
 	//#endregion
 	//#region src/client/SandboxStatusBar.tsx
 	/**
@@ -44721,7 +49352,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	*/
 	function spliceInsert(draft, text, caret) {
 		if (caret === null || draft === "") {
-			const next = draft.trim() === "" ? text : `${draft} ${text}`;
+			const next = draft.trim() === "" ? text : `${draft}${/\s$/.test(draft) ? "" : " "}${text}`;
 			return {
 				draft: next,
 				caretAfter: next.length
@@ -44735,7 +49366,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		};
 		const left = prefix === "" || /\s$/.test(prefix) ? "" : " ";
 		return {
-			draft: `${prefix}${left}${text}${suffix === "" || /^\s/.test(suffix) ? "" : " "}${suffix}`,
+			draft: `${prefix}${left}${text}${suffix === "" || /^\s/.test(suffix) || /\s$/.test(text) ? "" : " "}${suffix}`,
 			caretAfter: prefix.length + left.length + text.length
 		};
 	}
@@ -45002,8 +49633,12 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	//#region src/client/mermaid-blocks.ts
 	/** CommonMark opening fence: 0-3 spaces indent + a run of 3+ backticks or tildes. */
 	const OPEN_FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
-	/** A closing-fence line: 0-3 spaces indent + 3+ backticks/tildes + trailing spaces only. */
-	const CLOSE_FENCE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+	/** A closing-fence line: 0-3 spaces indent + 3+ backticks/tildes + trailing
+	*  spaces only. The optional `\r` is a CRLF line's terminator, not content: a
+	*  CRLF document reaches this regex with its line endings intact, and without
+	*  the `\r` no fence would ever close (the block would swallow the rest of the
+	*  file). */
+	const CLOSE_FENCE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/;
 	/** Parse the info string from the line tail after the fence run; null when invalid. */
 	function fenceInfo(rest, fence) {
 		const info = rest.trimStart().split(/\s+/)[0] ?? "";
@@ -45328,7 +49963,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			inHtmlRun = false;
 			inComment = false;
 		};
-		const isBlank = (line) => /^[ \t]*$/.test(line);
+		const isBlank = (line) => /^[ \t\r]*$/.test(line);
 		for (const line of lines) {
 			if (openFence !== null) {
 				const close = CLOSE_FENCE_RE.exec(line);
@@ -47795,6 +52430,58 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	//#endregion
 	//#region src/client/chunk-loader.ts
 	/**
+	* Lazy chunk loader for the client bundle. The heavy preview libraries
+	* (CodeMirror's editor stack, mermaid — several MB) live in separate
+	* build-time bundles (`lib/client-<name>.js`) fetched only on first use of
+	* the feature that needs them, so startup downloads/parses only the ~1MB
+	* core bundle. (The office stack — Univer / docx-preview /
+	* pptx-renderer — is no longer bundled here: Office previews moved to the
+	* recommended office plugin, see plugins-viewers.ts.)
+	*
+	* How a chunk script works (see tsdown.config.ts chunkBundle):
+	*
+	*   globalThis.__dshChunks__ = globalThis.__dshChunks__ || {};
+	*   globalThis.__dshChunks__["editor"] = (require) => { ...exports };
+	*
+	* The script registers its factory on a plugin-owned global registry (NOT
+	* through window.__ModuleLoader__.load — the module loader's import() only
+	* resolves seed words, shell-own modules, registered factories, and boot
+	* graph rows; a chunk id is none of those, so resolution would be version-
+	* dependent). Materialization is plugin-owned:
+	*
+	* 1. inject <script src="/sidebar/bundle/<name>.js"> (classic same-origin
+	*    script; the official /plugins/<id>/client.js route cannot serve
+	*    arbitrary file names, so the plugin's own host route serves the chunks),
+	* 2. read the factory from the global registry,
+	* 3. call it with a require that resolves the platform externals through
+	*    the injected module system's `import(spec)` (the `ctx.modules` service)
+	*    — the seed-word branch, the one part of the module system that is
+	*    stable across versions.
+	*
+	* Caching contract (three layers, each with a failure path):
+	* - In-memory: one in-flight promise per chunk, memoized until
+	*   {@link resetChunks}; a failed load removes its entry so the next call
+	*   retries from scratch. HMR re-activation keeps the resolved exports of
+	*   unchanged chunks (ETag revalidation via
+	*   {@link revalidateChunksOnReactivate}) — the next lazy open skips the
+	*   re-inject / re-execute.
+	* - Script execution: each re-execution overwrites the global registry slot
+	*   (assignment, never registration) — no "duplicate factory registration"
+	*   class of errors; a failed materialization clears the cache so the retry
+	*   re-injects and re-executes.
+	* - HTTP: the bundle route revalidates every request (`cache-control:
+	*   no-cache` + ETag, 304 when unchanged), so page refreshes and HMR
+	*   re-activations never re-download a multi-MB chunk that did not change.
+	*
+	* HMR: each plugin activation calls {@link revalidateChunksOnReactivate},
+	* which HEADs every loaded chunk against the bundle route and keeps the
+	* in-memory cache for the ones whose ETag is unchanged (a hot-reloaded core
+	* bundle therefore does not re-execute multi-MB chunk scripts). Chunk-only
+	* source edits still need a manual page refresh (the HMR poll watches only
+	* client.js); an edit that does land while a core HMR happens is caught by
+	* the ETag comparison on the next activation.
+	*/
+	/**
 	* The platform externals a chunk bundle may require (mirror of
 	* CLIENT_EXTERNALS in tsdown.config.ts — the chunk builds keep these
 	* external and the loader resolves them here). A superset is safe: the
@@ -47815,7 +52502,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		"@deepseek-ai/dsh-client-ui-primitives"
 	];
 	/** Chunk script endpoint served by the plugin host half (src/bundle-route.ts). */
-	const CHUNK_URL = (name) => `/sidebar/bundle/${name}.js`;
+	const CHUNK_URL = (name) => hostRouteUrl(`sidebar/bundle/${name}.js`).href;
 	/** Bound on the revalidation HEAD round-trip. A timeout fails open (drop +
 	*  re-fetch on the next open) so a stuck bundle route can never wedge lazy
 	*  chunk loads behind the revalidation barrier. */
@@ -48036,6 +52723,15 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	*/
 	/** Tag-like text in a rendered text node — the inline pass gate. */
 	const TAGLIKE_TEXT_RE = /<\/?[a-zA-Z][a-zA-Z0-9-]*[\s/>]/;
+	/**
+	* A text node that is nothing but one close tag (`</a>`) at its edges. The host
+	* renderer emits one text node per raw-HTML token, so an author's
+	* `<a id="x"></a>` arrives as two sibling nodes: the open tag (which this pass
+	* swaps for a sanitized element) and this stray close tag. DOMPurify drops a
+	* lone close tag, so it can never be swapped — and unlike prose it carries no
+	* text a reader should see, so the pass deletes it instead of printing it.
+	*/
+	const ORPHAN_CLOSE_TAG_RE = /^<\/[a-zA-Z][a-zA-Z0-9-]*\s*>$/;
 	/** Explicit denylist on top of DOMPurify's defaults: no active content, no
 	*  form chrome, no document-level elements inside a preview. */
 	const PURIFY_FORBID_TAGS = [
@@ -48070,7 +52766,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		for (const element of root.querySelectorAll("img, video, audio, source")) {
 			const src = element.getAttribute("src");
 			if (src === null) continue;
-			element.setAttribute("src", resolveLocalMediaDest(src, media.scope, media.path, media.origin));
+			element.setAttribute("src", resolveLocalMediaDest(src, media.scope, media.path, media.baseUrl));
 		}
 	}
 	/** Sanitize one balanced HTML span into markup for dangerouslySetInnerHTML. */
@@ -48087,6 +52783,8 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	* Sanitize literal tag text from a rendered markdown text node. Returns null
 	* when nothing real survived (pure prose like `a < b` — the DOMPurify output
 	* has no element children), so the caller leaves the text node untouched.
+	* A node that is nothing but a close tag never reaches here — the caller drops
+	* it (see {@link ORPHAN_CLOSE_TAG_RE}).
 	*/
 	function sanitizeInlineHtml(text, media) {
 		const holder = document.createElement("span");
@@ -48099,11 +52797,24 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		return holder.innerHTML;
 	}
 	/**
+	* React props for a sanitized element: `class`/`for` map to their React names,
+	* `style` is dropped (React needs an object; wrappers with inline styles are
+	* vanishingly rare and not worth a CSS parser), and event handlers / invalid
+	* attribute names never survive DOMPurify's defaults but are filtered anyway.
+	*/
+	function propsFromElement(element) {
+		const props = {};
+		for (const attr of element.attributes) {
+			if (/^on/i.test(attr.name) || !/^[a-zA-Z][a-zA-Z0-9:._-]*$/.test(attr.name)) continue;
+			if (attr.name === "style") continue;
+			props[attr.name === "class" ? "className" : attr.name === "for" ? "htmlFor" : attr.name] = attr.value;
+		}
+		return props;
+	}
+	/**
 	* Sanitize a wrapper open tag (`<details open>`) into React props. Returns
 	* null when DOMPurify dropped the whole tag (denied element) — the renderer
-	* then treats the wrapper as transparent. `class`/`for` map to their React
-	* names; `style` is dropped (React needs an object; wrappers with inline
-	* styles are vanishingly rare and not worth a CSS parser).
+	* then treats the wrapper as transparent.
 	*/
 	function sanitizeTagProps(tag, attrs) {
 		const probe = purify.sanitize(`<${tag}${attrs}></${tag}>`, {
@@ -48114,13 +52825,37 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		holder.innerHTML = probe;
 		const element = holder.firstElementChild;
 		if (element === null || element.tagName.toLowerCase() !== tag) return null;
-		const props = {};
-		for (const attr of element.attributes) {
-			if (/^on/i.test(attr.name) || !/^[a-zA-Z][a-zA-Z0-9:._-]*$/.test(attr.name)) continue;
-			if (attr.name === "style") continue;
-			props[attr.name === "class" ? "className" : attr.name === "for" ? "htmlFor" : attr.name] = attr.value;
+		return propsFromElement(element);
+	}
+	/**
+	* Split a sanitized HTML leaf whose first element is a `<summary>` into that
+	* summary's props/inner markup plus the remainder. HTML's content model makes
+	* the summary a disclosure widget **only** as a direct child of `<details>`,
+	* but every balanced leaf renders inside a block wrapper — so a README's
+	* `<details>` + `<summary>` would otherwise show the browser's own default
+	* label ("Details") and demote the authored text to body content. Returns
+	* null when the leaf's first element is anything else (or non-whitespace text
+	* precedes it), leaving the plain leaf path untouched. Media and anchors
+	* inside the hoisted summary go through the same hardening as any leaf.
+	*/
+	function splitLeadingSummary(html, media) {
+		const holder = document.createElement("div");
+		holder.innerHTML = html;
+		const first = holder.firstElementChild;
+		if (first === null || first.tagName.toLowerCase() !== "summary") return null;
+		for (const node of holder.childNodes) {
+			if (node === first) break;
+			if ((node.textContent ?? "").trim() !== "") return null;
 		}
-		return props;
+		postProcessSanitized(first, media);
+		const props = propsFromElement(first);
+		const inner = first.innerHTML;
+		first.remove();
+		return {
+			props,
+			inner,
+			rest: holder.innerHTML
+		};
 	}
 	/**
 	* The inline pass: walk the rendered markdown's text nodes and swap any that
@@ -48140,6 +52875,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		const targets = [];
 		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) targets.push(node);
 		for (const node of targets) {
+			if (ORPHAN_CLOSE_TAG_RE.test(node.data.trim())) {
+				node.remove();
+				continue;
+			}
 			const html = sanitizeInlineHtml(node.data, media);
 			if (html === null) continue;
 			const span = document.createElement("span");
@@ -48208,27 +52947,55 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		const prepared = (0, react.useMemo)(() => info.segments.map((segment) => {
 			if (segment.kind === "markdown") {
 				const defs = info.referenceDefinitions;
-				const text = rewriteLocalImageUrls(defs === "" ? segment.text : `${segment.text}\n\n${defs}`, media.scope, media.path, media.origin);
+				const text = rewriteLocalMarkdownLinks(rewriteLocalImageUrls(defs === "" ? segment.text : `${segment.text}\n\n${defs}`, media.scope, media.path, media.baseUrl), media.path, media.scope.cwd);
 				return {
 					kind: "markdown",
 					text,
 					hasMermaid: splitMermaidBlocks(text).some((block) => block.kind === "mermaid")
 				};
 			}
-			return {
-				kind: "html",
-				parts: analyzeHtmlSegment(segment.text).parts.map((part) => {
-					if (part.kind === "html") return {
+			const parts = [];
+			/** Tag of the wrapper the previous part opened — the only place a
+			*  following leaf can hoist a `<summary>` out of its block wrapper. */
+			let openTag = null;
+			for (const part of analyzeHtmlSegment(segment.text).parts) {
+				if (part.kind === "html") {
+					const html = sanitizeHtmlBlock(part.html, media);
+					const summary = openTag === "details" ? splitLeadingSummary(html, media) : null;
+					if (summary === null) parts.push({
 						kind: "html",
-						html: sanitizeHtmlBlock(part.html, media)
-					};
-					if (part.kind === "open") return {
+						html
+					});
+					else {
+						parts.push({
+							kind: "summary",
+							props: summary.props,
+							inner: summary.inner
+						});
+						if (summary.rest.trim() !== "") parts.push({
+							kind: "html",
+							html: summary.rest
+						});
+					}
+					openTag = null;
+					continue;
+				}
+				if (part.kind === "open") {
+					const props = sanitizeTagProps(part.tag, part.attrs);
+					parts.push({
 						kind: "open",
 						tag: part.tag,
-						props: sanitizeTagProps(part.tag, part.attrs)
-					};
-					return { kind: "close" };
-				})
+						props
+					});
+					openTag = props === null ? null : part.tag;
+					continue;
+				}
+				parts.push({ kind: "close" });
+				openTag = null;
+			}
+			return {
+				kind: "html",
+				parts
 			};
 		}), [info, media]);
 		const nodes = [];
@@ -48252,7 +53019,12 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			for (const part of segment.parts) if (part.kind === "html") {
 				if (part.html.trim() === "") continue;
 				emit(/* @__PURE__ */ (0, react_jsx_runtime.jsx)(HtmlLeaf, { html: part.html }, `html-${key += 1}`));
-			} else if (part.kind === "open") frames.push({
+			} else if (part.kind === "summary") emit((0, react.createElement)("summary", {
+				...part.props,
+				key: `summary-${key += 1}`,
+				dangerouslySetInnerHTML: { __html: part.inner }
+			}));
+			else if (part.kind === "open") frames.push({
 				tag: part.tag,
 				props: part.props,
 				children: []
@@ -48276,6 +53048,925 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			}, ...frame.children));
 		}
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: nodes });
+	}
+	//#endregion
+	//#region src/editor-limits.ts
+	/**
+	* The one size constant both halves need, kept dependency-free on purpose.
+	*
+	* This replaces the retired `readLimit` deployment knob (`config.ts`). The old
+	* cap answered "how many bytes may the host hand the client" by truncating the
+	* document — which produced an editor that could neither be trusted nor saved
+	* (issue #732: saving a partial document destroys the tail). Transfer size is
+	* no longer a thing this plugin limits at all: upload, download, the HTML
+	* preview route and the archive route all stream, so a 10 GB file is simply a
+	* 10 GB file.
+	*
+	* What is still bounded is what an EDITOR can hold. CodeMirror keeps the whole
+	* document in the browser, so a file above this size gets a read-only paged
+	* preview (see `paged-text.tsx` / `jsonl-preview.tsx`) instead of an edit
+	* buffer. VS Code draws the same line at a different number — its
+	* `getLargeFileConfirmationLimit()` is 50 MB on the web build — and the shape
+	* of the answer (threshold → degraded read-only view) is deliberately the same.
+	*
+	* Imported by BOTH halves, so this module must stay free of node builtins and
+	* of anything that reaches them.
+	*/
+	/**
+	* Text files at or below this size load whole and are editable; anything above
+	* gets the read-only paged preview.
+	*/
+	const MAX_EDITABLE_BYTES = 5242880;
+	/**
+	* Format a byte count for the "this file is too large to edit" notice. Kept
+	* here beside the constant so the host and the client round identically.
+	*
+	* @param bytes - the file's size.
+	* @returns e.g. `12.4 MB`, `512 KB`, `900 B`.
+	*/
+	function formatByteSize(bytes) {
+		if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+		if (bytes < 1024) return `${Math.round(bytes)} B`;
+		const units = [
+			"KB",
+			"MB",
+			"GB",
+			"TB"
+		];
+		let value = bytes / 1024;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit += 1;
+		}
+		return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+	}
+	//#endregion
+	//#region src/client/jsonl.ts
+	/**
+	* JSONL (newline-delimited JSON) parsing for the preview.
+	*
+	* The editor's CodeMirror surface keeps using `@codemirror/lang-json` for
+	* `.json`; JSONL gets its own per-line language (see `lang-jsonl.ts`) because
+	* the stock JSON grammar treats a second top-level value as an error. For the
+	* PREVIEW the grammar is irrelevant: one line IS one record, so the preview
+	* parses each line on its own and never has to reason about the document as a
+	* single JSON value.
+	*
+	* Kept dependency-free and pure so the record handling is unit-testable
+	* without a DOM.
+	*/
+	/** Whether a path is newline-delimited JSON (one record per line). */
+	function isJsonlPath(path) {
+		const ext = extOf(path);
+		return ext === "jsonl" || ext === "ndjson";
+	}
+	/** A record that is an object or array can render as a `JsonTree`. */
+	function isTreeRecord(value) {
+		return typeof value === "object" && value !== null;
+	}
+	/**
+	* Parse one JSONL line.
+	*
+	* A blank line is NOT a record — JSONL writers commonly end the file with one
+	* newline, and the host's pages are line-aligned, so a trailing blank must not
+	* render as a broken record. It is reported as `{ok: false}` with an empty
+	* error so the caller can skip it instead.
+	*
+	* @param line - one line of the file, without its newline.
+	* @returns the parsed value, or the failure reason.
+	*/
+	function parseRecord(line) {
+		const trimmed = line.trim();
+		if (trimmed === "") return {
+			ok: false,
+			error: ""
+		};
+		try {
+			return {
+				ok: true,
+				value: JSON.parse(trimmed)
+			};
+		} catch (error) {
+			return {
+				ok: false,
+				error: error instanceof Error ? error.message : String(error)
+			};
+		}
+	}
+	/** How many characters of a collapsed record's summary are kept. */
+	const SUMMARY_MAX = 200;
+	/**
+	* One-line summary of a record for its collapsed row.
+	*
+	* Objects and arrays become `{a: 1, b: "x", rest: …}` rather than raw JSON:
+	* a collapsed row has to be scannable, and a raw `JSON.stringify` of a session
+	* event is a wall of punctuation. Nesting beyond the first level is elided —
+	* the expanded `JsonTree` is where detail lives.
+	*
+	* @param value - the parsed record.
+	* @returns a single-line summary, never longer than {@link SUMMARY_MAX}.
+	*/
+	function summarizeRecord(value) {
+		if (value === null) return "null";
+		if (Array.isArray(value)) return `[${value.length} items]`;
+		if (typeof value === "object") {
+			const entries = Object.entries(value);
+			if (entries.length === 0) return "{}";
+			const rendered = entries.map(([key, item]) => `${key}: ${preview(item)}`);
+			const shown = [];
+			for (const part of rendered) {
+				if ((shown.length === 0 ? part : `${shown.join(", ")}, ${part}`).length + 4 > SUMMARY_MAX) break;
+				shown.push(part);
+			}
+			if (shown.length === 0) return `{${rendered[0].slice(0, 194)}…}`;
+			return `{${shown.join(", ")}${shown.length < rendered.length ? ", …" : ""}}`;
+		}
+		const literal = JSON.stringify(value) ?? String(value);
+		return literal.length <= SUMMARY_MAX ? literal : `${literal.slice(0, 199)}…`;
+	}
+	/** The first-level preview of one property value. */
+	function preview(value) {
+		if (value === null) return "null";
+		if (Array.isArray(value)) return `[…${value.length}]`;
+		if (typeof value === "object") return "{…}";
+		return JSON.stringify(value) ?? String(value);
+	}
+	//#endregion
+	//#region src/client/text-pages.ts
+	/**
+	* Byte-offset paging over one text file, shared by every over-limit preview
+	* (the generic read-only text reader and the JSONL record list).
+	*
+	* Why paging at all: the editor answers "this file is too big to edit" by
+	* refusing to show it (VS Code pops a placeholder and offers "Open Anyway").
+	* That is safe but useless for the files people actually want to LOOK at —
+	* session logs, eval dumps, dataset rows — so instead of refusing, this reads
+	* the file in windows.
+	*
+	* The model is APPEND-ONLY, which is what VS Code's output/log viewer does
+	* (its `readFile(resource, { position: endOffset })` tail reads append into the
+	* model). Pages accumulate in file order, so:
+	*
+	* - scrolling to the bottom appends the next page instead of replacing the
+	*   current one — the reader keeps everything they have already scrolled past;
+	* - "load all" is just "append until EOF", one sequential request at a time.
+	*   It HAS to be sequential: each request's `offset` is the previous response's
+	*   `nextOffset`, so the offsets cannot be computed ahead of time.
+	*
+	* That is also why there is no page count and no jump-to-the-end: a byte offset
+	* is only knowable for the pages already read. A random-access index would mean
+	* scanning the whole file on open — exactly the cost paging exists to avoid.
+	*
+	* Memory is therefore proportional to what the user has actually read, and the
+	* VIEW caps that (see `MAX_PREVIEW_ROWS` in LargeFileView): this hook will
+	* append for as long as it is asked to.
+	*/
+	/** The empty state (also what a file switch resets to). */
+	const EMPTY = {
+		pages: [],
+		lineStarts: [],
+		lineCounts: [],
+		nextOffset: 0,
+		size: 0,
+		atEnd: false,
+		encoding: "utf8"
+	};
+	/**
+	* Page through one file, appending.
+	*
+	* @param scope - the session scope.
+	* @param path - the file to read ('' parks the hook).
+	* @param enabled - false issues no request and keeps the previous state (a
+	*  viewer that is merely hidden must not keep reading).
+	* @param revision - bump to restart from the first page (the host's refresh).
+	* @param maxLines - ceiling on accumulated lines. The hook stops appending
+	*  once it is reached, and reports `atCap`. It lives HERE rather than in the
+	*  caller because the accounting has to be synchronous: while `loadAll` walks
+	*  pages in an `await` loop, a caller reading its own RENDERED row count would
+	*  decide from a stale number and overshoot the ceiling by however many pages
+	*  React had not re-rendered yet.
+	* @returns the accumulator and its commands.
+	*/
+	function useTextPager(scope, path, enabled, revision, maxLines = Number.POSITIVE_INFINITY) {
+		const [state, setState] = (0, react.useState)(EMPTY);
+		const [loading, setLoading] = (0, react.useState)(false);
+		const [loadingAll, setLoadingAll] = (0, react.useState)(false);
+		const [error, setError] = (0, react.useState)(null);
+		const [reloadSeq, setReloadSeq] = (0, react.useState)(0);
+		/** One append at a time: every request needs the previous `nextOffset`. */
+		const inFlight = (0, react.useRef)(false);
+		/** Guards a late response from the file/revision we have already left. */
+		const generationRef = (0, react.useRef)(0);
+		/**
+		* The cursor, as REFS rather than reads of the rendered state.
+		*
+		* This is load-bearing, not a micro-optimisation: `loadAll` walks pages in a
+		* tight `await` loop, and a `setState` from the previous page is not rendered
+		* yet when the next iteration starts. Reading the offset out of state there
+		* re-requests the SAME page forever (found by the spec — it OOMs the worker in
+		* about ten seconds). The refs are written synchronously with the response,
+		* so the loop always advances.
+		*/
+		const nextOffsetRef = (0, react.useRef)(0);
+		const atEndRef = (0, react.useRef)(false);
+		const totalLinesRef = (0, react.useRef)(0);
+		const loadingAllRef = (0, react.useRef)(false);
+		/** Mirror of the ceiling, so the identity-stable callbacks read it fresh. */
+		const maxLinesRef = (0, react.useRef)(maxLines);
+		maxLinesRef.current = maxLines;
+		/** Whether anything may still be appended: neither EOF nor the ceiling. */
+		const canAppend = () => !atEndRef.current && totalLinesRef.current < maxLinesRef.current;
+		const reset = (0, react.useCallback)(() => {
+			generationRef.current += 1;
+			inFlight.current = false;
+			loadingAllRef.current = false;
+			nextOffsetRef.current = 0;
+			atEndRef.current = false;
+			totalLinesRef.current = 0;
+			setState(EMPTY);
+			setLoading(false);
+			setLoadingAll(false);
+			setError(null);
+		}, []);
+		(0, react.useEffect)(() => {
+			reset();
+			setReloadSeq((sequence) => sequence + 1);
+		}, [
+			reset,
+			path,
+			scope.sessionId,
+			scope.cwd,
+			revision
+		]);
+		/**
+		* Read the page at the current `nextOffset` and append it.
+		*
+		* @returns whether the caller's loop may continue (false on a failure, on a
+		*  superseded generation, or when another append is already in flight).
+		*/
+		const appendOnce = (0, react.useCallback)(() => {
+			if (inFlight.current) return Promise.resolve(false);
+			if (!canAppend()) return Promise.resolve(false);
+			const generation = generationRef.current;
+			const offset = nextOffsetRef.current;
+			inFlight.current = true;
+			setLoading(true);
+			setError(null);
+			return api.fsReadPage(scope, path, offset).then((result) => {
+				if (generation !== generationRef.current) return false;
+				inFlight.current = false;
+				nextOffsetRef.current = result.nextOffset;
+				atEndRef.current = result.eof;
+				const lines = splitLines(result.text).length;
+				totalLinesRef.current += lines;
+				setState((previous) => {
+					const previousStart = previous.lineStarts[previous.lineStarts.length - 1] ?? 1;
+					const previousLines = previous.lineCounts[previous.lineCounts.length - 1] ?? 0;
+					return {
+						pages: [...previous.pages, result.text],
+						lineStarts: [...previous.lineStarts, previous.pages.length === 0 ? 1 : previousStart + previousLines],
+						lineCounts: [...previous.lineCounts, lines],
+						nextOffset: result.nextOffset,
+						size: result.size,
+						atEnd: result.eof,
+						encoding: result.encoding
+					};
+				});
+				setLoading(false);
+				return canAppend();
+			}).catch((reason) => {
+				inFlight.current = false;
+				if (generation !== generationRef.current) return false;
+				setLoading(false);
+				setError(reason instanceof Error ? reason.message : String(reason));
+				return false;
+			});
+		}, [scope, path]);
+		const loadMore = (0, react.useCallback)(() => {
+			if (!canAppend()) return;
+			appendOnce();
+		}, [appendOnce]);
+		const loadAll = (0, react.useCallback)(() => {
+			if (loadingAllRef.current) return;
+			loadingAllRef.current = true;
+			setLoadingAll(true);
+			(async () => {
+				try {
+					for (;;) {
+						if (!canAppend()) break;
+						if (!await appendOnce()) break;
+					}
+				} finally {
+					loadingAllRef.current = false;
+					setLoadingAll(false);
+				}
+			})();
+		}, [appendOnce]);
+		const reload = (0, react.useCallback)(() => {
+			reset();
+			setReloadSeq((sequence) => sequence + 1);
+		}, [reset]);
+		(0, react.useEffect)(() => {
+			if (!enabled || path === "") return;
+			if (state.pages.length > 0 || state.atEnd) return;
+			if (inFlight.current || !canAppend()) return;
+			appendOnce();
+		}, [
+			enabled,
+			path,
+			reloadSeq,
+			state.pages.length,
+			state.atEnd,
+			appendOnce
+		]);
+		return (0, react.useMemo)(() => ({
+			loading,
+			loadingAll,
+			error,
+			pages: state.pages,
+			lineStarts: state.lineStarts,
+			totalLines: state.lineCounts.reduce((sum, count) => sum + count, 0),
+			loadedBytes: state.nextOffset,
+			size: state.size,
+			atEnd: state.atEnd,
+			atCap: !state.atEnd && state.lineCounts.reduce((sum, count) => sum + count, 0) >= maxLines,
+			loadMore,
+			loadAll,
+			reload,
+			encoding: state.encoding
+		}), [
+			loading,
+			loadingAll,
+			error,
+			state,
+			maxLines,
+			loadMore,
+			loadAll,
+			reload
+		]);
+	}
+	/**
+	* One page's text as rows. The host trims every page to a line break, so the
+	* '' a trailing newline produces is dropped — except on an empty page, which is
+	* no rows rather than one empty one.
+	*/
+	function splitLines(text) {
+		if (text === "") return [];
+		const lines = text.split("\n");
+		if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+		return lines;
+	}
+	/** Distance from the bottom (px) at which the next page is pulled. */
+	const APPEND_THRESHOLD_PX = 320;
+	/** Copy the host's `JsonTree` needs; this plugin owns the wording. */
+	function jsonLabels() {
+		return {
+			copyValue: t("copy"),
+			copyJson: t("copy"),
+			copyPath: t("jsonCopyPath"),
+			copyPrettyJson: t("jsonCopyPrettyJson"),
+			copyCompactJson: t("jsonCopyCompactJson"),
+			copied: t("copied"),
+			copyFailed: t("jsonCopyFailed"),
+			collapseNode: t("jsonCollapseNode"),
+			expandNode: t("jsonExpandNode"),
+			copyButtonTitle: (action) => t("jsonCopyButtonTitle", { action })
+		};
+	}
+	/**
+	* The read-only preview of one over-limit file.
+	*
+	* @param props.scope - the session scope.
+	* @param props.path - the file being previewed.
+	* @param props.size - the file's size in bytes (from the read that refused it).
+	* @param props.visible - whether the tab is on screen; a parked tab stops reading.
+	* @param props.revision - bumped by the host's refresh to restart from page one.
+	* @param props.maxRows - row ceiling (defaults to {@link MAX_PREVIEW_ROWS}).
+	* @returns the preview.
+	*/
+	function LargeFileView(props) {
+		const { scope, path, size, visible, revision } = props;
+		const maxRows = props.maxRows ?? 5e4;
+		const pager = useTextPager(scope, path, visible, revision, maxRows);
+		const records = isJsonlPath(path);
+		const bodyRef = (0, react.useRef)(null);
+		/** Absolute record/line numbers the reader expanded (survives appends). */
+		const [expanded, setExpanded] = (0, react.useState)(/* @__PURE__ */ new Set());
+		const labels = (0, react.useMemo)(() => jsonLabels(), []);
+		/**
+		* Whether this file is over the EDITABLE threshold — a different question
+		* from "is this view paged".
+		*
+		* A small `.jsonl` opens straight into this record list as its PREVIEW, and
+		* announcing "the file is too large, paged preview only" over a 2 KB file
+		* would be a lie. The threshold decides, not the component.
+		*/
+		const tooLarge = size > MAX_EDITABLE_BYTES;
+		const rows = (0, react.useMemo)(() => pager.pages.map(splitLines), [pager.pages]);
+		const totalRows = (0, react.useMemo)(() => rows.reduce((sum, page) => sum + page.length, 0), [rows]);
+		/** Pull the next page unless there is nothing left to pull. */
+		const maybeLoadMore = (0, react.useCallback)(() => {
+			if (pager.atEnd || pager.atCap || pager.loadingAll) return;
+			pager.loadMore();
+		}, [pager]);
+		(0, react.useEffect)(() => {
+			const el = bodyRef.current;
+			if (el === null || !visible) return;
+			if (el.scrollHeight <= el.clientHeight + 8) maybeLoadMore();
+		}, [
+			visible,
+			pager.pages.length,
+			pager.atEnd,
+			pager.atCap,
+			maybeLoadMore
+		]);
+		const onScroll = (event) => {
+			const el = event.currentTarget;
+			if (el.scrollHeight - el.scrollTop - el.clientHeight <= APPEND_THRESHOLD_PX) maybeLoadMore();
+		};
+		const toggle = (0, react.useCallback)((number) => {
+			setExpanded((previous) => {
+				const next = new Set(previous);
+				if (next.has(number)) next.delete(number);
+				else next.add(number);
+				return next;
+			});
+		}, []);
+		const firstNumber = pager.lineStarts[0] ?? 1;
+		const lastNumber = Math.max(firstNumber, firstNumber + totalRows - 1);
+		/** The footer only means something while there is more to come, or once more
+		*  than one window has arrived (a single-page file needs no commentary). */
+		const showFooter = !pager.atEnd || pager.pages.length > 1;
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: sidebar_module_css_default.largeFile,
+			children: [
+				tooLarge && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: sidebar_module_css_default.largeFileNotice,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("previewOnlyNotice", {
+							size: formatByteSize(size),
+							limit: "5 MB"
+						}) }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.largeFileNoticeAction,
+							disabled: pager.atEnd || pager.atCap || pager.loadingAll,
+							title: pager.atCap ? t("previewRowLimit", { rows: maxRows }) : void 0,
+							onClick: pager.loadAll,
+							children: pager.loadingAll ? t("loadAllProgress", {
+								loaded: formatByteSize(pager.loadedBytes),
+								total: formatByteSize(size)
+							}) : t("loadAll")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("a", {
+							className: sidebar_module_css_default.largeFileDownload,
+							href: downloadUrl(scope, path),
+							download: true,
+							children: t("downloadToView")
+						})
+					]
+				}),
+				pager.atCap && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: sidebar_module_css_default.editorBanner,
+					children: t("previewRowLimit", { rows: maxRows })
+				}),
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: clsx(sidebar_module_css_default.largeFileBody, records && sidebar_module_css_default.largeFileRecords),
+					ref: bodyRef,
+					onScroll,
+					children: [
+						pager.error !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.editorError,
+							children: pager.error
+						}),
+						pager.error === null && pager.loading && pager.pages.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.editorPlaceholder,
+							children: t("loading")
+						}),
+						pager.error === null && pager.pages.length > 0 && records && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("ol", {
+							className: sidebar_module_css_default.largeFileList,
+							start: firstNumber,
+							children: rows.flatMap((lines, pageIndex) => {
+								const start = pager.lineStarts[pageIndex] ?? 1;
+								return lines.map((line, rowIndex) => {
+									const number = start + rowIndex;
+									return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RecordRow, {
+										number,
+										line,
+										expanded: expanded.has(number),
+										labels,
+										onToggle: toggle
+									}, number);
+								});
+							})
+						}),
+						pager.error === null && pager.pages.length > 0 && !records && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.largeFileLines,
+							children: rows.flatMap((lines, pageIndex) => {
+								const start = pager.lineStarts[pageIndex] ?? 1;
+								return lines.map((line, rowIndex) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+									className: sidebar_module_css_default.largeFileLine,
+									children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.largeFileLineNo,
+										"aria-hidden": "true",
+										children: start + rowIndex
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: sidebar_module_css_default.largeFileLineText,
+										children: line === "" ? "\xA0" : line
+									})]
+								}, `${pageIndex}:${rowIndex}`));
+							})
+						}),
+						pager.error === null && pager.atEnd && totalRows === 0 && !pager.loading && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+							className: sidebar_module_css_default.editorPlaceholder,
+							children: t("largeFileEmpty")
+						})
+					]
+				}),
+				showFooter && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: sidebar_module_css_default.largeFilePager,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: sidebar_module_css_default.largeFilePageLabel,
+							children: [
+								records ? t("jsonlRecordRange", {
+									from: firstNumber,
+									to: lastNumber
+								}) : t("pagedLineRange", {
+									from: firstNumber,
+									to: lastNumber
+								}),
+								" · ",
+								`${formatByteSize(pager.loadedBytes)} / ${formatByteSize(size)}`
+							]
+						}),
+						pager.loading && !pager.loadingAll && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: sidebar_module_css_default.largeFilePageLabel,
+							children: t("loading")
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: sidebar_module_css_default.iconButton,
+							"aria-label": t("refresh"),
+							title: t("refresh"),
+							onClick: pager.reload,
+							children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconRefreshOutlineRegular, { size: 14 })
+						})
+					]
+				})
+			]
+		});
+	}
+	/**
+	* One JSONL record row: a summary line, expanding into the host's JSON tree.
+	*
+	* Memoized because appending a page re-renders the whole list: without this,
+	* every already-mounted record would be reconciled again on each append, and the
+	* list is expected to grow into the tens of thousands. The record is parsed here
+	* (rather than by the caller) so the parent's `flatMap` only builds elements.
+	*/
+	const RecordRow = (0, react.memo)(function RecordRow(props) {
+		const { number, line, expanded, labels, onToggle } = props;
+		const record = (0, react.useMemo)(() => parseRecord(line), [line]);
+		if (!record.ok) {
+			if (record.error === "") return null;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+				className: clsx(sidebar_module_css_default.largeFileRecord, sidebar_module_css_default.largeFileRecordInvalid),
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+					className: sidebar_module_css_default.largeFileRecordNo,
+					"aria-hidden": "true",
+					children: number
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: sidebar_module_css_default.largeFileRecordBody,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+						className: sidebar_module_css_default.largeFileRecordSummary,
+						children: t("jsonlInvalidRecord")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
+						className: sidebar_module_css_default.largeFileRecordRaw,
+						children: line
+					})]
+				})]
+			});
+		}
+		const value = record.value;
+		const tree = isTreeRecord(value);
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("li", {
+			className: clsx(sidebar_module_css_default.largeFileRecord, expanded && sidebar_module_css_default.largeFileRecordExpanded),
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+				className: sidebar_module_css_default.largeFileRecordNo,
+				"aria-hidden": "true",
+				children: number
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: sidebar_module_css_default.largeFileRecordBody,
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: sidebar_module_css_default.largeFileRecordSummary,
+					"aria-expanded": tree ? expanded : void 0,
+					disabled: !tree,
+					onClick: () => {
+						onToggle(number);
+					},
+					children: summarizeRecord(value)
+				}), tree && expanded && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: sidebar_module_css_default.largeFileRecordTree,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.JsonTree, {
+						data: value,
+						label: `#${number}`,
+						labels,
+						copyable: true,
+						expandTopLevel: true
+					})
+				})]
+			})]
+		});
+	});
+	//#endregion
+	//#region src/client/resource-address.ts
+	/**
+	* The DSH resource-address grammar for files (`dsh-resource://file/…`).
+	*
+	* DSH's right Sidebar opens content by ADDRESS, and a file's address IS the
+	* tab's content identity: the same address is the same tab. Two scopes exist:
+	*
+	* - `dsh-resource://file/session/<sessionId>/<path>` names a file by its path
+	*   relative to that session's workspace root OR by its absolute path kept
+	*   absolute inside the session scope (`src/a.ts` vs `/outside/a.ts` — the
+	*   leading `/` survives; the host resolves it against the root it holds for
+	*   the session);
+	* - `dsh-resource://file/absolute/<path>` names a file by its absolute path
+	*   with the leading `/` dropped (`absolute/home/me/x.txt`; Windows
+	*   `absolute/C:/x/y.txt`; a UNC path keeps an empty first segment,
+	*   `absolute//server/share/x.txt`). It carries no session. `fileAddressFor`
+	*   no longer produces this scope on DSH 0.1.5-alpha.2, but it must keep
+	*   parsing: legacy and third-party addresses still spell it.
+	*
+	* Every id and path segment is component-encoded, so a name carrying `#`, `?`
+	* or a space survives the round trip; `:` stays literal so a drive letter
+	* reads as written.
+	*
+	* The plugin parses these addresses itself instead of importing
+	* `@deepseek-ai/dsh-util-workspace-path`: the client bundle's purity gate
+	* forbids value-importing an unlisted `@deepseek-ai/*` package. This module
+	* mirrors that package's implementation — `packages/util/workspace-path/src/file-address.ts`
+	* and `fileAddressFor` in `packages/util/workspace-path/src/index.ts` in
+	* DSH 0.1.5-alpha.2 (github.com/deepseek-ai/deepseek-harness, tag
+	* `dsh-v0.1.5-alpha.2`) — and is pinned by tests/resource-address.spec.ts.
+	*/
+	/** The scheme and type every file address opens with. */
+	const FILE_ADDRESS_PREFIX = "dsh-resource://file/";
+	/** Component-encode one id or path segment, keeping `:` literal for drive letters. */
+	function encodeSegment(segment) {
+		return encodeURIComponent(segment).replace(/%3A/gi, ":");
+	}
+	/** Encode a `/`-separated path segment by segment. */
+	function encodePath(path) {
+		return path.split("/").map(encodeSegment).join("/");
+	}
+	/**
+	* Build the address of a file read through one session.
+	* @param sessionId - the session whose workspace root resolves the path.
+	* @param path - absolute or workspace-relative path; backslashes are normalized
+	*   to `/`, and leading `./` prefixes are dropped (a leading `/` is KEPT: an
+	*   absolute path stays absolute inside the session scope).
+	* @returns the `dsh-resource://file/session/<sessionId>/<path>` address.
+	*/
+	function sessionFileAddress(sessionId, path) {
+		const normalized = path.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+		return `${FILE_ADDRESS_PREFIX}session/${encodeSegment(sessionId)}/${encodePath(normalized)}`;
+	}
+	/** Whether a path is absolute in either spelling the host accepts. */
+	function isAbsolutePath(path) {
+		return path.startsWith("/") || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith("\\\\");
+	}
+	/**
+	* The address for a path as a caller holds it: ALWAYS session-scoped. A
+	* relative path, or an absolute path inside the session's workspace, becomes
+	* the relative spelling; an absolute path outside it, or one whose workspace
+	* root is unknown, keeps its absolute path in that session's address. (Mirror
+	* of `fileAddressFor` — on alpha.2 this helper no longer produces the
+	* `absolute` scope, though such addresses still parse.)
+	* @param sessionId - the session the path is read in.
+	* @param cwd - that session's workspace root, when known.
+	* @param path - absolute or workspace-relative path, either separator spelling.
+	* @returns the `dsh-resource://file/…` address.
+	*/
+	function fileAddressFor(sessionId, cwd, path) {
+		const normalized = path.replace(/\\/g, "/");
+		if (!isAbsolutePath(normalized)) return sessionFileAddress(sessionId, normalized);
+		const root = cwd === void 0 ? "" : cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+		if (root !== "" && normalized === root) return sessionFileAddress(sessionId, "");
+		if (root !== "" && normalized.startsWith(`${root}/`)) return sessionFileAddress(sessionId, normalized.slice(root.length + 1));
+		return sessionFileAddress(sessionId, normalized);
+	}
+	//#endregion
+	//#region src/client/sidebar-file.ts
+	/** The kind this plugin's own file editor registers its tab type under. */
+	const EDITOR_KIND = "editor";
+	/**
+	* The tab type that would open `address` besides this plugin's own editor.
+	*
+	* Probing is the whole fix for #695: the registry's ranking — not this
+	* plugin's hard-coded `editor` — decides who owns a file address, and the
+	* plugin itself already relies on that ranking (its editor holds
+	* `dsh-resource://file/**` at the `extension` band, which is why it beats the
+	* built-in `text` preview at `fallback` in the first place). For a file no
+	* other type claims, the editor IS the best candidate, so the answer is
+	* undefined and every caller keeps its previous path verbatim.
+	*
+	* @param ctx - client context; `ctx.get` is used because the registry is
+	* optional (a stripped-down host may not provide it).
+	* @param address - the `dsh-resource://file/…` address of the file being opened.
+	* @returns the claiming type's kind, or undefined when the editor ranks first
+	* (or the probe cannot run — the probe is best-effort by contract).
+	*/
+	function claimingNativeKind(ctx, address) {
+		try {
+			const tabs = ctx.get("sidebarRightTabs");
+			if (tabs === void 0 || typeof tabs.candidates !== "function") return void 0;
+			const best = tabs.candidates(address)[0];
+			return best !== void 0 && best.kind !== void 0 && best.kind !== EDITOR_KIND ? best.kind : void 0;
+		} catch (error) {
+			console.error("[dsh-better-sidebar] tab-claim probe failed", error);
+			return;
+		}
+	}
+	/**
+	* Open one file through the native surface when a type other than this
+	* plugin's editor claims it.
+	*
+	* The address is built WITH the session cwd (the same spelling the host's
+	* conversation file links produce), so a claimed file opened here dedupes
+	* against the tab the chat path already opened for the same file.
+	*
+	* @param ctx - client context (`sidebarRightTabs` for the probe,
+	* `sidebarRight` for the open).
+	* @param sessionId - the session whose workspace the path resolves in.
+	* @param cwd - that session's workspace root, when known.
+	* @param path - absolute or session-relative file path.
+	* @returns true when the claiming type was handed the file; false leaves the
+	* caller on its editor path (unclaimed file, no registry, or no surface).
+	*/
+	function openClaimedNativeFile(ctx, sessionId, cwd, path) {
+		const address = fileAddressFor(sessionId, cwd, path);
+		if (claimingNativeKind(ctx, address) === void 0) return false;
+		let opener;
+		try {
+			opener = ctx.get("sidebarRight");
+		} catch {
+			opener = void 0;
+		}
+		if (opener === void 0 || typeof opener.openResource !== "function") return false;
+		opener.openResource(address);
+		return true;
+	}
+	/**
+	* Open a file in the sidebar's editor — unless a native type claims it.
+	*
+	* Routes through the sidebar service so the editor descriptor's dedupeKey
+	* (per-path) applies; the id is path-derived so multiple editors coexist.
+	* @param ctx - client context carrying `betterSidebar`.
+	* @param sessionId - the session whose cwd resolves a relative path.
+	* @param path - absolute or session-relative file path.
+	* @param line - the 1-based line a file reference named (`a.c#L131`, #826).
+	* Omitted on an ordinary open. It rides the open as a transient navigation:
+	* the editor lands on it once (leaving preview, which renders no source
+	* lines) and the record forgets it afterwards.
+	* @returns nothing.
+	*/
+	function openSidebarFile(ctx, sessionId, path, line) {
+		const summary = ctx.sessions.list.getSnapshot().byId[sessionId];
+		const absolute = resolveSidebarPath(summary?.cwd, path);
+		if (openClaimedNativeFile(ctx, sessionId, summary?.cwd, absolute)) return;
+		const at = Math.max(absolute.lastIndexOf("/"), absolute.lastIndexOf("\\"));
+		const title = at === -1 ? absolute : absolute.slice(at + 1);
+		ctx.get("betterSidebar")?.openTab({
+			type: "editor",
+			title,
+			path: absolute,
+			id: `editor:${absolute}`,
+			...line === void 0 ? {} : { line }
+		});
+	}
+	//#endregion
+	//#region src/client/use-markdown-surface.ts
+	/**
+	* React glue for ONE plugin-drawn markdown surface (the container that holds
+	* the rendered markdown). It returns three things the caller wires up:
+	*
+	* - `surfaceRef`: a CALLBACK REF for that container. The installer behind it
+	*   runs the DOM pass from `markdown-navigation.ts` (heading slugs + collapsed
+	*   explicit anchors) on mount and after every content mutation — the pattern
+	*   the raw-HTML preview pass already uses, which keeps late content (the lazy
+	*   mermaid chunk, shiki highlighting) covered and makes the pass self-healing
+	*   when React re-renders a subtree it owns — and then applies the cross-file
+	*   fragment parked for this document. A callback ref (not a `RefObject`)
+	*   because the container mounts and unmounts with its host — the preview
+	*   container disappears on every preview→edit flip — and only a ref callback
+	*   fires on both edges (React 18 hands it `null` on unmount, which is where
+	*   the observer is torn down). Its identity is keyed on (session, path) alone,
+	*   so an ordinary re-render never detaches anything.
+	* - `openFile`: the host delegate's file handler. The host renderer only makes
+	*   a local markdown link clickable when a `MarkdownDelegateProvider` supplies
+	*   this, which is why every caller wraps its markdown in that provider with
+	*   `openFile={surface.openFile}`: the provider's scope IS the claim boundary,
+	*   and a link rendered outside it (the host's chat prose, any other panel) is
+	*   never seen by this plugin.
+	* - `rewrite`: the source-side pass (`rewriteLocalMarkdownLinks`) that runs
+	*   BEFORE rendering, so a heading fragment survives the host's parser and a
+	*   link the plugin does not claim stays inert prose.
+	*/
+	/** The DOM marker the installer puts on the container it owns (the claim
+	*  boundary is the provider scope; this makes the surface inspectable in a
+	*  browser and pointable from a spec). */
+	const MARKDOWN_SURFACE_ATTR = "data-dsh-md-surface";
+	/**
+	* Wire one plugin markdown surface.
+	* @param opts - the surface's context, session and rendered document path.
+	* @returns the container ref, the delegate handler and the source rewrite.
+	*/
+	function useMarkdownSurface(opts) {
+		const { ctx, sessionId, cwd, path } = opts;
+		const containerRef = (0, react.useRef)(null);
+		const detachRef = (0, react.useRef)(null);
+		/** The session workspace root: the caller's scope when it has one, else the
+		*  session summary (a stripped-down host or a bare spec context may have no
+		*  session list at all — the opener then resolves against its own cwd). */
+		const resolveCwd = (0, react.useCallback)(() => cwd ?? ctx.sessions?.list?.getSnapshot?.()?.byId?.[sessionId]?.cwd, [
+			ctx,
+			sessionId,
+			cwd
+		]);
+		return {
+			surfaceRef: (0, react.useCallback)((element) => {
+				detachRef.current?.();
+				detachRef.current = null;
+				containerRef.current = element;
+				if (element === null) return;
+				detachRef.current = attachMarkdownSurface(element, sessionId, path, resolveCwd);
+			}, [
+				sessionId,
+				path,
+				resolveCwd
+			]),
+			openFile: (0, react.useCallback)((destination, options) => {
+				const target = markdownAnchorTarget(destination, path, resolveCwd());
+				if (target === null) return;
+				if (target.kind === "same-page") {
+					const container = containerRef.current;
+					if (container !== null) jumpToFragment(container, target.fragment);
+					return;
+				}
+				const line = options?.line ?? lineOfHostFragment(target.fragment);
+				if (line === void 0 && target.fragment !== "") rememberMarkdownAnchor(sessionId, resolveCwd(), target.path, target.fragment);
+				try {
+					openSidebarFile(ctx, sessionId, target.path, line);
+				} catch (error) {
+					console.error("[dsh-better-sidebar] markdown file link open failed", error);
+				}
+			}, [
+				ctx,
+				sessionId,
+				path,
+				resolveCwd
+			]),
+			rewrite: (0, react.useCallback)((text) => rewriteLocalMarkdownLinks(text, path, resolveCwd()), [path, resolveCwd])
+		};
+	}
+	/**
+	* Install the post-render half on one container: the DOM pass, its mutation
+	* re-runs, and the pending cross-file fragment.
+	* @returns the disposer (observer + marker).
+	*/
+	function attachMarkdownSurface(container, sessionId, path, resolveCwd) {
+		container.setAttribute(MARKDOWN_SURFACE_ATTR, "");
+		prepareMarkdownAnchors(container);
+		/** The fragment this surface still owes the reader (taken once, then carried
+		*  here until the heading actually renders — the content may arrive a beat
+		*  after the container does). */
+		let pending = path === void 0 || path === "" ? null : takeMarkdownAnchor(sessionId, resolveCwd(), path);
+		const applyPending = () => {
+			if (pending !== null && jumpToFragment(container, pending)) pending = null;
+		};
+		if (pending !== null) queueMicrotask(applyPending);
+		let scheduled = false;
+		const observer = new MutationObserver(() => {
+			if (scheduled) return;
+			scheduled = true;
+			queueMicrotask(() => {
+				scheduled = false;
+				prepareMarkdownAnchors(container);
+				applyPending();
+			});
+		});
+		observer.observe(container, {
+			childList: true,
+			subtree: true
+		});
+		return () => {
+			observer.disconnect();
+			container.removeAttribute(MARKDOWN_SURFACE_ATTR);
+		};
 	}
 	/** The signature used to skip no-op rescans (identity-safe setState guard). */
 	function signatureOf(entries) {
@@ -48385,7 +54076,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				onClick: () => {
 					setOpen(!open);
 				},
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconListPenOutline16, {})
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconListPenOutlineRegular, {})
 			})]
 		});
 	}
@@ -48413,30 +54104,133 @@ globalThis.__dshChunks__["editor"] = (require) => {
 	*  (new file opens at the top), re-opens/toggles restore the last position. */
 	const previewScrollMemory = /* @__PURE__ */ new Map();
 	const previewScrollKey = (scope, path) => `${scope.sessionId}::${path}`;
+	/**
+	* Remember one document's preview offset. The write moves the key to the back
+	* of the eviction order, so the document forgotten past the cap is the one
+	* that has gone longest without a scroll.
+	*
+	* @param scope - the viewer's scope (its session id is part of the key).
+	* @param path - the document's absolute path.
+	* @param top - the preview container's `scrollTop`.
+	*/
+	function rememberPreviewScroll(scope, path, top) {
+		const key = previewScrollKey(scope, path);
+		previewScrollMemory.delete(key);
+		previewScrollMemory.set(key, top);
+		for (const stale of previewScrollMemory.keys()) {
+			if (previewScrollMemory.size <= 64) break;
+			previewScrollMemory.delete(stale);
+		}
+	}
+	/** The remembered offset of one document (0 = none: open it at the top). */
+	function previewScrollOf(scope, path) {
+		return previewScrollMemory.get(previewScrollKey(scope, path)) ?? 0;
+	}
+	/** Whether two spellings are the SAME document — byte-equal, or equal once
+	*  line endings are normalized CRLF/CR → LF. Line endings are not content:
+	*  CodeMirror keeps every document with `\n` endings whatever the file used,
+	*  so the live document of a freshly opened CRLF file differs from the bytes
+	*  it was loaded from by line endings alone. */
+	function sameDocument(a, b) {
+		return a === b || a.replace(/\r\n?/g, "\n") === b.replace(/\r\n?/g, "\n");
+	}
 	function TextEditor(props) {
-		const { ctx, scope, path, viewerId, content, truncated } = props;
+		const { ctx, scope, path, viewerId, content, size, largeFile, line } = props;
 		const [mode, setMode] = (0, react.useState)("preview");
 		/** The editor's current text (null while clean); preview renders this. */
 		const [draft, setDraft] = (0, react.useState)(null);
 		const [dirty, setDirty] = (0, react.useState)(false);
 		const [saveState, setSaveState] = (0, react.useState)("idle");
+		/** The save was refused because the file changed on disk (fs-conflict). */
+		const [conflict, setConflict] = (0, react.useState)(false);
 		const hostRef = (0, react.useRef)(null);
 		const viewRef = (0, react.useRef)(null);
 		const savingRef = (0, react.useRef)(false);
+		/** The mtime the draft is based on (`null` = the file did not exist yet).
+		*  Seeded from the load, refreshed by every successful save, and reset by
+		*  the file-switch effect. */
+		const mtimeRef = (0, react.useRef)(props.mtimeMs ?? null);
 		/** The theme compartment of the current view (reconfigured on scheme flip). */
 		const themeCompRef = (0, react.useRef)(null);
+		/** The search-phrases compartment of the current view (reconfigured on a
+		*  language switch — the panel copy is baked into the EditorState). */
+		const searchPhrasesRef = (0, react.useRef)(null);
+		/** The uncommitted-change gutter compartment (issue #212; reconfigured on a
+		*  setting flip instead of rebuilding the view). */
+		const gitCompRef = (0, react.useRef)(null);
+		/** The effective UI language (DSH locale id + better-locale override id).
+		*  Read during render and subscribed below: the tab-cell memo only
+		*  compares the DSH locale revision, so a better-locale override switch
+		*  would otherwise never reach this component. */
+		const [localeSig, setLocaleSig] = (0, react.useState)(() => localeSignature());
 		/** The app's resolved color scheme; the editor re-themes in place on flips. */
 		const [dark, setDark] = (0, react.useState)(() => isDarkScheme());
 		/** The markdown preview container (selection-containment + line lookup). */
 		const mdRef = (0, react.useRef)(null);
+		/** Heading slugs, anchor jumps and `.md` link claiming for the preview (the
+		*  delegate provider wrapped around the markdown is its claim boundary — see
+		*  use-markdown-surface). */
+		const { surfaceRef: markdownSurfaceRef, openFile: openSurfaceFile } = useMarkdownSurface({
+			ctx,
+			sessionId: scope.sessionId,
+			cwd: scope.cwd,
+			path
+		});
+		/** One ref callback for the preview container: the selection/scroll code
+		*  above keeps its object ref, the surface installer gets the same element.
+		*  A stable identity matters — a fresh callback on every render would make
+		*  React re-attach (and re-scan) on every render. */
+		const previewRef = (0, react.useCallback)((element) => {
+			mdRef.current = element;
+			markdownSurfaceRef(element);
+		}, [markdownSurfaceRef]);
 		const markdown = viewerId === "markdown";
 		const html = viewerId === "html";
+		/** Newline-delimited JSON: it has its own preview (one card per record) on
+		*  top of the shared editable CodeMirror surface. */
+		const jsonl = viewerId === "jsonl";
+		/** The file is above the editable threshold: the viewer renders the
+		*  read-only paged preview and no editor at all. */
+		const readOnly = largeFile !== void 0;
+		/** The uncommitted-change gutter (issue #212): the `code` viewer only,
+		*  gated by ONE boolean setting (on by default). Nothing else — no
+		*  end-of-line author widget, no badges, no animation. Read reactively
+		*  (same seam as the host's editorExplorer read) so flipping the switch
+		*  reconfigures the live view in place instead of waiting for a reopen. */
+		const gitGutterPref = (0, react.useSyncExternalStore)((0, react.useCallback)((callback) => props.store.subscribe(callback), [props.store]), (0, react.useCallback)(() => props.store.getSnapshot().prefs.editorGitGutter !== false, [props.store]), (0, react.useCallback)(() => props.store.getSnapshot().prefs.editorGitGutter !== false, [props.store]));
+		const gitGutterEnabled = (viewerId === "code" || viewerId === "jsonl") && gitGutterPref;
+		/** Bumped by every save: the uncommitted diff moved while the file's git
+		*  status entry (which only tracks its XY code) did not. */
+		const [gitRevision, setGitRevision] = (0, react.useState)(0);
+		/** The view-side identity of the gutter's git source (stable across the
+		*  scope object's per-render identity churn). */
+		const gitHost = (0, react.useMemo)(() => ({
+			scope: {
+				sessionId: scope.sessionId,
+				cwd: scope.cwd,
+				repoRoot: scope.repoRoot
+			},
+			path
+		}), [
+			scope.sessionId,
+			scope.cwd,
+			scope.repoRoot,
+			path
+		]);
+		const gitKinds = useEditorGitGutter({
+			enabled: gitGutterEnabled,
+			visible: props.visible !== false,
+			scope,
+			path,
+			content,
+			revision: gitRevision
+		});
 		/** Preview scroll position across the preview<->edit toggle. The preview
 		*  container re-mounts on every mode switch and its scrollTop lives on that
 		*  element, so capture it on scroll and restore after each remount. Seeded
 		*  from the module-level per-file memory so a full viewer rebuild
 		*  (save-then-switch-to-preview reload) also keeps the position. */
-		const previewScrollRef = (0, react.useRef)(previewScrollMemory.get(previewScrollKey(scope, path)) ?? 0);
+		const previewScrollRef = (0, react.useRef)(previewScrollOf(scope, path));
 		/** True while a programmatic restore is in flight; raw scroll events caused
 		*  by the restore (or by the browser clamping a collapsed reload container
 		*  to 0) must not overwrite the remembered position. */
@@ -48466,14 +54260,30 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			setDark(isDarkScheme());
 		}), []);
 		(0, react.useEffect)(() => {
+			const sync = () => {
+				setLocaleSig(localeSignature());
+			};
+			sync();
+			const locale = ctx.locale;
+			const betterLocale = typeof ctx.get === "function" ? ctx.get("betterLocale") : void 0;
+			const offLocale = locale?.subscribe?.(sync);
+			const offOverride = betterLocale?.subscribe?.(sync);
+			return () => {
+				offLocale?.();
+				offOverride?.();
+			};
+		}, [ctx]);
+		(0, react.useEffect)(() => {
 			setMode("preview");
 			setDraft(null);
 			setDirty(false);
 			setSaveState("idle");
+			setConflict(false);
+			mtimeRef.current = props.mtimeMs ?? null;
 			selectionPopup.hide();
 		}, [content]);
 		(0, react.useEffect)(() => {
-			previewScrollRef.current = previewScrollMemory.get(previewScrollKey(scope, path)) ?? 0;
+			previewScrollRef.current = previewScrollOf(scope, path);
 		}, [scope, path]);
 		(0, react.useEffect)(() => {
 			if (content === void 0) return;
@@ -48482,17 +54292,24 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			const language = languageForPath(path);
 			const themeComp = new CmThemeCompartment();
 			themeCompRef.current = themeComp;
+			const searchPhrases = new CmSearchPhrases();
+			searchPhrasesRef.current = searchPhrases;
+			const gitComp = new CmGitGutterCompartment();
+			gitCompRef.current = gitComp;
 			const view = new EditorView({
 				state: EditorState.create({
 					doc: content,
 					extensions: [
 						EditorView.lineWrapping,
+						gitComp.of(gitGutterEnabled ? gitHost : null),
 						lineNumbers(),
 						history(),
 						EditorState.tabSize.of(2),
 						EditorView.contentAttributes.of({ spellcheck: "false" }),
 						cmSurfaceTheme,
 						themeComp.of(dark),
+						...cmSearchExtensions(),
+						searchPhrases.of(),
 						...language !== null ? [language] : [],
 						EditorView.updateListener.of((update) => {
 							if (update.docChanged) setDirty(true);
@@ -48509,7 +54326,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 							...defaultKeymap,
 							...historyKeymap
 						]),
-						...viewerId === "code" || viewerId === "markdown" ? [EditorView.updateListener.of((update) => {
+						...viewerId === "code" || viewerId === "markdown" || viewerId === "jsonl" ? [EditorView.updateListener.of((update) => {
 							if (update.geometryChanged || update.viewportChanged) {
 								selectionPopup.hide();
 								return;
@@ -48549,14 +54366,122 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				view.destroy();
 				viewRef.current = null;
 				themeCompRef.current = null;
+				searchPhrasesRef.current = null;
+				gitCompRef.current = null;
 			};
 		}, [content, path]);
+		(0, react.useEffect)(() => {
+			const host = hostRef.current;
+			const view = viewRef.current;
+			if (host === null || view === null) return;
+			const measure = () => {
+				if (host.isConnected && host.offsetWidth > 0 && host.offsetHeight > 0) view.requestMeasure();
+			};
+			measure();
+			const frame = typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => {
+				measure();
+			}) : void 0;
+			const disposers = [];
+			if (typeof ResizeObserver !== "undefined") {
+				const resize = new ResizeObserver(measure);
+				resize.observe(host);
+				disposers.push(() => {
+					resize.disconnect();
+				});
+			}
+			if (typeof IntersectionObserver !== "undefined") {
+				const intersection = new IntersectionObserver((entries) => {
+					if (entries.some((entry) => entry.isIntersecting)) measure();
+				});
+				intersection.observe(host);
+				disposers.push(() => {
+					intersection.disconnect();
+				});
+			}
+			const onVisibility = () => {
+				if (document.visibilityState !== "hidden") measure();
+			};
+			document.addEventListener("visibilitychange", onVisibility);
+			window.addEventListener("resize", measure);
+			return () => {
+				if (frame !== void 0) cancelAnimationFrame(frame);
+				for (const dispose of disposers) dispose();
+				document.removeEventListener("visibilitychange", onVisibility);
+				window.removeEventListener("resize", measure);
+			};
+		}, [content, path]);
+		/** The landing line already honoured, as `${path}#${line}`. The host keeps a
+		*  visited tab body mounted (`keepMounted`) and re-delivers its navigation on
+		*  every store notification, so without this a reader would be yanked back to
+		*  the same line each time — while a NEW line on the SAME file must land. */
+		const landedAtRef = (0, react.useRef)(null);
+		(0, react.useEffect)(() => {
+			if (line === void 0) {
+				landedAtRef.current = null;
+				return;
+			}
+			if (content === void 0) return;
+			const view = viewRef.current;
+			if (view === null) return;
+			const key = `${path}#${line}`;
+			if (landedAtRef.current === key) return;
+			if ((markdown || html || jsonl) && mode === "preview") {
+				setMode("edit");
+				return;
+			}
+			landedAtRef.current = key;
+			previewSyncRef.current = {
+				text: null,
+				ratio: 0
+			};
+			const doc = view.state.doc;
+			const target = doc.line(Math.min(Math.max(line, 1), doc.lines)).from;
+			view.requestMeasure();
+			view.dispatch({ selection: { anchor: target } });
+			view.focus();
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					const block = view.lineBlockAt(target);
+					view.scrollDOM.scrollTop = Math.max(0, block.top - 8);
+					view.requestMeasure();
+				});
+			});
+			props.onLineConsumed?.();
+		}, [
+			content,
+			path,
+			line,
+			mode,
+			props.onLineConsumed
+		]);
 		(0, react.useEffect)(() => {
 			const view = viewRef.current;
 			const themeComp = themeCompRef.current;
 			if (view === null || themeComp === null) return;
 			view.dispatch({ effects: themeComp.reconfigure(dark) });
 		}, [dark]);
+		(0, react.useEffect)(() => {
+			const view = viewRef.current;
+			const searchPhrases = searchPhrasesRef.current;
+			if (view === null || searchPhrases === null) return;
+			view.dispatch({ effects: searchPhrases.reconfigure() });
+		}, [localeSig]);
+		(0, react.useEffect)(() => {
+			const view = viewRef.current;
+			const gitComp = gitCompRef.current;
+			if (view === null || gitComp === null) return;
+			view.dispatch({ effects: gitComp.reconfigure(gitGutterEnabled ? gitHost : null) });
+		}, [gitGutterEnabled, gitHost]);
+		(0, react.useEffect)(() => {
+			const view = viewRef.current;
+			if (view === null) return;
+			applyGitLineKinds(view, gitKinds);
+		}, [
+			gitKinds,
+			gitGutterEnabled,
+			content,
+			path
+		]);
 		(0, react.useEffect)(() => {
 			selectionPopup.hide();
 			if (mode !== "edit") return;
@@ -48584,20 +54509,33 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		}, [mode]);
 		(0, react.useEffect)(() => {
 			const view = viewRef.current;
-			setDraft(view === null ? null : view.state.doc.toString());
+			if (view === null) {
+				setDraft(null);
+				return;
+			}
+			const live = view.state.doc.toString();
+			setDraft(content !== void 0 && sameDocument(live, content) ? null : live);
 		}, [mode, content]);
 		const save = () => {
 			const view = viewRef.current;
 			if (view === null || savingRef.current) return;
 			savingRef.current = true;
 			setSaveState("saving");
-			api.fsWrite(scope, path, view.state.doc.toString()).then(() => {
+			api.fsWrite(scope, path, view.state.doc.toString(), mtimeRef.current ?? null).then((result) => {
 				savingRef.current = false;
+				if (typeof result.mtimeMs === "number") mtimeRef.current = result.mtimeMs;
 				setDraft(null);
 				setDirty(false);
+				setConflict(false);
 				setSaveState("saved");
-			}).catch(() => {
+				setGitRevision((value) => value + 1);
+			}).catch((error) => {
 				savingRef.current = false;
+				if (error instanceof SidebarApiError && error.code === "fs-conflict") {
+					setConflict(true);
+					setSaveState("idle");
+					return;
+				}
 				setSaveState("failed");
 			});
 		};
@@ -48621,8 +54559,11 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			});
 		}, [mode, previewMdText]);
 		/** The preview source with local image destinations rewritten to absolute
-		*  media URLs (see {@link rewriteLocalImageUrls}). */
-		const previewText = markdown ? rewriteLocalImageUrls(previewMdText, scope, path, window.location.origin) : previewMdText;
+		*  media URLs (see {@link rewriteLocalImageUrls}) and the local link
+		*  destinations prepared for the host delegate (see
+		*  {@link rewriteLocalMarkdownLinks}; the split renderer runs the same two
+		*  passes per markdown run, and both are idempotent). */
+		const previewText = markdown ? rewriteLocalMarkdownLinks(rewriteLocalImageUrls(previewMdText, scope, path, hostTransportBase()), path, scope.cwd) : previewMdText;
 		/** md/mermaid block split for the preview (mermaid fences lift out). Split
 		*  only in preview mode: edit-mode keystrokes must not re-scan the source. */
 		const mdBlocks = (0, react.useMemo)(() => markdown && mode === "preview" ? splitMermaidBlocks(previewMdText) : [], [
@@ -48648,7 +54589,7 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		const htmlMedia = (0, react.useMemo)(() => ({
 			scope,
 			path,
-			origin: window.location.origin
+			baseUrl: hostTransportBase()
 		}), [
 			scope.sessionId,
 			scope.cwd,
@@ -48656,7 +54597,10 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		]);
 		const codeLabels = {
 			copyLabel: t("copy"),
-			copiedLabel: t("copied")
+			copiedLabel: t("copied"),
+			codeLabel: t("codeBlockTitle"),
+			wrapLabel: t("codeBlockWrap"),
+			unwrapLabel: t("codeBlockUnwrap")
 		};
 		/**
 		* Selection popup for the markdown preview: a mouse-up inside the preview
@@ -48687,6 +54631,16 @@ globalThis.__dshChunks__["editor"] = (require) => {
 			selectionPopup.show(buildSelectionInsert(path, scope.cwd, lines ?? void 0, text), rect.left + rect.width / 2, rect.top);
 		};
 		const editable = content !== void 0;
+		/**
+		* Whether the preview/edit toggle applies. It needs BOTH surfaces to exist:
+		* a read-only paged preview has no editor to switch to, and the `code`
+		* catch-all has no preview to switch to.
+		*/
+		const toggleable = !readOnly && (markdown || html || jsonl);
+		/** A non-CodeMirror surface currently owns the pane (markdown/html render, or
+		*  the JSONL record list): the CodeMirror host stays mounted but hidden, so
+		*  unsaved edits survive the round trip. */
+		const showingPreview = !readOnly && mode === "preview" && (markdown || html || jsonl);
 		const saveLabel = saveState === "saving" ? t("loading") : saveState === "saved" ? t("saved") : saveState === "failed" ? t("saveFailed") : "";
 		const [localUnlock, setLocalUnlock] = (0, react.useState)(() => props.store?.getPrefs().htmlViewerDefaultUnsafe === true);
 		const htmlNoSandbox = props.store?.getPrefs().htmlViewerNoSandbox === true || localUnlock;
@@ -48695,10 +54649,11 @@ globalThis.__dshChunks__["editor"] = (require) => {
 		(0, react.useEffect)(() => {
 			if (!hostToolbar) return;
 			const state = {
-				modes: markdown || html,
+				modes: toggleable,
 				mode,
 				dirty,
 				editable,
+				...readOnly ? { largeFile: true } : {},
 				saveState
 			};
 			const key = JSON.stringify(state);
@@ -48716,11 +54671,18 @@ globalThis.__dshChunks__["editor"] = (require) => {
 				props.onToolbarControls?.(null);
 			};
 		}, [hostToolbar]);
+		if (readOnly && largeFile !== void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LargeFileView, {
+			scope,
+			path,
+			size: largeFile.size,
+			visible: props.visible !== false,
+			revision: props.mtimeMs ?? 0
+		});
 		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
 			!hostToolbar && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: sidebar_module_css_default.editorHeader,
 				children: [
-					(markdown || html) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					toggleable && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: sidebar_module_css_default.editorModeToggle,
 						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
@@ -48745,10 +54707,24 @@ globalThis.__dshChunks__["editor"] = (require) => {
 					editable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: sidebar_module_css_default.iconButton,
+						"aria-label": t("searchFind"),
+						title: `${t("searchFind")} (Ctrl/Cmd+F)`,
+						onClick: () => {
+							if (mode === "preview" && (markdown || html || jsonl)) setMode("edit");
+							const view = viewRef.current;
+							if (view === null) return;
+							view.focus();
+							openSearchPanel(view);
+						},
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconSearchOutlineRegular, { size: 16 })
+					}),
+					editable && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: sidebar_module_css_default.iconButton,
 						"aria-label": t("save"),
 						title: `${t("save")} (Ctrl/Cmd+S)`,
 						onClick: save,
-						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutline16, {})
+						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconCheckOutlineRegular, {})
 					}),
 					saveLabel !== "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: clsx(sidebar_module_css_default.editorStatus, saveState === "failed" && sidebar_module_css_default.editorStatusError),
@@ -48756,22 +54732,36 @@ globalThis.__dshChunks__["editor"] = (require) => {
 					})
 				]
 			}),
-			editable && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [truncated === true && mode === "edit" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			editable && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [conflict && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: sidebar_module_css_default.editorBanner,
-				children: t("truncation")
+				children: [t("saveConflict"), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: sidebar_module_css_default.editorBannerAction,
+					onClick: () => {
+						props.onReload?.();
+					},
+					children: t("saveConflictReload")
+				})]
 			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: clsx(sidebar_module_css_default.editorCm, (markdown || html) && mode === "preview" && sidebar_module_css_default.editorCmHidden),
+				className: clsx(sidebar_module_css_default.editorCm, showingPreview && sidebar_module_css_default.editorCmHidden),
 				ref: hostRef
 			})] }),
+			jsonl && mode === "preview" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LargeFileView, {
+				scope,
+				path,
+				size: size ?? content?.length ?? 0,
+				visible: props.visible !== false,
+				revision: props.mtimeMs ?? 0
+			}),
 			markdown && mode === "preview" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 				className: sidebar_module_css_default.editorMd,
-				ref: mdRef,
+				ref: previewRef,
 				onMouseUp: handlePreviewMouseUp,
 				onScroll: (event) => {
 					const el = event.currentTarget;
 					if (!restoringRef.current && el.scrollHeight > el.clientHeight) {
 						previewScrollRef.current = el.scrollTop;
-						previewScrollMemory.set(previewScrollKey(scope, path), el.scrollTop);
+						rememberPreviewScroll(scope, path, el.scrollTop);
 					}
 					if (!anchorThrottleRef.current) {
 						anchorThrottleRef.current = true;
@@ -48794,14 +54784,17 @@ globalThis.__dshChunks__["editor"] = (require) => {
 					}
 					selectionPopup.hide();
 				},
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MdToc, {}), htmlInfo !== null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MarkdownDocument, {
-					info: htmlInfo,
-					media: htmlMedia,
-					codeLabels
-				}) : hasMermaid ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyMermaidMarkdown, {
-					text: previewText,
-					codeLabels
-				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(previewText, codeLabels) })]
+				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(MdToc, {}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownDelegateProvider, {
+					openFile: openSurfaceFile,
+					children: htmlInfo !== null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MarkdownDocument, {
+						info: htmlInfo,
+						media: htmlMedia,
+						codeLabels
+					}) : hasMermaid ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)(LazyMermaidMarkdown, {
+						text: previewText,
+						codeLabels
+					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.MarkdownText, { ...markdownTextProps(previewText, codeLabels) })
+				})]
 			}),
 			html && mode === "preview" && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(SandboxStatusBar, {
 				sandboxed: !htmlNoSandbox,

@@ -68,7 +68,7 @@
 			return '<!doctype html><html><head><meta charset="utf-8">'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; style-src \'unsafe-inline\' https: http:; font-src https: http: data:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: ws: wss: data: blob:; frame-src https: http: data: blob:; form-action https: http:">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; img-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; media-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; style-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' https: http:; font-src dsh-app://app/api/dsh-tavern/ https: http: data:; script-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src dsh-app://app/api/dsh-tavern/ https: http: ws: wss: data: blob:; frame-src https: http: data: blob:; form-action https: http:">'
 				+ '<base target="_blank">'
 				+ '<style>html,body{margin:0;min-height:100%;background:#fff;color:#1f2328;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{box-sizing:border-box;padding:16px}.dsh-tavern-greeting-text,.dsh-tavern-preserve-lines{white-space:pre-wrap;overflow-wrap:anywhere}.dsh-tavern-greeting-text{font-size:14px;line-height:1.7}img,video{max-width:100%;height:auto}</style>'
 				+ tavernIconDependencies() + tavernStaticAssetShim() + '</head><body>' + content + preserveMixedTextLines + '</body></html>';
@@ -244,7 +244,7 @@
                 + '<script data-dsh-tavern-tilt-guard>(' + installTavernPointerTiltGuard.toString() + ')(window);<\/script>'
 				+ '<meta name="viewport" content="width=device-width,initial-scale=1">'
 				+ '<meta name="referrer" content="no-referrer">'
-				+ '<meta http-equiv="Content-Security-Policy" content="default-src https: http: data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; font-src https: http: data:; style-src \'unsafe-inline\' https: http:; script-src \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+				+ '<meta http-equiv="Content-Security-Policy" content="default-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; img-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; media-src dsh-app://app/api/dsh-tavern/ https: http: data: blob:; font-src dsh-app://app/api/dsh-tavern/ https: http: data:; style-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' https: http:; script-src dsh-app://app/api/dsh-tavern/ \'unsafe-inline\' \'unsafe-eval\' https: http: data: blob:; connect-src dsh-app://app/api/dsh-tavern/ https: http: wss: data: blob:; frame-src https: http: data: blob:; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
 				// A transparent iframe stays transparent only while its color scheme matches the
 				// embedding element's; "light dark" followed the OS and painted a white block
 				// inside a dark DSH theme.

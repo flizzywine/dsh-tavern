@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { pathToFileURL } from 'node:url'
-import { syncPatchText, syncUserPlugins } from '../tavern-plugin/lib/domain/user-plugins.js'
+import { syncPatchText, syncUserPlugins, userPluginPaths } from '../tavern-plugin/lib/domain/user-plugins.js'
 
 async function home(t) {
   const dshHome = await mkdtemp(path.join(tmpdir(), 'user-plugins-'))
@@ -114,4 +114,12 @@ test('插件经由 Tavern 的保护入口加载：导入失败或 apply 抛错�
   assert.match(warnings.join('\n'), /plugins\/throws 启动失败：Error: 启动炸了/)
   assert.match(warnings.join('\n'), /plugins\/syntax 加载失败：SyntaxError/)
   assert.equal((await syncUserPlugins({ dataRoot, logger: { warn() {} } })).changed, false, '保护入口不变时不重写')
+})
+
+
+test('官方 Desktop 用户插件使用 desktop 配置，存储仍沿用 tavern 数据目录', () => {
+  const root = path.resolve('/test-home')
+  const data = path.join(root, 'profile-data/tavern/data')
+  assert.deepEqual(userPluginPaths(data, root, 'desktop'), {plugins: path.join(data, 'plugins'), profile: path.join(root, 'profiles/desktop')})
+  assert.equal(userPluginPaths(data, root, 'cli').profile, path.join(root, 'profiles/tavern'))
 })

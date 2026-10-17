@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile, readdir, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseSessionLog } from '../../tavern-plugin/lib/domain/legacy-session-migration.js'
+import { parseSessionLog } from '../../tavern-plugin/lib/domain/session-log-codec.js'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
 

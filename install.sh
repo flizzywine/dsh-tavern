@@ -9,17 +9,17 @@ export pnpm_config_registry="$npm_config_registry"
 # Optional pnpm version checks must not hold a completed installation open.
 export pnpm_config_update_notifier=false
 
-INSTALL_HOST=${DSH_TAVERN_HOST:-cli}
+INSTALL_HOST=${DSH_TAVERN_HOST:-desktop}
 case ${INSTALL_HOST} in
-  cli|desktop) ;;
-  *) echo "安装失败：不支持的安装宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
+  desktop) ;;
+  *) echo "安装失败：测试版仅支持官方 DeepSeek Harness Desktop，不支持宿主 ${INSTALL_HOST}" >&2; exit 1 ;;
 esac
 
 REPOSITORY=${DSH_TAVERN_REPOSITORY:-flizzywine/dsh-tavern}
 REPOSITORY_URL=${DSH_TAVERN_GIT_URL:-https://github.com/${REPOSITORY}.git}
-ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/main}
-COMMIT_URL=${DSH_TAVERN_COMMIT_URL:-https://api.github.com/repos/${REPOSITORY}/commits/main}
-CDN_METADATA_URL=${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}@main/dsh-tavern-runtime.json}
+ARCHIVE_URL=${DSH_TAVERN_ARCHIVE_URL:-https://codeload.github.com/${REPOSITORY}/tar.gz/refs/heads/0.2.1%E7%89%88%E6%9C%AC}
+COMMIT_URL=${DSH_TAVERN_COMMIT_URL:-https://api.github.com/repos/${REPOSITORY}/commits/0.2.1%E7%89%88%E6%9C%AC}
+CDN_METADATA_URL=${DSH_TAVERN_CDN_METADATA_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}@0.2.1%E7%89%88%E6%9C%AC/dsh-tavern-runtime.json}
 CDN_ROOT_URL=${DSH_TAVERN_CDN_ROOT_URL:-https://cdn.jsdelivr.net/gh/${REPOSITORY}}
 LEGACY_DSH_ROOT=${DSH_TAVERN_LEGACY_DSH_HOME:-${DSH_HOME:-${HOME}/.dsh}}
 DSH_ROOT=${DSH_HOME:-${HOME}/.dsh}
@@ -125,6 +125,68 @@ fail() {
   echo "安装失败：$1" >&2
   exit 1
 }
+
+if [ "${INSTALL_HOST}" = "desktop" ]; then
+  desktop_executable=${DSH_DESKTOP_NODE_EXECUTABLE:-${DSH_DESKTOP_APP_EXECUTABLE:-}}
+  if [ -z "$desktop_executable" ] && [ "$(uname -s)" = "Darwin" ]; then
+    for desktop_app in "/Applications/DeepSeek Harness.app" "$HOME/Applications/DeepSeek Harness.app"; do
+      if [ -x "$desktop_app/Contents/MacOS/DeepSeek Harness" ]; then desktop_executable="$desktop_app/Contents/MacOS/DeepSeek Harness"; break; fi
+    done
+  fi
+  [ -n "$desktop_executable" ] && [ -x "$desktop_executable" ] || fail "请先安装官方 DeepSeek Harness：https://deepseek.com/harness/"
+  cat >"${TEMP_DIR}/official-desktop-runtime.cjs" <<'DSH_OFFICIAL_DESKTOP_MODULE'
+// Shared bootstrap for the official desktop, shell installers and the Windows bundle.
+// Runs under Electron Node mode so packaged app.asar files remain readable.
+const fs = require('node:fs');
+const path = require('node:path');
+function layout(executable, platform = process.platform) {
+  const resources = platform === 'darwin' ? path.resolve(path.dirname(executable), '../Resources') : path.join(path.dirname(executable), 'resources');
+  const app = fs.existsSync(path.join(resources, 'app', 'package.json')) ? path.join(resources, 'app') : path.join(resources, 'app.asar');
+  return { resources, app, host: path.join(app, 'dsh'), pnpm: path.join(resources, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs') };
+}
+function prepare({ executable, home, env = process.env, platform = process.platform }) {
+  if (!executable || !home) throw Error('请先安装官方 DeepSeek Harness，并指定安装目录');
+  const paths = layout(executable, platform);
+  const manifest = JSON.parse(fs.readFileSync(path.join(paths.app, 'package.json'), 'utf8'));
+  if (manifest.name !== '@deepseek-ai/dsh-desktop') throw Error('Desktop 宿主必须是官方 DeepSeek Harness，不能使用社区 DSH Desktop');
+  const bootstrap = path.join(paths.host, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js');
+  for (const file of [bootstrap, paths.pnpm]) if (!fs.existsSync(file)) throw Error('官方桌面运行时不完整：' + file);
+  const bin = path.join(home, 'tools', 'official-desktop', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  for (const [name, entry] of [['node', null], ['pnpm', paths.pnpm], ['dsh', bootstrap]]) {
+    const file = path.join(bin, name + (platform === 'win32' ? '.cmd' : ''));
+    const text = platform === 'win32'
+      ? '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_DESKTOP_NODE_EXECUTABLE%" --expose-internals ' + (entry ? '"%' + (name === 'dsh' ? 'DSH_DESKTOP_DSH_BOOTSTRAP' : 'DSH_DESKTOP_PNPM_ENTRY') + '%" ' : '') + '%*\r\nexit /b %errorlevel%\r\n'
+      : '#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexec ' + quote(executable) + ' --expose-internals ' + (entry ? quote(entry) + ' ' : '') + '"$@"\n';
+    fs.writeFileSync(file, text, { mode: 0o755 });
+  }
+  const key = Object.keys(env).find(key => key.toUpperCase() === 'PATH') || 'PATH';
+  return { DSH_HOME: path.resolve(home), DSH_DESKTOP_NODE_EXECUTABLE: executable, DSH_DESKTOP_APP_EXECUTABLE: executable,
+    DSH_DESKTOP_DSH_BOOTSTRAP: bootstrap, DSH_DESKTOP_PNPM_ENTRY: paths.pnpm,
+    DSH_TAVERN_HOST_DEPENDENCY_ANCHOR: path.join(paths.host, 'package.json'),
+    [key]: bin + (platform === 'win32' ? ';' : ':') + (env[key] || '') };
+}
+function discover(env = process.env, platform = process.platform) {
+  const candidates = [env.DSH_DESKTOP_NODE_EXECUTABLE, env.DSH_DESKTOP_APP_EXECUTABLE, process.versions.electron ? process.execPath : undefined];
+  if (platform === 'darwin') candidates.push('/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness', path.join(require('node:os').homedir(), 'Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness'));
+  if (platform === 'win32') for (const root of [env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs'), env.ProgramFiles]) if (root) candidates.push(path.join(root, 'DeepSeek Harness', 'DeepSeek Harness.exe'));
+  const executable = candidates.find(file => file && fs.existsSync(file));
+  if (!executable) throw Error('找不到官方 DeepSeek Harness；请先安装，或用 DSH_DESKTOP_APP_EXECUTABLE 指定程序路径');
+  return executable;
+}
+module.exports = { layout, prepare, discover };
+if (require.main === module) {
+  try {
+    const result = prepare({ executable: process.execPath, home: process.argv[2] });
+    if (process.argv.includes('--shell')) for (const [key, value] of Object.entries(result)) console.log('export ' + key + "='" + value.replaceAll("'", "'\\''") + "'");
+    else console.log(JSON.stringify(result));
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+DSH_OFFICIAL_DESKTOP_MODULE
+  ELECTRON_RUN_AS_NODE=1 "$desktop_executable" --expose-internals "${TEMP_DIR}/official-desktop-runtime.cjs" "$DSH_ROOT" --shell >"${TEMP_DIR}/desktop-env.sh" || fail "官方桌面运行环境校验失败"
+  . "${TEMP_DIR}/desktop-env.sh"
+fi
 
 if ! command -v node >/dev/null 2>&1; then
   echo "需要先安装 Node.js 22.19 或更高版本：https://nodejs.org/" >&2
@@ -566,9 +628,9 @@ USED_CDN=0
 if command -v git >/dev/null 2>&1; then
   echo "正在通过 Git 增量同步（不下载文档与图片）……"
   mkdir -p "$(dirname -- "${SOURCE_CACHE}")"
-  if { [ -f "${SOURCE_CACHE}/HEAD" ] || run_git git.clone clone --bare --filter=blob:none --depth 1 --single-branch --branch main "${REPOSITORY_URL}" "${SOURCE_CACHE}"; } \
+  if { [ -f "${SOURCE_CACHE}/HEAD" ] || run_git git.clone clone --bare --filter=blob:none --depth 1 --single-branch --branch "0.2.1版本" "${REPOSITORY_URL}" "${SOURCE_CACHE}"; } \
     && run_git git.remote --git-dir="${SOURCE_CACHE}" remote set-url origin "${REPOSITORY_URL}" \
-    && run_git git.fetch --git-dir="${SOURCE_CACHE}" fetch --depth 1 origin main \
+    && run_git git.fetch --git-dir="${SOURCE_CACHE}" fetch --depth 1 origin "0.2.1版本" \
     && TARGET_COMMIT=$(run_git git.revision --git-dir="${SOURCE_CACHE}" rev-parse FETCH_HEAD) \
     && run_git git.archive -c core.autocrlf=false -c core.eol=lf --git-dir="${SOURCE_CACHE}" archive --format=tar --output="${TEMP_DIR}/app.tar" FETCH_HEAD -- ${RUNTIME_PATHS}; then
     USED_GIT=1
@@ -986,8 +1048,8 @@ if [ "${INSTALL_HOST}" = "cli" ]; then
     run_install tooling.install 600000 npm install --global --prefix "${RUNTIME_ROOT}" "$@"
   fi
 fi
-command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
-[ "${INSTALL_HOST}" = "cli" ] || command -v dsh >/dev/null 2>&1 || fail "未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。"
+command -v pnpm >/dev/null 2>&1 || fail "未找到 pnpm。Desktop 版请先安装官方 DeepSeek Harness，再重新运行安装命令。"
+[ "${INSTALL_HOST}" = "cli" ] || command -v dsh >/dev/null 2>&1 || fail "未找到 DSH。Desktop 版请先安装官方 DeepSeek Harness，再重新运行安装命令。"
 
 # Validate the downloaded release against the host before replacing any app files.
 if [ "${INSTALL_HOST}" != "cli" ]; then
@@ -1048,7 +1110,7 @@ fi
 
 if [ "${INSTALL_HOST}" = "desktop" ]; then
   echo "DSH Tavern Desktop 版安装完成。"
-  echo "请重启 DSH Desktop，再从托盘的 Profile 菜单切换到 tavern。"
+  echo "请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置。"
 else
   if [ "${DSH_TAVERN_DEFER_SERVICE_START:-0}" != "1" ]; then
     DSH_HOME=${DSH_ROOT} node "${APP_DIR}/bin/dsh-tavern.mjs" start

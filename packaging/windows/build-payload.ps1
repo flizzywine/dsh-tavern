@@ -24,9 +24,13 @@ $appArchive = Join-Path $setupFiles '$PLUGINSDIR\app-64.7z'
 if (-not (Test-Path -LiteralPath $appArchive)) { throw 'Desktop setup did not contain $PLUGINSDIR/app-64.7z' }
 & $SevenZip x $appArchive "-o$extract" -y | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Failed to extract Desktop application archive (7-Zip exit $LASTEXITCODE)" }
-if (-not (Test-Path -LiteralPath (Join-Path $extract 'DSH Desktop.exe'))) { throw 'Desktop setup did not contain DSH Desktop.exe' }
-$app = Join-Path $extract 'resources\app'
-if (-not (Test-Path -LiteralPath (Join-Path $app 'package.json'))) { throw 'Desktop 2.0.13 layout expected resources/app/package.json' }
+if (-not (Test-Path -LiteralPath (Join-Path $extract 'DeepSeek Harness.exe'))) { throw 'Desktop setup did not contain DeepSeek Harness.exe' }
+$oldNodeMode = $env:ELECTRON_RUN_AS_NODE
+try {
+    $env:ELECTRON_RUN_AS_NODE = '1'
+    & (Join-Path $extract 'DeepSeek Harness.exe') --expose-internals (Join-Path $PSScriptRoot 'prepare-official-runtime.cjs') (Join-Path $extract 'resources')
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare official Desktop runtime' }
+} finally { $env:ELECTRON_RUN_AS_NODE = $oldNodeMode }
 
 function Test-KeepRelative([string]$rel) {
     $normalized = $rel.Replace('\','/')
@@ -46,6 +50,7 @@ Get-ChildItem -LiteralPath $extract -Recurse -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
 }
 
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../bin/official-desktop-runtime.cjs') -Destination (Join-Path $stage 'resources/official-desktop-runtime.cjs') -Force
 $portable = Join-Path $PSScriptRoot 'tavern-portable.js'
 $online = Join-Path $PSScriptRoot 'online-install.mjs'
 Copy-Item -LiteralPath $portable -Destination (Join-Path $stage 'resources\app\lib\tavern-portable.js') -Force
@@ -53,7 +58,7 @@ Copy-Item -LiteralPath $online -Destination (Join-Path $stage 'resources\online-
 
 $manifestPath = Join-Path $stage 'resources\app\package.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($manifest.version -ne '2.0.13') { throw "Unexpected Desktop version: $($manifest.version)" }
+if ($manifest.version -ne '0.2.1-rc.2') { throw "Unexpected Desktop version: $($manifest.version)" }
 $manifest.main = 'lib/tavern-portable.js'
 [IO.File]::WriteAllText($manifestPath, (($manifest | ConvertTo-Json -Depth 100) + "`n"), [Text.UTF8Encoding]::new($false))
 
@@ -63,8 +68,8 @@ if (Test-Path -LiteralPath $license) {
 }
 
 $buildInfo = @{
-    desktop = '2.0.13'
-    adaptedDshVersion = '0.1.5-rc.2'
+    desktop = '0.2.1-rc.2'
+    adaptedDshVersion = '0.2.1-rc.2'
     builtAt = (Get-Date).ToUniversalTime().ToString('o')
     source = [IO.Path]::GetFileName($DesktopSetup)
 } | ConvertTo-Json

@@ -198,6 +198,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         return {
           sessionId,
           lifetime: 'chat',
+          formatVersion: 4,
           boundary: Number.isSafeInteger(boundary) ? boundary : null
         }
       },

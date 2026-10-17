@@ -48,3 +48,14 @@ test('预设编辑器按 JSON Pointer 分段读取并保留未知字段', async 
   assert.deepEqual(results.map(row => row.status), ['fulfilled', 'rejected', 'fulfilled'])
   assert.deepEqual(run.document().prompts.map(row => row.content), ['NEW A', 'NEW B'])
 })
+
+ test('同一预设的并发条目和原文修改都保留，失败修改不阻塞后续保存', async () => {
+  const run = harness({ prompts: [{ identifier: 'a', content: 'old A' }, { identifier: 'b', content: 'old B' }] })
+  const results = await Promise.allSettled([
+    run.editor.updateEntry('presets/test.json', 'a#1', { content: 'NEW A' }),
+    run.editor.updateEntry('presets/test.json', 'b#1', { unknown: true }),
+    run.editor.update('presets/test.json', [{ op: 'set', path: '/prompts/1/content', value: 'NEW B' }])
+  ])
+  assert.deepEqual(results.map(row => row.status), ['fulfilled', 'rejected', 'fulfilled'])
+  assert.deepEqual(run.document().prompts.map(row => row.content), ['NEW A', 'NEW B'])
+})

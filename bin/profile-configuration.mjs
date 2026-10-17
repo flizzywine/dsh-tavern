@@ -57,17 +57,20 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   // Desktop and Android ship one of them and drop whatever collides with it;
   // CLI ships none, so a layout the user installed there is left alone.
   const selectedLayout = host === 'android' ? 'dsh-web-mobile' : host === 'desktop' ? 'dsh-pocket' : null
-  const excludedMobileBundles = selectedLayout
+  const excludedHostBundles = selectedLayout
     ? ['dsh-pocket', 'dsh-web-mobile', '@dsh-external/dsh-mobile-nav'].filter(name => name !== selectedLayout)
     : []
+  // Official Desktop loads Tavern in its own process; the old launcher would
+  // start a second server against the same save directory.
+  if (host === 'desktop') excludedHostBundles.push('dsh-tavern-launcher')
   const sourceBundles = uniqueStrings(sourceProfile.bundles)
     .map(name => name === 'dsh-web-mobile' ? selectedLayout : name)
-    .filter(name => name && !excludedMobileBundles.includes(name))
+    .filter(name => name && !excludedHostBundles.includes(name))
   const previousManagedBundles = uniqueStrings(currentTavern.managedBundles).length > 0
     ? uniqueStrings(currentTavern.managedBundles)
     : LEGACY_MANAGED_BUNDLES
-  const previousManagedBundleSet = new Set([...previousManagedBundles, ...excludedMobileBundles])
-  const userBundles = uniqueStrings(currentProfile.bundles).filter((name) => !previousManagedBundleSet.has(name))
+  const previousManagedBundleSet = new Set([...previousManagedBundles, ...excludedHostBundles])
+  const userBundles = uniqueStrings(currentProfile.bundles).filter((name) => !previousManagedBundleSet.has(name) && !excludedHostBundles.includes(name))
   const bundles = uniqueStrings(sourceBundles.concat(userBundles))
 
   // Local subpackages and host-specific layouts are development dependencies of
@@ -84,7 +87,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
     ? uniqueStrings(currentTavern.managedDependencies)
     : LEGACY_MANAGED_DEPENDENCIES
   const dependencies = { ...currentDependencies }
-  for (const name of [...previousManagedDependencies, ...excludedMobileBundles]) delete dependencies[name]
+  for (const name of [...previousManagedDependencies, ...excludedHostBundles]) delete dependencies[name]
   for (const name of managedDependencies) {
     const sourceValue = sourceDependencies[name]
     if (typeof sourceValue === 'string' && sourceValue.startsWith('link:./tavern-plugin')) {
@@ -214,6 +217,25 @@ export function migrateLegacyProfilePatch(currentText, legacyManagedText) {
   }
   current.contents.items = kept
   return removed ? current.toString() : String(currentText)
+}
+
+// First official-desktop install retains both profiles' user additions. The
+// old Tavern profile is read-only; the caller publishes desktop transactionally.
+export function mergeDesktopLegacyProfile(current, legacy) {
+  return { ...legacy, ...current, name: current.name || 'dsh-profile-desktop',
+    dependencies: { ...object(legacy.dependencies), ...object(current.dependencies) },
+    dsh: { ...object(legacy.dsh), ...object(current.dsh), profile: {
+      ...object(legacy.dsh?.profile), ...object(current.dsh?.profile),
+      bundles: uniqueStrings([...(legacy.dsh?.profile?.bundles || []), ...(current.dsh?.profile?.bundles || [])]) } },
+    dshTavern: { ...object(legacy.dshTavern), ...object(current.dshTavern) } }
+}
+
+export function mergeProfilePatchTexts(legacyText, currentText) {
+  const legacy = parsedSequence(legacyText, '旧 Tavern 用户配置')
+  const current = parsedSequence(currentText, '官方 Desktop 用户配置')
+  const known = new Set(current.contents.items.map(semanticKey))
+  current.contents.items.unshift(...legacy.contents.items.filter(row => !known.has(semanticKey(row))))
+  return current.toString()
 }
 
 function defaultTimestamp() {

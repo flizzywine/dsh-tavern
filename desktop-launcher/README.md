@@ -1,5 +1,7 @@
 # dsh-tavern-launcher
 
+> 此入口已由官方 Desktop 的直接安装方式替代，本分支不再需要安装它。升级时会移除 desktop 配置中对此启动器的引用，避免启动第二个酒馆服务；原插件文件保留。以下内容仅供维护旧安装时参考。
+
 把 **DSH Tavern 的启动按钮注册进 [DSH Better Sidebar](https://github.com/RevolutionLA/dsh-better-sidebar)**：在 DSH Desktop 的 GUI 里直接启动 / 停止 tavern 服务，并在新窗口打开酒馆界面，不必再依赖托盘菜单。
 
 这是 DSH 的「双半侧插件」：宿主半侧负责进程生命周期，浏览器半侧负责 UI。

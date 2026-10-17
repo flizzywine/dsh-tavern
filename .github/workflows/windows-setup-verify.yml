@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       setup_url:
-        description: Published Setup EXE URL
-        default: https://github.com/flizzywine/dsh-tavern/releases/download/v2.6/DSH-Tavern-Desktop-2.0.13-x64-Setup8.exe
+        description: Official Harness based Setup EXE URL
+        required: true
       setup_sha256:
         description: Expected SHA-256
-        default: 13c362eacb472dfae650ba6a7b91a935232b90270517a24d81b9dc43dbd0e5dc
+        required: true
 
 jobs:
   verify:

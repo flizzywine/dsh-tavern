@@ -25,7 +25,7 @@ try {
     $version=(Get-Content (Join-Path $source 'package.json') -Raw | ConvertFrom-Json).version
     if([version]$version -lt [version]'2.1.0'){throw 'Old plugin was retained'}
     $smoke=Get-Content (Join-Path $data 'smoke-result.json') -Raw | ConvertFrom-Json
-    if(!$smoke.ok -or $smoke.desktop -ne '2.0.13'){throw 'Unexpected Desktop startup result'}
+    if(!$smoke.ok -or $smoke.desktop -ne '0.2.1-rc.2'){throw 'Unexpected Desktop startup result'}
     if((Get-FileHash $sentinel).Hash -ne $before){throw 'Existing data changed'}
     if(!(Test-Path (Join-Path $data '.launcher-upgrade-ready'))){throw 'Successful upgrade not recorded'}
     Write-Output "PASS: old installation upgraded to Tavern $version / Desktop $($smoke.desktop); data preserved; smoke passed"

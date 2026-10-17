@@ -1,3 +1,5 @@
+import { upgradeReferences, upgradedAnchor } from './domain/session-upgrade-references.js'
+import { producerSource } from './domain/message-source.js'
 import { sceneSaveKeyMap } from './domain/scene-save.js'
 import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
 import { createGameSaveResources } from './domain/game-save-resources.js'
@@ -32,7 +34,7 @@ import { withPluginWorldbookEntries } from './domain/plugin-worldbook.js'
 import { createTemplateWindowReader, templateStateFields } from './domain/template-window-reader.js'
 import { createSessionResourceAccess } from './domain/session-resource-access.js'
 import { worldBookDisplayName } from './domain/worldbook-resource.js'
-import { createConversationMigration } from './domain/conversation-migration.js'
+import { createSaveUpgrade, prepareSaveUpgrade, saveSessionIds } from './domain/save-upgrade.js'
 import { createTaskStateReader, taskStateFields } from './domain/task-state-reader.js'
 import { installHostProjectionReplay } from './domain/host-projection-replay.js'
 import { createBoundedHistory, readRecentWindow, readRowsAt } from './domain/bounded-history.js'
@@ -56,9 +58,9 @@ import { createSettlementJobs } from './domain/settlement-jobs.js'
 import { createPluginSettlementProgress } from './domain/plugin-settlement-progress.js'
 import { rescueHistoryNotice } from './domain/chat-history-rescue.js'
 import { readHostCompatibility } from './domain/host-compatibility.js'
-import { installHostSessionPatch, SESSION_PATCH_VERSION } from './domain/host-session-patch.js'
+import { installHostSessionPatch } from './domain/host-session-patch.js'
 import { installHostSubprocessPatch } from './domain/host-subprocess-patch.js'
-import { migrateInstalledLegacySessions, repairStoredSessionLog } from './domain/legacy-session-migration.js'
+import { repairStoredSessionLog } from './domain/session-log-repair.js'
 import { measureForegroundPressure } from './domain/foreground-context-pressure.js'
 import { replaceSessionSurface } from './domain/session-surface-mutations.js'
 import { createPresetDiagnostics } from './domain/preset-diagnostics.js'
@@ -250,12 +252,13 @@ export async function apply(ctx) {
     query: ctx.get('sessionQuery'),
   })
   if (sessionPatch.status === 'failed') console.warn('dsh-tavern: 会话补丁未安装，正文编辑、回退和重新生成不可用：' + sessionPatch.reason)
-  // 更新到 SESSION_PATCH_VERSION（0.2.1-rc.2）后，每次启动都在对话被打开之前准备旧档。
-  // 已经能打开的不改文件。补丁没装上也要做。
-  if (sessionPatch.view().hostVersion === SESSION_PATCH_VERSION) {
+  // Only the installed compatibility reader may publish a new generation.
+  // Run before opening any foreground, background, or card-design Session.
+  let saveUpgradePreparation
+  if (sessionPatch.status === 'ready') {
     const open = (persistence?.tracker?.openHandles?.size || 0) + (persistence?.tracker?.writers?.size || 0)
-    if (open) console.warn('dsh-tavern: 会话已经打开，旧档留到下次启动再迁移')
-    else await migrateInstalledLegacySessions(resolveTavernDataRoot(), sessionPatch.loadSessionCatalog)
+    if (open) console.warn('dsh-tavern: 会话已经打开，旧档留到下次启动再升级')
+    else saveUpgradePreparation = await prepareSaveUpgrade(resolveTavernDataRoot(), sessionPatch.loadSessionMigration)
   }
   await clearLegacyTavernDefault(ctx.get('settings'))
   const llm = ctx.get('llm')
@@ -2395,7 +2398,13 @@ export async function apply(ctx) {
     let session = sessionStore.get(source.sessionId) || agentRegistry.get(source.sessionId)?.session
     if (!session) { handle = await agentRegistry.resume({ resumeSessionId: source.sessionId }); session = handle.agent.session }
     try {
-      return { source, state, turn, atSeq: conversationForkBoundary(session, state, turn) }
+      const references = upgradeReferences(sessionEvents(session))
+      const mapped = structuredClone(state)
+      for (const message of mapped.messages || []) {
+        if (message.nativeAnchor) message.nativeAnchor = upgradedAnchor(message.nativeAnchor, references)
+        if (message.bodyEdit) message.bodyEdit = { ...message.bodyEdit, seq: references.sequence(message.bodyEdit.seq, message.bodyEdit.formatVersion), formatVersion: 4 }
+      }
+      return { source, state: mapped, turn, atSeq: conversationForkBoundary(session, state, turn) }
     } finally { if (handle) await handle.dispose() }
   }
   // Plugin data and media are bound to text versions, whose keys hash the game id:
@@ -3510,7 +3519,7 @@ export async function apply(ctx) {
           role: 'user',
           regexPlacement: 2,
           content: [{ type: 'text', text: settleUserText(snapshot, backgroundTasksSettings.posture, taskRun.participantRequest.rewindTo == null ? lastSubmittedPosture(trace.sessionId && (agentRegistry.get(trace.sessionId)?.session || sessionStore.get(trace.sessionId))) : '') }],
-          source: { kind: 'plugin', plugin: 'dsh-tavern' }
+          source: producerSource('dsh-tavern')
         }],
         system: plan.system,
         tools: plan.tools,
@@ -3988,27 +3997,36 @@ export async function apply(ctx) {
   const cardResponseTest = createCardResponseTest({ api: gameplayApi, store: profileData, chatForSession })
   ctx.effect(() => () => cardResponseTest.dispose())
 
-  const conversationMigration = createConversationMigration({
+  const preparedSaveSessions = new Map((saveUpgradePreparation?.sessions || []).map(session => [session.id, session]))
+  const saveUpgrade = createSaveUpgrade({
     store: chatJournalStore,
+    inspectSessions: async chat => {
+      if (sessionPatch.status !== 'ready') return { ready: false, error: 'DSH 会话兼容模块未就绪，请重启酒馆后重试' }
+      const failed = saveSessionIds(chat).filter(id => {
+        const live = sessionStore.get(id) || agentRegistry.get(id)?.session
+        return live?.header?.version !== 4 && preparedSaveSessions.get(id)?.ready !== true
+      })
+      return failed.length ? { ready: false, error: '会话日志未完成升级，请重启酒馆后重试。原档保留：' + failed.map(id => id + (preparedSaveSessions.get(id)?.error ? '（' + preparedSaveSessions.get(id).error + '）' : '')).join('、') } : { ready: true, version: 4 }
+    },
     assertIdle: chat => {
       if (chat.mode === 'card' || backgroundTasks.activity(chat).busy || chat.regenInProgress || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running') {
-        throw new Error('请等待本轮游玩和后台结算完成后再迁移')
+        throw new Error('请等待本轮游玩和后台结算完成后再升级')
       }
     },
     notify: id => { void readSessionMap().then(map => {
-      for (const [sessionId, chatId] of Object.entries(map)) if (chatId === id) sessionSignals.publish(sessionId, {kind:'tavern-state',version:'storage-migration:'+Date.now()})
-    }).catch(error => console.warn('dsh-tavern: 迁移状态通知失败:', error.message)) }
+      for (const [sessionId, chatId] of Object.entries(map)) if (chatId === id) sessionSignals.publish(sessionId, {kind:'tavern-state',version:'save-upgrade:'+Date.now()})
+    }).catch(error => console.warn('dsh-tavern: 存档升级通知失败:', error.message)) }
   })
-  ctx.effect(() => () => conversationMigration.dispose())
+  ctx.effect(() => () => saveUpgrade.dispose())
 
   async function dispatchMethod(method, args, serverTemplate = false) {
     if (method.startsWith('gameplay.')) return await gameplayApi.call(method.slice(9), args || {})
     switch (method) {
-      case 'getStorageMigration':
-      case 'migrateStorage': {
+      case 'getSaveUpgrade':
+      case 'upgradeSave': {
         const chatId = (await readSessionMap())[str(args?.sessionId)]
         if (!chatId) throw new Error('找不到当前存档')
-        return method === 'getStorageMigration' ? conversationMigration.status(chatId) : conversationMigration.start(chatId)
+        return method === 'getSaveUpgrade' ? saveUpgrade.status(chatId) : saveUpgrade.start(chatId)
       }
       case 'getCardOrganization': return { groups: (await cardOrganization.read()).groups }
       case 'organizeCards': return { groups: (await cardOrganization.update(args || {}, await fileResources.list('card'))).groups }

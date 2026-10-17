@@ -2,14 +2,14 @@ $ErrorActionPreference = 'Stop'
 $PreviousConsoleOutputEncoding = [Console]::OutputEncoding
 $PreviousOutputEncoding = $OutputEncoding
 
-$InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'cli' }
-if ($InstallHost -notin @('cli', 'desktop')) { throw "不支持的安装宿主：$InstallHost" }
+$InstallHost = if ($env:DSH_TAVERN_HOST) { $env:DSH_TAVERN_HOST } else { 'desktop' }
+if ($InstallHost -ne 'desktop') { throw "测试版仅支持官方 DeepSeek Harness Desktop，不支持宿主：$InstallHost" }
 
 $Repository = if ($env:DSH_TAVERN_REPOSITORY) { $env:DSH_TAVERN_REPOSITORY } else { 'flizzywine/dsh-tavern' }
 $RepositoryUrl = if ($env:DSH_TAVERN_GIT_URL) { $env:DSH_TAVERN_GIT_URL } else { "https://github.com/$Repository.git" }
-$ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/main" }
-$CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else { "https://api.github.com/repos/$Repository/commits/main" }
-$CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@main/dsh-tavern-runtime.json" }
+$ArchiveUrl = if ($env:DSH_TAVERN_ARCHIVE_URL) { $env:DSH_TAVERN_ARCHIVE_URL } else { "https://codeload.github.com/$Repository/zip/refs/heads/0.2.1%E7%89%88%E6%9C%AC" }
+$CommitUrl = if ($env:DSH_TAVERN_COMMIT_URL) { $env:DSH_TAVERN_COMMIT_URL } else { "https://api.github.com/repos/$Repository/commits/0.2.1%E7%89%88%E6%9C%AC" }
+$CdnMetadataUrl = if ($env:DSH_TAVERN_CDN_METADATA_URL) { $env:DSH_TAVERN_CDN_METADATA_URL } else { "https://cdn.jsdelivr.net/gh/$Repository@0.2.1%E7%89%88%E6%9C%AC/dsh-tavern-runtime.json" }
 $CdnRootUrl = if ($env:DSH_TAVERN_CDN_ROOT_URL) { $env:DSH_TAVERN_CDN_ROOT_URL.TrimEnd('/') } else { "https://cdn.jsdelivr.net/gh/$Repository" }
 $DshRoot = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dsh' }
 $LegacyDshRoot = if ($env:DSH_TAVERN_LEGACY_DSH_HOME) { $env:DSH_TAVERN_LEGACY_DSH_HOME } else { $DshRoot }
@@ -857,6 +857,72 @@ try {
   $env:pnpm_config_registry = $env:npm_config_registry
   # A pending optional version check can keep pnpm alive after it prints Done.
   $env:pnpm_config_update_notifier = 'false'
+  if ($InstallHost -eq 'desktop') {
+    $OfficialDesktopExecutable = @($env:DSH_DESKTOP_NODE_EXECUTABLE, $env:DSH_DESKTOP_APP_EXECUTABLE,
+      (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\DeepSeek Harness.exe'),
+      (Join-Path $env:ProgramFiles 'DeepSeek Harness\DeepSeek Harness.exe')) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+    if (-not $OfficialDesktopExecutable) { throw '请先安装官方 DeepSeek Harness：https://deepseek.com/harness/' }
+    New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+    $OfficialDesktopModuleSource = @'
+// Shared bootstrap for the official desktop, shell installers and the Windows bundle.
+// Runs under Electron Node mode so packaged app.asar files remain readable.
+const fs = require('node:fs');
+const path = require('node:path');
+function layout(executable, platform = process.platform) {
+  const resources = platform === 'darwin' ? path.resolve(path.dirname(executable), '../Resources') : path.join(path.dirname(executable), 'resources');
+  const app = fs.existsSync(path.join(resources, 'app', 'package.json')) ? path.join(resources, 'app') : path.join(resources, 'app.asar');
+  return { resources, app, host: path.join(app, 'dsh'), pnpm: path.join(resources, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs') };
+}
+function prepare({ executable, home, env = process.env, platform = process.platform }) {
+  if (!executable || !home) throw Error('请先安装官方 DeepSeek Harness，并指定安装目录');
+  const paths = layout(executable, platform);
+  const manifest = JSON.parse(fs.readFileSync(path.join(paths.app, 'package.json'), 'utf8'));
+  if (manifest.name !== '@deepseek-ai/dsh-desktop') throw Error('Desktop 宿主必须是官方 DeepSeek Harness，不能使用社区 DSH Desktop');
+  const bootstrap = path.join(paths.host, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js');
+  for (const file of [bootstrap, paths.pnpm]) if (!fs.existsSync(file)) throw Error('官方桌面运行时不完整：' + file);
+  const bin = path.join(home, 'tools', 'official-desktop', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  for (const [name, entry] of [['node', null], ['pnpm', paths.pnpm], ['dsh', bootstrap]]) {
+    const file = path.join(bin, name + (platform === 'win32' ? '.cmd' : ''));
+    const text = platform === 'win32'
+      ? '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"%DSH_DESKTOP_NODE_EXECUTABLE%" --expose-internals ' + (entry ? '"%' + (name === 'dsh' ? 'DSH_DESKTOP_DSH_BOOTSTRAP' : 'DSH_DESKTOP_PNPM_ENTRY') + '%" ' : '') + '%*\r\nexit /b %errorlevel%\r\n'
+      : '#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexec ' + quote(executable) + ' --expose-internals ' + (entry ? quote(entry) + ' ' : '') + '"$@"\n';
+    fs.writeFileSync(file, text, { mode: 0o755 });
+  }
+  const key = Object.keys(env).find(key => key.toUpperCase() === 'PATH') || 'PATH';
+  return { DSH_HOME: path.resolve(home), DSH_DESKTOP_NODE_EXECUTABLE: executable, DSH_DESKTOP_APP_EXECUTABLE: executable,
+    DSH_DESKTOP_DSH_BOOTSTRAP: bootstrap, DSH_DESKTOP_PNPM_ENTRY: paths.pnpm,
+    DSH_TAVERN_HOST_DEPENDENCY_ANCHOR: path.join(paths.host, 'package.json'),
+    [key]: bin + (platform === 'win32' ? ';' : ':') + (env[key] || '') };
+}
+function discover(env = process.env, platform = process.platform) {
+  const candidates = [env.DSH_DESKTOP_NODE_EXECUTABLE, env.DSH_DESKTOP_APP_EXECUTABLE, process.versions.electron ? process.execPath : undefined];
+  if (platform === 'darwin') candidates.push('/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness', path.join(require('node:os').homedir(), 'Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness'));
+  if (platform === 'win32') for (const root of [env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs'), env.ProgramFiles]) if (root) candidates.push(path.join(root, 'DeepSeek Harness', 'DeepSeek Harness.exe'));
+  const executable = candidates.find(file => file && fs.existsSync(file));
+  if (!executable) throw Error('找不到官方 DeepSeek Harness；请先安装，或用 DSH_DESKTOP_APP_EXECUTABLE 指定程序路径');
+  return executable;
+}
+module.exports = { layout, prepare, discover };
+if (require.main === module) {
+  try {
+    const result = prepare({ executable: process.execPath, home: process.argv[2] });
+    if (process.argv.includes('--shell')) for (const [key, value] of Object.entries(result)) console.log('export ' + key + "='" + value.replaceAll("'", "'\\''") + "'");
+    else console.log(JSON.stringify(result));
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+'@
+    $OfficialDesktopModule = Join-Path $TempDir 'official-desktop-runtime.cjs'
+    [IO.File]::WriteAllText($OfficialDesktopModule, $OfficialDesktopModuleSource, (New-Object Text.UTF8Encoding($false)))
+    $PreviousElectronNode = $env:ELECTRON_RUN_AS_NODE
+    try {
+      $env:ELECTRON_RUN_AS_NODE = '1'
+      $DesktopEnvironment = (& $OfficialDesktopExecutable --expose-internals $OfficialDesktopModule $DshRoot) -join "`n"
+      if ($LASTEXITCODE -ne 0) { throw '官方桌面运行环境校验失败' }
+      ($DesktopEnvironment | ConvertFrom-Json).PSObject.Properties | ForEach-Object { [Environment]::SetEnvironmentVariable($_.Name, [string]$_.Value, 'Process') }
+    } finally { $env:ELECTRON_RUN_AS_NODE = $PreviousElectronNode }
+  }
   if (-not (Test-Command 'node')) {
     Start-Process 'https://nodejs.org/'
     throw '未找到 Node.js。请安装 Node.js 22.19 或更高版本，然后重新运行本命令。'
@@ -1044,10 +1110,10 @@ try {
       Write-InstallStatus '下载代码：正在连接 GitHub，使用 Git 增量同步…'
       New-Item -ItemType Directory -Force -Path (Split-Path $SourceCache -Parent) | Out-Null
       if (-not (Test-Path (Join-Path $SourceCache 'HEAD'))) {
-        Invoke-UpdateGit 'git.clone' @('clone', '--progress', '--bare', '--filter=blob:none', '--depth', '1', '--single-branch', '--branch', 'main', $RepositoryUrl, $SourceCache) | Write-Host
+        Invoke-UpdateGit 'git.clone' @('clone', '--progress', '--bare', '--filter=blob:none', '--depth', '1', '--single-branch', '--branch', '0.2.1版本', $RepositoryUrl, $SourceCache) | Write-Host
       }
       Invoke-UpdateGit 'git.remote' @("--git-dir=$SourceCache", 'remote', 'set-url', 'origin', $RepositoryUrl) | Write-Host
-      Invoke-UpdateGit 'git.fetch' @("--git-dir=$SourceCache", 'fetch', '--progress', '--depth', '1', 'origin', 'main') | Write-Host
+      Invoke-UpdateGit 'git.fetch' @("--git-dir=$SourceCache", 'fetch', '--progress', '--depth', '1', 'origin', '0.2.1版本') | Write-Host
       $TargetCommit = (Invoke-UpdateGit 'git.revision' @("--git-dir=$SourceCache", 'rev-parse', 'FETCH_HEAD')).Trim()
       Invoke-UpdateGit 'git.archive' (@('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', "--git-dir=$SourceCache", 'archive', '--format=zip', "--output=$ArchivePath", 'FETCH_HEAD', '--') + $RuntimePaths) | Write-Host
       $UsedGit = $true
@@ -1157,9 +1223,9 @@ try {
     Invoke-InstallCommand 'tooling.install' $NpmCommand (@('install', '--global', '--prefix', $RuntimeRoot) + $MissingPackages)
   }
   $PnpmCommand = Resolve-Command 'pnpm'
-  if ($null -eq $PnpmCommand) { throw '未找到 pnpm。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
+  if ($null -eq $PnpmCommand) { throw '未找到 pnpm。Desktop 版请先安装官方 DeepSeek Harness，再重新运行安装命令。' }
   $DshCommand = Resolve-Command 'dsh'
-  if ($InstallHost -ne 'cli' -and $null -eq $DshCommand) { throw '未找到 DSH。Desktop 版请从 DSH Desktop 托盘打开 DSH Terminal 后运行本命令。' }
+  if ($InstallHost -ne 'cli' -and $null -eq $DshCommand) { throw '未找到 DSH。Desktop 版请先安装官方 DeepSeek Harness，再重新运行安装命令。' }
 
   # Validate before replacing any installed application files.
   if ($InstallHost -ne 'cli') {
@@ -1234,7 +1300,7 @@ try {
   }
   if ($InstallHost -eq 'desktop') {
     Write-Host 'DSH Tavern Desktop 版安装完成。'
-    Write-Host '请重启 DSH Desktop，再从托盘的 Profile 菜单切换到 tavern。'
+    Write-Host '请重启官方 DeepSeek Harness，酒馆已安装到 desktop 配置。'
   }
   else {
     if ($env:DSH_TAVERN_DEFER_SERVICE_START -ne '1') {

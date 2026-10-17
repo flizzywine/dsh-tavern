@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {createInterface} from 'node:readline';
@@ -11,7 +11,6 @@ const resources=path.dirname(fileURLToPath(import.meta.url));
 const data=path.resolve(process.argv[2]);
 const home=path.join(data,'harness');
 const source=path.join(home,'apps','dsh-tavern');
-const hostRoot=path.join(resources,'app');
 const log=path.join(data,'setup-upgrade.log');
 fs.mkdirSync(data,{recursive:true});
 // The launcher shows stderr in its error dialog: name the failed stage, a short reason and the log.
@@ -29,24 +28,14 @@ try {
   if(process.env.DSH_ONLINE_TEST_OFFLINE==='1')throw Error('测试：网络不可用');
   const env={...process.env,DSH_HOME:home,DSH_TAVERN_HOST:'desktop',DSH_TAVERN_RUNTIME_HOST:'desktop',
     DSH_TAVERN_APP_DIR:source,DSH_DESKTOP_APP_EXECUTABLE:process.execPath,
-    DSH_DESKTOP_DSH_BOOTSTRAP:path.join(hostRoot,'lib','desktop-cli.js'),
-    DSH_TAVERN_HOST_DEPENDENCY_ANCHOR:path.join(hostRoot,'package.json'),
     CI:'true',pnpm_config_frozen_lockfile:'false',
     npm_config_cache:path.join(data,'cache','npm'),pnpm_config_store_dir:path.join(data,'cache','pnpm')};
   // Translate the Windows system proxy for this process and every child (powershell, curl, git, pnpm).
   const proxy=download.applyProxyEnvironment(env);
   if(proxy.summary){const text=(proxy.source==='system'?'使用系统代理：':'')+proxy.summary;console.log('DSH_STATUS '+text);fs.appendFileSync(log,text+'\n');}
   stage='配置 DSH 运行环境';
-  const {installDesktopDshRuntime,installDesktopPnpmRuntime}=await import(pathToFileURL(path.join(hostRoot,'lib','desktop-runtime-environment.js')));
-  installDesktopDshRuntime({platform:'win32',appExecutable:process.execPath,dshBootstrapPath:env.DSH_DESKTOP_DSH_BOOTSTRAP,
-    profileName:'tavern',homeDir:home,stateDir:path.join(data,'desktop','host-commands','tavern'),environment:env});
-  // Desktop's own pnpm and node commands run this Electron as Node, exactly as in the Desktop
-  // terminal (verified on Windows by the Windows Setup workflow); no separate Node is downloaded.
-  stage='准备 pnpm 运行环境';
-  const pnpm=installDesktopPnpmRuntime({platform:'win32',appExecutable:process.execPath,pnpmBinPath:path.join(hostRoot,'node_modules','pnpm','bin','pnpm.mjs'),
-    electronVersion:process.versions.electron,stateDir:path.join(data,'desktop','runtime-commands'),environment:env});
-  const pathKey=Object.keys(env).find(key=>key.toUpperCase()==='PATH')||'PATH';
-  env[pathKey]=[pnpm.nodeBinDir,env[pathKey]].join(path.delimiter);
+  const {prepare}=createRequire(import.meta.url)('./official-desktop-runtime.cjs');
+  Object.assign(env,prepare({executable:process.execPath,home,env}));
   for(const key of Object.keys(env))if(key.toUpperCase()==='ELECTRON_RUN_AS_NODE')delete env[key];
   stage='下载并安装酒馆';
   // Run install.ps1 through a small -File wrapper. -EncodedCommand made Windows PowerShell 5.1

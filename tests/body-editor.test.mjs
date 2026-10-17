@@ -125,3 +125,17 @@ assert.equal(saved.messages[1].text, 'edited')
 assert.equal(patched, true)
 assert.equal(repairs, 3)
 })
+
+ test('分页正文缺失原生楼层时，保存成功后继续修复正确的会话', async () => {
+  const { createScopedMessages } = await import('../tavern-plugin/lib/domain/scoped-messages.js')
+  const { applyJsonChanges } = await import('../tavern-plugin/lib/domain/json-mutation.js')
+let chat={id:'c',sessionId:'session-1',mode:'story',_storageRevision:1,settleStatus:'done',messages:[{role:'user',text:'continue'},{role:'assistant',turn:1,text:'original',sourceText:'original'}]}
+const session={id:'session-1',events:[],surface:{nodes:[]}},agent={session,phase:{kind:'idle'}}
+let patched=false,repairs=0
+const editor=createBodyEditor({chats:{forSession:async()=>({...structuredClone(chat),messages:createScopedMessages(2,[[1,structuredClone(chat.messages[1])]])}),async patch(id,rev,changes){patched=true;chat=applyJsonChanges(chat,changes);return structuredClone(chat)}},sessions:{get:()=>agent,flush:async()=>{}},timeline:createStoryTimeline(),activity:()=>({busy:false}),project:async text=>({sessionText:text,displayText:text}),present:async c=>c,repairNative:async id=>{assert.equal(id, session.id);repairs++;return null}})
+const edit=await editor.read(session.id)
+const saved = await editor.save(session.id,{token:edit.token,texts:['edited']})
+assert.equal(saved.messages[1].text, 'edited')
+assert.equal(patched, true)
+assert.equal(repairs, 3)
+})

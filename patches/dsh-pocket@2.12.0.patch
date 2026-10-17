@@ -1,0 +1,20 @@
+--- a/client/client.js
++++ b/client/client.js
+@@ -2878,11 +2878,16 @@
+       {
+         name: "settings.section",
+         id: "pocket",
++        children: { "dsh-pocket.service-control": { kind: "list", scope: "root" } },
+         order: 1,
+         label: () => translate("section"),
+         inject: () => ({ rpcCall, t: translate })
+       },
+-      PocketSettingsTab
++      function PocketSettingsWithServiceControl(props) {
++        return React.createElement(React.Fragment, null,
++          props.renderSlot("dsh-pocket.service-control", {}),
++          React.createElement(PocketSettingsTab, props));
++      }
+     )
+   );
+ }

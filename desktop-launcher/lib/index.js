@@ -304,7 +304,7 @@ export function apply(ctx) {
 		kind: "prefix",
 		path: API_PREFIX,
 		handler: async (req, res) => {
-			const trustedHosts = ctx.get("webRuntime")?.trustedHosts ?? [];
+			const trustedHosts = ctx.get("connection")?.trustedHosts ?? ctx.get("webStartup")?.trustedHosts ?? ctx.get("webRuntime")?.trustedHosts ?? [];
 			if (!isTrustedApiRequest(req, trustedHosts)) {
 				writeJson(res, 403, { ok: false, error: { code: "forbidden", message: "forbidden" } });
 				return;

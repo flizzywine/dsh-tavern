@@ -1,7 +1,8 @@
 import { app, dialog } from 'electron';
 import fs from 'original-fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 
 // All persistent files belong to this distribution, including Electron state.
 const parent = process.env.DSH_TAVERN_TEST_DATA || path.join(
@@ -9,7 +10,7 @@ const parent = process.env.DSH_TAVERN_TEST_DATA || path.join(
 const data = path.resolve(parent);
 const home = path.join(data, 'harness');
 const userData = path.join(data, 'desktop');
-const profile = path.join(home, 'profiles', 'tavern');
+const profile = path.join(home, 'profiles', 'desktop');
 const TAVERN_APP_ID = 'ai.deepseek.dsh.tavern';
 function refreshLink(link,target) {
   fs.mkdirSync(path.dirname(link),{recursive:true});
@@ -25,8 +26,8 @@ try {
   process.env.DSH_HOME = home;
   // Relocated preinstalled dependencies must be replaced without a terminal prompt.
   process.env.CI='true';
-  // The web updater also launches `node`, outside pnpm's private environment.
-  process.env.PATH=path.join(userData,'runtime-commands','private','node-bin')+path.delimiter+process.env.PATH;
+  const {prepare}=createRequire(import.meta.url)('../../official-desktop-runtime.cjs');
+  Object.assign(process.env,prepare({executable:process.execPath,home}));
   app.setPath('userData', userData);
   // Windows groups taskbar buttons, pins and notifications by AppUserModelID. The
   // bundled Desktop claims the stock DSH Desktop id, so a running Tavern absorbed
@@ -57,25 +58,7 @@ try {
       if(!link.startsWith(source+path.sep)||!target.startsWith(source+path.sep))throw new Error('Invalid portable package link');
       if(fs.existsSync(target))refreshLink(link,target);
     }
-    fs.mkdirSync(profile, {recursive:true});
-    const manifestPath = path.join(profile,'package.json');
-    if (!fs.existsSync(manifestPath)) {
-      const sourceManifest=JSON.parse(fs.readFileSync(path.join(source,'package.json'),'utf8'));
-      const manifest = {
-        name:'dsh-profile-tavern',private:true,
-        dsh:sourceManifest.dsh,
-        dshTavern:{host:'desktop',dshVersion:'0.1.5-rc.2',portable:true,source,
-          dataRoot:path.join(home,'profile-data','tavern','data')}
-      };
-      fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2),{flag:'wx'});
-    }
-    const selection = path.join(userData,'profile-selection','state.json');
-    if (!fs.existsSync(selection)) {
-      fs.mkdirSync(path.dirname(selection),{recursive:true});
-      fs.writeFileSync(selection,JSON.stringify({version:2,active:'tavern'}),{flag:'wx'});
-    }
-    const patch=path.join(profile,'cordis.patch.yml');
-    if (!fs.existsSync(patch)) fs.writeFileSync(patch,'[]\n',{flag:'wx'});
+    if (!fs.existsSync(path.join(profile,'package.json'))) throw new Error('官方 Desktop 配置尚未安装，请重新运行安装包。');
     const settings=path.join(home,'settings.yaml');
     if (!fs.existsSync(settings)) fs.writeFileSync(settings,JSON.stringify({
       'dsh-tavern':{sidebarDefaultsVersion:8},
@@ -88,12 +71,7 @@ try {
     fs.mkdirSync(workspace,{recursive:true});
     process.chdir(workspace);
     // Refresh module links before composition; extraction paths change between runs.
-    const {healProfilesModuleFallback}=await import('@deepseek-ai/dsh-app-boot');
-    const anchor=fileURLToPath(new URL('../package.json',import.meta.url)).replace(/([\\/])app\.asar\1/u,'$1app.asar.unpacked$1');
-    process.env.DSH_TAVERN_HOST_DEPENDENCY_ANCHOR=anchor;
-    process.env.DSH_DESKTOP_APP_EXECUTABLE=process.execPath;
-    await healProfilesModuleFallback({installAnchor:anchor,home});
-    const modules=path.join(path.dirname(anchor),'node_modules');
+    const modules=path.join(path.dirname(process.env.DSH_TAVERN_HOST_DEPENDENCY_ANCHOR),'node_modules');
     // Host packages use the same explicit links as the Tavern Desktop installer.
     for(const name of ['@deepseek-ai/dsh-agent','@deepseek-ai/dsh-skill-filesystem','@deepseek-ai/dsh-typert-protocol','@deepseek-ai/dsh-subagent','@deepseek-ai/dsh-tools']) {
       refreshLink(path.join(source,'tavern-plugin','node_modules',name),path.join(modules,name));
@@ -114,9 +92,10 @@ try {
       app.relaunch({args:['--tavern-smoke']});
       app.exit(0);
     } else if (process.argv.includes('--tavern-smoke')) {
-      const {prepareDesktopProfile}=await import('./profile.js');
-      const prepared=await prepareDesktopProfile(undefined,home,process.platform,'tavern');
-      fs.writeFileSync(path.join(data,'smoke-result.json'),JSON.stringify({ok:true,desktop:app.getVersion(),executable:process.execPath,profile:prepared.profile},null,2));
+      const checked=spawnSync(process.execPath,['--expose-internals',path.join(source,'bin','validate-desktop-profile.mjs')],
+        {env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},encoding:'utf8',windowsHide:true,timeout:120000,maxBuffer:16*1024*1024});
+      if(checked.error||checked.status!==0)throw new Error(checked.error?.message||checked.stderr||'Desktop profile composition failed');
+      fs.writeFileSync(path.join(data,'smoke-result.json'),JSON.stringify({ok:true,desktop:app.getVersion(),executable:process.execPath,profile},null,2));
       app.exit(0);
     } else await import('./main.js');
   }

@@ -46,7 +46,8 @@ async function fixture(t, { rounds = 8, text = '旧剧情与人物关系。'.rep
   }
   if (system) session.append('system/message', { message: { id: 'synthetic-system', role: 'system', content: [{ type: 'text', text: system }], source: { kind: 'plugin', plugin: 'fixture' } } }, { surfaceOp: 'append' })
   const before = h.ctx.tokenMeter.measure(session).totalTokens
-  const engine = new BasicCompactionEngine(h.ctx, { auto, maxTokens: summaryMaxTokens, thresholdRatio: (Math.min(before, 1600) - thresholdOffset + 0.1) / 2000 })
+  // The fixture's entire window is 2k; the host's default 64k headroom cannot fit.
+  const engine = new BasicCompactionEngine(h.ctx, { auto, headroomTokens: 0, maxTokens: summaryMaxTokens, thresholdRatio: (Math.min(before, 1600) - thresholdOffset + 0.1) / 2000 })
   async function compact(kind, selected = engine) {
     const signal = new AbortController().signal
     if (kind === 'manual') return selected.compactNow(agent, signal)

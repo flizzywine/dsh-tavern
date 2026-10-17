@@ -1,4 +1,4 @@
-import { appendSessionEvent } from '../tavern-plugin/lib/domain/session-events.js'
+import { appendSessionEvent, closeOpeningTurn } from '../tavern-plugin/lib/domain/session-events.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -83,11 +83,16 @@ test('前后台固定系统背景连续压缩三次仍不变，原事件和恢�
     session.append('request/header', { header: { config: { provider: 'fixture', model: 'summary' }, ...(session.header.version < 3 ? { system } : {}) }, reason: 'initial' })
     if (session.header.version >= 3) {
       const head = session.surface.nodes[0]
-      session.append('system/message', { message: { id: 'assembled', role: 'system', content: [{ type: 'text', text: system }], source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' } } }, { surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head] })
+      session.append('system/message', { message: { id: 'assembled', role: 'system', content: [{ type: 'text', text: system }], source: { kind: 'system-prompt' } } }, { surfaceOp: { op: 'replace', startSeq: head, endSeq: head }, sourceEventSeqs: [head] })
     }
+    closeOpeningTurn(session)
     for (let n = 0; n < 3; n++) {
+      session.append('turn/start', { turn: n + 2 })
+      session.append('step/start', { turn: n + 2, step: 1 })
       session.append('user/message', { id: 'history-' + n, role: 'user', content: [{ type: 'text', text: '剧情进展。'.repeat(500) }], source: { kind: 'user' } }, { surfaceOp: 'append' })
       session.append('user/message', { id: 'tail-' + n, role: 'user', content: [{ type: 'text', text: '最新剧情' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+      session.append('step/end', { turn: n + 2, step: 1 })
+      session.append('turn/end', { turn: n + 2, reason: { kind: 'completed' } })
       const original = session.snapshotEvents()
       const signal = new AbortController().signal
       assert.ok(await engine.compactNow({ session, options: {}, runMaintenance: fn => fn(signal) }, signal))

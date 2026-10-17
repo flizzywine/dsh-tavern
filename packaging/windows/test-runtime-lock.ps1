@@ -17,8 +17,8 @@ try {
  $lockedFile=$null
  while(!$process.HasExited -and [DateTime]::UtcNow -lt $deadline -and !$held) {
   foreach($directory in [IO.Directory]::GetDirectories($TestDirectory)) {
-   $candidate=Join-Path $directory 'DSH Desktop.exe'
-   if((Split-Path $directory -Leaf) -like 'preparing-*'){$candidate=Join-Path $directory 'app/DSH Desktop.exe'}
+   $candidate=Join-Path $directory 'DeepSeek Harness.exe'
+   if((Split-Path $directory -Leaf) -like 'preparing-*'){$candidate=Join-Path $directory 'app/DeepSeek Harness.exe'}
    if([IO.File]::Exists($candidate)) {
     try {
      # Allow extraction/patch reads and writes, but never share deletion/rename.

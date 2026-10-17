@@ -2,24 +2,16 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { adaptedDshVersion } from './dsh-compatibility.mjs'
 
-// Fixed DSH 0.2.0-rc.2 only. Keep its existing setting, persistence and rendering.
-//
-// 0.2.0-rc.2 适配：0.1.5 的字号域是 12..17，0.2.0 改成 10..22（下限 12→10，上限 17→22，
-// 并给「减小」按钮补了 `disabled: fontSize <= 10`）。Tavern 的目标上限仍是 32px，
-// 所以这里只把上限（和承载它的 schema / 校验 / 按钮 disabled 分支）抬到 32，下限保持 10。
-// 每条 from 必须在目标文件里恰好出现一次（见下方守卫）：index.js 有两处同形 schema，
-// 用 `[FONT_SIZE_FIELD]:` / `fontSize: …volatile()` 两段完整上下文分别定位。
+// DSH 0.2.1 centralizes each font role's schema, controls and validation in
+// FONT_SIZE_SPECS. Raise only the text role; code and terminal keep host limits.
+const textSpec = indent => `variable: "--dsh-content-font-size",\n${indent}min: 10,\n${indent}max: 22,`
 const replacements = {
   'index.js': [
     ['const FONT_SIZE_MAX = 22;', 'const FONT_SIZE_MAX = 32;'],
-    ['[FONT_SIZE_FIELD]: z.number().step(1).min(10).max(22).default(14)', '[FONT_SIZE_FIELD]: z.number().step(1).min(10).max(32).default(14)'],
-    ['fontSize: z.number().step(1).min(10).max(22).default(14).volatile()', 'fontSize: z.number().step(1).min(10).max(32).default(14).volatile()'],
+    [textSpec('\t\t'), textSpec('\t\t').replace('max: 22,', 'max: 32,')],
   ],
   'client.js': [
-    ['[FONT_SIZE_FIELD]: Schema.number().step(1).min(10).max(22).default(14)', '[FONT_SIZE_FIELD]: Schema.number().step(1).min(10).max(32).default(14)'],
-    ['disabled: fontSize >= 22,', 'disabled: fontSize >= 32,'],
-    ['px > 22) throw new Error(`font size ${px} is outside 10..22`)', 'px > 32) throw new Error(`font size ${px} is outside 10..32`)'],
-    ['parsed >= 10 && parsed <= 22 ? parsed : 14', 'parsed >= 10 && parsed <= 32 ? parsed : 14'],
+    [textSpec('\t\t\t\t'), textSpec('\t\t\t\t').replace('max: 22,', 'max: 32,')],
   ],
 }
 

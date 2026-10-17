@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-sidebar",
-  "version": "0.19.1",
+  "version": "0.28.0",
   "type": "module",
   "main": "lib/index.js",
   "dsh": {
@@ -16,13 +16,13 @@
         "@deepseek-ai/dsh-client-modules"
       ],
       "platform": "web"
-    }
+    },
+    "manifestVersion": 1
   },
   "private": true,
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./invariant": "./lib/invariant.js",
     "./package.json": "./package.json"
   }
 }

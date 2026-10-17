@@ -382,7 +382,7 @@ export function createBackgroundAgentTask(options) {
     state.session = agent.session
     if (input.undoLastTask === true) return undoLastTask(agent.session, traceSessionId, agent)
     const runtimeInput = state.input
-    try { rewindBackgroundSurface(agent.session, input.rewindTo, agent) }
+    try { rewindBackgroundSurface(agent.session, input.rewindTo, agent, input.rewindFormatVersion || 3) }
     catch (error) {
       const failure = new Error('后台历史回退失败，本次任务已停止，未基于旧上下文继续执行。原因：' + str(error?.message || error), { cause: error })
       failure.code = 'BACKGROUND_REWIND_FAILED'

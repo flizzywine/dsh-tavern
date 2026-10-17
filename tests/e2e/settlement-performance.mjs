@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path'
 import {pathToFileURL} from 'node:url'
 import { createChatJournalStore } from '../../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createChatPersistence } from '../../tavern-plugin/lib/domain/chat-persistence.js'
-import { encodeMigratedSessionLog, encodeCurrentGeneration, parseSessionLog } from '../../tavern-plugin/lib/domain/legacy-session-migration.js'
+import { encodeMigratedSessionLog, encodeCurrentGeneration, parseSessionLog } from '../../tavern-plugin/lib/domain/session-log-codec.js'
 
 // Avoid Playwright's iframe element preview: a srcdoc containing a complete
 // compatibility context can be hundreds of MB and preview formatting dominates

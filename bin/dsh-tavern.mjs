@@ -2,7 +2,10 @@
 
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
-import { SCRIPT_PATH } from './launcher-environment.mjs'
+import { spawnSync } from 'node:child_process'
+import officialDesktop from './official-desktop-runtime.cjs'
+import { fileURLToPath } from 'node:url'
+import { SCRIPT_PATH, RUNTIME_HOST, DSH_ROOT } from './launcher-environment.mjs'
 import { installProfile, parseInstallHost } from './profile-installation.mjs'
 import { startService, stopService, statusService, openService, bootstrapFrontendOnce } from './service-lifecycle.mjs'
 import { updateApplication, parseUpdateOptions } from './application-update.mjs'
@@ -25,6 +28,20 @@ function usage() {
 
 async function main() {
   const action = process.argv[2] || 'status'
+  if (RUNTIME_HOST === 'desktop' && ['install', 'update'].includes(action)) {
+    const executable = officialDesktop.discover()
+    if (!process.versions.electron || path.resolve(process.execPath) !== path.resolve(executable)) {
+      const setup = spawnSync(executable, ['--expose-internals', fileURLToPath(new URL('./official-desktop-runtime.cjs', import.meta.url)), DSH_ROOT],
+        { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8' })
+      if (setup.error || setup.status !== 0) throw new Error(setup.error?.message || setup.stderr || '官方 Desktop 环境准备失败')
+      const result = spawnSync(executable, ['--expose-internals', SCRIPT_PATH, ...process.argv.slice(2)],
+        { env: { ...process.env, ...JSON.parse(setup.stdout), ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit' })
+      if (result.error) throw result.error
+      process.exitCode = result.status ?? 1
+      return
+    }
+    Object.assign(process.env, officialDesktop.prepare({ executable, home: DSH_ROOT }))
+  }
   switch (action) {
     case 'install':
       await installProfile(parseInstallHost(process.argv.slice(3)))

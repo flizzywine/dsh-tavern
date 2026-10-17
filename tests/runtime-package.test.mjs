@@ -106,7 +106,8 @@ for (const format of ['tar', 'zip']) {
     const files = listing.split(/\r?\n/)
     for (const file of required) assert.ok(files.includes(file), `运行包遗漏：${file}`)
     assert.ok(files.includes('LICENSE'), '保留许可文件')
-    assert.ok(!files.some(file => /(^|\/)(android|docs|tests|__tests__|testsets)(\/|$)/.test(file)), '下载包不应包含 Android 入口、文档或测试目录')
+    assert.ok(files.includes('android/setup.sh'), '源码下载包保留 Android 安装入口')
+    assert.ok(!files.some(file => /(^|\/)(docs|tests|__tests__|testsets)(\/|$)/.test(file)), '下载包不应包含文档、图片或测试目录')
     for (const directory of ['examples', 'references', '.github', 'claude', 'scripts', 'packaging']) {
       assert.ok(!files.some(file => file.startsWith(directory + '/')), `开发资料未排除：${directory}`)
     }

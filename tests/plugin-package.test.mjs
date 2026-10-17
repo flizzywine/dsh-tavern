@@ -60,7 +60,7 @@ test('standard package ships runtime resources without local links, host copies 
     assert.fail(`preset 声明行不得使用相对路径（0.2.0 的解析基准是 profile 目录）：${specifier}`)
   }
   for (const [, specifier] of pluginPatch.matchAll(/^\s*name: (dsh-tavern-plugin\/\S+)\s*$/gm)) {
-    const exported = manifest.exports[`.${specifier.slice('dsh-tavern-plugin'.length)}`]
+    const exported = JSON.parse(read('tavern-plugin/package.json')).exports[`.${specifier.slice('dsh-tavern-plugin'.length)}`]
     assert.ok(exported, `${specifier} 未在 tavern-plugin/package.json 的 exports 中声明`)
     assert.ok(files.has(path.posix.join('tavern-plugin', exported.replace(/^\.\//, ''))), `${specifier} 指向的文件不在发布包内`)
   }
@@ -69,8 +69,8 @@ test('standard package ships runtime resources without local links, host copies 
 
 test('standard bundle and sidebar distribution match their maintained sources', () => {
   execFileSync(process.execPath, ['bin/build-plugin-package.mjs', '--check'], { cwd: root })
-  for (const name of ['index.js', 'client.js', 'client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'invariant.js']) {
+  for (const name of ['index.js', 'client.js', 'client-registry.js', 'client-terminal.js', 'client-editor.js', 'client-mermaid.js', 'client-locale.js']) {
     assert.equal(read(`tavern-plugin/packages/dsh-better-sidebar/lib/${name}`), read(`node_modules/dsh-better-sidebar/lib/${name}`))
   }
-  assert.match(read('tavern-plugin/packages/dsh-better-sidebar/lib/index.js'), /function threadBoundaryEvents\(/)
+  assert.match(read('tavern-plugin/packages/dsh-better-sidebar/lib/index.js'), /function threadOwnLogEvents\(/)
 })

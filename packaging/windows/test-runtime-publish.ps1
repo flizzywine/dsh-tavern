@@ -16,7 +16,7 @@ class RuntimeStorageTest {
  static string Choose(string root){return (string)Call("ChooseRuntime",root);}
  static bool Ready(string path){return (bool)Call("IsRuntimeReady",path);}
  static void Prepare(string runtime,Action<string> action){Call("PrepareRuntime",runtime,action);}
- static void Populate(string path){File.WriteAllText(Path.Combine(path,"DSH Desktop.exe"),"runtime sentinel");}
+ static void Populate(string path){File.WriteAllText(Path.Combine(path,"DeepSeek Harness.exe"),"runtime sentinel");}
  static void Check(bool ok,string message){if(!ok)throw new Exception(message);}
  static void Test(string name,Action test,ref int failed){try{test();Console.WriteLine("PASS: "+name);}catch(Exception e){failed++;Console.WriteLine("FAIL: "+name+" "+e);}}
  static int Main(string[] args) {
@@ -27,20 +27,20 @@ class RuntimeStorageTest {
    try {
     var clock=Stopwatch.StartNew();
     Prepare(runtime,delegate(string app){
-     Populate(app);held=new FileStream(Path.Combine(app,"DSH Desktop.exe"),FileMode.Open,FileAccess.Read,FileShare.Read);
+     Populate(app);held=new FileStream(Path.Combine(app,"DeepSeek Harness.exe"),FileMode.Open,FileAccess.Read,FileShare.Read);
      try{Directory.Move(app,app+"-move-probe");throw new Exception("Fixture did not prevent move");}
      catch(IOException e){Check(e.HResult==unchecked((int)0x80070005),"Unexpected fixture HRESULT");}
     });
     Check(clock.ElapsedMilliseconds<1000,"Publication waited for a lock that is still held");
     Check(Ready(runtime)&&Choose(install)==runtime,"Prepared runtime was not reusable");
-    Check(File.ReadAllText(Path.Combine(runtime,"DSH Desktop.exe"))=="runtime sentinel","Runtime changed");
+    Check(File.ReadAllText(Path.Combine(runtime,"DeepSeek Harness.exe"))=="runtime sentinel","Runtime changed");
     try{Prepare(runtime,Populate);throw new Exception("Existing runtime was overwritten");}catch(IOException){}
    } finally {if(held!=null)held.Dispose();}
   },ref failed);
   Test("failed preparation stays unready even when cleanup is blocked; retry uses a new directory",delegate {
    string install=Path.Combine(root,"failed");Directory.CreateDirectory(install);string runtime=Choose(install);FileStream held=null;
    try {
-    try{Prepare(runtime,delegate(string app){Populate(app);held=new FileStream(Path.Combine(app,"DSH Desktop.exe"),FileMode.Open,FileAccess.Read,FileShare.Read);throw new InvalidOperationException("patch failed");});throw new Exception("Failure swallowed");}
+    try{Prepare(runtime,delegate(string app){Populate(app);held=new FileStream(Path.Combine(app,"DeepSeek Harness.exe"),FileMode.Open,FileAccess.Read,FileShare.Read);throw new InvalidOperationException("patch failed");});throw new Exception("Failure swallowed");}
     catch(InvalidOperationException e){Check(e.Message=="patch failed","Original error masked");}
     Check(!Ready(runtime),"Failed preparation was marked ready");
     string next=Choose(install);Check(next!=runtime,"Retry selected partial runtime");Prepare(next,Populate);Check(Choose(install)==next,"Retry not reusable");
@@ -58,7 +58,7 @@ class RuntimeStorageTest {
   },ref failed);
   Test("legacy ready runtime is reused unchanged",delegate {
    string install=Path.Combine(root,"legacy"),legacy=Path.Combine(install,"runtime-"+version);Directory.CreateDirectory(legacy);Populate(legacy);File.WriteAllText(Path.Combine(legacy,"ready"),version);
-   using(var held=new FileStream(Path.Combine(legacy,"DSH Desktop.exe"),FileMode.Open,FileAccess.Read,FileShare.Read)){Check(Choose(install)==legacy,"Legacy runtime was not reused");}
+   using(var held=new FileStream(Path.Combine(legacy,"DeepSeek Harness.exe"),FileMode.Open,FileAccess.Read,FileShare.Read)){Check(Choose(install)==legacy,"Legacy runtime was not reused");}
   },ref failed);
   Test("missing executable and marker-write failure never publish a runtime",delegate {
    string install=Path.Combine(root,"invalid");Directory.CreateDirectory(install);string missing=Choose(install);

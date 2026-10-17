@@ -142,3 +142,5 @@ TAVERN_E2E_WRONG_GOLD=1 TAVERN_E2E_TIMEOUT_MS=10000 pnpm test:e2e
 `node tests/e2e/gameplay.mjs --native-format` 在普通完整游玩流程上增加磁盘格式断言和服务重启恢复：必须直接写入 `conversation-state-v2` 的 `head.json` / `blocks`，不能出现旧 snapshots/journals 或兼容迁移标记。页面变量还必须与独立原生读取器读出的当前世界一致。
 
 `node tests/e2e/gameplay.mjs --native-format --mvu-incremental` 进一步验证 Helper 历史楼、末楼、chat/script 变量、第二页面实时同步、MVU 重算及重启后继续写入。两者都只创建合成新局，不测试迁移。
+
+`node tests/e2e/gameplay.mjs --upgrade-save` 验证 DSH 0.2.1 统一升级：在独立测试环境准备旧版会话日志与 journal 剧情存储，重启后通过“升级存档”入口完成转换，核对旧文件与历史版本，再继续游玩、编辑、回退/撤销、切换预设和重启恢复。该选项替代旧 `--migrate-native`；实际覆盖与异常旧档限制见 `docs/verification/dsh-021-save-upgrade.md`。

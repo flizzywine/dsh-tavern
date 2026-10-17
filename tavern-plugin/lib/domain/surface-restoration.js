@@ -1,3 +1,4 @@
+import { upgradeReferences, SESSION_UPGRADE_EVENT } from './session-upgrade-references.js'
 import { createSessionSurfaceMutator } from './session-surface-mutations.js'
 import { randomUUID } from 'node:crypto'
 import { sessionEvents } from './session-events.js'
@@ -7,8 +8,10 @@ export function restoredSurfaceSeqs(events) {
 }
 
 /** Restore a saved surface through new events; never mutate the append-only log. */
-export function restoreSurface(session, targetNodes) {
+export function restoreSurface(session, targetNodes, formatVersion = 4) {
   const events = sessionEvents(session)
+  const references = upgradeReferences(events)
+  targetNodes = targetNodes.map(seq => references.sequence(seq, formatVersion))
   const nodes = [...session.surface.nodes]
   let prefix = 0
   while (prefix < nodes.length && prefix < targetNodes.length && nodes[prefix] === targetNodes[prefix]) prefix++
@@ -44,17 +47,18 @@ export function restoreSurface(session, targetNodes) {
   }
 }
 
-export function preflightSurfaceRestore(session, nodes) {
+export function preflightSurfaceRestore(session, nodes, formatVersion = 4) {
   if (typeof session.constructor?.fromRestore !== 'function') return
   const preview = session.constructor.fromRestore(session.id, structuredClone(sessionEvents(session)), structuredClone(session.header), session.inheritedEventCount, 'detached')
-  restoreSurface(preview, nodes)
+  restoreSurface(preview, nodes, formatVersion)
 }
 
 /** Resuming a persisted session appends a seed marker, not a context edit. */
-export function unchangedSinceRollback(session, afterCount) {
+export function unchangedSinceRollback(session, afterCount, formatVersion = 4) {
   const events = sessionEvents(session)
+  afterCount = upgradeReferences(events).count(afterCount, formatVersion)
   return Number.isSafeInteger(afterCount) && afterCount >= 0 && afterCount <= events.length
-    && events.slice(afterCount).every(event => event.type === 'session/end-seed' && event.surfaceOp === undefined)
+    && events.slice(afterCount).every(event => (event.type === 'session/end-seed' || event.type === SESSION_UPGRADE_EVENT) && event.surfaceOp === undefined)
 }
 
 export function canUndoRollback(chat, session) {
@@ -63,5 +67,5 @@ export function canUndoRollback(chat, session) {
     && saved.branchId === chat.timeline?.branchId && saved.revision === chat.timeline?.revision
     && saved.lifecycleRevision === Number(chat.tavernHelperLifecycleRevision || 0)
     && saved.storageRevision === Number(chat._storageRevision ?? chat.windowRevision ?? 0)
-    && unchangedSinceRollback(session, saved.foreground.afterCount))
+    && unchangedSinceRollback(session, saved.foreground.afterCount, saved.foreground.formatVersion || 3))
 }

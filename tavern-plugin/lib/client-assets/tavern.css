@@ -226,12 +226,23 @@ body.dsh-tavern-shell-active .dsh-tavern-landing::before { content: ""; width: m
 [data-ds-dark-theme] body.dsh-tavern-shell-active .dsh-tavern-landing::before, body[data-ds-dark-theme].dsh-tavern-shell-active .dsh-tavern-landing::before { background-image: var(--dsh-tavern-lockup-dark); }
 body.dsh-tavern-shell-active [data-ref-chip="file"] { max-width: calc(100% - 4px); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dsh-tavern-side-head { height: 64px; display: flex; align-items: center; gap: 8px; flex: none; }
+/* DSH 0.2 adds global navigation above the Tavern workspace. */
+body.dsh-tavern-shell-active nav[aria-label="全局面板"],
+body.dsh-tavern-shell-active nav[aria-label="Global panels"] { display: none !important; }
+/* Preserve the native menu and avatar; only replace its expanded label. */
+body.dsh-tavern-shell-active [data-slot="settings.launcher"] button[data-signed-out] > [class$="_label"] { display: none; }
+body.dsh-tavern-shell-active [data-slot="settings.launcher"] button[data-signed-out][data-collapsed="false"]::after { content: "设置"; }
 .dsh-tavern-lockup { background: var(--dsh-tavern-lockup) left center / contain no-repeat; }
 [data-ds-dark-theme] .dsh-tavern-lockup, .dsh-tavern-lockup[data-ds-dark-theme] { background-image: var(--dsh-tavern-lockup-dark); }
 .dsh-tavern-side-brand { flex: 1; min-width: 0; height: 56px; margin-right: 40px; }
 /* 宿主顶部 logo 行只剩收起按钮，却占 68px；让酒馆标志顶到最上方，收起按钮浮在标志右侧同一行。 */
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) { position: relative; }
 body.dsh-tavern-shell-active [class*="_root"]:not([class*="_collapsed"]):has(> [class*="_regionArea"] > [data-slot="sidebar.workspaces"] > .dsh-tavern-sidebar:not(.collapsed)) > [class*="_logoRow"] { position: absolute; z-index: 2; top: 18px; right: 12px; height: 64px; margin: 0; padding: 0; }
+/* Official Desktop adds its own brand identity. Tavern already renders one.
+   On macOS the toggle lives in the native title strip, so remove the empty
+   logo row altogether while retaining the window controls and drag area. */
+body.dsh-tavern-shell-active [class*="_logoRow"] > [class*="_brand"] { display: none !important; }
+body.dsh-tavern-shell-active [class*="_topStrip"] + [class*="_logoRow"] { display: none !important; }
 .dsh-tavern-hero-lockup { display: block; width: min(400px, 76vw); aspect-ratio: 715 / 200; background-position: center; }
 /* 酒馆标志已包含名称，隐藏宿主的标题与预览标记。 */
 body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display: none !important; }

@@ -60,7 +60,7 @@ try {
         $env:ELECTRON_RUN_AS_NODE = '1'
         $probeArguments = @((Join-Path $PSScriptRoot 'test-unicode-shims.mjs'), $runtime, (Join-Path $install '中文 命令测试')) | ForEach-Object { '"' + $_ + '"' }
         $stdout = Join-Path $install 'unicode-test.stdout.txt'; $stderr = Join-Path $install 'unicode-test.stderr.txt'
-        $probe = Start-Process -FilePath (Join-Path $runtime 'DSH Desktop.exe') -ArgumentList $probeArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $probe = Start-Process -FilePath (Join-Path $runtime 'DeepSeek Harness.exe') -ArgumentList $probeArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
         $null=$probe.Handle; if (!$probe.WaitForExit(30000)) { $probe.Kill(); throw 'Unicode command probe timed out' }
         Get-Content -LiteralPath $stdout
         if ($probe.ExitCode -ne 0) { Get-Content -LiteralPath $stderr; throw 'Unicode command shim regression failed' }

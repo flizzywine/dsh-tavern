@@ -41,7 +41,10 @@ export function projectChatSessionState(chat, options = {}) {
     selected.rollbackUndo = {
       version: saved.version, ready: saved.ready, branchId: saved.branchId, revision: saved.revision,
       lifecycleRevision: saved.lifecycleRevision, storageRevision: saved.storageRevision,
-      turn: saved.turn, foreground: { afterCount: saved.foreground?.afterCount }
+      turn: saved.turn, foreground: { afterCount: saved.foreground?.afterCount,
+        ...(saved.foreground?.formatVersion ? { formatVersion: saved.foreground.formatVersion } : {}),
+        ...(saved.foreground?.sessionId ? { sessionId: saved.foreground.sessionId } : {}) },
+      ...(saved.background ? { background: saved.background.map(checkpoint => ({ sessionId: checkpoint.sessionId, formatVersion: checkpoint.formatVersion })) } : {})
     }
   }
   if (options.messages) return {...copyLazyHistoryHeader(selected),messages:options.messages}

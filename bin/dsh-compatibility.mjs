@@ -16,7 +16,7 @@ export function dshCompatibilityNotice(currentVersion = '', host = 'desktop') {
   if (host === 'cli') return `命令行版独立安装并使用 DSH ${adaptedDshVersion}，不复用或修改全局 DSH。`
   const notice = host === 'android'
     ? `适配版本：DSHA ${recommendedDshaVersion}（内置 DSH ${adaptedDshVersion}），要求内置 DSH 版本完全匹配；请下载安装适配版本：${dshaReleasesUrl}`
-    : `适配版本：DSH Desktop ${recommendedDesktopVersion}（内置 DSH ${adaptedDshVersion}），要求内置 DSH 版本完全匹配；请下载安装适配版本：${desktopReleasesUrl}`
+    : `适配版本：官方 DeepSeek Harness ${recommendedDesktopVersion}（内置 DSH ${adaptedDshVersion}），要求内置 DSH 版本完全匹配；请下载安装适配版本：${desktopReleasesUrl}`
   return currentVersion && currentVersion !== adaptedDshVersion
     ? `${notice}\n当前 DSH ${currentVersion} 与要求版本 ${adaptedDshVersion} 不同；已停止安装，不会修改宿主版本。`
     : notice

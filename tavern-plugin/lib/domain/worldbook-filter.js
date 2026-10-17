@@ -32,6 +32,7 @@ export function createWorldbookFilter({ runAgent, selection, beginTask }) {
         task: 'worldbook-filter', persistent: true, sessionId: chat.sessionId,
         persistentSessionId: taskRun.participantRequest.sessionId,
         rewindTo: taskRun.participantRequest.rewindTo,
+        rewindFormatVersion: taskRun.participantRequest.formatVersion,
         onPersistentSessionReady: id => taskRun.bindSession(id),
         turn: Number(chat.messages?.at(-1)?.turn || 0) + 1,
         selection: selection(chat), webSearchEnabled: false, signal,

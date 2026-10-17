@@ -37,7 +37,7 @@ export async function installHostSubprocessPatch({ hostRequire, persistence, pla
     const modified = source.replace(target, target + '\n\t\t\twindowsHide: true,')
       .replace(/\bfrom "([^"]+)"/g, (_, specifier) => 'from ' + JSON.stringify(
         specifier.startsWith('node:') ? specifier : pathToFileURL(localRequire.resolve(specifier)).href))
-      // 0.2.0-rc.2 适配：宿主入口在模块顶层就 `createLazyRequire("node-pty", import.meta.url)`。
+      // 0.2.1-rc.2 适配：宿主入口在模块顶层就 `createLazyRequire("node-pty", import.meta.url)`。
       // data: 模块里的 import.meta.url 是 data URL，createRequire 直接抛 ERR_INVALID_ARG_VALUE
       // （真机取证：ERR_INVALID_ARG_VALUE @ data:…:1262:24）。改写成真实入口文件 URL 后 node-pty
       // 仍按宿主同一份解析（asar 旁解包的 app.asar.unpacked），与 host-session-patch.js 同一手法。

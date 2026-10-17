@@ -1,11 +1,13 @@
+import { upgradeReferences, storyEventTurn } from './session-upgrade-references.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { restoredSurfaceSeqs } from './surface-restoration.js'
 import { sessionEvents, surfaceReplacementRange, withSurfaceEditTurn } from './session-events.js'
 import { randomUUID } from 'node:crypto'
 
-export function rewindBackgroundSurface(session, boundary, agent) {
+export function rewindBackgroundSurface(session, boundary, agent, formatVersion = 4) {
   if (!Number.isSafeInteger(boundary)) return 0
   const events = sessionEvents(session)
+  boundary = upgradeReferences(events).sequence(boundary, formatVersion)
   const nodes = session && session.surface && Array.isArray(session.surface.nodes) ? session.surface.nodes : []
   const bySeq = new Map(events.map(event => [event.seq, event]))
   // A replaced system message gets a new seq but stays at surface position zero.
@@ -72,7 +74,7 @@ export function backgroundSuppressedTurns(events) {
   const turns = new Set()
   if (!merged.length) return []
   for (const event of events) {
-    const seq = event.seq, turn = event.data?.turn
+    const seq = event.seq, turn = storyEventTurn(event)
     if (!Number.isSafeInteger(seq) || !Number.isSafeInteger(turn) || turn <= 0) continue
     // Binary search also supports imported histories whose seqs are not sorted.
     let low=0, high=merged.length-1

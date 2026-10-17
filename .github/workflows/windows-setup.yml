@@ -1,6 +1,6 @@
 name: Windows Setup
 
-# Builds the one-click Setup EXE: upstream DSH Desktop 2.0.13 plus the Tavern
+# Builds the one-click Setup EXE: official DeepSeek Harness 0.2.1-rc.2 plus the Tavern
 # launcher that installs the plugin. Inputs are pinned by SHA-256; build.ps1
 # injects the resulting payload hash into the launcher.
 on:
@@ -20,8 +20,8 @@ on:
       - .github/workflows/windows-setup.yml
 
 env:
-  DESKTOP_SETUP_URL: https://github.com/anywhere-labs/dsh-desktop/releases/download/v2.0.13/DSH-Desktop-2.0.13-x64-Setup.exe
-  DESKTOP_SETUP_SHA256: 3aa0c75b891470d1621f5589574530c7509b68d854859b059164fbfb7cd93490
+  DESKTOP_SETUP_URL: https://download.deepseek.com/dsh-desk/bin/win-x64/deepseek-harness-0.2.1-rc.2-win-x64.exe
+  DESKTOP_SETUP_SHA256: 72e4a8579f11b5428dd0a1506532777924adba7ecaacc710a7e429085796537f
   # Standalone 7za.exe embedded in the EXE to unpack the payload on user machines.
   SEVENZIP_EXTRA_URL: https://github.com/ip7z/7zip/releases/download/26.03/7z2603-extra.7z
   SEVENZIP_EXTRA_SHA256: 191894e6acb3647ffb69ce630479ff318523b2e2b9890aa7f05c1127c2e59b8f
@@ -46,7 +46,7 @@ jobs:
             $actual = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($actual -ne $Sha256) { throw "SHA-256 mismatch for ${Url}: $actual" }
           }
-          Get-Pinned $env:DESKTOP_SETUP_URL $env:DESKTOP_SETUP_SHA256 "$root\inputs\DSH-Desktop-2.0.13-x64-Setup.exe"
+          Get-Pinned $env:DESKTOP_SETUP_URL $env:DESKTOP_SETUP_SHA256 "$root\inputs\deepseek-harness-0.2.1-rc.2-win-x64.exe"
           Get-Pinned $env:SEVENZIP_EXTRA_URL $env:SEVENZIP_EXTRA_SHA256 "$root\inputs\7z-extra.7z"
           & 'C:\Program Files\7-Zip\7z.exe' e "$root\inputs\7z-extra.7z" "-o$root\inputs" 'x64\7za.exe' -y | Out-Null
           if (-not (Test-Path -LiteralPath "$root\inputs\7za.exe")) { throw '7za.exe not found in 7-Zip extra package' }
@@ -55,33 +55,42 @@ jobs:
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'build'
           # Full 7z.exe is required to read the NSIS installer.
-          ./packaging/windows/build-payload.ps1 -DesktopSetup "$root\inputs\DSH-Desktop-2.0.13-x64-Setup.exe" -SevenZip 'C:\Program Files\7-Zip\7z.exe' -OutputPayload "$root\inputs\online-payload.7z" -WorkDirectory "$root\payload-work"
+          ./packaging/windows/build-payload.ps1 -DesktopSetup "$root\inputs\deepseek-harness-0.2.1-rc.2-win-x64.exe" -SevenZip 'C:\Program Files\7-Zip\7z.exe' -OutputPayload "$root\inputs\online-payload.7z" -WorkDirectory "$root\payload-work"
 
       - name: Build Setup
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'build'
-          ./packaging/windows/build.ps1 -Payload "$root\inputs\online-payload.7z" -SevenZip "$root\inputs\7za.exe" -Output "$root\out\DSH-Tavern-Desktop-2.0.13-x64-Setup.exe"
+          ./packaging/windows/build.ps1 -Payload "$root\inputs\online-payload.7z" -SevenZip "$root\inputs\7za.exe" -Output "$root\out\DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe"
 
       - name: Launcher integration checks
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'build'
-          ./packaging/windows/test.ps1 -Launcher "$root\out\DSH-Tavern-Desktop-2.0.13-x64-Setup.exe" -TestDirectory "$root\launcher-test"
+          ./packaging/windows/test.ps1 -Launcher "$root\out\DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe" -TestDirectory "$root\launcher-test"
 
       # The Setup installs dependencies with Desktop's own pnpm under Electron
       # (ELECTRON_RUN_AS_NODE). Exercise exactly that with the real lockfile.
+      - name: Upgrade recovery and runtime ownership checks
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'build'
+          $runtime = (Get-ChildItem -LiteralPath (Join-Path $root 'launcher-test') -Directory -Recurse -Filter 'runtime-*' | Select-Object -First 1).FullName
+          ./packaging/windows/test-upgrade.ps1 -Runtime $runtime -Launcher "$root\out\DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe" -TestDirectory "$root\upgrade-test"
+          ./packaging/windows/test-runtime-publish.ps1 -TestDirectory "$root\publish-test"
+
       - name: pnpm install under Desktop Electron
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'build'
           # Avoid non-ASCII literals here: Windows PowerShell may read the step script as ANSI.
           $runtime = (Get-ChildItem -LiteralPath (Join-Path $root 'launcher-test') -Directory -Recurse -Filter 'runtime-*' | Select-Object -First 1).FullName
           if (-not $runtime) { throw 'Prepared runtime not found' }
-          $electron = Join-Path $runtime 'DSH Desktop.exe'
-          $pnpm = Join-Path $runtime 'resources\app\node_modules\pnpm\bin\pnpm.mjs'
+          $electron = Join-Path $runtime 'DeepSeek Harness.exe'
+          $pnpm = Join-Path $runtime 'resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
           if (-not (Test-Path -LiteralPath $pnpm)) { throw "Desktop pnpm entry not found: $pnpm" }
           $app = Join-Path $root 'pnpm-probe\app'
           New-Item -ItemType Directory -Force $app | Out-Null
           git archive --format=zip --output "$root\pnpm-probe\app.zip" HEAD -- package.json pnpm-lock.yaml pnpm-workspace.yaml cordis.patch.yml bin config presets patches tavern-plugin
           Expand-Archive -LiteralPath "$root\pnpm-probe\app.zip" -DestinationPath $app
+          $env:DSH_DESKTOP_NODE_EXECUTABLE = $electron
+          $env:PATH = (Join-Path $runtime 'resources\runtime\bin') + ';' + $env:PATH
           $env:ELECTRON_RUN_AS_NODE = '1'
           $env:pnpm_config_update_notifier = 'false'
           $env:pnpm_config_store_dir = Join-Path $root 'pnpm-probe\store'
@@ -92,7 +101,7 @@ jobs:
             $label = if ($round -eq 1) { 'cold store' } else { 'warm store' }
             $out = Join-Path $root "pnpm-probe\round$round.out.txt"; $err = Join-Path $root "pnpm-probe\round$round.err.txt"
             $started = Get-Date
-            $p = Start-Process -FilePath $electron -ArgumentList @("`"$pnpm`"", '--dir', "`"$app`"", 'install', '--frozen-lockfile', '--reporter=append-only') -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+            $p = Start-Process -FilePath $electron -ArgumentList @('--expose-internals', "`"$pnpm`"", '--dir', "`"$app`"", 'install', '--frozen-lockfile', '--reporter=append-only') -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
             $null = $p.Handle
             if (-not $p.WaitForExit(900000)) {
               $p.Kill(); $failures++
@@ -114,20 +123,22 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'build'
           $install = Join-Path $root 'online-test'
           $env:DSH_LAUNCHER_TEST_ROOT = $install
-          $p = Start-Process -FilePath "$root\out\DSH-Tavern-Desktop-2.0.13-x64-Setup.exe" -ArgumentList '--prepare-only' -WindowStyle Hidden -PassThru
+          $p = Start-Process -FilePath "$root\out\DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe" -ArgumentList '--prepare-only' -WindowStyle Hidden -PassThru
           $null = $p.Handle
           if (-not $p.WaitForExit(300000)) { $p.Kill(); throw 'prepare-only timed out' }
           if ($p.ExitCode -ne 0) { throw "prepare-only failed: $($p.ExitCode)" }
           Remove-Item Env:DSH_LAUNCHER_TEST_ROOT
+          $env:DSH_TAVERN_TARGET_COMMIT = $env:GITHUB_SHA
+          $env:DSH_TAVERN_ARCHIVE_URL = "https://codeload.github.com/$env:GITHUB_REPOSITORY/zip/$env:GITHUB_SHA"
           ./packaging/windows/test-online-upgrade.ps1 -InstallDirectory $install -Registry 'https://registry.npmjs.org'
 
       - name: Hash
-        run: Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\build\out\DSH-Tavern-Desktop-2.0.13-x64-Setup.exe" | Format-List
+        run: Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP\build\out\DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe" | Format-List
 
       - uses: actions/upload-artifact@v4
         with:
           name: DSH-Tavern-Windows-Setup
-          path: ${{ runner.temp }}/build/out/DSH-Tavern-Desktop-2.0.13-x64-Setup.exe
+          path: ${{ runner.temp }}/build/out/DSH-Tavern-Harness-0.2.1-rc.2-x64-Setup.exe
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@ name: Publish runtime manifest
 
 on:
   push:
-    branches: [main]
+    branches: ['0.2.1版本']
     paths-ignore:
       - dsh-tavern-runtime.json
 
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-runtime-manifest
+  group: publish-runtime-manifest-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -23,9 +23,9 @@ jobs:
       - name: Build immutable runtime manifest
         shell: bash
         run: |
-          git fetch origin main
-          git checkout main
-          git pull --ff-only origin main
+          git fetch origin "$GITHUB_REF_NAME"
+          git checkout "$GITHUB_REF_NAME"
+          git pull --ff-only origin "$GITHUB_REF_NAME"
           node .github/scripts/write-runtime-manifest.mjs "$(git rev-parse HEAD)" "${{ github.run_number }}"
       - name: Commit manifest
         shell: bash
@@ -35,7 +35,7 @@ jobs:
           git add dsh-tavern-runtime.json
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "chore: publish runtime manifest [skip ci]"
-          git push origin main
+          git push origin "$GITHUB_REF_NAME"
       # jsDelivr caches @main for up to 12h, while installers download code at the
       # manifest's pinned revision. A stale install.ps1/install.sh paired with new
       # files fails ("安装文件不完整"), so refresh the mutable entry points on every
@@ -48,9 +48,9 @@ jobs:
           for attempt in 1 2 3 4 5 6; do
             sleep $((attempt * 10))
             for f in install.ps1 install.sh dsh-tavern-runtime.json; do
-              curl -fsS --retry 3 "https://purge.jsdelivr.net/gh/${repo}@main/${f}" > /dev/null || true
+              curl -fsS --retry 3 "https://purge.jsdelivr.net/gh/${repo}@0.2.1%E7%89%88%E6%9C%AC/${f}" > /dev/null || true
             done
-            served="$(curl -fsS "https://cdn.jsdelivr.net/gh/${repo}@main/dsh-tavern-runtime.json" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{try{console.log(JSON.parse(s).revision)}catch{console.log('')}})" || true)"
+            served="$(curl -fsS "https://cdn.jsdelivr.net/gh/${repo}@0.2.1%E7%89%88%E6%9C%AC/dsh-tavern-runtime.json" | node -e "let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{try{console.log(JSON.parse(s).revision)}catch{console.log('')}})" || true)"
             echo "attempt ${attempt}: CDN manifest revision=${served:-<none>} expected=${expected}"
             if [ "$served" = "$expected" ]; then exit 0; fi
           done

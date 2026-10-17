@@ -1,3 +1,4 @@
+import { storyEventTurn } from './session-upgrade-references.js'
 import { sessionEvents } from './session-events.js'
 import { uncommittedRounds } from './uncommitted-rounds.js'
 import { createRoundAnchorResolver, validAnchor } from './round-anchor.js'
@@ -18,13 +19,13 @@ export function nativeStoryTurns(session) {
   const events = sessionEvents(session)
   const bySeq = new Map(events.filter(event => Number.isSafeInteger(event?.seq)).map(event => [event.seq, event]))
   const ended = new Map()
-  for (const event of events) if (event?.type === 'turn/end') ended.set(Number(event.data?.turn), event.data?.reason?.kind || '')
+  for (const event of events) if (event?.type === 'turn/end') ended.set(storyEventTurn(event), event.data?.reason?.kind || '')
   const turns = []
   for (const seq of session.surface?.nodes || []) {
     const event = bySeq.get(Number(seq))
     const message = event?.type === 'assistant/message' ? event.data?.message : null
     if (message?.source?.kind !== 'model' || !text(message)) continue
-    const turn = Number(event.data?.turn)
+    const turn = storyEventTurn(event)
     // The seed exchange and the opening are not player rounds.
     if (!(turn > 1) || String(message.id || '').startsWith('tavern-seed-trajectory:') || String(message.id || '').startsWith('tavern-opening:')) continue
     // A failed or still running turn is not story yet; its cleanup is separate.

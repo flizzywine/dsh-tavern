@@ -18,9 +18,9 @@ test('Windows Desktop installs run the bundled DSH bootstrap, never a `dsh` foun
   assert.deepEqual(resolveDshInvocation(bootstrap, ['--version'], 'desktop', process.execPath, env, 'win32'),
     { command: executable, args: ['--expose-internals', bootstrap, '--version'], env: { ELECTRON_RUN_AS_NODE: '1' } })
 
-  // Outside Windows Desktop, or without both files, keep the existing lookup.
+  // Both desktop platforms pin the host; CLI and incomplete environments do not.
   assert.equal(pinnedDesktopDsh('cli', env, 'win32'), null)
-  assert.equal(pinnedDesktopDsh('desktop', env, 'darwin'), null)
+  assert.deepEqual(pinnedDesktopDsh('desktop', env, 'darwin'), { executable, bootstrap })
   assert.equal(pinnedDesktopDsh('desktop', { ...env, DSH_DESKTOP_DSH_BOOTSTRAP: path.join(root, 'missing.js') }, 'win32'), null)
   assert.deepEqual(resolveDshInvocation('dsh', ['--version'], 'desktop', process.execPath, env, 'win32'), { command: 'dsh', args: ['--version'] })
 })

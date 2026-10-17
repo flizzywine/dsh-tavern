@@ -17,13 +17,13 @@ const RELEASE_FILE = '.dsh-tavern-release.json'
 const RUNNING_TIMEOUT_MS = 15 * 60 * 1000
 // Matches the installation lock's stale-idle limit.
 const ORPHAN_RECORD_MS = 60 * 60 * 1000
-const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/package.json'
-const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/main'
+const VERSION_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/0.2.1%E7%89%88%E6%9C%AC/package.json'
+const COMMIT_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/commits/0.2.1%E7%89%88%E6%9C%AC'
 const COMPARE_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/compare'
 const execFileAsync = promisify(execFile)
 const UPDATE_CHECK_POLICY = 5
 const BUSY_PHASES = new Set(['running', 'cancelling', 'blocked'])
-const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/dsh-tavern-runtime.json'
+const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@0.2.1%E7%89%88%E6%9C%AC/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
 
@@ -180,11 +180,11 @@ export function createApplicationUpdater(options) {
   const dataRoot = path.resolve(options.dataRoot)
   const sourceRoot = path.resolve(options.sourceRoot)
   const dshHome = path.resolve(options.dshHome || path.join(dataRoot, '../../..'))
-  const profileManifest = path.join(dshHome, 'profiles', 'tavern', 'package.json')
   const execPath = options.execPath || process.execPath
   const hostDependencyAnchor = options.hostDependencyAnchor || ''
   const platform = options.platform || process.platform
   const runtimeHost = options.runtimeHost || process.env.DSH_TAVERN_RUNTIME_HOST
+  const profileManifest = path.join(dshHome, 'profiles', (runtimeHost || (process.versions.electron ? 'desktop' : 'cli')) === 'desktop' ? 'desktop' : 'tavern', 'package.json')
   const spawnProcess = options.spawnProcess || spawn
   const now = typeof options.now === 'function' ? options.now : Date.now
   const isProcessAlive = typeof options.isProcessAlive === 'function' ? options.isProcessAlive : processIsAlive

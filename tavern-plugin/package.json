@@ -15,7 +15,7 @@
     "acorn": "8.15.0",
     "@deepseek-ai/dsh-agent": ">=0.2.0-rc.1 <0.3.0",
     "@deepseek-ai/dsh-skill-filesystem": ">=0.2.0-rc.1 <0.3.0",
-    "dsh-mnemon": "0.5.29",
+    "dsh-mnemon": "0.5.31",
     "dsh-mnemon-source-runtime": "0.5.14",
     "dsh-mnemon-source-documents": "0.5.10"
   },

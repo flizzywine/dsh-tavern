@@ -7,9 +7,44 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 	var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports);
 	//#endregion
 	let react = require("react");
-	let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 	let react_jsx_runtime = require("react/jsx-runtime");
-	//#region node_modules/.pnpm/@xterm+xterm@5.5.0/node_modules/@xterm/xterm/lib/xterm.js
+	//#region node_modules/.pnpm/@xterm+addon-fit@0.11.0/node_modules/@xterm/addon-fit/lib/addon-fit.js
+	var require_addon_fit = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+		(function(e, t) {
+			"object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
+		})(globalThis, (() => (() => {
+			"use strict";
+			var e = {};
+			return (() => {
+				var t = e;
+				Object.defineProperty(t, "__esModule", { value: !0 }), t.FitAddon = void 0, t.FitAddon = class {
+					activate(e) {
+						this._terminal = e;
+					}
+					dispose() {}
+					fit() {
+						const e = this.proposeDimensions();
+						if (!e || !this._terminal || isNaN(e.cols) || isNaN(e.rows)) return;
+						const t = this._terminal._core;
+						this._terminal.rows === e.rows && this._terminal.cols === e.cols || (t._renderService.clear(), this._terminal.resize(e.cols, e.rows));
+					}
+					proposeDimensions() {
+						if (!this._terminal) return;
+						if (!this._terminal.element || !this._terminal.element.parentElement) return;
+						const e = this._terminal._core._renderService.dimensions;
+						if (0 === e.css.cell.width || 0 === e.css.cell.height) return;
+						const t = 0 === this._terminal.options.scrollback ? 0 : this._terminal.options.overviewRuler?.width || 14, r = window.getComputedStyle(this._terminal.element.parentElement), i = parseInt(r.getPropertyValue("height")), o = Math.max(0, parseInt(r.getPropertyValue("width"))), s = window.getComputedStyle(this._terminal.element), n = i - (parseInt(s.getPropertyValue("padding-top")) + parseInt(s.getPropertyValue("padding-bottom"))), l = o - (parseInt(s.getPropertyValue("padding-right")) + parseInt(s.getPropertyValue("padding-left"))) - t;
+						return {
+							cols: Math.max(2, Math.floor(l / e.css.cell.width)),
+							rows: Math.max(1, Math.floor(n / e.css.cell.height))
+						};
+					}
+				};
+			})(), e;
+		})()));
+	}));
+	//#endregion
+	//#region node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/lib/xterm.js
 	var require_xterm = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 		(function(e, t) {
 			if ("object" == typeof exports && "object" == typeof module) module.exports = t();
@@ -21,7 +56,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		})(globalThis, (() => (() => {
 			"use strict";
 			var e = {
-				4567: function(e, t, i) {
+				2840: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -33,13 +68,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.AccessibilityManager = void 0;
-					const n = i(9042), o = i(9924), a = i(844), h = i(4725), c = i(2585), l = i(3656);
-					let d = t.AccessibilityManager = class extends a.Disposable {
+					const n = i(7721), o = i(4292), a = i(7150), l = i(7098), h = i(6501), c = i(7093);
+					let d = class extends a.Disposable {
 						constructor(e, t, i, s) {
-							super(), this._terminal = e, this._coreBrowserService = i, this._renderService = s, this._rowColumns = /* @__PURE__ */ new WeakMap(), this._liveRegionLineCount = 0, this._charsToConsume = [], this._charsToAnnounce = "", this._accessibilityContainer = this._coreBrowserService.mainDocument.createElement("div"), this._accessibilityContainer.classList.add("xterm-accessibility"), this._rowContainer = this._coreBrowserService.mainDocument.createElement("div"), this._rowContainer.setAttribute("role", "list"), this._rowContainer.classList.add("xterm-accessibility-tree"), this._rowElements = [];
+							super(), this._terminal = e, this._coreBrowserService = i, this._renderService = s, this._rowColumns = /* @__PURE__ */ new WeakMap(), this._liveRegionLineCount = 0, this._charsToConsume = [], this._charsToAnnounce = "";
+							const r = this._coreBrowserService.mainDocument;
+							this._accessibilityContainer = r.createElement("div"), this._accessibilityContainer.classList.add("xterm-accessibility"), this._rowContainer = r.createElement("div"), this._rowContainer.setAttribute("role", "list"), this._rowContainer.classList.add("xterm-accessibility-tree"), this._rowElements = [];
 							for (let e = 0; e < this._terminal.rows; e++) this._rowElements[e] = this._createAccessibilityTreeNode(), this._rowContainer.appendChild(this._rowElements[e]);
-							if (this._topBoundaryFocusListener = (e) => this._handleBoundaryFocus(e, 0), this._bottomBoundaryFocusListener = (e) => this._handleBoundaryFocus(e, 1), this._rowElements[0].addEventListener("focus", this._topBoundaryFocusListener), this._rowElements[this._rowElements.length - 1].addEventListener("focus", this._bottomBoundaryFocusListener), this._refreshRowsDimensions(), this._accessibilityContainer.appendChild(this._rowContainer), this._liveRegion = this._coreBrowserService.mainDocument.createElement("div"), this._liveRegion.classList.add("live-region"), this._liveRegion.setAttribute("aria-live", "assertive"), this._accessibilityContainer.appendChild(this._liveRegion), this._liveRegionDebouncer = this.register(new o.TimeBasedDebouncer(this._renderRows.bind(this))), !this._terminal.element) throw new Error("Cannot enable accessibility before Terminal.open");
-							this._terminal.element.insertAdjacentElement("afterbegin", this._accessibilityContainer), this.register(this._terminal.onResize(((e) => this._handleResize(e.rows)))), this.register(this._terminal.onRender(((e) => this._refreshRows(e.start, e.end)))), this.register(this._terminal.onScroll((() => this._refreshRows()))), this.register(this._terminal.onA11yChar(((e) => this._handleChar(e)))), this.register(this._terminal.onLineFeed((() => this._handleChar("\n")))), this.register(this._terminal.onA11yTab(((e) => this._handleTab(e)))), this.register(this._terminal.onKey(((e) => this._handleKey(e.key)))), this.register(this._terminal.onBlur((() => this._clearLiveRegion()))), this.register(this._renderService.onDimensionsChange((() => this._refreshRowsDimensions()))), this.register((0, l.addDisposableDomListener)(document, "selectionchange", (() => this._handleSelectionChange()))), this.register(this._coreBrowserService.onDprChange((() => this._refreshRowsDimensions()))), this._refreshRows(), this.register((0, a.toDisposable)((() => {
+							if (this._topBoundaryFocusListener = (e) => this._handleBoundaryFocus(e, 0), this._bottomBoundaryFocusListener = (e) => this._handleBoundaryFocus(e, 1), this._rowElements[0].addEventListener("focus", this._topBoundaryFocusListener), this._rowElements[this._rowElements.length - 1].addEventListener("focus", this._bottomBoundaryFocusListener), this._accessibilityContainer.appendChild(this._rowContainer), this._liveRegion = r.createElement("div"), this._liveRegion.classList.add("live-region"), this._liveRegion.setAttribute("aria-live", "assertive"), this._accessibilityContainer.appendChild(this._liveRegion), this._liveRegionDebouncer = this._register(new o.TimeBasedDebouncer(this._renderRows.bind(this))), !this._terminal.element) throw new Error("Cannot enable accessibility before Terminal.open");
+							this._terminal.element.insertAdjacentElement("afterbegin", this._accessibilityContainer), this._register(this._terminal.onResize(((e) => this._handleResize(e.rows)))), this._register(this._terminal.onRender(((e) => this._refreshRows(e.start, e.end)))), this._register(this._terminal.onScroll((() => this._refreshRows()))), this._register(this._terminal.onA11yChar(((e) => this._handleChar(e)))), this._register(this._terminal.onLineFeed((() => this._handleChar("\n")))), this._register(this._terminal.onA11yTab(((e) => this._handleTab(e)))), this._register(this._terminal.onKey(((e) => this._handleKey(e.key)))), this._register(this._terminal.onBlur((() => this._clearLiveRegion()))), this._register(this._renderService.onDimensionsChange((() => this._refreshRowsDimensions()))), this._register((0, c.addDisposableListener)(r, "selectionchange", (() => this._handleSelectionChange()))), this._register(this._coreBrowserService.onDprChange((() => this._refreshRowsDimensions()))), this._refreshRowsDimensions(), this._refreshRows(), this._register((0, a.toDisposable)((() => {
 								this._accessibilityContainer.remove(), this._rowElements.length = 0;
 							})));
 						}
@@ -47,7 +84,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							for (let t = 0; t < e; t++) this._handleChar(" ");
 						}
 						_handleChar(e) {
-							this._liveRegionLineCount < 21 && (this._charsToConsume.length > 0 ? this._charsToConsume.shift() !== e && (this._charsToAnnounce += e) : this._charsToAnnounce += e, "\n" === e && (this._liveRegionLineCount++, 21 === this._liveRegionLineCount && (this._liveRegion.textContent += n.tooMuchOutput)));
+							this._liveRegionLineCount < 21 && (this._charsToConsume.length > 0 ? this._charsToConsume.shift() !== e && (this._charsToAnnounce += e) : this._charsToAnnounce += e, "\n" === e && (this._liveRegionLineCount++, 21 === this._liveRegionLineCount && (this._liveRegion.textContent += n.tooMuchOutput.get())));
 						}
 						_clearLiveRegion() {
 							this._liveRegion.textContent = "", this._liveRegionLineCount = 0;
@@ -62,7 +99,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const i = this._terminal.buffer, s = i.lines.length.toString();
 							for (let r = e; r <= t; r++) {
 								const e = i.lines.get(i.ydisp + r), t = [], n = e?.translateToString(!0, void 0, void 0, t) || "", o = (i.ydisp + r + 1).toString(), a = this._rowElements[r];
-								a && (0 === n.length ? (a.innerText = "\xA0", this._rowColumns.set(a, [0, 1])) : (a.textContent = n, this._rowColumns.set(a, t)), a.setAttribute("aria-posinset", o), a.setAttribute("aria-setsize", s));
+								a && (0 === n.length ? (a.textContent = "\xA0", this._rowColumns.set(a, [0, 1])) : (a.textContent = n, this._rowColumns.set(a, t)), a.setAttribute("aria-posinset", o), a.setAttribute("aria-setsize", s), this._alignRowWidth(a));
 							}
 							this._announceCharacters();
 						}
@@ -85,7 +122,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						_handleSelectionChange() {
 							if (0 === this._rowElements.length) return;
-							const e = document.getSelection();
+							const e = this._coreBrowserService.mainDocument.getSelection();
 							if (!e) return;
 							if (e.isCollapsed) return void (this._rowContainer.contains(e.anchorNode) && this._terminal.clearSelection());
 							if (!e.anchorNode || !e.focusNode) return void console.error("anchorNode and/or focusNode are null");
@@ -134,21 +171,31 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						_refreshRowsDimensions() {
 							if (this._renderService.dimensions.css.cell.height) {
-								this._accessibilityContainer.style.width = `${this._renderService.dimensions.css.canvas.width}px`, this._rowElements.length !== this._terminal.rows && this._handleResize(this._terminal.rows);
-								for (let e = 0; e < this._terminal.rows; e++) this._refreshRowDimensions(this._rowElements[e]);
+								Object.assign(this._accessibilityContainer.style, {
+									width: `${this._renderService.dimensions.css.canvas.width}px`,
+									fontSize: `${this._terminal.options.fontSize}px`
+								}), this._rowElements.length !== this._terminal.rows && this._handleResize(this._terminal.rows);
+								for (let e = 0; e < this._terminal.rows; e++) this._refreshRowDimensions(this._rowElements[e]), this._alignRowWidth(this._rowElements[e]);
 							}
 						}
 						_refreshRowDimensions(e) {
 							e.style.height = `${this._renderService.dimensions.css.cell.height}px`;
 						}
+						_alignRowWidth(e) {
+							e.style.transform = "";
+							const t = e.getBoundingClientRect().width, i = this._rowColumns.get(e)?.slice(-1)?.[0];
+							if (!i) return;
+							const s = i * this._renderService.dimensions.css.cell.width;
+							e.style.transform = `scaleX(${s / t})`;
+						}
 					};
-					t.AccessibilityManager = d = s([
-						r(1, c.IInstantiationService),
-						r(2, h.ICoreBrowserService),
-						r(3, h.IRenderService)
+					t.AccessibilityManager = d, t.AccessibilityManager = d = s([
+						r(1, h.IInstantiationService),
+						r(2, l.ICoreBrowserService),
+						r(3, l.IRenderService)
 					], d);
 				},
-				3614: (e, t) => {
+				7861: (e, t) => {
 					function i(e) {
 						return e.replace(/\r?\n/g, "\r");
 					}
@@ -162,7 +209,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						const s = i.getBoundingClientRect(), r = e.clientX - s.left - 10, n = e.clientY - s.top - 10;
 						t.style.width = "20px", t.style.height = "20px", t.style.left = `${r}px`, t.style.top = `${n}px`, t.style.zIndex = "1000", t.focus();
 					}
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.rightClickHandler = t.moveTextAreaUnderMouseCursor = t.paste = t.handlePasteEvent = t.copyHandler = t.bracketTextForPaste = t.prepareTextForTerminal = void 0, t.prepareTextForTerminal = i, t.bracketTextForPaste = s, t.copyHandler = function(e, t) {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.prepareTextForTerminal = i, t.bracketTextForPaste = s, t.copyHandler = function(e, t) {
 						e.clipboardData && e.clipboardData.setData("text/plain", t.selectionText), e.preventDefault();
 					}, t.handlePasteEvent = function(e, t, i, s) {
 						e.stopPropagation(), e.clipboardData && r(e.clipboardData.getData("text/plain"), t, i, s);
@@ -170,9 +217,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						n(e, t, i), r && s.rightClickSelect(e), t.value = s.selectionText, t.select();
 					};
 				},
-				7239: (e, t, i) => {
+				7174: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.ColorContrastCache = void 0;
-					const s = i(1505);
+					const s = i(7710);
 					t.ColorContrastCache = class {
 						constructor() {
 							this._color = new s.TwoKeyMap(), this._css = new s.TwoKeyMap();
@@ -194,16 +241,379 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				3656: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.addDisposableDomListener = void 0, t.addDisposableDomListener = function(e, t, i, s) {
-						e.addEventListener(t, i, s);
-						let r = !1;
-						return { dispose: () => {
-							r || (r = !0, e.removeEventListener(t, i, s));
-						} };
-					};
+				1718: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.CoreBrowserTerminal = void 0;
+					const s = i(7861), r = i(7721), n = i(3285), o = i(4017), a = i(4196), l = i(9925), h = i(3618), c = i(3955), d = i(4792), u = i(945), _ = i(9574), f = i(9820), p = i(9784), g = i(5783), m = i(2079), v = i(7098), S = i(9078), b = i(4103), C = i(5777), y = i(701), w = i(6107), E = i(3534), D = i(706), L = i(8693), R = i(4720), A = i(6501), T = i(2486), k = i(2840), M = i(8906), O = i(802), I = i(7093), P = i(7150);
+					class x extends C.CoreTerminal {
+						get linkifier() {
+							return this._linkifier.value;
+						}
+						get onFocus() {
+							return this._onFocus.event;
+						}
+						get onBlur() {
+							return this._onBlur.event;
+						}
+						get onA11yChar() {
+							return this._onA11yCharEmitter.event;
+						}
+						get onA11yTab() {
+							return this._onA11yTabEmitter.event;
+						}
+						get onWillOpen() {
+							return this._onWillOpen.event;
+						}
+						constructor(e = {}) {
+							super(e), this._linkifier = this._register(new P.MutableDisposable()), this.browser = y, this._keyDownHandled = !1, this._keyDownSeen = !1, this._keyPressHandled = !1, this._unprocessedDeadKey = !1, this._accessibilityManager = this._register(new P.MutableDisposable()), this._onCursorMove = this._register(new O.Emitter()), this.onCursorMove = this._onCursorMove.event, this._onKey = this._register(new O.Emitter()), this.onKey = this._onKey.event, this._onRender = this._register(new O.Emitter()), this.onRender = this._onRender.event, this._onSelectionChange = this._register(new O.Emitter()), this.onSelectionChange = this._onSelectionChange.event, this._onTitleChange = this._register(new O.Emitter()), this.onTitleChange = this._onTitleChange.event, this._onBell = this._register(new O.Emitter()), this.onBell = this._onBell.event, this._onFocus = this._register(new O.Emitter()), this._onBlur = this._register(new O.Emitter()), this._onA11yCharEmitter = this._register(new O.Emitter()), this._onA11yTabEmitter = this._register(new O.Emitter()), this._onWillOpen = this._register(new O.Emitter()), this._setup(), this._decorationService = this._instantiationService.createInstance(R.DecorationService), this._instantiationService.setService(A.IDecorationService, this._decorationService), this._linkProviderService = this._instantiationService.createInstance(f.LinkProviderService), this._instantiationService.setService(v.ILinkProviderService, this._linkProviderService), this._linkProviderService.registerLinkProvider(this._instantiationService.createInstance(n.OscLinkProvider)), this._register(this._inputHandler.onRequestBell((() => this._onBell.fire()))), this._register(this._inputHandler.onRequestRefreshRows(((e) => this.refresh(e?.start ?? 0, e?.end ?? this.rows - 1)))), this._register(this._inputHandler.onRequestSendFocus((() => this._reportFocus()))), this._register(this._inputHandler.onRequestReset((() => this.reset()))), this._register(this._inputHandler.onRequestWindowsOptionsReport(((e) => this._reportWindowsOptions(e)))), this._register(this._inputHandler.onColor(((e) => this._handleColorEvent(e)))), this._register(O.Event.forward(this._inputHandler.onCursorMove, this._onCursorMove)), this._register(O.Event.forward(this._inputHandler.onTitleChange, this._onTitleChange)), this._register(O.Event.forward(this._inputHandler.onA11yChar, this._onA11yCharEmitter)), this._register(O.Event.forward(this._inputHandler.onA11yTab, this._onA11yTabEmitter)), this._register(this._bufferService.onResize(((e) => this._afterResize(e.cols, e.rows)))), this._register((0, P.toDisposable)((() => {
+								this._customKeyEventHandler = void 0, this.element?.parentNode?.removeChild(this.element);
+							})));
+						}
+						_handleColorEvent(e) {
+							if (this._themeService) for (const t of e) {
+								let e, i = "";
+								switch (t.index) {
+									case 256:
+										e = "foreground", i = "10";
+										break;
+									case 257:
+										e = "background", i = "11";
+										break;
+									case 258:
+										e = "cursor", i = "12";
+										break;
+									default: e = "ansi", i = "4;" + t.index;
+								}
+								switch (t.type) {
+									case 0:
+										const s = b.color.toColorRGB("ansi" === e ? this._themeService.colors.ansi[t.index] : this._themeService.colors[e]);
+										this.coreService.triggerDataEvent(`${E.C0.ESC}]${i};${(0, L.toRgbString)(s)}${E.C1_ESCAPED.ST}`);
+										break;
+									case 1:
+										if ("ansi" === e) this._themeService.modifyColors(((e) => e.ansi[t.index] = b.channels.toColor(...t.color)));
+										else {
+											const i = e;
+											this._themeService.modifyColors(((e) => e[i] = b.channels.toColor(...t.color)));
+										}
+										break;
+									case 2: this._themeService.restoreColor(t.index);
+								}
+							}
+						}
+						_setup() {
+							super._setup(), this._customKeyEventHandler = void 0;
+						}
+						get buffer() {
+							return this.buffers.active;
+						}
+						focus() {
+							this.textarea && this.textarea.focus({ preventScroll: !0 });
+						}
+						_handleScreenReaderModeOptionChange(e) {
+							e ? !this._accessibilityManager.value && this._renderService && (this._accessibilityManager.value = this._instantiationService.createInstance(k.AccessibilityManager, this)) : this._accessibilityManager.clear();
+						}
+						_handleTextAreaFocus(e) {
+							this.coreService.decPrivateModes.sendFocus && this.coreService.triggerDataEvent(E.C0.ESC + "[I"), this.element.classList.add("focus"), this._showCursor(), this._onFocus.fire();
+						}
+						blur() {
+							return this.textarea?.blur();
+						}
+						_handleTextAreaBlur() {
+							this.textarea.value = "", this.refresh(this.buffer.y, this.buffer.y), this.coreService.decPrivateModes.sendFocus && this.coreService.triggerDataEvent(E.C0.ESC + "[O"), this.element.classList.remove("focus"), this._onBlur.fire();
+						}
+						_syncTextArea() {
+							if (!this.textarea || !this.buffer.isCursorInViewport || this._compositionHelper.isComposing || !this._renderService) return;
+							const e = this.buffer.ybase + this.buffer.y, t = this.buffer.lines.get(e);
+							if (!t) return;
+							const i = Math.min(this.buffer.x, this.cols - 1), s = this._renderService.dimensions.css.cell.height, r = t.getWidth(i), n = this._renderService.dimensions.css.cell.width * r, o = this.buffer.y * this._renderService.dimensions.css.cell.height, a = i * this._renderService.dimensions.css.cell.width;
+							this.textarea.style.left = a + "px", this.textarea.style.top = o + "px", this.textarea.style.width = n + "px", this.textarea.style.height = s + "px", this.textarea.style.lineHeight = s + "px", this.textarea.style.zIndex = "-5";
+						}
+						_initGlobal() {
+							this._bindKeys(), this._register((0, I.addDisposableListener)(this.element, "copy", ((e) => {
+								this.hasSelection() && (0, s.copyHandler)(e, this._selectionService);
+							})));
+							const e = (e) => (0, s.handlePasteEvent)(e, this.textarea, this.coreService, this.optionsService);
+							this._register((0, I.addDisposableListener)(this.textarea, "paste", e)), this._register((0, I.addDisposableListener)(this.element, "paste", e)), y.isFirefox ? this._register((0, I.addDisposableListener)(this.element, "mousedown", ((e) => {
+								2 === e.button && (0, s.rightClickHandler)(e, this.textarea, this.screenElement, this._selectionService, this.options.rightClickSelectsWord);
+							}))) : this._register((0, I.addDisposableListener)(this.element, "contextmenu", ((e) => {
+								(0, s.rightClickHandler)(e, this.textarea, this.screenElement, this._selectionService, this.options.rightClickSelectsWord);
+							}))), y.isLinux && this._register((0, I.addDisposableListener)(this.element, "auxclick", ((e) => {
+								1 === e.button && (0, s.moveTextAreaUnderMouseCursor)(e, this.textarea, this.screenElement);
+							})));
+						}
+						_bindKeys() {
+							this._register((0, I.addDisposableListener)(this.textarea, "keyup", ((e) => this._keyUp(e)), !0)), this._register((0, I.addDisposableListener)(this.textarea, "keydown", ((e) => this._keyDown(e)), !0)), this._register((0, I.addDisposableListener)(this.textarea, "keypress", ((e) => this._keyPress(e)), !0)), this._register((0, I.addDisposableListener)(this.textarea, "compositionstart", (() => this._compositionHelper.compositionstart()))), this._register((0, I.addDisposableListener)(this.textarea, "compositionupdate", ((e) => this._compositionHelper.compositionupdate(e)))), this._register((0, I.addDisposableListener)(this.textarea, "compositionend", (() => this._compositionHelper.compositionend()))), this._register((0, I.addDisposableListener)(this.textarea, "input", ((e) => this._inputEvent(e)), !0)), this._register(this.onRender((() => this._compositionHelper.updateCompositionElements())));
+						}
+						open(e) {
+							if (!e) throw new Error("Terminal requires a parent element.");
+							if (e.isConnected || this._logService.debug("Terminal.open was called on an element that was not attached to the DOM"), this.element?.ownerDocument.defaultView && this._coreBrowserService) return void (this.element.ownerDocument.defaultView !== this._coreBrowserService.window && (this._coreBrowserService.window = this.element.ownerDocument.defaultView));
+							this._document = e.ownerDocument, this.options.documentOverride && this.options.documentOverride instanceof Document && (this._document = this.optionsService.rawOptions.documentOverride), this.element = this._document.createElement("div"), this.element.dir = "ltr", this.element.classList.add("terminal"), this.element.classList.add("xterm"), e.appendChild(this.element);
+							const t = this._document.createDocumentFragment();
+							this._viewportElement = this._document.createElement("div"), this._viewportElement.classList.add("xterm-viewport"), t.appendChild(this._viewportElement), this.screenElement = this._document.createElement("div"), this.screenElement.classList.add("xterm-screen"), this._register((0, I.addDisposableListener)(this.screenElement, "mousemove", ((e) => this.updateCursorStyle(e)))), this._helperContainer = this._document.createElement("div"), this._helperContainer.classList.add("xterm-helpers"), this.screenElement.appendChild(this._helperContainer), t.appendChild(this.screenElement);
+							const i = this.textarea = this._document.createElement("textarea");
+							this.textarea.classList.add("xterm-helper-textarea"), this.textarea.setAttribute("aria-label", r.promptLabel.get()), y.isChromeOS || this.textarea.setAttribute("aria-multiline", "false"), this.textarea.setAttribute("autocorrect", "off"), this.textarea.setAttribute("autocapitalize", "off"), this.textarea.setAttribute("spellcheck", "false"), this.textarea.tabIndex = 0, this._register(this.optionsService.onSpecificOptionChange("disableStdin", (() => i.readOnly = this.optionsService.rawOptions.disableStdin))), this.textarea.readOnly = this.optionsService.rawOptions.disableStdin, this._coreBrowserService = this._register(this._instantiationService.createInstance(_.CoreBrowserService, this.textarea, e.ownerDocument.defaultView ?? window, this._document ?? "undefined" != typeof window ? window.document : null)), this._instantiationService.setService(v.ICoreBrowserService, this._coreBrowserService), this._register((0, I.addDisposableListener)(this.textarea, "focus", ((e) => this._handleTextAreaFocus(e)))), this._register((0, I.addDisposableListener)(this.textarea, "blur", (() => this._handleTextAreaBlur()))), this._helperContainer.appendChild(this.textarea), this._charSizeService = this._instantiationService.createInstance(d.CharSizeService, this._document, this._helperContainer), this._instantiationService.setService(v.ICharSizeService, this._charSizeService), this._themeService = this._instantiationService.createInstance(S.ThemeService), this._instantiationService.setService(v.IThemeService, this._themeService), this._characterJoinerService = this._instantiationService.createInstance(u.CharacterJoinerService), this._instantiationService.setService(v.ICharacterJoinerService, this._characterJoinerService), this._renderService = this._register(this._instantiationService.createInstance(g.RenderService, this.rows, this.screenElement)), this._instantiationService.setService(v.IRenderService, this._renderService), this._register(this._renderService.onRenderedViewportChange(((e) => this._onRender.fire(e)))), this.onResize(((e) => this._renderService.resize(e.cols, e.rows))), this._compositionView = this._document.createElement("div"), this._compositionView.classList.add("composition-view"), this._compositionHelper = this._instantiationService.createInstance(h.CompositionHelper, this.textarea, this._compositionView), this._helperContainer.appendChild(this._compositionView), this._mouseService = this._instantiationService.createInstance(p.MouseService), this._instantiationService.setService(v.IMouseService, this._mouseService);
+							const s = this._linkifier.value = this._register(this._instantiationService.createInstance(M.Linkifier, this.screenElement));
+							this.element.appendChild(t);
+							try {
+								this._onWillOpen.fire(this.element);
+							} catch {}
+							this._renderService.hasRenderer() || this._renderService.setRenderer(this._createRenderer()), this._register(this.onCursorMove((() => {
+								this._renderService.handleCursorMove(), this._syncTextArea();
+							}))), this._register(this.onResize((() => this._renderService.handleResize(this.cols, this.rows)))), this._register(this.onBlur((() => this._renderService.handleBlur()))), this._register(this.onFocus((() => this._renderService.handleFocus()))), this._viewport = this._register(this._instantiationService.createInstance(o.Viewport, this.element, this.screenElement)), this._register(this._viewport.onRequestScrollLines(((e) => {
+								super.scrollLines(e, !1), this.refresh(0, this.rows - 1);
+							}))), this._selectionService = this._register(this._instantiationService.createInstance(m.SelectionService, this.element, this.screenElement, s)), this._instantiationService.setService(v.ISelectionService, this._selectionService), this._register(this._selectionService.onRequestScrollLines(((e) => this.scrollLines(e.amount, e.suppressScrollEvent)))), this._register(this._selectionService.onSelectionChange((() => this._onSelectionChange.fire()))), this._register(this._selectionService.onRequestRedraw(((e) => this._renderService.handleSelectionChanged(e.start, e.end, e.columnSelectMode)))), this._register(this._selectionService.onLinuxMouseSelection(((e) => {
+								this.textarea.value = e, this.textarea.focus(), this.textarea.select();
+							}))), this._register(O.Event.any(this._onScroll.event, this._inputHandler.onScroll)((() => {
+								this._selectionService.refresh(), this._viewport?.queueSync();
+							}))), this._register(this._instantiationService.createInstance(a.BufferDecorationRenderer, this.screenElement)), this._register((0, I.addDisposableListener)(this.element, "mousedown", ((e) => this._selectionService.handleMouseDown(e)))), this.coreMouseService.areMouseEventsActive ? (this._selectionService.disable(), this.element.classList.add("enable-mouse-events")) : this._selectionService.enable(), this.options.screenReaderMode && (this._accessibilityManager.value = this._instantiationService.createInstance(k.AccessibilityManager, this)), this._register(this.optionsService.onSpecificOptionChange("screenReaderMode", ((e) => this._handleScreenReaderModeOptionChange(e)))), this.options.overviewRuler.width && (this._overviewRulerRenderer = this._register(this._instantiationService.createInstance(l.OverviewRulerRenderer, this._viewportElement, this.screenElement))), this.optionsService.onSpecificOptionChange("overviewRuler", ((e) => {
+								!this._overviewRulerRenderer && e && this._viewportElement && this.screenElement && (this._overviewRulerRenderer = this._register(this._instantiationService.createInstance(l.OverviewRulerRenderer, this._viewportElement, this.screenElement)));
+							})), this._charSizeService.measure(), this.refresh(0, this.rows - 1), this._initGlobal(), this.bindMouse();
+						}
+						_createRenderer() {
+							return this._instantiationService.createInstance(c.DomRenderer, this, this._document, this.element, this.screenElement, this._viewportElement, this._helperContainer, this.linkifier);
+						}
+						bindMouse() {
+							const e = this, t = this.element;
+							function i(t) {
+								const i = e._mouseService.getMouseReportCoords(t, e.screenElement);
+								if (!i) return !1;
+								let s, r;
+								switch (t.overrideType || t.type) {
+									case "mousemove":
+										r = 32, void 0 === t.buttons ? (s = 3, void 0 !== t.button && (s = t.button < 3 ? t.button : 3)) : s = 1 & t.buttons ? 0 : 4 & t.buttons ? 1 : 2 & t.buttons ? 2 : 3;
+										break;
+									case "mouseup":
+										r = 0, s = t.button < 3 ? t.button : 3;
+										break;
+									case "mousedown":
+										r = 1, s = t.button < 3 ? t.button : 3;
+										break;
+									case "wheel":
+										if (e._customWheelEventHandler && !1 === e._customWheelEventHandler(t)) return !1;
+										const i = t.deltaY;
+										if (0 === i) return !1;
+										if (0 === e.coreMouseService.consumeWheelEvent(t, e._renderService?.dimensions?.device?.cell?.height, e._coreBrowserService?.dpr)) return !1;
+										r = i < 0 ? 0 : 1, s = 4;
+										break;
+									default: return !1;
+								}
+								return !(void 0 === r || void 0 === s || s > 4) && e.coreMouseService.triggerMouseEvent({
+									col: i.col,
+									row: i.row,
+									x: i.x,
+									y: i.y,
+									button: s,
+									action: r,
+									ctrl: t.ctrlKey,
+									alt: t.altKey,
+									shift: t.shiftKey
+								});
+							}
+							const s = {
+								mouseup: null,
+								wheel: null,
+								mousedrag: null,
+								mousemove: null
+							}, r = {
+								mouseup: (e) => (i(e), e.buttons || (this._document.removeEventListener("mouseup", s.mouseup), s.mousedrag && this._document.removeEventListener("mousemove", s.mousedrag)), this.cancel(e)),
+								wheel: (e) => (i(e), this.cancel(e, !0)),
+								mousedrag: (e) => {
+									e.buttons && i(e);
+								},
+								mousemove: (e) => {
+									e.buttons || i(e);
+								}
+							};
+							this._register(this.coreMouseService.onProtocolChange(((e) => {
+								e ? ("debug" === this.optionsService.rawOptions.logLevel && this._logService.debug("Binding to mouse events:", this.coreMouseService.explainEvents(e)), this.element.classList.add("enable-mouse-events"), this._selectionService.disable()) : (this._logService.debug("Unbinding from mouse events."), this.element.classList.remove("enable-mouse-events"), this._selectionService.enable()), 8 & e ? s.mousemove || (t.addEventListener("mousemove", r.mousemove), s.mousemove = r.mousemove) : (t.removeEventListener("mousemove", s.mousemove), s.mousemove = null), 16 & e ? s.wheel || (t.addEventListener("wheel", r.wheel, { passive: !1 }), s.wheel = r.wheel) : (t.removeEventListener("wheel", s.wheel), s.wheel = null), 2 & e ? s.mouseup || (s.mouseup = r.mouseup) : (this._document.removeEventListener("mouseup", s.mouseup), s.mouseup = null), 4 & e ? s.mousedrag || (s.mousedrag = r.mousedrag) : (this._document.removeEventListener("mousemove", s.mousedrag), s.mousedrag = null);
+							}))), this.coreMouseService.activeProtocol = this.coreMouseService.activeProtocol, this._register((0, I.addDisposableListener)(t, "mousedown", ((e) => {
+								if (e.preventDefault(), this.focus(), this.coreMouseService.areMouseEventsActive && !this._selectionService.shouldForceSelection(e)) return i(e), s.mouseup && this._document.addEventListener("mouseup", s.mouseup), s.mousedrag && this._document.addEventListener("mousemove", s.mousedrag), this.cancel(e);
+							}))), this._register((0, I.addDisposableListener)(t, "wheel", ((t) => {
+								if (!s.wheel) {
+									if (this._customWheelEventHandler && !1 === this._customWheelEventHandler(t)) return !1;
+									if (!this.buffer.hasScrollback) {
+										if (0 === t.deltaY) return !1;
+										if (0 === e.coreMouseService.consumeWheelEvent(t, e._renderService?.dimensions?.device?.cell?.height, e._coreBrowserService?.dpr)) return this.cancel(t, !0);
+										const i = E.C0.ESC + (this.coreService.decPrivateModes.applicationCursorKeys ? "O" : "[") + (t.deltaY < 0 ? "A" : "B");
+										return this.coreService.triggerDataEvent(i, !0), this.cancel(t, !0);
+									}
+								}
+							}), { passive: !1 }));
+						}
+						refresh(e, t) {
+							this._renderService?.refreshRows(e, t);
+						}
+						updateCursorStyle(e) {
+							this._selectionService?.shouldColumnSelect(e) ? this.element.classList.add("column-select") : this.element.classList.remove("column-select");
+						}
+						_showCursor() {
+							this.coreService.isCursorInitialized || (this.coreService.isCursorInitialized = !0, this.refresh(this.buffer.y, this.buffer.y));
+						}
+						scrollLines(e, t) {
+							this._viewport ? this._viewport.scrollLines(e) : super.scrollLines(e, t), this.refresh(0, this.rows - 1);
+						}
+						scrollPages(e) {
+							this.scrollLines(e * (this.rows - 1));
+						}
+						scrollToTop() {
+							this.scrollLines(-this._bufferService.buffer.ydisp);
+						}
+						scrollToBottom(e) {
+							e && this._viewport ? this._viewport.scrollToLine(this.buffer.ybase, !0) : this.scrollLines(this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp);
+						}
+						scrollToLine(e) {
+							const t = e - this._bufferService.buffer.ydisp;
+							0 !== t && this.scrollLines(t);
+						}
+						paste(e) {
+							(0, s.paste)(e, this.textarea, this.coreService, this.optionsService);
+						}
+						attachCustomKeyEventHandler(e) {
+							this._customKeyEventHandler = e;
+						}
+						attachCustomWheelEventHandler(e) {
+							this._customWheelEventHandler = e;
+						}
+						registerLinkProvider(e) {
+							return this._linkProviderService.registerLinkProvider(e);
+						}
+						registerCharacterJoiner(e) {
+							if (!this._characterJoinerService) throw new Error("Terminal must be opened first");
+							const t = this._characterJoinerService.register(e);
+							return this.refresh(0, this.rows - 1), t;
+						}
+						deregisterCharacterJoiner(e) {
+							if (!this._characterJoinerService) throw new Error("Terminal must be opened first");
+							this._characterJoinerService.deregister(e) && this.refresh(0, this.rows - 1);
+						}
+						get markers() {
+							return this.buffer.markers;
+						}
+						registerMarker(e) {
+							return this.buffer.addMarker(this.buffer.ybase + this.buffer.y + e);
+						}
+						registerDecoration(e) {
+							return this._decorationService.registerDecoration(e);
+						}
+						hasSelection() {
+							return !!this._selectionService && this._selectionService.hasSelection;
+						}
+						select(e, t, i) {
+							this._selectionService.setSelection(e, t, i);
+						}
+						getSelection() {
+							return this._selectionService ? this._selectionService.selectionText : "";
+						}
+						getSelectionPosition() {
+							if (this._selectionService && this._selectionService.hasSelection) return {
+								start: {
+									x: this._selectionService.selectionStart[0],
+									y: this._selectionService.selectionStart[1]
+								},
+								end: {
+									x: this._selectionService.selectionEnd[0],
+									y: this._selectionService.selectionEnd[1]
+								}
+							};
+						}
+						clearSelection() {
+							this._selectionService?.clearSelection();
+						}
+						selectAll() {
+							this._selectionService?.selectAll();
+						}
+						selectLines(e, t) {
+							this._selectionService?.selectLines(e, t);
+						}
+						_keyDown(e) {
+							if (this._keyDownHandled = !1, this._keyDownSeen = !0, this._customKeyEventHandler && !1 === this._customKeyEventHandler(e)) return !1;
+							const t = this.browser.isMac && this.options.macOptionIsMeta && e.altKey;
+							if (!t && !this._compositionHelper.keydown(e)) return this.options.scrollOnUserInput && this.buffer.ybase !== this.buffer.ydisp && this.scrollToBottom(!0), !1;
+							t || "Dead" !== e.key && "AltGraph" !== e.key || (this._unprocessedDeadKey = !0);
+							const i = (0, D.evaluateKeyboardEvent)(e, this.coreService.decPrivateModes.applicationCursorKeys, this.browser.isMac, this.options.macOptionIsMeta);
+							if (this.updateCursorStyle(e), 3 === i.type || 2 === i.type) {
+								const t = this.rows - 1;
+								return this.scrollLines(2 === i.type ? -t : t), this.cancel(e, !0);
+							}
+							return 1 === i.type && this.selectAll(), !!this._isThirdLevelShift(this.browser, e) || (i.cancel && this.cancel(e, !0), !i.key || !!(e.key && !e.ctrlKey && !e.altKey && !e.metaKey && 1 === e.key.length && e.key.charCodeAt(0) >= 65 && e.key.charCodeAt(0) <= 90) || (this._unprocessedDeadKey ? (this._unprocessedDeadKey = !1, !0) : (i.key !== E.C0.ETX && i.key !== E.C0.CR || (this.textarea.value = ""), this._onKey.fire({
+								key: i.key,
+								domEvent: e
+							}), this._showCursor(), this.coreService.triggerDataEvent(i.key, !0), !this.optionsService.rawOptions.screenReaderMode || e.altKey || e.ctrlKey ? this.cancel(e, !0) : void (this._keyDownHandled = !0))));
+						}
+						_isThirdLevelShift(e, t) {
+							const i = e.isMac && !this.options.macOptionIsMeta && t.altKey && !t.ctrlKey && !t.metaKey || e.isWindows && t.altKey && t.ctrlKey && !t.metaKey || e.isWindows && t.getModifierState("AltGraph");
+							return "keypress" === t.type ? i : i && (!t.keyCode || t.keyCode > 47);
+						}
+						_keyUp(e) {
+							this._keyDownSeen = !1, this._customKeyEventHandler && !1 === this._customKeyEventHandler(e) || (function(e) {
+								return 16 === e.keyCode || 17 === e.keyCode || 18 === e.keyCode;
+							}(e) || this.focus(), this.updateCursorStyle(e), this._keyPressHandled = !1);
+						}
+						_keyPress(e) {
+							let t;
+							if (this._keyPressHandled = !1, this._keyDownHandled) return !1;
+							if (this._customKeyEventHandler && !1 === this._customKeyEventHandler(e)) return !1;
+							if (this.cancel(e), e.charCode) t = e.charCode;
+							else if (null === e.which || void 0 === e.which) t = e.keyCode;
+							else {
+								if (0 === e.which || 0 === e.charCode) return !1;
+								t = e.which;
+							}
+							return !(!t || (e.altKey || e.ctrlKey || e.metaKey) && !this._isThirdLevelShift(this.browser, e) || (t = String.fromCharCode(t), this._onKey.fire({
+								key: t,
+								domEvent: e
+							}), this._showCursor(), this.coreService.triggerDataEvent(t, !0), this._keyPressHandled = !0, this._unprocessedDeadKey = !1, 0));
+						}
+						_inputEvent(e) {
+							if (e.data && "insertText" === e.inputType && (!e.composed || !this._keyDownSeen) && !this.optionsService.rawOptions.screenReaderMode) {
+								if (this._keyPressHandled) return !1;
+								this._unprocessedDeadKey = !1;
+								const t = e.data;
+								return this.coreService.triggerDataEvent(t, !0), this.cancel(e), !0;
+							}
+							return !1;
+						}
+						resize(e, t) {
+							e !== this.cols || t !== this.rows ? super.resize(e, t) : this._charSizeService && !this._charSizeService.hasValidSize && this._charSizeService.measure();
+						}
+						_afterResize(e, t) {
+							this._charSizeService?.measure();
+						}
+						clear() {
+							if (0 !== this.buffer.ybase || 0 !== this.buffer.y) {
+								this.buffer.clearAllMarkers(), this.buffer.lines.set(0, this.buffer.lines.get(this.buffer.ybase + this.buffer.y)), this.buffer.lines.length = 1, this.buffer.ydisp = 0, this.buffer.ybase = 0, this.buffer.y = 0;
+								for (let e = 1; e < this.rows; e++) this.buffer.lines.push(this.buffer.getBlankLine(w.DEFAULT_ATTR_DATA));
+								this._onScroll.fire({ position: this.buffer.ydisp }), this.refresh(0, this.rows - 1);
+							}
+						}
+						reset() {
+							this.options.rows = this.rows, this.options.cols = this.cols;
+							const e = this._customKeyEventHandler;
+							this._setup(), super.reset(), this._selectionService?.reset(), this._decorationService.reset(), this._customKeyEventHandler = e, this.refresh(0, this.rows - 1);
+						}
+						clearTextureAtlas() {
+							this._renderService?.clearTextureAtlas();
+						}
+						_reportFocus() {
+							this.element?.classList.contains("focus") ? this.coreService.triggerDataEvent(E.C0.ESC + "[I") : this.coreService.triggerDataEvent(E.C0.ESC + "[O");
+						}
+						_reportWindowsOptions(e) {
+							if (this._renderService) switch (e) {
+								case T.WindowsOptionsReportType.GET_WIN_SIZE_PIXELS:
+									const e = this._renderService.dimensions.css.canvas.width.toFixed(0), t = this._renderService.dimensions.css.canvas.height.toFixed(0);
+									this.coreService.triggerDataEvent(`${E.C0.ESC}[4;${t};${e}t`);
+									break;
+								case T.WindowsOptionsReportType.GET_CELL_SIZE_PIXELS:
+									const i = this._renderService.dimensions.css.cell.width.toFixed(0), s = this._renderService.dimensions.css.cell.height.toFixed(0);
+									this.coreService.triggerDataEvent(`${E.C0.ESC}[6;${s};${i}t`);
+							}
+						}
+						cancel(e, t) {
+							if (this.options.cancelEvents || t) return e.preventDefault(), e.stopPropagation(), !1;
+						}
+					}
+					t.CoreBrowserTerminal = x;
 				},
-				3551: function(e, t, i) {
+				8906: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -215,19 +625,19 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.Linkifier = void 0;
-					const n = i(3656), o = i(8460), a = i(844), h = i(2585), c = i(4725);
-					let l = t.Linkifier = class extends a.Disposable {
+					const n = i(7150), o = i(6501), a = i(7098), l = i(802), h = i(7093);
+					let c = class extends n.Disposable {
 						get currentLink() {
 							return this._currentLink;
 						}
 						constructor(e, t, i, s, r) {
-							super(), this._element = e, this._mouseService = t, this._renderService = i, this._bufferService = s, this._linkProviderService = r, this._linkCacheDisposables = [], this._isMouseOut = !0, this._wasResized = !1, this._activeLine = -1, this._onShowLinkUnderline = this.register(new o.EventEmitter()), this.onShowLinkUnderline = this._onShowLinkUnderline.event, this._onHideLinkUnderline = this.register(new o.EventEmitter()), this.onHideLinkUnderline = this._onHideLinkUnderline.event, this.register((0, a.getDisposeArrayDisposable)(this._linkCacheDisposables)), this.register((0, a.toDisposable)((() => {
-								this._lastMouseEvent = void 0, this._activeProviderReplies?.clear();
-							}))), this.register(this._bufferService.onResize((() => {
+							super(), this._element = e, this._mouseService = t, this._renderService = i, this._bufferService = s, this._linkProviderService = r, this._linkCacheDisposables = [], this._isMouseOut = !0, this._wasResized = !1, this._activeLine = -1, this._onShowLinkUnderline = this._register(new l.Emitter()), this.onShowLinkUnderline = this._onShowLinkUnderline.event, this._onHideLinkUnderline = this._register(new l.Emitter()), this.onHideLinkUnderline = this._onHideLinkUnderline.event, this._register((0, n.toDisposable)((() => {
+								(0, n.dispose)(this._linkCacheDisposables), this._linkCacheDisposables.length = 0, this._lastMouseEvent = void 0, this._activeProviderReplies?.clear();
+							}))), this._register(this._bufferService.onResize((() => {
 								this._clearCurrentLink(), this._wasResized = !0;
-							}))), this.register((0, n.addDisposableDomListener)(this._element, "mouseleave", (() => {
+							}))), this._register((0, h.addDisposableListener)(this._element, "mouseleave", (() => {
 								this._isMouseOut = !0, this._clearCurrentLink();
-							}))), this.register((0, n.addDisposableDomListener)(this._element, "mousemove", this._handleMouseMove.bind(this))), this.register((0, n.addDisposableDomListener)(this._element, "mousedown", this._handleMouseDown.bind(this))), this.register((0, n.addDisposableDomListener)(this._element, "mouseup", this._handleMouseUp.bind(this)));
+							}))), this._register((0, h.addDisposableListener)(this._element, "mousemove", this._handleMouseMove.bind(this))), this._register((0, h.addDisposableListener)(this._element, "mousedown", this._handleMouseDown.bind(this))), this._register((0, h.addDisposableListener)(this._element, "mouseup", this._handleMouseUp.bind(this)));
 						}
 						_handleMouseMove(e) {
 							this._lastMouseEvent = e;
@@ -300,10 +710,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						_handleMouseUp(e) {
 							if (!this._currentLink) return;
 							const t = this._positionFromMouseEvent(e, this._element, this._mouseService);
-							t && this._mouseDownLink === this._currentLink && this._linkAtPosition(this._currentLink.link, t) && this._currentLink.link.activate(e, this._currentLink.link.text);
+							var i, s;
+							t && this._mouseDownLink && (i = this._mouseDownLink.link, s = this._currentLink.link, i.text === s.text && i.range.start.x === s.range.start.x && i.range.start.y === s.range.start.y && i.range.end.x === s.range.end.x && i.range.end.y === s.range.end.y) && this._linkAtPosition(this._currentLink.link, t) && this._currentLink.link.activate(e, this._currentLink.link.text);
 						}
 						_clearCurrentLink(e, t) {
-							this._currentLink && this._lastMouseEvent && (!e || !t || this._currentLink.link.range.start.y >= e && this._currentLink.link.range.end.y <= t) && (this._linkLeave(this._element, this._currentLink.link, this._lastMouseEvent), this._currentLink = void 0, (0, a.disposeArray)(this._linkCacheDisposables));
+							this._currentLink && this._lastMouseEvent && (!e || !t || this._currentLink.link.range.start.y >= e && this._currentLink.link.range.end.y <= t) && (this._linkLeave(this._element, this._currentLink.link, this._lastMouseEvent), this._currentLink = void 0, (0, n.dispose)(this._linkCacheDisposables), this._linkCacheDisposables.length = 0);
 						}
 						_handleNewLink(e) {
 							if (!this._lastMouseEvent) return;
@@ -368,17 +779,27 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							};
 						}
 					};
-					t.Linkifier = l = s([
-						r(1, c.IMouseService),
-						r(2, c.IRenderService),
-						r(3, h.IBufferService),
-						r(4, c.ILinkProviderService)
-					], l);
+					t.Linkifier = c, t.Linkifier = c = s([
+						r(1, a.IMouseService),
+						r(2, a.IRenderService),
+						r(3, o.IBufferService),
+						r(4, a.ILinkProviderService)
+					], c);
 				},
-				9042: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.tooMuchOutput = t.promptLabel = void 0, t.promptLabel = "Terminal input", t.tooMuchOutput = "Too much output to announce, navigate to rows manually to read";
+				7721: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.tooMuchOutput = t.promptLabel = void 0;
+					let i = "Terminal input";
+					t.promptLabel = {
+						get: () => i,
+						set: (e) => i = e
+					};
+					let r = "Too much output to announce, navigate to rows manually to read";
+					t.tooMuchOutput = {
+						get: () => r,
+						set: (e) => r = e
+					};
 				},
-				3730: function(e, t, i) {
+				3285: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -390,8 +811,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.OscLinkProvider = void 0;
-					const n = i(511), o = i(2585);
-					let a = t.OscLinkProvider = class {
+					const n = i(3055), o = i(6501);
+					let a = class {
 						constructor(e, t, i) {
 							this._bufferService = e, this._optionsService = t, this._oscLinkService = i;
 						}
@@ -399,21 +820,21 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const i = this._bufferService.buffer.lines.get(e - 1);
 							if (!i) return void t(void 0);
 							const s = [], r = this._optionsService.rawOptions.linkHandler, o = new n.CellData(), a = i.getTrimmedLength();
-							let c = -1, l = -1, d = !1;
-							for (let t = 0; t < a; t++) if (-1 !== l || i.hasContent(t)) {
+							let h = -1, c = -1, d = !1;
+							for (let t = 0; t < a; t++) if (-1 !== c || i.hasContent(t)) {
 								if (i.loadCell(t, o), o.hasExtendedAttrs() && o.extended.urlId) {
-									if (-1 === l) {
-										l = t, c = o.extended.urlId;
+									if (-1 === c) {
+										c = t, h = o.extended.urlId;
 										continue;
 									}
-									d = o.extended.urlId !== c;
-								} else -1 !== l && (d = !0);
-								if (d || -1 !== l && t === a - 1) {
-									const i = this._oscLinkService.getLinkData(c)?.uri;
+									d = o.extended.urlId !== h;
+								} else -1 !== c && (d = !0);
+								if (d || -1 !== c && t === a - 1) {
+									const i = this._oscLinkService.getLinkData(h)?.uri;
 									if (i) {
 										const n = {
 											start: {
-												x: l + 1,
+												x: c + 1,
 												y: e
 											},
 											end: {
@@ -431,18 +852,18 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										o || s.push({
 											text: i,
 											range: n,
-											activate: (e, t) => r ? r.activate(e, t, n) : h(0, t),
+											activate: (e, t) => r ? r.activate(e, t, n) : l(0, t),
 											hover: (e, t) => r?.hover?.(e, t, n),
 											leave: (e, t) => r?.leave?.(e, t, n)
 										});
 									}
-									d = !1, o.hasExtendedAttrs() && o.extended.urlId ? (l = t, c = o.extended.urlId) : (l = -1, c = -1);
+									d = !1, o.hasExtendedAttrs() && o.extended.urlId ? (c = t, h = o.extended.urlId) : (c = -1, h = -1);
 								}
 							}
 							t(s);
 						}
 					};
-					function h(e, t) {
+					function l(e, t) {
 						if (confirm(`Do you want to navigate to ${t}?\n\nWARNING: This link could potentially be dangerous`)) {
 							const e = window.open();
 							if (e) {
@@ -453,13 +874,13 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							} else console.warn("Opening link blocked as opener could not be cleared");
 						}
 					}
-					t.OscLinkProvider = a = s([
+					t.OscLinkProvider = a, t.OscLinkProvider = a = s([
 						r(0, o.IBufferService),
 						r(1, o.IOptionsService),
 						r(2, o.IOscLinkService)
 					], a);
 				},
-				6193: (e, t) => {
+				4852: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.RenderDebouncer = void 0, t.RenderDebouncer = class {
 						constructor(e, t) {
 							this._renderCallback = e, this._coreBrowserService = t, this._refreshCallbacks = [];
@@ -484,365 +905,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				3236: (e, t, i) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.Terminal = void 0;
-					const s = i(3614), r = i(3656), n = i(3551), o = i(9042), a = i(3730), h = i(1680), c = i(3107), l = i(5744), d = i(2950), _ = i(1296), u = i(428), f = i(4269), v = i(5114), p = i(8934), g = i(3230), m = i(9312), S = i(4725), C = i(6731), b = i(8055), w = i(8969), y = i(8460), E = i(844), k = i(6114), L = i(8437), D = i(2584), R = i(7399), x = i(5941), A = i(9074), B = i(2585), T = i(5435), M = i(4567), O = i(779);
-					class P extends w.CoreTerminal {
-						get onFocus() {
-							return this._onFocus.event;
-						}
-						get onBlur() {
-							return this._onBlur.event;
-						}
-						get onA11yChar() {
-							return this._onA11yCharEmitter.event;
-						}
-						get onA11yTab() {
-							return this._onA11yTabEmitter.event;
-						}
-						get onWillOpen() {
-							return this._onWillOpen.event;
-						}
-						constructor(e = {}) {
-							super(e), this.browser = k, this._keyDownHandled = !1, this._keyDownSeen = !1, this._keyPressHandled = !1, this._unprocessedDeadKey = !1, this._accessibilityManager = this.register(new E.MutableDisposable()), this._onCursorMove = this.register(new y.EventEmitter()), this.onCursorMove = this._onCursorMove.event, this._onKey = this.register(new y.EventEmitter()), this.onKey = this._onKey.event, this._onRender = this.register(new y.EventEmitter()), this.onRender = this._onRender.event, this._onSelectionChange = this.register(new y.EventEmitter()), this.onSelectionChange = this._onSelectionChange.event, this._onTitleChange = this.register(new y.EventEmitter()), this.onTitleChange = this._onTitleChange.event, this._onBell = this.register(new y.EventEmitter()), this.onBell = this._onBell.event, this._onFocus = this.register(new y.EventEmitter()), this._onBlur = this.register(new y.EventEmitter()), this._onA11yCharEmitter = this.register(new y.EventEmitter()), this._onA11yTabEmitter = this.register(new y.EventEmitter()), this._onWillOpen = this.register(new y.EventEmitter()), this._setup(), this._decorationService = this._instantiationService.createInstance(A.DecorationService), this._instantiationService.setService(B.IDecorationService, this._decorationService), this._linkProviderService = this._instantiationService.createInstance(O.LinkProviderService), this._instantiationService.setService(S.ILinkProviderService, this._linkProviderService), this._linkProviderService.registerLinkProvider(this._instantiationService.createInstance(a.OscLinkProvider)), this.register(this._inputHandler.onRequestBell((() => this._onBell.fire()))), this.register(this._inputHandler.onRequestRefreshRows(((e, t) => this.refresh(e, t)))), this.register(this._inputHandler.onRequestSendFocus((() => this._reportFocus()))), this.register(this._inputHandler.onRequestReset((() => this.reset()))), this.register(this._inputHandler.onRequestWindowsOptionsReport(((e) => this._reportWindowsOptions(e)))), this.register(this._inputHandler.onColor(((e) => this._handleColorEvent(e)))), this.register((0, y.forwardEvent)(this._inputHandler.onCursorMove, this._onCursorMove)), this.register((0, y.forwardEvent)(this._inputHandler.onTitleChange, this._onTitleChange)), this.register((0, y.forwardEvent)(this._inputHandler.onA11yChar, this._onA11yCharEmitter)), this.register((0, y.forwardEvent)(this._inputHandler.onA11yTab, this._onA11yTabEmitter)), this.register(this._bufferService.onResize(((e) => this._afterResize(e.cols, e.rows)))), this.register((0, E.toDisposable)((() => {
-								this._customKeyEventHandler = void 0, this.element?.parentNode?.removeChild(this.element);
-							})));
-						}
-						_handleColorEvent(e) {
-							if (this._themeService) for (const t of e) {
-								let e, i = "";
-								switch (t.index) {
-									case 256:
-										e = "foreground", i = "10";
-										break;
-									case 257:
-										e = "background", i = "11";
-										break;
-									case 258:
-										e = "cursor", i = "12";
-										break;
-									default: e = "ansi", i = "4;" + t.index;
-								}
-								switch (t.type) {
-									case 0:
-										const s = b.color.toColorRGB("ansi" === e ? this._themeService.colors.ansi[t.index] : this._themeService.colors[e]);
-										this.coreService.triggerDataEvent(`${D.C0.ESC}]${i};${(0, x.toRgbString)(s)}${D.C1_ESCAPED.ST}`);
-										break;
-									case 1:
-										if ("ansi" === e) this._themeService.modifyColors(((e) => e.ansi[t.index] = b.channels.toColor(...t.color)));
-										else {
-											const i = e;
-											this._themeService.modifyColors(((e) => e[i] = b.channels.toColor(...t.color)));
-										}
-										break;
-									case 2: this._themeService.restoreColor(t.index);
-								}
-							}
-						}
-						_setup() {
-							super._setup(), this._customKeyEventHandler = void 0;
-						}
-						get buffer() {
-							return this.buffers.active;
-						}
-						focus() {
-							this.textarea && this.textarea.focus({ preventScroll: !0 });
-						}
-						_handleScreenReaderModeOptionChange(e) {
-							e ? !this._accessibilityManager.value && this._renderService && (this._accessibilityManager.value = this._instantiationService.createInstance(M.AccessibilityManager, this)) : this._accessibilityManager.clear();
-						}
-						_handleTextAreaFocus(e) {
-							this.coreService.decPrivateModes.sendFocus && this.coreService.triggerDataEvent(D.C0.ESC + "[I"), this.element.classList.add("focus"), this._showCursor(), this._onFocus.fire();
-						}
-						blur() {
-							return this.textarea?.blur();
-						}
-						_handleTextAreaBlur() {
-							this.textarea.value = "", this.refresh(this.buffer.y, this.buffer.y), this.coreService.decPrivateModes.sendFocus && this.coreService.triggerDataEvent(D.C0.ESC + "[O"), this.element.classList.remove("focus"), this._onBlur.fire();
-						}
-						_syncTextArea() {
-							if (!this.textarea || !this.buffer.isCursorInViewport || this._compositionHelper.isComposing || !this._renderService) return;
-							const e = this.buffer.ybase + this.buffer.y, t = this.buffer.lines.get(e);
-							if (!t) return;
-							const i = Math.min(this.buffer.x, this.cols - 1), s = this._renderService.dimensions.css.cell.height, r = t.getWidth(i), n = this._renderService.dimensions.css.cell.width * r, o = this.buffer.y * this._renderService.dimensions.css.cell.height, a = i * this._renderService.dimensions.css.cell.width;
-							this.textarea.style.left = a + "px", this.textarea.style.top = o + "px", this.textarea.style.width = n + "px", this.textarea.style.height = s + "px", this.textarea.style.lineHeight = s + "px", this.textarea.style.zIndex = "-5";
-						}
-						_initGlobal() {
-							this._bindKeys(), this.register((0, r.addDisposableDomListener)(this.element, "copy", ((e) => {
-								this.hasSelection() && (0, s.copyHandler)(e, this._selectionService);
-							})));
-							const e = (e) => (0, s.handlePasteEvent)(e, this.textarea, this.coreService, this.optionsService);
-							this.register((0, r.addDisposableDomListener)(this.textarea, "paste", e)), this.register((0, r.addDisposableDomListener)(this.element, "paste", e)), k.isFirefox ? this.register((0, r.addDisposableDomListener)(this.element, "mousedown", ((e) => {
-								2 === e.button && (0, s.rightClickHandler)(e, this.textarea, this.screenElement, this._selectionService, this.options.rightClickSelectsWord);
-							}))) : this.register((0, r.addDisposableDomListener)(this.element, "contextmenu", ((e) => {
-								(0, s.rightClickHandler)(e, this.textarea, this.screenElement, this._selectionService, this.options.rightClickSelectsWord);
-							}))), k.isLinux && this.register((0, r.addDisposableDomListener)(this.element, "auxclick", ((e) => {
-								1 === e.button && (0, s.moveTextAreaUnderMouseCursor)(e, this.textarea, this.screenElement);
-							})));
-						}
-						_bindKeys() {
-							this.register((0, r.addDisposableDomListener)(this.textarea, "keyup", ((e) => this._keyUp(e)), !0)), this.register((0, r.addDisposableDomListener)(this.textarea, "keydown", ((e) => this._keyDown(e)), !0)), this.register((0, r.addDisposableDomListener)(this.textarea, "keypress", ((e) => this._keyPress(e)), !0)), this.register((0, r.addDisposableDomListener)(this.textarea, "compositionstart", (() => this._compositionHelper.compositionstart()))), this.register((0, r.addDisposableDomListener)(this.textarea, "compositionupdate", ((e) => this._compositionHelper.compositionupdate(e)))), this.register((0, r.addDisposableDomListener)(this.textarea, "compositionend", (() => this._compositionHelper.compositionend()))), this.register((0, r.addDisposableDomListener)(this.textarea, "input", ((e) => this._inputEvent(e)), !0)), this.register(this.onRender((() => this._compositionHelper.updateCompositionElements())));
-						}
-						open(e) {
-							if (!e) throw new Error("Terminal requires a parent element.");
-							if (e.isConnected || this._logService.debug("Terminal.open was called on an element that was not attached to the DOM"), this.element?.ownerDocument.defaultView && this._coreBrowserService) return void (this.element.ownerDocument.defaultView !== this._coreBrowserService.window && (this._coreBrowserService.window = this.element.ownerDocument.defaultView));
-							this._document = e.ownerDocument, this.options.documentOverride && this.options.documentOverride instanceof Document && (this._document = this.optionsService.rawOptions.documentOverride), this.element = this._document.createElement("div"), this.element.dir = "ltr", this.element.classList.add("terminal"), this.element.classList.add("xterm"), e.appendChild(this.element);
-							const t = this._document.createDocumentFragment();
-							this._viewportElement = this._document.createElement("div"), this._viewportElement.classList.add("xterm-viewport"), t.appendChild(this._viewportElement), this._viewportScrollArea = this._document.createElement("div"), this._viewportScrollArea.classList.add("xterm-scroll-area"), this._viewportElement.appendChild(this._viewportScrollArea), this.screenElement = this._document.createElement("div"), this.screenElement.classList.add("xterm-screen"), this.register((0, r.addDisposableDomListener)(this.screenElement, "mousemove", ((e) => this.updateCursorStyle(e)))), this._helperContainer = this._document.createElement("div"), this._helperContainer.classList.add("xterm-helpers"), this.screenElement.appendChild(this._helperContainer), t.appendChild(this.screenElement), this.textarea = this._document.createElement("textarea"), this.textarea.classList.add("xterm-helper-textarea"), this.textarea.setAttribute("aria-label", o.promptLabel), k.isChromeOS || this.textarea.setAttribute("aria-multiline", "false"), this.textarea.setAttribute("autocorrect", "off"), this.textarea.setAttribute("autocapitalize", "off"), this.textarea.setAttribute("spellcheck", "false"), this.textarea.tabIndex = 0, this._coreBrowserService = this.register(this._instantiationService.createInstance(v.CoreBrowserService, this.textarea, e.ownerDocument.defaultView ?? window, this._document ?? "undefined" != typeof window ? window.document : null)), this._instantiationService.setService(S.ICoreBrowserService, this._coreBrowserService), this.register((0, r.addDisposableDomListener)(this.textarea, "focus", ((e) => this._handleTextAreaFocus(e)))), this.register((0, r.addDisposableDomListener)(this.textarea, "blur", (() => this._handleTextAreaBlur()))), this._helperContainer.appendChild(this.textarea), this._charSizeService = this._instantiationService.createInstance(u.CharSizeService, this._document, this._helperContainer), this._instantiationService.setService(S.ICharSizeService, this._charSizeService), this._themeService = this._instantiationService.createInstance(C.ThemeService), this._instantiationService.setService(S.IThemeService, this._themeService), this._characterJoinerService = this._instantiationService.createInstance(f.CharacterJoinerService), this._instantiationService.setService(S.ICharacterJoinerService, this._characterJoinerService), this._renderService = this.register(this._instantiationService.createInstance(g.RenderService, this.rows, this.screenElement)), this._instantiationService.setService(S.IRenderService, this._renderService), this.register(this._renderService.onRenderedViewportChange(((e) => this._onRender.fire(e)))), this.onResize(((e) => this._renderService.resize(e.cols, e.rows))), this._compositionView = this._document.createElement("div"), this._compositionView.classList.add("composition-view"), this._compositionHelper = this._instantiationService.createInstance(d.CompositionHelper, this.textarea, this._compositionView), this._helperContainer.appendChild(this._compositionView), this._mouseService = this._instantiationService.createInstance(p.MouseService), this._instantiationService.setService(S.IMouseService, this._mouseService), this.linkifier = this.register(this._instantiationService.createInstance(n.Linkifier, this.screenElement)), this.element.appendChild(t);
-							try {
-								this._onWillOpen.fire(this.element);
-							} catch {}
-							this._renderService.hasRenderer() || this._renderService.setRenderer(this._createRenderer()), this.viewport = this._instantiationService.createInstance(h.Viewport, this._viewportElement, this._viewportScrollArea), this.viewport.onRequestScrollLines(((e) => this.scrollLines(e.amount, e.suppressScrollEvent, 1))), this.register(this._inputHandler.onRequestSyncScrollBar((() => this.viewport.syncScrollArea()))), this.register(this.viewport), this.register(this.onCursorMove((() => {
-								this._renderService.handleCursorMove(), this._syncTextArea();
-							}))), this.register(this.onResize((() => this._renderService.handleResize(this.cols, this.rows)))), this.register(this.onBlur((() => this._renderService.handleBlur()))), this.register(this.onFocus((() => this._renderService.handleFocus()))), this.register(this._renderService.onDimensionsChange((() => this.viewport.syncScrollArea()))), this._selectionService = this.register(this._instantiationService.createInstance(m.SelectionService, this.element, this.screenElement, this.linkifier)), this._instantiationService.setService(S.ISelectionService, this._selectionService), this.register(this._selectionService.onRequestScrollLines(((e) => this.scrollLines(e.amount, e.suppressScrollEvent)))), this.register(this._selectionService.onSelectionChange((() => this._onSelectionChange.fire()))), this.register(this._selectionService.onRequestRedraw(((e) => this._renderService.handleSelectionChanged(e.start, e.end, e.columnSelectMode)))), this.register(this._selectionService.onLinuxMouseSelection(((e) => {
-								this.textarea.value = e, this.textarea.focus(), this.textarea.select();
-							}))), this.register(this._onScroll.event(((e) => {
-								this.viewport.syncScrollArea(), this._selectionService.refresh();
-							}))), this.register((0, r.addDisposableDomListener)(this._viewportElement, "scroll", (() => this._selectionService.refresh()))), this.register(this._instantiationService.createInstance(c.BufferDecorationRenderer, this.screenElement)), this.register((0, r.addDisposableDomListener)(this.element, "mousedown", ((e) => this._selectionService.handleMouseDown(e)))), this.coreMouseService.areMouseEventsActive ? (this._selectionService.disable(), this.element.classList.add("enable-mouse-events")) : this._selectionService.enable(), this.options.screenReaderMode && (this._accessibilityManager.value = this._instantiationService.createInstance(M.AccessibilityManager, this)), this.register(this.optionsService.onSpecificOptionChange("screenReaderMode", ((e) => this._handleScreenReaderModeOptionChange(e)))), this.options.overviewRulerWidth && (this._overviewRulerRenderer = this.register(this._instantiationService.createInstance(l.OverviewRulerRenderer, this._viewportElement, this.screenElement))), this.optionsService.onSpecificOptionChange("overviewRulerWidth", ((e) => {
-								!this._overviewRulerRenderer && e && this._viewportElement && this.screenElement && (this._overviewRulerRenderer = this.register(this._instantiationService.createInstance(l.OverviewRulerRenderer, this._viewportElement, this.screenElement)));
-							})), this._charSizeService.measure(), this.refresh(0, this.rows - 1), this._initGlobal(), this.bindMouse();
-						}
-						_createRenderer() {
-							return this._instantiationService.createInstance(_.DomRenderer, this, this._document, this.element, this.screenElement, this._viewportElement, this._helperContainer, this.linkifier);
-						}
-						bindMouse() {
-							const e = this, t = this.element;
-							function i(t) {
-								const i = e._mouseService.getMouseReportCoords(t, e.screenElement);
-								if (!i) return !1;
-								let s, r;
-								switch (t.overrideType || t.type) {
-									case "mousemove":
-										r = 32, void 0 === t.buttons ? (s = 3, void 0 !== t.button && (s = t.button < 3 ? t.button : 3)) : s = 1 & t.buttons ? 0 : 4 & t.buttons ? 1 : 2 & t.buttons ? 2 : 3;
-										break;
-									case "mouseup":
-										r = 0, s = t.button < 3 ? t.button : 3;
-										break;
-									case "mousedown":
-										r = 1, s = t.button < 3 ? t.button : 3;
-										break;
-									case "wheel":
-										if (e._customWheelEventHandler && !1 === e._customWheelEventHandler(t)) return !1;
-										if (0 === e.viewport.getLinesScrolled(t)) return !1;
-										r = t.deltaY < 0 ? 0 : 1, s = 4;
-										break;
-									default: return !1;
-								}
-								return !(void 0 === r || void 0 === s || s > 4) && e.coreMouseService.triggerMouseEvent({
-									col: i.col,
-									row: i.row,
-									x: i.x,
-									y: i.y,
-									button: s,
-									action: r,
-									ctrl: t.ctrlKey,
-									alt: t.altKey,
-									shift: t.shiftKey
-								});
-							}
-							const s = {
-								mouseup: null,
-								wheel: null,
-								mousedrag: null,
-								mousemove: null
-							}, n = {
-								mouseup: (e) => (i(e), e.buttons || (this._document.removeEventListener("mouseup", s.mouseup), s.mousedrag && this._document.removeEventListener("mousemove", s.mousedrag)), this.cancel(e)),
-								wheel: (e) => (i(e), this.cancel(e, !0)),
-								mousedrag: (e) => {
-									e.buttons && i(e);
-								},
-								mousemove: (e) => {
-									e.buttons || i(e);
-								}
-							};
-							this.register(this.coreMouseService.onProtocolChange(((e) => {
-								e ? ("debug" === this.optionsService.rawOptions.logLevel && this._logService.debug("Binding to mouse events:", this.coreMouseService.explainEvents(e)), this.element.classList.add("enable-mouse-events"), this._selectionService.disable()) : (this._logService.debug("Unbinding from mouse events."), this.element.classList.remove("enable-mouse-events"), this._selectionService.enable()), 8 & e ? s.mousemove || (t.addEventListener("mousemove", n.mousemove), s.mousemove = n.mousemove) : (t.removeEventListener("mousemove", s.mousemove), s.mousemove = null), 16 & e ? s.wheel || (t.addEventListener("wheel", n.wheel, { passive: !1 }), s.wheel = n.wheel) : (t.removeEventListener("wheel", s.wheel), s.wheel = null), 2 & e ? s.mouseup || (s.mouseup = n.mouseup) : (this._document.removeEventListener("mouseup", s.mouseup), s.mouseup = null), 4 & e ? s.mousedrag || (s.mousedrag = n.mousedrag) : (this._document.removeEventListener("mousemove", s.mousedrag), s.mousedrag = null);
-							}))), this.coreMouseService.activeProtocol = this.coreMouseService.activeProtocol, this.register((0, r.addDisposableDomListener)(t, "mousedown", ((e) => {
-								if (e.preventDefault(), this.focus(), this.coreMouseService.areMouseEventsActive && !this._selectionService.shouldForceSelection(e)) return i(e), s.mouseup && this._document.addEventListener("mouseup", s.mouseup), s.mousedrag && this._document.addEventListener("mousemove", s.mousedrag), this.cancel(e);
-							}))), this.register((0, r.addDisposableDomListener)(t, "wheel", ((e) => {
-								if (!s.wheel) {
-									if (this._customWheelEventHandler && !1 === this._customWheelEventHandler(e)) return !1;
-									if (!this.buffer.hasScrollback) {
-										const t = this.viewport.getLinesScrolled(e);
-										if (0 === t) return;
-										const i = D.C0.ESC + (this.coreService.decPrivateModes.applicationCursorKeys ? "O" : "[") + (e.deltaY < 0 ? "A" : "B");
-										let s = "";
-										for (let e = 0; e < Math.abs(t); e++) s += i;
-										return this.coreService.triggerDataEvent(s, !0), this.cancel(e, !0);
-									}
-									return this.viewport.handleWheel(e) ? this.cancel(e) : void 0;
-								}
-							}), { passive: !1 })), this.register((0, r.addDisposableDomListener)(t, "touchstart", ((e) => {
-								if (!this.coreMouseService.areMouseEventsActive) return this.viewport.handleTouchStart(e), this.cancel(e);
-							}), { passive: !0 })), this.register((0, r.addDisposableDomListener)(t, "touchmove", ((e) => {
-								if (!this.coreMouseService.areMouseEventsActive) return this.viewport.handleTouchMove(e) ? void 0 : this.cancel(e);
-							}), { passive: !1 }));
-						}
-						refresh(e, t) {
-							this._renderService?.refreshRows(e, t);
-						}
-						updateCursorStyle(e) {
-							this._selectionService?.shouldColumnSelect(e) ? this.element.classList.add("column-select") : this.element.classList.remove("column-select");
-						}
-						_showCursor() {
-							this.coreService.isCursorInitialized || (this.coreService.isCursorInitialized = !0, this.refresh(this.buffer.y, this.buffer.y));
-						}
-						scrollLines(e, t, i = 0) {
-							1 === i ? (super.scrollLines(e, t, i), this.refresh(0, this.rows - 1)) : this.viewport?.scrollLines(e);
-						}
-						paste(e) {
-							(0, s.paste)(e, this.textarea, this.coreService, this.optionsService);
-						}
-						attachCustomKeyEventHandler(e) {
-							this._customKeyEventHandler = e;
-						}
-						attachCustomWheelEventHandler(e) {
-							this._customWheelEventHandler = e;
-						}
-						registerLinkProvider(e) {
-							return this._linkProviderService.registerLinkProvider(e);
-						}
-						registerCharacterJoiner(e) {
-							if (!this._characterJoinerService) throw new Error("Terminal must be opened first");
-							const t = this._characterJoinerService.register(e);
-							return this.refresh(0, this.rows - 1), t;
-						}
-						deregisterCharacterJoiner(e) {
-							if (!this._characterJoinerService) throw new Error("Terminal must be opened first");
-							this._characterJoinerService.deregister(e) && this.refresh(0, this.rows - 1);
-						}
-						get markers() {
-							return this.buffer.markers;
-						}
-						registerMarker(e) {
-							return this.buffer.addMarker(this.buffer.ybase + this.buffer.y + e);
-						}
-						registerDecoration(e) {
-							return this._decorationService.registerDecoration(e);
-						}
-						hasSelection() {
-							return !!this._selectionService && this._selectionService.hasSelection;
-						}
-						select(e, t, i) {
-							this._selectionService.setSelection(e, t, i);
-						}
-						getSelection() {
-							return this._selectionService ? this._selectionService.selectionText : "";
-						}
-						getSelectionPosition() {
-							if (this._selectionService && this._selectionService.hasSelection) return {
-								start: {
-									x: this._selectionService.selectionStart[0],
-									y: this._selectionService.selectionStart[1]
-								},
-								end: {
-									x: this._selectionService.selectionEnd[0],
-									y: this._selectionService.selectionEnd[1]
-								}
-							};
-						}
-						clearSelection() {
-							this._selectionService?.clearSelection();
-						}
-						selectAll() {
-							this._selectionService?.selectAll();
-						}
-						selectLines(e, t) {
-							this._selectionService?.selectLines(e, t);
-						}
-						_keyDown(e) {
-							if (this._keyDownHandled = !1, this._keyDownSeen = !0, this._customKeyEventHandler && !1 === this._customKeyEventHandler(e)) return !1;
-							const t = this.browser.isMac && this.options.macOptionIsMeta && e.altKey;
-							if (!t && !this._compositionHelper.keydown(e)) return this.options.scrollOnUserInput && this.buffer.ybase !== this.buffer.ydisp && this.scrollToBottom(), !1;
-							t || "Dead" !== e.key && "AltGraph" !== e.key || (this._unprocessedDeadKey = !0);
-							const i = (0, R.evaluateKeyboardEvent)(e, this.coreService.decPrivateModes.applicationCursorKeys, this.browser.isMac, this.options.macOptionIsMeta);
-							if (this.updateCursorStyle(e), 3 === i.type || 2 === i.type) {
-								const t = this.rows - 1;
-								return this.scrollLines(2 === i.type ? -t : t), this.cancel(e, !0);
-							}
-							return 1 === i.type && this.selectAll(), !!this._isThirdLevelShift(this.browser, e) || (i.cancel && this.cancel(e, !0), !i.key || !!(e.key && !e.ctrlKey && !e.altKey && !e.metaKey && 1 === e.key.length && e.key.charCodeAt(0) >= 65 && e.key.charCodeAt(0) <= 90) || (this._unprocessedDeadKey ? (this._unprocessedDeadKey = !1, !0) : (i.key !== D.C0.ETX && i.key !== D.C0.CR || (this.textarea.value = ""), this._onKey.fire({
-								key: i.key,
-								domEvent: e
-							}), this._showCursor(), this.coreService.triggerDataEvent(i.key, !0), !this.optionsService.rawOptions.screenReaderMode || e.altKey || e.ctrlKey ? this.cancel(e, !0) : void (this._keyDownHandled = !0))));
-						}
-						_isThirdLevelShift(e, t) {
-							const i = e.isMac && !this.options.macOptionIsMeta && t.altKey && !t.ctrlKey && !t.metaKey || e.isWindows && t.altKey && t.ctrlKey && !t.metaKey || e.isWindows && t.getModifierState("AltGraph");
-							return "keypress" === t.type ? i : i && (!t.keyCode || t.keyCode > 47);
-						}
-						_keyUp(e) {
-							this._keyDownSeen = !1, this._customKeyEventHandler && !1 === this._customKeyEventHandler(e) || (function(e) {
-								return 16 === e.keyCode || 17 === e.keyCode || 18 === e.keyCode;
-							}(e) || this.focus(), this.updateCursorStyle(e), this._keyPressHandled = !1);
-						}
-						_keyPress(e) {
-							let t;
-							if (this._keyPressHandled = !1, this._keyDownHandled) return !1;
-							if (this._customKeyEventHandler && !1 === this._customKeyEventHandler(e)) return !1;
-							if (this.cancel(e), e.charCode) t = e.charCode;
-							else if (null === e.which || void 0 === e.which) t = e.keyCode;
-							else {
-								if (0 === e.which || 0 === e.charCode) return !1;
-								t = e.which;
-							}
-							return !(!t || (e.altKey || e.ctrlKey || e.metaKey) && !this._isThirdLevelShift(this.browser, e) || (t = String.fromCharCode(t), this._onKey.fire({
-								key: t,
-								domEvent: e
-							}), this._showCursor(), this.coreService.triggerDataEvent(t, !0), this._keyPressHandled = !0, this._unprocessedDeadKey = !1, 0));
-						}
-						_inputEvent(e) {
-							if (e.data && "insertText" === e.inputType && (!e.composed || !this._keyDownSeen) && !this.optionsService.rawOptions.screenReaderMode) {
-								if (this._keyPressHandled) return !1;
-								this._unprocessedDeadKey = !1;
-								const t = e.data;
-								return this.coreService.triggerDataEvent(t, !0), this.cancel(e), !0;
-							}
-							return !1;
-						}
-						resize(e, t) {
-							e !== this.cols || t !== this.rows ? super.resize(e, t) : this._charSizeService && !this._charSizeService.hasValidSize && this._charSizeService.measure();
-						}
-						_afterResize(e, t) {
-							this._charSizeService?.measure(), this.viewport?.syncScrollArea(!0);
-						}
-						clear() {
-							if (0 !== this.buffer.ybase || 0 !== this.buffer.y) {
-								this.buffer.clearAllMarkers(), this.buffer.lines.set(0, this.buffer.lines.get(this.buffer.ybase + this.buffer.y)), this.buffer.lines.length = 1, this.buffer.ydisp = 0, this.buffer.ybase = 0, this.buffer.y = 0;
-								for (let e = 1; e < this.rows; e++) this.buffer.lines.push(this.buffer.getBlankLine(L.DEFAULT_ATTR_DATA));
-								this._onScroll.fire({
-									position: this.buffer.ydisp,
-									source: 0
-								}), this.viewport?.reset(), this.refresh(0, this.rows - 1);
-							}
-						}
-						reset() {
-							this.options.rows = this.rows, this.options.cols = this.cols;
-							const e = this._customKeyEventHandler;
-							this._setup(), super.reset(), this._selectionService?.reset(), this._decorationService.reset(), this.viewport?.reset(), this._customKeyEventHandler = e, this.refresh(0, this.rows - 1);
-						}
-						clearTextureAtlas() {
-							this._renderService?.clearTextureAtlas();
-						}
-						_reportFocus() {
-							this.element?.classList.contains("focus") ? this.coreService.triggerDataEvent(D.C0.ESC + "[I") : this.coreService.triggerDataEvent(D.C0.ESC + "[O");
-						}
-						_reportWindowsOptions(e) {
-							if (this._renderService) switch (e) {
-								case T.WindowsOptionsReportType.GET_WIN_SIZE_PIXELS:
-									const e = this._renderService.dimensions.css.canvas.width.toFixed(0), t = this._renderService.dimensions.css.canvas.height.toFixed(0);
-									this.coreService.triggerDataEvent(`${D.C0.ESC}[4;${t};${e}t`);
-									break;
-								case T.WindowsOptionsReportType.GET_CELL_SIZE_PIXELS:
-									const i = this._renderService.dimensions.css.cell.width.toFixed(0), s = this._renderService.dimensions.css.cell.height.toFixed(0);
-									this.coreService.triggerDataEvent(`${D.C0.ESC}[6;${s};${i}t`);
-							}
-						}
-						cancel(e, t) {
-							if (this.options.cancelEvents || t) return e.preventDefault(), e.stopPropagation(), !1;
-						}
-					}
-					t.Terminal = P;
-				},
-				9924: (e, t) => {
+				4292: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.TimeBasedDebouncer = void 0, t.TimeBasedDebouncer = class {
 						constructor(e, t = 1e3) {
 							this._renderCallback = e, this._debounceThresholdMS = t, this._lastRefreshMs = 0, this._additionalRefreshRequested = !1;
@@ -852,12 +915,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						refresh(e, t, i) {
 							this._rowCount = i, e = void 0 !== e ? e : 0, t = void 0 !== t ? t : this._rowCount - 1, this._rowStart = void 0 !== this._rowStart ? Math.min(this._rowStart, e) : e, this._rowEnd = void 0 !== this._rowEnd ? Math.max(this._rowEnd, t) : t;
-							const s = Date.now();
+							const s = performance.now();
 							if (s - this._lastRefreshMs >= this._debounceThresholdMS) this._lastRefreshMs = s, this._innerRefresh();
 							else if (!this._additionalRefreshRequested) {
 								const e = s - this._lastRefreshMs, t = this._debounceThresholdMS - e;
 								this._additionalRefreshRequested = !0, this._refreshTimeoutID = window.setTimeout((() => {
-									this._lastRefreshMs = Date.now(), this._innerRefresh(), this._additionalRefreshRequested = !1, this._refreshTimeoutID = void 0;
+									this._lastRefreshMs = performance.now(), this._innerRefresh(), this._additionalRefreshRequested = !1, this._refreshTimeoutID = void 0;
 								}), t);
 							}
 						}
@@ -868,7 +931,53 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				1680: function(e, t, i) {
+				9302: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.DEFAULT_ANSI_COLORS = void 0;
+					const s = i(4103);
+					t.DEFAULT_ANSI_COLORS = Object.freeze((() => {
+						const e = [
+							s.css.toColor("#2e3436"),
+							s.css.toColor("#cc0000"),
+							s.css.toColor("#4e9a06"),
+							s.css.toColor("#c4a000"),
+							s.css.toColor("#3465a4"),
+							s.css.toColor("#75507b"),
+							s.css.toColor("#06989a"),
+							s.css.toColor("#d3d7cf"),
+							s.css.toColor("#555753"),
+							s.css.toColor("#ef2929"),
+							s.css.toColor("#8ae234"),
+							s.css.toColor("#fce94f"),
+							s.css.toColor("#729fcf"),
+							s.css.toColor("#ad7fa8"),
+							s.css.toColor("#34e2e2"),
+							s.css.toColor("#eeeeec")
+						], t = [
+							0,
+							95,
+							135,
+							175,
+							215,
+							255
+						];
+						for (let i = 0; i < 216; i++) {
+							const r = t[i / 36 % 6 | 0], n = t[i / 6 % 6 | 0], o = t[i % 6];
+							e.push({
+								css: s.channels.toCss(r, n, o),
+								rgba: s.channels.toRgba(r, n, o)
+							});
+						}
+						for (let t = 0; t < 24; t++) {
+							const i = 8 + 10 * t;
+							e.push({
+								css: s.channels.toCss(i, i, i),
+								rgba: s.channels.toRgba(i, i, i)
+							});
+						}
+						return e;
+					})());
+				},
+				4017: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -880,127 +989,99 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.Viewport = void 0;
-					const n = i(3656), o = i(4725), a = i(8460), h = i(844), c = i(2585);
-					let l = t.Viewport = class extends h.Disposable {
-						constructor(e, t, i, s, r, o, h, c) {
-							super(), this._viewportElement = e, this._scrollArea = t, this._bufferService = i, this._optionsService = s, this._charSizeService = r, this._renderService = o, this._coreBrowserService = h, this.scrollBarWidth = 0, this._currentRowHeight = 0, this._currentDeviceCellHeight = 0, this._lastRecordedBufferLength = 0, this._lastRecordedViewportHeight = 0, this._lastRecordedBufferHeight = 0, this._lastTouchY = 0, this._lastScrollTop = 0, this._wheelPartialScroll = 0, this._refreshAnimationFrame = null, this._ignoreNextScrollEvent = !1, this._smoothScrollState = {
-								startTime: 0,
-								origin: -1,
-								target: -1
-							}, this._onRequestScrollLines = this.register(new a.EventEmitter()), this.onRequestScrollLines = this._onRequestScrollLines.event, this.scrollBarWidth = this._viewportElement.offsetWidth - this._scrollArea.offsetWidth || 15, this.register((0, n.addDisposableDomListener)(this._viewportElement, "scroll", this._handleScroll.bind(this))), this._activeBuffer = this._bufferService.buffer, this.register(this._bufferService.buffers.onBufferActivate(((e) => this._activeBuffer = e.activeBuffer))), this._renderDimensions = this._renderService.dimensions, this.register(this._renderService.onDimensionsChange(((e) => this._renderDimensions = e))), this._handleThemeChange(c.colors), this.register(c.onChangeColors(((e) => this._handleThemeChange(e)))), this.register(this._optionsService.onSpecificOptionChange("scrollback", (() => this.syncScrollArea()))), setTimeout((() => this.syncScrollArea()));
-						}
-						_handleThemeChange(e) {
-							this._viewportElement.style.backgroundColor = e.background.css;
-						}
-						reset() {
-							this._currentRowHeight = 0, this._currentDeviceCellHeight = 0, this._lastRecordedBufferLength = 0, this._lastRecordedViewportHeight = 0, this._lastRecordedBufferHeight = 0, this._lastTouchY = 0, this._lastScrollTop = 0, this._coreBrowserService.window.requestAnimationFrame((() => this.syncScrollArea()));
-						}
-						_refresh(e) {
-							if (e) return this._innerRefresh(), void (null !== this._refreshAnimationFrame && this._coreBrowserService.window.cancelAnimationFrame(this._refreshAnimationFrame));
-							null === this._refreshAnimationFrame && (this._refreshAnimationFrame = this._coreBrowserService.window.requestAnimationFrame((() => this._innerRefresh())));
-						}
-						_innerRefresh() {
-							if (this._charSizeService.height > 0) {
-								this._currentRowHeight = this._renderDimensions.device.cell.height / this._coreBrowserService.dpr, this._currentDeviceCellHeight = this._renderDimensions.device.cell.height, this._lastRecordedViewportHeight = this._viewportElement.offsetHeight;
-								const e = Math.round(this._currentRowHeight * this._lastRecordedBufferLength) + (this._lastRecordedViewportHeight - this._renderDimensions.css.canvas.height);
-								this._lastRecordedBufferHeight !== e && (this._lastRecordedBufferHeight = e, this._scrollArea.style.height = this._lastRecordedBufferHeight + "px");
-							}
-							const e = this._bufferService.buffer.ydisp * this._currentRowHeight;
-							this._viewportElement.scrollTop !== e && (this._ignoreNextScrollEvent = !0, this._viewportElement.scrollTop = e), this._refreshAnimationFrame = null;
-						}
-						syncScrollArea(e = !1) {
-							if (this._lastRecordedBufferLength !== this._bufferService.buffer.lines.length) return this._lastRecordedBufferLength = this._bufferService.buffer.lines.length, void this._refresh(e);
-							this._lastRecordedViewportHeight === this._renderService.dimensions.css.canvas.height && this._lastScrollTop === this._activeBuffer.ydisp * this._currentRowHeight && this._renderDimensions.device.cell.height === this._currentDeviceCellHeight || this._refresh(e);
-						}
-						_handleScroll(e) {
-							if (this._lastScrollTop = this._viewportElement.scrollTop, !this._viewportElement.offsetParent) return;
-							if (this._ignoreNextScrollEvent) return this._ignoreNextScrollEvent = !1, void this._onRequestScrollLines.fire({
-								amount: 0,
-								suppressScrollEvent: !0
-							});
-							const t = Math.round(this._lastScrollTop / this._currentRowHeight) - this._bufferService.buffer.ydisp;
-							this._onRequestScrollLines.fire({
-								amount: t,
-								suppressScrollEvent: !0
-							});
-						}
-						_smoothScroll() {
-							if (this._isDisposed || -1 === this._smoothScrollState.origin || -1 === this._smoothScrollState.target) return;
-							const e = this._smoothScrollPercent();
-							this._viewportElement.scrollTop = this._smoothScrollState.origin + Math.round(e * (this._smoothScrollState.target - this._smoothScrollState.origin)), e < 1 ? this._coreBrowserService.window.requestAnimationFrame((() => this._smoothScroll())) : this._clearSmoothScrollState();
-						}
-						_smoothScrollPercent() {
-							return this._optionsService.rawOptions.smoothScrollDuration && this._smoothScrollState.startTime ? Math.max(Math.min((Date.now() - this._smoothScrollState.startTime) / this._optionsService.rawOptions.smoothScrollDuration, 1), 0) : 1;
-						}
-						_clearSmoothScrollState() {
-							this._smoothScrollState.startTime = 0, this._smoothScrollState.origin = -1, this._smoothScrollState.target = -1;
-						}
-						_bubbleScroll(e, t) {
-							const i = this._viewportElement.scrollTop + this._lastRecordedViewportHeight;
-							return !(t < 0 && 0 !== this._viewportElement.scrollTop || t > 0 && i < this._lastRecordedBufferHeight) || (e.cancelable && e.preventDefault(), !1);
-						}
-						handleWheel(e) {
-							const t = this._getPixelsScrolled(e);
-							return 0 !== t && (this._optionsService.rawOptions.smoothScrollDuration ? (this._smoothScrollState.startTime = Date.now(), this._smoothScrollPercent() < 1 ? (this._smoothScrollState.origin = this._viewportElement.scrollTop, -1 === this._smoothScrollState.target ? this._smoothScrollState.target = this._viewportElement.scrollTop + t : this._smoothScrollState.target += t, this._smoothScrollState.target = Math.max(Math.min(this._smoothScrollState.target, this._viewportElement.scrollHeight), 0), this._smoothScroll()) : this._clearSmoothScrollState()) : this._viewportElement.scrollTop += t, this._bubbleScroll(e, t));
+					const n = i(7098), o = i(7150), a = i(6501), l = i(7093), h = i(8234), c = i(802), d = i(9881);
+					let u = class extends o.Disposable {
+						constructor(e, t, i, s, r, n, a, u) {
+							super(), this._bufferService = i, this._optionsService = a, this._renderService = u, this._onRequestScrollLines = this._register(new c.Emitter()), this.onRequestScrollLines = this._onRequestScrollLines.event, this._isSyncing = !1, this._isHandlingScroll = !1, this._suppressOnScrollHandler = !1;
+							const _ = this._register(new d.Scrollable({
+								forceIntegerValues: !1,
+								smoothScrollDuration: this._optionsService.rawOptions.smoothScrollDuration,
+								scheduleAtNextAnimationFrame: (e) => (0, l.scheduleAtNextAnimationFrame)(s.window, e)
+							}));
+							this._register(this._optionsService.onSpecificOptionChange("smoothScrollDuration", (() => {
+								_.setSmoothScrollDuration(this._optionsService.rawOptions.smoothScrollDuration);
+							}))), this._scrollableElement = this._register(new h.SmoothScrollableElement(t, {
+								vertical: 1,
+								horizontal: 2,
+								useShadows: !1,
+								mouseWheelSmoothScroll: !0,
+								...this._getChangeOptions()
+							}, _)), this._register(this._optionsService.onMultipleOptionChange([
+								"scrollSensitivity",
+								"fastScrollSensitivity",
+								"overviewRuler"
+							], (() => this._scrollableElement.updateOptions(this._getChangeOptions())))), this._register(r.onProtocolChange(((e) => {
+								this._scrollableElement.updateOptions({ handleMouseWheel: !(16 & e) });
+							}))), this._scrollableElement.setScrollDimensions({
+								height: 0,
+								scrollHeight: 0
+							}), this._register(c.Event.runAndSubscribe(n.onChangeColors, (() => {
+								this._scrollableElement.getDomNode().style.backgroundColor = n.colors.background.css;
+							}))), e.appendChild(this._scrollableElement.getDomNode()), this._register((0, o.toDisposable)((() => this._scrollableElement.getDomNode().remove()))), this._styleElement = s.mainDocument.createElement("style"), t.appendChild(this._styleElement), this._register((0, o.toDisposable)((() => this._styleElement.remove()))), this._register(c.Event.runAndSubscribe(n.onChangeColors, (() => {
+								this._styleElement.textContent = [
+									".xterm .xterm-scrollable-element > .scrollbar > .slider {",
+									`  background: ${n.colors.scrollbarSliderBackground.css};`,
+									"}",
+									".xterm .xterm-scrollable-element > .scrollbar > .slider:hover {",
+									`  background: ${n.colors.scrollbarSliderHoverBackground.css};`,
+									"}",
+									".xterm .xterm-scrollable-element > .scrollbar > .slider.active {",
+									`  background: ${n.colors.scrollbarSliderActiveBackground.css};`,
+									"}"
+								].join("\n");
+							}))), this._register(this._bufferService.onResize((() => this.queueSync()))), this._register(this._bufferService.buffers.onBufferActivate((() => {
+								this._latestYDisp = void 0, this.queueSync();
+							}))), this._register(this._bufferService.onScroll((() => this._sync()))), this._register(this._scrollableElement.onScroll(((e) => this._handleScroll(e))));
 						}
 						scrollLines(e) {
-							if (0 !== e) if (this._optionsService.rawOptions.smoothScrollDuration) {
-								const t = e * this._currentRowHeight;
-								this._smoothScrollState.startTime = Date.now(), this._smoothScrollPercent() < 1 ? (this._smoothScrollState.origin = this._viewportElement.scrollTop, this._smoothScrollState.target = this._smoothScrollState.origin + t, this._smoothScrollState.target = Math.max(Math.min(this._smoothScrollState.target, this._viewportElement.scrollHeight), 0), this._smoothScroll()) : this._clearSmoothScrollState();
-							} else this._onRequestScrollLines.fire({
-								amount: e,
-								suppressScrollEvent: !1
+							const t = this._scrollableElement.getScrollPosition();
+							this._scrollableElement.setScrollPosition({
+								reuseAnimation: !0,
+								scrollTop: t.scrollTop + e * this._renderService.dimensions.css.cell.height
 							});
 						}
-						_getPixelsScrolled(e) {
-							if (0 === e.deltaY || e.shiftKey) return 0;
-							let t = this._applyScrollModifier(e.deltaY, e);
-							return e.deltaMode === WheelEvent.DOM_DELTA_LINE ? t *= this._currentRowHeight : e.deltaMode === WheelEvent.DOM_DELTA_PAGE && (t *= this._currentRowHeight * this._bufferService.rows), t;
+						scrollToLine(e, t) {
+							t && (this._latestYDisp = e), this._scrollableElement.setScrollPosition({
+								reuseAnimation: !t,
+								scrollTop: e * this._renderService.dimensions.css.cell.height
+							});
 						}
-						getBufferElements(e, t) {
-							let i, s = "";
-							const r = [], n = t ?? this._bufferService.buffer.lines.length, o = this._bufferService.buffer.lines;
-							for (let t = e; t < n; t++) {
-								const e = o.get(t);
-								if (!e) continue;
-								const n = o.get(t + 1)?.isWrapped;
-								if (s += e.translateToString(!n), !n || t === o.length - 1) {
-									const e = document.createElement("div");
-									e.textContent = s, r.push(e), s.length > 0 && (i = e), s = "";
-								}
-							}
+						_getChangeOptions() {
 							return {
-								bufferElements: r,
-								cursorElement: i
+								mouseWheelScrollSensitivity: this._optionsService.rawOptions.scrollSensitivity,
+								fastScrollSensitivity: this._optionsService.rawOptions.fastScrollSensitivity,
+								verticalScrollbarSize: this._optionsService.rawOptions.overviewRuler?.width || 14
 							};
 						}
-						getLinesScrolled(e) {
-							if (0 === e.deltaY || e.shiftKey) return 0;
-							let t = this._applyScrollModifier(e.deltaY, e);
-							return e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? (t /= this._currentRowHeight + 0, this._wheelPartialScroll += t, t = Math.floor(Math.abs(this._wheelPartialScroll)) * (this._wheelPartialScroll > 0 ? 1 : -1), this._wheelPartialScroll %= 1) : e.deltaMode === WheelEvent.DOM_DELTA_PAGE && (t *= this._bufferService.rows), t;
+						queueSync(e) {
+							void 0 !== e && (this._latestYDisp = e), void 0 === this._queuedAnimationFrame && (this._queuedAnimationFrame = this._renderService.addRefreshCallback((() => {
+								this._queuedAnimationFrame = void 0, this._sync(this._latestYDisp);
+							})));
 						}
-						_applyScrollModifier(e, t) {
-							const i = this._optionsService.rawOptions.fastScrollModifier;
-							return "alt" === i && t.altKey || "ctrl" === i && t.ctrlKey || "shift" === i && t.shiftKey ? e * this._optionsService.rawOptions.fastScrollSensitivity * this._optionsService.rawOptions.scrollSensitivity : e * this._optionsService.rawOptions.scrollSensitivity;
+						_sync(e = this._bufferService.buffer.ydisp) {
+							this._renderService && !this._isSyncing && (this._isSyncing = !0, this._suppressOnScrollHandler = !0, this._scrollableElement.setScrollDimensions({
+								height: this._renderService.dimensions.css.canvas.height,
+								scrollHeight: this._renderService.dimensions.css.cell.height * this._bufferService.buffer.lines.length
+							}), this._suppressOnScrollHandler = !1, e !== this._latestYDisp && this._scrollableElement.setScrollPosition({ scrollTop: e * this._renderService.dimensions.css.cell.height }), this._isSyncing = !1);
 						}
-						handleTouchStart(e) {
-							this._lastTouchY = e.touches[0].pageY;
-						}
-						handleTouchMove(e) {
-							const t = this._lastTouchY - e.touches[0].pageY;
-							return this._lastTouchY = e.touches[0].pageY, 0 !== t && (this._viewportElement.scrollTop += t, this._bubbleScroll(e, t));
+						_handleScroll(e) {
+							if (!this._renderService) return;
+							if (this._isHandlingScroll || this._suppressOnScrollHandler) return;
+							this._isHandlingScroll = !0;
+							const t = Math.round(e.scrollTop / this._renderService.dimensions.css.cell.height), i = t - this._bufferService.buffer.ydisp;
+							0 !== i && (this._latestYDisp = t, this._onRequestScrollLines.fire(i)), this._isHandlingScroll = !1;
 						}
 					};
-					t.Viewport = l = s([
-						r(2, c.IBufferService),
-						r(3, c.IOptionsService),
-						r(4, o.ICharSizeService),
-						r(5, o.IRenderService),
-						r(6, o.ICoreBrowserService),
-						r(7, o.IThemeService)
-					], l);
+					t.Viewport = u, t.Viewport = u = s([
+						r(2, a.IBufferService),
+						r(3, n.ICoreBrowserService),
+						r(4, a.ICoreMouseService),
+						r(5, n.IThemeService),
+						r(6, a.IOptionsService),
+						r(7, n.IRenderService)
+					], u);
 				},
-				3107: function(e, t, i) {
+				4196: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1012,14 +1093,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferDecorationRenderer = void 0;
-					const n = i(4725), o = i(844), a = i(2585);
-					let h = t.BufferDecorationRenderer = class extends o.Disposable {
+					const n = i(7098), o = i(7150), a = i(6501);
+					let l = class extends o.Disposable {
 						constructor(e, t, i, s, r) {
-							super(), this._screenElement = e, this._bufferService = t, this._coreBrowserService = i, this._decorationService = s, this._renderService = r, this._decorationElements = /* @__PURE__ */ new Map(), this._altBufferIsActive = !1, this._dimensionsChanged = !1, this._container = document.createElement("div"), this._container.classList.add("xterm-decoration-container"), this._screenElement.appendChild(this._container), this.register(this._renderService.onRenderedViewportChange((() => this._doRefreshDecorations()))), this.register(this._renderService.onDimensionsChange((() => {
+							super(), this._screenElement = e, this._bufferService = t, this._coreBrowserService = i, this._decorationService = s, this._renderService = r, this._decorationElements = /* @__PURE__ */ new Map(), this._altBufferIsActive = !1, this._dimensionsChanged = !1, this._container = document.createElement("div"), this._container.classList.add("xterm-decoration-container"), this._screenElement.appendChild(this._container), this._register(this._renderService.onRenderedViewportChange((() => this._doRefreshDecorations()))), this._register(this._renderService.onDimensionsChange((() => {
 								this._dimensionsChanged = !0, this._queueRefresh();
-							}))), this.register(this._coreBrowserService.onDprChange((() => this._queueRefresh()))), this.register(this._bufferService.buffers.onBufferActivate((() => {
+							}))), this._register(this._coreBrowserService.onDprChange((() => this._queueRefresh()))), this._register(this._bufferService.buffers.onBufferActivate((() => {
 								this._altBufferIsActive = this._bufferService.buffer === this._bufferService.buffers.alt;
-							}))), this.register(this._decorationService.onDecorationRegistered((() => this._queueRefresh()))), this.register(this._decorationService.onDecorationRemoved(((e) => this._removeDecoration(e)))), this.register((0, o.toDisposable)((() => {
+							}))), this._register(this._decorationService.onDecorationRegistered((() => this._queueRefresh()))), this._register(this._decorationService.onDecorationRemoved(((e) => this._removeDecoration(e)))), this._register((0, o.toDisposable)((() => {
 								this._container.remove(), this._decorationElements.clear();
 							})));
 						}
@@ -1048,7 +1129,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								let i = this._decorationElements.get(e);
 								i || (i = this._createElement(e), e.element = i, this._decorationElements.set(e, i), this._container.appendChild(i), e.onDispose((() => {
 									this._decorationElements.delete(e), i.remove();
-								}))), i.style.top = t * this._renderService.dimensions.css.cell.height + "px", i.style.display = this._altBufferIsActive ? "none" : "block", e.onRenderEmitter.fire(i);
+								}))), i.style.display = this._altBufferIsActive ? "none" : "block", this._altBufferIsActive || (i.style.width = `${Math.round((e.options.width || 1) * this._renderService.dimensions.css.cell.width)}px`, i.style.height = (e.options.height || 1) * this._renderService.dimensions.css.cell.height + "px", i.style.top = t * this._renderService.dimensions.css.cell.height + "px", i.style.lineHeight = `${this._renderService.dimensions.css.cell.height}px`), e.onRenderEmitter.fire(i);
 							}
 						}
 						_refreshXPosition(e, t = e.element) {
@@ -1060,14 +1141,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._decorationElements.get(e)?.remove(), this._decorationElements.delete(e), e.dispose();
 						}
 					};
-					t.BufferDecorationRenderer = h = s([
+					t.BufferDecorationRenderer = l, t.BufferDecorationRenderer = l = s([
 						r(1, a.IBufferService),
 						r(2, n.ICoreBrowserService),
 						r(3, a.IDecorationService),
 						r(4, n.IRenderService)
-					], h);
+					], l);
 				},
-				5871: (e, t) => {
+				957: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.ColorZoneStore = void 0, t.ColorZoneStore = class {
 						constructor() {
 							this._zones = [], this._zonePool = [], this._zonePoolIndex = 0, this._linePadding = {
@@ -1112,7 +1193,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				5744: function(e, t, i) {
+				9925: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1124,12 +1205,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.OverviewRulerRenderer = void 0;
-					const n = i(5871), o = i(4725), a = i(844), h = i(2585), c = {
+					const n = i(957), o = i(7098), a = i(7150), l = i(6501), h = {
 						full: 0,
 						left: 0,
 						center: 0,
 						right: 0
-					}, l = {
+					}, c = {
 						full: 0,
 						left: 0,
 						center: 0,
@@ -1140,48 +1221,37 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						center: 0,
 						right: 0
 					};
-					let _ = t.OverviewRulerRenderer = class extends a.Disposable {
+					let u = class extends a.Disposable {
 						get _width() {
-							return this._optionsService.options.overviewRulerWidth || 0;
+							return this._optionsService.options.overviewRuler?.width || 0;
 						}
-						constructor(e, t, i, s, r, o, h) {
-							super(), this._viewportElement = e, this._screenElement = t, this._bufferService = i, this._decorationService = s, this._renderService = r, this._optionsService = o, this._coreBrowserService = h, this._colorZoneStore = new n.ColorZoneStore(), this._shouldUpdateDimensions = !0, this._shouldUpdateAnchor = !0, this._lastKnownBufferLength = 0, this._canvas = this._coreBrowserService.mainDocument.createElement("canvas"), this._canvas.classList.add("xterm-decoration-overview-ruler"), this._refreshCanvasDimensions(), this._viewportElement.parentElement?.insertBefore(this._canvas, this._viewportElement);
+						constructor(e, t, i, s, r, o, l, h) {
+							super(), this._viewportElement = e, this._screenElement = t, this._bufferService = i, this._decorationService = s, this._renderService = r, this._optionsService = o, this._themeService = l, this._coreBrowserService = h, this._colorZoneStore = new n.ColorZoneStore(), this._shouldUpdateDimensions = !0, this._shouldUpdateAnchor = !0, this._lastKnownBufferLength = 0, this._canvas = this._coreBrowserService.mainDocument.createElement("canvas"), this._canvas.classList.add("xterm-decoration-overview-ruler"), this._refreshCanvasDimensions(), this._viewportElement.parentElement?.insertBefore(this._canvas, this._viewportElement), this._register((0, a.toDisposable)((() => this._canvas?.remove())));
 							const c = this._canvas.getContext("2d");
 							if (!c) throw new Error("Ctx cannot be null");
-							this._ctx = c, this._registerDecorationListeners(), this._registerBufferChangeListeners(), this._registerDimensionChangeListeners(), this.register((0, a.toDisposable)((() => {
-								this._canvas?.remove();
-							})));
-						}
-						_registerDecorationListeners() {
-							this.register(this._decorationService.onDecorationRegistered((() => this._queueRefresh(void 0, !0)))), this.register(this._decorationService.onDecorationRemoved((() => this._queueRefresh(void 0, !0))));
-						}
-						_registerBufferChangeListeners() {
-							this.register(this._renderService.onRenderedViewportChange((() => this._queueRefresh()))), this.register(this._bufferService.buffers.onBufferActivate((() => {
+							this._ctx = c, this._register(this._decorationService.onDecorationRegistered((() => this._queueRefresh(void 0, !0)))), this._register(this._decorationService.onDecorationRemoved((() => this._queueRefresh(void 0, !0)))), this._register(this._renderService.onRenderedViewportChange((() => this._queueRefresh()))), this._register(this._bufferService.buffers.onBufferActivate((() => {
 								this._canvas.style.display = this._bufferService.buffer === this._bufferService.buffers.alt ? "none" : "block";
-							}))), this.register(this._bufferService.onScroll((() => {
+							}))), this._register(this._bufferService.onScroll((() => {
 								this._lastKnownBufferLength !== this._bufferService.buffers.normal.lines.length && (this._refreshDrawHeightConstants(), this._refreshColorZonePadding());
-							})));
-						}
-						_registerDimensionChangeListeners() {
-							this.register(this._renderService.onRender((() => {
+							}))), this._register(this._renderService.onRender((() => {
 								this._containerHeight && this._containerHeight === this._screenElement.clientHeight || (this._queueRefresh(!0), this._containerHeight = this._screenElement.clientHeight);
-							}))), this.register(this._optionsService.onSpecificOptionChange("overviewRulerWidth", (() => this._queueRefresh(!0)))), this.register(this._coreBrowserService.onDprChange((() => this._queueRefresh(!0)))), this._queueRefresh(!0);
+							}))), this._register(this._coreBrowserService.onDprChange((() => this._queueRefresh(!0)))), this._register(this._optionsService.onSpecificOptionChange("overviewRuler", (() => this._queueRefresh(!0)))), this._register(this._themeService.onChangeColors((() => this._queueRefresh()))), this._queueRefresh(!0);
 						}
 						_refreshDrawConstants() {
-							const e = Math.floor(this._canvas.width / 3), t = Math.ceil(this._canvas.width / 3);
-							l.full = this._canvas.width, l.left = e, l.center = t, l.right = e, this._refreshDrawHeightConstants(), d.full = 0, d.left = 0, d.center = l.left, d.right = l.left + l.center;
+							const e = Math.floor((this._canvas.width - 1) / 3), t = Math.ceil((this._canvas.width - 1) / 3);
+							c.full = this._canvas.width, c.left = e, c.center = t, c.right = e, this._refreshDrawHeightConstants(), d.full = 1, d.left = 1, d.center = 1 + c.left, d.right = 1 + c.left + c.center;
 						}
 						_refreshDrawHeightConstants() {
-							c.full = Math.round(2 * this._coreBrowserService.dpr);
+							h.full = Math.round(2 * this._coreBrowserService.dpr);
 							const e = this._canvas.height / this._bufferService.buffer.lines.length, t = Math.round(Math.max(Math.min(e, 12), 6) * this._coreBrowserService.dpr);
-							c.left = t, c.center = t, c.right = t;
+							h.left = t, h.center = t, h.right = t;
 						}
 						_refreshColorZonePadding() {
 							this._colorZoneStore.setPadding({
-								full: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * c.full),
-								left: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * c.left),
-								center: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * c.center),
-								right: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * c.right)
+								full: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * h.full),
+								left: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * h.left),
+								center: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * h.center),
+								right: Math.floor(this._bufferService.buffers.active.lines.length / (this._canvas.height - 1) * h.right)
 							}), this._lastKnownBufferLength = this._bufferService.buffers.normal.lines.length;
 						}
 						_refreshCanvasDimensions() {
@@ -1190,14 +1260,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						_refreshDecorations() {
 							this._shouldUpdateDimensions && this._refreshCanvasDimensions(), this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height), this._colorZoneStore.clear();
 							for (const e of this._decorationService.decorations) this._colorZoneStore.addDecoration(e);
-							this._ctx.lineWidth = 1;
+							this._ctx.lineWidth = 1, this._renderRulerOutline();
 							const e = this._colorZoneStore.zones;
 							for (const t of e) "full" !== t.position && this._renderColorZone(t);
 							for (const t of e) "full" === t.position && this._renderColorZone(t);
 							this._shouldUpdateDimensions = !1, this._shouldUpdateAnchor = !1;
 						}
+						_renderRulerOutline() {
+							this._ctx.fillStyle = this._themeService.colors.overviewRulerBorder.css, this._ctx.fillRect(0, 0, 1, this._canvas.height), this._optionsService.rawOptions.overviewRuler.showTopBorder && this._ctx.fillRect(1, 0, this._canvas.width - 1, 1), this._optionsService.rawOptions.overviewRuler.showBottomBorder && this._ctx.fillRect(1, this._canvas.height - 1, this._canvas.width - 1, this._canvas.height);
+						}
 						_renderColorZone(e) {
-							this._ctx.fillStyle = e.color, this._ctx.fillRect(d[e.position || "full"], Math.round((this._canvas.height - 1) * (e.startBufferLine / this._bufferService.buffers.active.lines.length) - c[e.position || "full"] / 2), l[e.position || "full"], Math.round((this._canvas.height - 1) * ((e.endBufferLine - e.startBufferLine) / this._bufferService.buffers.active.lines.length) + c[e.position || "full"]));
+							this._ctx.fillStyle = e.color, this._ctx.fillRect(d[e.position || "full"], Math.round((this._canvas.height - 1) * (e.startBufferLine / this._bufferService.buffers.active.lines.length) - h[e.position || "full"] / 2), c[e.position || "full"], Math.round((this._canvas.height - 1) * ((e.endBufferLine - e.startBufferLine) / this._bufferService.buffers.active.lines.length) + h[e.position || "full"]));
 						}
 						_queueRefresh(e, t) {
 							this._shouldUpdateDimensions = e || this._shouldUpdateDimensions, this._shouldUpdateAnchor = t || this._shouldUpdateAnchor, void 0 === this._animationFrame && (this._animationFrame = this._coreBrowserService.window.requestAnimationFrame((() => {
@@ -1205,15 +1278,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							})));
 						}
 					};
-					t.OverviewRulerRenderer = _ = s([
-						r(2, h.IBufferService),
-						r(3, h.IDecorationService),
+					t.OverviewRulerRenderer = u, t.OverviewRulerRenderer = u = s([
+						r(2, l.IBufferService),
+						r(3, l.IDecorationService),
 						r(4, o.IRenderService),
-						r(5, h.IOptionsService),
-						r(6, o.ICoreBrowserService)
-					], _);
+						r(5, l.IOptionsService),
+						r(6, o.IThemeService),
+						r(7, o.ICoreBrowserService)
+					], u);
 				},
-				2950: function(e, t, i) {
+				3618: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1225,8 +1299,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CompositionHelper = void 0;
-					const n = i(4725), o = i(2585), a = i(2584);
-					let h = t.CompositionHelper = class {
+					const n = i(7098), o = i(6501), a = i(3534);
+					let l = class {
 						get isComposing() {
 							return this._isComposing;
 						}
@@ -1249,7 +1323,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						keydown(e) {
 							if (this._isComposing || this._isSendingComposition) {
-								if (229 === e.keyCode) return !1;
+								if (20 === e.keyCode || 229 === e.keyCode) return !1;
 								if (16 === e.keyCode || 17 === e.keyCode || 18 === e.keyCode) return !1;
 								this._finalizeComposition(!1);
 							}
@@ -1264,7 +1338,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								this._isSendingComposition = !0, setTimeout((() => {
 									if (this._isSendingComposition) {
 										let t;
-										this._isSendingComposition = !1, e.start += this._dataAlreadySent.length, t = this._isComposing ? this._textarea.value.substring(e.start, e.end) : this._textarea.value.substring(e.start), t.length > 0 && this._coreService.triggerDataEvent(t, !0);
+										this._isSendingComposition = !1, e.start += this._dataAlreadySent.length, t = this._isComposing ? this._textarea.value.substring(e.start, this._compositionPosition.start) : this._textarea.value.substring(e.start), t.length > 0 && this._coreService.triggerDataEvent(t, !0);
 									}
 								}), 0);
 							} else {
@@ -1294,30 +1368,50 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							}
 						}
 					};
-					t.CompositionHelper = h = s([
+					t.CompositionHelper = l, t.CompositionHelper = l = s([
 						r(2, o.IBufferService),
 						r(3, o.IOptionsService),
 						r(4, o.ICoreService),
 						r(5, n.IRenderService)
-					], h);
+					], l);
 				},
-				9806: (e, t) => {
+				5251: (e, t) => {
 					function i(e, t, i) {
 						const s = i.getBoundingClientRect(), r = e.getComputedStyle(i), n = parseInt(r.getPropertyValue("padding-left")), o = parseInt(r.getPropertyValue("padding-top"));
 						return [t.clientX - s.left - n, t.clientY - s.top - o];
 					}
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.getCoords = t.getCoordsRelativeToElement = void 0, t.getCoordsRelativeToElement = i, t.getCoords = function(e, t, s, r, n, o, a, h, c) {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.getCoordsRelativeToElement = i, t.getCoords = function(e, t, s, r, n, o, a, l, h) {
 						if (!o) return;
-						const l = i(e, t, s);
-						return l ? (l[0] = Math.ceil((l[0] + (c ? a / 2 : 0)) / a), l[1] = Math.ceil(l[1] / h), l[0] = Math.min(Math.max(l[0], 1), r + (c ? 1 : 0)), l[1] = Math.min(Math.max(l[1], 1), n), l) : void 0;
+						const c = i(e, t, s);
+						return c ? (c[0] = Math.ceil((c[0] + (h ? a / 2 : 0)) / a), c[1] = Math.ceil(c[1] / l), c[0] = Math.min(Math.max(c[0], 1), r + (h ? 1 : 0)), c[1] = Math.min(Math.max(c[1], 1), n), c) : void 0;
 					};
 				},
-				9504: (e, t, i) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.moveToCellSequence = void 0;
-					const s = i(2584);
+				9686: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.moveToCellSequence = function(e, t, i, s) {
+						const o = i.buffer.x, c = i.buffer.y;
+						if (!i.buffer.hasScrollback) return function(e, t, i, s, o, c) {
+							return 0 === r(t, s, o, c).length ? "" : h(a(e, t, e, t - n(t, o), !1, o).length, l("D", c));
+						}(o, c, 0, t, i, s) + r(c, t, i, s) + function(e, t, i, s, o, c) {
+							let d;
+							d = r(t, s, o, c).length > 0 ? s - n(s, o) : t;
+							const u = s, _ = function(e, t, i, s, o, a) {
+								let l;
+								return l = r(i, s, o, a).length > 0 ? s - n(s, o) : t, e < i && l <= s || e >= i && l < s ? "C" : "D";
+							}(e, t, i, s, o, c);
+							return h(a(e, d, i, u, "C" === _, o).length, l(_, c));
+						}(o, c, e, t, i, s);
+						let d;
+						if (c === t) return d = o > e ? "D" : "C", h(Math.abs(o - e), l(d, s));
+						d = c > t ? "D" : "C";
+						const u = Math.abs(c - t);
+						return h(function(e, t) {
+							return t.cols - e;
+						}(c > t ? e : o, i) + (u - 1) * i.cols + 1 + ((c > t ? o : e) - 1), l(d, s));
+					};
+					const s = i(3534);
 					function r(e, t, i, s) {
 						const r = e - n(e, i), a = t - n(t, i);
-						return c(Math.abs(r - a) - function(e, t, i) {
+						return h(Math.abs(r - a) - function(e, t, i) {
 							let s = 0;
 							const r = e - n(e, i), a = t - n(t, i);
 							for (let n = 0; n < Math.abs(r - a); n++) {
@@ -1325,7 +1419,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								i.buffer.lines.get(r + a * n)?.isWrapped && s++;
 							}
 							return s;
-						}(e, t, i), h(o(e, t), s));
+						}(e, t, i), l(o(e, t), s));
 					}
 					function n(e, t) {
 						let i = 0, s = t.buffer.lines.get(e), r = s?.isWrapped;
@@ -1336,43 +1430,22 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						return e > t ? "A" : "B";
 					}
 					function a(e, t, i, s, r, n) {
-						let o = e, a = t, h = "";
-						for (; o !== i || a !== s;) o += r ? 1 : -1, r && o > n.cols - 1 ? (h += n.buffer.translateBufferLineToString(a, !1, e, o), o = 0, e = 0, a++) : !r && o < 0 && (h += n.buffer.translateBufferLineToString(a, !1, 0, e + 1), o = n.cols - 1, e = o, a--);
-						return h + n.buffer.translateBufferLineToString(a, !1, e, o);
+						let o = e, a = t, l = "";
+						for (; (o !== i || a !== s) && a >= 0 && a < n.buffer.lines.length;) o += r ? 1 : -1, r && o > n.cols - 1 ? (l += n.buffer.translateBufferLineToString(a, !1, e, o), o = 0, e = 0, a++) : !r && o < 0 && (l += n.buffer.translateBufferLineToString(a, !1, 0, e + 1), o = n.cols - 1, e = o, a--);
+						return l + n.buffer.translateBufferLineToString(a, !1, e, o);
 					}
-					function h(e, t) {
+					function l(e, t) {
 						const i = t ? "O" : "[";
 						return s.C0.ESC + i + e;
 					}
-					function c(e, t) {
+					function h(e, t) {
 						e = Math.floor(e);
 						let i = "";
 						for (let s = 0; s < e; s++) i += t;
 						return i;
 					}
-					t.moveToCellSequence = function(e, t, i, s) {
-						const o = i.buffer.x, l = i.buffer.y;
-						if (!i.buffer.hasScrollback) return function(e, t, i, s, o, l) {
-							return 0 === r(t, s, o, l).length ? "" : c(a(e, t, e, t - n(t, o), !1, o).length, h("D", l));
-						}(o, l, 0, t, i, s) + r(l, t, i, s) + function(e, t, i, s, o, l) {
-							let d;
-							d = r(t, s, o, l).length > 0 ? s - n(s, o) : t;
-							const _ = s, u = function(e, t, i, s, o, a) {
-								let h;
-								return h = r(i, s, o, a).length > 0 ? s - n(s, o) : t, e < i && h <= s || e >= i && h < s ? "C" : "D";
-							}(e, t, i, s, o, l);
-							return c(a(e, d, i, _, "C" === u, o).length, h(u, l));
-						}(o, l, e, t, i, s);
-						let d;
-						if (l === t) return d = o > e ? "D" : "C", c(Math.abs(o - e), h(d, s));
-						d = l > t ? "D" : "C";
-						const _ = Math.abs(l - t);
-						return c(function(e, t) {
-							return t.cols - e;
-						}(l > t ? e : o, i) + (_ - 1) * i.cols + 1 + ((l > t ? o : e) - 1), h(d, s));
-					};
 				},
-				1296: function(e, t, i) {
+				3955: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1384,11 +1457,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DomRenderer = void 0;
-					const n = i(3787), o = i(2550), a = i(2223), h = i(6171), c = i(6052), l = i(4725), d = i(8055), _ = i(8460), u = i(844), f = i(2585), v = "xterm-dom-renderer-owner-", p = "xterm-rows", g = "xterm-fg-", m = "xterm-bg-", S = "xterm-focus", C = "xterm-selection";
-					let b = 1, w = t.DomRenderer = class extends u.Disposable {
-						constructor(e, t, i, s, r, a, l, d, f, g, m, S, w) {
-							super(), this._terminal = e, this._document = t, this._element = i, this._screenElement = s, this._viewportElement = r, this._helperContainer = a, this._linkifier2 = l, this._charSizeService = f, this._optionsService = g, this._bufferService = m, this._coreBrowserService = S, this._themeService = w, this._terminalClass = b++, this._rowElements = [], this._selectionRenderModel = (0, c.createSelectionRenderModel)(), this.onRequestRedraw = this.register(new _.EventEmitter()).event, this._rowContainer = this._document.createElement("div"), this._rowContainer.classList.add(p), this._rowContainer.style.lineHeight = "normal", this._rowContainer.setAttribute("aria-hidden", "true"), this._refreshRowElements(this._bufferService.cols, this._bufferService.rows), this._selectionContainer = this._document.createElement("div"), this._selectionContainer.classList.add(C), this._selectionContainer.setAttribute("aria-hidden", "true"), this.dimensions = (0, h.createRenderDimensions)(), this._updateDimensions(), this.register(this._optionsService.onOptionChange((() => this._handleOptionsChanged()))), this.register(this._themeService.onChangeColors(((e) => this._injectCss(e)))), this._injectCss(this._themeService.colors), this._rowFactory = d.createInstance(n.DomRendererRowFactory, document), this._element.classList.add(v + this._terminalClass), this._screenElement.appendChild(this._rowContainer), this._screenElement.appendChild(this._selectionContainer), this.register(this._linkifier2.onShowLinkUnderline(((e) => this._handleLinkHover(e)))), this.register(this._linkifier2.onHideLinkUnderline(((e) => this._handleLinkLeave(e)))), this.register((0, u.toDisposable)((() => {
-								this._element.classList.remove(v + this._terminalClass), this._rowContainer.remove(), this._selectionContainer.remove(), this._widthCache.dispose(), this._themeStyleElement.remove(), this._dimensionsStyleElement.remove();
+					const n = i(1433), o = i(2744), a = i(9176), l = i(6181), h = i(2274), c = i(7098), d = i(4103), u = i(7150), _ = i(6501), f = i(802), p = "xterm-dom-renderer-owner-", g = "xterm-rows", m = "xterm-fg-", v = "xterm-bg-", S = "xterm-focus", b = "xterm-selection";
+					let C = 1, y = class extends u.Disposable {
+						constructor(e, t, i, s, r, a, c, d, _, m, v, S, y, w) {
+							super(), this._terminal = e, this._document = t, this._element = i, this._screenElement = s, this._viewportElement = r, this._helperContainer = a, this._linkifier2 = c, this._charSizeService = _, this._optionsService = m, this._bufferService = v, this._coreService = S, this._coreBrowserService = y, this._themeService = w, this._terminalClass = C++, this._rowElements = [], this._selectionRenderModel = (0, h.createSelectionRenderModel)(), this.onRequestRedraw = this._register(new f.Emitter()).event, this._rowContainer = this._document.createElement("div"), this._rowContainer.classList.add(g), this._rowContainer.style.lineHeight = "normal", this._rowContainer.setAttribute("aria-hidden", "true"), this._refreshRowElements(this._bufferService.cols, this._bufferService.rows), this._selectionContainer = this._document.createElement("div"), this._selectionContainer.classList.add(b), this._selectionContainer.setAttribute("aria-hidden", "true"), this.dimensions = (0, l.createRenderDimensions)(), this._updateDimensions(), this._register(this._optionsService.onOptionChange((() => this._handleOptionsChanged()))), this._register(this._themeService.onChangeColors(((e) => this._injectCss(e)))), this._injectCss(this._themeService.colors), this._rowFactory = d.createInstance(n.DomRendererRowFactory, document), this._element.classList.add(p + this._terminalClass), this._screenElement.appendChild(this._rowContainer), this._screenElement.appendChild(this._selectionContainer), this._register(this._linkifier2.onShowLinkUnderline(((e) => this._handleLinkHover(e)))), this._register(this._linkifier2.onHideLinkUnderline(((e) => this._handleLinkLeave(e)))), this._register((0, u.toDisposable)((() => {
+								this._element.classList.remove(p + this._terminalClass), this._rowContainer.remove(), this._selectionContainer.remove(), this._widthCache.dispose(), this._themeStyleElement.remove(), this._dimensionsStyleElement.remove();
 							}))), this._widthCache = new o.WidthCache(this._document, this._helperContainer), this._widthCache.setFont(this._optionsService.rawOptions.fontFamily, this._optionsService.rawOptions.fontSize, this._optionsService.rawOptions.fontWeight, this._optionsService.rawOptions.fontWeightBold), this._setDefaultSpacing();
 						}
 						_updateDimensions() {
@@ -1396,17 +1469,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this.dimensions.device.char.width = this._charSizeService.width * e, this.dimensions.device.char.height = Math.ceil(this._charSizeService.height * e), this.dimensions.device.cell.width = this.dimensions.device.char.width + Math.round(this._optionsService.rawOptions.letterSpacing), this.dimensions.device.cell.height = Math.floor(this.dimensions.device.char.height * this._optionsService.rawOptions.lineHeight), this.dimensions.device.char.left = 0, this.dimensions.device.char.top = 0, this.dimensions.device.canvas.width = this.dimensions.device.cell.width * this._bufferService.cols, this.dimensions.device.canvas.height = this.dimensions.device.cell.height * this._bufferService.rows, this.dimensions.css.canvas.width = Math.round(this.dimensions.device.canvas.width / e), this.dimensions.css.canvas.height = Math.round(this.dimensions.device.canvas.height / e), this.dimensions.css.cell.width = this.dimensions.css.canvas.width / this._bufferService.cols, this.dimensions.css.cell.height = this.dimensions.css.canvas.height / this._bufferService.rows;
 							for (const e of this._rowElements) e.style.width = `${this.dimensions.css.canvas.width}px`, e.style.height = `${this.dimensions.css.cell.height}px`, e.style.lineHeight = `${this.dimensions.css.cell.height}px`, e.style.overflow = "hidden";
 							this._dimensionsStyleElement || (this._dimensionsStyleElement = this._document.createElement("style"), this._screenElement.appendChild(this._dimensionsStyleElement));
-							const t = `${this._terminalSelector} .${p} span { display: inline-block; height: 100%; vertical-align: top;}`;
+							const t = `${this._terminalSelector} .${g} span { display: inline-block; height: 100%; vertical-align: top;}`;
 							this._dimensionsStyleElement.textContent = t, this._selectionContainer.style.height = this._viewportElement.style.height, this._screenElement.style.width = `${this.dimensions.css.canvas.width}px`, this._screenElement.style.height = `${this.dimensions.css.canvas.height}px`;
 						}
 						_injectCss(e) {
 							this._themeStyleElement || (this._themeStyleElement = this._document.createElement("style"), this._screenElement.appendChild(this._themeStyleElement));
-							let t = `${this._terminalSelector} .${p} { color: ${e.foreground.css}; font-family: ${this._optionsService.rawOptions.fontFamily}; font-size: ${this._optionsService.rawOptions.fontSize}px; font-kerning: none; white-space: pre}`;
-							t += `${this._terminalSelector} .${p} .xterm-dim { color: ${d.color.multiplyOpacity(e.foreground, .5).css};}`, t += `${this._terminalSelector} span:not(.xterm-bold) { font-weight: ${this._optionsService.rawOptions.fontWeight};}${this._terminalSelector} span.xterm-bold { font-weight: ${this._optionsService.rawOptions.fontWeightBold};}${this._terminalSelector} span.xterm-italic { font-style: italic;}`;
+							let t = `${this._terminalSelector} .${g} { pointer-events: none; color: ${e.foreground.css}; font-family: ${this._optionsService.rawOptions.fontFamily}; font-size: ${this._optionsService.rawOptions.fontSize}px; font-kerning: none; white-space: pre}`;
+							t += `${this._terminalSelector} .${g} .xterm-dim { color: ${d.color.multiplyOpacity(e.foreground, .5).css};}`, t += `${this._terminalSelector} span:not(.xterm-bold) { font-weight: ${this._optionsService.rawOptions.fontWeight};}${this._terminalSelector} span.xterm-bold { font-weight: ${this._optionsService.rawOptions.fontWeightBold};}${this._terminalSelector} span.xterm-italic { font-style: italic;}`;
 							const i = `blink_underline_${this._terminalClass}`, s = `blink_bar_${this._terminalClass}`, r = `blink_block_${this._terminalClass}`;
-							t += `@keyframes ${i} { 50% {  border-bottom-style: hidden; }}`, t += `@keyframes ${s} { 50% {  box-shadow: none; }}`, t += `@keyframes ${r} { 0% {  background-color: ${e.cursor.css};  color: ${e.cursorAccent.css}; } 50% {  background-color: inherit;  color: ${e.cursor.css}; }}`, t += `${this._terminalSelector} .${p}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-underline { animation: ${i} 1s step-end infinite;}${this._terminalSelector} .${p}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-bar { animation: ${s} 1s step-end infinite;}${this._terminalSelector} .${p}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-block { animation: ${r} 1s step-end infinite;}${this._terminalSelector} .${p} .xterm-cursor.xterm-cursor-block { background-color: ${e.cursor.css}; color: ${e.cursorAccent.css};}${this._terminalSelector} .${p} .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink) { background-color: ${e.cursor.css} !important; color: ${e.cursorAccent.css} !important;}${this._terminalSelector} .${p} .xterm-cursor.xterm-cursor-outline { outline: 1px solid ${e.cursor.css}; outline-offset: -1px;}${this._terminalSelector} .${p} .xterm-cursor.xterm-cursor-bar { box-shadow: ${this._optionsService.rawOptions.cursorWidth}px 0 0 ${e.cursor.css} inset;}${this._terminalSelector} .${p} .xterm-cursor.xterm-cursor-underline { border-bottom: 1px ${e.cursor.css}; border-bottom-style: solid; height: calc(100% - 1px);}`, t += `${this._terminalSelector} .${C} { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;}${this._terminalSelector}.focus .${C} div { position: absolute; background-color: ${e.selectionBackgroundOpaque.css};}${this._terminalSelector} .${C} div { position: absolute; background-color: ${e.selectionInactiveBackgroundOpaque.css};}`;
-							for (const [i, s] of e.ansi.entries()) t += `${this._terminalSelector} .${g}${i} { color: ${s.css}; }${this._terminalSelector} .${g}${i}.xterm-dim { color: ${d.color.multiplyOpacity(s, .5).css}; }${this._terminalSelector} .${m}${i} { background-color: ${s.css}; }`;
-							t += `${this._terminalSelector} .${g}${a.INVERTED_DEFAULT_COLOR} { color: ${d.color.opaque(e.background).css}; }${this._terminalSelector} .${g}${a.INVERTED_DEFAULT_COLOR}.xterm-dim { color: ${d.color.multiplyOpacity(d.color.opaque(e.background), .5).css}; }${this._terminalSelector} .${m}${a.INVERTED_DEFAULT_COLOR} { background-color: ${e.foreground.css}; }`, this._themeStyleElement.textContent = t;
+							t += `@keyframes ${i} { 50% {  border-bottom-style: hidden; }}`, t += `@keyframes ${s} { 50% {  box-shadow: none; }}`, t += `@keyframes ${r} { 0% {  background-color: ${e.cursor.css};  color: ${e.cursorAccent.css}; } 50% {  background-color: inherit;  color: ${e.cursor.css}; }}`, t += `${this._terminalSelector} .${g}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-underline { animation: ${i} 1s step-end infinite;}${this._terminalSelector} .${g}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-bar { animation: ${s} 1s step-end infinite;}${this._terminalSelector} .${g}.${S} .xterm-cursor.xterm-cursor-blink.xterm-cursor-block { animation: ${r} 1s step-end infinite;}${this._terminalSelector} .${g} .xterm-cursor.xterm-cursor-block { background-color: ${e.cursor.css}; color: ${e.cursorAccent.css};}${this._terminalSelector} .${g} .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink) { background-color: ${e.cursor.css} !important; color: ${e.cursorAccent.css} !important;}${this._terminalSelector} .${g} .xterm-cursor.xterm-cursor-outline { outline: 1px solid ${e.cursor.css}; outline-offset: -1px;}${this._terminalSelector} .${g} .xterm-cursor.xterm-cursor-bar { box-shadow: ${this._optionsService.rawOptions.cursorWidth}px 0 0 ${e.cursor.css} inset;}${this._terminalSelector} .${g} .xterm-cursor.xterm-cursor-underline { border-bottom: 1px ${e.cursor.css}; border-bottom-style: solid; height: calc(100% - 1px);}`, t += `${this._terminalSelector} .${b} { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;}${this._terminalSelector}.focus .${b} div { position: absolute; background-color: ${e.selectionBackgroundOpaque.css};}${this._terminalSelector} .${b} div { position: absolute; background-color: ${e.selectionInactiveBackgroundOpaque.css};}`;
+							for (const [i, s] of e.ansi.entries()) t += `${this._terminalSelector} .${m}${i} { color: ${s.css}; }${this._terminalSelector} .${m}${i}.xterm-dim { color: ${d.color.multiplyOpacity(s, .5).css}; }${this._terminalSelector} .${v}${i} { background-color: ${s.css}; }`;
+							t += `${this._terminalSelector} .${m}${a.INVERTED_DEFAULT_COLOR} { color: ${d.color.opaque(e.background).css}; }${this._terminalSelector} .${m}${a.INVERTED_DEFAULT_COLOR}.xterm-dim { color: ${d.color.multiplyOpacity(d.color.opaque(e.background), .5).css}; }${this._terminalSelector} .${v}${a.INVERTED_DEFAULT_COLOR} { background-color: ${e.foreground.css}; }`, this._themeStyleElement.textContent = t;
 						}
 						_setDefaultSpacing() {
 							const e = this.dimensions.css.cell.width - this._widthCache.get("W", !1, !1);
@@ -1436,18 +1509,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						handleSelectionChanged(e, t, i) {
 							if (this._selectionContainer.replaceChildren(), this._rowFactory.handleSelectionChanged(e, t, i), this.renderRows(0, this._bufferService.rows - 1), !e || !t) return;
-							this._selectionRenderModel.update(this._terminal, e, t, i);
-							const s = this._selectionRenderModel.viewportStartRow, r = this._selectionRenderModel.viewportEndRow, n = this._selectionRenderModel.viewportCappedStartRow, o = this._selectionRenderModel.viewportCappedEndRow;
-							if (n >= this._bufferService.rows || o < 0) return;
-							const a = this._document.createDocumentFragment();
+							if (this._selectionRenderModel.update(this._terminal, e, t, i), !this._selectionRenderModel.hasSelection) return;
+							const s = this._selectionRenderModel.viewportStartRow, r = this._selectionRenderModel.viewportEndRow, n = this._selectionRenderModel.viewportCappedStartRow, o = this._selectionRenderModel.viewportCappedEndRow, a = this._document.createDocumentFragment();
 							if (i) {
 								const i = e[0] > t[0];
 								a.appendChild(this._createSelectionElement(n, i ? t[0] : e[0], i ? e[0] : t[0], o - n + 1));
 							} else {
-								const i = s === n ? e[0] : 0, h = n === r ? t[0] : this._bufferService.cols;
-								a.appendChild(this._createSelectionElement(n, i, h));
-								const c = o - n - 1;
-								if (a.appendChild(this._createSelectionElement(n + 1, 0, this._bufferService.cols, c)), n !== o) {
+								const i = s === n ? e[0] : 0, l = n === r ? t[0] : this._bufferService.cols;
+								a.appendChild(this._createSelectionElement(n, i, l));
+								const h = o - n - 1;
+								if (a.appendChild(this._createSelectionElement(n + 1, 0, this._bufferService.cols, h)), n !== o) {
 									const e = r === o ? t[0] : this._bufferService.cols;
 									a.appendChild(this._createSelectionElement(o, 0, e));
 								}
@@ -1467,15 +1538,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							for (const e of this._rowElements) e.replaceChildren();
 						}
 						renderRows(e, t) {
-							const i = this._bufferService.buffer, s = i.ybase + i.y, r = Math.min(i.x, this._bufferService.cols - 1), n = this._optionsService.rawOptions.cursorBlink, o = this._optionsService.rawOptions.cursorStyle, a = this._optionsService.rawOptions.cursorInactiveStyle;
-							for (let h = e; h <= t; h++) {
-								const e = h + i.ydisp, t = this._rowElements[h], c = i.lines.get(e);
-								if (!t || !c) break;
-								t.replaceChildren(...this._rowFactory.createRow(c, e, e === s, o, a, r, n, this.dimensions.css.cell.width, this._widthCache, -1, -1));
+							const i = this._bufferService.buffer, s = i.ybase + i.y, r = Math.min(i.x, this._bufferService.cols - 1), n = this._coreService.decPrivateModes.cursorBlink ?? this._optionsService.rawOptions.cursorBlink, o = this._coreService.decPrivateModes.cursorStyle ?? this._optionsService.rawOptions.cursorStyle, a = this._optionsService.rawOptions.cursorInactiveStyle;
+							for (let l = e; l <= t; l++) {
+								const e = l + i.ydisp, t = this._rowElements[l], h = i.lines.get(e);
+								if (!t || !h) break;
+								t.replaceChildren(...this._rowFactory.createRow(h, e, e === s, o, a, r, n, this.dimensions.css.cell.width, this._widthCache, -1, -1));
 							}
 						}
 						get _terminalSelector() {
-							return `.${v}${this._terminalClass}`;
+							return `.${p}${this._terminalClass}`;
 						}
 						_handleLinkHover(e) {
 							this._setCellUnderline(e.x1, e.x2, e.y1, e.y2, e.cols, !0);
@@ -1487,24 +1558,25 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							i < 0 && (e = 0), s < 0 && (t = 0);
 							const o = this._bufferService.rows - 1;
 							i = Math.max(Math.min(i, o), 0), s = Math.max(Math.min(s, o), 0), r = Math.min(r, this._bufferService.cols);
-							const a = this._bufferService.buffer, h = a.ybase + a.y, c = Math.min(a.x, r - 1), l = this._optionsService.rawOptions.cursorBlink, d = this._optionsService.rawOptions.cursorStyle, _ = this._optionsService.rawOptions.cursorInactiveStyle;
+							const a = this._bufferService.buffer, l = a.ybase + a.y, h = Math.min(a.x, r - 1), c = this._optionsService.rawOptions.cursorBlink, d = this._optionsService.rawOptions.cursorStyle, u = this._optionsService.rawOptions.cursorInactiveStyle;
 							for (let o = i; o <= s; ++o) {
-								const u = o + a.ydisp, f = this._rowElements[o], v = a.lines.get(u);
-								if (!f || !v) break;
-								f.replaceChildren(...this._rowFactory.createRow(v, u, u === h, d, _, c, l, this.dimensions.css.cell.width, this._widthCache, n ? o === i ? e : 0 : -1, n ? (o === s ? t : r) - 1 : -1));
+								const _ = o + a.ydisp, f = this._rowElements[o], p = a.lines.get(_);
+								if (!f || !p) break;
+								f.replaceChildren(...this._rowFactory.createRow(p, _, _ === l, d, u, h, c, this.dimensions.css.cell.width, this._widthCache, n ? o === i ? e : 0 : -1, n ? (o === s ? t : r) - 1 : -1));
 							}
 						}
 					};
-					t.DomRenderer = w = s([
-						r(7, f.IInstantiationService),
-						r(8, l.ICharSizeService),
-						r(9, f.IOptionsService),
-						r(10, f.IBufferService),
-						r(11, l.ICoreBrowserService),
-						r(12, l.IThemeService)
-					], w);
+					t.DomRenderer = y, t.DomRenderer = y = s([
+						r(7, _.IInstantiationService),
+						r(8, c.ICharSizeService),
+						r(9, _.IOptionsService),
+						r(10, _.IBufferService),
+						r(11, _.ICoreService),
+						r(12, c.ICoreBrowserService),
+						r(13, c.IThemeService)
+					], y);
 				},
-				3787: function(e, t, i) {
+				1433: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1516,107 +1588,107 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DomRendererRowFactory = void 0;
-					const n = i(2223), o = i(643), a = i(511), h = i(2585), c = i(8055), l = i(4725), d = i(4269), _ = i(6171), u = i(3734);
-					let f = t.DomRendererRowFactory = class {
+					const n = i(9176), o = i(8938), a = i(3055), l = i(6501), h = i(4103), c = i(7098), d = i(945), u = i(6181), _ = i(5451);
+					let f = class {
 						constructor(e, t, i, s, r, n, o) {
 							this._document = e, this._characterJoinerService = t, this._optionsService = i, this._coreBrowserService = s, this._coreService = r, this._decorationService = n, this._themeService = o, this._workCell = new a.CellData(), this._columnSelectMode = !1, this.defaultSpacing = 0;
 						}
 						handleSelectionChanged(e, t, i) {
 							this._selectionStart = e, this._selectionEnd = t, this._columnSelectMode = i;
 						}
-						createRow(e, t, i, s, r, a, h, l, _, f, p) {
-							const g = [], m = this._characterJoinerService.getJoinedCharacters(t), S = this._themeService.colors;
-							let C, b = e.getNoBgTrimmedLength();
-							i && b < a + 1 && (b = a + 1);
-							let w = 0, y = "", E = 0, k = 0, L = 0, D = !1, R = 0, x = !1, A = 0;
-							const B = [], T = -1 !== f && -1 !== p;
-							for (let M = 0; M < b; M++) {
-								e.loadCell(M, this._workCell);
-								let b = this._workCell.getWidth();
-								if (0 === b) continue;
-								let O = !1, P = M, I = this._workCell;
-								if (m.length > 0 && M === m[0][0]) {
-									O = !0;
-									const t = m.shift();
-									I = new d.JoinedCellData(this._workCell, e.translateToString(!0, t[0], t[1]), t[1] - t[0]), P = t[1] - 1, b = I.getWidth();
+						createRow(e, t, i, s, r, a, l, c, u, f, g) {
+							const m = [], v = this._characterJoinerService.getJoinedCharacters(t), S = this._themeService.colors;
+							let b, C = e.getNoBgTrimmedLength();
+							i && C < a + 1 && (C = a + 1);
+							let y = 0, w = "", E = 0, D = 0, L = 0, R = 0, A = !1, T = 0, k = !1, M = 0, O = 0;
+							const I = [], P = -1 !== f && -1 !== g;
+							for (let x = 0; x < C; x++) {
+								e.loadCell(x, this._workCell);
+								let C = this._workCell.getWidth();
+								if (0 === C) continue;
+								let B = !1, N = x >= O, U = x, F = this._workCell;
+								if (v.length > 0 && x === v[0][0] && N) {
+									const s = v.shift(), r = this._isCellInSelection(s[0], t);
+									for (E = s[0] + 1; E < s[1]; E++) N &&= r === this._isCellInSelection(E, t);
+									N &&= !i || a < s[0] || a >= s[1], N ? (B = !0, F = new d.JoinedCellData(this._workCell, e.translateToString(!0, s[0], s[1]), s[1] - s[0]), U = s[1] - 1, C = F.getWidth()) : O = s[1];
 								}
-								const H = this._isCellInSelection(M, t), F = i && M === a, W = T && M >= f && M <= p;
-								let U = !1;
-								this._decorationService.forEachDecorationAtCell(M, t, void 0, ((e) => {
-									U = !0;
+								const W = this._isCellInSelection(x, t), H = i && x === a, K = P && x >= f && x <= g;
+								let z = !1;
+								this._decorationService.forEachDecorationAtCell(x, t, void 0, ((e) => {
+									z = !0;
 								}));
-								let N = I.getChars() || o.WHITESPACE_CELL_CHAR;
-								if (" " === N && (I.isUnderline() || I.isOverline()) && (N = "\xA0"), A = b * l - _.get(N, I.isBold(), I.isItalic()), C) {
-									if (w && (H && x || !H && !x && I.bg === E) && (H && x && S.selectionForeground || I.fg === k) && I.extended.ext === L && W === D && A === R && !F && !O && !U) {
-										I.isInvisible() ? y += o.WHITESPACE_CELL_CHAR : y += N, w++;
+								let j = F.getChars() || o.WHITESPACE_CELL_CHAR;
+								if (" " === j && (F.isUnderline() || F.isOverline()) && (j = "\xA0"), M = C * c - u.get(j, F.isBold(), F.isItalic()), b) {
+									if (y && (W && k || !W && !k && F.bg === D) && (W && k && S.selectionForeground || F.fg === L) && F.extended.ext === R && K === A && M === T && !H && !B && !z && N) {
+										F.isInvisible() ? w += o.WHITESPACE_CELL_CHAR : w += j, y++;
 										continue;
 									}
-									w && (C.textContent = y), C = this._document.createElement("span"), w = 0, y = "";
-								} else C = this._document.createElement("span");
-								if (E = I.bg, k = I.fg, L = I.extended.ext, D = W, R = A, x = H, O && a >= M && a <= P && (a = M), !this._coreService.isCursorHidden && F && this._coreService.isCursorInitialized) {
-									if (B.push("xterm-cursor"), this._coreBrowserService.isFocused) h && B.push("xterm-cursor-blink"), B.push("bar" === s ? "xterm-cursor-bar" : "underline" === s ? "xterm-cursor-underline" : "xterm-cursor-block");
+									y && (b.textContent = w), b = this._document.createElement("span"), y = 0, w = "";
+								} else b = this._document.createElement("span");
+								if (D = F.bg, L = F.fg, R = F.extended.ext, A = K, T = M, k = W, B && a >= x && a <= U && (a = x), !this._coreService.isCursorHidden && H && this._coreService.isCursorInitialized) {
+									if (I.push("xterm-cursor"), this._coreBrowserService.isFocused) l && I.push("xterm-cursor-blink"), I.push("bar" === s ? "xterm-cursor-bar" : "underline" === s ? "xterm-cursor-underline" : "xterm-cursor-block");
 									else if (r) switch (r) {
 										case "outline":
-											B.push("xterm-cursor-outline");
+											I.push("xterm-cursor-outline");
 											break;
 										case "block":
-											B.push("xterm-cursor-block");
+											I.push("xterm-cursor-block");
 											break;
 										case "bar":
-											B.push("xterm-cursor-bar");
+											I.push("xterm-cursor-bar");
 											break;
-										case "underline": B.push("xterm-cursor-underline");
+										case "underline": I.push("xterm-cursor-underline");
 									}
 								}
-								if (I.isBold() && B.push("xterm-bold"), I.isItalic() && B.push("xterm-italic"), I.isDim() && B.push("xterm-dim"), y = I.isInvisible() ? o.WHITESPACE_CELL_CHAR : I.getChars() || o.WHITESPACE_CELL_CHAR, I.isUnderline() && (B.push(`xterm-underline-${I.extended.underlineStyle}`), " " === y && (y = "\xA0"), !I.isUnderlineColorDefault())) if (I.isUnderlineColorRGB()) C.style.textDecorationColor = `rgb(${u.AttributeData.toColorRGB(I.getUnderlineColor()).join(",")})`;
+								if (F.isBold() && I.push("xterm-bold"), F.isItalic() && I.push("xterm-italic"), F.isDim() && I.push("xterm-dim"), w = F.isInvisible() ? o.WHITESPACE_CELL_CHAR : F.getChars() || o.WHITESPACE_CELL_CHAR, F.isUnderline() && (I.push(`xterm-underline-${F.extended.underlineStyle}`), " " === w && (w = "\xA0"), !F.isUnderlineColorDefault())) if (F.isUnderlineColorRGB()) b.style.textDecorationColor = `rgb(${_.AttributeData.toColorRGB(F.getUnderlineColor()).join(",")})`;
 								else {
-									let e = I.getUnderlineColor();
-									this._optionsService.rawOptions.drawBoldTextInBrightColors && I.isBold() && e < 8 && (e += 8), C.style.textDecorationColor = S.ansi[e].css;
+									let e = F.getUnderlineColor();
+									this._optionsService.rawOptions.drawBoldTextInBrightColors && F.isBold() && e < 8 && (e += 8), b.style.textDecorationColor = S.ansi[e].css;
 								}
-								I.isOverline() && (B.push("xterm-overline"), " " === y && (y = "\xA0")), I.isStrikethrough() && B.push("xterm-strikethrough"), W && (C.style.textDecoration = "underline");
-								let $ = I.getFgColor(), j = I.getFgColorMode(), z = I.getBgColor(), K = I.getBgColorMode();
-								const q = !!I.isInverse();
-								if (q) {
+								F.isOverline() && (I.push("xterm-overline"), " " === w && (w = "\xA0")), F.isStrikethrough() && I.push("xterm-strikethrough"), K && (b.style.textDecoration = "underline");
+								let $ = F.getFgColor(), V = F.getFgColorMode(), G = F.getBgColor(), q = F.getBgColorMode();
+								const X = !!F.isInverse();
+								if (X) {
 									const e = $;
-									$ = z, z = e;
-									const t = j;
-									j = K, K = t;
+									$ = G, G = e;
+									const t = V;
+									V = q, q = t;
 								}
-								let V, G, X, J = !1;
-								switch (this._decorationService.forEachDecorationAtCell(M, t, void 0, ((e) => {
-									"top" !== e.options.layer && J || (e.backgroundColorRGB && (K = 50331648, z = e.backgroundColorRGB.rgba >> 8 & 16777215, V = e.backgroundColorRGB), e.foregroundColorRGB && (j = 50331648, $ = e.foregroundColorRGB.rgba >> 8 & 16777215, G = e.foregroundColorRGB), J = "top" === e.options.layer);
-								})), !J && H && (V = this._coreBrowserService.isFocused ? S.selectionBackgroundOpaque : S.selectionInactiveBackgroundOpaque, z = V.rgba >> 8 & 16777215, K = 50331648, J = !0, S.selectionForeground && (j = 50331648, $ = S.selectionForeground.rgba >> 8 & 16777215, G = S.selectionForeground)), J && B.push("xterm-decoration-top"), K) {
+								let Y, Z, J, Q = !1;
+								switch (this._decorationService.forEachDecorationAtCell(x, t, void 0, ((e) => {
+									"top" !== e.options.layer && Q || (e.backgroundColorRGB && (q = 50331648, G = e.backgroundColorRGB.rgba >> 8 & 16777215, Y = e.backgroundColorRGB), e.foregroundColorRGB && (V = 50331648, $ = e.foregroundColorRGB.rgba >> 8 & 16777215, Z = e.foregroundColorRGB), Q = "top" === e.options.layer);
+								})), !Q && W && (Y = this._coreBrowserService.isFocused ? S.selectionBackgroundOpaque : S.selectionInactiveBackgroundOpaque, G = Y.rgba >> 8 & 16777215, q = 50331648, Q = !0, S.selectionForeground && (V = 50331648, $ = S.selectionForeground.rgba >> 8 & 16777215, Z = S.selectionForeground)), Q && I.push("xterm-decoration-top"), q) {
 									case 16777216:
 									case 33554432:
-										X = S.ansi[z], B.push(`xterm-bg-${z}`);
+										J = S.ansi[G], I.push(`xterm-bg-${G}`);
 										break;
 									case 50331648:
-										X = c.channels.toColor(z >> 16, z >> 8 & 255, 255 & z), this._addStyle(C, `background-color:#${v((z >>> 0).toString(16), "0", 6)}`);
+										J = h.channels.toColor(G >> 16, G >> 8 & 255, 255 & G), this._addStyle(b, `background-color:#${p((G >>> 0).toString(16), "0", 6)}`);
 										break;
-									default: q ? (X = S.foreground, B.push(`xterm-bg-${n.INVERTED_DEFAULT_COLOR}`)) : X = S.background;
+									default: X ? (J = S.foreground, I.push(`xterm-bg-${n.INVERTED_DEFAULT_COLOR}`)) : J = S.background;
 								}
-								switch (V || I.isDim() && (V = c.color.multiplyOpacity(X, .5)), j) {
+								switch (Y || F.isDim() && (Y = h.color.multiplyOpacity(J, .5)), V) {
 									case 16777216:
 									case 33554432:
-										I.isBold() && $ < 8 && this._optionsService.rawOptions.drawBoldTextInBrightColors && ($ += 8), this._applyMinimumContrast(C, X, S.ansi[$], I, V, void 0) || B.push(`xterm-fg-${$}`);
+										F.isBold() && $ < 8 && this._optionsService.rawOptions.drawBoldTextInBrightColors && ($ += 8), this._applyMinimumContrast(b, J, S.ansi[$], F, Y, void 0) || I.push(`xterm-fg-${$}`);
 										break;
 									case 50331648:
-										const e = c.channels.toColor($ >> 16 & 255, $ >> 8 & 255, 255 & $);
-										this._applyMinimumContrast(C, X, e, I, V, G) || this._addStyle(C, `color:#${v($.toString(16), "0", 6)}`);
+										const e = h.channels.toColor($ >> 16 & 255, $ >> 8 & 255, 255 & $);
+										this._applyMinimumContrast(b, J, e, F, Y, Z) || this._addStyle(b, `color:#${p($.toString(16), "0", 6)}`);
 										break;
-									default: this._applyMinimumContrast(C, X, S.foreground, I, V, G) || q && B.push(`xterm-fg-${n.INVERTED_DEFAULT_COLOR}`);
+									default: this._applyMinimumContrast(b, J, S.foreground, F, Y, Z) || X && I.push(`xterm-fg-${n.INVERTED_DEFAULT_COLOR}`);
 								}
-								B.length && (C.className = B.join(" "), B.length = 0), F || O || U ? C.textContent = y : w++, A !== this.defaultSpacing && (C.style.letterSpacing = `${A}px`), g.push(C), M = P;
+								I.length && (b.className = I.join(" "), I.length = 0), H || B || z || !N ? b.textContent = w : y++, M !== this.defaultSpacing && (b.style.letterSpacing = `${M}px`), m.push(b), x = U;
 							}
-							return C && w && (C.textContent = y), g;
+							return b && y && (b.textContent = w), m;
 						}
 						_applyMinimumContrast(e, t, i, s, r, n) {
-							if (1 === this._optionsService.rawOptions.minimumContrastRatio || (0, _.treatGlyphAsBackgroundColor)(s.getCode())) return !1;
+							if (1 === this._optionsService.rawOptions.minimumContrastRatio || (0, u.treatGlyphAsBackgroundColor)(s.getCode())) return !1;
 							const o = this._getContrastCache(s);
 							let a;
 							if (r || n || (a = o.getColor(t.rgba, i.rgba)), void 0 === a) {
 								const e = this._optionsService.rawOptions.minimumContrastRatio / (s.isDim() ? 2 : 1);
-								a = c.color.ensureContrastRatio(r || t, n || i, e), o.setColor((r || t).rgba, (n || i).rgba, a ?? null);
+								a = h.color.ensureContrastRatio(r || t, n || i, e), o.setColor((r || t).rgba, (n || i).rgba, a ?? null);
 							}
 							return !!a && (this._addStyle(e, `color:${a.css}`), !0);
 						}
@@ -1631,20 +1703,20 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return !(!i || !s) && (this._columnSelectMode ? i[0] <= s[0] ? e >= i[0] && t >= i[1] && e < s[0] && t <= s[1] : e < i[0] && t >= i[1] && e >= s[0] && t <= s[1] : t > i[1] && t < s[1] || i[1] === s[1] && t === i[1] && e >= i[0] && e < s[0] || i[1] < s[1] && t === s[1] && e < s[0] || i[1] < s[1] && t === i[1] && e >= i[0]);
 						}
 					};
-					function v(e, t, i) {
+					function p(e, t, i) {
 						for (; e.length < i;) e = t + e;
 						return e;
 					}
-					t.DomRendererRowFactory = f = s([
-						r(1, l.ICharacterJoinerService),
-						r(2, h.IOptionsService),
-						r(3, l.ICoreBrowserService),
-						r(4, h.ICoreService),
-						r(5, h.IDecorationService),
-						r(6, l.IThemeService)
+					t.DomRendererRowFactory = f, t.DomRendererRowFactory = f = s([
+						r(1, c.ICharacterJoinerService),
+						r(2, l.IOptionsService),
+						r(3, c.ICoreBrowserService),
+						r(4, l.ICoreService),
+						r(5, l.IDecorationService),
+						r(6, c.IThemeService)
 					], f);
 				},
-				2550: (e, t) => {
+				2744: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.WidthCache = void 0, t.WidthCache = class {
 						constructor(e, t) {
 							this._flat = /* @__PURE__ */ new Float32Array(256), this._font = "", this._fontSize = 0, this._weight = "normal", this._weightBold = "bold", this._measureElements = [], this._container = e.createElement("div"), this._container.classList.add("xterm-width-cache-measure-container"), this._container.setAttribute("aria-hidden", "true"), this._container.style.whiteSpace = "pre", this._container.style.fontKerning = "none";
@@ -1693,19 +1765,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				2223: (e, t, i) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.TEXT_BASELINE = t.DIM_OPACITY = t.INVERTED_DEFAULT_COLOR = void 0;
-					const s = i(6114);
-					t.INVERTED_DEFAULT_COLOR = 257, t.DIM_OPACITY = .5, t.TEXT_BASELINE = s.isFirefox || s.isLegacyEdge ? "bottom" : "ideographic";
+				9176: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.INVERTED_DEFAULT_COLOR = void 0, t.INVERTED_DEFAULT_COLOR = 257;
 				},
-				6171: (e, t) => {
+				6181: (e, t) => {
 					function i(e) {
 						return 57508 <= e && e <= 57558;
 					}
 					function s(e) {
 						return e >= 128512 && e <= 128591 || e >= 127744 && e <= 128511 || e >= 128640 && e <= 128767 || e >= 9728 && e <= 9983 || e >= 9984 && e <= 10175 || e >= 65024 && e <= 65039 || e >= 129280 && e <= 129535 || e >= 127462 && e <= 127487;
 					}
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.computeNextVariantOffset = t.createRenderDimensions = t.treatGlyphAsBackgroundColor = t.allowRescaling = t.isEmoji = t.isRestrictedPowerlineGlyph = t.isPowerlineGlyph = t.throwIfFalsy = void 0, t.throwIfFalsy = function(e) {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.throwIfFalsy = function(e) {
 						if (!e) throw new Error("value must not be falsy");
 						return e;
 					}, t.isPowerlineGlyph = i, t.isRestrictedPowerlineGlyph = function(e) {
@@ -1751,8 +1821,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						return (e - (2 * Math.round(t) - i)) % (2 * Math.round(t));
 					};
 				},
-				6052: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.createSelectionRenderModel = void 0;
+				2274: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.createSelectionRenderModel = function() {
+						return new i();
+					};
 					class i {
 						constructor() {
 							this.clear();
@@ -1762,18 +1834,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						update(e, t, i, s = !1) {
 							if (this.selectionStart = t, this.selectionEnd = i, !t || !i || t[0] === i[0] && t[1] === i[1]) return void this.clear();
-							const r = e.buffers.active.ydisp, n = t[1] - r, o = i[1] - r, a = Math.max(n, 0), h = Math.min(o, e.rows - 1);
-							a >= e.rows || h < 0 ? this.clear() : (this.hasSelection = !0, this.columnSelectMode = s, this.viewportStartRow = n, this.viewportEndRow = o, this.viewportCappedStartRow = a, this.viewportCappedEndRow = h, this.startCol = t[0], this.endCol = i[0]);
+							const r = e.buffers.active.ydisp, n = t[1] - r, o = i[1] - r, a = Math.max(n, 0), l = Math.min(o, e.rows - 1);
+							a >= e.rows || l < 0 ? this.clear() : (this.hasSelection = !0, this.columnSelectMode = s, this.viewportStartRow = n, this.viewportEndRow = o, this.viewportCappedStartRow = a, this.viewportCappedEndRow = l, this.startCol = t[0], this.endCol = i[0]);
 						}
 						isCellSelected(e, t, i) {
 							return !!this.hasSelection && (i -= e.buffer.active.viewportY, this.columnSelectMode ? this.startCol <= this.endCol ? t >= this.startCol && i >= this.viewportCappedStartRow && t < this.endCol && i <= this.viewportCappedEndRow : t < this.startCol && i >= this.viewportCappedStartRow && t >= this.endCol && i <= this.viewportCappedEndRow : i > this.viewportStartRow && i < this.viewportEndRow || this.viewportStartRow === this.viewportEndRow && i === this.viewportStartRow && t >= this.startCol && t < this.endCol || this.viewportStartRow < this.viewportEndRow && i === this.viewportEndRow && t < this.endCol || this.viewportStartRow < this.viewportEndRow && i === this.viewportStartRow && t >= this.startCol);
 						}
 					}
-					t.createSelectionRenderModel = function() {
-						return new i();
-					};
 				},
-				456: (e, t) => {
+				5959: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.SelectionModel = void 0, t.SelectionModel = class {
 						constructor(e) {
 							this._bufferService = e, this.isSelectAllActive = !1, this.selectionStartLength = 0;
@@ -1807,7 +1876,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				428: function(e, t, i) {
+				4792: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -1819,27 +1888,27 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CharSizeService = void 0;
-					const n = i(2585), o = i(8460), a = i(844);
-					let h = t.CharSizeService = class extends a.Disposable {
+					const n = i(6501), o = i(7150), a = i(802);
+					let l = class extends o.Disposable {
 						get hasValidSize() {
 							return this.width > 0 && this.height > 0;
 						}
 						constructor(e, t, i) {
-							super(), this._optionsService = i, this.width = 0, this.height = 0, this._onCharSizeChange = this.register(new o.EventEmitter()), this.onCharSizeChange = this._onCharSizeChange.event;
+							super(), this._optionsService = i, this.width = 0, this.height = 0, this._onCharSizeChange = this._register(new a.Emitter()), this.onCharSizeChange = this._onCharSizeChange.event;
 							try {
-								this._measureStrategy = this.register(new d(this._optionsService));
+								this._measureStrategy = this._register(new d(this._optionsService));
 							} catch {
-								this._measureStrategy = this.register(new l(e, t, this._optionsService));
+								this._measureStrategy = this._register(new c(e, t, this._optionsService));
 							}
-							this.register(this._optionsService.onMultipleOptionChange(["fontFamily", "fontSize"], (() => this.measure())));
+							this._register(this._optionsService.onMultipleOptionChange(["fontFamily", "fontSize"], (() => this.measure())));
 						}
 						measure() {
 							const e = this._measureStrategy.measure();
 							e.width === this.width && e.height === this.height || (this.width = e.width, this.height = e.height, this._onCharSizeChange.fire());
 						}
 					};
-					t.CharSizeService = h = s([r(2, n.IOptionsService)], h);
-					class c extends a.Disposable {
+					t.CharSizeService = l, t.CharSizeService = l = s([r(2, n.IOptionsService)], l);
+					class h extends o.Disposable {
 						constructor() {
 							super(...arguments), this._result = {
 								width: 0,
@@ -1850,7 +1919,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							void 0 !== e && e > 0 && void 0 !== t && t > 0 && (this._result.width = e, this._result.height = t);
 						}
 					}
-					class l extends c {
+					class c extends h {
 						constructor(e, t, i) {
 							super(), this._document = e, this._parentElement = t, this._optionsService = i, this._measureElement = this._document.createElement("span"), this._measureElement.classList.add("xterm-char-measure-element"), this._measureElement.textContent = "W".repeat(32), this._measureElement.setAttribute("aria-hidden", "true"), this._measureElement.style.whiteSpace = "pre", this._measureElement.style.fontKerning = "none", this._parentElement.appendChild(this._measureElement);
 						}
@@ -1858,7 +1927,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return this._measureElement.style.fontFamily = this._optionsService.rawOptions.fontFamily, this._measureElement.style.fontSize = `${this._optionsService.rawOptions.fontSize}px`, this._validateAndSet(Number(this._measureElement.offsetWidth) / 32, Number(this._measureElement.offsetHeight)), this._result;
 						}
 					}
-					class d extends c {
+					class d extends h {
 						constructor(e) {
 							super(), this._optionsService = e, this._canvas = new OffscreenCanvas(100, 100), this._ctx = this._canvas.getContext("2d");
 							const t = this._ctx.measureText("W");
@@ -1871,20 +1940,20 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 				},
-				4269: function(e, t, i) {
-					var s = this && this.__decorate || function(e, t, i, s) {
+				945: function(e, t, i) {
+					var s, r = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
 						else for (var a = e.length - 1; a >= 0; a--) (r = e[a]) && (o = (n < 3 ? r(o) : n > 3 ? r(t, i, o) : r(t, i)) || o);
 						return n > 3 && o && Object.defineProperty(t, i, o), o;
-					}, r = this && this.__param || function(e, t) {
+					}, n = this && this.__param || function(e, t) {
 						return function(i, s) {
 							t(i, s, e);
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CharacterJoinerService = t.JoinedCellData = void 0;
-					const n = i(3734), o = i(643), a = i(511), h = i(2585);
-					class c extends n.AttributeData {
+					const o = i(5451), a = i(8938), l = i(3055), h = i(6501);
+					class c extends o.AttributeData {
 						constructor(e, t, i) {
 							super(), this.content = 0, this.combinedData = "", this.fg = e.fg, this.bg = e.bg, this.combinedData = t, this._width = i;
 						}
@@ -1913,9 +1982,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 					t.JoinedCellData = c;
-					let l = t.CharacterJoinerService = class e {
+					let d = s = class {
 						constructor(e) {
-							this._bufferService = e, this._characterJoiners = [], this._nextCharacterJoinerId = 0, this._workCell = new a.CellData();
+							this._bufferService = e, this._characterJoiners = [], this._nextCharacterJoinerId = 0, this._workCell = new l.CellData();
 						}
 						register(e) {
 							const t = {
@@ -1933,53 +2002,53 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const t = this._bufferService.buffer.lines.get(e);
 							if (!t || 0 === t.length) return [];
 							const i = [], s = t.translateToString(!0);
-							let r = 0, n = 0, a = 0, h = t.getFg(0), c = t.getBg(0);
+							let r = 0, n = 0, o = 0, l = t.getFg(0), h = t.getBg(0);
 							for (let e = 0; e < t.getTrimmedLength(); e++) if (t.loadCell(e, this._workCell), 0 !== this._workCell.getWidth()) {
-								if (this._workCell.fg !== h || this._workCell.bg !== c) {
+								if (this._workCell.fg !== l || this._workCell.bg !== h) {
 									if (e - r > 1) {
-										const e = this._getJoinedRanges(s, a, n, t, r);
+										const e = this._getJoinedRanges(s, o, n, t, r);
 										for (let t = 0; t < e.length; t++) i.push(e[t]);
 									}
-									r = e, a = n, h = this._workCell.fg, c = this._workCell.bg;
+									r = e, o = n, l = this._workCell.fg, h = this._workCell.bg;
 								}
-								n += this._workCell.getChars().length || o.WHITESPACE_CELL_CHAR.length;
+								n += this._workCell.getChars().length || a.WHITESPACE_CELL_CHAR.length;
 							}
 							if (this._bufferService.cols - r > 1) {
-								const e = this._getJoinedRanges(s, a, n, t, r);
+								const e = this._getJoinedRanges(s, o, n, t, r);
 								for (let t = 0; t < e.length; t++) i.push(e[t]);
 							}
 							return i;
 						}
-						_getJoinedRanges(t, i, s, r, n) {
-							const o = t.substring(i, s);
+						_getJoinedRanges(e, t, i, r, n) {
+							const o = e.substring(t, i);
 							let a = [];
 							try {
 								a = this._characterJoiners[0].handler(o);
 							} catch (e) {
 								console.error(e);
 							}
-							for (let t = 1; t < this._characterJoiners.length; t++) try {
-								const i = this._characterJoiners[t].handler(o);
-								for (let t = 0; t < i.length; t++) e._mergeRanges(a, i[t]);
+							for (let e = 1; e < this._characterJoiners.length; e++) try {
+								const t = this._characterJoiners[e].handler(o);
+								for (let e = 0; e < t.length; e++) s._mergeRanges(a, t[e]);
 							} catch (e) {
 								console.error(e);
 							}
 							return this._stringRangesToCellRanges(a, r, n), a;
 						}
 						_stringRangesToCellRanges(e, t, i) {
-							let s = 0, r = !1, n = 0, a = e[s];
-							if (a) {
-								for (let h = i; h < this._bufferService.cols; h++) {
-									const i = t.getWidth(h), c = t.getString(h).length || o.WHITESPACE_CELL_CHAR.length;
+							let s = 0, r = !1, n = 0, o = e[s];
+							if (o) {
+								for (let l = i; l < this._bufferService.cols; l++) {
+									const i = t.getWidth(l), h = t.getString(l).length || a.WHITESPACE_CELL_CHAR.length;
 									if (0 !== i) {
-										if (!r && a[0] <= n && (a[0] = h, r = !0), a[1] <= n) {
-											if (a[1] = h, a = e[++s], !a) break;
-											a[0] <= n ? (a[0] = h, r = !0) : r = !1;
+										if (!r && o[0] <= n && (o[0] = l, r = !0), o[1] <= n) {
+											if (o[1] = l, o = e[++s], !o) break;
+											o[0] <= n ? (o[0] = l, r = !0) : r = !1;
 										}
-										n += c;
+										n += h;
 									}
 								}
-								a && (a[1] = this._bufferService.cols);
+								o && (o[1] = this._bufferService.cols);
 							}
 						}
 						static _mergeRanges(e, t) {
@@ -1999,14 +2068,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return i ? e[e.length - 1][1] = t[1] : e.push(t), e;
 						}
 					};
-					t.CharacterJoinerService = l = s([r(0, h.IBufferService)], l);
+					t.CharacterJoinerService = d, t.CharacterJoinerService = d = s = r([n(0, h.IBufferService)], d);
 				},
-				5114: (e, t, i) => {
+				9574: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CoreBrowserService = void 0;
-					const s = i(844), r = i(8460), n = i(3656);
-					class o extends s.Disposable {
+					const s = i(802), r = i(7093), n = i(7150);
+					class o extends n.Disposable {
 						constructor(e, t, i) {
-							super(), this._textarea = e, this._window = t, this.mainDocument = i, this._isFocused = !1, this._cachedIsFocused = void 0, this._screenDprMonitor = new a(this._window), this._onDprChange = this.register(new r.EventEmitter()), this.onDprChange = this._onDprChange.event, this._onWindowChange = this.register(new r.EventEmitter()), this.onWindowChange = this._onWindowChange.event, this.register(this.onWindowChange(((e) => this._screenDprMonitor.setWindow(e)))), this.register((0, r.forwardEvent)(this._screenDprMonitor.onDprChange, this._onDprChange)), this._textarea.addEventListener("focus", (() => this._isFocused = !0)), this._textarea.addEventListener("blur", (() => this._isFocused = !1));
+							super(), this._textarea = e, this._window = t, this.mainDocument = i, this._isFocused = !1, this._cachedIsFocused = void 0, this._screenDprMonitor = this._register(new a(this._window)), this._onDprChange = this._register(new s.Emitter()), this.onDprChange = this._onDprChange.event, this._onWindowChange = this._register(new s.Emitter()), this.onWindowChange = this._onWindowChange.event, this._register(this.onWindowChange(((e) => this._screenDprMonitor.setWindow(e)))), this._register(s.Event.forward(this._screenDprMonitor.onDprChange, this._onDprChange)), this._register((0, r.addDisposableListener)(this._textarea, "focus", (() => this._isFocused = !0))), this._register((0, r.addDisposableListener)(this._textarea, "blur", (() => this._isFocused = !1)));
 						}
 						get window() {
 							return this._window;
@@ -2022,15 +2091,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 					t.CoreBrowserService = o;
-					class a extends s.Disposable {
+					class a extends n.Disposable {
 						constructor(e) {
-							super(), this._parentWindow = e, this._windowResizeListener = this.register(new s.MutableDisposable()), this._onDprChange = this.register(new r.EventEmitter()), this.onDprChange = this._onDprChange.event, this._outerListener = () => this._setDprAndFireIfDiffers(), this._currentDevicePixelRatio = this._parentWindow.devicePixelRatio, this._updateDpr(), this._setWindowResizeListener(), this.register((0, s.toDisposable)((() => this.clearListener())));
+							super(), this._parentWindow = e, this._windowResizeListener = this._register(new n.MutableDisposable()), this._onDprChange = this._register(new s.Emitter()), this.onDprChange = this._onDprChange.event, this._outerListener = () => this._setDprAndFireIfDiffers(), this._currentDevicePixelRatio = this._parentWindow.devicePixelRatio, this._updateDpr(), this._setWindowResizeListener(), this._register((0, n.toDisposable)((() => this.clearListener())));
 						}
 						setWindow(e) {
 							this._parentWindow = e, this._setWindowResizeListener(), this._setDprAndFireIfDiffers();
 						}
 						_setWindowResizeListener() {
-							this._windowResizeListener.value = (0, n.addDisposableDomListener)(this._parentWindow, "resize", (() => this._setDprAndFireIfDiffers()));
+							this._windowResizeListener.value = (0, r.addDisposableListener)(this._parentWindow, "resize", (() => this._setDprAndFireIfDiffers()));
 						}
 						_setDprAndFireIfDiffers() {
 							this._parentWindow.devicePixelRatio !== this._currentDevicePixelRatio && this._onDprChange.fire(this._parentWindow.devicePixelRatio), this._updateDpr();
@@ -2043,12 +2112,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 				},
-				779: (e, t, i) => {
+				9820: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.LinkProviderService = void 0;
-					const s = i(844);
+					const s = i(7150);
 					class r extends s.Disposable {
 						constructor() {
-							super(), this.linkProviders = [], this.register((0, s.toDisposable)((() => this.linkProviders.length = 0)));
+							super(), this.linkProviders = [], this._register((0, s.toDisposable)((() => this.linkProviders.length = 0)));
 						}
 						registerLinkProvider(e) {
 							return this.linkProviders.push(e), { dispose: () => {
@@ -2059,7 +2128,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.LinkProviderService = r;
 				},
-				8934: function(e, t, i) {
+				9784: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -2071,8 +2140,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.MouseService = void 0;
-					const n = i(4725), o = i(9806);
-					let a = t.MouseService = class {
+					const n = i(7098), o = i(5251);
+					let a = class {
 						constructor(e, t) {
 							this._renderService = e, this._charSizeService = t;
 						}
@@ -2089,9 +2158,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							};
 						}
 					};
-					t.MouseService = a = s([r(0, n.IRenderService), r(1, n.ICharSizeService)], a);
+					t.MouseService = a, t.MouseService = a = s([r(0, n.IRenderService), r(1, n.ICharSizeService)], a);
 				},
-				3230: function(e, t, i) {
+				5783: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -2103,17 +2172,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.RenderService = void 0;
-					const n = i(6193), o = i(4725), a = i(8460), h = i(844), c = i(7226), l = i(2585);
-					let d = t.RenderService = class extends h.Disposable {
+					const n = i(4852), o = i(7098), a = i(7150), l = i(6168), h = i(6501), c = i(802);
+					let d = class extends a.Disposable {
 						get dimensions() {
 							return this._renderer.value.dimensions;
 						}
-						constructor(e, t, i, s, r, o, l, d) {
-							super(), this._rowCount = e, this._charSizeService = s, this._renderer = this.register(new h.MutableDisposable()), this._pausedResizeTask = new c.DebouncedIdleTask(), this._observerDisposable = this.register(new h.MutableDisposable()), this._isPaused = !1, this._needsFullRefresh = !1, this._isNextRenderRedrawOnly = !0, this._needsSelectionRefresh = !1, this._canvasWidth = 0, this._canvasHeight = 0, this._selectionState = {
+						constructor(e, t, i, s, r, o, h, d, _) {
+							super(), this._rowCount = e, this._optionsService = i, this._charSizeService = s, this._coreService = r, this._coreBrowserService = d, this._renderer = this._register(new a.MutableDisposable()), this._pausedResizeTask = new l.DebouncedIdleTask(), this._observerDisposable = this._register(new a.MutableDisposable()), this._isPaused = !1, this._needsFullRefresh = !1, this._isNextRenderRedrawOnly = !0, this._needsSelectionRefresh = !1, this._canvasWidth = 0, this._canvasHeight = 0, this._selectionState = {
 								start: void 0,
 								end: void 0,
 								columnSelectMode: !1
-							}, this._onDimensionsChange = this.register(new a.EventEmitter()), this.onDimensionsChange = this._onDimensionsChange.event, this._onRenderedViewportChange = this.register(new a.EventEmitter()), this.onRenderedViewportChange = this._onRenderedViewportChange.event, this._onRender = this.register(new a.EventEmitter()), this.onRender = this._onRender.event, this._onRefreshRequest = this.register(new a.EventEmitter()), this.onRefreshRequest = this._onRefreshRequest.event, this._renderDebouncer = new n.RenderDebouncer(((e, t) => this._renderRows(e, t)), l), this.register(this._renderDebouncer), this.register(l.onDprChange((() => this.handleDevicePixelRatioChange()))), this.register(o.onResize((() => this._fullRefresh()))), this.register(o.buffers.onBufferActivate((() => this._renderer.value?.clear()))), this.register(i.onOptionChange((() => this._handleOptionsChanged()))), this.register(this._charSizeService.onCharSizeChange((() => this.handleCharSizeChanged()))), this.register(r.onDecorationRegistered((() => this._fullRefresh()))), this.register(r.onDecorationRemoved((() => this._fullRefresh()))), this.register(i.onMultipleOptionChange([
+							}, this._onDimensionsChange = this._register(new c.Emitter()), this.onDimensionsChange = this._onDimensionsChange.event, this._onRenderedViewportChange = this._register(new c.Emitter()), this.onRenderedViewportChange = this._onRenderedViewportChange.event, this._onRender = this._register(new c.Emitter()), this.onRender = this._onRender.event, this._onRefreshRequest = this._register(new c.Emitter()), this.onRefreshRequest = this._onRefreshRequest.event, this._renderDebouncer = new n.RenderDebouncer(((e, t) => this._renderRows(e, t)), this._coreBrowserService), this._register(this._renderDebouncer), this._syncOutputHandler = new u(this._coreBrowserService, this._coreService, (() => this._fullRefresh())), this._register((0, a.toDisposable)((() => this._syncOutputHandler.dispose()))), this._register(this._coreBrowserService.onDprChange((() => this.handleDevicePixelRatioChange()))), this._register(h.onResize((() => this._fullRefresh()))), this._register(h.buffers.onBufferActivate((() => this._renderer.value?.clear()))), this._register(this._optionsService.onOptionChange((() => this._handleOptionsChanged()))), this._register(this._charSizeService.onCharSizeChange((() => this.handleCharSizeChanged()))), this._register(o.onDecorationRegistered((() => this._fullRefresh()))), this._register(o.onDecorationRemoved((() => this._fullRefresh()))), this._register(this._optionsService.onMultipleOptionChange([
 								"customGlyphs",
 								"drawBoldTextInBrightColors",
 								"letterSpacing",
@@ -2125,29 +2194,32 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								"minimumContrastRatio",
 								"rescaleOverlappingGlyphs"
 							], (() => {
-								this.clear(), this.handleResize(o.cols, o.rows), this._fullRefresh();
-							}))), this.register(i.onMultipleOptionChange(["cursorBlink", "cursorStyle"], (() => this.refreshRows(o.buffer.y, o.buffer.y, !0)))), this.register(d.onChangeColors((() => this._fullRefresh()))), this._registerIntersectionObserver(l.window, t), this.register(l.onWindowChange(((e) => this._registerIntersectionObserver(e, t))));
+								this.clear(), this.handleResize(h.cols, h.rows), this._fullRefresh();
+							}))), this._register(this._optionsService.onMultipleOptionChange(["cursorBlink", "cursorStyle"], (() => this.refreshRows(h.buffer.y, h.buffer.y, !0)))), this._register(_.onChangeColors((() => this._fullRefresh()))), this._registerIntersectionObserver(this._coreBrowserService.window, t), this._register(this._coreBrowserService.onWindowChange(((e) => this._registerIntersectionObserver(e, t))));
 						}
 						_registerIntersectionObserver(e, t) {
 							if ("IntersectionObserver" in e) {
 								const i = new e.IntersectionObserver(((e) => this._handleIntersectionChange(e[e.length - 1])), { threshold: 0 });
-								i.observe(t), this._observerDisposable.value = (0, h.toDisposable)((() => i.disconnect()));
+								i.observe(t), this._observerDisposable.value = (0, a.toDisposable)((() => i.disconnect()));
 							}
 						}
 						_handleIntersectionChange(e) {
 							this._isPaused = void 0 === e.isIntersecting ? 0 === e.intersectionRatio : !e.isIntersecting, this._isPaused || this._charSizeService.hasValidSize || this._charSizeService.measure(), !this._isPaused && this._needsFullRefresh && (this._pausedResizeTask.flush(), this.refreshRows(0, this._rowCount - 1), this._needsFullRefresh = !1);
 						}
 						refreshRows(e, t, i = !1) {
-							this._isPaused ? this._needsFullRefresh = !0 : (i || (this._isNextRenderRedrawOnly = !1), this._renderDebouncer.refresh(e, t, this._rowCount));
+							if (this._isPaused) return void (this._needsFullRefresh = !0);
+							if (this._coreService.decPrivateModes.synchronizedOutput) return void this._syncOutputHandler.bufferRows(e, t);
+							const s = this._syncOutputHandler.flush();
+							s && (e = Math.min(e, s.start), t = Math.max(t, s.end)), i || (this._isNextRenderRedrawOnly = !1), this._renderDebouncer.refresh(e, t, this._rowCount);
 						}
 						_renderRows(e, t) {
-							this._renderer.value && (e = Math.min(e, this._rowCount - 1), t = Math.min(t, this._rowCount - 1), this._renderer.value.renderRows(e, t), this._needsSelectionRefresh && (this._renderer.value.handleSelectionChanged(this._selectionState.start, this._selectionState.end, this._selectionState.columnSelectMode), this._needsSelectionRefresh = !1), this._isNextRenderRedrawOnly || this._onRenderedViewportChange.fire({
+							this._renderer.value && (this._coreService.decPrivateModes.synchronizedOutput ? this._syncOutputHandler.bufferRows(e, t) : (e = Math.min(e, this._rowCount - 1), t = Math.min(t, this._rowCount - 1), this._renderer.value.renderRows(e, t), this._needsSelectionRefresh && (this._renderer.value.handleSelectionChanged(this._selectionState.start, this._selectionState.end, this._selectionState.columnSelectMode), this._needsSelectionRefresh = !1), this._isNextRenderRedrawOnly || this._onRenderedViewportChange.fire({
 								start: e,
 								end: t
 							}), this._onRender.fire({
 								start: e,
 								end: t
-							}), this._isNextRenderRedrawOnly = !0);
+							}), this._isNextRenderRedrawOnly = !0));
 						}
 						resize(e, t) {
 							this._rowCount = t, this._fireOnCanvasResize();
@@ -2198,16 +2270,38 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._renderer.value?.clear();
 						}
 					};
-					t.RenderService = d = s([
-						r(2, l.IOptionsService),
+					t.RenderService = d, t.RenderService = d = s([
+						r(2, h.IOptionsService),
 						r(3, o.ICharSizeService),
-						r(4, l.IDecorationService),
-						r(5, l.IBufferService),
-						r(6, o.ICoreBrowserService),
-						r(7, o.IThemeService)
+						r(4, h.ICoreService),
+						r(5, h.IDecorationService),
+						r(6, h.IBufferService),
+						r(7, o.ICoreBrowserService),
+						r(8, o.IThemeService)
 					], d);
+					class u {
+						constructor(e, t, i) {
+							this._coreBrowserService = e, this._coreService = t, this._onTimeout = i, this._start = 0, this._end = 0, this._isBuffering = !1;
+						}
+						bufferRows(e, t) {
+							this._isBuffering ? (this._start = Math.min(this._start, e), this._end = Math.max(this._end, t)) : (this._start = e, this._end = t, this._isBuffering = !0), void 0 === this._timeout && (this._timeout = this._coreBrowserService.window.setTimeout((() => {
+								this._timeout = void 0, this._coreService.decPrivateModes.synchronizedOutput = !1, this._onTimeout();
+							}), 1e3));
+						}
+						flush() {
+							if (void 0 !== this._timeout && (this._coreBrowserService.window.clearTimeout(this._timeout), this._timeout = void 0), !this._isBuffering) return;
+							const e = {
+								start: this._start,
+								end: this._end
+							};
+							return this._isBuffering = !1, e;
+						}
+						dispose() {
+							void 0 !== this._timeout && (this._coreBrowserService.window.clearTimeout(this._timeout), this._timeout = void 0);
+						}
+					}
 				},
-				9312: function(e, t, i) {
+				2079: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -2219,13 +2313,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.SelectionService = void 0;
-					const n = i(9806), o = i(9504), a = i(456), h = i(4725), c = i(8460), l = i(844), d = i(6114), _ = i(4841), u = i(511), f = i(2585), p = new RegExp(String.fromCharCode(160), "g");
-					let g = t.SelectionService = class extends l.Disposable {
-						constructor(e, t, i, s, r, n, o, h, d) {
-							super(), this._element = e, this._screenElement = t, this._linkifier = i, this._bufferService = s, this._coreService = r, this._mouseService = n, this._optionsService = o, this._renderService = h, this._coreBrowserService = d, this._dragScrollAmount = 0, this._enabled = !0, this._workCell = new u.CellData(), this._mouseDownTimeStamp = 0, this._oldHasSelection = !1, this._oldSelectionStart = void 0, this._oldSelectionEnd = void 0, this._onLinuxMouseSelection = this.register(new c.EventEmitter()), this.onLinuxMouseSelection = this._onLinuxMouseSelection.event, this._onRedrawRequest = this.register(new c.EventEmitter()), this.onRequestRedraw = this._onRedrawRequest.event, this._onSelectionChange = this.register(new c.EventEmitter()), this.onSelectionChange = this._onSelectionChange.event, this._onRequestScrollLines = this.register(new c.EventEmitter()), this.onRequestScrollLines = this._onRequestScrollLines.event, this._mouseMoveListener = (e) => this._handleMouseMove(e), this._mouseUpListener = (e) => this._handleMouseUp(e), this._coreService.onUserInput((() => {
+					const n = i(5251), o = i(9686), a = i(5959), l = i(7098), h = i(7150), c = i(701), d = i(9384), u = i(3055), _ = i(6501), f = i(802), g = new RegExp(String.fromCharCode(160), "g");
+					let m = class extends h.Disposable {
+						constructor(e, t, i, s, r, n, o, l, c) {
+							super(), this._element = e, this._screenElement = t, this._linkifier = i, this._bufferService = s, this._coreService = r, this._mouseService = n, this._optionsService = o, this._renderService = l, this._coreBrowserService = c, this._dragScrollAmount = 0, this._enabled = !0, this._workCell = new u.CellData(), this._mouseDownTimeStamp = 0, this._oldHasSelection = !1, this._oldSelectionStart = void 0, this._oldSelectionEnd = void 0, this._onLinuxMouseSelection = this._register(new f.Emitter()), this.onLinuxMouseSelection = this._onLinuxMouseSelection.event, this._onRedrawRequest = this._register(new f.Emitter()), this.onRequestRedraw = this._onRedrawRequest.event, this._onSelectionChange = this._register(new f.Emitter()), this.onSelectionChange = this._onSelectionChange.event, this._onRequestScrollLines = this._register(new f.Emitter()), this.onRequestScrollLines = this._onRequestScrollLines.event, this._mouseMoveListener = (e) => this._handleMouseMove(e), this._mouseUpListener = (e) => this._handleMouseUp(e), this._coreService.onUserInput((() => {
 								this.hasSelection && this.clearSelection();
-							})), this._trimListener = this._bufferService.buffer.lines.onTrim(((e) => this._handleTrim(e))), this.register(this._bufferService.buffers.onBufferActivate(((e) => this._handleBufferActivate(e)))), this.enable(), this._model = new a.SelectionModel(this._bufferService), this._activeSelectionMode = 0, this.register((0, l.toDisposable)((() => {
+							})), this._trimListener = this._bufferService.buffer.lines.onTrim(((e) => this._handleTrim(e))), this._register(this._bufferService.buffers.onBufferActivate(((e) => this._handleBufferActivate(e)))), this.enable(), this._model = new a.SelectionModel(this._bufferService), this._activeSelectionMode = 0, this._register((0, h.toDisposable)((() => {
 								this._removeMouseDownListeners();
+							}))), this._register(this._bufferService.onResize(((e) => {
+								e.rowsChanged && this.clearSelection();
 							})));
 						}
 						reset() {
@@ -2270,13 +2366,13 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 									e && e.isWrapped ? s[s.length - 1] += r : s.push(r);
 								}
 							}
-							return s.map(((e) => e.replace(p, " "))).join(d.isWindows ? "\r\n" : "\n");
+							return s.map(((e) => e.replace(g, " "))).join(c.isWindows ? "\r\n" : "\n");
 						}
 						clearSelection() {
 							this._model.clearSelection(), this._removeMouseDownListeners(), this.refresh(), this._onSelectionChange.fire();
 						}
 						refresh(e) {
-							this._refreshAnimationFrame || (this._refreshAnimationFrame = this._coreBrowserService.window.requestAnimationFrame((() => this._refresh()))), d.isLinux && e && this.selectionText.length && this._onLinuxMouseSelection.fire(this.selectionText);
+							this._refreshAnimationFrame || (this._refreshAnimationFrame = this._coreBrowserService.window.requestAnimationFrame((() => this._refresh()))), c.isLinux && e && this.selectionText.length && this._onLinuxMouseSelection.fire(this.selectionText);
 						}
 						_refresh() {
 							this._refreshAnimationFrame = void 0, this._onRedrawRequest.fire({
@@ -2298,7 +2394,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						_selectWordAtCursor(e, t) {
 							const i = this._linkifier.currentLink?.link?.range;
-							if (i) return this._model.selectionStart = [i.start.x - 1, i.start.y - 1], this._model.selectionStartLength = (0, _.getRangeLength)(i, this._bufferService.cols), this._model.selectionEnd = void 0, !0;
+							if (i) return this._model.selectionStart = [i.start.x - 1, i.start.y - 1], this._model.selectionStartLength = (0, d.getRangeLength)(i, this._bufferService.cols), this._model.selectionEnd = void 0, !0;
 							const s = this._getMouseBufferCoords(e);
 							return !!s && (this._selectWordAt(s, t), this._model.selectionEnd = void 0, !0);
 						}
@@ -2321,7 +2417,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return t >= 0 && t <= i ? 0 : (t > i && (t -= i), t = Math.min(Math.max(t, -50), 50), t /= 50, t / Math.abs(t) + Math.round(14 * t));
 						}
 						shouldForceSelection(e) {
-							return d.isMac ? e.altKey && this._optionsService.rawOptions.macOptionClickForcesSelection : e.shiftKey;
+							return c.isMac ? e.altKey && this._optionsService.rawOptions.macOptionClickForcesSelection : e.shiftKey;
 						}
 						handleMouseDown(e) {
 							if (this._mouseDownTimeStamp = e.timeStamp, (2 !== e.button || !this.hasSelection) && 0 === e.button) {
@@ -2355,7 +2451,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							t && (this._activeSelectionMode = 2, this._selectLineAt(t[1]));
 						}
 						shouldColumnSelect(e) {
-							return e.altKey && !(d.isMac && this._optionsService.rawOptions.macOptionClickForcesSelection);
+							return e.altKey && !(c.isMac && this._optionsService.rawOptions.macOptionClickForcesSelection);
 						}
 						_handleMouseMove(e) {
 							if (e.stopImmediatePropagation(), !this._model.selectionStart) return;
@@ -2420,50 +2516,50 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const r = this._bufferService.buffer, n = r.lines.get(e[1]);
 							if (!n) return;
 							const o = r.translateBufferLineToString(e[1], !1);
-							let a = this._convertViewportColToCharacterIndex(n, e[0]), h = a;
-							const c = e[0] - a;
-							let l = 0, d = 0, _ = 0, u = 0;
+							let a = this._convertViewportColToCharacterIndex(n, e[0]), l = a;
+							const h = e[0] - a;
+							let c = 0, d = 0, u = 0, _ = 0;
 							if (" " === o.charAt(a)) {
 								for (; a > 0 && " " === o.charAt(a - 1);) a--;
-								for (; h < o.length && " " === o.charAt(h + 1);) h++;
+								for (; l < o.length && " " === o.charAt(l + 1);) l++;
 							} else {
 								let t = e[0], i = e[0];
-								0 === n.getWidth(t) && (l++, t--), 2 === n.getWidth(i) && (d++, i++);
+								0 === n.getWidth(t) && (c++, t--), 2 === n.getWidth(i) && (d++, i++);
 								const s = n.getString(i).length;
-								for (s > 1 && (u += s - 1, h += s - 1); t > 0 && a > 0 && !this._isCharWordSeparator(n.loadCell(t - 1, this._workCell));) {
+								for (s > 1 && (_ += s - 1, l += s - 1); t > 0 && a > 0 && !this._isCharWordSeparator(n.loadCell(t - 1, this._workCell));) {
 									n.loadCell(t - 1, this._workCell);
 									const e = this._workCell.getChars().length;
-									0 === this._workCell.getWidth() ? (l++, t--) : e > 1 && (_ += e - 1, a -= e - 1), a--, t--;
+									0 === this._workCell.getWidth() ? (c++, t--) : e > 1 && (u += e - 1, a -= e - 1), a--, t--;
 								}
-								for (; i < n.length && h + 1 < o.length && !this._isCharWordSeparator(n.loadCell(i + 1, this._workCell));) {
+								for (; i < n.length && l + 1 < o.length && !this._isCharWordSeparator(n.loadCell(i + 1, this._workCell));) {
 									n.loadCell(i + 1, this._workCell);
 									const e = this._workCell.getChars().length;
-									2 === this._workCell.getWidth() ? (d++, i++) : e > 1 && (u += e - 1, h += e - 1), h++, i++;
+									2 === this._workCell.getWidth() ? (d++, i++) : e > 1 && (_ += e - 1, l += e - 1), l++, i++;
 								}
 							}
-							h++;
-							let f = a + c - l + _, v = Math.min(this._bufferService.cols, h - a + l + d - _ - u);
-							if (t || "" !== o.slice(a, h).trim()) {
+							l++;
+							let f = a + h - c + u, p = Math.min(this._bufferService.cols, l - a + c + d - u - _);
+							if (t || "" !== o.slice(a, l).trim()) {
 								if (i && 0 === f && 32 !== n.getCodePoint(0)) {
 									const t = r.lines.get(e[1] - 1);
 									if (t && n.isWrapped && 32 !== t.getCodePoint(this._bufferService.cols - 1)) {
 										const t = this._getWordAt([this._bufferService.cols - 1, e[1] - 1], !1, !0, !1);
 										if (t) {
 											const e = this._bufferService.cols - t.start;
-											f -= e, v += e;
+											f -= e, p += e;
 										}
 									}
 								}
-								if (s && f + v === this._bufferService.cols && 32 !== n.getCodePoint(this._bufferService.cols - 1)) {
+								if (s && f + p === this._bufferService.cols && 32 !== n.getCodePoint(this._bufferService.cols - 1)) {
 									const t = r.lines.get(e[1] + 1);
 									if (t?.isWrapped && 32 !== t.getCodePoint(0)) {
 										const t = this._getWordAt([0, e[1] + 1], !1, !1, !0);
-										t && (v += t.length);
+										t && (p += t.length);
 									}
 								}
 								return {
 									start: f,
-									length: v
+									length: p
 								};
 							}
 						}
@@ -2497,24 +2593,24 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 									y: t.last
 								}
 							};
-							this._model.selectionStart = [0, t.first], this._model.selectionEnd = void 0, this._model.selectionStartLength = (0, _.getRangeLength)(i, this._bufferService.cols);
+							this._model.selectionStart = [0, t.first], this._model.selectionEnd = void 0, this._model.selectionStartLength = (0, d.getRangeLength)(i, this._bufferService.cols);
 						}
 					};
-					t.SelectionService = g = s([
-						r(3, f.IBufferService),
-						r(4, f.ICoreService),
-						r(5, h.IMouseService),
-						r(6, f.IOptionsService),
-						r(7, h.IRenderService),
-						r(8, h.ICoreBrowserService)
-					], g);
+					t.SelectionService = m, t.SelectionService = m = s([
+						r(3, _.IBufferService),
+						r(4, _.ICoreService),
+						r(5, l.IMouseService),
+						r(6, _.IOptionsService),
+						r(7, l.IRenderService),
+						r(8, l.ICoreBrowserService)
+					], m);
 				},
-				4725: (e, t, i) => {
+				7098: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.ILinkProviderService = t.IThemeService = t.ICharacterJoinerService = t.ISelectionService = t.IRenderService = t.IMouseService = t.ICoreBrowserService = t.ICharSizeService = void 0;
-					const s = i(8343);
+					const s = i(6201);
 					t.ICharSizeService = (0, s.createDecorator)("CharSizeService"), t.ICoreBrowserService = (0, s.createDecorator)("CoreBrowserService"), t.IMouseService = (0, s.createDecorator)("MouseService"), t.IRenderService = (0, s.createDecorator)("RenderService"), t.ISelectionService = (0, s.createDecorator)("SelectionService"), t.ICharacterJoinerService = (0, s.createDecorator)("CharacterJoinerService"), t.IThemeService = (0, s.createDecorator)("ThemeService"), t.ILinkProviderService = (0, s.createDecorator)("LinkProviderService");
 				},
-				6731: function(e, t, i) {
+				9078: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -2525,80 +2621,42 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							t(i, s, e);
 						};
 					};
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.ThemeService = t.DEFAULT_ANSI_COLORS = void 0;
-					const n = i(7239), o = i(8055), a = i(8460), h = i(844), c = i(2585), l = o.css.toColor("#ffffff"), d = o.css.toColor("#000000"), _ = o.css.toColor("#ffffff"), u = o.css.toColor("#000000"), f = {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ThemeService = void 0;
+					const n = i(7174), o = i(9302), a = i(4103), l = i(7150), h = i(6501), c = i(802), d = a.css.toColor("#ffffff"), u = a.css.toColor("#000000"), _ = a.css.toColor("#ffffff"), f = u, p = {
 						css: "rgba(255, 255, 255, 0.3)",
 						rgba: 4294967117
-					};
-					t.DEFAULT_ANSI_COLORS = Object.freeze((() => {
-						const e = [
-							o.css.toColor("#2e3436"),
-							o.css.toColor("#cc0000"),
-							o.css.toColor("#4e9a06"),
-							o.css.toColor("#c4a000"),
-							o.css.toColor("#3465a4"),
-							o.css.toColor("#75507b"),
-							o.css.toColor("#06989a"),
-							o.css.toColor("#d3d7cf"),
-							o.css.toColor("#555753"),
-							o.css.toColor("#ef2929"),
-							o.css.toColor("#8ae234"),
-							o.css.toColor("#fce94f"),
-							o.css.toColor("#729fcf"),
-							o.css.toColor("#ad7fa8"),
-							o.css.toColor("#34e2e2"),
-							o.css.toColor("#eeeeec")
-						], t = [
-							0,
-							95,
-							135,
-							175,
-							215,
-							255
-						];
-						for (let i = 0; i < 216; i++) {
-							const s = t[i / 36 % 6 | 0], r = t[i / 6 % 6 | 0], n = t[i % 6];
-							e.push({
-								css: o.channels.toCss(s, r, n),
-								rgba: o.channels.toRgba(s, r, n)
-							});
-						}
-						for (let t = 0; t < 24; t++) {
-							const i = 8 + 10 * t;
-							e.push({
-								css: o.channels.toCss(i, i, i),
-								rgba: o.channels.toRgba(i, i, i)
-							});
-						}
-						return e;
-					})());
-					let v = t.ThemeService = class extends h.Disposable {
+					}, g = d;
+					let m = class extends l.Disposable {
 						get colors() {
 							return this._colors;
 						}
 						constructor(e) {
-							super(), this._optionsService = e, this._contrastCache = new n.ColorContrastCache(), this._halfContrastCache = new n.ColorContrastCache(), this._onChangeColors = this.register(new a.EventEmitter()), this.onChangeColors = this._onChangeColors.event, this._colors = {
-								foreground: l,
-								background: d,
+							super(), this._optionsService = e, this._contrastCache = new n.ColorContrastCache(), this._halfContrastCache = new n.ColorContrastCache(), this._onChangeColors = this._register(new c.Emitter()), this.onChangeColors = this._onChangeColors.event, this._colors = {
+								foreground: d,
+								background: u,
 								cursor: _,
-								cursorAccent: u,
+								cursorAccent: f,
 								selectionForeground: void 0,
-								selectionBackgroundTransparent: f,
-								selectionBackgroundOpaque: o.color.blend(d, f),
-								selectionInactiveBackgroundTransparent: f,
-								selectionInactiveBackgroundOpaque: o.color.blend(d, f),
-								ansi: t.DEFAULT_ANSI_COLORS.slice(),
+								selectionBackgroundTransparent: p,
+								selectionBackgroundOpaque: a.color.blend(u, p),
+								selectionInactiveBackgroundTransparent: p,
+								selectionInactiveBackgroundOpaque: a.color.blend(u, p),
+								scrollbarSliderBackground: a.color.opacity(d, .2),
+								scrollbarSliderHoverBackground: a.color.opacity(d, .4),
+								scrollbarSliderActiveBackground: a.color.opacity(d, .5),
+								overviewRulerBorder: d,
+								ansi: o.DEFAULT_ANSI_COLORS.slice(),
 								contrastCache: this._contrastCache,
 								halfContrastCache: this._halfContrastCache
-							}, this._updateRestoreColors(), this._setTheme(this._optionsService.rawOptions.theme), this.register(this._optionsService.onSpecificOptionChange("minimumContrastRatio", (() => this._contrastCache.clear()))), this.register(this._optionsService.onSpecificOptionChange("theme", (() => this._setTheme(this._optionsService.rawOptions.theme))));
+							}, this._updateRestoreColors(), this._setTheme(this._optionsService.rawOptions.theme), this._register(this._optionsService.onSpecificOptionChange("minimumContrastRatio", (() => this._contrastCache.clear()))), this._register(this._optionsService.onSpecificOptionChange("theme", (() => this._setTheme(this._optionsService.rawOptions.theme))));
 						}
 						_setTheme(e = {}) {
-							const i = this._colors;
-							if (i.foreground = p(e.foreground, l), i.background = p(e.background, d), i.cursor = p(e.cursor, _), i.cursorAccent = p(e.cursorAccent, u), i.selectionBackgroundTransparent = p(e.selectionBackground, f), i.selectionBackgroundOpaque = o.color.blend(i.background, i.selectionBackgroundTransparent), i.selectionInactiveBackgroundTransparent = p(e.selectionInactiveBackground, i.selectionBackgroundTransparent), i.selectionInactiveBackgroundOpaque = o.color.blend(i.background, i.selectionInactiveBackgroundTransparent), i.selectionForeground = e.selectionForeground ? p(e.selectionForeground, o.NULL_COLOR) : void 0, i.selectionForeground === o.NULL_COLOR && (i.selectionForeground = void 0), o.color.isOpaque(i.selectionBackgroundTransparent)) i.selectionBackgroundTransparent = o.color.opacity(i.selectionBackgroundTransparent, .3);
-							if (o.color.isOpaque(i.selectionInactiveBackgroundTransparent)) i.selectionInactiveBackgroundTransparent = o.color.opacity(i.selectionInactiveBackgroundTransparent, .3);
-							if (i.ansi = t.DEFAULT_ANSI_COLORS.slice(), i.ansi[0] = p(e.black, t.DEFAULT_ANSI_COLORS[0]), i.ansi[1] = p(e.red, t.DEFAULT_ANSI_COLORS[1]), i.ansi[2] = p(e.green, t.DEFAULT_ANSI_COLORS[2]), i.ansi[3] = p(e.yellow, t.DEFAULT_ANSI_COLORS[3]), i.ansi[4] = p(e.blue, t.DEFAULT_ANSI_COLORS[4]), i.ansi[5] = p(e.magenta, t.DEFAULT_ANSI_COLORS[5]), i.ansi[6] = p(e.cyan, t.DEFAULT_ANSI_COLORS[6]), i.ansi[7] = p(e.white, t.DEFAULT_ANSI_COLORS[7]), i.ansi[8] = p(e.brightBlack, t.DEFAULT_ANSI_COLORS[8]), i.ansi[9] = p(e.brightRed, t.DEFAULT_ANSI_COLORS[9]), i.ansi[10] = p(e.brightGreen, t.DEFAULT_ANSI_COLORS[10]), i.ansi[11] = p(e.brightYellow, t.DEFAULT_ANSI_COLORS[11]), i.ansi[12] = p(e.brightBlue, t.DEFAULT_ANSI_COLORS[12]), i.ansi[13] = p(e.brightMagenta, t.DEFAULT_ANSI_COLORS[13]), i.ansi[14] = p(e.brightCyan, t.DEFAULT_ANSI_COLORS[14]), i.ansi[15] = p(e.brightWhite, t.DEFAULT_ANSI_COLORS[15]), e.extendedAnsi) {
-								const s = Math.min(i.ansi.length - 16, e.extendedAnsi.length);
-								for (let r = 0; r < s; r++) i.ansi[r + 16] = p(e.extendedAnsi[r], t.DEFAULT_ANSI_COLORS[r + 16]);
+							const t = this._colors;
+							if (t.foreground = v(e.foreground, d), t.background = v(e.background, u), t.cursor = a.color.blend(t.background, v(e.cursor, _)), t.cursorAccent = a.color.blend(t.background, v(e.cursorAccent, f)), t.selectionBackgroundTransparent = v(e.selectionBackground, p), t.selectionBackgroundOpaque = a.color.blend(t.background, t.selectionBackgroundTransparent), t.selectionInactiveBackgroundTransparent = v(e.selectionInactiveBackground, t.selectionBackgroundTransparent), t.selectionInactiveBackgroundOpaque = a.color.blend(t.background, t.selectionInactiveBackgroundTransparent), t.selectionForeground = e.selectionForeground ? v(e.selectionForeground, a.NULL_COLOR) : void 0, t.selectionForeground === a.NULL_COLOR && (t.selectionForeground = void 0), a.color.isOpaque(t.selectionBackgroundTransparent)) t.selectionBackgroundTransparent = a.color.opacity(t.selectionBackgroundTransparent, .3);
+							if (a.color.isOpaque(t.selectionInactiveBackgroundTransparent)) t.selectionInactiveBackgroundTransparent = a.color.opacity(t.selectionInactiveBackgroundTransparent, .3);
+							if (t.scrollbarSliderBackground = v(e.scrollbarSliderBackground, a.color.opacity(t.foreground, .2)), t.scrollbarSliderHoverBackground = v(e.scrollbarSliderHoverBackground, a.color.opacity(t.foreground, .4)), t.scrollbarSliderActiveBackground = v(e.scrollbarSliderActiveBackground, a.color.opacity(t.foreground, .5)), t.overviewRulerBorder = v(e.overviewRulerBorder, g), t.ansi = o.DEFAULT_ANSI_COLORS.slice(), t.ansi[0] = v(e.black, o.DEFAULT_ANSI_COLORS[0]), t.ansi[1] = v(e.red, o.DEFAULT_ANSI_COLORS[1]), t.ansi[2] = v(e.green, o.DEFAULT_ANSI_COLORS[2]), t.ansi[3] = v(e.yellow, o.DEFAULT_ANSI_COLORS[3]), t.ansi[4] = v(e.blue, o.DEFAULT_ANSI_COLORS[4]), t.ansi[5] = v(e.magenta, o.DEFAULT_ANSI_COLORS[5]), t.ansi[6] = v(e.cyan, o.DEFAULT_ANSI_COLORS[6]), t.ansi[7] = v(e.white, o.DEFAULT_ANSI_COLORS[7]), t.ansi[8] = v(e.brightBlack, o.DEFAULT_ANSI_COLORS[8]), t.ansi[9] = v(e.brightRed, o.DEFAULT_ANSI_COLORS[9]), t.ansi[10] = v(e.brightGreen, o.DEFAULT_ANSI_COLORS[10]), t.ansi[11] = v(e.brightYellow, o.DEFAULT_ANSI_COLORS[11]), t.ansi[12] = v(e.brightBlue, o.DEFAULT_ANSI_COLORS[12]), t.ansi[13] = v(e.brightMagenta, o.DEFAULT_ANSI_COLORS[13]), t.ansi[14] = v(e.brightCyan, o.DEFAULT_ANSI_COLORS[14]), t.ansi[15] = v(e.brightWhite, o.DEFAULT_ANSI_COLORS[15]), e.extendedAnsi) {
+								const i = Math.min(t.ansi.length - 16, e.extendedAnsi.length);
+								for (let s = 0; s < i; s++) t.ansi[s + 16] = v(e.extendedAnsi[s], o.DEFAULT_ANSI_COLORS[s + 16]);
 							}
 							this._contrastCache.clear(), this._halfContrastCache.clear(), this._updateRestoreColors(), this._onChangeColors.fire(this.colors);
 						}
@@ -2632,20 +2690,20 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							};
 						}
 					};
-					function p(e, t) {
+					function v(e, t) {
 						if (void 0 !== e) try {
-							return o.css.toColor(e);
+							return a.css.toColor(e);
 						} catch {}
 						return t;
 					}
-					t.ThemeService = v = s([r(0, c.IOptionsService)], v);
+					t.ThemeService = m, t.ThemeService = m = s([r(0, h.IOptionsService)], m);
 				},
-				6349: (e, t, i) => {
+				5639: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CircularList = void 0;
-					const s = i(8460), r = i(844);
-					class n extends r.Disposable {
+					const s = i(7150), r = i(802);
+					class n extends s.Disposable {
 						constructor(e) {
-							super(), this._maxLength = e, this.onDeleteEmitter = this.register(new s.EventEmitter()), this.onDelete = this.onDeleteEmitter.event, this.onInsertEmitter = this.register(new s.EventEmitter()), this.onInsert = this.onInsertEmitter.event, this.onTrimEmitter = this.register(new s.EventEmitter()), this.onTrim = this.onTrimEmitter.event, this._array = new Array(this._maxLength), this._startIndex = 0, this._length = 0;
+							super(), this._maxLength = e, this.onDeleteEmitter = this._register(new r.Emitter()), this.onDelete = this.onDeleteEmitter.event, this.onInsertEmitter = this._register(new r.Emitter()), this.onInsert = this.onInsertEmitter.event, this.onTrimEmitter = this._register(new r.Emitter()), this.onTrim = this.onTrimEmitter.event, this._array = new Array(this._maxLength), this._startIndex = 0, this._length = 0;
 						}
 						get maxLength() {
 							return this._maxLength;
@@ -2720,23 +2778,23 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.CircularList = n;
 				},
-				1439: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.clone = void 0, t.clone = function e(t, i = 5) {
+				7453: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.clone = function e(t, i = 5) {
 						if ("object" != typeof t) return t;
 						const s = Array.isArray(t) ? [] : {};
 						for (const r in t) s[r] = i <= 1 ? t[r] : t[r] && e(t[r], i - 1);
 						return s;
 					};
 				},
-				8055: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.contrastRatio = t.toPaddedHex = t.rgba = t.rgb = t.css = t.color = t.channels = t.NULL_COLOR = void 0;
+				4103: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.rgba = t.rgb = t.css = t.color = t.channels = t.NULL_COLOR = void 0, t.toPaddedHex = d, t.contrastRatio = u;
 					let i = 0, s = 0, r = 0, n = 0;
-					var o, a, h, c, l;
+					var o, a, l, h, c;
 					function d(e) {
 						const t = e.toString(16);
 						return t.length < 2 ? "0" + t : t;
 					}
-					function _(e, t) {
+					function u(e, t) {
 						return e < t ? (t + .05) / (e + .05) : (e + .05) / (t + .05);
 					}
 					t.NULL_COLOR = {
@@ -2755,7 +2813,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					}(o || (t.channels = o = {})), function(e) {
 						function t(e, t) {
-							return n = Math.round(255 * t), [i, s, r] = l.toChannels(e.rgba), {
+							return n = Math.round(255 * t), [i, s, r] = c.toChannels(e.rgba), {
 								css: o.toCss(i, s, r, n),
 								rgba: o.toRgba(i, s, r, n)
 							};
@@ -2765,19 +2823,19 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								css: t.css,
 								rgba: t.rgba
 							};
-							const a = t.rgba >> 24 & 255, h = t.rgba >> 16 & 255, c = t.rgba >> 8 & 255, l = e.rgba >> 24 & 255, d = e.rgba >> 16 & 255, _ = e.rgba >> 8 & 255;
-							return i = l + Math.round((a - l) * n), s = d + Math.round((h - d) * n), r = _ + Math.round((c - _) * n), {
+							const a = t.rgba >> 24 & 255, l = t.rgba >> 16 & 255, h = t.rgba >> 8 & 255, c = e.rgba >> 24 & 255, d = e.rgba >> 16 & 255, u = e.rgba >> 8 & 255;
+							return i = c + Math.round((a - c) * n), s = d + Math.round((l - d) * n), r = u + Math.round((h - u) * n), {
 								css: o.toCss(i, s, r),
 								rgba: o.toRgba(i, s, r)
 							};
 						}, e.isOpaque = function(e) {
-							return 255 == (255 & e.rgba);
+							return !(255 & ~e.rgba);
 						}, e.ensureContrastRatio = function(e, t, i) {
-							const s = l.ensureContrastRatio(e.rgba, t.rgba, i);
+							const s = c.ensureContrastRatio(e.rgba, t.rgba, i);
 							if (s) return o.toColor(s >> 24 & 255, s >> 16 & 255, s >> 8 & 255);
 						}, e.opaque = function(e) {
 							const t = (255 | e.rgba) >>> 0;
-							return [i, s, r] = l.toChannels(t), {
+							return [i, s, r] = c.toChannels(t), {
 								css: o.toCss(i, s, r),
 								rgba: t
 							};
@@ -2811,8 +2869,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 									rgba: parseInt(e.slice(1), 16) >>> 0
 								};
 							}
-							const h = e.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(,\s*(0|1|\d?\.(\d+))\s*)?\)/);
-							if (h) return i = parseInt(h[1]), s = parseInt(h[2]), r = parseInt(h[3]), n = Math.round(255 * (void 0 === h[5] ? 1 : parseFloat(h[5]))), o.toColor(i, s, r, n);
+							const l = e.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(,\s*(0|1|\d?\.(\d+))\s*)?\)/);
+							if (l) return i = parseInt(l[1]), s = parseInt(l[2]), r = parseInt(l[3]), n = Math.round(255 * (void 0 === l[5] ? 1 : parseFloat(l[5]))), o.toColor(i, s, r, n);
 							if (!t || !a) throw new Error("css.toColor: Unsupported css format");
 							if (t.fillStyle = a, t.fillStyle = e, "string" != typeof t.fillStyle) throw new Error("css.toColor: Unsupported css format");
 							if (t.fillRect(0, 0, 1, 1), [i, s, r, n] = t.getImageData(0, 0, 1, 1).data, 255 !== n) throw new Error("css.toColor: Unsupported css format");
@@ -2821,7 +2879,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								css: e
 							};
 						};
-					}(h || (t.css = h = {})), function(e) {
+					}(l || (t.css = l = {})), function(e) {
 						function t(e, t, i) {
 							const s = e / 255, r = t / 255, n = i / 255;
 							return .2126 * (s <= .03928 ? s / 12.92 : Math.pow((s + .055) / 1.055, 2.4)) + .7152 * (r <= .03928 ? r / 12.92 : Math.pow((r + .055) / 1.055, 2.4)) + .0722 * (n <= .03928 ? n / 12.92 : Math.pow((n + .055) / 1.055, 2.4));
@@ -2829,38 +2887,38 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						e.relativeLuminance = function(e) {
 							return t(e >> 16 & 255, e >> 8 & 255, 255 & e);
 						}, e.relativeLuminance2 = t;
-					}(c || (t.rgb = c = {})), function(e) {
+					}(h || (t.rgb = h = {})), function(e) {
 						function t(e, t, i) {
 							const s = e >> 24 & 255, r = e >> 16 & 255, n = e >> 8 & 255;
-							let o = t >> 24 & 255, a = t >> 16 & 255, h = t >> 8 & 255, l = _(c.relativeLuminance2(o, a, h), c.relativeLuminance2(s, r, n));
-							for (; l < i && (o > 0 || a > 0 || h > 0);) o -= Math.max(0, Math.ceil(.1 * o)), a -= Math.max(0, Math.ceil(.1 * a)), h -= Math.max(0, Math.ceil(.1 * h)), l = _(c.relativeLuminance2(o, a, h), c.relativeLuminance2(s, r, n));
-							return (o << 24 | a << 16 | h << 8 | 255) >>> 0;
+							let o = t >> 24 & 255, a = t >> 16 & 255, l = t >> 8 & 255, c = u(h.relativeLuminance2(o, a, l), h.relativeLuminance2(s, r, n));
+							for (; c < i && (o > 0 || a > 0 || l > 0);) o -= Math.max(0, Math.ceil(.1 * o)), a -= Math.max(0, Math.ceil(.1 * a)), l -= Math.max(0, Math.ceil(.1 * l)), c = u(h.relativeLuminance2(o, a, l), h.relativeLuminance2(s, r, n));
+							return (o << 24 | a << 16 | l << 8 | 255) >>> 0;
 						}
 						function a(e, t, i) {
 							const s = e >> 24 & 255, r = e >> 16 & 255, n = e >> 8 & 255;
-							let o = t >> 24 & 255, a = t >> 16 & 255, h = t >> 8 & 255, l = _(c.relativeLuminance2(o, a, h), c.relativeLuminance2(s, r, n));
-							for (; l < i && (o < 255 || a < 255 || h < 255);) o = Math.min(255, o + Math.ceil(.1 * (255 - o))), a = Math.min(255, a + Math.ceil(.1 * (255 - a))), h = Math.min(255, h + Math.ceil(.1 * (255 - h))), l = _(c.relativeLuminance2(o, a, h), c.relativeLuminance2(s, r, n));
-							return (o << 24 | a << 16 | h << 8 | 255) >>> 0;
+							let o = t >> 24 & 255, a = t >> 16 & 255, l = t >> 8 & 255, c = u(h.relativeLuminance2(o, a, l), h.relativeLuminance2(s, r, n));
+							for (; c < i && (o < 255 || a < 255 || l < 255);) o = Math.min(255, o + Math.ceil(.1 * (255 - o))), a = Math.min(255, a + Math.ceil(.1 * (255 - a))), l = Math.min(255, l + Math.ceil(.1 * (255 - l))), c = u(h.relativeLuminance2(o, a, l), h.relativeLuminance2(s, r, n));
+							return (o << 24 | a << 16 | l << 8 | 255) >>> 0;
 						}
 						e.blend = function(e, t) {
 							if (n = (255 & t) / 255, 1 === n) return t;
-							const a = t >> 24 & 255, h = t >> 16 & 255, c = t >> 8 & 255, l = e >> 24 & 255, d = e >> 16 & 255, _ = e >> 8 & 255;
-							return i = l + Math.round((a - l) * n), s = d + Math.round((h - d) * n), r = _ + Math.round((c - _) * n), o.toRgba(i, s, r);
+							const a = t >> 24 & 255, l = t >> 16 & 255, h = t >> 8 & 255, c = e >> 24 & 255, d = e >> 16 & 255, u = e >> 8 & 255;
+							return i = c + Math.round((a - c) * n), s = d + Math.round((l - d) * n), r = u + Math.round((h - u) * n), o.toRgba(i, s, r);
 						}, e.ensureContrastRatio = function(e, i, s) {
-							const r = c.relativeLuminance(e >> 8), n = c.relativeLuminance(i >> 8);
-							if (_(r, n) < s) {
+							const r = h.relativeLuminance(e >> 8), n = h.relativeLuminance(i >> 8);
+							if (u(r, n) < s) {
 								if (n < r) {
-									const n = t(e, i, s), o = _(r, c.relativeLuminance(n >> 8));
+									const n = t(e, i, s), o = u(r, h.relativeLuminance(n >> 8));
 									if (o < s) {
 										const t = a(e, i, s);
-										return o > _(r, c.relativeLuminance(t >> 8)) ? n : t;
+										return o > u(r, h.relativeLuminance(t >> 8)) ? n : t;
 									}
 									return n;
 								}
-								const o = a(e, i, s), h = _(r, c.relativeLuminance(o >> 8));
-								if (h < s) {
+								const o = a(e, i, s), l = u(r, h.relativeLuminance(o >> 8));
+								if (l < s) {
 									const n = t(e, i, s);
-									return h > _(r, c.relativeLuminance(n >> 8)) ? o : n;
+									return l > u(r, h.relativeLuminance(n >> 8)) ? o : n;
 								}
 								return o;
 							}
@@ -2872,15 +2930,15 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								255 & e
 							];
 						};
-					}(l || (t.rgba = l = {})), t.toPaddedHex = d, t.contrastRatio = _;
+					}(c || (t.rgba = c = {}));
 				},
-				8969: (e, t, i) => {
+				5777: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CoreTerminal = void 0;
-					const s = i(844), r = i(2585), n = i(4348), o = i(7866), a = i(744), h = i(7302), c = i(6975), l = i(8460), d = i(1753), _ = i(1480), u = i(7994), f = i(9282), v = i(5435), p = i(5981), g = i(2660);
-					let m = !1;
-					class S extends s.Disposable {
+					const s = i(6501), r = i(6025), n = i(7276), o = i(9640), a = i(56), l = i(4071), h = i(7792), c = i(6415), d = i(5746), u = i(5882), _ = i(2486), f = i(3562), p = i(8811), g = i(802), m = i(7150);
+					let v = !1;
+					class S extends m.Disposable {
 						get onScroll() {
-							return this._onScrollApi || (this._onScrollApi = this.register(new l.EventEmitter()), this._onScroll.event(((e) => {
+							return this._onScrollApi || (this._onScrollApi = this._register(new g.Emitter()), this._onScroll.event(((e) => {
 								this._onScrollApi?.fire(e.position);
 							}))), this._onScrollApi.event;
 						}
@@ -2900,35 +2958,27 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							for (const t in e) this.optionsService.options[t] = e[t];
 						}
 						constructor(e) {
-							super(), this._windowsWrappingHeuristics = this.register(new s.MutableDisposable()), this._onBinary = this.register(new l.EventEmitter()), this.onBinary = this._onBinary.event, this._onData = this.register(new l.EventEmitter()), this.onData = this._onData.event, this._onLineFeed = this.register(new l.EventEmitter()), this.onLineFeed = this._onLineFeed.event, this._onResize = this.register(new l.EventEmitter()), this.onResize = this._onResize.event, this._onWriteParsed = this.register(new l.EventEmitter()), this.onWriteParsed = this._onWriteParsed.event, this._onScroll = this.register(new l.EventEmitter()), this._instantiationService = new n.InstantiationService(), this.optionsService = this.register(new h.OptionsService(e)), this._instantiationService.setService(r.IOptionsService, this.optionsService), this._bufferService = this.register(this._instantiationService.createInstance(a.BufferService)), this._instantiationService.setService(r.IBufferService, this._bufferService), this._logService = this.register(this._instantiationService.createInstance(o.LogService)), this._instantiationService.setService(r.ILogService, this._logService), this.coreService = this.register(this._instantiationService.createInstance(c.CoreService)), this._instantiationService.setService(r.ICoreService, this.coreService), this.coreMouseService = this.register(this._instantiationService.createInstance(d.CoreMouseService)), this._instantiationService.setService(r.ICoreMouseService, this.coreMouseService), this.unicodeService = this.register(this._instantiationService.createInstance(_.UnicodeService)), this._instantiationService.setService(r.IUnicodeService, this.unicodeService), this._charsetService = this._instantiationService.createInstance(u.CharsetService), this._instantiationService.setService(r.ICharsetService, this._charsetService), this._oscLinkService = this._instantiationService.createInstance(g.OscLinkService), this._instantiationService.setService(r.IOscLinkService, this._oscLinkService), this._inputHandler = this.register(new v.InputHandler(this._bufferService, this._charsetService, this.coreService, this._logService, this.optionsService, this._oscLinkService, this.coreMouseService, this.unicodeService)), this.register((0, l.forwardEvent)(this._inputHandler.onLineFeed, this._onLineFeed)), this.register(this._inputHandler), this.register((0, l.forwardEvent)(this._bufferService.onResize, this._onResize)), this.register((0, l.forwardEvent)(this.coreService.onData, this._onData)), this.register((0, l.forwardEvent)(this.coreService.onBinary, this._onBinary)), this.register(this.coreService.onRequestScrollToBottom((() => this.scrollToBottom()))), this.register(this.coreService.onUserInput((() => this._writeBuffer.handleUserInput()))), this.register(this.optionsService.onMultipleOptionChange(["windowsMode", "windowsPty"], (() => this._handleWindowsPtyOptionChange()))), this.register(this._bufferService.onScroll(((e) => {
-								this._onScroll.fire({
-									position: this._bufferService.buffer.ydisp,
-									source: 0
-								}), this._inputHandler.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
-							}))), this.register(this._inputHandler.onScroll(((e) => {
-								this._onScroll.fire({
-									position: this._bufferService.buffer.ydisp,
-									source: 0
-								}), this._inputHandler.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
-							}))), this._writeBuffer = this.register(new p.WriteBuffer(((e, t) => this._inputHandler.parse(e, t)))), this.register((0, l.forwardEvent)(this._writeBuffer.onWriteParsed, this._onWriteParsed));
+							super(), this._windowsWrappingHeuristics = this._register(new m.MutableDisposable()), this._onBinary = this._register(new g.Emitter()), this.onBinary = this._onBinary.event, this._onData = this._register(new g.Emitter()), this.onData = this._onData.event, this._onLineFeed = this._register(new g.Emitter()), this.onLineFeed = this._onLineFeed.event, this._onResize = this._register(new g.Emitter()), this.onResize = this._onResize.event, this._onWriteParsed = this._register(new g.Emitter()), this.onWriteParsed = this._onWriteParsed.event, this._onScroll = this._register(new g.Emitter()), this._instantiationService = new r.InstantiationService(), this.optionsService = this._register(new a.OptionsService(e)), this._instantiationService.setService(s.IOptionsService, this.optionsService), this._bufferService = this._register(this._instantiationService.createInstance(o.BufferService)), this._instantiationService.setService(s.IBufferService, this._bufferService), this._logService = this._register(this._instantiationService.createInstance(n.LogService)), this._instantiationService.setService(s.ILogService, this._logService), this.coreService = this._register(this._instantiationService.createInstance(l.CoreService)), this._instantiationService.setService(s.ICoreService, this.coreService), this.coreMouseService = this._register(this._instantiationService.createInstance(h.CoreMouseService)), this._instantiationService.setService(s.ICoreMouseService, this.coreMouseService), this.unicodeService = this._register(this._instantiationService.createInstance(c.UnicodeService)), this._instantiationService.setService(s.IUnicodeService, this.unicodeService), this._charsetService = this._instantiationService.createInstance(d.CharsetService), this._instantiationService.setService(s.ICharsetService, this._charsetService), this._oscLinkService = this._instantiationService.createInstance(p.OscLinkService), this._instantiationService.setService(s.IOscLinkService, this._oscLinkService), this._inputHandler = this._register(new _.InputHandler(this._bufferService, this._charsetService, this.coreService, this._logService, this.optionsService, this._oscLinkService, this.coreMouseService, this.unicodeService)), this._register(g.Event.forward(this._inputHandler.onLineFeed, this._onLineFeed)), this._register(this._inputHandler), this._register(g.Event.forward(this._bufferService.onResize, this._onResize)), this._register(g.Event.forward(this.coreService.onData, this._onData)), this._register(g.Event.forward(this.coreService.onBinary, this._onBinary)), this._register(this.coreService.onRequestScrollToBottom((() => this.scrollToBottom(!0)))), this._register(this.coreService.onUserInput((() => this._writeBuffer.handleUserInput()))), this._register(this.optionsService.onMultipleOptionChange(["windowsMode", "windowsPty"], (() => this._handleWindowsPtyOptionChange()))), this._register(this._bufferService.onScroll((() => {
+								this._onScroll.fire({ position: this._bufferService.buffer.ydisp }), this._inputHandler.markRangeDirty(this._bufferService.buffer.scrollTop, this._bufferService.buffer.scrollBottom);
+							}))), this._writeBuffer = this._register(new f.WriteBuffer(((e, t) => this._inputHandler.parse(e, t)))), this._register(g.Event.forward(this._writeBuffer.onWriteParsed, this._onWriteParsed));
 						}
 						write(e, t) {
 							this._writeBuffer.write(e, t);
 						}
 						writeSync(e, t) {
-							this._logService.logLevel <= r.LogLevelEnum.WARN && !m && (this._logService.warn("writeSync is unreliable and will be removed soon."), m = !0), this._writeBuffer.writeSync(e, t);
+							this._logService.logLevel <= s.LogLevelEnum.WARN && !v && (this._logService.warn("writeSync is unreliable and will be removed soon."), v = !0), this._writeBuffer.writeSync(e, t);
 						}
 						input(e, t = !0) {
 							this.coreService.triggerDataEvent(e, t);
 						}
 						resize(e, t) {
-							isNaN(e) || isNaN(t) || (e = Math.max(e, a.MINIMUM_COLS), t = Math.max(t, a.MINIMUM_ROWS), this._bufferService.resize(e, t));
+							isNaN(e) || isNaN(t) || (e = Math.max(e, o.MINIMUM_COLS), t = Math.max(t, o.MINIMUM_ROWS), this._bufferService.resize(e, t));
 						}
 						scroll(e, t = !1) {
 							this._bufferService.scroll(e, t);
 						}
-						scrollLines(e, t, i) {
-							this._bufferService.scrollLines(e, t, i);
+						scrollLines(e, t) {
+							this._bufferService.scrollLines(e, t);
 						}
 						scrollPages(e) {
 							this.scrollLines(e * (this.rows - 1));
@@ -2936,7 +2986,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						scrollToTop() {
 							this.scrollLines(-this._bufferService.buffer.ydisp);
 						}
-						scrollToBottom() {
+						scrollToBottom(e) {
 							this.scrollLines(this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp);
 						}
 						scrollToLine(e) {
@@ -2969,7 +3019,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						_enableWindowsWrappingHeuristics() {
 							if (!this._windowsWrappingHeuristics.value) {
 								const e = [];
-								e.push(this.onLineFeed(f.updateWindowsModeWrappedState.bind(null, this._bufferService))), e.push(this.registerCsiHandler({ final: "H" }, (() => ((0, f.updateWindowsModeWrappedState)(this._bufferService), !1)))), this._windowsWrappingHeuristics.value = (0, s.toDisposable)((() => {
+								e.push(this.onLineFeed(u.updateWindowsModeWrappedState.bind(null, this._bufferService))), e.push(this.registerCsiHandler({ final: "H" }, (() => ((0, u.updateWindowsModeWrappedState)(this._bufferService), !1)))), this._windowsWrappingHeuristics.value = (0, m.toDisposable)((() => {
 									for (const t of e) t.dispose();
 								}));
 							}
@@ -2977,36 +3027,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.CoreTerminal = S;
 				},
-				8460: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.runAndSubscribe = t.forwardEvent = t.EventEmitter = void 0, t.EventEmitter = class {
-						constructor() {
-							this._listeners = [], this._disposed = !1;
-						}
-						get event() {
-							return this._event || (this._event = (e) => (this._listeners.push(e), { dispose: () => {
-								if (!this._disposed) {
-									for (let t = 0; t < this._listeners.length; t++) if (this._listeners[t] === e) return void this._listeners.splice(t, 1);
-								}
-							} })), this._event;
-						}
-						fire(e, t) {
-							const i = [];
-							for (let e = 0; e < this._listeners.length; e++) i.push(this._listeners[e]);
-							for (let s = 0; s < i.length; s++) i[s].call(void 0, e, t);
-						}
-						dispose() {
-							this.clearListeners(), this._disposed = !0;
-						}
-						clearListeners() {
-							this._listeners && (this._listeners.length = 0);
-						}
-					}, t.forwardEvent = function(e, t) {
-						return e(((e) => t.fire(e)));
-					}, t.runAndSubscribe = function(e, t) {
-						return t(void 0), e(((e) => t(e)));
-					};
-				},
-				5435: function(e, t, i) {
+				2486: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -3017,16 +3038,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							t(i, s, e);
 						};
 					};
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.InputHandler = t.WindowsOptionsReportType = void 0;
-					const n = i(2584), o = i(7116), a = i(2015), h = i(844), c = i(482), l = i(8437), d = i(8460), _ = i(643), u = i(511), f = i(3734), v = i(2585), p = i(1480), g = i(6242), m = i(6351), S = i(5941), C = {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.InputHandler = t.WindowsOptionsReportType = void 0, t.isValidColorIndex = R;
+					const n = i(3534), o = i(6760), a = i(6717), l = i(7150), h = i(726), c = i(6107), d = i(8938), u = i(3055), _ = i(5451), f = i(6501), p = i(6415), g = i(1346), m = i(9823), v = i(8693), S = i(802), b = {
 						"(": 0,
 						")": 1,
 						"*": 2,
 						"+": 3,
 						"-": 1,
 						".": 2
-					}, b = 131072;
-					function w(e, t) {
+					}, C = 131072;
+					function y(e, t) {
 						if (e > 24) return t.setWinLines || !1;
 						switch (e) {
 							case 1: return !!t.restoreWin;
@@ -3054,17 +3075,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						return !1;
 					}
-					var y;
+					var w;
 					(function(e) {
 						e[e.GET_WIN_SIZE_PIXELS = 0] = "GET_WIN_SIZE_PIXELS", e[e.GET_CELL_SIZE_PIXELS = 1] = "GET_CELL_SIZE_PIXELS";
-					})(y || (t.WindowsOptionsReportType = y = {}));
+					})(w || (t.WindowsOptionsReportType = w = {}));
 					let E = 0;
-					class k extends h.Disposable {
+					class D extends l.Disposable {
 						getAttrData() {
 							return this._curAttrData;
 						}
-						constructor(e, t, i, s, r, h, _, f, v = new a.EscapeSequenceParser()) {
-							super(), this._bufferService = e, this._charsetService = t, this._coreService = i, this._logService = s, this._optionsService = r, this._oscLinkService = h, this._coreMouseService = _, this._unicodeService = f, this._parser = v, this._parseBuffer = /* @__PURE__ */ new Uint32Array(4096), this._stringDecoder = new c.StringToUtf32(), this._utf8Decoder = new c.Utf8ToUtf32(), this._workCell = new u.CellData(), this._windowTitle = "", this._iconName = "", this._windowTitleStack = [], this._iconNameStack = [], this._curAttrData = l.DEFAULT_ATTR_DATA.clone(), this._eraseAttrDataInternal = l.DEFAULT_ATTR_DATA.clone(), this._onRequestBell = this.register(new d.EventEmitter()), this.onRequestBell = this._onRequestBell.event, this._onRequestRefreshRows = this.register(new d.EventEmitter()), this.onRequestRefreshRows = this._onRequestRefreshRows.event, this._onRequestReset = this.register(new d.EventEmitter()), this.onRequestReset = this._onRequestReset.event, this._onRequestSendFocus = this.register(new d.EventEmitter()), this.onRequestSendFocus = this._onRequestSendFocus.event, this._onRequestSyncScrollBar = this.register(new d.EventEmitter()), this.onRequestSyncScrollBar = this._onRequestSyncScrollBar.event, this._onRequestWindowsOptionsReport = this.register(new d.EventEmitter()), this.onRequestWindowsOptionsReport = this._onRequestWindowsOptionsReport.event, this._onA11yChar = this.register(new d.EventEmitter()), this.onA11yChar = this._onA11yChar.event, this._onA11yTab = this.register(new d.EventEmitter()), this.onA11yTab = this._onA11yTab.event, this._onCursorMove = this.register(new d.EventEmitter()), this.onCursorMove = this._onCursorMove.event, this._onLineFeed = this.register(new d.EventEmitter()), this.onLineFeed = this._onLineFeed.event, this._onScroll = this.register(new d.EventEmitter()), this.onScroll = this._onScroll.event, this._onTitleChange = this.register(new d.EventEmitter()), this.onTitleChange = this._onTitleChange.event, this._onColor = this.register(new d.EventEmitter()), this.onColor = this._onColor.event, this._parseStack = {
+						constructor(e, t, i, s, r, l, d, u, _ = new a.EscapeSequenceParser()) {
+							super(), this._bufferService = e, this._charsetService = t, this._coreService = i, this._logService = s, this._optionsService = r, this._oscLinkService = l, this._coreMouseService = d, this._unicodeService = u, this._parser = _, this._parseBuffer = /* @__PURE__ */ new Uint32Array(4096), this._stringDecoder = new h.StringToUtf32(), this._utf8Decoder = new h.Utf8ToUtf32(), this._windowTitle = "", this._iconName = "", this._windowTitleStack = [], this._iconNameStack = [], this._curAttrData = c.DEFAULT_ATTR_DATA.clone(), this._eraseAttrDataInternal = c.DEFAULT_ATTR_DATA.clone(), this._onRequestBell = this._register(new S.Emitter()), this.onRequestBell = this._onRequestBell.event, this._onRequestRefreshRows = this._register(new S.Emitter()), this.onRequestRefreshRows = this._onRequestRefreshRows.event, this._onRequestReset = this._register(new S.Emitter()), this.onRequestReset = this._onRequestReset.event, this._onRequestSendFocus = this._register(new S.Emitter()), this.onRequestSendFocus = this._onRequestSendFocus.event, this._onRequestSyncScrollBar = this._register(new S.Emitter()), this.onRequestSyncScrollBar = this._onRequestSyncScrollBar.event, this._onRequestWindowsOptionsReport = this._register(new S.Emitter()), this.onRequestWindowsOptionsReport = this._onRequestWindowsOptionsReport.event, this._onA11yChar = this._register(new S.Emitter()), this.onA11yChar = this._onA11yChar.event, this._onA11yTab = this._register(new S.Emitter()), this.onA11yTab = this._onA11yTab.event, this._onCursorMove = this._register(new S.Emitter()), this.onCursorMove = this._onCursorMove.event, this._onLineFeed = this._register(new S.Emitter()), this.onLineFeed = this._onLineFeed.event, this._onScroll = this._register(new S.Emitter()), this.onScroll = this._onScroll.event, this._onTitleChange = this._register(new S.Emitter()), this.onTitleChange = this._onTitleChange.event, this._onColor = this._register(new S.Emitter()), this.onColor = this._onColor.event, this._parseStack = {
 								paused: !1,
 								cursorStartX: 0,
 								cursorStartY: 0,
@@ -3074,7 +3095,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								256,
 								257,
 								258
-							], this.register(this._parser), this._dirtyRowTracker = new L(this._bufferService), this._activeBuffer = this._bufferService.buffer, this.register(this._bufferService.buffers.onBufferActivate(((e) => this._activeBuffer = e.activeBuffer))), this._parser.setCsiHandlerFallback(((e, t) => {
+							], this._register(this._parser), this._dirtyRowTracker = new L(this._bufferService), this._activeBuffer = this._bufferService.buffer, this._register(this._bufferService.buffers.onBufferActivate(((e) => this._activeBuffer = e.activeBuffer))), this._parser.setCsiHandlerFallback(((e, t) => {
 								this._logService.debug("Unknown CSI code: ", {
 									identifier: this._parser.identToString(e),
 									params: t.toArray()
@@ -3182,7 +3203,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._parseStack.paused = !0, this._parseStack.cursorStartX = e, this._parseStack.cursorStartY = t, this._parseStack.decodedLength = i, this._parseStack.position = s;
 						}
 						_logSlowResolvingAsync(e) {
-							this._logService.logLevel <= v.LogLevelEnum.WARN && Promise.race([e, new Promise(((e, t) => setTimeout((() => t("#SLOW_TIMEOUT")), 5e3)))]).catch(((e) => {
+							this._logService.logLevel <= f.LogLevelEnum.WARN && Promise.race([e, new Promise(((e, t) => setTimeout((() => t("#SLOW_TIMEOUT")), 5e3)))]).catch(((e) => {
 								if ("#SLOW_TIMEOUT" !== e) throw e;
 								console.warn("async parser handler taking longer than 5000 ms");
 							}));
@@ -3195,10 +3216,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const o = this._parseStack.paused;
 							if (o) {
 								if (i = this._parser.parse(this._parseBuffer, this._parseStack.decodedLength, t)) return this._logSlowResolvingAsync(i), i;
-								s = this._parseStack.cursorStartX, r = this._parseStack.cursorStartY, this._parseStack.paused = !1, e.length > b && (n = this._parseStack.position + b);
+								s = this._parseStack.cursorStartX, r = this._parseStack.cursorStartY, this._parseStack.paused = !1, e.length > C && (n = this._parseStack.position + C);
 							}
-							if (this._logService.logLevel <= v.LogLevelEnum.DEBUG && this._logService.debug("parsing data" + ("string" == typeof e ? ` "${e}"` : ` "${Array.prototype.map.call(e, ((e) => String.fromCharCode(e))).join("")}"`), "string" == typeof e ? e.split("").map(((e) => e.charCodeAt(0))) : e), this._parseBuffer.length < e.length && this._parseBuffer.length < b && (this._parseBuffer = new Uint32Array(Math.min(e.length, b))), o || this._dirtyRowTracker.clearRange(), e.length > b) for (let t = n; t < e.length; t += b) {
-								const n = t + b < e.length ? t + b : e.length, o = "string" == typeof e ? this._stringDecoder.decode(e.substring(t, n), this._parseBuffer) : this._utf8Decoder.decode(e.subarray(t, n), this._parseBuffer);
+							if (this._logService.logLevel <= f.LogLevelEnum.DEBUG && this._logService.debug("parsing data " + ("string" == typeof e ? ` "${e}"` : ` "${Array.prototype.map.call(e, ((e) => String.fromCharCode(e))).join("")}"`)), this._logService.logLevel === f.LogLevelEnum.TRACE && this._logService.trace("parsing data (codes)", "string" == typeof e ? e.split("").map(((e) => e.charCodeAt(0))) : e), this._parseBuffer.length < e.length && this._parseBuffer.length < C && (this._parseBuffer = new Uint32Array(Math.min(e.length, C))), o || this._dirtyRowTracker.clearRange(), e.length > C) for (let t = n; t < e.length; t += C) {
+								const n = t + C < e.length ? t + C : e.length, o = "string" == typeof e ? this._stringDecoder.decode(e.substring(t, n), this._parseBuffer) : this._utf8Decoder.decode(e.subarray(t, n), this._parseBuffer);
 								if (i = this._parser.parse(this._parseBuffer, o)) return this._preserveStack(s, r, o, t), this._logSlowResolvingAsync(i), i;
 							}
 							else if (!o) {
@@ -3206,40 +3227,43 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								if (i = this._parser.parse(this._parseBuffer, t)) return this._preserveStack(s, r, t, 0), this._logSlowResolvingAsync(i), i;
 							}
 							this._activeBuffer.x === s && this._activeBuffer.y === r || this._onCursorMove.fire();
-							const a = this._dirtyRowTracker.end + (this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp), h = this._dirtyRowTracker.start + (this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp);
-							h < this._bufferService.rows && this._onRequestRefreshRows.fire(Math.min(h, this._bufferService.rows - 1), Math.min(a, this._bufferService.rows - 1));
+							const a = this._dirtyRowTracker.end + (this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp), l = this._dirtyRowTracker.start + (this._bufferService.buffer.ybase - this._bufferService.buffer.ydisp);
+							l < this._bufferService.rows && this._onRequestRefreshRows.fire({
+								start: Math.min(l, this._bufferService.rows - 1),
+								end: Math.min(a, this._bufferService.rows - 1)
+							});
 						}
 						print(e, t, i) {
 							let s, r;
-							const n = this._charsetService.charset, o = this._optionsService.rawOptions.screenReaderMode, a = this._bufferService.cols, h = this._coreService.decPrivateModes.wraparound, d = this._coreService.modes.insertMode, u = this._curAttrData;
+							const n = this._charsetService.charset, o = this._optionsService.rawOptions.screenReaderMode, a = this._bufferService.cols, l = this._coreService.decPrivateModes.wraparound, u = this._coreService.modes.insertMode, _ = this._curAttrData;
 							let f = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y);
-							this._dirtyRowTracker.markDirty(this._activeBuffer.y), this._activeBuffer.x && i - t > 0 && 2 === f.getWidth(this._activeBuffer.x - 1) && f.setCellFromCodepoint(this._activeBuffer.x - 1, 0, 1, u);
-							let v = this._parser.precedingJoinState;
-							for (let g = t; g < i; ++g) {
-								if (s = e[g], s < 127 && n) {
+							this._dirtyRowTracker.markDirty(this._activeBuffer.y), this._activeBuffer.x && i - t > 0 && 2 === f.getWidth(this._activeBuffer.x - 1) && f.setCellFromCodepoint(this._activeBuffer.x - 1, 0, 1, _);
+							let g = this._parser.precedingJoinState;
+							for (let m = t; m < i; ++m) {
+								if (s = e[m], s < 127 && n) {
 									const e = n[String.fromCharCode(s)];
 									e && (s = e.charCodeAt(0));
 								}
-								const t = this._unicodeService.charProperties(s, v);
+								const t = this._unicodeService.charProperties(s, g);
 								r = p.UnicodeService.extractWidth(t);
-								const i = p.UnicodeService.extractShouldJoin(t), m = i ? p.UnicodeService.extractWidth(v) : 0;
-								if (v = t, o && this._onA11yChar.fire((0, c.stringFromCodePoint)(s)), this._getCurrentLinkId() && this._oscLinkService.addLineToLink(this._getCurrentLinkId(), this._activeBuffer.ybase + this._activeBuffer.y), this._activeBuffer.x + r - m > a) {
-									if (h) {
+								const i = p.UnicodeService.extractShouldJoin(t), v = i ? p.UnicodeService.extractWidth(g) : 0;
+								if (g = t, o && this._onA11yChar.fire((0, h.stringFromCodePoint)(s)), this._getCurrentLinkId() && this._oscLinkService.addLineToLink(this._getCurrentLinkId(), this._activeBuffer.ybase + this._activeBuffer.y), this._activeBuffer.x + r - v > a) {
+									if (l) {
 										const e = f;
-										let t = this._activeBuffer.x - m;
-										for (this._activeBuffer.x = m, this._activeBuffer.y++, this._activeBuffer.y === this._activeBuffer.scrollBottom + 1 ? (this._activeBuffer.y--, this._bufferService.scroll(this._eraseAttrData(), !0)) : (this._activeBuffer.y >= this._bufferService.rows && (this._activeBuffer.y = this._bufferService.rows - 1), this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y).isWrapped = !0), f = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y), m > 0 && f instanceof l.BufferLine && f.copyCellsFrom(e, t, 0, m, !1); t < a;) e.setCellFromCodepoint(t++, 0, 1, u);
+										let t = this._activeBuffer.x - v;
+										for (this._activeBuffer.x = v, this._activeBuffer.y++, this._activeBuffer.y === this._activeBuffer.scrollBottom + 1 ? (this._activeBuffer.y--, this._bufferService.scroll(this._eraseAttrData(), !0)) : (this._activeBuffer.y >= this._bufferService.rows && (this._activeBuffer.y = this._bufferService.rows - 1), this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y).isWrapped = !0), f = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y), v > 0 && f instanceof c.BufferLine && f.copyCellsFrom(e, t, 0, v, !1); t < a;) e.setCellFromCodepoint(t++, 0, 1, _);
 									} else if (this._activeBuffer.x = a - 1, 2 === r) continue;
 								}
 								if (i && this._activeBuffer.x) {
 									const e = f.getWidth(this._activeBuffer.x - 1) ? 1 : 2;
 									f.addCodepointToCell(this._activeBuffer.x - e, s, r);
-									for (let e = r - m; --e >= 0;) f.setCellFromCodepoint(this._activeBuffer.x++, 0, 0, u);
-								} else if (d && (f.insertCells(this._activeBuffer.x, r - m, this._activeBuffer.getNullCell(u)), 2 === f.getWidth(a - 1) && f.setCellFromCodepoint(a - 1, _.NULL_CELL_CODE, _.NULL_CELL_WIDTH, u)), f.setCellFromCodepoint(this._activeBuffer.x++, s, r, u), r > 0) for (; --r;) f.setCellFromCodepoint(this._activeBuffer.x++, 0, 0, u);
+									for (let e = r - v; --e >= 0;) f.setCellFromCodepoint(this._activeBuffer.x++, 0, 0, _);
+								} else if (u && (f.insertCells(this._activeBuffer.x, r - v, this._activeBuffer.getNullCell(_)), 2 === f.getWidth(a - 1) && f.setCellFromCodepoint(a - 1, d.NULL_CELL_CODE, d.NULL_CELL_WIDTH, _)), f.setCellFromCodepoint(this._activeBuffer.x++, s, r, _), r > 0) for (; --r;) f.setCellFromCodepoint(this._activeBuffer.x++, 0, 0, _);
 							}
-							this._parser.precedingJoinState = v, this._activeBuffer.x < a && i - t > 0 && 0 === f.getWidth(this._activeBuffer.x) && !f.hasContent(this._activeBuffer.x) && f.setCellFromCodepoint(this._activeBuffer.x, 0, 1, u), this._dirtyRowTracker.markDirty(this._activeBuffer.y);
+							this._parser.precedingJoinState = g, this._activeBuffer.x < a && i - t > 0 && 0 === f.getWidth(this._activeBuffer.x) && !f.hasContent(this._activeBuffer.x) && f.setCellFromCodepoint(this._activeBuffer.x, 0, 1, _), this._dirtyRowTracker.markDirty(this._activeBuffer.y);
 						}
 						registerCsiHandler(e, t) {
-							return "t" !== e.final || e.prefix || e.intermediates ? this._parser.registerCsiHandler(e, t) : this._parser.registerCsiHandler(e, ((e) => !w(e.params[0], this._optionsService.rawOptions.windowOptions) || t(e)));
+							return "t" !== e.final || e.prefix || e.intermediates ? this._parser.registerCsiHandler(e, t) : this._parser.registerCsiHandler(e, ((e) => !y(e.params[0], this._optionsService.rawOptions.windowOptions) || t(e)));
 						}
 						registerDcsHandler(e, t) {
 							return this._parser.registerDcsHandler(e, new m.DcsHandler(t));
@@ -3370,8 +3394,13 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 									this._dirtyRowTracker.markDirty(0);
 									break;
 								case 2:
-									for (i = this._bufferService.rows, this._dirtyRowTracker.markDirty(i - 1); i--;) this._resetBufferLine(i, t);
-									this._dirtyRowTracker.markDirty(0);
+									if (this._optionsService.rawOptions.scrollOnEraseInDisplay) {
+										for (i = this._bufferService.rows, this._dirtyRowTracker.markRangeDirty(0, i - 1); i--;) if (this._activeBuffer.lines.get(this._activeBuffer.ybase + i)?.getTrimmedLength()) break;
+										for (; i >= 0; i--) this._bufferService.scroll(this._eraseAttrData());
+									} else {
+										for (i = this._bufferService.rows, this._dirtyRowTracker.markDirty(i - 1); i--;) this._resetBufferLine(i, t);
+										this._dirtyRowTracker.markDirty(0);
+									}
 									break;
 								case 3:
 									const e = this._activeBuffer.lines.length - this._bufferService.rows;
@@ -3425,7 +3454,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						scrollDown(e) {
 							let t = e.params[0] || 1;
-							for (; t--;) this._activeBuffer.lines.splice(this._activeBuffer.ybase + this._activeBuffer.scrollBottom, 1), this._activeBuffer.lines.splice(this._activeBuffer.ybase + this._activeBuffer.scrollTop, 0, this._activeBuffer.getBlankLine(l.DEFAULT_ATTR_DATA));
+							for (; t--;) this._activeBuffer.lines.splice(this._activeBuffer.ybase + this._activeBuffer.scrollBottom, 1), this._activeBuffer.lines.splice(this._activeBuffer.ybase + this._activeBuffer.scrollTop, 0, this._activeBuffer.getBlankLine(c.DEFAULT_ATTR_DATA));
 							return this._dirtyRowTracker.markRangeDirty(this._activeBuffer.scrollTop, this._activeBuffer.scrollBottom), !0;
 						}
 						scrollLeft(e) {
@@ -3478,9 +3507,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								const t = n.codePointAt(e) || 0;
 								o[a++] = t, e += t > 65535 ? 2 : 1;
 							}
-							let h = a;
-							for (let e = 1; e < i; ++e) o.copyWithin(h, 0, a), h += a;
-							return this.print(o, 0, h), !0;
+							let l = a;
+							for (let e = 1; e < i; ++e) o.copyWithin(l, 0, a), l += a;
+							return this.print(o, 0, l), !0;
 						}
 						sendDeviceAttributesPrimary(e) {
 							return e.params[0] > 0 || (this._is("xterm") || this._is("rxvt-unicode") || this._is("screen") ? this._coreService.triggerDataEvent(n.C0.ESC + "[?1;2c") : this._is("linux") && this._coreService.triggerDataEvent(n.C0.ESC + "[?6c")), !0;
@@ -3562,9 +3591,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								case 1049: this.saveCursor();
 								case 47:
 								case 1047:
-									this._bufferService.buffers.activateAltBuffer(this._eraseAttrData()), this._coreService.isCursorInitialized = !0, this._onRequestRefreshRows.fire(0, this._bufferService.rows - 1), this._onRequestSyncScrollBar.fire();
+									this._bufferService.buffers.activateAltBuffer(this._eraseAttrData()), this._coreService.isCursorInitialized = !0, this._onRequestRefreshRows.fire(void 0), this._onRequestSyncScrollBar.fire();
 									break;
-								case 2004: this._coreService.decPrivateModes.bracketedPasteMode = !0;
+								case 2004:
+									this._coreService.decPrivateModes.bracketedPasteMode = !0;
+									break;
+								case 2026: this._coreService.decPrivateModes.synchronizedOutput = !0;
 							}
 							return !0;
 						}
@@ -3628,19 +3660,22 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								case 1049:
 								case 47:
 								case 1047:
-									this._bufferService.buffers.activateNormalBuffer(), 1049 === e.params[t] && this.restoreCursor(), this._coreService.isCursorInitialized = !0, this._onRequestRefreshRows.fire(0, this._bufferService.rows - 1), this._onRequestSyncScrollBar.fire();
+									this._bufferService.buffers.activateNormalBuffer(), 1049 === e.params[t] && this.restoreCursor(), this._coreService.isCursorInitialized = !0, this._onRequestRefreshRows.fire(void 0), this._onRequestSyncScrollBar.fire();
 									break;
-								case 2004: this._coreService.decPrivateModes.bracketedPasteMode = !1;
+								case 2004:
+									this._coreService.decPrivateModes.bracketedPasteMode = !1;
+									break;
+								case 2026: this._coreService.decPrivateModes.synchronizedOutput = !1, this._onRequestRefreshRows.fire(void 0);
 							}
 							return !0;
 						}
 						requestMode(e, t) {
-							const i = this._coreService.decPrivateModes, { activeProtocol: s, activeEncoding: r } = this._coreMouseService, o = this._coreService, { buffers: a, cols: h } = this._bufferService, { active: c, alt: l } = a, d = this._optionsService.rawOptions, _ = (e) => e ? 1 : 2, u = e.params[0];
-							return f = u, v = t ? 2 === u ? 4 : 4 === u ? _(o.modes.insertMode) : 12 === u ? 3 : 20 === u ? _(d.convertEol) : 0 : 1 === u ? _(i.applicationCursorKeys) : 3 === u ? d.windowOptions.setWinLines ? 80 === h ? 2 : 132 === h ? 1 : 0 : 0 : 6 === u ? _(i.origin) : 7 === u ? _(i.wraparound) : 8 === u ? 3 : 9 === u ? _("X10" === s) : 12 === u ? _(d.cursorBlink) : 25 === u ? _(!o.isCursorHidden) : 45 === u ? _(i.reverseWraparound) : 66 === u ? _(i.applicationKeypad) : 67 === u ? 4 : 1e3 === u ? _("VT200" === s) : 1002 === u ? _("DRAG" === s) : 1003 === u ? _("ANY" === s) : 1004 === u ? _(i.sendFocus) : 1005 === u ? 4 : 1006 === u ? _("SGR" === r) : 1015 === u ? 4 : 1016 === u ? _("SGR_PIXELS" === r) : 1048 === u ? 1 : 47 === u || 1047 === u || 1049 === u ? _(c === l) : 2004 === u ? _(i.bracketedPasteMode) : 0, o.triggerDataEvent(`${n.C0.ESC}[${t ? "" : "?"}${f};${v}$y`), !0;
-							var f, v;
+							const i = this._coreService.decPrivateModes, { activeProtocol: s, activeEncoding: r } = this._coreMouseService, o = this._coreService, { buffers: a, cols: l } = this._bufferService, { active: h, alt: c } = a, d = this._optionsService.rawOptions, u = (e) => e ? 1 : 2, _ = e.params[0];
+							return f = _, p = t ? 2 === _ ? 4 : 4 === _ ? u(o.modes.insertMode) : 12 === _ ? 3 : 20 === _ ? u(d.convertEol) : 0 : 1 === _ ? u(i.applicationCursorKeys) : 3 === _ ? d.windowOptions.setWinLines ? 80 === l ? 2 : 132 === l ? 1 : 0 : 0 : 6 === _ ? u(i.origin) : 7 === _ ? u(i.wraparound) : 8 === _ ? 3 : 9 === _ ? u("X10" === s) : 12 === _ ? u(d.cursorBlink) : 25 === _ ? u(!o.isCursorHidden) : 45 === _ ? u(i.reverseWraparound) : 66 === _ ? u(i.applicationKeypad) : 67 === _ ? 4 : 1e3 === _ ? u("VT200" === s) : 1002 === _ ? u("DRAG" === s) : 1003 === _ ? u("ANY" === s) : 1004 === _ ? u(i.sendFocus) : 1005 === _ ? 4 : 1006 === _ ? u("SGR" === r) : 1015 === _ ? 4 : 1016 === _ ? u("SGR_PIXELS" === r) : 1048 === _ ? 1 : 47 === _ || 1047 === _ || 1049 === _ ? u(h === c) : 2004 === _ ? u(i.bracketedPasteMode) : 2026 === _ ? u(i.synchronizedOutput) : 0, o.triggerDataEvent(`${n.C0.ESC}[${t ? "" : "?"}${f};${p}$y`), !0;
+							var f, p;
 						}
 						_updateAttrColor(e, t, i, s, r) {
-							return 2 === t ? (e |= 50331648, e &= -16777216, e |= f.AttributeData.fromColorRGB([
+							return 2 === t ? (e |= 50331648, e &= -16777216, e |= _.AttributeData.fromColorRGB([
 								i,
 								s,
 								r
@@ -3684,14 +3719,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							t.extended = t.extended.clone(), (!~e || e > 5) && (e = 1), t.extended.underlineStyle = e, t.fg |= 268435456, 0 === e && (t.fg &= -268435457), t.updateExtended();
 						}
 						_processSGR0(e) {
-							e.fg = l.DEFAULT_ATTR_DATA.fg, e.bg = l.DEFAULT_ATTR_DATA.bg, e.extended = e.extended.clone(), e.extended.underlineStyle = 0, e.extended.underlineColor &= -67108864, e.updateExtended();
+							e.fg = c.DEFAULT_ATTR_DATA.fg, e.bg = c.DEFAULT_ATTR_DATA.bg, e.extended = e.extended.clone(), e.extended.underlineStyle = 0, e.extended.underlineColor &= -67108864, e.updateExtended();
 						}
 						charAttributes(e) {
 							if (1 === e.length && 0 === e.params[0]) return this._processSGR0(this._curAttrData), !0;
 							const t = e.length;
 							let i;
 							const s = this._curAttrData;
-							for (let r = 0; r < t; r++) i = e.params[r], i >= 30 && i <= 37 ? (s.fg &= -50331904, s.fg |= 16777216 | i - 30) : i >= 40 && i <= 47 ? (s.bg &= -50331904, s.bg |= 16777216 | i - 40) : i >= 90 && i <= 97 ? (s.fg &= -50331904, s.fg |= 16777224 | i - 90) : i >= 100 && i <= 107 ? (s.bg &= -50331904, s.bg |= 16777224 | i - 100) : 0 === i ? this._processSGR0(s) : 1 === i ? s.fg |= 134217728 : 3 === i ? s.bg |= 67108864 : 4 === i ? (s.fg |= 268435456, this._processUnderline(e.hasSubParams(r) ? e.getSubParams(r)[0] : 1, s)) : 5 === i ? s.fg |= 536870912 : 7 === i ? s.fg |= 67108864 : 8 === i ? s.fg |= 1073741824 : 9 === i ? s.fg |= 2147483648 : 2 === i ? s.bg |= 134217728 : 21 === i ? this._processUnderline(2, s) : 22 === i ? (s.fg &= -134217729, s.bg &= -134217729) : 23 === i ? s.bg &= -67108865 : 24 === i ? (s.fg &= -268435457, this._processUnderline(0, s)) : 25 === i ? s.fg &= -536870913 : 27 === i ? s.fg &= -67108865 : 28 === i ? s.fg &= -1073741825 : 29 === i ? s.fg &= 2147483647 : 39 === i ? (s.fg &= -67108864, s.fg |= 16777215 & l.DEFAULT_ATTR_DATA.fg) : 49 === i ? (s.bg &= -67108864, s.bg |= 16777215 & l.DEFAULT_ATTR_DATA.bg) : 38 === i || 48 === i || 58 === i ? r += this._extractColor(e, r, s) : 53 === i ? s.bg |= 1073741824 : 55 === i ? s.bg &= -1073741825 : 59 === i ? (s.extended = s.extended.clone(), s.extended.underlineColor = -1, s.updateExtended()) : 100 === i ? (s.fg &= -67108864, s.fg |= 16777215 & l.DEFAULT_ATTR_DATA.fg, s.bg &= -67108864, s.bg |= 16777215 & l.DEFAULT_ATTR_DATA.bg) : this._logService.debug("Unknown SGR attribute: %d.", i);
+							for (let r = 0; r < t; r++) i = e.params[r], i >= 30 && i <= 37 ? (s.fg &= -50331904, s.fg |= 16777216 | i - 30) : i >= 40 && i <= 47 ? (s.bg &= -50331904, s.bg |= 16777216 | i - 40) : i >= 90 && i <= 97 ? (s.fg &= -50331904, s.fg |= 16777224 | i - 90) : i >= 100 && i <= 107 ? (s.bg &= -50331904, s.bg |= 16777224 | i - 100) : 0 === i ? this._processSGR0(s) : 1 === i ? s.fg |= 134217728 : 3 === i ? s.bg |= 67108864 : 4 === i ? (s.fg |= 268435456, this._processUnderline(e.hasSubParams(r) ? e.getSubParams(r)[0] : 1, s)) : 5 === i ? s.fg |= 536870912 : 7 === i ? s.fg |= 67108864 : 8 === i ? s.fg |= 1073741824 : 9 === i ? s.fg |= 2147483648 : 2 === i ? s.bg |= 134217728 : 21 === i ? this._processUnderline(2, s) : 22 === i ? (s.fg &= -134217729, s.bg &= -134217729) : 23 === i ? s.bg &= -67108865 : 24 === i ? (s.fg &= -268435457, this._processUnderline(0, s)) : 25 === i ? s.fg &= -536870913 : 27 === i ? s.fg &= -67108865 : 28 === i ? s.fg &= -1073741825 : 29 === i ? s.fg &= 2147483647 : 39 === i ? (s.fg &= -67108864, s.fg |= 16777215 & c.DEFAULT_ATTR_DATA.fg) : 49 === i ? (s.bg &= -67108864, s.bg |= 16777215 & c.DEFAULT_ATTR_DATA.bg) : 38 === i || 48 === i || 58 === i ? r += this._extractColor(e, r, s) : 53 === i ? s.bg |= 1073741824 : 55 === i ? s.bg &= -1073741825 : 59 === i ? (s.extended = s.extended.clone(), s.extended.underlineColor = -1, s.updateExtended()) : 100 === i ? (s.fg &= -67108864, s.fg |= 16777215 & c.DEFAULT_ATTR_DATA.fg, s.bg &= -67108864, s.bg |= 16777215 & c.DEFAULT_ATTR_DATA.bg) : this._logService.debug("Unknown SGR attribute: %d.", i);
 							return !0;
 						}
 						deviceStatus(e) {
@@ -3713,24 +3748,28 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return !0;
 						}
 						softReset(e) {
-							return this._coreService.isCursorHidden = !1, this._onRequestSyncScrollBar.fire(), this._activeBuffer.scrollTop = 0, this._activeBuffer.scrollBottom = this._bufferService.rows - 1, this._curAttrData = l.DEFAULT_ATTR_DATA.clone(), this._coreService.reset(), this._charsetService.reset(), this._activeBuffer.savedX = 0, this._activeBuffer.savedY = this._activeBuffer.ybase, this._activeBuffer.savedCurAttrData.fg = this._curAttrData.fg, this._activeBuffer.savedCurAttrData.bg = this._curAttrData.bg, this._activeBuffer.savedCharset = this._charsetService.charset, this._coreService.decPrivateModes.origin = !1, !0;
+							return this._coreService.isCursorHidden = !1, this._onRequestSyncScrollBar.fire(), this._activeBuffer.scrollTop = 0, this._activeBuffer.scrollBottom = this._bufferService.rows - 1, this._curAttrData = c.DEFAULT_ATTR_DATA.clone(), this._coreService.reset(), this._charsetService.reset(), this._activeBuffer.savedX = 0, this._activeBuffer.savedY = this._activeBuffer.ybase, this._activeBuffer.savedCurAttrData.fg = this._curAttrData.fg, this._activeBuffer.savedCurAttrData.bg = this._curAttrData.bg, this._activeBuffer.savedCharset = this._charsetService.charset, this._coreService.decPrivateModes.origin = !1, !0;
 						}
 						setCursorStyle(e) {
-							const t = e.params[0] || 1;
-							switch (t) {
-								case 1:
-								case 2:
-									this._optionsService.options.cursorStyle = "block";
-									break;
-								case 3:
-								case 4:
-									this._optionsService.options.cursorStyle = "underline";
-									break;
-								case 5:
-								case 6: this._optionsService.options.cursorStyle = "bar";
+							const t = 0 === e.length ? 1 : e.params[0];
+							if (0 === t) this._coreService.decPrivateModes.cursorStyle = void 0, this._coreService.decPrivateModes.cursorBlink = void 0;
+							else {
+								switch (t) {
+									case 1:
+									case 2:
+										this._coreService.decPrivateModes.cursorStyle = "block";
+										break;
+									case 3:
+									case 4:
+										this._coreService.decPrivateModes.cursorStyle = "underline";
+										break;
+									case 5:
+									case 6: this._coreService.decPrivateModes.cursorStyle = "bar";
+								}
+								const e = t % 2 == 1;
+								this._coreService.decPrivateModes.cursorBlink = e;
 							}
-							const i = t % 2 == 1;
-							return this._optionsService.options.cursorBlink = i, !0;
+							return !0;
 						}
 						setScrollRegion(e) {
 							const t = e.params[0] || 1;
@@ -3738,14 +3777,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return (e.length < 2 || (i = e.params[1]) > this._bufferService.rows || 0 === i) && (i = this._bufferService.rows), i > t && (this._activeBuffer.scrollTop = t - 1, this._activeBuffer.scrollBottom = i - 1, this._setCursor(0, 0)), !0;
 						}
 						windowOptions(e) {
-							if (!w(e.params[0], this._optionsService.rawOptions.windowOptions)) return !0;
+							if (!y(e.params[0], this._optionsService.rawOptions.windowOptions)) return !0;
 							const t = e.length > 1 ? e.params[1] : 0;
 							switch (e.params[0]) {
 								case 14:
-									2 !== t && this._onRequestWindowsOptionsReport.fire(y.GET_WIN_SIZE_PIXELS);
+									2 !== t && this._onRequestWindowsOptionsReport.fire(w.GET_WIN_SIZE_PIXELS);
 									break;
 								case 16:
-									this._onRequestWindowsOptionsReport.fire(y.GET_CELL_SIZE_PIXELS);
+									this._onRequestWindowsOptionsReport.fire(w.GET_CELL_SIZE_PIXELS);
 									break;
 								case 18:
 									this._bufferService && this._coreService.triggerDataEvent(`${n.C0.ESC}[8;${this._bufferService.rows};${this._bufferService.cols}t`);
@@ -3775,12 +3814,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								const e = i.shift(), s = i.shift();
 								if (/^\d+$/.exec(e)) {
 									const i = parseInt(e);
-									if (D(i)) if ("?" === s) t.push({
+									if (R(i)) if ("?" === s) t.push({
 										type: 0,
 										index: i
 									});
 									else {
-										const e = (0, S.parseColor)(s);
+										const e = (0, v.parseColor)(s);
 										e && t.push({
 											type: 1,
 											index: i,
@@ -3792,8 +3831,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return t.length && this._onColor.fire(t), !0;
 						}
 						setHyperlink(e) {
-							const t = e.split(";");
-							return !(t.length < 2) && (t[1] ? this._createHyperlink(t[0], t[1]) : !t[0] && this._finishHyperlink());
+							const t = e.indexOf(";");
+							if (-1 === t) return !0;
+							const i = e.slice(0, t).trim(), s = e.slice(t + 1);
+							return s ? this._createHyperlink(i, s) : !i.trim() && this._finishHyperlink();
 						}
 						_createHyperlink(e, t) {
 							this._getCurrentLinkId() && this._finishHyperlink();
@@ -3815,7 +3856,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								index: this._specialColors[t]
 							}]);
 							else {
-								const s = (0, S.parseColor)(i[e]);
+								const s = (0, v.parseColor)(i[e]);
 								s && this._onColor.fire([{
 									type: 1,
 									index: this._specialColors[t],
@@ -3838,7 +3879,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const t = [], i = e.split(";");
 							for (let e = 0; e < i.length; ++e) if (/^\d+$/.exec(i[e])) {
 								const s = parseInt(i[e]);
-								D(s) && t.push({
+								R(s) && t.push({
 									type: 2,
 									index: s
 								});
@@ -3876,7 +3917,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return this._charsetService.setgLevel(0), this._charsetService.setgCharset(0, o.DEFAULT_CHARSET), !0;
 						}
 						selectCharset(e) {
-							return 2 !== e.length ? (this.selectDefaultCharset(), !0) : ("/" === e[0] || this._charsetService.setgCharset(C[e[0]], o.CHARSETS[e[1]] || o.DEFAULT_CHARSET), !0);
+							return 2 !== e.length ? (this.selectDefaultCharset(), !0) : ("/" === e[0] || this._charsetService.setgCharset(b[e[0]], o.CHARSETS[e[1]] || o.DEFAULT_CHARSET), !0);
 						}
 						index() {
 							return this._restrictCursor(), this._activeBuffer.y++, this._activeBuffer.y === this._activeBuffer.scrollBottom + 1 ? (this._activeBuffer.y--, this._bufferService.scroll(this._eraseAttrData())) : this._activeBuffer.y >= this._bufferService.rows && (this._activeBuffer.y = this._bufferService.rows - 1), this._restrictCursor(), !0;
@@ -3895,7 +3936,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return this._parser.reset(), this._onRequestReset.fire(), !0;
 						}
 						reset() {
-							this._curAttrData = l.DEFAULT_ATTR_DATA.clone(), this._eraseAttrDataInternal = l.DEFAULT_ATTR_DATA.clone();
+							this._curAttrData = c.DEFAULT_ATTR_DATA.clone(), this._eraseAttrDataInternal = c.DEFAULT_ATTR_DATA.clone();
 						}
 						_eraseAttrData() {
 							return this._eraseAttrDataInternal.bg &= -67108864, this._eraseAttrDataInternal.bg |= 67108863 & this._curAttrData.bg, this._eraseAttrDataInternal;
@@ -3924,7 +3965,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._dirtyRowTracker.markRangeDirty(e, t);
 						}
 					}
-					t.InputHandler = k;
+					t.InputHandler = D;
 					let L = class {
 						constructor(e) {
 							this._bufferService = e, this.clearRange();
@@ -3942,55 +3983,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this.markRangeDirty(0, this._bufferService.rows - 1);
 						}
 					};
-					function D(e) {
+					function R(e) {
 						return 0 <= e && e < 256;
 					}
-					L = s([r(0, v.IBufferService)], L);
+					L = s([r(0, f.IBufferService)], L);
 				},
-				844: (e, t) => {
-					function i(e) {
-						for (const t of e) t.dispose();
-						e.length = 0;
-					}
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.getDisposeArrayDisposable = t.disposeArray = t.toDisposable = t.MutableDisposable = t.Disposable = void 0, t.Disposable = class {
-						constructor() {
-							this._disposables = [], this._isDisposed = !1;
-						}
-						dispose() {
-							this._isDisposed = !0;
-							for (const e of this._disposables) e.dispose();
-							this._disposables.length = 0;
-						}
-						register(e) {
-							return this._disposables.push(e), e;
-						}
-						unregister(e) {
-							const t = this._disposables.indexOf(e);
-							-1 !== t && this._disposables.splice(t, 1);
-						}
-					}, t.MutableDisposable = class {
-						constructor() {
-							this._isDisposed = !1;
-						}
-						get value() {
-							return this._isDisposed ? void 0 : this._value;
-						}
-						set value(e) {
-							this._isDisposed || e === this._value || (this._value?.dispose(), this._value = e);
-						}
-						clear() {
-							this.value = void 0;
-						}
-						dispose() {
-							this._isDisposed = !0, this._value?.dispose(), this._value = void 0;
-						}
-					}, t.toDisposable = function(e) {
-						return { dispose: e };
-					}, t.disposeArray = i, t.getDisposeArrayDisposable = function(e) {
-						return { dispose: () => i(e) };
-					};
-				},
-				1505: (e, t) => {
+				7710: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.FourKeyMap = t.TwoKeyMap = void 0;
 					class i {
 						constructor() {
@@ -4021,14 +4019,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				6114: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.isChromeOS = t.isLinux = t.isWindows = t.isIphone = t.isIpad = t.isMac = t.getSafariVersion = t.isSafari = t.isLegacyEdge = t.isFirefox = t.isNode = void 0, t.isNode = "undefined" != typeof process && "title" in process;
-					const i = t.isNode ? "node" : navigator.userAgent, s = t.isNode ? "node" : navigator.platform;
-					t.isFirefox = i.includes("Firefox"), t.isLegacyEdge = i.includes("Edge"), t.isSafari = /^((?!chrome|android).)*safari/i.test(i), t.getSafariVersion = function() {
+				701: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.isChromeOS = t.isLinux = t.isWindows = t.isIphone = t.isIpad = t.isMac = t.isSafari = t.isLegacyEdge = t.isFirefox = t.isNode = void 0, t.getSafariVersion = function() {
 						if (!t.isSafari) return 0;
 						const e = i.match(/Version\/(\d+)/);
 						return null === e || e.length < 2 ? 0 : parseInt(e[1]);
-					}, t.isMac = [
+					}, t.isNode = "undefined" != typeof process && "title" in process;
+					const i = t.isNode ? "node" : navigator.userAgent, s = t.isNode ? "node" : navigator.platform;
+					t.isFirefox = i.includes("Firefox"), t.isLegacyEdge = i.includes("Edge"), t.isSafari = /^((?!chrome|android).)*safari/i.test(i), t.isMac = [
 						"Macintosh",
 						"MacIntel",
 						"MacPPC",
@@ -4040,42 +4038,65 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						"WinCE"
 					].includes(s), t.isLinux = s.indexOf("Linux") >= 0, t.isChromeOS = /\bCrOS\b/.test(i);
 				},
-				6106: (e, t) => {
+				3087: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.SortedList = void 0;
-					let i = 0;
+					const s = i(6168);
+					let r = 0;
 					t.SortedList = class {
 						constructor(e) {
-							this._getKey = e, this._array = [];
+							this._getKey = e, this._array = [], this._insertedValues = [], this._flushInsertedTask = new s.IdleTaskQueue(), this._isFlushingInserted = !1, this._deletedIndices = [], this._flushDeletedTask = new s.IdleTaskQueue(), this._isFlushingDeleted = !1;
 						}
 						clear() {
-							this._array.length = 0;
+							this._array.length = 0, this._insertedValues.length = 0, this._flushInsertedTask.clear(), this._isFlushingInserted = !1, this._deletedIndices.length = 0, this._flushDeletedTask.clear(), this._isFlushingDeleted = !1;
 						}
 						insert(e) {
-							0 !== this._array.length ? (i = this._search(this._getKey(e)), this._array.splice(i, 0, e)) : this._array.push(e);
+							this._flushCleanupDeleted(), 0 === this._insertedValues.length && this._flushInsertedTask.enqueue((() => this._flushInserted())), this._insertedValues.push(e);
+						}
+						_flushInserted() {
+							const e = this._insertedValues.sort(((e, t) => this._getKey(e) - this._getKey(t)));
+							let t = 0, i = 0;
+							const s = new Array(this._array.length + this._insertedValues.length);
+							for (let r = 0; r < s.length; r++) i >= this._array.length || this._getKey(e[t]) <= this._getKey(this._array[i]) ? (s[r] = e[t], t++) : s[r] = this._array[i++];
+							this._array = s, this._insertedValues.length = 0;
+						}
+						_flushCleanupInserted() {
+							!this._isFlushingInserted && this._insertedValues.length > 0 && this._flushInsertedTask.flush();
 						}
 						delete(e) {
-							if (0 === this._array.length) return !1;
+							if (this._flushCleanupInserted(), 0 === this._array.length) return !1;
 							const t = this._getKey(e);
 							if (void 0 === t) return !1;
-							if (i = this._search(t), -1 === i) return !1;
-							if (this._getKey(this._array[i]) !== t) return !1;
+							if (r = this._search(t), -1 === r) return !1;
+							if (this._getKey(this._array[r]) !== t) return !1;
 							do
-								if (this._array[i] === e) return this._array.splice(i, 1), !0;
-							while (++i < this._array.length && this._getKey(this._array[i]) === t);
+								if (this._array[r] === e) return 0 === this._deletedIndices.length && this._flushDeletedTask.enqueue((() => this._flushDeleted())), this._deletedIndices.push(r), !0;
+							while (++r < this._array.length && this._getKey(this._array[r]) === t);
 							return !1;
 						}
+						_flushDeleted() {
+							this._isFlushingDeleted = !0;
+							const e = this._deletedIndices.sort(((e, t) => e - t));
+							let t = 0;
+							const i = new Array(this._array.length - e.length);
+							let s = 0;
+							for (let r = 0; r < this._array.length; r++) e[t] === r ? t++ : i[s++] = this._array[r];
+							this._array = i, this._deletedIndices.length = 0, this._isFlushingDeleted = !1;
+						}
+						_flushCleanupDeleted() {
+							!this._isFlushingDeleted && this._deletedIndices.length > 0 && this._flushDeletedTask.flush();
+						}
 						*getKeyIterator(e) {
-							if (0 !== this._array.length && (i = this._search(e), !(i < 0 || i >= this._array.length) && this._getKey(this._array[i]) === e)) do
-								yield this._array[i];
-							while (++i < this._array.length && this._getKey(this._array[i]) === e);
+							if (this._flushCleanupInserted(), this._flushCleanupDeleted(), 0 !== this._array.length && (r = this._search(e), !(r < 0 || r >= this._array.length) && this._getKey(this._array[r]) === e)) do
+								yield this._array[r];
+							while (++r < this._array.length && this._getKey(this._array[r]) === e);
 						}
 						forEachByKey(e, t) {
-							if (0 !== this._array.length && (i = this._search(e), !(i < 0 || i >= this._array.length) && this._getKey(this._array[i]) === e)) do
-								t(this._array[i]);
-							while (++i < this._array.length && this._getKey(this._array[i]) === e);
+							if (this._flushCleanupInserted(), this._flushCleanupDeleted(), 0 !== this._array.length && (r = this._search(e), !(r < 0 || r >= this._array.length) && this._getKey(this._array[r]) === e)) do
+								t(this._array[r]);
+							while (++r < this._array.length && this._getKey(this._array[r]) === e);
 						}
 						values() {
-							return [...this._array].values();
+							return this._flushCleanupInserted(), this._flushCleanupDeleted(), [...this._array].values();
 						}
 						_search(e) {
 							let t = 0, i = this._array.length - 1;
@@ -4095,9 +4116,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				7226: (e, t, i) => {
+				6168: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DebouncedIdleTask = t.IdleTaskQueue = t.PriorityTaskQueue = void 0;
-					const s = i(6114);
+					const s = i(701);
 					class r {
 						constructor() {
 							this._tasks = [], this._i = 0;
@@ -4119,7 +4140,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._idleCallback = void 0;
 							let t = 0, i = 0, s = e.timeRemaining(), r = 0;
 							for (; this._i < this._tasks.length;) {
-								if (t = Date.now(), this._tasks[this._i]() || this._i++, t = Math.max(1, Date.now() - t), i = Math.max(t, i), r = e.timeRemaining(), 1.5 * i > r) return s - t < -20 && console.warn(`task queue exceeded allotted deadline by ${Math.abs(Math.round(s - t))}ms`), void this._start();
+								if (t = performance.now(), this._tasks[this._i]() || this._i++, t = Math.max(1, performance.now() - t), i = Math.max(t, i), r = e.timeRemaining(), 1.5 * i > r) return s - t < -20 && console.warn(`task queue exceeded allotted deadline by ${Math.abs(Math.round(s - t))}ms`), void this._start();
 								s = r;
 							}
 							this.clear();
@@ -4133,8 +4154,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							clearTimeout(e);
 						}
 						_createDeadline(e) {
-							const t = Date.now() + e;
-							return { timeRemaining: () => Math.max(0, t - Date.now()) };
+							const t = performance.now() + e;
+							return { timeRemaining: () => Math.max(0, t - performance.now()) };
 						}
 					}
 					t.PriorityTaskQueue = n, t.IdleTaskQueue = !s.isNode && "requestIdleCallback" in window ? class extends r {
@@ -4156,15 +4177,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				9282: (e, t, i) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.updateWindowsModeWrappedState = void 0;
-					const s = i(643);
-					t.updateWindowsModeWrappedState = function(e) {
+				5882: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.updateWindowsModeWrappedState = function(e) {
 						const i = e.buffer.lines.get(e.buffer.ybase + e.buffer.y - 1)?.get(e.cols - 1), r = e.buffer.lines.get(e.buffer.ybase + e.buffer.y);
 						r && i && (r.isWrapped = i[s.CHAR_DATA_CODE_INDEX] !== s.NULL_CELL_CODE && i[s.CHAR_DATA_CODE_INDEX] !== s.WHITESPACE_CELL_CODE);
 					};
+					const s = i(8938);
 				},
-				3734: (e, t) => {
+				5451: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.ExtendedAttrs = t.AttributeData = void 0;
 					class i {
 						constructor() {
@@ -4221,10 +4241,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return 50331648 & this.bg;
 						}
 						isFgRGB() {
-							return 50331648 == (50331648 & this.fg);
+							return !(50331648 & ~this.fg);
 						}
 						isBgRGB() {
-							return 50331648 == (50331648 & this.bg);
+							return !(50331648 & ~this.bg);
 						}
 						isFgPalette() {
 							return 16777216 == (50331648 & this.fg) || 33554432 == (50331648 & this.fg);
@@ -4233,10 +4253,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return 16777216 == (50331648 & this.bg) || 33554432 == (50331648 & this.bg);
 						}
 						isFgDefault() {
-							return 0 == (50331648 & this.fg);
+							return !(50331648 & this.fg);
 						}
 						isBgDefault() {
-							return 0 == (50331648 & this.bg);
+							return !(50331648 & this.bg);
 						}
 						isAttributeDefault() {
 							return 0 === this.fg && 0 === this.bg;
@@ -4276,13 +4296,13 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return 268435456 & this.bg && ~this.extended.underlineColor ? 50331648 & this.extended.underlineColor : this.getFgColorMode();
 						}
 						isUnderlineColorRGB() {
-							return 268435456 & this.bg && ~this.extended.underlineColor ? 50331648 == (50331648 & this.extended.underlineColor) : this.isFgRGB();
+							return 268435456 & this.bg && ~this.extended.underlineColor ? !(50331648 & ~this.extended.underlineColor) : this.isFgRGB();
 						}
 						isUnderlineColorPalette() {
 							return 268435456 & this.bg && ~this.extended.underlineColor ? 16777216 == (50331648 & this.extended.underlineColor) || 33554432 == (50331648 & this.extended.underlineColor) : this.isFgPalette();
 						}
 						isUnderlineColorDefault() {
-							return 268435456 & this.bg && ~this.extended.underlineColor ? 0 == (50331648 & this.extended.underlineColor) : this.isFgDefault();
+							return 268435456 & this.bg && ~this.extended.underlineColor ? !(50331648 & this.extended.underlineColor) : this.isFgDefault();
 						}
 						getUnderlineStyle() {
 							return 268435456 & this.fg ? 268435456 & this.bg ? this.extended.underlineStyle : 1 : 0;
@@ -4336,21 +4356,21 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.ExtendedAttrs = s;
 				},
-				9092: (e, t, i) => {
+				1073: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.Buffer = t.MAX_BUFFER_SIZE = void 0;
-					const s = i(6349), r = i(7226), n = i(3734), o = i(8437), a = i(4634), h = i(511), c = i(643), l = i(4863), d = i(7116);
+					const s = i(5639), r = i(6168), n = i(5451), o = i(6107), a = i(732), l = i(3055), h = i(8938), c = i(8158), d = i(6760);
 					t.MAX_BUFFER_SIZE = 4294967295, t.Buffer = class {
 						constructor(e, t, i) {
-							this._hasScrollback = e, this._optionsService = t, this._bufferService = i, this.ydisp = 0, this.ybase = 0, this.y = 0, this.x = 0, this.tabs = {}, this.savedY = 0, this.savedX = 0, this.savedCurAttrData = o.DEFAULT_ATTR_DATA.clone(), this.savedCharset = d.DEFAULT_CHARSET, this.markers = [], this._nullCell = h.CellData.fromCharData([
+							this._hasScrollback = e, this._optionsService = t, this._bufferService = i, this.ydisp = 0, this.ybase = 0, this.y = 0, this.x = 0, this.tabs = {}, this.savedY = 0, this.savedX = 0, this.savedCurAttrData = o.DEFAULT_ATTR_DATA.clone(), this.savedCharset = d.DEFAULT_CHARSET, this.markers = [], this._nullCell = l.CellData.fromCharData([
 								0,
-								c.NULL_CELL_CHAR,
-								c.NULL_CELL_WIDTH,
-								c.NULL_CELL_CODE
-							]), this._whitespaceCell = h.CellData.fromCharData([
+								h.NULL_CELL_CHAR,
+								h.NULL_CELL_WIDTH,
+								h.NULL_CELL_CODE
+							]), this._whitespaceCell = l.CellData.fromCharData([
 								0,
-								c.WHITESPACE_CELL_CHAR,
-								c.WHITESPACE_CELL_WIDTH,
-								c.WHITESPACE_CELL_CODE
+								h.WHITESPACE_CELL_CHAR,
+								h.WHITESPACE_CELL_WIDTH,
+								h.WHITESPACE_CELL_CODE
 							]), this._isClearing = !1, this._memoryCleanupQueue = new r.IdleTaskQueue(), this._memoryCleanupPosition = 0, this._cols = this._bufferService.cols, this._rows = this._bufferService.rows, this.lines = new s.CircularList(this._getCorrectBufferLength(this._rows)), this.scrollTop = 0, this.scrollBottom = this._rows - 1, this.setupTabStops();
 						}
 						getNullCell(e) {
@@ -4417,10 +4437,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._cols !== e && (e > this._cols ? this._reflowLarger(e, t) : this._reflowSmaller(e, t));
 						}
 						_reflowLarger(e, t) {
-							const i = (0, a.reflowLargerGetLinesToRemove)(this.lines, this._cols, e, this.ybase + this.y, this.getNullCell(o.DEFAULT_ATTR_DATA));
-							if (i.length > 0) {
-								const s = (0, a.reflowLargerCreateNewLayout)(this.lines, i);
-								(0, a.reflowLargerApplyNewLayout)(this.lines, s.layout), this._reflowLargerAdjustViewport(e, t, s.countRemoved);
+							const i = this._optionsService.rawOptions.reflowCursorLine, s = (0, a.reflowLargerGetLinesToRemove)(this.lines, this._cols, e, this.ybase + this.y, this.getNullCell(o.DEFAULT_ATTR_DATA), i);
+							if (s.length > 0) {
+								const i = (0, a.reflowLargerCreateNewLayout)(this.lines, s);
+								(0, a.reflowLargerApplyNewLayout)(this.lines, i.layout), this._reflowLargerAdjustViewport(e, t, i.countRemoved);
 							}
 						}
 						_reflowLargerAdjustViewport(e, t, i) {
@@ -4430,62 +4450,64 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this.savedY = Math.max(this.savedY - i, 0);
 						}
 						_reflowSmaller(e, t) {
-							const i = this.getNullCell(o.DEFAULT_ATTR_DATA), s = [];
-							let r = 0;
-							for (let n = this.lines.length - 1; n >= 0; n--) {
-								let h = this.lines.get(n);
+							const i = this._optionsService.rawOptions.reflowCursorLine, s = this.getNullCell(o.DEFAULT_ATTR_DATA), r = [];
+							let n = 0;
+							for (let l = this.lines.length - 1; l >= 0; l--) {
+								let h = this.lines.get(l);
 								if (!h || !h.isWrapped && h.getTrimmedLength() <= e) continue;
 								const c = [h];
-								for (; h.isWrapped && n > 0;) h = this.lines.get(--n), c.unshift(h);
-								const l = this.ybase + this.y;
-								if (l >= n && l < n + c.length) continue;
-								const d = c[c.length - 1].getTrimmedLength(), _ = (0, a.reflowSmallerGetNewLineLengths)(c, this._cols, e), u = _.length - c.length;
-								let f;
-								f = 0 === this.ybase && this.y !== this.lines.length - 1 ? Math.max(0, this.y - this.lines.maxLength + u) : Math.max(0, this.lines.length - this.lines.maxLength + u);
-								const v = [];
-								for (let e = 0; e < u; e++) {
-									const e = this.getBlankLine(o.DEFAULT_ATTR_DATA, !0);
-									v.push(e);
+								for (; h.isWrapped && l > 0;) h = this.lines.get(--l), c.unshift(h);
+								if (!i) {
+									const e = this.ybase + this.y;
+									if (e >= l && e < l + c.length) continue;
 								}
-								v.length > 0 && (s.push({
-									start: n + c.length + r,
-									newLines: v
-								}), r += v.length), c.push(...v);
-								let p = _.length - 1, g = _[p];
-								0 === g && (p--, g = _[p]);
-								let m = c.length - u - 1, S = d;
-								for (; m >= 0;) {
-									const e = Math.min(S, g);
-									if (void 0 === c[p]) break;
-									if (c[p].copyCellsFrom(c[m], S - e, g - e, e, !0), g -= e, 0 === g && (p--, g = _[p]), S -= e, 0 === S) {
-										m--;
-										const e = Math.max(m, 0);
+								const d = c[c.length - 1].getTrimmedLength(), u = (0, a.reflowSmallerGetNewLineLengths)(c, this._cols, e), _ = u.length - c.length;
+								let f;
+								f = 0 === this.ybase && this.y !== this.lines.length - 1 ? Math.max(0, this.y - this.lines.maxLength + _) : Math.max(0, this.lines.length - this.lines.maxLength + _);
+								const p = [];
+								for (let e = 0; e < _; e++) {
+									const e = this.getBlankLine(o.DEFAULT_ATTR_DATA, !0);
+									p.push(e);
+								}
+								p.length > 0 && (r.push({
+									start: l + c.length + n,
+									newLines: p
+								}), n += p.length), c.push(...p);
+								let g = u.length - 1, m = u[g];
+								0 === m && (g--, m = u[g]);
+								let v = c.length - _ - 1, S = d;
+								for (; v >= 0;) {
+									const e = Math.min(S, m);
+									if (void 0 === c[g]) break;
+									if (c[g].copyCellsFrom(c[v], S - e, m - e, e, !0), m -= e, 0 === m && (g--, m = u[g]), S -= e, 0 === S) {
+										v--;
+										const e = Math.max(v, 0);
 										S = (0, a.getWrappedLineTrimmedLength)(c, e, this._cols);
 									}
 								}
-								for (let t = 0; t < c.length; t++) _[t] < e && c[t].setCell(_[t], i);
-								let C = u - f;
-								for (; C-- > 0;) 0 === this.ybase ? this.y < t - 1 ? (this.y++, this.lines.pop()) : (this.ybase++, this.ydisp++) : this.ybase < Math.min(this.lines.maxLength, this.lines.length + r) - t && (this.ybase === this.ydisp && this.ydisp++, this.ybase++);
-								this.savedY = Math.min(this.savedY + u, this.ybase + t - 1);
+								for (let t = 0; t < c.length; t++) u[t] < e && c[t].setCell(u[t], s);
+								let b = _ - f;
+								for (; b-- > 0;) 0 === this.ybase ? this.y < t - 1 ? (this.y++, this.lines.pop()) : (this.ybase++, this.ydisp++) : this.ybase < Math.min(this.lines.maxLength, this.lines.length + n) - t && (this.ybase === this.ydisp && this.ydisp++, this.ybase++);
+								this.savedY = Math.min(this.savedY + _, this.ybase + t - 1);
 							}
-							if (s.length > 0) {
+							if (r.length > 0) {
 								const e = [], t = [];
 								for (let e = 0; e < this.lines.length; e++) t.push(this.lines.get(e));
 								const i = this.lines.length;
-								let n = i - 1, o = 0, a = s[o];
-								this.lines.length = Math.min(this.lines.maxLength, this.lines.length + r);
-								let h = 0;
-								for (let c = Math.min(this.lines.maxLength - 1, i + r - 1); c >= 0; c--) if (a && a.start > n + h) {
-									for (let e = a.newLines.length - 1; e >= 0; e--) this.lines.set(c--, a.newLines[e]);
-									c++, e.push({
-										index: n + 1,
+								let s = i - 1, o = 0, a = r[o];
+								this.lines.length = Math.min(this.lines.maxLength, this.lines.length + n);
+								let l = 0;
+								for (let h = Math.min(this.lines.maxLength - 1, i + n - 1); h >= 0; h--) if (a && a.start > s + l) {
+									for (let e = a.newLines.length - 1; e >= 0; e--) this.lines.set(h--, a.newLines[e]);
+									h++, e.push({
+										index: s + 1,
 										amount: a.newLines.length
-									}), h += a.newLines.length, a = s[++o];
-								} else this.lines.set(c, t[n--]);
-								let c = 0;
-								for (let t = e.length - 1; t >= 0; t--) e[t].index += c, this.lines.onInsertEmitter.fire(e[t]), c += e[t].amount;
-								const l = Math.max(0, i + r - this.lines.maxLength);
-								l > 0 && this.lines.onTrimEmitter.fire(l);
+									}), l += a.newLines.length, a = r[++o];
+								} else this.lines.set(h, t[s--]);
+								let h = 0;
+								for (let t = e.length - 1; t >= 0; t--) e[t].index += h, this.lines.onInsertEmitter.fire(e[t]), h += e[t].amount;
+								const c = Math.max(0, i + n - this.lines.maxLength);
+								c > 0 && this.lines.onTrimEmitter.fire(c);
 							}
 						}
 						translateBufferLineToString(e, t, i = 0, s) {
@@ -4519,11 +4541,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						clearAllMarkers() {
 							this._isClearing = !0;
-							for (let e = 0; e < this.markers.length; e++) this.markers[e].dispose(), this.markers.splice(e--, 1);
-							this._isClearing = !1;
+							for (let e = 0; e < this.markers.length; e++) this.markers[e].dispose();
+							this.markers.length = 0, this._isClearing = !1;
 						}
 						addMarker(e) {
-							const t = new l.Marker(e);
+							const t = new c.Marker(e);
 							return this.markers.push(t), t.register(this.lines.onTrim(((e) => {
 								t.line -= e, t.line < 0 && t.dispose();
 							}))), t.register(this.lines.onInsert(((e) => {
@@ -4537,12 +4559,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				8437: (e, t, i) => {
+				6107: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferLine = t.DEFAULT_ATTR_DATA = void 0;
-					const s = i(3734), r = i(511), n = i(643), o = i(482);
+					const s = i(5451), r = i(3055), n = i(8938), o = i(726);
 					t.DEFAULT_ATTR_DATA = Object.freeze(new s.AttributeData());
 					let a = 0;
-					class h {
+					class l {
 						constructor(e, t, i = !1) {
 							this.isWrapped = i, this._combined = {}, this._extendedAttrs = {}, this._data = new Uint32Array(3 * e);
 							const s = t || r.CellData.fromCharData([
@@ -4675,7 +4697,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this.isWrapped = e.isWrapped;
 						}
 						clone() {
-							const e = new h(0);
+							const e = new l(0);
 							e._data = new Uint32Array(this._data), e.length = this.length;
 							for (const t in this._combined) e._combined[t] = this._combined[t];
 							for (const t in this._extendedAttrs) e._extendedAttrs[t] = this._extendedAttrs[t];
@@ -4716,42 +4738,42 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return s && s.push(t), r;
 						}
 					}
-					t.BufferLine = h;
+					t.BufferLine = l;
 				},
-				4841: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.getRangeLength = void 0, t.getRangeLength = function(e, t) {
+				9384: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.getRangeLength = function(e, t) {
 						if (e.start.y > e.end.y) throw new Error(`Buffer range end (${e.end.x}, ${e.end.y}) cannot be before start (${e.start.x}, ${e.start.y})`);
 						return t * (e.end.y - e.start.y) + (e.end.x - e.start.x + 1);
 					};
 				},
-				4634: (e, t) => {
+				732: (e, t) => {
 					function i(e, t, i) {
 						if (t === e.length - 1) return e[t].getTrimmedLength();
 						const s = !e[t].hasContent(i - 1) && 1 === e[t].getWidth(i - 1), r = 2 === e[t + 1].getWidth(0);
 						return s && r ? i - 1 : i;
 					}
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.getWrappedLineTrimmedLength = t.reflowSmallerGetNewLineLengths = t.reflowLargerApplyNewLayout = t.reflowLargerCreateNewLayout = t.reflowLargerGetLinesToRemove = void 0, t.reflowLargerGetLinesToRemove = function(e, t, s, r, n) {
-						const o = [];
-						for (let a = 0; a < e.length - 1; a++) {
-							let h = a, c = e.get(++h);
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.reflowLargerGetLinesToRemove = function(e, t, s, r, n, o) {
+						const a = [];
+						for (let l = 0; l < e.length - 1; l++) {
+							let h = l, c = e.get(++h);
 							if (!c.isWrapped) continue;
-							const l = [e.get(a)];
-							for (; h < e.length && c.isWrapped;) l.push(c), c = e.get(++h);
-							if (r >= a && r < h) {
-								a += l.length - 1;
+							const d = [e.get(l)];
+							for (; h < e.length && c.isWrapped;) d.push(c), c = e.get(++h);
+							if (!o && r >= l && r < h) {
+								l += d.length - 1;
 								continue;
 							}
-							let d = 0, _ = i(l, d, t), u = 1, f = 0;
-							for (; u < l.length;) {
-								const e = i(l, u, t), r = e - f, o = s - _, a = Math.min(r, o);
-								l[d].copyCellsFrom(l[u], f, _, a, !1), _ += a, _ === s && (d++, _ = 0), f += a, f === e && (u++, f = 0), 0 === _ && 0 !== d && 2 === l[d - 1].getWidth(s - 1) && (l[d].copyCellsFrom(l[d - 1], s - 1, _++, 1, !1), l[d - 1].setCell(s - 1, n));
+							let u = 0, _ = i(d, u, t), f = 1, p = 0;
+							for (; f < d.length;) {
+								const e = i(d, f, t), r = e - p, o = s - _, a = Math.min(r, o);
+								d[u].copyCellsFrom(d[f], p, _, a, !1), _ += a, _ === s && (u++, _ = 0), p += a, p === e && (f++, p = 0), 0 === _ && 0 !== u && 2 === d[u - 1].getWidth(s - 1) && (d[u].copyCellsFrom(d[u - 1], s - 1, _++, 1, !1), d[u - 1].setCell(s - 1, n));
 							}
-							l[d].replaceCells(_, s, n);
-							let v = 0;
-							for (let e = l.length - 1; e > 0 && (e > d || 0 === l[e].getTrimmedLength()); e--) v++;
-							v > 0 && (o.push(a + l.length - v), o.push(v)), a += l.length - 1;
+							d[u].replaceCells(_, s, n);
+							let g = 0;
+							for (let e = d.length - 1; e > 0 && (e > u || 0 === d[e].getTrimmedLength()); e--) g++;
+							g > 0 && (a.push(l + d.length - g), a.push(g)), l += d.length - 1;
 						}
-						return o;
+						return a;
 					}, t.reflowLargerCreateNewLayout = function(e, t) {
 						const i = [];
 						let s = 0, r = t[s], n = 0;
@@ -4773,32 +4795,32 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						e.length = t.length;
 					}, t.reflowSmallerGetNewLineLengths = function(e, t, s) {
 						const r = [], n = e.map(((s, r) => i(e, r, t))).reduce(((e, t) => e + t));
-						let o = 0, a = 0, h = 0;
-						for (; h < n;) {
-							if (n - h < s) {
-								r.push(n - h);
+						let o = 0, a = 0, l = 0;
+						for (; l < n;) {
+							if (n - l < s) {
+								r.push(n - l);
 								break;
 							}
 							o += s;
-							const c = i(e, a, t);
-							o > c && (o -= c, a++);
-							const l = 2 === e[a].getWidth(o - 1);
-							l && o--;
-							const d = l ? s - 1 : s;
-							r.push(d), h += d;
+							const h = i(e, a, t);
+							o > h && (o -= h, a++);
+							const c = 2 === e[a].getWidth(o - 1);
+							c && o--;
+							const d = c ? s - 1 : s;
+							r.push(d), l += d;
 						}
 						return r;
 					}, t.getWrappedLineTrimmedLength = i;
 				},
-				5295: (e, t, i) => {
+				4097: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferSet = void 0;
-					const s = i(8460), r = i(844), n = i(9092);
-					class o extends r.Disposable {
+					const s = i(7150), r = i(1073), n = i(802);
+					class o extends s.Disposable {
 						constructor(e, t) {
-							super(), this._optionsService = e, this._bufferService = t, this._onBufferActivate = this.register(new s.EventEmitter()), this.onBufferActivate = this._onBufferActivate.event, this.reset(), this.register(this._optionsService.onSpecificOptionChange("scrollback", (() => this.resize(this._bufferService.cols, this._bufferService.rows)))), this.register(this._optionsService.onSpecificOptionChange("tabStopWidth", (() => this.setupTabStops())));
+							super(), this._optionsService = e, this._bufferService = t, this._onBufferActivate = this._register(new n.Emitter()), this.onBufferActivate = this._onBufferActivate.event, this.reset(), this._register(this._optionsService.onSpecificOptionChange("scrollback", (() => this.resize(this._bufferService.cols, this._bufferService.rows)))), this._register(this._optionsService.onSpecificOptionChange("tabStopWidth", (() => this.setupTabStops())));
 						}
 						reset() {
-							this._normal = new n.Buffer(!0, this._optionsService, this._bufferService), this._normal.fillViewportRows(), this._alt = new n.Buffer(!1, this._optionsService, this._bufferService), this._activeBuffer = this._normal, this._onBufferActivate.fire({
+							this._normal = new r.Buffer(!0, this._optionsService, this._bufferService), this._normal.fillViewportRows(), this._alt = new r.Buffer(!1, this._optionsService, this._bufferService), this._activeBuffer = this._normal, this._onBufferActivate.fire({
 								activeBuffer: this._normal,
 								inactiveBuffer: this._alt
 							}), this.setupTabStops();
@@ -4833,9 +4855,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.BufferSet = o;
 				},
-				511: (e, t, i) => {
+				3055: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CellData = void 0;
-					const s = i(482), r = i(643), n = i(3734);
+					const s = i(726), r = i(8938), n = i(5451);
 					class o extends n.AttributeData {
 						constructor() {
 							super(...arguments), this.content = 0, this.fg = 0, this.bg = 0, this.extended = new n.ExtendedAttrs(), this.combinedData = "";
@@ -4880,21 +4902,21 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.CellData = o;
 				},
-				643: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.WHITESPACE_CELL_CODE = t.WHITESPACE_CELL_WIDTH = t.WHITESPACE_CELL_CHAR = t.NULL_CELL_CODE = t.NULL_CELL_WIDTH = t.NULL_CELL_CHAR = t.CHAR_DATA_CODE_INDEX = t.CHAR_DATA_WIDTH_INDEX = t.CHAR_DATA_CHAR_INDEX = t.CHAR_DATA_ATTR_INDEX = t.DEFAULT_EXT = t.DEFAULT_ATTR = t.DEFAULT_COLOR = void 0, t.DEFAULT_COLOR = 0, t.DEFAULT_ATTR = 256 | t.DEFAULT_COLOR << 9, t.DEFAULT_EXT = 0, t.CHAR_DATA_ATTR_INDEX = 0, t.CHAR_DATA_CHAR_INDEX = 1, t.CHAR_DATA_WIDTH_INDEX = 2, t.CHAR_DATA_CODE_INDEX = 3, t.NULL_CELL_CHAR = "", t.NULL_CELL_WIDTH = 1, t.NULL_CELL_CODE = 0, t.WHITESPACE_CELL_CHAR = " ", t.WHITESPACE_CELL_WIDTH = 1, t.WHITESPACE_CELL_CODE = 32;
+				8938: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.WHITESPACE_CELL_CODE = t.WHITESPACE_CELL_WIDTH = t.WHITESPACE_CELL_CHAR = t.NULL_CELL_CODE = t.NULL_CELL_WIDTH = t.NULL_CELL_CHAR = t.CHAR_DATA_CODE_INDEX = t.CHAR_DATA_WIDTH_INDEX = t.CHAR_DATA_CHAR_INDEX = t.CHAR_DATA_ATTR_INDEX = t.DEFAULT_EXT = t.DEFAULT_ATTR = t.DEFAULT_COLOR = void 0, t.DEFAULT_COLOR = 0, t.DEFAULT_ATTR = t.DEFAULT_COLOR << 9 | 256, t.DEFAULT_EXT = 0, t.CHAR_DATA_ATTR_INDEX = 0, t.CHAR_DATA_CHAR_INDEX = 1, t.CHAR_DATA_WIDTH_INDEX = 2, t.CHAR_DATA_CODE_INDEX = 3, t.NULL_CELL_CHAR = "", t.NULL_CELL_WIDTH = 1, t.NULL_CELL_CODE = 0, t.WHITESPACE_CELL_CHAR = " ", t.WHITESPACE_CELL_WIDTH = 1, t.WHITESPACE_CELL_CODE = 32;
 				},
-				4863: (e, t, i) => {
+				8158: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.Marker = void 0;
-					const s = i(8460), r = i(844);
+					const s = i(802), r = i(7150);
 					class n {
 						get id() {
 							return this._id;
 						}
 						constructor(e) {
-							this.line = e, this.isDisposed = !1, this._disposables = [], this._id = n._nextId++, this._onDispose = this.register(new s.EventEmitter()), this.onDispose = this._onDispose.event;
+							this.line = e, this.isDisposed = !1, this._disposables = [], this._id = n._nextId++, this._onDispose = this.register(new s.Emitter()), this.onDispose = this._onDispose.event;
 						}
 						dispose() {
-							this.isDisposed || (this.isDisposed = !0, this.line = -1, this._onDispose.fire(), (0, r.disposeArray)(this._disposables), this._disposables.length = 0);
+							this.isDisposed || (this.isDisposed = !0, this.line = -1, this._onDispose.fire(), (0, r.dispose)(this._disposables), this._disposables.length = 0);
 						}
 						register(e) {
 							return this._disposables.push(e), e;
@@ -4902,7 +4924,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.Marker = n, n._nextId = 1;
 				},
-				7116: (e, t) => {
+				6760: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DEFAULT_CHARSET = t.CHARSETS = void 0, t.CHARSETS = {}, t.DEFAULT_CHARSET = t.CHARSETS.B, t.CHARSETS[0] = {
 						"`": "◆",
 						a: "▒",
@@ -5042,7 +5064,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						"~": "û"
 					};
 				},
-				2584: (e, t) => {
+				3534: (e, t) => {
 					var i, s, r;
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.C1_ESCAPED = t.C1 = t.C0 = void 0, function(e) {
 						e.NUL = "\0", e.SOH = "", e.STX = "", e.ETX = "", e.EOT = "", e.ENQ = "", e.ACK = "", e.BEL = "\x07", e.BS = "\b", e.HT = "	", e.LF = "\n", e.VT = "\v", e.FF = "\f", e.CR = "\r", e.SO = "", e.SI = "", e.DLE = "", e.DC1 = "", e.DC2 = "", e.DC3 = "", e.DC4 = "", e.NAK = "", e.SYN = "", e.ETB = "", e.CAN = "", e.EM = "", e.SUB = "", e.ESC = "\x1B", e.FS = "", e.GS = "", e.RS = "", e.US = "", e.SP = " ", e.DEL = "";
@@ -5052,32 +5074,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						e.ST = `${i.ESC}\\`;
 					}(r || (t.C1_ESCAPED = r = {}));
 				},
-				7399: (e, t, i) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.evaluateKeyboardEvent = void 0;
-					const s = i(2584), r = {
-						48: ["0", ")"],
-						49: ["1", "!"],
-						50: ["2", "@"],
-						51: ["3", "#"],
-						52: ["4", "$"],
-						53: ["5", "%"],
-						54: ["6", "^"],
-						55: ["7", "&"],
-						56: ["8", "*"],
-						57: ["9", "("],
-						186: [";", ":"],
-						187: ["=", "+"],
-						188: [",", "<"],
-						189: ["-", "_"],
-						190: [".", ">"],
-						191: ["/", "?"],
-						192: ["`", "~"],
-						219: ["[", "{"],
-						220: ["\\", "|"],
-						221: ["]", "}"],
-						222: ["'", "\""]
-					};
-					t.evaluateKeyboardEvent = function(e, t, i, n) {
+				706: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.evaluateKeyboardEvent = function(e, t, i, n) {
 						const o = {
 							type: 0,
 							cancel: !1,
@@ -5105,19 +5103,19 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								break;
 							case 37:
 								if (e.metaKey) break;
-								a ? (o.key = s.C0.ESC + "[1;" + (a + 1) + "D", o.key === s.C0.ESC + "[1;3D" && (o.key = s.C0.ESC + (i ? "b" : "[1;5D"))) : o.key = t ? s.C0.ESC + "OD" : s.C0.ESC + "[D";
+								o.key = a ? s.C0.ESC + "[1;" + (a + 1) + "D" : t ? s.C0.ESC + "OD" : s.C0.ESC + "[D";
 								break;
 							case 39:
 								if (e.metaKey) break;
-								a ? (o.key = s.C0.ESC + "[1;" + (a + 1) + "C", o.key === s.C0.ESC + "[1;3C" && (o.key = s.C0.ESC + (i ? "f" : "[1;5C"))) : o.key = t ? s.C0.ESC + "OC" : s.C0.ESC + "[C";
+								o.key = a ? s.C0.ESC + "[1;" + (a + 1) + "C" : t ? s.C0.ESC + "OC" : s.C0.ESC + "[C";
 								break;
 							case 38:
 								if (e.metaKey) break;
-								a ? (o.key = s.C0.ESC + "[1;" + (a + 1) + "A", i || o.key !== s.C0.ESC + "[1;3A" || (o.key = s.C0.ESC + "[1;5A")) : o.key = t ? s.C0.ESC + "OA" : s.C0.ESC + "[A";
+								o.key = a ? s.C0.ESC + "[1;" + (a + 1) + "A" : t ? s.C0.ESC + "OA" : s.C0.ESC + "[A";
 								break;
 							case 40:
 								if (e.metaKey) break;
-								a ? (o.key = s.C0.ESC + "[1;" + (a + 1) + "B", i || o.key !== s.C0.ESC + "[1;3B" || (o.key = s.C0.ESC + "[1;5B")) : o.key = t ? s.C0.ESC + "OB" : s.C0.ESC + "[B";
+								o.key = a ? s.C0.ESC + "[1;" + (a + 1) + "B" : t ? s.C0.ESC + "OB" : s.C0.ESC + "[B";
 								break;
 							case 45:
 								e.shiftKey || e.ctrlKey || (o.key = s.C0.ESC + "[2~");
@@ -5191,9 +5189,32 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						return o;
 					};
+					const s = i(3534), r = {
+						48: ["0", ")"],
+						49: ["1", "!"],
+						50: ["2", "@"],
+						51: ["3", "#"],
+						52: ["4", "$"],
+						53: ["5", "%"],
+						54: ["6", "^"],
+						55: ["7", "&"],
+						56: ["8", "*"],
+						57: ["9", "("],
+						186: [";", ":"],
+						187: ["=", "+"],
+						188: [",", "<"],
+						189: ["-", "_"],
+						190: [".", ">"],
+						191: ["/", "?"],
+						192: ["`", "~"],
+						219: ["[", "{"],
+						220: ["\\", "|"],
+						221: ["]", "}"],
+						222: ["'", "\""]
+					};
 				},
-				482: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.Utf8ToUtf32 = t.StringToUtf32 = t.utf32ToString = t.stringFromCodePoint = void 0, t.stringFromCodePoint = function(e) {
+				726: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Utf8ToUtf32 = t.StringToUtf32 = void 0, t.stringFromCodePoint = function(e) {
 						return e > 65535 ? (e -= 65536, String.fromCharCode(55296 + (e >> 10)) + String.fromCharCode(e % 1024 + 56320)) : String.fromCharCode(e);
 					}, t.utf32ToString = function(e, t = 0, i = e.length) {
 						let s = "";
@@ -5237,27 +5258,27 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						decode(e, t) {
 							const i = e.length;
 							if (!i) return 0;
-							let s, r, n, o, a = 0, h = 0, c = 0;
+							let s, r, n, o, a = 0, l = 0, h = 0;
 							if (this.interim[0]) {
 								let s = !1, r = this.interim[0];
 								r &= 192 == (224 & r) ? 31 : 224 == (240 & r) ? 15 : 7;
 								let n, o = 0;
 								for (; (n = 63 & this.interim[++o]) && o < 4;) r <<= 6, r |= n;
-								const h = 192 == (224 & this.interim[0]) ? 2 : 224 == (240 & this.interim[0]) ? 3 : 4, l = h - o;
-								for (; c < l;) {
-									if (c >= i) return 0;
-									if (n = e[c++], 128 != (192 & n)) {
-										c--, s = !0;
+								const l = 192 == (224 & this.interim[0]) ? 2 : 224 == (240 & this.interim[0]) ? 3 : 4, c = l - o;
+								for (; h < c;) {
+									if (h >= i) return 0;
+									if (n = e[h++], 128 != (192 & n)) {
+										h--, s = !0;
 										break;
 									}
 									this.interim[o++] = n, r <<= 6, r |= 63 & n;
 								}
-								s || (2 === h ? r < 128 ? c-- : t[a++] = r : 3 === h ? r < 2048 || r >= 55296 && r <= 57343 || 65279 === r || (t[a++] = r) : r < 65536 || r > 1114111 || (t[a++] = r)), this.interim.fill(0);
+								s || (2 === l ? r < 128 ? h-- : t[a++] = r : 3 === l ? r < 2048 || r >= 55296 && r <= 57343 || 65279 === r || (t[a++] = r) : r < 65536 || r > 1114111 || (t[a++] = r)), this.interim.fill(0);
 							}
-							const l = i - 4;
-							let d = c;
+							const c = i - 4;
+							let d = h;
 							for (; d < i;) {
-								for (; !(!(d < l) || 128 & (s = e[d]) || 128 & (r = e[d + 1]) || 128 & (n = e[d + 2]) || 128 & (o = e[d + 3]));) t[a++] = s, t[a++] = r, t[a++] = n, t[a++] = o, d += 4;
+								for (; !(!(d < c) || 128 & (s = e[d]) || 128 & (r = e[d + 1]) || 128 & (n = e[d + 2]) || 128 & (o = e[d + 3]));) t[a++] = s, t[a++] = r, t[a++] = n, t[a++] = o, d += 4;
 								if (s = e[d++], s < 128) t[a++] = s;
 								else if (192 == (224 & s)) {
 									if (d >= i) return this.interim[0] = s, a;
@@ -5265,11 +5286,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										d--;
 										continue;
 									}
-									if (h = (31 & s) << 6 | 63 & r, h < 128) {
+									if (l = (31 & s) << 6 | 63 & r, l < 128) {
 										d--;
 										continue;
 									}
-									t[a++] = h;
+									t[a++] = l;
 								} else if (224 == (240 & s)) {
 									if (d >= i) return this.interim[0] = s, a;
 									if (r = e[d++], 128 != (192 & r)) {
@@ -5281,8 +5302,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										d--;
 										continue;
 									}
-									if (h = (15 & s) << 12 | (63 & r) << 6 | 63 & n, h < 2048 || h >= 55296 && h <= 57343 || 65279 === h) continue;
-									t[a++] = h;
+									if (l = (15 & s) << 12 | (63 & r) << 6 | 63 & n, l < 2048 || l >= 55296 && l <= 57343 || 65279 === l) continue;
+									t[a++] = l;
 								} else if (240 == (248 & s)) {
 									if (d >= i) return this.interim[0] = s, a;
 									if (r = e[d++], 128 != (192 & r)) {
@@ -5299,17 +5320,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										d--;
 										continue;
 									}
-									if (h = (7 & s) << 18 | (63 & r) << 12 | (63 & n) << 6 | 63 & o, h < 65536 || h > 1114111) continue;
-									t[a++] = h;
+									if (l = (7 & s) << 18 | (63 & r) << 12 | (63 & n) << 6 | 63 & o, l < 65536 || l > 1114111) continue;
+									t[a++] = l;
 								}
 							}
 							return a;
 						}
 					};
 				},
-				225: (e, t, i) => {
+				7428: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.UnicodeV6 = void 0;
-					const s = i(1480), r = [
+					const s = i(6415), r = [
 						[768, 879],
 						[1155, 1158],
 						[1160, 1161],
@@ -5484,12 +5505,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				5981: (e, t, i) => {
+				3562: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.WriteBuffer = void 0;
-					const s = i(8460), r = i(844);
-					class n extends r.Disposable {
+					const s = i(7150), r = i(802);
+					class n extends s.Disposable {
 						constructor(e) {
-							super(), this._action = e, this._writeBuffer = [], this._callbacks = [], this._pendingData = 0, this._bufferOffset = 0, this._isSyncWriting = !1, this._syncCalls = 0, this._didUserInput = !1, this._onWriteParsed = this.register(new s.EventEmitter()), this.onWriteParsed = this._onWriteParsed.event;
+							super(), this._action = e, this._writeBuffer = [], this._callbacks = [], this._pendingData = 0, this._bufferOffset = 0, this._isSyncWriting = !1, this._syncCalls = 0, this._didUserInput = !1, this._onWriteParsed = this._register(new r.Emitter()), this.onWriteParsed = this._onWriteParsed.event;
 						}
 						handleUserInput() {
 							this._didUserInput = !0;
@@ -5514,37 +5535,26 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._pendingData += e.length, this._writeBuffer.push(e), this._callbacks.push(t);
 						}
 						_innerWrite(e = 0, t = !0) {
-							const i = e || Date.now();
+							const i = e || performance.now();
 							for (; this._writeBuffer.length > this._bufferOffset;) {
 								const e = this._writeBuffer[this._bufferOffset], s = this._action(e, t);
 								if (s) {
-									const e = (e) => Date.now() - i >= 12 ? setTimeout((() => this._innerWrite(0, e))) : this._innerWrite(i, e);
+									const e = (e) => performance.now() - i >= 12 ? setTimeout((() => this._innerWrite(0, e))) : this._innerWrite(i, e);
 									s.catch(((e) => (queueMicrotask((() => {
 										throw e;
 									})), Promise.resolve(!1)))).then(e);
 									return;
 								}
 								const r = this._callbacks[this._bufferOffset];
-								if (r && r(), this._bufferOffset++, this._pendingData -= e.length, Date.now() - i >= 12) break;
+								if (r && r(), this._bufferOffset++, this._pendingData -= e.length, performance.now() - i >= 12) break;
 							}
 							this._writeBuffer.length > this._bufferOffset ? (this._bufferOffset > 50 && (this._writeBuffer = this._writeBuffer.slice(this._bufferOffset), this._callbacks = this._callbacks.slice(this._bufferOffset), this._bufferOffset = 0), setTimeout((() => this._innerWrite()))) : (this._writeBuffer.length = 0, this._callbacks.length = 0, this._pendingData = 0, this._bufferOffset = 0), this._onWriteParsed.fire();
 						}
 					}
 					t.WriteBuffer = n;
 				},
-				5941: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.toRgbString = t.parseColor = void 0;
-					const i = /^([\da-f])\/([\da-f])\/([\da-f])$|^([\da-f]{2})\/([\da-f]{2})\/([\da-f]{2})$|^([\da-f]{3})\/([\da-f]{3})\/([\da-f]{3})$|^([\da-f]{4})\/([\da-f]{4})\/([\da-f]{4})$/, s = /^[\da-f]+$/;
-					function r(e, t) {
-						const i = e.toString(16), s = i.length < 2 ? "0" + i : i;
-						switch (t) {
-							case 4: return i[0];
-							case 8: return s;
-							case 12: return (s + s).slice(0, 3);
-							default: return s + s;
-						}
-					}
-					t.parseColor = function(e) {
+				8693: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.parseColor = function(e) {
 						if (!e) return;
 						let t = e.toLowerCase();
 						if (0 === t.indexOf("rgb:")) {
@@ -5579,13 +5589,23 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						const [i, s, n] = e;
 						return `rgb:${r(i, t)}/${r(s, t)}/${r(n, t)}`;
 					};
+					const i = /^([\da-f])\/([\da-f])\/([\da-f])$|^([\da-f]{2})\/([\da-f]{2})\/([\da-f]{2})$|^([\da-f]{3})\/([\da-f]{3})\/([\da-f]{3})$|^([\da-f]{4})\/([\da-f]{4})\/([\da-f]{4})$/, s = /^[\da-f]+$/;
+					function r(e, t) {
+						const i = e.toString(16), s = i.length < 2 ? "0" + i : i;
+						switch (t) {
+							case 4: return i[0];
+							case 8: return s;
+							case 12: return (s + s).slice(0, 3);
+							default: return s + s;
+						}
+					}
 				},
-				5770: (e, t) => {
+				1263: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.PAYLOAD_LIMIT = void 0, t.PAYLOAD_LIMIT = 1e7;
 				},
-				6351: (e, t, i) => {
+				9823: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DcsHandler = t.DcsParser = void 0;
-					const s = i(482), r = i(8742), n = i(5770), o = [];
+					const s = i(726), r = i(7262), n = i(1263), o = [];
 					t.DcsParser = class {
 						constructor() {
 							this._handlers = Object.create(null), this._active = o, this._ident = 0, this._handlerFb = () => {}, this._stack = {
@@ -5654,9 +5674,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				2015: (e, t, i) => {
+				6717: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.EscapeSequenceParser = t.VT500_TRANSITION_TABLE = t.TransitionTable = void 0;
-					const s = i(844), r = i(8742), n = i(6242), o = i(6351);
+					const s = i(7150), r = i(7262), n = i(1346), o = i(9823);
 					class a {
 						constructor(e) {
 							this.table = new Uint8Array(e);
@@ -5672,7 +5692,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 					t.TransitionTable = a;
-					const h = 160;
+					const l = 160;
 					t.VT500_TRANSITION_TABLE = function() {
 						const e = new a(4095), t = Array.apply(null, Array(256)).map(((e, t) => t)), i = (e, i) => t.slice(e, i), s = i(32, 127), r = i(0, 24);
 						r.push(25), r.push.apply(r, i(28, 32));
@@ -5727,9 +5747,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							156,
 							24,
 							26
-						], 13, 14, 0), e.add(h, 0, 2, 0), e.add(h, 8, 5, 8), e.add(h, 6, 0, 6), e.add(h, 11, 0, 11), e.add(h, 13, 13, 13), e;
+						], 13, 14, 0), e.add(l, 0, 2, 0), e.add(l, 8, 5, 8), e.add(l, 6, 0, 6), e.add(l, 11, 0, 11), e.add(l, 13, 13, 13), e;
 					}();
-					class c extends s.Disposable {
+					class h extends s.Disposable {
 						constructor(e = t.VT500_TRANSITION_TABLE) {
 							super(), this._transitions = e, this._parseStack = {
 								state: 0,
@@ -5737,9 +5757,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								handlerPos: 0,
 								transition: 0,
 								chunkPos: 0
-							}, this.initialState = 0, this.currentState = this.initialState, this._params = new r.Params(), this._params.addParam(0), this._collect = 0, this.precedingJoinState = 0, this._printHandlerFb = (e, t, i) => {}, this._executeHandlerFb = (e) => {}, this._csiHandlerFb = (e, t) => {}, this._escHandlerFb = (e) => {}, this._errorHandlerFb = (e) => e, this._printHandler = this._printHandlerFb, this._executeHandlers = Object.create(null), this._csiHandlers = Object.create(null), this._escHandlers = Object.create(null), this.register((0, s.toDisposable)((() => {
+							}, this.initialState = 0, this.currentState = this.initialState, this._params = new r.Params(), this._params.addParam(0), this._collect = 0, this.precedingJoinState = 0, this._printHandlerFb = (e, t, i) => {}, this._executeHandlerFb = (e) => {}, this._csiHandlerFb = (e, t) => {}, this._escHandlerFb = (e) => {}, this._errorHandlerFb = (e) => e, this._printHandler = this._printHandlerFb, this._executeHandlers = Object.create(null), this._csiHandlers = Object.create(null), this._escHandlers = Object.create(null), this._register((0, s.toDisposable)((() => {
 								this._csiHandlers = Object.create(null), this._executeHandlers = Object.create(null), this._escHandlers = Object.create(null);
-							}))), this._oscParser = this.register(new n.OscParser()), this._dcsParser = this.register(new o.DcsParser()), this._errorHandler = this._errorHandlerFb, this.registerEscHandler({ final: "\\" }, (() => !0));
+							}))), this._oscParser = this._register(new n.OscParser()), this._dcsParser = this._register(new o.DcsParser()), this._errorHandler = this._errorHandlerFb, this.registerEscHandler({ final: "\\" }, (() => !0));
 						}
 						_identifier(e, t = [64, 126]) {
 							let i = 0;
@@ -5871,22 +5891,22 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								this._parseStack.state = 0, o = this._parseStack.chunkPos + 1, this.precedingJoinState = 0, this.currentState = 15 & this._parseStack.transition;
 							}
 							for (let i = o; i < t; ++i) {
-								switch (r = e[i], n = this._transitions.table[this.currentState << 8 | (r < 160 ? r : h)], n >> 4) {
+								switch (r = e[i], n = this._transitions.table[this.currentState << 8 | (r < 160 ? r : l)], n >> 4) {
 									case 2:
 										for (let s = i + 1;; ++s) {
-											if (s >= t || (r = e[s]) < 32 || r > 126 && r < h) {
+											if (s >= t || (r = e[s]) < 32 || r > 126 && r < l) {
 												this._printHandler(e, i, s), i = s - 1;
 												break;
 											}
-											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < h) {
+											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < l) {
 												this._printHandler(e, i, s), i = s - 1;
 												break;
 											}
-											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < h) {
+											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < l) {
 												this._printHandler(e, i, s), i = s - 1;
 												break;
 											}
-											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < h) {
+											if (++s >= t || (r = e[s]) < 32 || r > 126 && r < l) {
 												this._printHandler(e, i, s), i = s - 1;
 												break;
 											}
@@ -5930,10 +5950,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										this._collect <<= 8, this._collect |= r;
 										break;
 									case 10:
-										const c = this._escHandlers[this._collect << 8 | r];
-										let l = c ? c.length - 1 : -1;
-										for (; l >= 0 && (s = c[l](), !0 !== s); l--) if (s instanceof Promise) return this._preserveStack(4, c, l, n, i), s;
-										l < 0 && this._escHandlerFb(this._collect << 8 | r), this.precedingJoinState = 0;
+										const h = this._escHandlers[this._collect << 8 | r];
+										let c = h ? h.length - 1 : -1;
+										for (; c >= 0 && (s = h[c](), !0 !== s); c--) if (s instanceof Promise) return this._preserveStack(4, h, c, n, i), s;
+										c < 0 && this._escHandlerFb(this._collect << 8 | r), this.precedingJoinState = 0;
 										break;
 									case 11:
 										this._params.reset(), this._params.addParam(0), this._collect = 0;
@@ -5942,7 +5962,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										this._dcsParser.hook(this._collect << 8 | r, this._params);
 										break;
 									case 13:
-										for (let s = i + 1;; ++s) if (s >= t || 24 === (r = e[s]) || 26 === r || 27 === r || r > 127 && r < h) {
+										for (let s = i + 1;; ++s) if (s >= t || 24 === (r = e[s]) || 26 === r || 27 === r || r > 127 && r < l) {
 											this._dcsParser.put(e, i, s), i = s - 1;
 											break;
 										}
@@ -5955,7 +5975,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 										this._oscParser.start();
 										break;
 									case 5:
-										for (let s = i + 1;; s++) if (s >= t || (r = e[s]) < 32 || r > 127 && r < h) {
+										for (let s = i + 1;; s++) if (s >= t || (r = e[s]) < 32 || r > 127 && r < l) {
 											this._oscParser.put(e, i, s), i = s - 1;
 											break;
 										}
@@ -5968,11 +5988,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							}
 						}
 					}
-					t.EscapeSequenceParser = c;
+					t.EscapeSequenceParser = h;
 				},
-				6242: (e, t, i) => {
+				1346: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.OscHandler = t.OscParser = void 0;
-					const s = i(5770), r = i(482), n = [];
+					const s = i(1263), r = i(726), n = [];
 					t.OscParser = class {
 						constructor() {
 							this._state = 0, this._active = n, this._id = -1, this._handlers = Object.create(null), this._handlerFb = () => {}, this._stack = {
@@ -6058,7 +6078,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				8742: (e, t) => {
+				7262: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.Params = void 0;
 					const i = 2147483647;
 					class s {
@@ -6130,7 +6150,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.Params = s;
 				},
-				5741: (e, t) => {
+				3027: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.AddonManager = void 0, t.AddonManager = class {
 						constructor() {
 							this._addons = [];
@@ -6158,9 +6178,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				8771: (e, t, i) => {
+				3235: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferApiView = void 0;
-					const s = i(3785), r = i(511);
+					const s = i(793), r = i(3055);
 					t.BufferApiView = class {
 						constructor(e, t) {
 							this._buffer = e, this.type = t;
@@ -6192,9 +6212,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				3785: (e, t, i) => {
+				793: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferLineApiView = void 0;
-					const s = i(511);
+					const s = i(3055);
 					t.BufferLineApiView = class {
 						constructor(e) {
 							this._line = e;
@@ -6213,12 +6233,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				8285: (e, t, i) => {
+				5101: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferNamespaceApi = void 0;
-					const s = i(8771), r = i(8460), n = i(844);
-					class o extends n.Disposable {
+					const s = i(3235), r = i(7150), n = i(802);
+					class o extends r.Disposable {
 						constructor(e) {
-							super(), this._core = e, this._onBufferChange = this.register(new r.EventEmitter()), this.onBufferChange = this._onBufferChange.event, this._normal = new s.BufferApiView(this._core.buffers.normal, "normal"), this._alternate = new s.BufferApiView(this._core.buffers.alt, "alternate"), this._core.buffers.onBufferActivate((() => this._onBufferChange.fire(this.active)));
+							super(), this._core = e, this._onBufferChange = this._register(new n.Emitter()), this.onBufferChange = this._onBufferChange.event, this._normal = new s.BufferApiView(this._core.buffers.normal, "normal"), this._alternate = new s.BufferApiView(this._core.buffers.alt, "alternate"), this._core.buffers.onBufferActivate((() => this._onBufferChange.fire(this.active)));
 						}
 						get active() {
 							if (this._core.buffers.active === this._core.buffers.normal) return this.normal;
@@ -6234,7 +6254,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.BufferNamespaceApi = o;
 				},
-				7975: (e, t) => {
+				6097: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.ParserApi = void 0, t.ParserApi = class {
 						constructor(e) {
 							this._core = e;
@@ -6265,7 +6285,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				7090: (e, t) => {
+				4335: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.UnicodeApi = void 0, t.UnicodeApi = class {
 						constructor(e) {
 							this._core = e;
@@ -6284,7 +6304,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				744: function(e, t, i) {
+				9640: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -6296,19 +6316,24 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.BufferService = t.MINIMUM_ROWS = t.MINIMUM_COLS = void 0;
-					const n = i(8460), o = i(844), a = i(5295), h = i(2585);
+					const n = i(7150), o = i(4097), a = i(6501), l = i(802);
 					t.MINIMUM_COLS = 2, t.MINIMUM_ROWS = 1;
-					let c = t.BufferService = class extends o.Disposable {
+					let h = class extends n.Disposable {
 						get buffer() {
 							return this.buffers.active;
 						}
 						constructor(e) {
-							super(), this.isUserScrolling = !1, this._onResize = this.register(new n.EventEmitter()), this.onResize = this._onResize.event, this._onScroll = this.register(new n.EventEmitter()), this.onScroll = this._onScroll.event, this.cols = Math.max(e.rawOptions.cols || 0, t.MINIMUM_COLS), this.rows = Math.max(e.rawOptions.rows || 0, t.MINIMUM_ROWS), this.buffers = this.register(new a.BufferSet(e, this));
+							super(), this.isUserScrolling = !1, this._onResize = this._register(new l.Emitter()), this.onResize = this._onResize.event, this._onScroll = this._register(new l.Emitter()), this.onScroll = this._onScroll.event, this.cols = Math.max(e.rawOptions.cols || 0, t.MINIMUM_COLS), this.rows = Math.max(e.rawOptions.rows || 0, t.MINIMUM_ROWS), this.buffers = this._register(new o.BufferSet(e, this)), this._register(this.buffers.onBufferActivate(((e) => {
+								this._onScroll.fire(e.activeBuffer.ydisp);
+							})));
 						}
 						resize(e, t) {
+							const i = this.cols !== e, s = this.rows !== t;
 							this.cols = e, this.rows = t, this.buffers.resize(e, t), this._onResize.fire({
 								cols: e,
-								rows: t
+								rows: t,
+								colsChanged: i,
+								rowsChanged: s
 							});
 						}
 						reset() {
@@ -6328,19 +6353,19 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							}
 							this.isUserScrolling || (i.ydisp = i.ybase), this._onScroll.fire(i.ydisp);
 						}
-						scrollLines(e, t, i) {
-							const s = this.buffer;
+						scrollLines(e, t) {
+							const i = this.buffer;
 							if (e < 0) {
-								if (0 === s.ydisp) return;
+								if (0 === i.ydisp) return;
 								this.isUserScrolling = !0;
-							} else e + s.ydisp >= s.ybase && (this.isUserScrolling = !1);
-							const r = s.ydisp;
-							s.ydisp = Math.max(Math.min(s.ydisp + e, s.ybase), 0), r !== s.ydisp && (t || this._onScroll.fire(s.ydisp));
+							} else e + i.ydisp >= i.ybase && (this.isUserScrolling = !1);
+							const s = i.ydisp;
+							i.ydisp = Math.max(Math.min(i.ydisp + e, i.ybase), 0), s !== i.ydisp && (t || this._onScroll.fire(i.ydisp));
 						}
 					};
-					t.BufferService = c = s([r(0, h.IOptionsService)], c);
+					t.BufferService = h, t.BufferService = h = s([r(0, a.IOptionsService)], h);
 				},
-				7994: (e, t) => {
+				5746: (e, t) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CharsetService = void 0, t.CharsetService = class {
 						constructor() {
 							this.glevel = 0, this._charsets = [];
@@ -6356,7 +6381,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				1753: function(e, t, i) {
+				7792: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -6368,7 +6393,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CoreMouseService = void 0;
-					const n = i(2585), o = i(8460), a = i(844), h = {
+					const n = i(6501), o = i(7150), a = i(802), l = {
 						NONE: {
 							events: 0,
 							restrict: () => !1
@@ -6390,32 +6415,32 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							restrict: (e) => !0
 						}
 					};
-					function c(e, t) {
+					function h(e, t) {
 						let i = (e.ctrl ? 16 : 0) | (e.shift ? 4 : 0) | (e.alt ? 8 : 0);
 						return 4 === e.button ? (i |= 64, i |= e.action) : (i |= 3 & e.button, 4 & e.button && (i |= 64), 8 & e.button && (i |= 128), 32 === e.action ? i |= 32 : 0 !== e.action || t || (i |= 3)), i;
 					}
-					const l = String.fromCharCode, d = {
+					const c = String.fromCharCode, d = {
 						DEFAULT: (e) => {
 							const t = [
-								c(e, !1) + 32,
+								h(e, !1) + 32,
 								e.col + 32,
 								e.row + 32
 							];
-							return t[0] > 255 || t[1] > 255 || t[2] > 255 ? "" : `[M${l(t[0])}${l(t[1])}${l(t[2])}`;
+							return t[0] > 255 || t[1] > 255 || t[2] > 255 ? "" : `[M${c(t[0])}${c(t[1])}${c(t[2])}`;
 						},
 						SGR: (e) => {
 							const t = 0 === e.action && 4 !== e.button ? "m" : "M";
-							return `[<${c(e, !0)};${e.col};${e.row}${t}`;
+							return `[<${h(e, !0)};${e.col};${e.row}${t}`;
 						},
 						SGR_PIXELS: (e) => {
 							const t = 0 === e.action && 4 !== e.button ? "m" : "M";
-							return `[<${c(e, !0)};${e.x};${e.y}${t}`;
+							return `[<${h(e, !0)};${e.x};${e.y}${t}`;
 						}
 					};
-					let _ = t.CoreMouseService = class extends a.Disposable {
-						constructor(e, t) {
-							super(), this._bufferService = e, this._coreService = t, this._protocols = {}, this._encodings = {}, this._activeProtocol = "", this._activeEncoding = "", this._lastEvent = null, this._onProtocolChange = this.register(new o.EventEmitter()), this.onProtocolChange = this._onProtocolChange.event;
-							for (const e of Object.keys(h)) this.addProtocol(e, h[e]);
+					let u = class extends o.Disposable {
+						constructor(e, t, i) {
+							super(), this._bufferService = e, this._coreService = t, this._optionsService = i, this._protocols = {}, this._encodings = {}, this._activeProtocol = "", this._activeEncoding = "", this._lastEvent = null, this._wheelPartialScroll = 0, this._onProtocolChange = this._register(new a.Emitter()), this.onProtocolChange = this._onProtocolChange.event;
+							for (const e of Object.keys(l)) this.addProtocol(e, l[e]);
 							for (const e of Object.keys(d)) this.addEncoding(e, d[e]);
 							this.reset();
 						}
@@ -6443,7 +6468,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._activeEncoding = e;
 						}
 						reset() {
-							this.activeProtocol = "NONE", this.activeEncoding = "DEFAULT", this._lastEvent = null;
+							this.activeProtocol = "NONE", this.activeEncoding = "DEFAULT", this._lastEvent = null, this._wheelPartialScroll = 0;
+						}
+						consumeWheelEvent(e, t, i) {
+							if (0 === e.deltaY || e.shiftKey) return 0;
+							if (void 0 === t || void 0 === i) return 0;
+							const s = t / i;
+							let r = this._applyScrollModifier(e.deltaY, e);
+							return e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? (r /= s + 0, Math.abs(e.deltaY) < 50 && (r *= .3), this._wheelPartialScroll += r, r = Math.floor(Math.abs(this._wheelPartialScroll)) * (this._wheelPartialScroll > 0 ? 1 : -1), this._wheelPartialScroll %= 1) : e.deltaMode === WheelEvent.DOM_DELTA_PAGE && (r *= this._bufferService.rows), r;
+						}
+						_applyScrollModifier(e, t) {
+							return t.altKey || t.ctrlKey || t.shiftKey ? e * this._optionsService.rawOptions.fastScrollSensitivity * this._optionsService.rawOptions.scrollSensitivity : e * this._optionsService.rawOptions.scrollSensitivity;
 						}
 						triggerMouseEvent(e) {
 							if (e.col < 0 || e.col >= this._bufferService.cols || e.row < 0 || e.row >= this._bufferService.rows) return !1;
@@ -6475,9 +6510,13 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return e.button === t.button && e.action === t.action && e.ctrl === t.ctrl && e.alt === t.alt && e.shift === t.shift;
 						}
 					};
-					t.CoreMouseService = _ = s([r(0, n.IBufferService), r(1, n.ICoreService)], _);
+					t.CoreMouseService = u, t.CoreMouseService = u = s([
+						r(0, n.IBufferService),
+						r(1, n.ICoreService),
+						r(2, n.IOptionsService)
+					], u);
 				},
-				6975: function(e, t, i) {
+				4071: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -6489,56 +6528,59 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.CoreService = void 0;
-					const n = i(1439), o = i(8460), a = i(844), h = i(2585), c = Object.freeze({ insertMode: !1 }), l = Object.freeze({
+					const n = i(7453), o = i(7150), a = i(6501), l = i(802), h = Object.freeze({ insertMode: !1 }), c = Object.freeze({
 						applicationCursorKeys: !1,
 						applicationKeypad: !1,
 						bracketedPasteMode: !1,
+						cursorBlink: void 0,
+						cursorStyle: void 0,
 						origin: !1,
 						reverseWraparound: !1,
 						sendFocus: !1,
+						synchronizedOutput: !1,
 						wraparound: !0
 					});
-					let d = t.CoreService = class extends a.Disposable {
+					let d = class extends o.Disposable {
 						constructor(e, t, i) {
-							super(), this._bufferService = e, this._logService = t, this._optionsService = i, this.isCursorInitialized = !1, this.isCursorHidden = !1, this._onData = this.register(new o.EventEmitter()), this.onData = this._onData.event, this._onUserInput = this.register(new o.EventEmitter()), this.onUserInput = this._onUserInput.event, this._onBinary = this.register(new o.EventEmitter()), this.onBinary = this._onBinary.event, this._onRequestScrollToBottom = this.register(new o.EventEmitter()), this.onRequestScrollToBottom = this._onRequestScrollToBottom.event, this.modes = (0, n.clone)(c), this.decPrivateModes = (0, n.clone)(l);
+							super(), this._bufferService = e, this._logService = t, this._optionsService = i, this.isCursorInitialized = !1, this.isCursorHidden = !1, this._onData = this._register(new l.Emitter()), this.onData = this._onData.event, this._onUserInput = this._register(new l.Emitter()), this.onUserInput = this._onUserInput.event, this._onBinary = this._register(new l.Emitter()), this.onBinary = this._onBinary.event, this._onRequestScrollToBottom = this._register(new l.Emitter()), this.onRequestScrollToBottom = this._onRequestScrollToBottom.event, this.modes = (0, n.clone)(h), this.decPrivateModes = (0, n.clone)(c);
 						}
 						reset() {
-							this.modes = (0, n.clone)(c), this.decPrivateModes = (0, n.clone)(l);
+							this.modes = (0, n.clone)(h), this.decPrivateModes = (0, n.clone)(c);
 						}
 						triggerDataEvent(e, t = !1) {
 							if (this._optionsService.rawOptions.disableStdin) return;
 							const i = this._bufferService.buffer;
-							t && this._optionsService.rawOptions.scrollOnUserInput && i.ybase !== i.ydisp && this._onRequestScrollToBottom.fire(), t && this._onUserInput.fire(), this._logService.debug(`sending data "${e}"`, (() => e.split("").map(((e) => e.charCodeAt(0))))), this._onData.fire(e);
+							t && this._optionsService.rawOptions.scrollOnUserInput && i.ybase !== i.ydisp && this._onRequestScrollToBottom.fire(), t && this._onUserInput.fire(), this._logService.debug(`sending data "${e}"`), this._logService.trace("sending data (codes)", (() => e.split("").map(((e) => e.charCodeAt(0))))), this._onData.fire(e);
 						}
 						triggerBinaryEvent(e) {
-							this._optionsService.rawOptions.disableStdin || (this._logService.debug(`sending binary "${e}"`, (() => e.split("").map(((e) => e.charCodeAt(0))))), this._onBinary.fire(e));
+							this._optionsService.rawOptions.disableStdin || (this._logService.debug(`sending binary "${e}"`), this._logService.trace("sending binary (codes)", (() => e.split("").map(((e) => e.charCodeAt(0))))), this._onBinary.fire(e));
 						}
 					};
-					t.CoreService = d = s([
-						r(0, h.IBufferService),
-						r(1, h.ILogService),
-						r(2, h.IOptionsService)
+					t.CoreService = d, t.CoreService = d = s([
+						r(0, a.IBufferService),
+						r(1, a.ILogService),
+						r(2, a.IOptionsService)
 					], d);
 				},
-				9074: (e, t, i) => {
+				4720: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.DecorationService = void 0;
-					const s = i(8055), r = i(8460), n = i(844), o = i(6106);
-					let a = 0, h = 0;
-					class c extends n.Disposable {
+					const s = i(4103), r = i(7150), n = i(3087), o = i(802);
+					let a = 0, l = 0;
+					class h extends r.Disposable {
 						get decorations() {
 							return this._decorations.values();
 						}
 						constructor() {
-							super(), this._decorations = new o.SortedList(((e) => e?.marker.line)), this._onDecorationRegistered = this.register(new r.EventEmitter()), this.onDecorationRegistered = this._onDecorationRegistered.event, this._onDecorationRemoved = this.register(new r.EventEmitter()), this.onDecorationRemoved = this._onDecorationRemoved.event, this.register((0, n.toDisposable)((() => this.reset())));
+							super(), this._decorations = new n.SortedList(((e) => e?.marker.line)), this._onDecorationRegistered = this._register(new o.Emitter()), this.onDecorationRegistered = this._onDecorationRegistered.event, this._onDecorationRemoved = this._register(new o.Emitter()), this.onDecorationRemoved = this._onDecorationRemoved.event, this._register((0, r.toDisposable)((() => this.reset())));
 						}
 						registerDecoration(e) {
 							if (e.marker.isDisposed) return;
-							const t = new l(e);
+							const t = new c(e);
 							if (t) {
-								const e = t.marker.onDispose((() => t.dispose()));
-								t.onDispose((() => {
-									t && (this._decorations.delete(t) && this._onDecorationRemoved.fire(t), e.dispose());
-								})), this._decorations.insert(t), this._onDecorationRegistered.fire(t);
+								const e = t.marker.onDispose((() => t.dispose())), i = t.onDispose((() => {
+									i.dispose(), t && (this._decorations.delete(t) && this._onDecorationRemoved.fire(t), e.dispose());
+								}));
+								this._decorations.insert(t), this._onDecorationRegistered.fire(t);
 							}
 							return t;
 						}
@@ -6552,15 +6594,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 						forEachDecorationAtCell(e, t, i, s) {
 							this._decorations.forEachByKey(t, ((t) => {
-								a = t.options.x ?? 0, h = a + (t.options.width ?? 1), e >= a && e < h && (!i || (t.options.layer ?? "bottom") === i) && s(t);
+								a = t.options.x ?? 0, l = a + (t.options.width ?? 1), e >= a && e < l && (!i || (t.options.layer ?? "bottom") === i) && s(t);
 							}));
 						}
 					}
-					t.DecorationService = c;
-					class l extends n.Disposable {
-						get isDisposed() {
-							return this._isDisposed;
-						}
+					t.DecorationService = h;
+					class c extends r.DisposableStore {
 						get backgroundColorRGB() {
 							return null === this._cachedBg && (this.options.backgroundColor ? this._cachedBg = s.css.toColor(this.options.backgroundColor) : this._cachedBg = void 0), this._cachedBg;
 						}
@@ -6568,16 +6607,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return null === this._cachedFg && (this.options.foregroundColor ? this._cachedFg = s.css.toColor(this.options.foregroundColor) : this._cachedFg = void 0), this._cachedFg;
 						}
 						constructor(e) {
-							super(), this.options = e, this.onRenderEmitter = this.register(new r.EventEmitter()), this.onRender = this.onRenderEmitter.event, this._onDispose = this.register(new r.EventEmitter()), this.onDispose = this._onDispose.event, this._cachedBg = null, this._cachedFg = null, this.marker = e.marker, this.options.overviewRulerOptions && !this.options.overviewRulerOptions.position && (this.options.overviewRulerOptions.position = "full");
+							super(), this.options = e, this.onRenderEmitter = this.add(new o.Emitter()), this.onRender = this.onRenderEmitter.event, this._onDispose = this.add(new o.Emitter()), this.onDispose = this._onDispose.event, this._cachedBg = null, this._cachedFg = null, this.marker = e.marker, this.options.overviewRulerOptions && !this.options.overviewRulerOptions.position && (this.options.overviewRulerOptions.position = "full");
 						}
 						dispose() {
 							this._onDispose.fire(), super.dispose();
 						}
 					}
 				},
-				4348: (e, t, i) => {
+				6025: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.InstantiationService = t.ServiceCollection = void 0;
-					const s = i(2585), r = i(8343);
+					const s = i(6501), r = i(6201);
 					class n {
 						constructor(...e) {
 							this._entries = /* @__PURE__ */ new Map();
@@ -6611,7 +6650,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							const i = (0, r.getServiceDependencies)(e).sort(((e, t) => e.index - t.index)), s = [];
 							for (const t of i) {
 								const i = this._services.get(t.id);
-								if (!i) throw new Error(`[createInstance] ${e.name} depends on UNKNOWN service ${t.id}.`);
+								if (!i) throw new Error(`[createInstance] ${e.name} depends on UNKNOWN service ${t.id._id}.`);
 								s.push(i);
 							}
 							const n = i.length > 0 ? i[0].index : t.length;
@@ -6620,7 +6659,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					};
 				},
-				7866: function(e, t, i) {
+				7276: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -6631,8 +6670,19 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							t(i, s, e);
 						};
 					};
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.traceCall = t.setTraceLogger = t.LogService = void 0;
-					const n = i(844), o = i(2585), a = {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.LogService = void 0, t.setTraceLogger = function(e) {
+						l = e;
+					}, t.traceCall = function(e, t, i) {
+						if ("function" != typeof i.value) throw new Error("not supported");
+						const s = i.value;
+						i.value = function(...e) {
+							if (l.logLevel !== o.LogLevelEnum.TRACE) return s.apply(this, e);
+							l.trace(`GlyphRenderer#${s.name}(${e.map(((e) => JSON.stringify(e))).join(", ")})`);
+							const t = s.apply(this, e);
+							return l.trace(`GlyphRenderer#${s.name} return`, t), t;
+						};
+					};
+					const n = i(7150), o = i(6501), a = {
 						trace: o.LogLevelEnum.TRACE,
 						debug: o.LogLevelEnum.DEBUG,
 						info: o.LogLevelEnum.INFO,
@@ -6640,12 +6690,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						error: o.LogLevelEnum.ERROR,
 						off: o.LogLevelEnum.OFF
 					};
-					let h, c = t.LogService = class extends n.Disposable {
+					let l, h = class extends n.Disposable {
 						get logLevel() {
 							return this._logLevel;
 						}
 						constructor(e) {
-							super(), this._optionsService = e, this._logLevel = o.LogLevelEnum.OFF, this._updateLogLevel(), this.register(this._optionsService.onSpecificOptionChange("logLevel", (() => this._updateLogLevel()))), h = this;
+							super(), this._optionsService = e, this._logLevel = o.LogLevelEnum.OFF, this._updateLogLevel(), this._register(this._optionsService.onSpecificOptionChange("logLevel", (() => this._updateLogLevel()))), l = this;
 						}
 						_updateLogLevel() {
 							this._logLevel = a[this._optionsService.rawOptions.logLevel];
@@ -6672,22 +6722,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							this._logLevel <= o.LogLevelEnum.ERROR && this._log(this._optionsService.options.logger?.error.bind(this._optionsService.options.logger) ?? console.error, e, t);
 						}
 					};
-					t.LogService = c = s([r(0, o.IOptionsService)], c), t.setTraceLogger = function(e) {
-						h = e;
-					}, t.traceCall = function(e, t, i) {
-						if ("function" != typeof i.value) throw new Error("not supported");
-						const s = i.value;
-						i.value = function(...e) {
-							if (h.logLevel !== o.LogLevelEnum.TRACE) return s.apply(this, e);
-							h.trace(`GlyphRenderer#${s.name}(${e.map(((e) => JSON.stringify(e))).join(", ")})`);
-							const t = s.apply(this, e);
-							return h.trace(`GlyphRenderer#${s.name} return`, t), t;
-						};
-					};
+					t.LogService = h, t.LogService = h = s([r(0, o.IOptionsService)], h);
 				},
-				7302: (e, t, i) => {
+				56: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.OptionsService = t.DEFAULT_OPTIONS = void 0;
-					const s = i(8460), r = i(844);
+					const s = i(7150), r = i(701), n = i(802);
 					t.DEFAULT_OPTIONS = {
 						cols: 80,
 						rows: 24,
@@ -6700,7 +6739,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						documentOverride: null,
 						fastScrollModifier: "alt",
 						fastScrollSensitivity: 5,
-						fontFamily: "courier-new, courier, monospace",
+						fontFamily: "monospace",
 						fontSize: 15,
 						fontWeight: "normal",
 						fontWeightBold: "bold",
@@ -6711,6 +6750,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						logLevel: "info",
 						logger: null,
 						scrollback: 1e3,
+						scrollOnEraseInDisplay: !1,
 						scrollOnUserInput: !0,
 						scrollSensitivity: 1,
 						screenReaderMode: !1,
@@ -6723,8 +6763,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						allowTransparency: !1,
 						tabStopWidth: 8,
 						theme: {},
+						reflowCursorLine: !1,
 						rescaleOverlappingGlyphs: !1,
-						rightClickSelectsWord: i(6114).isMac,
+						rightClickSelectsWord: r.isMac,
 						windowOptions: {},
 						windowsMode: !1,
 						windowsPty: {},
@@ -6733,7 +6774,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						convertEol: !1,
 						termName: "xterm",
 						cancelEvents: !1,
-						overviewRulerWidth: 0
+						overviewRuler: {}
 					};
 					const o = [
 						"normal",
@@ -6748,9 +6789,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						"800",
 						"900"
 					];
-					class a extends r.Disposable {
+					class a extends s.Disposable {
 						constructor(e) {
-							super(), this._onOptionChange = this.register(new s.EventEmitter()), this.onOptionChange = this._onOptionChange.event;
+							super(), this._onOptionChange = this._register(new n.Emitter()), this.onOptionChange = this._onOptionChange.event;
 							const i = { ...t.DEFAULT_OPTIONS };
 							for (const t in e) if (t in i) try {
 								const s = e[t];
@@ -6758,7 +6799,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							} catch (e) {
 								console.error(e);
 							}
-							this.rawOptions = i, this.options = { ...i }, this._setupOptions(), this.register((0, r.toDisposable)((() => {
+							this.rawOptions = i, this.options = { ...i }, this._setupOptions(), this._register((0, s.toDisposable)((() => {
 								this.rawOptions.linkHandler = null, this.rawOptions.documentOverride = null;
 							})));
 						}
@@ -6829,7 +6870,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 					}
 					t.OptionsService = a;
 				},
-				2660: function(e, t, i) {
+				8811: function(e, t, i) {
 					var s = this && this.__decorate || function(e, t, i, s) {
 						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
 						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
@@ -6841,8 +6882,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						};
 					};
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.OscLinkService = void 0;
-					const n = i(2585);
-					let o = t.OscLinkService = class {
+					const n = i(6501);
+					let o = class {
 						constructor(e) {
 							this._bufferService = e, this._nextId = 1, this._entriesWithId = /* @__PURE__ */ new Map(), this._dataByLinkId = /* @__PURE__ */ new Map();
 						}
@@ -6884,12 +6925,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							-1 !== i && (e.lines.splice(i, 1), 0 === e.lines.length && (void 0 !== e.data.id && this._entriesWithId.delete(e.key), this._dataByLinkId.delete(e.id)));
 						}
 					};
-					t.OscLinkService = o = s([r(0, n.IBufferService)], o);
+					t.OscLinkService = o, t.OscLinkService = o = s([r(0, n.IBufferService)], o);
 				},
-				8343: (e, t) => {
-					Object.defineProperty(t, "__esModule", { value: !0 }), t.createDecorator = t.getServiceDependencies = t.serviceRegistry = void 0;
-					const i = "di$target", s = "di$dependencies";
-					t.serviceRegistry = /* @__PURE__ */ new Map(), t.getServiceDependencies = function(e) {
+				6201: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.serviceRegistry = void 0, t.getServiceDependencies = function(e) {
 						return e[s] || [];
 					}, t.createDecorator = function(e) {
 						if (t.serviceRegistry.has(e)) return t.serviceRegistry.get(e);
@@ -6905,23 +6944,25 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 								}], t[i] = t);
 							})(r, e, n);
 						};
-						return r.toString = () => e, t.serviceRegistry.set(e, r), r;
+						return r._id = e, t.serviceRegistry.set(e, r), r;
 					};
+					const i = "di$target", s = "di$dependencies";
+					t.serviceRegistry = /* @__PURE__ */ new Map();
 				},
-				2585: (e, t, i) => {
+				6501: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.IDecorationService = t.IUnicodeService = t.IOscLinkService = t.IOptionsService = t.ILogService = t.LogLevelEnum = t.IInstantiationService = t.ICharsetService = t.ICoreService = t.ICoreMouseService = t.IBufferService = void 0;
-					const s = i(8343);
+					const s = i(6201);
 					var r;
 					t.IBufferService = (0, s.createDecorator)("BufferService"), t.ICoreMouseService = (0, s.createDecorator)("CoreMouseService"), t.ICoreService = (0, s.createDecorator)("CoreService"), t.ICharsetService = (0, s.createDecorator)("CharsetService"), t.IInstantiationService = (0, s.createDecorator)("InstantiationService"), function(e) {
 						e[e.TRACE = 0] = "TRACE", e[e.DEBUG = 1] = "DEBUG", e[e.INFO = 2] = "INFO", e[e.WARN = 3] = "WARN", e[e.ERROR = 4] = "ERROR", e[e.OFF = 5] = "OFF";
 					}(r || (t.LogLevelEnum = r = {})), t.ILogService = (0, s.createDecorator)("LogService"), t.IOptionsService = (0, s.createDecorator)("OptionsService"), t.IOscLinkService = (0, s.createDecorator)("OscLinkService"), t.IUnicodeService = (0, s.createDecorator)("UnicodeService"), t.IDecorationService = (0, s.createDecorator)("DecorationService");
 				},
-				1480: (e, t, i) => {
+				6415: (e, t, i) => {
 					Object.defineProperty(t, "__esModule", { value: !0 }), t.UnicodeService = void 0;
-					const s = i(8460), r = i(225);
+					const s = i(7428), r = i(802);
 					class n {
 						static extractShouldJoin(e) {
-							return 0 != (1 & e);
+							return !!(1 & e);
 						}
 						static extractWidth(e) {
 							return e >> 1 & 3;
@@ -6933,8 +6974,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							return (16777215 & e) << 3 | (3 & t) << 1 | (i ? 1 : 0);
 						}
 						constructor() {
-							this._providers = Object.create(null), this._active = "", this._onChange = new s.EventEmitter(), this.onChange = this._onChange.event;
-							const e = new r.UnicodeV6();
+							this._providers = Object.create(null), this._active = "", this._onChange = new r.Emitter(), this.onChange = this._onChange.event;
+							const e = new s.UnicodeV6();
 							this.register(e), this._active = e.version, this._activeProvider = e;
 						}
 						dispose() {
@@ -6967,8 +7008,8 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 									56320 <= i && i <= 57343 ? o = 1024 * (o - 55296) + i - 56320 + 65536 : t += this.wcwidth(i);
 								}
 								const a = this.charProperties(o, i);
-								let h = n.extractWidth(a);
-								n.extractShouldJoin(a) && (h -= n.extractWidth(i)), t += h, i = a;
+								let l = n.extractWidth(a);
+								n.extractShouldJoin(a) && (l -= n.extractWidth(i)), t += l, i = a;
 							}
 							return t;
 						}
@@ -6977,6 +7018,5775 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 					t.UnicodeService = n;
+				},
+				4333: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.isAndroid = t.isElectron = t.isWebkitWebView = t.isSafari = t.isChrome = t.isWebKit = t.isFirefox = t.onDidChangeFullscreen = t.onDidChangeZoomLevel = void 0, t.addMatchMediaChangeListener = o, t.setZoomLevel = function(e, t) {
+						n.INSTANCE.setZoomLevel(e, t);
+					}, t.getZoomLevel = function(e) {
+						return n.INSTANCE.getZoomLevel(e);
+					}, t.getZoomFactor = function(e) {
+						return n.INSTANCE.getZoomFactor(e);
+					}, t.setZoomFactor = function(e, t) {
+						n.INSTANCE.setZoomFactor(e, t);
+					}, t.setFullscreen = function(e, t) {
+						n.INSTANCE.setFullscreen(e, t);
+					}, t.isFullscreen = function(e) {
+						return n.INSTANCE.isFullscreen(e);
+					}, t.isStandalone = function() {
+						return l;
+					}, t.isWCOEnabled = function() {
+						return navigator?.windowControlsOverlay?.visible;
+					}, t.getWCOBoundingRect = function() {
+						return navigator?.windowControlsOverlay?.getTitlebarAreaRect();
+					};
+					const s = i(4693), r = i(802);
+					class n {
+						constructor() {
+							this.mapWindowIdToZoomLevel = /* @__PURE__ */ new Map(), this._onDidChangeZoomLevel = new r.Emitter(), this.onDidChangeZoomLevel = this._onDidChangeZoomLevel.event, this.mapWindowIdToZoomFactor = /* @__PURE__ */ new Map(), this._onDidChangeFullscreen = new r.Emitter(), this.onDidChangeFullscreen = this._onDidChangeFullscreen.event, this.mapWindowIdToFullScreen = /* @__PURE__ */ new Map();
+						}
+						static {
+							this.INSTANCE = new n();
+						}
+						getZoomLevel(e) {
+							return this.mapWindowIdToZoomLevel.get(this.getWindowId(e)) ?? 0;
+						}
+						setZoomLevel(e, t) {
+							if (this.getZoomLevel(t) === e) return;
+							const i = this.getWindowId(t);
+							this.mapWindowIdToZoomLevel.set(i, e), this._onDidChangeZoomLevel.fire(i);
+						}
+						getZoomFactor(e) {
+							return this.mapWindowIdToZoomFactor.get(this.getWindowId(e)) ?? 1;
+						}
+						setZoomFactor(e, t) {
+							this.mapWindowIdToZoomFactor.set(this.getWindowId(t), e);
+						}
+						setFullscreen(e, t) {
+							if (this.isFullscreen(t) === e) return;
+							const i = this.getWindowId(t);
+							this.mapWindowIdToFullScreen.set(i, e), this._onDidChangeFullscreen.fire(i);
+						}
+						isFullscreen(e) {
+							return !!this.mapWindowIdToFullScreen.get(this.getWindowId(e));
+						}
+						getWindowId(e) {
+							return e.vscodeWindowId;
+						}
+					}
+					function o(e, t, i) {
+						"string" == typeof t && (t = e.matchMedia(t)), t.addEventListener("change", i);
+					}
+					t.onDidChangeZoomLevel = n.INSTANCE.onDidChangeZoomLevel, t.onDidChangeFullscreen = n.INSTANCE.onDidChangeFullscreen;
+					const a = "object" == typeof navigator ? navigator.userAgent : "";
+					t.isFirefox = a.indexOf("Firefox") >= 0, t.isWebKit = a.indexOf("AppleWebKit") >= 0, t.isChrome = a.indexOf("Chrome") >= 0, t.isSafari = !t.isChrome && a.indexOf("Safari") >= 0, t.isWebkitWebView = !t.isChrome && !t.isSafari && t.isWebKit, t.isElectron = a.indexOf("Electron/") >= 0, t.isAndroid = a.indexOf("Android") >= 0;
+					let l = !1;
+					if ("function" == typeof s.mainWindow.matchMedia) {
+						const e = s.mainWindow.matchMedia("(display-mode: standalone) or (display-mode: window-controls-overlay)"), t = s.mainWindow.matchMedia("(display-mode: fullscreen)");
+						l = e.matches, o(s.mainWindow, e, (({ matches: e }) => {
+							l && t.matches || (l = e);
+						}));
+					}
+				},
+				7745: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.BrowserFeatures = t.KeyboardSupport = void 0;
+					const o = n(i(4333)), a = i(4693), l = n(i(8163));
+					var h;
+					(function(e) {
+						e[e.Always = 0] = "Always", e[e.FullScreen = 1] = "FullScreen", e[e.None = 2] = "None";
+					})(h || (t.KeyboardSupport = h = {}));
+					const c = "object" == typeof navigator ? navigator : {};
+					t.BrowserFeatures = {
+						clipboard: {
+							writeText: l.isNative || document.queryCommandSupported && document.queryCommandSupported("copy") || !!(c && c.clipboard && c.clipboard.writeText),
+							readText: l.isNative || !!(c && c.clipboard && c.clipboard.readText)
+						},
+						keyboard: l.isNative || o.isStandalone() ? h.Always : c.keyboard || o.isSafari ? h.FullScreen : h.None,
+						touch: "ontouchstart" in a.mainWindow || c.maxTouchPoints > 0,
+						pointerEvents: a.mainWindow.PointerEvent && ("ontouchstart" in a.mainWindow || navigator.maxTouchPoints > 0)
+					};
+				},
+				7093: function(e, t, i) {
+					var s, r = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), n = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), o = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && r(t, e, i);
+						return n(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.SafeTriangle = t.DragAndDropObserver = t.ModifierKeyEmitter = t.DetectedFullscreenMode = t.Namespace = t.EventHelper = t.EventType = t.sharedMutationObserver = t.Dimension = t.WindowIntervalTimer = t.scheduleAtNextAnimationFrame = t.runAtThisOrScheduleAtNextAnimationFrame = t.WindowIdleValue = t.addStandardDisposableGenericMouseUpListener = t.addStandardDisposableGenericMouseDownListener = t.addStandardDisposableListener = t.onDidUnregisterWindow = t.onWillUnregisterWindow = t.onDidRegisterWindow = t.hasWindow = t.getWindowById = t.getWindowId = t.getWindowsCount = t.getWindows = t.getDocument = t.getWindow = t.registerWindow = void 0, t.clearNode = function(e) {
+						for (; e.firstChild;) e.firstChild.remove();
+					}, t.clearNodeRecursively = function e(t) {
+						for (; t.firstChild;) {
+							const i = t.firstChild;
+							i.remove(), e(i);
+						}
+					}, t.addDisposableListener = C, t.addDisposableGenericMouseDownListener = w, t.addDisposableGenericMouseMoveListener = function(e, i, s) {
+						return C(e, g.isIOS && l.BrowserFeatures.pointerEvents ? t.EventType.POINTER_MOVE : t.EventType.MOUSE_MOVE, i, s);
+					}, t.addDisposableGenericMouseUpListener = E, t.runWhenWindowIdle = function(e, t, i) {
+						return (0, d._runWhenIdle)(e, t, i);
+					}, t.disposableWindowInterval = function(e, t, i, s) {
+						let r = 0;
+						const n = e.setInterval((() => {
+							r++, ("number" == typeof s && r >= s || !0 === t()) && o.dispose();
+						}), i), o = (0, p.toDisposable)((() => {
+							e.clearInterval(n);
+						}));
+						return o;
+					}, t.measure = function(e, i) {
+						return (0, t.scheduleAtNextAnimationFrame)(e, i, 1e4);
+					}, t.modify = function(e, i) {
+						return (0, t.scheduleAtNextAnimationFrame)(e, i, -1e4);
+					}, t.addDisposableThrottledListener = function(e, t, i, s, r) {
+						return new T(e, t, i, s, r);
+					}, t.getComputedStyle = k, t.getClientArea = function e(i, s) {
+						const r = (0, t.getWindow)(i), n = r.document;
+						if (i !== n.body) return new O(i.clientWidth, i.clientHeight);
+						if (g.isIOS && r?.visualViewport) return new O(r.visualViewport.width, r.visualViewport.height);
+						if (r?.innerWidth && r.innerHeight) return new O(r.innerWidth, r.innerHeight);
+						if (n.body && n.body.clientWidth && n.body.clientHeight) return new O(n.body.clientWidth, n.body.clientHeight);
+						if (n.documentElement && n.documentElement.clientWidth && n.documentElement.clientHeight) return new O(n.documentElement.clientWidth, n.documentElement.clientHeight);
+						if (s) return e(s);
+						throw new Error("Unable to figure out browser width and height");
+					}, t.getTopLeftOffset = I, t.size = function(e, t, i) {
+						"number" == typeof t && (e.style.width = `${t}px`), "number" == typeof i && (e.style.height = `${i}px`);
+					}, t.position = function(e, t, i, s, r, n = "absolute") {
+						"number" == typeof t && (e.style.top = `${t}px`), "number" == typeof i && (e.style.right = `${i}px`), "number" == typeof s && (e.style.bottom = `${s}px`), "number" == typeof r && (e.style.left = `${r}px`), e.style.position = n;
+					}, t.getDomNodePagePosition = function(e) {
+						const i = e.getBoundingClientRect(), s = (0, t.getWindow)(e);
+						return {
+							left: i.left + s.scrollX,
+							top: i.top + s.scrollY,
+							width: i.width,
+							height: i.height
+						};
+					}, t.getDomNodeZoomLevel = function(e) {
+						let t = e, i = 1;
+						do {
+							const e = k(t).zoom;
+							null != e && "1" !== e && (i *= e), t = t.parentElement;
+						} while (null !== t && t !== t.ownerDocument.documentElement);
+						return i;
+					}, t.getTotalWidth = P, t.getContentWidth = function(e) {
+						const t = M.getBorderLeftWidth(e) + M.getBorderRightWidth(e), i = M.getPaddingLeft(e) + M.getPaddingRight(e);
+						return e.offsetWidth - t - i;
+					}, t.getTotalScrollWidth = x, t.getContentHeight = function(e) {
+						const t = M.getBorderTopWidth(e) + M.getBorderBottomWidth(e), i = M.getPaddingTop(e) + M.getPaddingBottom(e);
+						return e.offsetHeight - t - i;
+					}, t.getTotalHeight = function(e) {
+						const t = M.getMarginTop(e) + M.getMarginBottom(e);
+						return e.offsetHeight + t;
+					}, t.getLargestChildWidth = function(e, t) {
+						const i = t.map(((t) => Math.max(x(t), P(t)) + function(e, t) {
+							if (null === e) return 0;
+							const i = I(e), s = I(t);
+							return i.left - s.left;
+						}(t, e) || 0));
+						return Math.max(...i);
+					}, t.isAncestor = B, t.setParentFlowTo = function(e, t) {
+						e.dataset[N] = t.id;
+					}, t.isAncestorUsingFlowTo = function(e, t) {
+						let i = e;
+						for (; i;) {
+							if (i === t) return !0;
+							if (Q(i)) {
+								const e = U(i);
+								if (e) {
+									i = e;
+									continue;
+								}
+							}
+							i = i.parentNode;
+						}
+						return !1;
+					}, t.findParentWithClass = F, t.hasParentWithClass = function(e, t, i) {
+						return !!F(e, t, i);
+					}, t.isShadowRoot = W, t.isInShadowDOM = function(e) {
+						return !!H(e);
+					}, t.getShadowRoot = H, t.getActiveElement = K, t.isActiveElement = function(e) {
+						return K() === e;
+					}, t.isAncestorOfActiveElement = function(e) {
+						return B(K(), e);
+					}, t.isActiveDocument = function(e) {
+						return e.ownerDocument === z();
+					}, t.getActiveDocument = z, t.getActiveWindow = function() {
+						return z().defaultView?.window ?? v.mainWindow;
+					}, t.isGlobalStylesheet = function(e) {
+						return j.has(e);
+					}, t.createStyleSheet2 = function() {
+						return new $();
+					}, t.createStyleSheet = V, t.cloneGlobalStylesheets = function(e) {
+						const t = new p.DisposableStore();
+						for (const [i, s] of j) t.add(G(i, s, e));
+						return t;
+					}, t.createMetaElement = function(e = v.mainWindow.document.head) {
+						return q("meta", e);
+					}, t.createLinkElement = function(e = v.mainWindow.document.head) {
+						return q("link", e);
+					}, t.createCSSRule = function e(t, i, s = Y()) {
+						if (s && i) {
+							s.sheet?.insertRule(`${t} {${i}}`, 0);
+							for (const r of j.get(s) ?? []) e(t, i, r);
+						}
+					}, t.removeCSSRulesContainingSelector = function e(t, i = Y()) {
+						if (!i) return;
+						const s = Z(i), r = [];
+						for (let e = 0; e < s.length; e++) {
+							const i = s[e];
+							J(i) && -1 !== i.selectorText.indexOf(t) && r.push(e);
+						}
+						for (let e = r.length - 1; e >= 0; e--) i.sheet?.deleteRule(r[e]);
+						for (const s of j.get(i) ?? []) e(t, s);
+					}, t.isHTMLElement = Q, t.isHTMLAnchorElement = function(e) {
+						return e instanceof HTMLAnchorElement || e instanceof (0, t.getWindow)(e).HTMLAnchorElement;
+					}, t.isHTMLSpanElement = function(e) {
+						return e instanceof HTMLSpanElement || e instanceof (0, t.getWindow)(e).HTMLSpanElement;
+					}, t.isHTMLTextAreaElement = function(e) {
+						return e instanceof HTMLTextAreaElement || e instanceof (0, t.getWindow)(e).HTMLTextAreaElement;
+					}, t.isHTMLInputElement = function(e) {
+						return e instanceof HTMLInputElement || e instanceof (0, t.getWindow)(e).HTMLInputElement;
+					}, t.isHTMLButtonElement = function(e) {
+						return e instanceof HTMLButtonElement || e instanceof (0, t.getWindow)(e).HTMLButtonElement;
+					}, t.isHTMLDivElement = function(e) {
+						return e instanceof HTMLDivElement || e instanceof (0, t.getWindow)(e).HTMLDivElement;
+					}, t.isSVGElement = function(e) {
+						return e instanceof SVGElement || e instanceof (0, t.getWindow)(e).SVGElement;
+					}, t.isMouseEvent = function(e) {
+						return e instanceof MouseEvent || e instanceof (0, t.getWindow)(e).MouseEvent;
+					}, t.isKeyboardEvent = function(e) {
+						return e instanceof KeyboardEvent || e instanceof (0, t.getWindow)(e).KeyboardEvent;
+					}, t.isPointerEvent = function(e) {
+						return e instanceof PointerEvent || e instanceof (0, t.getWindow)(e).PointerEvent;
+					}, t.isDragEvent = function(e) {
+						return e instanceof DragEvent || e instanceof (0, t.getWindow)(e).DragEvent;
+					}, t.isEventLike = function(e) {
+						const t = e;
+						return !(!t || "function" != typeof t.preventDefault || "function" != typeof t.stopPropagation);
+					}, t.saveParentsScrollTop = function(e) {
+						const t = [];
+						for (let i = 0; e && e.nodeType === e.ELEMENT_NODE; i++) t[i] = e.scrollTop, e = e.parentNode;
+						return t;
+					}, t.restoreParentsScrollTop = function(e, t) {
+						for (let i = 0; e && e.nodeType === e.ELEMENT_NODE; i++) e.scrollTop !== t[i] && (e.scrollTop = t[i]), e = e.parentNode;
+					}, t.trackFocus = function(e) {
+						return new ee(e);
+					}, t.after = function(e, t) {
+						return e.after(t), t;
+					}, t.append = te, t.prepend = function(e, t) {
+						return e.insertBefore(t, e.firstChild), t;
+					}, t.reset = function(e, ...t) {
+						e.innerText = "", te(e, ...t);
+					}, t.$ = ne, t.join = function(e, t) {
+						const i = [];
+						return e.forEach(((e, s) => {
+							s > 0 && (t instanceof Node ? i.push(t.cloneNode()) : i.push(document.createTextNode(t))), i.push(e);
+						})), i;
+					}, t.setVisibility = function(e, ...t) {
+						e ? oe(...t) : ae(...t);
+					}, t.show = oe, t.hide = ae, t.removeTabIndexAndUpdateFocus = function(e) {
+						if (e && e.hasAttribute("tabIndex")) {
+							if (e.ownerDocument.activeElement === e) (function(e) {
+								for (; e && e.nodeType === e.ELEMENT_NODE;) {
+									if (Q(e) && e.hasAttribute("tabIndex")) return e;
+									e = e.parentNode;
+								}
+								return null;
+							})(e.parentElement)?.focus();
+							e.removeAttribute("tabindex");
+						}
+					}, t.finalHandler = function(e) {
+						return (t) => {
+							t.preventDefault(), t.stopPropagation(), e(t);
+						};
+					}, t.domContentLoaded = function(e) {
+						return new Promise(((t) => {
+							if ("complete" === e.document.readyState || e.document && null !== e.document.body) t(void 0);
+							else {
+								const i = () => {
+									e.window.removeEventListener("DOMContentLoaded", i, !1), t();
+								};
+								e.window.addEventListener("DOMContentLoaded", i, !1);
+							}
+						}));
+					}, t.computeScreenAwareSize = function(e, t) {
+						const i = e.devicePixelRatio * t;
+						return Math.max(1, Math.floor(i)) / e.devicePixelRatio;
+					}, t.windowOpenNoOpener = function(e) {
+						v.mainWindow.open(e, "_blank", "noopener");
+					}, t.windowOpenPopup = function(e) {
+						const t = Math.floor(v.mainWindow.screenLeft + v.mainWindow.innerWidth / 2 - le / 2), i = Math.floor(v.mainWindow.screenTop + v.mainWindow.innerHeight / 2 - he / 2);
+						v.mainWindow.open(e, "_blank", `width=${le},height=${he},top=${i},left=${t}`);
+					}, t.windowOpenWithSuccess = function(e, t = !0) {
+						const i = v.mainWindow.open();
+						return !!i && (t && (i.opener = null), i.location.href = e, !0);
+					}, t.animate = function(e, i) {
+						const s = () => {
+							i(), r = (0, t.scheduleAtNextAnimationFrame)(e, s);
+						};
+						let r = (0, t.scheduleAtNextAnimationFrame)(e, s);
+						return (0, p.toDisposable)((() => r.dispose()));
+					}, t.asCSSPropertyValue = function(e) {
+						return `'${e.replace(/'/g, "%27")}'`;
+					}, t.asCssValueWithDefault = function e(t, i) {
+						if (void 0 !== t) {
+							const s = t.match(/^\s*var\((.+)\)$/);
+							if (s) {
+								const t = s[1].split(",", 2);
+								return 2 === t.length && (i = e(t[1].trim(), i)), `var(${t[0]}, ${i})`;
+							}
+							return t;
+						}
+						return i;
+					}, t.detectFullscreen = function(e) {
+						return e.document.fullscreenElement || e.document.webkitFullscreenElement || e.document.webkitIsFullScreen ? {
+							mode: ce.DOCUMENT,
+							guess: !1
+						} : e.innerHeight === e.screen.height ? {
+							mode: ce.BROWSER,
+							guess: !1
+						} : (g.isMacintosh || g.isLinux) && e.outerHeight === e.screen.height && e.outerWidth === e.screen.width ? {
+							mode: ce.BROWSER,
+							guess: !0
+						} : null;
+					}, t.multibyteAwareBtoa = function(e) {
+						return btoa(function(e) {
+							const t = new Uint16Array(e.length);
+							for (let i = 0; i < t.length; i++) t[i] = e.charCodeAt(i);
+							let i = "";
+							const s = new Uint8Array(t.buffer);
+							for (let e = 0; e < s.length; e++) i += String.fromCharCode(s[e]);
+							return i;
+						}(e));
+					}, t.getCookieValue = function(e) {
+						const t = document.cookie.match("(^|[^;]+)\\s*" + e + "\\s*=\\s*([^;]+)");
+						return t ? t.pop() : void 0;
+					}, t.h = function(e, ...t) {
+						let i, s;
+						Array.isArray(t[0]) ? (i = {}, s = t[0]) : (i = t[0] || {}, s = t[1]);
+						const r = _e.exec(e);
+						if (!r || !r.groups) throw new Error("Bad use of h");
+						const n = r.groups.tag || "div", o = document.createElement(n);
+						r.groups.id && (o.id = r.groups.id);
+						const a = [];
+						if (r.groups.class) for (const e of r.groups.class.split(".")) "" !== e && a.push(e);
+						if (void 0 !== i.className) for (const e of i.className.split(".")) "" !== e && a.push(e);
+						a.length > 0 && (o.className = a.join(" "));
+						const l = {};
+						if (r.groups.name && (l[r.groups.name] = o), s) for (const e of s) Q(e) ? o.appendChild(e) : "string" == typeof e ? o.append(e) : "root" in e && (Object.assign(l, e), o.appendChild(e.root));
+						for (const [e, t] of Object.entries(i)) if ("className" !== e) if ("style" === e) for (const [e, i] of Object.entries(t)) o.style.setProperty(fe(e), "number" == typeof i ? i + "px" : "" + i);
+						else "tabIndex" === e ? o.tabIndex = t : o.setAttribute(fe(e), t.toString());
+						return l.root = o, l;
+					}, t.svgElem = function(e, ...t) {
+						let i, s;
+						Array.isArray(t[0]) ? (i = {}, s = t[0]) : (i = t[0] || {}, s = t[1]);
+						const r = _e.exec(e);
+						if (!r || !r.groups) throw new Error("Bad use of h");
+						const n = r.groups.tag || "div", o = document.createElementNS("http://www.w3.org/2000/svg", n);
+						r.groups.id && (o.id = r.groups.id);
+						const a = [];
+						if (r.groups.class) for (const e of r.groups.class.split(".")) "" !== e && a.push(e);
+						if (void 0 !== i.className) for (const e of i.className.split(".")) "" !== e && a.push(e);
+						a.length > 0 && (o.className = a.join(" "));
+						const l = {};
+						if (r.groups.name && (l[r.groups.name] = o), s) for (const e of s) Q(e) ? o.appendChild(e) : "string" == typeof e ? o.append(e) : "root" in e && (Object.assign(l, e), o.appendChild(e.root));
+						for (const [e, t] of Object.entries(i)) if ("className" !== e) if ("style" === e) for (const [e, i] of Object.entries(t)) o.style.setProperty(fe(e), "number" == typeof i ? i + "px" : "" + i);
+						else "tabIndex" === e ? o.tabIndex = t : o.setAttribute(fe(e), t.toString());
+						return l.root = o, l;
+					}, t.copyAttributes = pe, t.trackAttributes = function(e, i, s) {
+						pe(e, i, s);
+						const r = new p.DisposableStore();
+						return r.add(t.sharedMutationObserver.observe(e, r, {
+							attributes: !0,
+							attributeFilter: s
+						})(((t) => {
+							for (const s of t) "attributes" === s.type && s.attributeName && ge(e, i, s.attributeName);
+						}))), r;
+					};
+					const a = o(i(4333)), l = i(7745), h = i(5394), c = i(5964), d = i(1758), u = i(9807), _ = o(i(802)), f = i(7883), p = i(7150), g = o(i(8163)), m = i(6304), v = i(4693), S = i(7704);
+					s = function() {
+						const e = /* @__PURE__ */ new Map();
+						(0, v.ensureCodeWindow)(v.mainWindow, 1);
+						const i = {
+							window: v.mainWindow,
+							disposables: new p.DisposableStore()
+						};
+						e.set(v.mainWindow.vscodeWindowId, i);
+						const s = new _.Emitter(), r = new _.Emitter(), n = new _.Emitter();
+						return {
+							onDidRegisterWindow: s.event,
+							onWillUnregisterWindow: n.event,
+							onDidUnregisterWindow: r.event,
+							registerWindow(i) {
+								if (e.has(i.vscodeWindowId)) return p.Disposable.None;
+								const o = new p.DisposableStore(), a = {
+									window: i,
+									disposables: o.add(new p.DisposableStore())
+								};
+								return e.set(i.vscodeWindowId, a), o.add((0, p.toDisposable)((() => {
+									e.delete(i.vscodeWindowId), r.fire(i);
+								}))), o.add(C(i, t.EventType.BEFORE_UNLOAD, (() => {
+									n.fire(i);
+								}))), s.fire(a), o;
+							},
+							getWindows: () => e.values(),
+							getWindowsCount: () => e.size,
+							getWindowId: (e) => e.vscodeWindowId,
+							hasWindow: (t) => e.has(t),
+							getWindowById: function(t, s) {
+								return ("number" == typeof t ? e.get(t) : void 0) ?? (s ? i : void 0);
+							},
+							getWindow(e) {
+								const t = e;
+								if (t?.ownerDocument?.defaultView) return t.ownerDocument.defaultView.window;
+								const i = e;
+								return i?.view ? i.view.window : v.mainWindow;
+							},
+							getDocument(e) {
+								const i = e;
+								return (0, t.getWindow)(i).document;
+							}
+						};
+					}(), t.registerWindow = s.registerWindow, t.getWindow = s.getWindow, t.getDocument = s.getDocument, t.getWindows = s.getWindows, t.getWindowsCount = s.getWindowsCount, t.getWindowId = s.getWindowId, t.getWindowById = s.getWindowById, t.hasWindow = s.hasWindow, t.onDidRegisterWindow = s.onDidRegisterWindow, t.onWillUnregisterWindow = s.onWillUnregisterWindow, t.onDidUnregisterWindow = s.onDidUnregisterWindow;
+					class b {
+						constructor(e, t, i, s) {
+							this._node = e, this._type = t, this._handler = i, this._options = s || !1, this._node.addEventListener(this._type, this._handler, this._options);
+						}
+						dispose() {
+							this._handler && (this._node.removeEventListener(this._type, this._handler, this._options), this._node = null, this._handler = null);
+						}
+					}
+					function C(e, t, i, s) {
+						return new b(e, t, i, s);
+					}
+					function y(e, t) {
+						return function(i) {
+							return t(new c.StandardMouseEvent(e, i));
+						};
+					}
+					function w(e, i, s) {
+						return C(e, g.isIOS && l.BrowserFeatures.pointerEvents ? t.EventType.POINTER_DOWN : t.EventType.MOUSE_DOWN, i, s);
+					}
+					function E(e, i, s) {
+						return C(e, g.isIOS && l.BrowserFeatures.pointerEvents ? t.EventType.POINTER_UP : t.EventType.MOUSE_UP, i, s);
+					}
+					t.addStandardDisposableListener = function(e, i, s, r) {
+						let n = s;
+						return "click" === i || "mousedown" === i || "contextmenu" === i ? n = y((0, t.getWindow)(e), s) : "keydown" !== i && "keypress" !== i && "keyup" !== i || (n = function(e) {
+							return function(t) {
+								return e(new h.StandardKeyboardEvent(t));
+							};
+						}(s)), C(e, i, n, r);
+					}, t.addStandardDisposableGenericMouseDownListener = function(e, i, s) {
+						return w(e, y((0, t.getWindow)(e), i), s);
+					}, t.addStandardDisposableGenericMouseUpListener = function(e, i, s) {
+						return E(e, y((0, t.getWindow)(e), i), s);
+					};
+					class D extends d.AbstractIdleValue {
+						constructor(e, t) {
+							super(e, t);
+						}
+					}
+					t.WindowIdleValue = D;
+					class L extends d.IntervalTimer {
+						constructor(e) {
+							super(), this.defaultTarget = e && (0, t.getWindow)(e);
+						}
+						cancelAndSet(e, t, i) {
+							return super.cancelAndSet(e, t, i ?? this.defaultTarget);
+						}
+					}
+					t.WindowIntervalTimer = L;
+					class R {
+						constructor(e, t = 0) {
+							this._runner = e, this.priority = t, this._canceled = !1;
+						}
+						dispose() {
+							this._canceled = !0;
+						}
+						execute() {
+							if (!this._canceled) try {
+								this._runner();
+							} catch (e) {
+								(0, u.onUnexpectedError)(e);
+							}
+						}
+						static sort(e, t) {
+							return t.priority - e.priority;
+						}
+					}
+					(function() {
+						const e = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), s = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map();
+						t.scheduleAtNextAnimationFrame = (n, o, a = 0) => {
+							const l = (0, t.getWindowId)(n), h = new R(o, a);
+							let c = e.get(l);
+							return c || (c = [], e.set(l, c)), c.push(h), s.get(l) || (s.set(l, !0), n.requestAnimationFrame((() => ((t) => {
+								s.set(t, !1);
+								const n = e.get(t) ?? [];
+								for (i.set(t, n), e.set(t, []), r.set(t, !0); n.length > 0;) n.sort(R.sort), n.shift().execute();
+								r.set(t, !1);
+							})(l)))), h;
+						}, t.runAtThisOrScheduleAtNextAnimationFrame = (e, s, n) => {
+							const o = (0, t.getWindowId)(e);
+							if (r.get(o)) {
+								const e = new R(s, n);
+								let t = i.get(o);
+								return t || (t = [], i.set(o, t)), t.push(e), e;
+							}
+							return (0, t.scheduleAtNextAnimationFrame)(e, s, n);
+						};
+					})();
+					const A = function(e, t) {
+						return t;
+					};
+					class T extends p.Disposable {
+						constructor(e, t, i, s = A, r = 8) {
+							super();
+							let n = null, o = 0;
+							const a = this._register(new d.TimeoutTimer()), l = () => {
+								o = (/* @__PURE__ */ new Date()).getTime(), i(n), n = null;
+							};
+							this._register(C(e, t, ((e) => {
+								n = s(n, e);
+								const t = (/* @__PURE__ */ new Date()).getTime() - o;
+								t >= r ? (a.cancel(), l()) : a.setIfNotSet(l, r - t);
+							})));
+						}
+					}
+					function k(e) {
+						return (0, t.getWindow)(e).getComputedStyle(e, null);
+					}
+					class M {
+						static convertToPixels(e, t) {
+							return parseFloat(t) || 0;
+						}
+						static getDimension(e, t, i) {
+							const s = k(e), r = s ? s.getPropertyValue(t) : "0";
+							return M.convertToPixels(e, r);
+						}
+						static getBorderLeftWidth(e) {
+							return M.getDimension(e, "border-left-width", "borderLeftWidth");
+						}
+						static getBorderRightWidth(e) {
+							return M.getDimension(e, "border-right-width", "borderRightWidth");
+						}
+						static getBorderTopWidth(e) {
+							return M.getDimension(e, "border-top-width", "borderTopWidth");
+						}
+						static getBorderBottomWidth(e) {
+							return M.getDimension(e, "border-bottom-width", "borderBottomWidth");
+						}
+						static getPaddingLeft(e) {
+							return M.getDimension(e, "padding-left", "paddingLeft");
+						}
+						static getPaddingRight(e) {
+							return M.getDimension(e, "padding-right", "paddingRight");
+						}
+						static getPaddingTop(e) {
+							return M.getDimension(e, "padding-top", "paddingTop");
+						}
+						static getPaddingBottom(e) {
+							return M.getDimension(e, "padding-bottom", "paddingBottom");
+						}
+						static getMarginLeft(e) {
+							return M.getDimension(e, "margin-left", "marginLeft");
+						}
+						static getMarginTop(e) {
+							return M.getDimension(e, "margin-top", "marginTop");
+						}
+						static getMarginRight(e) {
+							return M.getDimension(e, "margin-right", "marginRight");
+						}
+						static getMarginBottom(e) {
+							return M.getDimension(e, "margin-bottom", "marginBottom");
+						}
+					}
+					class O {
+						static {
+							this.None = new O(0, 0);
+						}
+						constructor(e, t) {
+							this.width = e, this.height = t;
+						}
+						with(e = this.width, t = this.height) {
+							return e !== this.width || t !== this.height ? new O(e, t) : this;
+						}
+						static is(e) {
+							return "object" == typeof e && "number" == typeof e.height && "number" == typeof e.width;
+						}
+						static lift(e) {
+							return e instanceof O ? e : new O(e.width, e.height);
+						}
+						static equals(e, t) {
+							return e === t || !(!e || !t) && e.width === t.width && e.height === t.height;
+						}
+					}
+					function I(e) {
+						let t = e.offsetParent, i = e.offsetTop, s = e.offsetLeft;
+						for (; null !== (e = e.parentNode) && e !== e.ownerDocument.body && e !== e.ownerDocument.documentElement;) {
+							i -= e.scrollTop;
+							const r = W(e) ? null : k(e);
+							r && (s -= "rtl" !== r.direction ? e.scrollLeft : -e.scrollLeft), e === t && (s += M.getBorderLeftWidth(e), i += M.getBorderTopWidth(e), i += e.offsetTop, s += e.offsetLeft, t = e.offsetParent);
+						}
+						return {
+							left: s,
+							top: i
+						};
+					}
+					function P(e) {
+						const t = M.getMarginLeft(e) + M.getMarginRight(e);
+						return e.offsetWidth + t;
+					}
+					function x(e) {
+						const t = M.getMarginLeft(e) + M.getMarginRight(e);
+						return e.scrollWidth + t;
+					}
+					function B(e, t) {
+						return Boolean(t?.contains(e));
+					}
+					t.Dimension = O;
+					const N = "parentFlowToElementId";
+					function U(e) {
+						const t = e.dataset[N];
+						return "string" == typeof t ? e.ownerDocument.getElementById(t) : null;
+					}
+					function F(e, t, i) {
+						for (; e && e.nodeType === e.ELEMENT_NODE;) {
+							if (e.classList.contains(t)) return e;
+							if (i) {
+								if ("string" == typeof i) {
+									if (e.classList.contains(i)) return null;
+								} else if (e === i) return null;
+							}
+							e = e.parentNode;
+						}
+						return null;
+					}
+					function W(e) {
+						return e && !!e.host && !!e.mode;
+					}
+					function H(e) {
+						for (; e.parentNode;) {
+							if (e === e.ownerDocument?.body) return null;
+							e = e.parentNode;
+						}
+						return W(e) ? e : null;
+					}
+					function K() {
+						let e = z().activeElement;
+						for (; e?.shadowRoot;) e = e.shadowRoot.activeElement;
+						return e;
+					}
+					function z() {
+						return (0, t.getWindowsCount)() <= 1 ? v.mainWindow.document : Array.from((0, t.getWindows)()).map((({ window: e }) => e.document)).find(((e) => e.hasFocus())) ?? v.mainWindow.document;
+					}
+					const j = /* @__PURE__ */ new Map();
+					class $ {
+						constructor() {
+							this._currentCssStyle = "", this._styleSheet = void 0;
+						}
+						setStyle(e) {
+							e !== this._currentCssStyle && (this._currentCssStyle = e, this._styleSheet ? this._styleSheet.innerText = e : this._styleSheet = V(v.mainWindow.document.head, ((t) => t.innerText = e)));
+						}
+						dispose() {
+							this._styleSheet && (this._styleSheet.remove(), this._styleSheet = void 0);
+						}
+					}
+					function V(e = v.mainWindow.document.head, i, s) {
+						const r = document.createElement("style");
+						if (r.type = "text/css", r.media = "screen", i?.(r), e.appendChild(r), s && s.add((0, p.toDisposable)((() => r.remove()))), e === v.mainWindow.document.head) {
+							const e = /* @__PURE__ */ new Set();
+							j.set(r, e);
+							for (const { window: i, disposables: n } of (0, t.getWindows)()) {
+								if (i === v.mainWindow) continue;
+								const t = n.add(G(r, e, i));
+								s?.add(t);
+							}
+						}
+						return r;
+					}
+					function G(e, i, s) {
+						const r = new p.DisposableStore(), n = e.cloneNode(!0);
+						s.document.head.appendChild(n), r.add((0, p.toDisposable)((() => n.remove())));
+						for (const t of Z(e)) n.sheet?.insertRule(t.cssText, n.sheet?.cssRules.length);
+						return r.add(t.sharedMutationObserver.observe(e, r, { childList: !0 })((() => {
+							n.textContent = e.textContent;
+						}))), i.add(n), r.add((0, p.toDisposable)((() => i.delete(n)))), r;
+					}
+					function q(e, t = v.mainWindow.document.head) {
+						const i = document.createElement(e);
+						return t.appendChild(i), i;
+					}
+					t.sharedMutationObserver = new class {
+						constructor() {
+							this.mutationObservers = /* @__PURE__ */ new Map();
+						}
+						observe(e, t, i) {
+							let s = this.mutationObservers.get(e);
+							s || (s = /* @__PURE__ */ new Map(), this.mutationObservers.set(e, s));
+							const r = (0, m.hash)(i);
+							let n = s.get(r);
+							if (n) n.users += 1;
+							else {
+								const o = new _.Emitter(), a = new MutationObserver(((e) => o.fire(e)));
+								a.observe(e, i);
+								const l = n = {
+									users: 1,
+									observer: a,
+									onDidMutate: o.event
+								};
+								t.add((0, p.toDisposable)((() => {
+									l.users -= 1, 0 === l.users && (o.dispose(), a.disconnect(), s?.delete(r), 0 === s?.size && this.mutationObservers.delete(e));
+								}))), s.set(r, n);
+							}
+							return n.onDidMutate;
+						}
+					}();
+					let X = null;
+					function Y() {
+						return X || (X = V()), X;
+					}
+					function Z(e) {
+						return e?.sheet?.rules ? e.sheet.rules : e?.sheet?.cssRules ? e.sheet.cssRules : [];
+					}
+					function J(e) {
+						return "string" == typeof e.selectorText;
+					}
+					function Q(e) {
+						return e instanceof HTMLElement || e instanceof (0, t.getWindow)(e).HTMLElement;
+					}
+					t.EventType = {
+						CLICK: "click",
+						AUXCLICK: "auxclick",
+						DBLCLICK: "dblclick",
+						MOUSE_UP: "mouseup",
+						MOUSE_DOWN: "mousedown",
+						MOUSE_OVER: "mouseover",
+						MOUSE_MOVE: "mousemove",
+						MOUSE_OUT: "mouseout",
+						MOUSE_ENTER: "mouseenter",
+						MOUSE_LEAVE: "mouseleave",
+						MOUSE_WHEEL: "wheel",
+						POINTER_UP: "pointerup",
+						POINTER_DOWN: "pointerdown",
+						POINTER_MOVE: "pointermove",
+						POINTER_LEAVE: "pointerleave",
+						CONTEXT_MENU: "contextmenu",
+						WHEEL: "wheel",
+						KEY_DOWN: "keydown",
+						KEY_PRESS: "keypress",
+						KEY_UP: "keyup",
+						LOAD: "load",
+						BEFORE_UNLOAD: "beforeunload",
+						UNLOAD: "unload",
+						PAGE_SHOW: "pageshow",
+						PAGE_HIDE: "pagehide",
+						PASTE: "paste",
+						ABORT: "abort",
+						ERROR: "error",
+						RESIZE: "resize",
+						SCROLL: "scroll",
+						FULLSCREEN_CHANGE: "fullscreenchange",
+						WK_FULLSCREEN_CHANGE: "webkitfullscreenchange",
+						SELECT: "select",
+						CHANGE: "change",
+						SUBMIT: "submit",
+						RESET: "reset",
+						FOCUS: "focus",
+						FOCUS_IN: "focusin",
+						FOCUS_OUT: "focusout",
+						BLUR: "blur",
+						INPUT: "input",
+						STORAGE: "storage",
+						DRAG_START: "dragstart",
+						DRAG: "drag",
+						DRAG_ENTER: "dragenter",
+						DRAG_LEAVE: "dragleave",
+						DRAG_OVER: "dragover",
+						DROP: "drop",
+						DRAG_END: "dragend",
+						ANIMATION_START: a.isWebKit ? "webkitAnimationStart" : "animationstart",
+						ANIMATION_END: a.isWebKit ? "webkitAnimationEnd" : "animationend",
+						ANIMATION_ITERATION: a.isWebKit ? "webkitAnimationIteration" : "animationiteration"
+					}, t.EventHelper = { stop: (e, t) => (e.preventDefault(), t && e.stopPropagation(), e) };
+					class ee extends p.Disposable {
+						static hasFocusWithin(e) {
+							if (Q(e)) {
+								const t = H(e);
+								return B(t ? t.activeElement : e.ownerDocument.activeElement, e);
+							}
+							{
+								const t = e;
+								return B(t.document.activeElement, t.document);
+							}
+						}
+						constructor(e) {
+							super(), this._onDidFocus = this._register(new _.Emitter()), this.onDidFocus = this._onDidFocus.event, this._onDidBlur = this._register(new _.Emitter()), this.onDidBlur = this._onDidBlur.event;
+							let i = ee.hasFocusWithin(e), s = !1;
+							const r = () => {
+								s = !1, i || (i = !0, this._onDidFocus.fire());
+							}, n = () => {
+								i && (s = !0, (Q(e) ? (0, t.getWindow)(e) : e).setTimeout((() => {
+									s && (s = !1, i = !1, this._onDidBlur.fire());
+								}), 0));
+							};
+							this._refreshStateHandler = () => {
+								ee.hasFocusWithin(e) !== i && (i ? n() : r());
+							}, this._register(C(e, t.EventType.FOCUS, r, !0)), this._register(C(e, t.EventType.BLUR, n, !0)), Q(e) && (this._register(C(e, t.EventType.FOCUS_IN, (() => this._refreshStateHandler()))), this._register(C(e, t.EventType.FOCUS_OUT, (() => this._refreshStateHandler()))));
+						}
+						refreshState() {
+							this._refreshStateHandler();
+						}
+					}
+					function te(e, ...t) {
+						if (e.append(...t), 1 === t.length && "string" != typeof t[0]) return t[0];
+					}
+					const ie = /([\w\-]+)?(#([\w\-]+))?((\.([\w\-]+))*)/;
+					var se;
+					function re(e, t, i, ...s) {
+						const r = ie.exec(t);
+						if (!r) throw new Error("Bad use of emmet");
+						const n = r[1] || "div";
+						let o;
+						return o = e !== se.HTML ? document.createElementNS(e, n) : document.createElement(n), r[3] && (o.id = r[3]), r[4] && (o.className = r[4].replace(/\./g, " ").trim()), i && Object.entries(i).forEach((([e, t]) => {
+							void 0 !== t && (/^on\w+$/.test(e) ? o[e] = t : "selected" === e ? t && o.setAttribute(e, "true") : o.setAttribute(e, t));
+						})), o.append(...s), o;
+					}
+					function ne(e, t, ...i) {
+						return re(se.HTML, e, t, ...i);
+					}
+					function oe(...e) {
+						for (const t of e) t.style.display = "", t.removeAttribute("aria-hidden");
+					}
+					function ae(...e) {
+						for (const t of e) t.style.display = "none", t.setAttribute("aria-hidden", "true");
+					}
+					(function(e) {
+						e.HTML = "http://www.w3.org/1999/xhtml", e.SVG = "http://www.w3.org/2000/svg";
+					})(se || (t.Namespace = se = {})), ne.SVG = function(e, t, ...i) {
+						return re(se.SVG, e, t, ...i);
+					};
+					const le = 780, he = 640;
+					var ce;
+					(function(e) {
+						e[e.DOCUMENT = 1] = "DOCUMENT", e[e.BROWSER = 2] = "BROWSER";
+					})(ce || (t.DetectedFullscreenMode = ce = {}));
+					class de extends _.Emitter {
+						constructor() {
+							super(), this._subscriptions = new p.DisposableStore(), this._keyStatus = {
+								altKey: !1,
+								shiftKey: !1,
+								ctrlKey: !1,
+								metaKey: !1
+							}, this._subscriptions.add(_.Event.runAndSubscribe(t.onDidRegisterWindow, (({ window: e, disposables: t }) => this.registerListeners(e, t)), {
+								window: v.mainWindow,
+								disposables: this._subscriptions
+							}));
+						}
+						registerListeners(e, t) {
+							t.add(C(e, "keydown", ((e) => {
+								if (e.defaultPrevented) return;
+								const t = new h.StandardKeyboardEvent(e);
+								if (t.keyCode !== f.KeyCode.Alt || !e.repeat) {
+									if (e.altKey && !this._keyStatus.altKey) this._keyStatus.lastKeyPressed = "alt";
+									else if (e.ctrlKey && !this._keyStatus.ctrlKey) this._keyStatus.lastKeyPressed = "ctrl";
+									else if (e.metaKey && !this._keyStatus.metaKey) this._keyStatus.lastKeyPressed = "meta";
+									else if (e.shiftKey && !this._keyStatus.shiftKey) this._keyStatus.lastKeyPressed = "shift";
+									else {
+										if (t.keyCode === f.KeyCode.Alt) return;
+										this._keyStatus.lastKeyPressed = void 0;
+									}
+									this._keyStatus.altKey = e.altKey, this._keyStatus.ctrlKey = e.ctrlKey, this._keyStatus.metaKey = e.metaKey, this._keyStatus.shiftKey = e.shiftKey, this._keyStatus.lastKeyPressed && (this._keyStatus.event = e, this.fire(this._keyStatus));
+								}
+							}), !0)), t.add(C(e, "keyup", ((e) => {
+								e.defaultPrevented || (!e.altKey && this._keyStatus.altKey ? this._keyStatus.lastKeyReleased = "alt" : !e.ctrlKey && this._keyStatus.ctrlKey ? this._keyStatus.lastKeyReleased = "ctrl" : !e.metaKey && this._keyStatus.metaKey ? this._keyStatus.lastKeyReleased = "meta" : !e.shiftKey && this._keyStatus.shiftKey ? this._keyStatus.lastKeyReleased = "shift" : this._keyStatus.lastKeyReleased = void 0, this._keyStatus.lastKeyPressed !== this._keyStatus.lastKeyReleased && (this._keyStatus.lastKeyPressed = void 0), this._keyStatus.altKey = e.altKey, this._keyStatus.ctrlKey = e.ctrlKey, this._keyStatus.metaKey = e.metaKey, this._keyStatus.shiftKey = e.shiftKey, this._keyStatus.lastKeyReleased && (this._keyStatus.event = e, this.fire(this._keyStatus)));
+							}), !0)), t.add(C(e.document.body, "mousedown", (() => {
+								this._keyStatus.lastKeyPressed = void 0;
+							}), !0)), t.add(C(e.document.body, "mouseup", (() => {
+								this._keyStatus.lastKeyPressed = void 0;
+							}), !0)), t.add(C(e.document.body, "mousemove", ((e) => {
+								e.buttons && (this._keyStatus.lastKeyPressed = void 0);
+							}), !0)), t.add(C(e, "blur", (() => {
+								this.resetKeyStatus();
+							})));
+						}
+						get keyStatus() {
+							return this._keyStatus;
+						}
+						get isModifierPressed() {
+							return this._keyStatus.altKey || this._keyStatus.ctrlKey || this._keyStatus.metaKey || this._keyStatus.shiftKey;
+						}
+						resetKeyStatus() {
+							this.doResetKeyStatus(), this.fire(this._keyStatus);
+						}
+						doResetKeyStatus() {
+							this._keyStatus = {
+								altKey: !1,
+								shiftKey: !1,
+								ctrlKey: !1,
+								metaKey: !1
+							};
+						}
+						static getInstance() {
+							return de.instance || (de.instance = new de()), de.instance;
+						}
+						dispose() {
+							super.dispose(), this._subscriptions.dispose();
+						}
+					}
+					t.ModifierKeyEmitter = de;
+					class ue extends p.Disposable {
+						constructor(e, t) {
+							super(), this.element = e, this.callbacks = t, this.counter = 0, this.dragStartTime = 0, this.registerListeners();
+						}
+						registerListeners() {
+							this.callbacks.onDragStart && this._register(C(this.element, t.EventType.DRAG_START, ((e) => {
+								this.callbacks.onDragStart?.(e);
+							}))), this.callbacks.onDrag && this._register(C(this.element, t.EventType.DRAG, ((e) => {
+								this.callbacks.onDrag?.(e);
+							}))), this._register(C(this.element, t.EventType.DRAG_ENTER, ((e) => {
+								this.counter++, this.dragStartTime = e.timeStamp, this.callbacks.onDragEnter?.(e);
+							}))), this._register(C(this.element, t.EventType.DRAG_OVER, ((e) => {
+								e.preventDefault(), this.callbacks.onDragOver?.(e, e.timeStamp - this.dragStartTime);
+							}))), this._register(C(this.element, t.EventType.DRAG_LEAVE, ((e) => {
+								this.counter--, 0 === this.counter && (this.dragStartTime = 0, this.callbacks.onDragLeave?.(e));
+							}))), this._register(C(this.element, t.EventType.DRAG_END, ((e) => {
+								this.counter = 0, this.dragStartTime = 0, this.callbacks.onDragEnd?.(e);
+							}))), this._register(C(this.element, t.EventType.DROP, ((e) => {
+								this.counter = 0, this.dragStartTime = 0, this.callbacks.onDrop?.(e);
+							})));
+						}
+					}
+					t.DragAndDropObserver = ue;
+					const _e = /(?<tag>[\w\-]+)?(?:#(?<id>[\w\-]+))?(?<class>(?:\.(?:[\w\-]+))*)(?:@(?<name>(?:[\w\_])+))?/;
+					function fe(e) {
+						return e.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+					}
+					function pe(e, t, i) {
+						for (const { name: s, value: r } of e.attributes) i && !i.includes(s) || t.setAttribute(s, r);
+					}
+					function ge(e, t, i) {
+						const s = e.getAttribute(i);
+						s ? t.setAttribute(i, s) : t.removeAttribute(i);
+					}
+					t.SafeTriangle = class {
+						constructor(e, t, i) {
+							this.originX = e, this.originY = t, this.triangles = [];
+							const { top: s, left: r, right: n, bottom: o } = i.getBoundingClientRect(), a = this.triangles;
+							let l = 0;
+							a[l++] = r, a[l++] = s, a[l++] = n, a[l++] = s, a[l++] = r, a[l++] = s, a[l++] = r, a[l++] = o, a[l++] = n, a[l++] = s, a[l++] = n, a[l++] = o, a[l++] = r, a[l++] = o, a[l++] = n, a[l++] = o;
+						}
+						contains(e, t) {
+							const { triangles: i, originX: s, originY: r } = this;
+							for (let n = 0; n < 4; n++) if ((0, S.isPointWithinTriangle)(e, t, s, r, i[2 * n], i[2 * n + 1], i[2 * n + 2], i[2 * n + 3])) return !0;
+							return !1;
+						}
+					};
+				},
+				9675: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.FastDomNode = void 0, t.createFastDomNode = function(e) {
+						return new i(e);
+					};
+					class i {
+						constructor(e) {
+							this.domNode = e, this._maxWidth = "", this._width = "", this._height = "", this._top = "", this._left = "", this._bottom = "", this._right = "", this._paddingTop = "", this._paddingLeft = "", this._paddingBottom = "", this._paddingRight = "", this._fontFamily = "", this._fontWeight = "", this._fontSize = "", this._fontStyle = "", this._fontFeatureSettings = "", this._fontVariationSettings = "", this._textDecoration = "", this._lineHeight = "", this._letterSpacing = "", this._className = "", this._display = "", this._position = "", this._visibility = "", this._color = "", this._backgroundColor = "", this._layerHint = !1, this._contain = "none", this._boxShadow = "";
+						}
+						setMaxWidth(e) {
+							const t = s(e);
+							this._maxWidth !== t && (this._maxWidth = t, this.domNode.style.maxWidth = this._maxWidth);
+						}
+						setWidth(e) {
+							const t = s(e);
+							this._width !== t && (this._width = t, this.domNode.style.width = this._width);
+						}
+						setHeight(e) {
+							const t = s(e);
+							this._height !== t && (this._height = t, this.domNode.style.height = this._height);
+						}
+						setTop(e) {
+							const t = s(e);
+							this._top !== t && (this._top = t, this.domNode.style.top = this._top);
+						}
+						setLeft(e) {
+							const t = s(e);
+							this._left !== t && (this._left = t, this.domNode.style.left = this._left);
+						}
+						setBottom(e) {
+							const t = s(e);
+							this._bottom !== t && (this._bottom = t, this.domNode.style.bottom = this._bottom);
+						}
+						setRight(e) {
+							const t = s(e);
+							this._right !== t && (this._right = t, this.domNode.style.right = this._right);
+						}
+						setPaddingTop(e) {
+							const t = s(e);
+							this._paddingTop !== t && (this._paddingTop = t, this.domNode.style.paddingTop = this._paddingTop);
+						}
+						setPaddingLeft(e) {
+							const t = s(e);
+							this._paddingLeft !== t && (this._paddingLeft = t, this.domNode.style.paddingLeft = this._paddingLeft);
+						}
+						setPaddingBottom(e) {
+							const t = s(e);
+							this._paddingBottom !== t && (this._paddingBottom = t, this.domNode.style.paddingBottom = this._paddingBottom);
+						}
+						setPaddingRight(e) {
+							const t = s(e);
+							this._paddingRight !== t && (this._paddingRight = t, this.domNode.style.paddingRight = this._paddingRight);
+						}
+						setFontFamily(e) {
+							this._fontFamily !== e && (this._fontFamily = e, this.domNode.style.fontFamily = this._fontFamily);
+						}
+						setFontWeight(e) {
+							this._fontWeight !== e && (this._fontWeight = e, this.domNode.style.fontWeight = this._fontWeight);
+						}
+						setFontSize(e) {
+							const t = s(e);
+							this._fontSize !== t && (this._fontSize = t, this.domNode.style.fontSize = this._fontSize);
+						}
+						setFontStyle(e) {
+							this._fontStyle !== e && (this._fontStyle = e, this.domNode.style.fontStyle = this._fontStyle);
+						}
+						setFontFeatureSettings(e) {
+							this._fontFeatureSettings !== e && (this._fontFeatureSettings = e, this.domNode.style.fontFeatureSettings = this._fontFeatureSettings);
+						}
+						setFontVariationSettings(e) {
+							this._fontVariationSettings !== e && (this._fontVariationSettings = e, this.domNode.style.fontVariationSettings = this._fontVariationSettings);
+						}
+						setTextDecoration(e) {
+							this._textDecoration !== e && (this._textDecoration = e, this.domNode.style.textDecoration = this._textDecoration);
+						}
+						setLineHeight(e) {
+							const t = s(e);
+							this._lineHeight !== t && (this._lineHeight = t, this.domNode.style.lineHeight = this._lineHeight);
+						}
+						setLetterSpacing(e) {
+							const t = s(e);
+							this._letterSpacing !== t && (this._letterSpacing = t, this.domNode.style.letterSpacing = this._letterSpacing);
+						}
+						setClassName(e) {
+							this._className !== e && (this._className = e, this.domNode.className = this._className);
+						}
+						toggleClassName(e, t) {
+							this.domNode.classList.toggle(e, t), this._className = this.domNode.className;
+						}
+						setDisplay(e) {
+							this._display !== e && (this._display = e, this.domNode.style.display = this._display);
+						}
+						setPosition(e) {
+							this._position !== e && (this._position = e, this.domNode.style.position = this._position);
+						}
+						setVisibility(e) {
+							this._visibility !== e && (this._visibility = e, this.domNode.style.visibility = this._visibility);
+						}
+						setColor(e) {
+							this._color !== e && (this._color = e, this.domNode.style.color = this._color);
+						}
+						setBackgroundColor(e) {
+							this._backgroundColor !== e && (this._backgroundColor = e, this.domNode.style.backgroundColor = this._backgroundColor);
+						}
+						setLayerHinting(e) {
+							this._layerHint !== e && (this._layerHint = e, this.domNode.style.transform = this._layerHint ? "translate3d(0px, 0px, 0px)" : "");
+						}
+						setBoxShadow(e) {
+							this._boxShadow !== e && (this._boxShadow = e, this.domNode.style.boxShadow = e);
+						}
+						setContain(e) {
+							this._contain !== e && (this._contain = e, this.domNode.style.contain = this._contain);
+						}
+						setAttribute(e, t) {
+							this.domNode.setAttribute(e, t);
+						}
+						removeAttribute(e) {
+							this.domNode.removeAttribute(e);
+						}
+						appendChild(e) {
+							this.domNode.appendChild(e.domNode);
+						}
+						removeChild(e) {
+							this.domNode.removeChild(e.domNode);
+						}
+					}
+					function s(e) {
+						return "number" == typeof e ? `${e}px` : e;
+					}
+					t.FastDomNode = i;
+				},
+				8328: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.GlobalPointerMoveMonitor = void 0;
+					const o = n(i(7093)), a = i(7150);
+					t.GlobalPointerMoveMonitor = class {
+						constructor() {
+							this._hooks = new a.DisposableStore(), this._pointerMoveCallback = null, this._onStopCallback = null;
+						}
+						dispose() {
+							this.stopMonitoring(!1), this._hooks.dispose();
+						}
+						stopMonitoring(e, t) {
+							if (!this.isMonitoring()) return;
+							this._hooks.clear(), this._pointerMoveCallback = null;
+							const i = this._onStopCallback;
+							this._onStopCallback = null, e && i && i(t);
+						}
+						isMonitoring() {
+							return !!this._pointerMoveCallback;
+						}
+						startMonitoring(e, t, i, s, r) {
+							this.isMonitoring() && this.stopMonitoring(!1), this._pointerMoveCallback = s, this._onStopCallback = r;
+							let n = e;
+							try {
+								e.setPointerCapture(t), this._hooks.add((0, a.toDisposable)((() => {
+									try {
+										e.releasePointerCapture(t);
+									} catch (e) {}
+								})));
+							} catch (t) {
+								n = o.getWindow(e);
+							}
+							this._hooks.add(o.addDisposableListener(n, o.EventType.POINTER_MOVE, ((e) => {
+								e.buttons === i ? (e.preventDefault(), this._pointerMoveCallback(e)) : this.stopMonitoring(!0);
+							}))), this._hooks.add(o.addDisposableListener(n, o.EventType.POINTER_UP, ((e) => this.stopMonitoring(!0))));
+						}
+					};
+				},
+				6609: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.IframeUtils = void 0, t.parentOriginHash = async function(e, t) {
+						if (!crypto.subtle) throw new Error("'crypto.subtle' is not available so webviews will not work. This is likely because the editor is not running in a secure context (https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts).");
+						const i = JSON.stringify({
+							parentOrigin: e,
+							salt: t
+						}), s = new TextEncoder().encode(i);
+						return function(e) {
+							const t = Array.from(new Uint8Array(e)).map(((e) => e.toString(16).padStart(2, "0"))).join("");
+							return BigInt(`0x${t}`).toString(32).padStart(52, "0");
+						}(await crypto.subtle.digest("sha-256", s));
+					};
+					const i = /* @__PURE__ */ new WeakMap();
+					function s(e) {
+						if (!e.parent || e.parent === e) return null;
+						try {
+							const t = e.location, i = e.parent.location;
+							if ("null" !== t.origin && "null" !== i.origin && t.origin !== i.origin) return null;
+						} catch (e) {
+							return null;
+						}
+						return e.parent;
+					}
+					t.IframeUtils = class {
+						static getSameOriginWindowChain(e) {
+							let t = i.get(e);
+							if (!t) {
+								t = [], i.set(e, t);
+								let r, n = e;
+								do
+									r = s(n), r ? t.push({
+										window: new WeakRef(n),
+										iframeElement: n.frameElement || null
+									}) : t.push({
+										window: new WeakRef(n),
+										iframeElement: null
+									}), n = r;
+								while (n);
+							}
+							return t.slice(0);
+						}
+						static getPositionOfChildWindowRelativeToAncestorWindow(e, t) {
+							if (!t || e === t) return {
+								top: 0,
+								left: 0
+							};
+							let i = 0, s = 0;
+							const r = this.getSameOriginWindowChain(e);
+							for (const e of r) {
+								const r = e.window.deref();
+								if (i += r?.scrollY ?? 0, s += r?.scrollX ?? 0, r === t) break;
+								if (!e.iframeElement) break;
+								const n = e.iframeElement.getBoundingClientRect();
+								i += n.top, s += n.left;
+							}
+							return {
+								top: i,
+								left: s
+							};
+						}
+					};
+				},
+				5394: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.StandardKeyboardEvent = void 0, t.printKeyboardEvent = function(e) {
+						const t = [];
+						return e.ctrlKey && t.push("ctrl"), e.shiftKey && t.push("shift"), e.altKey && t.push("alt"), e.metaKey && t.push("meta"), `modifiers: [${t.join(",")}], code: ${e.code}, keyCode: ${e.keyCode}, key: ${e.key}`;
+					}, t.printStandardKeyboardEvent = function(e) {
+						const t = [];
+						return e.ctrlKey && t.push("ctrl"), e.shiftKey && t.push("shift"), e.altKey && t.push("alt"), e.metaKey && t.push("meta"), `modifiers: [${t.join(",")}], code: ${e.code}, keyCode: ${e.keyCode} ('${a.KeyCodeUtils.toString(e.keyCode)}')`;
+					};
+					const o = n(i(4333)), a = i(7883), l = i(2811), h = n(i(8163)), c = h.isMacintosh ? a.KeyMod.WinCtrl : a.KeyMod.CtrlCmd, d = a.KeyMod.Alt, u = a.KeyMod.Shift, _ = h.isMacintosh ? a.KeyMod.CtrlCmd : a.KeyMod.WinCtrl;
+					t.StandardKeyboardEvent = class {
+						constructor(e) {
+							this._standardKeyboardEventBrand = !0;
+							const t = e;
+							this.browserEvent = t, this.target = t.target, this.ctrlKey = t.ctrlKey, this.shiftKey = t.shiftKey, this.altKey = t.altKey, this.metaKey = t.metaKey, this.altGraphKey = t.getModifierState?.("AltGraph"), this.keyCode = function(e) {
+								if (e.charCode) {
+									const t = String.fromCharCode(e.charCode).toUpperCase();
+									return a.KeyCodeUtils.fromString(t);
+								}
+								const t = e.keyCode;
+								if (3 === t) return a.KeyCode.PauseBreak;
+								if (o.isFirefox) switch (t) {
+									case 59: return a.KeyCode.Semicolon;
+									case 60:
+										if (h.isLinux) return a.KeyCode.IntlBackslash;
+										break;
+									case 61: return a.KeyCode.Equal;
+									case 107: return a.KeyCode.NumpadAdd;
+									case 109: return a.KeyCode.NumpadSubtract;
+									case 173: return a.KeyCode.Minus;
+									case 224: if (h.isMacintosh) return a.KeyCode.Meta;
+								}
+								else if (o.isWebKit) {
+									if (h.isMacintosh && 93 === t) return a.KeyCode.Meta;
+									if (!h.isMacintosh && 92 === t) return a.KeyCode.Meta;
+								}
+								return a.EVENT_KEY_CODE_MAP[t] || a.KeyCode.Unknown;
+							}(t), this.code = t.code, this.ctrlKey = this.ctrlKey || this.keyCode === a.KeyCode.Ctrl, this.altKey = this.altKey || this.keyCode === a.KeyCode.Alt, this.shiftKey = this.shiftKey || this.keyCode === a.KeyCode.Shift, this.metaKey = this.metaKey || this.keyCode === a.KeyCode.Meta, this._asKeybinding = this._computeKeybinding(), this._asKeyCodeChord = this._computeKeyCodeChord();
+						}
+						preventDefault() {
+							this.browserEvent && this.browserEvent.preventDefault && this.browserEvent.preventDefault();
+						}
+						stopPropagation() {
+							this.browserEvent && this.browserEvent.stopPropagation && this.browserEvent.stopPropagation();
+						}
+						toKeyCodeChord() {
+							return this._asKeyCodeChord;
+						}
+						equals(e) {
+							return this._asKeybinding === e;
+						}
+						_computeKeybinding() {
+							let e = a.KeyCode.Unknown;
+							this.keyCode !== a.KeyCode.Ctrl && this.keyCode !== a.KeyCode.Shift && this.keyCode !== a.KeyCode.Alt && this.keyCode !== a.KeyCode.Meta && (e = this.keyCode);
+							let t = 0;
+							return this.ctrlKey && (t |= c), this.altKey && (t |= d), this.shiftKey && (t |= u), this.metaKey && (t |= _), t |= e, t;
+						}
+						_computeKeyCodeChord() {
+							let e = a.KeyCode.Unknown;
+							return this.keyCode !== a.KeyCode.Ctrl && this.keyCode !== a.KeyCode.Shift && this.keyCode !== a.KeyCode.Alt && this.keyCode !== a.KeyCode.Meta && (e = this.keyCode), new l.KeyCodeChord(this.ctrlKey, this.shiftKey, this.altKey, this.metaKey, e);
+						}
+					};
+				},
+				5964: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.StandardWheelEvent = t.DragMouseEvent = t.StandardMouseEvent = void 0;
+					const o = n(i(4333)), a = i(6609), l = n(i(8163));
+					class h {
+						constructor(e, t) {
+							this.timestamp = Date.now(), this.browserEvent = t, this.leftButton = 0 === t.button, this.middleButton = 1 === t.button, this.rightButton = 2 === t.button, this.buttons = t.buttons, this.target = t.target, this.detail = t.detail || 1, "dblclick" === t.type && (this.detail = 2), this.ctrlKey = t.ctrlKey, this.shiftKey = t.shiftKey, this.altKey = t.altKey, this.metaKey = t.metaKey, "number" == typeof t.pageX ? (this.posx = t.pageX, this.posy = t.pageY) : (this.posx = t.clientX + this.target.ownerDocument.body.scrollLeft + this.target.ownerDocument.documentElement.scrollLeft, this.posy = t.clientY + this.target.ownerDocument.body.scrollTop + this.target.ownerDocument.documentElement.scrollTop);
+							const i = a.IframeUtils.getPositionOfChildWindowRelativeToAncestorWindow(e, t.view);
+							this.posx -= i.left, this.posy -= i.top;
+						}
+						preventDefault() {
+							this.browserEvent.preventDefault();
+						}
+						stopPropagation() {
+							this.browserEvent.stopPropagation();
+						}
+					}
+					t.StandardMouseEvent = h, t.DragMouseEvent = class extends h {
+						constructor(e, t) {
+							super(e, t), this.dataTransfer = t.dataTransfer;
+						}
+					}, t.StandardWheelEvent = class {
+						constructor(e, t = 0, i = 0) {
+							this.browserEvent = e || null, this.target = e ? e.target || e.targetNode || e.srcElement : null, this.deltaY = i, this.deltaX = t;
+							let s = !1;
+							if (o.isChrome) {
+								const e = navigator.userAgent.match(/Chrome\/(\d+)/);
+								s = (e ? parseInt(e[1]) : 123) <= 122;
+							}
+							if (e) {
+								const t = e, i = e, r = e.view?.devicePixelRatio || 1;
+								if (void 0 !== t.wheelDeltaY) this.deltaY = s ? t.wheelDeltaY / (120 * r) : t.wheelDeltaY / 120;
+								else if (void 0 !== i.VERTICAL_AXIS && i.axis === i.VERTICAL_AXIS) this.deltaY = -i.detail / 3;
+								else if ("wheel" === e.type) {
+									const t = e;
+									t.deltaMode === t.DOM_DELTA_LINE ? o.isFirefox && !l.isMacintosh ? this.deltaY = -e.deltaY / 3 : this.deltaY = -e.deltaY : this.deltaY = -e.deltaY / 40;
+								}
+								if (void 0 !== t.wheelDeltaX) o.isSafari && l.isWindows ? this.deltaX = -t.wheelDeltaX / 120 : this.deltaX = s ? t.wheelDeltaX / (120 * r) : t.wheelDeltaX / 120;
+								else if (void 0 !== i.HORIZONTAL_AXIS && i.axis === i.HORIZONTAL_AXIS) this.deltaX = -e.detail / 3;
+								else if ("wheel" === e.type) {
+									const t = e;
+									t.deltaMode === t.DOM_DELTA_LINE ? o.isFirefox && !l.isMacintosh ? this.deltaX = -e.deltaX / 3 : this.deltaX = -e.deltaX : this.deltaX = -e.deltaX / 40;
+								}
+								0 === this.deltaY && 0 === this.deltaX && e.wheelDelta && (this.deltaY = s ? e.wheelDelta / (120 * r) : e.wheelDelta / 120);
+							}
+						}
+						preventDefault() {
+							this.browserEvent?.preventDefault();
+						}
+						stopPropagation() {
+							this.browserEvent?.stopPropagation();
+						}
+					};
+				},
+				8594: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__decorate || function(e, t, i, s) {
+						var r, n = arguments.length, o = n < 3 ? t : null === s ? s = Object.getOwnPropertyDescriptor(t, i) : s;
+						if ("object" == typeof Reflect && "function" == typeof Reflect.decorate) o = Reflect.decorate(e, t, i, s);
+						else for (var a = e.length - 1; a >= 0; a--) (r = e[a]) && (o = (n < 3 ? r(o) : n > 3 ? r(t, i, o) : r(t, i)) || o);
+						return n > 3 && o && Object.defineProperty(t, i, o), o;
+					}, o = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Gesture = t.EventType = void 0;
+					const a = o(i(7093)), l = i(4693), h = o(i(3058)), c = i(4838), d = i(802), u = i(7150), _ = i(6317);
+					var f;
+					(function(e) {
+						e.Tap = "-xterm-gesturetap", e.Change = "-xterm-gesturechange", e.Start = "-xterm-gesturestart", e.End = "-xterm-gesturesend", e.Contextmenu = "-xterm-gesturecontextmenu";
+					})(f || (t.EventType = f = {}));
+					class p extends u.Disposable {
+						static {
+							this.SCROLL_FRICTION = -.005;
+						}
+						static {
+							this.HOLD_DELAY = 700;
+						}
+						static {
+							this.CLEAR_TAP_COUNT_TIME = 400;
+						}
+						constructor() {
+							super(), this.dispatched = !1, this.targets = new _.LinkedList(), this.ignoreTargets = new _.LinkedList(), this.activeTouches = {}, this.handle = null, this._lastSetTapCountTime = 0, this._register(d.Event.runAndSubscribe(a.onDidRegisterWindow, (({ window: e, disposables: t }) => {
+								t.add(a.addDisposableListener(e.document, "touchstart", ((e) => this.onTouchStart(e)), { passive: !1 })), t.add(a.addDisposableListener(e.document, "touchend", ((t) => this.onTouchEnd(e, t)))), t.add(a.addDisposableListener(e.document, "touchmove", ((e) => this.onTouchMove(e)), { passive: !1 }));
+							}), {
+								window: l.mainWindow,
+								disposables: this._store
+							}));
+						}
+						static addTarget(e) {
+							if (!p.isTouchDevice()) return u.Disposable.None;
+							p.INSTANCE || (p.INSTANCE = (0, u.markAsSingleton)(new p()));
+							const t = p.INSTANCE.targets.push(e);
+							return (0, u.toDisposable)(t);
+						}
+						static ignoreTarget(e) {
+							if (!p.isTouchDevice()) return u.Disposable.None;
+							p.INSTANCE || (p.INSTANCE = (0, u.markAsSingleton)(new p()));
+							const t = p.INSTANCE.ignoreTargets.push(e);
+							return (0, u.toDisposable)(t);
+						}
+						static isTouchDevice() {
+							return "ontouchstart" in l.mainWindow || navigator.maxTouchPoints > 0;
+						}
+						dispose() {
+							this.handle && (this.handle.dispose(), this.handle = null), super.dispose();
+						}
+						onTouchStart(e) {
+							const t = Date.now();
+							this.handle && (this.handle.dispose(), this.handle = null);
+							for (let i = 0, s = e.targetTouches.length; i < s; i++) {
+								const s = e.targetTouches.item(i);
+								this.activeTouches[s.identifier] = {
+									id: s.identifier,
+									initialTarget: s.target,
+									initialTimeStamp: t,
+									initialPageX: s.pageX,
+									initialPageY: s.pageY,
+									rollingTimestamps: [t],
+									rollingPageX: [s.pageX],
+									rollingPageY: [s.pageY]
+								};
+								const r = this.newGestureEvent(f.Start, s.target);
+								r.pageX = s.pageX, r.pageY = s.pageY, this.dispatchEvent(r);
+							}
+							this.dispatched && (e.preventDefault(), e.stopPropagation(), this.dispatched = !1);
+						}
+						onTouchEnd(e, t) {
+							const i = Date.now(), s = Object.keys(this.activeTouches).length;
+							for (let r = 0, n = t.changedTouches.length; r < n; r++) {
+								const n = t.changedTouches.item(r);
+								if (!this.activeTouches.hasOwnProperty(String(n.identifier))) {
+									console.warn("move of an UNKNOWN touch", n);
+									continue;
+								}
+								const o = this.activeTouches[n.identifier], a = Date.now() - o.initialTimeStamp;
+								if (a < p.HOLD_DELAY && Math.abs(o.initialPageX - h.tail(o.rollingPageX)) < 30 && Math.abs(o.initialPageY - h.tail(o.rollingPageY)) < 30) {
+									const e = this.newGestureEvent(f.Tap, o.initialTarget);
+									e.pageX = h.tail(o.rollingPageX), e.pageY = h.tail(o.rollingPageY), this.dispatchEvent(e);
+								} else if (a >= p.HOLD_DELAY && Math.abs(o.initialPageX - h.tail(o.rollingPageX)) < 30 && Math.abs(o.initialPageY - h.tail(o.rollingPageY)) < 30) {
+									const e = this.newGestureEvent(f.Contextmenu, o.initialTarget);
+									e.pageX = h.tail(o.rollingPageX), e.pageY = h.tail(o.rollingPageY), this.dispatchEvent(e);
+								} else if (1 === s) {
+									const t = h.tail(o.rollingPageX), s = h.tail(o.rollingPageY), r = h.tail(o.rollingTimestamps) - o.rollingTimestamps[0], n = t - o.rollingPageX[0], a = s - o.rollingPageY[0], l = [...this.targets].filter(((e) => o.initialTarget instanceof Node && e.contains(o.initialTarget)));
+									this.inertia(e, l, i, Math.abs(n) / r, n > 0 ? 1 : -1, t, Math.abs(a) / r, a > 0 ? 1 : -1, s);
+								}
+								this.dispatchEvent(this.newGestureEvent(f.End, o.initialTarget)), delete this.activeTouches[n.identifier];
+							}
+							this.dispatched && (t.preventDefault(), t.stopPropagation(), this.dispatched = !1);
+						}
+						newGestureEvent(e, t) {
+							const i = document.createEvent("CustomEvent");
+							return i.initEvent(e, !1, !0), i.initialTarget = t, i.tapCount = 0, i;
+						}
+						dispatchEvent(e) {
+							if (e.type === f.Tap) {
+								const t = (/* @__PURE__ */ new Date()).getTime();
+								let i = 0;
+								i = t - this._lastSetTapCountTime > p.CLEAR_TAP_COUNT_TIME ? 1 : 2, this._lastSetTapCountTime = t, e.tapCount = i;
+							} else e.type !== f.Change && e.type !== f.Contextmenu || (this._lastSetTapCountTime = 0);
+							if (e.initialTarget instanceof Node) {
+								for (const t of this.ignoreTargets) if (t.contains(e.initialTarget)) return;
+								const t = [];
+								for (const i of this.targets) if (i.contains(e.initialTarget)) {
+									let s = 0, r = e.initialTarget;
+									for (; r && r !== i;) s++, r = r.parentElement;
+									t.push([s, i]);
+								}
+								t.sort(((e, t) => e[0] - t[0]));
+								for (const [i, s] of t) s.dispatchEvent(e), this.dispatched = !0;
+							}
+						}
+						inertia(e, t, i, s, r, n, o, l, h) {
+							this.handle = a.scheduleAtNextAnimationFrame(e, (() => {
+								const a = Date.now(), c = a - i;
+								let d = 0, u = 0, _ = !0;
+								s += p.SCROLL_FRICTION * c, o += p.SCROLL_FRICTION * c, s > 0 && (_ = !1, d = r * s * c), o > 0 && (_ = !1, u = l * o * c);
+								const g = this.newGestureEvent(f.Change);
+								g.translationX = d, g.translationY = u, t.forEach(((e) => e.dispatchEvent(g))), _ || this.inertia(e, t, a, s, r, n + d, o, l, h + u);
+							}));
+						}
+						onTouchMove(e) {
+							const t = Date.now();
+							for (let i = 0, s = e.changedTouches.length; i < s; i++) {
+								const s = e.changedTouches.item(i);
+								if (!this.activeTouches.hasOwnProperty(String(s.identifier))) {
+									console.warn("end of an UNKNOWN touch", s);
+									continue;
+								}
+								const r = this.activeTouches[s.identifier], n = this.newGestureEvent(f.Change, r.initialTarget);
+								n.translationX = s.pageX - h.tail(r.rollingPageX), n.translationY = s.pageY - h.tail(r.rollingPageY), n.pageX = s.pageX, n.pageY = s.pageY, this.dispatchEvent(n), r.rollingPageX.length > 3 && (r.rollingPageX.shift(), r.rollingPageY.shift(), r.rollingTimestamps.shift()), r.rollingPageX.push(s.pageX), r.rollingPageY.push(s.pageY), r.rollingTimestamps.push(t);
+							}
+							this.dispatched && (e.preventDefault(), e.stopPropagation(), this.dispatched = !1);
+						}
+					}
+					t.Gesture = p, n([c.memoize], p, "isTouchDevice", null);
+				},
+				8801: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.AbstractScrollbar = void 0;
+					const o = n(i(7093)), a = i(9675), l = i(8328), h = i(8974), c = i(79), d = i(8286), u = n(i(8163));
+					class _ extends d.Widget {
+						constructor(e) {
+							super(), this._lazyRender = e.lazyRender, this._host = e.host, this._scrollable = e.scrollable, this._scrollByPage = e.scrollByPage, this._scrollbarState = e.scrollbarState, this._visibilityController = this._register(new c.ScrollbarVisibilityController(e.visibility, "visible scrollbar " + e.extraScrollbarClassName, "invisible scrollbar " + e.extraScrollbarClassName)), this._visibilityController.setIsNeeded(this._scrollbarState.isNeeded()), this._pointerMoveMonitor = this._register(new l.GlobalPointerMoveMonitor()), this._shouldRender = !0, this.domNode = (0, a.createFastDomNode)(document.createElement("div")), this.domNode.setAttribute("role", "presentation"), this.domNode.setAttribute("aria-hidden", "true"), this._visibilityController.setDomNode(this.domNode), this.domNode.setPosition("absolute"), this._register(o.addDisposableListener(this.domNode.domNode, o.EventType.POINTER_DOWN, ((e) => this._domNodePointerDown(e))));
+						}
+						_createArrow(e) {
+							const t = this._register(new h.ScrollbarArrow(e));
+							this.domNode.domNode.appendChild(t.bgDomNode), this.domNode.domNode.appendChild(t.domNode);
+						}
+						_createSlider(e, t, i, s) {
+							this.slider = (0, a.createFastDomNode)(document.createElement("div")), this.slider.setClassName("slider"), this.slider.setPosition("absolute"), this.slider.setTop(e), this.slider.setLeft(t), "number" == typeof i && this.slider.setWidth(i), "number" == typeof s && this.slider.setHeight(s), this.slider.setLayerHinting(!0), this.slider.setContain("strict"), this.domNode.domNode.appendChild(this.slider.domNode), this._register(o.addDisposableListener(this.slider.domNode, o.EventType.POINTER_DOWN, ((e) => {
+								0 === e.button && (e.preventDefault(), this._sliderPointerDown(e));
+							}))), this.onclick(this.slider.domNode, ((e) => {
+								e.leftButton && e.stopPropagation();
+							}));
+						}
+						_onElementSize(e) {
+							return this._scrollbarState.setVisibleSize(e) && (this._visibilityController.setIsNeeded(this._scrollbarState.isNeeded()), this._shouldRender = !0, this._lazyRender || this.render()), this._shouldRender;
+						}
+						_onElementScrollSize(e) {
+							return this._scrollbarState.setScrollSize(e) && (this._visibilityController.setIsNeeded(this._scrollbarState.isNeeded()), this._shouldRender = !0, this._lazyRender || this.render()), this._shouldRender;
+						}
+						_onElementScrollPosition(e) {
+							return this._scrollbarState.setScrollPosition(e) && (this._visibilityController.setIsNeeded(this._scrollbarState.isNeeded()), this._shouldRender = !0, this._lazyRender || this.render()), this._shouldRender;
+						}
+						beginReveal() {
+							this._visibilityController.setShouldBeVisible(!0);
+						}
+						beginHide() {
+							this._visibilityController.setShouldBeVisible(!1);
+						}
+						render() {
+							this._shouldRender && (this._shouldRender = !1, this._renderDomNode(this._scrollbarState.getRectangleLargeSize(), this._scrollbarState.getRectangleSmallSize()), this._updateSlider(this._scrollbarState.getSliderSize(), this._scrollbarState.getArrowSize() + this._scrollbarState.getSliderPosition()));
+						}
+						_domNodePointerDown(e) {
+							e.target === this.domNode.domNode && this._onPointerDown(e);
+						}
+						delegatePointerDown(e) {
+							const t = this.domNode.domNode.getClientRects()[0].top, i = t + this._scrollbarState.getSliderPosition(), s = t + this._scrollbarState.getSliderPosition() + this._scrollbarState.getSliderSize(), r = this._sliderPointerPosition(e);
+							i <= r && r <= s ? 0 === e.button && (e.preventDefault(), this._sliderPointerDown(e)) : this._onPointerDown(e);
+						}
+						_onPointerDown(e) {
+							let t, i;
+							if (e.target === this.domNode.domNode && "number" == typeof e.offsetX && "number" == typeof e.offsetY) t = e.offsetX, i = e.offsetY;
+							else {
+								const s = o.getDomNodePagePosition(this.domNode.domNode);
+								t = e.pageX - s.left, i = e.pageY - s.top;
+							}
+							const s = this._pointerDownRelativePosition(t, i);
+							this._setDesiredScrollPositionNow(this._scrollByPage ? this._scrollbarState.getDesiredScrollPositionFromOffsetPaged(s) : this._scrollbarState.getDesiredScrollPositionFromOffset(s)), 0 === e.button && (e.preventDefault(), this._sliderPointerDown(e));
+						}
+						_sliderPointerDown(e) {
+							if (!(e.target && e.target instanceof Element)) return;
+							const t = this._sliderPointerPosition(e), i = this._sliderOrthogonalPointerPosition(e), s = this._scrollbarState.clone();
+							this.slider.toggleClassName("active", !0), this._pointerMoveMonitor.startMonitoring(e.target, e.pointerId, e.buttons, ((e) => {
+								const r = this._sliderOrthogonalPointerPosition(e), n = Math.abs(r - i);
+								if (u.isWindows && n > 140) return void this._setDesiredScrollPositionNow(s.getScrollPosition());
+								const o = this._sliderPointerPosition(e) - t;
+								this._setDesiredScrollPositionNow(s.getDesiredScrollPositionFromDelta(o));
+							}), (() => {
+								this.slider.toggleClassName("active", !1), this._host.onDragEnd();
+							})), this._host.onDragStart();
+						}
+						_setDesiredScrollPositionNow(e) {
+							const t = {};
+							this.writeScrollPosition(t, e), this._scrollable.setScrollPositionNow(t);
+						}
+						updateScrollbarSize(e) {
+							this._updateScrollbarSize(e), this._scrollbarState.setScrollbarSize(e), this._shouldRender = !0, this._lazyRender || this.render();
+						}
+						isNeeded() {
+							return this._scrollbarState.isNeeded();
+						}
+					}
+					t.AbstractScrollbar = _;
+				},
+				151: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.HorizontalScrollbar = void 0;
+					const s = i(8801), r = i(8245), n = i(9881);
+					class o extends s.AbstractScrollbar {
+						constructor(e, t, i) {
+							const s = e.getScrollDimensions(), o = e.getCurrentScrollPosition();
+							if (super({
+								lazyRender: t.lazyRender,
+								host: i,
+								scrollbarState: new r.ScrollbarState(t.horizontalHasArrows ? t.arrowSize : 0, t.horizontal === n.ScrollbarVisibility.Hidden ? 0 : t.horizontalScrollbarSize, t.vertical === n.ScrollbarVisibility.Hidden ? 0 : t.verticalScrollbarSize, s.width, s.scrollWidth, o.scrollLeft),
+								visibility: t.horizontal,
+								extraScrollbarClassName: "horizontal",
+								scrollable: e,
+								scrollByPage: t.scrollByPage
+							}), t.horizontalHasArrows) throw new Error("horizontalHasArrows is not supported in xterm.js");
+							this._createSlider(Math.floor((t.horizontalScrollbarSize - t.horizontalSliderSize) / 2), 0, void 0, t.horizontalSliderSize);
+						}
+						_updateSlider(e, t) {
+							this.slider.setWidth(e), this.slider.setLeft(t);
+						}
+						_renderDomNode(e, t) {
+							this.domNode.setWidth(e), this.domNode.setHeight(t), this.domNode.setLeft(0), this.domNode.setBottom(0);
+						}
+						onDidScroll(e) {
+							return this._shouldRender = this._onElementScrollSize(e.scrollWidth) || this._shouldRender, this._shouldRender = this._onElementScrollPosition(e.scrollLeft) || this._shouldRender, this._shouldRender = this._onElementSize(e.width) || this._shouldRender, this._shouldRender;
+						}
+						_pointerDownRelativePosition(e, t) {
+							return e;
+						}
+						_sliderPointerPosition(e) {
+							return e.pageX;
+						}
+						_sliderOrthogonalPointerPosition(e) {
+							return e.pageY;
+						}
+						_updateScrollbarSize(e) {
+							this.slider.setHeight(e);
+						}
+						writeScrollPosition(e, t) {
+							e.scrollLeft = t;
+						}
+						updateOptions(e) {
+							this.updateScrollbarSize(e.horizontal === n.ScrollbarVisibility.Hidden ? 0 : e.horizontalScrollbarSize), this._scrollbarState.setOppositeScrollbarSize(e.vertical === n.ScrollbarVisibility.Hidden ? 0 : e.verticalScrollbarSize), this._visibilityController.setVisibility(e.horizontal), this._scrollByPage = e.scrollByPage;
+						}
+					}
+					t.HorizontalScrollbar = o;
+				},
+				8234: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.DomScrollableElement = t.SmoothScrollableElement = t.ScrollableElement = t.AbstractScrollableElement = t.MouseWheelClassifier = void 0;
+					const o = i(4333), a = n(i(7093)), l = i(9675), h = i(5964), c = i(151), d = i(5473), u = i(8286), _ = i(1758), f = i(802), p = i(7150), g = n(i(8163)), m = i(9881);
+					class v {
+						constructor(e, t, i) {
+							this.timestamp = e, this.deltaX = t, this.deltaY = i, this.score = 0;
+						}
+					}
+					class S {
+						static {
+							this.INSTANCE = new S();
+						}
+						constructor() {
+							this._capacity = 5, this._memory = [], this._front = -1, this._rear = -1;
+						}
+						isPhysicalMouseWheel() {
+							if (-1 === this._front && -1 === this._rear) return !1;
+							let e = 1, t = 0, i = 1, s = this._rear;
+							for (;;) {
+								const r = s === this._front ? e : Math.pow(2, -i);
+								if (e -= r, t += this._memory[s].score * r, s === this._front) break;
+								s = (this._capacity + s - 1) % this._capacity, i++;
+							}
+							return t <= .5;
+						}
+						acceptStandardWheelEvent(e) {
+							if (o.isChrome) {
+								const t = a.getWindow(e.browserEvent), i = (0, o.getZoomFactor)(t);
+								this.accept(Date.now(), e.deltaX * i, e.deltaY * i);
+							} else this.accept(Date.now(), e.deltaX, e.deltaY);
+						}
+						accept(e, t, i) {
+							let s = null;
+							const r = new v(e, t, i);
+							-1 === this._front && -1 === this._rear ? (this._memory[0] = r, this._front = 0, this._rear = 0) : (s = this._memory[this._rear], this._rear = (this._rear + 1) % this._capacity, this._rear === this._front && (this._front = (this._front + 1) % this._capacity), this._memory[this._rear] = r), r.score = this._computeScore(r, s);
+						}
+						_computeScore(e, t) {
+							if (Math.abs(e.deltaX) > 0 && Math.abs(e.deltaY) > 0) return 1;
+							let i = .5;
+							if (this._isAlmostInt(e.deltaX) && this._isAlmostInt(e.deltaY) || (i += .25), t) {
+								const s = Math.abs(e.deltaX), r = Math.abs(e.deltaY), n = Math.abs(t.deltaX), o = Math.abs(t.deltaY), a = Math.max(Math.min(s, n), 1), l = Math.max(Math.min(r, o), 1), h = Math.max(s, n), c = Math.max(r, o);
+								h % a == 0 && c % l == 0 && (i -= .5);
+							}
+							return Math.min(Math.max(i, 0), 1);
+						}
+						_isAlmostInt(e) {
+							return Math.abs(Math.round(e) - e) < .01;
+						}
+					}
+					t.MouseWheelClassifier = S;
+					class b extends u.Widget {
+						get options() {
+							return this._options;
+						}
+						constructor(e, t, i) {
+							super(), this._onScroll = this._register(new f.Emitter()), this.onScroll = this._onScroll.event, this._onWillScroll = this._register(new f.Emitter()), this.onWillScroll = this._onWillScroll.event, this._options = function(e) {
+								const t = {
+									lazyRender: void 0 !== e.lazyRender && e.lazyRender,
+									className: void 0 !== e.className ? e.className : "",
+									useShadows: void 0 === e.useShadows || e.useShadows,
+									handleMouseWheel: void 0 === e.handleMouseWheel || e.handleMouseWheel,
+									flipAxes: void 0 !== e.flipAxes && e.flipAxes,
+									consumeMouseWheelIfScrollbarIsNeeded: void 0 !== e.consumeMouseWheelIfScrollbarIsNeeded && e.consumeMouseWheelIfScrollbarIsNeeded,
+									alwaysConsumeMouseWheel: void 0 !== e.alwaysConsumeMouseWheel && e.alwaysConsumeMouseWheel,
+									scrollYToX: void 0 !== e.scrollYToX && e.scrollYToX,
+									mouseWheelScrollSensitivity: void 0 !== e.mouseWheelScrollSensitivity ? e.mouseWheelScrollSensitivity : 1,
+									fastScrollSensitivity: void 0 !== e.fastScrollSensitivity ? e.fastScrollSensitivity : 5,
+									scrollPredominantAxis: void 0 === e.scrollPredominantAxis || e.scrollPredominantAxis,
+									mouseWheelSmoothScroll: void 0 === e.mouseWheelSmoothScroll || e.mouseWheelSmoothScroll,
+									arrowSize: void 0 !== e.arrowSize ? e.arrowSize : 11,
+									listenOnDomNode: void 0 !== e.listenOnDomNode ? e.listenOnDomNode : null,
+									horizontal: void 0 !== e.horizontal ? e.horizontal : m.ScrollbarVisibility.Auto,
+									horizontalScrollbarSize: void 0 !== e.horizontalScrollbarSize ? e.horizontalScrollbarSize : 10,
+									horizontalSliderSize: void 0 !== e.horizontalSliderSize ? e.horizontalSliderSize : 0,
+									horizontalHasArrows: void 0 !== e.horizontalHasArrows && e.horizontalHasArrows,
+									vertical: void 0 !== e.vertical ? e.vertical : m.ScrollbarVisibility.Auto,
+									verticalScrollbarSize: void 0 !== e.verticalScrollbarSize ? e.verticalScrollbarSize : 10,
+									verticalHasArrows: void 0 !== e.verticalHasArrows && e.verticalHasArrows,
+									verticalSliderSize: void 0 !== e.verticalSliderSize ? e.verticalSliderSize : 0,
+									scrollByPage: void 0 !== e.scrollByPage && e.scrollByPage
+								};
+								return t.horizontalSliderSize = void 0 !== e.horizontalSliderSize ? e.horizontalSliderSize : t.horizontalScrollbarSize, t.verticalSliderSize = void 0 !== e.verticalSliderSize ? e.verticalSliderSize : t.verticalScrollbarSize, g.isMacintosh && (t.className += " mac"), t;
+							}(t), this._scrollable = i, this._register(this._scrollable.onScroll(((e) => {
+								this._onWillScroll.fire(e), this._onDidScroll(e), this._onScroll.fire(e);
+							})));
+							const s = {
+								onMouseWheel: (e) => this._onMouseWheel(e),
+								onDragStart: () => this._onDragStart(),
+								onDragEnd: () => this._onDragEnd()
+							};
+							this._verticalScrollbar = this._register(new d.VerticalScrollbar(this._scrollable, this._options, s)), this._horizontalScrollbar = this._register(new c.HorizontalScrollbar(this._scrollable, this._options, s)), this._domNode = document.createElement("div"), this._domNode.className = "xterm-scrollable-element " + this._options.className, this._domNode.setAttribute("role", "presentation"), this._domNode.style.position = "relative", this._domNode.appendChild(e), this._domNode.appendChild(this._horizontalScrollbar.domNode.domNode), this._domNode.appendChild(this._verticalScrollbar.domNode.domNode), this._options.useShadows ? (this._leftShadowDomNode = (0, l.createFastDomNode)(document.createElement("div")), this._leftShadowDomNode.setClassName("shadow"), this._domNode.appendChild(this._leftShadowDomNode.domNode), this._topShadowDomNode = (0, l.createFastDomNode)(document.createElement("div")), this._topShadowDomNode.setClassName("shadow"), this._domNode.appendChild(this._topShadowDomNode.domNode), this._topLeftShadowDomNode = (0, l.createFastDomNode)(document.createElement("div")), this._topLeftShadowDomNode.setClassName("shadow"), this._domNode.appendChild(this._topLeftShadowDomNode.domNode)) : (this._leftShadowDomNode = null, this._topShadowDomNode = null, this._topLeftShadowDomNode = null), this._listenOnDomNode = this._options.listenOnDomNode || this._domNode, this._mouseWheelToDispose = [], this._setListeningToMouseWheel(this._options.handleMouseWheel), this.onmouseover(this._listenOnDomNode, ((e) => this._onMouseOver(e))), this.onmouseleave(this._listenOnDomNode, ((e) => this._onMouseLeave(e))), this._hideTimeout = this._register(new _.TimeoutTimer()), this._isDragging = !1, this._mouseIsOver = !1, this._shouldRender = !0, this._revealOnScroll = !0;
+						}
+						dispose() {
+							this._mouseWheelToDispose = (0, p.dispose)(this._mouseWheelToDispose), super.dispose();
+						}
+						getDomNode() {
+							return this._domNode;
+						}
+						getOverviewRulerLayoutInfo() {
+							return {
+								parent: this._domNode,
+								insertBefore: this._verticalScrollbar.domNode.domNode
+							};
+						}
+						delegateVerticalScrollbarPointerDown(e) {
+							this._verticalScrollbar.delegatePointerDown(e);
+						}
+						getScrollDimensions() {
+							return this._scrollable.getScrollDimensions();
+						}
+						setScrollDimensions(e) {
+							this._scrollable.setScrollDimensions(e, !1);
+						}
+						updateClassName(e) {
+							this._options.className = e, g.isMacintosh && (this._options.className += " mac"), this._domNode.className = "xterm-scrollable-element " + this._options.className;
+						}
+						updateOptions(e) {
+							void 0 !== e.handleMouseWheel && (this._options.handleMouseWheel = e.handleMouseWheel, this._setListeningToMouseWheel(this._options.handleMouseWheel)), void 0 !== e.mouseWheelScrollSensitivity && (this._options.mouseWheelScrollSensitivity = e.mouseWheelScrollSensitivity), void 0 !== e.fastScrollSensitivity && (this._options.fastScrollSensitivity = e.fastScrollSensitivity), void 0 !== e.scrollPredominantAxis && (this._options.scrollPredominantAxis = e.scrollPredominantAxis), void 0 !== e.horizontal && (this._options.horizontal = e.horizontal), void 0 !== e.vertical && (this._options.vertical = e.vertical), void 0 !== e.horizontalScrollbarSize && (this._options.horizontalScrollbarSize = e.horizontalScrollbarSize), void 0 !== e.verticalScrollbarSize && (this._options.verticalScrollbarSize = e.verticalScrollbarSize), void 0 !== e.scrollByPage && (this._options.scrollByPage = e.scrollByPage), this._horizontalScrollbar.updateOptions(this._options), this._verticalScrollbar.updateOptions(this._options), this._options.lazyRender || this._render();
+						}
+						setRevealOnScroll(e) {
+							this._revealOnScroll = e;
+						}
+						delegateScrollFromMouseWheelEvent(e) {
+							this._onMouseWheel(new h.StandardWheelEvent(e));
+						}
+						_setListeningToMouseWheel(e) {
+							if (this._mouseWheelToDispose.length > 0 !== e && (this._mouseWheelToDispose = (0, p.dispose)(this._mouseWheelToDispose), e)) {
+								const e = (e) => {
+									this._onMouseWheel(new h.StandardWheelEvent(e));
+								};
+								this._mouseWheelToDispose.push(a.addDisposableListener(this._listenOnDomNode, a.EventType.MOUSE_WHEEL, e, { passive: !1 }));
+							}
+						}
+						_onMouseWheel(e) {
+							if (e.browserEvent?.defaultPrevented) return;
+							const t = S.INSTANCE;
+							t.acceptStandardWheelEvent(e);
+							let i = !1;
+							if (e.deltaY || e.deltaX) {
+								let s = e.deltaY * this._options.mouseWheelScrollSensitivity, r = e.deltaX * this._options.mouseWheelScrollSensitivity;
+								this._options.scrollPredominantAxis && (this._options.scrollYToX && r + s === 0 ? r = s = 0 : Math.abs(s) >= Math.abs(r) ? r = 0 : s = 0), this._options.flipAxes && ([s, r] = [r, s]);
+								const n = !g.isMacintosh && e.browserEvent && e.browserEvent.shiftKey;
+								!this._options.scrollYToX && !n || r || (r = s, s = 0), e.browserEvent && e.browserEvent.altKey && (r *= this._options.fastScrollSensitivity, s *= this._options.fastScrollSensitivity);
+								const o = this._scrollable.getFutureScrollPosition();
+								let a = {};
+								if (s) {
+									const e = 50 * s, t = o.scrollTop - (e < 0 ? Math.floor(e) : Math.ceil(e));
+									this._verticalScrollbar.writeScrollPosition(a, t);
+								}
+								if (r) {
+									const e = 50 * r, t = o.scrollLeft - (e < 0 ? Math.floor(e) : Math.ceil(e));
+									this._horizontalScrollbar.writeScrollPosition(a, t);
+								}
+								a = this._scrollable.validateScrollPosition(a), (o.scrollLeft !== a.scrollLeft || o.scrollTop !== a.scrollTop) && (this._options.mouseWheelSmoothScroll && t.isPhysicalMouseWheel() ? this._scrollable.setScrollPositionSmooth(a) : this._scrollable.setScrollPositionNow(a), i = !0);
+							}
+							let s = i;
+							!s && this._options.alwaysConsumeMouseWheel && (s = !0), !s && this._options.consumeMouseWheelIfScrollbarIsNeeded && (this._verticalScrollbar.isNeeded() || this._horizontalScrollbar.isNeeded()) && (s = !0), s && (e.preventDefault(), e.stopPropagation());
+						}
+						_onDidScroll(e) {
+							this._shouldRender = this._horizontalScrollbar.onDidScroll(e) || this._shouldRender, this._shouldRender = this._verticalScrollbar.onDidScroll(e) || this._shouldRender, this._options.useShadows && (this._shouldRender = !0), this._revealOnScroll && this._reveal(), this._options.lazyRender || this._render();
+						}
+						renderNow() {
+							if (!this._options.lazyRender) throw new Error("Please use `lazyRender` together with `renderNow`!");
+							this._render();
+						}
+						_render() {
+							if (this._shouldRender && (this._shouldRender = !1, this._horizontalScrollbar.render(), this._verticalScrollbar.render(), this._options.useShadows)) {
+								const e = this._scrollable.getCurrentScrollPosition(), t = e.scrollTop > 0, i = e.scrollLeft > 0, s = i ? " left" : "", r = t ? " top" : "", n = i || t ? " top-left-corner" : "";
+								this._leftShadowDomNode.setClassName(`shadow${s}`), this._topShadowDomNode.setClassName(`shadow${r}`), this._topLeftShadowDomNode.setClassName(`shadow${n}${r}${s}`);
+							}
+						}
+						_onDragStart() {
+							this._isDragging = !0, this._reveal();
+						}
+						_onDragEnd() {
+							this._isDragging = !1, this._hide();
+						}
+						_onMouseLeave(e) {
+							this._mouseIsOver = !1, this._hide();
+						}
+						_onMouseOver(e) {
+							this._mouseIsOver = !0, this._reveal();
+						}
+						_reveal() {
+							this._verticalScrollbar.beginReveal(), this._horizontalScrollbar.beginReveal(), this._scheduleHide();
+						}
+						_hide() {
+							this._mouseIsOver || this._isDragging || (this._verticalScrollbar.beginHide(), this._horizontalScrollbar.beginHide());
+						}
+						_scheduleHide() {
+							this._mouseIsOver || this._isDragging || this._hideTimeout.cancelAndSet((() => this._hide()), 500);
+						}
+					}
+					t.AbstractScrollableElement = b, t.ScrollableElement = class extends b {
+						constructor(e, t) {
+							(t = t || {}).mouseWheelSmoothScroll = !1;
+							const i = new m.Scrollable({
+								forceIntegerValues: !0,
+								smoothScrollDuration: 0,
+								scheduleAtNextAnimationFrame: (t) => a.scheduleAtNextAnimationFrame(a.getWindow(e), t)
+							});
+							super(e, t, i), this._register(i);
+						}
+						setScrollPosition(e) {
+							this._scrollable.setScrollPositionNow(e);
+						}
+						getScrollPosition() {
+							return this._scrollable.getCurrentScrollPosition();
+						}
+					}, t.SmoothScrollableElement = class extends b {
+						constructor(e, t, i) {
+							super(e, t, i);
+						}
+						setScrollPosition(e) {
+							e.reuseAnimation ? this._scrollable.setScrollPositionSmooth(e, e.reuseAnimation) : this._scrollable.setScrollPositionNow(e);
+						}
+						getScrollPosition() {
+							return this._scrollable.getCurrentScrollPosition();
+						}
+					}, t.DomScrollableElement = class extends b {
+						constructor(e, t) {
+							(t = t || {}).mouseWheelSmoothScroll = !1;
+							const i = new m.Scrollable({
+								forceIntegerValues: !1,
+								smoothScrollDuration: 0,
+								scheduleAtNextAnimationFrame: (t) => a.scheduleAtNextAnimationFrame(a.getWindow(e), t)
+							});
+							super(e, t, i), this._register(i), this._element = e, this._register(this.onScroll(((e) => {
+								e.scrollTopChanged && (this._element.scrollTop = e.scrollTop), e.scrollLeftChanged && (this._element.scrollLeft = e.scrollLeft);
+							}))), this.scanDomNode();
+						}
+						setScrollPosition(e) {
+							this._scrollable.setScrollPositionNow(e);
+						}
+						getScrollPosition() {
+							return this._scrollable.getCurrentScrollPosition();
+						}
+						scanDomNode() {
+							this.setScrollDimensions({
+								width: this._element.clientWidth,
+								scrollWidth: this._element.scrollWidth,
+								height: this._element.clientHeight,
+								scrollHeight: this._element.scrollHeight
+							}), this.setScrollPosition({
+								scrollLeft: this._element.scrollLeft,
+								scrollTop: this._element.scrollTop
+							});
+						}
+					};
+				},
+				8974: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ScrollbarArrow = t.ARROW_IMG_SIZE = void 0;
+					const o = i(8328), a = i(8286), l = i(1758), h = n(i(7093));
+					t.ARROW_IMG_SIZE = 11;
+					class c extends a.Widget {
+						constructor(e) {
+							super(), this._onActivate = e.onActivate, this.bgDomNode = document.createElement("div"), this.bgDomNode.className = "arrow-background", this.bgDomNode.style.position = "absolute", this.bgDomNode.style.width = e.bgWidth + "px", this.bgDomNode.style.height = e.bgHeight + "px", void 0 !== e.top && (this.bgDomNode.style.top = "0px"), void 0 !== e.left && (this.bgDomNode.style.left = "0px"), void 0 !== e.bottom && (this.bgDomNode.style.bottom = "0px"), void 0 !== e.right && (this.bgDomNode.style.right = "0px"), this.domNode = document.createElement("div"), this.domNode.className = e.className, this.domNode.style.position = "absolute", this.domNode.style.width = t.ARROW_IMG_SIZE + "px", this.domNode.style.height = t.ARROW_IMG_SIZE + "px", void 0 !== e.top && (this.domNode.style.top = e.top + "px"), void 0 !== e.left && (this.domNode.style.left = e.left + "px"), void 0 !== e.bottom && (this.domNode.style.bottom = e.bottom + "px"), void 0 !== e.right && (this.domNode.style.right = e.right + "px"), this._pointerMoveMonitor = this._register(new o.GlobalPointerMoveMonitor()), this._register(h.addStandardDisposableListener(this.bgDomNode, h.EventType.POINTER_DOWN, ((e) => this._arrowPointerDown(e)))), this._register(h.addStandardDisposableListener(this.domNode, h.EventType.POINTER_DOWN, ((e) => this._arrowPointerDown(e)))), this._pointerdownRepeatTimer = this._register(new h.WindowIntervalTimer()), this._pointerdownScheduleRepeatTimer = this._register(new l.TimeoutTimer());
+						}
+						_arrowPointerDown(e) {
+							e.target && e.target instanceof Element && (this._onActivate(), this._pointerdownRepeatTimer.cancel(), this._pointerdownScheduleRepeatTimer.cancelAndSet((() => {
+								this._pointerdownRepeatTimer.cancelAndSet((() => this._onActivate()), 1e3 / 24, h.getWindow(e));
+							}), 200), this._pointerMoveMonitor.startMonitoring(e.target, e.pointerId, e.buttons, ((e) => {}), (() => {
+								this._pointerdownRepeatTimer.cancel(), this._pointerdownScheduleRepeatTimer.cancel();
+							})), e.preventDefault());
+						}
+					}
+					t.ScrollbarArrow = c;
+				},
+				8245: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ScrollbarState = void 0;
+					class i {
+						constructor(e, t, i, s, r, n) {
+							this._scrollbarSize = Math.round(t), this._oppositeScrollbarSize = Math.round(i), this._arrowSize = Math.round(e), this._visibleSize = s, this._scrollSize = r, this._scrollPosition = n, this._computedAvailableSize = 0, this._computedIsNeeded = !1, this._computedSliderSize = 0, this._computedSliderRatio = 0, this._computedSliderPosition = 0, this._refreshComputedValues();
+						}
+						clone() {
+							return new i(this._arrowSize, this._scrollbarSize, this._oppositeScrollbarSize, this._visibleSize, this._scrollSize, this._scrollPosition);
+						}
+						setVisibleSize(e) {
+							const t = Math.round(e);
+							return this._visibleSize !== t && (this._visibleSize = t, this._refreshComputedValues(), !0);
+						}
+						setScrollSize(e) {
+							const t = Math.round(e);
+							return this._scrollSize !== t && (this._scrollSize = t, this._refreshComputedValues(), !0);
+						}
+						setScrollPosition(e) {
+							const t = Math.round(e);
+							return this._scrollPosition !== t && (this._scrollPosition = t, this._refreshComputedValues(), !0);
+						}
+						setScrollbarSize(e) {
+							this._scrollbarSize = Math.round(e);
+						}
+						setOppositeScrollbarSize(e) {
+							this._oppositeScrollbarSize = Math.round(e);
+						}
+						static _computeValues(e, t, i, s, r) {
+							const n = Math.max(0, i - e), o = Math.max(0, n - 2 * t), a = s > 0 && s > i;
+							if (!a) return {
+								computedAvailableSize: Math.round(n),
+								computedIsNeeded: a,
+								computedSliderSize: Math.round(o),
+								computedSliderRatio: 0,
+								computedSliderPosition: 0
+							};
+							const l = Math.round(Math.max(20, Math.floor(i * o / s))), h = (o - l) / (s - i), c = r * h;
+							return {
+								computedAvailableSize: Math.round(n),
+								computedIsNeeded: a,
+								computedSliderSize: Math.round(l),
+								computedSliderRatio: h,
+								computedSliderPosition: Math.round(c)
+							};
+						}
+						_refreshComputedValues() {
+							const e = i._computeValues(this._oppositeScrollbarSize, this._arrowSize, this._visibleSize, this._scrollSize, this._scrollPosition);
+							this._computedAvailableSize = e.computedAvailableSize, this._computedIsNeeded = e.computedIsNeeded, this._computedSliderSize = e.computedSliderSize, this._computedSliderRatio = e.computedSliderRatio, this._computedSliderPosition = e.computedSliderPosition;
+						}
+						getArrowSize() {
+							return this._arrowSize;
+						}
+						getScrollPosition() {
+							return this._scrollPosition;
+						}
+						getRectangleLargeSize() {
+							return this._computedAvailableSize;
+						}
+						getRectangleSmallSize() {
+							return this._scrollbarSize;
+						}
+						isNeeded() {
+							return this._computedIsNeeded;
+						}
+						getSliderSize() {
+							return this._computedSliderSize;
+						}
+						getSliderPosition() {
+							return this._computedSliderPosition;
+						}
+						getDesiredScrollPositionFromOffset(e) {
+							if (!this._computedIsNeeded) return 0;
+							const t = e - this._arrowSize - this._computedSliderSize / 2;
+							return Math.round(t / this._computedSliderRatio);
+						}
+						getDesiredScrollPositionFromOffsetPaged(e) {
+							if (!this._computedIsNeeded) return 0;
+							const t = e - this._arrowSize;
+							let i = this._scrollPosition;
+							return t < this._computedSliderPosition ? i -= this._visibleSize : i += this._visibleSize, i;
+						}
+						getDesiredScrollPositionFromDelta(e) {
+							if (!this._computedIsNeeded) return 0;
+							const t = this._computedSliderPosition + e;
+							return Math.round(t / this._computedSliderRatio);
+						}
+					}
+					t.ScrollbarState = i;
+				},
+				79: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ScrollbarVisibilityController = void 0;
+					const s = i(1758), r = i(7150), n = i(9881);
+					class o extends r.Disposable {
+						constructor(e, t, i) {
+							super(), this._visibility = e, this._visibleClassName = t, this._invisibleClassName = i, this._domNode = null, this._isVisible = !1, this._isNeeded = !1, this._rawShouldBeVisible = !1, this._shouldBeVisible = !1, this._revealTimer = this._register(new s.TimeoutTimer());
+						}
+						setVisibility(e) {
+							this._visibility !== e && (this._visibility = e, this._updateShouldBeVisible());
+						}
+						setShouldBeVisible(e) {
+							this._rawShouldBeVisible = e, this._updateShouldBeVisible();
+						}
+						_applyVisibilitySetting() {
+							return this._visibility !== n.ScrollbarVisibility.Hidden && (this._visibility === n.ScrollbarVisibility.Visible || this._rawShouldBeVisible);
+						}
+						_updateShouldBeVisible() {
+							const e = this._applyVisibilitySetting();
+							this._shouldBeVisible !== e && (this._shouldBeVisible = e, this.ensureVisibility());
+						}
+						setIsNeeded(e) {
+							this._isNeeded !== e && (this._isNeeded = e, this.ensureVisibility());
+						}
+						setDomNode(e) {
+							this._domNode = e, this._domNode.setClassName(this._invisibleClassName), this.setShouldBeVisible(!1);
+						}
+						ensureVisibility() {
+							this._isNeeded ? this._shouldBeVisible ? this._reveal() : this._hide(!0) : this._hide(!1);
+						}
+						_reveal() {
+							this._isVisible || (this._isVisible = !0, this._revealTimer.setIfNotSet((() => {
+								this._domNode?.setClassName(this._visibleClassName);
+							}), 0));
+						}
+						_hide(e) {
+							this._revealTimer.cancel(), this._isVisible && (this._isVisible = !1, this._domNode?.setClassName(this._invisibleClassName + (e ? " fade" : "")));
+						}
+					}
+					t.ScrollbarVisibilityController = o;
+				},
+				5473: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.VerticalScrollbar = void 0;
+					const s = i(8801), r = i(8245), n = i(9881);
+					class o extends s.AbstractScrollbar {
+						constructor(e, t, i) {
+							const s = e.getScrollDimensions(), o = e.getCurrentScrollPosition();
+							if (super({
+								lazyRender: t.lazyRender,
+								host: i,
+								scrollbarState: new r.ScrollbarState(t.verticalHasArrows ? t.arrowSize : 0, t.vertical === n.ScrollbarVisibility.Hidden ? 0 : t.verticalScrollbarSize, 0, s.height, s.scrollHeight, o.scrollTop),
+								visibility: t.vertical,
+								extraScrollbarClassName: "vertical",
+								scrollable: e,
+								scrollByPage: t.scrollByPage
+							}), t.verticalHasArrows) throw new Error("horizontalHasArrows is not supported in xterm.js");
+							this._createSlider(0, Math.floor((t.verticalScrollbarSize - t.verticalSliderSize) / 2), t.verticalSliderSize, void 0);
+						}
+						_updateSlider(e, t) {
+							this.slider.setHeight(e), this.slider.setTop(t);
+						}
+						_renderDomNode(e, t) {
+							this.domNode.setWidth(t), this.domNode.setHeight(e), this.domNode.setRight(0), this.domNode.setTop(0);
+						}
+						onDidScroll(e) {
+							return this._shouldRender = this._onElementScrollSize(e.scrollHeight) || this._shouldRender, this._shouldRender = this._onElementScrollPosition(e.scrollTop) || this._shouldRender, this._shouldRender = this._onElementSize(e.height) || this._shouldRender, this._shouldRender;
+						}
+						_pointerDownRelativePosition(e, t) {
+							return t;
+						}
+						_sliderPointerPosition(e) {
+							return e.pageY;
+						}
+						_sliderOrthogonalPointerPosition(e) {
+							return e.pageX;
+						}
+						_updateScrollbarSize(e) {
+							this.slider.setWidth(e);
+						}
+						writeScrollPosition(e, t) {
+							e.scrollTop = t;
+						}
+						updateOptions(e) {
+							this.updateScrollbarSize(e.vertical === n.ScrollbarVisibility.Hidden ? 0 : e.verticalScrollbarSize), this._scrollbarState.setOppositeScrollbarSize(0), this._visibilityController.setVisibility(e.vertical), this._scrollByPage = e.scrollByPage;
+						}
+					}
+					t.VerticalScrollbar = o;
+				},
+				8286: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Widget = void 0;
+					const o = n(i(7093)), a = i(5394), l = i(5964), h = i(8594), c = i(7150);
+					class d extends c.Disposable {
+						onclick(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.CLICK, ((i) => t(new l.StandardMouseEvent(o.getWindow(e), i)))));
+						}
+						onmousedown(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.MOUSE_DOWN, ((i) => t(new l.StandardMouseEvent(o.getWindow(e), i)))));
+						}
+						onmouseover(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.MOUSE_OVER, ((i) => t(new l.StandardMouseEvent(o.getWindow(e), i)))));
+						}
+						onmouseleave(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.MOUSE_LEAVE, ((i) => t(new l.StandardMouseEvent(o.getWindow(e), i)))));
+						}
+						onkeydown(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.KEY_DOWN, ((e) => t(new a.StandardKeyboardEvent(e)))));
+						}
+						onkeyup(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.KEY_UP, ((e) => t(new a.StandardKeyboardEvent(e)))));
+						}
+						oninput(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.INPUT, t));
+						}
+						onblur(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.BLUR, t));
+						}
+						onfocus(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.FOCUS, t));
+						}
+						onchange(e, t) {
+							this._register(o.addDisposableListener(e, o.EventType.CHANGE, t));
+						}
+						ignoreGesture(e) {
+							return h.Gesture.ignoreTarget(e);
+						}
+					}
+					t.Widget = d;
+				},
+				4693: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.mainWindow = void 0, t.ensureCodeWindow = function(e, t) {}, t.mainWindow = "object" == typeof window ? window : globalThis;
+				},
+				3058: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Permutation = t.CallbackIterable = t.ArrayQueue = t.booleanComparator = t.numberComparator = t.CompareResult = void 0, t.tail = function(e, t = 0) {
+						return e[e.length - (1 + t)];
+					}, t.tail2 = function(e) {
+						if (0 === e.length) throw new Error("Invalid tail call");
+						return [e.slice(0, e.length - 1), e[e.length - 1]];
+					}, t.equals = function(e, t, i = (e, t) => e === t) {
+						if (e === t) return !0;
+						if (!e || !t) return !1;
+						if (e.length !== t.length) return !1;
+						for (let s = 0, r = e.length; s < r; s++) if (!i(e[s], t[s])) return !1;
+						return !0;
+					}, t.removeFastWithoutKeepingOrder = function(e, t) {
+						const i = e.length - 1;
+						t < i && (e[t] = e[i]), e.pop();
+					}, t.binarySearch = function(e, t, i) {
+						return n(e.length, ((s) => i(e[s], t)));
+					}, t.binarySearch2 = n, t.quickSelect = function e(t, i, s) {
+						if ((t |= 0) >= i.length) throw new TypeError("invalid index");
+						const r = i[Math.floor(i.length * Math.random())], n = [], o = [], a = [];
+						for (const e of i) {
+							const t = s(e, r);
+							t < 0 ? n.push(e) : t > 0 ? o.push(e) : a.push(e);
+						}
+						return t < n.length ? e(t, n, s) : t < n.length + a.length ? a[0] : e(t - (n.length + a.length), o, s);
+					}, t.groupBy = function(e, t) {
+						const i = [];
+						let s;
+						for (const r of e.slice(0).sort(t)) s && 0 === t(s[0], r) ? s.push(r) : (s = [r], i.push(s));
+						return i;
+					}, t.groupAdjacentBy = function* (e, t) {
+						let i, s;
+						for (const r of e) void 0 !== s && t(s, r) ? i.push(r) : (i && (yield i), i = [r]), s = r;
+						i && (yield i);
+					}, t.forEachAdjacent = function(e, t) {
+						for (let i = 0; i <= e.length; i++) t(0 === i ? void 0 : e[i - 1], i === e.length ? void 0 : e[i]);
+					}, t.forEachWithNeighbors = function(e, t) {
+						for (let i = 0; i < e.length; i++) t(0 === i ? void 0 : e[i - 1], e[i], i + 1 === e.length ? void 0 : e[i + 1]);
+					}, t.sortedDiff = o, t.delta = function(e, t, i) {
+						const s = o(e, t, i), r = [], n = [];
+						for (const t of s) r.push(...e.slice(t.start, t.start + t.deleteCount)), n.push(...t.toInsert);
+						return {
+							removed: r,
+							added: n
+						};
+					}, t.top = function(e, t, i) {
+						if (0 === i) return [];
+						const s = e.slice(0, i).sort(t);
+						return a(e, t, s, i, e.length), s;
+					}, t.topAsync = function(e, t, i, r, n) {
+						return 0 === i ? Promise.resolve([]) : new Promise(((o, l) => {
+							(async () => {
+								const o = e.length, l = e.slice(0, i).sort(t);
+								for (let h = i, c = Math.min(i + r, o); h < o; h = c, c = Math.min(c + r, o)) {
+									if (h > i && await new Promise(((e) => setTimeout(e))), n && n.isCancellationRequested) throw new s.CancellationError();
+									a(e, t, l, h, c);
+								}
+								return l;
+							})().then(o, l);
+						}));
+					}, t.coalesce = function(e) {
+						return e.filter(((e) => !!e));
+					}, t.coalesceInPlace = function(e) {
+						let t = 0;
+						for (let i = 0; i < e.length; i++) e[i] && (e[t] = e[i], t += 1);
+						e.length = t;
+					}, t.move = function(e, t, i) {
+						e.splice(i, 0, e.splice(t, 1)[0]);
+					}, t.isFalsyOrEmpty = function(e) {
+						return !Array.isArray(e) || 0 === e.length;
+					}, t.isNonEmptyArray = function(e) {
+						return Array.isArray(e) && e.length > 0;
+					}, t.distinct = function(e, t = (e) => e) {
+						const i = /* @__PURE__ */ new Set();
+						return e.filter(((e) => {
+							const s = t(e);
+							return !i.has(s) && (i.add(s), !0);
+						}));
+					}, t.uniqueFilter = function(e) {
+						const t = /* @__PURE__ */ new Set();
+						return (i) => {
+							const s = e(i);
+							return !t.has(s) && (t.add(s), !0);
+						};
+					}, t.firstOrDefault = function(e, t) {
+						return e.length > 0 ? e[0] : t;
+					}, t.lastOrDefault = function(e, t) {
+						return e.length > 0 ? e[e.length - 1] : t;
+					}, t.commonPrefixLength = function(e, t, i = (e, t) => e === t) {
+						let s = 0;
+						for (let r = 0, n = Math.min(e.length, t.length); r < n && i(e[r], t[r]); r++) s++;
+						return s;
+					}, t.range = function(e, t) {
+						let i = "number" == typeof t ? e : 0;
+						"number" == typeof t ? i = e : (i = 0, t = e);
+						const s = [];
+						if (i <= t) for (let e = i; e < t; e++) s.push(e);
+						else for (let e = i; e > t; e--) s.push(e);
+						return s;
+					}, t.index = function(e, t, i) {
+						return e.reduce(((e, s) => (e[t(s)] = i ? i(s) : s, e)), Object.create(null));
+					}, t.insert = function(e, t) {
+						return e.push(t), () => l(e, t);
+					}, t.remove = l, t.arrayInsert = function(e, t, i) {
+						const s = e.slice(0, t), r = e.slice(t);
+						return s.concat(i, r);
+					}, t.shuffle = function(e, t) {
+						let i;
+						if ("number" == typeof t) {
+							let e = t;
+							i = () => {
+								const t = 179426549 * Math.sin(e++);
+								return t - Math.floor(t);
+							};
+						} else i = Math.random;
+						for (let t = e.length - 1; t > 0; t -= 1) {
+							const s = Math.floor(i() * (t + 1)), r = e[t];
+							e[t] = e[s], e[s] = r;
+						}
+					}, t.pushToStart = function(e, t) {
+						const i = e.indexOf(t);
+						i > -1 && (e.splice(i, 1), e.unshift(t));
+					}, t.pushToEnd = function(e, t) {
+						const i = e.indexOf(t);
+						i > -1 && (e.splice(i, 1), e.push(t));
+					}, t.pushMany = function(e, t) {
+						for (const i of t) e.push(i);
+					}, t.mapArrayOrNot = function(e, t) {
+						return Array.isArray(e) ? e.map(t) : t(e);
+					}, t.asArray = function(e) {
+						return Array.isArray(e) ? e : [e];
+					}, t.getRandomElement = function(e) {
+						return e[Math.floor(Math.random() * e.length)];
+					}, t.insertInto = h, t.splice = function(e, t, i, s) {
+						const r = c(e, t);
+						let n = e.splice(r, i);
+						return void 0 === n && (n = []), h(e, r, s), n;
+					}, t.compareBy = function(e, t) {
+						return (i, s) => t(e(i), e(s));
+					}, t.tieBreakComparators = function(...e) {
+						return (t, i) => {
+							for (const s of e) {
+								const e = s(t, i);
+								if (!d.isNeitherLessOrGreaterThan(e)) return e;
+							}
+							return d.neitherLessOrGreaterThan;
+						};
+					}, t.reverseOrder = function(e) {
+						return (t, i) => -e(t, i);
+					};
+					const s = i(9807), r = i(8297);
+					function n(e, t) {
+						let i = 0, s = e - 1;
+						for (; i <= s;) {
+							const e = (i + s) / 2 | 0, r = t(e);
+							if (r < 0) i = e + 1;
+							else {
+								if (!(r > 0)) return e;
+								s = e - 1;
+							}
+						}
+						return -(i + 1);
+					}
+					function o(e, t, i) {
+						const s = [];
+						function r(e, t, i) {
+							if (0 === t && 0 === i.length) return;
+							const r = s[s.length - 1];
+							r && r.start + r.deleteCount === e ? (r.deleteCount += t, r.toInsert.push(...i)) : s.push({
+								start: e,
+								deleteCount: t,
+								toInsert: i
+							});
+						}
+						let n = 0, o = 0;
+						for (;;) {
+							if (n === e.length) {
+								r(n, 0, t.slice(o));
+								break;
+							}
+							if (o === t.length) {
+								r(n, e.length - n, []);
+								break;
+							}
+							const s = e[n], a = t[o], l = i(s, a);
+							0 === l ? (n += 1, o += 1) : l < 0 ? (r(n, 1, []), n += 1) : l > 0 && (r(n, 0, [a]), o += 1);
+						}
+						return s;
+					}
+					function a(e, t, i, s, n) {
+						for (const o = i.length; s < n; s++) {
+							const n = e[s];
+							if (t(n, i[o - 1]) < 0) {
+								i.pop();
+								const e = (0, r.findFirstIdxMonotonousOrArrLen)(i, ((e) => t(n, e) < 0));
+								i.splice(e, 0, n);
+							}
+						}
+					}
+					function l(e, t) {
+						const i = e.indexOf(t);
+						if (i > -1) return e.splice(i, 1), t;
+					}
+					function h(e, t, i) {
+						const s = c(e, t), r = e.length, n = i.length;
+						e.length = r + n;
+						for (let t = r - 1; t >= s; t--) e[t + n] = e[t];
+						for (let t = 0; t < n; t++) e[t + s] = i[t];
+					}
+					function c(e, t) {
+						return t < 0 ? Math.max(t + e.length, 0) : Math.min(t, e.length);
+					}
+					var d;
+					(function(e) {
+						e.isLessThan = function(e) {
+							return e < 0;
+						}, e.isLessThanOrEqual = function(e) {
+							return e <= 0;
+						}, e.isGreaterThan = function(e) {
+							return e > 0;
+						}, e.isNeitherLessOrGreaterThan = function(e) {
+							return 0 === e;
+						}, e.greaterThan = 1, e.lessThan = -1, e.neitherLessOrGreaterThan = 0;
+					})(d || (t.CompareResult = d = {})), t.numberComparator = (e, t) => e - t, t.booleanComparator = (e, i) => (0, t.numberComparator)(e ? 1 : 0, i ? 1 : 0), t.ArrayQueue = class {
+						constructor(e) {
+							this.items = e, this.firstIdx = 0, this.lastIdx = this.items.length - 1;
+						}
+						get length() {
+							return this.lastIdx - this.firstIdx + 1;
+						}
+						takeWhile(e) {
+							let t = this.firstIdx;
+							for (; t < this.items.length && e(this.items[t]);) t++;
+							const i = t === this.firstIdx ? null : this.items.slice(this.firstIdx, t);
+							return this.firstIdx = t, i;
+						}
+						takeFromEndWhile(e) {
+							let t = this.lastIdx;
+							for (; t >= 0 && e(this.items[t]);) t--;
+							const i = t === this.lastIdx ? null : this.items.slice(t + 1, this.lastIdx + 1);
+							return this.lastIdx = t, i;
+						}
+						peek() {
+							if (0 !== this.length) return this.items[this.firstIdx];
+						}
+						peekLast() {
+							if (0 !== this.length) return this.items[this.lastIdx];
+						}
+						dequeue() {
+							const e = this.items[this.firstIdx];
+							return this.firstIdx++, e;
+						}
+						removeLast() {
+							const e = this.items[this.lastIdx];
+							return this.lastIdx--, e;
+						}
+						takeCount(e) {
+							const t = this.items.slice(this.firstIdx, this.firstIdx + e);
+							return this.firstIdx += e, t;
+						}
+					};
+					class u {
+						static {
+							this.empty = new u(((e) => {}));
+						}
+						constructor(e) {
+							this.iterate = e;
+						}
+						forEach(e) {
+							this.iterate(((t) => (e(t), !0)));
+						}
+						toArray() {
+							const e = [];
+							return this.iterate(((t) => (e.push(t), !0))), e;
+						}
+						filter(e) {
+							return new u(((t) => this.iterate(((i) => !e(i) || t(i)))));
+						}
+						map(e) {
+							return new u(((t) => this.iterate(((i) => t(e(i))))));
+						}
+						some(e) {
+							let t = !1;
+							return this.iterate(((i) => (t = e(i), !t))), t;
+						}
+						findFirst(e) {
+							let t;
+							return this.iterate(((i) => !e(i) || (t = i, !1))), t;
+						}
+						findLast(e) {
+							let t;
+							return this.iterate(((i) => (e(i) && (t = i), !0))), t;
+						}
+						findLastMaxBy(e) {
+							let t, i = !0;
+							return this.iterate(((s) => ((i || d.isGreaterThan(e(s, t))) && (i = !1, t = s), !0))), t;
+						}
+					}
+					t.CallbackIterable = u;
+					class _ {
+						constructor(e) {
+							this._indexMap = e;
+						}
+						static createSortPermutation(e, t) {
+							const i = Array.from(e.keys()).sort(((i, s) => t(e[i], e[s])));
+							return new _(i);
+						}
+						apply(e) {
+							return e.map(((t, i) => e[this._indexMap[i]]));
+						}
+						inverse() {
+							const e = this._indexMap.slice();
+							for (let t = 0; t < this._indexMap.length; t++) e[this._indexMap[t]] = t;
+							return new _(e);
+						}
+					}
+					t.Permutation = _;
+				},
+				8297: (e, t) => {
+					function i(e, t, i = e.length - 1) {
+						for (let s = i; s >= 0; s--) if (t(e[s])) return s;
+						return -1;
+					}
+					function s(e, t, i = 0, s = e.length) {
+						let r = i, n = s;
+						for (; r < n;) {
+							const i = Math.floor((r + n) / 2);
+							t(e[i]) ? r = i + 1 : n = i;
+						}
+						return r - 1;
+					}
+					function r(e, t, i = 0, s = e.length) {
+						let r = i, n = s;
+						for (; r < n;) {
+							const i = Math.floor((r + n) / 2);
+							t(e[i]) ? n = i : r = i + 1;
+						}
+						return r;
+					}
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.MonotonousArray = void 0, t.findLast = function(e, t) {
+						const s = i(e, t);
+						if (-1 !== s) return e[s];
+					}, t.findLastIdx = i, t.findLastMonotonous = function(e, t) {
+						const i = s(e, t);
+						return -1 === i ? void 0 : e[i];
+					}, t.findLastIdxMonotonous = s, t.findFirstMonotonous = function(e, t) {
+						const i = r(e, t);
+						return i === e.length ? void 0 : e[i];
+					}, t.findFirstIdxMonotonousOrArrLen = r, t.findFirstIdxMonotonous = function(e, t, i = 0, s = e.length) {
+						const n = r(e, t, i, s);
+						return n === e.length ? -1 : n;
+					}, t.findFirstMax = o, t.findLastMax = function(e, t) {
+						if (0 === e.length) return;
+						let i = e[0];
+						for (let s = 1; s < e.length; s++) {
+							const r = e[s];
+							t(r, i) >= 0 && (i = r);
+						}
+						return i;
+					}, t.findFirstMin = function(e, t) {
+						return o(e, ((e, i) => -t(e, i)));
+					}, t.findMaxIdx = function(e, t) {
+						if (0 === e.length) return -1;
+						let i = 0;
+						for (let s = 1; s < e.length; s++) t(e[s], e[i]) > 0 && (i = s);
+						return i;
+					}, t.mapFindFirst = function(e, t) {
+						for (const i of e) {
+							const e = t(i);
+							if (void 0 !== e) return e;
+						}
+					};
+					class n {
+						static {
+							this.assertInvariants = !1;
+						}
+						constructor(e) {
+							this._array = e, this._findLastMonotonousLastIdx = 0;
+						}
+						findLastMonotonous(e) {
+							if (n.assertInvariants) {
+								if (this._prevFindLastPredicate) {
+									for (const t of this._array) if (this._prevFindLastPredicate(t) && !e(t)) throw new Error("MonotonousArray: current predicate must be weaker than (or equal to) the previous predicate.");
+								}
+								this._prevFindLastPredicate = e;
+							}
+							const t = s(this._array, e, this._findLastMonotonousLastIdx);
+							return this._findLastMonotonousLastIdx = t + 1, -1 === t ? void 0 : this._array[t];
+						}
+					}
+					function o(e, t) {
+						if (0 === e.length) return;
+						let i = e[0];
+						for (let s = 1; s < e.length; s++) {
+							const r = e[s];
+							t(r, i) > 0 && (i = r);
+						}
+						return i;
+					}
+					t.MonotonousArray = n;
+				},
+				1758: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.AsyncIterableSource = t.CancelableAsyncIterableObject = t.AsyncIterableObject = t.LazyStatefulPromise = t.StatefulPromise = t.Promises = t.DeferredPromise = t.IntervalCounter = t.TaskSequentializer = t.GlobalIdleValue = t.AbstractIdleValue = t._runWhenIdle = t.runWhenGlobalIdle = t.ThrottledWorker = t.RunOnceWorker = t.ProcessTimeRunOnceScheduler = t.RunOnceScheduler = t.IntervalTimer = t.TimeoutTimer = t.LimitedQueue = t.Queue = t.Limiter = t.AutoOpenBarrier = t.Barrier = t.ThrottledDelayer = t.Delayer = t.SequencerByKey = t.Sequencer = t.Throttler = void 0, t.isThenable = c, t.createCancelablePromise = d, t.raceCancellation = function(e, t, i) {
+						return new Promise(((s, r) => {
+							const n = t.onCancellationRequested((() => {
+								n.dispose(), s(i);
+							}));
+							e.then(s, r).finally((() => n.dispose()));
+						}));
+					}, t.raceCancellationError = function(e, t) {
+						return new Promise(((i, s) => {
+							const n = t.onCancellationRequested((() => {
+								n.dispose(), s(new r.CancellationError());
+							}));
+							e.then(i, s).finally((() => n.dispose()));
+						}));
+					}, t.raceCancellablePromises = async function(e) {
+						let t = -1;
+						const i = e.map(((e, i) => e.then(((e) => (t = i, e)))));
+						try {
+							return await Promise.race(i);
+						} finally {
+							e.forEach(((e, i) => {
+								i !== t && e.cancel();
+							}));
+						}
+					}, t.raceTimeout = function(e, t, i) {
+						let s;
+						const r = setTimeout((() => {
+							s?.(void 0), i?.();
+						}), t);
+						return Promise.race([e.finally((() => clearTimeout(r))), new Promise(((e) => s = e))]);
+					}, t.asPromise = function(e) {
+						return new Promise(((t, i) => {
+							const s = e();
+							c(s) ? s.then(t, i) : t(s);
+						}));
+					}, t.promiseWithResolvers = u, t.timeout = g, t.disposableTimeout = function(e, t = 0, i) {
+						const s = setTimeout((() => {
+							e(), i && r.dispose();
+						}), t), r = (0, o.toDisposable)((() => {
+							clearTimeout(s), i?.deleteAndLeak(r);
+						}));
+						return i?.add(r), r;
+					}, t.sequence = function(e) {
+						const t = [];
+						let i = 0;
+						const s = e.length;
+						return Promise.resolve(null).then((function r(n) {
+							null != n && t.push(n);
+							const o = i < s ? e[i++]() : null;
+							return o ? o.then(r) : Promise.resolve(t);
+						}));
+					}, t.first = function(e, t = (e) => !!e, i = null) {
+						let s = 0;
+						const r = e.length, n = () => {
+							if (s >= r) return Promise.resolve(i);
+							const o = e[s++];
+							return Promise.resolve(o()).then(((e) => t(e) ? Promise.resolve(e) : n()));
+						};
+						return n();
+					}, t.firstParallel = function(e, t = (e) => !!e, i = null) {
+						if (0 === e.length) return Promise.resolve(i);
+						let s = e.length;
+						const r = () => {
+							s = -1;
+							for (const t of e) t.cancel?.();
+						};
+						return new Promise(((n, o) => {
+							for (const a of e) a.then(((e) => {
+								--s >= 0 && t(e) ? (r(), n(e)) : 0 === s && n(i);
+							})).catch(((e) => {
+								--s >= 0 && (r(), o(e));
+							}));
+						}));
+					}, t.retry = async function(e, t, i) {
+						let s;
+						for (let r = 0; r < i; r++) try {
+							return await e();
+						} catch (e) {
+							s = e, await g(t);
+						}
+						throw s;
+					}, t.createCancelableAsyncIterable = function(e) {
+						const t = new s.CancellationTokenSource(), i = e(t.token);
+						return new A(t, (async (e) => {
+							const s = t.token.onCancellationRequested((() => {
+								s.dispose(), t.dispose(), e.reject(new r.CancellationError());
+							}));
+							try {
+								for await (const s of i) {
+									if (t.token.isCancellationRequested) return;
+									e.emitOne(s);
+								}
+								s.dispose(), t.dispose();
+							} catch (i) {
+								s.dispose(), t.dispose(), e.reject(i);
+							}
+						}));
+					};
+					const s = i(8447), r = i(9807), n = i(802), o = i(7150), a = i(8163), l = i(5015), h = i(626);
+					function c(e) {
+						return !!e && "function" == typeof e.then;
+					}
+					function d(e) {
+						const t = new s.CancellationTokenSource(), i = e(t.token), n = new Promise(((e, s) => {
+							const n = t.token.onCancellationRequested((() => {
+								n.dispose(), s(new r.CancellationError());
+							}));
+							Promise.resolve(i).then(((i) => {
+								n.dispose(), t.dispose(), e(i);
+							}), ((e) => {
+								n.dispose(), t.dispose(), s(e);
+							}));
+						}));
+						return new class {
+							cancel() {
+								t.cancel(), t.dispose();
+							}
+							then(e, t) {
+								return n.then(e, t);
+							}
+							catch(e) {
+								return this.then(void 0, e);
+							}
+							finally(e) {
+								return n.finally(e);
+							}
+						}();
+					}
+					function u() {
+						let e, t;
+						return {
+							promise: new Promise(((i, s) => {
+								e = i, t = s;
+							})),
+							resolve: e,
+							reject: t
+						};
+					}
+					class _ {
+						constructor() {
+							this.isDisposed = !1, this.activePromise = null, this.queuedPromise = null, this.queuedPromiseFactory = null;
+						}
+						queue(e) {
+							if (this.isDisposed) return Promise.reject(/* @__PURE__ */ new Error("Throttler is disposed"));
+							if (this.activePromise) {
+								if (this.queuedPromiseFactory = e, !this.queuedPromise) {
+									const e = () => {
+										if (this.queuedPromise = null, this.isDisposed) return;
+										const e = this.queue(this.queuedPromiseFactory);
+										return this.queuedPromiseFactory = null, e;
+									};
+									this.queuedPromise = new Promise(((t) => {
+										this.activePromise.then(e, e).then(t);
+									}));
+								}
+								return new Promise(((e, t) => {
+									this.queuedPromise.then(e, t);
+								}));
+							}
+							return this.activePromise = e(), new Promise(((e, t) => {
+								this.activePromise.then(((t) => {
+									this.activePromise = null, e(t);
+								}), ((e) => {
+									this.activePromise = null, t(e);
+								}));
+							}));
+						}
+						dispose() {
+							this.isDisposed = !0;
+						}
+					}
+					t.Throttler = _, t.Sequencer = class {
+						constructor() {
+							this.current = Promise.resolve(null);
+						}
+						queue(e) {
+							return this.current = this.current.then((() => e()), (() => e()));
+						}
+					}, t.SequencerByKey = class {
+						constructor() {
+							this.promiseMap = /* @__PURE__ */ new Map();
+						}
+						queue(e, t) {
+							const i = (this.promiseMap.get(e) ?? Promise.resolve()).catch((() => {})).then(t).finally((() => {
+								this.promiseMap.get(e) === i && this.promiseMap.delete(e);
+							}));
+							return this.promiseMap.set(e, i), i;
+						}
+					};
+					class f {
+						constructor(e) {
+							this.defaultDelay = e, this.deferred = null, this.completionPromise = null, this.doResolve = null, this.doReject = null, this.task = null;
+						}
+						trigger(e, t = this.defaultDelay) {
+							this.task = e, this.cancelTimeout(), this.completionPromise || (this.completionPromise = new Promise(((e, t) => {
+								this.doResolve = e, this.doReject = t;
+							})).then((() => {
+								if (this.completionPromise = null, this.doResolve = null, this.task) {
+									const e = this.task;
+									return this.task = null, e();
+								}
+							})));
+							const i = () => {
+								this.deferred = null, this.doResolve?.(null);
+							};
+							return this.deferred = t === l.MicrotaskDelay ? ((e) => {
+								let t = !0;
+								return queueMicrotask((() => {
+									t && (t = !1, e());
+								})), {
+									isTriggered: () => t,
+									dispose: () => {
+										t = !1;
+									}
+								};
+							})(i) : ((e, t) => {
+								let i = !0;
+								const s = setTimeout((() => {
+									i = !1, t();
+								}), e);
+								return {
+									isTriggered: () => i,
+									dispose: () => {
+										clearTimeout(s), i = !1;
+									}
+								};
+							})(t, i), this.completionPromise;
+						}
+						isTriggered() {
+							return !!this.deferred?.isTriggered();
+						}
+						cancel() {
+							this.cancelTimeout(), this.completionPromise && (this.doReject?.(new r.CancellationError()), this.completionPromise = null);
+						}
+						cancelTimeout() {
+							this.deferred?.dispose(), this.deferred = null;
+						}
+						dispose() {
+							this.cancel();
+						}
+					}
+					t.Delayer = f, t.ThrottledDelayer = class {
+						constructor(e) {
+							this.delayer = new f(e), this.throttler = new _();
+						}
+						trigger(e, t) {
+							return this.delayer.trigger((() => this.throttler.queue(e)), t);
+						}
+						isTriggered() {
+							return this.delayer.isTriggered();
+						}
+						cancel() {
+							this.delayer.cancel();
+						}
+						dispose() {
+							this.delayer.dispose(), this.throttler.dispose();
+						}
+					};
+					class p {
+						constructor() {
+							this._isOpen = !1, this._promise = new Promise(((e, t) => {
+								this._completePromise = e;
+							}));
+						}
+						isOpen() {
+							return this._isOpen;
+						}
+						open() {
+							this._isOpen = !0, this._completePromise(!0);
+						}
+						wait() {
+							return this._promise;
+						}
+					}
+					function g(e, t) {
+						return t ? new Promise(((i, s) => {
+							const n = setTimeout((() => {
+								o.dispose(), i();
+							}), e), o = t.onCancellationRequested((() => {
+								clearTimeout(n), o.dispose(), s(new r.CancellationError());
+							}));
+						})) : d(((t) => g(e, t)));
+					}
+					t.Barrier = p, t.AutoOpenBarrier = class extends p {
+						constructor(e) {
+							super(), this._timeout = setTimeout((() => this.open()), e);
+						}
+						open() {
+							clearTimeout(this._timeout), super.open();
+						}
+					};
+					class m {
+						constructor(e) {
+							this._size = 0, this._isDisposed = !1, this.maxDegreeOfParalellism = e, this.outstandingPromises = [], this.runningPromises = 0, this._onDrained = new n.Emitter();
+						}
+						whenIdle() {
+							return this.size > 0 ? n.Event.toPromise(this.onDrained) : Promise.resolve();
+						}
+						get onDrained() {
+							return this._onDrained.event;
+						}
+						get size() {
+							return this._size;
+						}
+						queue(e) {
+							if (this._isDisposed) throw new Error("Object has been disposed");
+							return this._size++, new Promise(((t, i) => {
+								this.outstandingPromises.push({
+									factory: e,
+									c: t,
+									e: i
+								}), this.consume();
+							}));
+						}
+						consume() {
+							for (; this.outstandingPromises.length && this.runningPromises < this.maxDegreeOfParalellism;) {
+								const e = this.outstandingPromises.shift();
+								this.runningPromises++;
+								const t = e.factory();
+								t.then(e.c, e.e), t.then((() => this.consumed()), (() => this.consumed()));
+							}
+						}
+						consumed() {
+							this._isDisposed || (this.runningPromises--, 0 == --this._size && this._onDrained.fire(), this.outstandingPromises.length > 0 && this.consume());
+						}
+						clear() {
+							if (this._isDisposed) throw new Error("Object has been disposed");
+							this.outstandingPromises.length = 0, this._size = this.runningPromises;
+						}
+						dispose() {
+							this._isDisposed = !0, this.outstandingPromises.length = 0, this._size = 0, this._onDrained.dispose();
+						}
+					}
+					t.Limiter = m, t.Queue = class extends m {
+						constructor() {
+							super(1);
+						}
+					}, t.LimitedQueue = class {
+						constructor() {
+							this.sequentializer = new C(), this.tasks = 0;
+						}
+						queue(e) {
+							return this.sequentializer.isRunning() ? this.sequentializer.queue((() => this.sequentializer.run(this.tasks++, e()))) : this.sequentializer.run(this.tasks++, e());
+						}
+					}, t.TimeoutTimer = class {
+						constructor(e, t) {
+							this._isDisposed = !1, this._token = -1, "function" == typeof e && "number" == typeof t && this.setIfNotSet(e, t);
+						}
+						dispose() {
+							this.cancel(), this._isDisposed = !0;
+						}
+						cancel() {
+							-1 !== this._token && (clearTimeout(this._token), this._token = -1);
+						}
+						cancelAndSet(e, t) {
+							if (this._isDisposed) throw new r.BugIndicatingError("Calling 'cancelAndSet' on a disposed TimeoutTimer");
+							this.cancel(), this._token = setTimeout((() => {
+								this._token = -1, e();
+							}), t);
+						}
+						setIfNotSet(e, t) {
+							if (this._isDisposed) throw new r.BugIndicatingError("Calling 'setIfNotSet' on a disposed TimeoutTimer");
+							-1 === this._token && (this._token = setTimeout((() => {
+								this._token = -1, e();
+							}), t));
+						}
+					}, t.IntervalTimer = class {
+						constructor() {
+							this.disposable = void 0, this.isDisposed = !1;
+						}
+						cancel() {
+							this.disposable?.dispose(), this.disposable = void 0;
+						}
+						cancelAndSet(e, t, i = globalThis) {
+							if (this.isDisposed) throw new r.BugIndicatingError("Calling 'cancelAndSet' on a disposed IntervalTimer");
+							this.cancel();
+							const s = i.setInterval((() => {
+								e();
+							}), t);
+							this.disposable = (0, o.toDisposable)((() => {
+								i.clearInterval(s), this.disposable = void 0;
+							}));
+						}
+						dispose() {
+							this.cancel(), this.isDisposed = !0;
+						}
+					};
+					class v {
+						constructor(e, t) {
+							this.timeoutToken = -1, this.runner = e, this.timeout = t, this.timeoutHandler = this.onTimeout.bind(this);
+						}
+						dispose() {
+							this.cancel(), this.runner = null;
+						}
+						cancel() {
+							this.isScheduled() && (clearTimeout(this.timeoutToken), this.timeoutToken = -1);
+						}
+						schedule(e = this.timeout) {
+							this.cancel(), this.timeoutToken = setTimeout(this.timeoutHandler, e);
+						}
+						get delay() {
+							return this.timeout;
+						}
+						set delay(e) {
+							this.timeout = e;
+						}
+						isScheduled() {
+							return -1 !== this.timeoutToken;
+						}
+						flush() {
+							this.isScheduled() && (this.cancel(), this.doRun());
+						}
+						onTimeout() {
+							this.timeoutToken = -1, this.runner && this.doRun();
+						}
+						doRun() {
+							this.runner?.();
+						}
+					}
+					t.RunOnceScheduler = v, t.ProcessTimeRunOnceScheduler = class {
+						constructor(e, t) {
+							t % 1e3 != 0 && console.warn(`ProcessTimeRunOnceScheduler resolution is 1s, ${t}ms is not a multiple of 1000ms.`), this.runner = e, this.timeout = t, this.counter = 0, this.intervalToken = -1, this.intervalHandler = this.onInterval.bind(this);
+						}
+						dispose() {
+							this.cancel(), this.runner = null;
+						}
+						cancel() {
+							this.isScheduled() && (clearInterval(this.intervalToken), this.intervalToken = -1);
+						}
+						schedule(e = this.timeout) {
+							e % 1e3 != 0 && console.warn(`ProcessTimeRunOnceScheduler resolution is 1s, ${e}ms is not a multiple of 1000ms.`), this.cancel(), this.counter = Math.ceil(e / 1e3), this.intervalToken = setInterval(this.intervalHandler, 1e3);
+						}
+						isScheduled() {
+							return -1 !== this.intervalToken;
+						}
+						onInterval() {
+							this.counter--, this.counter > 0 || (clearInterval(this.intervalToken), this.intervalToken = -1, this.runner?.());
+						}
+					}, t.RunOnceWorker = class extends v {
+						constructor(e, t) {
+							super(e, t), this.units = [];
+						}
+						work(e) {
+							this.units.push(e), this.isScheduled() || this.schedule();
+						}
+						doRun() {
+							const e = this.units;
+							this.units = [], this.runner?.(e);
+						}
+						dispose() {
+							this.units = [], super.dispose();
+						}
+					};
+					class S extends o.Disposable {
+						constructor(e, t) {
+							super(), this.options = e, this.handler = t, this.pendingWork = [], this.throttler = this._register(new o.MutableDisposable()), this.disposed = !1;
+						}
+						get pending() {
+							return this.pendingWork.length;
+						}
+						work(e) {
+							if (this.disposed) return !1;
+							if ("number" == typeof this.options.maxBufferedWork) {
+								if (this.throttler.value) {
+									if (this.pending + e.length > this.options.maxBufferedWork) return !1;
+								} else if (this.pending + e.length - this.options.maxWorkChunkSize > this.options.maxBufferedWork) return !1;
+							}
+							for (const t of e) this.pendingWork.push(t);
+							return this.throttler.value || this.doWork(), !0;
+						}
+						doWork() {
+							this.handler(this.pendingWork.splice(0, this.options.maxWorkChunkSize)), this.pendingWork.length > 0 && (this.throttler.value = new v((() => {
+								this.throttler.clear(), this.doWork();
+							}), this.options.throttleDelay), this.throttler.value.schedule());
+						}
+						dispose() {
+							super.dispose(), this.disposed = !0;
+						}
+					}
+					t.ThrottledWorker = S, "function" != typeof globalThis.requestIdleCallback || "function" != typeof globalThis.cancelIdleCallback ? t._runWhenIdle = (e, t) => {
+						(0, a.setTimeout0)((() => {
+							if (i) return;
+							const e = Date.now() + 15;
+							t(Object.freeze({
+								didTimeout: !0,
+								timeRemaining: () => Math.max(0, e - Date.now())
+							}));
+						}));
+						let i = !1;
+						return { dispose() {
+							i || (i = !0);
+						} };
+					} : t._runWhenIdle = (e, t, i) => {
+						const s = e.requestIdleCallback(t, "number" == typeof i ? { timeout: i } : void 0);
+						let r = !1;
+						return { dispose() {
+							r || (r = !0, e.cancelIdleCallback(s));
+						} };
+					}, t.runWhenGlobalIdle = (e) => (0, t._runWhenIdle)(globalThis, e);
+					class b {
+						constructor(e, i) {
+							this._didRun = !1, this._executor = () => {
+								try {
+									this._value = i();
+								} catch (e) {
+									this._error = e;
+								} finally {
+									this._didRun = !0;
+								}
+							}, this._handle = (0, t._runWhenIdle)(e, (() => this._executor()));
+						}
+						dispose() {
+							this._handle.dispose();
+						}
+						get value() {
+							if (this._didRun || (this._handle.dispose(), this._executor()), this._error) throw this._error;
+							return this._value;
+						}
+						get isInitialized() {
+							return this._didRun;
+						}
+					}
+					t.AbstractIdleValue = b, t.GlobalIdleValue = class extends b {
+						constructor(e) {
+							super(globalThis, e);
+						}
+					};
+					class C {
+						isRunning(e) {
+							return "number" == typeof e ? this._running?.taskId === e : !!this._running;
+						}
+						get running() {
+							return this._running?.promise;
+						}
+						cancelRunning() {
+							this._running?.cancel();
+						}
+						run(e, t, i) {
+							return this._running = {
+								taskId: e,
+								cancel: () => i?.(),
+								promise: t
+							}, t.then((() => this.doneRunning(e)), (() => this.doneRunning(e))), t;
+						}
+						doneRunning(e) {
+							this._running && e === this._running.taskId && (this._running = void 0, this.runQueued());
+						}
+						runQueued() {
+							if (this._queued) {
+								const e = this._queued;
+								this._queued = void 0, e.run().then(e.promiseResolve, e.promiseReject);
+							}
+						}
+						queue(e) {
+							if (this._queued) this._queued.run = e;
+							else {
+								const { promise: t, resolve: i, reject: s } = u();
+								this._queued = {
+									run: e,
+									promise: t,
+									promiseResolve: i,
+									promiseReject: s
+								};
+							}
+							return this._queued.promise;
+						}
+						hasQueued() {
+							return !!this._queued;
+						}
+						async join() {
+							return this._queued?.promise ?? this._running?.promise;
+						}
+					}
+					var y, w, E;
+					t.TaskSequentializer = C, t.IntervalCounter = class {
+						constructor(e, t = () => Date.now()) {
+							this.interval = e, this.nowFn = t, this.lastIncrementTime = 0, this.value = 0;
+						}
+						increment() {
+							const e = this.nowFn();
+							return e - this.lastIncrementTime > this.interval && (this.lastIncrementTime = e, this.value = 0), this.value++, this.value;
+						}
+					}, function(e) {
+						e[e.Resolved = 0] = "Resolved", e[e.Rejected = 1] = "Rejected";
+					}(y || (y = {}));
+					class D {
+						get isRejected() {
+							return this.outcome?.outcome === y.Rejected;
+						}
+						get isResolved() {
+							return this.outcome?.outcome === y.Resolved;
+						}
+						get isSettled() {
+							return !!this.outcome;
+						}
+						get value() {
+							return this.outcome?.outcome === y.Resolved ? this.outcome?.value : void 0;
+						}
+						constructor() {
+							this.p = new Promise(((e, t) => {
+								this.completeCallback = e, this.errorCallback = t;
+							}));
+						}
+						complete(e) {
+							return new Promise(((t) => {
+								this.completeCallback(e), this.outcome = {
+									outcome: y.Resolved,
+									value: e
+								}, t();
+							}));
+						}
+						error(e) {
+							return new Promise(((t) => {
+								this.errorCallback(e), this.outcome = {
+									outcome: y.Rejected,
+									value: e
+								}, t();
+							}));
+						}
+						cancel() {
+							return this.error(new r.CancellationError());
+						}
+					}
+					t.DeferredPromise = D, function(e) {
+						e.settled = async function(e) {
+							let t;
+							const i = await Promise.all(e.map(((e) => e.then(((e) => e), ((e) => {
+								t || (t = e);
+							})))));
+							if (void 0 !== t) throw t;
+							return i;
+						}, e.withAsyncBody = function(e) {
+							return new Promise((async (t, i) => {
+								try {
+									await e(t, i);
+								} catch (e) {
+									i(e);
+								}
+							}));
+						};
+					}(w || (t.Promises = w = {}));
+					class L {
+						get value() {
+							return this._value;
+						}
+						get error() {
+							return this._error;
+						}
+						get isResolved() {
+							return this._isResolved;
+						}
+						constructor(e) {
+							this._value = void 0, this._error = void 0, this._isResolved = !1, this.promise = e.then(((e) => (this._value = e, this._isResolved = !0, e)), ((e) => {
+								throw this._error = e, this._isResolved = !0, e;
+							}));
+						}
+						requireValue() {
+							if (!this._isResolved) throw new r.BugIndicatingError("Promise is not resolved yet");
+							if (this._error) throw this._error;
+							return this._value;
+						}
+					}
+					t.StatefulPromise = L, t.LazyStatefulPromise = class {
+						constructor(e) {
+							this._compute = e, this._promise = new h.Lazy((() => new L(this._compute())));
+						}
+						requireValue() {
+							return this._promise.value.requireValue();
+						}
+						getPromise() {
+							return this._promise.value.promise;
+						}
+						get currentValue() {
+							return this._promise.rawValue?.value;
+						}
+					}, function(e) {
+						e[e.Initial = 0] = "Initial", e[e.DoneOK = 1] = "DoneOK", e[e.DoneError = 2] = "DoneError";
+					}(E || (E = {}));
+					class R {
+						static fromArray(e) {
+							return new R(((t) => {
+								t.emitMany(e);
+							}));
+						}
+						static fromPromise(e) {
+							return new R((async (t) => {
+								t.emitMany(await e);
+							}));
+						}
+						static fromPromises(e) {
+							return new R((async (t) => {
+								await Promise.all(e.map((async (e) => t.emitOne(await e))));
+							}));
+						}
+						static merge(e) {
+							return new R((async (t) => {
+								await Promise.all(e.map((async (e) => {
+									for await (const i of e) t.emitOne(i);
+								})));
+							}));
+						}
+						static {
+							this.EMPTY = R.fromArray([]);
+						}
+						constructor(e, t) {
+							this._state = E.Initial, this._results = [], this._error = null, this._onReturn = t, this._onStateChanged = new n.Emitter(), queueMicrotask((async () => {
+								const t = {
+									emitOne: (e) => this.emitOne(e),
+									emitMany: (e) => this.emitMany(e),
+									reject: (e) => this.reject(e)
+								};
+								try {
+									await Promise.resolve(e(t)), this.resolve();
+								} catch (e) {
+									this.reject(e);
+								} finally {
+									t.emitOne = void 0, t.emitMany = void 0, t.reject = void 0;
+								}
+							}));
+						}
+						[Symbol.asyncIterator]() {
+							let e = 0;
+							return {
+								next: async () => {
+									for (;;) {
+										if (this._state === E.DoneError) throw this._error;
+										if (e < this._results.length) return {
+											done: !1,
+											value: this._results[e++]
+										};
+										if (this._state === E.DoneOK) return {
+											done: !0,
+											value: void 0
+										};
+										await n.Event.toPromise(this._onStateChanged.event);
+									}
+								},
+								return: async () => (this._onReturn?.(), {
+									done: !0,
+									value: void 0
+								})
+							};
+						}
+						static map(e, t) {
+							return new R((async (i) => {
+								for await (const s of e) i.emitOne(t(s));
+							}));
+						}
+						map(e) {
+							return R.map(this, e);
+						}
+						static filter(e, t) {
+							return new R((async (i) => {
+								for await (const s of e) t(s) && i.emitOne(s);
+							}));
+						}
+						filter(e) {
+							return R.filter(this, e);
+						}
+						static coalesce(e) {
+							return R.filter(e, ((e) => !!e));
+						}
+						coalesce() {
+							return R.coalesce(this);
+						}
+						static async toPromise(e) {
+							const t = [];
+							for await (const i of e) t.push(i);
+							return t;
+						}
+						toPromise() {
+							return R.toPromise(this);
+						}
+						emitOne(e) {
+							this._state === E.Initial && (this._results.push(e), this._onStateChanged.fire());
+						}
+						emitMany(e) {
+							this._state === E.Initial && (this._results = this._results.concat(e), this._onStateChanged.fire());
+						}
+						resolve() {
+							this._state === E.Initial && (this._state = E.DoneOK, this._onStateChanged.fire());
+						}
+						reject(e) {
+							this._state === E.Initial && (this._state = E.DoneError, this._error = e, this._onStateChanged.fire());
+						}
+					}
+					t.AsyncIterableObject = R;
+					class A extends R {
+						constructor(e, t) {
+							super(t), this._source = e;
+						}
+						cancel() {
+							this._source.cancel();
+						}
+					}
+					t.CancelableAsyncIterableObject = A, t.AsyncIterableSource = class {
+						constructor(e) {
+							let t, i;
+							this._deferred = new D(), this._asyncIterable = new R(((e) => {
+								if (!t) return i && e.emitMany(i), this._errorFn = (t) => e.reject(t), this._emitFn = (t) => e.emitOne(t), this._deferred.p;
+								e.reject(t);
+							}), e), this._emitFn = (e) => {
+								i || (i = []), i.push(e);
+							}, this._errorFn = (e) => {
+								t || (t = e);
+							};
+						}
+						get asyncIterable() {
+							return this._asyncIterable;
+						}
+						resolve() {
+							this._deferred.complete();
+						}
+						reject(e) {
+							this._errorFn(e), this._deferred.complete();
+						}
+						emitOne(e) {
+							this._emitFn(e);
+						}
+					};
+				},
+				8447: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.CancellationTokenSource = t.CancellationToken = void 0, t.cancelOnDispose = function(e) {
+						const t = new a();
+						return e.add({ dispose() {
+							t.cancel();
+						} }), t.token;
+					};
+					const s = i(802), r = Object.freeze((function(e, t) {
+						const i = setTimeout(e.bind(t), 0);
+						return { dispose() {
+							clearTimeout(i);
+						} };
+					}));
+					var n;
+					(function(e) {
+						e.isCancellationToken = function(t) {
+							return t === e.None || t === e.Cancelled || t instanceof o || !(!t || "object" != typeof t) && "boolean" == typeof t.isCancellationRequested && "function" == typeof t.onCancellationRequested;
+						}, e.None = Object.freeze({
+							isCancellationRequested: !1,
+							onCancellationRequested: s.Event.None
+						}), e.Cancelled = Object.freeze({
+							isCancellationRequested: !0,
+							onCancellationRequested: r
+						});
+					})(n || (t.CancellationToken = n = {}));
+					class o {
+						constructor() {
+							this._isCancelled = !1, this._emitter = null;
+						}
+						cancel() {
+							this._isCancelled || (this._isCancelled = !0, this._emitter && (this._emitter.fire(void 0), this.dispose()));
+						}
+						get isCancellationRequested() {
+							return this._isCancelled;
+						}
+						get onCancellationRequested() {
+							return this._isCancelled ? r : (this._emitter || (this._emitter = new s.Emitter()), this._emitter.event);
+						}
+						dispose() {
+							this._emitter && (this._emitter.dispose(), this._emitter = null);
+						}
+					}
+					class a {
+						constructor(e) {
+							this._token = void 0, this._parentListener = void 0, this._parentListener = e && e.onCancellationRequested(this.cancel, this);
+						}
+						get token() {
+							return this._token || (this._token = new o()), this._token;
+						}
+						cancel() {
+							this._token ? this._token instanceof o && this._token.cancel() : this._token = n.Cancelled;
+						}
+						dispose(e = !1) {
+							e && this.cancel(), this._parentListener?.dispose(), this._token ? this._token instanceof o && this._token.dispose() : this._token = n.None;
+						}
+					}
+					t.CancellationTokenSource = a;
+				},
+				4869: (e, t) => {
+					var i;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.CharCode = void 0, function(e) {
+						e[e.Null = 0] = "Null", e[e.Backspace = 8] = "Backspace", e[e.Tab = 9] = "Tab", e[e.LineFeed = 10] = "LineFeed", e[e.CarriageReturn = 13] = "CarriageReturn", e[e.Space = 32] = "Space", e[e.ExclamationMark = 33] = "ExclamationMark", e[e.DoubleQuote = 34] = "DoubleQuote", e[e.Hash = 35] = "Hash", e[e.DollarSign = 36] = "DollarSign", e[e.PercentSign = 37] = "PercentSign", e[e.Ampersand = 38] = "Ampersand", e[e.SingleQuote = 39] = "SingleQuote", e[e.OpenParen = 40] = "OpenParen", e[e.CloseParen = 41] = "CloseParen", e[e.Asterisk = 42] = "Asterisk", e[e.Plus = 43] = "Plus", e[e.Comma = 44] = "Comma", e[e.Dash = 45] = "Dash", e[e.Period = 46] = "Period", e[e.Slash = 47] = "Slash", e[e.Digit0 = 48] = "Digit0", e[e.Digit1 = 49] = "Digit1", e[e.Digit2 = 50] = "Digit2", e[e.Digit3 = 51] = "Digit3", e[e.Digit4 = 52] = "Digit4", e[e.Digit5 = 53] = "Digit5", e[e.Digit6 = 54] = "Digit6", e[e.Digit7 = 55] = "Digit7", e[e.Digit8 = 56] = "Digit8", e[e.Digit9 = 57] = "Digit9", e[e.Colon = 58] = "Colon", e[e.Semicolon = 59] = "Semicolon", e[e.LessThan = 60] = "LessThan", e[e.Equals = 61] = "Equals", e[e.GreaterThan = 62] = "GreaterThan", e[e.QuestionMark = 63] = "QuestionMark", e[e.AtSign = 64] = "AtSign", e[e.A = 65] = "A", e[e.B = 66] = "B", e[e.C = 67] = "C", e[e.D = 68] = "D", e[e.E = 69] = "E", e[e.F = 70] = "F", e[e.G = 71] = "G", e[e.H = 72] = "H", e[e.I = 73] = "I", e[e.J = 74] = "J", e[e.K = 75] = "K", e[e.L = 76] = "L", e[e.M = 77] = "M", e[e.N = 78] = "N", e[e.O = 79] = "O", e[e.P = 80] = "P", e[e.Q = 81] = "Q", e[e.R = 82] = "R", e[e.S = 83] = "S", e[e.T = 84] = "T", e[e.U = 85] = "U", e[e.V = 86] = "V", e[e.W = 87] = "W", e[e.X = 88] = "X", e[e.Y = 89] = "Y", e[e.Z = 90] = "Z", e[e.OpenSquareBracket = 91] = "OpenSquareBracket", e[e.Backslash = 92] = "Backslash", e[e.CloseSquareBracket = 93] = "CloseSquareBracket", e[e.Caret = 94] = "Caret", e[e.Underline = 95] = "Underline", e[e.BackTick = 96] = "BackTick", e[e.a = 97] = "a", e[e.b = 98] = "b", e[e.c = 99] = "c", e[e.d = 100] = "d", e[e.e = 101] = "e", e[e.f = 102] = "f", e[e.g = 103] = "g", e[e.h = 104] = "h", e[e.i = 105] = "i", e[e.j = 106] = "j", e[e.k = 107] = "k", e[e.l = 108] = "l", e[e.m = 109] = "m", e[e.n = 110] = "n", e[e.o = 111] = "o", e[e.p = 112] = "p", e[e.q = 113] = "q", e[e.r = 114] = "r", e[e.s = 115] = "s", e[e.t = 116] = "t", e[e.u = 117] = "u", e[e.v = 118] = "v", e[e.w = 119] = "w", e[e.x = 120] = "x", e[e.y = 121] = "y", e[e.z = 122] = "z", e[e.OpenCurlyBrace = 123] = "OpenCurlyBrace", e[e.Pipe = 124] = "Pipe", e[e.CloseCurlyBrace = 125] = "CloseCurlyBrace", e[e.Tilde = 126] = "Tilde", e[e.NoBreakSpace = 160] = "NoBreakSpace", e[e.U_Combining_Grave_Accent = 768] = "U_Combining_Grave_Accent", e[e.U_Combining_Acute_Accent = 769] = "U_Combining_Acute_Accent", e[e.U_Combining_Circumflex_Accent = 770] = "U_Combining_Circumflex_Accent", e[e.U_Combining_Tilde = 771] = "U_Combining_Tilde", e[e.U_Combining_Macron = 772] = "U_Combining_Macron", e[e.U_Combining_Overline = 773] = "U_Combining_Overline", e[e.U_Combining_Breve = 774] = "U_Combining_Breve", e[e.U_Combining_Dot_Above = 775] = "U_Combining_Dot_Above", e[e.U_Combining_Diaeresis = 776] = "U_Combining_Diaeresis", e[e.U_Combining_Hook_Above = 777] = "U_Combining_Hook_Above", e[e.U_Combining_Ring_Above = 778] = "U_Combining_Ring_Above", e[e.U_Combining_Double_Acute_Accent = 779] = "U_Combining_Double_Acute_Accent", e[e.U_Combining_Caron = 780] = "U_Combining_Caron", e[e.U_Combining_Vertical_Line_Above = 781] = "U_Combining_Vertical_Line_Above", e[e.U_Combining_Double_Vertical_Line_Above = 782] = "U_Combining_Double_Vertical_Line_Above", e[e.U_Combining_Double_Grave_Accent = 783] = "U_Combining_Double_Grave_Accent", e[e.U_Combining_Candrabindu = 784] = "U_Combining_Candrabindu", e[e.U_Combining_Inverted_Breve = 785] = "U_Combining_Inverted_Breve", e[e.U_Combining_Turned_Comma_Above = 786] = "U_Combining_Turned_Comma_Above", e[e.U_Combining_Comma_Above = 787] = "U_Combining_Comma_Above", e[e.U_Combining_Reversed_Comma_Above = 788] = "U_Combining_Reversed_Comma_Above", e[e.U_Combining_Comma_Above_Right = 789] = "U_Combining_Comma_Above_Right", e[e.U_Combining_Grave_Accent_Below = 790] = "U_Combining_Grave_Accent_Below", e[e.U_Combining_Acute_Accent_Below = 791] = "U_Combining_Acute_Accent_Below", e[e.U_Combining_Left_Tack_Below = 792] = "U_Combining_Left_Tack_Below", e[e.U_Combining_Right_Tack_Below = 793] = "U_Combining_Right_Tack_Below", e[e.U_Combining_Left_Angle_Above = 794] = "U_Combining_Left_Angle_Above", e[e.U_Combining_Horn = 795] = "U_Combining_Horn", e[e.U_Combining_Left_Half_Ring_Below = 796] = "U_Combining_Left_Half_Ring_Below", e[e.U_Combining_Up_Tack_Below = 797] = "U_Combining_Up_Tack_Below", e[e.U_Combining_Down_Tack_Below = 798] = "U_Combining_Down_Tack_Below", e[e.U_Combining_Plus_Sign_Below = 799] = "U_Combining_Plus_Sign_Below", e[e.U_Combining_Minus_Sign_Below = 800] = "U_Combining_Minus_Sign_Below", e[e.U_Combining_Palatalized_Hook_Below = 801] = "U_Combining_Palatalized_Hook_Below", e[e.U_Combining_Retroflex_Hook_Below = 802] = "U_Combining_Retroflex_Hook_Below", e[e.U_Combining_Dot_Below = 803] = "U_Combining_Dot_Below", e[e.U_Combining_Diaeresis_Below = 804] = "U_Combining_Diaeresis_Below", e[e.U_Combining_Ring_Below = 805] = "U_Combining_Ring_Below", e[e.U_Combining_Comma_Below = 806] = "U_Combining_Comma_Below", e[e.U_Combining_Cedilla = 807] = "U_Combining_Cedilla", e[e.U_Combining_Ogonek = 808] = "U_Combining_Ogonek", e[e.U_Combining_Vertical_Line_Below = 809] = "U_Combining_Vertical_Line_Below", e[e.U_Combining_Bridge_Below = 810] = "U_Combining_Bridge_Below", e[e.U_Combining_Inverted_Double_Arch_Below = 811] = "U_Combining_Inverted_Double_Arch_Below", e[e.U_Combining_Caron_Below = 812] = "U_Combining_Caron_Below", e[e.U_Combining_Circumflex_Accent_Below = 813] = "U_Combining_Circumflex_Accent_Below", e[e.U_Combining_Breve_Below = 814] = "U_Combining_Breve_Below", e[e.U_Combining_Inverted_Breve_Below = 815] = "U_Combining_Inverted_Breve_Below", e[e.U_Combining_Tilde_Below = 816] = "U_Combining_Tilde_Below", e[e.U_Combining_Macron_Below = 817] = "U_Combining_Macron_Below", e[e.U_Combining_Low_Line = 818] = "U_Combining_Low_Line", e[e.U_Combining_Double_Low_Line = 819] = "U_Combining_Double_Low_Line", e[e.U_Combining_Tilde_Overlay = 820] = "U_Combining_Tilde_Overlay", e[e.U_Combining_Short_Stroke_Overlay = 821] = "U_Combining_Short_Stroke_Overlay", e[e.U_Combining_Long_Stroke_Overlay = 822] = "U_Combining_Long_Stroke_Overlay", e[e.U_Combining_Short_Solidus_Overlay = 823] = "U_Combining_Short_Solidus_Overlay", e[e.U_Combining_Long_Solidus_Overlay = 824] = "U_Combining_Long_Solidus_Overlay", e[e.U_Combining_Right_Half_Ring_Below = 825] = "U_Combining_Right_Half_Ring_Below", e[e.U_Combining_Inverted_Bridge_Below = 826] = "U_Combining_Inverted_Bridge_Below", e[e.U_Combining_Square_Below = 827] = "U_Combining_Square_Below", e[e.U_Combining_Seagull_Below = 828] = "U_Combining_Seagull_Below", e[e.U_Combining_X_Above = 829] = "U_Combining_X_Above", e[e.U_Combining_Vertical_Tilde = 830] = "U_Combining_Vertical_Tilde", e[e.U_Combining_Double_Overline = 831] = "U_Combining_Double_Overline", e[e.U_Combining_Grave_Tone_Mark = 832] = "U_Combining_Grave_Tone_Mark", e[e.U_Combining_Acute_Tone_Mark = 833] = "U_Combining_Acute_Tone_Mark", e[e.U_Combining_Greek_Perispomeni = 834] = "U_Combining_Greek_Perispomeni", e[e.U_Combining_Greek_Koronis = 835] = "U_Combining_Greek_Koronis", e[e.U_Combining_Greek_Dialytika_Tonos = 836] = "U_Combining_Greek_Dialytika_Tonos", e[e.U_Combining_Greek_Ypogegrammeni = 837] = "U_Combining_Greek_Ypogegrammeni", e[e.U_Combining_Bridge_Above = 838] = "U_Combining_Bridge_Above", e[e.U_Combining_Equals_Sign_Below = 839] = "U_Combining_Equals_Sign_Below", e[e.U_Combining_Double_Vertical_Line_Below = 840] = "U_Combining_Double_Vertical_Line_Below", e[e.U_Combining_Left_Angle_Below = 841] = "U_Combining_Left_Angle_Below", e[e.U_Combining_Not_Tilde_Above = 842] = "U_Combining_Not_Tilde_Above", e[e.U_Combining_Homothetic_Above = 843] = "U_Combining_Homothetic_Above", e[e.U_Combining_Almost_Equal_To_Above = 844] = "U_Combining_Almost_Equal_To_Above", e[e.U_Combining_Left_Right_Arrow_Below = 845] = "U_Combining_Left_Right_Arrow_Below", e[e.U_Combining_Upwards_Arrow_Below = 846] = "U_Combining_Upwards_Arrow_Below", e[e.U_Combining_Grapheme_Joiner = 847] = "U_Combining_Grapheme_Joiner", e[e.U_Combining_Right_Arrowhead_Above = 848] = "U_Combining_Right_Arrowhead_Above", e[e.U_Combining_Left_Half_Ring_Above = 849] = "U_Combining_Left_Half_Ring_Above", e[e.U_Combining_Fermata = 850] = "U_Combining_Fermata", e[e.U_Combining_X_Below = 851] = "U_Combining_X_Below", e[e.U_Combining_Left_Arrowhead_Below = 852] = "U_Combining_Left_Arrowhead_Below", e[e.U_Combining_Right_Arrowhead_Below = 853] = "U_Combining_Right_Arrowhead_Below", e[e.U_Combining_Right_Arrowhead_And_Up_Arrowhead_Below = 854] = "U_Combining_Right_Arrowhead_And_Up_Arrowhead_Below", e[e.U_Combining_Right_Half_Ring_Above = 855] = "U_Combining_Right_Half_Ring_Above", e[e.U_Combining_Dot_Above_Right = 856] = "U_Combining_Dot_Above_Right", e[e.U_Combining_Asterisk_Below = 857] = "U_Combining_Asterisk_Below", e[e.U_Combining_Double_Ring_Below = 858] = "U_Combining_Double_Ring_Below", e[e.U_Combining_Zigzag_Above = 859] = "U_Combining_Zigzag_Above", e[e.U_Combining_Double_Breve_Below = 860] = "U_Combining_Double_Breve_Below", e[e.U_Combining_Double_Breve = 861] = "U_Combining_Double_Breve", e[e.U_Combining_Double_Macron = 862] = "U_Combining_Double_Macron", e[e.U_Combining_Double_Macron_Below = 863] = "U_Combining_Double_Macron_Below", e[e.U_Combining_Double_Tilde = 864] = "U_Combining_Double_Tilde", e[e.U_Combining_Double_Inverted_Breve = 865] = "U_Combining_Double_Inverted_Breve", e[e.U_Combining_Double_Rightwards_Arrow_Below = 866] = "U_Combining_Double_Rightwards_Arrow_Below", e[e.U_Combining_Latin_Small_Letter_A = 867] = "U_Combining_Latin_Small_Letter_A", e[e.U_Combining_Latin_Small_Letter_E = 868] = "U_Combining_Latin_Small_Letter_E", e[e.U_Combining_Latin_Small_Letter_I = 869] = "U_Combining_Latin_Small_Letter_I", e[e.U_Combining_Latin_Small_Letter_O = 870] = "U_Combining_Latin_Small_Letter_O", e[e.U_Combining_Latin_Small_Letter_U = 871] = "U_Combining_Latin_Small_Letter_U", e[e.U_Combining_Latin_Small_Letter_C = 872] = "U_Combining_Latin_Small_Letter_C", e[e.U_Combining_Latin_Small_Letter_D = 873] = "U_Combining_Latin_Small_Letter_D", e[e.U_Combining_Latin_Small_Letter_H = 874] = "U_Combining_Latin_Small_Letter_H", e[e.U_Combining_Latin_Small_Letter_M = 875] = "U_Combining_Latin_Small_Letter_M", e[e.U_Combining_Latin_Small_Letter_R = 876] = "U_Combining_Latin_Small_Letter_R", e[e.U_Combining_Latin_Small_Letter_T = 877] = "U_Combining_Latin_Small_Letter_T", e[e.U_Combining_Latin_Small_Letter_V = 878] = "U_Combining_Latin_Small_Letter_V", e[e.U_Combining_Latin_Small_Letter_X = 879] = "U_Combining_Latin_Small_Letter_X", e[e.LINE_SEPARATOR = 8232] = "LINE_SEPARATOR", e[e.PARAGRAPH_SEPARATOR = 8233] = "PARAGRAPH_SEPARATOR", e[e.NEXT_LINE = 133] = "NEXT_LINE", e[e.U_CIRCUMFLEX = 94] = "U_CIRCUMFLEX", e[e.U_GRAVE_ACCENT = 96] = "U_GRAVE_ACCENT", e[e.U_DIAERESIS = 168] = "U_DIAERESIS", e[e.U_MACRON = 175] = "U_MACRON", e[e.U_ACUTE_ACCENT = 180] = "U_ACUTE_ACCENT", e[e.U_CEDILLA = 184] = "U_CEDILLA", e[e.U_MODIFIER_LETTER_LEFT_ARROWHEAD = 706] = "U_MODIFIER_LETTER_LEFT_ARROWHEAD", e[e.U_MODIFIER_LETTER_RIGHT_ARROWHEAD = 707] = "U_MODIFIER_LETTER_RIGHT_ARROWHEAD", e[e.U_MODIFIER_LETTER_UP_ARROWHEAD = 708] = "U_MODIFIER_LETTER_UP_ARROWHEAD", e[e.U_MODIFIER_LETTER_DOWN_ARROWHEAD = 709] = "U_MODIFIER_LETTER_DOWN_ARROWHEAD", e[e.U_MODIFIER_LETTER_CENTRED_RIGHT_HALF_RING = 722] = "U_MODIFIER_LETTER_CENTRED_RIGHT_HALF_RING", e[e.U_MODIFIER_LETTER_CENTRED_LEFT_HALF_RING = 723] = "U_MODIFIER_LETTER_CENTRED_LEFT_HALF_RING", e[e.U_MODIFIER_LETTER_UP_TACK = 724] = "U_MODIFIER_LETTER_UP_TACK", e[e.U_MODIFIER_LETTER_DOWN_TACK = 725] = "U_MODIFIER_LETTER_DOWN_TACK", e[e.U_MODIFIER_LETTER_PLUS_SIGN = 726] = "U_MODIFIER_LETTER_PLUS_SIGN", e[e.U_MODIFIER_LETTER_MINUS_SIGN = 727] = "U_MODIFIER_LETTER_MINUS_SIGN", e[e.U_BREVE = 728] = "U_BREVE", e[e.U_DOT_ABOVE = 729] = "U_DOT_ABOVE", e[e.U_RING_ABOVE = 730] = "U_RING_ABOVE", e[e.U_OGONEK = 731] = "U_OGONEK", e[e.U_SMALL_TILDE = 732] = "U_SMALL_TILDE", e[e.U_DOUBLE_ACUTE_ACCENT = 733] = "U_DOUBLE_ACUTE_ACCENT", e[e.U_MODIFIER_LETTER_RHOTIC_HOOK = 734] = "U_MODIFIER_LETTER_RHOTIC_HOOK", e[e.U_MODIFIER_LETTER_CROSS_ACCENT = 735] = "U_MODIFIER_LETTER_CROSS_ACCENT", e[e.U_MODIFIER_LETTER_EXTRA_HIGH_TONE_BAR = 741] = "U_MODIFIER_LETTER_EXTRA_HIGH_TONE_BAR", e[e.U_MODIFIER_LETTER_HIGH_TONE_BAR = 742] = "U_MODIFIER_LETTER_HIGH_TONE_BAR", e[e.U_MODIFIER_LETTER_MID_TONE_BAR = 743] = "U_MODIFIER_LETTER_MID_TONE_BAR", e[e.U_MODIFIER_LETTER_LOW_TONE_BAR = 744] = "U_MODIFIER_LETTER_LOW_TONE_BAR", e[e.U_MODIFIER_LETTER_EXTRA_LOW_TONE_BAR = 745] = "U_MODIFIER_LETTER_EXTRA_LOW_TONE_BAR", e[e.U_MODIFIER_LETTER_YIN_DEPARTING_TONE_MARK = 746] = "U_MODIFIER_LETTER_YIN_DEPARTING_TONE_MARK", e[e.U_MODIFIER_LETTER_YANG_DEPARTING_TONE_MARK = 747] = "U_MODIFIER_LETTER_YANG_DEPARTING_TONE_MARK", e[e.U_MODIFIER_LETTER_UNASPIRATED = 749] = "U_MODIFIER_LETTER_UNASPIRATED", e[e.U_MODIFIER_LETTER_LOW_DOWN_ARROWHEAD = 751] = "U_MODIFIER_LETTER_LOW_DOWN_ARROWHEAD", e[e.U_MODIFIER_LETTER_LOW_UP_ARROWHEAD = 752] = "U_MODIFIER_LETTER_LOW_UP_ARROWHEAD", e[e.U_MODIFIER_LETTER_LOW_LEFT_ARROWHEAD = 753] = "U_MODIFIER_LETTER_LOW_LEFT_ARROWHEAD", e[e.U_MODIFIER_LETTER_LOW_RIGHT_ARROWHEAD = 754] = "U_MODIFIER_LETTER_LOW_RIGHT_ARROWHEAD", e[e.U_MODIFIER_LETTER_LOW_RING = 755] = "U_MODIFIER_LETTER_LOW_RING", e[e.U_MODIFIER_LETTER_MIDDLE_GRAVE_ACCENT = 756] = "U_MODIFIER_LETTER_MIDDLE_GRAVE_ACCENT", e[e.U_MODIFIER_LETTER_MIDDLE_DOUBLE_GRAVE_ACCENT = 757] = "U_MODIFIER_LETTER_MIDDLE_DOUBLE_GRAVE_ACCENT", e[e.U_MODIFIER_LETTER_MIDDLE_DOUBLE_ACUTE_ACCENT = 758] = "U_MODIFIER_LETTER_MIDDLE_DOUBLE_ACUTE_ACCENT", e[e.U_MODIFIER_LETTER_LOW_TILDE = 759] = "U_MODIFIER_LETTER_LOW_TILDE", e[e.U_MODIFIER_LETTER_RAISED_COLON = 760] = "U_MODIFIER_LETTER_RAISED_COLON", e[e.U_MODIFIER_LETTER_BEGIN_HIGH_TONE = 761] = "U_MODIFIER_LETTER_BEGIN_HIGH_TONE", e[e.U_MODIFIER_LETTER_END_HIGH_TONE = 762] = "U_MODIFIER_LETTER_END_HIGH_TONE", e[e.U_MODIFIER_LETTER_BEGIN_LOW_TONE = 763] = "U_MODIFIER_LETTER_BEGIN_LOW_TONE", e[e.U_MODIFIER_LETTER_END_LOW_TONE = 764] = "U_MODIFIER_LETTER_END_LOW_TONE", e[e.U_MODIFIER_LETTER_SHELF = 765] = "U_MODIFIER_LETTER_SHELF", e[e.U_MODIFIER_LETTER_OPEN_SHELF = 766] = "U_MODIFIER_LETTER_OPEN_SHELF", e[e.U_MODIFIER_LETTER_LOW_LEFT_ARROW = 767] = "U_MODIFIER_LETTER_LOW_LEFT_ARROW", e[e.U_GREEK_LOWER_NUMERAL_SIGN = 885] = "U_GREEK_LOWER_NUMERAL_SIGN", e[e.U_GREEK_TONOS = 900] = "U_GREEK_TONOS", e[e.U_GREEK_DIALYTIKA_TONOS = 901] = "U_GREEK_DIALYTIKA_TONOS", e[e.U_GREEK_KORONIS = 8125] = "U_GREEK_KORONIS", e[e.U_GREEK_PSILI = 8127] = "U_GREEK_PSILI", e[e.U_GREEK_PERISPOMENI = 8128] = "U_GREEK_PERISPOMENI", e[e.U_GREEK_DIALYTIKA_AND_PERISPOMENI = 8129] = "U_GREEK_DIALYTIKA_AND_PERISPOMENI", e[e.U_GREEK_PSILI_AND_VARIA = 8141] = "U_GREEK_PSILI_AND_VARIA", e[e.U_GREEK_PSILI_AND_OXIA = 8142] = "U_GREEK_PSILI_AND_OXIA", e[e.U_GREEK_PSILI_AND_PERISPOMENI = 8143] = "U_GREEK_PSILI_AND_PERISPOMENI", e[e.U_GREEK_DASIA_AND_VARIA = 8157] = "U_GREEK_DASIA_AND_VARIA", e[e.U_GREEK_DASIA_AND_OXIA = 8158] = "U_GREEK_DASIA_AND_OXIA", e[e.U_GREEK_DASIA_AND_PERISPOMENI = 8159] = "U_GREEK_DASIA_AND_PERISPOMENI", e[e.U_GREEK_DIALYTIKA_AND_VARIA = 8173] = "U_GREEK_DIALYTIKA_AND_VARIA", e[e.U_GREEK_DIALYTIKA_AND_OXIA = 8174] = "U_GREEK_DIALYTIKA_AND_OXIA", e[e.U_GREEK_VARIA = 8175] = "U_GREEK_VARIA", e[e.U_GREEK_OXIA = 8189] = "U_GREEK_OXIA", e[e.U_GREEK_DASIA = 8190] = "U_GREEK_DASIA", e[e.U_IDEOGRAPHIC_FULL_STOP = 12290] = "U_IDEOGRAPHIC_FULL_STOP", e[e.U_LEFT_CORNER_BRACKET = 12300] = "U_LEFT_CORNER_BRACKET", e[e.U_RIGHT_CORNER_BRACKET = 12301] = "U_RIGHT_CORNER_BRACKET", e[e.U_LEFT_BLACK_LENTICULAR_BRACKET = 12304] = "U_LEFT_BLACK_LENTICULAR_BRACKET", e[e.U_RIGHT_BLACK_LENTICULAR_BRACKET = 12305] = "U_RIGHT_BLACK_LENTICULAR_BRACKET", e[e.U_OVERLINE = 8254] = "U_OVERLINE", e[e.UTF8_BOM = 65279] = "UTF8_BOM", e[e.U_FULLWIDTH_SEMICOLON = 65307] = "U_FULLWIDTH_SEMICOLON", e[e.U_FULLWIDTH_COMMA = 65292] = "U_FULLWIDTH_COMMA";
+					}(i || (t.CharCode = i = {}));
+				},
+				9087: (e, t) => {
+					var i;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.SetWithKey = void 0, t.groupBy = function(e, t) {
+						const i = Object.create(null);
+						for (const s of e) {
+							const e = t(s);
+							let r = i[e];
+							r || (r = i[e] = []), r.push(s);
+						}
+						return i;
+					}, t.diffSets = function(e, t) {
+						const i = [], s = [];
+						for (const s of e) t.has(s) || i.push(s);
+						for (const i of t) e.has(i) || s.push(i);
+						return {
+							removed: i,
+							added: s
+						};
+					}, t.diffMaps = function(e, t) {
+						const i = [], s = [];
+						for (const [s, r] of e) t.has(s) || i.push(r);
+						for (const [i, r] of t) e.has(i) || s.push(r);
+						return {
+							removed: i,
+							added: s
+						};
+					}, t.intersection = function(e, t) {
+						const i = /* @__PURE__ */ new Set();
+						for (const s of t) e.has(s) && i.add(s);
+						return i;
+					};
+					class s {
+						static {
+							i = Symbol.toStringTag;
+						}
+						constructor(e, t) {
+							this.toKey = t, this._map = /* @__PURE__ */ new Map(), this[i] = "SetWithKey";
+							for (const t of e) this.add(t);
+						}
+						get size() {
+							return this._map.size;
+						}
+						add(e) {
+							const t = this.toKey(e);
+							return this._map.set(t, e), this;
+						}
+						delete(e) {
+							return this._map.delete(this.toKey(e));
+						}
+						has(e) {
+							return this._map.has(this.toKey(e));
+						}
+						*entries() {
+							for (const e of this._map.values()) yield [e, e];
+						}
+						keys() {
+							return this.values();
+						}
+						*values() {
+							for (const e of this._map.values()) yield e;
+						}
+						clear() {
+							this._map.clear();
+						}
+						forEach(e, t) {
+							this._map.forEach(((i) => e.call(t, i, i, this)));
+						}
+						[Symbol.iterator]() {
+							return this.values();
+						}
+					}
+					t.SetWithKey = s;
+				},
+				4838: (e, t) => {
+					function i(e) {
+						return (t, i, s) => {
+							let r = null, n = null;
+							if ("function" == typeof s.value ? (r = "value", n = s.value) : "function" == typeof s.get && (r = "get", n = s.get), !n) throw new Error("not supported");
+							s[r] = e(n, i);
+						};
+					}
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.memoize = function(e, t, i) {
+						let s = null, r = null;
+						if ("function" == typeof i.value ? (s = "value", r = i.value, 0 !== r.length && console.warn("Memoize should only be used in functions with zero parameters")) : "function" == typeof i.get && (s = "get", r = i.get), !r) throw new Error("not supported");
+						const n = `$memoize$${t}`;
+						i[s] = function(...e) {
+							return this.hasOwnProperty(n) || Object.defineProperty(this, n, {
+								configurable: !1,
+								enumerable: !1,
+								writable: !1,
+								value: r.apply(this, e)
+							}), this[n];
+						};
+					}, t.debounce = function(e, t, s) {
+						return i(((i, r) => {
+							const n = `$debounce$${r}`, o = `$debounce$result$${r}`;
+							return function(...r) {
+								this[o] || (this[o] = s ? s() : void 0), clearTimeout(this[n]), t && (this[o] = t(this[o], ...r), r = [this[o]]), this[n] = setTimeout((() => {
+									i.apply(this, r), this[o] = s ? s() : void 0;
+								}), e);
+							};
+						}));
+					}, t.throttle = function(e, t, s) {
+						return i(((i, r) => {
+							const n = `$throttle$timer$${r}`, o = `$throttle$result$${r}`, a = `$throttle$lastRun$${r}`, l = `$throttle$pending$${r}`;
+							return function(...r) {
+								if (this[o] || (this[o] = s ? s() : void 0), null !== this[a] && void 0 !== this[a] || (this[a] = -Number.MAX_VALUE), t && (this[o] = t(this[o], ...r)), this[l]) return;
+								const h = this[a] + e;
+								h <= Date.now() ? (this[a] = Date.now(), i.apply(this, [this[o]]), this[o] = s ? s() : void 0) : (this[l] = !0, this[n] = setTimeout((() => {
+									this[l] = !1, this[a] = Date.now(), i.apply(this, [this[o]]), this[o] = s ? s() : void 0;
+								}), h - Date.now()));
+							};
+						}));
+					};
+				},
+				9807: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.BugIndicatingError = t.ErrorNoTelemetry = t.ExpectedError = t.NotSupportedError = t.NotImplementedError = t.ReadonlyError = t.CancellationError = t.errorHandler = t.ErrorHandler = void 0, t.setUnexpectedErrorHandler = function(e) {
+						t.errorHandler.setUnexpectedErrorHandler(e);
+					}, t.isSigPipeError = function(e) {
+						if (!e || "object" != typeof e) return !1;
+						const t = e;
+						return "EPIPE" === t.code && "WRITE" === t.syscall?.toUpperCase();
+					}, t.onUnexpectedError = function(e) {
+						r(e) || t.errorHandler.onUnexpectedError(e);
+					}, t.onUnexpectedExternalError = function(e) {
+						r(e) || t.errorHandler.onUnexpectedExternalError(e);
+					}, t.transformErrorForSerialization = function(e) {
+						if (e instanceof Error) {
+							const { name: t, message: i } = e;
+							return {
+								$isError: !0,
+								name: t,
+								message: i,
+								stack: e.stacktrace || e.stack,
+								noTelemetry: c.isErrorNoTelemetry(e)
+							};
+						}
+						return e;
+					}, t.transformErrorFromSerialization = function(e) {
+						let t;
+						return e.noTelemetry ? t = new c() : (t = /* @__PURE__ */ new Error(), t.name = e.name), t.message = e.message, t.stack = e.stack, t;
+					}, t.isCancellationError = r, t.canceled = function() {
+						const e = new Error(s);
+						return e.name = e.message, e;
+					}, t.illegalArgument = function(e) {
+						return e ? /* @__PURE__ */ new Error(`Illegal argument: ${e}`) : /* @__PURE__ */ new Error("Illegal argument");
+					}, t.illegalState = function(e) {
+						return e ? /* @__PURE__ */ new Error(`Illegal state: ${e}`) : /* @__PURE__ */ new Error("Illegal state");
+					}, t.getErrorMessage = function(e) {
+						return e ? e.message ? e.message : e.stack ? e.stack.split("\n")[0] : String(e) : "Error";
+					};
+					class i {
+						constructor() {
+							this.listeners = [], this.unexpectedErrorHandler = function(e) {
+								setTimeout((() => {
+									if (e.stack) {
+										if (c.isErrorNoTelemetry(e)) throw new c(e.message + "\n\n" + e.stack);
+										throw new Error(e.message + "\n\n" + e.stack);
+									}
+									throw e;
+								}), 0);
+							};
+						}
+						addListener(e) {
+							return this.listeners.push(e), () => {
+								this._removeListener(e);
+							};
+						}
+						emit(e) {
+							this.listeners.forEach(((t) => {
+								t(e);
+							}));
+						}
+						_removeListener(e) {
+							this.listeners.splice(this.listeners.indexOf(e), 1);
+						}
+						setUnexpectedErrorHandler(e) {
+							this.unexpectedErrorHandler = e;
+						}
+						getUnexpectedErrorHandler() {
+							return this.unexpectedErrorHandler;
+						}
+						onUnexpectedError(e) {
+							this.unexpectedErrorHandler(e), this.emit(e);
+						}
+						onUnexpectedExternalError(e) {
+							this.unexpectedErrorHandler(e);
+						}
+					}
+					t.ErrorHandler = i, t.errorHandler = new i();
+					const s = "Canceled";
+					function r(e) {
+						return e instanceof n || e instanceof Error && e.name === s && e.message === s;
+					}
+					class n extends Error {
+						constructor() {
+							super(s), this.name = this.message;
+						}
+					}
+					t.CancellationError = n;
+					class o extends TypeError {
+						constructor(e) {
+							super(e ? `${e} is read-only and cannot be changed` : "Cannot change read-only property");
+						}
+					}
+					t.ReadonlyError = o;
+					class a extends Error {
+						constructor(e) {
+							super("NotImplemented"), e && (this.message = e);
+						}
+					}
+					t.NotImplementedError = a;
+					class l extends Error {
+						constructor(e) {
+							super("NotSupported"), e && (this.message = e);
+						}
+					}
+					t.NotSupportedError = l;
+					class h extends Error {
+						constructor() {
+							super(...arguments), this.isExpected = !0;
+						}
+					}
+					t.ExpectedError = h;
+					class c extends Error {
+						constructor(e) {
+							super(e), this.name = "CodeExpectedError";
+						}
+						static fromError(e) {
+							if (e instanceof c) return e;
+							const t = new c();
+							return t.message = e.message, t.stack = e.stack, t;
+						}
+						static isErrorNoTelemetry(e) {
+							return "CodeExpectedError" === e.name;
+						}
+					}
+					t.ErrorNoTelemetry = c;
+					class d extends Error {
+						constructor(e) {
+							super(e || "An unexpected bug occurred."), Object.setPrototypeOf(this, d.prototype);
+						}
+					}
+					t.BugIndicatingError = d;
+				},
+				802: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ValueWithChangeEvent = t.Relay = t.EventBufferer = t.DynamicListEventMultiplexer = t.EventMultiplexer = t.MicrotaskEmitter = t.DebounceEmitter = t.PauseableEmitter = t.AsyncEmitter = t.createEventDeliveryQueue = t.Emitter = t.ListenerRefusalError = t.ListenerLeakError = t.EventProfiling = t.Event = void 0, t.setGlobalLeakWarningThreshold = function(e) {
+						const t = c;
+						return c = e, { dispose() {
+							c = t;
+						} };
+					};
+					const s = i(9807), r = i(8841), n = i(7150), o = i(6317), a = i(9725);
+					var l;
+					(function(e) {
+						function t(e) {
+							return (t, i = null, s) => {
+								let r, n = !1;
+								return r = e(((e) => {
+									if (!n) return r ? r.dispose() : n = !0, t.call(i, e);
+								}), null, s), n && r.dispose(), r;
+							};
+						}
+						function i(e, t, i) {
+							return r(((i, s = null, r) => e(((e) => i.call(s, t(e))), null, r)), i);
+						}
+						function s(e, t, i) {
+							return r(((i, s = null, r) => e(((e) => t(e) && i.call(s, e)), null, r)), i);
+						}
+						function r(e, t) {
+							let i;
+							const s = new m({
+								onWillAddFirstListener() {
+									i = e(s.fire, s);
+								},
+								onDidRemoveLastListener() {
+									i?.dispose();
+								}
+							});
+							return t?.add(s), s.event;
+						}
+						function o(e, t, i = 100, s = !1, r = !1, n, o) {
+							let a, l, h, c, d = 0;
+							const u = new m({
+								leakWarningThreshold: n,
+								onWillAddFirstListener() {
+									a = e(((e) => {
+										d++, l = t(l, e), s && !h && (u.fire(l), l = void 0), c = () => {
+											const e = l;
+											l = void 0, h = void 0, (!s || d > 1) && u.fire(e), d = 0;
+										}, "number" == typeof i ? (clearTimeout(h), h = setTimeout(c, i)) : void 0 === h && (h = 0, queueMicrotask(c));
+									}));
+								},
+								onWillRemoveListener() {
+									r && d > 0 && c?.();
+								},
+								onDidRemoveLastListener() {
+									c = void 0, a.dispose();
+								}
+							});
+							return o?.add(u), u.event;
+						}
+						e.None = () => n.Disposable.None, e.defer = function(e, t) {
+							return o(e, (() => {}), 0, void 0, !0, void 0, t);
+						}, e.once = t, e.map = i, e.forEach = function(e, t, i) {
+							return r(((i, s = null, r) => e(((e) => {
+								t(e), i.call(s, e);
+							}), null, r)), i);
+						}, e.filter = s, e.signal = function(e) {
+							return e;
+						}, e.any = function(...e) {
+							return (t, i = null, s) => {
+								return r = (0, n.combinedDisposable)(...e.map(((e) => e(((e) => t.call(i, e)))))), (o = s) instanceof Array ? o.push(r) : o && o.add(r), r;
+								var r, o;
+							};
+						}, e.reduce = function(e, t, s, r) {
+							let n = s;
+							return i(e, ((e) => (n = t(n, e), n)), r);
+						}, e.debounce = o, e.accumulate = function(t, i = 0, s) {
+							return e.debounce(t, ((e, t) => e ? (e.push(t), e) : [t]), i, void 0, !0, void 0, s);
+						}, e.latch = function(e, t = (e, t) => e === t, i) {
+							let r, n = !0;
+							return s(e, ((e) => {
+								const i = n || !t(e, r);
+								return n = !1, r = e, i;
+							}), i);
+						}, e.split = function(t, i, s) {
+							return [e.filter(t, i, s), e.filter(t, ((e) => !i(e)), s)];
+						}, e.buffer = function(e, t = !1, i = [], s) {
+							let r = i.slice(), n = e(((e) => {
+								r ? r.push(e) : a.fire(e);
+							}));
+							s && s.add(n);
+							const o = () => {
+								r?.forEach(((e) => a.fire(e))), r = null;
+							}, a = new m({
+								onWillAddFirstListener() {
+									n || (n = e(((e) => a.fire(e))), s && s.add(n));
+								},
+								onDidAddFirstListener() {
+									r && (t ? setTimeout(o) : o());
+								},
+								onDidRemoveLastListener() {
+									n && n.dispose(), n = null;
+								}
+							});
+							return s && s.add(a), a.event;
+						}, e.chain = function(e, t) {
+							return (i, s, r) => {
+								const n = t(new l());
+								return e((function(e) {
+									const t = n.evaluate(e);
+									t !== a && i.call(s, t);
+								}), void 0, r);
+							};
+						};
+						const a = Symbol("HaltChainable");
+						class l {
+							constructor() {
+								this.steps = [];
+							}
+							map(e) {
+								return this.steps.push(e), this;
+							}
+							forEach(e) {
+								return this.steps.push(((t) => (e(t), t))), this;
+							}
+							filter(e) {
+								return this.steps.push(((t) => e(t) ? t : a)), this;
+							}
+							reduce(e, t) {
+								let i = t;
+								return this.steps.push(((t) => (i = e(i, t), i))), this;
+							}
+							latch(e = (e, t) => e === t) {
+								let t, i = !0;
+								return this.steps.push(((s) => {
+									const r = i || !e(s, t);
+									return i = !1, t = s, r ? s : a;
+								})), this;
+							}
+							evaluate(e) {
+								for (const t of this.steps) if ((e = t(e)) === a) break;
+								return e;
+							}
+						}
+						e.fromNodeEventEmitter = function(e, t, i = (e) => e) {
+							const s = (...e) => r.fire(i(...e)), r = new m({
+								onWillAddFirstListener: () => e.on(t, s),
+								onDidRemoveLastListener: () => e.removeListener(t, s)
+							});
+							return r.event;
+						}, e.fromDOMEventEmitter = function(e, t, i = (e) => e) {
+							const s = (...e) => r.fire(i(...e)), r = new m({
+								onWillAddFirstListener: () => e.addEventListener(t, s),
+								onDidRemoveLastListener: () => e.removeEventListener(t, s)
+							});
+							return r.event;
+						}, e.toPromise = function(e) {
+							return new Promise(((i) => t(e)(i)));
+						}, e.fromPromise = function(e) {
+							const t = new m();
+							return e.then(((e) => {
+								t.fire(e);
+							}), (() => {
+								t.fire(void 0);
+							})).finally((() => {
+								t.dispose();
+							})), t.event;
+						}, e.forward = function(e, t) {
+							return e(((e) => t.fire(e)));
+						}, e.runAndSubscribe = function(e, t, i) {
+							return t(i), e(((e) => t(e)));
+						};
+						class h {
+							constructor(e, t) {
+								this._observable = e, this._counter = 0, this._hasChanged = !1;
+								const i = {
+									onWillAddFirstListener: () => {
+										e.addObserver(this);
+									},
+									onDidRemoveLastListener: () => {
+										e.removeObserver(this);
+									}
+								};
+								this.emitter = new m(i), t && t.add(this.emitter);
+							}
+							beginUpdate(e) {
+								this._counter++;
+							}
+							handlePossibleChange(e) {}
+							handleChange(e, t) {
+								this._hasChanged = !0;
+							}
+							endUpdate(e) {
+								this._counter--, 0 === this._counter && (this._observable.reportChanges(), this._hasChanged && (this._hasChanged = !1, this.emitter.fire(this._observable.get())));
+							}
+						}
+						e.fromObservable = function(e, t) {
+							return new h(e, t).emitter.event;
+						}, e.fromObservableLight = function(e) {
+							return (t, i, s) => {
+								let r = 0, o = !1;
+								const a = {
+									beginUpdate() {
+										r++;
+									},
+									endUpdate() {
+										r--, 0 === r && (e.reportChanges(), o && (o = !1, t.call(i)));
+									},
+									handlePossibleChange() {},
+									handleChange() {
+										o = !0;
+									}
+								};
+								e.addObserver(a), e.reportChanges();
+								const l = { dispose() {
+									e.removeObserver(a);
+								} };
+								return s instanceof n.DisposableStore ? s.add(l) : Array.isArray(s) && s.push(l), l;
+							};
+						};
+					})(l || (t.Event = l = {}));
+					class h {
+						static {
+							this.all = /* @__PURE__ */ new Set();
+						}
+						static {
+							this._idPool = 0;
+						}
+						constructor(e) {
+							this.listenerCount = 0, this.invocationCount = 0, this.elapsedOverall = 0, this.durations = [], this.name = `${e}_${h._idPool++}`, h.all.add(this);
+						}
+						start(e) {
+							this._stopWatch = new a.StopWatch(), this.listenerCount = e;
+						}
+						stop() {
+							if (this._stopWatch) {
+								const e = this._stopWatch.elapsed();
+								this.durations.push(e), this.elapsedOverall += e, this.invocationCount += 1, this._stopWatch = void 0;
+							}
+						}
+					}
+					t.EventProfiling = h;
+					let c = -1;
+					class d {
+						static {
+							this._idPool = 1;
+						}
+						constructor(e, t, i = (d._idPool++).toString(16).padStart(3, "0")) {
+							this._errorHandler = e, this.threshold = t, this.name = i, this._warnCountdown = 0;
+						}
+						dispose() {
+							this._stacks?.clear();
+						}
+						check(e, t) {
+							const i = this.threshold;
+							if (i <= 0 || t < i) return;
+							this._stacks || (this._stacks = /* @__PURE__ */ new Map());
+							const s = this._stacks.get(e.value) || 0;
+							if (this._stacks.set(e.value, s + 1), this._warnCountdown -= 1, this._warnCountdown <= 0) {
+								this._warnCountdown = .5 * i;
+								const [e, s] = this.getMostFrequentStack(), r = `[${this.name}] potential listener LEAK detected, having ${t} listeners already. MOST frequent listener (${s}):`;
+								console.warn(r), console.warn(e);
+								const n = new _(r, e);
+								this._errorHandler(n);
+							}
+							return () => {
+								const t = this._stacks.get(e.value) || 0;
+								this._stacks.set(e.value, t - 1);
+							};
+						}
+						getMostFrequentStack() {
+							if (!this._stacks) return;
+							let e, t = 0;
+							for (const [i, s] of this._stacks) (!e || t < s) && (e = [i, s], t = s);
+							return e;
+						}
+					}
+					class u {
+						static create() {
+							return new u((/* @__PURE__ */ new Error()).stack ?? "");
+						}
+						constructor(e) {
+							this.value = e;
+						}
+						print() {
+							console.warn(this.value.split("\n").slice(2).join("\n"));
+						}
+					}
+					class _ extends Error {
+						constructor(e, t) {
+							super(e), this.name = "ListenerLeakError", this.stack = t;
+						}
+					}
+					t.ListenerLeakError = _;
+					class f extends Error {
+						constructor(e, t) {
+							super(e), this.name = "ListenerRefusalError", this.stack = t;
+						}
+					}
+					t.ListenerRefusalError = f;
+					let p = 0;
+					class g {
+						constructor(e) {
+							this.value = e, this.id = p++;
+						}
+					}
+					class m {
+						constructor(e) {
+							this._size = 0, this._options = e, this._leakageMon = c > 0 || this._options?.leakWarningThreshold ? new d(e?.onListenerError ?? s.onUnexpectedError, this._options?.leakWarningThreshold ?? c) : void 0, this._perfMon = this._options?._profName ? new h(this._options._profName) : void 0, this._deliveryQueue = this._options?.deliveryQueue;
+						}
+						dispose() {
+							this._disposed || (this._disposed = !0, this._deliveryQueue?.current === this && this._deliveryQueue.reset(), this._listeners && (this._listeners = void 0, this._size = 0), this._options?.onDidRemoveLastListener?.(), this._leakageMon?.dispose());
+						}
+						get event() {
+							return this._event ??= (e, t, i) => {
+								if (this._leakageMon && this._size > this._leakageMon.threshold ** 2) {
+									const e = `[${this._leakageMon.name}] REFUSES to accept new listeners because it exceeded its threshold by far (${this._size} vs ${this._leakageMon.threshold})`;
+									console.warn(e);
+									const t = this._leakageMon.getMostFrequentStack() ?? ["UNKNOWN stack", -1], i = new f(`${e}. HINT: Stack shows most frequent listener (${t[1]}-times)`, t[0]);
+									return (this._options?.onListenerError || s.onUnexpectedError)(i), n.Disposable.None;
+								}
+								if (this._disposed) return n.Disposable.None;
+								t && (e = e.bind(t));
+								const r = new g(e);
+								let o;
+								this._leakageMon && this._size >= Math.ceil(.2 * this._leakageMon.threshold) && (r.stack = u.create(), o = this._leakageMon.check(r.stack, this._size + 1)), this._listeners ? this._listeners instanceof g ? (this._deliveryQueue ??= new v(), this._listeners = [this._listeners, r]) : this._listeners.push(r) : (this._options?.onWillAddFirstListener?.(this), this._listeners = r, this._options?.onDidAddFirstListener?.(this)), this._size++;
+								const a = (0, n.toDisposable)((() => {
+									o?.(), this._removeListener(r);
+								}));
+								return i instanceof n.DisposableStore ? i.add(a) : Array.isArray(i) && i.push(a), a;
+							}, this._event;
+						}
+						_removeListener(e) {
+							if (this._options?.onWillRemoveListener?.(this), !this._listeners) return;
+							if (1 === this._size) return this._listeners = void 0, this._options?.onDidRemoveLastListener?.(this), void (this._size = 0);
+							const t = this._listeners, i = t.indexOf(e);
+							if (-1 === i) throw console.log("disposed?", this._disposed), console.log("size?", this._size), console.log("arr?", JSON.stringify(this._listeners)), /* @__PURE__ */ new Error("Attempted to dispose unknown listener");
+							this._size--, t[i] = void 0;
+							const s = this._deliveryQueue.current === this;
+							if (2 * this._size <= t.length) {
+								let e = 0;
+								for (let i = 0; i < t.length; i++) t[i] ? t[e++] = t[i] : s && (this._deliveryQueue.end--, e < this._deliveryQueue.i && this._deliveryQueue.i--);
+								t.length = e;
+							}
+						}
+						_deliver(e, t) {
+							if (!e) return;
+							const i = this._options?.onListenerError || s.onUnexpectedError;
+							if (i) try {
+								e.value(t);
+							} catch (e) {
+								i(e);
+							}
+							else e.value(t);
+						}
+						_deliverQueue(e) {
+							const t = e.current._listeners;
+							for (; e.i < e.end;) this._deliver(t[e.i++], e.value);
+							e.reset();
+						}
+						fire(e) {
+							if (this._deliveryQueue?.current && (this._deliverQueue(this._deliveryQueue), this._perfMon?.stop()), this._perfMon?.start(this._size), this._listeners) if (this._listeners instanceof g) this._deliver(this._listeners, e);
+							else {
+								const t = this._deliveryQueue;
+								t.enqueue(this, e, this._listeners.length), this._deliverQueue(t);
+							}
+							this._perfMon?.stop();
+						}
+						hasListeners() {
+							return this._size > 0;
+						}
+					}
+					t.Emitter = m, t.createEventDeliveryQueue = () => new v();
+					class v {
+						constructor() {
+							this.i = -1, this.end = 0;
+						}
+						enqueue(e, t, i) {
+							this.i = 0, this.end = i, this.current = e, this.value = t;
+						}
+						reset() {
+							this.i = this.end, this.current = void 0, this.value = void 0;
+						}
+					}
+					t.AsyncEmitter = class extends m {
+						async fireAsync(e, t, i) {
+							if (this._listeners) for (this._asyncDeliveryQueue || (this._asyncDeliveryQueue = new o.LinkedList()), ((e, t) => {
+								if (e instanceof g) t(e);
+								else for (let i = 0; i < e.length; i++) {
+									const s = e[i];
+									s && t(s);
+								}
+							})(this._listeners, ((t) => this._asyncDeliveryQueue.push([t.value, e]))); this._asyncDeliveryQueue.size > 0 && !t.isCancellationRequested;) {
+								const [e, r] = this._asyncDeliveryQueue.shift(), n = [], o = {
+									...r,
+									token: t,
+									waitUntil: (t) => {
+										if (Object.isFrozen(n)) throw new Error("waitUntil can NOT be called asynchronous");
+										i && (t = i(t, e)), n.push(t);
+									}
+								};
+								try {
+									e(o);
+								} catch (e) {
+									(0, s.onUnexpectedError)(e);
+									continue;
+								}
+								Object.freeze(n), await Promise.allSettled(n).then(((e) => {
+									for (const t of e) "rejected" === t.status && (0, s.onUnexpectedError)(t.reason);
+								}));
+							}
+						}
+					};
+					class S extends m {
+						get isPaused() {
+							return 0 !== this._isPaused;
+						}
+						constructor(e) {
+							super(e), this._isPaused = 0, this._eventQueue = new o.LinkedList(), this._mergeFn = e?.merge;
+						}
+						pause() {
+							this._isPaused++;
+						}
+						resume() {
+							if (0 !== this._isPaused && 0 == --this._isPaused) if (this._mergeFn) {
+								if (this._eventQueue.size > 0) {
+									const e = Array.from(this._eventQueue);
+									this._eventQueue.clear(), super.fire(this._mergeFn(e));
+								}
+							} else for (; !this._isPaused && 0 !== this._eventQueue.size;) super.fire(this._eventQueue.shift());
+						}
+						fire(e) {
+							this._size && (0 !== this._isPaused ? this._eventQueue.push(e) : super.fire(e));
+						}
+					}
+					t.PauseableEmitter = S, t.DebounceEmitter = class extends S {
+						constructor(e) {
+							super(e), this._delay = e.delay ?? 100;
+						}
+						fire(e) {
+							this._handle || (this.pause(), this._handle = setTimeout((() => {
+								this._handle = void 0, this.resume();
+							}), this._delay)), super.fire(e);
+						}
+					}, t.MicrotaskEmitter = class extends m {
+						constructor(e) {
+							super(e), this._queuedEvents = [], this._mergeFn = e?.merge;
+						}
+						fire(e) {
+							this.hasListeners() && (this._queuedEvents.push(e), 1 === this._queuedEvents.length && queueMicrotask((() => {
+								this._mergeFn ? super.fire(this._mergeFn(this._queuedEvents)) : this._queuedEvents.forEach(((e) => super.fire(e))), this._queuedEvents = [];
+							})));
+						}
+					};
+					class b {
+						constructor() {
+							this.hasListeners = !1, this.events = [], this.emitter = new m({
+								onWillAddFirstListener: () => this.onFirstListenerAdd(),
+								onDidRemoveLastListener: () => this.onLastListenerRemove()
+							});
+						}
+						get event() {
+							return this.emitter.event;
+						}
+						add(e) {
+							const t = {
+								event: e,
+								listener: null
+							};
+							return this.events.push(t), this.hasListeners && this.hook(t), (0, n.toDisposable)((0, r.createSingleCallFunction)((() => {
+								this.hasListeners && this.unhook(t);
+								const e = this.events.indexOf(t);
+								this.events.splice(e, 1);
+							})));
+						}
+						onFirstListenerAdd() {
+							this.hasListeners = !0, this.events.forEach(((e) => this.hook(e)));
+						}
+						onLastListenerRemove() {
+							this.hasListeners = !1, this.events.forEach(((e) => this.unhook(e)));
+						}
+						hook(e) {
+							e.listener = e.event(((e) => this.emitter.fire(e)));
+						}
+						unhook(e) {
+							e.listener?.dispose(), e.listener = null;
+						}
+						dispose() {
+							this.emitter.dispose();
+							for (const e of this.events) e.listener?.dispose();
+							this.events = [];
+						}
+					}
+					t.EventMultiplexer = b, t.DynamicListEventMultiplexer = class {
+						constructor(e, t, i, s) {
+							this._store = new n.DisposableStore();
+							const r = this._store.add(new b()), o = this._store.add(new n.DisposableMap());
+							function a(e) {
+								o.set(e, r.add(s(e)));
+							}
+							for (const t of e) a(t);
+							this._store.add(t(((e) => {
+								a(e);
+							}))), this._store.add(i(((e) => {
+								o.deleteAndDispose(e);
+							}))), this.event = r.event;
+						}
+						dispose() {
+							this._store.dispose();
+						}
+					}, t.EventBufferer = class {
+						constructor() {
+							this.data = [];
+						}
+						wrapEvent(e, t, i) {
+							return (s, r, n) => e(((e) => {
+								const n = this.data[this.data.length - 1];
+								if (!t) return void (n ? n.buffers.push((() => s.call(r, e))) : s.call(r, e));
+								const o = n;
+								o ? (o.items ??= [], o.items.push(e), 0 === o.buffers.length && n.buffers.push((() => {
+									o.reducedResult ??= i ? o.items.reduce(t, i) : o.items.reduce(t), s.call(r, o.reducedResult);
+								}))) : s.call(r, t(i, e));
+							}), void 0, n);
+						}
+						bufferEvents(e) {
+							const t = { buffers: new Array() };
+							this.data.push(t);
+							const i = e();
+							return this.data.pop(), t.buffers.forEach(((e) => e())), i;
+						}
+					}, t.Relay = class {
+						constructor() {
+							this.listening = !1, this.inputEvent = l.None, this.inputEventListener = n.Disposable.None, this.emitter = new m({
+								onDidAddFirstListener: () => {
+									this.listening = !0, this.inputEventListener = this.inputEvent(this.emitter.fire, this.emitter);
+								},
+								onDidRemoveLastListener: () => {
+									this.listening = !1, this.inputEventListener.dispose();
+								}
+							}), this.event = this.emitter.event;
+						}
+						set input(e) {
+							this.inputEvent = e, this.listening && (this.inputEventListener.dispose(), this.inputEventListener = e(this.emitter.fire, this.emitter));
+						}
+						dispose() {
+							this.inputEventListener.dispose(), this.emitter.dispose();
+						}
+					}, t.ValueWithChangeEvent = class {
+						static const(e) {
+							return new C(e);
+						}
+						constructor(e) {
+							this._value = e, this._onDidChange = new m(), this.onDidChange = this._onDidChange.event;
+						}
+						get value() {
+							return this._value;
+						}
+						set value(e) {
+							e !== this._value && (this._value = e, this._onDidChange.fire(void 0));
+						}
+					};
+					class C {
+						constructor(e) {
+							this.value = e, this.onDidChange = l.None;
+						}
+					}
+				},
+				8841: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.createSingleCallFunction = function(e, t) {
+						const i = this;
+						let s, r = !1;
+						return function() {
+							if (r) return s;
+							if (r = !0, t) try {
+								s = e.apply(i, arguments);
+							} finally {
+								t();
+							}
+							else s = e.apply(i, arguments);
+							return s;
+						};
+					};
+				},
+				6304: function(e, t, i) {
+					var s = this && this.__createBinding || (Object.create ? function(e, t, i, s) {
+						void 0 === s && (s = i);
+						var r = Object.getOwnPropertyDescriptor(t, i);
+						r && !("get" in r ? !t.__esModule : r.writable || r.configurable) || (r = {
+							enumerable: !0,
+							get: function() {
+								return t[i];
+							}
+						}), Object.defineProperty(e, s, r);
+					} : function(e, t, i, s) {
+						void 0 === s && (s = i), e[s] = t[i];
+					}), r = this && this.__setModuleDefault || (Object.create ? function(e, t) {
+						Object.defineProperty(e, "default", {
+							enumerable: !0,
+							value: t
+						});
+					} : function(e, t) {
+						e.default = t;
+					}), n = this && this.__importStar || function(e) {
+						if (e && e.__esModule) return e;
+						var t = {};
+						if (null != e) for (var i in e) "default" !== i && Object.prototype.hasOwnProperty.call(e, i) && s(t, e, i);
+						return r(t, e), t;
+					};
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.StringSHA1 = t.Hasher = void 0, t.hash = function(e) {
+						return a(e, 0);
+					}, t.doHash = a, t.numberHash = l, t.stringHash = h, t.toHexString = _;
+					const o = n(i(1316));
+					function a(e, t) {
+						switch (typeof e) {
+							case "object": return null === e ? l(349, t) : Array.isArray(e) ? (i = e, s = l(104579, s = t), i.reduce(((e, t) => a(t, e)), s)) : function(e, t) {
+								return t = l(181387, t), Object.keys(e).sort().reduce(((t, i) => (t = h(i, t), a(e[i], t))), t);
+							}(e, t);
+							case "string": return h(e, t);
+							case "boolean": return function(e, t) {
+								return l(e ? 433 : 863, t);
+							}(e, t);
+							case "number": return l(e, t);
+							case "undefined": return l(937, t);
+							default: return l(617, t);
+						}
+						var i, s;
+					}
+					function l(e, t) {
+						return (t << 5) - t + e | 0;
+					}
+					function h(e, t) {
+						t = l(149417, t);
+						for (let i = 0, s = e.length; i < s; i++) t = l(e.charCodeAt(i), t);
+						return t;
+					}
+					var c;
+					function d(e, t, i = 32) {
+						const s = i - t;
+						return (e << t | (~((1 << s) - 1) & e) >>> s) >>> 0;
+					}
+					function u(e, t = 0, i = e.byteLength, s = 0) {
+						for (let r = 0; r < i; r++) e[t + r] = s;
+					}
+					function _(e, t = 32) {
+						return e instanceof ArrayBuffer ? Array.from(new Uint8Array(e)).map(((e) => e.toString(16).padStart(2, "0"))).join("") : function(e, t, i = "0") {
+							for (; e.length < t;) e = i + e;
+							return e;
+						}((e >>> 0).toString(16), t / 4);
+					}
+					t.Hasher = class {
+						constructor() {
+							this._value = 0;
+						}
+						get value() {
+							return this._value;
+						}
+						hash(e) {
+							return this._value = a(e, this._value), this._value;
+						}
+					}, function(e) {
+						e[e.BLOCK_SIZE = 64] = "BLOCK_SIZE", e[e.UNICODE_REPLACEMENT = 65533] = "UNICODE_REPLACEMENT";
+					}(c || (c = {}));
+					class f {
+						static {
+							this._bigBlock32 = /* @__PURE__ */ new DataView(/* @__PURE__ */ new ArrayBuffer(320));
+						}
+						constructor() {
+							this._h0 = 1732584193, this._h1 = 4023233417, this._h2 = 2562383102, this._h3 = 271733878, this._h4 = 3285377520, this._buff = new Uint8Array(c.BLOCK_SIZE + 3), this._buffDV = new DataView(this._buff.buffer), this._buffLen = 0, this._totalLen = 0, this._leftoverHighSurrogate = 0, this._finished = !1;
+						}
+						update(e) {
+							const t = e.length;
+							if (0 === t) return;
+							const i = this._buff;
+							let s, r, n = this._buffLen, a = this._leftoverHighSurrogate;
+							for (0 !== a ? (s = a, r = -1, a = 0) : (s = e.charCodeAt(0), r = 0);;) {
+								let l = s;
+								if (o.isHighSurrogate(s)) {
+									if (!(r + 1 < t)) {
+										a = s;
+										break;
+									}
+									{
+										const t = e.charCodeAt(r + 1);
+										o.isLowSurrogate(t) ? (r++, l = o.computeCodePoint(s, t)) : l = c.UNICODE_REPLACEMENT;
+									}
+								} else o.isLowSurrogate(s) && (l = c.UNICODE_REPLACEMENT);
+								if (n = this._push(i, n, l), r++, !(r < t)) break;
+								s = e.charCodeAt(r);
+							}
+							this._buffLen = n, this._leftoverHighSurrogate = a;
+						}
+						_push(e, t, i) {
+							return i < 128 ? e[t++] = i : i < 2048 ? (e[t++] = 192 | (1984 & i) >>> 6, e[t++] = 128 | (63 & i) >>> 0) : i < 65536 ? (e[t++] = 224 | (61440 & i) >>> 12, e[t++] = 128 | (4032 & i) >>> 6, e[t++] = 128 | (63 & i) >>> 0) : (e[t++] = 240 | (1835008 & i) >>> 18, e[t++] = 128 | (258048 & i) >>> 12, e[t++] = 128 | (4032 & i) >>> 6, e[t++] = 128 | (63 & i) >>> 0), t >= c.BLOCK_SIZE && (this._step(), t -= c.BLOCK_SIZE, this._totalLen += c.BLOCK_SIZE, e[0] = e[c.BLOCK_SIZE + 0], e[1] = e[c.BLOCK_SIZE + 1], e[2] = e[c.BLOCK_SIZE + 2]), t;
+						}
+						digest() {
+							return this._finished || (this._finished = !0, this._leftoverHighSurrogate && (this._leftoverHighSurrogate = 0, this._buffLen = this._push(this._buff, this._buffLen, c.UNICODE_REPLACEMENT)), this._totalLen += this._buffLen, this._wrapUp()), _(this._h0) + _(this._h1) + _(this._h2) + _(this._h3) + _(this._h4);
+						}
+						_wrapUp() {
+							this._buff[this._buffLen++] = 128, u(this._buff, this._buffLen), this._buffLen > 56 && (this._step(), u(this._buff));
+							const e = 8 * this._totalLen;
+							this._buffDV.setUint32(56, Math.floor(e / 4294967296), !1), this._buffDV.setUint32(60, e % 4294967296, !1), this._step();
+						}
+						_step() {
+							const e = f._bigBlock32, t = this._buffDV;
+							for (let i = 0; i < 64; i += 4) e.setUint32(i, t.getUint32(i, !1), !1);
+							for (let t = 64; t < 320; t += 4) e.setUint32(t, d(e.getUint32(t - 12, !1) ^ e.getUint32(t - 32, !1) ^ e.getUint32(t - 56, !1) ^ e.getUint32(t - 64, !1), 1), !1);
+							let i, s, r, n = this._h0, o = this._h1, a = this._h2, l = this._h3, h = this._h4;
+							for (let t = 0; t < 80; t++) t < 20 ? (i = o & a | ~o & l, s = 1518500249) : t < 40 ? (i = o ^ a ^ l, s = 1859775393) : t < 60 ? (i = o & a | o & l | a & l, s = 2400959708) : (i = o ^ a ^ l, s = 3395469782), r = d(n, 5) + i + h + s + e.getUint32(4 * t, !1) & 4294967295, h = l, l = a, a = d(o, 30), o = n, n = r;
+							this._h0 = this._h0 + n & 4294967295, this._h1 = this._h1 + o & 4294967295, this._h2 = this._h2 + a & 4294967295, this._h3 = this._h3 + l & 4294967295, this._h4 = this._h4 + h & 4294967295;
+						}
+					}
+					t.StringSHA1 = f;
+				},
+				4218: (e, t) => {
+					var i;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Iterable = void 0, function(e) {
+						function t(e) {
+							return e && "object" == typeof e && "function" == typeof e[Symbol.iterator];
+						}
+						e.is = t;
+						const i = Object.freeze([]);
+						function* s(e) {
+							yield e;
+						}
+						e.empty = function() {
+							return i;
+						}, e.single = s, e.wrap = function(e) {
+							return t(e) ? e : s(e);
+						}, e.from = function(e) {
+							return e || i;
+						}, e.reverse = function* (e) {
+							for (let t = e.length - 1; t >= 0; t--) yield e[t];
+						}, e.isEmpty = function(e) {
+							return !e || !0 === e[Symbol.iterator]().next().done;
+						}, e.first = function(e) {
+							return e[Symbol.iterator]().next().value;
+						}, e.some = function(e, t) {
+							let i = 0;
+							for (const s of e) if (t(s, i++)) return !0;
+							return !1;
+						}, e.find = function(e, t) {
+							for (const i of e) if (t(i)) return i;
+						}, e.filter = function* (e, t) {
+							for (const i of e) t(i) && (yield i);
+						}, e.map = function* (e, t) {
+							let i = 0;
+							for (const s of e) yield t(s, i++);
+						}, e.flatMap = function* (e, t) {
+							let i = 0;
+							for (const s of e) yield* t(s, i++);
+						}, e.concat = function* (...e) {
+							for (const t of e) yield* t;
+						}, e.reduce = function(e, t, i) {
+							let s = i;
+							for (const i of e) s = t(s, i);
+							return s;
+						}, e.slice = function* (e, t, i = e.length) {
+							for (t < 0 && (t += e.length), i < 0 ? i += e.length : i > e.length && (i = e.length); t < i; t++) yield e[t];
+						}, e.consume = function(t, i = Number.POSITIVE_INFINITY) {
+							const s = [];
+							if (0 === i) return [s, t];
+							const r = t[Symbol.iterator]();
+							for (let t = 0; t < i; t++) {
+								const t = r.next();
+								if (t.done) return [s, e.empty()];
+								s.push(t.value);
+							}
+							return [s, { [Symbol.iterator]: () => r }];
+						}, e.asyncToArray = async function(e) {
+							const t = [];
+							for await (const i of e) t.push(i);
+							return Promise.resolve(t);
+						};
+					}(i || (t.Iterable = i = {}));
+				},
+				7883: (e, t) => {
+					var i, s;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.KeyMod = t.KeyCodeUtils = t.ScanCodeUtils = t.NATIVE_WINDOWS_KEY_CODE_TO_KEY_CODE = t.EVENT_KEY_CODE_MAP = t.ScanCode = t.KeyCode = void 0, t.KeyChord = function(e, t) {
+						return (e | (65535 & t) << 16 >>> 0) >>> 0;
+					}, function(e) {
+						e[e.DependsOnKbLayout = -1] = "DependsOnKbLayout", e[e.Unknown = 0] = "Unknown", e[e.Backspace = 1] = "Backspace", e[e.Tab = 2] = "Tab", e[e.Enter = 3] = "Enter", e[e.Shift = 4] = "Shift", e[e.Ctrl = 5] = "Ctrl", e[e.Alt = 6] = "Alt", e[e.PauseBreak = 7] = "PauseBreak", e[e.CapsLock = 8] = "CapsLock", e[e.Escape = 9] = "Escape", e[e.Space = 10] = "Space", e[e.PageUp = 11] = "PageUp", e[e.PageDown = 12] = "PageDown", e[e.End = 13] = "End", e[e.Home = 14] = "Home", e[e.LeftArrow = 15] = "LeftArrow", e[e.UpArrow = 16] = "UpArrow", e[e.RightArrow = 17] = "RightArrow", e[e.DownArrow = 18] = "DownArrow", e[e.Insert = 19] = "Insert", e[e.Delete = 20] = "Delete", e[e.Digit0 = 21] = "Digit0", e[e.Digit1 = 22] = "Digit1", e[e.Digit2 = 23] = "Digit2", e[e.Digit3 = 24] = "Digit3", e[e.Digit4 = 25] = "Digit4", e[e.Digit5 = 26] = "Digit5", e[e.Digit6 = 27] = "Digit6", e[e.Digit7 = 28] = "Digit7", e[e.Digit8 = 29] = "Digit8", e[e.Digit9 = 30] = "Digit9", e[e.KeyA = 31] = "KeyA", e[e.KeyB = 32] = "KeyB", e[e.KeyC = 33] = "KeyC", e[e.KeyD = 34] = "KeyD", e[e.KeyE = 35] = "KeyE", e[e.KeyF = 36] = "KeyF", e[e.KeyG = 37] = "KeyG", e[e.KeyH = 38] = "KeyH", e[e.KeyI = 39] = "KeyI", e[e.KeyJ = 40] = "KeyJ", e[e.KeyK = 41] = "KeyK", e[e.KeyL = 42] = "KeyL", e[e.KeyM = 43] = "KeyM", e[e.KeyN = 44] = "KeyN", e[e.KeyO = 45] = "KeyO", e[e.KeyP = 46] = "KeyP", e[e.KeyQ = 47] = "KeyQ", e[e.KeyR = 48] = "KeyR", e[e.KeyS = 49] = "KeyS", e[e.KeyT = 50] = "KeyT", e[e.KeyU = 51] = "KeyU", e[e.KeyV = 52] = "KeyV", e[e.KeyW = 53] = "KeyW", e[e.KeyX = 54] = "KeyX", e[e.KeyY = 55] = "KeyY", e[e.KeyZ = 56] = "KeyZ", e[e.Meta = 57] = "Meta", e[e.ContextMenu = 58] = "ContextMenu", e[e.F1 = 59] = "F1", e[e.F2 = 60] = "F2", e[e.F3 = 61] = "F3", e[e.F4 = 62] = "F4", e[e.F5 = 63] = "F5", e[e.F6 = 64] = "F6", e[e.F7 = 65] = "F7", e[e.F8 = 66] = "F8", e[e.F9 = 67] = "F9", e[e.F10 = 68] = "F10", e[e.F11 = 69] = "F11", e[e.F12 = 70] = "F12", e[e.F13 = 71] = "F13", e[e.F14 = 72] = "F14", e[e.F15 = 73] = "F15", e[e.F16 = 74] = "F16", e[e.F17 = 75] = "F17", e[e.F18 = 76] = "F18", e[e.F19 = 77] = "F19", e[e.F20 = 78] = "F20", e[e.F21 = 79] = "F21", e[e.F22 = 80] = "F22", e[e.F23 = 81] = "F23", e[e.F24 = 82] = "F24", e[e.NumLock = 83] = "NumLock", e[e.ScrollLock = 84] = "ScrollLock", e[e.Semicolon = 85] = "Semicolon", e[e.Equal = 86] = "Equal", e[e.Comma = 87] = "Comma", e[e.Minus = 88] = "Minus", e[e.Period = 89] = "Period", e[e.Slash = 90] = "Slash", e[e.Backquote = 91] = "Backquote", e[e.BracketLeft = 92] = "BracketLeft", e[e.Backslash = 93] = "Backslash", e[e.BracketRight = 94] = "BracketRight", e[e.Quote = 95] = "Quote", e[e.OEM_8 = 96] = "OEM_8", e[e.IntlBackslash = 97] = "IntlBackslash", e[e.Numpad0 = 98] = "Numpad0", e[e.Numpad1 = 99] = "Numpad1", e[e.Numpad2 = 100] = "Numpad2", e[e.Numpad3 = 101] = "Numpad3", e[e.Numpad4 = 102] = "Numpad4", e[e.Numpad5 = 103] = "Numpad5", e[e.Numpad6 = 104] = "Numpad6", e[e.Numpad7 = 105] = "Numpad7", e[e.Numpad8 = 106] = "Numpad8", e[e.Numpad9 = 107] = "Numpad9", e[e.NumpadMultiply = 108] = "NumpadMultiply", e[e.NumpadAdd = 109] = "NumpadAdd", e[e.NUMPAD_SEPARATOR = 110] = "NUMPAD_SEPARATOR", e[e.NumpadSubtract = 111] = "NumpadSubtract", e[e.NumpadDecimal = 112] = "NumpadDecimal", e[e.NumpadDivide = 113] = "NumpadDivide", e[e.KEY_IN_COMPOSITION = 114] = "KEY_IN_COMPOSITION", e[e.ABNT_C1 = 115] = "ABNT_C1", e[e.ABNT_C2 = 116] = "ABNT_C2", e[e.AudioVolumeMute = 117] = "AudioVolumeMute", e[e.AudioVolumeUp = 118] = "AudioVolumeUp", e[e.AudioVolumeDown = 119] = "AudioVolumeDown", e[e.BrowserSearch = 120] = "BrowserSearch", e[e.BrowserHome = 121] = "BrowserHome", e[e.BrowserBack = 122] = "BrowserBack", e[e.BrowserForward = 123] = "BrowserForward", e[e.MediaTrackNext = 124] = "MediaTrackNext", e[e.MediaTrackPrevious = 125] = "MediaTrackPrevious", e[e.MediaStop = 126] = "MediaStop", e[e.MediaPlayPause = 127] = "MediaPlayPause", e[e.LaunchMediaPlayer = 128] = "LaunchMediaPlayer", e[e.LaunchMail = 129] = "LaunchMail", e[e.LaunchApp2 = 130] = "LaunchApp2", e[e.Clear = 131] = "Clear", e[e.MAX_VALUE = 132] = "MAX_VALUE";
+					}(i || (t.KeyCode = i = {})), function(e) {
+						e[e.DependsOnKbLayout = -1] = "DependsOnKbLayout", e[e.None = 0] = "None", e[e.Hyper = 1] = "Hyper", e[e.Super = 2] = "Super", e[e.Fn = 3] = "Fn", e[e.FnLock = 4] = "FnLock", e[e.Suspend = 5] = "Suspend", e[e.Resume = 6] = "Resume", e[e.Turbo = 7] = "Turbo", e[e.Sleep = 8] = "Sleep", e[e.WakeUp = 9] = "WakeUp", e[e.KeyA = 10] = "KeyA", e[e.KeyB = 11] = "KeyB", e[e.KeyC = 12] = "KeyC", e[e.KeyD = 13] = "KeyD", e[e.KeyE = 14] = "KeyE", e[e.KeyF = 15] = "KeyF", e[e.KeyG = 16] = "KeyG", e[e.KeyH = 17] = "KeyH", e[e.KeyI = 18] = "KeyI", e[e.KeyJ = 19] = "KeyJ", e[e.KeyK = 20] = "KeyK", e[e.KeyL = 21] = "KeyL", e[e.KeyM = 22] = "KeyM", e[e.KeyN = 23] = "KeyN", e[e.KeyO = 24] = "KeyO", e[e.KeyP = 25] = "KeyP", e[e.KeyQ = 26] = "KeyQ", e[e.KeyR = 27] = "KeyR", e[e.KeyS = 28] = "KeyS", e[e.KeyT = 29] = "KeyT", e[e.KeyU = 30] = "KeyU", e[e.KeyV = 31] = "KeyV", e[e.KeyW = 32] = "KeyW", e[e.KeyX = 33] = "KeyX", e[e.KeyY = 34] = "KeyY", e[e.KeyZ = 35] = "KeyZ", e[e.Digit1 = 36] = "Digit1", e[e.Digit2 = 37] = "Digit2", e[e.Digit3 = 38] = "Digit3", e[e.Digit4 = 39] = "Digit4", e[e.Digit5 = 40] = "Digit5", e[e.Digit6 = 41] = "Digit6", e[e.Digit7 = 42] = "Digit7", e[e.Digit8 = 43] = "Digit8", e[e.Digit9 = 44] = "Digit9", e[e.Digit0 = 45] = "Digit0", e[e.Enter = 46] = "Enter", e[e.Escape = 47] = "Escape", e[e.Backspace = 48] = "Backspace", e[e.Tab = 49] = "Tab", e[e.Space = 50] = "Space", e[e.Minus = 51] = "Minus", e[e.Equal = 52] = "Equal", e[e.BracketLeft = 53] = "BracketLeft", e[e.BracketRight = 54] = "BracketRight", e[e.Backslash = 55] = "Backslash", e[e.IntlHash = 56] = "IntlHash", e[e.Semicolon = 57] = "Semicolon", e[e.Quote = 58] = "Quote", e[e.Backquote = 59] = "Backquote", e[e.Comma = 60] = "Comma", e[e.Period = 61] = "Period", e[e.Slash = 62] = "Slash", e[e.CapsLock = 63] = "CapsLock", e[e.F1 = 64] = "F1", e[e.F2 = 65] = "F2", e[e.F3 = 66] = "F3", e[e.F4 = 67] = "F4", e[e.F5 = 68] = "F5", e[e.F6 = 69] = "F6", e[e.F7 = 70] = "F7", e[e.F8 = 71] = "F8", e[e.F9 = 72] = "F9", e[e.F10 = 73] = "F10", e[e.F11 = 74] = "F11", e[e.F12 = 75] = "F12", e[e.PrintScreen = 76] = "PrintScreen", e[e.ScrollLock = 77] = "ScrollLock", e[e.Pause = 78] = "Pause", e[e.Insert = 79] = "Insert", e[e.Home = 80] = "Home", e[e.PageUp = 81] = "PageUp", e[e.Delete = 82] = "Delete", e[e.End = 83] = "End", e[e.PageDown = 84] = "PageDown", e[e.ArrowRight = 85] = "ArrowRight", e[e.ArrowLeft = 86] = "ArrowLeft", e[e.ArrowDown = 87] = "ArrowDown", e[e.ArrowUp = 88] = "ArrowUp", e[e.NumLock = 89] = "NumLock", e[e.NumpadDivide = 90] = "NumpadDivide", e[e.NumpadMultiply = 91] = "NumpadMultiply", e[e.NumpadSubtract = 92] = "NumpadSubtract", e[e.NumpadAdd = 93] = "NumpadAdd", e[e.NumpadEnter = 94] = "NumpadEnter", e[e.Numpad1 = 95] = "Numpad1", e[e.Numpad2 = 96] = "Numpad2", e[e.Numpad3 = 97] = "Numpad3", e[e.Numpad4 = 98] = "Numpad4", e[e.Numpad5 = 99] = "Numpad5", e[e.Numpad6 = 100] = "Numpad6", e[e.Numpad7 = 101] = "Numpad7", e[e.Numpad8 = 102] = "Numpad8", e[e.Numpad9 = 103] = "Numpad9", e[e.Numpad0 = 104] = "Numpad0", e[e.NumpadDecimal = 105] = "NumpadDecimal", e[e.IntlBackslash = 106] = "IntlBackslash", e[e.ContextMenu = 107] = "ContextMenu", e[e.Power = 108] = "Power", e[e.NumpadEqual = 109] = "NumpadEqual", e[e.F13 = 110] = "F13", e[e.F14 = 111] = "F14", e[e.F15 = 112] = "F15", e[e.F16 = 113] = "F16", e[e.F17 = 114] = "F17", e[e.F18 = 115] = "F18", e[e.F19 = 116] = "F19", e[e.F20 = 117] = "F20", e[e.F21 = 118] = "F21", e[e.F22 = 119] = "F22", e[e.F23 = 120] = "F23", e[e.F24 = 121] = "F24", e[e.Open = 122] = "Open", e[e.Help = 123] = "Help", e[e.Select = 124] = "Select", e[e.Again = 125] = "Again", e[e.Undo = 126] = "Undo", e[e.Cut = 127] = "Cut", e[e.Copy = 128] = "Copy", e[e.Paste = 129] = "Paste", e[e.Find = 130] = "Find", e[e.AudioVolumeMute = 131] = "AudioVolumeMute", e[e.AudioVolumeUp = 132] = "AudioVolumeUp", e[e.AudioVolumeDown = 133] = "AudioVolumeDown", e[e.NumpadComma = 134] = "NumpadComma", e[e.IntlRo = 135] = "IntlRo", e[e.KanaMode = 136] = "KanaMode", e[e.IntlYen = 137] = "IntlYen", e[e.Convert = 138] = "Convert", e[e.NonConvert = 139] = "NonConvert", e[e.Lang1 = 140] = "Lang1", e[e.Lang2 = 141] = "Lang2", e[e.Lang3 = 142] = "Lang3", e[e.Lang4 = 143] = "Lang4", e[e.Lang5 = 144] = "Lang5", e[e.Abort = 145] = "Abort", e[e.Props = 146] = "Props", e[e.NumpadParenLeft = 147] = "NumpadParenLeft", e[e.NumpadParenRight = 148] = "NumpadParenRight", e[e.NumpadBackspace = 149] = "NumpadBackspace", e[e.NumpadMemoryStore = 150] = "NumpadMemoryStore", e[e.NumpadMemoryRecall = 151] = "NumpadMemoryRecall", e[e.NumpadMemoryClear = 152] = "NumpadMemoryClear", e[e.NumpadMemoryAdd = 153] = "NumpadMemoryAdd", e[e.NumpadMemorySubtract = 154] = "NumpadMemorySubtract", e[e.NumpadClear = 155] = "NumpadClear", e[e.NumpadClearEntry = 156] = "NumpadClearEntry", e[e.ControlLeft = 157] = "ControlLeft", e[e.ShiftLeft = 158] = "ShiftLeft", e[e.AltLeft = 159] = "AltLeft", e[e.MetaLeft = 160] = "MetaLeft", e[e.ControlRight = 161] = "ControlRight", e[e.ShiftRight = 162] = "ShiftRight", e[e.AltRight = 163] = "AltRight", e[e.MetaRight = 164] = "MetaRight", e[e.BrightnessUp = 165] = "BrightnessUp", e[e.BrightnessDown = 166] = "BrightnessDown", e[e.MediaPlay = 167] = "MediaPlay", e[e.MediaRecord = 168] = "MediaRecord", e[e.MediaFastForward = 169] = "MediaFastForward", e[e.MediaRewind = 170] = "MediaRewind", e[e.MediaTrackNext = 171] = "MediaTrackNext", e[e.MediaTrackPrevious = 172] = "MediaTrackPrevious", e[e.MediaStop = 173] = "MediaStop", e[e.Eject = 174] = "Eject", e[e.MediaPlayPause = 175] = "MediaPlayPause", e[e.MediaSelect = 176] = "MediaSelect", e[e.LaunchMail = 177] = "LaunchMail", e[e.LaunchApp2 = 178] = "LaunchApp2", e[e.LaunchApp1 = 179] = "LaunchApp1", e[e.SelectTask = 180] = "SelectTask", e[e.LaunchScreenSaver = 181] = "LaunchScreenSaver", e[e.BrowserSearch = 182] = "BrowserSearch", e[e.BrowserHome = 183] = "BrowserHome", e[e.BrowserBack = 184] = "BrowserBack", e[e.BrowserForward = 185] = "BrowserForward", e[e.BrowserStop = 186] = "BrowserStop", e[e.BrowserRefresh = 187] = "BrowserRefresh", e[e.BrowserFavorites = 188] = "BrowserFavorites", e[e.ZoomToggle = 189] = "ZoomToggle", e[e.MailReply = 190] = "MailReply", e[e.MailForward = 191] = "MailForward", e[e.MailSend = 192] = "MailSend", e[e.MAX_VALUE = 193] = "MAX_VALUE";
+					}(s || (t.ScanCode = s = {}));
+					class r {
+						constructor() {
+							this._keyCodeToStr = [], this._strToKeyCode = Object.create(null);
+						}
+						define(e, t) {
+							this._keyCodeToStr[e] = t, this._strToKeyCode[t.toLowerCase()] = e;
+						}
+						keyCodeToStr(e) {
+							return this._keyCodeToStr[e];
+						}
+						strToKeyCode(e) {
+							return this._strToKeyCode[e.toLowerCase()] || i.Unknown;
+						}
+					}
+					const n = new r(), o = new r(), a = new r();
+					t.EVENT_KEY_CODE_MAP = new Array(230), t.NATIVE_WINDOWS_KEY_CODE_TO_KEY_CODE = {};
+					const l = [], h = Object.create(null), c = Object.create(null);
+					var d, u;
+					t.ScanCodeUtils = {
+						lowerCaseToEnum: (e) => c[e] || s.None,
+						toEnum: (e) => h[e] || s.None,
+						toString: (e) => l[e] || "None"
+					}, function(e) {
+						e.toString = function(e) {
+							return n.keyCodeToStr(e);
+						}, e.fromString = function(e) {
+							return n.strToKeyCode(e);
+						}, e.toUserSettingsUS = function(e) {
+							return o.keyCodeToStr(e);
+						}, e.toUserSettingsGeneral = function(e) {
+							return a.keyCodeToStr(e);
+						}, e.fromUserSettings = function(e) {
+							return o.strToKeyCode(e) || a.strToKeyCode(e);
+						}, e.toElectronAccelerator = function(e) {
+							if (e >= i.Numpad0 && e <= i.NumpadDivide) return null;
+							switch (e) {
+								case i.UpArrow: return "Up";
+								case i.DownArrow: return "Down";
+								case i.LeftArrow: return "Left";
+								case i.RightArrow: return "Right";
+							}
+							return n.keyCodeToStr(e);
+						};
+					}(d || (t.KeyCodeUtils = d = {})), function(e) {
+						e[e.CtrlCmd = 2048] = "CtrlCmd", e[e.Shift = 1024] = "Shift", e[e.Alt = 512] = "Alt", e[e.WinCtrl = 256] = "WinCtrl";
+					}(u || (t.KeyMod = u = {}));
+				},
+				2811: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.ResolvedKeybinding = t.ResolvedChord = t.Keybinding = t.ScanCodeChord = t.KeyCodeChord = void 0, t.decodeKeybinding = function(e, t) {
+						if ("number" == typeof e) {
+							if (0 === e) return null;
+							const i = (65535 & e) >>> 0, s = (4294901760 & e) >>> 16;
+							return new c(0 !== s ? [a(i, t), a(s, t)] : [a(i, t)]);
+						}
+						{
+							const i = [];
+							for (let s = 0; s < e.length; s++) i.push(a(e[s], t));
+							return new c(i);
+						}
+					}, t.createSimpleKeybinding = a;
+					const s = i(9807), r = i(7883), n = i(8163);
+					var o;
+					function a(e, t) {
+						const i = !!(e & o.CtrlCmd), s = !!(e & o.WinCtrl), r = t === n.OperatingSystem.Macintosh ? s : i, a = !!(e & o.Shift), h = !!(e & o.Alt), c = t === n.OperatingSystem.Macintosh ? i : s, d = e & o.KeyCode;
+						return new l(r, a, h, c, d);
+					}
+					(function(e) {
+						e[e.CtrlCmd = 2048] = "CtrlCmd", e[e.Shift = 1024] = "Shift", e[e.Alt = 512] = "Alt", e[e.WinCtrl = 256] = "WinCtrl", e[e.KeyCode = 255] = "KeyCode";
+					})(o || (o = {}));
+					class l {
+						constructor(e, t, i, s, r) {
+							this.ctrlKey = e, this.shiftKey = t, this.altKey = i, this.metaKey = s, this.keyCode = r;
+						}
+						equals(e) {
+							return e instanceof l && this.ctrlKey === e.ctrlKey && this.shiftKey === e.shiftKey && this.altKey === e.altKey && this.metaKey === e.metaKey && this.keyCode === e.keyCode;
+						}
+						getHashCode() {
+							return `K${this.ctrlKey ? "1" : "0"}${this.shiftKey ? "1" : "0"}${this.altKey ? "1" : "0"}${this.metaKey ? "1" : "0"}${this.keyCode}`;
+						}
+						isModifierKey() {
+							return this.keyCode === r.KeyCode.Unknown || this.keyCode === r.KeyCode.Ctrl || this.keyCode === r.KeyCode.Meta || this.keyCode === r.KeyCode.Alt || this.keyCode === r.KeyCode.Shift;
+						}
+						toKeybinding() {
+							return new c([this]);
+						}
+						isDuplicateModifierCase() {
+							return this.ctrlKey && this.keyCode === r.KeyCode.Ctrl || this.shiftKey && this.keyCode === r.KeyCode.Shift || this.altKey && this.keyCode === r.KeyCode.Alt || this.metaKey && this.keyCode === r.KeyCode.Meta;
+						}
+					}
+					t.KeyCodeChord = l;
+					class h {
+						constructor(e, t, i, s, r) {
+							this.ctrlKey = e, this.shiftKey = t, this.altKey = i, this.metaKey = s, this.scanCode = r;
+						}
+						equals(e) {
+							return e instanceof h && this.ctrlKey === e.ctrlKey && this.shiftKey === e.shiftKey && this.altKey === e.altKey && this.metaKey === e.metaKey && this.scanCode === e.scanCode;
+						}
+						getHashCode() {
+							return `S${this.ctrlKey ? "1" : "0"}${this.shiftKey ? "1" : "0"}${this.altKey ? "1" : "0"}${this.metaKey ? "1" : "0"}${this.scanCode}`;
+						}
+						isDuplicateModifierCase() {
+							return this.ctrlKey && (this.scanCode === r.ScanCode.ControlLeft || this.scanCode === r.ScanCode.ControlRight) || this.shiftKey && (this.scanCode === r.ScanCode.ShiftLeft || this.scanCode === r.ScanCode.ShiftRight) || this.altKey && (this.scanCode === r.ScanCode.AltLeft || this.scanCode === r.ScanCode.AltRight) || this.metaKey && (this.scanCode === r.ScanCode.MetaLeft || this.scanCode === r.ScanCode.MetaRight);
+						}
+					}
+					t.ScanCodeChord = h;
+					class c {
+						constructor(e) {
+							if (0 === e.length) throw (0, s.illegalArgument)("chords");
+							this.chords = e;
+						}
+						getHashCode() {
+							let e = "";
+							for (let t = 0, i = this.chords.length; t < i; t++) 0 !== t && (e += ";"), e += this.chords[t].getHashCode();
+							return e;
+						}
+						equals(e) {
+							if (null === e) return !1;
+							if (this.chords.length !== e.chords.length) return !1;
+							for (let t = 0; t < this.chords.length; t++) if (!this.chords[t].equals(e.chords[t])) return !1;
+							return !0;
+						}
+					}
+					t.Keybinding = c, t.ResolvedChord = class {
+						constructor(e, t, i, s, r, n) {
+							this.ctrlKey = e, this.shiftKey = t, this.altKey = i, this.metaKey = s, this.keyLabel = r, this.keyAriaLabel = n;
+						}
+					}, t.ResolvedKeybinding = class {};
+				},
+				626: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Lazy = void 0, t.Lazy = class {
+						constructor(e) {
+							this.executor = e, this._didRun = !1;
+						}
+						get hasValue() {
+							return this._didRun;
+						}
+						get value() {
+							if (!this._didRun) try {
+								this._value = this.executor();
+							} catch (e) {
+								this._error = e;
+							} finally {
+								this._didRun = !0;
+							}
+							if (this._error) throw this._error;
+							return this._value;
+						}
+						get rawValue() {
+							return this._value;
+						}
+					};
+				},
+				7150: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.DisposableMap = t.ImmortalReference = t.AsyncReferenceCollection = t.ReferenceCollection = t.SafeDisposable = t.RefCountedDisposable = t.MandatoryMutableDisposable = t.MutableDisposable = t.Disposable = t.DisposableStore = t.DisposableTracker = void 0, t.setDisposableTracker = function(e) {
+						l = e;
+					}, t.trackDisposable = c, t.markAsDisposed = d, t.markAsSingleton = function(e) {
+						return l?.markAsSingleton(e), e;
+					}, t.isDisposable = _, t.dispose = f, t.disposeIfDisposable = function(e) {
+						for (const t of e) _(t) && t.dispose();
+						return [];
+					}, t.combinedDisposable = function(...e) {
+						const t = p((() => f(e)));
+						return function(e, t) {
+							if (l) for (const i of e) l.setParent(i, t);
+						}(e, t), t;
+					}, t.toDisposable = p, t.disposeOnReturn = function(e) {
+						const t = new g();
+						try {
+							e(t);
+						} finally {
+							t.dispose();
+						}
+					};
+					const s = i(3058), r = i(9087), n = i(2608), o = i(8841), a = i(4218);
+					let l = null;
+					class h {
+						constructor() {
+							this.livingDisposables = /* @__PURE__ */ new Map();
+						}
+						static {
+							this.idx = 0;
+						}
+						getDisposableData(e) {
+							let t = this.livingDisposables.get(e);
+							return t || (t = {
+								parent: null,
+								source: null,
+								isSingleton: !1,
+								value: e,
+								idx: h.idx++
+							}, this.livingDisposables.set(e, t)), t;
+						}
+						trackDisposable(e) {
+							const t = this.getDisposableData(e);
+							t.source || (t.source = (/* @__PURE__ */ new Error()).stack);
+						}
+						setParent(e, t) {
+							this.getDisposableData(e).parent = t;
+						}
+						markAsDisposed(e) {
+							this.livingDisposables.delete(e);
+						}
+						markAsSingleton(e) {
+							this.getDisposableData(e).isSingleton = !0;
+						}
+						getRootParent(e, t) {
+							const i = t.get(e);
+							if (i) return i;
+							const s = e.parent ? this.getRootParent(this.getDisposableData(e.parent), t) : e;
+							return t.set(e, s), s;
+						}
+						getTrackedDisposables() {
+							const e = /* @__PURE__ */ new Map();
+							return [...this.livingDisposables.entries()].filter((([, t]) => null !== t.source && !this.getRootParent(t, e).isSingleton)).flatMap((([e]) => e));
+						}
+						computeLeakingDisposables(e = 10, t) {
+							let i;
+							if (t) i = t;
+							else {
+								const e = /* @__PURE__ */ new Map(), t = [...this.livingDisposables.values()].filter(((t) => null !== t.source && !this.getRootParent(t, e).isSingleton));
+								if (0 === t.length) return;
+								const s = new Set(t.map(((e) => e.value)));
+								if (i = t.filter(((e) => !(e.parent && s.has(e.parent)))), 0 === i.length) throw new Error("There are cyclic diposable chains!");
+							}
+							if (!i) return;
+							function o(e) {
+								const t = e.source.split("\n").map(((e) => e.trim().replace("at ", ""))).filter(((e) => "" !== e));
+								return function(e, t) {
+									for (; e.length > 0 && t.some(((t) => "string" == typeof t ? t === e[0] : e[0].match(t)));) e.shift();
+								}(t, [
+									"Error",
+									/^trackDisposable \(.*\)$/,
+									/^DisposableTracker.trackDisposable \(.*\)$/
+								]), t.reverse();
+							}
+							const a = new n.SetMap();
+							for (const e of i) {
+								const t = o(e);
+								for (let i = 0; i <= t.length; i++) a.add(t.slice(0, i).join("\n"), e);
+							}
+							i.sort((0, s.compareBy)(((e) => e.idx), s.numberComparator));
+							let l = "", h = 0;
+							for (const t of i.slice(0, e)) {
+								h++;
+								const e = o(t), s = [];
+								for (let t = 0; t < e.length; t++) {
+									let n = e[t];
+									n = `(shared with ${a.get(e.slice(0, t + 1).join("\n")).size}/${i.length} leaks) at ${n}`;
+									const l = a.get(e.slice(0, t).join("\n")), h = (0, r.groupBy)([...l].map(((e) => o(e)[t])), ((e) => e));
+									delete h[e[t]];
+									for (const [e, t] of Object.entries(h)) s.unshift(`    - stacktraces of ${t.length} other leaks continue with ${e}`);
+									s.unshift(n);
+								}
+								l += `\n\n\n==================== Leaking disposable ${h}/${i.length}: ${t.value.constructor.name} ====================\n${s.join("\n")}\n============================================================\n\n`;
+							}
+							return i.length > e && (l += `\n\n\n... and ${i.length - e} more leaking disposables\n\n`), {
+								leaks: i,
+								details: l
+							};
+						}
+					}
+					function c(e) {
+						return l?.trackDisposable(e), e;
+					}
+					function d(e) {
+						l?.markAsDisposed(e);
+					}
+					function u(e, t) {
+						l?.setParent(e, t);
+					}
+					function _(e) {
+						return "object" == typeof e && null !== e && "function" == typeof e.dispose && 0 === e.dispose.length;
+					}
+					function f(e) {
+						if (a.Iterable.is(e)) {
+							const t = [];
+							for (const i of e) if (i) try {
+								i.dispose();
+							} catch (e) {
+								t.push(e);
+							}
+							if (1 === t.length) throw t[0];
+							if (t.length > 1) throw new AggregateError(t, "Encountered errors while disposing of store");
+							return Array.isArray(e) ? [] : e;
+						}
+						if (e) return e.dispose(), e;
+					}
+					function p(e) {
+						const t = c({ dispose: (0, o.createSingleCallFunction)((() => {
+							d(t), e();
+						})) });
+						return t;
+					}
+					t.DisposableTracker = h;
+					class g {
+						static {
+							this.DISABLE_DISPOSED_WARNING = !1;
+						}
+						constructor() {
+							this._toDispose = /* @__PURE__ */ new Set(), this._isDisposed = !1, c(this);
+						}
+						dispose() {
+							this._isDisposed || (d(this), this._isDisposed = !0, this.clear());
+						}
+						get isDisposed() {
+							return this._isDisposed;
+						}
+						clear() {
+							if (0 !== this._toDispose.size) try {
+								f(this._toDispose);
+							} finally {
+								this._toDispose.clear();
+							}
+						}
+						add(e) {
+							if (!e) return e;
+							if (e === this) throw new Error("Cannot register a disposable on itself!");
+							return u(e, this), this._isDisposed ? g.DISABLE_DISPOSED_WARNING || console.warn((/* @__PURE__ */ new Error("Trying to add a disposable to a DisposableStore that has already been disposed of. The added object will be leaked!")).stack) : this._toDispose.add(e), e;
+						}
+						delete(e) {
+							if (e) {
+								if (e === this) throw new Error("Cannot dispose a disposable on itself!");
+								this._toDispose.delete(e), e.dispose();
+							}
+						}
+						deleteAndLeak(e) {
+							e && this._toDispose.has(e) && (this._toDispose.delete(e), u(e, null));
+						}
+					}
+					t.DisposableStore = g;
+					class m {
+						static {
+							this.None = Object.freeze({ dispose() {} });
+						}
+						constructor() {
+							this._store = new g(), c(this), u(this._store, this);
+						}
+						dispose() {
+							d(this), this._store.dispose();
+						}
+						_register(e) {
+							if (e === this) throw new Error("Cannot register a disposable on itself!");
+							return this._store.add(e);
+						}
+					}
+					t.Disposable = m;
+					class v {
+						constructor() {
+							this._isDisposed = !1, c(this);
+						}
+						get value() {
+							return this._isDisposed ? void 0 : this._value;
+						}
+						set value(e) {
+							this._isDisposed || e === this._value || (this._value?.dispose(), e && u(e, this), this._value = e);
+						}
+						clear() {
+							this.value = void 0;
+						}
+						dispose() {
+							this._isDisposed = !0, d(this), this._value?.dispose(), this._value = void 0;
+						}
+						clearAndLeak() {
+							const e = this._value;
+							return this._value = void 0, e && u(e, null), e;
+						}
+					}
+					t.MutableDisposable = v, t.MandatoryMutableDisposable = class {
+						constructor(e) {
+							this._disposable = new v(), this._isDisposed = !1, this._disposable.value = e;
+						}
+						get value() {
+							return this._disposable.value;
+						}
+						set value(e) {
+							this._isDisposed || e === this._disposable.value || (this._disposable.value = e);
+						}
+						dispose() {
+							this._isDisposed = !0, this._disposable.dispose();
+						}
+					}, t.RefCountedDisposable = class {
+						constructor(e) {
+							this._disposable = e, this._counter = 1;
+						}
+						acquire() {
+							return this._counter++, this;
+						}
+						release() {
+							return 0 == --this._counter && this._disposable.dispose(), this;
+						}
+					}, t.SafeDisposable = class {
+						constructor() {
+							this.dispose = () => {}, this.unset = () => {}, this.isset = () => !1, c(this);
+						}
+						set(e) {
+							let t = e;
+							return this.unset = () => t = void 0, this.isset = () => void 0 !== t, this.dispose = () => {
+								t && (t(), t = void 0, d(this));
+							}, this;
+						}
+					}, t.ReferenceCollection = class {
+						constructor() {
+							this.references = /* @__PURE__ */ new Map();
+						}
+						acquire(e, ...t) {
+							let i = this.references.get(e);
+							i || (i = {
+								counter: 0,
+								object: this.createReferencedObject(e, ...t)
+							}, this.references.set(e, i));
+							const { object: s } = i, r = (0, o.createSingleCallFunction)((() => {
+								0 == --i.counter && (this.destroyReferencedObject(e, i.object), this.references.delete(e));
+							}));
+							return i.counter++, {
+								object: s,
+								dispose: r
+							};
+						}
+					}, t.AsyncReferenceCollection = class {
+						constructor(e) {
+							this.referenceCollection = e;
+						}
+						async acquire(e, ...t) {
+							const i = this.referenceCollection.acquire(e, ...t);
+							try {
+								return {
+									object: await i.object,
+									dispose: () => i.dispose()
+								};
+							} catch (e) {
+								throw i.dispose(), e;
+							}
+						}
+					}, t.ImmortalReference = class {
+						constructor(e) {
+							this.object = e;
+						}
+						dispose() {}
+					};
+					class S {
+						constructor() {
+							this._store = /* @__PURE__ */ new Map(), this._isDisposed = !1, c(this);
+						}
+						dispose() {
+							d(this), this._isDisposed = !0, this.clearAndDisposeAll();
+						}
+						clearAndDisposeAll() {
+							if (this._store.size) try {
+								f(this._store.values());
+							} finally {
+								this._store.clear();
+							}
+						}
+						has(e) {
+							return this._store.has(e);
+						}
+						get size() {
+							return this._store.size;
+						}
+						get(e) {
+							return this._store.get(e);
+						}
+						set(e, t, i = !1) {
+							this._isDisposed && console.warn((/* @__PURE__ */ new Error("Trying to add a disposable to a DisposableMap that has already been disposed of. The added object will be leaked!")).stack), i || this._store.get(e)?.dispose(), this._store.set(e, t);
+						}
+						deleteAndDispose(e) {
+							this._store.get(e)?.dispose(), this._store.delete(e);
+						}
+						deleteAndLeak(e) {
+							const t = this._store.get(e);
+							return this._store.delete(e), t;
+						}
+						keys() {
+							return this._store.keys();
+						}
+						values() {
+							return this._store.values();
+						}
+						[Symbol.iterator]() {
+							return this._store[Symbol.iterator]();
+						}
+					}
+					t.DisposableMap = S;
+				},
+				6317: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.LinkedList = void 0;
+					class i {
+						static {
+							this.Undefined = new i(void 0);
+						}
+						constructor(e) {
+							this.element = e, this.next = i.Undefined, this.prev = i.Undefined;
+						}
+					}
+					class s {
+						constructor() {
+							this._first = i.Undefined, this._last = i.Undefined, this._size = 0;
+						}
+						get size() {
+							return this._size;
+						}
+						isEmpty() {
+							return this._first === i.Undefined;
+						}
+						clear() {
+							let e = this._first;
+							for (; e !== i.Undefined;) {
+								const t = e.next;
+								e.prev = i.Undefined, e.next = i.Undefined, e = t;
+							}
+							this._first = i.Undefined, this._last = i.Undefined, this._size = 0;
+						}
+						unshift(e) {
+							return this._insert(e, !1);
+						}
+						push(e) {
+							return this._insert(e, !0);
+						}
+						_insert(e, t) {
+							const s = new i(e);
+							if (this._first === i.Undefined) this._first = s, this._last = s;
+							else if (t) {
+								const e = this._last;
+								this._last = s, s.prev = e, e.next = s;
+							} else {
+								const e = this._first;
+								this._first = s, s.next = e, e.prev = s;
+							}
+							this._size += 1;
+							let r = !1;
+							return () => {
+								r || (r = !0, this._remove(s));
+							};
+						}
+						shift() {
+							if (this._first !== i.Undefined) {
+								const e = this._first.element;
+								return this._remove(this._first), e;
+							}
+						}
+						pop() {
+							if (this._last !== i.Undefined) {
+								const e = this._last.element;
+								return this._remove(this._last), e;
+							}
+						}
+						_remove(e) {
+							if (e.prev !== i.Undefined && e.next !== i.Undefined) {
+								const t = e.prev;
+								t.next = e.next, e.next.prev = t;
+							} else e.prev === i.Undefined && e.next === i.Undefined ? (this._first = i.Undefined, this._last = i.Undefined) : e.next === i.Undefined ? (this._last = this._last.prev, this._last.next = i.Undefined) : e.prev === i.Undefined && (this._first = this._first.next, this._first.prev = i.Undefined);
+							this._size -= 1;
+						}
+						*[Symbol.iterator]() {
+							let e = this._first;
+							for (; e !== i.Undefined;) yield e.element, e = e.next;
+						}
+					}
+					t.LinkedList = s;
+				},
+				2608: (e, t) => {
+					var i;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.SetMap = t.BidirectionalMap = t.CounterSet = t.Touch = void 0, t.getOrSet = function(e, t, i) {
+						let s = e.get(t);
+						return void 0 === s && (s = i, e.set(t, s)), s;
+					}, t.mapToString = function(e) {
+						const t = [];
+						return e.forEach(((e, i) => {
+							t.push(`${i} => ${e}`);
+						})), `Map(${e.size}) {${t.join(", ")}}`;
+					}, t.setToString = function(e) {
+						const t = [];
+						return e.forEach(((e) => {
+							t.push(e);
+						})), `Set(${e.size}) {${t.join(", ")}}`;
+					}, t.mapsStrictEqualIgnoreOrder = function(e, t) {
+						if (e === t) return !0;
+						if (e.size !== t.size) return !1;
+						for (const [i, s] of e) if (!t.has(i) || t.get(i) !== s) return !1;
+						for (const [i] of t) if (!e.has(i)) return !1;
+						return !0;
+					}, function(e) {
+						e[e.None = 0] = "None", e[e.AsOld = 1] = "AsOld", e[e.AsNew = 2] = "AsNew";
+					}(i || (t.Touch = i = {})), t.CounterSet = class {
+						constructor() {
+							this.map = /* @__PURE__ */ new Map();
+						}
+						add(e) {
+							return this.map.set(e, (this.map.get(e) || 0) + 1), this;
+						}
+						delete(e) {
+							let t = this.map.get(e) || 0;
+							return 0 !== t && (t--, 0 === t ? this.map.delete(e) : this.map.set(e, t), !0);
+						}
+						has(e) {
+							return this.map.has(e);
+						}
+					}, t.BidirectionalMap = class {
+						constructor(e) {
+							if (this._m1 = /* @__PURE__ */ new Map(), this._m2 = /* @__PURE__ */ new Map(), e) for (const [t, i] of e) this.set(t, i);
+						}
+						clear() {
+							this._m1.clear(), this._m2.clear();
+						}
+						set(e, t) {
+							this._m1.set(e, t), this._m2.set(t, e);
+						}
+						get(e) {
+							return this._m1.get(e);
+						}
+						getKey(e) {
+							return this._m2.get(e);
+						}
+						delete(e) {
+							const t = this._m1.get(e);
+							return void 0 !== t && (this._m1.delete(e), this._m2.delete(t), !0);
+						}
+						forEach(e, t) {
+							this._m1.forEach(((i, s) => {
+								e.call(t, i, s, this);
+							}));
+						}
+						keys() {
+							return this._m1.keys();
+						}
+						values() {
+							return this._m1.values();
+						}
+					}, t.SetMap = class {
+						constructor() {
+							this.map = /* @__PURE__ */ new Map();
+						}
+						add(e, t) {
+							let i = this.map.get(e);
+							i || (i = /* @__PURE__ */ new Set(), this.map.set(e, i)), i.add(t);
+						}
+						delete(e, t) {
+							const i = this.map.get(e);
+							i && (i.delete(t), 0 === i.size && this.map.delete(e));
+						}
+						forEach(e, t) {
+							const i = this.map.get(e);
+							i && i.forEach(t);
+						}
+						get(e) {
+							return this.map.get(e) || /* @__PURE__ */ new Set();
+						}
+					};
+				},
+				7704: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.SlidingWindowAverage = t.MovingAverage = t.Counter = void 0, t.clamp = function(e, t, i) {
+						return Math.min(Math.max(e, t), i);
+					}, t.rot = function(e, t) {
+						return (t + e % t) % t;
+					}, t.isPointWithinTriangle = function(e, t, i, s, r, n, o, a) {
+						const l = o - i, h = a - s, c = r - i, d = n - s, u = e - i, _ = t - s, f = l * l + h * h, p = l * c + h * d, g = l * u + h * _, m = c * c + d * d, v = c * u + d * _, S = 1 / (f * m - p * p), b = (m * g - p * v) * S, C = (f * v - p * g) * S;
+						return b >= 0 && C >= 0 && b + C < 1;
+					}, t.Counter = class {
+						constructor() {
+							this._next = 0;
+						}
+						getNext() {
+							return this._next++;
+						}
+					}, t.MovingAverage = class {
+						constructor() {
+							this._n = 1, this._val = 0;
+						}
+						update(e) {
+							return this._val = this._val + (e - this._val) / this._n, this._n += 1, this._val;
+						}
+						get value() {
+							return this._val;
+						}
+					}, t.SlidingWindowAverage = class {
+						constructor(e) {
+							this._n = 0, this._val = 0, this._values = [], this._index = 0, this._sum = 0, this._values = new Array(e), this._values.fill(0, 0, e);
+						}
+						update(e) {
+							const t = this._values[this._index];
+							return this._values[this._index] = e, this._index = (this._index + 1) % this._values.length, this._sum -= t, this._sum += e, this._n < this._values.length && (this._n += 1), this._val = this._sum / this._n, this._val;
+						}
+						get value() {
+							return this._val;
+						}
+					};
+				},
+				8163: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.isAndroid = t.isEdge = t.isSafari = t.isFirefox = t.isChrome = t.OS = t.OperatingSystem = t.setTimeout0 = t.setTimeout0IsFaster = t.translationsConfigFile = t.platformLocale = t.locale = t.Language = t.language = t.userAgent = t.platform = t.isCI = t.isMobile = t.isIOS = t.webWorkerOrigin = t.isWebWorker = t.isWeb = t.isElectron = t.isNative = t.isLinuxSnap = t.isLinux = t.isMacintosh = t.isWindows = t.Platform = t.LANGUAGE_DEFAULT = void 0, t.PlatformToString = function(e) {
+						switch (e) {
+							case C.Web: return "Web";
+							case C.Mac: return "Mac";
+							case C.Linux: return "Linux";
+							case C.Windows: return "Windows";
+						}
+					}, t.isLittleEndian = function() {
+						if (!L) {
+							L = !0;
+							const e = /* @__PURE__ */ new Uint8Array(2);
+							e[0] = 1, e[1] = 2;
+							D = 513 === new Uint16Array(e.buffer)[0];
+						}
+						return D;
+					}, t.isBigSurOrNewer = function(e) {
+						return parseFloat(e) >= 20;
+					}, t.LANGUAGE_DEFAULT = "en";
+					let i, s, r, n = !1, o = !1, a = !1, l = !1, h = !1, c = !1, d = !1, u = !1, _ = !1, f = !1, p = t.LANGUAGE_DEFAULT, g = t.LANGUAGE_DEFAULT;
+					const m = globalThis;
+					let v;
+					void 0 !== m.vscode && void 0 !== m.vscode.process ? v = m.vscode.process : "undefined" != typeof process && "string" == typeof process?.versions?.node && (v = process);
+					const S = "string" == typeof v?.versions?.electron, b = S && "renderer" === v?.type;
+					if ("object" == typeof v) {
+						n = "win32" === v.platform, o = "darwin" === v.platform, a = "linux" === v.platform, l = a && !!v.env.SNAP && !!v.env.SNAP_REVISION, d = S, _ = !!v.env.CI || !!v.env.BUILD_ARTIFACTSTAGINGDIRECTORY, i = t.LANGUAGE_DEFAULT, p = t.LANGUAGE_DEFAULT;
+						const e = v.env.VSCODE_NLS_CONFIG;
+						if (e) try {
+							const r = JSON.parse(e);
+							i = r.userLocale, g = r.osLocale, p = r.resolvedLanguage || t.LANGUAGE_DEFAULT, s = r.languagePack?.translationsConfigFile;
+						} catch (e) {}
+						h = !0;
+					} else "object" != typeof navigator || b ? console.error("Unable to resolve platform.") : (r = navigator.userAgent, n = r.indexOf("Windows") >= 0, o = r.indexOf("Macintosh") >= 0, u = (r.indexOf("Macintosh") >= 0 || r.indexOf("iPad") >= 0 || r.indexOf("iPhone") >= 0) && !!navigator.maxTouchPoints && navigator.maxTouchPoints > 0, a = r.indexOf("Linux") >= 0, f = r?.indexOf("Mobi") >= 0, c = !0, p = globalThis._VSCODE_NLS_LANGUAGE || t.LANGUAGE_DEFAULT, i = navigator.language.toLowerCase(), g = i);
+					var C;
+					(function(e) {
+						e[e.Web = 0] = "Web", e[e.Mac = 1] = "Mac", e[e.Linux = 2] = "Linux", e[e.Windows = 3] = "Windows";
+					})(C || (t.Platform = C = {}));
+					let y = C.Web;
+					var w, E;
+					o ? y = C.Mac : n ? y = C.Windows : a && (y = C.Linux), t.isWindows = n, t.isMacintosh = o, t.isLinux = a, t.isLinuxSnap = l, t.isNative = h, t.isElectron = d, t.isWeb = c, t.isWebWorker = c && "function" == typeof m.importScripts, t.webWorkerOrigin = t.isWebWorker ? m.origin : void 0, t.isIOS = u, t.isMobile = f, t.isCI = _, t.platform = y, t.userAgent = r, t.language = p, function(e) {
+						e.value = function() {
+							return t.language;
+						}, e.isDefaultVariant = function() {
+							return 2 === t.language.length ? "en" === t.language : t.language.length >= 3 && "e" === t.language[0] && "n" === t.language[1] && "-" === t.language[2];
+						}, e.isDefault = function() {
+							return "en" === t.language;
+						};
+					}(w || (t.Language = w = {})), t.locale = i, t.platformLocale = g, t.translationsConfigFile = s, t.setTimeout0IsFaster = "function" == typeof m.postMessage && !m.importScripts, t.setTimeout0 = (() => {
+						if (t.setTimeout0IsFaster) {
+							const e = [];
+							m.addEventListener("message", ((t) => {
+								if (t.data && t.data.vscodeScheduleAsyncWork) for (let i = 0, s = e.length; i < s; i++) {
+									const s = e[i];
+									if (s.id === t.data.vscodeScheduleAsyncWork) return e.splice(i, 1), void s.callback();
+								}
+							}));
+							let t = 0;
+							return (i) => {
+								const s = ++t;
+								e.push({
+									id: s,
+									callback: i
+								}), m.postMessage({ vscodeScheduleAsyncWork: s }, "*");
+							};
+						}
+						return (e) => setTimeout(e);
+					})(), function(e) {
+						e[e.Windows = 1] = "Windows", e[e.Macintosh = 2] = "Macintosh", e[e.Linux = 3] = "Linux";
+					}(E || (t.OperatingSystem = E = {})), t.OS = o || u ? E.Macintosh : n ? E.Windows : E.Linux;
+					let D = !0, L = !1;
+					t.isChrome = !!(t.userAgent && t.userAgent.indexOf("Chrome") >= 0), t.isFirefox = !!(t.userAgent && t.userAgent.indexOf("Firefox") >= 0), t.isSafari = !!(!t.isChrome && t.userAgent && t.userAgent.indexOf("Safari") >= 0), t.isEdge = !!(t.userAgent && t.userAgent.indexOf("Edg/") >= 0), t.isAndroid = !!(t.userAgent && t.userAgent.indexOf("Android") >= 0);
+				},
+				9881: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.SmoothScrollingOperation = t.SmoothScrollingUpdate = t.Scrollable = t.ScrollState = t.ScrollbarVisibility = void 0;
+					const s = i(802), r = i(7150);
+					var n;
+					(function(e) {
+						e[e.Auto = 1] = "Auto", e[e.Hidden = 2] = "Hidden", e[e.Visible = 3] = "Visible";
+					})(n || (t.ScrollbarVisibility = n = {}));
+					class o {
+						constructor(e, t, i, s, r, n, o) {
+							this._forceIntegerValues = e, this._scrollStateBrand = void 0, this._forceIntegerValues && (t |= 0, i |= 0, s |= 0, r |= 0, n |= 0, o |= 0), this.rawScrollLeft = s, this.rawScrollTop = o, t < 0 && (t = 0), s + t > i && (s = i - t), s < 0 && (s = 0), r < 0 && (r = 0), o + r > n && (o = n - r), o < 0 && (o = 0), this.width = t, this.scrollWidth = i, this.scrollLeft = s, this.height = r, this.scrollHeight = n, this.scrollTop = o;
+						}
+						equals(e) {
+							return this.rawScrollLeft === e.rawScrollLeft && this.rawScrollTop === e.rawScrollTop && this.width === e.width && this.scrollWidth === e.scrollWidth && this.scrollLeft === e.scrollLeft && this.height === e.height && this.scrollHeight === e.scrollHeight && this.scrollTop === e.scrollTop;
+						}
+						withScrollDimensions(e, t) {
+							return new o(this._forceIntegerValues, void 0 !== e.width ? e.width : this.width, void 0 !== e.scrollWidth ? e.scrollWidth : this.scrollWidth, t ? this.rawScrollLeft : this.scrollLeft, void 0 !== e.height ? e.height : this.height, void 0 !== e.scrollHeight ? e.scrollHeight : this.scrollHeight, t ? this.rawScrollTop : this.scrollTop);
+						}
+						withScrollPosition(e) {
+							return new o(this._forceIntegerValues, this.width, this.scrollWidth, void 0 !== e.scrollLeft ? e.scrollLeft : this.rawScrollLeft, this.height, this.scrollHeight, void 0 !== e.scrollTop ? e.scrollTop : this.rawScrollTop);
+						}
+						createScrollEvent(e, t) {
+							const i = this.width !== e.width, s = this.scrollWidth !== e.scrollWidth, r = this.scrollLeft !== e.scrollLeft, n = this.height !== e.height, o = this.scrollHeight !== e.scrollHeight, a = this.scrollTop !== e.scrollTop;
+							return {
+								inSmoothScrolling: t,
+								oldWidth: e.width,
+								oldScrollWidth: e.scrollWidth,
+								oldScrollLeft: e.scrollLeft,
+								width: this.width,
+								scrollWidth: this.scrollWidth,
+								scrollLeft: this.scrollLeft,
+								oldHeight: e.height,
+								oldScrollHeight: e.scrollHeight,
+								oldScrollTop: e.scrollTop,
+								height: this.height,
+								scrollHeight: this.scrollHeight,
+								scrollTop: this.scrollTop,
+								widthChanged: i,
+								scrollWidthChanged: s,
+								scrollLeftChanged: r,
+								heightChanged: n,
+								scrollHeightChanged: o,
+								scrollTopChanged: a
+							};
+						}
+					}
+					t.ScrollState = o;
+					class a extends r.Disposable {
+						constructor(e) {
+							super(), this._scrollableBrand = void 0, this._onScroll = this._register(new s.Emitter()), this.onScroll = this._onScroll.event, this._smoothScrollDuration = e.smoothScrollDuration, this._scheduleAtNextAnimationFrame = e.scheduleAtNextAnimationFrame, this._state = new o(e.forceIntegerValues, 0, 0, 0, 0, 0, 0), this._smoothScrolling = null;
+						}
+						dispose() {
+							this._smoothScrolling && (this._smoothScrolling.dispose(), this._smoothScrolling = null), super.dispose();
+						}
+						setSmoothScrollDuration(e) {
+							this._smoothScrollDuration = e;
+						}
+						validateScrollPosition(e) {
+							return this._state.withScrollPosition(e);
+						}
+						getScrollDimensions() {
+							return this._state;
+						}
+						setScrollDimensions(e, t) {
+							const i = this._state.withScrollDimensions(e, t);
+							this._setState(i, Boolean(this._smoothScrolling)), this._smoothScrolling?.acceptScrollDimensions(this._state);
+						}
+						getFutureScrollPosition() {
+							return this._smoothScrolling ? this._smoothScrolling.to : this._state;
+						}
+						getCurrentScrollPosition() {
+							return this._state;
+						}
+						setScrollPositionNow(e) {
+							const t = this._state.withScrollPosition(e);
+							this._smoothScrolling && (this._smoothScrolling.dispose(), this._smoothScrolling = null), this._setState(t, !1);
+						}
+						setScrollPositionSmooth(e, t) {
+							if (0 === this._smoothScrollDuration) return this.setScrollPositionNow(e);
+							if (this._smoothScrolling) {
+								e = {
+									scrollLeft: void 0 === e.scrollLeft ? this._smoothScrolling.to.scrollLeft : e.scrollLeft,
+									scrollTop: void 0 === e.scrollTop ? this._smoothScrolling.to.scrollTop : e.scrollTop
+								};
+								const i = this._state.withScrollPosition(e);
+								if (this._smoothScrolling.to.scrollLeft === i.scrollLeft && this._smoothScrolling.to.scrollTop === i.scrollTop) return;
+								let s;
+								s = t ? new c(this._smoothScrolling.from, i, this._smoothScrolling.startTime, this._smoothScrolling.duration) : this._smoothScrolling.combine(this._state, i, this._smoothScrollDuration), this._smoothScrolling.dispose(), this._smoothScrolling = s;
+							} else {
+								const t = this._state.withScrollPosition(e);
+								this._smoothScrolling = c.start(this._state, t, this._smoothScrollDuration);
+							}
+							this._smoothScrolling.animationFrameDisposable = this._scheduleAtNextAnimationFrame((() => {
+								this._smoothScrolling && (this._smoothScrolling.animationFrameDisposable = null, this._performSmoothScrolling());
+							}));
+						}
+						hasPendingScrollAnimation() {
+							return Boolean(this._smoothScrolling);
+						}
+						_performSmoothScrolling() {
+							if (!this._smoothScrolling) return;
+							const e = this._smoothScrolling.tick(), t = this._state.withScrollPosition(e);
+							this._setState(t, !0), this._smoothScrolling && (e.isDone ? (this._smoothScrolling.dispose(), this._smoothScrolling = null) : this._smoothScrolling.animationFrameDisposable = this._scheduleAtNextAnimationFrame((() => {
+								this._smoothScrolling && (this._smoothScrolling.animationFrameDisposable = null, this._performSmoothScrolling());
+							})));
+						}
+						_setState(e, t) {
+							const i = this._state;
+							i.equals(e) || (this._state = e, this._onScroll.fire(this._state.createScrollEvent(i, t)));
+						}
+					}
+					t.Scrollable = a;
+					class l {
+						constructor(e, t, i) {
+							this.scrollLeft = e, this.scrollTop = t, this.isDone = i;
+						}
+					}
+					function h(e, t) {
+						const i = t - e;
+						return function(t) {
+							return e + i * (1 - (s = 1 - t, Math.pow(s, 3)));
+							var s;
+						};
+					}
+					t.SmoothScrollingUpdate = l;
+					class c {
+						constructor(e, t, i, s) {
+							this.from = e, this.to = t, this.duration = s, this.startTime = i, this.animationFrameDisposable = null, this._initAnimations();
+						}
+						_initAnimations() {
+							this.scrollLeft = this._initAnimation(this.from.scrollLeft, this.to.scrollLeft, this.to.width), this.scrollTop = this._initAnimation(this.from.scrollTop, this.to.scrollTop, this.to.height);
+						}
+						_initAnimation(e, t, i) {
+							if (Math.abs(e - t) > 2.5 * i) {
+								let o, a;
+								return e < t ? (o = e + .75 * i, a = t - .75 * i) : (o = e - .75 * i, a = t + .75 * i), s = h(e, o), r = h(a, t), n = .33, function(e) {
+									return e < n ? s(e / n) : r((e - n) / (1 - n));
+								};
+							}
+							var s, r, n;
+							return h(e, t);
+						}
+						dispose() {
+							null !== this.animationFrameDisposable && (this.animationFrameDisposable.dispose(), this.animationFrameDisposable = null);
+						}
+						acceptScrollDimensions(e) {
+							this.to = e.withScrollPosition(this.to), this._initAnimations();
+						}
+						tick() {
+							return this._tick(Date.now());
+						}
+						_tick(e) {
+							const t = (e - this.startTime) / this.duration;
+							if (t < 1) {
+								const e = this.scrollLeft(t), i = this.scrollTop(t);
+								return new l(e, i, !1);
+							}
+							return new l(this.to.scrollLeft, this.to.scrollTop, !0);
+						}
+						combine(e, t, i) {
+							return c.start(e, t, i);
+						}
+						static start(e, t, i) {
+							i += 10;
+							const s = Date.now() - 10;
+							return new c(e, t, s, i);
+						}
+					}
+					t.SmoothScrollingOperation = c;
+				},
+				9725: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.StopWatch = void 0;
+					const i = globalThis.performance && "function" == typeof globalThis.performance.now;
+					class s {
+						static create(e) {
+							return new s(e);
+						}
+						constructor(e) {
+							this._now = i && !1 === e ? Date.now : globalThis.performance.now.bind(globalThis.performance), this._startTime = this._now(), this._stopTime = -1;
+						}
+						stop() {
+							this._stopTime = this._now();
+						}
+						reset() {
+							this._startTime = this._now(), this._stopTime = -1;
+						}
+						elapsed() {
+							return -1 !== this._stopTime ? this._stopTime - this._startTime : this._now() - this._startTime;
+						}
+					}
+					t.StopWatch = s;
+				},
+				1316: (e, t, i) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.noBreakWhitespace = t.CodePointIterator = void 0, t.isFalsyOrWhitespace = function(e) {
+						return !e || "string" != typeof e || 0 === e.trim().length;
+					}, t.format = function(e, ...t) {
+						return 0 === t.length ? e : e.replace(n, (function(e, i) {
+							const s = parseInt(i, 10);
+							return isNaN(s) || s < 0 || s >= t.length ? e : t[s];
+						}));
+					}, t.format2 = function(e, t) {
+						return 0 === Object.keys(t).length ? e : e.replace(o, ((e, i) => t[i] ?? e));
+					}, t.htmlAttributeEncodeValue = function(e) {
+						return e.replace(/[<>"'&]/g, ((e) => {
+							switch (e) {
+								case "<": return "&lt;";
+								case ">": return "&gt;";
+								case "\"": return "&quot;";
+								case "'": return "&apos;";
+								case "&": return "&amp;";
+							}
+							return e;
+						}));
+					}, t.escape = function(e) {
+						return e.replace(/[<>&]/g, (function(e) {
+							switch (e) {
+								case "<": return "&lt;";
+								case ">": return "&gt;";
+								case "&": return "&amp;";
+								default: return e;
+							}
+						}));
+					}, t.escapeRegExpCharacters = a, t.count = function(e, t) {
+						let i = 0, s = e.indexOf(t);
+						for (; -1 !== s;) i++, s = e.indexOf(t, s + t.length);
+						return i;
+					}, t.truncate = function(e, t, i = "…") {
+						return e.length <= t ? e : `${e.substr(0, t)}${i}`;
+					}, t.truncateMiddle = function(e, t, i = "…") {
+						if (e.length <= t) return e;
+						const s = Math.ceil(t / 2) - i.length / 2, r = Math.floor(t / 2) - i.length / 2;
+						return `${e.substr(0, s)}${i}${e.substr(e.length - r)}`;
+					}, t.trim = function(e, t = " ") {
+						return h(l(e, t), t);
+					}, t.ltrim = l, t.rtrim = h, t.convertSimple2RegExpPattern = function(e) {
+						return e.replace(/[\-\\\{\}\+\?\|\^\$\.\,\[\]\(\)\#\s]/g, "\\$&").replace(/[\*]/g, ".*");
+					}, t.stripWildcards = function(e) {
+						return e.replace(/\*/g, "");
+					}, t.createRegExp = function(e, t, i = {}) {
+						if (!e) throw new Error("Cannot create regex from empty string");
+						t || (e = a(e)), i.wholeWord && (/\B/.test(e.charAt(0)) || (e = "\\b" + e), /\B/.test(e.charAt(e.length - 1)) || (e += "\\b"));
+						let s = "";
+						return i.global && (s += "g"), i.matchCase || (s += "i"), i.multiline && (s += "m"), i.unicode && (s += "u"), new RegExp(e, s);
+					}, t.regExpLeadsToEndlessLoop = function(e) {
+						return "^" !== e.source && "^$" !== e.source && "$" !== e.source && "^\\s*$" !== e.source && !(!e.exec("") || 0 !== e.lastIndex);
+					}, t.splitLines = function(e) {
+						return e.split(/\r\n|\r|\n/);
+					}, t.splitLinesIncludeSeparators = function(e) {
+						const t = [], i = e.split(/(\r\n|\r|\n)/);
+						for (let e = 0; e < Math.ceil(i.length / 2); e++) t.push(i[2 * e] + (i[2 * e + 1] ?? ""));
+						return t;
+					}, t.firstNonWhitespaceIndex = function(e) {
+						for (let t = 0, i = e.length; t < i; t++) {
+							const i = e.charCodeAt(t);
+							if (i !== s.CharCode.Space && i !== s.CharCode.Tab) return t;
+						}
+						return -1;
+					}, t.getLeadingWhitespace = function(e, t = 0, i = e.length) {
+						for (let r = t; r < i; r++) {
+							const i = e.charCodeAt(r);
+							if (i !== s.CharCode.Space && i !== s.CharCode.Tab) return e.substring(t, r);
+						}
+						return e.substring(t, i);
+					}, t.lastNonWhitespaceIndex = function(e, t = e.length - 1) {
+						for (let i = t; i >= 0; i--) {
+							const t = e.charCodeAt(i);
+							if (t !== s.CharCode.Space && t !== s.CharCode.Tab) return i;
+						}
+						return -1;
+					}, t.replaceAsync = function(e, t, i) {
+						const s = [];
+						let r = 0;
+						for (const n of e.matchAll(t)) {
+							if (s.push(e.slice(r, n.index)), void 0 === n.index) throw new Error("match.index should be defined");
+							r = n.index + n[0].length, s.push(i(n[0], ...n.slice(1), n.index, e, n.groups));
+						}
+						return s.push(e.slice(r)), Promise.all(s).then(((e) => e.join("")));
+					}, t.compare = function(e, t) {
+						return e < t ? -1 : e > t ? 1 : 0;
+					}, t.compareSubstring = c, t.compareIgnoreCase = function(e, t) {
+						return d(e, t, 0, e.length, 0, t.length);
+					}, t.compareSubstringIgnoreCase = d, t.isAsciiDigit = function(e) {
+						return e >= s.CharCode.Digit0 && e <= s.CharCode.Digit9;
+					}, t.isLowerAsciiLetter = u, t.isUpperAsciiLetter = function(e) {
+						return e >= s.CharCode.A && e <= s.CharCode.Z;
+					}, t.equalsIgnoreCase = function(e, t) {
+						return e.length === t.length && 0 === d(e, t);
+					}, t.startsWithIgnoreCase = function(e, t) {
+						const i = t.length;
+						return !(t.length > e.length) && 0 === d(e, t, 0, i);
+					}, t.commonPrefixLength = function(e, t) {
+						const i = Math.min(e.length, t.length);
+						let s;
+						for (s = 0; s < i; s++) if (e.charCodeAt(s) !== t.charCodeAt(s)) return s;
+						return i;
+					}, t.commonSuffixLength = function(e, t) {
+						const i = Math.min(e.length, t.length);
+						let s;
+						const r = e.length - 1, n = t.length - 1;
+						for (s = 0; s < i; s++) if (e.charCodeAt(r - s) !== t.charCodeAt(n - s)) return s;
+						return i;
+					}, t.isHighSurrogate = _, t.isLowSurrogate = f, t.computeCodePoint = p, t.getNextCodePoint = g;
+					const s = i(4869), r = i(8960), n = /{(\d+)}/g, o = /{([^}]+)}/g;
+					function a(e) {
+						return e.replace(/[\\\{\}\*\+\?\|\^\$\.\[\]\(\)]/g, "\\$&");
+					}
+					function l(e, t) {
+						if (!e || !t) return e;
+						const i = t.length;
+						if (0 === i || 0 === e.length) return e;
+						let s = 0;
+						for (; e.indexOf(t, s) === s;) s += i;
+						return e.substring(s);
+					}
+					function h(e, t) {
+						if (!e || !t) return e;
+						const i = t.length, s = e.length;
+						if (0 === i || 0 === s) return e;
+						let r = s, n = -1;
+						for (; n = e.lastIndexOf(t, r - 1), -1 !== n && n + i === r;) {
+							if (0 === n) return "";
+							r = n;
+						}
+						return e.substring(0, r);
+					}
+					function c(e, t, i = 0, s = e.length, r = 0, n = t.length) {
+						for (; i < s && r < n; i++, r++) {
+							const s = e.charCodeAt(i), n = t.charCodeAt(r);
+							if (s < n) return -1;
+							if (s > n) return 1;
+						}
+						const o = s - i, a = n - r;
+						return o < a ? -1 : o > a ? 1 : 0;
+					}
+					function d(e, t, i = 0, s = e.length, r = 0, n = t.length) {
+						for (; i < s && r < n; i++, r++) {
+							let o = e.charCodeAt(i), a = t.charCodeAt(r);
+							if (o === a) continue;
+							if (o >= 128 || a >= 128) return c(e.toLowerCase(), t.toLowerCase(), i, s, r, n);
+							u(o) && (o -= 32), u(a) && (a -= 32);
+							const l = o - a;
+							if (0 !== l) return l;
+						}
+						const o = s - i, a = n - r;
+						return o < a ? -1 : o > a ? 1 : 0;
+					}
+					function u(e) {
+						return e >= s.CharCode.a && e <= s.CharCode.z;
+					}
+					function _(e) {
+						return 55296 <= e && e <= 56319;
+					}
+					function f(e) {
+						return 56320 <= e && e <= 57343;
+					}
+					function p(e, t) {
+						return t - 56320 + (e - 55296 << 10) + 65536;
+					}
+					function g(e, t, i) {
+						const s = e.charCodeAt(i);
+						if (_(s) && i + 1 < t) {
+							const t = e.charCodeAt(i + 1);
+							if (f(t)) return p(s, t);
+						}
+						return s;
+					}
+					t.CodePointIterator = class {
+						get offset() {
+							return this._offset;
+						}
+						constructor(e, t = 0) {
+							this._str = e, this._len = e.length, this._offset = t;
+						}
+						setOffset(e) {
+							this._offset = e;
+						}
+						prevCodePoint() {
+							const e = function(e, t) {
+								const i = e.charCodeAt(t - 1);
+								if (f(i) && t > 1) {
+									const s = e.charCodeAt(t - 2);
+									if (_(s)) return p(s, i);
+								}
+								return i;
+							}(this._str, this._offset);
+							return this._offset -= e >= r.Constants.UNICODE_SUPPLEMENTARY_PLANE_BEGIN ? 2 : 1, e;
+						}
+						nextCodePoint() {
+							const e = g(this._str, this._len, this._offset);
+							return this._offset += e >= r.Constants.UNICODE_SUPPLEMENTARY_PLANE_BEGIN ? 2 : 1, e;
+						}
+						eol() {
+							return this._offset >= this._len;
+						}
+					}, t.noBreakWhitespace = "\xA0";
+				},
+				5015: (e, t) => {
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.MicrotaskDelay = void 0, t.MicrotaskDelay = Symbol("MicrotaskDelay");
+				},
+				8960: (e, t) => {
+					var i;
+					Object.defineProperty(t, "__esModule", { value: !0 }), t.Constants = void 0, t.toUint8 = function(e) {
+						return e < 0 ? 0 : e > i.MAX_UINT_8 ? i.MAX_UINT_8 : 0 | e;
+					}, t.toUint32 = function(e) {
+						return e < 0 ? 0 : e > i.MAX_UINT_32 ? i.MAX_UINT_32 : 0 | e;
+					}, function(e) {
+						e[e.MAX_SAFE_SMALL_INTEGER = 1073741824] = "MAX_SAFE_SMALL_INTEGER", e[e.MIN_SAFE_SMALL_INTEGER = -1073741824] = "MIN_SAFE_SMALL_INTEGER", e[e.MAX_UINT_8 = 255] = "MAX_UINT_8", e[e.MAX_UINT_16 = 65535] = "MAX_UINT_16", e[e.MAX_UINT_32 = 4294967295] = "MAX_UINT_32", e[e.UNICODE_SUPPLEMENTARY_PLANE_BEGIN = 65536] = "UNICODE_SUPPLEMENTARY_PLANE_BEGIN";
+					}(i || (t.Constants = i = {}));
 				}
 			}, t = {};
 			function i(s) {
@@ -6989,10 +12799,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 			return (() => {
 				var e = s;
 				Object.defineProperty(e, "__esModule", { value: !0 }), e.Terminal = void 0;
-				const t = i(9042), r = i(3236), n = i(844), o = i(5741), a = i(8285), h = i(7975), c = i(7090), l = ["cols", "rows"];
-				class d extends n.Disposable {
+				const t = i(7721), r = i(1718), n = i(7150), o = i(3027), a = i(5101), l = i(6097), h = i(4335), c = ["cols", "rows"];
+				let d = 0;
+				class u extends n.Disposable {
 					constructor(e) {
-						super(), this._core = this.register(new r.Terminal(e)), this._addonManager = this.register(new o.AddonManager()), this._publicOptions = { ...this._core.options };
+						super(), this._core = this._register(new r.CoreBrowserTerminal(e)), this._addonManager = this._register(new o.AddonManager()), this._publicOptions = { ...this._core.options };
 						const t = (e) => this._core.options[e], i = (e, t) => {
 							this._checkReadonlyOptions(e), this._core.options[e] = t;
 						};
@@ -7005,7 +12816,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						}
 					}
 					_checkReadonlyOptions(e) {
-						if (l.includes(e)) throw new Error(`Option "${e}" can only be set in the constructor`);
+						if (c.includes(e)) throw new Error(`Option "${e}" can only be set in the constructor`);
 					}
 					_checkProposedApi() {
 						if (!this._core.optionsService.rawOptions.allowProposedApi) throw new Error("You must set the allowProposedApi option to true to use proposed API");
@@ -7050,10 +12861,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						return this._core.element;
 					}
 					get parser() {
-						return this._parser || (this._parser = new h.ParserApi(this._core)), this._parser;
+						return this._parser || (this._parser = new l.ParserApi(this._core)), this._parser;
 					}
 					get unicode() {
-						return this._checkProposedApi(), new c.UnicodeApi(this._core);
+						return this._checkProposedApi(), new h.UnicodeApi(this._core);
 					}
 					get textarea() {
 						return this._core.textarea;
@@ -7065,7 +12876,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						return this._core.cols;
 					}
 					get buffer() {
-						return this._buffer || (this._buffer = this.register(new a.BufferNamespaceApi(this._core))), this._buffer;
+						return this._buffer || (this._buffer = this._register(new a.BufferNamespaceApi(this._core))), this._buffer;
 					}
 					get markers() {
 						return this._checkProposedApi(), this._core.markers;
@@ -7094,6 +12905,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 							originMode: e.origin,
 							reverseWraparoundMode: e.reverseWraparound,
 							sendFocusMode: e.sendFocus,
+							synchronizedOutputMode: e.synchronizedOutput,
 							wraparoundMode: e.wraparound
 						};
 					}
@@ -7203,60 +13015,37 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 						this._addonManager.loadAddon(this, e);
 					}
 					static get strings() {
-						return t;
+						return {
+							get promptLabel() {
+								return t.promptLabel.get();
+							},
+							set promptLabel(e) {
+								t.promptLabel.set(e);
+							},
+							get tooMuchOutput() {
+								return t.tooMuchOutput.get();
+							},
+							set tooMuchOutput(e) {
+								t.tooMuchOutput.set(e);
+							}
+						};
 					}
 					_verifyIntegers(...e) {
-						for (const t of e) if (t === 1 / 0 || isNaN(t) || t % 1 != 0) throw new Error("This API only accepts integers");
+						for (d of e) if (d === 1 / 0 || isNaN(d) || d % 1 != 0) throw new Error("This API only accepts integers");
 					}
 					_verifyPositiveIntegers(...e) {
-						for (const t of e) if (t && (t === 1 / 0 || isNaN(t) || t % 1 != 0 || t < 0)) throw new Error("This API only accepts positive integers");
+						for (d of e) if (d && (d === 1 / 0 || isNaN(d) || d % 1 != 0 || d < 0)) throw new Error("This API only accepts positive integers");
 					}
 				}
-				e.Terminal = d;
+				e.Terminal = u;
 			})(), s;
 		})()));
 	}));
 	//#endregion
-	//#region node_modules/.pnpm/@xterm+addon-fit@0.11.0/node_modules/@xterm/addon-fit/lib/addon-fit.js
-	var require_addon_fit = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-		(function(e, t) {
-			"object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.FitAddon = t() : e.FitAddon = t();
-		})(globalThis, (() => (() => {
-			"use strict";
-			var e = {};
-			return (() => {
-				var t = e;
-				Object.defineProperty(t, "__esModule", { value: !0 }), t.FitAddon = void 0, t.FitAddon = class {
-					activate(e) {
-						this._terminal = e;
-					}
-					dispose() {}
-					fit() {
-						const e = this.proposeDimensions();
-						if (!e || !this._terminal || isNaN(e.cols) || isNaN(e.rows)) return;
-						const t = this._terminal._core;
-						this._terminal.rows === e.rows && this._terminal.cols === e.cols || (t._renderService.clear(), this._terminal.resize(e.cols, e.rows));
-					}
-					proposeDimensions() {
-						if (!this._terminal) return;
-						if (!this._terminal.element || !this._terminal.element.parentElement) return;
-						const e = this._terminal._core._renderService.dimensions;
-						if (0 === e.css.cell.width || 0 === e.css.cell.height) return;
-						const t = 0 === this._terminal.options.scrollback ? 0 : this._terminal.options.overviewRuler?.width || 14, r = window.getComputedStyle(this._terminal.element.parentElement), i = parseInt(r.getPropertyValue("height")), o = Math.max(0, parseInt(r.getPropertyValue("width"))), s = window.getComputedStyle(this._terminal.element), n = i - (parseInt(s.getPropertyValue("padding-top")) + parseInt(s.getPropertyValue("padding-bottom"))), l = o - (parseInt(s.getPropertyValue("padding-right")) + parseInt(s.getPropertyValue("padding-left"))) - t;
-						return {
-							cols: Math.max(2, Math.floor(l / e.css.cell.width)),
-							rows: Math.max(1, Math.floor(n / e.css.cell.height))
-						};
-					}
-				};
-			})(), e;
-		})()));
-	}));
-	//#endregion
-	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/node_modules/.pnpm/@xterm+xterm@5.5.0/node_modules/@xterm/xterm/css/xterm.css.mjs
-	var import_xterm = require_xterm();
+	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/css/xterm.css.mjs
 	var import_addon_fit = require_addon_fit();
-	const css$1 = "/**\n * Copyright (c) 2014 The xterm.js authors. All rights reserved.\n * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)\n * https://github.com/chjj/term.js\n * @license MIT\n *\n * Permission is hereby granted, free of charge, to any person obtaining a copy\n * of this software and associated documentation files (the \"Software\"), to deal\n * in the Software without restriction, including without limitation the rights\n * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n * copies of the Software, and to permit persons to whom the Software is\n * furnished to do so, subject to the following conditions:\n *\n * The above copyright notice and this permission notice shall be included in\n * all copies or substantial portions of the Software.\n *\n * THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n * THE SOFTWARE.\n *\n * Originally forked from (with the author's permission):\n *   Fabrice Bellard's javascript vt100 for jslinux:\n *   http://bellard.org/jslinux/\n *   Copyright (c) 2011 Fabrice Bellard\n *   The original design remains. The terminal itself\n *   has been extended to include xterm CSI codes, among\n *   other features.\n */\n\n/**\n *  Default styles for xterm.js\n */\n\n.xterm {\n    cursor: text;\n    position: relative;\n    user-select: none;\n    -ms-user-select: none;\n    -webkit-user-select: none;\n}\n\n.xterm.focus,\n.xterm:focus {\n    outline: none;\n}\n\n.xterm .xterm-helpers {\n    position: absolute;\n    top: 0;\n    /**\n     * The z-index of the helpers must be higher than the canvases in order for\n     * IMEs to appear on top.\n     */\n    z-index: 5;\n}\n\n.xterm .xterm-helper-textarea {\n    padding: 0;\n    border: 0;\n    margin: 0;\n    /* Move textarea out of the screen to the far left, so that the cursor is not visible */\n    position: absolute;\n    opacity: 0;\n    left: -9999em;\n    top: 0;\n    width: 0;\n    height: 0;\n    z-index: -5;\n    /** Prevent wrapping so the IME appears against the textarea at the correct position */\n    white-space: nowrap;\n    overflow: hidden;\n    resize: none;\n}\n\n.xterm .composition-view {\n    /* TODO: Composition position got messed up somewhere */\n    background: #000;\n    color: #FFF;\n    display: none;\n    position: absolute;\n    white-space: nowrap;\n    z-index: 1;\n}\n\n.xterm .composition-view.active {\n    display: block;\n}\n\n.xterm .xterm-viewport {\n    /* On OS X this is required in order for the scroll bar to appear fully opaque */\n    background-color: #000;\n    overflow-y: scroll;\n    cursor: default;\n    position: absolute;\n    right: 0;\n    left: 0;\n    top: 0;\n    bottom: 0;\n}\n\n.xterm .xterm-screen {\n    position: relative;\n}\n\n.xterm .xterm-screen canvas {\n    position: absolute;\n    left: 0;\n    top: 0;\n}\n\n.xterm .xterm-scroll-area {\n    visibility: hidden;\n}\n\n.xterm-char-measure-element {\n    display: inline-block;\n    visibility: hidden;\n    position: absolute;\n    top: 0;\n    left: -9999em;\n    line-height: normal;\n}\n\n.xterm.enable-mouse-events {\n    /* When mouse events are enabled (eg. tmux), revert to the standard pointer cursor */\n    cursor: default;\n}\n\n.xterm.xterm-cursor-pointer,\n.xterm .xterm-cursor-pointer {\n    cursor: pointer;\n}\n\n.xterm.column-select.focus {\n    /* Column selection mode */\n    cursor: crosshair;\n}\n\n.xterm .xterm-accessibility:not(.debug),\n.xterm .xterm-message {\n    position: absolute;\n    left: 0;\n    top: 0;\n    bottom: 0;\n    right: 0;\n    z-index: 10;\n    color: transparent;\n    pointer-events: none;\n}\n\n.xterm .xterm-accessibility-tree:not(.debug) *::selection {\n  color: transparent;\n}\n\n.xterm .xterm-accessibility-tree {\n  user-select: text;\n  white-space: pre;\n}\n\n.xterm .live-region {\n    position: absolute;\n    left: -9999px;\n    width: 1px;\n    height: 1px;\n    overflow: hidden;\n}\n\n.xterm-dim {\n    /* Dim should not apply to background, so the opacity of the foreground color is applied\n     * explicitly in the generated class and reset to 1 here */\n    opacity: 1 !important;\n}\n\n.xterm-underline-1 { text-decoration: underline; }\n.xterm-underline-2 { text-decoration: double underline; }\n.xterm-underline-3 { text-decoration: wavy underline; }\n.xterm-underline-4 { text-decoration: dotted underline; }\n.xterm-underline-5 { text-decoration: dashed underline; }\n\n.xterm-overline {\n    text-decoration: overline;\n}\n\n.xterm-overline.xterm-underline-1 { text-decoration: overline underline; }\n.xterm-overline.xterm-underline-2 { text-decoration: overline double underline; }\n.xterm-overline.xterm-underline-3 { text-decoration: overline wavy underline; }\n.xterm-overline.xterm-underline-4 { text-decoration: overline dotted underline; }\n.xterm-overline.xterm-underline-5 { text-decoration: overline dashed underline; }\n\n.xterm-strikethrough {\n    text-decoration: line-through;\n}\n\n.xterm-screen .xterm-decoration-container .xterm-decoration {\n	z-index: 6;\n	position: absolute;\n}\n\n.xterm-screen .xterm-decoration-container .xterm-decoration.xterm-decoration-top-layer {\n	z-index: 7;\n}\n\n.xterm-decoration-overview-ruler {\n    z-index: 8;\n    position: absolute;\n    top: 0;\n    right: 0;\n    pointer-events: none;\n}\n\n.xterm-decoration-top {\n    z-index: 2;\n    position: relative;\n}\n";
+	var import_xterm = require_xterm();
+	const css$1 = "/**\n * Copyright (c) 2014 The xterm.js authors. All rights reserved.\n * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)\n * https://github.com/chjj/term.js\n * @license MIT\n *\n * Permission is hereby granted, free of charge, to any person obtaining a copy\n * of this software and associated documentation files (the \"Software\"), to deal\n * in the Software without restriction, including without limitation the rights\n * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n * copies of the Software, and to permit persons to whom the Software is\n * furnished to do so, subject to the following conditions:\n *\n * The above copyright notice and this permission notice shall be included in\n * all copies or substantial portions of the Software.\n *\n * THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n * THE SOFTWARE.\n *\n * Originally forked from (with the author's permission):\n *   Fabrice Bellard's javascript vt100 for jslinux:\n *   http://bellard.org/jslinux/\n *   Copyright (c) 2011 Fabrice Bellard\n *   The original design remains. The terminal itself\n *   has been extended to include xterm CSI codes, among\n *   other features.\n */\n\n/**\n *  Default styles for xterm.js\n */\n\n.xterm {\n    cursor: text;\n    position: relative;\n    user-select: none;\n    -ms-user-select: none;\n    -webkit-user-select: none;\n}\n\n.xterm.focus,\n.xterm:focus {\n    outline: none;\n}\n\n.xterm .xterm-helpers {\n    position: absolute;\n    top: 0;\n    /**\n     * The z-index of the helpers must be higher than the canvases in order for\n     * IMEs to appear on top.\n     */\n    z-index: 5;\n}\n\n.xterm .xterm-helper-textarea {\n    padding: 0;\n    border: 0;\n    margin: 0;\n    /* Move textarea out of the screen to the far left, so that the cursor is not visible */\n    position: absolute;\n    opacity: 0;\n    left: -9999em;\n    top: 0;\n    width: 0;\n    height: 0;\n    z-index: -5;\n    /** Prevent wrapping so the IME appears against the textarea at the correct position */\n    white-space: nowrap;\n    overflow: hidden;\n    resize: none;\n}\n\n.xterm .composition-view {\n    /* TODO: Composition position got messed up somewhere */\n    background: #000;\n    color: #FFF;\n    display: none;\n    position: absolute;\n    white-space: nowrap;\n    z-index: 1;\n}\n\n.xterm .composition-view.active {\n    display: block;\n}\n\n.xterm .xterm-viewport {\n    /* On OS X this is required in order for the scroll bar to appear fully opaque */\n    background-color: #000;\n    overflow-y: scroll;\n    cursor: default;\n    position: absolute;\n    right: 0;\n    left: 0;\n    top: 0;\n    bottom: 0;\n}\n\n.xterm .xterm-screen {\n    position: relative;\n}\n\n.xterm .xterm-screen canvas {\n    position: absolute;\n    left: 0;\n    top: 0;\n}\n\n.xterm-char-measure-element {\n    display: inline-block;\n    visibility: hidden;\n    position: absolute;\n    top: 0;\n    left: -9999em;\n    line-height: normal;\n}\n\n.xterm.enable-mouse-events {\n    /* When mouse events are enabled (eg. tmux), revert to the standard pointer cursor */\n    cursor: default;\n}\n\n.xterm.xterm-cursor-pointer,\n.xterm .xterm-cursor-pointer {\n    cursor: pointer;\n}\n\n.xterm.column-select.focus {\n    /* Column selection mode */\n    cursor: crosshair;\n}\n\n.xterm .xterm-accessibility:not(.debug),\n.xterm .xterm-message {\n    position: absolute;\n    left: 0;\n    top: 0;\n    bottom: 0;\n    right: 0;\n    z-index: 10;\n    color: transparent;\n    pointer-events: none;\n}\n\n.xterm .xterm-accessibility-tree:not(.debug) *::selection {\n  color: transparent;\n}\n\n.xterm .xterm-accessibility-tree {\n  font-family: monospace;\n  user-select: text;\n  white-space: pre;\n}\n\n.xterm .xterm-accessibility-tree > div {\n  transform-origin: left;\n  width: fit-content;\n}\n\n.xterm .live-region {\n    position: absolute;\n    left: -9999px;\n    width: 1px;\n    height: 1px;\n    overflow: hidden;\n}\n\n.xterm-dim {\n    /* Dim should not apply to background, so the opacity of the foreground color is applied\n     * explicitly in the generated class and reset to 1 here */\n    opacity: 1 !important;\n}\n\n.xterm-underline-1 { text-decoration: underline; }\n.xterm-underline-2 { text-decoration: double underline; }\n.xterm-underline-3 { text-decoration: wavy underline; }\n.xterm-underline-4 { text-decoration: dotted underline; }\n.xterm-underline-5 { text-decoration: dashed underline; }\n\n.xterm-overline {\n    text-decoration: overline;\n}\n\n.xterm-overline.xterm-underline-1 { text-decoration: overline underline; }\n.xterm-overline.xterm-underline-2 { text-decoration: overline double underline; }\n.xterm-overline.xterm-underline-3 { text-decoration: overline wavy underline; }\n.xterm-overline.xterm-underline-4 { text-decoration: overline dotted underline; }\n.xterm-overline.xterm-underline-5 { text-decoration: overline dashed underline; }\n\n.xterm-strikethrough {\n    text-decoration: line-through;\n}\n\n.xterm-screen .xterm-decoration-container .xterm-decoration {\n	z-index: 6;\n	position: absolute;\n}\n\n.xterm-screen .xterm-decoration-container .xterm-decoration.xterm-decoration-top-layer {\n	z-index: 7;\n}\n\n.xterm-decoration-overview-ruler {\n    z-index: 8;\n    position: absolute;\n    top: 0;\n    right: 0;\n    pointer-events: none;\n}\n\n.xterm-decoration-top {\n    z-index: 2;\n    position: relative;\n}\n\n\n\n/* Derived from vs/base/browser/ui/scrollbar/media/scrollbar.css */\n\n/* xterm.js customization: Override xterm's cursor style */\n.xterm .xterm-scrollable-element > .scrollbar {\n    cursor: default;\n}\n\n/* Arrows */\n.xterm .xterm-scrollable-element > .scrollbar > .scra {\n	cursor: pointer;\n	font-size: 11px !important;\n}\n\n.xterm .xterm-scrollable-element > .visible {\n	opacity: 1;\n\n	/* Background rule added for IE9 - to allow clicks on dom node */\n	background:rgba(0,0,0,0);\n\n	transition: opacity 100ms linear;\n	/* In front of peek view */\n	z-index: 11;\n}\n.xterm .xterm-scrollable-element > .invisible {\n	opacity: 0;\n	pointer-events: none;\n}\n.xterm .xterm-scrollable-element > .invisible.fade {\n	transition: opacity 800ms linear;\n}\n\n/* Scrollable Content Inset Shadow */\n.xterm .xterm-scrollable-element > .shadow {\n	position: absolute;\n	display: none;\n}\n.xterm .xterm-scrollable-element > .shadow.top {\n	display: block;\n	top: 0;\n	left: 3px;\n	height: 3px;\n	width: 100%;\n	box-shadow: var(--vscode-scrollbar-shadow, #000) 0 6px 6px -6px inset;\n}\n.xterm .xterm-scrollable-element > .shadow.left {\n	display: block;\n	top: 3px;\n	left: 0;\n	height: 100%;\n	width: 3px;\n	box-shadow: var(--vscode-scrollbar-shadow, #000) 6px 0 6px -6px inset;\n}\n.xterm .xterm-scrollable-element > .shadow.top-left-corner {\n	display: block;\n	top: 0;\n	left: 0;\n	height: 3px;\n	width: 3px;\n}\n.xterm .xterm-scrollable-element > .shadow.top.left {\n	box-shadow: var(--vscode-scrollbar-shadow, #000) 6px 0 6px -6px inset;\n}\n";
 	const tagId$1 = "dsh-better-sidebar/xterm.css";
 	if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 		const tag = document.createElement("style");
@@ -7294,7 +13083,7 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		files: "文件",
 		guideDescFiles: "浏览工作区文件树，点开即预览或编辑",
 		guideDescGit: "Git 变更与本轮文件改动，双视角合一",
-		guideDescSubagent: "子代理拓扑与后台任务，实时状态",
+		guideDescSubagent: "工作流图 · 团队任务板 · 后台任务，实时状态",
 		guideDescSidechat: "继承当前会话上下文的独立追问线程",
 		guideDescTerminal: "真实 shell 终端（xterm + pty），断线重连",
 		guideDescBrowser: "内嵌网页浏览器，可接管聊天里的外链",
@@ -7304,8 +13093,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		changesMdRaw: "原文",
 		changesHtmlRender: "渲染",
 		changesHtmlRaw: "原文",
-		changesPdfRender: "渲染",
-		changesPdfRaw: "原文",
 		changesWrite: "写入",
 		changesEdit: "编辑",
 		changesRunning: "执行中",
@@ -7329,6 +13116,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		editorExplorerMergedDesc: "文件在同一窗口内原地切换；新窗口默认展开文件树",
 		editorExplorerSplit: "独立",
 		editorExplorerSplitDesc: "无路径窗口即资源管理器（仅文件树）；文件各自新开窗口（带文件树，默认收起）",
+		explorerExclude: "排除模式",
+		explorerExcludeDesc: "从文件树与搜索中彻底移除匹配条目（支持 * 与 ?，双星杠头匹配任意深度）；匹配项不阻塞面包屑折叠",
+		explorerExcludePlaceholder: "添加模式，如 node_modules、*.log、**/.git",
+		explorerExcludeAdd: "添加",
+		explorerExcludeRemove: "移除",
 		editorTreeToggle: "文件树面板",
 		editorPathPlaceholder: "输入文件路径（相对会话目录或绝对路径），Enter 打开",
 		editorSearchPlaceholder: "按文件名搜索…",
@@ -7337,6 +13129,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		editorEmptyHint: "从右侧文件树或上方路径输入框选择文件开始预览",
 		openFileNewTab: "在新 Tab 中打开",
 		openFileSide: "在侧边打开",
+		settingsOpenWithPluginTitle: "始终显示插件自研的打开方式",
+		settingsOpenWithPluginDesc: "默认只在宿主探测不到本机关联应用时显示插件自研的打开方式（资源管理器 / VS Code / Cursor / Zed / 自定义编辑器、SSH 远端）；打开后宿主应用与插件目标并存",
+		zipDownload: "压缩并下载",
+		zipDownloadCount: "压缩并下载（{count} 项）",
+		zipFailed: "打包失败：{message}",
+		archiveToolMissing: "系统上没有可用的打包命令（zip 或 tar 都没有），无法打包下载",
 		openWithMenu: "在应用中打开",
 		openWithSshSuffix: " (SSH)",
 		pinOpenWith: "固定到菜单",
@@ -7357,30 +13155,52 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		openWithSettingsFamilyDesc: "该编辑器使用 VSCode 的 URL 协议（支持 SSH 远端打开）",
 		openWithSettingsRemove: "删除",
 		openWithSettingsInvalidHint: "名称或模板（需含 {path} 且以 scheme:// 开头）未填写的编辑器不会出现在菜单中",
+		openInAppDefault: "用默认应用打开",
+		openInAppEmpty: "没有可用于打开它的应用",
+		openInAppFailed: "无法打开：{path}",
+		revealInFileManager: "在文件管理器中显示",
+		filesSelected: "已选择 {count} 项",
+		clearSelection: "取消选择",
+		copyPaths: "复制路径",
+		deleteSelected: "删除所选",
+		deleteSelectedTitle: "删除选中的 {count} 项？",
+		deleteSelectedDesc: "这些文件与文件夹将被永久删除，无法恢复。",
+		newFolder: "新建文件夹",
+		newFolderPlaceholder: "文件夹名称",
+		newFolderInvalid: "文件夹名称无效",
+		newFile: "新建文件",
+		newFilePlaceholder: "文件名称",
+		newFileInvalid: "文件名称无效",
+		newFileExists: "同名文件已存在",
+		sort: "排序",
+		sortByName: "按名称排序",
+		sortByType: "按类型排序",
+		sortFoldersFirst: "文件夹优先",
+		filesTruncated: "该目录条目过多，仅显示前一部分",
+		gitStatusModified: "已修改",
+		gitStatusAdded: "新增",
+		gitStatusDeleted: "已删除",
+		gitStatusUntracked: "未跟踪",
+		gitStatusRenamed: "已重命名",
+		gitStatusConflict: "有冲突",
+		changesClean: "工作区没有变更",
+		changesNewFile: "新文件",
+		changesStageFailed: "暂存失败：{message}",
+		changesOpGone: "该操作已不在会话记录中",
 		newTab: "新建标签页",
-		openExplorer: "资源管理器",
 		brokenSymlink: "失效的软链接",
-		openGit: "Git 面板",
-		newTerminal: "新终端",
-		terminalLimit: "终端数量已达上限 (3)",
 		close: "关闭",
 		closeOtherTabs: "关闭其他页签",
+		tabUnread: "有未查看的新页面",
 		closeLeftTabs: "关闭左侧页签",
 		closeRightTabs: "关闭右侧页签",
-		floatDropHint: "松开以在自由窗口中打开",
-		dockToSidebar: "回到侧边栏",
+		closeAllTabs: "关闭全部页签",
+		revealTabInFileManager: "在资源管理器中定位",
 		pinTerminal: "固定终端",
 		pinAgentTerminal: "固定 Agent 终端",
 		pinToWorkspace: "固定到工作区",
 		pinToGlobal: "固定到全局",
 		unpinTerminal: "取消固定",
-		pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-		pinnedTerminalKindUi: "UI 终端",
-		pinnedTerminalKindAgent: "Agent 终端",
-		pinnedTerminalScopeWorkspace: "固定到工作区",
-		pinnedTerminalScopeGlobal: "固定到全局",
-		pinnedRailLabel: "固定终端",
-		closePinnedTerminal: "关闭终端",
 		collapseBottomPanel: "折叠底部面板",
 		expandBottomPanel: "展开底部面板",
 		terminalError: "终端连接失败",
@@ -7392,6 +13212,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		terminalDepsHint: "在 DSH 所在环境的终端或 cmd 中执行以下命令修复，然后点重试（node-pty 与 DSH 核心保持同一版本）：",
 		terminalDepsProfile: "（检测到 profile：{profile}）",
 		terminalShellNotFound: "未找到配置的 Shell：{name}，请到 设置 → 侧边卡片 → 终端 检查 Shell 路径",
+		terminalUnavailable: "宿主未提供终端能力",
+		terminalGone: "该终端进程已不存在，可新建一个",
+		terminalNew: "新建终端",
 		preview: "预览",
 		toc: "目录",
 		edit: "编辑",
@@ -7402,39 +13225,109 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		mermaidZoomHint: "滚轮缩放 · 拖拽平移 · Esc 关闭",
 		refresh: "刷新",
 		refreshUnsavedConfirm: "文件已在磁盘更新，刷新将丢弃未保存编辑。继续吗？",
+		closeUnsavedConfirm: "该文件有未保存的编辑，关闭后将丢弃。继续吗？",
 		save: "保存",
 		saved: "已保存",
 		unsaved: "未保存",
 		saveFailed: "保存失败",
-		truncation: "文件过大，仅显示前 512KB",
+		saveConflict: "文件已在磁盘上被其他来源修改。保存已中止，你的修改仍在编辑器中。",
+		saveConflictReload: "重新载入磁盘内容",
+		previewOnlyNotice: "文件过大（{size}），仅提供分页预览；{limit} 以内可编辑",
+		largeFileEmpty: "（空文件）",
+		pagedLineRange: "第 {from}–{to} 行",
+		loadAll: "加载全部",
+		loadAllProgress: "加载中 {loaded} / {total}",
+		previewRowLimit: "已达 {rows} 行的预览上限，其余请下载查看",
+		jsonlRecordRange: "第 {from}–{to} 条记录",
+		jsonlInvalidRecord: "这一行不是合法 JSON",
+		jsonCopyPath: "复制路径",
+		jsonCopyPrettyJson: "复制为格式化 JSON",
+		jsonCopyCompactJson: "复制为紧凑 JSON",
+		jsonCopyFailed: "复制失败",
+		jsonCollapseNode: "折叠",
+		jsonExpandNode: "展开",
+		jsonCopyButtonTitle: "复制：{action}",
+		searchFind: "查找",
+		searchReplace: "替换",
+		searchNext: "下一个",
+		searchPrevious: "上一个",
+		searchAll: "全选匹配",
+		searchMatchCase: "区分大小写",
+		searchWholeWord: "全词匹配",
+		searchRegexp: "正则表达式",
+		searchReplaceAll: "全部替换",
+		searchCurrentMatch: "当前匹配",
+		searchOnLine: "所在行号",
+		searchReplacedMatches: "已替换 $ 处匹配",
+		searchReplacedMatchOnLine: "已替换第 $ 行的匹配",
+		searchGoToLine: "跳转到行",
+		searchGo: "跳转",
 		binary: "二进制文件，无法预览",
 		loading: "加载中…",
 		error: "加载失败",
 		retry: "重试",
-		splitLeft: "向左分栏",
-		splitRight: "向右分栏",
-		splitUp: "向上分栏",
-		splitDown: "向下分栏",
 		notRepo: "当前目录不是 git 仓库",
-		noChanges: "没有变更",
 		statusTruncated: "变更过多，仅显示前 2000 条",
 		stage: "暂存",
 		unstage: "取消暂存",
 		stageAll: "全部暂存",
 		unstageAll: "全部取消暂存",
-		commitPlaceholder: "提交信息 (Ctrl+Enter)",
+		gitChanges: "更改",
+		gitGraph: "提交图",
+		gitMergeChanges: "合并更改",
+		gitStagedChanges: "暂存的更改",
+		gitMoreActions: "更多操作",
+		gitRepository: "仓库",
+		gitDetached: "游离 HEAD",
+		gitBranchesUnavailable: "没有可用分支",
+		gitNoUpstream: "未设置上游",
+		gitSyncUnavailable: "同步不可用",
+		gitSync: "同步更改",
+		commitPlaceholder: "Message ({shortcut} to commit on \"{branch}\")",
 		commit: "提交",
-		commitError: "提交失败",
+		generateCommitMessage: "生成提交信息",
+		generateCommitMessageWith: "生成提交信息（使用 {model}）",
+		generatingCommitMessage: "正在生成提交信息…",
+		committingMessage: "正在提交…",
+		suggestCommitError: "生成提交信息失败",
+		suggestCommitEmpty: "当前没有可提交的改动",
+		commitModelTitle: "提交信息生成模型",
+		commitModelDesc: "选择生成提交信息时使用的模型；默认跟随当前对话所用的模型。",
+		commitModelFollow: "跟随当前对话",
+		commitModelSearchPlaceholder: "搜索：输入 provider/model",
+		commitModelCurrent: "当前：{route}",
+		commitModelInvalid: "请按 provider/model 格式填写",
+		commitModelUnavailable: "当前部署未暴露模型服务，只能跟随当前对话",
+		commitModelEmpty: "未发现可用模型（可在上方直接输入 provider/model）",
+		commitModelDefaultNote: "默认",
+		commitModelRecentNote: "本会话用过",
+		push: "推送",
+		pull: "拉取",
+		pushError: "推送失败",
+		pullError: "拉取失败",
 		branch: "分支",
 		worktree: "工作树",
 		checkoutError: "切换分支失败",
 		history: "历史",
-		changes: "文件变动",
+		changes: "Git",
 		changesGitLens: "Git",
+		graphAllBranches: "所有分支",
+		graphBranchFilter: "分支筛选",
+		graphEmpty: "暂无提交",
+		graphLoadError: "加载提交历史失败",
+		graphStale: "提交历史已变化，请刷新",
+		graphDetails: "提交详情",
+		graphParents: "父提交",
+		graphLoadMore: "加载更多",
 		changesSessionLens: "本轮文件",
 		changesFilterAll: "全部",
 		changesFilterEmpty: "没有此类操作",
 		changesOpenDiffTab: "在独立页签中打开",
+		changesDiffTab: "差异",
+		changesContentTab: "内容",
+		changesNoCommit: "未选择提交",
+		changesNoContent: "此视图暂无内容",
+		changesReadNoDiff: "读取没有差异",
 		changesClosePreview: "关闭预览",
 		changesResizePreview: "调整预览高度",
 		changesLoadError: "会话文件记录暂不可用",
@@ -7448,7 +13341,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		diffDeleted: "删除",
 		diffRenamed: "重命名",
 		diffExpand: "展开其余 {count} 行",
-		diffCollapse: "收起",
 		discard: "放弃更改",
 		discardTitle: "放弃更改",
 		discardDesc: "将丢弃「{path}」的工作区修改（不可恢复）。",
@@ -7467,21 +13359,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		timeHoursAgo: "{n} 小时前",
 		timeYesterday: "昨天",
 		loadMore: "加载更多",
-		historyLoadError: "加载更多历史失败",
 		produced: "本次产出",
-		producedOpen: "在侧边栏中打开",
 		showInFolder: "在文件夹中显示",
 		disconnected: "终端连接断开，重连中…",
 		exited: "终端进程已退出",
 		noSession: "选择一个会话以使用侧边栏",
 		pluginNotLoaded: "插件未加载，标签页暂不可用：",
-		hiddenFiles: "隐藏文件",
 		parent: "上级目录",
 		copied: "已复制",
 		copy: "复制",
-		newFile: "新文件",
 		openEditor: "打开编辑器",
-		gitDetail: "查看变更详情",
 		referenceFile: "@文件",
 		addToConversation: "添加到对话",
 		copyRelative: "复制相对地址",
@@ -7513,34 +13400,18 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsDone: "完成",
 		settingsOpenToolsTitle: "为模型注入侧边栏打开工具",
 		settingsOpenToolsDesc: "开启后，模型可通过 sidebar_open 工具在侧边栏主动打开文件、文件夹和 HTTP(S) 网页（默认关闭）",
-		settingsTitleBarTitle: "位置兼容模式",
-		settingsTitleBarDesc: "选择顶栏兼容方案：自动检测（默认，保守）/ DSH官方Web / 已知桌面壳 / 自定义方案（下移距离 + 自定义 CSS）",
-		settingsTitleBarStripTitle: "下移距离",
-		settingsTitleBarStripDesc: "标题栏条带高度：侧边栏按钮与内容下移的像素数（0–120，默认 40；自定义方案下生效）",
-		settingsSchemeAutoTitle: "自动检测",
-		settingsSchemeAutoDesc: "保守方案：仅在 Window Controls Overlay 标准 API 可用时按真实标题栏高度让位；网页环境下不做任何修改",
-		settingsSchemeWebTitle: "DSH官方Web",
-		settingsSchemeWebDesc: "显式声明运行在官方网页版：不做任何适配（连标准 WCO 几何也不适用）",
-		settingsSchemeCustomTitle: "自定义方案",
-		settingsSchemeCustomDesc: "完全由你控制：注入自定义 CSS（可覆盖内置样式），并指定标题栏下移距离",
-		settingsSchemeDetectedSuffix: "已检测",
 		settingsCustomCssTitle: "自定义 CSS",
-		settingsCustomCssDesc: "追加到页面末尾的样式（同优先级下后写胜出；覆盖 JS 内联变量需用 !important）",
-		settingsCustomCssPlaceholder: "/* 例：为自绘标题栏的壳预留 36px */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
+		settingsCustomCssPlaceholder: "/* 例：底部工作台面板换用等宽字体 */\n[data-dsh-bottom-panel] {\n  font-family: var(--dsw-font-mono);\n}",
 		settingsSaveFailed: "保存失败",
 		settingsConflict: "设置已被其他窗口修改，请重试",
 		binaryNoPreview: "此文件类型不支持预览",
 		downloadToView: "下载查看",
 		settingsSubagentTitle: "检测到子代理时自动激活任务管理页",
-		settingsSubagentDesc: "当前会话产生新的子代理时，自动激活任务管理页；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
+		settingsSubagentDesc: "当前会话产生新的子代理时，在侧边栏创建任务管理页并标记未读红点；若侧边栏正展开在其他页面则不抢焦点，点红点即可前往；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后不再自动创建",
 		settingsJobsTitle: "有新后台任务时自动激活任务管理页",
-		settingsJobsDesc: "当前会话出现新的后台任务时，自动激活任务管理页（每个新任务都会触发）；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后需手动打开",
+		settingsJobsDesc: "当前会话出现新的后台任务时，在侧边栏创建任务管理页并标记未读红点（每个新任务都会触发）；若侧边栏正展开在其他页面则不抢焦点，点红点即可前往；宽屏同时展开侧边栏，窄屏不强制展开全屏抽屉；关闭后不再自动创建",
 		settingsToolsTitle: "为模型注入终端工具",
 		settingsToolsDesc: "开启后，模型可通过 terminal_create 等 8 个工具创建并操作侧边栏终端（默认关闭）",
-		settingsFenceTitle: "工作区路径检测",
-		settingsFenceDesc: "开启后，侧栏的文件功能仅能访问会话工作区内的路径（默认）；关闭后可访问主机上任意文件——关闭期间页面内脚本也将获得同等访问能力",
-		fenceErrorReason: "此路径在会话工作区之外，已被工作区检测拦截",
-		fenceDisableAction: "关闭工作区检测",
 		settingsBottomTerminalTitle: "底部面板首次展开自动开终端",
 		settingsBottomTerminalDesc: "每次会话中第一次展开底部面板时，尝试在底部面板自动打开一个新终端标签（终端数量上限仍会限制；默认开启）",
 		settingsFontFamilyTitle: "终端字体",
@@ -7548,7 +13419,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsFontFamilyPlaceholder: "\"JetBrains Mono\", monospace",
 		settingsFontSizeTitle: "终端字号",
 		settingsFontSizeDesc: "终端字号（9–32，默认 13）",
-		settingsFontSizeSuffix: "px",
 		settingsShellTitle: "Shell 路径",
 		settingsShellDesc: "UI 与模型终端启动的 shell（绝对路径或可执行名）。留空按既有顺序解析：yaml 的 config.shell → $SHELL / 登录 shell / Windows 的 powershell.exe。对之后打开的终端生效",
 		settingsShellPlaceholder: "如 /bin/zsh（留空自动解析）",
@@ -7557,15 +13427,18 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsShellArgsPlaceholder: "如 -l（留空用默认参数）",
 		settingsTabsTitle: "侧边栏内容",
 		settingsViewersTitle: "文件预览",
+		settingsMobileTitle: "手机",
+		settingsMobileNoAutoOpenTitle: "窄屏时不自动弹出",
+		settingsMobileNoAutoOpenDesc: "在手机 / 窄屏下，新的子代理或后台任务都不再自动切到任务页（页内仍可手动打开）",
+		settingsMobileTreeTitle: "窄屏时任务页默认树状图",
+		settingsMobileTreeDesc: "手机 / 窄屏下任务页默认用经典树，而不是工作流图；页内切换仍可临时改成图",
 		settingsGeneralTitle: "常规",
 		settingsPopup: "功能设置",
 		settingsViewerCatchAll: "兜底：任意文件",
-		viewerImage: "图片",
-		viewerPdf: "PDF",
 		viewerMarkdown: "Markdown",
 		viewerCode: "代码",
-		viewerBinary: "二进制下载",
 		viewerHtml: "HTML",
+		viewerJsonl: "JSONL",
 		browser: "浏览器",
 		browserPlaceholder: "输入网址，例如 example.com",
 		browserGo: "前往",
@@ -7575,7 +13448,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		browserBlockedScheme: "已阻止：仅支持 http/https 链接",
 		browserBlockedLoopback: "已阻止：不允许在浏览器中访问本机或内部地址",
 		browserInvalid: "无效的网址",
-		browserNoSandboxWarning: "沙箱已关闭：当前页面与界面同源，拥有完整会话权限（可在设置中恢复）",
 		htmlNoSandboxWarning: "沙箱已关闭：此 HTML 与界面同源，可读取会话文件与内部接口（可在设置中恢复）",
 		sandboxStatusOn: "沙箱模式：已启用 · 页面无法访问界面数据与本地文件，登录态与第三方 Cookie 可能不可用",
 		sandboxUnlock: "临时解锁（不安全）",
@@ -7584,14 +13456,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsHtmlDefaultUnsafeDesc: "开启后，每次打开 HTML 文件时预览默认处于非沙箱状态（与界面同源，可读取会话文件与内部接口）；可在状态行临时恢复沙箱",
 		settingsHtmlSandboxTitle: "关闭 HTML 预览沙箱（不安全）",
 		settingsHtmlSandboxDesc: "关闭后，预览的 HTML 将与界面同源运行，可读取会话文件、本地存储并调用内部接口。仅对完全可信的文件开启",
+		settingsEditorGitGutterTitle: "编辑器未提交变更提示",
+		settingsEditorGitGutterDesc: "在代码编辑器的行号槽用颜色标出未提交的变更，并在鼠标悬停时显示该行 blame（作者、时间与提交摘要）；关闭后编辑器不显示任何变更标记",
 		settingsBrowserSandboxTitle: "关闭浏览器沙箱（不安全）",
 		settingsBrowserSandboxDesc: "关闭后，访问的任何网站都将与界面同源运行，可读取会话数据并冒充你的登录状态。仅对完全可信的站点开启",
-		settingsBrowserLinksTitle: "聊天区外链在侧边栏打开",
-		settingsBrowserLinksDesc: "开启后，点击聊天或界面中的外链时在侧边栏打开，不再弹出新窗口；HTTP 与 HTTPS 可分别通过下方开关控制；Ctrl/Cmd 点击可临时放行",
-		settingsBrowserHttpTitle: "侧边打开HTTP网页",
-		settingsBrowserHttpDesc: "开启后，点击聊天或界面中的 HTTP 外链时在侧边栏打开（声明了 urlTarget 的插件页面优先）；Ctrl/Cmd 点击可临时放行",
-		settingsBrowserHttpsTitle: "侧边打开HTTPS网页",
-		settingsBrowserHttpsDesc: "开启后，点击聊天或界面中的 HTTPS 外链时在侧边栏打开。默认关闭：多数 HTTPS 站点拒绝被嵌入，走系统浏览器更顺畅",
 		settingsBrowserLoopbackTitle: "允许访问的本机地址",
 		settingsBrowserLoopbackDesc: "逗号分隔的本地回环地址白名单（如 localhost:5174 或 127.0.0.1:8080），侧边栏浏览器可访问这些本地服务；默认留空则本机地址全部拦截。沙箱隔离仍然生效，页面无法读取界面数据",
 		settingsBrowserLoopbackPlaceholder: "例如 localhost:5174, 127.0.0.1:8080",
@@ -7600,19 +13468,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		browserEmbedBlockedDesc: "该站点通过 X-Frame-Options / frame-ancestors 禁止在其它页面中显示，无法在侧边栏内加载。可在浏览器中直接打开",
 		browserEmbedAnyway: "仍然加载",
 		subagent: "任务管理",
-		openSubagent: "任务管理",
 		subagentMainAgent: "主代理",
 		subagentEmpty: "暂无子代理",
 		subagentEmptyDesc: "当前主代理派生的子代理将显示在这里",
-		subagentRunning: "运行中",
 		subagentInactive: "空闲",
 		subagentModeOneShot: "一次性",
 		subagentModeContinuable: "可续接",
 		subagentCount: "{count} 个子代理",
 		subagentCountRunning: "{count} 个子代理 · {running} 运行中",
-		subagentDiagCorrupt: "目录损坏",
-		subagentDiagUnsupported: "不支持的条目",
-		subagentDiagUnavailable: "不可用",
 		subagentThinking: "思考中…",
 		sideChat: "侧边对话(beta)",
 		sideChatNew: "新建对话",
@@ -7624,19 +13487,25 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		sideChatThreads: "切换线程 / 新建",
 		sideChatSave: "保存为新会话",
 		sideChatSaveTitle: "把该线程提升为顶层会话，出现在主会话列表中",
+		sideChatArchive: "归档这条侧边对话（在会话列表的「显示已归档」里可找回）",
+		sideChatArchiveRunning: "该线程正在运行，停止后才能归档",
 		sideChatSaved: "已保存为新会话",
 		sideChatNoTurn: "至少完成一轮对话后才能保存",
 		sideChatPendingDrop: "最后一条未完成的追问不会包含在新会话中",
+		sideChatQueued: "排队中",
+		sideChatSending: "发送中…",
+		sideChatDequeue: "从队列移除",
+		sideChatRunError: "运行失败：{message}",
+		sideChatModel: "模型",
+		sideChatModelInherit: "继承主对话（宿主未提供模型目录）",
+		sideChatReasoning: "推理强度",
 		sideChatFirstPlaceholder: "输入第一个问题，已继承当前会话上下文…",
 		sideChatComposerPlaceholder: "追问…",
 		sideChatThinking: "正在深入…",
 		sideChatThink: "思考过程",
 		sideChatInjection: "已注入上下文",
 		sideChatSend: "发送",
-		sideChatCancel: "停止",
 		sideChatCancelTitle: "中止当前回合（保留队列）",
-		sideChatClose: "关闭线程",
-		sideChatCloseTitle: "释放线程的 agent（历史保留）",
 		sideChatError: "侧边对话出错：{message}",
 		sideChatTurnUsage: "输入 {input} tok · 输出 {output} tok",
 		sideChatBlockCollapse: "收起",
@@ -7645,14 +13514,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		sideChatBlockExpandAria: "展开其余 {hidden} 行",
 		sideChatBlockSignal: "信号终止：{signal}",
 		sideChatBlockExitCode: "退出码 {code}",
+		sideChatBlockNoExitCode: "已结束（无退出码）",
 		sideChatBlockRunning: "运行中",
 		sideChatBlockFailed: "失败",
 		sideChatBlockDone: "完成",
 		sideChatBlockNoOutput: "（无输出）",
-		sideChatBlockFiles: "{count} 个文件",
+		sideChatBlockCommandLine: "命令第 {line} 行",
+		codeBlockTitle: "代码块",
+		codeBlockWrap: "自动换行",
+		codeBlockUnwrap: "取消自动换行",
 		sideChatBlockWindow: "共 {total} 行 · 显示 {shown} 行",
-		sideChatConnDisconnected: "连接已断开",
-		sideChatConnReconnect: "重新连接",
+		sideChatConnDisconnected: "连接已断开，点击立即重连",
 		sideChatConnConnecting: "正在重连…",
 		sideChatConnRecovered: "连接已恢复",
 		sideChatConnReconnectAction: "立即重连",
@@ -7669,7 +13541,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		jobDurationMinutes: "{minutes} 分 {seconds} 秒",
 		jobDurationHours: "{hours} 小时 {minutes} 分",
 		jobViewOutput: "查看输出",
-		jobHideOutput: "收起输出",
 		jobNoOutput: "暂无输出",
 		jobNotReadYet: "等待模型读取该任务的输出（模型执行 job_output 后，输出会显示在这里）",
 		jobOutputTruncated: "输出过长，已截断显示",
@@ -7677,6 +13548,101 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		jobKill: "终止",
 		jobKillConfirm: "再次点击确认终止",
 		jobKillError: "终止失败",
+		tasksViewGraph: "工作流图",
+		tasksViewTree: "树状图",
+		tasksViewSwitchToGraph: "切换为工作流图",
+		tasksViewSwitchToTree: "切换为树状图",
+		settingsViewModeTitle: "任务管理默认视图",
+		settingsViewModeDesc: "任务管理页打开时的默认展示方式（页内仍可临时切换）",
+		settingsViewModeGraph: "工作流图",
+		settingsViewModeGraphDesc: "分层节点图，可缩放平移",
+		settingsViewModeTree: "树状图",
+		settingsViewModeTreeDesc: "经典缩进树，键盘可导航",
+		tasksFoldIdleGroup: "{count} 个待命",
+		tasksFoldIdle: "{count} 待命",
+		tasksFoldCompleted: "✓ {count} 已完成",
+		tasksFoldOne: "收进已完成聚合",
+		tasksFoldExpand: "展开已完成的节点",
+		tasksFoldCollapse: "折叠已完成的节点",
+		tasksZoomIn: "放大",
+		tasksZoomOut: "缩小",
+		tasksZoomFit: "适应画布",
+		tasksNodeJump: "查看转录",
+		tasksNodeDetail: "节点详情",
+		workflowRun: "工作流",
+		tasksNodeState: "状态",
+		tasksFoldExpandShort: "展开",
+		tasksTreeCollapseAll: "全部收起",
+		tasksTreeExpandAll: "全部展开",
+		tasksTreeCollapseRow: "收起子级",
+		tasksTreeExpandRow: "展开子级",
+		tasksNodeTokens: "Token 用量",
+		tasksNodeDuration: "耗时",
+		tasksNodeOpenMain: "在主窗口中打开",
+		tasksNodeMode: "模式",
+		tasksNodeModel: "模型",
+		tasksNodeTeamRole: "团队角色",
+		tasksStateRunning: "运行中",
+		tasksStateIdle: "待命",
+		tasksStateProvisioning: "部署中",
+		tasksStateDone: "已完成",
+		tasksStateError: "出错",
+		tasksKindSubagent: "子代理",
+		tasksKindTeammate: "成员",
+		tasksKindWorkflow: "工作流",
+		taskWindowCreate: "新建任务",
+		taskWindowDetail: "任务详情",
+		teamBoard: "团队任务板",
+		teamChip: "团队 {members} 成员 · {tasks} 任务",
+		teamTasksEmpty: "暂无共享任务",
+		teamTaskCreate: "新建任务",
+		teamTaskSubject: "标题",
+		teamTaskDescription: "描述",
+		teamTaskOwner: "负责人",
+		teamTaskUnowned: "未认领",
+		teamTaskPending: "待办",
+		teamTaskInProgress: "进行中",
+		teamTaskCompleted: "已完成",
+		teamTaskBlocked: "阻塞",
+		teamTaskClaim: "认领",
+		teamTaskComplete: "完成",
+		teamTaskReopen: "重开",
+		teamTaskDelete: "删除",
+		teamTaskDeleteConfirm: "确认删除",
+		teamTaskEdit: "编辑",
+		teamTaskSave: "保存",
+		teamTaskCancel: "取消",
+		teamTaskConflict: "任务已被他人修改，已刷新",
+		teamTaskError: "操作失败：{message}",
+		teamTaskDeleted: "已删除",
+		teamTaskActions: "任务操作",
+		teamTaskDetail: "任务详情",
+		teamTaskNoDescription: "暂无描述，点击「编辑」补充",
+		teamTaskBlockedBy: "被阻塞",
+		teamTaskSubjectPlaceholder: "一句话说明要做什么",
+		teamTaskDescriptionPlaceholder: "补充说明（可选）",
+		teamFilterAll: "全部",
+		tasksNodeTasks: "共享任务",
+		jobCopyOutput: "复制输出",
+		jobCopied: "已复制",
+		jobFollowTail: "跟随最新",
+		jobDragHint: "拖动浮窗",
+		workflowRunning: "进行中",
+		workflowCompleted: "已完成",
+		workflowCancelled: "已取消",
+		workflowFailed: "失败",
+		workflowPhaseUnnamed: "未命名阶段",
+		workflowMembers: "{done}/{total} 成员",
+		jobsAutoCollapsed: "代理较多，已自动折叠",
+		contextDiagnostics: "上下文诊断",
+		contextDiagnosticsTarget: "当前会话",
+		contextDiagnosticsFailed: "无法打开「{label}」的上下文诊断",
+		contextDiagnosticsUnavailable: "dsh-context 的「上下文」页面不可用（未安装或未注册）",
+		contextDiagnosticsNavigation: "无法定位到该会话",
+		contextDiagnosticsTimeout: "打开超时，请重试",
+		contextDiagnosticsOpenFailed: "页面打开失败",
+		contextDiagnosticsDismiss: "关闭提示",
+		catalogLoadFailed: "{count} 个分支加载失败",
 		addPluginsTabCard: "添加 Tab 插件",
 		addPluginsTabCardDesc: "注册新的侧边栏页面",
 		addPluginsViewerCard: "添加预览插件",
@@ -7691,51 +13657,63 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		openPlugin: "跳转",
 		copyInstall: "复制安装命令",
 		pluginMdExportDesc: "在 better-sidebar 的 Markdown 工具栏上新增「导出」按钮：一键把当前 .md 渲染为独立 HTML（表格/代码块/Mermaid 图表内联，布局跟随预览主题）直接保存到同目录，或通过打印对话框导出为 PDF",
+		pluginAgentPersonaDesc: "按工作区或会话分发 system prompt 人设：一条人设可同时作用于多个工作区目录与会话，支持完全一致 / 前缀 / 包含 / 正则，越具体越优先，可标一条默认人设兜底；在设置页与对话页「人设」Tab 里管理，改完下一条消息生效",
 		pluginOfficeDesc: "为 better-sidebar 编辑器提供 Office 三件套预览（.docx / .xlsx / .pptx），把重型 Office 渲染库拆出主包、按需安装",
 		pluginFlowglassDesc: "实时会话流程图：三列泳道展示用户、助手与工具调用，支持并行分组、子代理支线、逐层钻取和实时状态；安装 better-sidebar 后注册原生「流镜」Tab，未安装时保留独立抽屉",
 		pluginGitForgeDesc: "better-sidebar「Git 凭据」Tab：GitHub/Gitea 等 Forge 账号库 + 按项目授权 + push 策略硬拦；token 仅存本地 secrets，不进模型上下文；提供只读 GitForge 工具与 agent HTTPS credential helper",
 		pluginGithubWorkbenchDesc: "better-sidebar「GitHub 工作台」Tab：远端仓库目录树 + Issues / Pull requests / Actions 页签，读之外支持新建 Issue/PR、评论、编辑、关闭重开、squash·merge·rebase 合并（强确认）与重跑/取消 CI；仓库弹层自动拉取有权限列表并支持公开仓搜索；未装 better-sidebar 时自动降级为独立右侧面板",
+		pluginIdeGitDesc: "better-sidebar「Git」Tab：分支树（ahead/behind 角标、worktree 占用标记）、提交图谱与文本/分支/作者/日期/路径筛选、逐文件行级 diff、变更分组与提交框，外加合并、变基、优选、重置、贮藏与标签操作；破坏性动作二次确认，删除与丢弃工作区都可撤回。未装 better-sidebar 时自动注册到 DSH 原生右侧栏，可单独使用",
 		pluginSuhuangScrollDesc: "把本地苏黄共阅 Runtime 接入 DSH 设置与 better-sidebar，支持模型配置、连接测试和连续阅卷控制；使用前需安装 Suhuang Scroll Runtime 与 dsh-better-sidebar",
 		pluginBetterOverleafDesc: "better-sidebar 的 Overleaf 标签页：直连 CDP 浏览器登录（支持第三方 Chromium），项目列表/切换，<workspace>/overleaf/ 本地 git 镜像，git 双向同步（API 只读兜底），文件预览走侧边栏工作台",
-		pluginGitRemotesDesc: "better-sidebar Git 远程 Tab：看分支/上游/ahead-behind，fetch（可 prune）、ff-only pull、确认后才 push。不替换内置 Git 的暂存/提交，也不提供 force-push 或模型自动推送",
 		pluginSentinelDesc: "条件驱动的 agent 唤醒系统：文件/进程/端口/HTTP/命令/webhook 传感器，条件达成自动唤醒休眠会话；注册「哨兵」Tab 展示服务器全局监控表",
 		pluginServerDeckDesc: "服务器卡片仪表盘：每台服务器一张卡片，展示在线状态、OS、运行时长、CPU/内存/磁盘用量与延迟；点卡片进入 xterm.js 交互终端，支持 ~/.ssh/config 一键导入（自动跳过 Git 托管别名）；安装 better-sidebar 后注册原生「服务器」Tab，未安装时保留独立抽屉",
 		pluginSidebarQaDesc: "基于 better-sidebar 的划选提问tab分页: 对话划选 → 右侧面板提问 → 同工作区独立追问会话（❓追问·主题）：快速无思考模型压缩主对话上下文后与引文一起注入，不打断主对话；追问可嵌套、可继续、可归档",
 		pluginSidenoteDesc: "Codex 风格侧边聊天与划选注释：从当前会话 fork 出独立侧边会话（归档隐藏、多实例并存、/side 命令、刷新/重启后恢复、模型跟随主会话）；assistant 消息划选 → 编号角标 + 注解编辑器 →「N 条注释」chip 随消息发出，也可直接进入侧边聊天提问",
 		pluginSshTunnelDesc: "better-sidebar「SSH 隧道」Tab：多机主机清单 + 按项目授权 + 密钥本地保管；模型工具 SSHManager（exec/SFTP/会话策略）；中央交互终端与双栏 SFTP",
-		pluginTurnReviewDesc: "对「刚刚这一回合」的 diff 做 Approve / Request changes 的人闸门：只审上一回合，不 fork 会话；文件按主会话/子代理/未归因分组，按文件勾选打回 + 可选评语，点文件先看回合开始快照 vs 现在的 diff。不是 /rewind",
-		pluginVideoPreviewDesc: "在 better-sidebar 编辑器内联预览视频文件（.mp4/.webm/.mov/.mkv/.avi 等），自带支持 HTTP Range（206）的 /video 宿主路由，可拖动进度条、不受 20MB mediaLimit 限制",
+		pluginVideoPreviewDesc: "在 better-sidebar 编辑器内联预览视频文件（.mp4/.webm/.mov/.mkv/.avi 等），自带支持 HTTP Range（206）的 /video 宿主路由，无需整份下载即可播放，进度条可随意拖动",
+		pluginAudioDesc: "在 better-sidebar 编辑器内联预览音频文件（.mp3/.wav/.flac/.ogg/.m4a/.aac/.opus），自带波形播放器与实时频谱：可缩放波形、点击/拖动定位、A-B 循环、声道切换、实时频谱与全曲频谱图；媒体路由支持 HTTP Range，任意大小都能拖动进度",
 		pluginCodeNavDesc: "代码预览导航：按文件类型自动识别语言并高亮语法，符号大纲（类/方法/变量筛选 + 一键跳转），文件内查找（全部匹配高亮、上/下一处、区分大小写），接管 better-sidebar 的代码文件预览",
+		pluginDevGitGraphDesc: "vscode-git-graph 忠实移植的提交图 Tab：唯一入口为 better-sidebar 原生 tab，自动绑定会话工作区，checkout/merge/rebase/push/tag/stash 全套 git 操作，明暗主题跟随，点文件 diff 直接打开内置 DiffTab；需先安装 dsh-better-sidebar",
 		pluginDocsPanelDesc: "DSH 侧边栏里的「全局文档」：全局 Markdown 笔记，任何工作区随时可读——列表点选阅读、悬浮大纲跳转、Chrome / VS Code 外部打开、代码复制，目录可配置（默认 ~/.dsh/docs）",
+		pluginTylinaDesc: "Typst 文档编辑工具：与当前会话共用工作区，WYSIWYG 编辑排版 Typst 文档，可用于编写和排版论文、报告、试卷、简历、图表、海报、乐谱和 PPTX 格式导出的 Slides",
 		pluginEgoBrowserDesc: "把 CitroLabs/ego-lite 接进 DeepSeek Harness 的 agent 浏览器：32 个 ego_* 工具驱动真实 Chromium，侧边栏原生「ego 浏览器」Tab 实时观察 agent 逛的每个页面，可直接点击/拖拽/输入接管；装 better-sidebar 时自动注册 Tab，没装则退回浮动浮窗",
 		pluginBilingualReaderDesc: "在 DSH 侧边栏读论文 PDF：原生 PDF 显示，选中一段文字即用大模型划词翻译，结合上下文、完全隔离主对话，只作阅读辅助",
+		pluginDshMemoryDeltaDesc: "跨会话记忆：只注入变化的部分（无变化时零注入），带到期复核提醒、相关度排序检索和侧边栏页签。",
+		pluginAgentPersonaName: "dsh-agent-persona Agent 人设",
 		pluginSentinelName: "dsh-sentinel 唤醒系统",
+		pluginFileTraceName: "dsh-file-trace 文件追踪",
+		pluginFileTraceDesc: "记录模型读取/写入/编辑的每一个文件，按文件分组查看内容与逐行 diff；含 Markdown 阅读模式与敏感内容脱敏，未装 better-sidebar 时为独立浮动窗",
+		pluginMnemeName: "dsh-mneme 记忆库",
+		pluginMnemeDesc: "跨会话记忆引擎：autoDream 后台巩固、会话总结与用户画像，SQLite + 可人工编辑的 Markdown 镜像，完全离线私有；安装 better-sidebar 后注册「记忆库」Tab（记忆/实体/状态/设置四视图），未安装时保留侧边栏独立面板",
 		pluginEgoBrowserName: "ego-browser Agent 浏览器",
 		pluginBetterOverleafName: "dsh-better-overleaf Overleaf 标签页",
 		pluginDocsPanelName: "dsh-docs-panel 全局文档",
+		pluginTylinaName: "dsh-tylina Typst 文档编辑器",
 		pluginFlowglassName: "dsh-flowglass 流镜",
 		pluginGitForgeName: "dsh-git-forge Git 凭据",
-		pluginGitRemotesName: "dsh-git-remotes Git 远程",
 		pluginGithubWorkbenchName: "dsh-github-workbench GitHub 工作台",
+		pluginIdeGitName: "dsh-ide-git Git 工具窗口",
 		pluginSidebarQaName: "dsh-sidebar-qa 划选追问",
 		pluginSidenoteName: "dsh-sidenote 侧边聊天",
 		pluginServerDeckName: "dsh-server-deck 服务器甲板",
 		pluginSuhuangScrollName: "dsh-suhuang-scroll 苏黄共阅",
 		pluginSshTunnelName: "dsh-ssh-tunnel SSH 隧道",
-		pluginTurnReviewName: "dsh-turn-review 本轮审查",
 		pluginBilingualReaderName: "dsh-bilingual-reader 双语阅读",
 		pluginOfficeName: "Office 预览插件",
 		pluginMdExportName: "Markdown 导出插件",
 		pluginCodeNavName: "代码预览导航",
 		pluginVideoPreviewName: "视频预览插件",
-		presetDshDesktopDesc: "Electron 高级模式（无边框）：macOS 顶栏 20px、Windows 无 WCO 时 32px 标题栏让位"
+		pluginAudioName: "音频预览插件",
+		pluginTurnOutlineName: "dsh-turn-outline 轮次轨迹",
+		pluginTurnOutlineDesc: "把会话按用户轮次折叠成「输入 + 工具步骤 + 输出」摘要，点击任意步骤一键跳回对话原位；零 LLM 调用、只读",
+		pluginDshMemoryDeltaName: "dsh-memory-delta 记忆"
 	};
 	/** The en dictionary (key-set-equal to zh, enforced by the type annotation). */
 	const en = {
 		files: "Files",
 		guideDescFiles: "Browse the workspace tree; click a file to preview or edit",
 		guideDescGit: "Git changes and this session's file edits, in one tab",
-		guideDescSubagent: "Subagent topology and background jobs, live",
+		guideDescSubagent: "Workflow graph, team task board, and background jobs, live",
 		guideDescSidechat: "An independent follow-up thread inheriting this session's context",
 		guideDescTerminal: "A real shell (xterm + pty) with reconnect",
 		guideDescBrowser: "An embedded browser that can take over chat links",
@@ -7745,8 +13723,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		changesMdRaw: "Raw",
 		changesHtmlRender: "Render",
 		changesHtmlRaw: "Raw",
-		changesPdfRender: "Render",
-		changesPdfRaw: "Raw",
 		changesWrite: "Write",
 		changesEdit: "Edit",
 		changesRunning: "running",
@@ -7770,6 +13746,11 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		editorExplorerMergedDesc: "Files switch in place in the same window; new windows start with the tree open",
 		editorExplorerSplit: "Separate",
 		editorExplorerSplitDesc: "Path-less windows are the standalone explorer (tree only); each file opens its own window (tree docked, closed by default)",
+		explorerExclude: "Exclude patterns",
+		explorerExcludeDesc: "Remove matching entries from the file tree and search entirely (VS Code files.exclude style; * and ? wildcards, a doublestar-slash head matches any depth); excluded entries never block the breadcrumb fold",
+		explorerExcludePlaceholder: "Add a pattern, e.g. node_modules, *.log, **/.git",
+		explorerExcludeAdd: "Add",
+		explorerExcludeRemove: "Remove",
 		editorTreeToggle: "File tree panel",
 		editorPathPlaceholder: "File path (relative to the session directory or absolute), Enter to open",
 		editorSearchPlaceholder: "Search files by name…",
@@ -7778,6 +13759,12 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		editorEmptyHint: "Pick a file from the tree panel or the path input above to start previewing",
 		openFileNewTab: "Open in New Tab",
 		openFileSide: "Open to the Side",
+		settingsOpenWithPluginTitle: "Always show the plugin’s own Open with targets",
+		settingsOpenWithPluginDesc: "By default the plugin’s own targets (file manager / VS Code / Cursor / Zed / custom editors, SSH remotes) show only when the host reports no local associated application; turn this on to keep both side by side",
+		zipDownload: "Zip and download",
+		zipDownloadCount: "Zip and download ({count} items)",
+		zipFailed: "Archive failed: {message}",
+		archiveToolMissing: "No archive command is available on this system (neither zip nor tar), so the selection cannot be packed for download",
 		openWithMenu: "Open with",
 		openWithSshSuffix: " (SSH)",
 		pinOpenWith: "Pin to menu",
@@ -7798,30 +13785,52 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		openWithSettingsFamilyDesc: "This editor speaks the VSCode URL dialect (supports SSH-remote opens)",
 		openWithSettingsRemove: "Remove",
 		openWithSettingsInvalidHint: "Editors with a missing name or a template without {path} / scheme:// are not shown in the menu",
+		openInAppDefault: "Open with default app",
+		openInAppEmpty: "No application can open it",
+		openInAppFailed: "Could not open: {path}",
+		revealInFileManager: "Reveal in File Manager",
+		filesSelected: "{count} selected",
+		clearSelection: "Clear selection",
+		copyPaths: "Copy paths",
+		deleteSelected: "Delete selected",
+		deleteSelectedTitle: "Delete {count} selected items?",
+		deleteSelectedDesc: "These files and folders will be permanently deleted. This cannot be undone.",
+		newFolder: "New folder",
+		newFolderPlaceholder: "Folder name",
+		newFolderInvalid: "Invalid folder name",
+		newFile: "New file",
+		newFilePlaceholder: "File name",
+		newFileInvalid: "Invalid file name",
+		newFileExists: "A file with this name already exists",
+		sort: "Sort",
+		sortByName: "Sort by name",
+		sortByType: "Sort by type",
+		sortFoldersFirst: "Folders first",
+		filesTruncated: "This folder has too many entries; only the first ones are shown",
+		gitStatusModified: "Modified",
+		gitStatusAdded: "Added",
+		gitStatusDeleted: "Deleted",
+		gitStatusUntracked: "Untracked",
+		gitStatusRenamed: "Renamed",
+		gitStatusConflict: "Conflicted",
+		changesClean: "No changes in the working tree",
+		changesNewFile: "New file",
+		changesStageFailed: "Staging failed: {message}",
+		changesOpGone: "This operation is no longer in the session log",
 		newTab: "New tab",
-		openExplorer: "Explorer",
 		brokenSymlink: "Broken symlink",
-		openGit: "Git panel",
-		newTerminal: "New terminal",
-		terminalLimit: "Terminal limit reached (3)",
 		close: "Close",
 		closeOtherTabs: "Close Other Tabs",
+		tabUnread: "There is a new page you have not viewed",
 		closeLeftTabs: "Close Tabs to the Left",
 		closeRightTabs: "Close Tabs to the Right",
-		floatDropHint: "Release to open in a free window",
-		dockToSidebar: "Dock Back to Sidebar",
+		closeAllTabs: "Close All Tabs",
+		revealTabInFileManager: "Reveal in File Manager",
 		pinTerminal: "Pin Terminal",
 		pinAgentTerminal: "Pin Agent Terminal",
 		pinToWorkspace: "Pin to Workspace",
 		pinToGlobal: "Pin Globally",
 		unpinTerminal: "Unpin",
-		pinnedTerminalTooltip: "{kind} · {scope} · {cwd}",
-		pinnedTerminalKindUi: "UI Terminal",
-		pinnedTerminalKindAgent: "Agent Terminal",
-		pinnedTerminalScopeWorkspace: "Pinned to workspace",
-		pinnedTerminalScopeGlobal: "Pinned globally",
-		pinnedRailLabel: "Pinned Terminals",
-		closePinnedTerminal: "Close Terminal",
 		collapseBottomPanel: "Collapse bottom panel",
 		expandBottomPanel: "Expand bottom panel",
 		terminalError: "Terminal connection failed",
@@ -7833,6 +13842,9 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		terminalDepsHint: "Run the command below in a terminal or cmd on the DSH machine to repair it, then retry (node-pty stays in sync with the DSH core version):",
 		terminalDepsProfile: " (detected profile: {profile})",
 		terminalShellNotFound: "Configured shell not found: {name} — check the shell path under Settings → Side card → Terminal",
+		terminalUnavailable: "The host provides no terminal capability",
+		terminalGone: "That terminal no longer exists — start a new one",
+		terminalNew: "New terminal",
 		preview: "Preview",
 		toc: "Table of contents",
 		edit: "Edit",
@@ -7843,39 +13855,109 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		mermaidZoomHint: "Scroll to zoom · drag to pan · Esc to close",
 		refresh: "Refresh",
 		refreshUnsavedConfirm: "The file changed on disk. Refreshing will discard unsaved edits. Continue?",
+		closeUnsavedConfirm: "This file has unsaved edits. Closing the tab will discard them. Continue?",
 		save: "Save",
 		saved: "Saved",
 		unsaved: "Unsaved",
 		saveFailed: "Save failed",
-		truncation: "File too large — showing the first 512KB",
+		saveConflict: "The file changed on disk since it was loaded. The save was stopped; your edits are still in the editor.",
+		saveConflictReload: "Reload from disk",
+		previewOnlyNotice: "File is too large ({size}) — paged preview only; editable up to {limit}",
+		largeFileEmpty: "(empty file)",
+		pagedLineRange: "Lines {from}–{to}",
+		loadAll: "Load all",
+		loadAllProgress: "Loading {loaded} / {total}",
+		previewRowLimit: "Preview is capped at {rows} rows — download the rest",
+		jsonlRecordRange: "Records {from}–{to}",
+		jsonlInvalidRecord: "This line is not valid JSON",
+		jsonCopyPath: "Copy path",
+		jsonCopyPrettyJson: "Copy as formatted JSON",
+		jsonCopyCompactJson: "Copy as compact JSON",
+		jsonCopyFailed: "Copy failed",
+		jsonCollapseNode: "Collapse",
+		jsonExpandNode: "Expand",
+		jsonCopyButtonTitle: "Copy: {action}",
+		searchFind: "Find",
+		searchReplace: "Replace",
+		searchNext: "next",
+		searchPrevious: "previous",
+		searchAll: "all",
+		searchMatchCase: "match case",
+		searchWholeWord: "by word",
+		searchRegexp: "regexp",
+		searchReplaceAll: "replace all",
+		searchCurrentMatch: "current match",
+		searchOnLine: "on line",
+		searchReplacedMatches: "replaced $ matches",
+		searchReplacedMatchOnLine: "replaced match on line $",
+		searchGoToLine: "Go to line",
+		searchGo: "go",
 		binary: "Binary file, preview unavailable",
 		loading: "Loading…",
 		error: "Failed to load",
 		retry: "Retry",
-		splitLeft: "Split left",
-		splitRight: "Split right",
-		splitUp: "Split up",
-		splitDown: "Split down",
 		notRepo: "This directory is not a git repository",
-		noChanges: "No changes",
 		statusTruncated: "Too many changes; showing the first 2,000 entries",
 		stage: "Stage",
 		unstage: "Unstage",
 		stageAll: "Stage all",
 		unstageAll: "Unstage all",
-		commitPlaceholder: "Commit message (Ctrl+Enter)",
+		gitChanges: "Changes",
+		gitGraph: "Graph",
+		gitMergeChanges: "Merge Changes",
+		gitStagedChanges: "Staged Changes",
+		gitMoreActions: "More Actions",
+		gitRepository: "Repository",
+		gitDetached: "Detached HEAD",
+		gitBranchesUnavailable: "No branches available",
+		gitNoUpstream: "No upstream",
+		gitSyncUnavailable: "Sync unavailable",
+		gitSync: "Sync Changes",
+		commitPlaceholder: "Message ({shortcut} to commit on \"{branch}\")",
 		commit: "Commit",
-		commitError: "Commit failed",
+		generateCommitMessage: "Generate commit message",
+		generateCommitMessageWith: "Generate commit message (using {model})",
+		generatingCommitMessage: "Generating commit message…",
+		committingMessage: "Committing…",
+		suggestCommitError: "Failed to generate commit message",
+		suggestCommitEmpty: "No pending changes to summarize",
+		commitModelTitle: "Commit message model",
+		commitModelDesc: "Pick the model that drafts commit messages; by default it follows the model of the current conversation.",
+		commitModelFollow: "Follow the conversation",
+		commitModelSearchPlaceholder: "Search: type provider/model",
+		commitModelCurrent: "Current: {route}",
+		commitModelInvalid: "use the provider/model form",
+		commitModelUnavailable: "this deployment exposes no model service; only following is possible",
+		commitModelEmpty: "No models discovered (type provider/model above instead)",
+		commitModelDefaultNote: "default",
+		commitModelRecentNote: "used here",
+		push: "Push",
+		pull: "Pull",
+		pushError: "Push failed",
+		pullError: "Pull failed",
 		branch: "Branch",
 		worktree: "Worktree",
 		checkoutError: "Branch switch failed",
 		history: "History",
-		changes: "Changes",
+		changes: "Git",
 		changesGitLens: "Git",
+		graphAllBranches: "All branches",
+		graphBranchFilter: "Branch filter",
+		graphEmpty: "No commits",
+		graphLoadError: "Failed to load commit history",
+		graphStale: "History has changed. Refresh to continue.",
+		graphDetails: "Commit details",
+		graphParents: "Parents",
+		graphLoadMore: "Load more",
 		changesSessionLens: "Session",
 		changesFilterAll: "All",
 		changesFilterEmpty: "No operations of this kind",
 		changesOpenDiffTab: "Open in a diff tab",
+		changesDiffTab: "Diff",
+		changesContentTab: "Content",
+		changesNoCommit: "No commit selected",
+		changesNoContent: "Nothing to show here",
+		changesReadNoDiff: "A read has no diff",
 		changesClosePreview: "Close preview",
 		changesResizePreview: "Resize preview",
 		changesLoadError: "Session file records are unavailable right now",
@@ -7889,7 +13971,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		diffDeleted: "Deleted",
 		diffRenamed: "Renamed",
 		diffExpand: "Expand {count} more rows",
-		diffCollapse: "Collapse",
 		discard: "Discard changes",
 		discardTitle: "Discard changes",
 		discardDesc: "This discards the worktree changes of \"{path}\" (not recoverable).",
@@ -7908,21 +13989,16 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		timeHoursAgo: "{n} h ago",
 		timeYesterday: "yesterday",
 		loadMore: "Load more",
-		historyLoadError: "Failed to load more history",
 		produced: "Produced",
-		producedOpen: "Open in sidebar",
 		showInFolder: "Show in folder",
 		disconnected: "Terminal disconnected, reconnecting…",
 		exited: "Terminal process exited",
 		noSession: "Select a conversation to use the sidebar",
 		pluginNotLoaded: "Plugin not loaded; tab unavailable:",
-		hiddenFiles: "Hidden files",
 		parent: "Parent directory",
 		copied: "Copied",
 		copy: "Copy",
-		newFile: "New file",
 		openEditor: "Open editor",
-		gitDetail: "View change details",
 		referenceFile: "@file",
 		addToConversation: "Add to conversation",
 		copyRelative: "Copy relative path",
@@ -7954,34 +14030,18 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsDone: "Done",
 		settingsOpenToolsTitle: "Inject the sidebar-open tool for the model",
 		settingsOpenToolsDesc: "When enabled, the model can actively open files, folders, and HTTP(S) pages in the sidebar through the sidebar_open tool (off by default)",
-		settingsTitleBarTitle: "Position compatibility mode",
-		settingsTitleBarDesc: "Pick the title-bar compatibility scheme: auto-detect (default, conservative) / DSH official web / known desktop shells / custom (shift distance + custom CSS)",
-		settingsTitleBarStripTitle: "Shift distance",
-		settingsTitleBarStripDesc: "Title-bar strip height: how far the sidebar buttons and content move down in px (0–120, default 40; applies under the custom scheme)",
-		settingsSchemeAutoTitle: "Auto-detect",
-		settingsSchemeAutoDesc: "Conservative: only the standard Window Controls Overlay API contributes (real caption-overlay height); plain web environments get no modification",
-		settingsSchemeWebTitle: "DSH official web",
-		settingsSchemeWebDesc: "Explicitly declare the official web UI: no adaptation at all (not even standard WCO geometry)",
-		settingsSchemeCustomTitle: "Custom",
-		settingsSchemeCustomDesc: "Full control: inject custom CSS (can override built-in styles) and set the title-bar shift distance",
-		settingsSchemeDetectedSuffix: "detected",
 		settingsCustomCssTitle: "Custom CSS",
-		settingsCustomCssDesc: "Styles appended at the end of the page (later in the cascade wins ties; use !important to override JS-written inline variables)",
-		settingsCustomCssPlaceholder: "/* e.g. reserve 36px for a shell with a custom-drawn title bar */\nhtml[data-dsh-title-bar-height=\"36\"] {\n  --dsh-title-bar-strip: 36px !important;\n}",
+		settingsCustomCssPlaceholder: "/* e.g. switch the bottom workbench to the monospace font */\n[data-dsh-bottom-panel] {\n  font-family: var(--dsw-font-mono);\n}",
 		settingsSaveFailed: "Failed to save",
 		settingsConflict: "The setting changed in another window — please retry",
 		binaryNoPreview: "This file type cannot be previewed",
 		downloadToView: "Download to view",
 		settingsSubagentTitle: "Auto-activate the Tasks page when a subagent appears",
-		settingsSubagentDesc: "Activate the Tasks page when the current conversation spawns a new subagent; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to open it manually",
+		settingsSubagentDesc: "When the current conversation spawns a new subagent, create the Tasks page in the side card and mark it with an unread dot; a side card already expanded on another page is left alone instead of being taken over — click the dot to go there; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to stop creating it automatically",
 		settingsJobsTitle: "Auto-activate the Tasks page on a new background job",
-		settingsJobsDesc: "Activate the Tasks page whenever a new background job appears for the current conversation (every new job triggers); wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to open it manually",
+		settingsJobsDesc: "Whenever a new background job appears for the current conversation, create the Tasks page in the side card and mark it with an unread dot (every new job triggers); a side card already expanded on another page is left alone instead of being taken over — click the dot to go there; wide viewports also expand the side card, while narrow full-screen drawers are not forced open; turn off to stop creating it automatically",
 		settingsToolsTitle: "Inject terminal tools for the model",
 		settingsToolsDesc: "When enabled, the model can create and drive sidebar terminals through the 8 terminal_* tools (off by default)",
-		settingsFenceTitle: "Workspace path fence",
-		settingsFenceDesc: "On, the sidebar's file features only reach paths inside the session workspace (default); off, any file on the host is reachable — page scripts gain the same reach while it is off",
-		fenceErrorReason: "This path is outside the session workspace and was blocked by the workspace fence",
-		fenceDisableAction: "Turn off the workspace fence",
 		settingsBottomTerminalTitle: "Auto-open a terminal on the bottom panel's first expansion",
 		settingsBottomTerminalDesc: "When the bottom panel is expanded for the first time in a session, try to open a fresh terminal tab there (the terminal quota still applies; on by default)",
 		settingsFontFamilyTitle: "Terminal font family",
@@ -7995,18 +14055,20 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsShellArgsDesc: "Explicit shell arguments, space-separated; when non-empty they fully replace the defaults (same contract as the yaml shellArgs)",
 		settingsShellArgsPlaceholder: "e.g. -l (empty = defaults)",
 		settingsFontSizeDesc: "Terminal font size in px (9–32, default 13)",
-		settingsFontSizeSuffix: "px",
 		settingsTabsTitle: "Sidebar content",
 		settingsViewersTitle: "File viewers",
+		settingsMobileTitle: "Mobile",
+		settingsMobileNoAutoOpenTitle: "Don't auto-open on narrow screens",
+		settingsMobileNoAutoOpenDesc: "On a phone / narrow viewport, a new subagent or background job no longer switches to the Tasks page by itself (you can still open it by hand)",
+		settingsMobileTreeTitle: "Default the Tasks page to the tree",
+		settingsMobileTreeDesc: "On a phone / narrow viewport the Tasks page opens as the classic tree instead of the workflow graph; the in-page toggle still switches it ad hoc",
 		settingsGeneralTitle: "General",
 		settingsPopup: "Feature settings",
 		settingsViewerCatchAll: "Catch-all: any file",
-		viewerImage: "Image",
-		viewerPdf: "PDF",
 		viewerMarkdown: "Markdown",
 		viewerCode: "Code",
-		viewerBinary: "Binary download",
 		viewerHtml: "HTML",
+		viewerJsonl: "JSONL",
 		browser: "Browser",
 		browserPlaceholder: "Enter a URL, e.g. example.com",
 		browserGo: "Go",
@@ -8016,7 +14078,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		browserBlockedScheme: "Blocked: only http/https URLs are allowed",
 		browserBlockedLoopback: "Blocked: local and internal addresses cannot be browsed here",
 		browserInvalid: "Invalid URL",
-		browserNoSandboxWarning: "Sandbox off: the current page runs with full GUI privileges (re-enable in settings)",
 		htmlNoSandboxWarning: "Sandbox off: this HTML runs with full GUI privileges (re-enable in settings)",
 		sandboxStatusOn: "Sandbox mode: on · pages cannot access the GUI's data or local files; logins and third-party cookies may not work",
 		sandboxUnlock: "Temporarily disable (unsafe)",
@@ -8025,14 +14086,10 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		settingsHtmlDefaultUnsafeDesc: "When on, every newly opened HTML preview starts in the unsandboxed state (same origin as the GUI — it can read session files and internal APIs); the status row still offers a one-tap restore",
 		settingsHtmlSandboxTitle: "Disable HTML preview sandbox (unsafe)",
 		settingsHtmlSandboxDesc: "With the sandbox off, previewed HTML runs with the same origin as the GUI: it can read session files, local storage and call internal APIs. Only enable for fully trusted files",
+		settingsEditorGitGutterTitle: "Editor uncommitted-change markers",
+		settingsEditorGitGutterDesc: "Tint the line-number gutter of the code editor for uncommitted changes and show that line's blame (author, time and commit summary) on hover; off hides every marker",
 		settingsBrowserSandboxTitle: "Disable browser sandbox (unsafe)",
 		settingsBrowserSandboxDesc: "With the sandbox off, any visited site runs with the same origin as the GUI: it can read session data and act as your logged-in session. Only enable for fully trusted sites",
-		settingsBrowserLinksTitle: "Open chat external links in the sidebar",
-		settingsBrowserLinksDesc: "When on, clicking an external link in the chat or GUI opens the sidebar instead of a new window; HTTP and HTTPS are controlled separately by the switches below; Ctrl/Cmd+click always bypasses",
-		settingsBrowserHttpTitle: "Open HTTP pages in the sidebar",
-		settingsBrowserHttpDesc: "When on, clicking an HTTP external link in the chat or GUI opens the sidebar (plugin pages declaring urlTarget win); Ctrl/Cmd+click always bypasses",
-		settingsBrowserHttpsTitle: "Open HTTPS pages in the sidebar",
-		settingsBrowserHttpsDesc: "When on, clicking an HTTPS external link in the chat or GUI opens the sidebar. Off by default: most HTTPS sites refuse to be embedded, so the system browser is the smoother default",
 		settingsBrowserLoopbackTitle: "Allowed local addresses",
 		settingsBrowserLoopbackDesc: "Comma-separated allowlist of loopback addresses (e.g. localhost:5174 or 127.0.0.1:8080) the sidebar browser may visit; empty blocks all local addresses by default. The sandbox still applies — pages cannot read GUI data",
 		settingsBrowserLoopbackPlaceholder: "e.g. localhost:5174, 127.0.0.1:8080",
@@ -8041,19 +14098,14 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		browserEmbedBlockedDesc: "The site forbids being displayed inside other pages (X-Frame-Options / frame-ancestors), so it cannot load in the sidebar. Open it directly in your browser instead.",
 		browserEmbedAnyway: "Load anyway",
 		subagent: "Tasks",
-		openSubagent: "Tasks",
 		subagentMainAgent: "Main agent",
 		subagentEmpty: "No subagents",
 		subagentEmptyDesc: "Subagents spawned under the main agent will appear here",
-		subagentRunning: "Running",
 		subagentInactive: "Inactive",
 		subagentModeOneShot: "One-shot",
 		subagentModeContinuable: "Continuable",
 		subagentCount: "{count} subagents",
 		subagentCountRunning: "{count} subagents · {running} running",
-		subagentDiagCorrupt: "Corrupt",
-		subagentDiagUnsupported: "Unsupported",
-		subagentDiagUnavailable: "Unavailable",
 		subagentThinking: "Thinking…",
 		sideChat: "Side Chat (beta)",
 		sideChatNew: "New thread",
@@ -8065,19 +14117,25 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		sideChatThreads: "Switch thread / new",
 		sideChatSave: "Save as new session",
 		sideChatSaveTitle: "Promote this thread to a top-level session in the main session list",
+		sideChatArchive: "Archive this side conversation (find it again via “Show archived” in the session list)",
+		sideChatArchiveRunning: "This thread is running — stop it before archiving",
 		sideChatSaved: "Saved as a new session",
 		sideChatNoTurn: "Save is available after the first completed turn",
 		sideChatPendingDrop: "The last unanswered follow-up will not be included in the saved session",
+		sideChatQueued: "Queued",
+		sideChatSending: "Sending…",
+		sideChatDequeue: "Remove from the queue",
+		sideChatRunError: "Run failed: {message}",
+		sideChatModel: "Model",
+		sideChatModelInherit: "Inherit the main conversation (no model catalog available)",
+		sideChatReasoning: "Reasoning effort",
 		sideChatFirstPlaceholder: "Ask the first question — context inherited…",
 		sideChatComposerPlaceholder: "Ask a follow-up…",
 		sideChatThinking: "Deep diving…",
 		sideChatThink: "Thinking",
 		sideChatInjection: "Context injected",
 		sideChatSend: "Send",
-		sideChatCancel: "Stop",
 		sideChatCancelTitle: "Abort the running turn (queued work is kept)",
-		sideChatClose: "Close thread",
-		sideChatCloseTitle: "Release the thread's agent (history is kept)",
 		sideChatError: "Side Chat error: {message}",
 		sideChatTurnUsage: "Input {input} tok · Output {output} tok",
 		sideChatBlockCollapse: "Collapse",
@@ -8086,14 +14144,17 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		sideChatBlockExpandAria: "Expand {hidden} more lines",
 		sideChatBlockSignal: "Killed by signal: {signal}",
 		sideChatBlockExitCode: "Exit code {code}",
+		sideChatBlockNoExitCode: "Ended without an exit code",
 		sideChatBlockRunning: "Running",
 		sideChatBlockFailed: "Failed",
 		sideChatBlockDone: "Done",
 		sideChatBlockNoOutput: "(no output)",
-		sideChatBlockFiles: "{count} files",
+		sideChatBlockCommandLine: "Command line {line}",
+		codeBlockTitle: "Code block",
+		codeBlockWrap: "Wrap lines",
+		codeBlockUnwrap: "Do not wrap lines",
 		sideChatBlockWindow: "{shown} of {total} lines",
-		sideChatConnDisconnected: "Connection lost",
-		sideChatConnReconnect: "Reconnect",
+		sideChatConnDisconnected: "Disconnected, reconnect now",
 		sideChatConnConnecting: "Reconnecting…",
 		sideChatConnRecovered: "Connection restored",
 		sideChatConnReconnectAction: "Reconnect now",
@@ -8110,7 +14171,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		jobDurationMinutes: "{minutes}m {seconds}s",
 		jobDurationHours: "{hours}h {minutes}m",
 		jobViewOutput: "View output",
-		jobHideOutput: "Hide output",
 		jobNoOutput: "No output yet",
 		jobNotReadYet: "Waiting for the model to read this job; its output appears here once the model runs job_output",
 		jobOutputTruncated: "Output truncated",
@@ -8118,6 +14178,101 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		jobKill: "Kill",
 		jobKillConfirm: "Click again to confirm kill",
 		jobKillError: "Kill failed",
+		tasksViewGraph: "Workflow graph",
+		tasksViewTree: "Tree",
+		tasksViewSwitchToGraph: "Switch to the workflow graph",
+		tasksViewSwitchToTree: "Switch to the tree",
+		settingsViewModeTitle: "Tasks page default view",
+		settingsViewModeDesc: "How the Tasks page renders on open (the in-page toggle still flips it ad hoc)",
+		settingsViewModeGraph: "Workflow graph",
+		settingsViewModeGraphDesc: "Layered node graph with zoom and pan",
+		settingsViewModeTree: "Tree",
+		settingsViewModeTreeDesc: "Classic indentation tree, keyboard navigable",
+		tasksFoldIdleGroup: "{count} waiting",
+		tasksFoldIdle: "Idle {count}",
+		tasksFoldCompleted: "✓ {count} completed",
+		tasksFoldOne: "Fold into completed",
+		tasksFoldExpand: "Expand the completed nodes",
+		tasksFoldCollapse: "Collapse the completed nodes",
+		tasksZoomIn: "Zoom in",
+		tasksZoomOut: "Zoom out",
+		tasksZoomFit: "Fit to canvas",
+		tasksNodeJump: "Open transcript",
+		tasksNodeDetail: "Node detail",
+		workflowRun: "Workflow",
+		tasksNodeState: "State",
+		tasksFoldExpandShort: "Expand",
+		tasksTreeCollapseAll: "Collapse all",
+		tasksTreeExpandAll: "Expand all",
+		tasksTreeCollapseRow: "Collapse children",
+		tasksTreeExpandRow: "Expand children",
+		tasksNodeTokens: "Tokens",
+		tasksNodeDuration: "Duration",
+		tasksNodeOpenMain: "Open in the main window",
+		tasksNodeMode: "Mode",
+		tasksNodeModel: "Model",
+		tasksNodeTeamRole: "Team role",
+		tasksStateRunning: "Running",
+		tasksStateIdle: "Idle",
+		tasksStateProvisioning: "Provisioning",
+		tasksStateDone: "Done",
+		tasksStateError: "Error",
+		tasksKindSubagent: "Subagent",
+		tasksKindTeammate: "Teammate",
+		tasksKindWorkflow: "Workflow",
+		taskWindowCreate: "New task",
+		taskWindowDetail: "Task detail",
+		teamBoard: "Team task board",
+		teamChip: "Team {members} members · {tasks} tasks",
+		teamTasksEmpty: "No shared tasks yet",
+		teamTaskCreate: "New task",
+		teamTaskSubject: "Subject",
+		teamTaskDescription: "Description",
+		teamTaskOwner: "Owner",
+		teamTaskUnowned: "Unclaimed",
+		teamTaskPending: "Pending",
+		teamTaskInProgress: "In progress",
+		teamTaskCompleted: "Completed",
+		teamTaskBlocked: "Blocked",
+		teamTaskClaim: "Claim",
+		teamTaskComplete: "Complete",
+		teamTaskReopen: "Reopen",
+		teamTaskDelete: "Delete",
+		teamTaskDeleteConfirm: "Confirm delete",
+		teamTaskEdit: "Edit",
+		teamTaskSave: "Save",
+		teamTaskCancel: "Cancel",
+		teamTaskConflict: "The task changed elsewhere; refreshed",
+		teamTaskError: "Operation failed: {message}",
+		teamTaskDeleted: "Deleted",
+		teamTaskActions: "Task actions",
+		teamTaskDetail: "Task detail",
+		teamTaskNoDescription: "No description yet — click Edit to add one",
+		teamTaskBlockedBy: "Blocked by",
+		teamTaskSubjectPlaceholder: "One line describing the work",
+		teamTaskDescriptionPlaceholder: "Extra context (optional)",
+		teamFilterAll: "All",
+		tasksNodeTasks: "Shared tasks",
+		jobCopyOutput: "Copy output",
+		jobCopied: "Copied",
+		jobFollowTail: "Follow latest",
+		jobDragHint: "Drag to move",
+		workflowRunning: "Running",
+		workflowCompleted: "Completed",
+		workflowCancelled: "Cancelled",
+		workflowFailed: "Failed",
+		workflowPhaseUnnamed: "Unnamed phase",
+		workflowMembers: "{done}/{total} members",
+		jobsAutoCollapsed: "Auto-collapsed (many agents)",
+		contextDiagnostics: "Context diagnostics",
+		contextDiagnosticsTarget: "Current session",
+		contextDiagnosticsFailed: "Could not open Context diagnostics for \"{label}\"",
+		contextDiagnosticsUnavailable: "The dsh-context \"Context\" page is unavailable (not installed or not registered)",
+		contextDiagnosticsNavigation: "Could not locate that conversation",
+		contextDiagnosticsTimeout: "Opening timed out — try again",
+		contextDiagnosticsOpenFailed: "The page could not be opened",
+		contextDiagnosticsDismiss: "Dismiss",
+		catalogLoadFailed: "{count} branches failed to load",
 		addPluginsTabCard: "Add tab plugins",
 		addPluginsTabCardDesc: "Register a new sidebar page",
 		addPluginsViewerCard: "Add preview plugins",
@@ -8132,44 +14287,56 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		openPlugin: "Open",
 		copyInstall: "Copy install command",
 		pluginMdExportDesc: "Adds an \"Export\" button to the Markdown toolbar in better-sidebar: one click renders the current .md into standalone HTML (tables / code blocks / Mermaid diagrams inlined, layout follows the preview theme) and saves it next to the .md, or exports to PDF via the print dialog",
+		pluginAgentPersonaDesc: "System-prompt personas by workspace or session: one persona can cover several workspace directories and several sessions, matched exactly, by prefix, by substring or by regex, most specific wins, and one persona can be marked as the default; managed from a settings page and a 「人设」tab on the conversation, effective on the next message",
 		pluginOfficeDesc: "Office-suite preview (.docx / .xlsx / .pptx) for the better-sidebar editor, keeping the heavy Office render libraries out of the core bundle",
 		pluginFlowglassDesc: "Live session flowgraph with three lanes for user, assistant, and tool calls, plus parallel groups, sub-agent branches, drill-down, and live status; registers a native Flowglass tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
 		pluginGitForgeDesc: "Git Forge tab: GitHub/Gitea (and other forge) account library + per-project grants + hard push policy; tokens stay in local secrets (never in model context); read-only GitForge tool and agent HTTPS credential helper",
 		pluginGithubWorkbenchDesc: "GitHub Workbench tab: remote repo tree + Issues / Pull requests / Actions with full write support — create Issue/PR, comment, edit, close/reopen, squash·merge·rebase merge (strong confirm), re-run/cancel CI; the repo switcher auto-lists accessible repos and searches public ones; falls back to a standalone right-side panel without better-sidebar",
-		pluginGitRemotesDesc: "Git Remotes tab: branch/upstream/ahead-behind, fetch (optional prune), ff-only pull, and push only after an in-tab confirm. Does not replace the built-in Git stage/commit tab, and does not offer force-push or a model auto-push tool",
+		pluginIdeGitDesc: "Git tab for better-sidebar: branch tree (ahead/behind badges, worktree marker), commit graph with text/branch/author/date/path filters, per-file line diff, changes and commit box, plus merge, rebase, cherry-pick, reset, stash and tags; destructive actions confirm first and deletes or discards can be undone. Without better-sidebar it registers into the DSH right sidebar instead, so it works on its own",
 		pluginServerDeckDesc: "Server card dashboard: one card per host showing online status, OS, uptime and CPU/mem/disk usage with latency; click a card to open an interactive xterm.js terminal; one-click ~/.ssh/config import (git-hosting aliases auto-skipped). Registers a native \"Servers\" tab when better-sidebar is installed and keeps its standalone drawer as a fallback",
 		pluginSentinelDesc: "Condition-driven agent wakeup: file/process/port/http/command/webhook sensors wake dormant sessions when conditions fire; registers a \"Sentinel\" tab with the server-wide watch table",
 		pluginSidebarQaDesc: "Select-and-ask: Select conversation text → ask in the right-side panel → a dedicated follow-up session (❓追问) in the same workspace; a fast no-thinking model compresses the main context and injects it with the quote, without interrupting the main conversation. Follow-ups nest, continue, and archive",
 		pluginSidenoteDesc: "Codex-style side chat + selection annotations: fork the current session into a persistent side panel (archived out of the session list, multi-instance, /side command, survives reload, model follows the main session); select assistant text → numbered badge + note editor → an \"N annotations\" chip that rides your next message, or ask straight into a side chat",
 		pluginSshTunnelDesc: "SSH Tunnel tab: multi-host inventory + per-project grants + local secrets; SSHManager tool (exec/SFTP/session strategies); center interactive terminal and dual-pane SFTP",
 		pluginSuhuangScrollDesc: "Connect the local Suhuang Scroll Runtime to DSH settings and better-sidebar for model configuration, connection tests, and continuous grading controls; requires Suhuang Scroll Runtime and dsh-better-sidebar",
-		pluginTurnReviewDesc: "A human gate on the just-finished turn: Approve / Request changes per path with an optional comment; paths grouped by main session / subagent / unattributed; inline snapshot-vs-now diff before you decide. No fork, no /rewind",
-		pluginVideoPreviewDesc: "Inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) for the better-sidebar editor, backed by a dedicated /video host route with HTTP Range (206) support — scrubbing works and files are not capped by the 20MB mediaLimit",
+		pluginVideoPreviewDesc: "Inline video preview (.mp4/.webm/.mov/.mkv/.avi etc.) for the better-sidebar editor, backed by a dedicated /video host route with HTTP Range (206) support — scrubbing works and playback starts before the whole file is fetched",
+		pluginAudioDesc: "Inline audio preview (.mp3/.wav/.flac/.ogg/.m4a/.aac/.opus) for the better-sidebar editor: a zoomable waveform player (click/drag seek, A-B loop, channel switch) plus a live spectrum and a whole-file spectrogram — its own media route supports HTTP Range, so any size seeks",
 		pluginCodeNavDesc: "Code preview navigator: detects the language by file type and highlights syntax, symbol outline (class / method / variable filters + one-click jump), and in-file search (highlight all matches, prev/next, match case) — takes over code file preview in the better-sidebar editor",
+		pluginDevGitGraphDesc: "A vscode-git-graph-faithful commit-graph tab: mounts as a better-sidebar native tab auto-bound to the session workspace, with the full git toolset (checkout/merge/rebase/push/tag/stash), light/dark theme tracking, and click-a-file diff via the built-in DiffTab; requires dsh-better-sidebar installed first",
 		pluginDocsPanelDesc: "Global docs in the DSH sidebar: read your own Markdown notes from any workspace — a file list, an outline, open in Chrome / VS Code, and copy buttons; the docs directory is configurable (default ~/.dsh/docs)",
+		pluginTylinaDesc: "A Typst document editor sharing the current session workspace, with WYSIWYG typesetting for papers, reports, exams, resumes, charts, posters, sheet music, and slides exported as PPTX",
 		pluginEgoBrowserDesc: "The agent browser for DeepSeek Harness: 32 ego_* tools drive a real Chromium, with a native sidebar \"ego browser\" tab giving a live view of every page the agent visits — you can click, drag, and type to take over. Registers the tab automatically when better-sidebar is present, otherwise falls back to a floating bubble",
 		pluginBetterOverleafDesc: "Overleaf tab for better-sidebar: direct-CDP browser login (third-party Chromium supported), project list/switch, local git mirrors under <workspace>/overleaf/, two-way git sync with read-only API fallback, and file preview through the sidebar workbench",
 		pluginBilingualReaderDesc: "Read paper PDFs in the DSH sidebar: native PDF rendering, select text to translate it with the LLM, using context while staying fully isolated from the main conversation — a reading aid only",
+		pluginDshMemoryDeltaDesc: "Cross-session memory that injects only what changed — nothing at all when nothing changed — with review-date reminders, relevance-ranked search and a sidebar tab.",
+		pluginAgentPersonaName: "dsh-agent-persona Personas",
 		pluginSentinelName: "dsh-sentinel Wake-up System",
+		pluginFileTraceName: "dsh-file-trace File Tracing",
+		pluginFileTraceDesc: "Records every file the model reads, writes, or edits; grouped list with content and line diffs, Markdown reading mode and secret redaction; standalone floating window without better-sidebar",
+		pluginMnemeName: "dsh-mneme Memory Library",
+		pluginMnemeDesc: "Cross-session memory engine: autoDream background consolidation, session summarization and user profile; SQLite + human-editable Markdown mirrors, fully offline and private. Registers a \"Memory Library\" tab (memories/entities/status/settings views) when better-sidebar is present and keeps its standalone sidebar panel as a fallback",
 		pluginEgoBrowserName: "ego-browser Agent Browser",
 		pluginBetterOverleafName: "dsh-better-overleaf Overleaf Tab",
 		pluginDocsPanelName: "dsh-docs-panel Global Docs",
+		pluginTylinaName: "dsh-tylina Typst Document Editor",
 		pluginFlowglassName: "dsh-flowglass Flowglass",
 		pluginGitForgeName: "dsh-git-forge Git Credentials",
-		pluginGitRemotesName: "dsh-git-remotes Git Remotes",
 		pluginGithubWorkbenchName: "dsh-github-workbench GitHub Workbench",
+		pluginIdeGitName: "dsh-ide-git Git Tool Window",
 		pluginSidebarQaName: "dsh-sidebar-qa Select & Ask",
 		pluginSidenoteName: "dsh-sidenote Side Chat",
 		pluginServerDeckName: "dsh-server-deck Server Deck",
 		pluginSuhuangScrollName: "dsh-suhuang-scroll Suhuang Scroll",
 		pluginSshTunnelName: "dsh-ssh-tunnel SSH Tunnel",
-		pluginTurnReviewName: "dsh-turn-review Turn Review",
 		pluginBilingualReaderName: "dsh-bilingual-reader Bilingual Reader",
 		pluginOfficeName: "Office Preview",
 		pluginMdExportName: "Markdown Export",
 		pluginCodeNavName: "Code Preview Navigator",
 		pluginVideoPreviewName: "Video Preview",
-		presetDshDesktopDesc: "Electron advanced (frameless) mode: macOS reserves a 20px top strip; Windows reserves a 32px title bar when WCO is unavailable"
+		pluginAudioName: "Audio Preview",
+		pluginTurnOutlineName: "dsh-turn-outline Turn Outline",
+		pluginTurnOutlineDesc: "Fold the session into user turns (input + tool steps + output) and click any step to jump back to its exact spot in the conversation — no LLM calls, read-only",
+		pluginDshMemoryDeltaName: "dsh-memory-delta Memory"
 	};
 	/**
 	* The active locale id ('zh' | 'en'): the DSH locale service's snapshot when
@@ -8185,371 +14352,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		if (text === void 0) text = key;
 		if (params !== void 0) for (const [name, value] of Object.entries(params)) text = text.replaceAll(`{${name}}`, String(value));
 		return text;
-	}
-	//#endregion
-	//#region src/client/one-dark-palette.ts
-	/**
-	* The single source for the syntax color families the app's code surfaces
-	* use: one-dark for the dark scheme, one-light for the light scheme. Two
-	* lazy-chunk consumers assemble their theme objects from these constants —
-	* the terminal's curated ANSI 16 (TerminalView.tsx) and CodeMirror's
-	* highlight rules (cm-themes.ts) — so a family color is defined exactly
-	* once and the two views can never drift apart.
-	*
-	* The palette holds only the syntax hues; surface colors (background,
-	* foreground, caret, gutter) are theme-token driven and selection tints /
-	* token-fallback colors stay with their consumers (they are not part of
-	* the designed syntax families).
-	*
-	* Chunk boundary: this module is inlined into BOTH lazy chunks that import
-	* it (terminal and editor) — the constants are plain strings, the per-chunk
-	* copy is a few hundred bytes, and no cross-chunk import is introduced. The
-	* core bundle does not (and must not) import this module.
-	*/
-	/** one-dark family (dark scheme) syntax hues. */
-	const ONE_DARK = {
-		/** Editor-background tone; ANSI black. */
-		black: "#282c34",
-		/** Default foreground gray; ANSI white. */
-		gray: "#abb2bf",
-		/** Comment gray; ANSI bright black. */
-		faintGray: "#5c6370",
-		/** Pure white; ANSI bright white and the invalid-token color. */
-		white: "#ffffff",
-		red: "#e06c75",
-		green: "#98c379",
-		yellow: "#e5c07b",
-		blue: "#61afef",
-		magenta: "#c678dd",
-		cyan: "#56b6c2",
-		/** Numbers, bools, atoms, attribute names. */
-		orange: "#d19a66"
-	};
-	/** one-light family (light scheme) syntax hues. */
-	const ONE_LIGHT = {
-		/** Foreground dark; ANSI black and the operator color. */
-		black: "#383a42",
-		/** Comment gray; ANSI white. */
-		gray: "#a0a1a7",
-		/** ANSI bright black. */
-		faintGray: "#4f525e",
-		/** Pure white; the invalid-token color (stays white in light for contrast). */
-		white: "#ffffff",
-		/** Off-white; ANSI bright white. */
-		offWhite: "#fafafa",
-		red: "#e45649",
-		green: "#50a14f",
-		yellow: "#c18401",
-		blue: "#0184bc",
-		magenta: "#a626a4",
-		cyan: "#0997b3",
-		/** Numbers and attribute names. */
-		orange: "#986801",
-		/** Markdown links — the light family's dedicated link blue (dark rides blue). */
-		link: "#4078f2"
-	};
-	//#endregion
-	//#region src/client/open-when-sized.ts
-	/**
-	* Deferred one-shot open for hosts that may not have a real size yet.
-	*
-	* xterm's `Terminal.open()` must not run in a zero-size container: the
-	* renderer creation fails there (the DomRenderer is built from the host's
-	* dimensions), leaving the render service's renderer `undefined`, and the
-	* next Viewport refresh crashes reading `.dimensions` off it. WebKit-based
-	* hosts (WKWebView) reliably report zero while the bottom panel's expand
-	* slide is in flight; any `display:none`-hidden ancestor does the same.
-	*
-	* The caller's `open` callback (open + fit + resize) is invoked exactly
-	* once, on the first frame where the host reports a real size. While the
-	* host stays zero-sized the polling continues every frame; it stops when
-	* the host leaves the document (`isConnected`), so a pending open never
-	* fires after unmount. The returned cancel function drops a pending frame
-	* immediately (idempotent).
-	*
-	* `raf`/`caf` are injectable so tests can drive the polling deterministically.
-	*/
-	function openWhenSized(host, open, raf = requestAnimationFrame, caf = cancelAnimationFrame) {
-		let frame = null;
-		const step = () => {
-			frame = null;
-			if (!host.isConnected) return;
-			if (host.clientWidth > 0 && host.clientHeight > 0) {
-				open();
-				return;
-			}
-			frame = raf(step);
-		};
-		frame = raf(step);
-		return () => {
-			if (frame !== null) {
-				caf(frame);
-				frame = null;
-			}
-		};
-	}
-	//#endregion
-	//#region src/client/api.ts
-	/** One wire failure. */
-	var SidebarApiError = class extends Error {
-		code;
-		constructor(code, message) {
-			super(message);
-			this.code = code;
-		}
-	};
-	/**
-	* Parse one `/sidebar` JSON response envelope into its value. A non-ok
-	* status, an unparseable body, or any shape other than `{ok: true, value}`
-	* surfaces as {@link SidebarApiError} carrying the wire code (falling back
-	* to the HTTP status). Shared by the JSON api route and the raw upload
-	* route, whose envelopes are identical.
-	*/
-	async function readEnvelope(response) {
-		const parsed = await response.json().catch(() => null);
-		if (!response.ok || parsed === null || parsed.ok !== true || parsed.value === void 0) throw new SidebarApiError(parsed?.error?.code ?? "http", parsed?.error?.message ?? `HTTP ${response.status}`);
-		return parsed.value;
-	}
-	async function call(method, payload, signal) {
-		let response;
-		try {
-			response = await fetch(`/sidebar/api/${method}`, {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload),
-				signal
-			});
-		} catch (error) {
-			throw new SidebarApiError("network", error instanceof Error ? error.message : String(error));
-		}
-		return readEnvelope(response);
-	}
-	/**
-	* Upload one file to the sidebar's raw upload route: the File goes straight
-	* into the POST body (no JSON/base64 re-encoding — the host streams it into
-	* the workspace). Failure surfaces as {@link SidebarApiError} with the wire
-	* code, exactly like every `/sidebar/api` call. An aborted `signal` rejects
-	* with the DOMException as-is (the caller decides whether that is an error).
-	*/
-	async function fetchUpload(scope, dir, relativePath, body, signal) {
-		const params = new URLSearchParams({
-			sessionId: scope.sessionId,
-			dir,
-			relativePath
-		});
-		if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
-		let response;
-		try {
-			response = await fetch(`/sidebar/upload?${params.toString()}`, {
-				method: "POST",
-				headers: { "content-type": "application/octet-stream" },
-				body,
-				signal
-			});
-		} catch (error) {
-			if (error instanceof DOMException && error.name === "AbortError") throw error;
-			throw new SidebarApiError("network", error instanceof Error ? error.message : String(error));
-		}
-		return readEnvelope(response);
-	}
-	/** Fold a scope into a JSON payload ({cwd} only when present). */
-	function scopePayload(scope, extra) {
-		return {
-			sessionId: scope.sessionId,
-			...scope.cwd !== void 0 && scope.cwd !== "" ? { cwd: scope.cwd } : {},
-			...scope.repoRoot !== void 0 && scope.repoRoot !== "" ? { repoRoot: scope.repoRoot } : {},
-			...extra
-		};
-	}
-	/** Add a linked-worktree selection to a scoped Git request. The host validates
-	* membership before using it as a command cwd. */
-	function gitPayload(scope, worktree, extra) {
-		return scopePayload(scope, {
-			...worktree !== void 0 && worktree !== "" ? { worktree } : {},
-			...extra
-		});
-	}
-	/**
-	* Remote VSCode-family URLs must be consumed on the browser/client machine:
-	* the DSH host can be a headless remote server with no editor or DISPLAY.
-	* Local editor URLs and reveal actions still belong to the host opener.
-	*/
-	function shouldOpenExternalOnClient(payload) {
-		if (payload.action !== "url") return false;
-		let parsed;
-		try {
-			parsed = new URL(payload.url);
-		} catch {
-			return false;
-		}
-		return parsed.protocol !== "http:" && parsed.protocol !== "https:" && parsed.hostname === "vscode-remote" && parsed.pathname.startsWith("/ssh-remote+");
-	}
-	/**
-	* Dispatch an external-open request to the correct machine. SSH remote-editor
-	* URLs stay in the synchronous user-click chain and navigate the client so
-	* its registered vscode:// / cursor:// handler can launch. Everything else
-	* keeps using the DSH host route.
-	*/
-	function openExternal(payload) {
-		if (!shouldOpenExternalOnClient(payload)) return call("open.external", payload);
-		try {
-			window.location.assign(payload.url);
-			return Promise.resolve({ started: true });
-		} catch (error) {
-			return Promise.reject(error);
-		}
-	}
-	/** The sidebar API surface (session scope threaded through every call). */
-	const api = {
-		sessionCwd: (scope, signal) => call("session.cwd", scopePayload(scope, {}), signal),
-		fsTree: (scope, path, signal) => call("fs.tree", scopePayload(scope, { path }), signal),
-		/** Global recursive file-name search rooted at the session cwd (the editor
-		*  side panel's search box); matches are cwd-relative '/'-separated paths. */
-		fsSearch: (scope, query, signal) => call("fs.search", scopePayload(scope, { query }), signal),
-		fsRead: (scope, path, signal) => call("fs.read", scopePayload(scope, { path }), signal),
-		fsWrite: (scope, path, content) => call("fs.write", scopePayload(scope, {
-			path,
-			content
-		})),
-		/** Rename one tree row within its directory (single-segment name; the
-		*  server refuses existing destinations, the workspace root, and — while
-		*  the fence is armed — anything resolving outside the workspace). */
-		fsRename: (scope, path, name) => call("fs.rename", scopePayload(scope, {
-			path,
-			name
-		})),
-		/** Permanently delete one tree row (recursive for directories; a symlink
-		*  row unlinks the link only). The UI confirms before calling this. */
-		fsRemove: (scope, path) => call("fs.remove", scopePayload(scope, { path })),
-		/** Upload one file's raw bytes into `dir` (keeps the folder tree via
-		*  `relativePath`); the host streams it under the session workspace. */
-		uploadFile: (scope, dir, relativePath, body, signal) => fetchUpload(scope, dir, relativePath, body, signal),
-		gitWorktrees: (scope, signal) => call("git.worktrees", scopePayload(scope, {}), signal),
-		gitStatus: (scope, worktree, signal) => call("git.status", gitPayload(scope, worktree, {}), signal),
-		gitDiff: (scope, path, staged, worktree, signal) => call("git.diff", gitPayload(scope, worktree, {
-			...path !== void 0 ? { path } : {},
-			staged
-		}), signal),
-		gitStage: (scope, path, worktree) => call("git.stage", gitPayload(scope, worktree, { ...path !== void 0 ? { path } : {} })),
-		gitUnstage: (scope, path, worktree) => call("git.unstage", gitPayload(scope, worktree, { ...path !== void 0 ? { path } : {} })),
-		gitCommit: (scope, message, worktree) => call("git.commit", gitPayload(scope, worktree, { message })),
-		gitBranch: (scope, worktree, signal) => call("git.branch", gitPayload(scope, worktree, {}), signal),
-		gitCheckout: (scope, branch, worktree) => call("git.checkout", gitPayload(scope, worktree, { branch })),
-		/** Recent commit history, lazily pageable (skip/count; defaults 0/30). */
-		gitLog: (scope, count, skip, worktree, signal) => call("git.log", gitPayload(scope, worktree, {
-			...count !== void 0 ? { count } : {},
-			...skip !== void 0 ? { skip } : {}
-		}), signal),
-		/** Full patch text of one commit (diff display for the history rows). */
-		gitCommitDiff: (scope, hash, worktree, signal) => call("git.commit-diff", gitPayload(scope, worktree, { hash }), signal),
-		/** One file's content at a revision (`git show <rev>:<path>`); null when the
-		*  revision has no such path. The diff views' on-demand hunk-fold expansion
-		*  reads both sides' full contents through this. */
-		gitShow: (scope, rev, path, worktree, signal) => call("git.show", gitPayload(scope, worktree, {
-			rev,
-			path
-		}), signal),
-		/** The session's file-tool events for the changes tab's session lens: the
-		*  `tool/call` + `tool/result` rows past `afterSeq` (0 = whole window),
-		*  capped to the recent window host-side. The client runtime exposes no
-		*  event-log face, so the lens polls this delta route. */
-		changesOps: (scope, afterSeq, signal) => call("changes.ops", scopePayload(scope, { ...afterSeq !== void 0 && afterSeq > 0 ? { afterSeq } : {} }), signal),
-		/** Discard the worktree changes of one file (the index is untouched). */
-		gitDiscard: (scope, path, worktree) => call("git.discard", gitPayload(scope, worktree, { path })),
-		/** Revert one commit onto the current branch. */
-		gitRevert: (scope, hash, worktree) => call("git.revert", gitPayload(scope, worktree, { hash })),
-		/** Cherry-pick one commit onto the current branch. */
-		gitCherryPick: (scope, hash, worktree) => call("git.cherry-pick", gitPayload(scope, worktree, { hash })),
-		/** Release a terminal's process immediately (tab closed; the WS close frame
-		*  may be unreachable while the socket is down, so the host also accepts
-		*  this explicit route). */
-		ptyClose: (scope, tab) => call("pty.close", scopePayload(scope, { tab })),
-		/** Release an agent terminal by uuid (tab closed while WS was down). */
-		agentPtyClose: (uuid) => call("agent-pty.close", { uuid }),
-		/** Skip every active terminal_wait_for on one agent terminal (the wait
-		*  banner's skip button). Idempotent: {skipped:0} when none is active. */
-		agentSkipWait: (uuid) => call("agent-pty.skip-wait", { uuid }),
-		/** Terminal dependency status (issue #140): after a WS close 1011 with
-		*  reason `pty-deps-missing` the view fetches the full repair details here
-		*  (the close reason itself is capped at 123 bytes). */
-		terminalDeps: () => call("terminal.deps", {}),
-		/**
-		* The output the model has read so far for one background job (replayed
-		* from the owner session's event log — never the model's job_output
-		* cursor). The scope MUST be the job's OWNER session.
-		*/
-		jobOutput: (scope, id, signal) => call("jobs.output", scopePayload(scope, { id }), signal),
-		/** Request cancellation of one background job (live jobs flip to stopping). */
-		jobKill: (scope, id, reason) => call("jobs.kill", scopePayload(scope, {
-			id,
-			...reason !== void 0 ? { reason } : {}
-		})),
-		/**
-		* One batch live-preview fetch for the whole Subagent tree. The payload is
-		* the already-resolved topology ROOT (not a session scope); the host
-		* enumerates descendants once and folds running children's activity.
-		*/
-		subagentsLive: (rootSessionId, signal) => call("subagents.live", { rootSessionId }, signal),
-		/** Create a Side Chat thread: a child session seeded with the parent's
-		*  full log up to now. Empty question = immediate create (Codex-style):
-		*  the thread opens empty, the first prompt carries the boundary. */
-		sidechatStart: (sessionId, question) => call("sidechat.start", {
-			sessionId,
-			question: question ?? ""
-		}),
-		/** Deliver one follow-up message to a Side Chat thread. */
-		sidechatPrompt: (childId, text) => call("sidechat.prompt", {
-			childId,
-			text
-		}),
-		/** Abort a Side Chat thread's running turn (queued work is preserved). */
-		sidechatCancel: (childId) => call("sidechat.cancel", { childId }),
-		/** Release a Side Chat thread's live agent (history stays persisted). */
-		sidechatDispose: (childId) => call("sidechat.dispose", { childId }),
-		/** Live state + agent identity (provider/model/preset) of a thread. */
-		sidechatInfo: (childId) => call("sidechat.info", { childId }),
-		/** One transcript pull of a Side Chat thread: the thread's OWN events
-		*  (the inherited seed is cut host-side and never crosses the wire).
-		*  `afterSeq` narrows the response to the delta beyond it (poll tail).
-		*  `live` is the thread's in-flight model deltas (DSH 0.1.5 publishes them
-		*  outside the session log) — the CURRENT attempt on every pull, never a
-		*  delta, so the caller replaces its live set instead of appending. */
-		sidechatEvents: (childId, afterSeq, signal) => call("sidechat.events", {
-			childId,
-			...afterSeq !== void 0 ? { afterSeq } : {}
-		}, signal),
-		/** The effective terminal shell and its display name (plugin-global). */
-		shellGet: () => call("shell.get", {}),
-		/** Read the side card preferences (plugin-global, no session scope). */
-		settingsGet: () => call("settings.get", {}),
-		/** Merge a patch into the side card preferences (revision-guarded). */
-		settingsUpdate: (patch, expectedRevision) => call("settings.update", {
-			patch,
-			...expectedRevision !== void 0 ? { expectedRevision } : {}
-		}),
-		/** Probe a URL's response headers (the sidebar browser's embeddability
-		*  check; see the host's browser.probe route). */
-		browserProbe: (url, signal) => call("browser.probe", { url }, signal),
-		/** External open for the file tree's "open with" menu. Remote SSH editor
-		*  URLs are launched on the browser/client machine; reveal and local URLs
-		*  keep using the host's platform opener. */
-		openExternal
-	};
-	/** Clamp one terminal font size into the contract range (shared by schema and client reads). */
-	function clampTerminalFontSize(value) {
-		return Math.min(32, Math.max(9, Math.round(value)));
-	}
-	//#endregion
-	//#region src/client/state.ts
-	/** Prefix marking a tab id as an agent-owned terminal (suffix is the uuid). */
-	const AGENT_TAB_PREFIX = "agent:";
-	/** Whether a tab id refers to an agent-owned terminal. */
-	function isAgentTabId(tabId) {
-		return tabId.startsWith(AGENT_TAB_PREFIX);
-	}
-	/** Extract the agent terminal uuid from an `agent:<uuid>` tab id. */
-	function agentUuidOf(tabId) {
-		return tabId.slice(6);
 	}
 	//#endregion
 	//#region src/client/theme.ts
@@ -8576,70 +14378,6 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		if (document.documentElement.style.colorScheme !== "") return document.body.hasAttribute("data-ds-dark-theme");
 		return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches;
 	}
-	/** One token's computed value on <body> ('' while the theme has not applied). */
-	function tokenValue(name) {
-		if (typeof document === "undefined") return "";
-		return getComputedStyle(document.body).getPropertyValue(name).trim();
-	}
-	/** Minimal alpha for a token color to count as effectively opaque. Skin
-	*  systems turn `--dsw-alias-bg-base` translucent for glass panels (the
-	*  dsh-web-ui skins use rgba 0.16–0.7; `transparent` is 0); below this
-	*  floor a text surface (terminal, editor) would render over the skin's
-	*  backdrop art, so callers fall back to an opaque color. Values at or
-	*  above the floor (e.g. a skin's scoped 0.96 porcelain) pass through —
-	*  the skin still controls the surface. */
-	const OPAQUE_ALPHA_MIN = .9;
-	/** The alpha channel of a computed CSS color, or null when the format is
-	*  not parseable (named colors, `color()`… — treated as opaque). Handles
-	*  the shapes getComputedStyle actually returns: the rgb()/rgba() and
-	*  hsl()/hsla() function forms (comma or space syntax, with or without the
-	*  `/ alpha` slot) and the #rgb/#rgba/#rrggbb/#rrggbbaa hex family. */
-	function colorAlpha(color) {
-		const s = color.trim();
-		const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(s);
-		if (hex !== null) {
-			const digits = hex[1];
-			if (digits.length === 3 || digits.length === 4) {
-				const a = digits.length === 4 ? digits[3] : "f";
-				return parseInt(a + a, 16) / 255;
-			}
-			const alphaHex = digits.length === 8 ? digits.slice(6) : "ff";
-			return parseInt(alphaHex, 16) / 255;
-		}
-		const fn = /^(rgba?|hsla?)\(([^)]+)\)$/i.exec(s);
-		if (fn !== null) {
-			const alphaPart = fn[2].split(/[,\s/]+/).filter(Boolean)[3];
-			if (alphaPart === void 0) return 1;
-			const alpha = Number.parseFloat(alphaPart);
-			return Number.isFinite(alpha) ? alpha : 1;
-		}
-		return null;
-	}
-	/**
-	* A token value that actually PAINTS something — the guard for text
-	* surfaces (issue #90). Skin systems routinely set global tokens to
-	* `transparent` (glass skins) or translucent glass values (`rgba(…,0.16–0.7)`,
-	* e.g. the dsh-web-ui skins) — both are truthy strings, so callers using
-	* `|| fallback` never fire and the terminal/editor goes see-through over
-	* the skin's backdrop. This returns '' for visually inert values (unset
-	* keywords, transparent, and any color below the opacity floor) so the
-	* caller's fallback chain engages; effectively opaque values pass through.
-	*/
-	function effectiveTokenValue(name) {
-		const raw = tokenValue(name);
-		switch (raw) {
-			case "":
-			case "transparent":
-			case "initial":
-			case "inherit":
-			case "unset": return "";
-			default: {
-				const alpha = colorAlpha(raw);
-				if (alpha !== null && alpha < OPAQUE_ALPHA_MIN) return "";
-				return raw;
-			}
-		}
-	}
 	/**
 	* Subscribe to color-scheme flips (the presenter toggles the body
 	* attribute). The callback fires after the attribute changed; re-read the
@@ -8660,419 +14398,86 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		};
 	}
 	//#endregion
-	//#region src/client/terminal-font.ts
+	//#region src/client/terminal-client.ts
 	/**
-	* Terminal font resolution: the user's custom font prefs (SidebarPrefs,
-	* configured under the terminal card's secondary settings) turned into the
-	* xterm options. Kept as a pure module (no DOM, no xterm) so the fallback
-	* chain and clamping are unit-testable without mounting a terminal.
+	* The host terminal service, when this deployment mounts it.
+	*
+	* Structural detection (`view` + `close` + `recover` are the members this
+	* plugin calls); a service that does not look like the pinned contract reads
+	* as absent rather than throwing at the first keystroke.
+	* @param ctx - the client context.
 	*/
-	/** The built-in fallback stack when neither the user nor the theme sets one. */
-	const DEFAULT_TERMINAL_FONT_FAMILY = "\"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace";
+	function webTerminals(ctx) {
+		const service = ctx.get("webTerminals");
+		if (service === void 0 || service === null) return void 0;
+		if (typeof service.view !== "function" || typeof service.close !== "function") return void 0;
+		if (typeof service.recover !== "function") return void 0;
+		return service;
+	}
+	/** Namespace for the plugin's own occurrence key and content identity. */
+	const TERMINAL_NS = "dsh-better-sidebar:terminal-bottom";
+	/** The persisted `tab.meta` field identifying ONE terminal tab instance. */
+	const INSTANCE_FIELD = "terminalInstance";
+	/** The persisted `tab.meta` field holding the content-identity generation. */
+	const RUN_FIELD = "terminalRun";
 	/**
-	* Icon fonts appended to whichever base stack wins, so shell prompts that
-	* draw glyphs from the Nerd Font Private Use Areas resolve to a real glyph
-	* instead of the missing-glyph box (aka tofu).
+	* The content identity of the bottom terminal at `run`.
 	*
-	* Why this is needed even though the OS "should" fall back automatically:
-	* prompt frameworks (starship, powerlevel10k, oh-my-posh) take their icons
-	* from the PUA. Chromium's implicit system fallback reliably covers the
-	* *BMP* PUA (U+E000–U+F8FF — e.g. the U+E0B0 powerline separator) but NOT
-	* the *supplementary-plane* PUA-B (U+F0000+) where Nerd Fonts v3 relocated
-	* the Material Design icon set. Naming the families explicitly makes the
-	* browser consult them per character, which covers both planes.
+	* The host keys its recovery binding on `(sessionId, contentId)`, so a stable
+	* value is what makes a page reload adopt the SAME host terminal instead of
+	* allocating a new one. A "new terminal" (the run bump) deliberately changes
+	* it: the old binding points at a process that is gone — a host restart, or a
+	* terminal closed elsewhere — and reusing it would wedge the tab on
+	* `missingTerminal` forever.
 	*
-	* Deliberately NOT listed: color-emoji families. Chromium routes genuine
-	* emoji code points through a dedicated emoji fallback path (which is why
-	* emoji already render), so naming them buys nothing here — while placing a
-	* color font ahead of the generic family risks capturing BMP symbols the
-	* prompt expects in monospace (U+26A0 ⚠, U+2714 ✔ …) and rendering them as
-	* wide color glyphs that break the cell grid.
+	* The SAME value is the occurrence key the host memoizes one view by
+	* (`view(sessionId, key, contentId)`), so a run bump has to move both: the
+	* namespace is what keeps it from colliding with a host layout tab id (`tab1`).
 	*
-	* Ordering rationale: the symbols-only patches ship glyphs without Latin,
-	* so they can never hijack ASCII metrics — the safest first hop. The
-	* fully-patched distributions follow for users who installed one of those
-	* instead. Both the `… Mono` and proportional family names are listed
-	* because the Nerd Fonts installers register them as distinct families.
-	*
-	* These are strictly *appended*, never prepended: xterm derives its cell
-	* metrics from the first entry, so the base font must stay in front or the
-	* whole grid would be re-measured against an icon font.
+	* The bottom workbench hosts SEVERAL terminals (#774 follow-up), so each tab
+	* carries its own `instance`, spliced in before the run suffix: two tabs never
+	* share an id and therefore never share a shell. A tab WITHOUT an instance —
+	* one persisted before the follow-up — keeps the byte-identical legacy
+	* identity, so its host binding still reattaches.
+	* @param run - the content-identity generation (0 for a tab's first terminal).
+	* @param instance - the tab's own instance id (`undefined` on legacy tabs).
 	*/
-	const ICON_FONT_FALLBACKS = [
-		"\"Symbols Nerd Font Mono\"",
-		"\"Symbols Nerd Font\"",
-		"\"Hack Nerd Font Mono\"",
-		"\"Hack Nerd Font\"",
-		"\"JetBrainsMono Nerd Font Mono\"",
-		"\"JetBrainsMono Nerd Font\"",
-		"\"FiraCode Nerd Font Mono\"",
-		"\"FiraCode Nerd Font\"",
-		"\"CaskaydiaCove Nerd Font Mono\"",
-		"\"CaskaydiaCove Nerd Font\"",
-		"\"SauceCodePro Nerd Font Mono\"",
-		"\"UbuntuMono Nerd Font Mono\"",
-		"\"Iosevka Nerd Font Mono\"",
-		"\"MesloLGS Nerd Font Mono\"",
-		"\"MesloLGS NF\""
-	];
-	/** The symbols-only patch count at the head of {@link ICON_FONT_FALLBACKS}
-	*  (these carry no Latin glyphs, so they can never hijack ASCII metrics). */
-	const SYMBOLS_ONLY_COUNT = 2;
-	/**
-	* CSS generic font families. A generic is a catch-all that always resolves,
-	* so icon fonts must be spliced in *before* the first one to stay reachable.
-	*/
-	const GENERIC_FAMILIES = /* @__PURE__ */ new Set([
-		"monospace",
-		"serif",
-		"sans-serif",
-		"cursive",
-		"fantasy",
-		"system-ui",
-		"ui-monospace",
-		"ui-serif",
-		"ui-sans-serif",
-		"ui-rounded",
-		"math",
-		"emoji",
-		"fangsong"
-	]);
-	/**
-	* CSS-wide keywords. These are only valid as an *entire* declaration value,
-	* so a stack cannot be appended to one.
-	*/
-	const CSS_WIDE_KEYWORDS = /* @__PURE__ */ new Set([
-		"inherit",
-		"initial",
-		"unset",
-		"revert",
-		"revert-layer"
-	]);
-	/** Normalize one family name for comparison: unquote, collapse runs of
-	*  whitespace, casefold. */
-	function normalizeFamily(family) {
-		return family.trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+	function bottomTerminalContentId(run, instance) {
+		const base = instance === void 0 || instance === "" ? TERMINAL_NS : `${TERMINAL_NS}:${instance}`;
+		return run === 0 ? base : `${base}#${run}`;
+	}
+	/** The per-tab instance id a tab carries (absent/legacy tabs read as `undefined`). */
+	function terminalInstanceOf(tab) {
+		const instance = (tab.meta !== null && typeof tab.meta === "object" && !Array.isArray(tab.meta) ? tab.meta : {})[INSTANCE_FIELD];
+		return typeof instance === "string" && instance !== "" ? instance : void 0;
+	}
+	/** The content-identity generation a tab carries (absent/corrupt reads as 0). */
+	function terminalRunOf(tab) {
+		const run = (tab.meta !== null && typeof tab.meta === "object" && !Array.isArray(tab.meta) ? tab.meta : {})[RUN_FIELD];
+		return typeof run === "number" && Number.isSafeInteger(run) && run >= 0 ? run : 0;
 	}
 	/**
-	* Split a CSS font-family stack on its top-level commas.
+	* The `tab.meta` patch that mints the tab's next terminal.
 	*
-	* Naive `split(',')` would corrupt quoted family names containing a comma
-	* and function values such as `var(--x, monospace)`, so quotes (with
-	* backslash escapes) and parentheses are tracked.
-	*
-	* @param stack - a CSS font-family stack.
-	* @returns the trimmed, non-empty family entries in source order.
+	* The instance has to survive the bump: `patchTab` REPLACES `meta` wholesale,
+	* so returning only the run field would drop `terminalInstance` and collapse
+	* the tab onto the legacy identity — where every tab that bumped its run lands
+	* on the same key (`…terminal-bottom#1`) and the host, which memoizes one view
+	* per `(sessionId, key)`, would hand two tabs the SAME shell. Legacy tabs carry
+	* no instance and get none here, so their identity stays byte-identical.
 	*/
-	function splitFamilies(stack) {
-		const entries = [];
-		let buffer = "";
-		let quote = null;
-		let depth = 0;
-		for (let i = 0; i < stack.length; i += 1) {
-			const char = stack[i];
-			if (quote !== null) {
-				if (char === "\\" && i + 1 < stack.length) {
-					buffer += char + stack[i + 1];
-					i += 1;
-					continue;
-				}
-				buffer += char;
-				if (char === quote) quote = null;
-				continue;
-			}
-			if (char === "\"" || char === "'") {
-				quote = char;
-				buffer += char;
-				continue;
-			}
-			if (char === "(") depth += 1;
-			else if (char === ")") depth = Math.max(0, depth - 1);
-			else if (char === "," && depth === 0) {
-				entries.push(buffer);
-				buffer = "";
-				continue;
-			}
-			buffer += char;
-		}
-		entries.push(buffer);
-		return entries.map((entry) => entry.trim()).filter((entry) => entry !== "");
-	}
-	/**
-	* Append {@link ICON_FONT_FALLBACKS} to a CSS font-family stack, keeping
-	* the caller's own entries and order intact.
-	*
-	* - Families already named in `stack` are not duplicated (quote-, case- and
-	*   whitespace-insensitive), so a user who already lists their Nerd Font
-	*   keeps their exact priority.
-	* - The icon fonts are spliced in ahead of the *first* generic family
-	*   (`monospace` etc.), because a generic always resolves: anything after it
-	*   would never be consulted. A stack that OPENS with a generic is the one
-	*   exception: only the symbols-only patches (no Latin) may precede it — a
-	*   fully-patched Nerd Font there would become xterm's measuring base font
-	*   and override the user/theme family precedence, so it is placed after the
-	*   generic instead.
-	* - Idempotent — re-applying to an already-topped-up stack is a no-op, which
-	*   matters because `TerminalView` diffs the resolved value against the live
-	*   `term.options.fontFamily` before reflowing.
-	*
-	* @param stack - a CSS font-family stack (base font first).
-	* @returns the stack with icon fallbacks merged in.
-	*/
-	function withIconFontFallbacks(stack) {
-		const entries = splitFamilies(stack);
-		if (entries.length === 0) return ICON_FONT_FALLBACKS.join(", ");
-		const present = new Set(entries.map(normalizeFamily));
-		const notPresent = (family) => !present.has(normalizeFamily(family));
-		const symbolsOnly = ICON_FONT_FALLBACKS.slice(0, SYMBOLS_ONLY_COUNT).filter(notPresent);
-		const patched = ICON_FONT_FALLBACKS.slice(SYMBOLS_ONLY_COUNT).filter(notPresent);
-		if (symbolsOnly.length === 0 && patched.length === 0) return entries.join(", ");
-		const firstGeneric = entries.findIndex((entry) => GENERIC_FAMILIES.has(normalizeFamily(entry)));
-		const cut = firstGeneric === -1 ? entries.length : firstGeneric;
-		if (cut === 0) return [
-			...symbolsOnly,
-			entries[0],
-			...patched,
-			...entries.slice(1)
-		].join(", ");
-		return [
-			...entries.slice(0, cut),
-			...symbolsOnly,
-			...patched,
-			...entries.slice(cut)
-		].join(", ");
-	}
-	/**
-	* Reduce one link of the base-family chain to a usable stack, or `''` when
-	* it cannot carry appended fallbacks so the next link should win.
-	*
-	* Rejecting CSS-wide keywords matters because the theme font arrives as a
-	* raw token value (`tokenValue('--ds-font-family-code')`); skins do set
-	* tokens to `initial`/`inherit`/`unset` (see `effectiveTokenValue` in
-	* `theme.ts`, which guards the color tokens for the same reason). Appending
-	* to such a value yields an invalid `font-family`, which the CSSOM discards
-	* silently — the terminal would lose the theme font *and* the icon fonts.
-	*/
-	function usableBase(value) {
-		const trimmed = (value ?? "").trim();
-		if (trimmed === "") return "";
-		if (CSS_WIDE_KEYWORDS.has(trimmed.toLowerCase())) return "";
-		return trimmed;
-	}
-	/**
-	* Guarantee the stack ends in a generic family, so a font the browser cannot
-	* resolve degrades to a monospace one.
-	*
-	* Without this a stack of unresolvable names (a misspelled family, or one only
-	* installed on the machine running the shell rather than the one running the
-	* browser) falls through to the browser's *standard* font, which is
-	* proportional — xterm then measures its cell from a proportional advance and
-	* the whole grid breaks, rather than merely losing the requested typeface.
-	*
-	* This does not sniff whether the named families exist (an explicit non-goal
-	* of the terminal font design): it only terminates the stack. A stack that
-	* already names a generic family is returned untouched, so a user who
-	* deliberately wrote one keeps it. Generics are matched unquoted only — a
-	* quoted `"monospace"` is a family *name*, not the keyword.
-	*
-	* @param stack - the resolved font-family value.
-	* @returns the stack, ending in a generic family.
-	*/
-	function withMonospaceFallback(stack) {
-		const families = splitFamilies(stack);
-		if (families.length === 0) return DEFAULT_TERMINAL_FONT_FAMILY;
-		const only = families.length === 1 ? families[0] : void 0;
-		if (only !== void 0 && CSS_WIDE_KEYWORDS.has(only.toLowerCase())) return DEFAULT_TERMINAL_FONT_FAMILY;
-		if (families.some((family) => GENERIC_FAMILIES.has(family.toLowerCase()))) return families.join(", ");
-		return `${families.join(", ")}, monospace`;
-	}
-	/**
-	* Resolve the xterm font options for the given prefs.
-	*
-	* The base family keeps its existing precedence — user pref > theme code
-	* font > built-in stack. {@link withMonospaceFallback} then terminates the
-	* stack with a generic family so an unresolvable name degrades to a
-	* monospace instead of the proportional standard font, and finally
-	* {@link withIconFontFallbacks} tops it up so prompt icons resolve
-	* regardless of which base won.
-	*
-	* @param prefs - the current side card preferences.
-	* @param themeFontFamily - the app's theme code font (`--ds-font-family-code`
-	*   token value, read live by the caller); undefined when the token is absent.
-	* @returns the `fontFamily` / `fontSize` xterm options.
-	*/
-	function resolveTerminalFont(prefs, themeFontFamily) {
-		return {
-			fontFamily: withIconFontFallbacks(withMonospaceFallback(usableBase(prefs.terminalFontFamily) || usableBase(themeFontFamily) || "\"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace")),
-			fontSize: clampTerminalFontSize(prefs.terminalFontSize)
+	function nextTerminalMeta(tab) {
+		const instance = terminalInstanceOf(tab);
+		const run = { [RUN_FIELD]: terminalRunOf(tab) + 1 };
+		return instance === void 0 ? run : {
+			[INSTANCE_FIELD]: instance,
+			...run
 		};
 	}
 	//#endregion
-	//#region src/client/terminal-links.ts
-	/**
-	* Terminal URL hyperlinks: xterm's `registerLinkProvider` is fed per-line
-	* link descriptors built from the pty stream, so URLs printed by any tool
-	* become hoverable / clickable spans.
-	*
-	* To stay out of the user's way (a terminal's primary interaction is text
-	* selection, not browsing), a click only activates when the user holds
-	* Ctrl (Win/Linux) or Cmd (mac) — a plain click is left for xterm's
-	* normal selection handling. Only http(s) URLs are dispatched to the
-	* browser; other schemes (`file://`, `mailto:`, `javascript:`, …) are
-	* underlined for visibility but rejected at activation, so a `file://`
-	* URL printed by a tool stays inert instead of being handed to
-	* `window.open`.
-	*
-	* Kept as a pure module (no xterm import) so the regex, the line
-	* scanner, the modifier gate and the scheme guard are unit-testable
-	* without mounting a terminal. `buildTerminalLinks` returns plain-object
-	* descriptors whose shape matches xterm's `ILink` minus the `activate`
-	* callback — the caller attaches `activate` (which closes over the
-	* event modifier check + `openTerminalUrl`) so this module never
-	* imports xterm types.
-	*/
-	/** Scheme allowlist for activation. Only http(s) is opened externally. */
-	const OPENABLE_SCHEMES = /* @__PURE__ */ new Set(["http:", "https:"]);
-	/**
-	* The URL pattern used to scan each terminal line.
-	*
-	* A word boundary (`\b`) guards the leading scheme so `notttps://…` does
-	* not match. The character class excludes ASCII whitespace and the
-	* wrapping punctuation that shells commonly emit around URLs (quotes,
-	* angle brackets, brackets/braces, pipes, backslashes, backticks) so a
-	* URL printed as `"https://example.com"` or `<https://example.com>` does
-	* not drag the wrapping character into the link target.
-	*
-	* Carries the `g` flag so `findTerminalUrlsInLine` can iterate every
-	* match on a line; callers must reset `lastIndex` before reuse (the
-	* helper does this defensively).
-	*/
-	const TERMINAL_URL_REGEX = /\bhttps?:\/\/[^\s"'<>[\]{}|\\^`]+/gi;
-	/**
-	* Strip trailing closing parens that are not balanced by an opening paren
-	* earlier in the URL.
-	*
-	* The regex's character class keeps `(` and `)` (Wikipedia-style URLs
-	* carry real parens: `…/Python_(programming_language)`), so a URL wrapped
-	* in parens by a shell (`(https://example.com)`) captures the trailing
-	* `)`. Balanced pairs are kept intact; only the unmatched excess is
-	* trimmed, so:
-	* - `https://example.com)` → `https://example.com`
-	* - `https://en.wikipedia.org/wiki/Python_(programming_language)` → unchanged
-	* - `https://example.com/(` → unchanged (more openers than closers; the
-	*   trailing `(` is the URL's own, not a wrapper)
-	*/
-	function trimUnbalancedTrailingParens(url) {
-		let opens = 0;
-		let closers = 0;
-		for (let i = 0; i < url.length; i += 1) {
-			const ch = url[i];
-			if (ch === "(") opens += 1;
-			else if (ch === ")") closers += 1;
-		}
-		const excess = closers - opens;
-		if (excess <= 0) return url;
-		let end = url.length;
-		let stripped = 0;
-		while (end > 0 && url[end - 1] === ")" && stripped < excess) {
-			end -= 1;
-			stripped += 1;
-		}
-		return url.slice(0, end);
-	}
-	/**
-	* Find every http(s) URL in a line of terminal text, in source order
-	* with 0-based start offsets. A link provider maps these to buffer
-	* ranges for xterm's `registerLinkProvider`.
-	*
-	* Trailing unmatched closing parens are trimmed from each match (see
-	* {@link trimUnbalancedTrailingParens}), so a URL wrapped in parens by
-	* a shell opens without the trailing `)`, while Wikipedia-style URLs
-	* with balanced parens stay intact.
-	*
-	* Resets the regex's `lastIndex` before and after the scan so a
-	* previous partial iteration can't desynchronize a later one (the
-	* regex carries the `g` flag and is module-shared).
-	*/
-	function findTerminalUrlsInLine(line) {
-		TERMINAL_URL_REGEX.lastIndex = 0;
-		const matches = [];
-		let m;
-		while ((m = TERMINAL_URL_REGEX.exec(line)) !== null) {
-			const trimmed = trimUnbalancedTrailingParens(m[0]);
-			if (trimmed.length > 0) matches.push({
-				start: m.index,
-				text: trimmed
-			});
-		}
-		TERMINAL_URL_REGEX.lastIndex = 0;
-		return matches;
-	}
-	/**
-	* Build link descriptors for every URL found in a terminal line.
-	*
-	* @param lineText - the line's text (e.g. from
-	*   `IBufferLine.translateToString(true)`).
-	* @param lineNumber - the buffer line number xterm passed to
-	*   `ILinkProvider.provideLinks` (used as the `y` of every range; URLs
-	*   never span wrapped lines because each wrapped row is its own
-	*   buffer line).
-	* @returns descriptors in source order; empty when the line has no URL.
-	*/
-	function buildTerminalLinks(lineText, lineNumber) {
-		return findTerminalUrlsInLine(lineText).map(({ start, text: url }) => ({
-			range: {
-				start: {
-					x: start + 1,
-					y: lineNumber
-				},
-				end: {
-					x: start + url.length,
-					y: lineNumber
-				}
-			},
-			text: url
-		}));
-	}
-	/**
-	* Decide whether a click on a terminal link should activate (open the URL).
-	*
-	* Mirrors what every modern terminal does (Windows Terminal, iTerm2, the
-	* VSCode integrated terminal): a plain click stays a text-selection
-	* gesture, and only Ctrl (Win/Linux) or Cmd (mac) hands the URL to the
-	* browser. The modifier is read off the activating `MouseEvent`, not
-	* tracked separately, so a key-up between hover and click never
-	* desynchronizes the gate.
-	*/
-	function shouldActivateTerminalLink(event) {
-		return event.ctrlKey || event.metaKey;
-	}
-	/**
-	* Open a URL matched in the terminal, with a scheme guard so a printed
-	* `file://` or anything that slipped past the regex cannot reach
-	* `window.open`. The URL is constructed via `new URL(...)` which throws
-	* on malformed input; the catch makes the function total so the xterm
-	* handler never throws into the terminal's event loop.
-	*
-	* @returns `true` when the URL was dispatched to `window.open`, `false`
-	*   when it was rejected (bad URL, disallowed scheme, no `window`).
-	*/
-	function openTerminalUrl(uri) {
-		if (typeof window === "undefined") return false;
-		let url;
-		try {
-			url = new URL(uri);
-		} catch {
-			return false;
-		}
-		if (!OPENABLE_SCHEMES.has(url.protocol)) return false;
-		window.open(url.toString(), "_blank", "noopener,noreferrer");
-		return true;
-	}
-	//#endregion
-	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/src/client/sidebar.module.css.mjs
-	const css = "[data-dsh-panel-host]{z-index:25;pointer-events:none;position:fixed;inset:0;overflow:clip}[data-dsh-panel-host][data-dsh-panel-host-degraded]{position:absolute;top:0;left:0}.nArs4W_toggleButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), color var(--ds-transition-duration-slow) var(--ds-ease-in-out);background:0 0;border:none;border-radius:50%;justify-content:center;align-items:center;display:flex}.nArs4W_toggleButton:hover:not(:disabled):not([aria-disabled=true]){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_toggleButton:disabled,.nArs4W_toggleButton[aria-disabled=true]{opacity:.4;cursor:default}.nArs4W_panelBody{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_bottomPanel{z-index:40;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2);pointer-events:auto;padding-bottom:env(safe-area-inset-bottom);transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out);flex-direction:column;display:flex;position:absolute;bottom:0}.nArs4W_bottomPanelHidden{pointer-events:none;visibility:hidden;transition:transform var(--ds-transition-duration-slow) var(--ds-ease-in-out), height var(--ds-transition-duration-slow) var(--ds-ease-in-out), visibility 0s linear var(--ds-transition-duration-slow);transform:translateY(102%)}.nArs4W_bottomPanel[data-dragging]{transition:none}.nArs4W_bottomPanel{contain:layout style}body[data-dsh-sidebar-dragging] .nArs4W_panel,body[data-dsh-sidebar-dragging] .nArs4W_bottomPanel{will-change:transform}.nArs4W_bottomResize{cursor:row-resize;z-index:2;touch-action:none;height:8px;position:absolute;top:-4px;left:0;right:0}.nArs4W_bottomResizeActive{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_bottomClose{z-index:4;width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;position:absolute;top:3px;right:6px}.nArs4W_bottomClose:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_bottomPanel .nArs4W_tabBar{padding-right:40px}.nArs4W_toggleButton,.nArs4W_tabBar{-webkit-app-region:no-drag}.nArs4W_iconButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_iconButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_iconButton:disabled{opacity:.4;cursor:default}.nArs4W_workbench,.nArs4W_split{flex:1;min-width:0;min-height:0;display:flex}.nArs4W_splitRow{flex-direction:row}.nArs4W_splitCol{flex-direction:column}.nArs4W_splitChild{display:flex;position:relative;overflow:hidden}.nArs4W_divider{z-index:3;touch-action:none;flex:none;position:relative}.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{content:\"\";background:var(--dsw-alias-border-l2);transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out);position:absolute}.nArs4W_dividerRow{cursor:col-resize;width:7px;margin:0 -2px}.nArs4W_dividerRow:after{width:1px;top:0;bottom:0;left:50%;transform:translate(-50%)}.nArs4W_dividerCol{cursor:row-resize;height:7px;margin:-2px 0}.nArs4W_dividerCol:after{height:1px;top:50%;left:0;right:0;transform:translateY(-50%)}.nArs4W_divider:hover:after,.nArs4W_dividerActive:after{background:var(--dsw-alias-interactive-bg-hover-accent)}.nArs4W_pane{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_paneDrop{outline:1px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_dropOverlay{z-index:6;pointer-events:none;background:var(--dsw-alias-interactive-bg-hover-accent);opacity:.5;position:absolute}.nArs4W_dropLeft{width:25%;top:0;bottom:0;left:0}.nArs4W_dropRight{width:25%;top:0;bottom:0;right:0}.nArs4W_dropUp{height:25%;top:0;left:0;right:0}.nArs4W_dropDown{height:25%;bottom:0;left:0;right:0}.nArs4W_dropCenter{outline:2px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-2px;background:0 0;inset:25%}.nArs4W_paneContent{flex-direction:column;flex:1;min-height:0;display:flex;overflow:hidden}.nArs4W_chipIcon{flex:none;align-items:center;margin-right:6px;display:inline-flex}.nArs4W_paneTab{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_paneTabHidden{display:none}.nArs4W_paneEmptyCards{flex:1;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));align-content:start;gap:8px;min-height:0;padding:12px;display:grid;overflow:hidden}.nArs4W_paneCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;text-align:center;border-radius:8px;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:12px 8px;display:flex}.nArs4W_paneCard:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}.nArs4W_paneCard:disabled{opacity:.45;cursor:default}.nArs4W_tabBar{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:none;align-items:stretch;height:34px;display:flex}.nArs4W_tabBarDrop{outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_tabList{scrollbar-width:none;flex:1;min-width:0;display:flex;overflow-x:auto}.nArs4W_tabList::-webkit-scrollbar{display:none}.nArs4W_tab{min-width:64px;max-width:160px;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-secondary);border-right:1px solid var(--dsw-alias-border-l1);cursor:pointer;user-select:none;background:0 0;flex:none;align-items:center;gap:4px;padding:0 4px 0 10px;display:flex}.nArs4W_tab:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_tabActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_tabTitle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_tabBadge{min-width:16px;height:15px;font:var(--dsw-font-xxxs-strong-11);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);border-radius:8px;flex:none;justify-content:center;align-items:center;padding:0 4px;display:inline-flex}.nArs4W_tabClose{width:18px;height:18px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:4px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_tabClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tabBarPlus{background:var(--dsw-alias-bg-layer-1);width:22px;height:22px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border:none;border-radius:5px;flex:none;justify-content:center;align-self:center;align-items:center;margin:0 6px;padding:0;display:inline-flex;position:sticky;right:0}.nArs4W_tabBarPlus:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_pinnedTab{color:var(--dsw-alias-label-tertiary);font-style:italic}.nArs4W_pinnedTab:hover{color:var(--dsw-alias-label-secondary)}.nArs4W_explorer{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_explorerHeader{flex:none;justify-content:space-between;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_explorerRoot{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.nArs4W_explorerBody{flex:1;min-height:0;padding:4px 8px 8px;overflow:hidden auto}.nArs4W_explorerRow{box-sizing:border-box;width:100%;max-width:100%;height:34px;font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);text-align:left;cursor:pointer;white-space:nowrap;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);background:0 0;border:none;border-radius:8px;align-items:center;gap:6px;padding:0 8px;display:flex}.nArs4W_explorerRow:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_explorerRowRevealed{background:var(--dsw-alias-state-business-tertiary)}.nArs4W_explorerRowRevealed+.nArs4W_explorerRowRevealed{border-top-left-radius:0;border-top-right-radius:0}.nArs4W_explorerRowRevealed:has(+.nArs4W_explorerRowRevealed){border-bottom-right-radius:0;border-bottom-left-radius:0}.nArs4W_explorerDir{font:var(--dsw-font-s-strong-14)}.nArs4W_explorerHidden{opacity:.45}.nArs4W_explorerSymlink{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerBroken .nArs4W_explorerName{color:var(--dsw-alias-state-error-primary)}.nArs4W_explorerName{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.nArs4W_explorerRenaming{cursor:text}.nArs4W_explorerRenameInput{box-sizing:border-box;border:1px solid var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-1);min-width:0;height:24px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:auto;padding:0 6px}.nArs4W_explorerRenameInput:focus{border-color:var(--dsw-alias-state-business-primary);outline:none}.nArs4W_explorerActionError{box-sizing:border-box;border:1px solid var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-1);border-radius:8px;align-items:flex-start;gap:6px;width:100%;margin-bottom:4px;padding:6px 8px;display:flex}.nArs4W_explorerActionErrorText{overflow-wrap:anywhere;min-width:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex:auto}.nArs4W_explorerActionErrorClose{width:20px;height:20px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:none;border-radius:5px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.nArs4W_explorerActionErrorClose:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_explorerConfirmDesc{font:var(--dsw-font-s-14);color:var(--dsw-alias-label-primary);overflow-wrap:anywhere;margin:0}.nArs4W_explorerRef,.nArs4W_explorerCopied{margin-left:auto}.nArs4W_explorerRef{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:20px;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;align-items:center;padding:0 8px;display:none}.nArs4W_explorerRef:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_explorerRow:hover .nArs4W_explorerRef,.nArs4W_explorerRow:focus-within .nArs4W_explorerRef{display:inline-flex}.nArs4W_explorerCopied{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_explorerError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);cursor:default}@keyframes nArs4W_dsh-row-in{0%{opacity:0}}.nArs4W_explorerEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_explorerRowDropTarget{background:var(--dsw-alias-interactive-bg-hover);outline:1px dashed var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}.nArs4W_uploadDropZone{z-index:1001;pointer-events:none;border:2px dashed var(--dsw-alias-interactive-bg-hover-accent);box-shadow:0 0 0 200vmax var(--dsw-alias-bg-mask-drop);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);border-radius:10px;justify-content:center;align-items:flex-start;padding:12px;display:flex;position:fixed}.nArs4W_uploadDropHero{flex-direction:column;align-items:center;gap:10px;max-width:100%;padding-top:8px;display:flex}.nArs4W_uploadDropZonePill{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:100%;box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);border-radius:999px;align-items:center;gap:6px;padding:6px 12px;display:flex}.nArs4W_uploadDropZoneText{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadDropChatHint{z-index:1002;pointer-events:none;animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;padding:24px;display:flex;position:fixed;top:0;bottom:0;left:0}.nArs4W_uploadDropChatCard{text-align:center;max-width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-strong-14);flex-direction:column;align-items:center;gap:12px;display:flex}.nArs4W_uploadOverlay{z-index:30;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur);animation:nArs4W_dsh-row-in .15s var(--ds-ease-in-out);justify-content:center;align-items:center;display:flex;position:absolute;inset:0}.nArs4W_uploadOverlayCard{border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-alias-bg-layer-2);min-width:280px;max-width:min(420px,100% - 48px);box-shadow:var(--dsw-shadow-lv3);border-radius:24px;flex-direction:column;gap:12px;padding:20px 24px;display:flex}.nArs4W_uploadOverlayTitle{font:var(--dsw-font-s-strong-14);color:var(--dsw-alias-label-primary);align-items:center;gap:8px;display:flex}.nArs4W_uploadOverlayTitle>svg{flex:none}.nArs4W_uploadOverlayTitle>span{white-space:nowrap;text-overflow:ellipsis;min-width:0;overflow:hidden}.nArs4W_uploadOverlayProgress{background:var(--dsw-alias-border-l2);border-radius:3px;height:6px;overflow:hidden}.nArs4W_uploadOverlayProgressFill{background:var(--dsw-alias-interactive-bg-hover-accent);height:100%;transition:width .15s var(--ds-ease-in-out);border-radius:3px}.nArs4W_uploadOverlayStatus{min-height:1em;font:var(--dsw-font-xxs-12);font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.nArs4W_uploadOverlayCancel{border:1px solid var(--dsw-alias-border-l2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;background:0 0;border-radius:8px;align-self:flex-end;padding:0 14px}.nArs4W_uploadOverlayCancel:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_uploadOverlayCancel:disabled{opacity:.4;cursor:default}.nArs4W_editor{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorTitle{min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-secondary);text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.nArs4W_editorPathInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorPathInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorTreeToggleActive{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-active)}.nArs4W_editorBody{flex:1;min-height:0;display:flex}.nArs4W_editorMain{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex}.nArs4W_editorTreeDock{border-left:1px solid var(--dsw-alias-border-l1);flex:none;min-height:0;display:flex;position:relative}.nArs4W_editorTreeResize{cursor:col-resize;touch-action:none;z-index:3;width:6px;position:absolute;top:0;bottom:0;left:0}.nArs4W_editorTreeResize:hover{background:var(--dsw-alias-border-l2)}.nArs4W_editorTreePanel{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;position:relative}.nArs4W_editorTreePanelFull{flex:1}.nArs4W_editorTreeSearch{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:6px;padding:6px 8px;display:flex}.nArs4W_editorSearchInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:26px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_editorSearchInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_editorSearchHint{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:8px 12px}.nArs4W_editorSearchResult{width:100%;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;text-overflow:ellipsis;white-space:nowrap;background:0 0;border:none;border-radius:6px;padding:4px 8px;display:block;overflow:hidden}.nArs4W_editorSearchResult:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorStatus{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorStatusError{color:var(--dsw-alias-state-error-primary)}.nArs4W_dirtyDot{background:var(--dsw-alias-state-warn-primary);border-radius:50%;flex:none;width:7px;height:7px}.nArs4W_editorPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;flex:1;justify-content:center;align-items:center;padding:16px;display:flex}.nArs4W_orphanedType{opacity:.7;overflow-wrap:anywhere;margin-top:8px;font-size:12px;display:block}.nArs4W_editorBinary{text-align:center;flex-direction:column;flex:1;justify-content:center;align-items:center;gap:12px;padding:24px 16px;display:flex}.nArs4W_editorBinaryNotice{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_editorDownloadLink{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-strong-12);cursor:pointer;transition:background var(--ds-transition-duration-slow) var(--ds-ease-in-out), border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:6px;align-items:center;gap:6px;padding:6px 14px;text-decoration:none;display:inline-flex}.nArs4W_editorDownloadLink:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l2)}.nArs4W_editorError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);padding:12px 16px}.nArs4W_fenceError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-wrap:wrap;align-items:center;gap:8px;padding:8px 16px;display:flex}.nArs4W_editorBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 8px}.nArs4W_sandboxStatus{font:var(--dsw-font-xxxs-11);flex:none;align-items:center;gap:8px;padding:4px 10px;display:flex}.nArs4W_sandboxStatusOn{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);border-bottom:1px solid var(--dsw-alias-border-l1)}.nArs4W_sandboxStatusOff{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);border-bottom:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)}.nArs4W_sandboxDot{background:var(--dsw-alias-state-success-primary);border-radius:50%;flex:none;width:6px;height:6px}.nArs4W_sandboxStatusOff .nArs4W_sandboxDot{background:var(--dsw-alias-state-error-primary)}.nArs4W_sandboxStatusText{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_sandboxAction{border:1px solid var(--dsw-alias-border-l2);font:inherit;color:inherit;cursor:pointer;background:0 0;border-radius:6px;flex:none;padding:2px 8px}.nArs4W_sandboxAction:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorHtml{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browser{flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_browserBar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:4px;padding:6px 8px;display:flex}.nArs4W_browserInput{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);min-width:0;height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxs-12);border-radius:6px;flex:1;padding:0 10px}.nArs4W_browserInput:focus{border-color:var(--dsw-alias-border-l2);outline:none}.nArs4W_browserMessage{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;padding:4px 12px}.nArs4W_browserFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_browserStart{text-align:center;min-height:0;font:var(--dsw-font-xs-13);color:var(--dsw-alias-label-tertiary);flex:1;justify-content:center;align-items:center;padding:20px;display:flex}.nArs4W_browserBlocked{text-align:center;min-height:0;color:var(--dsw-alias-state-warn-primary);flex-direction:column;flex:1;justify-content:center;align-items:center;gap:6px;padding:24px;display:flex}.nArs4W_browserBlockedTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary)}.nArs4W_browserBlockedDesc{max-width:280px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-secondary)}.nArs4W_browserBlockedActions{gap:8px;margin-top:6px;display:flex}.nArs4W_browserBlockedButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-11);cursor:pointer;border-radius:6px;padding:4px 12px}.nArs4W_browserBlockedButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorCm{background:0 0;flex:1;min-height:0;overflow:hidden}.nArs4W_editorCmHidden{display:none}.nArs4W_editorCm .cm-editor{height:100%}.nArs4W_editorCm .cm-scroller{padding:12px 16px}.nArs4W_editorCm .cm-editor.cm-focused{outline:none}.nArs4W_editorModeToggle{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;align-items:center;gap:2px;padding:2px;display:inline-flex}.nArs4W_editorModeButton{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;padding:2px 8px}.nArs4W_editorModeButton:hover{color:var(--dsw-alias-label-primary)}.nArs4W_editorModeActive{background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}.nArs4W_editorImageWrap{flex:1;justify-content:center;align-items:center;min-height:0;padding:12px;display:flex;overflow:auto}.nArs4W_editorImage{object-fit:contain;max-width:100%;max-height:100%}.nArs4W_editorMd{min-height:0;font:var(--dsw-font-xs-13);flex:1;padding:12px 16px;overflow-y:auto}.nArs4W_editorMd .md-code-block:not([data-mermaid-processed])>div:first-child{z-index:auto;position:static}.nArs4W_mermaidWrap{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:6px;margin:6px 0;overflow:hidden}.nArs4W_mermaidHeader{border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}.nArs4W_mermaidInfo{font:var(--dsw-font-xxxs-strong-11);color:var(--dsw-alias-label-tertiary)}.nArs4W_mermaidCopy{height:20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-11);cursor:pointer;background:0 0;border:none;border-radius:4px;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.nArs4W_mermaidCopy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_mermaidBody{cursor:zoom-in;justify-content:center;padding:10px;display:flex;overflow:auto}.nArs4W_mermaidBody svg{max-width:100%;height:auto}.nArs4W_mermaidError{border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-state-error-primary);font:var(--dsw-font-xxxs-11);padding:6px 10px}.nArs4W_mermaidCode{font:var(--dsw-font-xxxs-11);margin:0;padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:auto}.nArs4W_mermaidMarkdown .md-code-block[data-mermaid-processed]{display:contents}.nArs4W_mermaidModal{z-index:1000;background:var(--dsw-alias-bg-mask-1);backdrop-filter:blur(2px);flex-direction:column;justify-content:center;align-items:center;display:flex;position:fixed;inset:0}.nArs4W_mermaidModalToolbar{z-index:10;gap:8px;display:flex;position:absolute;top:16px;right:16px}.nArs4W_mermaidModalButton{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:36px;height:36px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xs-strong-13);cursor:pointer;border-radius:8px;justify-content:center;align-items:center;display:inline-flex}.nArs4W_mermaidModalButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_mermaidModalStage{justify-content:center;align-items:center;width:90vw;height:80vh;display:flex;position:relative;overflow:hidden}.nArs4W_mermaidModalStage svg{cursor:grab;transform-origin:50%;user-select:none;-webkit-user-drag:none;background:var(--dsw-alias-bg-layer-1);border-radius:12px;max-width:none;max-height:none;padding:16px}.nArs4W_mermaidModalStage svg:active{cursor:grabbing}.nArs4W_mermaidModalHint{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxxs-11);pointer-events:none;position:absolute;bottom:16px;left:50%;transform:translate(-50%)}.nArs4W_selectionPopup{z-index:60;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);height:28px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-xxxs-strong-11);white-space:nowrap;cursor:pointer;border-radius:6px;align-items:center;padding:0 10px;display:inline-flex;position:fixed;transform:translate(-50%,calc(-100% - 8px))}.nArs4W_selectionPopup:hover{background:var(--dsw-alias-interactive-bg-hover)}.nArs4W_editorPdf{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex}.nArs4W_editorPdfToolbar{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;justify-content:flex-end;padding:6px 8px;display:flex}.nArs4W_editorPdfStage{flex:1;min-height:0;display:flex;position:relative}.nArs4W_editorPdfFrame{background:var(--dsw-alias-bg-base);border:none;flex:1;width:100%;min-height:0}.nArs4W_editorPdfFrameBlocked{pointer-events:none}.nArs4W_editorPdfDragShield{z-index:4;pointer-events:none;background:0 0;position:absolute;inset:0}.nArs4W_editorPdfDragShieldActive{pointer-events:auto}body[data-dsh-tab-dragging] .nArs4W_editorPdfFrame{pointer-events:none!important}body[data-dsh-tab-dragging] .nArs4W_editorPdfDragShield{pointer-events:auto!important}.nArs4W_terminalWrap{background:var(--dsw-alias-bg-base);flex-direction:column;flex:1;min-height:0;display:flex;position:relative}.nArs4W_terminal{flex:1;min-height:0;padding:6px 4px 6px 8px}.nArs4W_terminal .xterm{height:100%}.nArs4W_terminalBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-wrap:wrap;flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.nArs4W_terminalBannerUrl{word-break:break-all;opacity:.85;flex-basis:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.nArs4W_terminalWaitBanner{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex:none;align-items:center;gap:8px;padding:3px 10px;display:flex}.nArs4W_terminalWaitNeedle{text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;overflow:hidden}.nArs4W_boundaryError{z-index:50;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;align-items:flex-start;gap:8px;padding:16px;display:flex;position:fixed;top:0;bottom:0;right:0;overflow:auto}.nArs4W_terminalRetry{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxxs-strong-11);cursor:pointer;border-radius:999px;flex:none;padding:1px 8px}.nArs4W_terminalRetry:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_terminalDepsBanner{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-warn-label);background:var(--dsw-alias-state-warn-tertiary);flex-direction:column;flex:none;gap:6px;padding:10px;display:flex}.nArs4W_terminalDepsTitle{font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-state-warn-primary)}.nArs4W_terminalDepsHint{opacity:.9}.nArs4W_terminalDepsCommandRow{align-items:flex-start;gap:8px;display:flex}.nArs4W_terminalRepairCommand{white-space:pre-wrap;word-break:break-all;user-select:text;min-width:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:4px;flex:1;max-height:160px;margin:0;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;overflow:auto}.nArs4W_terminalDepsNote{opacity:.85}.nArs4W_terminalDepsActions{align-items:center;gap:8px;display:flex}.nArs4W_tabBoundaryError{min-height:0;font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);flex-direction:column;flex:1;align-items:flex-start;gap:8px;padding:12px 16px;display:flex;overflow:auto}.nArs4W_nativeTabHost{flex-direction:column;height:100%;min-height:0;display:flex}.nArs4W_gitEmpty{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);padding:4px 12px 8px}.nArs4W_gitPlaceholder{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary);text-align:center;padding:16px}.nArs4W_gitError{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap;padding:8px 12px}.nArs4W_gitDiffTab{flex-direction:column;flex:1;min-width:0;min-height:0;display:flex;overflow:hidden auto}.nArs4W_gitDiffTabHeader{border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;align-items:center;gap:8px;height:36px;padding:0 8px 0 12px;display:flex}.nArs4W_gitDiffTabTitle{text-overflow:ellipsis;white-space:nowrap;min-width:0;font:var(--dsw-font-xxs-strong-12);color:var(--dsw-alias-label-primary);flex:1;overflow:hidden}.nArs4W_producedRow{flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0;display:flex}.nArs4W_producedLabel{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_producedChip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);max-width:200px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;display:inline-flex;overflow:hidden}.nArs4W_producedChip:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_producedChip span{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.nArs4W_producedMore{font:var(--dsw-font-xxs-12);color:var(--dsw-alias-label-tertiary)}.nArs4W_toggleButton:focus-visible,.nArs4W_bottomClose:focus-visible,.nArs4W_iconButton:focus-visible,.nArs4W_tab:focus-visible,.nArs4W_tabClose:focus-visible,.nArs4W_tabBarPlus:focus-visible,.nArs4W_paneCard:focus-visible,.nArs4W_explorerRow:focus-visible,.nArs4W_explorerRef:focus-visible,.nArs4W_terminalRetry:focus-visible,.nArs4W_editorModeButton:focus-visible,.nArs4W_editorDownloadLink:focus-visible,.nArs4W_editorPptxButton:focus-visible,.nArs4W_editorDocxZoomRange:focus-visible{outline:2px solid var(--dsw-alias-interactive-bg-hover-accent);outline-offset:-1px}@media (prefers-reduced-motion:reduce){.nArs4W_bottomPanel,.nArs4W_bottomPanelHidden,.nArs4W_toggleButton,.nArs4W_tab,.nArs4W_tabBarPlus,.nArs4W_paneCard,.nArs4W_explorerRow,.nArs4W_divider,.nArs4W_dividerRow:after,.nArs4W_dividerCol:after{transition:none;animation:none}}@media (width<=767px){.nArs4W_tab{min-width:48px;max-width:128px}}.nArs4W_openWithLabel{align-items:center;gap:8px;width:100%;min-width:0;display:flex}.nArs4W_openWithName{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}.nArs4W_openWithChevron{color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_openWithPin{width:16px;height:16px;color:var(--dsw-alias-label-tertiary);cursor:pointer;border-radius:5px;flex:none;justify-content:center;align-items:center;display:inline-flex}.nArs4W_openWithPin:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_openWithPinActive{color:var(--dsw-alias-state-business-primary)}.nArs4W_editorHtmlBlock{margin:8px 0}.nArs4W_editorHtmlBlock img,.nArs4W_editorHtmlBlock video{max-width:100%}.nArs4W_editorHtmlBlock details{margin:4px 0;padding:4px 0}.nArs4W_editorHtmlBlock summary{cursor:pointer}.nArs4W_tocBar{z-index:7;pointer-events:none;justify-content:flex-end;height:0;display:flex;position:sticky;top:0}.nArs4W_tocButton{pointer-events:auto;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);width:26px;height:26px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;justify-content:center;align-items:center;margin:4px 2px 0 0;padding:0;display:inline-flex}.nArs4W_tocButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocPanel{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);width:min(300px,82%);max-height:60vh;box-shadow:var(--dsw-shadow-lv2);pointer-events:auto;border-radius:8px;flex-direction:column;padding:4px;display:flex;position:absolute;top:32px;right:2px;overflow-y:auto}.nArs4W_tocItem{min-width:0;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);text-align:left;cursor:pointer;background:0 0;border:none;border-radius:6px;align-items:baseline;gap:8px;padding:4px 8px;display:flex}.nArs4W_tocItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.nArs4W_tocItem[data-level=\"2\"]{padding-left:18px}.nArs4W_tocItem[data-level=\"3\"]{padding-left:28px}.nArs4W_tocItem[data-level=\"4\"]{padding-left:38px}.nArs4W_tocItem[data-level=\"5\"]{padding-left:48px}.nArs4W_tocItem[data-level=\"6\"]{padding-left:58px}.nArs4W_tocItemLevel{font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);flex:none}.nArs4W_tocItemText{text-overflow:ellipsis;white-space:nowrap;flex:auto;min-width:0;overflow:hidden}@keyframes nArs4W_dsh-toc-flash{0%,60%{background:var(--dsw-alias-interactive-bg-hover)}to{background:0 0}}.nArs4W_tocFlash{border-radius:4px;animation:1.2s ease-out nArs4W_dsh-toc-flash}";
-	const tagId = "dsh-better-sidebar/sidebar.module.css";
+	//#region \0dsh-css:/home/runner/work/DSH-better-sidebar/DSH-better-sidebar/src/client/terminal.module.css.mjs
+	const css = ".dMhp9G_root{box-sizing:border-box;height:100%;min-height:0;color:var(--dsw-alias-label-primary);flex-direction:column;flex:1;display:flex}.dMhp9G_screen{min-width:0;min-height:0;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-family:var(--ds-font-family-code,monospace);flex:1;padding:8px;overflow:hidden}.dMhp9G_screen .dMhp9G_xterm{height:100%}.dMhp9G_screen .dMhp9G_xterm-viewport{background:var(--dsw-alias-bg-base)}.dMhp9G_status{color:var(--dsw-alias-label-secondary,var(--dsw-alias-label-primary));background:var(--dsw-alias-bg-l2);flex-wrap:wrap;align-items:center;gap:8px;padding:5px 12px;display:flex}.dMhp9G_noticeBlock{flex-direction:column;flex:1;justify-content:center;align-items:center;gap:16px;min-height:0;padding:24px;display:flex;overflow:auto}.dMhp9G_notice{text-align:center;overflow-wrap:anywhere;max-width:32ch;color:var(--dsw-alias-label-primary);margin:0;line-height:1.6}.dMhp9G_error{overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-l2);margin:0;padding:10px 12px}.dMhp9G_action{border:.5px solid var(--dsw-alias-border-l4);cursor:pointer;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border-radius:6px;flex:none;padding:3px 10px}.dMhp9G_action:hover{background:var(--dsw-alias-bg-l2)}";
+	const tagId = "dsh-better-sidebar/terminal.module.css";
 	if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 		const tag = document.createElement("style");
 		tag.dataset.plugin = "dsh-better-sidebar";
@@ -9080,658 +14485,294 @@ globalThis.__dshChunks__["terminal"] = (require) => {
 		tag.textContent = css;
 		document.head.appendChild(tag);
 	}
-	var sidebar_module_css_default = {
-		"dropUp": "nArs4W_dropUp",
-		"browserBlockedDesc": "nArs4W_browserBlockedDesc",
-		"workbench": "nArs4W_workbench",
-		"editorCmHidden": "nArs4W_editorCmHidden",
-		"editorPdfDragShield": "nArs4W_editorPdfDragShield",
-		"mermaidModal": "nArs4W_mermaidModal",
-		"gitDiffTabTitle": "nArs4W_gitDiffTabTitle",
-		"terminalWaitBanner": "nArs4W_terminalWaitBanner",
-		"uploadDropZonePill": "nArs4W_uploadDropZonePill",
-		"editorImage": "nArs4W_editorImage",
-		"editorModeButton": "nArs4W_editorModeButton",
-		"editorPdf": "nArs4W_editorPdf",
-		"openWithName": "nArs4W_openWithName",
-		"tocPanel": "nArs4W_tocPanel",
-		"editorTreePanelFull": "nArs4W_editorTreePanelFull",
-		"bottomResize": "nArs4W_bottomResize",
-		"iconButton": "nArs4W_iconButton",
-		"dropOverlay": "nArs4W_dropOverlay",
-		"uploadOverlayCard": "nArs4W_uploadOverlayCard",
-		"editorSearchHint": "nArs4W_editorSearchHint",
-		"uploadOverlayStatus": "nArs4W_uploadOverlayStatus",
-		"browserBar": "nArs4W_browserBar",
-		"terminalRetry": "nArs4W_terminalRetry",
-		"dirtyDot": "nArs4W_dirtyDot",
-		"gitEmpty": "nArs4W_gitEmpty",
-		"pane": "nArs4W_pane",
-		"terminalWaitNeedle": "nArs4W_terminalWaitNeedle",
-		"editorHtml": "nArs4W_editorHtml",
-		"mermaidMarkdown": "nArs4W_mermaidMarkdown",
-		"mermaidModalHint": "nArs4W_mermaidModalHint",
-		"terminalDepsHint": "nArs4W_terminalDepsHint",
-		"editorError": "nArs4W_editorError",
-		"paneContent": "nArs4W_paneContent",
-		"dividerRow": "nArs4W_dividerRow",
-		"openWithLabel": "nArs4W_openWithLabel",
-		"terminalDepsActions": "nArs4W_terminalDepsActions",
-		"gitError": "nArs4W_gitError",
-		"browserBlockedActions": "nArs4W_browserBlockedActions",
-		"browserFrame": "nArs4W_browserFrame",
-		"browserStart": "nArs4W_browserStart",
-		"editorModeActive": "nArs4W_editorModeActive",
-		"explorerError": "nArs4W_explorerError",
-		"editorDocxZoomRange": "nArs4W_editorDocxZoomRange",
-		"splitRow": "nArs4W_splitRow",
-		"editor": "nArs4W_editor",
-		"terminalDepsCommandRow": "nArs4W_terminalDepsCommandRow",
-		"selectionPopup": "nArs4W_selectionPopup",
-		"producedLabel": "nArs4W_producedLabel",
-		"sandboxStatusOn": "nArs4W_sandboxStatusOn",
-		"openWithPinActive": "nArs4W_openWithPinActive",
-		"tocItemText": "nArs4W_tocItemText",
-		"mermaidInfo": "nArs4W_mermaidInfo",
-		"dsh-row-in": "nArs4W_dsh-row-in",
-		"explorerBody": "nArs4W_explorerBody",
-		"uploadDropChatCard": "nArs4W_uploadDropChatCard",
-		"dividerActive": "nArs4W_dividerActive",
-		"uploadOverlayProgress": "nArs4W_uploadOverlayProgress",
-		"editorTreePanel": "nArs4W_editorTreePanel",
-		"producedChip": "nArs4W_producedChip",
-		"editorTreeDock": "nArs4W_editorTreeDock",
-		"sandboxStatus": "nArs4W_sandboxStatus",
-		"explorerRenaming": "nArs4W_explorerRenaming",
-		"dropLeft": "nArs4W_dropLeft",
-		"mermaidModalToolbar": "nArs4W_mermaidModalToolbar",
-		"browser": "nArs4W_browser",
-		"openWithPin": "nArs4W_openWithPin",
-		"dropCenter": "nArs4W_dropCenter",
-		"terminalBannerUrl": "nArs4W_terminalBannerUrl",
-		"explorerEmpty": "nArs4W_explorerEmpty",
-		"editorTitle": "nArs4W_editorTitle",
-		"tocItem": "nArs4W_tocItem",
-		"editorStatusError": "nArs4W_editorStatusError",
-		"nativeTabHost": "nArs4W_nativeTabHost",
-		"explorerName": "nArs4W_explorerName",
-		"tabBarDrop": "nArs4W_tabBarDrop",
-		"dividerCol": "nArs4W_dividerCol",
-		"mermaidCopy": "nArs4W_mermaidCopy",
-		"splitCol": "nArs4W_splitCol",
-		"chipIcon": "nArs4W_chipIcon",
-		"tab": "nArs4W_tab",
-		"splitChild": "nArs4W_splitChild",
-		"uploadOverlayProgressFill": "nArs4W_uploadOverlayProgressFill",
-		"editorHeader": "nArs4W_editorHeader",
-		"editorMd": "nArs4W_editorMd",
-		"explorerRowRevealed": "nArs4W_explorerRowRevealed",
-		"explorerHeader": "nArs4W_explorerHeader",
-		"explorerRow": "nArs4W_explorerRow",
-		"mermaidCode": "nArs4W_mermaidCode",
-		"mermaidModalButton": "nArs4W_mermaidModalButton",
-		"editorBinary": "nArs4W_editorBinary",
-		"editorPathInput": "nArs4W_editorPathInput",
-		"editorPdfToolbar": "nArs4W_editorPdfToolbar",
-		"terminalWrap": "nArs4W_terminalWrap",
-		"explorerRef": "nArs4W_explorerRef",
-		"terminalBanner": "nArs4W_terminalBanner",
-		"uploadDropChatHint": "nArs4W_uploadDropChatHint",
-		"gitDiffTab": "nArs4W_gitDiffTab",
-		"producedRow": "nArs4W_producedRow",
-		"explorerCopied": "nArs4W_explorerCopied",
-		"editorBinaryNotice": "nArs4W_editorBinaryNotice",
-		"editorSearchInput": "nArs4W_editorSearchInput",
-		"explorerRenameInput": "nArs4W_explorerRenameInput",
-		"explorer": "nArs4W_explorer",
-		"editorTreeResize": "nArs4W_editorTreeResize",
-		"editorCm": "nArs4W_editorCm",
-		"editorModeToggle": "nArs4W_editorModeToggle",
-		"tocButton": "nArs4W_tocButton",
-		"terminalDepsNote": "nArs4W_terminalDepsNote",
-		"browserBlocked": "nArs4W_browserBlocked",
-		"divider": "nArs4W_divider",
-		"editorStatus": "nArs4W_editorStatus",
-		"paneTab": "nArs4W_paneTab",
-		"dropRight": "nArs4W_dropRight",
-		"bottomClose": "nArs4W_bottomClose",
-		"terminalDepsBanner": "nArs4W_terminalDepsBanner",
-		"tocFlash": "nArs4W_tocFlash",
-		"sandboxAction": "nArs4W_sandboxAction",
-		"paneCard": "nArs4W_paneCard",
-		"explorerActionError": "nArs4W_explorerActionError",
-		"sandboxStatusOff": "nArs4W_sandboxStatusOff",
-		"producedMore": "nArs4W_producedMore",
-		"editorPptxButton": "nArs4W_editorPptxButton",
-		"toggleButton": "nArs4W_toggleButton",
-		"uploadOverlay": "nArs4W_uploadOverlay",
-		"bottomPanelHidden": "nArs4W_bottomPanelHidden",
-		"bottomResizeActive": "nArs4W_bottomResizeActive",
-		"panel": "nArs4W_panel",
-		"paneEmptyCards": "nArs4W_paneEmptyCards",
-		"browserInput": "nArs4W_browserInput",
-		"editorBody": "nArs4W_editorBody",
-		"mermaidModalStage": "nArs4W_mermaidModalStage",
-		"terminalDepsTitle": "nArs4W_terminalDepsTitle",
-		"editorSearchResult": "nArs4W_editorSearchResult",
-		"openWithChevron": "nArs4W_openWithChevron",
-		"editorDownloadLink": "nArs4W_editorDownloadLink",
-		"tabList": "nArs4W_tabList",
-		"paneDrop": "nArs4W_paneDrop",
-		"split": "nArs4W_split",
-		"explorerActionErrorText": "nArs4W_explorerActionErrorText",
-		"sandboxStatusText": "nArs4W_sandboxStatusText",
-		"browserMessage": "nArs4W_browserMessage",
-		"tocItemLevel": "nArs4W_tocItemLevel",
-		"gitDiffTabHeader": "nArs4W_gitDiffTabHeader",
-		"uploadDropZoneText": "nArs4W_uploadDropZoneText",
-		"uploadOverlayCancel": "nArs4W_uploadOverlayCancel",
-		"browserBlockedButton": "nArs4W_browserBlockedButton",
-		"tabTitle": "nArs4W_tabTitle",
-		"explorerRowDropTarget": "nArs4W_explorerRowDropTarget",
-		"panelBody": "nArs4W_panelBody",
-		"explorerBroken": "nArs4W_explorerBroken",
-		"editorPdfFrame": "nArs4W_editorPdfFrame",
-		"editorHtmlBlock": "nArs4W_editorHtmlBlock",
-		"dsh-toc-flash": "nArs4W_dsh-toc-flash",
-		"editorTreeToggleActive": "nArs4W_editorTreeToggleActive",
-		"explorerSymlink": "nArs4W_explorerSymlink",
-		"editorMain": "nArs4W_editorMain",
-		"mermaidBody": "nArs4W_mermaidBody",
-		"explorerRoot": "nArs4W_explorerRoot",
-		"terminal": "nArs4W_terminal",
-		"paneTabHidden": "nArs4W_paneTabHidden",
-		"dropDown": "nArs4W_dropDown",
-		"tabClose": "nArs4W_tabClose",
-		"uploadOverlayTitle": "nArs4W_uploadOverlayTitle",
-		"editorPlaceholder": "nArs4W_editorPlaceholder",
-		"uploadDropHero": "nArs4W_uploadDropHero",
-		"browserBlockedTitle": "nArs4W_browserBlockedTitle",
-		"mermaidWrap": "nArs4W_mermaidWrap",
-		"explorerActionErrorClose": "nArs4W_explorerActionErrorClose",
-		"mermaidError": "nArs4W_mermaidError",
-		"editorPdfStage": "nArs4W_editorPdfStage",
-		"editorImageWrap": "nArs4W_editorImageWrap",
-		"uploadDropZone": "nArs4W_uploadDropZone",
-		"tabBadge": "nArs4W_tabBadge",
-		"bottomPanel": "nArs4W_bottomPanel",
-		"explorerDir": "nArs4W_explorerDir",
-		"tabBar": "nArs4W_tabBar",
-		"tabBarPlus": "nArs4W_tabBarPlus",
-		"pinnedTab": "nArs4W_pinnedTab",
-		"tabActive": "nArs4W_tabActive",
-		"mermaidHeader": "nArs4W_mermaidHeader",
-		"editorPdfFrameBlocked": "nArs4W_editorPdfFrameBlocked",
-		"boundaryError": "nArs4W_boundaryError",
-		"terminalRepairCommand": "nArs4W_terminalRepairCommand",
-		"tabBoundaryError": "nArs4W_tabBoundaryError",
-		"editorPdfDragShieldActive": "nArs4W_editorPdfDragShieldActive",
-		"sandboxDot": "nArs4W_sandboxDot",
-		"explorerHidden": "nArs4W_explorerHidden",
-		"gitPlaceholder": "nArs4W_gitPlaceholder",
-		"explorerConfirmDesc": "nArs4W_explorerConfirmDesc",
-		"tocBar": "nArs4W_tocBar",
-		"editorBanner": "nArs4W_editorBanner",
-		"orphanedType": "nArs4W_orphanedType",
-		"fenceError": "nArs4W_fenceError",
-		"editorTreeSearch": "nArs4W_editorTreeSearch"
+	var terminal_module_css_default = {
+		"xterm": "dMhp9G_xterm",
+		"error": "dMhp9G_error",
+		"status": "dMhp9G_status",
+		"xterm-viewport": "dMhp9G_xterm-viewport",
+		"screen": "dMhp9G_screen",
+		"action": "dMhp9G_action",
+		"notice": "dMhp9G_notice",
+		"root": "dMhp9G_root",
+		"noticeBlock": "dMhp9G_noticeBlock"
 	};
-	//#endregion
-	//#region src/client/TerminalWaitBanner.tsx
-	/**
-	* The "Agent 正在等待 {needle}" wait banner: rendered at the top of an
-	* agent-owned terminal's view while the model blocks in terminal_wait_for.
-	* The skip button asks the host to abort every active wait on the terminal
-	* (`agent-pty.skip-wait`); the banner disappears when the host's next
-	* agent-terminals push drops the waiting field — no optimistic UI. Kept in
-	* its own module (no xterm imports) so jsdom tests can render it directly.
-	*/
-	/** Cap the needle shown inline; the full text rides the title tooltip. */
-	const NEEDLE_DISPLAY_CAP = 80;
-	/** Truncate one needle for inline display (title attr carries the full text).
-	*  Cut by Unicode code points, not UTF-16 code units — a naive slice can split
-	*  a surrogate pair at the cutoff and render a dangling replacement char. */
-	function truncateNeedle(needle) {
-		const points = Array.from(needle);
-		return points.length > NEEDLE_DISPLAY_CAP ? `${points.slice(0, 79).join("")}…` : needle;
-	}
-	function TerminalWaitBanner(props) {
-		const { needle, onSkip } = props;
-		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: sidebar_module_css_default.terminalWaitBanner,
-			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-				className: sidebar_module_css_default.terminalWaitNeedle,
-				title: needle,
-				role: "status",
-				"aria-live": "polite",
-				"aria-label": t("terminalWaitBanner", { needle }),
-				children: t("terminalWaitBanner", { needle: truncateNeedle(needle) })
-			}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: sidebar_module_css_default.terminalRetry,
-				onClick: onSkip,
-				children: t("terminalSkipWait")
-			})]
-		});
-	}
 	//#endregion
 	//#region src/client/TerminalView.tsx
 	/**
-	* The interactive terminal: xterm.js over a WebSocket to the host pty.
-	* The host replays the session's transcript on connect, then streams live
-	* output; input frames are raw text, resize frames are JSON with
-	* type:"resize". Transient disconnects (page refresh, host restart) reconnect
-	* automatically; a server-side refusal (close code 1011 with a reason, e.g.
-	* a failed pty spawn) stops the loop and shows the reason with a manual
-	* retry, and repeated unreasoned failures surface the close code after three
-	* attempts, so the banner never spins forever.
+	* The bottom workbench's terminal: an xterm.js emulator driven by the HOST's
+	* session-scoped terminal service (`ctx.webTerminals`, see
+	* ./terminal-client.ts). The plugin owns no PTY — the host keeps process
+	* lifetime, screen recovery and reconnection, and this view is only the
+	* emulator plus the command plumbing.
 	*
-	* Three control frames shape the pty lifecycle on unmount:
-	* - `{type:'close'}` — the user closed the tab. The host kills the pty
-	*   immediately (quota released).
-	* - `{type:'park'}` — the user switched to another conversation. The tab is
-	*   still open in its session's persisted state but its view unmounted; the
-	*   host keeps the pty alive indefinitely (no grace countdown), so switching
-	*   back reattaches the same shell instead of respawning one.
-	* - bare socket drop (no frame) — page refresh, crash, plugin teardown, or a
-	*   same-session re-render. The host's reconnect grace keeps the shell alive
-	*   for a quick reconnect.
+	* This module is the LAZY CHUNK's payload (`src/client/chunks/terminal.tsx`):
+	* xterm is hundreds of KB, so it must never be reachable from the core
+	* bundle. `tsdown.config.ts` builds `lib/client-terminal.js`, and
+	* `tests/chunk-artifact.spec.ts` pins that xterm is inside the chunk and NOT
+	* inside `lib/client.js`. Never import this file from a core-bundle module —
+	* reach it through `lazyChunkComponent('terminal', …)` instead.
 	*
-	* Two attach modes share one upgrade endpoint:
-	* - `tabId` starting with `agent:` is an agent-owned terminal (created by
-	*   the `terminal_create` tool). The uuid is the suffix after `agent:`; the
-	*   view connects with `?uuid=...`. A close frame kills the pty (the agent's
-	*   terminal closes when the user closes the tab); a bare socket drop
-	*   leaves the pty alive (the agent owns the lifetime) — agent terminals
-	*   never send park (their lifetime is already indefinite on bare drop).
-	* - Any other `tabId` is a UI-tab terminal (the user created it from the +
-	*   menu). The view connects with `?tab=...&sessionId=...&cwd=...`. A close
-	*   frame schedules a 0-ms close; a park frame marks the pty as parked; a
-	*   bare socket drop gets the host's reconnect grace.
+	* The host's terminal model is frame-based, not a stream:
+	*
+	* - `view.state.render` holds the NEXT frame awaiting
+	*   {@link HostTerminalView.acknowledge}; a `snapshot` frame carries the whole
+	*   serialized screen and must be REPLAYED (reset + resize + write), an
+	*   `output` frame is appended. The emulator's write callback is what releases
+	*   the following frame, so an unacknowledged frame stops output for good.
+	* - `mount()` attaches the DOM lifetime and returns a DETACH callback: a
+	*   remount (tab switch, panel collapse, session switch) re-attaches to the
+	*   same live process. Unmounting must NOT close the terminal — the host's
+	*   contract is "a view survives DOM unmount; its process only ends on
+	*   explicit close", and it is what makes a reload restore the same shell. The
+	*   descriptor's `onClose` is the one place that does close it.
+	* - The process identity is restored through the host's persisted
+	*   `(sessionId, contentId) -> terminalId` binding, so the content identity
+	*   must be STABLE across mounts ({@link bottomTerminalContentId}). "New
+	*   terminal" deliberately mints a new one, because the old binding points at
+	*   a process that is gone (host restart, terminal closed elsewhere) and
+	*   reusing it would wedge the tab on `missingTerminal` forever.
+	* - `write` / `resize` go through the model (which serializes them and refuses
+	*   them while the view is not writable), never straight to the remote —
+	*   otherwise two windows' keystrokes would interleave.
+	*
+	* Colors come from theme tokens: the stylesheet paints the screen from
+	* `--dsw-*` / `--ds-*` and the concrete values are read back through
+	* `getComputedStyle`, the same token bridge `theme.ts` documents for xterm's
+	* palette. This module carries no color literal (`tests/theme.spec.ts`).
 	*/
-	/** How many consecutive unreasoned failures before showing the error banner. */
-	const FAILURE_LIMIT = 3;
 	/**
-	* The WS close-code-1011 reason the host sends when node-pty is unavailable
-	* (mirror of the host's PTY_DEPS_MISSING; the value is a wire contract, so
-	* the two sides keep the literal in lockstep). The view then fetches the
-	* full repair details from /sidebar/api/terminal.deps.
+	* Render the bottom workbench's terminal tab.
+	* @param props - the client context, the tab's session scope and visibility.
+	* @returns the terminal screen plus its status/degradation panels.
 	*/
-	const PTY_DEPS_MISSING = "pty-deps-missing";
-	/**
-	* The WS close-reason prefix the host sends when the CONFIGURED shell was
-	* not found (mirror of src/index.ts wsCloseReasonOf; wire contract, keep the
-	* literal in lockstep). The view renders a localized, actionable banner.
-	*/
-	const SHELL_NOT_FOUND_PREFIX = "shell-not-found:";
-	/**
-	* Curated ANSI palettes for the terminal. The surface colors (background,
-	* foreground, cursor, selection) ride the theme tokens so the terminal
-	* blends with the panel in both schemes; the 16 ANSI colors are the same
-	* designed syntax families the app's code surfaces use — one-dark for
-	* dark, one-light for light (one-dark-palette.ts, shared with the
-	* CodeMirror themes) — read live so a scheme flip re-themes in place.
-	*/
-	const ANSI_DARK = {
-		black: ONE_DARK.black,
-		red: ONE_DARK.red,
-		green: ONE_DARK.green,
-		yellow: ONE_DARK.yellow,
-		blue: ONE_DARK.blue,
-		magenta: ONE_DARK.magenta,
-		cyan: ONE_DARK.cyan,
-		white: ONE_DARK.gray,
-		brightBlack: ONE_DARK.faintGray,
-		brightRed: ONE_DARK.red,
-		brightGreen: ONE_DARK.green,
-		brightYellow: ONE_DARK.yellow,
-		brightBlue: ONE_DARK.blue,
-		brightMagenta: ONE_DARK.magenta,
-		brightCyan: ONE_DARK.cyan,
-		brightWhite: ONE_DARK.white
-	};
-	const ANSI_LIGHT = {
-		black: ONE_LIGHT.black,
-		red: ONE_LIGHT.red,
-		green: ONE_LIGHT.green,
-		yellow: ONE_LIGHT.yellow,
-		blue: ONE_LIGHT.blue,
-		magenta: ONE_LIGHT.magenta,
-		cyan: ONE_LIGHT.cyan,
-		white: ONE_LIGHT.gray,
-		brightBlack: ONE_LIGHT.faintGray,
-		brightRed: ONE_LIGHT.red,
-		brightGreen: ONE_LIGHT.green,
-		brightYellow: ONE_LIGHT.yellow,
-		brightBlue: ONE_LIGHT.blue,
-		brightMagenta: ONE_LIGHT.magenta,
-		brightCyan: ONE_LIGHT.cyan,
-		brightWhite: ONE_LIGHT.offWhite
-	};
-	/** The xterm theme for the current scheme (surface from tokens, ANSI curated). */
-	function xtermTheme() {
-		const dark = isDarkScheme();
-		const background = effectiveTokenValue("--dsw-alias-bg-base") || (dark ? "#111114" : "#ffffff");
-		const foreground = effectiveTokenValue("--dsw-alias-label-primary") || (dark ? "#e6e6e6" : "#1a1a1a");
-		return {
-			background,
-			foreground,
-			cursor: foreground,
-			cursorAccent: background,
-			selectionBackground: dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.12)",
-			...dark ? ANSI_DARK : ANSI_LIGHT
-		};
-	}
-	function TerminalView(props) {
-		const { scope, tabId, store } = props;
-		const hostRef = (0, react.useRef)(null);
-		const [connected, setConnected] = (0, react.useState)(false);
-		const [fatal, setFatal] = (0, react.useState)(null);
-		const [depsFatal, setDepsFatal] = (0, react.useState)(null);
-		const [lastUrl, setLastUrl] = (0, react.useState)(null);
-		const agentUuid = isAgentTabId(tabId) ? agentUuidOf(tabId) : null;
-		const [waiting, setWaiting] = (0, react.useState)(void 0);
-		(0, react.useEffect)(() => {
-			if (agentUuid === null) return;
-			const read = () => {
-				const next = store.getSnapshot().state?.agentWaits?.[agentUuid];
-				setWaiting((prev) => {
-					const nextValue = next === void 0 ? void 0 : {
-						needle: next.needle,
-						since: next.since
-					};
-					if (prev?.needle === nextValue?.needle && prev?.since === nextValue?.since) return prev;
-					return nextValue;
-				});
-			};
-			read();
-			return store.subscribe(read);
-		}, [agentUuid, store]);
-		const connectRef = (0, react.useRef)(null);
-		(0, react.useEffect)(() => {
-			const host = hostRef.current;
-			if (host === null) return;
-			const font = resolveTerminalFont(store.getPrefs(), tokenValue("--ds-font-family-code"));
-			const term = new import_xterm.Terminal({
-				cursorBlink: true,
-				fontSize: font.fontSize,
-				fontFamily: font.fontFamily,
-				allowTransparency: true,
-				convertEol: false,
-				scrollback: 4e3,
-				theme: xtermTheme()
-			});
-			const fit = new import_addon_fit.FitAddon();
-			term.loadAddon(fit);
-			const linkProvider = term.registerLinkProvider({ provideLinks: (lineNumber, callback) => {
-				const line = term.buffer.active.getLine(lineNumber - 1);
-				if (line === void 0) {
-					callback(void 0);
-					return;
-				}
-				const descriptors = buildTerminalLinks(line.translateToString(true), lineNumber);
-				if (descriptors.length === 0) {
-					callback(void 0);
-					return;
-				}
-				callback(descriptors.map((descriptor) => ({
-					range: descriptor.range,
-					text: descriptor.text,
-					activate: (event) => {
-						if (!shouldActivateTerminalLink(event)) return;
-						openTerminalUrl(descriptor.text);
-					}
-				})));
-			} });
-			const applyTheme = () => {
-				term.options.theme = xtermTheme();
-				term.refresh(0, term.rows - 1);
-			};
-			const schemeSub = subscribeColorScheme(applyTheme);
-			let socket = null;
-			let closed = false;
-			let retry;
-			let failures = 0;
-			const wsUrl = () => {
-				const url = new URL("/sidebar/ws/terminal", location.origin);
-				url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-				if (isAgentTabId(tabId)) url.search = new URLSearchParams({ uuid: agentUuidOf(tabId) }).toString();
-				else {
-					const params = new URLSearchParams({
-						sessionId: scope.sessionId,
-						tab: tabId
-					});
-					if (scope.cwd !== void 0 && scope.cwd !== "") params.set("cwd", scope.cwd);
-					url.search = params.toString();
-				}
-				return url.toString();
-			};
-			const sendResize = () => {
-				if (socket !== null && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({
-					type: "resize",
-					cols: term.cols,
-					rows: term.rows
-				}));
-			};
-			const connect = () => {
-				if (closed) return;
-				const url = wsUrl();
-				setLastUrl(url);
-				socket = new WebSocket(url);
-				socket.onopen = () => {
-					failures = 0;
-					setConnected(true);
-					setFatal(null);
-					sendResize();
-				};
-				socket.onmessage = (event) => {
-					if (typeof event.data === "string") term.write(event.data);
-				};
-				socket.onclose = (event) => {
-					setConnected(false);
-					if (event.code === 1011 && event.reason === PTY_DEPS_MISSING) {
-						api.terminalDeps().then((status) => {
-							if (status.ok) {
-								setFatal(t("terminalDepsFailed"));
-								return;
-							}
-							setFatal(null);
-							setDepsFatal(status);
-						}).catch(() => {
-							setFatal(t("terminalDepsFailed"));
-						});
-						return;
-					}
-					if (event.code === 1011 && event.reason.startsWith(SHELL_NOT_FOUND_PREFIX)) {
-						setFatal(t("terminalShellNotFound", { name: event.reason.slice(16) || "?" }));
-						return;
-					}
-					if (event.code === 1011 && event.reason !== "") {
-						setFatal(event.reason);
-						return;
-					}
-					failures += 1;
-					if (failures >= FAILURE_LIMIT) {
-						const detail = event.reason !== "" ? ` (${event.code}: ${event.reason})` : ` (${event.code})`;
-						console.error("[dsh-better-sidebar] terminal connection failed:", event.code, event.reason, url);
-						setFatal(`${t("terminalConnectFailed")}${detail}`);
-						return;
-					}
-					if (!closed) retry = window.setTimeout(connect, 2e3);
-				};
-				socket.onerror = () => {
-					socket?.close();
-				};
-			};
-			connectRef.current = connect;
-			const inputSub = term.onData((data) => {
-				if (socket !== null && socket.readyState === WebSocket.OPEN) socket.send(data);
-			});
-			let resizeFrame = null;
-			const observer = new ResizeObserver(() => {
-				if (resizeFrame !== null) return;
-				resizeFrame = requestAnimationFrame(() => {
-					resizeFrame = null;
-					try {
-						fit.fit();
-						sendResize();
-					} catch {}
-				});
-			});
-			observer.observe(host);
-			const fontSub = store.subscribe(() => {
-				const next = resolveTerminalFont(store.getPrefs(), tokenValue("--ds-font-family-code"));
-				if (next.fontFamily !== term.options.fontFamily || next.fontSize !== term.options.fontSize) {
-					term.options.fontFamily = next.fontFamily;
-					term.options.fontSize = next.fontSize;
-					try {
-						fit.fit();
-						sendResize();
-					} catch {}
-				}
-			});
-			const cancelOpen = openWhenSized(host, () => {
-				try {
-					term.open(host);
-					fit.fit();
-					sendResize();
-				} catch (error) {
-					console.error("[dsh-better-sidebar] xterm open failed:", error);
-				}
-			});
-			connect();
-			return () => {
-				closed = true;
-				cancelOpen();
-				window.clearTimeout(retry);
-				observer.disconnect();
-				if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
-				fontSub();
-				schemeSub();
-				inputSub.dispose();
-				const tabStillOpen = store.tabOpen(scope.sessionId, tabId);
-				const sessionSwitched = store.getSnapshot().sessionId !== scope.sessionId;
-				if (!tabStillOpen && socket !== null && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "close" }));
-				else if (tabStillOpen && sessionSwitched && !isAgentTabId(tabId) && socket !== null && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "park" }));
-				socket?.close();
-				linkProvider.dispose();
-				term.dispose();
-				connectRef.current = null;
-			};
-		}, [
-			scope.sessionId,
-			scope.cwd,
-			tabId,
-			store
+	function TerminalBottomView({ ctx, scope, tab, visible }) {
+		const sessionId = scope.sessionId;
+		const service = (0, react.useMemo)(() => webTerminals(ctx), [ctx]);
+		const contentId = bottomTerminalContentId(terminalRunOf(tab), terminalInstanceOf(tab));
+		const model = (0, react.useMemo)(() => service?.view(sessionId, contentId, contentId), [
+			service,
+			sessionId,
+			contentId
 		]);
-		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: sidebar_module_css_default.terminalWrap,
+		const state = (0, react.useSyncExternalStore)((0, react.useMemo)(() => (callback) => model?.state.subscribe(callback) ?? (() => {}), [model]), (0, react.useCallback)(() => model?.state.getSnapshot(), [model]));
+		const scheme = (0, react.useSyncExternalStore)(subscribeColorScheme, isDarkScheme);
+		(0, react.useEffect)(() => {
+			if (model === void 0) return;
+			return model.mount();
+		}, [model]);
+		const newTerminal = (0, react.useCallback)(() => {
+			ctx.get("betterSidebar")?.updateTab(tab.id, { meta: nextTerminalMeta(tab) }, sessionId);
+		}, [
+			ctx,
+			tab,
+			sessionId
+		]);
+		if (service === void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("section", {
+			className: terminal_module_css_default.root,
+			"data-dsh-bottom-terminal": true,
+			"data-terminal-state": "unavailable",
+			children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: terminal_module_css_default.notice,
+				role: "alert",
+				children: t("terminalUnavailable")
+			})
+		});
+		if (model === void 0 || state === void 0) return null;
+		const missing = state.issue === "missingTerminal";
+		const ended = state.info?.state === "exited" || state.phase === "closed";
+		const status = missing || ended ? void 0 : statusOf(state);
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("section", {
+			className: terminal_module_css_default.root,
+			"data-dsh-bottom-terminal": true,
+			"data-terminal-state": state.phase,
 			children: [
-				agentUuid !== null && waiting !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TerminalWaitBanner, {
-					needle: waiting.needle,
-					onSkip: () => {
-						api.agentSkipWait(agentUuid).catch(() => {});
-					}
+				status !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: terminal_module_css_default.status,
+					role: "status",
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: status }), reconnectable(state) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: terminal_module_css_default.action,
+						onClick: () => {
+							if (state.info === void 0) model.refresh();
+							else model.connect();
+						},
+						children: t("terminalRetry")
+					})]
 				}),
-				depsFatal !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TerminalDepsBanner, {
-					deps: depsFatal,
-					onRetry: () => {
-						setDepsFatal(null);
-						connectRef.current?.();
-					}
+				(missing || ended) && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: terminal_module_css_default.noticeBlock,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+						className: missing ? terminal_module_css_default.notice : terminal_module_css_default.status,
+						role: missing ? "alert" : "status",
+						children: missing ? t("terminalGone") : t("exited")
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: terminal_module_css_default.action,
+						onClick: newTerminal,
+						children: t("terminalNew")
+					})]
 				}),
-				fatal !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: sidebar_module_css_default.terminalBanner,
+				state.info !== void 0 && !missing && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TerminalScreen, {
+					model,
+					state,
+					visible,
+					scheme,
+					label: t("terminal")
+				}),
+				state.error !== void 0 && state.issue === void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("p", {
+					className: terminal_module_css_default.error,
+					role: "alert",
 					children: [
 						t("terminalError"),
 						": ",
-						fatal,
-						lastUrl !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-							className: sidebar_module_css_default.terminalBannerUrl,
-							children: lastUrl
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: sidebar_module_css_default.terminalRetry,
-							onClick: () => {
-								setFatal(null);
-								connectRef.current?.();
-							},
-							children: t("terminalRetry")
-						})
+						state.error
 					]
-				}),
-				fatal === null && depsFatal === null && !connected && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: sidebar_module_css_default.terminalBanner,
-					children: t("disconnected")
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					ref: hostRef,
-					className: sidebar_module_css_default.terminal
 				})
 			]
+		});
+	}
+	/** The one-line status for a view whose screen is not worth showing yet. */
+	function statusOf(state) {
+		switch (state.phase) {
+			case "idle":
+			case "loading":
+			case "creating":
+			case "connecting": return t("loading");
+			case "disconnected": return t("disconnected");
+			case "failed": return t("terminalConnectFailed");
+			default: return;
+		}
+	}
+	/**
+	* Whether the retry affordance applies: the two phases that describe a
+	* terminal that exists but is not currently attached (an ended or missing
+	* terminal gets the "new terminal" action instead).
+	*/
+	function reconnectable(state) {
+		return state.phase === "failed" || state.phase === "disconnected";
+	}
+	/**
+	* The emulator cell, mounted once the host reported a terminal and bound to
+	* the MODEL: a status change re-renders around it, only a new terminal
+	* (a "new terminal" mint, or the tab remounting) opens a new emulator.
+	*/
+	function TerminalScreen({ model, state, visible, scheme, label }) {
+		const element = (0, react.useRef)(null);
+		const emulator = (0, react.useRef)(void 0);
+		const fit = (0, react.useRef)(void 0);
+		const lastRevision = (0, react.useRef)(0);
+		const current = (0, react.useRef)({
+			state,
+			visible
+		});
+		current.current = {
+			state,
+			visible
+		};
+		(0, react.useLayoutEffect)(() => {
+			const node = element.current;
+			if (node === null) return;
+			const xterm = new import_xterm.Terminal({
+				fontFamily: getComputedStyle(node).fontFamily,
+				fontSize: 13,
+				minimumContrastRatio: 4.5,
+				cursorBlink: true,
+				scrollback: current.current.state.environment?.scrollback ?? 0
+			});
+			const addon = new import_addon_fit.FitAddon();
+			xterm.loadAddon(addon);
+			xterm.open(node);
+			xterm.textarea?.setAttribute("aria-label", label);
+			emulator.current = xterm;
+			fit.current = addon;
+			lastRevision.current = 0;
+			const input = xterm.onData((data) => {
+				model.write(data);
+			});
+			const measure = () => {
+				const live = current.current;
+				if (!live.visible || !live.state.writable || node.clientWidth === 0 || node.clientHeight === 0) return;
+				fitScreen(xterm, addon, live.state.environment, model);
+			};
+			const observer = typeof ResizeObserver === "undefined" ? void 0 : new ResizeObserver(measure);
+			observer?.observe(node);
+			return () => {
+				observer?.disconnect();
+				input.dispose();
+				xterm.dispose();
+				emulator.current = void 0;
+				fit.current = void 0;
+			};
+		}, [model, label]);
+		(0, react.useLayoutEffect)(() => {
+			const node = element.current;
+			const xterm = emulator.current;
+			if (node === null || xterm === void 0) return;
+			const style = getComputedStyle(node);
+			xterm.options.theme = {
+				background: style.backgroundColor,
+				foreground: style.color,
+				cursor: style.color,
+				cursorAccent: style.backgroundColor,
+				selectionBackground: style.color,
+				selectionForeground: style.backgroundColor
+			};
+		}, [
+			scheme,
+			model,
+			state.phase
+		]);
+		(0, react.useLayoutEffect)(() => {
+			const xterm = emulator.current;
+			const render = state.render;
+			if (xterm === void 0 || render === void 0 || render.revision <= lastRevision.current) return;
+			lastRevision.current = render.revision;
+			if (render.frame.type === "snapshot") {
+				xterm.reset();
+				xterm.resize(render.frame.info.cols, render.frame.info.rows);
+			}
+			xterm.write(render.frame.type === "snapshot" ? render.frame.screen : render.frame.data, () => {
+				model.acknowledge(render.revision);
+			});
+		}, [state.render, model]);
+		const { writable, environment, info } = state;
+		(0, react.useLayoutEffect)(() => {
+			const xterm = emulator.current;
+			if (xterm === void 0) return;
+			xterm.options.disableStdin = !writable;
+			if (visible && writable) fitScreen(xterm, fit.current, environment, model);
+			else if (info !== void 0 && !writable) xterm.resize(info.cols, info.rows);
+		}, [
+			visible,
+			writable,
+			environment,
+			info,
+			model
+		]);
+		(0, react.useEffect)(() => {
+			if (visible && writable) emulator.current?.focus();
+		}, [visible, writable]);
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+			className: terminal_module_css_default.screen,
+			ref: element
 		});
 	}
 	/**
-	* The node-pty dependency failure banner (issue #140): explains that the
-	* terminal's native dependency failed to load and shows the PASTEABLE repair
-	* command (bash / cmd / PowerShell) with a copy button — the user pastes it
-	* into a terminal where their DSH profile lives and runs it, then retries.
-	* Extracted as a standalone component for direct testing.
+	* Fit the emulator to its box and publish the size, clamped to the host's
+	* per-terminal limits (a size the host refuses would leave the shell's own
+	* idea of the window wrong).
 	*/
-	function TerminalDepsBanner(props) {
-		const { deps, onRetry } = props;
-		const [copied, setCopied] = (0, react.useState)(false);
-		const copy = async () => {
-			if (await (0, _deepseek_ai_dsh_client_ui_primitives.writeClipboard)(deps.command)) {
-				setCopied(true);
-				window.setTimeout(() => setCopied(false), 2e3);
-			}
-		};
-		return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: sidebar_module_css_default.terminalDepsBanner,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: sidebar_module_css_default.terminalDepsTitle,
-					children: t("terminalDepsFailed")
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: sidebar_module_css_default.terminalDepsHint,
-					children: [t("terminalDepsHint"), deps.profile !== null ? t("terminalDepsProfile", { profile: deps.profile }) : ""]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: sidebar_module_css_default.terminalDepsCommandRow,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("pre", {
-						className: sidebar_module_css_default.terminalRepairCommand,
-						children: deps.command
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: sidebar_module_css_default.terminalRetry,
-						onClick: () => {
-							copy();
-						},
-						"aria-label": t("copy"),
-						children: copied ? t("copied") : t("copy")
-					})]
-				}),
-				deps.note !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: sidebar_module_css_default.terminalDepsNote,
-					children: deps.note
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-					className: sidebar_module_css_default.terminalDepsActions,
-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: sidebar_module_css_default.terminalRetry,
-						onClick: onRetry,
-						children: t("terminalRetry")
-					})
-				})
-			]
-		});
+	function fitScreen(xterm, addon, environment, model) {
+		const dimensions = addon?.proposeDimensions();
+		if (dimensions === void 0 || environment === void 0) return;
+		const cols = Math.min(dimensions.cols, environment.maxCols);
+		const rows = Math.min(dimensions.rows, environment.maxRows);
+		if (cols < 2 || rows < 1) return;
+		xterm.resize(cols, rows);
+		model.resize(cols, rows);
 	}
 	//#endregion
-	exports.TerminalView = TerminalView;
+	exports.TerminalBottomView = TerminalBottomView;
 	return module.exports;
 };
 

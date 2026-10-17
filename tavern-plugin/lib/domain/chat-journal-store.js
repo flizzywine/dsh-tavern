@@ -937,7 +937,7 @@ export function createChatJournalStore(options = {}) {
 
   // Explicit cutover only: original journals and compatible history remain intact.
   // All current writers share serialize()'s cross-process conversation lock.
-  async function migrateNative(chatId,{onProgress=()=>{},assertCanMigrate=()=>{}}={}){
+  async function upgradeStorage(chatId,{onProgress=()=>{},assertCanMigrate=()=>{}}={}){
     safeChatId(chatId)
     if(!compatible)throw new Error('Migration requires the shared conversation lock')
     await flushMaintenance()
@@ -1082,5 +1082,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, migrateNative, migrateCompatibility, restoreLegacy, read, readWindow, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
+  return Object.freeze({ compact, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
 }
