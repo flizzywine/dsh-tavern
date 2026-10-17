@@ -12040,7 +12040,7 @@ function bindTavernFontZoom(node, win) {
 				if (reading.on && beat) tavernSpeech.speak(tavernBeatSpeech(props.sessionId, beat)).then(function (heard) { turn(heard ? 400 : delay); });
 				else turn(delay);
 				return function () { active = false; if (timer !== null) window.clearTimeout(timer); };
-			}, [auto, reader.index, atEnd, reading.on]);
+			}, [auto, reader.index, reader.turn, reader.beats, atEnd, reading.on, props.sessionId]);
 			async function send(event) {
 				event.preventDefault();
 				const text = draft.trim();
@@ -12147,7 +12147,7 @@ function bindTavernFontZoom(node, win) {
 			const beat = reader.beats[reader.index];
 			React.useEffect(function () {
 				if (reading.on && beat && !fullscreen) void tavernSpeech.speak(tavernBeatSpeech(props.sessionId, beat));
-			}, [reader.index, reader.turn, reading.on, fullscreen]);
+			}, [reader.index, reader.turn, reader.beats, reading.on, fullscreen, props.sessionId]);
 			const data = stage.data;
 			if (!data) return h("aside", { className: "dsh-tavern-status dsh-tavern-stage-tab", "aria-label": "舞台" }, h("p", { className: "dsh-tavern-settings-desc" }, stage.error || "正在读取舞台…"));
 			return h("aside", { className: "dsh-tavern-status dsh-tavern-stage-tab", "aria-label": "舞台" },
