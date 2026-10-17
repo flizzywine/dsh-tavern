@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ad21a0f501cd5e361dbb3c7d64043e1db5597179",
-  "releaseSequence": 650,
+  "revision": "03dd047a154cbcb0ea157af243f65939f614ba43",
+  "releaseSequence": 651,
   "version": "2.7.0",
   "files": [
     {
@@ -981,8 +981,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/host-package-resolution.js",
-      "sha256": "f9172e2ad8c683967d56c6e1c166698e73453f608edbceaed3e7b4b1283342bd",
-      "size": 4761
+      "sha256": "44024455542821ce37c57b938dc6712e1f155efbafb59639b8bd7b7d7f4d272f",
+      "size": 5131
     },
     {
       "path": "tavern-plugin/lib/domain/host-projection-replay.js",

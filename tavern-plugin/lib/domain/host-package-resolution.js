@@ -16,6 +16,7 @@
 // 所以这里只把 asar 宿主根排到解析候选的第一位，插件闭包退回最后一位 —— 不引入第二份
 // dsh-session，也不产生双份会话状态。
 import { createRequire } from 'node:module'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -27,7 +28,14 @@ const HOST_RUNTIME_DIRECTORY = 'dsh'
 // 退回 process.argv[1]。
 export function desktopLauncherEntry({ env = process.env, argv = process.argv } = {}) {
   for (const candidate of [env.DSH_DESKTOP_DSH_BOOTSTRAP, env.DSH_DESKTOP_NODE_EXECUTABLE, argv[1]]) {
-    if (typeof candidate === 'string' && /\.(?:c|m)?js$/i.test(candidate)) return candidate
+    if (typeof candidate !== 'string') continue
+    // CLI 的 runtime/bin/dsh 是无扩展名链接；从其真实入口解析才会命中宿主闭包。
+    // 保留归档宿主原路径，避免改变 Electron 的 asar 锚点优先级。
+    if (/\.(?:c|m)?js$/i.test(candidate)) return candidate
+    try {
+      const entry = realpathSync(candidate)
+      if (/\.(?:c|m)?js$/i.test(entry)) return entry
+    } catch {}
   }
   return ''
 }

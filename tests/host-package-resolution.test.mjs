@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -191,4 +191,22 @@ test('真机桌面：Windows 子进程补丁用 asar 根装得上、可回滚', 
     restore()
   }
   assert.equal(Local.prototype.spawn, original)
+})
+
+test('CLI 无扩展名启动链接从真实运行时解析宿主包', { skip: process.platform === 'win32' }, async t => {
+  const root = mkdtempSync(join(tmpdir(), 'tavern-cli-host-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const entry = join(root, 'runtime/lib/node_modules/@deepseek-ai/dsh/lib/bin.js')
+  const session = join(root, 'runtime/lib/node_modules/@deepseek-ai/dsh-session/index.js')
+  for (const file of [entry, session]) {
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, 'module.exports = {}')
+  }
+  const launcher = join(root, 'runtime/bin/dsh')
+  mkdirSync(dirname(launcher), { recursive: true })
+  symlinkSync(entry, launcher)
+  const { resolvable } = hostRequireCandidates({ names: ['@deepseek-ai/dsh-session'],
+    env: {}, argv: ['node', launcher], pluginAnchor: join(root, 'plugin/package.json') })
+  assert.equal(resolvable[0]?.label, 'launcher-entry')
+  assert.equal(resolvable[0].require.resolve('@deepseek-ai/dsh-session'), realpathSync(session))
 })
