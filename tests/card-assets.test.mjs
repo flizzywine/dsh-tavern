@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildCharx, cardImport, emotionSlot, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
+import { buildCharx, cardImport, collectCardAssets, emotionSlot, pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -115,4 +115,24 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   assert.equal(restored.backgrounds.length, 1)
   assert.deepEqual(restored.extras.map(item => [item.type, item.name]), manifest.extras.map(item => [item.type, item.name]))
   assert.ok(pngWithCard(png('c'), '{}').includes(Buffer.from('IEND')))
+})
+
+
+test('素材配额按唯一地址计算；超限拒绝导入导出，缺失的扩展图片明确计数', () => {
+  const characters = Array.from({ length: 300 }, (_, i) => ({ name: '角色' + i, sprites: { joy: 'embeded://' + i + '.png' } }))
+  const card = { data: { assets: [{ type: 'emotion', name: 'joy', uri: 'embeded://0.png' }], extensions: { dsh_tavern: { cast: { characters } } } } }
+  const collected = collectCardAssets(card, () => PNG)
+  assert.equal(collected.cast.reduce((n, c) => n + Object.keys(c.sprites).length, 0), 300)
+  assert.equal(collected.skipped, 0)
+  characters.push({ name: '超限', sprites: { joy: 'embeded://300.png' } })
+  assert.throws(() => collectCardAssets(card, () => PNG), /素材超过 300/)
+  assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => PNG }), /素材超过 300/)
+  const missing = collectCardAssets({ data: { extensions: { risuai: { emotions: [['sad', 'missing']] }, dsh_tavern: { cast: { characters: [{ name: 'A', avatar: 'missing', sprites: { joy: 'missing' } }] } } } } }, () => undefined)
+  assert.equal(missing.skipped, 3)
+})
+
+test('CHARX 导出拒绝生成超过导入解压容量的文件', () => {
+  const bytes = Buffer.alloc(8 * 1024 * 1024)
+  const characters = Array.from({ length: 20 }, (_, i) => ({ name: '角色' + i, sprites: { joy: i + '.png' } }))
+  assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => bytes }), /解压后内容超过 150 MB/)
 })

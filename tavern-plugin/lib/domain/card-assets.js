@@ -142,13 +142,16 @@ function dataUri(uri) {
 export function collectCardAssets(card, resolve) {
   const data = card && typeof card.data === 'object' && card.data ? card.data : card || {}
   const result = { emotions: [], backgrounds: [], cover: null, extras: [], cast: [], skipped: 0 }
-  let count = 0
+  const resolved = new Map()
   const read = uri => {
-    if (typeof uri !== 'string' || count >= MAX_ASSETS) return undefined
+    if (typeof uri !== 'string') return undefined
+    if (resolved.has(uri)) return resolved.get(uri)
     const bytes = resolve(uri)
     if (!bytes?.length || bytes.length > MAX_ASSET_BYTES) return undefined
-    count += 1
-    return Buffer.from(bytes)
+    if (resolved.size >= MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，导入已停止，请减少素材后重试')
+    const copy = Buffer.from(bytes)
+    resolved.set(uri, copy)
+    return copy
   }
   for (const asset of Array.isArray(data.assets) ? data.assets : []) {
     if (!asset || typeof asset.uri !== 'string' || asset.uri === 'ccdefault:') continue
@@ -166,14 +169,21 @@ export function collectCardAssets(card, resolve) {
     if (!Array.isArray(entry) || result.emotions.some(item => item.name === String(entry[0]))) continue
     const bytes = read(String(entry[1] || ''))
     if (bytes) result.emotions.push({ name: String(entry[0] || '').slice(0, 100), ext: 'png', bytes })
+    else result.skipped += 1
   }
   const own = data.extensions && data.extensions.dsh_tavern && data.extensions.dsh_tavern.cast
   for (const character of Array.isArray(own && own.characters) ? own.characters : []) {
     if (!character || typeof character.name !== 'string') continue
     const sprites = {}
-    for (const [slot, uri] of Object.entries(character.sprites || {})) { const bytes = Object.hasOwn(CAST_EMOTIONS, slot) && read(uri); if (bytes) sprites[slot] = bytes }
+    for (const [slot, uri] of Object.entries(character.sprites || {})) {
+      const bytes = Object.hasOwn(CAST_EMOTIONS, slot) && read(uri)
+      if (bytes) sprites[slot] = bytes
+      else result.skipped += 1
+    }
+    const avatar = character.avatar ? read(character.avatar) : null
+    if (character.avatar && !avatar) result.skipped += 1
     result.cast.push({ name: character.name, aliases: Array.isArray(character.aliases) ? character.aliases.filter(alias => typeof alias === 'string') : [],
-      avatar: character.avatar ? read(character.avatar) || null : null, sprites,
+      avatar: avatar || null, sprites,
       voices: character.voices && typeof character.voices === 'object' ? Object.fromEntries(Object.entries(character.voices).filter(([, voice]) => typeof voice === 'string')) : {} })
   }
   return result
@@ -250,7 +260,8 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
   if (cast.length) data.extensions.dsh_tavern.cast = { version: 1, characters: cast }
   else delete data.extensions.dsh_tavern.cast
   if (!Object.keys(data.extensions.dsh_tavern).length) delete data.extensions.dsh_tavern
-  return writeZipEntries([{ path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files])
+  if (files.length > MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，无法生成可完整导入的 CHARX')
+  return writeZipEntries([{ path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files], { readable: true, label: 'CHARX' })
 }
 
 /**
