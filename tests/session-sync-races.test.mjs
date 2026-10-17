@@ -40,6 +40,17 @@ for (const outcome of ['resolve', 'reject']) test(`live replacement fences stale
   stop()
 })
 
+test('live unsubscribe aborts hydration and starts a new read without awaiting old hydration', async () => {
+  const h = liveHarness(); const stop = h.live.subscribe('A', () => {})
+  await h.clock.next(); h.reads[0].resolve({ view: { tavernHelper: { messagesPending: {} } } }); await flush()
+  stop(); assert.equal(h.hydrated[0].request.signal.aborted, true)
+  const stopAgain = h.live.subscribe('A', () => {}); await h.clock.next()
+  h.reads[1].resolve({ view: { fresh: true } }); await flush()
+  h.hydrated[0].reject(new Error('old hydration')); await flush()
+  assert.equal(h.live.getSnapshot('A').view.fresh, true); assert.equal(h.live.getSnapshot('A').phase, 'ready')
+  stopAgain()
+})
+
 function coordinationHarness() {
   const clock = syncClock(), connections = [], reads = [], seen = []
   const module = client.createTavernCoordinationEventModule({
@@ -62,6 +73,17 @@ for (const outcome of ['resolve', 'reject']) test(`coordination push snapshot wi
   assert.equal(h.reads[1].request.signal.aborted, true)
   assert.deepEqual(h.clock.delays(), []); assert.equal(h.reads.length, 2)
   stop()
+})
+
+test('coordination no-snapshot wakeups coalesce and recover real failures with bounded retry', async () => {
+  const h = coordinationHarness(), stop = h.module.subscribe('A', () => {})
+  await h.clock.next()
+  for (let i = 0; i < 100; i++) h.connections[0].message({ kind: 'tavern-state' })
+  h.reads[0].reject(new Error('offline')); await flush()
+  assert.equal(h.module.getSnapshot('A').phase, 'retrying')
+  for (let i = 0; i < 4; i++) { h.module.invalidate('A'); await h.clock.advance(1000); assert.equal(h.reads.length, 1) }
+  await h.clock.advance(1000); h.reads[1].resolve({ recovered: true }); await flush()
+  assert.equal(h.module.getSnapshot('A').view.recovered, true); stop()
 })
 
 test('hung hydration times out and retries without allowing a late hydration result to roll back recovery', async () => {

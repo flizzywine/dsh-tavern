@@ -42,3 +42,28 @@ test('script runtimes, busy sessions and unrelated evidence cannot be silently b
   await assert.rejects(f.api.call('send', { sessionId: created.sessionId, input: 'x' }), /浏览器脚本运行时/)
   assert.equal(f.calls.filter(([kind]) => kind === 'native-prompt').length, 0)
 })
+
+test('candidate API uses formal last native message and rejects stale dynamic choices', async () => {
+  const f = fixture(), created = await f.api.call('create', config)
+  await f.api.call('candidates', { sessionId: created.sessionId })
+  assert.equal(f.calls.find(([kind]) => kind === 'submitTask')[1].messageId, 'assistant-1')
+  created.chat.candidates = { requestId: 'r1', messageId: 'assistant-1', choices: [{ type: 'action', text: 'Open the letter.' }] }
+  await assert.rejects(f.api.call('send', { sessionId: created.sessionId, inputFrom: { candidate: 1 }, previousRequestId: 'stale' }), /已变化/)
+  const sent = await f.api.call('send', { sessionId: created.sessionId, inputFrom: { candidate: 1 }, previousRequestId: 'r1' })
+  assert.equal(sent.input, 'Open the letter.')
+})
+
+test('cancel targets the active background operation instead of leaving it running', async () => {
+  const f = fixture(), created = await f.api.call('create', config)
+  f.busy()
+  await f.api.call('cancel', { sessionId: created.sessionId })
+  assert.ok(f.calls.some(([kind]) => kind === 'cancel'))
+  assert.equal(f.calls.find(([kind]) => kind === 'stopBackground')[1].operationId, 'bg-operation')
+})
+
+test('cancelling a persisted cold test session is idempotent after service restart', async () => {
+  const f = fixture(), created = await f.api.call('create', config)
+  f.registry.get = () => undefined
+  assert.equal((await f.api.call('cancel', { sessionId: created.sessionId })).cancelled, true)
+  assert.equal(f.calls.filter(([kind]) => kind === 'cancel').length, 0)
+})

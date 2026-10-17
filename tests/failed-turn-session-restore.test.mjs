@@ -78,3 +78,18 @@ test('服务中途停掉、从未结束的回合：下一轮开始时按失败�
   assert.ok(texts.includes('正文') && texts.includes('新的输入'))
   assert.deepEqual(interruptedSurfaceTurns({ events: sessionEvents(session), nodes: session.surface.nodes }), [])
 })
+
+test('崩溃后 DSH 恢复时补写 interrupted 结束的回合：同样按失败回合清理', () => {
+  const session = Session.create('interrupted-turn')
+  const source = { kind: 'model', provider: 'test', model: 'test' }
+  session.append('turn/start', { turn: 2 })
+  session.append('user/message', { id: 'ok', role: 'user', content: [{ type: 'text', text: '领取' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  appendSessionEvent(session, 'assistant/message', { turn: 2, step: 1, message: { id: 'body', role: 'assistant', content: [{ type: 'text', text: '正文' }], source } }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+  session.append('turn/start', { turn: 3 })
+  session.append('user/message', { id: 'crashed', role: 'user', content: [{ type: 'text', text: '崩溃时的输入' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
+  const status = rollbackAvailability({ messages: [{ role: 'user' }, { role: 'assistant', turn: 2 }] }, { events: sessionEvents(session), nodes: session.surface.nodes })
+  assert.ok(status.unclearedTurns.includes(3), JSON.stringify(status))
+  assert.equal(clearFailedTurnSurface({ session, turn: 3 }), 1)
+})

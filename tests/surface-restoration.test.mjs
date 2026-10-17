@@ -27,3 +27,13 @@ import { foregroundSuppressedTurns } from '../tavern-plugin/lib/domain/rollback-
     assert.equal(events.slice(seq).filter(e => e.surfaceOp === 'append' && e.data.message?.content?.length).length, 0)
   }
 })
+
+import { canUndoRollback } from '../tavern-plugin/lib/domain/surface-restoration.js'
+test('a history window offers the undo point against its real revision', () => {
+  const session = Session.create('undo-window')
+  const rollbackUndo = { version: 1, ready: true, branchId: 'b', revision: 3, lifecycleRevision: 2, storageRevision: 34, foreground: { afterCount: sessionEvents(session).length } }
+  const chat = { rollbackUndo, timeline: { branchId: 'b', revision: 3 }, tavernHelperLifecycleRevision: 2 }
+  assert.equal(canUndoRollback({ ...chat, _storageRevision: 34 }, session), true)
+  assert.equal(canUndoRollback({ ...chat, _storageRevision: undefined, windowRevision: 34 }, session), true)
+  assert.equal(canUndoRollback({ ...chat, _storageRevision: undefined, windowRevision: 35 }, session), false)
+})

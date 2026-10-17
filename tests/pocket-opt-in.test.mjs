@@ -17,3 +17,15 @@ test('each host drops the patch of the mobile layout it does not install', async
     assert.equal(patched.some(key => key.startsWith('dsh-web-mobile@')), host === 'android')
   }
 })
+
+test('a user-installed Pocket keeps its patch only at the patched version', async () => {
+  const { prepareProfileWorkspace } = await import('../bin/profile-configuration.mjs')
+  const { parse } = await import('yaml')
+  const { readFile } = await import('node:fs/promises')
+  const workspace = await readFile(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8')
+  const key = Object.keys(parse(workspace).patchedDependencies).find(name => name.startsWith('dsh-pocket@'))
+  const version = key.slice('dsh-pocket@'.length)
+  const patchedWith = installed => Object.keys(parse(prepareProfileWorkspace(workspace, { dependencies: { 'dsh-pocket': installed } })).patchedDependencies || {})
+  assert.ok(patchedWith(version).includes(key))
+  assert.equal(patchedWith('9.9.9').includes(key), false)
+})

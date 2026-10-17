@@ -1,7 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-
+import {setTimeout as delay} from 'node:timers/promises'
 import {createServerTemplateSync} from '../tavern-plugin/lib/domain/server-template-sync.js'
+
+test('deferred settlement work retries, disposal cancels pending timers',async()=>{
+ let runs=0
+ const sync=createServerTemplateSync({delayMs:1,run:async()=>({deferred:++runs===1})})
+ sync.schedule('s',1);await delay(20);assert.equal(runs,2)
+ sync.schedule('s',2);sync.dispose();await delay(10);assert.equal(runs,2)
+})
 
 test('entering settlement cancels a pending retry and blocks a running callback from rearming', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })

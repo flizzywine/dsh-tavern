@@ -164,6 +164,18 @@ for (const kind of ['embedded', 'standalone', 'none', 'multiple', 'global-only']
   await publish(chat, [designedCharacter])
   assert.equal((await run.library.get(source)).view.entries.filter(e => e.primaryKeys.includes('季闻笙')).length, 1)
 })
+test('世界书未接受的外部修改保持待同步，手动人物正文冲突不覆盖', async () => {
+  const run = harness(), path = 'cards/命运.json', { chat, publish } = await publishFixture(run, path)
+  const digest = chat.worldbookLibraryDigest
+  run.cards.get(path).character_book.entries[0].content = '用户修改的钟楼'
+  await publish(chat, [designedCharacter])
+  assert.equal(chat.worldbookLibraryDigest, digest)
+  assert.equal(run.cards.get(path).character_book.entries[0].content, '用户修改的钟楼')
+  const entry = run.cards.get(path).character_book.entries.find(e => e.keys.includes('季闻笙'))
+  entry.content = '用户自己修改的人物'
+  await assert.rejects(publish(chat, [designedCharacter]), /已被手动修改/)
+  assert.equal(entry.content, '用户自己修改的人物')
+})
 
 test('全局世界书覆盖无绑定的新卡、与本地合并并按来源去重，不修改或导出到卡', async () => {
   const { library, cards } = harness()

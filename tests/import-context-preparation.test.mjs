@@ -7,6 +7,7 @@ import { parseChatHistory } from '../tavern-plugin/lib/domain/chat-history-impor
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createHistoryRecall } from '../tavern-plugin/lib/domain/history-recall.js'
 
+import { sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 const estimateMessage = message => message.content.reduce((n,b)=>n+(b.text?.length||0),0)+8
 async function fixture() {
   const session=Session.create('context-test')
@@ -24,6 +25,15 @@ async function fixture() {
   return {session,request,options,get chat(){return chat},get flushes(){return flushes},get modelCalls(){return modelCalls},failSave:()=>{failSave=true},capacity:n=>{capacity=n}}
 }
 
+test('retry after publication failure reuses the durable replacement rather than trimming again',async()=>{
+  const h=await fixture();h.failSave()
+  await assert.rejects(createImportContextPreparation(h.options).prepare(h.request),/save failed/)
+  const count=sessionEvents(h.session).length
+  await createImportContextPreparation(h.options).prepare(h.request)
+  assert.equal(sessionEvents(h.session).length,count)
+  assert.equal(h.chat.importHistory.contextPreparation.status,'trimmed')
+  assert.equal(h.modelCalls,1)
+})
 test('capacity exclusion stays recallable, but a native story rollback removes the revoked round from recall',async()=>{
   const h=await fixture()
   await createImportContextPreparation(h.options).prepare(h.request)
@@ -36,4 +46,25 @@ test('capacity exclusion stays recallable, but a native story rollback removes t
   assert.equal(recall.recall({chat:h.chat,query:'Secret-0'}).found,true,'capacity-excluded history still happened')
   assert.equal(recall.recall({chat:h.chat,query:'RevokedOnlyQuartz'}).found,false,'rolled-back history was revoked')
   assert.equal(recall.recall({chat:h.chat,turn:13,radius:0}).found,false)
+})
+test('unknown model capacity and an oversized mandatory tail fail before touching the Surface',async()=>{
+  for(const capacity of [undefined,200]){
+    const h=await fixture();h.capacity(capacity)
+    const before=sessionEvents(h.session).length
+    await assert.rejects(createImportContextPreparation(h.options).prepare(h.request),/模型|容量/)
+    assert.equal(sessionEvents(h.session).length,before)
+  }
+})
+test('ordinary and already-checked chats are decided from the header without a full read',async()=>{
+  const h=await fixture()
+  let fullReads=0
+  const options={...h.options,readChat:async()=>{fullReads++;return h.options.readChat()}}
+  for(const header of [{id:'chat'},{id:'chat',importHistory:{operationId:'x',contextPreparation:{status:'unchanged'}}}]){
+    const request=await createImportContextPreparation({...options,readHeader:async()=>header}).prepare(h.request)
+    assert.equal(request,h.request)
+  }
+  assert.equal(fullReads,0)
+  await createImportContextPreparation({...options,readHeader:async()=>({id:'chat',importHistory:h.chat.importHistory})}).prepare(h.request)
+  assert.equal(fullReads,1)
+  assert.equal(h.chat.importHistory.contextPreparation.status,'trimmed')
 })

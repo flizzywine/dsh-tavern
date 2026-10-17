@@ -1,7 +1,24 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-
+import { createTemplateEvents } from '../tavern-plugin/lib/vendor/st-prompt-template/host-build/events.js'
 import * as host from '../tavern-plugin/lib/vendor/st-prompt-template/host-build/host.js'
+
+test('模板事件等待异步监听器，makeFirst 不重复注册，错误终止当前阶段', async () => {
+  const events = createTemplateEvents(), seen = []
+  let release
+  const first = async () => { seen.push('first'); await new Promise(resolve => { release = resolve }); seen.push('saved') }
+  const second = () => seen.push('second')
+  events.on('generate', second).on('generate', first).makeFirst('generate', first)
+  const pending = events.emit('generate')
+  await Promise.resolve()
+  assert.deepEqual(seen, ['first'])
+  release(); await pending
+  assert.deepEqual(seen, ['first','saved','second'])
+  events.makeFirst('generate', () => { throw new Error('save rejected') })
+  await assert.rejects(events.emit('generate'), /save rejected/)
+  assert.equal(seen.length, 3)
+  events.clear(); assert.equal(events.count(), 0)
+})
 
 test('整包宿主拒绝跨会话快照，保存把实际修改交给宿主，缺失能力明确失败', async t => {
   t.after(() => host.disposeTemplateHost())

@@ -86,3 +86,11 @@ test('工作台隔离、阻止重复并发，取消和重启均不当成通过',
   await f.store.writeJson(key, { ...started, status: 'running' })
   assert.equal((await f.service.execute('owner', { action: 'status', sessionId: started.sessionId })).status, 'error')
 })
+
+test('案例输入完整校验，包括候选依赖', async () => {
+  const f = fixture()
+  for (const steps of [[], [{ inputFrom: { candidate: 1 } }], [{ input: '' }], [{ input: 'a' }, { inputFrom: { candidate: 1 } }], [{ input: 'a', candidates: 'yes' }], [{ input: 'a', candidates: true }, { input: 'b', inputFrom: { candidate: 1 } }]]) {
+    await assert.rejects(f.service.execute('owner', { ...f.config, steps }))
+  }
+  assert.equal(f.calls.length, 0)
+})

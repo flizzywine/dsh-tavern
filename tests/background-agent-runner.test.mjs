@@ -277,6 +277,30 @@ test('生图常驻会话隔离后台任务与游戏，先保存编号且恢复�
   } finally { await runner.dispose() }
 })
 
+test('后台 Session 建立失败时不对外发布虚假的 traceSessionId', async () => {
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-never-created',
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} },
+          tools: { restrict() { throw new Error('setup failed') }, register() {} },
+          on() {}
+        })
+      }
+    }
+  })
+
+  await assert.rejects(runner.run({
+    sessionId: 'parent', persistent: true, task: 'candidate',
+    selection: { provider: 'test', model: 'fake' }, messages: [], tools: []
+  }), function (error) {
+    assert.equal(error.traceSessionId, '')
+    return true
+  })
+})
+
 for (const rewindFails of [false, true]) test('后台 Surface 回退失败时停止任务: ' + rewindFails, async () => {
   const parent = { id: 'parent-session', session: { header: { cwd: '/tmp/tavern', delegationDepth: 0 } } }
   const sourceEvents = [
@@ -406,6 +430,31 @@ test('整段回退失败时改用新的后台会话，旧会话退休 (#164)', a
   assert.deepEqual(retired, [['old-background', parent.id]])
   assert.deepEqual(ready, ['new-background'])
 })
+
+test('manual stop cancels the active background agent belonging to this game only', async () => {
+  let ready, finish, cancelled = 0;
+  const started = new Promise(resolve => { ready = resolve; });
+  const idle = new Promise(resolve => { finish = resolve; });
+  const session = { id: 'stop-background', header: {}, events: [], append(type, data) { this.events.push({ type, data }); } };
+  const runner = createBackgroundAgentRunner({ id: () => session.id, agents: {
+    get: () => ({ session: { header: {} } }),
+    async create(options) {
+      await options.setup({ systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {}, tools: { restrict() {}, register() { return () => {}; } } });
+      return { agent: { session, followup() { ready(); }, whenIdle: () => idle,
+        cancel(reason) { assert.equal(reason.kind, 'user'); cancelled++; finish(); }
+      }, async dispose() {} };
+    }
+  } });
+  const run = runner.run({ sessionId: 'game', persistent: true, task: 'settlement', selection: { provider: 'fake', model: 'fake' }, messages: [], tools: [] });
+  const rejected = assert.rejects(run);
+  await started;
+  assert.equal(runner.cancel('other-game'), 0);
+  assert.equal(runner.cancel('game'), 1);
+  await rejected;
+  assert.equal(cancelled, 1);
+  assert.equal(runner.cancel('game'), 0);
+  await runner.dispose();
+});
 
 test('常驻后台会话在下一任务替换世界书，任务内固定且不改历史', async () => {
   let assemble, pending, current = '当前DLC', creates = 0
@@ -575,5 +624,50 @@ test('插件后台任务：独立的一次性会话，插件工具注册在这�
     assert.match(results[2], /不允许调用/)
     assert.match(results[3], /多次调用了当前任务不允许的工具，本轮结束/)
     assert.ok(concluded >= 1)
+  } finally { await runner.dispose() }
+})
+
+test('结算任务的固定工具顺序与本轮任务文字：Tavern 工具、台词标注、插件工具（管线重构护栏）', async () => {
+  const registered = [], texts = []
+  let work = Promise.resolve()
+  const castSettlement = {
+    tools: () => [{ name: 'cast_submit', parameters: { type: 'object' } }],
+    has: name => name === 'cast_submit',
+    section: async ({ gameId, turn }) => '【本轮台词】' + gameId + ':' + turn,
+    call: async () => JSON.stringify({ ok: true })
+  }
+  const pluginSettlement = {
+    tools: () => [{ name: 'zeta_submit', parameters: { type: 'object' } }, { name: 'alpha_submit', parameters: { type: 'object' } }],
+    has: name => name === 'zeta_submit' || name === 'alpha_submit',
+    toolNames: async () => ({ available: ['alpha_submit', 'zeta_submit'], unavailable: [] }),
+    sections: async () => [{ text: '插件说明' }],
+    calls: () => async () => JSON.stringify({ ok: true })
+  }
+  const runner = createBackgroundAgentRunner({
+    id: () => 'background-order',
+    backgroundTools: [{ name: 'posture_submit', parameters: { type: 'object' } }, { name: 'mvu_submit_update', parameters: { type: 'object' } }],
+    settlementItems: () => createSettlementItems({ items: () => [castSettlement], plugins: () => pluginSettlement }),
+    agents: {
+      get: () => ({ id: 'parent', session: { header: {} } }),
+      async create(options) {
+        await options.setup({
+          systemPrompt: { section() {}, suppressRuntimeContext() {} }, on() {},
+          tools: { restrict() {}, register(tool) { registered.push(tool.name); return () => {} } }
+        })
+        const session = { id: 'background-order', events: [], append(type, data) { this.events.push({ type, data }) } }
+        return { agent: { session,
+          followup(message) { texts.push(message.content[0].text); work = (async () => { session.append('assistant/message', { message: { content: [{ type: 'text', text: '完成' }] } }) })() },
+          async whenIdle() { await work } }, async dispose() {} }
+      }
+    }
+  })
+  try {
+    await runner.run({ sessionId: 'parent', persistent: true, task: 'settlement', turn: 3, selection: { provider: 'test', model: 'test' },
+      system: '姿势要求', messages: [{ role: 'user', content: [{ type: 'text', text: '【本轮正文】门开了' }] }], tools: [{ name: 'posture_submit', parameters: { type: 'object' } }],
+      onToolCall: async () => JSON.stringify({ ok: true }) })
+    assert.deepEqual(registered, ['posture_submit', 'mvu_submit_update', 'cast_submit', 'zeta_submit', 'alpha_submit'])
+    assert.equal(texts.length, 1)
+    assert.equal(texts[0], '【最近剧情与本次任务】\n任务类型：状态结算\n[用户]\n【本轮正文】门开了\n\n【任务要求】\n姿势要求\n\n【本轮台词】parent:3\n\n【插件附加的结算任务】\n\n'
+      + '本轮可用插件工具：alpha_submit、zeta_submit。以本轮列出的为准：之前回合里这些工具被关闭或报错的情况已不再适用。需要时在提交本轮结算之前调用；插件工具失败不影响本轮结算。\n\n插件说明')
   } finally { await runner.dispose() }
 })

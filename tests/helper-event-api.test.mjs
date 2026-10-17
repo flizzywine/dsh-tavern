@@ -35,6 +35,24 @@ function shared() {
   return { window, before, bus, ...lifecycle, owner: () => owner, setOwner(value) { owner = value } }
 }
 
+test('local subscriptions deduplicate, reorder and expose stable idempotent stop handles', async () => {
+  const { window: api } = local(), seen = []
+  const a = () => seen.push('a'), b = () => seen.push('b'), c = () => seen.push('c')
+  const first = api.eventOn('order', a)
+  api.eventOn('order', a)
+  api.eventOn('order', b)
+  api.eventMakeFirst('order', c)
+  api.eventMakeLast('order', a)
+  await api.eventEmitAndWait('order')
+  assert.deepEqual(seen, ['c', 'b', 'a'])
+  first.stop(); first.stop()
+  api.eventMakeFirst('order', b)
+  seen.length = 0
+  await api.eventEmit('order')
+  assert.deepEqual(seen, ['b', 'c'])
+  assert.throws(() => api.eventOn('order', null), /监听器必须是函数/)
+})
+
 for (const kind of ['local', 'shared']) test(kind + ' eventEmitAndWait awaits ordered async callbacks and preserves thrown errors', async () => {
   const { window: api } = kind === 'local' ? local() : shared()
   const seen = [], original = new Error('original failure')

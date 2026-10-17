@@ -55,6 +55,27 @@ test('并发创建同名 Skill 只有一个成功，非法参考文件不损坏�
   assert.match((await skills.read('same')).content, /旧正文/)
 })
 
+test('合法名称 constructor 不与配置对象原型冲突', async t => {
+  const { skills } = await harness(t)
+  await skills.write({ name: 'constructor', description: '说明', body: '内容' })
+  assert.deepEqual((await skills.read('constructor')).agents, ['card'])
+})
+
+test('去掉内置前缀后继承旧用途与删除记录，新配置优先', async t => {
+  const { skills, builtin, user } = await harness(t)
+  const entry = path.join(builtin, 'create-skill', 'SKILL.md')
+  await mkdir(path.dirname(entry), { recursive: true })
+  await mkdir(user, { recursive: true })
+  await writeFile(entry, '---\nname: create-skill\ndescription: test\n---\n内容')
+  await writeFile(path.join(user, '.assignments.json'), JSON.stringify({ 'tavern-create-skill': ['foreground'] }))
+  assert.deepEqual((await skills.read('create-skill')).agents, ['foreground'])
+  assert.equal((await skills.read('tavern-create-skill')).name, 'create-skill')
+  await skills.assign('create-skill', ['card'])
+  assert.deepEqual((await skills.read('create-skill')).agents, ['card'])
+  await writeFile(path.join(user, '.assignments.json'), JSON.stringify({ 'tavern-create-skill': null }))
+  assert.equal(await skills.read('create-skill'), null)
+})
+
 test('库内编辑覆盖内置正文和参考，保留原包并持久生效', async t => {
   const run = await harness(t)
   await mkdir(path.join(run.builtin, 'example', 'references'), { recursive: true })

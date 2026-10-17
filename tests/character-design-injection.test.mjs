@@ -33,3 +33,10 @@ test('本局刚设计的人物，未被点名也注入一次，之后回到关�
   const revised = await project({ chat, card: {}, userText: '继续' })
   assert.deepEqual(revised.refs, [ref])
 })
+
+test('其他局设计、写进同一世界书的人物不强制注入', async () => {
+  const { chat, project } = setup(['林婉'])
+  chat.characterDesignDocument = { characters: [] }
+  const sent = await project({ chat, card: {}, userText: '继续' })
+  assert.deepEqual(sent.refs, [])
+})

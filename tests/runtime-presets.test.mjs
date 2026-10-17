@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createRuntimePresetModule } from "../tavern-plugin/lib/domain/runtime-presets.js"
+import { createRuntimePresetModule, resolveRuntimePresetMacros } from '../tavern-plugin/lib/domain/runtime-presets.js'
 
 function preset(path, entries, regexScripts = []) {
   const occurrences = new Map()
@@ -110,4 +110,22 @@ test('可以选择不启用外部预设，同时保留内部勾选配置', async
 
   assert.equal(await value.module.snapshot(), null)
   assert.equal((await value.module.view('presets/先导入.json')).entries[0].runtimeEnabled, true)
+})
+
+test('预设中段、后段的 random/roll 按本轮种子展开，前段保持原文', () => {
+  const raw = {
+    front: { entries: [{ id: 'f', role: 'system', content: '前段 {{roll::1d20}}' }] },
+    middle: { entries: [{ id: 'm', role: 'system', content: '中段 {{random::甲::乙::丙}} {{roll: 2d6+1}}' }] },
+    back: { entries: [{ id: 'b', role: 'system', content: '后段 {{roll::1d1000}} {{user}}' }] }
+  }
+  const one = resolveRuntimePresetMacros(raw, { randomSeed: 'seed-1' }).snapshot
+  assert.equal(one.front.entries[0].content, '前段 {{roll::1d20}}')
+  assert.match(one.middle.entries[0].content, /^中段 [甲乙丙] \d+$/)
+  const sum = Number(one.middle.entries[0].content.split(' ')[2])
+  assert.ok(sum >= 3 && sum <= 13)
+  assert.match(one.back.entries[0].content, /^后段 \d+ 你$/)
+  assert.deepEqual(resolveRuntimePresetMacros(raw, { randomSeed: 'seed-1' }).snapshot.back, one.back, '同一种子结果一致')
+  const backs = new Set(['a', 'b', 'c', 'd', 'e'].map(seed => resolveRuntimePresetMacros(raw, { randomSeed: seed }).snapshot.back.entries[0].content))
+  assert.ok(backs.size > 1, '不同种子重新抽取')
+  assert.equal(resolveRuntimePresetMacros(raw).snapshot.back.entries[0].content, '后段 {{roll::1d1000}} 你', '没有种子时不展开')
 })

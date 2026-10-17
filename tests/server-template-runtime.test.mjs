@@ -56,6 +56,42 @@ test('bounded process pool queues concurrent chats instead of failing the fifth 
   assert.deepEqual(results.map(r=>r.text),['a','b','c'])
 })
 
+test('cancellation drains an admitted save before a new explicit run can observe state',async t=>{
+ let entered,release
+ const enteredSave=new Promise(r=>{entered=r}),saveGate=new Promise(r=>{release=r})
+ const {engine,runtime,state}=fixture(t,{beforeRpc:async method=>{if(method==='saveFullPromptTemplateGlobals'){entered();await saveGate}}})
+ state('s').environment.extension_settings.EjsTemplate.autosave_enabled=true
+ await engine.render('warm')
+ const first=engine.command('/ejs <% setGlobalVar("saved",7) %>')
+ const rejected=assert.rejects(first,/取消/)
+ await enteredSave
+ runtime.cancel('s')
+ let completed=false
+ const next=engine.render('<%= getGlobalVar("saved") %>').then(r=>{completed=true;return r})
+ await new Promise(r=>setTimeout(r,25));assert.equal(completed,false)
+ release();await rejected
+ assert.equal((await next).text,'7')
+})
+
+test('OOM is classified from V8 stderr and leaves a diagnostic for the interrupted job', async t => {
+  const diagnostics = []
+  const { engine, runtime, journals } = fixture(t, { maxOldSpaceMb: 256, onDiagnostic: value => diagnostics.push(value) })
+  await assert.rejects(engine.render('<% window.memoryProbe=[new Array(20000000).fill(1),new Array(20000000).fill(2),new Array(20000000).fill(3)] %>'), error => {
+    assert.equal(error.code, 'FULL_TEMPLATE_OUT_OF_MEMORY')
+    assert.match(error.message, /256 MB/)
+    return true
+  })
+  assert.equal(diagnostics.length, 1, 'started work must not be replayed')
+  assert.equal(diagnostics[0].outOfMemory, true)
+  assert.match(diagnostics[0].stderr, /heap out of memory|heap limit/i)
+  const job = [...journals.values()].at(-1)
+  assert.equal(job.phase, 'interrupted')
+  assert.equal(job.workerDiagnostic.heapMb, 256)
+  assert.ok(job.workerDiagnostic.stderr.length <= 8192)
+  assert.equal((await runtime.inspect('s')).present, false)
+  assert.equal((await engine.render('explicit recovery')).text, 'explicit recovery')
+})
+
 test('display worker failures preserve bounded redacted stderr without replay or false OOM claims', async t => {
   const diagnostics = []
   const { engine, runtime, journals } = fixture(t, { onDiagnostic: value => diagnostics.push(value) })
@@ -74,4 +110,18 @@ test('display worker failures preserve bounded redacted stderr without replay or
   assert.equal(journal.transient, true)
   assert.equal(journal.phase, 'interrupted')
   assert.equal((await runtime.inspect('s')).task.workerDiagnostic.exitCode, 42)
+})
+
+test('deferred upstream token statistics cannot crash an idle template worker', async t => {
+  const diagnostics = []
+  const { engine, runtime } = fixture(t, { onDiagnostic: value => diagnostics.push(value) })
+  // Upstream updateTokens schedules a timer without awaiting it. Force that
+  // timer past the operation receipt instead of depending on IPC timing.
+  await engine.render('<% const original=window.setTimeout.bind(window); window.setTimeout=(fn,ms,...args)=>original(fn,Math.max(ms||0,150),...args) %>')
+  await engine.projectRequest({ messages: [{ role: 'user', content: 'deferred token statistics' }] })
+  assert.equal((await runtime.inspect('s')).busy, false)
+  await new Promise(resolve => setTimeout(resolve, 500))
+  assert.deepEqual(diagnostics, [])
+  assert.equal((await runtime.inspect('s')).present, true)
+  assert.equal((await engine.render('still alive')).text, 'still alive')
 })

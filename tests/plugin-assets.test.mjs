@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { createPluginAssets, PLUGIN_ASSET_PREFIX } from "../tavern-plugin/lib/domain/plugin-assets.js"
+import { createPluginAssets, parsePluginAssetPath, PLUGIN_ASSET_PREFIX } from '../tavern-plugin/lib/domain/plugin-assets.js'
 import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
 
 async function fixture(t) {
@@ -20,6 +20,12 @@ async function fixture(t) {
   try { await symlink(path.join(root, 'outside.txt'), path.join(dir, 'assets', 'link.txt')) } catch {}
   return root
 }
+
+test('插件资源路径：拒绝越界与隐藏文件，作用域包名占两段', () => {
+  assert.deepEqual(parsePluginAssetPath(PLUGIN_ASSET_PREFIX + 'p/map/a.png'), { name: 'p', file: 'map/a.png' })
+  assert.deepEqual(parsePluginAssetPath(PLUGIN_ASSET_PREFIX + '@me/p/a.png'), { name: '@me/p', file: 'a.png' })
+  for (const bad of ['p/../secret.json', 'p/.env', 'p', 'p/', 'p/a//b.png', 'p/a\\b.png']) assert.equal(parsePluginAssetPath(PLUGIN_ASSET_PREFIX + bad), null, bad)
+})
 
 test('插件资源：只提供 assets/ 下的文件，按包名或文件夹名找到插件，经 HTTP 支持 Range 与缓存校验', async t => {
   const pluginsDir = await fixture(t)

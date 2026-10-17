@@ -16,6 +16,14 @@ function setup() {
   return { run: args => registered.get('tavern_update_worldbook').execute(args, exec), calls, tool: registered.get('tavern_update_worldbook') }
 }
 
+test('世界书条目接受 SillyTavern 常用写法，不认识的字段报错而不是静默丢弃', async () => {
+  const { run, calls } = setup()
+  await run({ operations: [{ op: 'add', entry: { comment: '时局', content: '1936', keys: ['上海'], disable: true } }] })
+  assert.deepEqual(calls[0].request.operations[0].entry, { comment: '时局', content: '1936', primaryKeys: ['上海'], enabled: false })
+  await assert.rejects(run({ operations: [{ op: 'update', ref: 'entry:0', patch: { tag: 'x' } }] }), /不认识字段 tag/)
+  assert.equal(calls.length, 2)
+})
+
 test('修改人物卡内置世界书时结果附带整卡校验，独立世界书不做人物卡校验', async () => {
   const { run, calls, tool } = setup()
   const inCard = await run({ operations: [{ op: 'update', ref: 'entry:0', patch: { content: '新' } }] })

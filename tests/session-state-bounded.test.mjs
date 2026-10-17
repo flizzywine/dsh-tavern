@@ -38,6 +38,27 @@ test('rollback view reuses native immutable evidence for variable-only revisions
  assert.ok(visits<8,`scanned ${visits} historical events`)
 })
 
+test('scoped pending index follows commits, rejected patches and membership changes',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'session-pending-'));t.after(()=>rm(root,{recursive:true,force:true}))
+ const store=createChatJournalStore({dataRoot:root})
+ await store.update('c',()=>({id:'c',_storageRevision:1,messages:[
+  {role:'assistant',turn:1,mvu:{pending:true,pendingSubmission:{command:'first'}}},
+  {role:'assistant',turn:2,mvu:{pending:false}}
+ ]}))
+ const old=await store.readSessionState('c',{scoped:true})
+ const changes=[{op:'set',path:['_storageRevision'],value:2},{op:'set',path:['messages',1,'mvu'],value:{pending:true,delivery:{prepared:true}}}]
+ await assert.rejects(store.patch('c',1,changes,{assertCurrent(){throw new Error('cancelled')}}),/cancelled/)
+ assert.deepEqual((await store.readSessionState('c',{scoped:true})).pendingMvuSettlement,{hasSubmission:true,prepared:false})
+ await store.patch('c',1,changes)
+ assert.deepEqual((await store.readSessionState('c',{scoped:true})).pendingMvuSettlement,{hasSubmission:false,prepared:true})
+ assert.equal(old.messages[1].mvu.pending,false)
+ await store.patch('c',2,[{op:'set',path:['_storageRevision'],value:3},{op:'set',path:['messages',1,'mvu','pending'],value:false}])
+ assert.deepEqual((await store.readSessionState('c',{scoped:true})).pendingMvuSettlement,{hasSubmission:true,prepared:false})
+ await store.patch('c',3,[{op:'set',path:['_storageRevision'],value:4},{op:'set',path:['messages'],value:[]}])
+ assert.equal((await store.readSessionState('c',{scoped:true})).pendingMvuSettlement,null)
+ assert.equal((await createChatJournalStore({dataRoot:root}).readSessionState('c',{scoped:true})).messages.length,0)
+})
+
 for(const change of ['events','generation','layout','session','legacy'])test(`rollback view invalidates on ${change}`,()=>{
  let visits=0
  const makeEvents=()=>Object.freeze(new Proxy(Array.from({length:20},(_,seq)=>Object.freeze({seq,type:'session/note',data:{}})),{get(t,k,r){if(/^\d+$/.test(String(k)))visits++;return Reflect.get(t,k,r)}}))
@@ -66,6 +87,17 @@ test('cached rollback view refreshes undo eligibility on storage revision change
  const chat={id:'c',sessionId:'s',_storageRevision:1,messages:[],timeline:{branchId:'b',revision:1},rollbackUndo:{version:1,ready:true,branchId:'b',revision:1,lifecycleRevision:0,storageRevision:1,turn:3,foreground:{afterCount:0}}}
  assert.equal(view.volatile(chat,{}).undoRollbackTurn,3)
  assert.equal(view.volatile({...chat,_storageRevision:2},{},{baseRevision:1,indices:[],layoutChanged:false}).undoRollbackTurn,null)
+})
+
+test('scoped session state preserves full legacy foreground migration input',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'session-legacy-'));t.after(()=>rm(root,{recursive:true,force:true}))
+ const store=createChatJournalStore({dataRoot:root})
+ await store.update('c',()=>({id:'c',_storageRevision:1,messages:[{role:'assistant',text:'legacy body',variables:[{hp:10}]}],timeline:{operations:{body:{kind:'body',status:'foreground-completed'}}}}))
+ const result=await store.readSessionState('c',{scoped:true})
+ assert.equal(result.messages[0].text,'legacy body')
+ assert.deepEqual(structuredClone(result.messages[0].variables),[{hp:10}])
+ result.messages[0].variables[0].hp=1
+ assert.equal((await store.read('c')).messages[0].variables[0].hp,10)
 })
 
 import {createSessionViewSync} from '../tavern-plugin/lib/domain/session-view-sync.js'

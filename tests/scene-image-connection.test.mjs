@@ -133,6 +133,17 @@ test('model discovery is a separate read-only action with deduplication and manu
   assert.equal(calls.length, 1, 'unsupported list must not guess an endpoint')
 })
 
+test('Gemini model discovery strips models/ and malformed or oversized lists fall back safely', async () => {
+  const fx = fixture({ fetchImpl: async () => Response.json({ models: [{ name: 'models/image-a' }] }) })
+  assert.deepEqual((await fx.service.models({ provider: 'gemini' })).models, ['image-a'])
+  for (const response of [new Response('<html>secret</html>'), new Response('x'.repeat(300000)), Response.json({ bad: [] }), new Response('stored-secret', { status: 401 })]) {
+    const broken = fixture({ fetchImpl: async () => response })
+    const result = await broken.service.models({ provider: 'openai' })
+    assert.deepEqual(result.models, [])
+    assert.ok(!JSON.stringify(result).includes('stored-secret'))
+  }
+})
+
 test('real HTTP check sends exactly one GET and does not follow redirect to another server', async t => {
   const requests = []
   const server = createServer((req, res) => {

@@ -22,3 +22,9 @@ test('超时清理真实子进程后才返回失败', async () => {
     assert.ok(child.exitCode!==null || child.signalCode!==null)
   } finally { if(child.exitCode===null && child.signalCode===null) child.kill('SIGKILL') }
 })
+
+test('slow startup reports once that the service is still initializing', async () => {
+  let now = 0, notices = 0
+  await waitForServiceStartup({ timeoutMs: startupTimeoutMs('cli', undefined), now: () => now, sleep: async ms => { now += ms }, alive: () => true, ready: async () => now >= 40000, onSlow: () => { notices += 1 }, stop: async () => {} })
+  assert.equal(notices, 1)
+})

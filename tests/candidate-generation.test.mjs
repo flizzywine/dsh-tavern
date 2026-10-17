@@ -183,6 +183,22 @@ test('自由故事只保存完整的 4 action + 1 scene', async () => {
   assert.equal(await run.candidates.find({ sessionId: 'session-1', messageId: 'old-message' }), null)
 })
 
+test('候选生成期间时间线变化，迟到候选与 point 都不会落盘', async () => {
+  let run
+  run = harness({ mode: 'script', outputs: [async function (options) {
+    await options.onToolCall({ name: 'tavern_point_script', arguments: { position: 3 } })
+    run.mutateChat(function (chat) { chat.timeline.revision++ })
+    return JSON.stringify({ choices: [{ type: 'action', text: '这是已经过期的候选' }] })
+  }] })
+
+  await assert.rejects(
+    () => run.candidates.generate({ sessionId: 'session-1', messageId: 'stale-candidate' }),
+    /剧情状态已变化/
+  )
+  assert.equal(run.chat().candidates, undefined)
+  assert.equal(run.continuity.inspect({ script: script(), state: run.chat().scriptState, request: { kind: 'progress' } }).cursor, 0)
+})
+
 test('单次输出无效时不覆盖旧候选，也不改变剧本游标', async () => {
   const invalid = '{"choices":[{"type":"unknown","text":"有文本但类型无效"}]}'
   const oldCandidates = { messageId: 'old', choices: [{ type: 'action', text: '保留这一份旧的有效候选内容' }], generatedAt: 1 }
@@ -208,6 +224,14 @@ test('first candidate interrupted before a result keeps its bound session for re
   await run.candidates.generate({ sessionId: 'session-1', messageId: 'first' });
   assert.equal(run.modelRequests[1].persistentSessionId, 'background-bound-before-result');
 });
+
+test('候选项文本里模型双重转义的 \\uXXXX 还原成文字', async () => {
+  const { decodeLiteralUnicodeEscapes } = await import('../tavern-plugin/lib/domain/candidate-generation.js')
+  assert.equal(decodeLiteralUnicodeEscapes('\\u7a97\\u5916下雨'), '窗外下雨')
+  assert.equal(decodeLiteralUnicodeEscapes('笑\\ud83d\\ude00'), '笑😀')
+  assert.equal(decodeLiteralUnicodeEscapes('路径 C:\\users 保持原样'), '路径 C:\\users 保持原样')
+  assert.equal(decodeLiteralUnicodeEscapes('孤立 \\ud83d 保持原样'), '孤立 \\ud83d 保持原样')
+})
 
 test('候选准备期间剧情变化时拒绝启动，不写入旧候选', async () => {
 let serial=0

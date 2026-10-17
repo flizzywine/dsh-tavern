@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBackgroundAgentSessions } from '../tavern-plugin/lib/background-agent-sessions.js'
 
+function deferred() { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 function harness(t, extra = {}) {
   let time = 0, sequence = 0
   const disk = new Map(), live = new Map(), calls = []
@@ -41,6 +42,18 @@ function harness(t, extra = {}) {
   t.after(() => runner.dispose())
   return { runner, live, disk, calls, tick: n => { time += n }, run: (parent = 'parent-a', text) => runner.run({ sessionId: parent, task: 'candidate', persistent: true, selection: { provider: 'test', model: 'test' }, text }) }
 }
+
+test('new work waits for in-progress release then resumes without losing history', async t => {
+  const entered = deferred(), gate = deferred()
+  const h = harness(t, { flush: async () => { entered.resolve(); await gate.promise } })
+  const id = await h.run(); h.tick(1000)
+  const reaping = h.runner.reapIdle(); await entered.promise
+  const next = h.run()
+  assert.equal(h.calls.filter(c => c[0] === 'resume').length, 0)
+  gate.resolve(); await reaping
+  assert.equal(await next, id)
+  assert.equal(h.live.get(id).events.filter(e => e.type === 'system/message').length, 2)
+})
 
 test('failed persistence retains instance and backs off before retry', async t => {
   let fail = true, attempts = 0

@@ -16,6 +16,18 @@ const createConversationLifecycleModule = client.createConversationLifecycleModu
 
 const createPlayWorkspaceResolver = client.createPlayWorkspaceResolver
 
+test('预热与正式启动并发解析时只创建一个 Tavern 资源 Workspace', async function () {
+  let creates = 0
+  const resolveWorkspace = createPlayWorkspaceResolver({
+    currentWorkspaceId: function () { return '' },
+    resourceRoot: async function () { return { path: '/data/resources' } },
+    createWorkspace: async function () { creates += 1; return { workspaceId: 'workspace-tavern' } }
+  })
+
+  assert.deepEqual(await Promise.all([resolveWorkspace(), resolveWorkspace()]), ['workspace-tavern', 'workspace-tavern'])
+  assert.equal(creates, 1)
+})
+
 function harness(overrides = {}) {
   const calls = []
   const adapters = {
@@ -44,4 +56,10 @@ test('刷新页面后可复用失败 Session，打开失败不重复初始化，
   assert.equal(values.size, 0)
   await second.module.start(request)
   assert.equal(second.calls.filter(item => item.startsWith('connect:')).length, 1)
+})
+
+test('同一次开始操作并发触发只创建一条会话', async () => {
+  const { module, calls } = harness()
+  await Promise.all([module.start({ kind: 'play' }), module.start({ kind: 'play' })])
+  assert.equal(calls.filter(item => item.startsWith('connect:')).length, 1)
 })

@@ -3,8 +3,30 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { loadScenario } from "../lib/scenario.mjs"
+import { settledTurn, loadScenario } from '../lib/scenario.mjs'
+import { nativeResult } from '../lib/evidence.mjs'
 
+test('cannot advance on previous settlement, partial reply or pending MVU', () => {
+  const chat = { settleStatus: 'done', messages: [{ role: 'assistant', greeting: true }, { role: 'user', text: '继续' }] }
+  assert.equal(settledTurn(chat, 1, '继续').ready, false)
+  chat.messages.push({ role: 'assistant', text: '正文', mvu: { pending: true } })
+  assert.equal(settledTurn(chat, 1, '继续').ready, false)
+  chat.messages[2].mvu.pending = false
+  chat.settleStatus = 'running'
+  assert.equal(settledTurn(chat, 1, '继续').ready, false)
+  chat.settleStatus = 'done'
+  assert.equal(settledTurn(chat, 1, '继续').ready, true)
+  assert.match(settledTurn(chat, 1, '不同输入').error, /不一致/)
+})
+
+test('native completion follows the new turn, not an old end or intermediate tool step', () => {
+  const events = [ { seq: 1, type: 'turn/start', data: { turn: 1 } }, { seq: 2, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { seq: 3, type: 'turn/start', data: { turn: 2 } }, { seq: 4, type: 'step/end', data: { turn: 2 } } ]
+  assert.equal(nativeResult(events, 2).ready, false)
+  events.push({ seq: 5, type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '完成' }] } } }, { seq: 6, type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } })
+  assert.equal(nativeResult(events, 2).text, '完成')
+  assert.equal(nativeResult(events, 6).ready, false)
+})
 test('scenario validation rejects unsupported assertions and image outside play', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'play-scenario-'))
   const file = path.join(root, 'test.json')
@@ -59,4 +81,15 @@ test('recording preserves failed subagent output even if the chat journal is unr
     assert.equal(requests[0].response.text, 'partial output')
     assert.equal(JSON.parse(await readFile(path.join(root, '02-subagent-native-bg.json'), 'utf8'))[0].type, 'error')
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('dynamic inputs select by candidate type and reject stale or missing choices', async () => {
+  const { selectCandidate } = await import('../lib/scenario.mjs')
+  const saved = { requestId: 'round-1', messageId: 'reply-1', choices: [{ type: 'scene', text: '次日清晨' }, { type: 'action', text: '推开门' }] }
+  const action = selectCandidate(saved, { candidate: 1 }, 'round-1')
+  assert.equal(action.index, 1)
+  assert.equal(action.input, '推开门')
+  assert.equal(selectCandidate(saved, { candidate: 1, type: 'scene' }, 'round-1').input, '【场景变化】次日清晨')
+  assert.throws(() => selectCandidate(saved, { candidate: 1 }, 'older-round'), /已变化/)
+  assert.throws(() => selectCandidate(saved, { candidate: 2 }, 'round-1'), /不存在/)
 })

@@ -6,6 +6,7 @@ import path from 'node:path'
 import { updateApplication } from '../bin/application-update.mjs'
 import { createApplicationUpdater } from '../tavern-plugin/lib/application-updater.js'
 import installationState from '../bin/installation-state.cjs'
+import { createUpdateState } from '../bin/update-state.mjs'
 
 const identity = { currentVersion: '2.4.0', currentCommit: 'a'.repeat(40) }
 const receiptModule = new URL('../bin/installation-receipt.mjs', import.meta.url).href
@@ -75,6 +76,22 @@ test('independent updater instances share one reservation and attempt id crosses
   assert.equal(launchedArguments[launchedArguments.indexOf('--attempt-id') + 1], owner.attemptId)
 })
 
+test('a delayed check cannot restore repair after a newer manual installation', async t => {
+  const f = await fixture(t)
+  await writeFile(f.statusFile, JSON.stringify({ phase: 'failed', repairRequired: true, attemptId: 'old', failedAt: 10 }))
+  let release
+  const wait = new Promise(resolve => { release = resolve })
+  let requested = false
+  const checking = f.updater({ fetchManifest: async () => { requested = true; await wait; return { version: '2.4.0' } } }).check()
+  await until(() => requested)
+  const manual = installationState.acquireInstallation({ dshHome: f.root, attemptId: 'manual' })
+  const state = createUpdateState(f.statusFile, f.root)
+  await state.write({ phase: 'completed', attemptId: 'manual' }, { attemptId: 'manual' })
+  manual.release()
+  release()
+  assert.equal((await checking).phase, 'completed')
+})
+
 test('hung config validation stops its writer before profile transaction rollback', { skip: process.platform === 'win32' }, async t => {
   const f = await fixture(t)
   const { beginProfileConfigurationUpdate } = await import('../bin/profile-configuration.mjs')
@@ -91,6 +108,15 @@ test('hung config validation stops its writer before profile transaction rollbac
   await transaction.rollback()
   await new Promise(resolve => setTimeout(resolve, 80))
   assert.equal(await readFile(manifestPath, 'utf8'), original)
+})
+
+test('definite launcher spawn failure releases reservation without claiming a running installer', async t => {
+  const f = await fixture(t)
+  await assert.rejects(f.updater({ fetchLatestCommit: async () => 'b'.repeat(40), compareCommits: async () => 'ahead',
+    spawnProcess() { throw Object.assign(new Error('executable missing'), { code: 'ENOENT' }) },
+  }).start(), /executable missing/)
+  assert.equal(installationState.readInstallation(f.root), null)
+  assert.equal(JSON.parse(await readFile(f.statusFile)).phase, 'failed')
 })
 
 test('CLI service starts only after the bootstrap process tree is quiescent', { skip: process.platform === 'win32' }, async t => {
@@ -132,4 +158,19 @@ test('Windows persistent service launched after cleanup survives successful upda
   assert.ok(pid > 0)
   process.kill(pid, 0)
   assert.equal(JSON.parse(await readFile(f.statusFile)).phase, 'completed')
+})
+
+test('initial status persistence failure releases the never-launched reservation', async t => {
+  const f = await fixture(t)
+  const { mkdirSync } = await import('node:fs')
+  await assert.rejects(f.updater({ fetchLatestCommit: async () => 'b'.repeat(40), compareCommits: async () => 'ahead',
+    now() {
+      // Inject a real filesystem failure exactly after reservation, before the
+      // first running snapshot. No updater process has been launched yet.
+      if (installationState.readInstallation(f.root)?.state === 'reserved') mkdirSync(f.statusFile)
+      return Date.now()
+    },
+    spawnProcess() { assert.fail('persistence failure must prevent launch') },
+  }).start(), error => error.code === 'EISDIR')
+  assert.equal(installationState.readInstallation(f.root), null)
 })

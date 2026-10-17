@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -67,6 +67,41 @@ test('全新安装失败回滚后不留下半成品目录', t => {
   swap(app)
   assert.equal(rollback(app), true)
   assert.equal(existsSync(app), false)
+})
+
+test('上次在切换中途被强制结束：下次安装先恢复可用的原版本', t => {
+  const { app, source } = fixture(t)
+  installV1(app, source)
+  const paths = stagedPaths(app)
+  // Killed right after renaming the app away, before the new one moved in.
+  release(source('v2'), 'v2', ['package.json'])
+  prepare({ app, source: source('v2') })
+  rmSync(paths.previous, { recursive: true, force: true })
+  renameSync(app, paths.previous)
+  assert.equal(existsSync(app), false)
+  release(source('v3'), 'v3', ['package.json', 'bin/dsh-tavern.mjs'])
+  prepare({ app, source: source('v3') })
+  assert.equal(read(app, 'bin/dsh-tavern.mjs'), 'v1:bin/dsh-tavern.mjs', '恢复原版本后才开始新的准备')
+  assert.equal(existsSync(paths.previous), false)
+  swap(app)
+  assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}')
+})
+
+test('切换中途（两次改名之后、搬运用户文件之前）被强制结束：恢复时不会删掉仍在旧目录里的用户数据', t => {
+  const { app, source } = fixture(t)
+  installV1(app, source)
+  const paths = stagedPaths(app)
+  release(source('v2'), 'v2', ['package.json', 'bin/dsh-tavern.mjs'])
+  prepare({ app, source: source('v2') })
+  // Simulate the swap being killed right after the record is written.
+  renameSync(app, paths.previous)
+  renameSync(paths.staging, app)
+  writeFileSync(path.join(app, '.dsh-tavern-swap.json'), JSON.stringify({ fresh: false, moved: [] }) + '\n')
+  release(source('v3'), 'v3', ['package.json'])
+  prepare({ app, source: source('v3') })
+  assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}', '原版本连同用户数据一起恢复')
+  assert.equal(read(app, 'bin/dsh-tavern.mjs'), 'v1:bin/dsh-tavern.mjs')
+  assert.equal(existsSync(paths.previous), false)
 })
 
 test('提交删除旧目录后、清除记录前中断：回滚识别为已提交，不报错也不改动新版本', t => {

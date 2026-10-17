@@ -61,3 +61,53 @@ test('工具等待真实校验，失败回传错误后修正重试；整批回�
   assert.equal(h.chat.messages[0].variables[0].stat_data.hp, 9)
   assert.equal(h.writes.length, 0)
 })
+
+test('执行结果不确定或目标已过期时停止自动重试', async () => {
+  for (const stale of [false, true]) {
+    let executions = 0
+    const feedback = []
+    const module = createMvuSettlementModule({ model: { async run(request) {
+      await submitPosture(request)
+      feedback.push(JSON.parse(await request.onToolCall(call(patch))))
+      feedback.push(JSON.parse(await request.onToolCall(call(patch))))
+      return { text: '{}' }
+    } }, runtime: { async settleMvuUpdate() {
+      executions++
+      if (stale) return { stale: true }
+      throw new Error('disk write outcome unknown')
+    } } })
+    const result = await module.settleVariables(input)
+    assert.equal(feedback.length, 2)
+    assert.ok(feedback.every(item => item.retryable === false))
+    assert.equal(executions, 1)
+    assert.equal(result.receipt.status, stale ? 'stale' : 'error')
+  }
+})
+
+test('浏览器执行器暂时缺席时立即挂起，并在恢复后复用已生成的 operations', async () => {
+  let modelRuns = 0, executions = 0, runtimeReady = false
+  const module = createMvuSettlementModule({ model: { async run(request) {
+    modelRuns++
+    await submitPosture(request)
+    const feedback = JSON.parse(await request.onToolCall(call(patch)))
+    assert.equal(feedback.ok, false)
+    assert.equal(feedback.deferred, true)
+    return { text: '' }
+  } }, runtime: { async settleMvuUpdate() {
+    executions++
+    if (!runtimeReady) return { deferred: true }
+    return { context: { messages: [{ variables: { stat_data: { hp: 9, location: 'hall' } } }] } }
+  } } })
+
+  const pending = await module.settleVariables(input)
+  assert.equal(pending.receipt.status, 'pending')
+  assert.deepEqual(pending.submission.operations, patch)
+  assert.equal(modelRuns, 1)
+  assert.equal(executions, 1)
+
+  runtimeReady = true
+  const resumed = await module.resumeVariables({ ...input, submission: pending.submission })
+  assert.equal(resumed.receipt.status, 'updated')
+  assert.equal(modelRuns, 1, '恢复运行时不得重新调用模型生成同一批 operations')
+  assert.equal(executions, 2)
+})

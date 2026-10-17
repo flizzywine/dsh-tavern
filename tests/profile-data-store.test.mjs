@@ -1,10 +1,116 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from "node:fs/promises"
+import { access, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+
+test('Profile 数据存储可在工作区外原子读写并删除 JSON', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  try {
+    const store = createProfileDataStore({ dataRoot: root })
+    assert.equal(await store.readJson('chats/chat-1.json'), undefined)
+
+    await store.writeJson('chats/chat-1.json', { id: 'chat-1', turns: [] })
+    assert.deepEqual(await store.readJson('chats/chat-1.json'), { id: 'chat-1', turns: [] })
+    assert.equal(await readFile(path.join(root, 'chats/chat-1.json'), 'utf8'), '{\n  "id": "chat-1",\n  "turns": []\n}\n')
+
+    await store.writeJson('chats/chat-1.json', { id: 'chat-1', turns: ['updated'] })
+    assert.deepEqual(await store.readJson('chats/chat-1.json'), { id: 'chat-1', turns: ['updated'] })
+
+    await store.remove('chats/chat-1.json')
+    await assert.rejects(() => access(path.join(root, 'chats/chat-1.json')), /ENOENT/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 临时占用目标文件时重试原子替换', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  let renameCalls = 0
+  try {
+    const store = createProfileDataStore({
+      dataRoot: root,
+      rename: async (source, target) => {
+        renameCalls += 1
+        if (renameCalls === 1) {
+          const error = new Error('目标文件暂时被占用')
+          error.code = 'EPERM'
+          throw error
+        }
+        await rename(source, target)
+      },
+      sleep: async () => {}
+    })
+
+    await store.writeJson('sessions.json', { session: 'chat-1' })
+
+    assert.equal(renameCalls, 2)
+    assert.deepEqual(await store.readJson('sessions.json'), { session: 'chat-1' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 较长时间占用大型聊天文件时持续重试原子替换', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  let renameCalls = 0
+  try {
+    const store = createProfileDataStore({
+      dataRoot: root,
+      platform: 'win32',
+      rename: async (source, target) => {
+        renameCalls += 1
+        if (renameCalls <= 6) {
+          const error = new Error('目标文件被 Windows 扫描程序占用')
+          error.code = 'EPERM'
+          throw error
+        }
+        await rename(source, target)
+      },
+      sleep: async () => {}
+    })
+
+    await store.writeJson('chats/chat-large.json', { text: 'x'.repeat(3 * 1024 * 1024) })
+
+    assert.equal(renameCalls, 7)
+    assert.equal((await store.readJson('chats/chat-large.json')).text.length, 3 * 1024 * 1024)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('后续原子替换成功后提升最新 pending 并清理旧快照', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))
+  let locked = true
+  try {
+    const store = createProfileDataStore({
+      dataRoot: root,
+      platform: 'win32',
+      rename: async (source, target) => {
+        if (locked) {
+          const error = new Error('目标文件持续被占用')
+          error.code = 'EPERM'
+          throw error
+        }
+        await rename(source, target)
+      },
+      sleep: async () => {}
+    })
+    await store.writeJson('chats/chat-recover.json', { count: 1 })
+    await store.writeJson('chats/chat-recover.json', { count: 2 })
+    assert.equal((await readdir(path.join(root, 'chats'))).filter((name) => name.includes('.pending-')).length, 2)
+
+    locked = false
+    await store.writeJson('chats/chat-recover.json', { count: 3 })
+
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, 'chats/chat-recover.json'), 'utf8')), { count: 3 })
+    assert.equal((await readdir(path.join(root, 'chats'))).filter((name) => name.includes('.pending-')).length, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test('并发更新同一个 JSON 文件时不会互相覆盖', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-profile-data-'))

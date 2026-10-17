@@ -5,6 +5,8 @@ import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-age
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
+import { createTurnOrchestrator } from '../tavern-plugin/lib/domain/turn-orchestration.js'
+import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
 
 const selection = { provider: 'test', model: 'scripted' }
 const candidates = Array.from({ length: 6 }, (_, n) => ({ ref: 'entry:' + n, text: '候选资料' + n, tokenCost: 1100 }))
@@ -75,6 +77,40 @@ function harness(runnerOptions = {}) {
     restart: async () => { await runner.dispose(); runner = makeRunner() }, dispose: () => runner.dispose() }
 }
 
+test('小候选池不创建后台任务；压缩和其他后台工作期间禁止另开筛选', async t => {
+  const h = harness(); t.after(h.dispose)
+  const input = await h.input()
+  assert.equal((await h.filter({ ...input, candidates: candidates.slice(0, 1) })).ran, false)
+  const long = candidates.slice(0, 5).map(item => ({ ...item, tokenCost: 5000 }))
+  assert.equal((await h.filter({ ...input, candidates: long })).ran, false, '少量长条目交给预算截断，不等待模型')
+  const short = candidates.map(item => ({ ...item, tokenCost: 400 }))
+  assert.equal((await h.filter({ ...input, candidates: short })).ran, false, '条目多但总量不大时直接注入')
+  assert.equal((await h.store.readChat()).timeline, undefined)
+  h.block(true)
+  await assert.rejects(h.filter(input), error => error.code === 'COMPACTION_RUNNING')
+  h.block(false)
+  await h.tasks.begin(await h.store.readChat(), 'candidate')
+  await assert.rejects(h.filter(await h.input()), error => error.code === 'BACKGROUND_BUSY')
+  assert.equal(h.created.length, 0)
+})
+
+test('前台准备保存筛选任务及共享会话，不覆盖后台时间线；重试复用 Frame', async t => {
+  const h = harness(); t.after(h.dispose)
+  const turns = createTurnOrchestrator({ store: h.store, timeline: h.timeline, frameBuilder: createForegroundFrameBuilder(),
+    planner: { plan: async () => ({ text: '正文上下文' }) },
+    projectForegroundWorldbook: async ({ chat, userText }) => {
+      await h.filter({ chat, userText, candidates })
+      return { context: '筛选后的世界书', refs: ['entry:0'], activation: { refs: ['entry:0'] } }
+    } })
+  const prepared = await turns.prepare({ sessionId: 'parent', turn: 1, userText: '查看资料' })
+  const saved = await h.store.readChat()
+  assert.equal(saved.timeline.participants.background.sessionId, h.created[0])
+  assert.equal(Object.values(saved.timeline.operations).find(op => op.role === 'worldbook-filter').status, 'completed')
+  assert.ok(saved.timeline.operations[prepared.frame.operationId])
+  await turns.prepare({ sessionId: 'parent', turn: 1, userText: '查看资料' })
+  assert.equal(h.calls.length, 1)
+})
+
 test('回退后筛选沿用后台 Session 并遮蔽废弃任务；压缩过也沿用同一个 Session，原地清空任务历史', async t => {
   for (const compacted of [false, true]) {
     const h = harness(); t.after(h.dispose)
@@ -98,6 +134,24 @@ test('回退后筛选沿用后台 Session 并遮蔽废弃任务；压缩过也�
     assert.ok(session.events.some(event => event.surfaceOp?.op === 'replace'))
     assert.ok(!session.surface.nodes.some(seq => JSON.stringify(session.events[seq]).includes('即将废弃的行动')))
   }
+})
+
+test('筛选期间剧情改变，迟到结果不绑定新剧情或保存正文 Frame', async t => {
+  const h = harness(); t.after(h.dispose)
+  h.beforeSubmit(() => h.store.updateChat('game', chat => h.timeline.apply({ chat, intent: { kind: 'ledger.edit', ledger: {} } }).chat))
+  const turns = createTurnOrchestrator({ store: h.store, timeline: h.timeline, frameBuilder: createForegroundFrameBuilder(),
+    planner: { plan: async () => { throw Error('不应生成 Frame') } },
+    projectForegroundWorldbook: async ({ chat, userText }) => {
+      // The foreground projection reports screening errors as diagnostics.
+      await assert.rejects(h.filter({ chat, userText, candidates }), /已过期/)
+      return { context: '', error: '筛选已过期' }
+    } })
+  await assert.rejects(turns.prepare({ sessionId: 'parent', turn: 1, userText: '查看资料' }), /正文准备已过期/)
+  const saved = await h.store.readChat()
+  // Session identity is bound before execution for retry; stale output must not advance it.
+  assert.equal(saved.timeline.participants.background.sessionId, h.created[0])
+  assert.equal(saved.timeline.participants.background.boundary, null)
+  assert.ok(Object.values(saved.timeline.operations).every(operation => operation.status !== 'completed'))
 })
 
 for (const provider of ['dsh-tavern-background', 'dsh-tavern-background-tools-v1', 'dsh-tavern-background-tools-v2', 'dsh-tavern-background-tools-v3']) {

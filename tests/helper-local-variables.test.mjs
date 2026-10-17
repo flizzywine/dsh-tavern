@@ -34,3 +34,17 @@ test('local variables share Helper state, save bursts, survive reopening and iso
   assert.equal(saved.variables.other, 'kept')
   assert.equal(saved.variables.helper, 'visible')
 })
+
+test('late writes cannot restore variables after switching chat', async t => {
+  const host = await fixture(t), delayed = [], run = await host.connect('audit', (message, dispatch) => {
+    if (message.method === 'updateTavernHelperVariables') delayed.push(dispatch)
+    else dispatch()
+  })
+  run.api.variables.local.set('old', 'old chat')
+  const saving = assert.rejects(run.api.saveMetadata(), /聊天已切换/)
+  run.receive({ type: 'dsh-tavern-helper-context', context: await host.context('other') })
+  await delayed[0]()
+  await saving
+  assert.equal(run.api.variables.local.has('old'), false)
+  assert.equal((await host.open().read('other')).variables, undefined)
+})

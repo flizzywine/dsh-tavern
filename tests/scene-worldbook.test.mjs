@@ -21,6 +21,25 @@ const book = text => ({ view: { entries: [
   { ref: 'entry:place', title: '青石车站', primaryKeys: ['车站'], content: '青石车站有石柱。', constant: true }
 ] } })
 
+test('immutable versioned archive includes nonconstant entries, resolves historical macros and deduplicates writes', async t => {
+  const { store, api } = await fixture(t)
+  const chat = { macroState: { userName: '过去的玩家', local: {}, global: {} } }, card = { name: '林岚' }
+  const original = book('{{user}}认识留着黑色短发的{{char}}。')
+  const before = structuredClone(chat)
+  const ref = await api.capture({ worldBook: original, chat, card })
+  const path = 'scene-images/worldbooks/' + ref.digest + '.json', version = await store.version(path)
+  assert.deepEqual(await api.capture({ worldBook: original, chat, card }), ref)
+  assert.equal(await store.version(path), version)
+  original.view.entries[0].content = '未来红发。'
+  chat.macroState.userName = '未来的玩家'
+  const old = await createSceneWorldbooks({ store }).read(ref)
+  assert.match(old.entries[0].text, /过去的玩家.*黑色短发.*林岚/)
+  assert.doesNotMatch(JSON.stringify(old), /未来|停用条目|更新教程/)
+  assert.equal(old.entries[0].constant, false)
+  assert.notDeepEqual(await api.capture({ worldBook: original, chat, card }), ref)
+  assert.deepEqual(before.macroState.local, chat.macroState.local)
+})
+
 test('opening swipes retain their archive; rewritten bodies and missing/corrupt archives never use current resources', async t => {
   const { store, api } = await fixture(t), ref = await api.capture({ worldBook: book('黑色短发') })
   const chat = { id: 'chat', messages: [bindSceneWorldbook({ role: 'assistant', turn: 1, greeting: true, swipes: ['林岚站着。', '林岚坐着。'], swipeId: 0 }, ref)] }
@@ -50,6 +69,29 @@ test('conditional reference variants require current scene evidence, not old his
   worldBook.view.entries[0].secondaryKeys = ['/夜晚/']
   const unsupported = await api.read(await api.capture({ worldBook }))
   assert.equal(read('林岚站在夜晚的车站。', unsupported).sources.length, 0)
+})
+
+test('entries are stored once across turns; an export is a verified self-contained snapshot', async t => {
+  const { store, api } = await fixture(t)
+  const first = await api.capture({ worldBook: book('黑色短发') })
+  const stored = await store.readJson('scene-images/worldbooks/' + first.digest + '.json')
+  assert.equal(stored.version, 2)
+  assert.equal(stored.entryRefs.length, 2)
+  const shared = 'scene-images/worldbook-entries/' + stored.entryRefs[1] + '.json', sharedVersion = await store.version(shared)
+  // A later turn changes one entry: the unchanged entry file is reused, not rewritten.
+  const second = await api.capture({ worldBook: book('红色长发') })
+  assert.notEqual(second.digest, first.digest)
+  assert.deepEqual((await store.readJson('scene-images/worldbooks/' + second.digest + '.json')).entryRefs[1], stored.entryRefs[1])
+  assert.equal(await store.version(shared), sharedVersion)
+  assert.match((await api.read(first)).entries[0].text, /黑色短发/)
+  // Save packages carry the complete snapshot; importing it as a plain file still verifies.
+  const bytes = await api.exportSnapshot(first.digest)
+  const other = await fixture(t)
+  await other.store.writeBytes('scene-images/worldbooks/' + first.digest + '.json', bytes)
+  assert.deepEqual(await other.api.read(first), await api.read(first))
+  // A damaged shared entry is detected, never silently replaced by current data.
+  await store.writeJson(shared, { text: '篡改' })
+  assert.match((await api.read(first)).unavailable, /校验失败/)
 })
 
 test('only the latest turns keep their snapshots; shared snapshots and entries stay while any game lists them', async t => {

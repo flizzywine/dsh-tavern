@@ -3,7 +3,7 @@ import test from 'node:test'
 import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
-import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
+import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext, replaceTavernHelperMessages } from '../tavern-plugin/lib/domain/tavern-helper-context.js'
 
 function macroOpeningChat() {
   const source = '{{incvar::visits}}{{User}}看向{{Char}}。'
@@ -17,6 +17,22 @@ function macroOpeningChat() {
       displayText: projection.displayText, displayMode: projection.displayMode }]
   }
 }
+
+test('MVU 数据写回不覆盖已解析正文，也不重新执行有副作用的宏', () => {
+  for (const patch of [
+    { data: { stat_data: { hp: 9 } } },
+    { swipes_data: [{ stat_data: { hp: 9 } }, {}] },
+    { swipe_id: 0, data: { stat_data: { hp: 9 } } }
+  ]) {
+    const chat = macroOpeningChat()
+    const before = structuredClone(chat)
+    replaceTavernHelperMessages(chat, [{ message_id: 0, ...patch }])
+    assert.deepEqual(projectReplyHistory(chat.messages), projectReplyHistory(before.messages))
+    assert.deepEqual(chat.macroState, before.macroState)
+    assert.deepEqual({ ...chat.messages[0], variables: [] }, { ...before.messages[0], variables: [] })
+    assert.equal(chat.messages[0].variables[0].stat_data.hp, 9)
+  }
+})
 
 test('Helper 创建的新楼层只进入脚本历史，不冒充剧情回合', () => {
   const chat = macroOpeningChat()

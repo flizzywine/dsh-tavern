@@ -3,7 +3,15 @@ import assert from 'node:assert/strict'
 import {createBackgroundProgress} from '../tavern-plugin/lib/domain/background-progress.js'
 const delay=ms=>new Promise(r=>setTimeout(r,ms))
 const start={type:'start',attemptId:'a'}
-
+test('silent model times out even if cancellation does not settle the provider',async()=>{
+ let cancelled=0
+ const p=createBackgroundProgress({idleMs:30,onCancel:()=>cancelled++})
+ p.frame(start)
+ const waiting=p.wait(new Promise(()=>{}))
+ const check=assert.rejects(waiting,{code:'BACKGROUND_MODEL_IDLE_TIMEOUT'})
+ await delay(50);await check
+ assert.equal(cancelled,1);assert.equal(p.signal.aborted,true);p.dispose()
+})
 test('real reasoning extends liveness; empty chunks and stale attempts do not',async()=>{
  const p=createBackgroundProgress({idleMs:45})
  p.frame(start)

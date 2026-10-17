@@ -13,6 +13,17 @@ for(const count of [20,400,10000])test(`legacy source point update and lookup re
  assert.equal(index.get(changed,count),'edited');assert.equal(index.get(old,count),'body'+(count-1))
  assert.equal(reads,1);assert.ok(visits<150,`index visits: ${visits}`)
 })
+test('duplicate turns, role changes, default turns and truncation match first-owner semantics',()=>{
+ const index=createStatusSourceIndex()
+ let source=[{role:'assistant',turn:0,text:'default'},{role:'assistant',turn:2,text:'first'},{role:'assistant',turn:2,text:'second'},{role:'assistant',turn:Infinity,text:'infinite'}]
+ let state=index.update(null,source)
+ assert.equal(index.get(state,1),'default');assert.equal(index.get(state,2),'first');assert.equal(index.get(state,'2'),'')
+ assert.equal(index.get(state,Infinity),'infinite')
+ source=source.map((row,i)=>i===1?{role:'user',text:'user'}:row)
+ state=index.update(state,source,[1]);assert.equal(index.get(state,2),'second')
+ state=index.update(state,source.slice(0,2),[]);assert.equal(index.get(state,2),'')
+ assert.equal(index.get(state,NaN),'')
+})
 
 test('legacy status matching reuses the indexed source lookup throughout a real projection pass',async()=>{
  const {createImmutableOrderedJsonIndex}=await import('../tavern-plugin/lib/domain/freeze-json.js')

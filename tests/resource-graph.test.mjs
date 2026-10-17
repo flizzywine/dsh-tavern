@@ -77,3 +77,14 @@ test('资源删除后崩溃时，重启清理 Chat 中的旧引用', async funct
   assert.deepEqual(app.snapshot().chat.workspace.sourcePaths, [])
   assert.deepEqual(app.snapshot().chat.workspace.mountedResources, [])
 })
+
+test('素材已迁移后中断，恢复仍会完成会话路径更新', async () => {
+  const moves = []
+  const app = harness(async ({ stage }) => { if (stage === 'card-assets-moved') throw new Error('process died') })
+  app.options.castAssets = { async movePath(from, to) { moves.push([from, to]); assert.equal(app.snapshot().chat.cardPath, from) } }
+  await assert.rejects(createResourceGraph(app.options).rename('cards/old.json', 'new.json'), /process died/)
+  await createResourceGraph({ ...app.options, fault: undefined }).recover()
+  assert.equal(moves.length, 2)
+  assert.equal(app.snapshot().chat.cardPath, 'cards/new.json')
+  assert.equal(app.snapshot().operation, null)
+})

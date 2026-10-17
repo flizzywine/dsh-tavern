@@ -15,6 +15,21 @@ const raw = {
   }
 }
 
+test('人物卡搜索一次定位字段、世界书标题关键词正文与正则，并跳过根部镜像', () => {
+  const result = searchCardRaw(raw, { query: '空间集市' })
+  assert.deepEqual(result.hits.map(hit => [hit.pointer, hit.label, hit.count]), [
+    ['/data/description', '', 1],
+    ['/data/character_book/entries/0/comment', '世界书 entry:0「组织-空间集市」', 1],
+    ['/data/character_book/entries/0/keys/0', '世界书 entry:0「组织-空间集市」', 1],
+    ['/data/character_book/entries/0/content', '世界书 entry:0「组织-空间集市」', 3],
+    ['/data/extensions/regex_scripts/0/replaceString', '正则「面板」', 1]
+  ])
+  assert.equal(result.occurrences, 7)
+  // Nearby matches share one snippet; distant ones get their own.
+  assert.equal(result.hits[3].snippets.length, 2)
+  assert.match(result.hits[3].snippets[1], /离开空间集市/)
+})
+
 test('人物卡搜索支持正则与数量上限，空查询和坏正则报错', () => {
   const limited = searchCardRaw(raw, { query: '空间.市', regex: true, limit: 2 })
   assert.equal(limited.total, 5)

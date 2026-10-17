@@ -22,3 +22,13 @@ test('long history retains its bounded window and virtual input count',async()=>
  assert.deepEqual((await read('s')).historyWindow,{token:'lease',from:50,messageCount:251})
  assert.equal(issued.messageCount,250)
 })
+
+test('viewed older history extends the window on the same revision instead of a complete read',async()=>{
+ const h=store(1000)
+ const read=createTemplateWindowReader({links:async()=>({s:'chat'}),access:{issue:()=>({token:'lease'})},readWindow:h.readWindow,historyFrom:()=>500})
+ const selected=await read('s')
+ assert.equal(selected.historyWindow.from,500)
+ assert.equal(selected.chat.messages.length,500)
+ assert.equal(selected.chat.messages[0].text,'r500')
+ assert.ok(h.calls.slice(1).every(call=>call.revision===9))
+})

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises"
+import {mkdtemp,mkdir,readFile,writeFile,rm,access} from 'node:fs/promises'
 
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -47,6 +47,18 @@ test('existing persistence and projections survive journal migration, settlement
  assert.deepEqual((await restarted.readRevision('old',settled._storageRevision)).messages,settled.messages)
 })
 
+test('failed conversion falls back to the writable original without activating a partial target',async t=>{
+ let fail=true
+ const {root,legacy,bytes,store}=await fixture(t,{migrateLegacy:true,onCompatibilityIO:e=>{if(fail&&e.kind==='write'){fail=false;throw Error('disk failure')}}})
+ assert.equal(JSON.stringify(await store.read('old')),bytes)
+ await assert.rejects(access(join(root,'chats','old','storage-format.json')),{code:'ENOENT'})
+ assert.equal(await readFile(legacy,'utf8'),bytes)
+ await bump(store,chat=>{chat.unknown.progress='still playable'})
+ const fresh=createChatJournalStore({dataRoot:root,migrateLegacy:true})
+ assert.equal((await fresh.read('old')).unknown.progress,'still playable')
+ assert.equal((await marker(root)).mode,'compatible')
+})
+
 test('active corruption is never disguised as a successful read of the stale migration backup',async t=>{
  const {root,store}=await fixture(t)
  await store.migrateCompatibility('old')
@@ -87,6 +99,25 @@ test('process exit before cutover keeps old data and dead-lock recovery permits 
  assert.deepEqual(await fresh.read('old'),source)
  assert.equal((await fresh.migrateCompatibility('old')).status,'compatible')
  assert.deepEqual(await fresh.read('old'),source)
+})
+
+test('a late transaction guard failure and stale patches leave the committed revision intact',async t=>{
+ const {root,store}=await fixture(t)
+ await store.migrateCompatibility('old')
+ const changes=[{op:'set',path:['unknown','value'],value:2},{op:'set',path:['_storageRevision'],value:2}]
+ await assert.rejects(store.patch('old',1,changes,{assertCurrent(){throw Error('cancelled')}}),/cancelled/)
+ assert.equal((await createChatJournalStore({dataRoot:root}).read('old'))._storageRevision,1)
+ assert.equal(await store.patch('old',0,changes),undefined)
+ await store.patch('old',1,changes)
+ assert.equal((await store.read('old')).unknown.value,2)
+})
+
+test('auto migration does not reenter an updater lock and incompatible future markers fail closed',async t=>{
+ const {root,source,store}=await fixture(t,{migrateLegacy:true})
+ await store.update('old',async chat=>{assert.deepEqual(await store.read('old'),source);chat._storageRevision++;return chat})
+ await store.read('old')
+ await writeFile(join(root,'chats','old','storage-format.json'),JSON.stringify({version:999,mode:'future'}))
+ await assert.rejects(createChatJournalStore({dataRoot:root}).read('old'),{code:'CHAT_STORAGE_FORMAT'})
 })
 
 test('interrupted reverse export resumes missing revisions before switching authority',async t=>{

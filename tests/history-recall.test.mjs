@@ -26,3 +26,27 @@ test('工具结果把禁止重复演绎的提醒放在召回正文之前', () =>
   assert.match(rendered, /不得当作当前场景继续输出，不得重复演绎/)
   assert.match(rendered, /【第 2 轮】/)
 })
+
+test('重复调用计入预算且耗尽后不再返回正文或搜索结果', () => {
+  const recall = createHistoryRecall()
+  const scope = {}
+  for (let i = 0; i < 6; i++) recall.recall({ chat: chat(), turn: 2, scope })
+  const result = recall.recall({ chat: chat(), query: '北门', scope })
+  assert.equal(result.matches.length, 0)
+  assert.match(renderHistoryRecall(result), /预算已用尽/)
+})
+
+test('完整正文冷却持续十轮并可从存档恢复，摘要不触发冷却', () => {
+  const source = chat()
+  const read = (chat, args) => createHistoryRecall().recall({ chat, trackCooldown: true, ...args })
+  read(source, { query: '北门' })
+  assert.equal(source.historyRecallCooldowns, undefined)
+  assert.equal(read(source, { turn: 2, radius: 0 }).rounds.length, 1)
+  const restored = JSON.parse(JSON.stringify(source))
+  assert.equal(read(restored, { turn: 2, radius: 0 }).rounds.length, 0)
+  assert.equal(read(restored, { query: '北门' }).matches.length, 0)
+  restored.messages.push({role:'assistant', turn:13, text:'十轮后'})
+  assert.equal(read(restored, { turn: 2, radius: 0 }).rounds.length, 0)
+  restored.messages.push({role:'assistant', turn:14, text:'冷却结束'})
+  assert.equal(read(restored, { turn: 2, radius: 0 }).rounds.length, 1)
+})

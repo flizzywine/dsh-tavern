@@ -29,6 +29,30 @@ test('claim 响应丢失后重放同一 offer，显式 start 后才进入执行�
   assert.equal(result.phase, 'executing')
 })
 
+test('unclaimed work expires the stale ready lease before settlement retries', async function () {
+  const gate = createTavernScriptDispatch({ claimTimeoutMs: 100 })
+  const settled = []
+  gate.subscribeSettled(sessionId => settled.push(sessionId))
+  gate.touch('session-a', 'browser', true)
+  const result = await gate.dispatch('session-a', 'MESSAGE_SENT', [5])
+  assert.deepEqual(result, { handled: false, unavailable: true, claimTimedOut: true, phase: 'queued', args: [5] })
+  assert.deepEqual(gate.status('session-a'), { present: false, ready: false, busy: false, phase: 'idle' })
+
+  gate.claim('session-a', 'browser', true)
+  assert.deepEqual(settled, ['session-a', 'session-a'])
+})
+
+test('同一会话只允许一个浏览器运行 Helper，租约过期后才能接管', function () {
+  let clock = 0
+  const gate = createTavernScriptDispatch({ timeoutMs: 100, presenceTtlMs: 1000, now: function () { return clock } })
+
+  assert.deepEqual(gate.claim('session-a', 'browser-a'), { active: true, ready: false, event: null })
+  assert.deepEqual(gate.claim('session-a', 'browser-b'), { active: false, ready: false, event: null })
+  clock = 1001
+  assert.deepEqual(gate.claim('session-a', 'browser-b'), { active: true, ready: false, event: null })
+  assert.deepEqual(gate.claim('session-a', 'browser-a'), { active: false, ready: false, event: null })
+})
+
 test('MVU 加载失败即时终止在途事件，保留脱敏原因且不发布 ready；只有租约所有者可报告', async () => {
   const gate = createTavernScriptDispatch({ timeoutMs: 200 })
   let ready = 0, settled = 0

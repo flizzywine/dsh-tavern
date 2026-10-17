@@ -100,6 +100,65 @@ async function mount(component, onImported) {
   return reactRoot
 }
 
+test('列表按修改时间新→旧渲染全部文件，PNG 带缩略图、JSON 走占位', async function () {
+  const component = createComponent()
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  assert.ok(dialog(), '对话框应打开')
+  assert.equal(rows().length, FILES.length, '应列出全部文件')
+  assert.equal(rowNames()[0], '【MoM】糖糖公司 V3.8正式版.json', '默认最新修改在前')
+  assert.match(dialog().querySelector('.dsh-tavern-mobile-import-count').textContent, /共 5 个文件/)
+
+  const pngRow = rows().find(row => row.querySelector('img'))
+  const jsonRow = rows().find(row => !row.querySelector('img'))
+  assert.match(pngRow.querySelector('img').getAttribute('src'), /^\/api\/dsh-tavern\/mobile-card-thumbnail\?id=download%3A/)
+  assert.equal(pngRow.querySelector('img').getAttribute('loading'), 'lazy')
+  assert.equal(jsonRow.querySelector('.dsh-tavern-mobile-import-thumb-fallback').textContent, 'JSON')
+  assert.equal(jsonRow.querySelector('b').getAttribute('title'), jsonRow.querySelector('b').textContent, '长文件名应带 title')
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('排序支持大小、文件名与类型优先，选择会记住', async function () {
+  const component = createComponent()
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  const select = () => dialog().querySelector('.dsh-tavern-mobile-import-sort')
+  assert.equal(select().value, 'modified-desc', '默认排序')
+
+  await act(async () => { setValue(select(), 'size-desc') })
+  assert.equal(rowNames()[0], 'Collection.png', '大→小排序后最大的在前')
+  await act(async () => { setValue(select(), 'size-asc') })
+  assert.equal(rowNames()[0], '【MoM】糖糖公司 V3.8正式版.json', '小→大排序后最小的在前')
+  await act(async () => { setValue(select(), 'png-first') })
+  assert.ok(rows()[0].querySelector('img'), 'PNG 优先时第一行是图片')
+  assert.equal(rows()[FILES.length - 1].querySelector('img'), null, 'PNG 优先时最后一行是 JSON')
+  await act(async () => { setValue(select(), 'json-first') })
+  assert.equal(rows()[0].querySelector('img'), null, 'JSON 优先时第一行是 JSON')
+
+  await act(async () => { reactRoot.unmount() })
+  const remount = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  assert.equal(dialog().querySelector('.dsh-tavern-mobile-import-sort').value, 'json-first', '排序选择应写入 localStorage 并复用')
+  await act(async () => { remount.unmount() })
+  dom.window.localStorage.clear()
+})
+
+test('筛选与计数', async function () {
+  const component = createComponent()
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  const search = () => dialog().querySelector('.dsh-tavern-mobile-import-search')
+  await act(async () => { setValue(search(), 'mvu版本') })
+  assert.equal(rows().length, 2, '筛选后只留匹配行')
+  assert.match(dialog().querySelector('.dsh-tavern-mobile-import-count').textContent, /匹配 2 个/)
+  await act(async () => { setValue(search(), '不存在的名字') })
+  assert.equal(rows().length, 0)
+  assert.match(dialog().querySelector('.dsh-tavern-mobile-import-empty, .dsh-tavern-empty').textContent, /没有匹配/)
+  await act(async () => { setValue(search(), '') })
+  assert.equal(rows().length, FILES.length)
+  await act(async () => { reactRoot.unmount() })
+})
+
 test('多选：勾选、跨筛选累计、全选与清空', async function () {
   const component = createComponent()
   const reactRoot = await mount(component)
@@ -130,4 +189,82 @@ test('多选：勾选、跨筛选累计、全选与清空', async function () {
   await act(async () => { click(buttonByText('清空选择')) })
   assert.match(dialog().querySelector('.dsh-tavern-mobile-import-count').textContent, /^共 5 个文件$/, '清空后不再有已选')
   await act(async () => { reactRoot.unmount() })
+})
+
+test('批量导入按当前顺序逐个导入，成功后关闭并只刷新一次列表', async function () {
+  const component = createComponent()
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  await act(async () => { click(buttonByText('多选')) })
+  await act(async () => { setValue(dialog().querySelector('.dsh-tavern-mobile-import-sort'), 'modified-asc') })
+  const expected = [rowId(rows()[1].querySelector('b').textContent), rowId(rows()[3].querySelector('b').textContent)]
+  await act(async () => { click(rows()[1]); click(rows()[3]) })
+  await act(async () => { click(buttonByText('导入选中 2 个')) })
+  assert.deepEqual(component.rpcCalls, expected, '按当前排序顺序导入选中的文件')
+  assert.equal(component.imported.length, 1, 'onImported 只回调一次')
+  assert.equal(dialog(), null, '全部成功后关闭对话框')
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('非多选模式点条目仍然直接导入该文件', async function () {
+  const component = createComponent()
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  const name = rows()[2].querySelector('b').textContent
+  await act(async () => { click(rows()[2]) })
+  assert.deepEqual(component.rpcCalls, [rowId(name)])
+  assert.equal(component.imported.length, 1)
+  assert.equal(dialog(), null)
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('部分失败时保留对话框、汇总错误，并刷新已成功导入的部分', async function () {
+  const component = createComponent({ failures: ['download:cc'] })
+  const reactRoot = await mount(component)
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  await act(async () => { click(buttonByText('多选')) })
+  await act(async () => { click(rows().find(row => row.querySelector('b').textContent === 'Collection.png')); click(rows()[0]) })
+  await act(async () => { click(buttonByText('导入选中 2 个')) })
+  assert.equal(component.rpcCalls.length, 2)
+  assert.equal(component.imported.length, 1, '成功的那次仍刷新列表')
+  assert.ok(dialog(), '有失败时保留对话框')
+  const alert = dialog().querySelector('.dsh-tavern-dock-error')
+  assert.match(alert.textContent, /1 个文件导入失败/)
+  assert.match(alert.textContent, /Collection\.png/)
+  await act(async () => { click(buttonByText('关闭')) })
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  assert.match(dialog().querySelector('.dsh-tavern-mobile-import-count').textContent, /^共 5 个文件$/, '重新打开时不带已选状态')
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('读取失败时退回系统文件选择器可用', async function () {
+  const component = createComponent({ catalog: { available: false, files: [] } })
+  const input = { current: { clicked: 0, click() { this.clicked += 1 } } }
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const reactRoot = createRoot(host)
+  await act(async () => {
+    reactRoot.render(React.createElement(component.MobileCardImportButton, { inputRef: input, disabled: false, onImported: async () => {} }))
+  })
+  await act(async () => { click(buttonByText('导入人物卡')) })
+  assert.equal(input.current.clicked, 1, '宿主不支持时应直接打开系统文件选择器')
+  await act(async () => { reactRoot.unmount() })
+})
+
+test('样式回归：列表可滚动、行不被压缩（此前 1252 行被压扁的根因）', async function () {
+  const css = readFileSync(stylePath, 'utf8')
+  const rule = selector => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = new RegExp('(?:^|[\\n}])\\s*' + escaped + '\\s*\\{([^}]*)\\}').exec(css)
+    assert.ok(match, '缺少样式规则 ' + selector)
+    return match[1]
+  }
+  assert.match(rule('.dsh-tavern-mobile-import-file'), /flex:\s*none/)
+  assert.match(rule('.dsh-tavern-mobile-import-panel > .dsh-tavern-mobile-import-list'), /flex:\s*1 1 auto/)
+  assert.match(rule('.dsh-tavern-mobile-import-list'), /overflow-y:\s*auto/)
+  assert.match(rule('.dsh-tavern-mobile-import-panel > \*'), /flex:\s*none/)
+  assert.match(rule('.dsh-tavern-mobile-import-tools'), /grid-template-columns/)
+  assert.match(rule('.dsh-tavern-mobile-import-actions'), /grid-template-columns:\s*repeat\(2/)
+  assert.match(rule('.dsh-tavern-mobile-import'), /grid-template-columns:\s*minmax\(0,\s*1fr\)/, '外层网格轨道不能吃到最小内容宽度')
+  assert.match(rule('.dsh-tavern-mobile-import-meta b'), /text-overflow:\s*ellipsis/)
 })

@@ -37,6 +37,22 @@ function frame(persistent = true, clock = { now: 0 }) {
   get reloads() { return messages.filter(x => x.type === 'dsh-tavern-status-stale').length } }
 }
 
+test('listeners can render the event payload without another API read; removing the listener restores fallback', async () => {
+  const run = frame()
+  run.context.getAllVariables()
+  let place
+  const render = data => { place = data.stat_data.地点 }
+  run.context.eventOn('mag_variable_update_ended', render)
+  await run.update({ stat_data: { 地点: '山门' } })
+  run.flush()
+  assert.equal(place, '山门')
+  assert.equal(run.reloads, 0)
+  run.context.eventOff('mag_variable_update_ended', render)
+  await run.update({ stat_data: { 地点: '庭院' } })
+  run.flush()
+  assert.equal(run.reloads, 1)
+})
+
 test('unchanged data, non-status frames, forged messages, and frames without reads do not reload', async () => {
   const unchanged = frame(); unchanged.context.getAllVariables(); await unchanged.update({}); unchanged.flush()
   assert.equal(unchanged.reloads, 0)
@@ -46,4 +62,32 @@ test('unchanged data, non-status frames, forged messages, and frames without rea
   assert.equal(forged.reloads, 0)
   const unread = frame(); await unread.update({ stat_data: {} }); unread.flush()
   assert.equal(unread.reloads, 0)
+})
+
+test('following the latest turn detects stale read-once data, but updated readers stay mounted', async () => {
+  for (const reread of [false, true]) {
+    const run = frame()
+    run.context.getAllVariables()
+    await run.update({ stat_data: { 地点: '山门' } }, 2)
+    if (reread) run.context.getAllVariables()
+    run.flush()
+    assert.equal(run.reloads, reread ? 0 : 1)
+  }
+})
+
+test('a card that polls the same data by itself (10s) is never reloaded; render-burst re-reads still are', async () => {
+  const clock = { now: 0 }
+  const polling = frame(true, clock)
+  polling.context.getAllVariables()
+  clock.now = 10000
+  polling.context.getAllVariables()
+  await polling.update({ stat_data: { 地点: '山门' } })
+  polling.flush()
+  assert.equal(polling.reloads, 0)
+  const burst = frame(true, { now: 0 })
+  burst.context.getAllVariables()
+  burst.context.getAllVariables()
+  await burst.update({ stat_data: { 地点: '山门' } })
+  burst.flush()
+  assert.equal(burst.reloads, 1)
 })

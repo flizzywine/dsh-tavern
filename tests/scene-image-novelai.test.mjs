@@ -94,6 +94,46 @@ test('NovelAI fixed seed, official negative preset and setting validation', () =
   assert.throws(() => novelai({ qualityPreset: 'max' }), /质量词预设/)
 })
 
+test('NovelAI artist library: the selected entry supplies artist, quality and negative tags; older free-text settings migrate', () => {
+  const base = { provider: 'novelai', baseURL: 'https://image.novelai.net', model: 'nai-diffusion-4-5-full', size: '832x1216', qualityTags: 'channel quality', negativePrompt: 'channel negative' }
+  const artists = [{ id: 'a', name: '水彩', prompt: 'artist:wlop', quality: 'very aesthetic', negative: 'lowres' }, { id: 'b', name: '只换画师', prompt: 'artist:ciloranko' }]
+  const request = config => imageChannelRequest({ ...input, ...config, plan }).body
+  const chosen = request({ ...base, artists, activeArtist: 'a' })
+  assert.equal(chosen.parameters.v4_prompt.caption.base_caption, 'very aesthetic, 1girl, 1boy, wide shot, rainy station, watercolor, artist:wlop')
+  assert.equal(chosen.parameters.negative_prompt, 'lowres')
+  // Empty entry fields fall back to the channel-level tags; no selection uses no artist.
+  const partial = request({ ...base, artists, activeArtist: 'b' })
+  assert.equal(partial.parameters.v4_prompt.caption.base_caption, 'channel quality, 1girl, 1boy, wide shot, rainy station, watercolor, artist:ciloranko')
+  assert.equal(partial.parameters.negative_prompt, 'channel negative')
+  assert.equal(request({ ...base, artists, activeArtist: '' }).parameters.v4_prompt.caption.base_caption, 'channel quality, 1girl, 1boy, wide shot, rainy station, watercolor')
+  // A deleted selection is cleared rather than failing generation.
+  assert.equal(channelSettings({ ...base, artists, activeArtist: 'gone' }).activeArtist, '')
+  const migrated = channelSettings({ ...base, artistString: 'artist:old', promptPresets: JSON.stringify({ 日常: { artistString: 'artist:day', qualityTags: 'masterpiece' } }) })
+  assert.deepEqual(migrated.artists.map(({ name, prompt, quality }) => ({ name, prompt, quality })), [{ name: '日常', prompt: 'artist:day', quality: 'masterpiece' }, { name: '我的画师串', prompt: 'artist:old', quality: '' }])
+  assert.equal(migrated.activeArtist, 'legacy')
+  assert.throws(() => channelSettings({ ...base, artists: [{ id: 'A!', name: 'x' }] }), /画师串库格式/)
+  assert.throws(() => channelSettings({ ...base, artists: Array.from({ length: 51 }, (_, index) => ({ id: 'a' + index })) }), /最多 50/)
+})
+
+test('NovelAI sampling controls: defaults keep the previous payload; sampler, schedule, CFG rescale and Variety Boost apply when set', () => {
+  const base = { model: 'nai-diffusion-4-5-full', size: '832x1216' }
+  const parameters = config => imageChannelRequest({ ...input, ...config, plan }).body.parameters
+  const untouched = parameters(base)
+  assert.equal(untouched.sampler, 'k_euler_ancestral')
+  assert.equal(untouched.noise_schedule, 'karras')
+  assert.equal(untouched.cfg_rescale, 0)
+  assert.equal(untouched.prefer_brownian, true)
+  assert.ok(!('skip_cfg_above_sigma' in untouched))
+  const tuned = parameters({ ...base, sampler: 'k_dpmpp_2m', noiseSchedule: 'exponential', cfgRescale: '0.2', varietyBoost: 'true' })
+  assert.equal(tuned.sampler, 'k_dpmpp_2m')
+  assert.equal(tuned.noise_schedule, 'exponential')
+  assert.equal(tuned.cfg_rescale, 0.2)
+  assert.ok(!('prefer_brownian' in tuned) && !('deliberate_euler_ancestral_bug' in tuned))
+  assert.ok(Math.abs(tuned.skip_cfg_above_sigma - Math.sqrt(832 * 1216 / 1011712) * 58) < 1e-9)
+  assert.ok(Math.abs(parameters({ ...base, model: 'nai-diffusion-4-full', varietyBoost: 'true' }).skip_cfg_above_sigma - Math.sqrt(832 * 1216 / 1011712) * 19) < 1e-9)
+  assert.ok(!('skip_cfg_above_sigma' in parameters({ ...base, model: 'nai-diffusion-5-full', varietyBoost: 'true' })))
+})
+
 test('NovelAI busy (429) waits and resends; other failures and aborts do not retry', async () => {
   const busy = () => new Response('{"message":"Concurrent generation is locked"}', { status: 429 })
   let count = 0

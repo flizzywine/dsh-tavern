@@ -9,7 +9,12 @@ vm.runInNewContext(await readFile(new URL('../tavern-plugin/lib/client.js', impo
 })
 const client = descriptor.factory(() => ({}))
 const tick = () => new Promise(resolve => setImmediate(resolve))
-
+function harness(fetch, evaluate = async () => {}) {
+  const states = [], evaluations = []
+  const loader = client.createMvuBundleLoader({ fetch, timeoutMs: 30, retryDelays: [0, 0],
+    onState: state => states.push(state), evaluate: async source => { evaluations.push(source); await evaluate(source) } })
+  return { loader, states, evaluations }
+}
 const ok = () => ({ ok: true, headers: new Headers({ 'content-type': 'text/javascript' }), text: async () => 'bundle' })
 
 test('HTTP 200 JSON error never executes; its cause is retained and manual recovery evaluates once', async () => {
@@ -40,4 +45,27 @@ test('HTTP 200 JSON error never executes; its cause is retained and manual recov
   loader.retry()
   await pending
   assert.equal(evaluations, 1)
+})
+
+test('disposal aborts paused downloads and rejects late completion without evaluation', async () => {
+  let finish, signal
+  const h = harness((_url, options) => { signal = options.signal; return new Promise(resolve => { finish = resolve }) })
+  const pending = h.loader.load('/bundle.js')
+  await tick()
+  h.loader.dispose()
+  finish(ok())
+  await assert.rejects(pending, /disposed/)
+  assert.equal(signal.aborted, true)
+  assert.equal(h.evaluations.length, 0)
+  assert.equal(h.loader.retry(), false)
+})
+
+test('timed out body reads do not evaluate late data and remain manually recoverable', async () => {
+  const h = harness(async () => ({ ...ok(), text: () => new Promise(() => {}) }))
+  const pending = h.loader.load('/bundle.js')
+  while (h.states.at(-1)?.phase !== 'failed') await tick()
+  assert.match(h.states.at(-1).error, /超时/)
+  h.loader.dispose()
+  await assert.rejects(pending, /disposed/)
+  assert.equal(h.evaluations.length, 0)
 })

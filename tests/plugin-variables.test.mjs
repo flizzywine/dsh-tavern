@@ -87,6 +87,38 @@ for (const stopped of [false, true]) {
   })
 }
 
+test('before 任务仍不能改变量，手动任务只在所属 operation 内可写', async () => {
+  const h = harness()
+  let refused = false
+  h.service.settlementTask({ name: 'before', phase: 'before', run: async () => {
+    await assert.rejects(h.service.setVariables(h.input({ hp: 0 })), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+    refused = true
+  } })
+  await h.api.runSettlementTasks({ gameId: 'game', phase: 'before', around: h.around })
+  assert.equal(refused, true)
+  h.service.manualTask({ name: 'manual', run: async () => { await h.service.setVariables(h.input({ hp: 7 })) } })
+  await h.around(async operationId => {
+    assert.equal(await h.api.runManualTask({ gameId: 'game', key: 'state-plugin:manual', operationId }), true)
+  })
+  assert.deepEqual(h.copy().messages[1].variables[0], { hp: 7 })
+})
+
+test('普通写入保持可用；前台生成、其他后台任务与跨 operation 写入仍拒绝', async () => {
+  const h = harness()
+  await h.service.setVariables(h.input({ hp: 9 }))
+  h.state.generating = true
+  await assert.rejects(h.service.setVariables(h.input({ hp: 0 })), { code: 'TAVERN_PLUGIN_BUSY' })
+  h.state.generating = false
+  const task = await h.coordinator.begin(h.copy(), 'candidate')
+  await assert.rejects(h.service.setVariables(h.input({ hp: 0 })), { code: 'TAVERN_PLUGIN_BUSY' })
+  await assert.rejects(h.writer(h.material(), { hp: 0 }, { taskOperation: () => task.operationId }), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  await task.commit({ stateChanged: false })
+  await h.around(async () => {
+    await assert.rejects(h.writer(h.material(), { hp: 0 }, { taskOperation: () => 'old-operation' }), { code: 'TAVERN_PLUGIN_STALE_VERSION' })
+  })
+  assert.equal(h.writes(), 1)
+})
+
 for (const boundary of ['beforeSlice', 'beforePatch']) {
   test('读取与提交之间正文变化时拒绝旧变量：' + boundary, async () => {
     const h = harness()
@@ -96,3 +128,13 @@ for (const boundary of ['beforeSlice', 'beforePatch']) {
     assert.equal(h.writes(), 0)
   })
 }
+
+
+test('未取得后台 operation 不执行插件任务，之后仍可重试该正文版本', async () => {
+  const h = harness()
+  h.service.settlementTask({ name: 'update', run: async () => { await h.service.setVariables(h.input({ hp: 6 })) } })
+  await assert.rejects(h.api.runSettlementTasks({ gameId: 'game', phase: 'after', around: async () => { throw new Error('background busy') } }), /background busy/)
+  assert.equal(h.writes(), 0)
+  await h.api.runSettlementTasks({ gameId: 'game', phase: 'after', around: h.around })
+  assert.equal(h.writes(), 1)
+})

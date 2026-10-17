@@ -3,9 +3,24 @@ import { readFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { adaptedDshVersion, assertCompatibleDshVersion } from '../bin/dsh-compatibility.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const unix = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
+
+test('所有平台仅允许完全匹配的 DSH 版本', () => {
+  for (const host of ['cli', 'desktop', 'android']) {
+    assert.doesNotThrow(() => assertCompatibleDshVersion(adaptedDshVersion, host))
+    for (const version of ['', '0.1.1-rc.2', '0.1.5-rc.1', '99.0.0']) {
+      assert.throws(() => assertCompatibleDshVersion(version, host), error => {
+        assert.match(error.message, /必须使用/)
+        assert.ok(error.message.includes(adaptedDshVersion))
+        if (host !== 'cli') { assert.match(error.message, /已停止安装/); assert.match(error.message, /https:\/\/github.com\//) }
+        return true
+      })
+    }
+  }
+})
 
 test('Unix 工具准备只处理 pnpm，不提前复用或更换 DSH', { skip: process.platform === 'win32' }, () => {
   const start = unix.indexOf('# Read the downloaded release')

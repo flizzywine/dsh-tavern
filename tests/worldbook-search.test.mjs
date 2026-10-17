@@ -21,6 +21,11 @@ function fixture() {
   return { context, search, renders: () => renders }
 }
 
+test('invalid, disabled, out-of-book refs and oversized/ambiguous requests are rejected', async () => {
+  const { search } = fixture()
+  for (const args of [{}, { query: '少林', refs: ['entry:1'] }, { refs: [] }, { refs: ['entry:4'] }, { refs: ['entry:5'] }, { refs: ['other:1'] }, { refs: Array(6).fill('entry:1') }, { query: '少林', limit: 100 }, { query: '少林', offset: -1 }]) await assert.rejects(search('s', args))
+})
+
 test('explicit search-and-read returns bounded current full text in one call', async () => {
   const f=fixture(), before=structuredClone(f.context)
   const result=await f.search('s',{query:'少林',read:true,limit:1})

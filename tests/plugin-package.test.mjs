@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parse } from 'acorn'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -73,4 +73,28 @@ test('standard bundle and sidebar distribution match their maintained sources', 
     assert.equal(read(`tavern-plugin/packages/dsh-better-sidebar/lib/${name}`), read(`node_modules/dsh-better-sidebar/lib/${name}`))
   }
   assert.match(read('tavern-plugin/packages/dsh-better-sidebar/lib/index.js'), /function threadOwnLogEvents\(/)
+})
+
+test('real DSH composes the standard package alongside the host Web bundle without duplicating it', { skip: !process.env.DSH_BOOT_MODULE }, async () => {
+  const boot = await import(pathToFileURL(process.env.DSH_BOOT_MODULE))
+  const hostRoot = path.resolve(path.dirname(process.env.DSH_BOOT_MODULE), '../..')
+  const policy = JSON.parse(read('config/dsh-compatibility.json'))
+  assert.equal(JSON.parse(readFileSync(path.join(hostRoot, 'dsh-web-app/package.json'), 'utf8')).version, policy.adaptedDshVersion)
+  const load = file => boot.loadOverlayPatches('test', file)
+  const base = load(path.join(hostRoot, 'dsh-base/cordis.patch.yml'))
+  const web = load(path.join(hostRoot, 'dsh-web-app/cordis.patch.yml'))
+  const legacy = boot.composeEntries([base, web,
+    load(path.join(root, 'node_modules/dsh-better-sidebar/cordis.patch.yml')),
+    load(path.join(root, 'tavern-plugin/packages/dsh-dream-skin/cordis.patch.yml')),
+    load(path.join(root, 'tavern-plugin/cordis.patch.yml')),
+    load(path.join(root, 'tavern-plugin/packages/dsh-tavern-remote/cordis.patch.yml')),
+  ])
+  const standard = boot.composeEntries([base, web, load(path.join(root, 'plugin.patch.yml'))])
+    .filter(entry => entry.id !== 'tavern-package-guard')
+  const names = Object.fromEntries(legacy.map(entry => [entry.id, entry.name]))
+  for (const entry of standard) entry.name = names[entry.id]
+  // The standalone package owns exactly one sidebar. Legacy sidebar's
+  // multi-bundle duplicate guard is irrelevant to this aggregate.
+  delete legacy.find(entry => entry.id === 'better-sidebar').disabled
+  assert.deepEqual(standard, legacy)
 })

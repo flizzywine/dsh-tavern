@@ -14,6 +14,23 @@ async function fixture(t) {
   return { store: open(), open }
 }
 
+test('Profile 设置跨实例恢复，合并独立插件并拒绝同一插件的过期保存', async t => {
+  const { store, open } = await fixture(t)
+  await Promise.all([store.save({ phone: { enabled: true, old: 1 } }, {}), store.save({ database: { auto: true } }, {})])
+  const base = await open().read()
+  assert.deepEqual(base, { phone: { enabled: true, old: 1 }, database: { auto: true } })
+  await store.save({ ...base, phone: { enabled: false } }, base)
+  await assert.rejects(open().save({ ...base, phone: { enabled: true, other: 2 } }, base), /其他窗口修改/)
+  assert.deepEqual((await open().read()).phone, { enabled: false })
+  assert.deepEqual(await open('two').read(), {}, '不同 Profile 相互隔离')
+  const latest = await store.read()
+  delete latest.database
+  await store.save(latest, await store.read())
+  assert.equal(Object.hasOwn(await open().read(), 'database'), false)
+  await assert.rejects(store.save([], {}), /JSON 对象/)
+  await assert.rejects(store.save({}, undefined), /JSON 对象/)
+})
+
 test('浏览器设置真实写入 Profile 后，销毁环境并重新加载可恢复', async t => {
   const { store, open } = await fixture(t)
   let run

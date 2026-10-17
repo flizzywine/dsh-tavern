@@ -49,3 +49,17 @@ test('overlay materializes full legacy projections without leaking draft writes'
   assert.deepEqual(JSON.parse(JSON.stringify(work.chat)).messages,[{text:'a'},{text:'changed'},{text:'c'}])
   assert.equal(base.messages[1].text,'b')
 })
+
+test('scoped effects reject undeclared floors before publishing partial changes',()=>{
+  const chat={id:'c',sessionId:'s',messages:[{swipeId:0,variables:[{hp:10}]},{swipeId:0,variables:[{hp:20}]}]}
+  const before=structuredClone(chat)
+  const effect={version:1,operationId:'o',chatId:'c',sessionId:'s',expectedLifecycleRevision:0,messageId:0,swipeId:0,changes:[
+    {op:'set',path:['messages',0,'variables',0,'hp'],value:9},
+    {op:'set',path:['messages',1,'variables',0,'hp'],value:19}
+  ]}
+  assert.throws(()=>applyMvuSettlementEffect(chat,effect,{messageIndices:[0]}),/undeclared/)
+  assert.deepEqual(chat,before)
+  effect.changes[1]={op:'set',path:['messages',0,'missing','hp'],value:19}
+  assert.throws(()=>applyMvuSettlementEffect(chat,effect,{messageIndices:[0]}),/Missing/)
+  assert.deepEqual(chat,before)
+})

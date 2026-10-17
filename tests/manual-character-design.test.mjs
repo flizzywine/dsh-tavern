@@ -24,6 +24,17 @@ function fixture(runAgent, initial = {}) {
   return { api, tasks, get: () => structuredClone(chat), edit: fn => fn(chat) }
 }
 
+test('校验失败后模型修正并保存成功，不残留失败提示', async () => {
+  const run = fixture(async input => {
+    await input.onToolCall({ name: 'character_design_save', arguments: { ...design, identity: '' } })
+    await input.onToolCall({ name: 'character_design_save', arguments: design })
+  })
+  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
+  assert.equal(run.get().characterDesignTask.status, 'done')
+  assert.equal(run.get().characterDesignTask.error, '')
+  assert.equal(run.get().characterDesignDocument.characters.length, 1)
+})
+
 test('提交时保留同时新增的世界书条目，发生手动正文冲突则拒绝整次提交', async () => {
   let concurrentEdit = () => {}
   const run = fixture(async input => {
@@ -77,4 +88,11 @@ test('玩家逐条删除人物档案：只删这一个人和本局为它生成�
   assert.deepEqual(run.get().characterDesignDocument.characters, [])
   assert.deepEqual(entries(), ['人物设计 · 李四'], 'a hand-edited entry stays')
   await assert.rejects(run.api.remove({ sessionId: 'session', name: '王五' }), /找不到人物档案/)
+})
+
+test('管线护栏：手动人物设计的任务说明逐字不变', async () => {
+  const systems = []
+  const run = fixture(async input => { systems.push(input.system); await input.onToolCall({ name: 'character_design_save', arguments: design }) })
+  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
+  assert.deepEqual(systems, ['本次执行用户手动发起的人物设计。设计意见留空时，根据当前剧情和已有档案，自行选择需要建立或补充设计的重要人物；有意见时优先遵循意见。先调用 skill 加载 character-design，再用 character_design_read 按姓名或别名检查本局世界书与已有档案。世界书已有该人物设定时调用 character_design_reuse 复用即可完成，不另建档案；只有缺少设定的新人物或已有设计档案的修订才调用 character_design_save。不得执行变量或姿势结算，不得改写正文。'])
 })

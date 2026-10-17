@@ -98,3 +98,24 @@ for (const spec of ['flat', 'chara_card_v2', 'chara_card_v3']) test('变量编�
   assert.equal(rawNamed.nameChanged, true)
   assert.equal(cards.update({ kind: 'card', card: workspace, patch: { name: '原名' } }).nameChanged, false)
 })
+
+test('卡片工作台新建的人物卡在创作者备注署名 DSH Tavern，不写入本机路径', () => {
+  const cards = createCardPreparation({ id: () => 'card-1', now: () => 1 })
+  const created = cards.create({ kind: 'draft', draft: { name: '阿青', description: '剑客', creator_notes: '作者说明' }, player: '旅人', sourcePaths: ['/Users/me/secret.json'] })
+  const notes = cards.project(created).creator_notes
+  assert.equal(notes, '作者说明\n\nCo-authored-by: DSH Tavern <https://github.com/flizzywine/dsh-tavern>')
+  assert.doesNotMatch(notes, /secret|旅人/)
+})
+
+test('V2/V3 卡改字段时同步根上的 V1 兼容副本，未改的字段不动', () => {
+  const cards = moduleUnderTest()
+  const card = cards.create({ kind: 'import', payload: {
+    spec: 'chara_card_v2', name: '甲', first_mes: '旧开场', description: '根上的旧描述',
+    data: { name: '甲', first_mes: '旧开场', description: '描述', alternate_greetings: ['二'] }
+  } })
+  const result = cards.update({ kind: 'card', card, patch: { first_mes: '新开场' } })
+  assert.equal(result.card.raw.data.first_mes, '新开场')
+  assert.equal(result.card.raw.first_mes, '新开场')
+  assert.equal(result.card.raw.description, '根上的旧描述')
+  assert.equal(Object.hasOwn(result.card.raw, 'alternate_greetings'), false)
+})

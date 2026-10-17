@@ -64,3 +64,15 @@ test('找出模型看过、存档却没记下的已完成轮次；回退、失�
   assert.deepEqual(uncommittedRounds(session, header).map(item => [item.turn, item.requestId, item.userText, item.assistantText]), [[4, 'rpc-4', '漏记的一轮', '漏记的一轮的回复']])
   assert.deepEqual(uncommittedRounds(session, { nativeCommits: {} }), [], 'saves without commit records are left alone')
 })
+
+test('输入来源只在一处判定：玩家、重新生成、旧版重放；替换记录永远不算新输入', async () => {
+  const { inputKind, isNewTurnInput, isNewPlayerInput, requestIdOf, requestIdForMessages } = await import('../tavern-plugin/lib/domain/session-turn-input.js')
+  const player = input('p', '玩家', 'rpc-9'), regen = { source: { kind: 'plugin', plugin: 'dsh-tavern-regen' } }, replay = { source: { kind: 'plugin', plugin: 'dsh-tavern-replay' } }
+  assert.deepEqual([player, regen, replay, { source: { kind: 'plugin', plugin: 'dsh-tavern' } }, {}].map(inputKind), ['player', 'regenerate', 'replay', null, null])
+  assert.equal(isNewPlayerInput({ type: 'user/message', data: player, surfaceOp: 'append' }), true)
+  assert.equal(isNewTurnInput({ type: 'user/message', data: player, surfaceOp: { op: 'replace', startSeq: 1, endSeq: 1 } }), false)
+  assert.equal(isNewPlayerInput({ type: 'user/message', data: regen, surfaceOp: 'append' }), false)
+  assert.equal(requestIdOf(player), 'rpc-9')
+  assert.equal(requestIdOf(regen), '')
+  assert.equal(requestIdForMessages([input('a', '旧', 'rpc-1'), player]), 'rpc-9')
+})

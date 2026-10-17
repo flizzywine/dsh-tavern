@@ -24,6 +24,14 @@ async function fixture(t){
  return {root,io,store,mapping:createLegacyConversationMapping({store})}
 }
 
+test('non-JSON or invalid messages are rejected before publishing a target',async t=>{
+ const {mapping,store}=await fixture(t)
+ for(const source of [{id:'old',messages:[null]},{id:'old',messages:[],lost:undefined},{id:'old',messages:[],date:new Date()}, {id:'old',messages:new Array(2)}]){
+  await assert.rejects(mapping.importChat('shadow',source))
+  assert.equal(await store.openConversation('shadow'),undefined)
+ }
+})
+
 test('interrupted mapping never publishes a partial target and can be retried',async t=>{
  const {store,mapping}=await fixture(t),source=chat()
  let writes=0

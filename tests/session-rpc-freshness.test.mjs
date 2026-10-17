@@ -46,6 +46,12 @@ for (const method of ['getSession', 'submitTask']) test(`cancelled ${method} pre
   assert.equal(JSON.parse(h.reads[1].request.body).viewCursor, undefined)
   h.reads[1].reply({ ok: true, viewCursor: 'fresh', view: { fresh: true } }); await next
 })
+test('cancelled non-view RPC preserves its explicit abort reason', async () => {
+  const h = harness(), controller = new AbortController(), reason = new Error('user stopped')
+  const task = h.rpc('submitTask', {}, 'A', { signal: controller.signal })
+  controller.abort(reason); h.reads[0].reject(new Error('transport failed later'))
+  await assert.rejects(task, error => error === reason)
+})
 
 test('abort releases a hung reader watermark even before its carrier settles', async () => {
   const h = harness(), controller = new AbortController()

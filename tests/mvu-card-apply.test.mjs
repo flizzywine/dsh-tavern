@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { planMvuApply } from '../tavern-plugin/lib/domain/mvu-card-apply.js'
 import { checkMvuCard } from '../tavern-plugin/lib/domain/mvu-card-check.js'
+import { registerCardEditingTools } from '../tavern-plugin/lib/tools/card-editing.js'
 
 const card = () => ({
   spec: 'chara_card_v3',
@@ -42,6 +43,49 @@ test('首次写入：每个开场追加初值与入口，世界书加两条，�
   assert.match(raw.data.extensions.regex_scripts[1].replaceString, /^```html\n<!doctype html>[\s\S]*侦探手记[\s\S]*data-mvu-width="\/状态\/体力"/)
   assert.deepEqual(plan.summary, { openings: 2, variables: ['/时间/时段', '/状态/体力', '/线索'], rules: 'added', panel: 'generated', removed: { openings: 0, entries: 0, regex: 0 } })
   assert.deepEqual(checkMvuCard(raw.data), { errors: [], warnings: [] })
+})
+
+test('再次写入只换给出的部分：旧初值被替换不重复，未给的规则和面板保留，自写面板的美元符号被转义', () => {
+  const raw = apply(card(), planMvuApply(card(), { variables: { 体力: 1 }, rules: '规则一' }))
+  const before = structuredClone(raw)
+  const plan = planMvuApply(raw, { variables: { 体力: 2, 金钱: 0 } })
+  apply(raw, plan)
+  assert.equal(raw.data.first_mes.match(/<initvar>/g).length, 1)
+  assert.equal(raw.data.first_mes.match(/<mvu-status\/>/g).length, 1)
+  assert.match(raw.data.first_mes, /"金钱": 0/)
+  assert.deepEqual(plan.worldbook.map(op => op.op + ':' + op.ref), ['update:entry:2'])
+  assert.deepEqual(plan.rawOperations, [])
+  assert.equal(plan.summary.rules, 'kept')
+  assert.equal(raw.data.character_book.entries[1].content, before.data.character_book.entries[1].content)
+
+  const custom = planMvuApply(raw, { panel: { html: '<div>¥ $1 <script>Mvu.getMvuData({}).stat_data;eventOn("x",()=>{})</script></div>' } })
+  assert.deepEqual(custom.fields, {})
+  apply(raw, custom)
+  assert.equal(raw.data.extensions.regex_scripts[1].replaceString, '```html\n<div>¥ $$1 <script>Mvu.getMvuData({}).stat_data;eventOn("x",()=>{})</script></div>\n```')
+  assert.equal(custom.summary.panel, 'custom')
+  assert.deepEqual(checkMvuCard(raw.data).errors, [])
+})
+
+test('openings 多于开场数时报错，不保存', () => {
+  assert.throws(() => planMvuApply(card(), { variables: {}, openings: [null, null, null] }), /只有 2 个开场/)
+})
+
+test('工具在卡片工作台保存并返回摘要与校验', async () => {
+  const tools = new Map(), saves = []
+  registerCardEditingTools({
+    activeTurnOf: () => 1, cardPreparation: { raw: workspace => workspace.raw },
+    chatForSession: async () => ({ mode: 'card', cardPath: 'cards/甲.json' }),
+    checkCard: async () => ({ valid: true, errors: [], warnings: [] }),
+    readCardWorkspace: async () => ({ raw: card() }), restoreCurrentCard: async () => {}, str: value => value == null ? '' : String(value),
+    tools: { register: tool => tools.set(tool.name, tool) },
+    turnOrchestrator: { saveChanges: async input => { saves.push(input); return { saved: true } } },
+    worldBooks: { update: async (source, request) => { saves.push({ source, request }) } }
+  })
+  const tool = tools.get('tavern_apply_mvu')
+  const result = await tool.execute({ variables: { 体力: 1 }, rules: '规则' }, { agent: { session: { id: 's' } } })
+  assert.deepEqual(Object.keys(saves[0].fields), ['first_mes', 'alternate_greetings'])
+  assert.deepEqual(saves[1].request.operations.map(op => op.op), ['add', 'add'])
+  assert.match(tool.output.render({}, result)[0].text, /2 个开场的初值；规则已新增；面板已生成标准面板\n变量：\/体力\n格式校验：通过/)
 })
 
 test('生成的标准面板读取变量、随更新刷新，进度条、列表和空值可用', async () => {

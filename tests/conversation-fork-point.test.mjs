@@ -24,6 +24,14 @@ test('缺少、变化或未完成的历史状态不使用当前变量冒充', as
   await assert.rejects(conversationStateAtTurn(h.source, 2, h.read), /结算/)
 })
 
+test('源对话后来重新生成时保存的历史快照仍可分叉；当前对话自身仍在生成时拒绝', async () => {
+  const h = history(4)
+  h.states.get(2).regenInProgress = true
+  const { state } = await conversationStateAtTurn(h.source, 2, h.read)
+  assert.equal(state.variables.hp, 2)
+  await assert.rejects(conversationStateAtTurn({ ...h.source, regenInProgress: true }, 4, h.read), /仍在生成/)
+})
+
 function native() {
   const events = []
   for (const turn of [1, 2, 3]) {

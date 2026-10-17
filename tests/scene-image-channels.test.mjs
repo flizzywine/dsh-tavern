@@ -42,3 +42,12 @@ test('WebUI sends one image request, keeps the server model and handles raw base
   for (const size of ['4096x4096', '0x512', '500x500', 'large']) assert.throws(() => channelSettings({ ...input, size }), /尺寸/)
   await assert.rejects(generateSceneImage({ ...input, authType: 'basic', username: 'reader' }), /配置/)
 })
+
+test('WebUI keeps only reported model/seed metadata and tolerates missing or malformed info', async () => {
+  const call = info => generateSceneImage({ provider: 'webui', baseURL: 'http://localhost:7860' }, { fetch: async () => Response.json({ images: [png.toString('base64')], info }) })
+  const image = await call(JSON.stringify({ seed: 123, sd_model_name: 'my-checkpoint', sd_model_hash: 'abcdef12', api_key: 'must-not-copy', prompt: 'full secret input' }))
+  assert.deepEqual(image.metadata, { seed: 123, model: 'my-checkpoint', modelHash: 'abcdef12' })
+  assert.equal(JSON.stringify(image.metadata).includes('secret'), false)
+  assert.equal((await call('invalid json')).metadata, undefined)
+  assert.equal((await call(JSON.stringify({ seed: -1 }))).metadata, undefined)
+})

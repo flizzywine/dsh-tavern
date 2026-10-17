@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-
+import { access, readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 import { readOfficialMvuBundle, createOfficialMvuBundleReader } from '../tavern-plugin/lib/domain/official-mvu-assets.js'
@@ -34,4 +34,23 @@ test('文件恢复后重新校验并缓存成功产物，并发请求共用读�
   assert.equal(reader.inspect().error, undefined)
   assert.equal(await reader.read(), first)
   assert.equal(reads, 2)
+})
+
+test('官方 MVU 本地副本保留许可、源码和可复现构建输入', async function () {
+  const root = new URL('../tavern-plugin/lib/vendor/magvarupdate/upstream/', import.meta.url)
+  await Promise.all([
+    access(new URL('LICENSE', root)),
+    access(new URL('src/main.ts', root)),
+    access(new URL('webpack.config.ts', root)),
+    access(new URL('package.json', root)),
+    access(new URL('yarn.lock', root)),
+    access(new URL('.yarnrc.yml', root)),
+    access(new URL('../host-build/prepare-host-build.mjs', root)),
+    access(new URL('../host-build/build-host-bundle.sh', root))
+  ])
+  const license = await readFile(new URL('LICENSE', root), 'utf8')
+  const attributes = await readFile(new URL('../.gitattributes', import.meta.url), 'utf8')
+  assert.match(license, /Permission is hereby granted, free of charge/)
+  assert.match(license, /THE SOFTWARE IS PROVIDED "AS IS"/)
+  assert.match(attributes, /tavern-plugin\/lib\/vendor\/magvarupdate\/host-build\/artifact\/bundle\.js -text/)
 })

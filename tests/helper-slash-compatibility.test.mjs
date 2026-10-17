@@ -43,6 +43,50 @@ function scriptHost(options = {}) {
   }, response() { return frame.contentWindow.messages.findLast(data => data.type === 'dsh-tavern-helper-response') } }
 }
 
+test('script slash rejects background, stale and closed-event calls without executing', async t => {
+  const calls = []
+  const h = scriptHost({ executeSlash: async (...args) => { calls.push(args); return '' } })
+  t.after(() => h.runtime.dispose())
+  h.runtime.setForeground(false)
+  h.call('triggerTavernSlash', { line: '/pass hi' }); await tick()
+  assert.match(h.response().error, /对话已切换/)
+  h.runtime.setForeground(true)
+  h.call('triggerTavernSlash', { line: '/pass hi' }, { lifecycleRevision: 1 }); await tick()
+  assert.match(h.response().error, /版本已变化/)
+  const event = h.runtime.emit('UPDATE', [], context(), [], 'closed-event')
+  const dispatched = h.frame.contentWindow.messages.findLast(data => data.type === 'dsh-tavern-helper-event')
+  h.deliver(h.frame.contentWindow, { type: 'dsh-tavern-helper-event-complete', token: dispatched.token, eventId: dispatched.eventId, args: [] })
+  await event
+  h.call('triggerTavernSlash', { line: '/pass hi' }, { eventId: 'closed-event' }); await tick()
+  assert.equal(h.response().errorCode, 'TAVERN_SCRIPT_EVENT_CLOSED')
+  assert.deepEqual(calls, [])
+})
+
+test('queued Helper generation can be cancelled before earlier writes finish', async t => {
+  let finishWrite
+  const calls = []
+  const h = scriptHost({rpc: async (method, args) => {
+    calls.push([method, args])
+    if (method === 'updateTavernHelperMessages') return await new Promise(resolve => {finishWrite = resolve})
+    if (method === 'stopTavernHelperGeneration') return {stopped: false}
+    if (method.startsWith('generate')) assert.fail('cancelled queued generation must never reach the model')
+    return {}
+  }})
+  t.after(() => h.runtime.dispose())
+  h.call('updateTavernHelperMessages', {messages: []}, {requestId: 'write'}); await tick()
+  h.call('generateTavernHelper', {config: {generation_id: 'g'}}, {requestId: 'gen'})
+  h.call('stopTavernHelperGeneration', {generationId: 'g'}, {requestId: 'stop'}); await tick()
+  const stopped = h.frame.contentWindow.messages.find(row => row.requestId === 'stop')
+  assert.equal(stopped.result.stopped, true)
+  assert.deepEqual(calls.map(row => row[0]), ['updateTavernHelperMessages', 'stopTavernHelperGeneration'])
+  const generated = h.frame.contentWindow.messages.find(row => row.requestId === 'gen')
+  assert.equal(generated.ok, false)
+  assert.match(generated.error, /取消/)
+  // Cancellation settles even if this preceding write would never finish.
+  finishWrite({updated: false}); await tick(); await tick()
+  assert.equal(calls.some(row => row[0].startsWith('generate')), false)
+})
+
 test('active model jobs do not block state writes or immediate cancellation', async t => {
   let rejectGeneration
   const calls = []

@@ -38,6 +38,14 @@ test('预设编辑器按 JSON Pointer 分段读取并保留未知字段', async 
   assert.equal(result.done, true)
 })
 
+test('条目表单拒绝未知字段与非法角色', async () => {
+  const run = harness({ prompts: [{ identifier: 'main', content: '正文' }] })
+
+  await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { identifier: 'other' }), /不支持修改/)
+  await assert.rejects(run.editor.updateEntry('presets/写作.json', 'main#1', { role: 'developer' }), /角色必须/)
+  assert.equal(run.writes(), 0)
+})
+
  test('同一预设的并发条目和原文修改都保留，失败修改不阻塞后续保存', async () => {
   const run = harness({ prompts: [{ identifier: 'a', content: 'old A' }, { identifier: 'b', content: 'old B' }] })
   const results = await Promise.allSettled([

@@ -32,6 +32,16 @@ test('draft remains separate until the user confirms its exact revision', async 
   assert.match((await profile.stableContext()).text, /每轮都应有可感知的推进/)
 })
 
+test('default enablement is profile-wide but remains off until explicitly changed', async function () {
+  const profile = createUserPreferenceProfile({ store: memoryStore(), now: () => 100 })
+  assert.equal((await profile.read()).defaultEnabled, false)
+  await assert.rejects(profile.setDefaultEnabled(true), /尚无已确认/)
+  const draft = await profile.saveDraft({ summary: '画像', injectionText: '注入摘要' })
+  await profile.confirm({ draftRevision: draft.draft.revision, confirmation: '确认保存用户画像' })
+  assert.equal((await profile.setDefaultEnabled(true)).defaultEnabled, true)
+  assert.equal((await profile.setDefaultEnabled(false)).defaultEnabled, false)
+})
+
 test('direct save updates the same profile atomically without confirmation or enabling it', async () => {
   const profile = createUserPreferenceProfile({ store: memoryStore() })
   const first = await profile.save({ summary: '慢热', injectionText: '慢热' })
