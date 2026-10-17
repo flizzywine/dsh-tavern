@@ -11,7 +11,24 @@ const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(
 export function copyTreeSync(from, to, { dereference = false } = {}) {
   const stat = dereference ? statSync(from) : lstatSync(from)
   if (stat.isSymbolicLink()) {
-    symlinkSync(readlinkSync(from), to, process.platform === 'win32' && statSync(from, { throwIfNoEntry: false })?.isDirectory() ? 'dir' : undefined)
+    const target = readlinkSync(from)
+    const directoryLink = process.platform === 'win32' && statSync(from, { throwIfNoEntry: false })?.isDirectory()
+    try {
+      symlinkSync(target, to, directoryLink ? 'dir' : undefined)
+    } catch (error) {
+      // Windows needs SeCreateSymbolicLinkPrivilege (an elevated process) or
+      // Developer Mode to create a symbolic link, and a bare EPERM tells the
+      // user nothing. Linkers that instantiate junctions (pnpm, the profile
+      // switch in desktop-profile-installation) never hit this, so it is not a
+      // platform-support problem worth blaming on the package.
+      if (directoryLink && (error.code === 'EPERM' || error.code === 'EACCES')) {
+        throw new Error('无法创建目录符号链接：Windows 需要管理员权限，或系统已开启“开发者模式”。'
+          + `\n  链接：${to}`
+          + `\n  目标：${target}`
+          + '\n请以管理员身份重新运行安装/更新命令，或在“设置 → 系统 → 开发者选项”中开启开发者模式后重试。', { cause: error })
+      }
+      throw error
+    }
   } else if (stat.isDirectory()) {
     mkdirSync(to, { recursive: true })
     for (const name of readdirSync(from)) copyTreeSync(path.join(from, name), path.join(to, name), { dereference })
