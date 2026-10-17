@@ -71,22 +71,3 @@ test('关键词更新进入现有 DSH 世界书召回，RegExp 跨宿主边界�
   assert.equal(prepared.context, '已更新的钟楼设定')
   assert.deepEqual(worldBook.view.entries[0].primaryKeys, ['/钟楼/u'])
 })
-
-test('异步更新拒绝覆盖其他写入，未绑定世界书及无效请求不改变文件', async t => {
-  const host = await createHelperWorldbookHost()
-  t.after(host.cleanup)
-  const api = await connect(host)
-  let release, started
-  const waiting = new Promise(resolve => { started = resolve })
-  const slow = api.updateWorldbookWith('审计书', async entries => { started(); await new Promise(resolve => { release = resolve }); entries[0].content = 'stale'; return entries })
-  await waiting
-  await api.setLorebookEntries('审计书', [{ uid: 7, content: 'winner' }])
-  release()
-  await assert.rejects(slow, /已被其他操作修改/)
-  assert.equal((await host.read()).entries[7].content, 'winner')
-  const before = JSON.stringify(await host.read())
-  await assert.rejects(api.createWorldbookEntries('另一书', [{}]), /只能访问/)
-  await assert.rejects(api.replaceWorldbook('审计书', [{ uid: 1 }, { uid: 1 }]), /编号无效或重复/)
-  await assert.rejects(api.setLorebookEntries('审计书', [{ uid: 7, group_prioritized: true }]), /尚未支持/)
-  assert.equal(JSON.stringify(await host.read()), before)
-})

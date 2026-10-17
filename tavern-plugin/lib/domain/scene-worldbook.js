@@ -17,6 +17,18 @@ const maxEntries = 2000
 // of that turn is drawn with; the opening (turn 0) is always kept.
 export const SCENE_WORLDBOOK_KEEP_TURNS = 50
 
+function saveReferences(states) {
+  const refs = new Map()
+  const add = (ref, turn) => { if (validRef(ref)) refs.set(ref.digest + ':' + turn, { digest: ref.digest, turn }) }
+  for (const state of states) {
+    add(state.sceneOpeningWorldbook, 0)
+    for (const message of state.messages || []) {
+      if (message?.role === 'assistant') add(message.sceneWorldbook, Number(message.turn || (message.greeting ? 1 : 0)))
+    }
+  }
+  return [...refs.values()]
+}
+
 /** Freeze auxiliary setting data before a body is generated. This does not
  * activate entries or add them to the foreground prompt. Equal books share one file. */
 export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_TURNS }) {
@@ -104,6 +116,47 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
     const value = await load(id)
     return value && value.version === 1 && digest(value) === id ? Buffer.from(JSON.stringify(value)) : null
   }
+  async function exportForSave(states) {
+    return serial(async () => {
+      const snapshots = []
+      for (const id of new Set(saveReferences(states).map(ref => ref.digest))) {
+        const content = await exportSnapshot(id)
+        if (content) snapshots.push({ digest: id, content })
+      }
+      return snapshots
+    })
+  }
+
+  async function importForSave(chatId, states, snapshots) {
+    // Validate the entire package before publishing any new references.
+    const supplied = new Map()
+    for (const item of snapshots) {
+      let value
+      try { value = JSON.parse(item.content.toString('utf8')) } catch { throw new Error('存档生图世界书快照无法读取') }
+      if (value?.version !== 1 || !Array.isArray(value.entries) || digest(value) !== item.digest) {
+        throw new Error('存档生图世界书快照校验失败')
+      }
+      supplied.set(item.digest, value)
+    }
+    return serial(async () => {
+      const available = new Map()
+      for (const ref of saveReferences(states)) {
+        if (available.has(ref.digest)) continue
+        const existing = await load(ref.digest)
+        if (existing?.version === 1 && digest(existing) === ref.digest) available.set(ref.digest, null)
+        else if (supplied.has(ref.digest)) available.set(ref.digest, supplied.get(ref.digest))
+      }
+      // Register before writing: a concurrent deletion can never collect these
+      // snapshots. The caller forgets the target chat if the import later fails.
+      const refs = saveReferences(states).filter(ref => available.has(ref.digest))
+      await store.writeJson(refsPath(chatId), { version: 1, refs })
+      for (const [id, value] of available) {
+        // Preserve an existing v2 layout and its shared-entry reference counts.
+        if (value) await store.writeJson(snapshotPath(id), value)
+      }
+    })
+  }
+
   // Which snapshots each game still needs, by turn. Snapshots this game no
   // longer needs are deleted unless another game still lists them; an entry
   // file goes when no snapshot counts it any more. Snapshots written before
@@ -158,7 +211,7 @@ export function createSceneWorldbooks({ store, keepTurns = SCENE_WORLDBOOK_KEEP_
       if (refs.length) await store.writeJson(refsPath(targetChatId), { version: 1, refs })
     })
   }
-  return { capture, read, exportSnapshot, forgetChat, copyRefs }
+  return { capture, read, exportSnapshot, exportForSave, importForSave, forgetChat, copyRefs }
 }
 
 /** Bind only the original bodies. An edited/new swipe must not inherit an

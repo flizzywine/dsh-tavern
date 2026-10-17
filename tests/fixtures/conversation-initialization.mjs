@@ -20,6 +20,7 @@ export function initializationFixture(options = {}) {
     readLinks: async () => structuredClone(state.links),
     updateLinks: async fn => { const next = await fn(structuredClone(state.links)); if (next !== undefined) state.links = next },
     readIndex: async () => structuredClone(state.index),
+    async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next },
     writeIndex: async value => { await fail('index', value); state.index = structuredClone(value) },
     readChat: async id => saved.has(id) ? structuredClone(saved.get(id)) : undefined,
     writeChat: write, removeChat: async id => saved.delete(id)

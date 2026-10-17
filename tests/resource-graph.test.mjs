@@ -30,6 +30,7 @@ function harness(fault) {
     presets: { async rename() {}, async remove() {} },
     chats: {
       async readIndex() { return structuredClone(index) },
+      async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next },
       async writeIndex(value) { index = structuredClone(value) },
       async readChat() { return structuredClone(chat) },
       async writeChat(value) { chat = structuredClone(value) }

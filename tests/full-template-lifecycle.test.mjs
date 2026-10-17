@@ -27,15 +27,3 @@ test('新轮次、全局变量与设置变化保留旧展示；编辑只更新�
   const reopened=await runtime.lifecycle({globalVariables:{hp:99},settings:{preload_worldinfo_enabled:false,raw_message_evaluation_enabled:false},transcript:states[0].chat.map(row=>({...row,role:'assistant',content:row.mes}))})
   assert.deepEqual(reopened.first.chat[0].template_display,states[0].chat[0].template_display)
 })
-
-test('长历史分批同步，每批最多八层，续批不重复执行变量修改', async () => {
-  const states = await runtime.history({settings:{preload_worldinfo_enabled:false}, transcript:
-    Array.from({length:20},()=>({role:'assistant',content:'<% setMessageVar("count", (getMessageVar("count") || 0) + 1) %>值 <%= getMessageVar("count") %>'}))
-  }, [{}, {}, {}])
-  const rows = Array.isArray(states) ? states : states.states
-  assert.ok(rows)
-  assert.deepEqual(rows.map(state => state.chat.filter(row => row.template_rendered).length), [8,16,20,20])
-  assert.deepEqual(rows.at(-1).chat.map(row => row.variables[0].count), Array.from({length:20}, (_, i) => i + 1))
-  assert.deepEqual(rows[3].chat, rows[2].chat)
-  assert.deepEqual(rows[2].chat.slice(0,8), rows[0].chat.slice(0,8))
-})

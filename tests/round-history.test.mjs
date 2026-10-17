@@ -800,3 +800,37 @@ test('rescued history blocks regeneration and rollback without modifying old tex
  await assert.rejects(h.create().rollback('session','chat'),/救援/)
  assert.deepEqual(h.chat,before)
 })
+
+
+test('读卡期间重放已独占失败回合，读卡失败释放锁后可重试', async () => {
+  const h = harness()
+  h.session.append('turn/start', { turn: 3 })
+  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '重放这句' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  h.session.append('turn/end', { turn: 3, reason: { kind: 'error', message: 'HTTP 500' } })
+  let entered, rejectRead
+  const started = new Promise(resolve => { entered = resolve })
+  let cardReads = 0, failRead = true
+  h.options.chats.readCard = async () => {
+    cardReads++
+    if (!failRead) return { name: '角色' }
+    entered()
+    return await new Promise((_resolve, reject) => { rejectRead = reject })
+  }
+  const live = h.create()
+  const first = live.replayFailed('chat', 'session')
+  const failed = assert.rejects(first, /card unavailable/)
+  await started
+  await assert.rejects(live.replayFailed('chat', 'session'), /正在重放失败回合/)
+  await assert.rejects(live.regenerate('chat', '', 'session'), /正在重放失败回合/)
+  await assert.rejects(live.rollback('session', 'chat'), /正在重放失败回合/)
+  assert.equal(cardReads, 1)
+  assert.equal(h.calls.filter(call => call === 'followup').length, 0)
+  rejectRead(new Error('card unavailable'))
+  await failed
+  // The module captured the callback, so change its outcome without rebuilding it.
+  failRead = false
+  await live.replayFailed('chat', 'session')
+  assert.equal(cardReads, 2)
+  assert.equal(h.calls.filter(call => call === 'followup').length, 1)
+  assert.equal(h.agent.input.content[0].text, '重放这句')
+})

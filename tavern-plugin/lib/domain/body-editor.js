@@ -105,7 +105,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
   // A bounded history edits only its last floor: apply the same timeline intent to
   // the header and that floor, then patch them on the read revision. A moved
   // revision returns undefined so the complete path re-validates the edit token.
-  async function saveLatestFloor(chat, message, patch, target, agent) {
+  async function saveLatestFloor(sessionId, chat, message, patch, target, agent) {
     if (!isScopedMessages(chat.messages) || typeof chats.patch !== 'function') return undefined
     const index = chat.messages.length - 1
     const { messages: _rows, ...header } = chat
@@ -160,7 +160,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         const preview = agent.session.constructor.fromRestore(agent.session.id, structuredClone(sessionEvents(agent.session)), structuredClone(agent.session.header), agent.session.inheritedEventCount, 'detached')
         await synchronizeBodyEdits(preview, { messages: [{ ...message, ...patch }] }, async () => {})
       }
-      const patched = await saveLatestFloor(chat, message, patch, target, agent)
+      const patched = await saveLatestFloor(sessionId, chat, message, patch, target, agent)
       if (patched) return patched
       const saved = await chats.update(chat.id, current => {
         idle(current, agent)

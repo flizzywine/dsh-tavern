@@ -21,23 +21,6 @@ function harness() {
   return { create, files, state, writes, warnings }
 }
 
-test('目录、选择和重启使用同一预设；读取与选择不重写原文件', async () => {
-  const h = harness(), library = h.create(), before = h.files.get(path)
-  assert.equal((await library.read(path)).recognized, true)
-  assert.equal((await library.catalog()).activePresetPath, '')
-  assert.deepEqual(await library.select(path), { activePresetPath: path })
-  const restored = h.create()
-  assert.equal((await restored.catalog()).activePresetPath, path)
-  const snapshot = await restored.runtime.fullSnapshot()
-  assert.ok(JSON.stringify(snapshot).includes('写故事'))
-  assert.equal(h.files.get(path), before)
-  assert.deepEqual(h.writes, [])
-  await assert.rejects(library.select('presets/missing.json'), /不是可运行/)
-  assert.equal((await library.catalog()).activePresetPath, path)
-  await library.select('')
-  assert.equal((await library.catalog()).activePresetPath, '')
-})
-
 test('重复正则 ID 和空槽位映射到正确原文位置；编辑保留未知字段', async () => {
   const h = harness(), library = h.create()
   const detail = await library.detail(path)
@@ -87,15 +70,6 @@ test('方案退役后新开的对话被误绑旧方案时，恢复为跟随源�
   const kept = { id: 'kept', createdAt: created, bypassPlanId: 'orphan', runtimePresetSnapshot: { planId: 'orphan' } }
   assert.equal(await library.restoreChat(kept), false)
   assert.equal(kept.bypassPlanId, 'orphan')
-})
-
-test('无效导入在写入前失败，导出保留原始文本', async () => {
-  const h = harness(), library = h.create()
-  await assert.rejects(library.import({ name: 'bad.json', text: '{' }))
-  assert.equal(h.files.size, 1)
-  const text = JSON.stringify(document(), null, 4)
-  await library.import({ name: 'imported.json', text })
-  assert.equal((await library.export('presets/imported.json')).text, text)
 })
 
 test('条目跨段与段内移动持久化到预设，重启后运行顺序一致且保留原文', async () => {

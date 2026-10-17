@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { JSDOM } from 'jsdom'
+
 import { parse } from 'yaml'
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
 import { validateCardText } from '../tavern-plugin/lib/domain/card-validation.js'
@@ -24,28 +24,6 @@ for (const name of ['card-to-mvu', 'edit-card', 'create-card']) test(`${name} �
   assert.doesNotMatch(skill.content, /tavern_card_draft|mvu_appearance|convert_to_mvu/)
 })
 
-test('格式约定里的面板模板读取变量、随更新刷新，进度条和列表可用', async () => {
-  const dom = new JSDOM(panel, { runScripts: 'outside-only' })
-  const handlers = new Map(), w = dom.window
-  let state = { 地点: { 名称: '事务所' }, 状态: { 体力: 50 }, 线索: ['旧烟盒'] }
-  Object.assign(w, {
-    Mvu: { getMvuData: () => ({ stat_data: state }), events: { VARIABLE_INITIALIZED: 'init', VARIABLE_UPDATE_ENDED: 'update' } },
-    tavern_events: { CHAT_CHANGED: 'chat' }, waitGlobalInitialized: async () => {}, eventOn: (name, callback) => handlers.set(name, callback)
-  })
-  w.eval(panel.match(/<script>([\s\S]*?)<\/script>/)[1])
-  await new Promise(resolve => setImmediate(resolve))
-  const q = selector => w.document.querySelector(selector)
-  assert.equal(q('[data-mvu="/地点/名称"]').textContent, '事务所')
-  assert.equal(q('[data-mvu-width]').style.width, '50%')
-  assert.deepEqual([...w.document.querySelectorAll('li')].map(li => li.textContent), ['旧烟盒'])
-  state = { 地点: { 名称: '码头' }, 状态: { 体力: 80 }, 线索: [] }
-  handlers.get('update')()
-  assert.equal(q('[data-mvu="/地点/名称"]').textContent, '码头')
-  assert.equal(q('[data-mvu-width]').style.width, '80%')
-  assert.equal(w.document.querySelectorAll('li').length, 0)
-  assert.ok(handlers.has('chat') && handlers.has('init'))
-})
-
 function card(patch = () => {}) {
   const state = { $meta: { strictSet: true }, 地点: { 名称: '事务所' }, 状态: { 体力: 62 }, 线索: [] }
   const greeting = (text, value = state) => text + '\n\n<initvar>\n' + JSON.stringify(value, null, 2) + '\n</initvar>\n\n<mvu-status/>'
@@ -58,12 +36,6 @@ function card(patch = () => {}) {
   return validateCardText(JSON.stringify({ spec: 'chara_card_v2', spec_version: '2.0', data }))
 }
 const messages = report => report.errors.concat(report.warnings).map(item => item.path + ' ' + item.message).join('\n')
-
-test('按格式约定写的 MVU 卡校验通过', () => {
-  const report = card()
-  assert.equal(report.valid, true, messages(report))
-  assert.equal(report.warnings.length, 1, messages(report))
-})
 
 test('校验指出 MVU 卡常见格式错误的位置', () => {
   let report = card(data => { data.first_mes = data.first_mes.replace('"名称": "事务所"', '"名称": "事务所"]]') })

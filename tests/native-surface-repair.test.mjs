@@ -120,6 +120,21 @@ test('压缩之后的轮次全部对不上：保留摘要，只重写压缩后�
   assert.equal(result.plan.keep, 3)
   assert.equal(nodeTexts(h.session)[2], '前情摘要')
   assert.equal(nodeTexts(h.session).at(-1), '正文4（改）')
+  assert.ok(!nodeTexts(h.session).includes('正文2（改）'), '摘要已经代表的第 2 轮不被写回')
+})
+
+test('旧档迁移后锚点失效：摘要代表的轮次不写回，摘要之后没有轮次就算一致', () => {
+  const h = game(1)
+  const nodes = h.session.surface.nodes
+  // A legacy session replaced the native log: its summary stands for round 2, and the
+  // Chat's anchor still points at the old log's seqs.
+  replaceSessionSurface(h.session, 'user/message', { id: 'summary', role: 'user', content: [{ type: 'text', text: '前情摘要' }], source: { kind: 'plugin', plugin: 'compact' } }, { start: nodes[2], end: nodes.at(-1), sourceEventSeqs: nodes.slice(2) })
+  h.chat.messages.at(-1).nativeAnchor = { turn: 2, input: 9000, reply: 9001 }
+  assert.equal(plan(h).status, 'intact')
+  assert.deepEqual(nodeTexts(h.session), ['前缀', '开场', '前情摘要'])
+  // A later round played on top is located and kept; still nothing to write.
+  play(h.session, h.chat, 3)
+  assert.equal(plan(h).status, 'intact')
 })
 
 test('一轮都对不上也不拒绝：保留前缀和开场，按 Chat 整段重写', () => {

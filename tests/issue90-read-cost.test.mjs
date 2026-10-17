@@ -184,6 +184,7 @@ test('state resolution preserves aliases, recovers missing links and removes sta
   const registry=createTavernConversationRegistry({store:{readLinks:async()=>links,
     updateLinks:async fn=>{links=await fn(links)||links},readIndex:async()=>({chats:[{id:'c'},{id:'recovered'}]}),
     readChat:async()=>{throw Error('full read')},readChatState:async id=>structuredClone(records[id]),
+    async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next },
     writeIndex:async()=>{},writeChat:async()=>{},removeChat:async()=>{}}})
   assert.equal((await registry.resolveState('alias')).id,'c')
   assert.equal((await registry.resolveState('new')).id,'recovered')

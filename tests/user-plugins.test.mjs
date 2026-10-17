@@ -97,18 +97,19 @@ test('插件经由 Tavern 的保护入口加载：导入失败或 apply 抛错�
   const warnings = [], original = console.warn
   console.warn = text => warnings.push(String(text))
   t.after(() => { console.warn = original })
-  const ok = await load('good'), ctx = {}
+  const context = () => { const ctx = { plugin(value) { let result; try { result = Promise.resolve(value.apply(ctx)) } catch (error) { result = Promise.reject(error) }; return { await: () => result, dispose: async () => {} } } }; return ctx }
+  const ok = await load('good'), ctx = context()
   assert.equal(ok.name, 'good-plugin')
   assert.deepEqual(ok.inject, ['tavern'])
-  assert.equal(ok.apply(ctx), 'ok')
+  await ok.apply(ctx)
   assert.equal(ctx.applied, true)
   const thrown = await load('throws')
   assert.equal(thrown.name, 'throws', '没有导出 name 时用包名')
-  await thrown.apply({})
+  await thrown.apply(context())
   const broken = await load('syntax')
-  assert.equal(broken.apply({}), undefined)
-  const fallback = await load('default'), other = {}
-  fallback.apply(other)
+  assert.equal(await broken.apply(context()), undefined)
+  const fallback = await load('default'), other = context()
+  await fallback.apply(other)
   assert.equal(other.applied, true)
   assert.match(warnings.join('\n'), /plugins\/throws 启动失败：Error: 启动炸了/)
   assert.match(warnings.join('\n'), /plugins\/syntax 加载失败：SyntaxError/)

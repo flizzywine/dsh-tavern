@@ -65,6 +65,10 @@ export async function surfaceRecoveryChecks({ page, step, savedChat, output, rep
   await step('移动窄屏：首轮纯思考失败，同时覆盖历史系统槽位更新', async () => {
     await closeStatus()
     await page.setViewportSize({ width: 430, height: 932 })
+    // Narrowing a desktop window turns the open left sidebar into a drawer over the story;
+    // a player closes it before using the story (the right panel no longer closes it, #213).
+    const drawer = page.locator('[data-mobile-nav="backdrop"]')
+    if (await drawer.isVisible().catch(() => false)) await drawer.evaluate(element => element.click())
     const evidence = await failed('E2E 首轮失败')
     assert.deepEqual(prose(await savedChat()), baseline, '失败不能提交正文')
     assert.ok(evidence.events.some(event => event.type === 'system/message' && event.surfaceOp?.op === 'replace'), '必须覆盖历史系统提示词更新')

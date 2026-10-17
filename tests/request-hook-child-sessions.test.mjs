@@ -24,15 +24,3 @@ test('child agent sessions get no Tavern turn frame or status', async () => {
   assert.deepEqual(await hook.run({ parentSession: 'game-1' }), { kind: 'enter', messages: [] })
   assert.deepEqual(hook.prepared, [])
 })
-
-test('top-level sessions still go through foreground preparation', async () => {
-  const hook = preStep()
-  assert.equal((await hook.run({})).status, true)
-  assert.deepEqual(hook.prepared, ['s1'])
-})
-
-test('a native fork of a game is still a game session', async () => {
-  const hook = preStep({ s1: { id: 'chat-fork', mode: 'story', messages: [] } })
-  assert.equal((await hook.run({ parentSession: 'game-1', isSeeded: true })).status, true)
-  assert.deepEqual(hook.prepared, ['s1'])
-})

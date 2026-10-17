@@ -11,9 +11,9 @@ export async function cardMemoryChecks({ page, step, data, output, report, saved
       return response.json()
     }, { method, args })
   }
-  await step('游玩对话拒绝记忆读写，实际模型请求不含记忆工具或上下文', async () => {
-    assert.equal((await rpc('getCardMemory', { sessionId: story.sessionId })).enabled, false)
-    assert.equal((await rpc('changeCardMemoryPreference', { sessionId: story.sessionId, action: 'add', content: '不应该写入' })).ok, false)
+  // The memory panel may view and edit card memory from any conversation (e7bb68f5);
+  // what must hold is that a play conversation's model never sees memory tools or context.
+  await step('游玩对话的实际模型请求不含记忆工具或上下文', async () => {
     const requests = (await readFile(join(output, 'memory-requests.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse)
     assert.ok(requests.length)
     for (const request of requests) {

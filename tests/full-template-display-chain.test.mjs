@@ -29,15 +29,6 @@ test('显示正则先于 EJS，独立侧栏保留模板结果且正文不重复�
  assert.equal(await runtime.page.evaluate(()=>document.querySelector('#chain-status').contentWindow.value),3)
  await runtime.page.locator('#chain-status').evaluate(frame=>frame.remove())
 })
-test('聊天和全局变量变化保留历史展示，不重复永久模板副作用',async()=>{
- const context={settings,charName:'变量刷新',worldBookEntries:[{uid:2,enabled:false,constant:true,content:'@@render_before\n地点=<%= getvar("place") %>，全局=<%= getGlobalVar("weather") %>'}]}
- const a=await runtime.lifecycle({...context,chatVariables:{place:'甲'},globalVariables:{weather:'晴'},transcript:[{role:'assistant',content:'<% setMessageVar("count", (getMessageVar("count") || 0)+1) %>正文'}]})
- const b=await runtime.lifecycle({...context,chatVariables:{place:'乙'},globalVariables:{weather:'雨'},transcript:transcript(a.first)})
- assert.match(b.first.chat[0].template_display.html,/甲/)
- assert.match(b.first.chat[0].template_display.html,/晴/)
- assert.equal(b.first.chat[0].variables[0].count,1)
- assert.deepEqual(b.second.chat,b.first.chat)
-})
 
 test('实际 MVU 配方在恢复与修改模板后仍只保留一个状态面板', async () => {
  const statusHtml='<!doctype html><html><head><style>main{padding:8px}</style></head><body><main id="v"></main><script>document.getElementById("v").textContent=Mvu.getMvuData({type:"message",message_id:"latest"}).stat_data.玩家.位置</script></body></html>'

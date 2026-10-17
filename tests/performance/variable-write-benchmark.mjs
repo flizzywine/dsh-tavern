@@ -17,7 +17,7 @@ const metrics=[];let measuring=false
 const timed=(name,fn)=>async(...args)=>{const start=performance.now();try{return await fn(...args)}finally{if(measuring)metrics.push({name,ms:performance.now()-start})}}
 const persistence=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
 const data=createProfileDataStore({dataRoot:root})
-const registry=createTavernConversationRegistry({store:{readLinks:()=>data.readJson('sessions.json'),updateLinks:fn=>data.updateJson('sessions.json',fn),readIndex:timed('index.read',()=>data.readJson('index.json')),writeIndex:timed('index.write',v=>data.writeJson('index.json',v)),readChat:persistence.read,writeChat:persistence.write,removeChat:persistence.remove}})
+const registry=createTavernConversationRegistry({store:{readLinks:()=>data.readJson('sessions.json'),updateLinks:fn=>data.updateJson('sessions.json',fn),readIndex:timed('index.read',()=>data.readJson('index.json')),updateIndex:timed('index.update',fn=>data.updateJson('index.json',fn)),readChat:persistence.read,writeChat:persistence.write,removeChat:persistence.remove}})
 const countArg=process.argv.find(value=>value.startsWith('--count='))
 const count=countArg ? Number(countArg.slice('--count='.length)) : 600
 if(!Number.isSafeInteger(count) || count<2 || count>20000) throw new Error('--count must be an integer between 2 and 20000')

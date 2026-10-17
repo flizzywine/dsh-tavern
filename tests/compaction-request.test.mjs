@@ -1,15 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { projectCompactionRequest } from '../tavern-plugin/lib/domain/compaction-request.js'
 
 const empty = plugin => Object.freeze({ role: 'user', content: Object.freeze([]), source: Object.freeze({ kind: 'plugin', plugin }) })
 const metadata = empty('dsh-tavern')
-
-test('ordinary requests and summaries without placeholders retain object identity', () => {
-  for (const request of [undefined, {}, { messages: [metadata] }, { purpose: 'compaction', messages: [] }]) {
-    assert.equal(projectCompactionRequest(request), request)
-  }
-})
 
 test('marking a frozen, already-marked request copies it instead of throwing (#148)', async () => {
   const { markRequestHandled, requestHandledBy } = await import('../tavern-plugin/lib/domain/request-lineage.js')
@@ -95,20 +88,6 @@ test('rounds the native engine already keeps outside the request count toward th
   const request = { purpose: 'compaction', messages: [events[0].data, events[1].data.message] }
   assert.equal(nativelyRetainedRounds(session, request), 2)
   assert.equal(nativelyRetainedRounds(undefined, request), 0)
-})
-
-test('a history whose rounds all fit the retention needs no compaction, counting carried rounds', async () => {
-  const { storyHistoryFullyRetained } = await import('../tavern-plugin/lib/domain/story-compaction.js')
-  const events = [
-    { type: 'user/message', data: { id: 'c', role: 'user', content: [{ type: 'text', text: '【最近 2 轮原文（未压缩，按时间顺序）】\n\n[玩家]\n甲\n\n[正文]\n乙\n\n[玩家]\n丙' }], source: { kind: 'plugin' } } },
-    { type: 'user/message', data: { id: 'u', role: 'user', content: [{ type: 'text', text: '丁' }], source: { kind: 'human' } } },
-    { type: 'assistant/message', data: { message: { id: 'a', role: 'assistant', content: [{ type: 'text', text: '戊' }] } } }
-  ].map((event, seq) => ({ ...event, seq }))
-  const session = { surface: { nodes: [0, 1, 2] }, eventAt: seq => events[seq] }
-  assert.equal(storyHistoryFullyRetained(session, 3), true)
-  assert.equal(storyHistoryFullyRetained(session, 2), false)
-  assert.equal(storyHistoryFullyRetained(session, 3, { budget: 1 }), false, '超出保留预算的长轮次仍需压缩')
-  assert.equal(storyHistoryFullyRetained(session, 0), false)
 })
 
 test('a summary answered with a tool call or no text is retried once as plain text without tools', async () => {

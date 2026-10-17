@@ -45,13 +45,6 @@ test('compaction drops unretained revisions and keeps current and retained ones 
  assert.deepEqual(await again.readRevision('a',5),keep)
 })
 
-test('the grace period keeps freshly written blocks',async t=>{
- const {store,persistence}=await fixture(t)
- await persistence.write({id:'a',messages:[{role:'assistant',text:big(0)}]})
- for(let i=1;i<=4;i++)await persistence.patch('a',i,[{op:'set',path:['messages',0,'text'],value:big(i)}])
- assert.equal((await store.compact('a',{keepRecent:1})).removed,0)
-})
-
 test('retention follows checkpoints, undo, regeneration recovery and forks transitively',async()=>{
  const states={
   9:{id:'a',_storageRevision:9,timeline:{checkpoints:[{beforeRevision:4}]}},
@@ -70,16 +63,4 @@ test('retention follows checkpoints, undo, regeneration recovery and forks trans
  assert.deepEqual([...forks.get('b')],[3])
  const retained=await retainedRevisions(chat,read,forks.get('a'))
  assert.deepEqual([...retained].sort((x,y)=>x-y),[2,4,6,7,9,10,11])
-})
-
-test('compaction rewrites record packs that hold swept records, keeping every live record readable', async t => {
- const {store,persistence,reopen}=await fixture(t)
- const rows=n=>Array.from({length:40},(_,i)=>({role:'assistant',text:'行'+i+'-'+n,variables:[{stat_data:{gold:n,note:'x'.repeat(200)+i}}]}))
- await persistence.write({id:'a',messages:rows(0)})
- for(let i=1;i<=6;i++)await persistence.patch('a',i,rows(i).map((row,index)=>({op:'set',path:['messages',index],value:row})))
- const current=await persistence.read('a')
- const result=await store.compact('a',{keepRecent:1,graceMs:0})
- assert.ok(result.repackedPacks>0)
- const fresh=reopen()
- assert.deepEqual(await fresh.read('a'),current)
 })

@@ -41,6 +41,19 @@ export function createWorldBookLibrary(options = {}) {
     return { kind: 'standalone', path: normalizePath(source.path, 'worldbook') }
   }
 
+  const mutations = new Map()
+  function serializeMutation(work) {
+    return (locator, ...args) => {
+      const source = sourceOf(typeof locator === 'string' ? { kind: 'standalone', path: locator } : locator)
+      const key = source.cardPath || source.path
+      const operation = (mutations.get(key) || Promise.resolve()).catch(() => {}).then(() => work(locator, ...args))
+      mutations.set(key, operation)
+      const release = () => { if (mutations.get(key) === operation) mutations.delete(key) }
+      operation.then(release, release)
+      return operation
+    }
+  }
+
   function templateRecord(text, source, filename) {
     const key = JSON.stringify([source, filename])
     return templateRecords(key, text, () => {
@@ -382,5 +395,5 @@ export function createWorldBookLibrary(options = {}) {
     return { removed: source.cardPath, kind: 'embedded' }
   }
 
-  return Object.freeze({ catalog, get, setGlobal, binding, associations, bound, templateSnapshot, bind, setBindings, unbind, import: importBook, update, replaceNative, export: exportBook, characterBookForCard, remove })
+  return Object.freeze({ catalog, get, setGlobal, binding, associations, bound, templateSnapshot, bind, setBindings, unbind, import: importBook, update: serializeMutation(update), replaceNative: serializeMutation(replaceNative), export: exportBook, characterBookForCard, remove: serializeMutation(remove) })
 }

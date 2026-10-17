@@ -26,12 +26,18 @@ try {
 export const name = plugin && typeof plugin.name === 'string' && plugin.name ? plugin.name : ${JSON.stringify(name)}
 export const inject = plugin ? plugin.inject : undefined
 export const Config = plugin ? plugin.Config : undefined
-export function apply(ctx, config) {
+export async function apply(ctx, config) {
   if (!plugin) return
+  let child
   try {
-    const result = plugin.apply(ctx, config)
-    return result && typeof result.then === 'function' ? result.catch(error => report('启动', error)) : result
-  } catch (error) { report('启动', error) }
+    // Cordis owns registrations/effects in this child scope and unwinds them
+    // on failure. The guard remains alive so one broken plugin cannot stop DSH.
+    child = ctx.plugin({ name, apply: childContext => plugin.apply(childContext, config) })
+    await child.await()
+  } catch (error) {
+    if (child) await child.dispose()
+    report('启动', error)
+  }
 }
 `
 }

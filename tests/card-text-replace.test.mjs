@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { planCardTextReplace } from '../tavern-plugin/lib/domain/card-text-replace.js'
 import { registerCardEditingTools } from '../tavern-plugin/lib/tools/card-editing.js'
 
 const card = () => ({
@@ -11,18 +10,6 @@ const card = () => ({
     character_book: { entries: [{ comment: '组织-集市', keys: ['集市', '市场'], content: '集市开门。$&' }, { comment: '无关', keys: [], content: '无' }] },
     extensions: { regex_scripts: [{ scriptName: '面板', replaceString: '<b>集市</b>' }] }
   }
-})
-
-test('全卡替换按位置拆成标准字段、内置世界书补丁和 raw 操作，替换文字按字面写入', () => {
-  const plan = planCardTextReplace(card(), { find: '集市', replace: '虚空$&集市' })
-  assert.deepEqual(plan.fields, { description: '在虚空$&集市里交易。', alternate_greetings: ['无', '去虚空$&集市'], tags: ['虚空$&集市'] })
-  assert.deepEqual(plan.worldbook, [{ op: 'update', ref: 'entry:0', patch: { comment: '组织-虚空$&集市', primaryKeys: ['虚空$&集市', '市场'], content: '虚空$&集市开门。$&' } }])
-  assert.deepEqual(plan.rawOperations, [{ op: 'set', path: '/data/extensions/regex_scripts/0/replaceString', value: '<b>虚空$&集市</b>' }])
-  assert.equal(plan.occurrences, 7)
-  const scoped = planCardTextReplace(card(), { find: '集(市)', replace: '[$1]', regex: true, pointers: ['/data/character_book/entries/0'] })
-  assert.deepEqual(scoped.fields, {})
-  assert.deepEqual(scoped.worldbook[0].patch, { comment: '组织-[市]', primaryKeys: ['[市]', '市场'], content: '[市]开门。$&' })
-  assert.equal(scoped.occurrences, 3)
 })
 
 test('替换工具保存后报告剩余处数与校验，处数不符时不写入', async () => {

@@ -39,7 +39,8 @@ function installOpeningPreviewBridge(token, preview) {
       throw error;
     });
   };
-  window.generateRaw = function (config) {
+  // generate builds the request from the card and preset; generateRaw takes an explicit order.
+  function generation(method, config) {
     const payload = copy(config);
     const streaming = payload && payload.should_stream === true;
     const generationId = payload && payload.generation_id != null && String(payload.generation_id) !== ''
@@ -49,7 +50,7 @@ function installOpeningPreviewBridge(token, preview) {
       if (payload.generation_id == null || payload.generation_id === '') payload.generation_id = generationId;
       void window.eventEmit(window.iframe_events.GENERATION_STARTED, generationId);
     }
-    return request('dsh-tavern-helper-call', { method: 'generateTavernHelperRaw', args: { config: payload } }).then(function (result) {
+    return request('dsh-tavern-helper-call', { method: method, args: { config: payload } }).then(function (result) {
       const text = result.text;
       if (!streaming || !window.iframe_events || typeof window.eventEmit !== 'function') return text;
       const events = window.iframe_events;
@@ -58,7 +59,9 @@ function installOpeningPreviewBridge(token, preview) {
         .then(function () { return window.eventEmit(events.GENERATION_ENDED, text, generationId); })
         .then(function () { return text; });
     });
-  };
+  }
+  window.generate = function (config) { return generation('generateTavernHelper', config); };
+  window.generateRaw = function (config) { return generation('generateTavernHelperRaw', config); };
   window.getCharWorldbookNames = function () { return { primary: worldbook ? worldbook.name : null, additional: [] }; };
   window.getWorldbook = async function (name) {
     if (preview.preparationId) {
@@ -77,7 +80,7 @@ function installOpeningPreviewBridge(token, preview) {
     worldbook = copy(result.worldbook);
     return copy(worldbook.entries);
   };
-  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames,
+  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames,
     getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
   const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
   let savedIndex = selected;

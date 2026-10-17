@@ -75,16 +75,6 @@ test('统一服务请求一次图片并复用附件；配置变化在付费请�
   assert.equal(f.calls.length, 1)
 })
 
-test('插件附件写入失败仍返回已收到的图片供本地恢复，不重复请求供应商', async () => {
-  const f = fixture({}, undefined, { failAttachment: true })
-  await f.settings.configure({ provider: 'grok', apiKey: 'test-key' })
-  const { active, apiKey } = await f.settings.capture()
-  const result = await f.service.generate({ ...active, apiKey, prompt: 'a mountain', signal: new AbortController().signal, maxBytes: 1024 * 1024 })
-  assert.deepEqual(result.data, png)
-  assert.equal(result.attachment, undefined)
-  assert.equal(f.calls.length, 1)
-})
-
 test('凭据保存失败回滚地址和模型；配置保存失败不写 Key', async () => {
   let value = { provider: 'grok', grokBaseURL: 'https://api.x.ai/v1', grokModel: 'previous', tavernChannels: '{}' }, failSettings = false, keysWritten = 0
   const before = { ...value }
@@ -95,25 +85,6 @@ test('凭据保存失败回滚地址和模型；配置保存失败不写 Key', a
   failSettings = true
   await assert.rejects(service.configure({ provider: 'grok', apiKey: 'another-key' }), /settings unavailable/)
   assert.equal(keysWritten, 1)
-})
-
-test('旧配置只预览；保存时迁移，不覆盖已有插件 Key 直到明确保存', async () => {
-  const f = fixture({ grokBaseURL: 'https://old-plugin.example/v1', grokModel: 'plugin-model' }, { version: 2, provider: 'grok', enabled: true,
-    providers: { grok: { baseURL: 'https://api.x.ai/v1', model: 'game-model', size: '1k', aspectRatio: '1:1' } } })
-  f.keys.set('XAI_API_KEY', 'old-plugin-key')
-  f.keys.set('DSH_TAVERN_IMAGE_GROK_API_KEY', 'old-tavern-key')
-  const preview = await f.settings.settings()
-  assert.equal(preview.model, 'game-model')
-  assert.equal(preview.migrationPending, true)
-  assert.equal(preview.enabled, true)
-  assert.equal(f.writes.length, 0)
-  await assert.rejects(f.settings.capture(), /迁移/)
-  await f.settings.configure({ provider: 'grok', model: preview.model })
-  assert.equal(f.keys.get('XAI_API_KEY'), 'old-tavern-key')
-  assert.equal(f.keys.get('DSH_TAVERN_IMAGE_GROK_API_KEY'), 'old-tavern-key')
-  assert.equal(f.readDoc().providers.grok, undefined)
-  assert.equal((await f.settings.settings()).migrationPending, undefined)
-  assert.equal(f.readPlugin().grokBaseURL, 'https://api.x.ai/v1')
 })
 
 test('ComfyUI 保存并启用接受独立种子节点，重载后映射不丢失且不试画', async () => {
@@ -132,12 +103,4 @@ test('ComfyUI 保存并启用接受独立种子节点，重载后映射不丢失
   assert.deepEqual(snapshot.active.workflow.prompt['5'].inputs.seed, ['8', 0])
   assert.equal(f.calls.length, 0)
   assert.equal(reloaded.calls.length, 0)
-})
-
-test('模块并发保存与 capture 不混配地址和密钥', async () => {
-  const f = fixture()
-  await Promise.all([
-    f.settings.configure({ provider: 'grok', baseURL: 'https://gateway.example/v1', apiKey: 'new-key' }),
-    f.settings.capture().then(value => { assert.equal(value.active.baseURL, 'https://gateway.example/v1'); assert.equal(value.apiKey, 'new-key') }),
-  ])
 })

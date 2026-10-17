@@ -174,3 +174,45 @@ test('全局世界书选择持久化，重命名跟随、删除清理并保留�
     await assert.rejects(store.setGlobalWorldBook('../bad', true), /路径/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test('并发剧本绑定和解绑不覆盖其他卡，独占约束在提交时检查', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'material-bindings-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const a = await store.importCard({ name: 'a.json', text: '{}' }, {})
+    const b = await store.importCard({ name: 'b.json', text: '{}' }, {})
+    const x = await store.importText('source', { name: 'x.txt', text: 'X' })
+    const y = await store.importText('source', { name: 'y.txt', text: 'Y' })
+    await Promise.all([store.bindMaterial(a, x), store.bindMaterial(b, y)])
+    assert.equal(await store.scriptForCard(a), x)
+    assert.equal(await store.scriptForCard(b), y)
+    await Promise.all([store.unbindMaterial(a), store.bindMaterial(b, y)])
+    assert.equal(await store.scriptForCard(a), undefined)
+    assert.equal(await store.scriptForCard(b), y)
+    await store.unbindMaterial(b)
+    const attempts = await Promise.allSettled([store.bindMaterial(a, x), store.bindMaterial(b, x)])
+    assert.equal(attempts.filter(result => result.status === 'fulfilled').length, 1)
+    assert.equal((await store.cardsForMaterial(x)).length, 1)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('同名剧本按内容导入，相同内容跨卡也保持独立绑定', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'script-import-'))
+  try {
+    const store = createFileResourceStore({ dataRoot: root })
+    const a = await store.importCard({ name: 'a.json', text: '{}' }, {})
+    const b = await store.importCard({ name: 'b.json', text: '{}' }, {})
+    const old = await store.importText('source', { name: 'story.txt', text: 'OLD' })
+    const current = await store.importBoundScript(a, { name: 'story.txt', text: 'NEW' })
+    assert.notEqual(current, old)
+    assert.equal(await store.readText(current), 'NEW')
+    assert.equal(await store.readText(old), 'OLD')
+    assert.equal(await store.importBoundScript(a, { name: 'story.txt', text: 'OLD' }), old)
+    const copy = await store.importBoundScript(b, { name: 'story.txt', text: 'OLD' })
+    assert.notEqual(copy, old)
+    assert.equal(await store.scriptForCard(a), old)
+    assert.equal(await store.scriptForCard(b), copy)
+    await assert.rejects(store.importBoundScript('cards/missing.json', { name: 'lost.txt', text: 'lost' }))
+    assert.equal((await store.list('source')).some(path => path.includes('lost')), false)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

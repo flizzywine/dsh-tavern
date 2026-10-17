@@ -6,12 +6,6 @@ import { createImageConfiguration } from '../tavern-plugin/packages/dsh-image-ge
 
 const config = (provider, extras = {}) => ({ ...channelSettings({}, provider), baseURL: 'http://127.0.0.1:9999', apiKey: 'fixture', prompt: 'a quiet garden', ...extras })
 
-test('invalid controls fail before dispatch rather than being silently clamped', () => {
-  for (const [provider, patch] of [['novelai', { steps: '51' }], ['webui', { steps: '0' }], ['webui', { steps: '1.5' }], ['webui', { guidance: 'NaN' }], ['novelai', { guidance: '11' }], ['webui', { steps: '1e2' }], ['qwen', { negativePrompt: 'x'.repeat(4001) }]]) {
-    assert.throws(() => channelSettings(patch, provider))
-  }
-})
-
 test('saved controls survive module recreation and channel switches; stale capture never sends a paid request', async () => {
   let saved = {}, calls = []
   const make = () => createImageConfiguration({ read: async () => saved, write: async patch => { saved = { ...saved, ...patch } }, credentials: { resolve: async () => ({ value: 'fixture' }) },

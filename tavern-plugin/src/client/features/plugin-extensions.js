@@ -92,7 +92,7 @@
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
-									gameId ? render({ gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
+									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} });
 						panels.set(tabId, owner);
 						changed();
@@ -115,13 +115,14 @@
 					if (typeof listener !== "function") throw new TypeError("watchTurnState 需要 listener 函数");
 					const owner = ownerOf(this), getTurnState = service.getTurnState;
 					return owned(this, function () {
-						let disposed = false, queued = false, last = "", running;
+						let disposed = false, queued = false, last = "", running, generation = 0;
 						function refresh() {
 							if (queued || disposed) return;
 							queued = true;
+							const request = ++generation;
 							Promise.resolve().then(function () { queued = false; return disposed ? null : getTurnState(gameId); }).then(function (state) {
 								const text = JSON.stringify(state);
-								if (disposed || !state || text === last) return;
+								if (disposed || request !== generation || !state || text === last) return;
 								last = text;
 								try { listener(state); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
 							}, function () {});
@@ -315,7 +316,7 @@
 			if (item.kind.indexOf("/") > 0) {
 				const renderer = tavernUiExtensions.mediaRenderer(item.kind);
 				if (!renderer) return null;
-				body = h(tavernPluginBoundary(), { owner: renderer.owner }, renderer.render({ item: Object.assign({}, item, { url: item.attachment ? tavernPluginMediaUrl(props.sessionId, item) : "" }), gameId: props.sessionId, turn: props.turn }));
+				body = h(tavernPluginBoundary(), { owner: renderer.owner }, h(renderer.render, { item: Object.assign({}, item, { url: item.attachment ? tavernPluginMediaUrl(props.sessionId, item) : "" }), gameId: props.sessionId, turn: props.turn }));
 			} else if (item.status === "pending") {
 				body = h("div", { className: "dsh-tavern-plugin-media-pending", role: "status" }, typeof item.progress === "number" ? "生成中… " + Math.round(item.progress * 100) + "%" : "生成中…");
 			} else if (item.status === "failed") {

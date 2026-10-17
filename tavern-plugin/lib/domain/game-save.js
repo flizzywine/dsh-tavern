@@ -96,7 +96,7 @@ export function buildGameSave(input) {
     source: { chatId: chat.id, sessionId: chat.sessionId, cardPath: chat.cardPath, cardName: chat.cardName, title: chat.title || '', mode: chat.mode || 'story', turns: assistantTurns },
     contents: { revisions: input.revisions.map(item => item.revision), card: Boolean(input.card?.payload), script: Boolean(input.script), sceneImages: Boolean(scene), attachments: scene ? scene.attachments.length : 0, plugins: Boolean(plugins) }
   }, null, 2) })
-  return writeZipEntries(entries)
+  return writeZipEntries(entries, { readable: true, label: '存档包' })
 }
 
 /** Parse and validate a package; returns the same shape buildGameSave takes, with states unpacked. */

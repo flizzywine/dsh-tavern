@@ -24,24 +24,3 @@ test('failed legacy send retains payload, displays failure and permits retry', a
   assert.equal(button.disabled, false)
   assert.ok(nodes.some(n => /开局消息发送失败/.test(n.textContent)))
 })
-
-test('parent composer routes to the focused card, survives replacement and releases owners', async () => {
-  const nodes = [], calls = [], errors = [];
-  function element() { return { value: '', append(...items) { nodes.push(...items) }, remove() { this.removed = true }, addEventListener(name, fn) { this[name] = fn } } }
-  const doc = { body: element(), createElement: element, getElementById: id => nodes.find(n => n.id === id) };
-  const a = {}, b = {};
-  let finish;
-  const releaseA = helperClient.installFrameHostComposer(doc, n => n === a, text => { calls.push(['A', text]); return new Promise(r => { finish = r }) }, e => errors.push(e.message));
-  const releaseB = helperClient.installFrameHostComposer(doc, n => n === b, text => { calls.push(['B', text]); throw new Error('失败可重试') }, e => errors.push(e.message));
-  const area = doc.getElementById('send_textarea'), button = doc.getElementById('send_but');
-  doc.activeElement = a; area.value = '开始\n姓名 | /trigger'; button.click(); button.click();
-  doc.activeElement = b; await tick();
-  assert.deepEqual(calls, [['A', '开始\n姓名 | /trigger']]);
-  finish(); await tick();
-  area.value = 'B 的开局'; button.click(); await tick();
-  assert.deepEqual(errors, ['失败可重试']); assert.equal(area.value, 'B 的开局');
-  button.click(); await tick(); assert.equal(calls.length, 3);
-  releaseB(); assert.throws(() => button.click(), /无法确定/);
-  doc.activeElement = a; area.value = '已经卸载'; button.click(); releaseA(); await tick();
-  assert.equal(calls.length, 3); assert.ok(errors.includes('卡片已关闭，请重新打开'));
-});

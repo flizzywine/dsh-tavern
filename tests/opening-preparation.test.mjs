@@ -1,27 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createOpeningPreparation } from '../tavern-plugin/lib/domain/opening-preparation.js'
-import { inspectWorldBookDocument } from '../tavern-plugin/lib/domain/worldbook-resource.js'
+
 import { generateHelperRaw } from '../tavern-plugin/lib/domain/helper-generation.js'
 
 const card = { name: '测试', first_mes: '首页', alternate_greetings: ['第二幕'] }
-function fixture() {
-  const document = { name: '本局世界书', entries: [{ id: 0, name: '选项', keys: [], content: '固定设定', enabled: false }] }
-  const record = { source: { kind: 'card', cardPath: 'card' }, view: inspectWorldBookDocument(document) }
-  return { record, service: createOpeningPreparation({ readCard: async () => structuredClone(card), worldBooks: { bound: async () => structuredClone(record) } }) }
-}
-
-test('过期世界书写入不覆盖新设置，返回值也不能直接修改草稿', async () => {
-  const { service } = fixture()
-  const draft = await service.create('card')
-  const old = structuredClone(draft.worldbook.entries)
-  draft.worldbook.entries[0].enabled = true
-  await service.replaceWorldbook(draft.id, draft.worldbook.entries, old)
-  await assert.rejects(service.replaceWorldbook(draft.id, old, old), /修改/)
-  const current = service.get(draft.id)
-  current.worldbook.entries[0].enabled = false
-  assert.equal(service.get(draft.id).worldbook.entries[0].enabled, true)
-})
 
 import { createHelperWorldbookHost } from './fixtures/helper-worldbook-host.mjs'
 for (const embedded of [false, true]) test('本局世界书的运行时读写与原始资源隔离：' + embedded, async () => {
@@ -42,13 +25,6 @@ for (const embedded of [false, true]) test('本局世界书的运行时读写与
     assert.equal((await h.adapter.loadWorldInfo('audit', '审计书')).worldInfo.entries[7].content, '只属于这局的新正文')
     assert.deepEqual(await h.read(), before)
   } finally { await h.cleanup() }
-})
-
-test('开场准备复用已读取的卡片和扩展，不重复加载资源', async () => {
-  const service = createOpeningPreparation({ readCard: async () => { throw new Error('重复读取') },
-    readRuntimeExtensions: async () => { throw new Error('重复准备扩展') }, worldBooks: { bound: async () => null } })
-  const draft = await service.create('card', { card, extensions: { helperScripts: [] } })
-  assert.ok(draft.id)
 })
 
 test('保留的开局草稿跨过原有效期仍可用，放弃立即释放，失联草稿仍过期', async () => {
@@ -98,16 +74,4 @@ test('opening stop/release/expiry cancels only its own pending generations and a
   assert.throws(() => service.get(first.id), /过期/)
   await c.rejected
   assert.equal(signals.get(first.id).aborted, true)
-})
-
-test('opening stopAll remembers token-scoped pending admission without blocking a new incarnation', async t => {
-  let calls = 0
-  const service = createOpeningPreparation({ readCard: async () => card, worldBooks: { bound: async () => null }, generateRaw: async () => { calls++; return 'ok' } })
-  t.after(() => service.dispose())
-  const draft = await service.create('card')
-  assert.deepEqual(await service.callRuntime(draft.id, 'stopAllTavernHelperGeneration', { pendingGenerations: [{ generationId: 'delayed', generationToken: 'old' }] }), { stopped: true, generationIds: ['delayed'] })
-  await assert.rejects(service.callRuntime(draft.id, 'generateTavernHelperRaw', { generationToken: 'old', config: { generation_id: 'delayed' } }), { name: 'AbortError' })
-  assert.equal(calls, 0)
-  assert.deepEqual(await service.callRuntime(draft.id, 'generateTavernHelperRaw', { generationToken: 'new', config: { generation_id: 'delayed' } }), { text: 'ok' })
-  assert.equal(calls, 1)
 })

@@ -55,3 +55,16 @@ test('导出时跳过已清理的早期历史版本', async () => {
   })
   assert.deepEqual(revisions.map(item => item.revision), [7])
 })
+
+
+test('导出拒绝读回不支持的存档大小，不返回无法导入的备份', async () => {
+  const { randomBytes } = await import('node:crypto')
+  const input = { chat: { id: 'c', sessionId: 's', messages: [] }, revisions: [], session: { events: [] }, tavernVersion: '2.7.0',
+    scene: { files: [], worldbooks: [], attachments: [{ attachmentId: 'a', mediaType: 'image/png', data: randomBytes(51 * 1024 * 1024) }] } }
+  assert.throws(() => buildGameSave(input), /超过 50 MB/)
+  const block = Buffer.alloc(51 * 1024 * 1024)
+  input.scene.attachments = [1, 2, 3].map(id => ({ attachmentId: String(id), data: block }))
+  assert.throws(() => buildGameSave(input), /超过 150 MB/)
+  input.scene.attachments = [{ attachmentId: 'small', data: Buffer.from('small') }]
+  assert.equal(readGameSave(buildGameSave(input)).scene.attachments[0].data.toString(), 'small')
+})

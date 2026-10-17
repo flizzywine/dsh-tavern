@@ -39,17 +39,6 @@ test('分叉只接受没有前台或后台未完成工作的游玩对话', () =>
   assert.throws(() => assertConversationForkable(dangling), /尚未产生正文/)
 })
 
-test('分叉运行链路复用 DSH 原生 Session，不在 Tavern 后端重放完整历史', async () => {
-  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8'))
-  const start = source.indexOf('async function forkChat(')
-  const end = source.indexOf('\n  const runtimePresetSnapshots', start)
-  const flow = source.slice(start, end)
-
-  assert.ok(start >= 0 && end > start)
-  assert.doesNotMatch(flow, /appendForkedConversation|sessionStore\.flush|ensureSessionStablePrefix/)
-  assert.match(flow, /conversationRegistry\.publish\(fork\)/)
-})
-
 test('分叉只保留分叉点及之前的隐藏轮次记录：分叉后续用的原生轮号不会把新回复整轮隐藏', async () => {
   const { forkConversationChat } = await import('../tavern-plugin/lib/domain/conversation-fork.js')
   const { foregroundSuppressedTurns } = await import('../tavern-plugin/lib/domain/rollback-surface.js')

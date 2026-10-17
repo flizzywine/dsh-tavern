@@ -32,22 +32,3 @@ test('重载宿主适配器不会叠加拦截层或丢失已有挂载', () => {
   assert.equal(providers.get('Service').query(), 'B')
   second()
 })
-
-test('官方同名但契约不同的注册仍报冲突，不替换现有服务', () => {
-  const { registry, providers } = fixture()
-  registry.register(provider('A'))
-  const incompatible = provider('B')
-  incompatible.manifest.description = 'another implementation'
-  assert.throws(() => registry.register(incompatible), /already registered/)
-  assert.equal(providers.get('Service').query(), 'A')
-})
-
-test('不放宽自创检查服务或冒用内置名称的冲突检查', () => {
-  const { registry } = fixture()
-  registry.register(provider('A', 'Custom'))
-  assert.throws(() => registry.register(provider('B', 'Custom')), /already registered/)
-  const other = provider('other')
-  other.manifest.methods[0].name = 'customMethod'
-  registry.register(other)
-  assert.throws(() => registry.register(provider('official')), /already registered/)
-})

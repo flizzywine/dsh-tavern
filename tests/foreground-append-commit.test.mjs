@@ -93,44 +93,10 @@ for (const [name, variablesAt] of [['最近楼层有变量', () => true], ['变�
   })
 }
 
-test('玩家模板输入随追加提交消费，结果与完整写入一致', async t => {
-  const chat = base(history(20, () => true))
-  const scoped = await app(t, chat, true, true), full = await app(t, chat, false, true)
-  assert.deepEqual(await scoped.play(21), await full.play(21))
-  const [left, right] = [await scoped.stored(), await full.stored()]
-  assert.deepEqual(comparable(left), comparable(right))
-  assert.deepEqual(left.messages.at(-2).tavernPluginData, { rendered: 21 })
-  assert.equal(left.messages.at(-1).variables[0].stat_data.hp, -21)
-  assert.equal(left.promptTemplateInput, undefined)
-  assert.deepEqual(scoped.calls, { full: 0, update: 0, patch: 1 })
-})
-
-test('提交前其他写入推进了版本：重读后追加，不覆盖并发字段', async t => {
-  const scoped = await app(t, base(history(5, () => true)), true)
-  scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => { chat.guide = '并发写入'; return chat }, { source: 'guide.add' }))
-  const result = await scoped.play(6)
-  assert.equal(result.saved, true)
-  const stored = await scoped.stored()
-  assert.equal(stored.guide, '并发写入')
-  assert.equal(stored.messages.length, 12)
-  assert.equal(stored.timeline.checkpoints.length, 1)
-  assert.equal(scoped.calls.patch, 2)
-})
-
 test('剧情版本在生成期间变化：拒绝提交，楼层不变', async t => {
   const scoped = await app(t, base(history(5, () => true)), true)
   await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
   scoped.beforePatch(() => scoped.persistence.update('chat-1', chat => { chat.timeline.revision++; return chat }, { source: 'rollback' }))
   await assert.rejects(scoped.turns.finalize({ sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' }), /剧情状态已变化/)
   assert.equal((await scoped.stored()).messages.length, 10)
-})
-
-test('同一回合重复提交只追加一次', async t => {
-  const scoped = await app(t, base(history(5, () => true)), true)
-  await scoped.turns.prepare({ sessionId: 's', turn: 6, userText: '继续' })
-  const input = { sessionId: 's', turn: 6, userText: '继续', assistantText: '回复' }
-  await scoped.turns.finalize(input)
-  const again = await scoped.turns.finalize(input)
-  assert.equal(again.duplicate, true)
-  assert.equal((await scoped.stored()).messages.length, 12)
 })

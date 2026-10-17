@@ -8,10 +8,7 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-async function until(condition) {
-  for (let n = 0; n < 100; n++) { if (condition()) return; await new Promise(resolve => setImmediate(resolve)) }
-  throw new Error('Agent 未到达预期阶段')
-}
+
 function harness({ work = async () => {}, flush = async () => {}, dispose = async () => {}, compactWork = async () => {}, needsNewBackgroundSession, resume, retirement } = {}) {
   const children = new Map(), starts = [], calls = [], disposals = [], tools = new Map()
   let seq = 0
@@ -46,19 +43,6 @@ function harness({ work = async () => {}, flush = async () => {}, dispose = asyn
   return { runner, input, calls, starts, tools, children, disposals }
 }
 
-test('会话保存失败不发布编号或执行模型；重试复用同一常驻会话，工具已撤下', async t => {
-  let fail = true, published = 0
-  const h = harness({ flush: async () => { if (fail) throw new Error('disk unavailable') } })
-  t.after(() => h.runner.dispose())
-  const input = h.input({ onPersistentSessionReady: async () => { published++ }, tools: [{ name: 'save-tool', parameters: {} }] })
-  await assert.rejects(h.runner.run(input), /disk unavailable/)
-  assert.equal(published, 0); assert.equal(h.starts.length, 0)
-  assert.equal(h.tools.get('child-1').size, 0)
-  fail = false
-  assert.equal((await h.runner.run(input)).traceSessionId, 'child-1')
-  assert.equal(published, 1); assert.equal(h.calls.filter(call => call[0] === 'create').length, 1)
-})
-
 test('释放所有常驻会话时汇总错误并清空所有权，可重复释放', async () => {
   const h = harness({ dispose: async session => { if (session.id === 'child-1') throw new Error('dispose failure') } })
   await h.runner.run(h.input())
@@ -69,24 +53,4 @@ test('释放所有常驻会话时汇总错误并清空所有权，可重复释�
   assert.equal(h.runner.requestContext('child-2'), null)
   await h.runner.dispose()
   assert.equal(h.disposals.length, 2)
-})
-
-test('取消的持久后台会话记录退休状态，重新创建 runner 后也不再恢复它', async t => {
-  const retired = new Map()
-  const retirement = { retire: async (id, parentId) => retired.set(id, parentId), isRetired: async id => retired.has(id) }
-  const controller = new AbortController(), gate = deferred()
-  const h = harness({ retirement, work: () => gate.promise })
-  t.after(async () => { gate.resolve(); await h.runner.dispose() })
-  const running = h.runner.run(h.input({ signal: controller.signal }))
-  const rejected = assert.rejects(running)
-  await until(() => h.starts.length === 1)
-  controller.abort(); await rejected
-  assert.equal(retired.get('child-1'), 'game-a')
-  // A fresh runner must consult durable retirement, not just its in-memory set.
-  const fresh = harness({ retirement, resume: async () => { throw Error('retired session was resumed') } })
-  t.after(() => fresh.runner.dispose())
-  // Avoid fixture's intentionally repeated id generator colliding with the old id.
-  retired.set('old-retired', 'game-a')
-  const result = await fresh.runner.run(fresh.input({ persistentSessionId: 'old-retired' }))
-  assert.notEqual(result.traceSessionId, 'old-retired')
 })

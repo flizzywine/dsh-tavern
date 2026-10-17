@@ -67,14 +67,37 @@ export function storySubmissionForTurn(session, turn) {
  */
 export function foldStorySubmission(session, result, bodyText) {
   const data = result.event.data
-  const message = content => ({ ...data.message, id: randomUUID(), source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' }, content })
   const turn = Number(data.turn) || 0
   const step = Number(data.step) || 1
   const surface = createSessionSurfaceMutator(session)
-  const shown = surface.append('assistant/message', { turn, step, message: message([{ type: 'text', text: bodyText }]) }, { surfaceOp: 'append', sourceEventSeqs: [] })
-  const shownSeq = typeof shown === 'number' ? shown : shown.seq
-  surface.replace('assistant/message', { turn, step, message: message([{ type: 'text', text: bodyText }]) },
-    { start: result.index, end: shownSeq, sourceEventSeqs: [result.index, result.receiptIndex, shownSeq] })
+  // `submission.index` is the events-array position while the receipt is an
+  // event seq; the surface is a seq list, so the call is located by its own seq.
+  // A filtered or compacted log makes the two differ, and a positional lookup
+  // then fails with "消息替换目标已变化".
+  const start = Number(result.event?.seq ?? result.index)
+  const receipt = Number(result.receiptIndex)
+  const nodes = Array.isArray(session?.surface?.nodes) ? session.surface.nodes.map(Number) : []
+  const from = nodes.indexOf(start)
+  const to = nodes.indexOf(receipt)
+  // A step may dispatch several tools, so other receipts can sit between the
+  // call and this submission's receipt. The range must cite every node it
+  // removes or the replacement is refused with "缺少有效的来源引用".
+  if (from < 0 || to < from) return
+  // The appended copy and the replacement are one message. The chat view keys a
+  // round's actions by the message id it rendered and the fork map reads the id
+  // of the newest projection event, so two ids here hide the fork action.
+  const reply = {
+    ...data.message,
+    id: randomUUID(),
+    source: { kind: 'model', provider: 'dsh-tavern', model: 'reply-projection' },
+    content: [{ type: 'text', text: bodyText }]
+  }
+  const shown = surface.append('assistant/message', { turn, step, message: reply }, { surfaceOp: 'append', sourceEventSeqs: [] })
+  const shownSeq = Number(typeof shown === 'number' ? shown : shown.seq)
+  const end = session.surface.nodes.map(Number).indexOf(shownSeq)
+  if (end < to) return
+  surface.replace('assistant/message', { turn, step, message: reply },
+    { start, end: shownSeq, sourceEventSeqs: session.surface.nodes.slice(from, end + 1).map(Number) })
 }
 
 export function activeStoryTurn(session) {

@@ -13,7 +13,7 @@ function fixture() {
   let failSave = false, failIndex = false
   const store = {
     readLinks: async () => ({ session: 'chat' }), updateLinks: async () => {},
-    readIndex: async () => structuredClone(index), writeIndex: async value => { if (failIndex) throw Error('索引保存失败'); index = structuredClone(value) },
+    readIndex: async () => structuredClone(index), async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next }, writeIndex: async value => { if (failIndex) throw Error('索引保存失败'); index = structuredClone(value) },
     readChat: async () => structuredClone(chat), writeChat: async () => {}, removeChat: async () => {}
   }
   const registry = createTavernConversationRegistry({ store })

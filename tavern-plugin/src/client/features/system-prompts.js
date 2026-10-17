@@ -3,9 +3,13 @@
 			const h = React.createElement;
 			const [state, setState] = React.useState({ loading: true, busy: false, prompts: [], systemAppendEnabled: false, drafts: {}, error: "", notice: "" });
 			const importInput = React.useRef(null);
-			function accept(result, notice) {
+			function accept(result, notice, name) {
 				const value = result && result.systemPrompts || {};
-				setState({ loading: false, busy: false, prompts: Array.isArray(value.prompts) ? value.prompts : [], systemAppendEnabled: value.systemAppendEnabled === true, drafts: {}, error: "", notice: notice || "" });
+				setState(function (current) {
+                        const drafts = name ? Object.assign({}, current.drafts) : {};
+                        if (name) delete drafts[name];
+                        return { loading: false, busy: false, prompts: Array.isArray(value.prompts) ? value.prompts : [], systemAppendEnabled: value.systemAppendEnabled === true, drafts: drafts, error: "", notice: notice || "" };
+                    });
 			}
 			async function load() {
 				try { accept(await rpc("getSystemPrompts"), ""); }
@@ -24,14 +28,14 @@
 
 			async function save(item) {
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
-				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: draft(item) }), item.name === "system-append" && !state.systemAppendEnabled ? "内容已保存，开启开关后生效。" : "已保存，将从下一次相关调用开始生效。"); }
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: draft(item) }), item.name === "system-append" && !state.systemAppendEnabled ? "内容已保存，开启开关后生效。" : "已保存，将从下一次相关调用开始生效。", item.name); }
 				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
 			}
 			async function restore(item) {
 				if (!item.customized) { edit(item.name, String(item.text || "")); return; }
 				if (!await askConfirm("恢复“" + item.label + "”的系统默认内容？")) return;
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
-				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: null }), "已恢复该项默认内容。"); }
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: null }), "已恢复该项默认内容。", item.name); }
 				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
 			}
 			async function restoreAll() {

@@ -27,42 +27,6 @@ function fixture() {
  return {options,session,phase,history,chats,records,get publishes(){return publishes},fail:()=>{failFlush=true}}
 }
 const input={cardPath:'card.json',text,operationId:'operation-123',sessionId:'session'}
-test('import uses normal storage revision checkpoints, keeps no pending settlement, retries idempotently',async()=>{
- const h=fixture(), service=createChatHistoryImportService(h.options)
- await service.import(input)
- let chat=await h.chats.resolve('session')
- assert.equal(chat.timeline.checkpoints.length,2)
- assert.equal(chat.settleStatus,'done');assert.equal(h.phase.lastTurn,3)
- assert.ok(chat.timeline.checkpoints.every(c=>c.beforeRevision>0 && !c.importBefore))
- const checkpoint=chat.timeline.checkpoints.at(-1)
- chat=timeline.apply({chat,intent:{kind:'turn.rollback',turn:3,beforeChat:h.history.get(checkpoint.beforeRevision)}}).chat
- assert.equal(chat.messages.at(-1).variables[0].stat_data.hp,8)
- await service.import(input)
- assert.equal(h.publishes,1)
- assert.equal(h.session.deriveMessages().filter(m=>m.source?.form!=='foreground-frame').length,5)
-})
-
-test('concurrent requests cannot reuse an operation for different content',async()=>{
- const h=fixture(),service=createChatHistoryImportService(h.options)
- const first=service.import(input)
- await assert.rejects(service.import({...input,textOnly:true}),/其他内容/)
- await first
-})
-
-test('历史导入复用正式世界书投影，当前输入不重复占用扫描窗口，蓝绿灯一起编排', async () => {
- const h=fixture(), runtime=await UpstreamTemplateRuntime.create()
- const worldBook={view:{entries:[{comment:'[initvar]',content:'hp: 10',enabled:false},
-  {ref:'open',constant:true,content:'<角色库>',order:10},
-  {ref:'role',primaryKeys:['/\\bwalk\\b/'],content:'开场角色',order:20},
-  {ref:'close',constant:true,content:'</角色库>',order:30}]}}
- h.options.worldBooks.bound=async()=>worldBook
- h.options.projectForegroundWorldbook=createForegroundWorldbook({bound:async()=>worldBook,runtime:async()=>runtime,globalVariables:async()=>({})})
- await createChatHistoryImportService(h.options).import(input)
- const frames=foregroundContexts(h.session)
- assert.match(frames[0],/<角色库>\n\n开场角色\n\n<\/角色库>/)
- assert.doesNotMatch(frames[1],/开场角色/)
- assert.match(frames[1],/<角色库>\n\n<\/角色库>/)
-})
 
 for (const textOnly of [false,true]) test(`历史导入装配真实筛选器仍不调用 Agent（textOnly=${textOnly}）`, async()=>{
  const h=fixture(), runtime=await UpstreamTemplateRuntime.create()

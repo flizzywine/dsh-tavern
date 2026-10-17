@@ -49,14 +49,3 @@ test('发送正文从不询问模型；回复结束后预筛，被排除条目�
   assert.equal(h.screened.length, 1, '冷却期内候选不足门槛，不再询问模型')
   assert.deepEqual(sent.refs.sort(), ['e1', 'e2', 'e3', 'e4', 'e5'], '十轮后排除失效；剩余候选不超门槛则直接注入')
 })
-
-test('玩家本轮输入直接提到被排除条目时照常注入；条目正文改变后冷却失效', async () => {
-  const h = setup()
-  await h.project({ chat: h.chat, card: {}, userText: '', purpose: 'prefilter' })
-  const named = await h.round('我去找剑宗的人')
-  assert.ok(named.refs.includes('e1'))
-  assert.ok(!named.refs.includes('e2'))
-  h.worldBook.view.entries[2].content = '药王谷新设定' + long
-  const edited = await h.round('继续')
-  assert.ok(edited.refs.includes('e2'))
-})

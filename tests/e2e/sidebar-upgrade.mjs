@@ -6,7 +6,8 @@ export async function sidebarUpgrade({ page, step, savedChat, output, report }) 
   const status = page.getByRole('button', { name: '酒馆状态', exact: true })
   await step('原生侧栏重复打开酒馆状态不会增加标签', async () => {
     await status.click()
-    const tabs = page.getByRole('tab', { name: '酒馆状态', exact: true }).filter({ visible: true })
+    // The host tab now holds its close button, so its accessible name is the title plus "Close".
+    const tabs = page.locator('[data-dockkit-tab]').filter({ has: page.locator('[data-dockkit-tab-title]', { hasText: /^酒馆状态$/ }) }).filter({ visible: true })
     await tabs.first().waitFor()
     const count = await tabs.count()
     await status.click(); await status.click()
@@ -14,6 +15,8 @@ export async function sidebarUpgrade({ page, step, savedChat, output, report }) 
   })
   await step('卡片调试恢复完整对话，预填指令和游玩引用', async () => {
     await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).first().click()
+    // The debug entry sits in the collapsed 「遇到显示或生成问题？」 section.
+    await page.getByText('遇到显示或生成问题？', { exact: true }).filter({ visible: true }).first().click()
     await page.getByRole('button', { name: '交给卡片 Agent 调试', exact: true }).click()
     const composer = page.getByRole('textbox', { name: /发消息|Message/ })
     await composer.filter({ hasText: '/debug-card' }).waitFor()

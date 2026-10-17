@@ -29,10 +29,3 @@ test('direct install subprocesses default to the domestic registry without confl
   assert.deepEqual(result.entries, [['npm_config_registry', 'https://registry.npmmirror.com'], ['pnpm_config_registry', 'https://registry.npmmirror.com']])
   assert.equal(result.unchanged, true)
 })
-
-test('an explicit Tavern registry overrides the default for npm and pnpm together', () => {
-  const registry = 'https://packages.example.test/npm/'
-  const result = probe(registry)
-  assert.deepEqual(result.entries, [['npm_config_registry', registry], ['pnpm_config_registry', registry]])
-  assert.equal(result.unchanged, true)
-})

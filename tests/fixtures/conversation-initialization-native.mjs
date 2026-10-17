@@ -83,7 +83,7 @@ export async function createInitializationNative(bootPath, { preset, contextWind
     persistence = createChatPersistence({ store: createChatJournalStore({ dataRoot: root, legacyData: data }) })
     const registry = createTavernConversationRegistry({ store: {
       readLinks: () => data.readJson('sessions.json'), updateLinks: fn => data.updateJson('sessions.json', fn),
-      readIndex: async () => await data.readJson('index.json') || { chats: [] }, writeIndex: value => data.writeJson('index.json', value),
+      readIndex: async () => await data.readJson('index.json') || { chats: [] }, updateIndex: updater => data.updateJson('index.json', updater),
       readChat: persistence.read, writeChat: persistence.write, removeChat: persistence.remove
     } })
     const write = async (chat, metadata) => {

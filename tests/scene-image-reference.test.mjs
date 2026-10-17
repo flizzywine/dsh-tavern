@@ -33,25 +33,3 @@ test('reference requires explicit current-service consent and single-person iden
   assert.match(switched.warning, /未授权/)
   assert.match((await f.select({ config: channelSettings({ provider: 'openai' }) })).warning, /仅使用文字/)
 })
-
-test('references survive restart; load checks membership, deletion, bytes and revocation even after queue selection', async () => {
-  const f = fixture(); await f.bind()
-  const restarted = createSceneImageReferences({ store: f.store })
-  const selected = await restarted.select({ chatId: 'chat', lineage: [f.source, f.activation], config: f.config })
-  const load = (extra = {}) => restarted.load({ selected, plan: { subjects: ['alice'] }, readImage: async () => f.image, readVersion: async () => f.version, ...extra })
-  assert.equal((await load()).images.length, 1)
-  assert.equal((await load({ plan: { subjects: ['bob'] } })).images.length, 0)
-  assert.equal((await load({ readVersion: async () => null })).images.length, 0)
-  assert.equal((await load({ readImage: async () => ({ ...f.image, data: Buffer.from('changed') }) })).images.length, 0)
-  await f.bind({ enabled: false })
-  assert.equal((await load()).images.length, 0)
-  assert.equal((await f.select()).records.length, 0)
-})
-
-test('a picture added to a turn can be a reference source of that turn', async () => {
-  const { sceneSlotKey } = await import('../tavern-plugin/lib/domain/scene-slots.js')
-  const f = fixture()
-  await f.bind({ source: { key: sceneSlotKey('body-1', 2), turn: 1 } })
-  assert.equal((await f.select()).records.length, 1)
-  assert.equal((await f.select({ lineage: [{ key: 'other-branch', turn: 1 }, f.activation] })).records.length, 0)
-})

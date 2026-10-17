@@ -11,7 +11,7 @@ export function createResourceGraph(options = {}) {
   const fault = typeof options.fault === 'function' ? options.fault : async function () {}
   let tail = Promise.resolve()
   for (const method of ['rename', 'remove']) if (!resources || typeof resources[method] !== 'function') throw new Error('Resource Graph 缺少 resources.' + method)
-  for (const method of ['readIndex', 'writeIndex', 'readChat', 'writeChat']) if (!chats || typeof chats[method] !== 'function') throw new Error('Resource Graph 缺少 chats.' + method)
+  for (const method of ['readIndex', 'updateIndex', 'readChat', 'writeChat']) if (!chats || typeof chats[method] !== 'function') throw new Error('Resource Graph 缺少 chats.' + method)
   for (const method of ['read', 'write', 'remove']) if (!operations || typeof operations[method] !== 'function') throw new Error('Resource Graph 缺少 operations.' + method)
 
   async function checkpoint(operation, stage) {
@@ -26,7 +26,11 @@ export function createResourceGraph(options = {}) {
     operation.result = renamed
     await checkpoint(operation, 'resource-renamed')
     const kind = resourceKind(oldPath)
-    if (kind === 'card') await options.cardOrganization?.movePath(renamed.oldPath, renamed.path)
+    if (kind === 'card') {
+      await options.cardOrganization?.movePath(renamed.oldPath, renamed.path)
+      await options.castAssets?.movePath(renamed.oldPath, renamed.path)
+      await checkpoint(operation, 'card-assets-moved')
+    }
     if (kind === 'preset' && presets && typeof presets.rename === 'function') await presets.rename(renamed.oldPath, renamed.path)
     const replacements = new Map([[renamed.oldPath, renamed.path]])
     if (renamed.scriptOldPath && renamed.scriptPath) replacements.set(renamed.scriptOldPath, renamed.scriptPath)
@@ -63,7 +67,9 @@ export function createResourceGraph(options = {}) {
       }
       if (changed) await chats.writeChat(chat)
     }
-    await chats.writeIndex(index)
+    await chats.updateIndex(current => ({ ...current,
+      chats: (current?.chats || []).map(row => replacements.has(row.cardPath) ? { ...row, cardPath: replacements.get(row.cardPath) } : row)
+    }))
     await checkpoint(operation, 'projected')
     await operations.remove()
     return { kind, path: renamed.path }

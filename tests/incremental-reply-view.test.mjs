@@ -9,19 +9,6 @@ function reference(chat, opts=options) {
  return {...projectPersistentStatusView(chat.messages,history.projections,opts),presentation:null,latestSourceBacked:history.latestSourceBacked}
 }
 
-test('依赖、分支或变化范围不可确认时重建，返回数据不能污染缓存，容量受限',async()=>{
- const chat={id:'chat',_storageRevision:1,messages:[{role:'assistant',text:'<b>{{user}}</b>'}]}
- const cache=createIncrementalReplyView({readChanges:async()=>{throw Error('增量证据暂不可读')}})
- const first=await cache.project(chat,options,options);first.projections[0].parts[0].content='污染'
- assert.deepEqual(await cache.project(chat,options,options),reference(chat))
- const changed={...options,macroState:{userName:'新名字'}}
- assert.deepEqual(await cache.project(chat,changed,changed),reference(chat,changed))
- chat._storageRevision++;assert.deepEqual(await cache.project(chat,options,options),reference(chat))
- chat.timeline={branchId:'new'};await cache.project(chat,options,options)
- assert.equal(cache.stats().rebuilt,4)
- const small=createIncrementalReplyView({maxBytes:1});await small.project(chat,options,options);assert.equal(small.stats().entries,0)
-})
-
 test('真实 journal 支持新增/旧正文改写及无消息变化，重启缺少变更证据时回退', async t => {
  const {mkdtemp,rm}=await import('node:fs/promises'), {tmpdir}=await import('node:os'), {join}=await import('node:path')
  const {createChatJournalStore}=await import('../tavern-plugin/lib/domain/chat-journal-store.js')

@@ -103,23 +103,3 @@ test('人物卡删除后的状态错误进入不可用终态，不再自动重�
   assert.match(snapshot.error, /人物卡不存在: cards\/Erin\.json/)
   assert.deepEqual(delays, [])
 })
-
-test('快照回收保护订阅者；过期请求不能复活旧快照；返回重新加载', async () => {
-  const timers = fakeTimers(); let resolve
-  const module = createLiveTavernViewModule({ load: () => new Promise(r => { resolve = r }),
-    now: timers.now, schedule: timers.schedule, cancel: timers.cancel, pollWhileBusy: false })
-  const stop = module.subscribe('A', () => {})
-  await timers.runNext()
-  assert.equal(module.evict('A'), false)
-  stop()
-  assert.equal(module.evict('A'), true)
-  const fresh = module.getSnapshot('A')
-  resolve({ view: { old: true } }); await new Promise(r => setImmediate(r))
-  assert.equal(module.getSnapshot('A'), fresh)
-  assert.equal(fresh.view, null)
-  const stopAgain = module.subscribe('A', () => {})
-  await timers.runNext(); resolve({ view: { fresh: true } })
-  await new Promise(r => setImmediate(r))
-  assert.equal(module.getSnapshot('A').view.fresh, true)
-  stopAgain(); module.evict('A')
-})

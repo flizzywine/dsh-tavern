@@ -21,25 +21,6 @@ const book = text => ({ view: { entries: [
   { ref: 'entry:place', title: '青石车站', primaryKeys: ['车站'], content: '青石车站有石柱。', constant: true }
 ] } })
 
-test('immutable versioned archive includes nonconstant entries, resolves historical macros and deduplicates writes', async t => {
-  const { store, api } = await fixture(t)
-  const chat = { macroState: { userName: '过去的玩家', local: {}, global: {} } }, card = { name: '林岚' }
-  const original = book('{{user}}认识留着黑色短发的{{char}}。')
-  const before = structuredClone(chat)
-  const ref = await api.capture({ worldBook: original, chat, card })
-  const path = 'scene-images/worldbooks/' + ref.digest + '.json', version = await store.version(path)
-  assert.deepEqual(await api.capture({ worldBook: original, chat, card }), ref)
-  assert.equal(await store.version(path), version)
-  original.view.entries[0].content = '未来红发。'
-  chat.macroState.userName = '未来的玩家'
-  const old = await createSceneWorldbooks({ store }).read(ref)
-  assert.match(old.entries[0].text, /过去的玩家.*黑色短发.*林岚/)
-  assert.doesNotMatch(JSON.stringify(old), /未来|停用条目|更新教程/)
-  assert.equal(old.entries[0].constant, false)
-  assert.notDeepEqual(await api.capture({ worldBook: original, chat, card }), ref)
-  assert.deepEqual(before.macroState.local, chat.macroState.local)
-})
-
 test('opening swipes retain their archive; rewritten bodies and missing/corrupt archives never use current resources', async t => {
   const { store, api } = await fixture(t), ref = await api.capture({ worldBook: book('黑色短发') })
   const chat = { id: 'chat', messages: [bindSceneWorldbook({ role: 'assistant', turn: 1, greeting: true, swipes: ['林岚站着。', '林岚坐着。'], swipeId: 0 }, ref)] }
@@ -71,29 +52,6 @@ test('conditional reference variants require current scene evidence, not old his
   assert.equal(read('林岚站在夜晚的车站。', unsupported).sources.length, 0)
 })
 
-test('entries are stored once across turns; an export is a verified self-contained snapshot', async t => {
-  const { store, api } = await fixture(t)
-  const first = await api.capture({ worldBook: book('黑色短发') })
-  const stored = await store.readJson('scene-images/worldbooks/' + first.digest + '.json')
-  assert.equal(stored.version, 2)
-  assert.equal(stored.entryRefs.length, 2)
-  const shared = 'scene-images/worldbook-entries/' + stored.entryRefs[1] + '.json', sharedVersion = await store.version(shared)
-  // A later turn changes one entry: the unchanged entry file is reused, not rewritten.
-  const second = await api.capture({ worldBook: book('红色长发') })
-  assert.notEqual(second.digest, first.digest)
-  assert.deepEqual((await store.readJson('scene-images/worldbooks/' + second.digest + '.json')).entryRefs[1], stored.entryRefs[1])
-  assert.equal(await store.version(shared), sharedVersion)
-  assert.match((await api.read(first)).entries[0].text, /黑色短发/)
-  // Save packages carry the complete snapshot; importing it as a plain file still verifies.
-  const bytes = await api.exportSnapshot(first.digest)
-  const other = await fixture(t)
-  await other.store.writeBytes('scene-images/worldbooks/' + first.digest + '.json', bytes)
-  assert.deepEqual(await other.api.read(first), await api.read(first))
-  // A damaged shared entry is detected, never silently replaced by current data.
-  await store.writeJson(shared, { text: '篡改' })
-  assert.match((await api.read(first)).unavailable, /校验失败/)
-})
-
 test('only the latest turns keep their snapshots; shared snapshots and entries stay while any game lists them', async t => {
   const { store } = await fixture(t)
   const api = createSceneWorldbooks({ store, keepTurns: 2 })
@@ -115,4 +73,51 @@ test('only the latest turns keep their snapshots; shared snapshots and entries s
   // Deleting game b releases the shared snapshot it alone still kept.
   await api.forgetChat('b')
   assert.equal(await exists('scene-images/worldbooks/' + refs[0].digest + '.json'), false)
+})
+
+test('存档带齐开局、逐轮及可回退历史的快照，并输出可独立读取的内容', async t => {
+  const { api } = await fixture(t)
+  const opening = await api.capture({ worldBook: book('开局') })
+  const current = await api.capture({ worldBook: book('新正文设定') })
+  const historical = await api.capture({ worldBook: book('旧正文设定') })
+  const states = [{ sceneOpeningWorldbook: opening, messages: [{ role: 'assistant', turn: 1, sceneWorldbook: current }] },
+    { sceneOpeningWorldbook: opening, messages: [{ role: 'assistant', turn: 1, sceneWorldbook: historical }] }]
+  const packed = await api.exportForSave(states)
+  assert.equal(packed.length, 3)
+  assert.deepEqual(new Set(packed.map(item => item.digest)), new Set([opening.digest, current.digest, historical.digest]))
+  const other = await fixture(t)
+  for (const item of packed) await other.store.writeBytes('scene-images/worldbooks/' + item.digest + '.json', item.content)
+  for (const ref of [opening, current, historical]) assert.deepEqual(await other.api.read(ref), await api.read(ref))
+})
+
+test('导入登记快照引用，删除源游戏不影响新游戏且保留原去重布局', async t => {
+  const { api, store } = await fixture(t)
+  const ref = await api.capture({ worldBook: book('共享设定'), chat: { id: 'source' }, turn: 0 })
+  const states = [{ sceneOpeningWorldbook: ref, messages: [] }]
+  const snapshots = await api.exportForSave(states)
+  const manifest = 'scene-images/worldbooks/' + ref.digest + '.json'
+  const before = await store.readJson(manifest)
+  const counts = await store.readJson('scene-images/worldbook-entry-counts.json')
+  await api.importForSave('imported', states, snapshots)
+  assert.deepEqual(await store.readJson(manifest), before)
+  assert.deepEqual(await store.readJson('scene-images/worldbook-entry-counts.json'), counts)
+  await api.forgetChat('source')
+  assert.ok((await api.read(ref)).entries)
+  await api.forgetChat('imported')
+  assert.match((await api.read(ref)).unavailable, /缺失/)
+  assert.deepEqual(await store.readJson('scene-images/worldbook-entry-counts.json'), {})
+})
+
+test('跨机器导入保持快照可读，损坏快照不产生登记或覆盖已有数据', async t => {
+  const source = await fixture(t), target = await fixture(t)
+  const opening = await source.api.capture({ worldBook: book('初始设定') })
+  const later = await source.api.capture({ worldBook: book('后续设定') })
+  const states = [{ sceneOpeningWorldbook: opening, messages: [{ role: 'assistant', turn: 2, sceneWorldbook: later }] }]
+  const snapshots = await source.api.exportForSave(states)
+  await target.api.importForSave('imported', states, snapshots)
+  for (const ref of [opening, later]) assert.deepEqual(await target.api.read(ref), await source.api.read(ref))
+  await assert.rejects(target.api.importForSave('bad', states, [{ ...snapshots[0], content: Buffer.from('{"version":1,"entries":[]}') }]), /校验失败/)
+  assert.equal(await target.store.readJson('scene-images/worldbook-refs/bad.json'), undefined)
+  await target.api.forgetChat('imported')
+  assert.match((await target.api.read(later)).unavailable, /缺失/)
 })

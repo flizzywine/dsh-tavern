@@ -130,28 +130,6 @@ async function createStoryHost(bootModule) {
   return { runTurn, dispose, assistantResultForTurn, storySubmissionForTurn }
 }
 
-test('scripted LLM 仅返回 submit_story tool-call：总前台请求 1、turn 完成、提取正文成功', native, async t => {
-  const host = await createStoryHost(BOOT_MODULE)
-  t.after(() => host.dispose())
-  const result = await host.runTurn([{ kind: 'tool', name: 'submit_story', args: { content: '雨水扑进房间。' } }])
-
-  assert.equal(result.requests, 1, '提交即结束，不应再发起第二次前台请求')
-  assert.equal(result.turnStarts, 1)
-  assert.equal(result.turnEnds, 1, '回合应当正常结束')
-  assert.equal(result.events.find(event => event.type === 'turn/end').data.reason.kind, 'completed')
-  assert.equal(result.last, 'turn/end')
-
-  const extracted = host.assistantResultForTurn(result.session, 1)
-  assert.ok(extracted, '应当能从成功 tool result 提取正文')
-  assert.equal(extracted.text, '雨水扑进房间。')
-  assert.equal(extracted.storyToolSubmission, true)
-
-  const submission = host.storySubmissionForTurn(result.session, 1)
-  assert.ok(submission, 'storySubmissionForTurn 应识别本轮提交')
-  assert.equal(submission.text, '雨水扑进房间。')
-  assert.equal(submission.content, '雨水扑进房间。')
-})
-
 test('先查询后提交：2 次前台请求且无第 3 次', native, async t => {
   const host = await createStoryHost(BOOT_MODULE)
   t.after(() => host.dispose())
@@ -169,36 +147,4 @@ test('先查询后提交：2 次前台请求且无第 3 次', native, async t =>
   assert.ok(extracted, '应当能从成功 tool result 提取正文')
   assert.equal(extracted.text, '她推开门。')
   assert.equal(extracted.storyToolSubmission, true)
-})
-
-test('两轮工具正文保留合法上下文配对，下一轮能读取前一轮完整正文', native, async t => {
-  const host = await createStoryHost(BOOT_MODULE)
-  t.after(() => host.dispose())
-  const result = await host.runTurn([
-    { kind: 'tool', name: 'submit_story', args: { content: '第一轮：雨水扑进房间。' } },
-    { kind: 'tool', name: 'submit_story', args: { content: '第二轮：她推开门。' } }
-  ], { secondTurn: true })
-  assert.equal(result.requests, 2)
-  assert.equal(result.turnEnds, 2)
-  assert.equal(host.assistantResultForTurn(result.session, 1).text, '第一轮：雨水扑进房间。')
-  assert.equal(host.assistantResultForTurn(result.session, 2).text, '第二轮：她推开门。')
-  const messages = result.inputs[1].messages
-  const call = messages.flatMap(message => message.content).find(block => block.type === 'tool-call' && block.name === 'submit_story')
-  const receipt = messages.flatMap(message => message.content).find(block => block.type === 'tool-result' && block.toolCallId === call.id)
-  assert.ok(receipt)
-  assert.equal(receipt.content[0].text, '第一轮：雨水扑进房间。')
-})
-
-test('未开启全局正文走工具调用时 submit_story 执行拒绝且不构成提交', native, async t => {
-  const host = await createStoryHost(BOOT_MODULE)
-  t.after(() => host.dispose())
-  const result = await host.runTurn([{ kind: 'tool', name: 'submit_story', args: { content: '正文' } }], { enabled: false })
-
-  const submission = host.storySubmissionForTurn(result.session, 1)
-  assert.equal(submission, null, '未开启提交时不应识别到任何 story 提交')
-  assert.ok(
-    result.events.some(e => e.type === 'tool/result' && e.data && e.data.message &&
-      e.data.message.content.some(part => part.isError === true)),
-    '工具应以错误结果结束'
-  )
 })

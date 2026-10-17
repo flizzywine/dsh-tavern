@@ -4659,7 +4659,8 @@ function tavernModelRefusalNotice(text) {
 		      throw error;
 		    });
 		  };
-		  window.generateRaw = function (config) {
+		  // generate builds the request from the card and preset; generateRaw takes an explicit order.
+		  function generation(method, config) {
 		    const payload = copy(config);
 		    const streaming = payload && payload.should_stream === true;
 		    const generationId = payload && payload.generation_id != null && String(payload.generation_id) !== ''
@@ -4669,7 +4670,7 @@ function tavernModelRefusalNotice(text) {
 		      if (payload.generation_id == null || payload.generation_id === '') payload.generation_id = generationId;
 		      void window.eventEmit(window.iframe_events.GENERATION_STARTED, generationId);
 		    }
-		    return request('dsh-tavern-helper-call', { method: 'generateTavernHelperRaw', args: { config: payload } }).then(function (result) {
+		    return request('dsh-tavern-helper-call', { method: method, args: { config: payload } }).then(function (result) {
 		      const text = result.text;
 		      if (!streaming || !window.iframe_events || typeof window.eventEmit !== 'function') return text;
 		      const events = window.iframe_events;
@@ -4678,7 +4679,9 @@ function tavernModelRefusalNotice(text) {
 		        .then(function () { return window.eventEmit(events.GENERATION_ENDED, text, generationId); })
 		        .then(function () { return text; });
 		    });
-		  };
+		  }
+		  window.generate = function (config) { return generation('generateTavernHelper', config); };
+		  window.generateRaw = function (config) { return generation('generateTavernHelperRaw', config); };
 		  window.getCharWorldbookNames = function () { return { primary: worldbook ? worldbook.name : null, additional: [] }; };
 		  window.getWorldbook = async function (name) {
 		    if (preview.preparationId) {
@@ -4697,7 +4700,7 @@ function tavernModelRefusalNotice(text) {
 		    worldbook = copy(result.worldbook);
 		    return copy(worldbook.entries);
 		  };
-		  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames,
+		  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames,
 		    getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
 		  const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
 		  let savedIndex = selected;
@@ -5289,7 +5292,7 @@ function tavernModelRefusalNotice(text) {
 		}
 		// The header counts session summaries; its popup reads the lazy catalog.
 		// Refresh an opened catalog when membership/activity changes in the summary feed.
-		function syncTavernSubagentCatalogs(sessions) {
+		function syncTavernSubagentCatalogs(sessions, signals) {
 		  if (!sessions || !sessions.list || typeof sessions.refreshSubagents !== 'function') return function () {};
 		  const signatures = new Map();
 		  let disposed = false;
@@ -5319,9 +5322,28 @@ function tavernModelRefusalNotice(text) {
 		      }).catch(function (error) { console.warn('[DSH Tavern] 子代理目录刷新失败', error); });
 		    }
 		  }
-		  const stop = sessions.list.subscribe(reconcile);
+		  // Tavern retires failed background workers. The host keeps a disposed subagent in the
+		  // session list as an idle row; reloading the list drops it, as a page reload would.
+		  let watched = null, unwatch = function () {}, refreshing = null, again = false;
+		  // The host reuses a list pull already in flight, which may predate this retirement: pull again after it.
+		  function refreshList() {
+		    if (disposed || typeof sessions.refresh !== 'function') return;
+		    if (refreshing) { again = true; return; }
+		    again = false;
+		    refreshing = Promise.resolve(sessions.refresh()).catch(function (error) { console.warn('[DSH Tavern] 会话列表刷新失败', error); })
+		      .finally(function () { refreshing = null; if (again) refreshList(); });
+		  }
+		  function follow() {
+		    const current = sessions.list.getSnapshot().current || null;
+		    if (current === watched || !signals || typeof signals.subscribe !== 'function') return;
+		    unwatch();
+		    watched = current;
+		    unwatch = current ? signals.subscribe(current, 'subagents', refreshList) : function () {};
+		  }
+		  const stop = sessions.list.subscribe(function () { reconcile(); follow(); });
 		  reconcile();
-		  return function () { disposed = true; stop(); };
+		  follow();
+		  return function () { disposed = true; stop(); unwatch(); };
 		}
 		// The card Agent edits cards, world books and presets on the server, often with
 		// generic file tools, so no page action announced the write. When a card
@@ -10975,7 +10997,7 @@ function bindTavernFontZoom(node, win) {
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
 								return React.createElement(tavernPluginBoundary(), { owner: owner, fallback: React.createElement("p", { className: "dsh-tavern-plugin-panel-error" }, "插件 " + owner + " 的面板出错了") },
-									gameId ? render({ gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
+									gameId ? React.createElement(render, { gameId: gameId, visible: props.visible !== false }) : React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "请先打开一局游戏。"));
 							} });
 						panels.set(tabId, owner);
 						changed();
@@ -10998,13 +11020,14 @@ function bindTavernFontZoom(node, win) {
 					if (typeof listener !== "function") throw new TypeError("watchTurnState 需要 listener 函数");
 					const owner = ownerOf(this), getTurnState = service.getTurnState;
 					return owned(this, function () {
-						let disposed = false, queued = false, last = "", running;
+						let disposed = false, queued = false, last = "", running, generation = 0;
 						function refresh() {
 							if (queued || disposed) return;
 							queued = true;
+							const request = ++generation;
 							Promise.resolve().then(function () { queued = false; return disposed ? null : getTurnState(gameId); }).then(function (state) {
 								const text = JSON.stringify(state);
-								if (disposed || !state || text === last) return;
+								if (disposed || request !== generation || !state || text === last) return;
 								last = text;
 								try { listener(state); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
 							}, function () {});
@@ -11198,7 +11221,7 @@ function bindTavernFontZoom(node, win) {
 			if (item.kind.indexOf("/") > 0) {
 				const renderer = tavernUiExtensions.mediaRenderer(item.kind);
 				if (!renderer) return null;
-				body = h(tavernPluginBoundary(), { owner: renderer.owner }, renderer.render({ item: Object.assign({}, item, { url: item.attachment ? tavernPluginMediaUrl(props.sessionId, item) : "" }), gameId: props.sessionId, turn: props.turn }));
+				body = h(tavernPluginBoundary(), { owner: renderer.owner }, h(renderer.render, { item: Object.assign({}, item, { url: item.attachment ? tavernPluginMediaUrl(props.sessionId, item) : "" }), gameId: props.sessionId, turn: props.turn }));
 			} else if (item.status === "pending") {
 				body = h("div", { className: "dsh-tavern-plugin-media-pending", role: "status" }, typeof item.progress === "number" ? "生成中… " + Math.round(item.progress * 100) + "%" : "生成中…");
 			} else if (item.status === "failed") {
@@ -11396,7 +11419,7 @@ function bindTavernFontZoom(node, win) {
 			const entries = new Map();
 			function entryFor(sessionId) {
 				let entry = entries.get(sessionId);
-				if (!entry) { entry = { version: 0, enabled: true, turns: new Map(), queued: new Set(), timer: null, listeners: new Set(), stop: null }; entries.set(sessionId, entry); }
+				if (!entry) { entry = { version: 0, generation: 0, enabled: true, turns: new Map(), queued: new Set(), timer: null, listeners: new Set(), stop: null }; entries.set(sessionId, entry); }
 				return entry;
 			}
 			function notify(entry) { entry.version += 1; Array.from(entry.listeners).forEach(function (listener) { listener(); }); }
@@ -11405,6 +11428,7 @@ function bindTavernFontZoom(node, win) {
 				if (!entry) return;
 				entry.enabled = true;
 				entry.turns = new Map();
+					entry.generation += 1;
 				notify(entry);
 			}
 			function load(sessionId, turn) {
@@ -11414,15 +11438,19 @@ function bindTavernFontZoom(node, win) {
 				if (entry.timer !== null) return;
 				entry.timer = window.setTimeout(function () {
 					entry.timer = null;
-					const turns = Array.from(entry.queued);
+					const generation = entry.generation;
+						const turns = Array.from(entry.queued);
 					entry.queued.clear();
 					turns.forEach(function (item) { entry.turns.set(item, null); });
 					rpc("castForTurns", { turns: turns }, sessionId).then(function (result) {
-						if (entries.get(sessionId) !== entry) return;
+						if (entries.get(sessionId) !== entry || entry.generation !== generation) return;
 						entry.enabled = result.enabled !== false;
 						turns.forEach(function (item) { entry.turns.set(item, Array.isArray(result.turns && result.turns[item]) ? result.turns[item] : []); });
 						notify(entry);
-					}, function () { turns.forEach(function (item) { entry.turns.delete(item); }); });
+					}, function () {
+							if (entries.get(sessionId) !== entry || entry.generation !== generation) return;
+							turns.forEach(function (item) { entry.turns.delete(item); });
+						});
 				}, 0);
 			}
 			function subscribe(sessionId, listener) {
@@ -13129,10 +13157,15 @@ function bindTavernFontZoom(node, win) {
 				const currentView = liveTavernView.getSnapshot(props.sessionId).view;
                 const liveState = useLiveTavernView(props.sessionId, revision, tavernAssistantViewPaths(storyTurn, storyTurn > 0 && storyTurn === tavernLatestProjectionTurn(currentView)));
 				const sessionTransitioning = React.useSyncExternalStore(tavernSessionTransition.subscribe, tavernSessionTransition.getSnapshot, tavernSessionTransition.getSnapshot);
-					const projection = settled ? tavernProjectionForTurn(liveState.view, storyTurn) : null;
+				const tail = props.useTurnData("turn-tail");
+				// DSH draws one node per step. A turn with tool calls has several steps, but its story,
+				// pictures and receipts belong to the turn: only the step that closes it shows them;
+				// earlier steps keep their own (usually empty) text (#222).
+				const ownsTurn = !tail || !tail.closing || !data.finalNode || tail.closing.finalNode.seq === data.finalNode.seq;
+					const projection = settled && ownsTurn ? tavernProjectionForTurn(liveState.view, storyTurn) : null;
 					const latestProjectionTurn = tavernLatestProjectionTurn(liveState.view);
                 React.useEffect(function () {
-                    if(!historyNode.current || !currentView?.historyWindow || projection || storyTurn<=0 || storyTurn>=tavernLatestProjectionTurn(currentView))return;
+                    if(!historyNode.current || !currentView?.historyWindow || !ownsTurn || projection || storyTurn<=0 || storyTurn>=tavernLatestProjectionTurn(currentView))return;
                     const observer = new IntersectionObserver(entries=>{
                         if(entries.some(entry=>entry.isIntersecting)) {
                             observer.disconnect();
@@ -13142,14 +13175,13 @@ function bindTavernFontZoom(node, win) {
                     observer.observe(historyNode.current);
                     return ()=>observer.disconnect();
                 },[props.sessionId,storyTurn,projection,currentView?.historyWindow?.revision,currentView?.historyWindow?.from]);
-				const tail = props.useTurnData("turn-tail");
 				const owner = React.useMemo(function () {
 					if (!turnRef || turnRef.status !== "closed" || !data.finalNode || !tail || !tail.closing || tail.closing.finalNode.seq !== data.finalNode.seq) return undefined;
 					return { turn: turnRef, seq: data.finalNode.seq, openFile: props.openFile };
 				}, [turnRef, data.finalNode, tail, props.openFile]);
 				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
-				const waitingForHistory = Boolean(currentView?.historyWindow && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
-				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning;
+				const waitingForHistory = Boolean(currentView?.historyWindow && ownsTurn && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
+				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning && ownsTurn;
 				useTavernUiExtensions();
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
 				const castLines = useTavernCast(props.sessionId, storyTurn, playView && settled);
@@ -13206,7 +13238,7 @@ function bindTavernFontZoom(node, win) {
 				const distantHeight = useTavernDistantFloor(historyNode, settled && !sessionTransitioning && storyTurn > 0 && latestProjectionTurn - storyTurn >= TAVERN_LIVE_FLOORS);
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
 				if (distantHeight > 0) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-distant-floor": true, style: { height: distantHeight + "px" } });
-				const mvuReceiptNode = settled ? React.createElement(TavernTurnMvuReceipt, { sessionId: props.sessionId, turn: storyTurn }) : null;
+				const mvuReceiptNode = settled && ownsTurn ? React.createElement(TavernTurnMvuReceipt, { sessionId: props.sessionId, turn: storyTurn }) : null;
 				const trailingIllustration = React.createElement(React.Fragment, null,
 					pluginText && pluginText.placed.has("scene-illustration") ? null : illustration,
 					extraPictures.map(function (picture) { return pluginText && pluginText.placed.has(picture.id) ? null : React.createElement(React.Fragment, { key: picture.id }, picture.node); }));
@@ -16129,9 +16161,13 @@ function bindTavernFontZoom(node, win) {
 			const h = React.createElement;
 			const [state, setState] = React.useState({ loading: true, busy: false, prompts: [], systemAppendEnabled: false, drafts: {}, error: "", notice: "" });
 			const importInput = React.useRef(null);
-			function accept(result, notice) {
+			function accept(result, notice, name) {
 				const value = result && result.systemPrompts || {};
-				setState({ loading: false, busy: false, prompts: Array.isArray(value.prompts) ? value.prompts : [], systemAppendEnabled: value.systemAppendEnabled === true, drafts: {}, error: "", notice: notice || "" });
+				setState(function (current) {
+                        const drafts = name ? Object.assign({}, current.drafts) : {};
+                        if (name) delete drafts[name];
+                        return { loading: false, busy: false, prompts: Array.isArray(value.prompts) ? value.prompts : [], systemAppendEnabled: value.systemAppendEnabled === true, drafts: drafts, error: "", notice: notice || "" };
+                    });
 			}
 			async function load() {
 				try { accept(await rpc("getSystemPrompts"), ""); }
@@ -16150,14 +16186,14 @@ function bindTavernFontZoom(node, win) {
 
 			async function save(item) {
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
-				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: draft(item) }), item.name === "system-append" && !state.systemAppendEnabled ? "内容已保存，开启开关后生效。" : "已保存，将从下一次相关调用开始生效。"); }
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: draft(item) }), item.name === "system-append" && !state.systemAppendEnabled ? "内容已保存，开启开关后生效。" : "已保存，将从下一次相关调用开始生效。", item.name); }
 				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
 			}
 			async function restore(item) {
 				if (!item.customized) { edit(item.name, String(item.text || "")); return; }
 				if (!await askConfirm("恢复“" + item.label + "”的系统默认内容？")) return;
 				setState(function (current) { return Object.assign({}, current, { busy: true, error: "", notice: "" }); });
-				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: null }), "已恢复该项默认内容。"); }
+				try { accept(await rpc("updateSystemPrompt", { name: item.name, text: null }), "已恢复该项默认内容。", item.name); }
 				catch (error) { setState(function (current) { return Object.assign({}, current, { busy: false, error: String(error && error.message || error) }); }); }
 			}
 			async function restoreAll() {
@@ -20345,7 +20381,7 @@ function bindTavernFontZoom(node, win) {
 		function apply(ctx) {
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
-			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions), "dsh-tavern: subagent catalog synchronization");
+			ctx.effect(() => syncTavernSubagentCatalogs(ctx.sessions, ctx.tavernSessionSignals), "dsh-tavern: subagent catalog synchronization");
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
 			const slots = ctx.slots;
 			if (slots === undefined) return;

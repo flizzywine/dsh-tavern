@@ -10,7 +10,7 @@ export async function sessionHarness(persistence, initial, overrides = {}) {
   const readChat = async id => { fullReads++; return persistence.read(id) }
   const registry = createTavernConversationRegistry({store:{
     readLinks:async()=>links, updateLinks:async fn=>{links=await fn(links)||links},
-    readIndex:async()=>({chats:[{id:initial.id}]}),writeIndex:async()=>{},
+    readIndex:async()=>({chats:[{id:initial.id}]}),async updateIndex(updater) { const next = await updater(await this.readIndex()); if (next !== undefined) await this.writeIndex(next); return next },writeIndex:async()=>{},
     readChat,readChatState:id=>persistence.readSessionState(id),writeChat:async()=>{},removeChat:async()=>{}
   }})
   const sync = (_id,view,_cursor,options)=>({view,revision:options.revision})

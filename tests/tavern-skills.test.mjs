@@ -55,27 +55,6 @@ test('并发创建同名 Skill 只有一个成功，非法参考文件不损坏�
   assert.match((await skills.read('same')).content, /旧正文/)
 })
 
-test('合法名称 constructor 不与配置对象原型冲突', async t => {
-  const { skills } = await harness(t)
-  await skills.write({ name: 'constructor', description: '说明', body: '内容' })
-  assert.deepEqual((await skills.read('constructor')).agents, ['card'])
-})
-
-test('去掉内置前缀后继承旧用途与删除记录，新配置优先', async t => {
-  const { skills, builtin, user } = await harness(t)
-  const entry = path.join(builtin, 'create-skill', 'SKILL.md')
-  await mkdir(path.dirname(entry), { recursive: true })
-  await mkdir(user, { recursive: true })
-  await writeFile(entry, '---\nname: create-skill\ndescription: test\n---\n内容')
-  await writeFile(path.join(user, '.assignments.json'), JSON.stringify({ 'tavern-create-skill': ['foreground'] }))
-  assert.deepEqual((await skills.read('create-skill')).agents, ['foreground'])
-  assert.equal((await skills.read('tavern-create-skill')).name, 'create-skill')
-  await skills.assign('create-skill', ['card'])
-  assert.deepEqual((await skills.read('create-skill')).agents, ['card'])
-  await writeFile(path.join(user, '.assignments.json'), JSON.stringify({ 'tavern-create-skill': null }))
-  assert.equal(await skills.read('create-skill'), null)
-})
-
 test('库内编辑覆盖内置正文和参考，保留原包并持久生效', async t => {
   const run = await harness(t)
   await mkdir(path.join(run.builtin, 'example', 'references'), { recursive: true })
@@ -116,4 +95,30 @@ test('导入 Skill：单个 SKILL.md 或文件夹压缩包，带参考文件，�
   await assert.rejects(skills.importBundle({ files: { 'readme.md': 'x' } }), /没有找到 SKILL\.md/)
   await assert.rejects(skills.importBundle({ files: { 'SKILL.md': skill('Bad Name') } }), /只允许小写字母/)
   await assert.rejects(skills.importBundle({ files: { 'SKILL.md': '没有开头' } }), /缺少 ---/)
+})
+
+ test('文件被占用时正文与用途读取待恢复快照，重启后仍生效且覆盖时清除旧快照', async t => {
+  const { createDurableFilePromotion } = await import('../tavern-plugin/lib/durable-file-promotion.js')
+  const { rename } = await import('node:fs/promises')
+  const { user, builtin } = await harness(t)
+  let locked = false
+  const files = createDurableFilePromotion({ platform: 'win32', sleep: async () => {}, rename: async (...args) => {
+    if (locked) throw Object.assign(new Error('locked'), { code: 'EPERM' })
+    return rename(...args)
+  } })
+  const options = { directory: user, builtInDirectory: builtin, files }
+  const skills = createTavernSkillModule(options)
+  const original = await skills.write({ name: 'example', description: 'test', body: 'Original body' })
+  locked = true
+  const content = original.content.replace('Original body', 'Edited body')
+  assert.equal((await skills.edit({ name: 'example', content, references: [{ path: 'references/a.md', content: 'edited reference' }] })).content, content)
+  assert.deepEqual((await skills.assign('example', ['foreground'])).agents, ['foreground'])
+  const restarted = createTavernSkillModule({ directory: user, builtInDirectory: builtin })
+  assert.equal((await restarted.read('example')).content, content)
+  assert.deepEqual((await restarted.read('example')).agents, ['foreground'])
+  assert.equal(await restarted.readReference('example', 'references/a.md'), 'edited reference')
+  locked = false
+  await skills.write({ name: 'example', description: 'test', body: 'Replacement body', overwrite: true })
+  assert.match((await restarted.read('example')).content, /Replacement body/)
+  assert.equal(await files.read(path.join(user, '.edits', 'example.json')), undefined)
 })

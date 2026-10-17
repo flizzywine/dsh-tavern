@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
-import { createSceneImageStyles, imageStyleSettings, applyImageStyle, composeSceneImagePrompt, imageStyleOverride } from '../tavern-plugin/lib/domain/scene-image-style.js'
+import { createSceneImageStyles, applyImageStyle, composeSceneImagePrompt, imageStyleOverride } from "../tavern-plugin/lib/domain/scene-image-style.js"
 import { applyImageAdjustment } from '../tavern-plugin/lib/domain/scene-image-adjustment.js'
 
 async function fixture(t) {
@@ -14,14 +14,6 @@ async function fixture(t) {
   return { root, store, styles: createSceneImageStyles({ store }) }
 }
 const plan = () => ({ id: 'facts', profile: 'mixed-a', prompt: 'black hair, white coat, sitting indoors', people: [], blocks: [{ id: 'scene', owner: 'scene', field: 'composition', text: '黑发白衣室内坐着', tags: 'black hair, white coat, sitting indoors' }] })
-
-test('style settings preserve original text and reject unknown/oversize configuration', () => {
-  assert.deepEqual(imageStyleSettings(), { preset: 'auto', custom: '' })
-  assert.equal(imageStyleSettings({ preset: 'custom', custom: '  低饱和\n水彩  ' }).custom, '  低饱和\n水彩  ')
-  for (const value of [null, [], { preset: 'unknown' }, { custom: 'x'.repeat(2001) }, { preset: 'ink', secret: 'key' }]) assert.throws(() => imageStyleSettings(value))
-  assert.deepEqual(imageStyleSettings({ preset: 'watercolor', custom: '低饱和' }), { preset: 'custom', custom: 'watercolor painting, translucent pigments, paper texture, 低饱和' }, 'a retired preset becomes a locked style')
-  assert.deepEqual(imageStyleSettings({ preset: 'default' }), { preset: 'auto', custom: '' })
-})
 
 test('changing global style replaces only style; image-local style remains isolated and is convertible', async t => {
   const fx = await fixture(t), original = plan(), frozen = structuredClone(original)
@@ -48,13 +40,4 @@ test('changing global style replaces only style; image-local style remains isola
   assert.equal(converted.styleOverride.profile, 'mixed-b')
   assert.match(composeSceneImagePrompt(converted), /analog film texture/)
   assert.throws(() => imageStyleOverride({ text: 'a', tags: '' }, 'mixed-a'), /同时置空/)
-})
-
-test('auto uses the picture\'s own written style; a locked style ignores it; an empty lock falls back to auto', async t => {
-  const fx = await fixture(t)
-  assert.equal((await fx.styles.resolve({ preset: 'auto', custom: '偏日系' }, 'mixed-a')).tags, '', 'the preference guides the Agent, it is not appended')
-  const written = await fx.styles.resolve({ preset: 'auto' }, 'mixed-a', { text: '国风', tags: 'Chinese ink illustration' })
-  assert.equal(written.tags, 'Chinese ink illustration')
-  assert.equal((await fx.styles.resolve({ preset: 'custom', custom: ' film grain ' }, 'mixed-a', { tags: 'ignored' })).tags, 'film grain')
-  assert.equal((await fx.styles.resolve({ preset: 'custom', custom: '  ' }, 'mixed-a', { tags: 'written' })).tags, 'written')
 })

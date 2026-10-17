@@ -282,6 +282,7 @@ export function createCandidateGenerator(options) {
     await waitUntilSettled(chat)
     chat = await store.readChat(chat.id)
     if (chat === undefined) throw new Error('聊天不存在')
+    const expectedTimeline = { branchId: str(chat.timeline?.branchId), revision: Number(chat.timeline?.revision) || 0 }
     const cardPath = str(chat.cardPath || chat.cardId)
     const card = await store.readCard(cardPath, chat)
     if (card === undefined) throw new Error('人物卡不存在: ' + cardPath)
@@ -302,7 +303,7 @@ export function createCandidateGenerator(options) {
     const constantWorldBookContext = preparedWorldbook !== undefined ? preparedWorldbook.context : typeof options.stableWorldBookContext === 'function'
       ? await options.stableWorldBookContext(chat, card) : ''
     const context = await planner.plan({ purpose: 'candidate', card, chat, task, scriptWindow, constantWorldBookContext })
-    taskRun = await tasks.begin(chat, 'candidate', { requestId, bindExistingSession: true, prepareCommit: input.prepareCommit })
+    taskRun = await tasks.begin(chat, 'candidate', { requestId, bindExistingSession: true, prepareCommit: input.prepareCommit, expectedTimeline })
     chat = taskRun.chat
     const duplicate = preparedValue()
     if (duplicate !== null) return duplicate

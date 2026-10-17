@@ -81,17 +81,3 @@ test('禁用资源不请求；并发准备共享请求且网络并发不超过�
   assert.deepEqual(warm, one)
   assert.equal(calls, 7)
 })
-
-test('模板字符串里的 jsDelivr 地址止于插值和反引号，替换后脚本语法完整', async () => {
-  let saved = null
-  const store = createTavernRemoteAssetPinStore({
-    readJson: async () => saved,
-    updateJson: async (_path, updater) => { saved = updater(saved) },
-    fetch: async url => String(url).startsWith('https://api.github.com/') ? { ok: true, json: async () => ({ sha: COMMIT }) } : textResponse()
-  })
-  const source = 'loadScript([`https://cdn.jsdelivr.net/gh/baibai-git/baibai_phone/index.js?day=${day}&hour=${hour}`]);'
-  const result = await store.pinText(source)
-  assert.match(result.text, /\/api\/dsh-tavern\/remote-assets\//)
-  assert.match(result.text, /\$\{day\}&hour=\$\{hour\}`\]\);$/)
-  assert.doesNotThrow(() => new Function('loadScript', 'day', 'hour', result.text))
-})

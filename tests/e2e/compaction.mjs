@@ -182,7 +182,9 @@ export async function compactionChecks({ page, step, savedChat, output, report, 
     })
   } else {
     await step(`${scenario} 自动压缩，确认前后台仍能完成当前轮`, async () => {
-      await control({ foregroundPadding: scenario === 'background' ? 0 : 1700, backgroundPadding: ['foreground', 'rounds'].includes(scenario) ? 0 : 4000 })
+      // The background scenario sits just under the window: its step size leaves room for the
+      // fixed background tool list (which grew with the dialogue annotation tool, 8e88b4fc).
+      await control({ foregroundPadding: scenario === 'background' ? 0 : 1700, backgroundPadding: ['foreground', 'rounds'].includes(scenario) ? 0 : scenario === 'background' ? 3900 : 4000 })
       const start = (await requests()).length
       for (let n = 0; n < 6; n++) {
         await play()

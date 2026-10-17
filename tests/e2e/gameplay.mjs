@@ -9,6 +9,7 @@ import { setupRealCardEdit, realCardEditChecks } from './real-card-edit.mjs'
 import { startSceneImageServer, sceneAddChecks } from './scene-add.mjs'
 import { regenAnomalyChecks, regenTemplateChecks } from './regen-anomalies.mjs'
 import { failedTurnCleanupChecks } from './failed-turn-cleanup.mjs'
+import { toolStepsChecks } from './tool-steps.mjs'
 import { storageAuditChecks } from './storage-audit.mjs'
 import { brokenSaveChecks } from './broken-save.mjs'
 import { nativeRepairChecks } from './native-repair.mjs'
@@ -310,7 +311,8 @@ try {
   if(process.argv.includes('--native-format'))await step('确认新局直接写入原生分页存档',assertNativeStorage)
   if (process.argv.includes('--text-colors')) {
     await step('实际正文挂载主题对白高亮', async () => {
-      await page.locator('.dsh-tavern-colored-markdown').waitFor()
+      // A trusted card's script layer keeps a hidden copy of the body beside the shown one.
+      await page.locator('.dsh-tavern-colored-markdown').filter({ visible: true }).first().waitFor()
       const state=await page.evaluate(()=>({api:typeof Highlight,css:typeof CSS.highlights,styles:document.querySelectorAll('style[data-dsh-tavern-text-colors]').length,ranges:[...CSS.highlights.values()].reduce((n,h)=>n+h.size,0)}))
       report.textColors=state
       assert.ok(state.styles>0,'正文必须挂载高亮样式')
@@ -468,6 +470,8 @@ try {
     await brokenSaveChecks({ page, step, savedChat, output, report, root, data, profile, source, restartServer })
   } else if (process.argv.includes('--regen-template')) {
     await regenTemplateChecks({ page, step, savedChat, output, report, root })
+  } else if (process.argv.includes('--tool-steps')) {
+    await toolStepsChecks({ page, step, savedChat, output, report })
   } else if (process.argv.includes('--failed-turn-cleanup')) {
     await failedTurnCleanupChecks({ page, step, savedChat, output, report })
   } else if (process.argv.includes('--regen-anomalies')) {
@@ -552,7 +556,7 @@ try {
     await page.route('**/api/dsh-tavern/getSession',route)
     try{
       await page.reload({waitUntil:'domcontentloaded'})
-      const button=page.getByRole('button',{name:'导出 ▾',exact:true})
+      const button=page.getByRole('button',{name:'导出',exact:true})
       await button.waitFor({timeout:5000})
       await button.click()
       await page.getByRole('menuitem',{name:'故事正文',exact:true}).waitFor({timeout:1000})

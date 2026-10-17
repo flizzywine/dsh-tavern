@@ -1,6 +1,6 @@
 // The header counts session summaries; its popup reads the lazy catalog.
 // Refresh an opened catalog when membership/activity changes in the summary feed.
-function syncTavernSubagentCatalogs(sessions) {
+function syncTavernSubagentCatalogs(sessions, signals) {
   if (!sessions || !sessions.list || typeof sessions.refreshSubagents !== 'function') return function () {};
   const signatures = new Map();
   let disposed = false;
@@ -30,7 +30,26 @@ function syncTavernSubagentCatalogs(sessions) {
       }).catch(function (error) { console.warn('[DSH Tavern] 子代理目录刷新失败', error); });
     }
   }
-  const stop = sessions.list.subscribe(reconcile);
+  // Tavern retires failed background workers. The host keeps a disposed subagent in the
+  // session list as an idle row; reloading the list drops it, as a page reload would.
+  let watched = null, unwatch = function () {}, refreshing = null, again = false;
+  // The host reuses a list pull already in flight, which may predate this retirement: pull again after it.
+  function refreshList() {
+    if (disposed || typeof sessions.refresh !== 'function') return;
+    if (refreshing) { again = true; return; }
+    again = false;
+    refreshing = Promise.resolve(sessions.refresh()).catch(function (error) { console.warn('[DSH Tavern] 会话列表刷新失败', error); })
+      .finally(function () { refreshing = null; if (again) refreshList(); });
+  }
+  function follow() {
+    const current = sessions.list.getSnapshot().current || null;
+    if (current === watched || !signals || typeof signals.subscribe !== 'function') return;
+    unwatch();
+    watched = current;
+    unwatch = current ? signals.subscribe(current, 'subagents', refreshList) : function () {};
+  }
+  const stop = sessions.list.subscribe(function () { reconcile(); follow(); });
   reconcile();
-  return function () { disposed = true; stop(); };
+  follow();
+  return function () { disposed = true; stop(); unwatch(); };
 }

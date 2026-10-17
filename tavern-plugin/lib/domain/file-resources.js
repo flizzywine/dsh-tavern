@@ -343,8 +343,8 @@ export function createFileResourceStore(options = {}) {
     return (bindings.$global?.sources || []).map(source => ({ kind: 'standalone', path: normalizeResourcePath(source.path, 'worldbook') }))
   }
 
-  // Global selections share the binding file with card bindings. Serialize all
-  // public mutations of that file so concurrent toggles cannot erase each other.
+  // Binding changes and resource rename/remove share this queue: serialize the
+  // complete read/check/write operation, including material bindings.
   let worldBookMutationTail = Promise.resolve()
   function serializeWorldBookMutation(work) {
     return (...args) => {
@@ -545,9 +545,24 @@ export function createFileResourceStore(options = {}) {
     return operation
   }
 
-  async function importCard(payload, card) {
+  let importCardTail = Promise.resolve()
+  function importCard(payload, card, options = {}) {
+    const operation = importCardTail.catch(() => {}).then(() => writeImportedCard(payload, card, options))
+    importCardTail = operation
+    return operation
+  }
+
+  async function writeImportedCard(payload, card, options) {
     await ensure()
-    const rawName = safeResourceName(payload && payload.name || '未命名人物卡.json')
+    let rawName = safeResourceName(payload && payload.name || '未命名人物卡.json')
+    if (options.unique) {
+      const parsed = path.parse(rawName)
+      for (let suffix = 1; ; suffix += 1) {
+        const candidate = 'cards/' + path.parse(rawName).name + '.json'
+        if (!await exists(absolute(candidate)) && await originalCardName(candidate) === null) break
+        rawName = parsed.name + ' (' + suffix + ')' + parsed.ext
+      }
+    }
     const workingName = path.parse(rawName).name + '.json'
     const relative = 'cards/' + workingName
     const originalName = payload && payload.kind === 'png' ? path.parse(rawName).name + '.png' : workingName
@@ -561,7 +576,7 @@ export function createFileResourceStore(options = {}) {
     return relative
   }
 
-  async function importText(kind, payload, cardPath) {
+  async function importText(kind, payload, cardPath, options = {}) {
     await ensure()
     if (kind !== 'source' && kind !== 'preset' && kind !== 'script') throw new Error('文本资源类型不合法: ' + kind)
     const text = str(payload && payload.text).replace(/\r\n?/g, '\n').trim()
@@ -572,7 +587,15 @@ export function createFileResourceStore(options = {}) {
       ? Buffer.from(payload.fileB64, 'base64')
       : (typeof (payload && payload.originalText) === 'string' ? payload.originalText : text)
     let relative
-    if (kind === 'source') relative = 'materials/' + name
+    if (kind === 'source') {
+      relative = 'materials/' + name
+      if (options.unique) {
+        const parsed = path.parse(name)
+        for (let suffix = 1; await exists(absolute(relative)) || await exists(absolute(relative, true)); suffix++) {
+          relative = 'materials/' + parsed.name + ' (' + suffix + ')' + parsed.ext
+        }
+      }
+    }
     else if (kind === 'preset') relative = 'presets/' + name
     else {
       const normalizedCard = normalizeResourcePath(cardPath, 'card')
@@ -583,6 +606,23 @@ export function createFileResourceStore(options = {}) {
     await writeNew(absolute(relative, true), originalData)
     try { await writeNew(absolute(relative), text) } catch (error) { await rm(absolute(relative, true), { force: true }); throw error }
     return relative
+  }
+
+  async function importBoundScript(cardPath, payload) {
+    const card = normalizeResourcePath(cardPath, 'card')
+    const name = extensionForText(payload?.name || '未命名剧本.txt')
+    const text = str(payload?.text).replace(/\r\n?/g, '\n').trim()
+    const existing = 'materials/' + name
+    const matches = await readText(existing) === text
+    const owners = matches ? await cardsForMaterial(existing) : []
+    if (matches && owners.every(owner => owner === card)) {
+      await bindMaterial(card, existing)
+      return existing
+    }
+    const imported = await importText('source', payload, undefined, { unique: true })
+    try { await bindMaterial(card, imported) }
+    catch (error) { await remove(imported); throw error }
+    return imported
   }
 
   async function importWorldBook(payload, working) {
@@ -989,5 +1029,5 @@ export function createFileResourceStore(options = {}) {
     return result
   }
 
-  return Object.freeze({ globalWorldBookSources, setGlobalWorldBook: serializeWorldBookMutation(setGlobalWorldBook), absolute, copyCard, bindMaterial, bindWorldBook: serializeWorldBookMutation(bindWorldBook), bindWorldBooks: serializeWorldBookMutation(bindWorldBooks), cardsForMaterial, cardImagePreview, ensure, ensureCardWorkspace, originalCardPayload: relative => originalCardPayload(normalizeResourcePath(relative, 'card')), hasCardImage, importCard, importText, importWorldBook, list, metadata, migrateLegacy, readCard, readCardImage, readText, remove: serializeWorldBookMutation(remove), rename: serializeWorldBookMutation(renameResource), replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial, unbindWorldBook: serializeWorldBookMutation(unbindWorldBook), worldBookBindingForCard, writeWorking })
+  return Object.freeze({ globalWorldBookSources, setGlobalWorldBook: serializeWorldBookMutation(setGlobalWorldBook), absolute, copyCard, bindMaterial: serializeWorldBookMutation(bindMaterial), bindWorldBook: serializeWorldBookMutation(bindWorldBook), bindWorldBooks: serializeWorldBookMutation(bindWorldBooks), cardsForMaterial, cardImagePreview, ensure, ensureCardWorkspace, originalCardPayload: relative => originalCardPayload(normalizeResourcePath(relative, 'card')), hasCardImage, importCard, importText: serializeWorldBookMutation(importText), importBoundScript: serializeWorldBookMutation(importBoundScript), importWorldBook, list, metadata, migrateLegacy, readCard, readCardImage, readText, remove: serializeWorldBookMutation(remove), rename: serializeWorldBookMutation(renameResource), replaceScript, restoreCard, scriptBindingsForCards, scriptForCard, unbindMaterial: serializeWorldBookMutation(unbindMaterial), unbindWorldBook: serializeWorldBookMutation(unbindWorldBook), worldBookBindingForCard, writeWorking })
 }

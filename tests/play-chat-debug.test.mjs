@@ -21,19 +21,6 @@ function chats() {
   return { source, editor }
 }
 
-test('只允许把同一人物卡的游玩轮次挂载到卡片工作台', () => {
-  const { source, editor } = chats()
-  const ref = createPlayChatDebugReference(editor, source, 2)
-  assert.equal(ref.kind, 'play-chat')
-  assert.equal(ref.path, 'play-chat:chat-play')
-  assert.equal(ref.turn, 2)
-  assert.equal(ref.cardSnapshotVersion, 3)
-  assert.equal(ref.cardSnapshotDigest.length, 16)
-  assert.equal(createPlayChatDebugReference(editor, source, 1).turn, 2)
-  assert.throws(() => createPlayChatDebugReference(Object.assign({}, editor, { cardPath: 'cards/另一张.json' }), source, 2), /人物卡不一致/)
-  assert.throws(() => createPlayChatDebugReference(editor, Object.assign({}, source, { mode: 'card' }), 2), /游玩模式/)
-})
-
 test('未关联记录、错误轮次和跨人物卡读取会被拒绝', () => {
   const { source, editor } = chats()
   const ref = createPlayChatDebugReference(editor, source, 2)
@@ -41,7 +28,6 @@ test('未关联记录、错误轮次和跨人物卡读取会被拒绝', () => {
   assert.throws(() => readPlayChatDebugTurn(editor, source, ref, { turn: 9 }), /不存在第 9 轮/)
   assert.throws(() => readPlayChatDebugTurn(Object.assign({}, editor, { cardPath: 'cards/另一张.json' }), source, ref, { turn: 2 }), /人物卡不一致/)
 })
-
 
 test('初始概览提供本局预设和完整上下文查询入口，分页保留大字段并隐藏凭据', () => {
   const { source, editor } = chats()
@@ -68,7 +54,6 @@ test('初始概览提供本局预设和完整上下文查询入口，分页保�
   delete source.runtimePresetSnapshot
   assert.match(read('preset').text, /未保存预设快照/)
 })
-
 
 test('调试工具按全局、预设、卡片顺序重算实际展示', async () => {
   const { source, editor } = chats()

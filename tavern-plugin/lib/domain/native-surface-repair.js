@@ -60,6 +60,19 @@ export function planNativeSurfaceRepair({ chat, events = [], nodes = [] }) {
   const rounds = chatRounds(chat)
   const checkpoint = nodes.findLastIndex(seq => isCompactionCheckpoint(bySeq.get(seq)))
   const resolve = createRoundAnchorResolver({ events, nodes })
+  const turnOfSeq = new Map(), ended = new Map()
+  let started = 0
+  for (const event of events) {
+    if (event?.type === 'turn/start') started = Number(event.data?.turn) || started
+    if (event?.type === 'turn/end') ended.set(Number(event.data?.turn), event.data?.reason?.kind || '')
+    turnOfSeq.set(event?.seq, started)
+  }
+  // The last native turn the compaction summary stands for: those rounds live only in the
+  // summary, so a repair must never write them back (an old save whose anchors no longer
+  // resolve would otherwise bring the summarized story back after the summary).
+  const covered = checkpoint < 0 ? 0 : Math.max(0, ...(at(checkpoint)?.sourceEventSeqs || []).map(seq => turnOfSeq.get(seq) || 0))
+  const nativeTurn = round => validAnchor(round.anchor) ? Number(round.anchor.turn) : round.turn
+  const summarizedRound = round => covered > 0 && !round.greeting && nativeTurn(round) <= covered
   let replies = null
   function replyByText(texts) {
     if (replies === null) {
@@ -92,15 +105,9 @@ export function planNativeSurfaceRepair({ chat, events = [], nodes = [] }) {
   // A failed, stopped or still running turn left on the surface is the failed-turn
   // replay's to clear or resend (CONTEXT.md, Failed Turn Replay); only a completed
   // turn the save does not have is residue.
-  const turnOfSeq = new Map(), ended = new Map()
-  let started = 0
-  for (const event of events) {
-    if (event?.type === 'turn/start') started = Number(event.data?.turn) || started
-    if (event?.type === 'turn/end') ended.set(Number(event.data?.turn), event.data?.reason?.kind || '')
-    turnOfSeq.set(event?.seq, started)
-  }
   const residue = seq => isStoryResidue(bySeq.get(seq)) && ended.get(turnOfSeq.get(seq)) === 'completed'
-  const plan = (status, keep, rewrite) => ({ status, keep, rounds: rewrite, checkpoint })
+  // Keeping every node and writing nothing is no repair at all.
+  const plan = (status, keep, rewrite) => ({ status: !rewrite.length && keep >= nodes.length ? 'intact' : status, keep, rounds: rewrite, checkpoint })
   for (let position = rounds.length - 1; position >= 0; position--) {
     const round = rounds[position]
     const found = locate(round)
@@ -111,10 +118,10 @@ export function planNativeSurfaceRepair({ chat, events = [], nodes = [] }) {
       if (!rewrite.length && !nodes.slice(index + 1).some(residue)) return plan('intact', nodes.length, [])
       return plan('tail', index + 1, rewrite)
     }
-    if (found.summarized) return plan('tail', checkpoint + 1, rounds.slice(position + 1))
+    if (found.summarized || summarizedRound(round)) return plan('tail', checkpoint + 1, rounds.slice(position + 1))
   }
   // Nothing after the last compaction matches: it kept the latest rounds verbatim.
-  if (checkpoint >= 0) return plan('tail', checkpoint + 1, rounds.filter(round => !round.greeting).slice(-RETAINED_STORY_ROUNDS))
+  if (checkpoint >= 0) return plan('tail', checkpoint + 1, rounds.filter(round => !round.greeting && !summarizedRound(round)).slice(-RETAINED_STORY_ROUNDS))
   let keep = 0
   while (keep < nodes.length && isPrefixNode(at(keep), openingId)) keep++
   return plan('full', keep, rounds)

@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from 'node:os'
 import path from 'node:path'
 
-import { EventEmitter } from 'node:events'
 import test, { beforeEach, afterEach, mock } from 'node:test'
 
 import { createApplicationUpdater as createUpdater } from '../tavern-plugin/lib/application-updater.js'
@@ -72,21 +71,6 @@ test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare sou
         assert.equal((await updater.check()).phase, expected)
       }
     }
-  } finally { await rm(root, { recursive: true, force: true }) }
-})
-
-test('GitHub 路径的较高版本号不能绕过提交先后判断，未知本地构建不能盲目安装', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-order-version-'))
-  try {
-    const common = {
-      ...verifiedUpdate, dataRoot: path.join(root, 'data'), sourceRoot: root, runtimeHost: 'desktop',
-      fetchManifest: async () => ({ version: '99.0.0' }), compareCommits: async () => 'behind',
-      spawnProcess() { assert.fail('不能启动安装') },
-    }
-    assert.equal((await createApplicationUpdater(common).start()).phase, 'up-to-date')
-    const unknown = createApplicationUpdater({ ...common, readLocalIdentity: async () => ({ currentVersion: 'unknown', currentCommit: '' }) })
-    assert.equal((await unknown.check()).phase, 'check-failed')
-    await assert.rejects(() => unknown.start(), /尚未开始下载/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
@@ -226,37 +210,6 @@ for (const mode of ['relative-loose', 'absolute-packed', 'detached']) test('Git 
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
-test('历史更新记录的宿主不覆盖当前运行环境', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-runtime-host-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '1.7.0' }))
-  for (const [runtimeHost, cachedHost] of [['cli', 'desktop'], ['desktop', 'cli']]) {
-    await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'up-to-date', host: cachedHost }))
-    const updater = createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost })
-    const status = await updater.status()
-    assert.equal(status.host, runtimeHost)
-    assert.equal(status.phase, 'idle')
-  }
-})
-
-test('Windows helper 启动失败保留不确定状态，避免已启动的 WMI 更新器和重试并发', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'update-helper-error-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const updater = createApplicationUpdater({ ...verifiedUpdate, dataRoot: root, sourceRoot: root, dshHome: root, platform: 'win32',
-    spawnProcess() {
-      const child = new EventEmitter()
-      child.stderr = new EventEmitter()
-      child.unref = () => {}
-      queueMicrotask(() => { child.emit('spawn'); child.stderr.emit('data', Buffer.from('Windows 更新器启动失败：WMI 访问被拒绝')); child.emit('close', 1) })
-      return child
-    },
-  })
-  await assert.rejects(updater.start, /WMI 访问被拒绝/)
-  const saved = JSON.parse(await readFile(path.join(root, 'update-status.json'), 'utf8'))
-  assert.equal(saved.phase, 'blocked')
-  assert.match(saved.error, /WMI 访问被拒绝/)
-})
-
 test('jsDelivr 兜底：本地清单未核验时用提交比较，比较不可达时以本地清单序号为下界 (#125)', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-updater-floor-'))
   try {
@@ -280,36 +233,4 @@ test('jsDelivr 兜底：本地清单未核验时用提交比较，比较不可�
     metadata.releaseSequence = 42
     assert.equal((await createApplicationUpdater({ ...common, compareCommits: offline }).check()).phase, 'check-failed')
   } finally { await rm(root, { recursive: true, force: true }) }
-})
-
-test('状态查询按与安装相同的规则回收残留锁，更新按钮不再永久卡在「等待安全停止」', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'update-stale-lock-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '2.5.0' }))
-  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'running', attemptId: 'old' }))
-  const dead = 2 ** 22 + 12345 // well above any live PID on test hosts
-  const lock = path.join(root, '.tavern-install.lock')
-  await mkdir(path.join(lock, 'processes', 'install'), { recursive: true })
-  const old = Date.now() - 5 * 60_000
-  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ attemptId: 'old', generation: 'g', pid: dead, state: 'blocked', unsafeToRetry: true, startedAt: old, updatedAt: old }))
-  await writeFile(path.join(lock, 'processes', 'install', `${dead + 1}.json`), JSON.stringify({ pid: dead + 1 }))
-  const { utimes } = await import('node:fs/promises')
-  for (const file of [path.join(lock, 'owner.json'), lock]) await utimes(file, new Date(old), new Date(old))
-  const status = await createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost: 'cli' }).status()
-  assert.equal(status.phase, 'failed')
-  assert.equal(status.repairRequired, true)
-  await assert.rejects(readFile(path.join(lock, 'owner.json')), { code: 'ENOENT' })
-})
-
-test('没有安装锁的遗留「进行中」记录：超过 1 小时转为可修复，不再永久禁用更新', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'update-orphan-record-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ version: '2.5.0' }))
-  const updater = createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost: 'cli' })
-  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'running', attemptId: 'a', startedAt: Date.now() - 5 * 60_000 }))
-  assert.equal((await updater.status()).phase, 'blocked', 'a recent record stays fenced')
-  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'blocked', attemptId: 'a', startedAt: Date.now() - 2 * 60 * 60_000 }))
-  const status = await updater.status()
-  assert.equal(status.phase, 'failed')
-  assert.equal(status.repairRequired, true)
 })

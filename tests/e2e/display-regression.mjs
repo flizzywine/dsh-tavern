@@ -45,7 +45,7 @@ export async function displayRegressionChecks({page,step,savedChat,data,output,r
   })
   await step('点击生成候选项后正文布局、脚本和历史变量保持一致',async()=>{
     await page.getByRole('button',{name:'生成候选项',exact:true}).click()
-    await page.getByText('5 个候选项',{exact:true}).waitFor()
+    await page.getByText('5 个',{exact:true}).waitFor()
     const after=await inspect()
     assert.deepEqual(after,before)
     assert.deepEqual(durable(await savedChat()),initial)

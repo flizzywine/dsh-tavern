@@ -73,7 +73,7 @@ async function mount(t, outcome) {
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }),
     }))
     modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-tavern-candidate-actions'], {
-      sessionId: 'game', useSession: select => select({ running: false }),
+      sessionId: 'game', useSession: select => select({ running: false }), useInput: select => select({ draft: '' }),
       useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-1' }] } }),
     }))
   })

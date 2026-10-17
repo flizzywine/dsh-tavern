@@ -95,33 +95,29 @@ export function swap(app) {
   const paths = stagedPaths(app)
   if (!existsSync(paths.staging)) throw new Error('缺少已准备的新版本：' + paths.staging)
   if (!existsSync(paths.app)) {
+    writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: true, moved: [] }) + '\n')
     rename(paths.staging, paths.app)
-    writeFileSync(path.join(paths.app, SWAP_RECORD), JSON.stringify({ fresh: true, moved: [] }) + '\n')
     return []
   }
   const moved = carriedEntries(paths.app, paths.staging)
-  rename(paths.app, paths.previous)
-  rename(paths.staging, paths.app)
-  // Record before moving anything: user files may still be in previous, so an
-  // interrupted swap must be rolled back, never cleaned up as a leftover copy.
-  const record = path.join(paths.app, SWAP_RECORD)
-  const done = []
-  writeFileSync(record, JSON.stringify({ fresh: false, moved: done }) + '\n')
+  // Persist the complete plan in staging before either rename. The record moves
+  // with the new app; every planned target is absent until its user file moves.
+  // Recovery can therefore inspect the paths instead of relying on a progress
+  // record written after a move (which could be interrupted).
+  writeFileSync(path.join(paths.staging, SWAP_RECORD), JSON.stringify({ fresh: false, moved }) + '\n')
   try {
+    rename(paths.app, paths.previous)
+    rename(paths.staging, paths.app)
     for (const relative of moved) {
       const target = path.join(paths.app, ...relative.split('/'))
       mkdirSync(path.dirname(target), { recursive: true })
       rename(path.join(paths.previous, ...relative.split('/')), target)
-      done.push(relative)
-      writeFileSync(record, JSON.stringify({ fresh: false, moved: done }) + '\n')
     }
-    writeFileSync(record, JSON.stringify({ fresh: false, moved: done }) + '\n')
   } catch (error) {
-    writeFileSync(record, JSON.stringify({ fresh: false, moved: done }) + '\n')
     rollback(paths.app)
     throw error
   }
-  return done
+  return moved
 }
 
 export function rollback(app) {

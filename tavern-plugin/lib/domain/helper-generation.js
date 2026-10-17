@@ -24,6 +24,19 @@ export async function generateHelper(config, context) {
   return generateHelperRaw({ ordered_prompts, custom_api: sampling }, context)
 }
 
+/**
+ * Tavern Helper's generateRaw treats ordered_prompts as optional: left out, it uses the
+ * default prompt order, the same request generate builds. Returns that generate config,
+ * or null when the caller gave an explicit order.
+ */
+export function defaultOrderedRawConfig(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null
+  if (Array.isArray(config.ordered_prompts) && config.ordered_prompts.length) return null
+  if (config.ordered_prompts !== undefined && config.ordered_prompts !== null && !Array.isArray(config.ordered_prompts)) return null
+  const { ordered_prompts: _ordered, ...rest } = config
+  return rest
+}
+
 /** Compile the explicitly ordered, text-only generateRaw contract without Session writes. */
 export async function generateHelperRaw(config, { callModel, sessionId = '', history = [] }) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('generateRaw 参数必须是对象')

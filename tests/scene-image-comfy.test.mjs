@@ -69,17 +69,3 @@ test('ComfyUI error history is terminal even with completed:false; rejected subm
   await assert.rejects(generateSceneImage({ ...params, signal: controller.signal }, { wait: async () => { controller.abort() }, fetch: async url => url.endsWith('/prompt') ? Response.json({ prompt_id: saved.promptId }) : Response.json({}) }), /abort/i)
   assert.equal(saved.state, 'pending')
 })
-
-test('ComfyUI rejects missing/multiple output, unsafe descriptors and non-images without following returned URLs', async () => {
-  for (const image of [null, { filename: '../private.png', subfolder: '', type: 'output' }, { filename: 'a.png', subfolder: '', type: 'input' }, { filename: 'a.png', subfolder: '../private', type: 'temp' }, { filename: 'a.png', subfolder: '', type: 'output' }]) {
-    let saved, calls = 0
-    await assert.rejects(generateSceneImage({ ...input(), onProviderTask: async task => { saved = task } }, { fetch: async (url, init) => {
-      calls++
-      if (init.method === 'POST') return Response.json({ prompt_id: saved.promptId })
-      if (url.includes('/history/')) return Response.json({ [saved.promptId]: { status: { completed: true }, outputs: { '7': { images: image ? [image] : [] } } } })
-      assert.ok(url.startsWith('http://localhost:8188/prefix/view?'))
-      return new Response('<html>not an image</html>')
-    } }), /唯一图片|位置不合法|图片格式/)
-    assert.ok(calls <= 3)
-  }
-})

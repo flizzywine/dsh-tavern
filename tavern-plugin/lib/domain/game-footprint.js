@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { readdir, readFile, rm, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readdir, readFile, rm } from 'node:fs/promises'
+import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import path from 'node:path'
 import { currentBackgroundSessionId, referencedBackgroundSessionIds } from './background-identity.js'
 
@@ -110,25 +111,31 @@ export function createGameFootprint({ dataRoot, sessionsRoot = path.join(path.di
   // DSH keeps a session it has opened loaded and would write it back if its files were
   // removed now. Such sessions are deleted on the next start, before anything loads them.
   const pendingPath = file('pending-session-deletions.json')
+  const pendingFiles = createDurableFilePromotion()
+  function pendingItems(raw) {
+    const value = raw ? JSON.parse(raw) : []
+    if (!Array.isArray(value)) throw new Error('延迟删除队列格式无效')
+    return value
+  }
   async function deferSessionDeletion(items) {
     if (!items.length) return
-    let pending = []
-    try { pending = JSON.parse(await readFile(pendingPath, 'utf8')) } catch {}
-    const next = [...new Set([...pending, ...items.map(item => path.resolve(item.path))])]
-    await mkdir(path.dirname(pendingPath), { recursive: true })
-    await writeFile(pendingPath + '.tmp', JSON.stringify(next))
-    await rename(pendingPath + '.tmp', pendingPath)
+    await pendingFiles.update(pendingPath, raw => JSON.stringify([
+      ...new Set([...pendingItems(raw), ...items.map(item => path.resolve(item.path))])
+    ]))
   }
   async function processDeferredDeletions() {
-    let pending
-    try { pending = JSON.parse(await readFile(pendingPath, 'utf8')) } catch { return 0 }
     let removed = 0
     const sessions = path.resolve(sessionsRoot) + path.sep
-    for (const target of Array.isArray(pending) ? pending : []) {
-      if (typeof target !== 'string' || !path.resolve(target).startsWith(sessions)) continue
-      try { await rm(path.resolve(target), { recursive: true, force: true }); removed++ } catch {}
-    }
-    await rm(pendingPath, { force: true })
+    await pendingFiles.update(pendingPath, async raw => {
+      const remaining = []
+      for (const target of pendingItems(raw)) {
+        if (typeof target !== 'string' || !path.resolve(target).startsWith(sessions)) continue
+        try { await rm(path.resolve(target), { recursive: true, force: true }); removed++ }
+        catch { remaining.push(target) }
+      }
+      // Keep failed deletions for the next start; enqueue and drain share one lock.
+      return raw === undefined ? undefined : JSON.stringify(remaining)
+    })
     return removed
   }
   return Object.freeze({ describe, removeLeftovers, readSceneFiles, readSceneWorldbook, deferSessionDeletion, processDeferredDeletions })

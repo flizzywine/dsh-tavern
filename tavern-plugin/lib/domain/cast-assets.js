@@ -43,6 +43,23 @@ export function createCastAssets({ store }) {
     return valid(value) ? value : empty()
   }
 
+  // Publish the manifest only after all images exist. Keeping the source until
+  // then makes a failed copy safe to retry through Resource Graph recovery.
+  async function movePath(from, to) {
+    if (!from || !to || from === to) return
+    const source = dirOf(from), target = dirOf(to)
+    const manifest = await store.readJson(source + '/cast.json')
+    if (!valid(manifest)) return
+    const files = new Set(manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]).filter(Boolean))
+    for (const file of files) {
+      const image = await readImage(hash(String(from)), file)
+      if (!image) throw new Error('人物素材图片不存在: ' + file)
+      await store.writeBytes(target + '/files/' + file, image.bytes)
+    }
+    await store.writeJson(target + '/cast.json', manifest)
+    await store.remove(source + '/cast.json')
+  }
+
   async function update(cardPath, change) {
     if (!cardPath) throw invalid('这一局没有绑定人物卡')
     let result
@@ -149,5 +166,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, setImage, removeImage, setCharacter, removeCharacter, importSpritePack, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, removeCharacter, importSpritePack, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

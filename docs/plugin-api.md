@@ -83,7 +83,7 @@ Tavern 向 DSH 注册了两个服务，插件用 DSH 自带的 `inject` 拿：
 
 | 服务名 | 在哪边 | 用来做什么 |
 |---|---|---|
-| `tavern` | 宿主（Node） | 监听轮次、读正文与设定、挂媒体、往正文请求和后台结算里加内容 |
+| `tavern` | 宿主（Node） | 监听轮次、读正文与设定、挂媒体、往正文请求和后台结算里加内容、读写人物卡库与 Skill |
 | `tavernUi` | 浏览器 | 自定义媒体的显示方式、正文标记、消息按钮、输入框按钮、侧栏面板、全屏界面、替玩家输入、人物卡列表的显示方式 |
 
 ```js
@@ -185,6 +185,20 @@ export function apply(ctx) {
 ### `getCardImage({ gameId })`（第 2 版）
 
 读这局人物卡的图片，返回 `{ url, mediaType }`，卡没有图片（例如 JSON 格式的卡）时返回 `null`。`url` 是酒馆页面里可以直接显示的地址（例如 `<img src>`），只读；读到的是人物卡库里这张卡当前的图片，卡从卡库删除后返回 `null`。浏览器侧经 `callHost` 让宿主侧调用即可。
+
+### `getCharacterDesigns({ gameId })`、`saveCharacterDesign({ gameId, name, ... })`（第 2 版）
+
+这一局的人物设计档案（酒馆状态里的「人物设计档案」）：正文、结算和插件读同一份，生图插件画人物时用它，文字和图片的人物设定就不会各说各的。
+
+```js
+const { characters } = await ctx.tavern.getCharacterDesigns({ gameId })
+// [{ name, aliases, identity, narrativeRole, updatedAt, sections: [{ key, label, text }] }]
+const look = characters.find(person => person.name === '林岚')?.sections.find(section => section.key === 'appearance')?.text
+```
+
+- `sections` 的 `key` 为 `identity`（身份）、`personality`（性格）、`appearance`（外貌）、`speechStyle`（说话方式）、`narrativeRole`（剧情作用），只列出有内容的项。还没有档案时 `characters` 为空数组。
+- `saveCharacterDesign` 新建或更新一个人物，规则和后台结算自己建档时相同：`name`、`identity`、`personality`、`appearance`、`speechStyle`、`narrativeRole` 都要写完整，`aliases` 可选；同名人物会被更新。保存后这个人物同步进本局世界书，后续正文和结算都会用到。适合生图插件根据参考图修订外貌后写回，让文字跟着同一份设定走。
+- 档案在后台结算时也会更新，需要最新内容时在 `onTurnSettled` 里重新读取。玩家在本局关闭了插件时，保存会被拒绝。
 
 ### `getHistory({ gameId, from, to })`（第 2 版）
 
@@ -469,6 +483,49 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 - `text` 是完整的新正文，请在 `rawText` 的基础上改；不要拿 `text` 字段去改，它去掉了 HTML 块，交回来会被拒绝。正文里的 HTML 块（状态栏、美化代码等）必须原样保留，只能改它们之间的文字，也不能在 HTML 块之间新增段落。
 - 改完后所有插件会再收到一次这一轮的 `onTurnSettled`（`textVersion` 是新的）。在 `onTurnSettled` 里改正文的插件，要先判断是不是已经改过，避免反复修改。
 
+## 人物卡库、改卡与 Skill（第 2 版）
+
+不进游戏也能用：卡片工作台类插件（调卡、批量装脚本、整理经验）靠这几个接口读写人物卡和 Skill，不用直接读写 Tavern 的数据目录。
+
+### `listCards()`
+
+人物卡库里的全部卡片：`[{ id, name, fileName, imageUrl, script, group, starred, error }]`。`id` 是其他人物卡接口要的参数；`imageUrl` 没有封面时为空字符串；`script` 是绑定的剧本 `{ title }` 或 `null`；`group` 未分组时为空字符串；`error` 是读取失败的原因。
+
+### `readCardRaw({ card })`
+
+一张卡的完整 JSON（Tavern 实际在玩的工作版），只读副本。结构就是 SillyTavern 人物卡：v2/v3 卡的扩展数据在 `data.extensions` 下，例如酒馆助手脚本在 `data.extensions.tavern_helper.scripts`。
+
+### `updateCardRaw({ card, operations })`
+
+用 JSON Pointer 改这张卡的工作版：
+
+```js
+const raw = await ctx.tavern.readCardRaw({ card: id })
+const scripts = [...(raw.data.extensions.tavern_helper?.scripts || []), myScript]
+await ctx.tavern.updateCardRaw({ card: id, operations: [{ op: 'set', path: '/data/extensions/tavern_helper/scripts', value: scripts }] })
+```
+
+- `operations` 1–200 项，每项 `{ op: 'set', path, value }` 或 `{ op: 'delete', path }`；`value` 是 JSON 值，最大 2 MB。返回 `{ changed }`。
+- 改的是工作版：导入时的原版保留，玩家随时可以在 Tavern 里恢复人物卡。
+- Tavern 不替插件检查卡的语义，写错了会直接影响游玩，请按 SillyTavern 人物卡结构写。
+
+### `toolModes({ name, modes })`
+
+插件用 DSH 的 `tools` 服务注册的工具，默认在游玩和卡片工作台的对话里都会出现。用这个接口限定它出现在哪：`modes` 取 `play`（游玩时写正文的请求）、`card`（卡片工作台），一项或两项。
+
+```js
+ctx.tavern.toolModes({ name: 'wrongbook_lookup', modes: ['card'] })  // 只给卡片工作台用
+```
+
+只能设置插件自己注册的工具；Tavern 自己的工具由 Tavern 决定。插件卸载时自动撤销。
+
+### `listSkills()`、`readSkill({ name })`、`saveSkill({ name, description, body, references?, overwrite? })`、`removeSkill({ name })`
+
+Tavern 的 Skill：`listSkills` 返回 `[{ name, source, description }]`，`source` 为 `builtin`（内置）或 `user`（玩家自己的）。`readSkill` 返回 `{ name, source, description, content, references }`，`references` 是 `[{ path, content }]`。
+
+- `saveSkill` 新建或覆盖玩家自己的 Skill：`body` 是 SKILL.md 正文，`references` 是完整的参考文件列表（`references/*.md`，最多 30 个，每个最多 10 万字），省略时保留原有参考文件。已存在时要传 `overwrite: true`。内置 Skill 不能覆盖，要改请新建一个自己的。
+- `removeSkill` 只能删玩家自己的 Skill。
+
 ## 本局插件面板
 
 「本局设置 → 高级 → 插件」列出本局用到的插件、各自用到了哪些阶段（观察、添加、替换），玩家可以按局关掉某个插件，选择由谁负责结算，开关和排序插件的结算任务，并查看最近的插件错误。被关掉的插件在这一局不再参与提示词、结算和通知（`onTurnSettled`、`onTimelineChanged`），它的结算工具调用会被拒绝；它已经挂上的媒体和存档数据保留。
@@ -708,4 +765,4 @@ Tavern 尽量开放接口，并保持每个接口简单、稳定；接口按插�
 | 版本 | 变化 |
 |---|---|
 | 1 | 首个版本。 |
-| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`、`worldbookEntries`；浏览器侧新增 `registerPanel`、`registerStartGroup`、`registerCardListView`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增 `getCard`、`getCardImage`、`getHistory`、`setVariables`、`editTurn`、`runTask`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。新增 `settlementTask`、`manualTask`、`startTask`：插件可以定义每轮结算前后运行的任务和玩家手动运行的任务。新增 `getTurnState`，`onTurnSettled`、`getTurn` 增加 `greeting`；浏览器侧新增 `getTurnState`、`watchTurnState`、`setInput`、`submitInput`、`openOverlay`、`assetUrl`（插件文件夹的 `assets/` 静态资源）。导出存档包含插件存档数据和媒体项，导入后照常可读。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |
+| 2 | 新增 `turnSection`、`worldbookSource`、`settlementSection`、`settlementTool`：插件可以往每轮正文请求和后台结算里添加内容。新增插件存档数据（`saveTurnData`、`readTurnData`、`saveGameData`、`readGameData`）与 `onTimelineChanged`；编辑正文后重新发 `onTurnSettled`；分叉时带上插件数据和媒体项。新增第一个替换类接口 `replaceSettlement`，以及本局插件面板（按局开关、选择结算由谁负责、错误记录）。新增 `candidateSection`、`compactionSection`、`worldbookEntries`；新增 `getCharacterDesigns`、`saveCharacterDesign`（人物设计档案）、`listCards`、`readCardRaw`、`updateCardRaw`、`toolModes` 与 Skill 读写（`listSkills`、`readSkill`、`saveSkill`、`removeSkill`）；浏览器侧新增 `registerPanel`、`registerStartGroup`、`registerCardListView`（`tavernUi.apiVersion` 为 2）。`onTurnSettled`、`getTurn` 增加只读的 `variables`。新增 `getCard`、`getCardImage`、`getHistory`、`setVariables`、`editTurn`、`runTask`。新增宿主侧 `handle` 与浏览器侧 `callHost`，插件的浏览器侧可以调用自己的宿主侧。新增 `settlementTask`、`manualTask`、`startTask`：插件可以定义每轮结算前后运行的任务和玩家手动运行的任务。新增 `getTurnState`，`onTurnSettled`、`getTurn` 增加 `greeting`；浏览器侧新增 `getTurnState`、`watchTurnState`、`setInput`、`submitInput`、`openOverlay`、`assetUrl`（插件文件夹的 `assets/` 静态资源）。导出存档包含插件存档数据和媒体项，导入后照常可读。插件可放进数据目录的 `plugins/` 文件夹加载。第 1 版接口不变。 |

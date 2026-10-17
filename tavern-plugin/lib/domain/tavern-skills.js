@@ -69,7 +69,7 @@ export function createTavernSkillModule(options = {}) {
   }
   async function assignments() {
     try {
-      const current = JSON.parse(await readFile(configPath, 'utf8'))
+      const current = JSON.parse((await files.read(configPath))?.toString('utf8') || '{}')
       for (const [name, value] of Object.entries(current)) {
         const canonical = canonicalTavernSkillName(name)
         if (canonical !== name && !Object.hasOwn(current, canonical)) current[canonical] = value
@@ -84,7 +84,7 @@ export function createTavernSkillModule(options = {}) {
 
   const editPath = name => path.join(directory, '.edits', normalizeTavernSkillName(name) + '.json')
   async function override(name) {
-    try { return JSON.parse(await readFile(editPath(name), 'utf8')) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+    try { return JSON.parse((await files.read(editPath(name)))?.toString('utf8') || 'null') } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   }
   async function edit(input) {
     const skill = await read(input.name)
@@ -169,7 +169,7 @@ export function createTavernSkillModule(options = {}) {
     if (moved) await rm(backup, { recursive: true, force: true })
     if (agents !== undefined) await files.update(configPath, raw => JSON.stringify({ ...(raw ? JSON.parse(raw) : {}), [name]: agents }))
 
-    await rm(editPath(name), { force: true })
+    await files.remove(editPath(name))
     return { name, source: 'user', path: destination, content, chars: content.length, overwritten: present }
   }
 
@@ -260,7 +260,7 @@ export function createTavernSkillModule(options = {}) {
       await files.update(configPath, raw => JSON.stringify({ ...(raw ? JSON.parse(raw) : {}), [skill.name]: null }))
       return
     }
-    await rm(editPath(skill.name), { force: true })
+    await files.remove(editPath(skill.name))
     await rm(path.dirname(skill.path), { recursive: true })
     await files.update(configPath, raw => { const data = raw ? JSON.parse(raw) : {}; delete data[skill.name]; return JSON.stringify(data) })
   }

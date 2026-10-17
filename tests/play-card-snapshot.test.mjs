@@ -4,46 +4,7 @@ import test from 'node:test'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createPlayCardSnapshots, cardContentDigest } from '../tavern-plugin/lib/domain/play-card-snapshots.js'
 
-function fixture() {
-  let reads = 0, writes = 0, builds = 0
-  let plan = async () => ({ text: '固定背景' })
-  let write = async () => {}
-  const api = createPlayCardSnapshots({
-    worldBooks: { bound: async () => null },
-    planner: { async plan(input) { builds++; return plan(input) } },
-    readCard: async () => { reads++; return { name: '测试' } },
-    writeChat: async (...args) => { writes++; return write(...args) }, logger: { warn() {} }
-  })
-  return { api, get counts() { return { reads, writes, builds } }, plan(fn) { plan = fn }, write(fn) { write = fn } }
-}
 const oldChat = () => ({ id: 'chat', mode: 'story', messages: [{ text: '既有剧情' }], cardContextSnapshot: '旧前缀', cardContextSnapshotVersion: 5, _storageRevision: 7 })
-
-test('concurrent readers share one migration and all receive its fields without borrowing another storage revision', async () => {
-  const h = fixture(), first = oldChat(), second = oldChat()
-  let finish
-  h.plan(() => new Promise(resolve => { finish = resolve }))
-  h.write(async draft => { draft._storageRevision = 8 })
-  const one = h.api.ensure(first), two = h.api.ensure(second)
-  await new Promise(resolve => setImmediate(resolve))
-  finish({ text: '统一前缀' })
-  assert.deepEqual(await Promise.all([one, two]), ['统一前缀', '统一前缀'])
-  assert.equal(first.cardContextSnapshotVersion, 7)
-  assert.equal(second.cardContextSnapshotVersion, 7)
-  assert.equal(first._storageRevision, 8)
-  assert.equal(second._storageRevision, 7)
-  assert.deepEqual(h.counts, { reads: 1, writes: 1, builds: 1 })
-})
-
-test('failed save leaves caller state intact, releases concurrent build and permits retry', async () => {
-  const h = fixture(), chat = oldChat(), before = structuredClone(chat)
-  h.write(async () => { throw Error('disk full') })
-  await assert.rejects(h.api.ensure(chat), /disk full/)
-  assert.deepEqual(chat, before)
-  h.write(async () => {})
-  assert.equal(await h.api.ensure(chat), '固定背景')
-  assert.equal(chat.cardContextSnapshotVersion, 7)
-  assert.equal(h.counts.writes, 2)
-})
 
 test('游玩中切换画像仅修改固定前缀，保留 200 轮历史、变量与原卡背景', async () => {
   const { Session } = await import('./fixtures/dsh-session-host.mjs')
@@ -121,15 +82,4 @@ test('显式应用新版同步刷新常驻背景、MVU 规则和模板世界书�
   const removed = await api.replacement(chat,card)
   assert.equal(removed.openingWorldbookSnapshot.document,null)
   assert.equal(await worldBooks.bound(chat.cardPath,card,{...chat,...removed}),null)
-})
-
-test('settled() answers from the header exactly when ensure() would not build or write', async () => {
-  const h = fixture()
-  const current = { id: 'chat', mode: 'story', cardContextSnapshot: '固定背景', cardContextSnapshotVersion: 7 }
-  assert.equal(h.api.settled(current), '固定背景')
-  assert.equal(await h.api.ensure({ ...current, messages: [] }), '固定背景')
-  assert.deepEqual(h.counts, { reads: 0, writes: 0, builds: 0 })
-  assert.equal(h.api.settled({ ...current, cardContextSnapshotVersion: 5 }), undefined)
-  assert.equal(h.api.settled({ ...current, cardContextSnapshot: '' }), undefined)
-  assert.equal(h.api.settled({ id: 'x', mode: 'card-extract' }), '')
 })

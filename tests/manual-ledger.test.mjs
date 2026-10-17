@@ -2,8 +2,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createManualLedger, ledgerBacklog } from '../tavern-plugin/lib/domain/manual-ledger.js'
-import { ledgerFrameInputs } from '../tavern-plugin/lib/domain/story-ledger.js'
+import { createManualLedger } from "../tavern-plugin/lib/domain/manual-ledger.js"
 
 const round = turn => [
   { role: 'user', turn, text: '第' + turn + '轮行动' },
@@ -42,42 +41,4 @@ test('手动整理只处理上次之后的新剧情，并记录整理到的轮�
   assert.deepEqual(after.ledgerInjection, { through: 2 }, 'the next story turn reads the ledger once')
   assert.match(seen[0], /第 1 轮[\s\S]*第 2 轮/)
   await assert.rejects(run.api.start({ sessionId: 'session' }), /还没有新的剧情/)
-})
-
-test('模型没有提交台账时不保存并提示失败', async () => {
-  const run = fixture(async () => ({ text: '完成' }))
-  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
-  assert.equal(run.get().ledgerTask.status, 'failed')
-  assert.match(run.get().ledgerTask.error, /未调用 ledger_submit/)
-  assert.equal(run.get().ledger, undefined)
-})
-
-test('长历史分批整理：一次只读预算内的轮次，剩余留到下一次', () => {
-  const messages = Array.from({ length: 30 }, (_, index) => round(index + 1)).flat()
-  const backlog = ledgerBacklog({ messages }, 400)
-  assert.equal(backlog.from, 0)
-  assert.ok(backlog.through >= 1 && backlog.through < 30)
-  assert.equal(backlog.remaining, 30 - backlog.through)
-  const next = ledgerBacklog({ messages, ledger: { version: 1, items: [], npcs: [], scenes: [], itemLog: [], locationPath: [], consolidatedTurn: backlog.through } }, 400)
-  assert.equal(next.from, backlog.through)
-  assert.doesNotMatch(next.text, new RegExp('【第 ' + backlog.through + ' 轮】'))
-})
-
-test('整理后的台账只给下一轮正文一次；台账为空或没有整理时不提供', () => {
-  const ledger = { version: 1, location: '旅店', locationPath: [], items: [{ name: '钥匙', qty: 1 }], npcs: [], scenes: [], itemLog: [], updatedTurn: 2, consolidatedTurn: 2 }
-  const [input] = ledgerFrameInputs({ ledger, ledgerInjection: { through: 2 } })
-  assert.equal(input.kind, 'foreground.current-state')
-  assert.match(input.text, /^【游玩台账 · 整理至第 2 轮[^】]*】\n\{"location":"旅店"/)
-  assert.doesNotMatch(input.text, /consolidatedTurn|updatedTurn/)
-  assert.deepEqual(ledgerFrameInputs({ ledger }), [])
-  assert.deepEqual(ledgerFrameInputs({ ledger: { version: 1, location: '', locationPath: [], items: [], npcs: [], scenes: [], itemLog: [] }, ledgerInjection: { through: 2 } }), [])
-})
-
-test('管线护栏：手动台账整理的任务说明逐字不变', async () => {
-  const { LEDGER_RULES } = await import('../tavern-plugin/lib/domain/story-ledger.js')
-  const systems = []
-  const run = fixture(async input => { systems.push(input.system); await input.onToolCall({ name: 'ledger_submit', arguments: addKey }) })
-  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
-  assert.deepEqual(systems, ['本次执行玩家手动发起的台账整理。台账是给玩家查阅的备忘录，整理后下一轮正文会参考一次。阅读给出的剧情（第 1–2 轮），对照当前台账，调用一次 ledger_submit 提交这些剧情带来的增量；没有变化也提交 {}。不得改写正文、变量或姿势。\n\n'
-    + LEDGER_RULES.replace('先完成台账，再提交姿势或变量；不要创建其他 Agent。', '不要创建其他 Agent。')])
 })

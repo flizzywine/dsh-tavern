@@ -440,8 +440,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     }
     assembly.sections = sections
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
+    // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
+    const group = mode === 'card' ? 'card' : 'play'
     assembly.tools = assembly.tools.filter(function (schema) {
-      return !options.controlledToolNames.has(schema.name) || visible.has(schema.name)
+      if (options.controlledToolNames.has(schema.name)) return visible.has(schema.name)
+      const modes = options.pluginToolModes ? options.pluginToolModes(schema.name) : null
+      return !modes || modes.includes(group)
     })
     // DSH may expose both editor generations; the legacy schema alone costs
     // ~800 tokens on every card-Agent step and duplicates read/edit/write.

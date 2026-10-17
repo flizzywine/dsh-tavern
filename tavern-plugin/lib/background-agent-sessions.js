@@ -295,6 +295,8 @@ export function createBackgroundAgentSessions(options, task) {
         void Promise.resolve().then(async () => {
           try { await options.flushSession?.(handle.agent.session) }
           finally { await handle.dispose() }
+          // Released: listings now leave it out, so the page may reload its session list.
+          if (persistent && input.task !== 'image') options.onRetired?.(traceSessionId, str(input.sessionId))
         }).catch(error => console.warn('dsh-tavern: 退休后台会话释放失败', traceSessionId, error))
       } else if (!persistent) {
         requestContexts.delete(traceSessionId)

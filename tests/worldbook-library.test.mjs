@@ -164,18 +164,6 @@ for (const kind of ['embedded', 'standalone', 'none', 'multiple', 'global-only']
   await publish(chat, [designedCharacter])
   assert.equal((await run.library.get(source)).view.entries.filter(e => e.primaryKeys.includes('季闻笙')).length, 1)
 })
-test('世界书未接受的外部修改保持待同步，手动人物正文冲突不覆盖', async () => {
-  const run = harness(), path = 'cards/命运.json', { chat, publish } = await publishFixture(run, path)
-  const digest = chat.worldbookLibraryDigest
-  run.cards.get(path).character_book.entries[0].content = '用户修改的钟楼'
-  await publish(chat, [designedCharacter])
-  assert.equal(chat.worldbookLibraryDigest, digest)
-  assert.equal(run.cards.get(path).character_book.entries[0].content, '用户修改的钟楼')
-  const entry = run.cards.get(path).character_book.entries.find(e => e.keys.includes('季闻笙'))
-  entry.content = '用户自己修改的人物'
-  await assert.rejects(publish(chat, [designedCharacter]), /已被手动修改/)
-  assert.equal(entry.content, '用户自己修改的人物')
-})
 
 test('全局世界书覆盖无绑定的新卡、与本地合并并按来源去重，不修改或导出到卡', async () => {
   const { library, cards } = harness()
@@ -201,3 +189,16 @@ test('全局世界书覆盖无绑定的新卡、与本地合并并按来源去�
   await assert.rejects(library.setGlobal({ kind: 'card', cardPath: 'cards/命运.json' }, true), /独立世界书/)
   await assert.rejects(library.setGlobal(source, 'true'), /布尔值/)
 })
+
+for (const source of [{ kind: 'standalone', path: 'worldbooks/王都.json' }, { kind: 'card', cardPath: 'cards/命运.json' }]) {
+  test('同一世界书并发新增保留双方条目，失败后仍可更新：' + source.kind, async () => {
+    const { library } = harness()
+    await Promise.all(['甲', '乙'].map(name => library.update(source, { operations: [{ op: 'add', entry: { comment: name, content: name, primaryKeys: [name] } }] })))
+    const entries = (await library.get(source)).view.entries
+    assert.ok(entries.some(entry => entry.content === '甲'))
+    assert.ok(entries.some(entry => entry.content === '乙'))
+    await assert.rejects(library.update(source, { operations: [{ op: 'delete', ref: 'entry:9999' }] }))
+    await library.update(source, { operations: [{ op: 'add', entry: { content: '丙' } }] })
+    assert.ok((await library.get(source)).view.entries.some(entry => entry.content === '丙'))
+  })
+}

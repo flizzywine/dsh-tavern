@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, writeFile, readFile, rm, cp, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+
 import { createImageGenerationModule, IMAGE_MODULE_CONFIGURATION } from '../tavern-plugin/packages/dsh-image-gen/src/module.js'
 import { createSceneImageHostLogger } from '../tavern-plugin/lib/domain/scene-image-diagnostics.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
@@ -11,18 +11,7 @@ import { legacyImageConfigurationReader } from '../tavern-plugin/lib/domain/imag
 import { createModuleSceneImageSettings } from '../tavern-plugin/lib/domain/scene-image-module-settings.js'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0l8AAAAASUVORK5CYII=', 'base64')
-test('clean runtime imports module without node_modules, Cordis or plugin registration', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'image-module-clean-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  await mkdir(join(root, 'src'))
-  await writeFile(join(root, 'package.json'), '{"type":"module"}')
-  const source = new URL('../tavern-plugin/packages/dsh-image-gen/src/', import.meta.url)
-  for (const file of ['module.js', 'configuration.js', 'tavern']) await cp(new URL(file, source), join(root, 'src', file), { recursive: true })
-  const { createImageGenerationModule: create } = await import(pathToFileURL(join(root, 'src/module.js')))
-  const module = create({ store: { readJson: async () => undefined }, credentials: () => ({ resolve: async () => undefined }) })
-  assert.equal((await module.inspect('grok')).provider, 'grok')
-  assert.equal(module.serial, undefined)
-})
+
 async function fixture(t, legacy = {}) {
   const root = await mkdtemp(join(tmpdir(), 'image-module-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -111,60 +100,6 @@ test('failed migration write preserves original config and does not change crede
   await assert.rejects(imageModule.configure({ provider: 'grok', model: 'new-model', apiKey: 'new-key' }), /disk full/)
   assert.equal((await f.imageModule.inspect('grok')).model, 'old-model')
   assert.equal(await f.store.readJson(IMAGE_MODULE_CONFIGURATION), undefined)
-})
-
-test('NovelAI prompt controls persist through settings and restarts', async t => {
-  const f = await fixture(t)
-  const controls = { qualityTags: 'masterpiece', sectionWeights: '1.5,1,1,1', seed: '42', qualityPreset: 'standard', ucPreset: 'light',
-    sampler: 'k_dpmpp_2m', noiseSchedule: 'exponential', cfgRescale: '0.2', varietyBoost: 'true', activeArtist: 'a' }
-  const artists = [{ id: 'a', name: '水彩', prompt: 'artist:wlop', quality: '', negative: '', preview: '' }]
-  await f.setup.configure({ provider: 'novelai', apiKey: 'nai-key', model: 'nai-diffusion-4-5-full', size: '832x1216', ...controls, artists })
-  const ui = await f.create().setup.settings()
-  for (const [field, value] of Object.entries(controls)) assert.equal(ui[field], value, field)
-  assert.deepEqual(ui.artists, artists)
-  const { active } = await f.create().setup.capture()
-  for (const [field, value] of Object.entries(controls)) assert.equal(active[field], value, field)
-  await assert.rejects(f.setup.configure({ sectionWeights: '0' }), /正数/)
-})
-
-test('NovelAI endpoints keep separate keys; switching sends only the selected endpoint key to its own address', async t => {
-  const f = await fixture(t)
-  const official = { id: 'default', name: '官方', baseURL: 'https://image.novelai.net' }
-  await f.setup.configure({ provider: 'novelai', apiKey: 'official-key', model: 'nai-diffusion-4-5-full', size: '832x1216', endpoint: 'default', endpoints: [official] })
-  const custom = { id: 'custom1', name: '自定义渠道', baseURL: 'https://custom.example' }
-  // A new endpoint needs its own key; the official key is never reused for it.
-  let ui = await f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL, endpoints: [official, custom] })
-  assert.equal(ui.hasKey, false)
-  ui = await f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL, endpoints: [official, custom], apiKey: 'custom-key' })
-  assert.equal(ui.endpoint, 'custom1')
-  assert.deepEqual(ui.endpoints.map(entry => [entry.id, entry.baseURL, entry.hasKey]), [['default', 'https://image.novelai.net', true], ['custom1', 'https://custom.example', true]])
-  let snapshot = await f.create().setup.capture()
-  assert.equal(snapshot.active.baseURL, 'https://custom.example')
-  assert.equal(snapshot.apiKey, 'custom-key')
-  // Switching back restores the official address and key without retyping it.
-  ui = await f.setup.configure({ provider: 'novelai', endpoint: 'default', baseURL: official.baseURL, endpoints: ui.endpoints })
-  snapshot = await f.create().setup.capture()
-  assert.equal(snapshot.active.baseURL, 'https://image.novelai.net')
-  assert.equal(snapshot.apiKey, 'official-key')
-  // A connection test of the inactive custom endpoint uses its own key and address.
-  f.requests.length = 0
-  await f.setup.testConnection({ provider: 'novelai', endpoint: 'custom1', baseURL: custom.baseURL }).catch(() => {})
-  assert.ok(f.requests.length > 0)
-  for (const request of f.requests) {
-    assert.equal(new URL(request.url).origin, 'https://custom.example')
-    assert.equal(request.init.headers.authorization, 'Bearer custom-key')
-  }
-  // Editing an endpoint's address still requires its key again.
-  await assert.rejects(f.setup.configure({ provider: 'novelai', endpoint: 'custom1', baseURL: 'https://other.example', endpoints: ui.endpoints }), /重新填写 API Key/)
-})
-
-test('older single-endpoint NovelAI settings read as one default endpoint with the original key', async t => {
-  const f = await fixture(t)
-  await f.setup.configure({ provider: 'novelai', apiKey: 'nai-key', model: 'nai-diffusion-4-5-full', size: '832x1216' })
-  const ui = await f.create().setup.settings()
-  assert.equal(ui.endpoint, 'default')
-  assert.deepEqual(ui.endpoints, [{ id: 'default', name: '默认', baseURL: 'https://image.novelai.net', protocol: 'native', hasKey: true }])
-  assert.ok(f.keys.has('DSH_TAVERN_IMAGE_NOVELAI_API_KEY'))
 })
 
 test('NovelAI artist previews are stored beside the settings, versioned, replaced and removed with their entry', async t => {

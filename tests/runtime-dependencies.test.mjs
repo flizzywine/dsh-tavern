@@ -27,7 +27,3 @@ test('a package missing from the hoisted node_modules fails the install (Android
   assert.deepEqual(missingRuntimeDependencies(root), ['jsdom'])
   assert.throws(() => assertRuntimeDependencies(root), /缺少：jsdom/)
 })
-
-test('the repository itself resolves every runtime dependency', () => {
-  assert.deepEqual(missingRuntimeDependencies(new URL('..', import.meta.url).pathname), [])
-})

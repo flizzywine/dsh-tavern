@@ -526,9 +526,9 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     if (target === null) throw new Error(replay.reason)
     // Read the card before spending a generation: a broken card must fail here,
     // not after the new turn has already committed.
-    const card = await readChatCard(chat)
     pendingReplays.add(chat.id)
     try {
+      const card = await readChatCard(chat)
       // 1) 移除被中断的内容：清掉失败回合留在原生消息面上的节点。清理钩子
       // 正常已在失败时执行过，此处重复调用对已清理的回合是无操作。
       const cleared = clearFailedTurnSurface({ session, turn: target.turn })

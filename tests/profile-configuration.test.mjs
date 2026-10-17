@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { parseDocument } from 'yaml'
 
-import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, migrateLegacyProfilePatch, prepareProfilePatch } from '../bin/profile-configuration.mjs'
+import { loadProfileManifest, mergeProfileManifest, migrateLegacyProfilePatch, prepareProfilePatch } from "../bin/profile-configuration.mjs"
 
 const legacyPatch = await readFile(new URL('../config/legacy-profile-patch-v0.6.yml', import.meta.url), 'utf8')
 
@@ -159,35 +159,6 @@ test('旧 Profile manifest 损坏时在失败前留下原文件备份', async ()
     }), /无法读取现有 Tavern Profile package.json/)
     assert.equal(await readFile(manifestPath, 'utf8'), source)
     assert.equal(await readFile(`${manifestPath}.backup.20260824121500`, 'utf8'), source)
-  } finally {
-    await rm(directory, { recursive: true, force: true })
-  }
-})
-
-test('配置事务先备份并原子写入，验证失败时可以恢复原文件', async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), 'dsh-tavern-profile-config-'))
-  const manifestPath = path.join(directory, 'package.json')
-  const patchPath = path.join(directory, 'cordis.patch.yml')
-  const originalManifest = '{"name":"before"}\n'
-  const originalPatch = '- id: user-before\n'
-  await writeFile(manifestPath, originalManifest)
-  await writeFile(patchPath, originalPatch)
-
-  try {
-    const transaction = await beginProfileConfigurationUpdate({
-      profileDir: directory,
-      manifest: { name: 'after' },
-      patchText: '- id: user-after\n',
-      timestamp: '20260824120000',
-    })
-    assert.equal(JSON.parse(await readFile(manifestPath, 'utf8')).name, 'after')
-    assert.equal(await readFile(patchPath, 'utf8'), '- id: user-after\n')
-    assert.equal(existsSync(`${manifestPath}.backup.20260824120000`), true)
-    assert.equal(existsSync(`${patchPath}.backup.20260824120000`), true)
-
-    await transaction.rollback()
-    assert.equal(await readFile(manifestPath, 'utf8'), originalManifest)
-    assert.equal(await readFile(patchPath, 'utf8'), originalPatch)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

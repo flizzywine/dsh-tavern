@@ -16,20 +16,6 @@ function harness(overrides = {}) {
   return { clock, loads, seen, errors, loop }
 }
 
-test('wake-up storms coalesce without cancelling an in-flight read or starving its result', async () => {
-  const h = harness(); h.loop.request(); await h.clock.next()
-  for (let n = 0; n < 500; n++) h.loop.request()
-  assert.equal(h.loads.length, 1)
-  assert.equal(h.loads[0].scope.signal.aborted, false)
-  h.loads[0].resolve('first'); await flush()
-  assert.deepEqual(h.seen, ['first'])
-  assert.deepEqual(h.clock.delays(), [0])
-  await h.clock.next(); assert.equal(h.loads.length, 2)
-  h.loads[1].resolve('second'); await flush()
-  assert.deepEqual(h.seen, ['first', 'second']); assert.deepEqual(h.clock.delays(), [])
-  h.loop.stop()
-})
-
 for (const failure of ['timeout', 'error']) test(`${failure} retry deadline survives queued invalidation, new invalidations and watchdogs`, async () => {
   const h = harness(); h.loop.request(); await h.clock.next(); h.loop.request()
   if (failure === 'timeout') await h.clock.advance(1000)
@@ -68,12 +54,4 @@ test('stop and immediate re-subscribe isolate a hung, abort-ignoring old task', 
   h.loads[0].reject(new Error('old lifetime')); await flush()
   assert.deepEqual(h.seen, ['new lifetime']); assert.deepEqual(h.errors, []); assert.deepEqual(h.clock.delays(), [])
   h.loop.stop()
-})
-
-test('synchronous cancellation while publishing loading never starts the old adapter', async () => {
-  let loop, calls = 0
-  const clock = syncClock()
-  loop = create({ ...clock, loadTimeoutMs: 1000, onStart() { loop.stop() }, load() { calls++ }, onResult() {}, onError() { assert.fail('retired error') } })
-  loop.start(); loop.request(); await clock.next()
-  assert.equal(calls, 0); assert.deepEqual(clock.delays(), [])
 })

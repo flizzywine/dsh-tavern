@@ -49,7 +49,7 @@ function sameSummary(left, right) {
  */
 export function createTavernConversationRegistry(options = {}) {
   const store = options.store || {}
-  for (const method of ['readLinks', 'updateLinks', 'readIndex', 'writeIndex', 'readChat', 'writeChat', 'removeChat']) {
+  for (const method of ['readLinks', 'updateLinks', 'readIndex', 'updateIndex', 'readChat', 'writeChat', 'removeChat']) {
     if (typeof store[method] !== 'function') throw new Error('Tavern Conversation Registry 缺少 store.' + method)
   }
 
@@ -136,10 +136,11 @@ export function createTavernConversationRegistry(options = {}) {
         })
         linked = true
       }
-      const index = await store.readIndex()
-      const rows = chatRows(index).filter(function (item) { return item.id !== chat.id })
-      rows.push(chatSummary(chat))
-      await store.writeIndex(Object.assign({}, index || {}, { chats: rows }))
+      await store.updateIndex(index => {
+        const rows = chatRows(index).filter(item => item.id !== chat.id)
+        rows.push(chatSummary(chat))
+        return { ...index, chats: rows }
+      })
       return chat
     } catch (error) {
       if (linked) {
@@ -157,14 +158,16 @@ export function createTavernConversationRegistry(options = {}) {
 
   async function sync(chat) {
     if (!chat || str(chat.id) === '') throw new Error('不能同步没有 id 的 Tavern Chat 摘要')
-    const index = await store.readIndex()
-    const rows = chatRows(index)
-    const current = rows.find(function (item) { return item && item.id === str(chat.id) })
-    const summary = chatSummary(chat, current && current.lastOpenedAt)
-    const previousIds = [...(current?.backgroundHistoryIds || []), current?.backgroundSessionId, ...referencedBackgroundSessionIds(chat)].filter(id => typeof id === 'string' && id && id !== summary.backgroundSessionId)
-    if (previousIds.length) summary.backgroundHistoryIds = [...new Set(previousIds)].slice(-200)
-    if (sameSummary(current, summary)) return summary
-    await store.writeIndex(Object.assign({}, index || {}, { chats: rows.filter(function (item) { return !item || item.id !== summary.id }).concat([summary]) }))
+    let summary
+    await store.updateIndex(index => {
+      const rows = chatRows(index)
+      const current = rows.find(item => item && item.id === str(chat.id))
+      summary = chatSummary(chat, current && current.lastOpenedAt)
+      const previousIds = [...(current?.backgroundHistoryIds || []), current?.backgroundSessionId, ...referencedBackgroundSessionIds(chat)].filter(id => typeof id === 'string' && id && id !== summary.backgroundSessionId)
+      if (previousIds.length) summary.backgroundHistoryIds = [...new Set(previousIds)].slice(-200)
+      if (sameSummary(current, summary)) return undefined
+      return { ...index, chats: rows.filter(item => !item || item.id !== summary.id).concat([summary]) }
+    })
     return summary
   }
 
@@ -197,25 +200,29 @@ export function createTavernConversationRegistry(options = {}) {
     const currentLinks = await links()
     const chatId = str(currentLinks[id])
     if (chatId === '') return { touched: false }
-    const index = await store.readIndex()
-    const rows = chatRows(index)
-    const position = rows.findIndex(function (item) { return item && str(item.id) === chatId })
-    if (position < 0) return { touched: false }
-    const stamp = Math.max(0, Number(openedAt) || 0)
-    const previous = Math.max(0, Number(rows[position].lastOpenedAt) || 0)
-    if (stamp <= previous) return { touched: false, lastOpenedAt: previous }
-    const nextRows = rows.slice()
-    nextRows[position] = Object.assign({}, rows[position], { lastOpenedAt: stamp })
-    await store.writeIndex(Object.assign({}, index || {}, { chats: nextRows }))
-    return { touched: true, lastOpenedAt: stamp }
+    let result = { touched: false }
+    await store.updateIndex(index => {
+      const rows = chatRows(index)
+      const position = rows.findIndex(item => item && str(item.id) === chatId)
+      if (position < 0) return undefined
+      const stamp = Math.max(0, Number(openedAt) || 0)
+      const previous = Math.max(0, Number(rows[position].lastOpenedAt) || 0)
+      if (stamp <= previous) { result.lastOpenedAt = previous; return undefined }
+      const nextRows = rows.slice()
+      nextRows[position] = { ...rows[position], lastOpenedAt: stamp }
+      result = { touched: true, lastOpenedAt: stamp }
+      return { ...index, chats: nextRows }
+    })
+    return result
   }
 
   async function remove(chatId) {
     const id = str(chatId)
     if (id === '') return { deleted: false }
-    const index = await store.readIndex()
-    const nextRows = chatRows(index).filter(function (item) { return item.id !== id })
-    if (nextRows.length !== chatRows(index).length) await store.writeIndex(Object.assign({}, index || {}, { chats: nextRows }))
+    await store.updateIndex(index => {
+      const nextRows = chatRows(index).filter(item => item.id !== id)
+      return nextRows.length === chatRows(index).length ? undefined : { ...index, chats: nextRows }
+    })
     await store.updateLinks(function (value) {
       const current = Object.assign({}, normalizeLinks(value))
       let changed = false

@@ -422,7 +422,7 @@ test('插件结算任务：结算前的在结算待办时运行，结算后的�
   h.sandbox.pluginApi.runSettlementTasks = async ({ gameId, phase, around }) => {
     const activity = h.tasks.activity(h.get())
     seen.push(phase + ':' + gameId + ':' + activity.role + ':' + activity.phase)
-    if (around) await around(async () => { const inside = h.tasks.activity(h.get()); seen.push('inside:' + inside.role + ':' + inside.busy) })
+    if (around) await around(async operationId => { const inside = h.tasks.activity(h.get()); assert.equal(operationId, inside.operationId); seen.push('inside:' + inside.role + ':' + inside.busy) })
   }
   const jobs = createSettlementJobs({ run: (...args) => h.sandbox.runSettlementCycle(...args), onSettled: () => {} })
   await jobs.start('chat')
@@ -444,7 +444,7 @@ test('手动插件任务：登记为独占的后台任务，跑完后关闭；�
   const calls = []
   h.sandbox.pluginSettlementProgress = { begin: () => () => {} }
   h.sandbox.pluginApi.manualTaskFor = async (gameId, key, input) => { calls.push([gameId, key, input]) }
-  h.sandbox.pluginApi.runManualTask = async () => { await new Promise(resolve => { release = resolve }); return true }
+  h.sandbox.pluginApi.runManualTask = async ({ operationId }) => { assert.equal(operationId, h.tasks.activity(h.get()).operationId); await new Promise(resolve => { release = resolve }); return true }
   assert.deepEqual(JSON.parse(JSON.stringify(await h.sandbox.startPluginTask('session', 'alpha:summary', '人物'))), { started: true })
   assert.deepEqual(calls, [['session', 'alpha:summary', '人物']])
   const busy = h.tasks.activity(h.get())

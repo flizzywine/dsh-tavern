@@ -99,6 +99,15 @@ export function createPresetEditor(options = {}) {
     throw new Error('Preset Editor 缺少路径或存储 adapter')
   }
 
+  const mutations = new Map()
+  function mutate(path, operation) {
+    const normalized = normalizePath(path, 'preset')
+    const previous = mutations.get(normalized) || Promise.resolve()
+    const pending = previous.catch(() => {}).then(() => operation(normalized))
+    mutations.set(normalized, pending)
+    return pending.finally(() => { if (mutations.get(normalized) === pending) mutations.delete(normalized) })
+  }
+
   async function load(path) {
     const normalized = normalizePath(path, 'preset')
     const text = await readText(normalized)
@@ -207,5 +216,10 @@ export function createPresetEditor(options = {}) {
     return await update(loaded.normalized, operations)
   }
 
-  return Object.freeze({ read, update, updateEntry, updateRegex, moveEntry })
+  return Object.freeze({ read,
+    update: (path, operations) => mutate(path, normalized => update(normalized, operations)),
+    updateEntry: (path, key, patch) => mutate(path, normalized => updateEntry(normalized, key, patch)),
+    updateRegex: (path, key, patch) => mutate(path, normalized => updateRegex(normalized, key, patch)),
+    moveEntry: (path, key, phase, beforeKey, revision) => mutate(path, normalized => moveEntry(normalized, key, phase, beforeKey, revision))
+  })
 }

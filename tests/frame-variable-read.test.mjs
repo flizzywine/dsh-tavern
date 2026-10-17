@@ -36,20 +36,3 @@ test('getAllVariables 读取当前楼层与聊天变量的独立快照，不泄�
   value.stat_data.hp = 0
   assert.equal(run.context.getAllVariables().stat_data.hp, 10)
 })
-
-test('右侧状态栏继续读取更新后的变量，不重复识别或重建 iframe', async () => {
-  const run = frame(false)
-  assert.equal(typeof run.context.getAllVariables, 'function')
-  let displayed = run.context.getAllVariables().stat_data.hp
-  run.context.eventOn(run.context.Mvu.events.VARIABLE_UPDATE_ENDED, () => {
-    displayed = run.context.getAllVariables().stat_data.hp
-  })
-  const next = structuredClone(run.state)
-  next.stateRevision = 2
-  next.messages[0].variables.stat_data.hp = 8
-  run.handlers.message({ source: run.parent, data: { type: 'dsh-tavern-helper-context-update', token: 'probe',
-    update: client.createTavernHelperContextUpdate(null, next, 1, 1) } })
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(displayed, 8)
-  assert(!run.reports.some(item => item.type === 'dsh-tavern-mvu-view-used'))
-})

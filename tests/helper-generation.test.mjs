@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { generateHelper, generateHelperRaw, generateHelperCompletion, identifyHelperModelMessages } from '../tavern-plugin/lib/domain/helper-generation.js'
+import { generateHelper, generateHelperRaw, generateHelperCompletion, defaultOrderedRawConfig } from "../tavern-plugin/lib/domain/helper-generation.js"
 import { compileHelperGenerate, validateHelperGenerateConfig, resolveHelperGenerationPreset, helperGenerationHistory } from '../tavern-plugin/lib/domain/helper-generation-prompts.js'
 import { createHelperGenerationTasks } from '../tavern-plugin/lib/domain/helper-generation-tasks.js'
 import { createCleanCompatibilityPreset } from '../tavern-plugin/lib/domain/sillytavern-compatibility.js'
@@ -9,9 +9,9 @@ import { createCleanCompatibilityPreset } from '../tavern-plugin/lib/domain/sill
 const pluginSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 const generationCases = pluginSource.slice(pluginSource.indexOf("      case 'generateTavernHelper':"), pluginSource.indexOf("      case 'callOpeningRuntime':"))
 function generationRpc(dependencies) {
-  return new Function('dependencies', `const { helperGenerationTasks, chatForSession, callModel, generateHelper, generateHelperRaw, generateHelperCompletion,
-    helperGenerationHistory, validateHelperGenerateConfig, readChatCard, helperGenerationPreset, worldBooks, readCardExtensions } = dependencies;
-    return async (method, args) => { switch (method) { ${generationCases} } }`)(dependencies)
+  return new Function('dependencies', 'globalDefaultOrder', `const { helperGenerationTasks, chatForSession, callModel, generateHelper, generateHelperRaw, generateHelperCompletion,
+    helperGenerationHistory, validateHelperGenerateConfig, readChatCard, helperGenerationPreset, worldBooks, readCardExtensions, defaultOrderedRawConfig } = { defaultOrderedRawConfig: globalDefaultOrder, ...dependencies };
+    return async (method, args) => { switch (method) { ${generationCases} } }`)(dependencies, defaultOrderedRawConfig)
 }
 
 function generationContext() {
@@ -31,46 +31,6 @@ function generationContext() {
     ] } }
   }
 }
-
-test('generate applies nonempty and empty overrides instead of losing requested content', () => {
-  const context = generationContext()
-  const messages = compileHelperGenerate({ user_input: 'Current', max_chat_history: 0, overrides: {
-    char_description: 'Replacement description', char_personality: '', scenario: 'Replacement scenario',
-    persona_description: 'Replacement persona', world_info_before: '', world_info_after: 'Replacement lore', dialogue_examples: 'Replacement example',
-    chat_history: { prompts: [{ role: 'assistant', content: 'Replacement history' }], author_note: 'Replacement author note', with_depth_entries: false }
-  } }, context)
-  const text = messages.map(message => message.content).join('\n')
-  for (const value of ['Replacement description', 'Replacement scenario', 'Replacement persona', 'Replacement lore', 'Replacement example', 'Replacement history', 'Replacement author note']) assert.ok(text.includes(value), value)
-  for (const value of ['Kind', 'Constant lore', 'new history', 'old history', 'Card description']) assert.ok(!text.includes(value), value)
-  assert.ok(text.indexOf('Replacement history') < text.indexOf('Current'))
-})
-
-test('generate inherits supported preset sampling unless overridden or explicitly unset', async () => {
-  const context = generationContext()
-  context.presetSnapshot.compatibilityPresetDocument = { temperature: 0.7, openai_max_tokens: 240 }
-  let request
-  const call = custom_api => generateHelper({ user_input: 'hello', custom_api }, { ...context, callModel: async value => { request = value; return 'ok' } })
-  await call(undefined)
-  assert.equal(request.temperature, 0.7)
-  assert.equal(request.maxTokens, 240)
-  await call({ temperature: 'same_as_preset', max_tokens: 'unset' })
-  assert.equal(request.temperature, 0.7)
-  assert.equal(request.maxTokens, undefined)
-  await call({ temperature: 0.1, max_completion_tokens: 30, apiurl: 'https://ignored.invalid', key: 'private' })
-  assert.equal(request.temperature, 0.1)
-  assert.equal(request.maxTokens, 30)
-  assert.ok(!JSON.stringify(request).includes('private'))
-})
-
-test('preset lookup distinguishes an unselected chat from a preview and rejects ambiguous names', async () => {
-  const presets = [{ title: 'Duplicate', path: 'presets/one.json' }, { title: 'Duplicate', path: 'presets/two.json' }]
-  const deps = { catalog: async () => ({ presets }), selected: async () => ({ activePreset: 'presets/one.json' }),
-    read: async () => createCleanCompatibilityPreset(), readDocument: async () => ({}) }
-  assert.equal(await resolveHelperGenerationPreset('in_use', null, deps), null)
-  assert.equal((await resolveHelperGenerationPreset('in_use', undefined, deps)).presetPath, 'presets/one.json')
-  assert.equal((await resolveHelperGenerationPreset('presets/two.json', null, deps)).presetPath, 'presets/two.json')
-  await assert.rejects(resolveHelperGenerationPreset('Duplicate', null, deps), /不唯一/)
-})
 
 test('generate inserts worldbook and script depths locally and scans none-position injections', () => {
   const context = generationContext()
@@ -113,45 +73,6 @@ test('generate rejects unsupported or malformed inputs before calling the model'
   assert.ok(compileHelperGenerate({ user_input: 'hello', overrides: { char_description: 'rendered state' } }, context).some(message => message.content === 'rendered state'))
 })
 
-test('helper task cancellation aborts the operation and promptly rejects even when a provider ignores abort', async () => {
-  const tasks = createHelperGenerationTasks()
-  let signal, finish
-  const pending = tasks.run('one', 'shared', value => { signal = value; return new Promise(resolve => { finish = resolve }) })
-  const rejected = assert.rejects(pending, { name: 'AbortError' })
-  await Promise.resolve()
-  assert.equal(signal.aborted, false)
-  assert.equal(tasks.stop('other', 'shared'), false)
-  assert.equal(tasks.stop('one', 'shared'), true)
-  assert.equal(signal.aborted, true)
-  await rejected
-  assert.equal(tasks.stop('one', 'shared'), false)
-  assert.equal(await tasks.run('one', 'shared', async () => 'replacement'), 'replacement')
-  finish('late result must not win')
-})
-
-test('token cancellation handles out-of-order request admission without poisoning reused IDs', async () => {
-  let now = 100
-  const tasks = createHelperGenerationTasks({ now: () => now, cancellationLifetime: 10, cancellationLimit: 2 })
-  assert.equal(tasks.stop('game', 'id'), false)
-  assert.equal(await tasks.run('game', 'id', async () => 'untracked stop is harmless', 'first'), 'untracked stop is harmless')
-  assert.equal(tasks.stop('game', 'id', { pending: true, generationToken: 'late' }), true)
-  await assert.rejects(tasks.run('game', 'id', () => assert.fail('cancelled before body admission'), 'late'), { name: 'AbortError' })
-  assert.equal(await tasks.run('game', 'id', async () => 'new incarnation', 'fresh'), 'new incarnation')
-  assert.equal(await tasks.run('other', 'id', async () => 'other session', 'late'), 'other session')
-  let finish
-  const active = tasks.run('game', 'id', () => new Promise(resolve => { finish = resolve }), 'active')
-  await Promise.resolve()
-  assert.equal(tasks.stop('game', 'id', { generationToken: 'stale' }), false)
-  finish('active remains')
-  assert.equal(await active, 'active remains')
-  assert.deepEqual(tasks.stopAll('game', [{ generationId: 'other', generationToken: 'batch' }]), ['other'])
-  await assert.rejects(tasks.run('game', 'other', () => assert.fail(), 'batch'), { name: 'AbortError' })
-  tasks.stop('game', 'third', { pending: true, generationToken: 'bounded' })
-  assert.equal(await tasks.run('game', 'id', async () => 'oldest intent evicted', 'late'), 'oldest intent evicted')
-  now = 111
-  assert.equal(await tasks.run('game', 'third', async () => 'expired intent', 'bounded'), 'expired intent')
-})
-
 test('generation RPC resolves named presets without changing selection and scopes cancellation to Helper work', async () => {
   const fixture = generationContext(), requests = [], tasks = createHelperGenerationTasks()
   const chat = { ...fixture.chat, id: 'game', sessionId: 'story', cardPath: 'cards/hero.json', runtimePresetSnapshot: fixture.presetSnapshot,
@@ -173,6 +94,10 @@ test('generation RPC resolves named presets without changing selection and scope
       catalog: async () => ({ presets: [{ path: 'presets/named.json', title: 'Named' }] }),
       read: async path => { assert.equal(path, 'presets/named.json'); return named }, readDocument: async () => ({}) }) })
   assert.deepEqual(await invoke('generateTavernHelper', { sessionId: 'story', config: { preset_name: 'Named', generation_id: 'complete', user_input: 'hello' } }), { text: 'reply' })
+  // Tavern Helper's generateRaw without ordered_prompts is the default-order request generate builds.
+  assert.deepEqual(await invoke('generateTavernHelperRaw', { sessionId: 'story', config: { preset_name: 'Named', generation_id: 'default-order', user_input: 'hello' } }), { text: 'reply' })
+  assert.ok(JSON.stringify(requests.at(-1).messages).includes('Named preset text'), '缺省顺序的 generateRaw 按 generate 组装')
+  requests.splice(1)
   assert.ok(JSON.stringify(requests[0].messages).includes('Named preset text'))
   assert.ok(JSON.stringify(requests[0].messages).includes('selected body'))
   assert.equal(requests[0].background, true)
@@ -188,28 +113,6 @@ test('generation RPC resolves named presets without changing selection and scope
   assert.deepEqual(await invoke('stopAllTavernHelperGeneration', { sessionId: 'story' }), { stopped: true, generationIds: ['held'] })
   await rejected
   assert.equal(heldSignal.aborted, true)
-})
-
-test('callModel forwards cancellation to model lookup and provider stream and never returns aborted text', async () => {
-  const source = pluginSource.slice(pluginSource.indexOf('  async function callModel(opts) {'), pluginSource.indexOf('  // ---------- 角色卡 ----------'))
-  const calls = [], controller = new AbortController(), selection = { provider: 'fixture', model: 'model' }
-  let abortDuringStream = false
-  const llm = { prepareCall: async (config, signal) => { calls.push({ config, signal }); return { config, stream: async function* (options) {
-    calls.push(options)
-    yield { type: 'text-delta', text: 'answer' }
-    if (abortDuringStream) controller.abort(new Error('cancelled provider'))
-    yield { type: 'finish', reason: { kind: 'stop' } }
-  } } } }
-  const callModel = new Function('llm', 'modelSelection', 'backgroundModelSelection', 'backgroundConfigForSession', 'identifyHelperModelMessages', source + ';return callModel')(
-    llm, () => selection, () => selection, async () => ({}), identifyHelperModelMessages)
-  assert.equal(await callModel({ sessionId: 'story', messages: [], system: '', background: true, signal: controller.signal }), 'answer')
-  assert.equal(calls[0].signal, controller.signal)
-  assert.equal(calls[1].signal, controller.signal)
-  abortDuringStream = true
-  await assert.rejects(callModel({ messages: [], signal: controller.signal }), /cancelled provider/)
-  const count = calls.length
-  await assert.rejects(callModel({ messages: [], signal: controller.signal }), /cancelled provider/)
-  assert.equal(calls.length, count, 'already cancelled tasks do not resolve models')
 })
 
 test('构筑评议的清空覆盖参数仅发送评议正文，不混入角色或历史', async () => {

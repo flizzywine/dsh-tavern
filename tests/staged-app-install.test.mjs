@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { prepare, swap, rollback, commit, stagedPaths } from '../bin/staged-app-install.mjs'
 
 function write(root, relative, text = relative) {
@@ -68,41 +69,6 @@ test('全新安装失败回滚后不留下半成品目录', t => {
   assert.equal(existsSync(app), false)
 })
 
-test('上次在切换中途被强制结束：下次安装先恢复可用的原版本', t => {
-  const { app, source } = fixture(t)
-  installV1(app, source)
-  const paths = stagedPaths(app)
-  // Killed right after renaming the app away, before the new one moved in.
-  release(source('v2'), 'v2', ['package.json'])
-  prepare({ app, source: source('v2') })
-  rmSync(paths.previous, { recursive: true, force: true })
-  renameSync(app, paths.previous)
-  assert.equal(existsSync(app), false)
-  release(source('v3'), 'v3', ['package.json', 'bin/dsh-tavern.mjs'])
-  prepare({ app, source: source('v3') })
-  assert.equal(read(app, 'bin/dsh-tavern.mjs'), 'v1:bin/dsh-tavern.mjs', '恢复原版本后才开始新的准备')
-  assert.equal(existsSync(paths.previous), false)
-  swap(app)
-  assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}')
-})
-
-test('切换中途（两次改名之后、搬运用户文件之前）被强制结束：恢复时不会删掉仍在旧目录里的用户数据', t => {
-  const { app, source } = fixture(t)
-  installV1(app, source)
-  const paths = stagedPaths(app)
-  release(source('v2'), 'v2', ['package.json', 'bin/dsh-tavern.mjs'])
-  prepare({ app, source: source('v2') })
-  // Simulate the swap being killed right after the record is written.
-  renameSync(app, paths.previous)
-  renameSync(paths.staging, app)
-  writeFileSync(path.join(app, '.dsh-tavern-swap.json'), JSON.stringify({ fresh: false, moved: [] }) + '\n')
-  release(source('v3'), 'v3', ['package.json'])
-  prepare({ app, source: source('v3') })
-  assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}', '原版本连同用户数据一起恢复')
-  assert.equal(read(app, 'bin/dsh-tavern.mjs'), 'v1:bin/dsh-tavern.mjs')
-  assert.equal(existsSync(paths.previous), false)
-})
-
 test('提交删除旧目录后、清除记录前中断：回滚识别为已提交，不报错也不改动新版本', t => {
   const { app, source } = fixture(t)
   installV1(app, source)
@@ -115,3 +81,42 @@ test('提交删除旧目录后、清除记录前中断：回滚识别为已提�
   assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}')
   assert.equal(existsSync(path.join(app, '.dsh-tavern-swap.json')), false)
 })
+
+for (const boundary of ['old-app', 'new-app', 'user-data', 'nested-user-file']) {
+  test('切换在实际 rename 后中断仍完整恢复：' + boundary, t => {
+    const { app, source } = fixture(t)
+    installV1(app, source)
+    const before = tree(app).map(file => [file, read(app, file)])
+    release(source('v2'), 'v2', ['package.json', 'bin/dsh-tavern.mjs'])
+    prepare({ app, source: source('v2') })
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs'
+      import { syncBuiltinESMExports } from 'node:module'
+      import path from 'node:path'
+      const app = ${JSON.stringify(app)}, boundary = ${JSON.stringify(boundary)}
+      const original = fs.renameSync
+      fs.renameSync = (from, to) => {
+        original(from, to)
+        const target = {
+          'old-app': app,
+          'new-app': app + '.staging',
+          'user-data': path.join(app + '.previous', 'data'),
+          'nested-user-file': path.join(app + '.previous', 'tavern-plugin/lib/user-note.txt')
+        }[boundary]
+        if (from === target) process.exit(86)
+      }
+      syncBuiltinESMExports()
+      const { swap } = await import(${JSON.stringify(new URL('../bin/staged-app-install.mjs', import.meta.url).href)})
+      swap(app)
+    `], { encoding: 'utf8' })
+    assert.equal(result.status, 86, result.stderr)
+    prepare({ app, source: source('v2') })
+    assert.deepEqual(tree(app).map(file => [file, read(app, file)]), before)
+    // A second recovery and a successful update must retain the same data too.
+    prepare({ app, source: source('v2') })
+    swap(app)
+    commit(app)
+    assert.equal(read(app, 'data/chats/one.json'), '{"chat":1}')
+    assert.equal(read(app, 'tavern-plugin/lib/user-note.txt'), '用户自己的文件')
+  })
+}

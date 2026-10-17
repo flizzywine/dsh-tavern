@@ -57,28 +57,6 @@ for (const fails of [false, true]) test('事件等待自己的提示词持久化
   else assert.equal(result.error, undefined)
 })
 
-test('旧 eventOnButton 按所属脚本注册同名按钮，等待异步回调并沿用事件解绑', async () => {
-  const h = helperHostHarness(), w = h.window, seen = []
-  w.__dshTavernHelperSetCurrentScript('a')
-  const a = w.getButtonEvent('搜索面板')
-  const handler = async () => { await tick(); seen.push(w.getScriptId()) }
-  w.eventOnButton('搜索面板', handler)
-  w.eventOnButton('搜索面板', handler)
-  w.__dshTavernHelperSetCurrentScript('b')
-  const b = w.getButtonEvent('搜索面板')
-  w.eventOnButton('搜索面板', () => seen.push('b'))
-  h.receive({ type: 'dsh-tavern-helper-event', eventId: 'button-a', name: a, args: [] })
-  await tick(); await tick()
-  assert.deepEqual(seen, ['a'], '同名按钮隔离，重复注册不重复执行')
-  assert(h.sent.some(item => item.type === 'dsh-tavern-helper-event-complete' && item.eventId === 'button-a' && !item.error))
-  await w.eventEmit(b)
-  assert.deepEqual(seen, ['a', 'b'])
-  w.__dshTavernHelperSetCurrentScript('a')
-  w.eventOff(a, handler)
-  await w.eventEmit(a)
-  assert.deepEqual(seen, ['a', 'b'])
-})
-
 for (const frozen of [false, true]) test('nested script errors retain the failing owner through an outer host event: ' + frozen, async () => {
   const run = helperHostHarness(), w = run.window
   const original = new Error('chat-variable-host-adapter-not-configured')

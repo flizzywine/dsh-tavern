@@ -10,6 +10,10 @@ import { encodeMigratedSessionLog, encodeCurrentGeneration, parseSessionLog } fr
 // compatibility context can be hundreds of MB and preview formatting dominates
 // the very performance this probe measures. Still inspect the real status DOM.
 async function statusFrame(page) {
+  // The right panel no longer opens by itself when a game opens (#213): open 酒馆状态 when it is not shown.
+  if (!await page.evaluate(() => Boolean(document.querySelector('.dsh-tavern-status-runtime')))) {
+    await page.getByRole('button', { name: '酒馆状态', exact: true }).filter({ visible: true }).first().click()
+  }
   const handle = await page.waitForFunction(() => document.querySelector('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])'), null, {timeout:120000})
   const frame = await handle.asElement().contentFrame(); await handle.dispose()
   assert.ok(frame, 'the mounted status frame must exist')
@@ -82,13 +86,17 @@ export async function settlementPerformanceChecks({ page, step, savedChat, outpu
         if (turn > 1) {
           next.messages.push({ ...structuredClone(user), turn, text: userBody(turn), sourceText: userBody(turn) })
           event('user/message', { id: 'perf-u-' + turn, role: 'user', content: [{ type: 'text', text: userBody(turn) }], source: { kind: 'user' } }, 'append')
-          const message = { ...structuredClone(assistant), turn, text: body, sourceText: body, swipes: [body], variables: [structuredClone(state)] }
+          // Each round anchors its own native input and reply, as a played save does.
+          const message = { ...structuredClone(assistant), turn, text: body, sourceText: body, swipes: [body], variables: [structuredClone(state)], nativeAnchor: { turn, input: rows.length - 1, reply: rows.length } }
           message.mvuBaseline = { swipeId: 0, variables: structuredClone(state) }
           next.messages.push(message)
         }
         event('assistant/message', { turn, step: 1, message: { id: 'perf-a-' + turn, role: 'assistant', content: [{ type: 'text', text: turn === 1 ? greeting.text : body }], source: { kind: 'model', provider: 'tavern-e2e', model: 'fixed' } } }, 'append')
         event('step/end', { turn, step: 1 }); event('turn/end', { turn, reason: { kind: 'completed' } })
       }
+      // Tavern records the native turn of every committed round (the latest 40); without them the
+      // reconciler would take the synthetic rounds for rounds the save missed and append them again.
+      next.nativeCommits = Object.fromEntries(Array.from({ length: Math.min(40, rounds - 1) }, (_, index) => rounds - index).map(turn => [String(turn), { turn, committedAt: 1 }]))
       size = { rounds, bodyRepeats, historyReady, messages: next.messages.length, variableFields: fields + 1, bytes: Buffer.byteLength(JSON.stringify(next)), snapshotBytes: Buffer.byteLength(JSON.stringify(state)) }
       report.settlementPerformance.size = size
       const estimate = value => {

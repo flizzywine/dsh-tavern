@@ -143,6 +143,12 @@ export function createBackgroundTaskCoordinator(options = {}) {
             }
           }
         }
+        // Preparation may await resource/context reads. Validate against the same
+        // snapshot before creating an operation, including after a failed patch CAS.
+        if (input.expectedTimeline && (str(source.timeline?.branchId) !== input.expectedTimeline.branchId
+          || (Number(source.timeline?.revision) || 0) !== input.expectedTimeline.revision)) {
+          throw new Error('剧情已变化，请重新生成候选项')
+        }
         const currentActivity = activity(source)
         const expectedPending = currentActivity.phase === 'pending' && currentActivity.role === requestedRole
         const conflictingPending = currentActivity.phase === 'pending' && currentActivity.role !== requestedRole

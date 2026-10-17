@@ -86,6 +86,24 @@ export function apply(ctx) {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
+      // Tool round trips before the story (#222): two steps that only think and read variables, then the text.
+      // This round so far: everything after the last reply that was not a tool step.
+      const sinceUser = input.messages.slice(input.messages.findLastIndex(message => message.role === 'assistant' && !(message.content || []).some(block => block.type === 'tool-call')) + 1)
+      if (tools.has('tavern_read_variables') && JSON.stringify(sinceUser).includes('E2E_TOOL_STEPS')) {
+        const since = sinceUser
+        const reads = since.flatMap(message => message.content || []).filter(block => block.type === 'tool-result' && String(block.toolCallId).startsWith('e2e-read-')).length
+        if (reads < 2) {
+          const block = { type: 'tool-call', id: 'e2e-read-' + reads + '-' + Date.now(), name: 'tavern_read_variables', arguments: JSON.stringify({ action: 'list' }) }
+          // Reasoning models think before each call, so the step has an Assistant node of its own.
+          yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+          yield { type: 'text-delta', index: 0, text: '先查一下数值。' }
+          yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: '先查一下数值。' } }
+          yield { type: 'block-start', index: 1, blockType: 'tool-call' }
+          yield { type: 'block-end', index: 1, block }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+      }
       // Ordinary provider failure (not moderation): the round fails before any text.
       if (!tools.has('mvu_submit_update') && !tools.has('candidate_submit_choices') && !tools.has('posture_submit')
         && latestInput.includes('E2E_PROVIDER_ERROR')) {

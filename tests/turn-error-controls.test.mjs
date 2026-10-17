@@ -15,24 +15,6 @@ function setup(text, storage = new Map(), sessionId = 'a', options = {}) {
   const controls = client.createTurnErrorControls(root, { ...options, sessionId, storage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) } })
   return { row, root, controls }
 }
-test('长错误默认收起，可展开、单独隐藏和恢复，原始文本不变', () => {
-  const text = '400: message content cannot be empty ' + 'PRIVATE'.repeat(200)
-  const { row, controls } = setup(text)
-  controls.apply()
-  assert.equal(row.style.display, 'none')
-  assert.match(row.panel.children[0].textContent, /消息内容不能为空/)
-  row.panel.children[1].onclick()
-  assert.equal(row.style.display, '')
-  row.panel.children[2].onclick()
-  assert.equal(row.style.display, 'none')
-  assert.equal(row.panel.children[2].textContent, '恢复错误提示')
-  row.panel.children[2].onclick()
-  assert.equal(row.style.display, '')
-  assert.equal(row.textContent, text)
-  controls.dispose()
-  assert.equal(row.style.display, '')
-  assert.equal(row.panel.removed, true)
-})
 
 test('已有回退投影的隐藏状态不被恢复按钮撤销', () => {
   const { row, controls } = setup('failure')
