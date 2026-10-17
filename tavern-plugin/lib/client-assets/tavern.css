@@ -2857,3 +2857,13 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-cast-manager-name small { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-cast-manager-row button { font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-cast-manager-emotion { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+
+/* Windows 的自绘标题栏在窗口最顶端盖着一条 --dsh-windows-titlebar-height（40px）的拖拽带
+   （[data-windows-titlebar] .frame:before { -webkit-app-region: drag }）。fixed 弹层虽然画在它
+   上面，但按下鼠标仍会被当成“拖动窗口”，click 永远到不了 React——首行按钮（放弃开局 / 折叠设置 /
+   暂时收起）就是这样点了没反应。宿主的全屏弹层都靠 padding-top 让出这条带；这里把面板本身标成
+   no-drag，位置不动，弹层四周的遮罩仍可拖动窗口。 */
+[data-windows-titlebar] :is(.dsh-tavern-card-picker, .dsh-tavern-prompt, .dsh-tavern-group-manager, .dsh-tavern-mobile-import-panel, .dsh-ejs-editor) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
