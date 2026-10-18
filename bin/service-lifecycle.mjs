@@ -321,9 +321,16 @@ export async function startService() {
     // 非 asar 形态（0.1.5 桌面、真实 npm 包布局、host=cli）保持原有行为不变。
     const desktop = runtimeHost === 'desktop' ? resolveDesktopAsarCommand({ dsh }) : null
     if (desktop) {
+      // resolveDshInvocation 已经为固定桌面入口补过 --expose-internals + bootstrap，别再补一次，
+      // 否则 bin.js 会把多出来的 --expose-internals 当成参数，报 --profile <name> is required。
+      const args = invocation.args[0] === '--expose-internals' ? invocation.args.slice(2) : invocation.args
       invocation.command = desktop.command
-      invocation.args = ['--expose-internals', desktop.entry, ...invocation.args]
+      invocation.args = ['--expose-internals', desktop.entry, ...args]
       invocation.env = { ...(invocation.env ?? {}), ...desktop.env }
+    } else if (invocation.args[0] === '--expose-internals') {
+      // 桌面 asar 入口（findDshCommand 已返回 bootstrap）时 resolveDshInvocation 补过入口，
+      // 这里只换成当前 Electron 可执行文件，不要再补一遍 bin.js，否则参数错位。
+      invocation.command = process.execPath
     } else {
       invocation.args = [resolveDshCliEntry({ dsh }), ...invocation.args]
       invocation.command = process.execPath
