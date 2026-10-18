@@ -108,7 +108,7 @@
 						props.sessions.clear();
 						const next = visibleHistory.find(function (item) { return !removed.includes(item.chatId); });
 						if (next) await openSessionWhenReady(next.sessionId);
-						else openPicker("cards");
+						else { await openBlankConversation(); openPicker("cards"); }
 					}
 					await refresh();
 				} catch (error) { setError(String(error.message || error)); await refresh(); }
@@ -443,6 +443,18 @@
 				await call("markConversationOpened", { sessionId: sessionId });
 				await refresh(["sessions"]);
 				setError("");
+			}
+			// clearMain() leaves no Session for the host's blank-session entries
+			// (including better-sidebar's bottom-panel toggle) to mount into.
+			async function openBlankConversation() {
+				const targetWorkspaceId = workspaceId || playWorkspaceIdRef.current || "";
+				try {
+					if (!targetWorkspaceId) throw new Error("找不到可用的工作区");
+					await openSessionWhenReady(await props.conversationHost.connectWorkspace(targetWorkspaceId));
+				} catch (err) {
+					props.sessions.clear();
+					setError("创建新对话失败：" + String(err && err.message || err));
+				}
 			}
 			// A turn the live Agent numbered twice leaves the stored log unreadable and DSH
 			// refuses to open it. Ask the host to repair that one log, then open again.
@@ -839,7 +851,7 @@
 							return (entry.requestMode === "sillytavern" ? "sillytavern" : "dsh") === requestMode;
 						})[0];
 						if (next) await openSessionWhenReady(next.sessionId);
-						else { props.sessions.clear(); openPicker("cards"); }
+						else { await openBlankConversation(); openPicker("cards"); }
 					}
 					await refresh();
 				} catch (err) { setError(String(err && err.message || err)); }
@@ -960,7 +972,7 @@
 				props.sessions.clear();
 				const next = visibleHistory.find(function (item) { return !sessionIds.includes(item.sessionId); });
 				if (next) openSessionWhenReady(next.sessionId).catch(function (err) { setError(String(err && err.message || err)); });
-				else openPicker("cards");
+				else void openBlankConversation().then(function () { openPicker("cards"); });
 			};
 			function renderHistoryRow(item) {
 				const summary = summaries[item.sessionId];

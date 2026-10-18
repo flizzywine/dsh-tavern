@@ -922,6 +922,16 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
   body.dsh-tavern-shell-active [data-dsh-bottom-toggle] { display: none !important; }
 }
 
+/* Better Sidebar's blank-session bottom-panel toggle retreats to the viewport's
+   left edge when its titlebar row is full (#992), landing on the host sidebar
+   toggle. Give it a fixed seat under the Windows caption buttons instead; the
+   entry stays reachable in blank sessions without covering any titlebar control. */
+[data-windows-titlebar] body.dsh-tavern-shell-active [data-dsh-dock-fallback] {
+  top: calc(var(--dsh-windows-titlebar-height, 40px) + 8px) !important;
+  right: 12px !important;
+  left: auto !important;
+}
+
 .dsh-tavern-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dsh-tavern-history-action { appearance: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
 .dsh-tavern-history-action:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: rgba(128, 128, 128, .12); }
