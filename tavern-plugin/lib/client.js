@@ -14061,6 +14061,11 @@ function bindTavernFontZoom(node, win) {
 					}, function (props) {
 						// Hide only our model-facing seed; keep it in Session history and requests.
 						if (props.node.data.finalNode && /^tavern-seed-trajectory:v1:.+:2$/.test(String(props.node.data.finalNode.messageId || ""))) return null;
+						// 同一个 assistant 节点会被原生渲染两次：一次进这一步的过程面板（groupPart 为
+						// "reasoning"，面板标题「已完成分析」），一次作为正式回复（groupPart 为 "response"）。
+						// 过程座那份照旧渲染整条消息的话，正文会同时出现在过程面板和回复里（折叠过程、
+						// 打开「隐藏上下文注入和思考过程」都会连坐），这里只让回复座渲染。
+						if (typeof props.groupPart === "string" && props.groupPart !== "" && props.groupPart !== "response") return null;
 						return React.createElement(TavernAssistantNodeView, Object.assign({}, props, { executeSlash: executeSlash }));
 					}); });
 				}, "dsh-tavern: inline assistant renderer");
