@@ -99,6 +99,8 @@
 
 			// @include modules/story-ledger.js
 
+			// @include modules/mvu-variables.js
+
 			// @include script-navigation.js
 
         function TavernSaveUpgrade(props) {
@@ -411,7 +413,8 @@
 					),
 					h(TavernPluginTasks, { sessionId: props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
 					h(TavernPluginStatusSections, { sessionId: props.sessionId }),
-					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy })
+					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy }),
+					h(TavernMvuVariables, { sessionId: props.sessionId, view: view })
 
 				)
 			);
