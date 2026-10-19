@@ -6,19 +6,15 @@
 // 思考过程」更是整条回复都不见了。
 //
 // 这里在页面启动前注入一小段脚本：包住 window.__ModuleLoader__.load，在对话界面模块
-// 注册工厂的那一刻做两处改写——步骤匹配接受 surfaceOp 为 replace 的 assistant/message
-// （改写正文的那一步因此有了 assistant-step 数据与 finalNode，成为这一轮的最终回复），
-// 以及 latestAnswer 兜底取「最后一个有回复内容的步骤」（没有 step/start 的改写步骤）。
+// 注册工厂的那一刻把 latestAnswer 改成「取最后一个有回复内容的步骤」——改写落在末尾的
+// 编辑步骤上时，整轮照样被认成有最终回复，不再当成过程收起。
+//
+// 注意不要顺手让步骤匹配也接受 surfaceOp 为 replace：那会给改写步骤再建一个 assistant-step
+// 节点，同一段正文在原步骤和改写步骤各渲染一遍（重复正文）。
 // 与安装期补丁同一处逻辑，但不需要写宿主的只读归档，CLI 与桌面两种宿主都适用。
 export const CHAT_UI_MODULE_ID = '@deepseek-ai/dsh-client-ui-chat'
 
 const MARKER = '/* dsh-tavern:answer-step */'
-
-// 对话界面组装步骤数据时只认 surfaceOp === "append"；酒馆结算后用 replace 改写正文，
-// 这一步就不会生成 assistant-step 数据（没有 finalNode），整轮于是被当成过程收起。
-// 让 replace 也走同一条 update 分支，改写后的正文就成了这一轮的最终回复。
-const MATCH_FROM = 'event.type === "assistant/live-chunk" || event.type === "assistant/message" && event.surfaceOp === "append"'
-const MATCH_TO = 'event.type === "assistant/live-chunk" || event.type === "assistant/message" && (event.surfaceOp === "append" || event.surfaceOp && event.surfaceOp.op === "replace")'
 
 /**
  * 启动前注入的脚本正文。它必须在任何插件 bundle 注册之前执行，因此调用方用
@@ -29,8 +25,6 @@ export function chatAnswerBootScript() {
   return String.raw`(function () {
   var ID = ${JSON.stringify(CHAT_UI_MODULE_ID)}
   var MARKER = ${JSON.stringify(MARKER)}
-  var MATCH_FROM = ${JSON.stringify(MATCH_FROM)}
-  var MATCH_TO = ${JSON.stringify(MATCH_TO)}
   var LATEST_ANSWER = /function\s+latestAnswer\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{/g
 
   function answerStep(turn) {
@@ -62,12 +56,6 @@ export function chatAnswerBootScript() {
       if (!found) continue
       var at = bodyStart + found.index
       patched = patched.slice(0, at) + answerStep(item.turn) + patched.slice(at + found[0].length)
-      applied++
-    }
-    // 让 replace 改写也生成 assistant-step 数据：改写后的那一步成为最终回复，
-    // 而不是只留下一段没有 finalNode 的编辑步骤。
-    if (patched.indexOf(MATCH_FROM) !== -1) {
-      patched = patched.split(MATCH_FROM).join(MATCH_TO)
       applied++
     }
     return applied ? patched : null

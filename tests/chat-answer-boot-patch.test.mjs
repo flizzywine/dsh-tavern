@@ -1,6 +1,6 @@
 // 桌面宿主把 @deepseek-ai/dsh-client-ui-chat 打进只读的 app.asar，安装期改文件的路子
 // 走不通；这里改为页面启动前注入脚本，在模块注册工厂的那一刻改写 latestAnswer。
-// 覆盖四件事：只改对话界面、replace 改写也生成回复步骤、改完仍取到有内容的步骤、
+// 覆盖四件事：只改对话界面、只看 latestAnswer 不动步骤匹配、改完仍取到有内容的步骤、
 // 宿主换掉 load 实现后补丁仍在。
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -51,15 +51,16 @@ test('注入脚本在对话界面模块注册时改写 latestAnswer，其余模�
   assert.doesNotMatch(String(registrations[1].factory), /dsh-tavern:answer-step/)
 })
 
-test('改写步骤匹配，让 replace 改写也生成 assistant-step 数据', () => {
+// 步骤匹配不能再动：让 replace 也生成 assistant-step 的话，同一段正文会在原步骤和改写
+// 步骤各渲染一遍，页面上出现重复正文。
+test('不改写步骤匹配，改写步骤不会再建一个 assistant-step 节点', () => {
   const { sandbox, registrations } = sandboxWithLoader()
   sandbox.window.__ModuleLoader__.load({ id: CHAT_UI_MODULE_ID, factory: chatFactoryWithMatch() })
   const source = String(registrations[0].factory)
-  assert.match(source, /event\.surfaceOp\.op === "replace"/)
+  assert.doesNotMatch(source, /surfaceOp\.op === "replace"/)
   const exported = registrations[0].factory(() => ({}))
-  const event = { type: 'assistant/message', data: { turn: 3, step: 2 }, surfaceOp: { op: 'replace', startSeq: 15, endSeq: 27 } }
-  assert.deepEqual(exported.match(event), { id: '3:2', role: 'update' })
-  // append 与流式块的行为不变
+  assert.equal(exported.match({ type: 'assistant/message', data: { turn: 3, step: 2 }, surfaceOp: { op: 'replace', startSeq: 15, endSeq: 27 } }), null)
+  // append 与其余事件的行为不变
   assert.deepEqual(exported.match({ type: 'assistant/message', data: { turn: 1, step: 1 }, surfaceOp: 'append' }), { id: '1:1', role: 'update' })
   assert.equal(exported.match({ type: 'tool/call', data: { turn: 1, step: 1 } }), null)
 })
