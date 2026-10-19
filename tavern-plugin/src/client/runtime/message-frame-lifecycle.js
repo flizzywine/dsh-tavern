@@ -365,6 +365,36 @@
                 });
                 return document.openingSender.send(text);
             }
+            // A native tavern regex UI reads and writes #send_textarea in the host
+            // document. In trusted mode that element exists here, so its value and
+            // input events must reach the real composer draft.
+            function composerApi() { return configuredSlashExecutor || props.executeSlash; }
+            function writeComposerInput(text, sessionId) {
+                const target = String(sessionId || props.sessionId || "");
+                if (!target) throw new Error("当前界面无法写入输入框，请刷新页面后重试");
+                const api = composerApi();
+                if (api && typeof api.writeInput === "function") return api.writeInput(String(text == null ? "" : text), target);
+                if (typeof api === "function") return api("/setinput " + String(text == null ? "" : text), target);
+                throw new Error("当前界面无法写入输入框，请刷新页面后重试");
+            }
+            function readComposerInput(sessionId) {
+                const target = String(sessionId || props.sessionId || "");
+                const api = composerApi();
+                if (!api || !target || typeof api.readInput !== "function") return "";
+                try { return api.readInput(target); } catch (_) { return ""; }
+            }
+            function subscribeComposerInput(handler) {
+                const api = composerApi();
+                if (!api || !props.sessionId || typeof api.subscribeInput !== "function") return function () {};
+                try { return api.subscribeInput(props.sessionId, handler); } catch (_) { return function () {}; }
+            }
+            function fillComposerInput(text, mode, sessionId) {
+                const value = String(text == null ? "" : text);
+                if (mode !== "append") return writeComposerInput(value, sessionId);
+                const current = readComposerInput(sessionId);
+                const joined = current.trim() && value.trim() ? current.replace(/\s+$/, "") + "\n" + value : value;
+                return writeComposerInput(joined, sessionId);
+            }
 			function receive(event) {
 				const data = event && event.data;
 				const channel = data && channels.get(data.token);
@@ -526,6 +556,17 @@
 						});
 						return;
 					}
+                    if (data.method === "setTavernHelperInput") {
+                        const args = data.args && typeof data.args === "object" ? data.args : {};
+                        Promise.resolve().then(function () {
+                            return fillComposerInput(String(args.text == null ? "" : args.text), args.mode === "append" ? "append" : "replace", requestProps.sessionId);
+                        }).then(function () {
+                            if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: { drafted: true } }, "*");
+                        }, function (error) {
+                            if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
+                        });
+                        return;
+                    }
                     if (!allowedMethods.has(data.method)) {
                         event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false,
                             error: "当前消息不支持 Helper 方法: " + String(data.method || ""), errorCode: "UNSUPPORTED_HELPER_METHOD" }, "*");
@@ -562,7 +603,8 @@
                             const executeSlash = configuredSlashExecutor || props.executeSlash;
                             if (!props.sessionId || typeof executeSlash !== "function") throw new Error("当前界面无法触发生成，请刷新页面后重试");
                             return executeSlash("/send " + text + "|/trigger", props.sessionId);
-                        }, function (error) { tavernErrorHub.report("开始旅程", error); }) : function () {};
+                        }, function (error) { tavernErrorHub.report("填写输入框", error); },
+                        writeComposerInput, readComposerInput, subscribeComposerInput) : function () {};
 
 					const unsubscribeTheme = hostWindow.document && typeof hostWindow.MutationObserver === "function"
 						? subscribeTavernHostTheme(hostWindow, function (theme) { sendTextColors(null, theme); }) : null;

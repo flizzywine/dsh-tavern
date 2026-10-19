@@ -83,7 +83,28 @@
                 }
                 return pipe;
             }
-			return function (line, sessionId, options) {
+			function inputFacade(sessionId) {
+				const actx = ctx.sessions.scope(sessionId);
+				const conversation = ctx.get("conversation");
+				if (!actx || !conversation) return null;
+				try { return conversation.input.for(actx); } catch (_) { return null; }
+			}
+			function readInputDraft(sessionId) {
+				const input = inputFacade(sessionId);
+				if (!input) return "";
+				// projection.clipboardText is the live editor text; the published
+				// state can lag until the next snapshot is emitted.
+				try {
+					const clipboard = input.projection && input.projection.clipboardText;
+					if (typeof clipboard === "string") return clipboard;
+				} catch (_) {}
+				try {
+					const state = input.state && typeof input.state.getSnapshot === "function" ? input.state.getSnapshot() : null;
+					if (state && typeof state.draft === "string") return state.draft;
+				} catch (_) {}
+				return "";
+			}
+			const execute = function (line, sessionId, options) {
                 if (options && typeof options.inputText === "string") {
                     const text = options.inputText.trim();
                     const binding = ctx.sessions.binding(sessionId);
@@ -169,6 +190,26 @@
 					} catch (error) { finish(error); }
 				});
 			};
+			execute.readInput = readInputDraft;
+			execute.writeInput = function (text, sessionId) {
+				const input = inputFacade(sessionId);
+				if (!input) return Promise.reject(new Error("当前对话输入框不可用"));
+				input.setDraft(String(text == null ? "" : text));
+				return Promise.resolve({ drafted: true });
+			};
+			execute.subscribeInput = function (sessionId, handler) {
+				const input = inputFacade(sessionId);
+				if (!input || !input.state || typeof input.state.subscribe !== "function" || typeof handler !== "function") return function () {};
+				let previous = readInputDraft(sessionId);
+				const unsubscribe = input.state.subscribe(function () {
+					const next = readInputDraft(sessionId);
+					if (next === previous) return;
+					previous = next;
+					handler(next);
+				});
+				return typeof unsubscribe === "function" ? unsubscribe : function () {};
+			};
+			return execute;
 		}
 
 		const tavernSessionTransition = (function () {
