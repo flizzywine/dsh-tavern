@@ -7,6 +7,7 @@ import { createCardEditor } from './domain/card-editor.js'
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
 import { createCompatibilityTurnCompiler } from './domain/compatibility-turn.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
+import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
 import { registerRequestHooks } from './hooks/request.js'
 import { syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
@@ -5184,6 +5185,8 @@ export async function apply(ctx) {
     tavernRemoteAssets,
     tavernStaticResources,
   })
+  // 桌面版把对话界面打进只读的 app.asar，安装期补丁改不了文件；改成页面启动前注入运行时补丁。
+  installChatAnswerBootPatch(ctx)
   // Card scripts run on the server by default; DSH_TAVERN_SERVER_SCRIPTS=0 leaves them to the page.
   if (process.env.DSH_TAVERN_SERVER_SCRIPTS !== '0') {
     serverScripts = createServerScriptExecutor({
