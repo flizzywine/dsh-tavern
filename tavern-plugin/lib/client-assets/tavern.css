@@ -968,6 +968,28 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-ledger-form input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; border: 1px solid #555; border-radius: 4px; color: inherit; background: transparent; font: inherit; }
 .dsh-ledger button:disabled { opacity: .45; cursor: default; }
 
+/* MVU variables: inspect and edit the current floor without touching the story. */
+.dsh-mvu-variables { font-size: 13px; line-height: 1.55; }
+.dsh-mvu-variables button { cursor: pointer; color: inherit; }
+.dsh-mvu-variables button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,.12)); }
+.dsh-mvu-variables button:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 2px; }
+.dsh-mvu-variables > .dsh-tavern-character-design-head .dsh-ledger-toggle { flex: 1; width: auto; min-width: 0; margin-right: 8px; }
+.dsh-mvu-floor { flex-shrink: 0; font-size: 11px; font-weight: 400; opacity: .65; font-variant-numeric: tabular-nums; }
+.dsh-mvu-tabs { margin-top: 10px; }
+.dsh-mvu-tree { margin: 4px 0 10px; }
+.dsh-mvu-node { margin: 6px 0 6px 8px; padding-left: 8px; border-left: 1px solid var(--dsw-alias-border-subtle, rgba(128,128,128,.25)); }
+.dsh-mvu-node > summary { cursor: pointer; overflow-wrap: anywhere; }
+.dsh-mvu-node > summary:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 2px; }
+.dsh-mvu-kind, .dsh-mvu-null, .dsh-mvu-empty { margin-left: 6px; font-size: 11px; font-weight: 400; opacity: .55; }
+.dsh-mvu-field { display: flex; align-items: center; gap: 8px; margin: 5px 0 5px 8px; flex-wrap: wrap; }
+.dsh-mvu-field-key { flex: 1; min-width: 90px; overflow-wrap: anywhere; opacity: .8; }
+.dsh-mvu-field input[type="text"], .dsh-mvu-field input[type="number"] { box-sizing: border-box; flex: 2; width: 55%; min-width: 90px; padding: 4px 6px; border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3)); border-radius: 4px; color: inherit; background: transparent; font: inherit; }
+.dsh-mvu-check { display: flex; align-items: center; gap: 5px; margin-left: 8px; font-size: 12px; }
+.dsh-mvu-json { box-sizing: border-box; width: 100%; min-height: 260px; resize: vertical; padding: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.3)); border-radius: 6px; color: inherit; background: transparent; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; tab-size: 2; }
+.dsh-mvu-json:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
+.dsh-mvu-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.dsh-mvu-actions button:disabled { opacity: .45; cursor: default; }
+
 .dsh-tavern-panel-toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
 .dsh-tavern-panel-tabs { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; gap: 6px; }
 .dsh-tavern-panel-tab, .dsh-tavern-panel-refresh { border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; padding: 6px 9px; cursor: pointer; }
