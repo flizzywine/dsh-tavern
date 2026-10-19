@@ -83,7 +83,22 @@
                 }
                 return pipe;
             }
-			return function (line, sessionId, options) {
+			function inputFacade(sessionId) {
+				const actx = ctx.sessions.scope(sessionId);
+				const conversation = ctx.get("conversation");
+				if (!actx || !conversation) return null;
+				try { return conversation.input.for(actx); } catch (_) { return null; }
+			}
+			function readInputDraft(sessionId) {
+				const input = inputFacade(sessionId);
+				if (!input) return "";
+				try {
+					const state = input.state && typeof input.state.getSnapshot === "function" ? input.state.getSnapshot() : null;
+					if (state && typeof state.draft === "string") return state.draft;
+				} catch (_) {}
+				return "";
+			}
+			const execute = function (line, sessionId, options) {
                 if (options && typeof options.inputText === "string") {
                     const text = options.inputText.trim();
                     const binding = ctx.sessions.binding(sessionId);
@@ -169,6 +184,8 @@
 					} catch (error) { finish(error); }
 				});
 			};
+			execute.readInput = readInputDraft;
+			return execute;
 		}
 
 		const tavernSessionTransition = (function () {
