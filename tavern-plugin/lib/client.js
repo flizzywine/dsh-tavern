@@ -17297,15 +17297,15 @@ function bindTavernFontZoom(node, win) {
                     h("div", { className: "dsh-tavern-settings-row" },
                         h("span", { className: "dsh-tavern-settings-copy" },
                             h("strong", null, "已装的旧版插件"),
-                            h("p", { className: "dsh-tavern-settings-desc" }, "从 profiles\\tavern\\package.json 读取，只读；这些插件不在此页安装或更新，更新请走各自入口。"))),
+                            h("p", { className: "dsh-tavern-settings-desc", title: legacy.profile }, "由 Profile 加载，此处只读；安装、更新请走各插件自己的入口。"))),
                     h("ul", { className: "dsh-tavern-user-plugins-list" }, legacy.plugins.map(function (plugin) {
                         const status = plugin.status === "bundle" ? "Profile bundle" : plugin.status === "dependency" ? "仅依赖" : "缺失";
                         return h("li", { key: plugin.name, className: "dsh-tavern-user-plugin" },
                             h("div", { className: "dsh-tavern-user-plugin-copy" },
                                 h("strong", null, plugin.name, plugin.version ? h("small", null, " " + plugin.version) : null,
-                                    h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.status === "bundle" ? "已登记在 dsh.profile.bundles 中，由 Profile 加载" : plugin.status === "dependency" ? "已安装，但不在 dsh.profile.bundles 中" : "在 profile 依赖里找不到已安装包" }, status)),
+                                    h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.status === "bundle" ? "已登记在 dsh.profile.bundles 中，由 Profile 加载" : plugin.status === "dependency" ? "已安装，但不在 dsh.profile.bundles 中" : "Profile 里找不到这个已安装的包" }, status)),
                                 plugin.description ? h("span", null, plugin.description) : null,
-                                h("span", { className: "dsh-tavern-user-plugin-source" }, plugin.kind === "link" ? "link" : plugin.kind === "file" ? "file" : "registry")));
+                                plugin.kind ? h("span", { className: "dsh-tavern-user-plugin-source" }, plugin.kind) : null));
                     }))) : null,
                 h("div", { className: "dsh-tavern-user-plugins-folder" },
                     h("span", { className: "dsh-tavern-settings-desc", title: data ? data.dir : "" }, data ? "插件文件夹：" + data.dir : ""),
