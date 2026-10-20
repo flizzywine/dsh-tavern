@@ -11,6 +11,7 @@ import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
 import { registerRequestHooks } from './hooks/request.js'
 import { syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/user-plugins.js'
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
+import { listLegacyPlugins } from './domain/legacy-plugins.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
@@ -4966,6 +4967,7 @@ export async function apply(ctx) {
         return { data: await pluginDataStore.read(plugin) }
       }
       case 'listUserPlugins': return { plugins: await userPluginInstaller.list(), dir: userPluginInstaller.pluginsDir }
+      case 'listLegacyPlugins': return listLegacyPlugins(userPluginPaths(dataRoot).profile)
       case 'checkUserPluginUpdates': return { plugins: await userPluginInstaller.checkUpdates() }
       case 'enableUserPlugin': return { plugin: await userPluginInstaller.enable(args && args.folder) }
       case 'disableUserPlugin': return { plugin: await userPluginInstaller.disable(args && args.folder) }

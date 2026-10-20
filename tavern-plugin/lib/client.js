@@ -17179,6 +17179,7 @@ function bindTavernFontZoom(node, win) {
         function TavernUserPluginsSettings() {
             const h = React.createElement;
             const [data, setData] = React.useState(null);
+            const [legacy, setLegacy] = React.useState(null);
             const [updates, setUpdates] = React.useState(null);
             const [checking, setChecking] = React.useState(false);
             const [url, setUrl] = React.useState("");
@@ -17204,7 +17205,11 @@ function bindTavernFontZoom(node, win) {
                     else setUpdates({});
                 } catch (err) { setError(String(err && err.message || err)); }
             }
-            React.useEffect(function () { void refresh(); }, []);
+            async function refreshLegacy() {
+                try { setLegacy(await rpc("listLegacyPlugins")); }
+                catch (_error) { setLegacy(null); }
+            }
+            React.useEffect(function () { void refresh(); void refreshLegacy(); }, []);
             async function run(work, done) {
                 setBusy(true); setError(""); setNotice("");
                 try { const result = await work(); setNotice(done(result)); await refresh(); }
@@ -17288,6 +17293,20 @@ function bindTavernFontZoom(node, win) {
                             plugin.source.kind === "github" ? updateAction(plugin) : null,
                             plugin.source.kind === "card" ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
                 })) : null,
+                legacy && legacy.plugins && legacy.plugins.length ? h("div", { className: "dsh-tavern-legacy-plugins" },
+                    h("div", { className: "dsh-tavern-settings-row" },
+                        h("span", { className: "dsh-tavern-settings-copy" },
+                            h("strong", null, "已装的旧版插件"),
+                            h("p", { className: "dsh-tavern-settings-desc" }, "从 profiles\\tavern\\package.json 读取，只读；这些插件不在此页安装或更新，更新请走各自入口。"))),
+                    h("ul", { className: "dsh-tavern-user-plugins-list" }, legacy.plugins.map(function (plugin) {
+                        const status = plugin.status === "bundle" ? "Profile bundle" : plugin.status === "dependency" ? "仅依赖" : "缺失";
+                        return h("li", { key: plugin.name, className: "dsh-tavern-user-plugin" },
+                            h("div", { className: "dsh-tavern-user-plugin-copy" },
+                                h("strong", null, plugin.name, plugin.version ? h("small", null, " " + plugin.version) : null,
+                                    h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.status === "bundle" ? "已登记在 dsh.profile.bundles 中，由 Profile 加载" : plugin.status === "dependency" ? "已安装，但不在 dsh.profile.bundles 中" : "在 profile 依赖里找不到已安装包" }, status)),
+                                plugin.description ? h("span", null, plugin.description) : null,
+                                h("span", { className: "dsh-tavern-user-plugin-source" }, plugin.kind === "link" ? "link" : plugin.kind === "file" ? "file" : "registry")));
+                    }))) : null,
                 h("div", { className: "dsh-tavern-user-plugins-folder" },
                     h("span", { className: "dsh-tavern-settings-desc", title: data ? data.dir : "" }, data ? "插件文件夹：" + data.dir : ""),
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void rpc("openUserPluginsFolder").catch(function (err) { setError(String(err && err.message || err)); }); } }, "打开插件文件夹")));
