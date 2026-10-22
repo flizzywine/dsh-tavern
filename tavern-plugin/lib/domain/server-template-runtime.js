@@ -2,7 +2,7 @@ import {serveTemplateHistoryPipe} from './template-history-pipe.js'
 import { fork } from 'node:child_process'
 import { randomUUID, createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { dirname } from 'node:path'
+import { workerModuleReadFlags } from './worker-module-permissions.js'
 import { fileURLToPath } from 'node:url'
 import { redactMvuLoadError } from './mvu-diagnostics.js'
 
@@ -54,12 +54,12 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
     if (disposed || generation !== generations.get(sessionId)) throw new Error('提示词模板任务已取消')
     // Do not inherit API keys, NODE_OPTIONS or arbitrary launch flags. File access
     // is limited to executable dependencies and plugin code, never profile data.
-    const modules = dirname(dirname(require.resolve('jsdom/package.json')))
+    const moduleReadFlags = workerModuleReadFlags(require.resolve('jsdom/package.json'))
     const plugin = fileURLToPath(new URL('../../', import.meta.url))
     // Node 24 removed the experimental alias; older hosts still need it.
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
     const child = fork(worker, [], { env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
-      execArgv: [permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=' + heapMb],
+      execArgv: [permissionFlag, '--allow-fs-read=' + plugin, ...moduleReadFlags, '--max-old-space-size=' + heapMb],
       stdio: ['ignore', 'ignore', 'pipe', 'ipc', 'pipe'], serialization: 'advanced', windowsHide: true })
     const record = { child, sessionId, pending: new Map(), busy: true, ready: false, closed: false, stderr: '', usedAt: Date.now(), writes: Promise.resolve() }
     sessions.set(sessionId, record)

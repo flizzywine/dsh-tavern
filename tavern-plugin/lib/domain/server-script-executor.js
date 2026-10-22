@@ -3,7 +3,7 @@
 // the Tavern routes a script page needs; everything else is refused here.
 import { fork } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { dirname } from 'node:path'
+import { workerModuleReadFlags } from './worker-module-permissions.js'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
@@ -111,12 +111,12 @@ export function createServerScriptExecutor({ handle, subscribeSignals, busy = ()
     // At capacity, leave this game to its page (or let it wait for a slot):
     // evicting would let retained pages of other games restart theirs in a loop.
     if (records.size >= maxSessions) return
-    const modules = dirname(dirname(require.resolve('jsdom/package.json')))
+    const moduleReadFlags = workerModuleReadFlags(require.resolve('jsdom/package.json'))
     const plugin = fileURLToPath(new URL('../../', import.meta.url))
     const permissionFlag = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission'
     const child = fork(worker, [], {
       env: { NODE_ENV: 'production', ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
-      execArgv: ['--experimental-vm-modules', '--no-warnings', permissionFlag, '--allow-fs-read=' + plugin, '--allow-fs-read=' + modules, '--max-old-space-size=1024'],
+      execArgv: ['--experimental-vm-modules', '--no-warnings', permissionFlag, '--allow-fs-read=' + plugin, ...moduleReadFlags, '--max-old-space-size=1024'],
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'], serialization: 'advanced', windowsHide: true
     })
     const record = { sessionId: id, child, demandedAt: now(), stderr: '', stopSignals: () => {} }
