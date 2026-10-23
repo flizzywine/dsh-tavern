@@ -2,7 +2,8 @@ import { parseOpeningCommand } from './opening-command.js'
 import { projectFullPromptTemplateState, applyFullPromptTemplateState } from './full-prompt-template-state.js'
 import { projectTavernHelperScripts } from './tavern-helper-scripts.js'
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
-import { projectTavernHelperContext, replaceTavernHelperVariables, replaceTavernHelperMessages } from './tavern-helper-context.js'
+import { appendTavernHelperMessages, projectTavernHelperContext, replaceTavernHelperVariables, replaceTavernHelperMessages } from './tavern-helper-context.js'
+import { applyChatPluginData, validateChatPluginRequest } from './tavern-chat-plugin-data.js'
 import { OFFICIAL_MVU_VERSION } from './official-mvu-assets.js'
 import { randomUUID } from 'node:crypto'
 import { cardOpeningChoices } from './card-openings.js'
@@ -14,6 +15,21 @@ import { helperGenerationHistory } from './helper-generation-prompts.js'
 const copy = value => structuredClone(value)
 
 const untraced = { stage: (_name, run) => run() }
+
+// A wizard may save chat data before the first turn exists. Every write keeps
+// the snapshot that a later saveChat request names as its read baseline.
+const REVISION_WINDOW = 16
+function rememberRevision(draft) {
+  const revision = Math.max(0, Number(draft.chat._storageRevision) || 0)
+  if (!(draft.revisions instanceof Map)) draft.revisions = new Map()
+  draft.revisions.set(revision, copy(draft.chat))
+  while (draft.revisions.size > REVISION_WINDOW) draft.revisions.delete(draft.revisions.keys().next().value)
+  return revision
+}
+function bumpRevision(draft) {
+  draft.chat._storageRevision = Math.max(0, Number(draft.chat._storageRevision) || 0) + 1
+  return rememberRevision(draft)
+}
 
 /** Private pre-game state; explicit plugin-setting saves use the profile store. */
 export function createOpeningPreparation({ readCard, worldBooks, generate, generateRaw, readRuntimeExtensions, extensionSettings, now = Date.now, trace = untraced }) {
@@ -168,6 +184,25 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         if (type === 'global') draft.globalVariables = copy(args.variables)
         else if (type === 'character') draft.characterVariables = copy(args.variables)
         else replaceTavernHelperVariables(draft.chat, args)
+      } else if (method === 'createTavernHelperMessages') {
+        const targets = appendTavernHelperMessages(draft.chat, args.messages, args.option)
+        // Each floor is its own storage revision, so a later saveChat names the
+        // baseline it actually read.
+        for (let index = 0; index < targets.length; index++) bumpRevision(draft)
+        return { updated: true, targets, context: runtimeContext(draft) }
+      } else if (method === 'saveTavernChatData') {
+        const request = args.request
+        const revisions = validateChatPluginRequest(request)
+        if (request.chatId !== draft.chat.id) throw new Error('草稿已变化，请重新打开准备页')
+        const baselines = draft.revisions instanceof Map ? draft.revisions : new Map()
+        for (const revision of revisions) {
+          if (!baselines.has(revision)) throw new Error('插件存档读取版本已过期，请重新打开准备页')
+        }
+        // The draft, not a shared resource: nothing here reaches the library or
+        // another session's history.
+        draft.chat = applyChatPluginData(draft.chat, baselines, request)
+        bumpRevision(draft)
+        return { updated: true, context: runtimeContext(draft) }
       } else if (method === 'updateTavernHelperMessages') {
         // Interactive wizards may edit the existing draft greeting, never add story floors.
         for (const patch of args.messages || []) {
@@ -183,7 +218,7 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         draft.diagnostics = (draft.diagnostics || []).concat(copy(args.diagnostic || {})).slice(-50)
         return { recorded: true }
       } else throw new Error('准备阶段暂不支持此宿主操作：' + method)
-      draft.chat._storageRevision++
+      bumpRevision(draft)
       return { updated: true, context: runtimeContext(draft) }
     },
     select(id, openingId) {
@@ -218,7 +253,14 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
       // Nothing is cloned here: the start path clones the variables it installs
       // and takes ownership of the document, so copying the whole world book a
       // second and third time only duplicated a multi-megabyte read.
-      return { startCommand: draft.startCommand?.openingId === selected ? draft.startCommand : undefined, openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[selectedIndex] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
+      const greeting = draft.chat.messages[0]
+      const created = draft.chat.messages.filter(message => message && message.tavernHelperCreated === true)
+      return { startCommand: draft.startCommand?.openingId === selected ? draft.startCommand : undefined,
+        // Chat data the wizard saved before the first turn travels with the game.
+        openingPluginData: greeting && greeting.tavernPluginData ? copy(greeting.tavernPluginData) : undefined,
+        chatPluginMetadata: draft.chat.tavernPluginMetadata ? copy(draft.chat.tavernPluginMetadata) : undefined,
+        preparedMessages: created.map(message => copy(message)),
+        openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[selectedIndex] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
         // The projection this game starts from. Nothing is copied into the chat:
         // the game follows the library, so a later edit takes effect.
         worldbook: draft.worldBookView ? { source: draft.source, document: draft.document, view: draft.worldBookView } : null }

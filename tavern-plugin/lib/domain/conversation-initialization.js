@@ -231,6 +231,19 @@ export function createConversationInitialization(options) {
         }
       }
     }
+    if (preparation && groupOfMode(chatMode) === 'play') {
+      // Chat data a wizard saved before the first turn belongs to the new game.
+      const opening = chat.messages.find(message => message.greeting)
+      if (opening && preparation.openingPluginData) opening.tavernPluginData = structuredClone(preparation.openingPluginData)
+      if (opening && preparation.messageVariables && !usesMvu) {
+        if (!Array.isArray(opening.variables)) opening.variables = []
+        opening.variables[opening.swipeId || 0] = structuredClone(preparation.messageVariables)
+      }
+      if (preparation.chatPluginMetadata) chat.tavernPluginMetadata = structuredClone(preparation.chatPluginMetadata)
+      // Floors created while the game did not exist yet keep their order behind the
+      // greeting; the start command's system floor is applied after them.
+      for (const row of preparation.preparedMessages || []) chat.messages.push(structuredClone(row))
+    }
     if (preparation && groupOfMode(chatMode) === 'play') applyOpeningCommand(chat, preparation.startCommand, preparation.messageVariables, now)
     delete chat.sceneOpeningWorldbook
     const hasSession = typeof sessionId === 'string' && sessionId !== ''

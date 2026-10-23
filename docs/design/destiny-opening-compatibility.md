@@ -112,3 +112,17 @@
 准备 ticket 绑定原 Session 与 lifecycle revision，创建前重新检查源仍处于开场阶段。前端只接受同一消息 iframe 已保存的 ticket，重复开始调用共用 Promise。保存/创建失败上报可见错误。没有给普通正式消息开放任意 saveChat 正文改写。
 
 新增集成测试执行生成消息 iframe 的真实开场桥、准备草稿及原生 Conversation Lifecycle，验证新 Session 打开、世界书选项携带、原历史未改、重复点击、已有剧情拒绝与伪造开场拒绝。完整实机页面仍需用户刷新后确认；浏览器认证页面此前被工具安全策略拒绝，未绕过该限制。
+
+### 准备页的脚本楼层与聊天数据（2026-10-24）
+
+报错来源是准备页的能力白名单：脚本在开场预览里调用 `createChatMessages` 与 `saveChat`，落到宿主即 `createTavernHelperMessages` 与 `saveTavernChatData`，此前直接在 `callOpeningRuntime` 末尾以“准备阶段暂不支持此宿主操作”拒绝，向导型开场因此停在初始化。
+
+现在两项都按同一原则映射到本局草稿，不写任何共享资源，也不改原生历史：
+
+- `createTavernHelperMessages` 复用正式会话的 `appendTavernHelperMessages`，楼层以 `tavern-helper` 身份（`tavernRole` 保留 system/assistant/user）追加到草稿，只允许落到末尾，`insert_before` 与非法 role 明确报错。
+- `saveTavernChatData` 复用 `validateChatPluginRequest` 与 `applyChatPluginData`：开场白的 `tavernPluginData`、当前变量快照与聊天 `tavernPluginMetadata` 写入草稿，返回新的 `context`，脚本可在下一次调用里读到新状态。
+- 草稿自 `_storageRevision: 1` 起记录每次写入的快照（最近 16 版），保存请求必须命中其中的版本，否则提示重新打开准备页；跨聊天、跨 lifecycle 的请求一律拒绝。
+
+建局时上述内容一并提交：开场白带插件数据，聊天元数据进入新局，脚本预写的楼层排在开场白之后、开局系统楼层之前。系统楼层仍由 `applyOpeningCommand` 追加，因此“设定在系统位置、场景楼层在前”的顺序不变；已存在的会话不会补写这些草稿楼层。
+
+测试：`tests/opening-preparation-chat-data.test.mjs` 覆盖楼层追加与顺序、非法 role/insert_before、插件数据与元数据往返、过期版本与错聊天拒绝，以及准备页草稿直接建局的继承路径。
