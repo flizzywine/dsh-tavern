@@ -48,8 +48,8 @@ function TavernStageSwitchRow(props) {
 	return h("div", { className: "dsh-tavern-switch-row is-openable", "data-disabled": props.disabled || undefined, onClick: tavernStageRowClick(props.onOpen) },
 		h("div", { className: "dsh-tavern-switch-main" }, h("label", { className: "dsh-tavern-switch-hit" }, toggle), name, props.status || null));
 }
-function tavernStageJump(label, onClick) {
-	return React.createElement("button", { type: "button", className: "dsh-tavern-switch-jump", "aria-label": label, title: label, onClick }, React.createElement(TavernStageGlyph, { name: "chevRight" }));
+function tavernStageJump(label, onClick, ref) {
+	return React.createElement("button", { type: "button", ref, className: "dsh-tavern-switch-jump", "aria-label": label, title: label, onClick }, React.createElement(TavernStageGlyph, { name: "chevRight" }));
 }
 
 // The way back from 配音 to the 舞台设置 that opened it (kept ten minutes, like the reference design's return intent).
@@ -109,6 +109,9 @@ function TavernStageSwitches(props) {
 	// BGM on: the stage plays music and the director may choose it; off: neither, for every card.
 	const setMusic = on => setTavern({ stageToggles: { music: on } });
 	const openVoice = props.openTab ? () => { tavernStageReturn.set({ toTab: TAVERN_STAGE_TABS.settings, label: "返回舞台设置" }); props.openTab(TAVERN_STAGE_TABS.voice); } : null;
+	// 舞台模式 › opens its page in this panel; coming back puts the focus on this 「›」.
+	const modeJump = React.useRef(null);
+	React.useEffect(() => { if (props.returned && props.returned.current) { props.returned.current = false; modeJump.current?.focus?.(); } }, []);
 	// BGM ›: the music of this card's packs, opened in 舞台素材 (‹ comes back here).
 	const musicPacks = useTavernKindPacks(props.path, "music");
 	const openMusic = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "music") : null;
@@ -120,7 +123,8 @@ function TavernStageSwitches(props) {
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.voice, icon: "voice", checked: prefs.voice, disabled: !speech || busy || blocked("voice").length > 0,
 			help: help("voice"), onChange: setVoice,
 			status: openVoice ? tavernStageJump("声音设置", openVoice) : null, onOpen: openVoice || undefined }),
-		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !settings || busy || blocked("stage").length > 0, help: help("stage"), onChange: setStage }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !settings || busy || blocked("stage").length > 0, help: help("stage"), onChange: setStage,
+			status: props.onMode ? tavernStageJump("舞台模式设置", props.onMode, modeJump) : null, onOpen: props.onMode || undefined }),
 		// Sounds play on the stage: greyed (the stored value kept) while 舞台模式 is off.
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.music, icon: "music", checked: prefs.music, disabled: !settings || busy || blocked("music").length > 0, help: help("music"), onChange: setMusic,
 			status: openMusic ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.music, packs: musicPacks, onPick: openMusic }) : null }),
@@ -144,10 +148,11 @@ function tavernStagePageBody(page, props, render) {
 	if (!page.stage.data) return h("p", { role: page.stage.error ? "alert" : "status" }, page.stage.error ? "读取舞台设置失败：" + page.stage.error : "正在读取…");
 	return render();
 }
-function tavernStagePanel(label, body, back) {
+// `extra`: a sub-page's 「?」 (`help`), its title ref (focused on open) and its keys.
+function tavernStagePanel(label, body, back, extra = {}) {
 	const h = React.createElement;
-	return h("aside", { className: "dsh-tavern-status dsh-local-settings dsh-tavern-stage-panel", "aria-label": label },
-		h("div", { className: "dsh-tavern-status-head" }, back || null, h("strong", null, label)),
+	return h("aside", { className: "dsh-tavern-status dsh-local-settings dsh-tavern-stage-panel", "aria-label": label, onKeyDown: extra.onKeyDown },
+		h("div", { className: "dsh-tavern-status-head" }, back || null, h("strong", extra.titleRef ? { ref: extra.titleRef, tabIndex: -1 } : null, label, extra.help || null)),
 		h("div", { className: "dsh-tavern-status-body" }, body));
 }
 
@@ -158,9 +163,19 @@ function tavernStageOpenPack(openTab, packId, kind) {
 }
 
 function TavernStageSettingsTab(props) {
-	const page = useTavernStagePage(props, "stage-settings");
+	const h = React.createElement, page = useTavernStagePage(props, "stage-settings");
+	// 舞台模式 ›: the page of the settings every card's director shares, in this panel with ‹ back (Esc too).
+	const [view, setView] = React.useState("page"), returned = React.useRef(false), dirty = React.useRef(false), title = React.useRef(null);
+	React.useEffect(() => { if (view === "mode") title.current?.focus?.({ preventScroll: true }); }, [view]);
+	if (view === "mode") {
+		const leave = () => { returned.current = true; dirty.current = false; setView("page"); };
+		const keys = event => { if (event.key === "Escape" && !event.defaultPrevented && !dirty.current) { event.preventDefault(); leave(); } };
+		const back = h("button", { type: "button", className: "dsh-tavern-stage-back", "aria-label": "返回舞台设置", title: "返回舞台设置", onClick: leave }, h(TavernStageGlyph, { name: "back" }));
+		return tavernStagePanel("舞台模式", h(TavernStageModePage, { dirty }), back,
+			{ help: h(TavernAssetHelp, { label: "舞台模式", text: TAVERN_STAGE_MODE_HELP.page }), titleRef: title, onKeyDown: keys });
+	}
 	return tavernStagePanel("舞台设置", tavernStagePageBody(page, props, () => React.createElement(React.Fragment, null,
-		React.createElement(TavernStageSwitches, { sessionId: page.owner, path: page.path, openTab: props.openTab }),
+		React.createElement(TavernStageSwitches, { sessionId: page.owner, path: page.path, openTab: props.openTab, onMode: () => setView("mode"), returned }),
 		page.path ? React.createElement(TavernStagePacks, { path: page.path, openLibrary: props.openTab ? () => props.openTab(TAVERN_STAGE_TABS.materials) : null }) : null)));
 }
 

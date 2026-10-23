@@ -41,6 +41,19 @@ test('BGM is one global stage switch (stageToggles.music), on by default, kept b
   for (const bad of [{}, { music: 'on' }, { music: true, other: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
 })
 
+test('舞台模式 › 可用演出 and 每轮上限 are global: every command on and 6 screen effects by default, a patch changes only what it names', () => {
+  assert.deepEqual(presentTavernSettings({}, {}).stageDimensions, { scene: true, cast: true, acts: true, screenEffects: true })
+  assert.deepEqual(presentTavernSettings({}, {}).stageActionCaps, { beat: 6 })
+  let document = applyTavernSettingsPatch({}, { stageDimensions: { acts: false } })
+  document = applyTavernSettingsPatch(document, { stageDimensions: { scene: false }, stageActionCaps: { beat: 2 } })
+  assert.deepEqual(presentTavernSettings(document, {}).stageDimensions, { scene: false, cast: true, acts: false, screenEffects: true })
+  assert.deepEqual(presentTavernSettings(document, {}).stageActionCaps, { beat: 2 })
+  for (const bad of [{}, { acts: 'off' }, { music: false }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageDimensions: bad }), /可用演出/)
+  for (const bad of [{}, { beat: 0 }, { beat: 257 }, { beat: 1.5 }, { act: 2 }]) assert.throws(() => applyTavernSettingsPatch({}, { stageActionCaps: bad }), /每轮上限/)
+  // A stored value out of range reads as the default.
+  assert.deepEqual(presentTavernSettings({ stageActionCaps: { beat: 999 } }, {}).stageActionCaps, { beat: 6 })
+})
+
 test('进入游戏时打开酒馆状态：默认开，可以关', () => {
   assert.equal(presentTavernSettings({}, {}).autoOpenStatusPanel, true)
   const off = applyTavernSettingsPatch({}, { autoOpenStatusPanel: false })

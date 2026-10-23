@@ -132,6 +132,27 @@ test('舞台设置 and 舞台素材 follow the game; the asset library stays rea
   assert.ok(find(settingsOutside, node => text(node) === '未打开人物卡'))
 })
 
+test('舞台模式 › opens the 舞台模式 page in this panel; ‹ and Esc come back, Esc never drops an unsaved draft', () => {
+  const opened = []
+  const switches = load({ states: [{ castPresentation: true, stageToggles: { stage: true, music: true } }, 'idle', ''] }).TavernStageSwitches({ sessionId: 'game', onMode: () => opened.push('mode') })
+  const stage = rowsOf(expand(switches)).find(row => row.label === '舞台模式')
+  assert.equal(stage.row.props.className, 'dsh-tavern-switch-row is-openable')
+  find(stage.row, node => node.props['aria-label'] === '舞台模式设置').props.onClick()
+  assert.deepEqual(opened, ['mode'])
+  const page = { useTavernSessionMode: () => 'story', isPlayMode: () => true, useTavernStageRuntime: () => ({ data: { enabled: true, cast: [] } }),
+    useScopedLiveTavernView: () => ({ view: { card: { path: 'cards/a.json' } } }), TavernStageModePage: 'ModePage', TavernAssetHelp: 'Help', TAVERN_STAGE_MODE_HELP: { page: '这一页的设置所有卡共用。' } }
+  const panel = load({ ...page, states: ['mode'] }).TavernStageSettingsTab({ sessionId: 'game', sessions: { subagentAddress: () => null } })
+  assert.equal(panel.props['aria-label'], '舞台模式')
+  assert.equal(find(panel, node => node.type === 'Help').props.text, '这一页的设置所有卡共用。')
+  assert.ok(find(panel, node => node.props['aria-label'] === '返回舞台设置'))
+  const draft = find(panel, node => node.type === 'ModePage').props.dirty
+  const esc = () => { let left = false; panel.props.onKeyDown({ key: 'Escape', defaultPrevented: false, preventDefault: () => { left = true } }); return left }
+  draft.current = true
+  assert.equal(esc(), false, 'an unsaved draft stays')
+  draft.current = false
+  assert.equal(esc(), true)
+})
+
 test('配音 is the voicing service page, with ‹ back to 舞台设置 when it was opened from there', () => {
   const opened = []
   const { TavernVoiceTab, tavernStageReturn } = load()

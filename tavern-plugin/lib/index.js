@@ -2218,6 +2218,8 @@ export async function apply(ctx) {
       return { input: frame.userInput?.projectedText || frame.userInput?.sourceText || '', ...reference }
     },
     binding: async sessionId => (await chatHeaderForSession(sessionId, ['timeline']))?.timeline,
+    // 舞台模式 › 可用演出 and 每轮上限, frozen with the turn.
+    commands: async () => { const settings = await readTavernSettings(); return { dimensions: settings.stageDimensions, actionCaps: settings.stageActionCaps } },
     commit: stageDirectorCommit(chatPersistence),
     selection: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
     runAgent: input => backgroundAgentRunner.run(input),

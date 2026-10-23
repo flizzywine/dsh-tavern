@@ -25,7 +25,8 @@ export function createStageDirectorStream({ director, source, catalog, publish =
   async function window(owner, text, first) {
     const sequence = owner.seals.length + 1
     const accepted = await director.run({ ...owner.body, text }, owner.controller.signal, {
-      frozen: owner.frozen, previous: owner.state, sequence, first,
+      // `earlier`: this turn's accepted performances, counted against 每轮上限.
+      frozen: owner.frozen, previous: owner.state, sequence, first, earlier: owner.events,
       async accept(value, context) {
         await current(owner)
         if (context.signal?.aborted || context.stopped()) throw stale()

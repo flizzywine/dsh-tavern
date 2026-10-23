@@ -7,6 +7,15 @@ function object(value) {
 }
 // Global stage switches a patch may set.
 const STAGE_TOGGLES = Object.freeze(['stage', 'music'])
+// 舞台模式 › 可用演出: the director commands the director may use, every one on by default (stage-director.js).
+export const STAGE_DIMENSIONS = Object.freeze(['scene', 'cast', 'acts', 'screenEffects'])
+// 舞台模式 › 每轮上限: how many screen effects (`beat`) one reply may use.
+export const STAGE_ACTION_CAPS = Object.freeze({ beat: 6 })
+const stageDimensions = document => Object.fromEntries(STAGE_DIMENSIONS.map(key => [key, object(object(document).stageDimensions)[key] !== false]))
+const stageActionCaps = document => Object.fromEntries(Object.entries(STAGE_ACTION_CAPS).map(([key, fallback]) => {
+  const value = object(object(document).stageActionCaps)[key]
+  return [key, Number.isSafeInteger(value) && value >= 1 && value <= 256 ? value : fallback]
+}))
 const PACK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const globalPackIds = document => Array.isArray(object(document).globalEnabledPackIds) ? document.globalEnabledPackIds.filter(id => typeof id === 'string' && PACK_ID.test(id)) : []
 
@@ -264,6 +273,17 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!Object.keys(toggles).length || Object.entries(toggles).some(([key, value]) => !STAGE_TOGGLES.includes(key) || typeof value !== 'boolean')) throw new Error('舞台开关只能是 ' + STAGE_TOGGLES.join('、') + '，且必须是布尔值')
     next.stageToggles = { ...object(next.stageToggles), ...toggles }
   }
+  // 舞台模式 › 可用演出 and 每轮上限: every card's director; a patch names only what it changes.
+  if (Object.hasOwn(input, 'stageDimensions')) {
+    const dimensions = object(input.stageDimensions)
+    if (!Object.keys(dimensions).length || Object.entries(dimensions).some(([key, value]) => !STAGE_DIMENSIONS.includes(key) || typeof value !== 'boolean')) throw new Error('可用演出只能是 ' + STAGE_DIMENSIONS.join('、') + '，且必须是布尔值')
+    next.stageDimensions = { ...object(next.stageDimensions), ...dimensions }
+  }
+  if (Object.hasOwn(input, 'stageActionCaps')) {
+    const caps = object(input.stageActionCaps)
+    if (!Object.keys(caps).length || Object.entries(caps).some(([key, value]) => !Object.hasOwn(STAGE_ACTION_CAPS, key) || !Number.isSafeInteger(value) || value < 1 || value > 256)) throw new Error('每轮上限只能是 ' + Object.keys(STAGE_ACTION_CAPS).join('、') + '，且必须是 1 到 256 的整数')
+    next.stageActionCaps = { ...object(next.stageActionCaps), ...caps }
+  }
   // A pack the player turns on for every card (全局) or off again: one pack per change, applied to the stored list.
   if (Object.hasOwn(input, 'globalPack')) {
     const { packId, enabled } = object(input.globalPack)
@@ -351,6 +371,8 @@ export function presentTavernSettings(document, defaults) {
     castPresentation: object(document).castPresentation === true,
     // 舞台模式 and BGM: one switch each for every card, on by default; the stage also needs 对话气泡 (castPresentation).
     stageToggles: { stage: object(object(document).stageToggles).stage !== false, music: object(object(document).stageToggles).music !== false },
+    stageDimensions: stageDimensions(document),
+    stageActionCaps: stageActionCaps(document),
     // Asset packs on for every card (全局); a card adds its own (本卡) in its cast manifest.
     globalEnabledPackIds: globalPackIds(document),
     // Only the latest floors run a card's HTML interface; 0 renders every floor.

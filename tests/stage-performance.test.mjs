@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { stagePages } from '../tavern-plugin/lib/domain/stage-performance.js'
+import { stagePages, acceptStagePerformances } from '../tavern-plugin/lib/domain/stage-performance.js'
+import { STAGE_UPDATE_TOOL, stageUpdateTool } from '../tavern-plugin/lib/domain/stage-director.js'
 import { createStagePerformancePlayback } from '../tavern-plugin/lib/domain/stage-performance-playback.js'
 import { stageDirectorFixture, runDirectorFixture } from './helpers/stage-director-fixture.mjs'
 
@@ -17,6 +18,28 @@ test('host page addresses do not depend on annotations and retain repeated quote
   assert.deepEqual(pages.map(({ at, text }) => ({ at, text })), stagePages(text).map(({ at, text }) => ({ at, text })))
   assert.deepEqual(pages.map(page => page.speaker), ['Nora', undefined, 'Lee'])
   assert.equal(stagePages('```\n"Hi."\n```', [{ quote: 'Hi.', speaker: 'Nora' }])[1].kind, 'narration')
+})
+
+test('舞台模式 › 可用演出 takes a switched-off command out of the tool, the prompt and the lists, and 每轮上限 caps screen effects', async () => {
+  assert.deepEqual(stageUpdateTool(), STAGE_UPDATE_TOOL, 'every command is on by default')
+  const commands = { dimensions: { scene: false, acts: false, cast: true, screenEffects: true }, actionCaps: { beat: 1 } }
+  const h = await stageDirectorFixture(chat(), assets, { commands: async () => commands })
+  const request = await h.prepare(), properties = request.tool.parameters.properties
+  assert.deepEqual(Object.keys(properties), ['sequence', 'through', 'done', 'figures', 'music', 'performances'])
+  assert.equal(properties.performances.items.properties.op.const, 'screen.play')
+  assert.doesNotMatch(request.system + request.tool.description, /背景|actor\.act\.play/)
+  assert.match(request.system, /screen\.play 用 shake-1/)
+  assert.equal(Object.hasOwn(JSON.parse(request.turnContext), 'background'), false)
+  assert.match((await request.call({ background: 'Hall' })).error, /只提交工具列出/)
+  assert.match((await request.call({ figures: [{ speaker: 'Nora' }], performances: [events()[0]] })).error, /actor\.act\.play 已在可用演出里关闭/)
+  assert.match((await request.call({ performances: [events()[1], { at: 3, op: 'screen.play', effect: 'shake-1' }] })).error, /画面效果每轮至多 1 次/)
+  assert.deepEqual(await request.call({ figures: [{ speaker: 'Nora' }], performances: [events()[1]] }), { ok: true })
+  // With neither performance on, the director has no performances at all; earlier windows of the turn count against the cap.
+  const quiet = stageUpdateTool({ scene: true, cast: true, acts: false, screenEffects: false })
+  assert.equal(Object.hasOwn(quiet.parameters.properties, 'performances'), false)
+  const pages = stagePages('One.\nTwo.')
+  assert.throws(() => acceptStagePerformances([{ at: 2, op: 'screen.play', effect: 'shake-1' }], pages, { figures: [] }, { beat: 1, earlier: [{ at: 1, op: 'screen.play', effect: 'shake-1' }] }), /至多 1 次/)
+  assert.equal(acceptStagePerformances([{ at: 2, op: 'screen.play', effect: 'shake-1' }], pages, { figures: [] }, { beat: 2, earlier: [{ at: 1, op: 'screen.play', effect: 'shake-1' }] }).length, 1)
 })
 
 test('the real director repairs an event in-session, then atomically saves events separately from persistent state', async () => {

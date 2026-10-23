@@ -3179,6 +3179,47 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-nocard { display: grid; justify-items: start; gap: 8px; }
 .dsh-tavern-stage-back { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-stage-back:hover { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-stage-panel .dsh-tavern-status-head > strong:focus { outline: none; }
+.dsh-tavern-stage-panel .dsh-tavern-status-head > strong > .dsh-tavern-switch-help { margin-left: 6px; vertical-align: 2px; }
+
+/* 舞台设置 › 舞台模式 (features/stage-mode.js): one label column for every row; 可用演出 groups unfold to chips that save at
+   once, 每轮上限 is a draft whose 「保存」 foot sticks to the bottom while there is something to save. */
+.dsh-tavern-mode { --mode-label-w: 6.5em; position: relative; display: grid; gap: 18px; container-type: inline-size; }
+.dsh-tavern-mode:focus { outline: none; }
+.dsh-tavern-mode-section { display: grid; gap: 6px; }
+.dsh-tavern-mode-meta { font-size: 12px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
+.dsh-tavern-mode-groups { display: grid; gap: 2px; }
+.dsh-tavern-mode-group-toggle { display: grid; grid-template-columns: var(--mode-label-w) auto; column-gap: 12px; justify-content: start; align-items: center; width: 100%; min-height: 34px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.dsh-tavern-mode-group-toggle:focus-visible { outline: none; }
+.dsh-tavern-mode-group-toggle:focus-visible > .dsh-tavern-mode-group-value { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; border-radius: 4px; }
+.dsh-tavern-mode-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-mode-group-value { display: inline-flex; align-items: center; gap: 4px; padding: 2px 2px 1px; border-bottom: 1px solid transparent; }
+.dsh-tavern-mode-group-toggle:hover > .dsh-tavern-mode-group-value, .dsh-tavern-mode-group[data-open] .dsh-tavern-mode-group-value { border-bottom-color: color-mix(in srgb, currentColor 22%, transparent); }
+.dsh-tavern-mode-group-state { font-variant-numeric: tabular-nums; }
+.dsh-tavern-mode-group-state[data-partial] { color: var(--dsh-tavern-accent); }
+.dsh-tavern-mode-group-value > svg { color: var(--dsw-alias-label-tertiary); transition: transform 150ms ease; }
+.dsh-tavern-mode-group-toggle[aria-expanded="true"] .dsh-tavern-mode-group-value > svg { transform: rotate(180deg); }
+.dsh-tavern-mode-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 10px calc(var(--mode-label-w) + 12px); }
+.dsh-tavern-mode-chips[hidden] { display: none; }
+@container (max-width: 420px) { .dsh-tavern-mode-chips { padding-left: 0; } }
+.dsh-tavern-mode-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; border-radius: 15px; background: none; box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-mode-chip[aria-checked="true"] { padding-left: 8px; box-shadow: none; background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-mode-chip:hover:not(:disabled) { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-mode-chip:disabled { opacity: .6; cursor: default; }
+.dsh-tavern-mode-chip:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
+.dsh-tavern-mode-field { display: grid; grid-template-columns: var(--mode-label-w) minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 34px; font-size: 14px; }
+.dsh-tavern-mode-label { color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-mode-value { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.dsh-tavern-stage-panel .dsh-tavern-mode input.dsh-tavern-mode-number { flex: none; box-sizing: border-box; width: 64px; min-width: 0; height: 30px; margin: 0; padding: 0 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.dsh-tavern-stage-panel .dsh-tavern-mode input.dsh-tavern-mode-number:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 0; border-color: transparent; }
+.dsh-tavern-stage-panel .dsh-tavern-mode input.dsh-tavern-mode-number[aria-invalid] { border-color: var(--dsh-tavern-accent-error); }
+.dsh-tavern-mode-unit { color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-mode-problem { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dsh-tavern-accent-error); }
+.dsh-tavern-mode-foot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 10px 0; }
+.dsh-tavern-mode-foot[data-dirty] { position: sticky; bottom: 0; z-index: 3; border-top: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base, Canvas); }
+.dsh-tavern-mode-save-state { margin-right: auto; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+@media (pointer: coarse) { .dsh-tavern-mode-group-toggle { min-height: 44px; } .dsh-tavern-mode-chip { height: 36px; } }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-mode-group-value > svg { transition: none; } }
 
 /* 舞台素材 (features/stage-assets.js): packs (全局 blue · 本卡 green · 关闭 grey hollow), the pack window (entries · the chosen one)
    and 舞台设置 › 素材包. Layers (windows, menus) are portaled to the body, so they carry the font and colours themselves. */
