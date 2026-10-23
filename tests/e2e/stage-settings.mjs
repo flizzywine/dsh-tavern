@@ -147,8 +147,20 @@ try {
   const bar = await stage.locator('.dsh-tavern-stage-controls button').allInnerTexts()
   assert.ok(!bar.includes('设置') && !bar.includes('朗读'), 'control bar: ' + bar.join(' '))
   assert.ok(bar.includes('退出舞台'))
+  // The stage is drawn in its skin: 经典, read through the generic skin tokens, not colours of its own.
+  assert.equal(await stage.getAttribute('data-fk-skin'), 'classic')
+  const paint = selector => stage.locator(selector).first().evaluate(node => { const style = getComputedStyle(node); return [style.backgroundColor, style.color, style.borderTopColor, style.borderTopLeftRadius] })
+  assert.deepEqual(await paint('.dsh-tavern-stage-textbox'), ['rgb(12, 10, 20)', 'rgb(245, 242, 250)', 'rgb(188, 184, 198)', '10px'])
+  assert.deepEqual((await paint('.dsh-tavern-stage-text')).slice(1, 2), ['rgb(245, 242, 250)'])
+  await page.screenshot({ path: join(output, 'stage-classic.png') })
   await page.keyboard.press('ArrowRight')
   await stage.locator('.dsh-tavern-stage-progress').filter({ hasText: '2 / 2' }).waitFor()
+  assert.deepEqual((await paint('.dsh-tavern-stage-input input')).slice(0, 3), ['rgb(12, 10, 20)', 'rgb(245, 242, 250)', 'rgb(188, 184, 198)'])
+  assert.deepEqual((await paint('.dsh-tavern-stage-input button')).slice(0, 2), ['rgb(233, 228, 243)', 'rgb(12, 10, 20)'])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: join(output, 'stage-classic-mobile.png') })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  result.stageSkin = true
   await page.keyboard.press('Escape')
   await stage.waitFor({ state: 'detached' })
   result.stageEntry = true

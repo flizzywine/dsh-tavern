@@ -3098,19 +3098,26 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-figure img { height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: bottom; }
 .dsh-tavern-stage-figure.is-dim { filter: brightness(.55) saturate(.8); }
 .dsh-tavern-stage-figure-letter { margin-bottom: 8%; width: min(46%, 120px); aspect-ratio: 1; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: clamp(20px, 5vw, 48px); font-weight: 600; color: #fff; background: hsl(var(--dsh-cast-hue, 210) 45% 52%); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
-.dsh-tavern-stage-textbox { position: absolute; box-sizing: border-box; left: 50%; width: min(960px, 92vw); transform: translateX(-50%); bottom: 88px; height: 168px; padding: 16px 22px; border-radius: 10px; background: rgba(12, 14, 20, .72); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; gap: 4px; }
-.dsh-tavern-stage-textbox.is-empty { align-items: center; justify-content: center; color: rgba(244,241,234,.7); font-size: 13px; }
-.dsh-tavern-stage-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 17px; color: hsl(var(--dsh-cast-hue, 210) 70% 75%); }
-.dsh-tavern-stage-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 18px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; animation: dsh-tavern-stage-fade .25s ease both; }
-.dsh-tavern-stage-text.is-narration { color: rgba(244,241,234,.86); }
-.dsh-tavern-stage-controls { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; font-size: 12px; color: rgba(244,241,234,.7); }
-.dsh-tavern-stage-controls button { min-width: 28px; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: inherit; cursor: pointer; }
+/* The stage's look is its skin (stage-skin.js): the text box, name plate, reading text, control row and input read only
+   the skin tokens on the stage root, the built-in 经典 included. */
+.dsh-tavern-stage-textbox { position: absolute; box-sizing: border-box; left: 50%; width: min(960px, 92vw); transform: translateX(-50%); bottom: 88px; height: 168px; padding: 16px 22px; display: flex; flex-direction: column; gap: 4px;
+  background: var(--gal-skin-bg); color: var(--gal-skin-fg); border: var(--gal-skin-border-width) solid var(--gal-skin-border); border-radius: var(--gal-skin-radius); box-shadow: var(--gal-skin-rings); }
+.dsh-tavern-stage-textbox.is-empty { align-items: center; justify-content: center; color: var(--gal-skin-muted); font-size: 13px; }
+.dsh-tavern-stage-name { display: inline-flex; align-items: baseline; gap: 8px; width: fit-content; max-width: calc(100% - 2em); padding: .15em .65em; font-weight: 600; font-size: 17px;
+  background: var(--gal-skin-name-bg); color: var(--gal-skin-name-fg); border-radius: var(--gal-skin-name-radius); rotate: var(--gal-skin-name-rotate); transform-origin: left bottom; }
+.dsh-tavern-stage-name .dsh-tavern-cast-emotion { color: inherit; background: color-mix(in srgb, currentColor 14%, transparent); }
+.dsh-tavern-stage-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 18px; white-space: pre-wrap; overflow-wrap: anywhere; animation: dsh-tavern-stage-fade .25s ease both;
+  color: var(--gal-skin-fg); font-weight: var(--gal-skin-weight); letter-spacing: var(--gal-skin-spacing); line-height: var(--gal-skin-line-height); }
+.dsh-tavern-stage-controls { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; font-size: 12px; color: var(--gal-skin-qm-idle); }
+.dsh-tavern-stage-controls button { min-width: 28px; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--gal-skin-qm-idle) 40%, transparent); background: transparent; color: inherit; cursor: pointer; }
+.dsh-tavern-stage-controls button:hover:not(:disabled) { background: var(--gal-skin-qm-hover); color: var(--gal-skin-qm-on); }
 .dsh-tavern-stage-controls button:disabled { opacity: .35; cursor: default; }
-.dsh-tavern-stage-controls button.is-on { background: rgba(255,255,255,.22); color: #fff; }
+.dsh-tavern-stage-controls button.is-on { background: var(--gal-skin-qm-active); color: var(--gal-skin-qm-on); }
 .dsh-tavern-stage-overlay { position: fixed; inset: 0; z-index: 2147483000; background: #111318; }
 .dsh-tavern-stage-input { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(960px, 92vw); display: flex; gap: 8px; }
-.dsh-tavern-stage-input input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2); background: rgba(12,14,20,.8); color: #f4f1ea; font-size: 16px; }
-.dsh-tavern-stage-input button { height: 44px; padding: 0 18px; border-radius: 10px; border: 0; background: var(--dsh-tavern-accent, #c96442); color: #fff; font-size: 15px; cursor: pointer; }
+.dsh-tavern-stage-input input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: var(--gal-ui-radius); border: 1px solid var(--gal-ui-line); background: var(--gal-ui-surface); color: var(--gal-ui-ink); font-size: 16px; }
+.dsh-tavern-stage-input input::placeholder { color: var(--gal-ui-muted); }
+.dsh-tavern-stage-input button { height: 44px; padding: 0 18px; border-radius: var(--gal-ui-radius); border: 0; background: var(--gal-ui-accent); color: var(--gal-ui-accent-ink); font-size: 15px; cursor: pointer; }
 .dsh-tavern-stage-input button:disabled { opacity: .5; cursor: default; }
 @keyframes dsh-tavern-stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-figure, .dsh-tavern-stage-figure-body, .dsh-tavern-stage-figure img, .dsh-tavern-stage-text { animation: none !important; transition: none !important; } }

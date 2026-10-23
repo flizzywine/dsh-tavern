@@ -72,7 +72,7 @@ function TavernStageScene(props) {
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" },
-			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name", style: { "--dsh-cast-hue": tavernCastHue(beat.speaker) } }, beat.speaker,
+			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, beat.speaker,
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text),
 			props.footer || null)
@@ -136,6 +136,8 @@ function TavernStageScreen(props) {
 	const h = React.createElement, id = props.sessionId;
 	const { data, scene, reader } = useTavernStageRuntime(id);
 	const reading = useTavernStageReading(), choice = useTavernStageView(id);
+	// The stage is drawn in a skin, a data document read by the one generic interpreter (stage-skin.js); 经典 is the default.
+	const skin = React.useMemo(() => stageSkinRoot(BUILTIN_STAGE_SKINS.classic), []);
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
@@ -179,7 +181,7 @@ function TavernStageScreen(props) {
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
-	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台" },
+	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer }),
 		atEnd ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send },
 			h("input", { value: draft, onChange: event => setDraft(event.target.value), placeholder: generating ? "正在生成下一轮…" : "接下来做什么？", "aria-label": "舞台输入", disabled: sending }),
