@@ -47,9 +47,9 @@
 - 宿主正文流或完成事件独立触发，流式范围见下文；重生成只在正文正式采用后触发。完整 round-body 为 `{chatId,sessionId,turn,key,text}`，不从 UI 或台词标注构造正文。导演规则固定，本次 prepared frame 的玩家输入、人物卡、世界书和状态参考冻结后传入；排除写作规则，不继承结算会话。读取舞台不会触发模型。
 - 本切片工具名 `stage_update`，整个增量在工具内一次校验；错误直接返回同一 session，模型可在已有 runner 的工具预算内修正，不重建修复会话。成功后结束，一次提交整批 delta。
 - 参数为 `{ sequence, through, done:true, figures?: [{speaker, emotion?, remove?}] | null, background?: string | null, music?: string | null }`。`figures` 是逐人物增量，不是名单替换；省略表情保持，新人物默认平静。人物用清单的完整名称，情绪沿用 ST 名称（入口也归一化中文）；背景/音乐用唯一名称。`null` 分别清人物、清背景、停乐；只交封口字段即保持所有状态。
-- 音乐使用既有 CCv3 `data.assets` 中 `type: "music"` 的条目（wav/mp3/ogg/m4a），复用 cast-assets 导入、导出和受限媒体路由，不接收任意 URL。播放仍由已有音乐播放器和玩家开关控制。
+- 背景和音乐是本卡素材包里的条目（docs/design/asset-library.md「宿主接线」）：CCv3 `data.assets` 的 `background`、`type: "music"` 导入时进本卡素材包，导出时写回原位置；导演只看到亮蓝灯的条目名称，不接收任意 URL。播放仍由已有音乐播放器和玩家开关控制。
 - 所有字段先校验；任何一项非法则整批不写，工具返回可修复错误。最终持久化时在既有 Chat Journal 串行边界核对 branchId/revision、当前轮与正文 key、任务存活，再把整批 delta 一次写入按轮数据 owner `dsh-tavern.stage`。不改正文、变量或剧情 revision。已接受的同一正文版本不重复提交；过期/取消返回不可重试结果。
-- `castStage` 删除过渡字段 `initialFigures`，返回 `stage: {figures, background, music}`（名称状态）及已解析的 `background` URL、`music: {name,url} | null`。现有会话/同源权限不变；插件只读舞台视图也包含这些字段。
+- `castStage` 删除过渡字段 `initialFigures`，返回 `stage: {figures, background, music}`（名称状态）及已解析的 `background` URL、`music: {name,url} | null`。URL 是素材库的媒体租约，按媒体复用。现有会话/同源权限不变；插件只读舞台视图也包含这些字段。
 - 一轮最终保存一笔合并增量；流式期间的临时投影不提前写入存档。持续场景变化仍按窗口立即应用，不是逐页持久状态时间线。
 - 旧台词标注只用于聊天/配音，不回填成导演数据；首次成功导演提交前舞台状态为空。历史读取只折叠当前正文版本匹配的记录，资源缺失只影响投影，不改记录。已删除 demo 的历史/本轮标注人物推导、第一背景自动选择，没有兼容分支。
 

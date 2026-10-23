@@ -11,7 +11,18 @@ const MAX_EXTRA_BYTES = 20 * 1024 * 1024
 const MAX_CHARACTERS = 64
 const MAX_NAME = 24
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
-export const CAST_AUDIO_TYPES = Object.freeze({ mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4' })
+const FILE = /^[0-9a-f]{32}\.[a-z0-9]{1,10}$/
+
+// Every stored file a manifest names, whatever field names it.
+function filesOf(manifest) {
+  const files = new Set()
+  const visit = value => {
+    if (typeof value === 'string') { if (FILE.test(value)) files.add(value) }
+    else if (value && typeof value === 'object') Object.values(value).forEach(visit)
+  }
+  visit(manifest)
+  return files
+}
 
 function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_CAST_INVALID' }) }
 
@@ -53,9 +64,7 @@ export function createCastAssets({ store }) {
     const source = dirOf(from), target = dirOf(to)
     const manifest = await store.readJson(source + '/cast.json')
     if (!valid(manifest)) return
-    const files = new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]),
-      ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))
-    for (const file of files) {
+    for (const file of filesOf(manifest)) {
       const bytes = await store.readBytes(source + '/files/' + file)
       if (!bytes) throw new Error('人物素材文件不存在: ' + file)
       await store.writeBytes(target + '/files/' + file, bytes)
@@ -191,13 +200,15 @@ export function createCastAssets({ store }) {
 
   /**
    * Material a card file carried (see card-assets.js collectCardAssets): the main character's
-   * expressions and avatar, backgrounds, Tavern's own cast entry; anything not usable is kept.
+   * expressions and avatar, Tavern's own cast entry; anything not usable is kept. Backgrounds and
+   * music are the stage's and go to the asset library first (stage-material.js); what it could
+   * not hold arrives here as kept files.
    */
   async function importCardAssets({ cardPath, name, collected }) {
     const owner = castName(name)
     const image = async (bytes) => imageExtension(bytes) && bytes.length <= MAX_IMAGE_BYTES ? writeImage(cardPath, bytes) : null
     const summary = { sprites: 0, backgrounds: 0, avatars: 0, kept: 0, unmatched: [] }
-    const sprites = [], backgrounds = [], extras = [], cast = []
+    const sprites = [], extras = [], cast = []
     let avatar = null
     const taken = new Set()
     // The closest name gets each emotion: 'sad' rather than 'crying' for sadness.
@@ -208,11 +219,6 @@ export function createCastAssets({ store }) {
       if (file) { taken.add(slot); sprites.push({ slot, file }); continue }
       extras.push({ type: 'emotion', name: emotion.name, ext: emotion.ext, file: await writeExtra(cardPath, emotion.bytes, emotion.ext) })
       if (!slot) summary.unmatched.push(emotion.name)
-    }
-    for (const background of collected.backgrounds) {
-      const file = await image(background.bytes)
-      if (file) backgrounds.push({ name: background.name, file })
-      else extras.push({ type: 'background', name: background.name, ext: background.ext, file: await writeExtra(cardPath, background.bytes, background.ext) })
     }
     if (collected.cover) {
       avatar = await image(collected.cover.bytes)
@@ -240,11 +246,9 @@ export function createCastAssets({ store }) {
         Object.assign(target.sprites, entry.sprites)
         if (Object.keys(entry.voices).length) target.voices = { ...(target.voices || {}), ...entry.voices }
       }
-      manifest.backgrounds = [...(manifest.backgrounds || []), ...backgrounds.filter(item => !(manifest.backgrounds || []).some(existing => existing.file === item.file))]
       manifest.extras = [...(manifest.extras || []), ...extras.filter(item => !(manifest.extras || []).some(existing => existing.file === item.file && existing.type === item.type))]
     })
     summary.sprites = sprites.length + cast.reduce((total, entry) => total + Object.keys(entry.sprites).length, 0)
-    summary.backgrounds = backgrounds.length
     summary.avatars = (avatar ? 1 : 0) + cast.filter(entry => entry.avatar).length
     summary.kept = extras.length
     return summary
@@ -256,6 +260,29 @@ export function createCastAssets({ store }) {
       manifest.packs = packs.map(pack => ({ id: pack.id, contentHash: pack.contentHash, format: pack.format || '', title: pack.title || '', name: pack.name || '' }))
     })
     return read(cardPath)
+  }
+
+  /** The asset library packs whose entries are this card's stage material (stage-material.js). */
+  async function setBoundPackIds(cardPath, ids) {
+    await update(cardPath, manifest => { manifest.boundPackIds = [...new Set(ids)] })
+    return read(cardPath)
+  }
+
+  /**
+   * The end of the one move of stage material into the library: moved music leaves the kept files,
+   * backgrounds the library could not hold stay as kept files, and files nothing names are deleted.
+   */
+  async function finishStageMove(cardPath, { moved, kept }) {
+    const before = await read(cardPath)
+    const leaving = new Set(moved)
+    await update(cardPath, manifest => {
+      delete manifest.backgrounds
+      manifest.extras = [...(manifest.extras || []).filter(item => !(item.type === 'music' && leaving.has(item.file))), ...kept]
+      if (!Array.isArray(manifest.boundPackIds)) manifest.boundPackIds = []
+    })
+    const after = await read(cardPath), named = filesOf(after)
+    for (const file of filesOf(before)) if (!named.has(file)) await store.remove(dirOf(cardPath) + '/files/' + file)
+    return after
   }
 
   /** The plugins a card carries (card-plugins.js) and whether the player turned them on. */
@@ -284,14 +311,12 @@ export function createCastAssets({ store }) {
     return await store.readBytes(dirOf(cardPath) + '/files/' + file) || undefined
   }
 
-  /** Stored inert image/audio only; unknown or executable formats are never served. */
-  async function readMedia(key, file) {
-    if (!/^[0-9a-f]{64}$/.test(String(key)) || !/^[0-9a-f]{32}\.[a-z0-9]{1,10}$/.test(String(file))) return undefined
-    const ext = file.split('.').pop(), mediaType = IMAGE_TYPES[ext] || CAST_AUDIO_TYPES[ext]
-    if (!mediaType) return undefined
+  /** One stored image by the card's key (see keyOf), as the asset route serves it. */
+  async function readImage(key, file) {
+    if (!/^[0-9a-f]{64}$/.test(String(key)) || !/^[0-9a-f]{32}\.(png|jpg|webp|gif)$/.test(String(file))) return undefined
     const bytes = await store.readBytes('cast-assets/' + key + '/files/' + file)
-    return bytes ? { bytes, mediaType } : undefined
+    return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStartDefaults, setSource, readFile, readMedia, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

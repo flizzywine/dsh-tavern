@@ -8,6 +8,47 @@ import { projectCachedResourceBody } from '../domain/tavern-static-resource-cach
 import { redactMvuLoadError } from '../domain/mvu-diagnostics.js'
 import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media.js'
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
+import { PACK_LEASE_PATH } from '../asset-library/pack-v2/service.js'
+import { STAGE_LEASE_ORIGIN } from '../domain/stage-material.js'
+
+const LEASE_STATUS = Object.freeze({ FORBIDDEN: 403, INVALID_INPUT: 400, LIMIT_EXCEEDED: 413, REVISION_CONFLICT: 409, ASSET_UNAVAILABLE: 503, RECOVERY_REQUIRED: 503, NOT_FOUND: 404 })
+const LEASE_HEADERS = ['range', 'if-range', 'if-none-match']
+
+// Asset library media by lease (docs/design/asset-library.md). The page's origin passes Tavern's
+// own check here; the service then checks resource, expiry and authorization on every request
+// and yields the body in bounded chunks.
+export async function respondAssetLease(assetLibrary, req, res) {
+  const url = new URL(req.url ?? '/', 'http://x')
+  const match = /^([A-Za-z0-9_-]{16,64})\/([^?]+)$/.exec(url.pathname.slice(PACK_LEASE_PATH.length))
+  const origin = req.headers.origin, host = req.headers.host
+  let response
+  try {
+    if (!url.pathname.startsWith(PACK_LEASE_PATH) || !match) throw Object.assign(new Error('not found'), { code: 'NOT_FOUND' })
+    if (typeof origin === 'string' && origin !== '' && origin !== 'null' && origin !== 'http://' + host && origin !== 'https://' + host && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' })
+    if (!['same-origin', 'none', undefined].includes(req.headers['sec-fetch-site'])) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' })
+    const headers = new Headers()
+    for (const name of LEASE_HEADERS) if (typeof req.headers[name] === 'string') headers.set(name, req.headers[name])
+    const request = new Request(STAGE_LEASE_ORIGIN + url.pathname + url.search, { method: req.method === 'HEAD' ? 'HEAD' : req.method === 'GET' ? 'GET' : 'POST', headers })
+    response = await assetLibrary.respondLease({ ticket: match[1], resource: match[2].split('/').map(decodeURIComponent).join('/'), request })
+  } catch (error) {
+    res.writeHead(LEASE_STATUS[error?.code] || 400, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+    res.end()
+    return
+  }
+  res.writeHead(response.status, Object.fromEntries(response.headers))
+  if (!response.body || req.method === 'HEAD') { await response.body?.cancel().catch(() => {}); res.end(); return }
+  const reader = response.body.getReader()
+  res.on('close', () => { void reader.cancel().catch(() => {}) })
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!res.write(value)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve) })
+      if (res.destroyed) return
+    }
+    res.end()
+  } catch { res.destroy() }
+}
 
 export function registerTavernHttpRoutes({
   ctx,
@@ -26,6 +67,7 @@ export function registerTavernHttpRoutes({
   tavernRemoteAssets,
   tavernStaticResources,
   castAssets,
+  assetLibrary,
   speech,
   exportCardFile,
   assetPacks,
@@ -54,6 +96,11 @@ export function registerTavernHttpRoutes({
       path: '/api/dsh-tavern',
       handler: handleTavernRequest
     }), 'dsh-tavern: web route')
+    if (assetLibrary) ctx.effect(() => webServer.register({
+      kind: 'prefix',
+      path: PACK_LEASE_PATH.replace(/\/$/, ''),
+      handler: (req, res) => respondAssetLease(assetLibrary, req, res)
+    }), 'dsh-tavern: asset lease route')
   }
   // In-process callers (the server script runtime) share these exact routes.
   exposeHandler?.(handleTavernRequest)
@@ -193,7 +240,7 @@ export function registerTavernHttpRoutes({
           if (!readiness.ok) throw readiness.error
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/cast-asset') {
             const query = new URL(req.url, 'http://x').searchParams
-            const image = castAssets ? await castAssets.readMedia(query.get('card'), query.get('file')) : undefined
+            const image = castAssets ? await castAssets.readImage(query.get('card'), query.get('file')) : undefined
             if (image === undefined) { res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' }); res.end('not found'); return }
             // Content-addressed file names: a URL never changes what it serves.
             res.writeHead(200, { 'Content-Type': image.mediaType, 'Content-Length': image.bytes.byteLength, 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' })

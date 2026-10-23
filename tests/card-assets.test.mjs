@@ -92,20 +92,23 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   const cast = createCastAssets({ store: store() })
   const collected = {
     emotions: [{ name: 'happy', ext: 'png', bytes: png('joy') }, { name: '开心', ext: 'png', bytes: png('joy2') }, { name: 'thinking', ext: 'png', bytes: png('think') }],
-    backgrounds: [{ name: 'main', ext: 'png', bytes: png('bg') }],
+    // Backgrounds are stage material (stage-material.js); character material arrives without them.
+    backgrounds: [],
     cover: null, extras: [{ type: 'x-risu-asset', name: 'bgm', ext: 'mp3', bytes: Buffer.from('ID3bgm') }],
     cast: [{ name: '老周', aliases: ['周叔'], avatar: png('zhou'), sprites: { anger: png('zhou-angry') }, voices: { openai: 'onyx' } }], skipped: 0
   }
   const summary = await cast.importCardAssets({ cardPath: 'cards/a.json', name: '林曦', collected })
-  assert.deepEqual(summary, { sprites: 2, backgrounds: 1, avatars: 1, kept: 3, unmatched: ['thinking'] })
+  assert.deepEqual(summary, { sprites: 2, backgrounds: 0, avatars: 1, kept: 3, unmatched: ['thinking'] })
   const manifest = await cast.read('cards/a.json')
   assert.deepEqual(manifest.characters.map(item => [item.name, Object.keys(item.sprites)]), [['林曦', ['joy']], ['老周', ['anger']]])
-  assert.equal(manifest.backgrounds.length, 1)
+  assert.equal(manifest.backgrounds, undefined)
   assert.deepEqual(manifest.extras.map(item => [item.type, item.name]), [['emotion', 'happy'], ['emotion', 'thinking'], ['x-risu-asset', 'bgm']])
 
-  const files = new Map()
-  for (const file of [...manifest.characters.flatMap(item => [item.avatar, ...Object.values(item.sprites)]), ...manifest.backgrounds.map(item => item.file), ...manifest.extras.map(item => item.file)].filter(Boolean)) files.set(file, await cast.readFile('cards/a.json', file))
-  const charx = buildCharx({ document: { spec: 'chara_card_v2', data: { name: '林曦', description: 'd', extensions: { other: 1 } } }, cover: png('cover'), manifest, characterName: '林曦', readFile: file => files.get(file) })
+  const files = new Map([['b'.repeat(32) + '.png', png('bg')]])
+  for (const file of [...manifest.characters.flatMap(item => [item.avatar, ...Object.values(item.sprites)]), ...manifest.extras.map(item => item.file)].filter(Boolean)) files.set(file, await cast.readFile('cards/a.json', file))
+  // The card export passes the library's backgrounds in the same place (card-files.js).
+  const charx = buildCharx({ document: { spec: 'chara_card_v2', data: { name: '林曦', description: 'd', extensions: { other: 1 } } }, cover: png('cover'),
+    manifest: { ...manifest, backgrounds: [{ name: 'main', file: 'b'.repeat(32) + '.png' }] }, characterName: '林曦', readFile: file => files.get(file) })
   const entries = readZipEntries(charx)
   const exported = JSON.parse(entries.get('card.json').toString('utf8'))
   assert.equal(exported.spec, 'chara_card_v3')
@@ -121,7 +124,7 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   const restored = await copy.read('cards/b.json')
   assert.deepEqual(restored.characters.map(item => [item.name, item.aliases, Object.keys(item.sprites), Boolean(item.avatar), item.voices || {}]),
     [['林曦', [], ['joy'], false, {}], ['老周', ['周叔'], ['anger'], true, { openai: 'onyx' }]])
-  assert.equal(restored.backgrounds.length, 1)
+  assert.deepEqual(again.collected.backgrounds.map(item => item.name), ['main'])
   assert.deepEqual(restored.extras.map(item => [item.type, item.name]), manifest.extras.map(item => [item.type, item.name]))
   assert.ok(pngWithCard(png('c'), '{}').includes(Buffer.from('IEND')))
 })

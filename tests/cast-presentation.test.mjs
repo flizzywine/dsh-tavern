@@ -71,10 +71,10 @@ test('角色素材：按图片内容识别格式，头像与情绪立绘分开�
   assert.deepEqual([cast.characters[0].name, cast.characters[0].aliases], ['林小曦', ['小曦']])
   cast = await assets.removeImage({ cardPath: 'cards/a.png', name: '小曦', slot: 'joy' })
   assert.deepEqual(cast.characters[0].sprites, {})
-  const image = await assets.readMedia(assets.keyOf('cards/a.png'), cast.characters[0].avatar)
+  const image = await assets.readImage(assets.keyOf('cards/a.png'), cast.characters[0].avatar)
   assert.equal(image.mediaType, 'image/png')
-  assert.equal(await assets.readMedia(assets.keyOf('cards/a.png'), '../x.png'), undefined)
-  assert.equal(await assets.readMedia(assets.keyOf('cards/a.png'), 'a'.repeat(32) + '.html'), undefined)
+  assert.equal(await assets.readImage(assets.keyOf('cards/a.png'), '../x.png'), undefined)
+  assert.equal(await assets.readImage(assets.keyOf('cards/a.png'), 'a'.repeat(32) + '.html'), undefined)
   assert.equal((await assets.read('cards/other.png')).characters.length, 0, '每张卡各自一份')
 })
 

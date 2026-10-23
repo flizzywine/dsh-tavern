@@ -184,7 +184,9 @@ import { createStageDirector, STAGE_UPDATE_TOOL } from './domain/stage-director.
 import { createStageDirectorStream } from './domain/stage-director-stream.js'
 import { stagePages } from './domain/stage-performance.js'
 import { stageDirectorCommit } from './stage-director-commit.js'
-import { createCastAssets, CAST_AUDIO_TYPES } from './domain/cast-assets.js'
+import { createCastAssets } from './domain/cast-assets.js'
+import { createAssetPackService } from './asset-library/pack-v2/service.js'
+import { createStageMaterial, STAGE_LEASE_TTL_MS, STAGE_MEDIA_SCOPE, STAGE_READ_SCOPE } from './domain/stage-material.js'
 import { createSpeech } from './domain/speech.js'
 import { createAssetPacks } from './domain/asset-packs.js'
 import { createUploads } from './domain/uploads.js'
@@ -976,6 +978,11 @@ export async function apply(ctx) {
     return result
   }
   const castAssets = createCastAssets({ store: profileData })
+  // The asset library (docs/design/asset-library.md): one owner of the profile's packs, beside the tavern data root.
+  const assetLibrary = createAssetPackService({ assetRoot: path.join(path.dirname(dataRoot), 'asset-packs'), leaseTtlMs: STAGE_LEASE_TTL_MS,
+    authorizeLease: async ({ scope }) => scope === STAGE_MEDIA_SCOPE || scope === STAGE_READ_SCOPE })
+  const stageMaterial = createStageMaterial({ library: assetLibrary, castAssets, warn: error => console.warn('dsh-tavern: 舞台素材不可用', str(error?.message || error)) })
+  ctx.effect(() => () => { stageMaterial.dispose(); return assetLibrary.dispose() })
   // DSH cards (docs/design/dsh-card-format.md): asset packs stored once by content; big files uploaded to disk.
   const assetPacks = createAssetPacks({ root: dataRoot, store: profileData })
   const uploads = createUploads({ root: dataRoot })
@@ -1013,7 +1020,7 @@ export async function apply(ctx) {
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
   const { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
-    cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
+    cardPreparation, fileResources, castAssets, stageMaterial, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi
   })
   async function listCards() {
@@ -2183,10 +2190,7 @@ export async function apply(ctx) {
   })
   async function stageCatalog(sessionId) {
     const card = await castCardOf(sessionId), manifest = await castAssets.read(card.path)
-    const url = file => '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file }).toString()
-    return { player: card.player, cast: await castView(sessionId, card.path, manifest),
-      background: (manifest.backgrounds || []).map(item => ({ name: item.name, url: url(item.file) })),
-      music: (manifest.extras || []).filter(item => item.type === 'music' && Object.hasOwn(CAST_AUDIO_TYPES, item.ext)).map(item => ({ name: item.name, url: url(item.file) })) }
+    return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...await stageMaterial.catalog(card.path, card.name) }
   }
   const publishStage = sessionId => sessionSignals.publish(sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   async function stageStreamSource(sessionId, turn) {
@@ -2282,9 +2286,12 @@ export async function apply(ctx) {
     }
     const stage = preview?.state || await stageDirector.state(str(sessionId), turns.at(-1)?.turn)
     return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
-      background: assets.background.find(item => item.name === stage.background)?.url || '',
-      music: assets.music.find(item => item.name === stage.music) || null,
+      background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
+      music: await stageMusic(assets.music.find(item => item.name === stage.music)),
       cast: assets.cast, turns, stage }
+  }
+  async function stageMusic(item) {
+    return item ? { name: item.name, url: await stageMaterial.mediaUrl(item) } : null
   }
   // One line in its speaker's voice on the chosen channel; { skip } when voicing is off or narration is silent.
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}) {
@@ -3338,6 +3345,7 @@ export async function apply(ctx) {
   registerTavernHttpRoutes({
     ctx,
     castAssets,
+    assetLibrary,
     speech,
     exportCardFile,
     assetPacks,
@@ -3670,6 +3678,13 @@ export async function apply(ctx) {
   try {
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
+    // Cards from before the asset library move their stage material once, in the background.
+    setImmediate(async function () {
+      for (const cardPath of await fileResources.list('card').catch(() => [])) {
+        const name = (await cardSummaries.read(cardPath).catch(() => null))?.name
+        await stageMaterial.ready(cardPath, name).catch(error => console.warn('dsh-tavern: 舞台素材迁移失败', cardPath, str(error?.message || error)))
+      }
+    })
     setImmediate(function () {
       recoverRuntimeHistory(recoveredIndex).catch(function (error) {
         console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)

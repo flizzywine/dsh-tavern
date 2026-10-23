@@ -29,6 +29,6 @@ test('人物素材迁移在写入中断后可重试，头像、别名、立绘�
     await assets.movePath(from, to)
     assert.deepEqual(await assets.read(to), original)
     assert.equal((await assets.read(from)).characters.length, 0)
-    assert.deepEqual((await assets.readMedia(assets.keyOf(to), original.characters[0].avatar)).bytes, bytes)
+    assert.deepEqual((await assets.readImage(assets.keyOf(to), original.characters[0].avatar)).bytes, bytes)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
