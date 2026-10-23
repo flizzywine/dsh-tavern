@@ -126,3 +126,15 @@
 建局时上述内容一并提交：开场白带插件数据，聊天元数据进入新局，脚本预写的楼层排在开场白之后、开局系统楼层之前。系统楼层仍由 `applyOpeningCommand` 追加，因此“设定在系统位置、场景楼层在前”的顺序不变；已存在的会话不会补写这些草稿楼层。
 
 测试：`tests/opening-preparation-chat-data.test.mjs` 覆盖楼层追加与顺序、非法 role/insert_before、插件数据与元数据往返、过期版本与错聊天拒绝，以及准备页草稿直接建局的继承路径。
+
+### 开局命令先记录后开始（2026-10-24）
+
+向导卡把开始拆成两步是常态。大凉龙虎传 v4.1 的写法是 `await triggerSlash('/send ' + txt)` → `await DSHOpening327.persist()` → `await triggerSlash('/trigger')`，其中 persist 要把预设、门派写进本局变量。旧实现在第一句就把单独的 `/send` 折成“/send 文本 | /trigger”并立刻建局，预览 iframe 在 persist 之前卸载，卡固有问题因此永远丢数据。
+
+现在的分工是：单独的 `/send 文本` 与 `/sys 文本` 只把内容记进草稿（`draft.pendingOpening`），返回 `{ deferred: true, input: '' }`，页面继续挂着，卡的 persist 与建局前脚本楼层照常写草稿；下一条 `/trigger` 才用 `applyPendingOpeningCommand` 合成开始命令：留住的 `/send` 文本成为首轮输入，留住的 `/sys` 文本成为开局系统楼层。
+
+- 显式管道优先：`/sys 文本 | /trigger`、`/send 文本 | /trigger`、`/cut 0` 组合不再看草稿里留的内容，写什么就是什么。
+- 调用串行：`sourceDocument.openingCommandQueue` 让卡的连续调用按顺序结算；`openingCommandStarted` 保证只建一局，重复 `/trigger` 返回同一结果。
+- 取舍：只发 `/send` 却从不发 `/trigger` 的卡（如无限回廊 9.10）不会自己开局，页面停在准备页，用户按“开始”即用当前输入建局。
+
+测试：`tests/tavern-opening-slash-bridge.test.mjs` 覆盖单独 `/send`、单独 `/sys`、显式管道优先、重复 `/trigger` 只提交一次与其余命令拒绝；`tests/opening-preparation-chat-data.test.mjs` 覆盖草稿里的“先记录后开始”以及两步之间继续保存插件数据。

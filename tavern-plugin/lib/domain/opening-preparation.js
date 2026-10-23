@@ -1,4 +1,4 @@
-import { parseOpeningCommand } from './opening-command.js'
+import { applyPendingOpeningCommand, parseOpeningCommand, parsePendingOpeningCommand } from './opening-command.js'
 import { projectFullPromptTemplateState, applyFullPromptTemplateState } from './full-prompt-template-state.js'
 import { projectTavernHelperScripts } from './tavern-helper-scripts.js'
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
@@ -151,11 +151,19 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         }) }), args.generationToken)
       }
       if (method === 'prepareOpeningCommand') {
-        const command = parseOpeningCommand(args.line)
         const openingId = args.openingId || draft.openingId || draft.openings[0]?.id
         if (!draft.openings.some(opening => opening.id === openingId)) throw new Error('人物卡开场白不存在')
+        const pending = parsePendingOpeningCommand(args.line)
+        if (pending) {
+          // Nothing is committed yet: the page stays mounted so the wizard can
+          // still write its variables, floors and chat data into this draft.
+          draft.pendingOpening = { ...(draft.pendingOpening || {}), ...pending }
+          return { deferred: true, input: '' }
+        }
+        const command = applyPendingOpeningCommand(parseOpeningCommand(args.line), draft.pendingOpening, args.line)
+        draft.pendingOpening = undefined
         draft.startCommand = { ...command, openingId }
-        return { input: command.input }
+        return { deferred: false, input: command.input }
       }
       if (!draft.runtimeEnabled) throw new Error('准备页脚本运行时未初始化')
       if (method === 'loadTavernWorldInfo') return { worldInfo: exportSillyTavernWorldBook(draft.document) }

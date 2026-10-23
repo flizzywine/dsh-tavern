@@ -15,6 +15,29 @@ export function parseOpeningCommand(line) {
   return head[1] === 'send' ? { input: text } : { input: '继续。', systemText: text, removeGreeting }
 }
 
+// A wizard usually sends its input ("/send text") or its narration ("/sys text")
+// and only starts the game on a following "/trigger". Answering the first call by
+// starting the turn unmounted the page before the wizard could save its own data,
+// so a lone /send or /sys is remembered and applied when the /trigger arrives.
+export function parsePendingOpeningCommand(line) {
+  const text = String(line || '').trim()
+  if (!text || /(?<!\\)\|(?=\s*\/)/.test(text)) return null
+  const head = /^\/(send|sys)\s+([\s\S]+)$/.exec(text)
+  if (!head || !head[2].trim()) return null
+  const body = head[2].trim().replace(/\\\|/g, '|')
+  return head[1] === 'send' ? { sendText: body } : { systemText: body }
+}
+
+// Only a bare /trigger consumes what the wizard prepared; an explicit pipe says
+// what it wants and takes over.
+export function applyPendingOpeningCommand(command, pending, line) {
+  if (!pending || String(line || '').trim() !== '/trigger') return command
+  const merged = { ...command }
+  if (pending.sendText) merged.input = pending.sendText
+  if (pending.systemText) { merged.systemText = pending.systemText; merged.removeGreeting = false }
+  return merged
+}
+
 export function applyOpeningCommand(chat, command, variables, now) {
   if (!command?.systemText) return
   if (command.removeGreeting) {
