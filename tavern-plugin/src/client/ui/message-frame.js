@@ -560,7 +560,11 @@
 					const start = index;
 					const group = [block];
 					while (index + 1 < blocks.length && blocks[index + 1] && blocks[index + 1].kind === "image") { group.push(blocks[index + 1]); index += 1; }
-					rendered.push(h(React.Fragment, { key: start }, input.renderMessageImages({ images: group.map(function (item) { return { attachment: item.attachment }; }), align: "start" })));
+					const images = group.map(function (item) { return { attachment: item.attachment }; });
+					const imageNodes = typeof input.renderMessageImages === "function"
+						? input.renderMessageImages({ images: images, align: "start" })
+						: renderTavernMessageImages(input, images, "start");
+					if (imageNodes) rendered.push(h(React.Fragment, { key: start }, imageNodes));
 					continue;
 				}
 				if (block.kind !== "tool-call") rendered.push(h(DshUi.JsonBlock, { key: index, label: translate("message.unknownBlock"), payload: block.block || block, truncatedLabel: function (total) { return translate("json.truncated", { total: total }); } }));
@@ -570,6 +574,16 @@
 			}
 			if (input.interrupted) rendered.push(h("span", { key: "stopped", className: "dsh-tavern-assistant-stopped" }, translate("message.stopped")));
 			return rendered;
+		}
+
+		// Message pictures go through the host Content Factory; older builds also
+		// exposed a dedicated renderMessageImages seat. Never crash on either.
+		function renderTavernMessageImages(props, images, align) {
+			if (!Array.isArray(images) || images.length === 0) return null;
+			const input = props || {};
+			if (typeof input.renderMessageImages === "function") return input.renderMessageImages({ images: images, align: align });
+			if (typeof input.renderFactorySlot === "function") return input.renderFactorySlot("conversation.images.content", { images: images, loadImage: input.loadImage, align: align });
+			return null;
 		}
 
 		function userContentParts(content) {

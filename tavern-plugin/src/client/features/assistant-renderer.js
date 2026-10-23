@@ -383,7 +383,7 @@
 					} catch (error) { tavernErrorHub.report("编辑输入", error); }
 					finally { setEditBusy(false); }
 				}
-				const renderedImages = parts.images.length > 0 ? props.renderMessageImages({ images: parts.images, align: "end" }) : null;
+				const renderedImages = renderTavernMessageImages(props, parts.images, "end");
 				const extras = parts.rest.map(function (block, index) {
 					return React.createElement("div", { key: index, className: "dsh-tavern-user-extra" }, React.createElement(DshUi.JsonBlock, { label: typeof props.t === "function" ? props.t("message.extraBlock") : "附加内容", payload: block, truncatedLabel: function (total) { return "内容过长（共 " + String(total) + " 项）"; } }));
 				});
@@ -647,7 +647,7 @@
 						return settled && !sessionTransitioning && Number.isSafeInteger(messageId) && liveState.view?.tavernRuntimePolicy?.trustedCardMode
 							? { sessionId: props.sessionId, messageId: messageId } : null;
 					})(),
-					renderMessageImages: props.renderMessageImages,
+					renderMessageImages: function (images) { return renderTavernMessageImages(props, images && images.images, images && images.align); },
 					plugin: pluginText,
 					cast: cast,
 					mentions: mentions,
