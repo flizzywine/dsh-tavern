@@ -24,7 +24,8 @@ function entryName(value, kind, index) {
   return [...name].slice(0, 256).join('') || (KINDS[kind].type + '_' + (index + 1))
 }
 
-export function createStageMaterial({ library, castAssets, now = Date.now, warn = () => {} }) {
+// `globalPackIds()`: the packs the player turned on for every card (全局, the tavern setting globalEnabledPackIds).
+export function createStageMaterial({ library, castAssets, globalPackIds = async () => [], now = Date.now, warn = () => {} }) {
   // One writer per card: import, migration and the lazy check never interleave on a card's pack.
   const queues = new Map()
   function serial(cardPath, task) {
@@ -55,7 +56,7 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
     return snapshot
   }
 
-  // Each item is one publication, so one unusable file never blocks the rest.
+  // Each item is one publication, so one unusable file never blocks the rest. A new entry is 蓝灯 without trigger words.
   async function place(pack, kind, item, index, bytes, ext, hash) {
     const descriptor = { ext, mime: BLOB_MIME_TYPES[ext], size: bytes.length }
     for (let attempt = 1; attempt <= 9; attempt++) {
@@ -149,10 +150,11 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
     try { return (await pending).url } catch (error) { warn(error); return '' }
   }
 
-  async function entries(cardPath, cardName) {
+  // The card's packs in binding order, then (`global`) the player's global packs in id order.
+  async function entries(cardPath, cardName, global = false) {
     try { await ready(cardPath, cardName) } catch (error) { warn(error) }
-    const rows = []
-    for (const packId of await boundIds(cardPath)) {
+    const rows = [], bound = await boundIds(cardPath)
+    for (const packId of global ? [...new Set([...bound, ...(await globalPackIds()).slice().sort()])] : bound) {
       const pack = await snapshotOf(packId)
       for (const asset of pack?.manifest.assets || []) if (Object.hasOwn(KINDS, asset.kind)) rows.push({ pack, asset })
     }
@@ -164,7 +166,7 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
   // Names and refs only: the director's frozen catalog never holds a lease.
   async function catalog(cardPath, cardName) {
     const result = { background: [], music: [] }
-    for (const { pack, asset } of await entries(cardPath, cardName)) {
+    for (const { pack, asset } of await entries(cardPath, cardName, true)) {
       if (asset.enabled !== true || asset.kind === 'backgrounds' && asset.recall.mode !== 'constant') continue
       const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media }
       if (asset.kind === 'backgrounds') { result.background.push(row); continue }
@@ -198,7 +200,73 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
     return items
   }
 
+  // ---------- The editor (舞台素材, 舞台设置 › 素材包): every write is one CAS publication of the store ----------
+  async function packOf(packId) {
+    const pack = await library.getPackSnapshot({ packId })
+    if (!pack) throw coded('Pack missing', 'ASSET_UNAVAILABLE')
+    return pack
+  }
+  const kindOf = kind => { if (!Object.hasOwn(KINDS, kind)) throw coded('Unknown entry kind', 'INVALID_INPUT'); return kind }
+  // Audio is not trimmed with its last entry by the store (images are): drop it here when nothing else plays it.
+  function dropUnused(pack, assets, hash) {
+    const blob = pack.manifest.blobs[hash]
+    if (!blob || blob.mime.startsWith('image/') || assets.some(asset => asset.media === hash)) return { blobs: pack.manifest.blobs, files: new Map() }
+    const blobs = { ...pack.manifest.blobs }
+    delete blobs[hash]
+    return { blobs, files: new Map([['media/' + hash + '.' + blob.ext, null]]) }
+  }
+  // Files a player adds to a pack: one entry per file, named after the file, 蓝灯 like a card import's.
+  // The same bytes are the same entry; a file the library cannot hold is reported, the others still go in.
+  const addFiles = (packId, kind, items) => serial('pack:' + packId, async () => {
+    kindOf(kind)
+    let pack = await packOf(packId)
+    const added = [], rejected = []
+    for (const [index, item] of items.entries()) {
+      const bytes = Buffer.from(item.bytes), ext = KINDS[kind].media(bytes)
+      if (!ext) { rejected.push({ name: item.name, reason: 'INVALID_INPUT' }); continue }
+      const hash = sha256(bytes), same = pack.manifest.assets.find(asset => asset.kind === kind && asset.media === hash)
+      if (same) { added.push(same.id); continue }
+      try {
+        const placed = await place(pack, kind, item, index, bytes, ext, hash)
+        pack = placed.pack
+        added.push(placed.id)
+      } catch (error) {
+        if (error?.code === 'REVISION_CONFLICT') throw error
+        rejected.push({ name: item.name, reason: error?.code || 'INVALID_INPUT' })
+      }
+    }
+    return { pack, added, rejected }
+  })
+  // 替换媒体…: the entry keeps its name, lamp, words and notes; only its picture or audio changes.
+  const replaceMedia = (packId, expectedRevision, kind, id, input) => serial('pack:' + packId, async () => {
+    kindOf(kind)
+    const pack = await packOf(packId), bytes = Buffer.from(input), ext = KINDS[kind].media(bytes)
+    if (!ext) throw coded('Unsupported media', 'INVALID_INPUT')
+    const entry = pack.manifest.assets.find(asset => asset.kind === kind && asset.id === id)
+    if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
+    const hash = sha256(bytes)
+    if (hash === entry.media) return { pack }
+    const assets = pack.manifest.assets.map(asset => asset === entry ? { ...asset, media: hash } : asset)
+    const old = dropUnused(pack, assets, entry.media), files = old.files
+    if (!pack.manifest.blobs[hash]) files.set('media/' + hash + '.' + ext, bytes)
+    const { snapshot } = await library.patchPack({ packId, expectedRevision, fileUpdates: files,
+      patch: { assets, blobs: { ...old.blobs, [hash]: pack.manifest.blobs[hash] || { ext, mime: BLOB_MIME_TYPES[ext], size: bytes.length } } } })
+    return { pack: snapshot }
+  })
+  async function removeEntry(packId, expectedRevision, kind, id) {
+    const pack = await packOf(packId), entry = pack.manifest.assets.find(asset => asset.kind === kindOf(kind) && asset.id === id)
+    if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
+    const assets = pack.manifest.assets.filter(asset => asset !== entry), { blobs, files } = dropUnused(pack, assets, entry.media)
+    const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { assets, blobs }, fileUpdates: files })
+    return { pack: snapshot }
+  }
+
   return Object.freeze({
+    addFiles,
+    replaceMedia,
+    removeEntry,
+    // A pack's picture or audio for the editor's previews: the same reused lease the stage plays.
+    previewUrl: (packId, hash) => mediaUrl({ ref: { packId }, media: hash }),
     ready,
     catalog,
     mediaUrl,

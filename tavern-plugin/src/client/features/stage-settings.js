@@ -109,6 +109,9 @@ function TavernStageSwitches(props) {
 	// BGM on: the stage plays music and the director may choose it; off: neither, for every card.
 	const setMusic = on => setTavern({ stageToggles: { music: on } });
 	const openVoice = props.openTab ? () => { tavernStageReturn.set({ toTab: TAVERN_STAGE_TABS.settings, label: "返回舞台设置" }); props.openTab(TAVERN_STAGE_TABS.voice); } : null;
+	// BGM ›: the music of this card's packs, opened in 舞台素材 (‹ comes back here).
+	const musicPacks = useTavernKindPacks(props.path, "music");
+	const openMusic = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "music") : null;
 	return h("section", { className: "dsh-tavern-stage-section", "aria-label": "基础设置" },
 		h("header", { className: "dsh-tavern-stage-section-head" }, h("h3", null, "基础设置"),
 			h("span", { className: "dsh-tavern-switch-help", role: "img", "aria-label": "基础设置 说明：这些开关对所有卡生效。", title: "这些开关对所有卡生效。" }, "?"),
@@ -119,18 +122,20 @@ function TavernStageSwitches(props) {
 			status: openVoice ? tavernStageJump("声音设置", openVoice) : null, onOpen: openVoice || undefined }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !settings || busy || blocked("stage").length > 0, help: help("stage"), onChange: setStage }),
 		// Sounds play on the stage: greyed (the stored value kept) while 舞台模式 is off.
-		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.music, icon: "music", checked: prefs.music, disabled: !settings || busy || blocked("music").length > 0, help: help("music"), onChange: setMusic }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.music, icon: "music", checked: prefs.music, disabled: !settings || busy || blocked("music").length > 0, help: help("music"), onChange: setMusic,
+			status: openMusic ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.music, packs: musicPacks, onPick: openMusic }) : null }),
 		choice.views.length ? h("div", { className: "dsh-tavern-switch-row" }, h("label", { className: "dsh-tavern-switch-main" },
 			h("span", { className: "dsh-tavern-switch-name" }, h("span", null, "舞台样式")), h(TavernStageViewSwitch, { choice }))) : null,
 		error ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, "保存失败：" + error) : null);
 }
 
-// The game a page belongs to: a subagent's panel shows its parent game.
-function useTavernStagePage(props) {
+// The game a page belongs to: a subagent's panel shows its parent game; `path` is its card (the packs' states).
+function useTavernStagePage(props, name) {
 	const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
 	const mode = useTavernSessionMode(owner);
 	const stage = useTavernStageRuntime(owner);
-	return { owner, play: isPlayMode(mode), stage };
+	const path = useScopedLiveTavernView(owner, name, [["card", "path"]]).view?.card?.path || "";
+	return { owner, play: isPlayMode(mode), stage, path };
 }
 function tavernStagePageBody(page, props, render) {
 	const h = React.createElement;
@@ -146,18 +151,28 @@ function tavernStagePanel(label, body, back) {
 		h("div", { className: "dsh-tavern-status-body" }, body));
 }
 
-function TavernStageSettingsTab(props) {
-	const page = useTavernStagePage(props);
-	return tavernStagePanel("舞台设置", tavernStagePageBody(page, props, () =>
-		React.createElement(TavernStageSwitches, { sessionId: page.owner, openTab: props.openTab })));
+// A pack opened in 舞台素材 from 舞台设置 (BGM ›, …): its window starts at `kind`, with ‹ back to 舞台设置.
+function tavernStageOpenPack(openTab, packId, kind) {
+	tavernAssetNav.go({ packId, kind, back: { label: "舞台设置", open: () => openTab(TAVERN_STAGE_TABS.settings) } });
+	openTab(TAVERN_STAGE_TABS.materials);
 }
 
-// 舞台素材: the card's cast material (portraits, avatars, each figure's voice, sprite packs). It also feeds the chat's
-// avatars, so it is editable while the stage is off.
+function TavernStageSettingsTab(props) {
+	const page = useTavernStagePage(props, "stage-settings");
+	return tavernStagePanel("舞台设置", tavernStagePageBody(page, props, () => React.createElement(React.Fragment, null,
+		React.createElement(TavernStageSwitches, { sessionId: page.owner, path: page.path, openTab: props.openTab }),
+		page.path ? React.createElement(TavernStagePacks, { path: page.path, openLibrary: props.openTab ? () => props.openTab(TAVERN_STAGE_TABS.materials) : null }) : null)));
+}
+
+// 舞台素材: the asset library (every pack: backgrounds and music; the states are the open card's, or 全局 / 关闭 without
+// one), then the card's cast material (portraits, avatars, each figure's voice, sprite packs). The cast material also
+// feeds the chat's avatars, so it is editable while the stage is off.
 function TavernStageMaterialsTab(props) {
-	const page = useTavernStagePage(props);
-	return tavernStagePanel("舞台素材", tavernStagePageBody(page, props, () =>
-		React.createElement(TavernCastManager, { sessionId: page.owner, data: page.stage.data, onCast: () => tavernStageRuntime.refresh(page.owner) })));
+	const h = React.createElement, page = useTavernStagePage(props, "stage-materials");
+	return tavernStagePanel("舞台素材", h(React.Fragment, null,
+		h(TavernPackLibrary, { cardPath: page.play ? page.path : "" }),
+		page.play && page.stage.data ? h("div", { className: "dsh-tavern-stage-materials-cast" },
+			h(TavernCastManager, { sessionId: page.owner, data: page.stage.data, onCast: () => tavernStageRuntime.refresh(page.owner) })) : null));
 }
 
 // 配音: the voicing service (channel, default and narrator voices, its switch). Opened from 舞台设置 › 配音 ›, the

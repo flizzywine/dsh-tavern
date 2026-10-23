@@ -269,6 +269,7 @@ import { createResourceHandlers } from './rpc/resources.js'
 import { createMediaHandlers } from './rpc/media.js'
 import { createSettingsHandlers } from './rpc/settings.js'
 import { createPluginHandlers } from './rpc/plugins.js'
+import { createAssetLibraryHandlers } from './rpc/asset-library.js'
 import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
 // dsh-tavern 宿主插件（profile 组合行）
@@ -981,7 +982,7 @@ export async function apply(ctx) {
   // The asset library (docs/design/asset-library.md): one owner of the profile's packs, beside the tavern data root.
   const assetLibrary = createAssetPackService({ assetRoot: path.join(path.dirname(dataRoot), 'asset-packs'), leaseTtlMs: STAGE_LEASE_TTL_MS,
     authorizeLease: async ({ scope }) => scope === STAGE_MEDIA_SCOPE || scope === STAGE_READ_SCOPE })
-  const stageMaterial = createStageMaterial({ library: assetLibrary, castAssets, warn: error => console.warn('dsh-tavern: 舞台素材不可用', str(error?.message || error)) })
+  const stageMaterial = createStageMaterial({ library: assetLibrary, castAssets, globalPackIds: async () => (await readTavernSettings()).globalEnabledPackIds, warn: error => console.warn('dsh-tavern: 舞台素材不可用', str(error?.message || error)) })
   ctx.effect(() => () => { stageMaterial.dispose(); return assetLibrary.dispose() })
   // DSH cards (docs/design/dsh-card-format.md): asset packs stored once by content; big files uploaded to disk.
   const assetPacks = createAssetPacks({ root: dataRoot, store: profileData })
@@ -2327,6 +2328,14 @@ export async function apply(ctx) {
       if (item && item.cardPath === cardPath && item.sessionId) sessionSignals.publish(item.sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
     }
   }
+  // An asset pack changed (舞台素材): one card's games re-read their stage, or, for a pack any card may use, every card's.
+  function stageMaterialChanged(cardPath = '') {
+    void (async () => {
+      for (const item of await conversationRegistry.list().catch(() => [])) {
+        if (item && item.sessionId && item.cardPath && (!cardPath || item.cardPath === cardPath)) sessionSignals.publish(item.sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
+      }
+    })()
+  }
   async function castEdit(sessionId, edit) {
     const card = await castCardOf(sessionId)
     const result = await edit(card.path, card)
@@ -3258,9 +3267,9 @@ export async function apply(ctx) {
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   const rpcDeps = { TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds,
-    applicationUpdater, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog,
+    applicationUpdater, assetLibrary, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog,
     backgroundConfigForSession, bindScript, bodyEditor, callModel, candidateGenerator, candidateTasks, polishRecords, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload,
-    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardTaskPrompts, castAssets,
+    cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castPresentation, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,
     conversationBackgroundSettings, conversationGuides, ctx, dataRoot, deleteCard, deleteChat, deleteChats,
@@ -3282,7 +3291,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, speechReply, stageMaterial, stageMaterialChanged, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,
@@ -3299,6 +3308,7 @@ export async function apply(ctx) {
     createMediaHandlers(rpcDeps),
     createSettingsHandlers(rpcDeps),
     createPluginHandlers(rpcDeps),
+    createAssetLibraryHandlers(rpcDeps),
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps))
 

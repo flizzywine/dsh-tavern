@@ -3164,7 +3164,9 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-switch-row[data-disabled] .dsh-tavern-switch-main { color: var(--dsw-alias-label-tertiary); cursor: default; }
 .dsh-tavern-switch-help { display: inline-grid; place-items: center; flex: none; width: 15px; height: 15px; border: 1px solid currentColor; border-radius: 50%; font-size: 10px; font-weight: 500; line-height: 1; color: var(--dsw-alias-label-tertiary); cursor: help; }
 .dsh-tavern-switch-jump { order: 1; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; margin: 0 auto 0 -10px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
-.dsh-tavern-switch-main:has(> .dsh-tavern-switch-jump) > .dsh-tavern-switch-name { margin-right: 0; }
+.dsh-tavern-switch-main:has(> .dsh-tavern-switch-jump, > .dsh-tavern-switch-jump-anchor) > .dsh-tavern-switch-name { margin-right: 0; }
+.dsh-tavern-switch-jump-anchor { order: 1; margin: 0 auto 0 -10px; }
+.dsh-tavern-switch-jump-anchor > .dsh-tavern-switch-jump { margin: 0; }
 .dsh-tavern-switch-jump:hover { background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-primary); }
 .dsh-tavern-switch-jump:focus-visible, .dsh-tavern-stage-back:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
 .dsh-tavern-switch-row.is-openable { position: relative; isolation: isolate; cursor: pointer; }
@@ -3177,6 +3179,219 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-nocard { display: grid; justify-items: start; gap: 8px; }
 .dsh-tavern-stage-back { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-stage-back:hover { background: var(--dsh-tavern-accent-soft); }
+
+/* 舞台素材 (features/stage-assets.js): packs (全局 blue · 本卡 green · 关闭 grey hollow), the pack window (entries · the chosen one)
+   and 舞台设置 › 素材包. Layers (windows, menus) are portaled to the body, so they carry the font and colours themselves. */
+.dsh-tavern-stage-panel, .dsh-tavern-asset-scrim, .dsh-tavern-asset-menu {
+  --asset-global: var(--dsw-alias-button-info-fill, #4176e6); --asset-card: var(--dsw-alias-state-success-primary, #2e9d5b);
+  --asset-off: color-mix(in srgb, var(--dsw-alias-label-primary) 45%, transparent); --asset-line: var(--dsw-alias-border-l2);
+  --asset-hover: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent)); --asset-error: var(--dsh-tavern-accent-error);
+  --asset-surface: var(--dsw-alias-bg-base, Canvas);
+}
+.dsh-tavern-asset-scrim, .dsh-tavern-asset-menu { font-family: var(--dsh-tavern-font-sans); font-size: 14px; color: var(--dsw-alias-label-primary); -webkit-font-smoothing: antialiased; }
+.dsh-tavern-asset-glyph { flex: none; }
+.dsh-tavern-asset-icon { display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; min-width: 0; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-tavern-asset-icon:hover:not(:disabled), .dsh-tavern-asset-icon[aria-expanded="true"] { background: var(--asset-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-asset-icon[data-on] { color: var(--dsh-tavern-accent); }
+.dsh-tavern-asset-icon:disabled { opacity: .4; cursor: default; }
+.dsh-tavern-asset-icon.is-danger { color: var(--asset-error); }
+:is(.dsh-tavern-asset-icon, .dsh-tavern-asset-link, .dsh-tavern-asset-pill, .dsh-tavern-asset-text-button, .dsh-tavern-asset-primary, .dsh-tavern-pack-name, .dsh-tavern-pack-state, .dsh-tavern-asset-menu-item, .dsh-tavern-entry-main, .dsh-tavern-asset-lamp-button, .dsh-tavern-asset-lamp-named, .dsh-tavern-asset-add-chip, .dsh-tavern-asset-play, .dsh-tavern-asset-hero, .dsh-tavern-asset-manage, .dsh-tavern-pack-kinds > button):focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
+.dsh-tavern-asset-link { min-height: 28px; padding: 2px 8px; border: 0; border-radius: 6px; background: none; color: var(--dsh-tavern-accent); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-asset-link:hover { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-asset-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--dsh-tavern-accent-soft); color: var(--dsh-tavern-accent); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.dsh-tavern-asset-pill.is-large { height: 34px; padding: 0 16px; font-size: 14px; }
+.dsh-tavern-asset-pill:disabled { opacity: .45; cursor: default; }
+.dsh-tavern-asset-text-button { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: none; color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+.dsh-tavern-asset-text-button:hover:not(:disabled) { background: var(--asset-hover); }
+.dsh-tavern-asset-primary { height: 32px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff); font: inherit; font-weight: 600; cursor: pointer; }
+.dsh-tavern-asset-primary.is-danger { background: var(--asset-error); color: #fff; }
+.dsh-tavern-asset-primary:disabled { opacity: .6; cursor: progress; }
+.dsh-tavern-asset-alert { display: flex; align-items: center; gap: 8px; margin: 6px 0; color: var(--asset-error); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.dsh-tavern-asset-notice { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-asset-spin { flex: none; width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: dsh-tavern-asset-spin .8s linear infinite; }
+@keyframes dsh-tavern-asset-spin { to { transform: rotate(1turn); } }
+.dsh-tavern-asset-loading { display: grid; gap: 4px; padding: 4px 0; min-height: 44px; }
+.dsh-tavern-asset-skeleton { display: flex; align-items: center; gap: 10px; height: 40px; animation: dsh-tavern-asset-fade .2s ease both; }
+.dsh-tavern-asset-skeleton > * { display: block; height: 12px; border-radius: 6px; background: var(--asset-hover); }
+.dsh-tavern-asset-skeleton > i { flex: 0 1 46%; }
+.dsh-tavern-asset-skeleton > b { flex: none; width: 44px; height: 22px; margin-left: auto; border-radius: 11px; }
+.dsh-tavern-asset-skeleton.has-lead::before { content: ""; flex: none; width: 56px; height: 32px; border-radius: 6px; background: var(--asset-hover); }
+@keyframes dsh-tavern-asset-fade { from { opacity: 0; } }
+.dsh-tavern-asset-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 160px; padding: 28px 16px; box-sizing: border-box; text-align: center; font-size: 14px; }
+.dsh-tavern-asset-empty.is-compact { min-height: 0; padding: 14px 8px; flex-direction: row; gap: 8px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-asset-empty p { margin: 0; max-width: 28em; overflow-wrap: anywhere; }
+.dsh-tavern-asset-empty-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--asset-hover); color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-asset-empty.is-compact .dsh-tavern-asset-empty-icon { width: 28px; height: 28px; }
+.dsh-tavern-asset-search { display: flex; flex: 1 1 auto; align-items: center; gap: 6px; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--asset-line); border-radius: 8px; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-asset-search:focus-within { border-color: var(--dsh-tavern-accent-border); }
+.dsh-tavern-asset-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; }
+/* The box is the label; the host's sidebar field style must not draw a second one inside it. */
+.dsh-tavern-asset-search > input[type="search"] { appearance: none; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: none !important; }
+
+/* Menus: one opaque floating surface; items 36px, the chosen one with ✓. */
+.dsh-tavern-asset-menu { position: fixed; z-index: 2147483010; box-sizing: border-box; min-width: 168px; max-width: min(320px, calc(100vw - 16px)); max-height: min(360px, calc(100vh - 16px)); overflow: auto; padding: 5px; border: 1px solid var(--asset-line); border-radius: 10px; background: var(--asset-surface); box-shadow: 0 10px 30px rgba(0, 0, 0, .18); animation: dsh-tavern-asset-fade .12s ease both; }
+.dsh-tavern-asset-menu-anchor { display: inline-flex; flex: none; min-width: 0; }
+.dsh-tavern-asset-menu-item { display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; height: 36px; padding: 0 10px 0 8px; border: 0; border-radius: 7px; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.dsh-tavern-asset-menu-item:hover:not(:disabled), .dsh-tavern-asset-menu-item:focus-visible { background: var(--asset-hover); }
+.dsh-tavern-asset-menu-item:focus-visible { outline-offset: -2px; }
+.dsh-tavern-asset-menu-item[aria-checked="true"] { background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent); }
+.dsh-tavern-asset-menu-item.is-danger { color: var(--asset-error); }
+.dsh-tavern-asset-menu-item > svg:last-child:not(:first-child) { margin-left: auto; color: var(--dsh-tavern-accent); }
+.dsh-tavern-asset-menu-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-asset-menu-item > input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.dsh-tavern-asset-menu-sep { display: block; height: 1px; margin: 4px 6px; background: var(--asset-line); }
+
+/* Lamps: a 7px dot with a soft ring — 蓝灯 blue, 绿灯 green, 关闭 grey and hollow. */
+.dsh-tavern-asset-lamp { display: inline-block; flex: none; box-sizing: border-box; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+[data-mode="constant"] > .dsh-tavern-asset-lamp, .dsh-tavern-asset-lamp[data-mode="constant"] { color: var(--asset-global); }
+[data-mode="keyword"] > .dsh-tavern-asset-lamp, .dsh-tavern-asset-lamp[data-mode="keyword"] { color: var(--asset-card); }
+[data-mode="off"] > .dsh-tavern-asset-lamp, .dsh-tavern-asset-lamp[data-mode="off"] { color: var(--asset-off); background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.dsh-tavern-asset-menu-item > .dsh-tavern-asset-lamp { margin: 0 4px; }
+.dsh-tavern-asset-lamp-button { display: grid; place-items: center; width: 30px; height: 30px; margin: -6px -8px -6px -4px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; }
+.dsh-tavern-asset-lamp-button:hover > .dsh-tavern-asset-lamp, .dsh-tavern-asset-lamp-button[aria-expanded="true"] > .dsh-tavern-asset-lamp { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 45%, transparent); }
+.dsh-tavern-asset-lamp-button[data-mode="off"]:hover > .dsh-tavern-asset-lamp { box-shadow: inset 0 0 0 1.5px currentColor, 0 0 0 3px color-mix(in srgb, currentColor 30%, transparent); }
+.dsh-tavern-asset-lamp-named { display: inline-flex; align-items: center; gap: 8px; height: 30px; margin-left: -8px; padding: 0 8px; border: 0; border-radius: 7px; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; cursor: pointer; }
+.dsh-tavern-asset-lamp-named:hover:not(:disabled), .dsh-tavern-asset-lamp-named[aria-expanded="true"] { background: var(--asset-hover); }
+.dsh-tavern-asset-lamp-named > svg { color: var(--dsw-alias-label-tertiary); }
+
+/* Pack rows and their state chip. */
+.dsh-tavern-asset-library { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dsh-tavern-pack-toolbar { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.dsh-tavern-pack-kind-menu { width: auto; min-width: 30px; gap: 4px; padding: 0 7px; font: inherit; font-size: 12px; }
+.dsh-tavern-pack-list { margin: 0; padding: 0; list-style: none; }
+.dsh-tavern-pack-row { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid var(--asset-line); }
+.dsh-tavern-pack-list > .dsh-tavern-pack-row:last-child { border-bottom: 0; }
+.dsh-tavern-pack-row.is-openable { cursor: pointer; }
+.dsh-tavern-pack-row.is-openable::before { content: ""; position: absolute; inset: 0 -6px; z-index: -1; border-radius: 8px; pointer-events: none; }
+.dsh-tavern-pack-row.is-openable:hover:not(:has(.dsh-tavern-pack-state:hover))::before { background: var(--asset-hover); }
+.dsh-tavern-pack-row.is-new { gap: 6px; border-bottom: 1px solid var(--asset-line); }
+.dsh-tavern-asset-new-input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--dsh-tavern-accent-border); border-radius: 8px; outline: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; }
+.dsh-tavern-pack-name { flex: 1 1 auto; min-width: 0; margin-right: auto; padding: 4px 0; border: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; font-weight: 500; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.dsh-tavern-pack-name.is-missing { display: inline-flex; align-items: center; gap: 6px; color: var(--asset-error); cursor: default; }
+.dsh-tavern-pack-state { display: inline-flex; align-items: center; gap: 5px; flex: none; height: 24px; padding: 0 10px; border: 0; border-radius: 12px; background: none; box-shadow: inset 0 0 0 1px var(--asset-off); color: color-mix(in srgb, var(--dsw-alias-label-primary) 78%, transparent); font: inherit; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+button.dsh-tavern-pack-state[data-state="off"]:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent); }
+.dsh-tavern-pack-state[data-state="card"] { box-shadow: none; background: color-mix(in srgb, var(--asset-card) 16%, transparent); color: color-mix(in srgb, var(--asset-card) 80%, var(--dsw-alias-label-primary)); }
+.dsh-tavern-pack-state[data-state="global"] { box-shadow: none; background: color-mix(in srgb, var(--asset-global) 16%, transparent); color: color-mix(in srgb, var(--asset-global) 80%, var(--dsw-alias-label-primary)); }
+button.dsh-tavern-pack-state[data-state="card"]:hover { background: color-mix(in srgb, var(--asset-card) 25%, transparent); }
+button.dsh-tavern-pack-state[data-state="global"]:hover { background: color-mix(in srgb, var(--asset-global) 25%, transparent); }
+.dsh-tavern-pack-state[aria-busy] { cursor: progress; }
+.dsh-tavern-asset-state-dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; }
+.dsh-tavern-asset-state-dot[data-state="global"] { background: var(--asset-global); box-shadow: 0 0 0 3px color-mix(in srgb, var(--asset-global) 22%, transparent); }
+.dsh-tavern-asset-state-dot[data-state="card"] { background: var(--asset-card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--asset-card) 22%, transparent); }
+.dsh-tavern-asset-state-dot[data-state="off"] { border: 1.5px solid var(--asset-off); }
+.dsh-tavern-stage-packs { margin-top: 18px; }
+.dsh-tavern-stage-section-meta { margin-left: 6px; color: var(--dsw-alias-label-tertiary); font-weight: 400; font-variant-numeric: tabular-nums; }
+.dsh-tavern-asset-manage { margin-left: auto; height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--dsh-tavern-accent); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-asset-manage:hover { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-asset-manage.is-done { background: var(--dsh-tavern-accent-soft); font-weight: 600; }
+.dsh-tavern-stage-packs > .dsh-tavern-pack-toolbar { margin: 6px 0 2px; }
+.dsh-tavern-asset-more { margin: 4px 0 0; }
+.dsh-tavern-asset-more .dsh-tavern-asset-link { margin-left: -8px; }
+.dsh-tavern-stage-materials-cast { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--asset-line); }
+
+/* Windows: an opaque surface over a veil; the pack window is two columns, a single one at 720px and below. */
+.dsh-tavern-asset-scrim { position: fixed; inset: 0; z-index: 2147483005; display: grid; place-items: center; box-sizing: border-box; padding: 16px; background: rgba(0, 0, 0, .45); }
+.dsh-tavern-asset-modal { display: flex; flex-direction: column; box-sizing: border-box; width: min(440px, 100%); max-height: calc(100dvh - 32px); overflow: hidden; border: 1px solid var(--asset-line); border-radius: 14px; background: var(--asset-surface); box-shadow: 0 24px 60px rgba(0, 0, 0, .3); outline: none; animation: dsh-tavern-asset-fade .15s ease both; }
+.dsh-tavern-asset-modal-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--asset-line); }
+.dsh-tavern-asset-modal.is-confirm .dsh-tavern-asset-modal-head { border-bottom: 0; padding-bottom: 4px; }
+.dsh-tavern-asset-modal-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-asset-modal-tools { display: inline-flex; align-items: center; gap: 4px; }
+.dsh-tavern-asset-back { margin-left: -6px; }
+.dsh-tavern-asset-confirm-body { margin: 4px 20px 0; color: var(--dsw-alias-label-secondary); line-height: 1.6; }
+.dsh-tavern-asset-modal > .dsh-tavern-asset-alert { margin: 8px 20px 0; }
+.dsh-tavern-asset-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 18px 20px 16px; }
+.dsh-tavern-asset-modal.dsh-tavern-pack-window { width: min(1440px, 92vw, 100%); height: min(960px, 90dvh); }
+@media (max-height: 800px) { .dsh-tavern-asset-modal.dsh-tavern-pack-window { height: calc(100dvh - 32px); } }
+.dsh-tavern-pack-window > .dsh-tavern-asset-loading { padding: 16px 20px; }
+.dsh-tavern-pack-window > .dsh-tavern-asset-alert { margin: 16px 20px; }
+.dsh-tavern-asset-modal-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 8px 20px; border-top: 1px solid var(--asset-line); }
+.dsh-tavern-asset-modal-foot .dsh-tavern-asset-alert { margin: 0; }
+.dsh-tavern-pack-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); }
+.dsh-tavern-pack-left { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--asset-line); }
+.dsh-tavern-pack-kinds { display: flex; flex: none; margin: 8px 14px 0; border-bottom: 1px solid var(--asset-line); }
+.dsh-tavern-pack-kinds > button { height: 36px; padding: 0 9px; border: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; cursor: pointer; }
+.dsh-tavern-pack-kinds > button:hover { color: var(--dsh-tavern-accent); }
+.dsh-tavern-pack-kinds > button[aria-selected="true"] { color: var(--dsh-tavern-accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--dsh-tavern-accent); }
+.dsh-tavern-pack-tools { display: flex; align-items: center; gap: 2px; padding: 8px 10px 8px 14px; }
+.dsh-tavern-pack-tools > .dsh-tavern-asset-search { margin-right: 4px; }
+.dsh-tavern-entry-list { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 0 8px 14px; list-style: none; }
+.dsh-tavern-entry-item { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 10px 5px 6px; border-radius: 9px; cursor: pointer; }
+.dsh-tavern-entry-item:hover { background: var(--asset-hover); }
+.dsh-tavern-entry-item[aria-selected="true"] { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-entry-item[aria-selected="true"] .dsh-tavern-entry-name { color: var(--dsh-tavern-accent); font-weight: 600; }
+.dsh-tavern-entry-item[data-disabled] > :not(.dsh-tavern-asset-lamp-anchor) { opacity: .45; }
+.dsh-tavern-entry-main { display: flex; flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; }
+.dsh-tavern-entry-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-entry-thumb { position: relative; display: block; flex: none; width: 64px; height: 36px; overflow: hidden; border-radius: 6px; background: var(--asset-hover); }
+:is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture) img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .18s ease; }
+:is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture) img[data-shown] { opacity: 1; }
+:is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture)[data-failed] { background: color-mix(in srgb, var(--asset-error) 12%, transparent); }
+.dsh-tavern-asset-play { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--asset-hover); color: var(--dsh-tavern-accent); cursor: pointer; }
+.dsh-tavern-asset-play.is-big { width: 48px; height: 48px; background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff); }
+.dsh-tavern-asset-play:disabled { opacity: .4; cursor: default; }
+.dsh-tavern-asset-play[data-state="error"] { color: var(--asset-error); }
+.dsh-tavern-asset-play svg { width: 18px; height: 18px; }
+.dsh-tavern-asset-play .is-fill { fill: currentColor; }
+.dsh-tavern-asset-play .is-stroke { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.dsh-tavern-pack-right { min-width: 0; min-height: 0; overflow: auto; padding: 18px 24px 24px; }
+.dsh-tavern-entry-detail { max-width: 820px; margin-inline: auto; }
+.dsh-tavern-entry-detail[data-disabled] :is(.dsh-tavern-asset-hero, .dsh-tavern-asset-player) { filter: grayscale(.8); opacity: .7; }
+.dsh-tavern-entry-title { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; }
+.dsh-tavern-entry-title > .dsh-tavern-asset-back { margin-top: 3px; }
+.dsh-tavern-asset-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.dsh-tavern-asset-text-input { box-sizing: border-box; width: 100%; min-height: 30px; margin: 0 0 0 -8px; padding: 4px 8px; border: 1px solid transparent; border-radius: 7px; outline: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; line-height: 1.6; resize: none; overflow: hidden; }
+.dsh-tavern-asset-text-input:hover { background: var(--asset-hover); }
+.dsh-tavern-asset-text-input:focus { border-color: var(--dsh-tavern-accent-border); background: none; }
+.dsh-tavern-asset-text-input[aria-invalid] { border-color: var(--asset-error); }
+.dsh-tavern-asset-text.is-title .dsh-tavern-asset-text-input { font-size: 20px; font-weight: 700; line-height: 1.4; }
+.dsh-tavern-asset-field-error { display: block; flex-basis: 100%; margin-top: 4px; color: var(--asset-error); font-size: 12px; line-height: 1.5; }
+.dsh-tavern-asset-hero { display: block; width: 100%; padding: 0; border: 0; border-radius: 12px; background: none; overflow: hidden; cursor: zoom-in; }
+.dsh-tavern-asset-hero-picture { display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--asset-hover); }
+.dsh-tavern-asset-hero-picture img { object-fit: contain; }
+.dsh-tavern-asset-player { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--asset-line); border-radius: 12px; }
+.dsh-tavern-asset-player-main { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.dsh-tavern-asset-progress { height: 4px; border-radius: 2px; background: var(--asset-hover); overflow: hidden; }
+.dsh-tavern-asset-progress > span { display: block; height: 100%; background: var(--dsh-tavern-accent); }
+.dsh-tavern-asset-player-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; color: var(--dsw-alias-label-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dsh-tavern-asset-player-volume { display: inline-flex; align-items: center; gap: 8px; }
+.dsh-tavern-asset-player-level { min-width: 3.2em; text-align: right; }
+.dsh-tavern-asset-slider { position: relative; display: inline-block; width: 110px; height: 20px; cursor: pointer; touch-action: none; outline: none; }
+.dsh-tavern-asset-slider::before { content: ""; position: absolute; top: 8px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--asset-hover); }
+.dsh-tavern-asset-slider-fill { position: absolute; top: 8px; left: 0; width: var(--value); height: 4px; border-radius: 2px; background: var(--dsh-tavern-accent); }
+.dsh-tavern-asset-slider-knob { position: absolute; top: 3px; left: calc(var(--value) - 7px); width: 14px; height: 14px; border-radius: 50%; background: var(--asset-surface); box-shadow: 0 0 0 1.5px var(--dsh-tavern-accent); }
+.dsh-tavern-asset-slider:focus-visible .dsh-tavern-asset-slider-knob { box-shadow: 0 0 0 1.5px var(--dsh-tavern-accent), 0 0 0 4px var(--dsh-tavern-accent-soft); }
+.dsh-tavern-asset-fields { display: grid; gap: 4px; margin-top: 16px; }
+.dsh-tavern-asset-field { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); align-items: start; gap: 12px; min-height: 40px; }
+.dsh-tavern-asset-field-label { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding-top: 1px; color: var(--dsw-alias-label-secondary); font-size: 14px; }
+.dsh-tavern-asset-field-label .dsh-tavern-switch-help { border: 0; width: auto; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-asset-field-value { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; min-height: 30px; }
+.dsh-tavern-asset-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 3px 0; }
+.dsh-tavern-asset-chip { display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 4px 0 10px; border-radius: 13px; background: var(--asset-hover); font-size: 13px; }
+.dsh-tavern-asset-chip button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
+.dsh-tavern-asset-chip button:hover { background: var(--asset-hover); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-asset-chip button svg { width: 12px; height: 12px; }
+.dsh-tavern-asset-chip-add { display: inline-flex; align-items: center; gap: 2px; box-sizing: border-box; height: 26px; min-width: 26px; padding: 0 6px; border: 1px dashed var(--asset-off); border-radius: 13px; color: var(--dsw-alias-label-secondary); cursor: text; }
+.dsh-tavern-asset-chip-add svg { width: 12px; height: 12px; flex: none; }
+.dsh-tavern-asset-chip-add input { width: 0; min-width: 0; padding: 0; border: 0; outline: 0; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; }
+.dsh-tavern-asset-chip-add:focus-within, .dsh-tavern-asset-chip-add[data-draft] { border-color: var(--dsh-tavern-accent-border); border-style: solid; }
+.dsh-tavern-asset-chip-add:focus-within input, .dsh-tavern-asset-chip-add[data-draft] input { width: 96px; margin-left: 2px; }
+.dsh-tavern-asset-adds { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--asset-line); }
+.dsh-tavern-asset-add-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 12px 0 9px; border: 1px dashed var(--asset-off); border-radius: 14px; background: none; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-asset-add-chip:hover { border-color: var(--dsh-tavern-accent-border); color: var(--dsh-tavern-accent); }
+.dsh-tavern-asset-add-chip svg { width: 12px; height: 12px; }
+@media (max-width: 720px) {
+  .dsh-tavern-asset-scrim:has(.dsh-tavern-pack-window) { padding: 0; }
+  .dsh-tavern-asset-modal.dsh-tavern-pack-window { width: 100%; height: 100%; max-height: 100dvh; border: 0; border-radius: 0; }
+  .dsh-tavern-pack-cols { grid-template-columns: minmax(0, 1fr); }
+  .dsh-tavern-pack-left { border-right: 0; }
+  .dsh-tavern-pack-cols[data-detail] > .dsh-tavern-pack-left, .dsh-tavern-pack-cols:not([data-detail]) > .dsh-tavern-pack-right { display: none; }
+  .dsh-tavern-pack-right { padding: 14px 16px 20px; }
+  .dsh-tavern-asset-field { grid-template-columns: 5.5em minmax(0, 1fr); gap: 8px; }
+  .dsh-tavern-asset-lamp-button { width: 36px; height: 36px; margin: -10px -10px -10px -6px; }
+  .dsh-tavern-asset-player { flex-wrap: wrap; }
+}
+@media (pointer: coarse) { .dsh-tavern-asset-icon { width: 36px; height: 36px; } .dsh-tavern-asset-chip button { width: 28px; height: 28px; } }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-asset-menu, .dsh-tavern-asset-modal, .dsh-tavern-asset-skeleton, :is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture) img { animation: none; transition: none; } .dsh-tavern-asset-spin { animation-duration: 2.4s; } }
 .dsh-tavern-cast-manager-head { display: flex; align-items: center; justify-content: space-between; }
 .dsh-tavern-cast-manager ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .dsh-tavern-cast-manager-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

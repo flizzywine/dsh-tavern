@@ -847,6 +847,7 @@ window.__ModuleLoader__.load({
 // @include features/stage-skin.js
 // @include modules/stage-runtime.js
 // @include features/stage-runtime.js
+// @include features/stage-assets.js
 // @include features/stage-settings.js
 // @include modules/stage-music.js
 // @include modules/stage-bgm.js

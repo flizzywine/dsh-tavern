@@ -7,6 +7,8 @@ function object(value) {
 }
 // Global stage switches a patch may set.
 const STAGE_TOGGLES = Object.freeze(['stage', 'music'])
+const PACK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const globalPackIds = document => Array.isArray(object(document).globalEnabledPackIds) ? document.globalEnabledPackIds.filter(id => typeof id === 'string' && PACK_ID.test(id)) : []
 
 // A stored blank here is the user's choice and overrides the default; only
 // resetting (deleting the key) restores it.
@@ -262,6 +264,15 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!Object.keys(toggles).length || Object.entries(toggles).some(([key, value]) => !STAGE_TOGGLES.includes(key) || typeof value !== 'boolean')) throw new Error('舞台开关只能是 ' + STAGE_TOGGLES.join('、') + '，且必须是布尔值')
     next.stageToggles = { ...object(next.stageToggles), ...toggles }
   }
+  // A pack the player turns on for every card (全局) or off again: one pack per change, applied to the stored list.
+  if (Object.hasOwn(input, 'globalPack')) {
+    const { packId, enabled } = object(input.globalPack)
+    if (typeof packId !== 'string' || !PACK_ID.test(packId) || typeof enabled !== 'boolean') throw new Error('无效的素材包设置')
+    const ids = globalPackIds(next).filter(id => id !== packId)
+    if (enabled) ids.push(packId)
+    if (ids.length) next.globalEnabledPackIds = ids
+    else delete next.globalEnabledPackIds
+  }
   if (Object.hasOwn(input, 'contextCompaction')) next.contextCompaction = { ...compactionPolicy(input.contextCompaction), revision: Date.now() }
   if (Object.prototype.hasOwnProperty.call(input, 'backgroundTasks')) {
     next.backgroundTasks = normalizeBackgroundTasks({ ...normalizeBackgroundTasks(next.backgroundTasks), ...object(input.backgroundTasks) })
@@ -340,6 +351,8 @@ export function presentTavernSettings(document, defaults) {
     castPresentation: object(document).castPresentation === true,
     // 舞台模式 and BGM: one switch each for every card, on by default; the stage also needs 对话气泡 (castPresentation).
     stageToggles: { stage: object(object(document).stageToggles).stage !== false, music: object(object(document).stageToggles).music !== false },
+    // Asset packs on for every card (全局); a card adds its own (本卡) in its cast manifest.
+    globalEnabledPackIds: globalPackIds(document),
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // Library edits reach a running game on its next turn; only an explicit
