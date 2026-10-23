@@ -1080,7 +1080,7 @@
 <h2 id="dshcard-guide--section-3">从最小示例开始</h2>
 <p>仓库里的 <a href="https://github.com/flizzywine/dsh-tavern/tree/main/examples/dshcard-hello">examples/dshcard-hello</a> 是一张几十 KB 的完整示例卡「阿芙拉」：一张立绘、一个约 50 行的卡内插件。插件每轮在后台结算里顺带判断这一幕的氛围（温暖、平静、紧张、夜深），自己画的舞台按氛围换底色；本局设置里有一个开关可以关掉它。</p>
 <div class="code-block"><div class="code-heading"><span>sh</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>node examples/dshcard-hello/build.mjs</code></pre></div>
-<p>生成 <code>examples/dshcard-hello/阿芙拉.dshcard</code>，在 Tavern 的人物卡库导入、刷新页面，用阿芙拉开一局，舞台在右侧「酒馆状态」顶部。</p>
+<p>生成 <code>examples/dshcard-hello/阿芙拉.dshcard</code>，在 Tavern 的人物卡库导入、刷新页面，用阿芙拉开一局，点聊天顶栏的「舞台」打开全屏舞台（「舞台设置」里的「对话气泡」和「舞台模式」默认开着）。</p>
 <p>把这个文件夹复制一份，换掉 <code>card.json</code>、图片和插件，就是你自己的卡。<code>build.mjs</code> 只是把文件按上面的结构写进 ZIP，用任何压缩工具手动打包也一样。</p>
 <h2 id="dshcard-guide--section-4">card.json</h2>
 <p>就是 Character Card V3 的 JSON（<code>spec</code> 为 <code>chara_card_v3</code>），从 SillyTavern 导出的卡可以直接用。要让 Tavern 带进立绘，在 <code>data.assets</code> 里列出图片，<code>uri</code> 用 <code>embeded://</code> 指向包里的路径：</p>
@@ -1100,19 +1100,17 @@
   &quot;plugins&quot;: [
     { &quot;name&quot;: &quot;dsh-card-hello-mood&quot;, &quot;path&quot;: &quot;plugins/hello-mood/&quot;, &quot;purpose&quot;: &quot;每轮按剧情记下氛围，舞台底色跟着变&quot; }
   ],
-  &quot;packs&quot;: [],
-  &quot;defaults&quot;: { &quot;stage&quot;: true }
+  &quot;packs&quot;: []
 }</code></pre></div>
 <div class="table-wrap" tabindex="0" role="region" aria-label="说明表格"><table><thead><tr><th scope="col">字段</th><th scope="col">必需</th><th scope="col">说明</th></tr></thead><tbody><tr><td><code>format</code></td><td>是</td><td>固定为 <code>dshcard</code></td></tr><tr><td><code>formatVersion</code></td><td>是</td><td>固定为 <code>1</code>；比 Tavern 认识的版本新时，导入会提示先更新 Tavern</td></tr><tr><td><code>card</code></td><td>否</td><td><code>version</code>、<code>title</code>、<code>author</code>，给玩家看</td></tr><tr><td><code>requires.tavernApi</code></td><td>否</td><td>插件用到的插件接口版本，目前写 <code>2</code></td></tr><tr><td><code>plugins</code></td><td>否</td><td>卡内插件列表：<code>name</code> 与插件 <code>package.json</code> 的 <code>name</code> 相同，<code>path</code> 是 <code>plugins/&lt;文件夹&gt;/</code>，<code>purpose</code> 一句话说明用途，导入后在卡片详情里给玩家看</td></tr><tr><td><code>packs</code></td><td>否</td><td>素材包列表，见下文</td></tr><tr><td><code>defaults</code></td><td>否</td><td>开局默认，见下文</td></tr></tbody></table></div>
 <p>卡里不需要也不应该写唯一标识：Tavern 导入时在本机给它编号。</p>
 <h2 id="dshcard-guide--section-6">开局默认</h2>
 <p><code>defaults</code> 是作者推荐的开局方式，只影响用这张卡新开的局，玩家开局后可以在本局设置里随便改；导入卡不会改玩家的全局设置。</p>
 <div class="code-block"><div class="code-heading"><span>json</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>&quot;defaults&quot;: {
-  &quot;stage&quot;: true,
   &quot;preset&quot;: { &quot;path&quot;: &quot;presets/my-stage.json&quot;, &quot;title&quot;: &quot;阿芙拉 · 舞台演出&quot; },
   &quot;settings&quot;: { &quot;statusBarPlacement&quot;: &quot;sidebar&quot;, &quot;backgroundTasks&quot;: { &quot;posture&quot;: true, &quot;variables&quot;: true }, &quot;webSearch&quot;: false, &quot;sceneImages&quot;: false }
 }</code></pre></div>
-<ul><li><code>stage</code>：打开这张卡的舞台。普通人物卡默认没有舞台；写了 <code>true</code>，导入后这张卡的局在「酒馆状态」顶部显示舞台，并顺带标注每句台词的说话人和情绪。玩家可以在卡片详情里关掉。</li><li><code>preset</code>：指向包里 <code>presets/</code> 下的 SillyTavern 预设 JSON；<code>title</code> 是它在预设库里显示的名字。导入时放进预设库，内容相同的直接复用，重名时另取名字。</li><li><code>settings</code>：只认这几项：状态栏位置（<code>sidebar</code> 或 <code>body</code>）、姿势与变量结算、联网搜索、场景生图。其余字段忽略。模型、API、玩家称呼、长期偏好不由卡决定。</li></ul>
+<ul><li><code>preset</code>：指向包里 <code>presets/</code> 下的 SillyTavern 预设 JSON；<code>title</code> 是它在预设库里显示的名字。导入时放进预设库，内容相同的直接复用，重名时另取名字。</li><li><code>settings</code>：只认这几项：状态栏位置（<code>sidebar</code> 或 <code>body</code>）、姿势与变量结算、联网搜索、场景生图。其余字段忽略。模型、API、玩家称呼、长期偏好不由卡决定。</li><li>舞台不由卡打开：它是玩家的全局开关，「舞台设置 › 基础设置」里「对话气泡」和「舞台模式」都开着时，每一局都有舞台，并标注每句台词的说话人和情绪。旧卡里的 <code>defaults.stage</code> 不再读取。</li></ul>
 <h2 id="dshcard-guide--section-7">素材的两种放法</h2>
 <ul><li><strong>少量图片</strong>（卡面、几张表情、一两张背景）：放在 <code>assets/icon/images/</code> 这类 CCv3 目录，用 <code>card.json</code> 的 <code>data.assets</code> 引用，就够了。Tavern 自带的舞台和对话头像会用它们。</li><li><strong>成套素材</strong>（几十套服装、上百张背景、音乐、音效）：做成素材包，放在 <code>assets/&lt;包名&gt;/</code>，在 <code>dsh.json</code> 的 <code>packs</code> 里登记，由你的卡内插件读取和解读。</li></ul>
 <div class="code-block"><div class="code-heading"><span>json</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>&quot;packs&quot;: [

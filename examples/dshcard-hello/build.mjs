@@ -22,8 +22,6 @@ const manifest = {
   card: { version: '1.0.0', title: '阿芙拉', author: 'DSH Tavern 示例' },
   requires: { tavernApi: 2 },
   plugins: [{ name: 'dsh-card-hello-mood', path: 'plugins/hello-mood/', purpose: '每轮按剧情记下氛围，舞台底色跟着变' }],
-  // 导入后这张卡的局显示舞台；不写时普通人物卡没有舞台。
-  defaults: { stage: true },
 }
 
 const entries = [

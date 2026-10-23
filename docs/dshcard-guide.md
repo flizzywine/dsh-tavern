@@ -43,7 +43,7 @@ DSH 人物卡（后缀 `.dshcard`）是一张普通的 Character Card V3，加�
 node examples/dshcard-hello/build.mjs
 ```
 
-生成 `examples/dshcard-hello/阿芙拉.dshcard`，在 Tavern 的人物卡库导入、刷新页面，用阿芙拉开一局，舞台在右侧「酒馆状态」顶部。
+生成 `examples/dshcard-hello/阿芙拉.dshcard`，在 Tavern 的人物卡库导入、刷新页面，用阿芙拉开一局，点聊天顶栏的「舞台」打开全屏舞台（「舞台设置」里的「对话气泡」和「舞台模式」默认开着）。
 
 把这个文件夹复制一份，换掉 `card.json`、图片和插件，就是你自己的卡。`build.mjs` 只是把文件按上面的结构写进 ZIP，用任何压缩工具手动打包也一样。
 
@@ -76,8 +76,7 @@ node examples/dshcard-hello/build.mjs
   "plugins": [
     { "name": "dsh-card-hello-mood", "path": "plugins/hello-mood/", "purpose": "每轮按剧情记下氛围，舞台底色跟着变" }
   ],
-  "packs": [],
-  "defaults": { "stage": true }
+  "packs": []
 }
 ```
 
@@ -99,15 +98,14 @@ node examples/dshcard-hello/build.mjs
 
 ```json
 "defaults": {
-  "stage": true,
   "preset": { "path": "presets/my-stage.json", "title": "阿芙拉 · 舞台演出" },
   "settings": { "statusBarPlacement": "sidebar", "backgroundTasks": { "posture": true, "variables": true }, "webSearch": false, "sceneImages": false }
 }
 ```
 
-- `stage`：打开这张卡的舞台。普通人物卡默认没有舞台；写了 `true`，导入后这张卡的局在「酒馆状态」顶部显示舞台，并顺带标注每句台词的说话人和情绪。玩家可以在卡片详情里关掉。
 - `preset`：指向包里 `presets/` 下的 SillyTavern 预设 JSON；`title` 是它在预设库里显示的名字。导入时放进预设库，内容相同的直接复用，重名时另取名字。
 - `settings`：只认这几项：状态栏位置（`sidebar` 或 `body`）、姿势与变量结算、联网搜索、场景生图。其余字段忽略。模型、API、玩家称呼、长期偏好不由卡决定。
+- 舞台不由卡打开：它是玩家的全局开关，「舞台设置 › 基础设置」里「对话气泡」和「舞台模式」都开着时，每一局都有舞台，并标注每句台词的说话人和情绪。旧卡里的 `defaults.stage` 不再读取。
 
 ## 素材的两种放法
 
