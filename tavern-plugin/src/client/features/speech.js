@@ -160,7 +160,7 @@
 				h("label", { className: "dsh-tavern-background-task" },
 					h("span", null, "开启配音", h("span", { className: "dsh-tavern-settings-desc" }, settings.enabled
 						? "台词行和舞台上可以朗读台词，每个人物用自己的声音。"
-						: "开启后，台词行和舞台上可以朗读台词。需要先打开「对话头像」，后台才会标注说话人。")),
+						: "开启后，台词行和舞台上可以朗读台词。需要先在「舞台设置」打开「对话气泡」或「舞台模式」，后台才会标注说话人。")),
 					h("input", { type: "checkbox", role: "switch", "aria-label": "开启配音", checked: settings.enabled, disabled: busy, onChange: function (event) { void save(event.target.checked); } })),
 				h("h3", { className: "dsh-tavern-image-settings-title" }, "配音配置（全局共用）"),
 				h("div", { className: "dsh-tavern-image-settings" },
@@ -173,7 +173,7 @@
 						provider && provider.key ? h("label", null, (provider.keyLabel || "API Key") + (provider.hasKey ? "（已保存，留空沿用）" : ""),
 							h("input", { type: "password", value: apiKey, autoComplete: "new-password", disabled: busy, "aria-label": provider.keyLabel || "API Key",
 								onChange: function (event) { setApiKey(event.target.value); } })) : null),
-					section("声音", "每个人物的声音在酒馆状态 →「角色素材」里单独选，没选的用默认声音。",
+					section("声音", "每个人物的声音在「舞台素材」里单独选，没选的用默认声音。",
 						field("voice", "默认声音", provider && provider.browser ? "留空用系统默认中文语音" : "", "dsh-tavern-speech-voices"),
 						field("narratorVoice", "旁白声音", "留空则旁白不念", "dsh-tavern-speech-voices"),
 						h(TavernVoiceOptions, { id: "dsh-tavern-speech-voices", provider: provider })),

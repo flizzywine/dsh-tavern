@@ -106,9 +106,8 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             group("开局默认", "新游戏开局时继承，开局后可在本局设置中单独修改；已有游戏不受影响。",
                 state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                 h(TavernConversationWritingSkills, { globalDefaults: true })),
+            // 对话气泡 (castPresentation) lives in 舞台设置 › 基础设置 with the other stage switches.
             group("剧情", "所有游戏都按这些设置，下一轮生效。",
-                state.settings ? h(SettingSwitch, { settings: state.settings, name: "castPresentation", title: "对话头像",
-                    description: "后台结算时顺带标注每句台词的说话人和情绪，台词显示成带头像的一行。主角用人物卡头像，其他人物用首字头像。" }) : null,
                 h(ContextCompactionSettings)),
             group("显示与交互", "对所有游戏生效，只改界面，不影响正文和存档。",
                 state.settings ? h(SettingSwitch, { settings: state.settings, name: "autoOpenStatusPanel", title: "进入游戏时打开酒馆状态",

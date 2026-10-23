@@ -1,0 +1,177 @@
+// The stage has three right-panel pages, one home per concern, listed on the start page under 「其他」:
+// 舞台设置 (基础设置: the switches), 舞台素材 (the card's cast material) and 配音 (the voicing service, the same page as
+// 设置 › 配音). 酒馆状态 only opens the stage; the fullscreen stage has no settings of its own.
+const TAVERN_STAGE_TABS = Object.freeze({ settings: "dsh-tavern:stage-settings", materials: "dsh-tavern:stage-materials", voice: "dsh-tavern:voice" });
+const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式" });
+const TAVERN_STAGE_GLYPHS = Object.freeze({
+	bubble: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
+	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4",
+	stage: "M2 2.5h12M3 2.5v11M13 2.5v11M3 2.5c0 3.5 2 5 4 5.5M13 2.5c0 3.5-2 5-4 5.5M2 13.5h12",
+	chevRight: "M6 4l4 4-4 4", back: "M10 4 6 8l4 4"
+});
+function TavernStageGlyph(props) {
+	return React.createElement("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+		React.createElement("path", { d: TAVERN_STAGE_GLYPHS[props.name], stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" }));
+}
+// Panel icons take `icon(size)` (the tab chip) or `{ size }` (the start page).
+function tavernStageTabIcon(draw) {
+	return function (input) { const size = typeof input === "number" ? input : input && input.size || 16; return draw(size); };
+}
+const TAVERN_STAGE_TAB_ICONS = {
+	settings: tavernStageTabIcon(s => React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+		React.createElement("rect", { x: 1.5, y: 2.5, width: 4, height: 4, rx: 1.2, stroke: "currentColor", strokeWidth: 1.2 }),
+		React.createElement("path", { d: "M7.5 3.5h6.5M7.5 6h4.5M1.5 10.5h13M1.5 13h9", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round" }))),
+	materials: DshUi && DshUi.IconArchiveOutlineRegular ? tavernStageTabIcon(s => React.createElement(DshUi.IconArchiveOutlineRegular, { size: s, width: s, height: s })) : undefined,
+	voice: tavernStageTabIcon(s => React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+		React.createElement("path", { d: "M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round" })))
+};
+
+// Icon + short name + switch. A dependent switch is disabled while what it needs is off and only then carries a 「?」.
+// A row with a page of its own (`onOpen`) opens it from anywhere but the switch; its 「›」 (`status`) is the keyboard route.
+function tavernStageRowClick(open) {
+	return function (event) {
+		const target = event.target;
+		if (!event.currentTarget.contains(target) || target.closest && target.closest("button,a,input,select,label")) return;
+		open(event.currentTarget);
+	};
+}
+function TavernStageSwitchRow(props) {
+	const h = React.createElement;
+	const toggle = h("input", { type: "checkbox", role: "switch", "aria-label": props.label, checked: props.checked === true, disabled: props.disabled === true, onChange: event => props.onChange(event.target.checked) });
+	const name = h("span", { className: "dsh-tavern-switch-name" }, props.icon ? h(TavernStageGlyph, { name: props.icon }) : null, h("span", null, props.label),
+		props.help ? h("span", { className: "dsh-tavern-switch-help", role: "img", "aria-label": props.label + " 说明：" + props.help, title: props.help }, "?") : null);
+	if (!props.onOpen) return h("div", { className: "dsh-tavern-switch-row", "data-disabled": props.disabled || undefined }, h("label", { className: "dsh-tavern-switch-main" }, toggle, name, props.status || null));
+	return h("div", { className: "dsh-tavern-switch-row is-openable", "data-disabled": props.disabled || undefined, onClick: tavernStageRowClick(props.onOpen) },
+		h("div", { className: "dsh-tavern-switch-main" }, h("label", { className: "dsh-tavern-switch-hit" }, toggle), name, props.status || null));
+}
+function tavernStageJump(label, onClick) {
+	return React.createElement("button", { type: "button", className: "dsh-tavern-switch-jump", "aria-label": label, title: label, onClick }, React.createElement(TavernStageGlyph, { name: "chevRight" }));
+}
+
+// The way back from 配音 to the 舞台设置 that opened it (kept ten minutes, like the reference design's return intent).
+const tavernStageReturn = (function () {
+	let value = null;
+	const listeners = new Set();
+	return {
+		set(next) { value = next ? { ...next, at: Date.now() } : null; listeners.forEach(listener => listener()); },
+		get() { return value && Date.now() - value.at < 600000 ? value : null; },
+		subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
+	};
+})();
+
+// The global switches: 对话气泡 is the tavern setting castPresentation, 配音 the voicing service's own switch.
+function useTavernStageGlobals() {
+	const [settings, setSettings] = React.useState(null);
+	React.useEffect(() => {
+		let live = true;
+		const load = () => rpc("getTavernSettings").then(result => { if (live) setSettings(result.settings); }, () => {});
+		load();
+		window.addEventListener("dsh-tavern-settings-changed", load);
+		return () => { live = false; window.removeEventListener("dsh-tavern-settings-changed", load); };
+	}, []);
+	return [settings, setSettings];
+}
+
+// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式; 舞台样式 joins when a plugin offers stage views.
+// Every switch saves at once; the section head says 正在保存… / 已保存.
+function TavernStageSwitches(props) {
+	const h = React.createElement;
+	const [settings, setSettings] = useTavernStageGlobals();
+	const speech = useTavernSpeechSettings();
+	const choice = useTavernStageView(props.sessionId);
+	const [status, setStatus] = React.useState("idle"), [error, setError] = React.useState("");
+	async function save(job) {
+		setStatus("saving"); setError("");
+		try { await job(); setStatus("saved"); }
+		catch (err) { setStatus("idle"); setError(String(err && err.message || err)); }
+	}
+	const prefs = { dialogue: settings ? settings.castPresentation === true : false, voice: Boolean(speech && speech.enabled), stage: props.data.enabled !== false };
+	// Voicing needs lines with speakers: 对话气泡 marks them in every game, 舞台模式 in this card's games.
+	const busy = status === "saving", voiceBlocked = !prefs.dialogue && !prefs.stage;
+	const setDialogue = on => save(async () => {
+		const result = await rpc("updateTavernSettings", { patch: { castPresentation: on } });
+		setSettings(result.settings);
+		window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+	});
+	const setVoice = on => save(async () => {
+		tavernSpeechSettings.set(await rpc("updateSpeechSettings", { enabled: on }));
+		window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+	});
+	const setStage = on => save(async () => {
+		await rpc("setCardStage", { path: props.path, enabled: on });
+		window.dispatchEvent(new CustomEvent("dsh-tavern-card-stage-changed", { detail: { path: props.path } }));
+		await tavernStageRuntime.refresh(props.sessionId);
+	});
+	const openVoice = props.openTab ? () => { tavernStageReturn.set({ toTab: TAVERN_STAGE_TABS.settings, label: "返回舞台设置" }); props.openTab(TAVERN_STAGE_TABS.voice); } : null;
+	return h("section", { className: "dsh-tavern-stage-section", "aria-label": "基础设置" },
+		h("header", { className: "dsh-tavern-stage-section-head" }, h("h3", null, "基础设置"),
+			h("span", { className: "dsh-tavern-switch-help", role: "img", "aria-label": "基础设置 说明：对话气泡和配音对所有卡生效；舞台模式只对这张卡生效。", title: "对话气泡和配音对所有卡生效；舞台模式只对这张卡生效。" }, "?"),
+			h("span", { className: "dsh-tavern-stage-save-state", role: "status" }, status === "saving" ? "正在保存…" : status === "saved" ? "已保存" : "")),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.dialogue, icon: "bubble", checked: prefs.dialogue, disabled: !settings || busy, onChange: setDialogue }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.voice, icon: "voice", checked: prefs.voice, disabled: !speech || busy || voiceBlocked,
+			help: voiceBlocked ? "需要" + TAVERN_STAGE_NAMES.dialogue : undefined, onChange: setVoice,
+			status: openVoice ? tavernStageJump("声音设置", openVoice) : null, onOpen: openVoice || undefined }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !props.path || busy, onChange: setStage }),
+		choice.views.length ? h("div", { className: "dsh-tavern-switch-row" }, h("label", { className: "dsh-tavern-switch-main" },
+			h("span", { className: "dsh-tavern-switch-name" }, h("span", null, "舞台样式")), h(TavernStageViewSwitch, { choice }))) : null,
+		error ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, "保存失败：" + error) : null);
+}
+
+// The game a page belongs to: a subagent's panel shows its parent game.
+function useTavernStagePage(props, name) {
+	const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
+	const mode = useTavernSessionMode(owner);
+	const stage = useTavernStageRuntime(owner);
+	const path = useScopedLiveTavernView(owner, name, [["card", "path"]]).view?.card?.path || "";
+	return { owner, play: isPlayMode(mode), stage, path };
+}
+function tavernStagePageBody(page, props, render) {
+	const h = React.createElement;
+	if (!page.play) return h("div", { className: "dsh-tavern-stage-nocard" }, h("p", null, "未打开人物卡"),
+		props.openTab ? h("button", { type: "button", className: "dsh-tavern-btn", onClick: () => props.openTab("dsh-tavern:cards") }, "打开人物卡库") : null);
+	if (!page.stage.data) return h("p", { role: page.stage.error ? "alert" : "status" }, page.stage.error ? "读取舞台设置失败：" + page.stage.error : "正在读取…");
+	return render();
+}
+function tavernStagePanel(label, body, back) {
+	const h = React.createElement;
+	return h("aside", { className: "dsh-tavern-status dsh-local-settings dsh-tavern-stage-panel", "aria-label": label },
+		h("div", { className: "dsh-tavern-status-head" }, back || null, h("strong", null, label)),
+		h("div", { className: "dsh-tavern-status-body" }, body));
+}
+
+function TavernStageSettingsTab(props) {
+	const page = useTavernStagePage(props, "stage-settings");
+	return tavernStagePanel("舞台设置", tavernStagePageBody(page, props, () =>
+		React.createElement(TavernStageSwitches, { sessionId: page.owner, path: page.path, data: page.stage.data, openTab: props.openTab })));
+}
+
+// 舞台素材: the card's cast material (portraits, avatars, each figure's voice, sprite packs). It also feeds the chat's
+// avatars, so it is editable while the stage is off.
+function TavernStageMaterialsTab(props) {
+	const page = useTavernStagePage(props, "stage-materials");
+	return tavernStagePanel("舞台素材", tavernStagePageBody(page, props, () =>
+		React.createElement(TavernCastManager, { sessionId: page.owner, data: page.stage.data, onCast: () => tavernStageRuntime.refresh(page.owner) })));
+}
+
+// 配音: the voicing service (channel, default and narrator voices, its switch). Opened from 舞台设置 › 配音 ›, the
+// head carries a ‹ back to it.
+function TavernVoiceTab(props) {
+	const h = React.createElement;
+	const back = React.useSyncExternalStore(tavernStageReturn.subscribe, tavernStageReturn.get, tavernStageReturn.get);
+	const button = back && props.openTab ? h("button", { type: "button", className: "dsh-tavern-stage-back", "aria-label": back.label, title: back.label,
+		onClick: () => { tavernStageReturn.set(null); props.openTab(back.toTab); } }, h(TavernStageGlyph, { name: "back" })) : null;
+	return tavernStagePanel("配音", h(TavernSpeechSettings, null), button);
+}
+
+function registerTavernStagePanels(ctx) {
+	const tabs = [
+		["settings", "舞台设置", 9, TavernStageSettingsTab],
+		["materials", "舞台素材", 9.5, TavernStageMaterialsTab],
+		["voice", "配音", 10, TavernVoiceTab]
+	];
+	for (const [key, title, order, Panel] of tabs) ctx.effect(() => ctx.betterSidebar.registerTab({
+		id: TAVERN_STAGE_TABS[key], title, order, single: true, icon: TAVERN_STAGE_TAB_ICONS[key],
+		component: props => React.createElement(Panel, { sessionId: props.scope.sessionId, sessions: ctx.sessions,
+			openTab: type => openTavernSidebarTab(ctx, { type }, { sessionId: props.scope.sessionId }) })
+	}), "dsh-tavern: " + title + " panel");
+}

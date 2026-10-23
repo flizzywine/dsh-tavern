@@ -120,25 +120,14 @@ function playTavernStagePerformance(root, event, id) {
 	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
 }
 
-// Reading aloud is on once voicing is; the 朗读 button turns it off for this browser.
-const TAVERN_STAGE_READ_KEY = "dsh-tavern-stage-read";
+// The stage reads each line aloud while 配音 is on (舞台设置 › 基础设置); there is no second switch.
 function useTavernStageReading() {
 	const speech = useTavernSpeechSettings();
-	const [reading, setReading] = React.useState(() => { try { return window.localStorage.getItem(TAVERN_STAGE_READ_KEY) !== "0"; } catch (_) { return true; } });
-	function toggle() {
-		setReading(!reading);
-		try { window.localStorage.setItem(TAVERN_STAGE_READ_KEY, reading ? "0" : "1"); } catch (_) {}
-	}
-	const available = Boolean(speech && speech.enabled);
-	return { available, on: available && reading, toggle };
+	return { on: Boolean(speech && speech.enabled) };
 }
 function tavernBeatSpeech(sessionId, beat) {
 	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: (beat.quotes || []).join(" ") || beat.text, emotion: beat.emotion }
 		: { sessionId: sessionId, text: beat.text, narration: true };
-}
-function TavernStageReadButton(props) {
-	if (!props.reading.available) return null;
-	return React.createElement("button", { type: "button", className: props.reading.on ? "is-on" : "", "aria-pressed": props.reading.on, onClick: props.reading.toggle }, "朗读");
 }
 
 // The fullscreen stage only shows its session: page, auto paging and playback belong to the
@@ -186,7 +175,6 @@ function TavernStageScreen(props) {
 		h("button", { type: "button", onClick: () => step(1), disabled: atEnd, "aria-label": "下一句" }, "›"),
 		h("button", { type: "button", className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, "自动"),
 		h("button", { type: "button", onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }, "跳过"),
-		h(TavernStageReadButton, { reading }),
 		h(TavernMusicToggle, null),
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
@@ -213,13 +201,9 @@ function TavernStageEntry(props) {
 		opened ? require("react-dom").createPortal(h(TavernStageScreen, { ...props, onClose: close }), document.body) : null);
 }
 
-// 酒馆状态 keeps an entry plus cast material, voices and the stage look until the stage settings page.
+// 酒馆状态 keeps only the stage entry; its settings live in 舞台设置, 舞台素材 and 配音 (stage-settings.js).
 function TavernStageStatus(props) {
 	const stage = useTavernStageRuntime(props.sessionId);
-	const choice = useTavernStageView(props.sessionId);
 	if (!stage.data || stage.data.enabled === false) return null;
-	const h = React.createElement;
-	return h("section", { className: "dsh-tavern-status-section", "aria-label": "舞台素材" }, h(TavernStageEntry, props), h(TavernStageViewSwitch, { choice }),
-		h("details", { className: "dsh-tavern-stage-cast" }, h("summary", null, "角色素材"),
-			h(TavernCastManager, { sessionId: props.sessionId, data: stage.data, onCast: () => tavernStageRuntime.refresh(props.sessionId) })));
+	return React.createElement("section", { className: "dsh-tavern-status-section", "aria-label": "舞台" }, React.createElement(TavernStageEntry, props));
 }

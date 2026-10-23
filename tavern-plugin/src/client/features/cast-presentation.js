@@ -163,7 +163,7 @@
 			}));
 		}
 
-		// Cast material (sprites, avatars, voices) for the stage, edited from 酒馆状态.
+		// Cast material (sprites, avatars, voices) for the stage, edited in 舞台素材.
 		function readTavernFile(file) {
 			return new Promise(function (resolve, reject) {
 				const reader = new FileReader();

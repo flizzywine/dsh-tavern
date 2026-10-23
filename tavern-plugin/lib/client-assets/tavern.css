@@ -1262,12 +1262,12 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-background-config-body select { width: 100%; min-width: 0; }
 .dsh-tavern-background-config-body > .dsh-tavern-background-task { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dsh-tavern-background-task .dsh-tavern-settings-desc { display: block; margin-top: 5px; }
-.dsh-tavern-background-task input[role="switch"] { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 36px; width: 36px; height: 20px; margin: 0; padding: 0; border: 0; border-radius: 10px; background: #64748b; cursor: pointer; transition: background .15s cubic-bezier(0.23, 1, 0.32, 1); }
-.dsh-tavern-background-task input[role="switch"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s cubic-bezier(0.23, 1, 0.32, 1); }
-.dsh-tavern-background-task input[role="switch"]:checked { background: #16766b; }
-.dsh-tavern-background-task input[role="switch"]:checked::after { transform: translateX(16px); }
-.dsh-tavern-background-task input[role="switch"]:focus-visible { outline: 2px solid #16766b; outline-offset: 3px; }
-.dsh-tavern-background-task input[role="switch"]:disabled { opacity: .6; cursor: not-allowed; }
+.dsh-tavern-background-task input[role="switch"], .dsh-tavern-switch-row input[role="switch"] { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 36px; width: 36px; height: 20px; margin: 0; padding: 0; border: 0; border-radius: 10px; background: #64748b; cursor: pointer; transition: background .15s cubic-bezier(0.23, 1, 0.32, 1); }
+.dsh-tavern-background-task input[role="switch"]::after, .dsh-tavern-switch-row input[role="switch"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s cubic-bezier(0.23, 1, 0.32, 1); }
+.dsh-tavern-background-task input[role="switch"]:checked, .dsh-tavern-switch-row input[role="switch"]:checked { background: #16766b; }
+.dsh-tavern-background-task input[role="switch"]:checked::after, .dsh-tavern-switch-row input[role="switch"]:checked::after { transform: translateX(16px); }
+.dsh-tavern-background-task input[role="switch"]:focus-visible, .dsh-tavern-switch-row input[role="switch"]:focus-visible { outline: 2px solid #16766b; outline-offset: 3px; }
+.dsh-tavern-background-task input[role="switch"]:disabled, .dsh-tavern-switch-row input[role="switch"]:disabled { opacity: .6; cursor: not-allowed; }
 .dsh-tavern-conversation-basics { display: grid; gap: 16px; margin-bottom: 24px; }
 .dsh-tavern-conversation-basics h3 { margin: 0; }
 .dsh-tavern-conversation-basics label { display: grid; gap: 8px; }
@@ -1344,10 +1344,10 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
   .dsh-tavern-group-menu:popover-open { animation: none; }
   .dsh-tavern-group-picker > summary > span:last-child,
   .dsh-tavern-prompt-state.is-toggle::after,
-  .dsh-tavern-background-task input[role="switch"]::after { transition: none; }
+  .dsh-tavern-background-task input[role="switch"]::after, .dsh-tavern-switch-row input[role="switch"]::after { transition: none; }
   .dsh-tavern-settings-track,
   .dsh-tavern-prompt-state.is-toggle::before,
-  .dsh-tavern-background-task input[role="switch"] { transition: background 150ms cubic-bezier(0.23, 1, 0.32, 1); }
+  .dsh-tavern-background-task input[role="switch"], .dsh-tavern-switch-row input[role="switch"] { transition: background 150ms cubic-bezier(0.23, 1, 0.32, 1); }
   .dsh-tavern-settings-track::after { transition: background 150ms cubic-bezier(0.23, 1, 0.32, 1); }
 }
 .dsh-tavern-group-manager { width: min(440px, calc(100vw - 32px)); max-height: 80vh; border: 1px solid var(--dsw-alias-border-l2, #454750); border-radius: 12px; background: var(--dsw-specific-sidebar-fill, #202124); color: var(--dsw-alias-label-primary, #eee); padding: 0; }
@@ -3088,7 +3088,6 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-view-switch { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 11em; padding: 0 24px 0 10px; text-overflow: ellipsis; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; }
 .dsh-tavern-stage-view-switch:hover { border-color: var(--dsh-tavern-accent-border); color: var(--dsh-tavern-accent-active); background-color: var(--dsh-tavern-accent-soft); }
 .dsh-tavern-stage-view-switch:focus-visible { outline: 2px solid var(--dsh-tavern-accent-border); outline-offset: 1px; }
-.dsh-tavern-stage-cast > summary { cursor: pointer; font-size: 13px; color: var(--dsw-alias-text-l2); }
 .dsh-tavern-stage-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .dsh-tavern-stage-scene { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: pointer; user-select: none; background: linear-gradient(180deg, #2b2f3a 0%, #1b1e26 100%); color: #f4f1ea; }
 .dsh-tavern-stage-backdrop { position: absolute; inset: -20px; background: var(--dsh-stage-backdrop, none) center 20% / cover no-repeat; filter: blur(18px) brightness(.45) saturate(1.1); transform: scale(1.05); }
@@ -3104,7 +3103,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 17px; color: hsl(var(--dsh-cast-hue, 210) 70% 75%); }
 .dsh-tavern-stage-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 18px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; animation: dsh-tavern-stage-fade .25s ease both; }
 .dsh-tavern-stage-text.is-narration { color: rgba(244,241,234,.86); }
-.dsh-tavern-stage-controls { flex: none; display: flex; align-items: center; gap: 6px; margin-top: auto; font-size: 12px; color: rgba(244,241,234,.7); }
+.dsh-tavern-stage-controls { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: auto; font-size: 12px; color: rgba(244,241,234,.7); }
 .dsh-tavern-stage-controls button { min-width: 28px; height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color: inherit; cursor: pointer; }
 .dsh-tavern-stage-controls button:disabled { opacity: .35; cursor: default; }
 .dsh-tavern-stage-controls button.is-on { background: rgba(255,255,255,.22); color: #fff; }
@@ -3116,6 +3115,32 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 @keyframes dsh-tavern-stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-figure, .dsh-tavern-stage-figure-body, .dsh-tavern-stage-figure img, .dsh-tavern-stage-text { animation: none !important; transition: none !important; } }
 .dsh-tavern-cast-manager { display: flex; flex-direction: column; gap: 8px; }
+/* 舞台设置 › 基础设置：一行是图标、短名和右侧开关；带「›」的行点开关以外的地方打开它的页面。 */
+.dsh-tavern-stage-section-head { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.dsh-tavern-stage-section-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-stage-save-state { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+.dsh-tavern-switch-row { padding: 8px 0 6px; }
+.dsh-tavern-switch-row + .dsh-tavern-switch-row { border-top: 1px dashed var(--dsw-alias-border-l2); }
+.dsh-tavern-switch-main { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px; font-size: 14px; font-weight: 500; cursor: pointer; }
+.dsh-tavern-switch-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; order: 1; margin-right: auto; }
+.dsh-tavern-switch-name > svg { flex: none; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-switch-main > input, .dsh-tavern-switch-main > select { order: 3; }
+.dsh-tavern-switch-row[data-disabled] .dsh-tavern-switch-main { color: var(--dsw-alias-label-tertiary); cursor: default; }
+.dsh-tavern-switch-help { display: inline-grid; place-items: center; flex: none; width: 15px; height: 15px; border: 1px solid currentColor; border-radius: 50%; font-size: 10px; font-weight: 500; line-height: 1; color: var(--dsw-alias-label-tertiary); cursor: help; }
+.dsh-tavern-switch-jump { order: 1; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; margin: 0 auto 0 -10px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-tavern-switch-main:has(> .dsh-tavern-switch-jump) > .dsh-tavern-switch-name { margin-right: 0; }
+.dsh-tavern-switch-jump:hover { background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-switch-jump:focus-visible, .dsh-tavern-stage-back:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
+.dsh-tavern-switch-row.is-openable { position: relative; isolation: isolate; cursor: pointer; }
+.dsh-tavern-switch-row.is-openable::before { content: ""; position: absolute; inset: 0 -6px; z-index: -1; border-radius: 8px; pointer-events: none; }
+.dsh-tavern-switch-row.is-openable:hover:not(:has(.dsh-tavern-switch-hit:hover))::before { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-switch-row.is-openable .dsh-tavern-switch-main { cursor: pointer; }
+.dsh-tavern-switch-hit { display: inline-flex; flex: none; order: 3; align-items: center; margin: -5px -6px -5px -8px; padding: 5px 6px 5px 8px; cursor: pointer; }
+.dsh-tavern-switch-row[data-disabled] .dsh-tavern-switch-hit { cursor: default; }
+@media (pointer: coarse) { .dsh-tavern-switch-hit { margin-block: -8px; padding-block: 8px; } .dsh-tavern-switch-jump { width: 32px; height: 32px; } }
+.dsh-tavern-stage-nocard { display: grid; justify-items: start; gap: 8px; }
+.dsh-tavern-stage-back { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.dsh-tavern-stage-back:hover { background: var(--dsh-tavern-accent-soft); }
 .dsh-tavern-cast-manager-head { display: flex; align-items: center; justify-content: space-between; }
 .dsh-tavern-cast-manager ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .dsh-tavern-cast-manager-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -24,12 +24,16 @@ function figurePng([r, g, b], width = 120, height = 200) {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))])
 }
 
-// Character material in 酒馆状态; the full-screen reader that can send the next input.
+// Stage panels open from the right sidebar's start page (其他); the full-screen reader can send the next input.
+export async function openStagePanel(page, title) {
+  await page.getByRole('button', { name: /^(新建标签页|New tab)$/ }).filter({ visible: true }).first().click()
+  await page.locator('.dsh-tavern-start section[aria-label="其他"] .dsh-tavern-start-card').filter({ hasText: new RegExp('^' + title + '$') }).filter({ visible: true }).first().click()
+}
 export async function castStageChecks({ page, step, output, report }) {
-  await step('舞台：酒馆状态里导入角色立绘包', async () => {
+  await step('舞台：舞台素材里导入角色立绘包', async () => {
     const pack = writeZipEntries([{ path: '店主/joy.png', content: figurePng([214, 140, 92]) }, { path: '店主/neutral.png', content: figurePng([150, 150, 170]) }, { path: 'notes.txt', content: 'x' }])
     const chooser = page.waitForEvent('filechooser')
-    await page.getByText('角色素材', { exact: true }).filter({ visible: true }).first().click()
+    await openStagePanel(page, '舞台素材')
     await page.getByRole('button', { name: '导入 ST 立绘包', exact: true }).click()
     await (await chooser).setFiles({ name: 'pack.zip', mimeType: 'application/zip', buffer: pack })
     await page.getByText('导入 2 张立绘（店主），跳过 1 个文件').waitFor()
@@ -91,7 +95,7 @@ export async function castSpeechChecks({ page, step, output, report }) {
       assert.deepEqual(requests[0].body, { model: 'tts-1', input: '欢迎回来，这是你的奖励。', voice: 'alloy', response_format: 'mp3' })
       assert.equal(requests[0].authorization, 'Bearer sk-e2e')
 
-      await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).last().click()
+      await openStagePanel(page, '舞台素材')
       const voice = page.getByLabel('店主 的声音', { exact: true })
       await voice.fill('onyx')
       await voice.press('Enter')
@@ -221,7 +225,8 @@ export async function dshCardPlayChecks({ page, step, output, report }) {
     await composer.waitFor()
     // A new game opens its settings and status tabs first; open the stage after that.
     await page.getByText(/人物设计档案/).filter({ visible: true }).first().waitFor()
-    await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).last().click()
+    // The stage look is a row of 舞台设置 › 基础设置 once a plugin offers a stage view.
+    await openStagePanel(page, '舞台设置')
     const choice = page.getByRole('combobox', { name: '舞台样式' })
     await choice.locator('option', { hasText: '大肥鱼舞台' }).waitFor({ state: 'attached' })
     await choice.selectOption({ label: '大肥鱼舞台（dsh-card-dafeiyu-galgame）' })
