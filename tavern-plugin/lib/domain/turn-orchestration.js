@@ -787,6 +787,18 @@ export function createTurnOrchestrator(options) {
           const userMessage = { role: 'user', text: userText, ts: now(), native: true, ...(attachments.length ? { inputAttachments: attachments } : {}) }
           if (previousMvuVariables !== undefined) Object.assign(userMessage, { swipeId: 0, swipes: [userText], variables: [clone(previousMvuVariables)] })
           if (draft.promptTemplateInput?.turn === turn) Object.assign(userMessage, clone(draft.promptTemplateInput.message), {templateInputSource:userText})
+          // A wizard wrote its opening record into the floor it sent before the game
+          // existed; this is that floor arriving, so the record travels with it.
+          if (draft.pendingOpeningMessageVariables) {
+            const saved = clone(draft.pendingOpeningMessageVariables)
+            const base = userMessage.variables && typeof userMessage.variables[0] === 'object' && userMessage.variables[0] !== null ? clone(userMessage.variables[0]) : {}
+            const merged = { ...base, ...saved }
+            if (base.stat_data || saved.stat_data) merged.stat_data = { ...(base.stat_data || {}), ...(saved.stat_data || {}) }
+            userMessage.swipeId = 0
+            userMessage.swipes = [userText]
+            userMessage.variables = [merged]
+            delete draft.pendingOpeningMessageVariables
+          }
           draft.messages.push(userMessage)
         }
         delete draft.promptTemplateInput

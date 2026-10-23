@@ -158,7 +158,21 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
           // Nothing is committed yet: the page stays mounted so the wizard can
           // still write its variables, floors and chat data into this draft.
           draft.pendingOpening = { ...(draft.pendingOpening || {}), ...pending }
-          return { deferred: true, input: '' }
+          // A wizard writes its own record into "the floor it just sent". That
+          // floor has to exist before the game does, so the draft keeps it and
+          // the game receives its variables on the opening user floor.
+          if (pending.sendText) {
+            const text = pending.sendText
+            const kept = draft.chat.messages[draft.pendingOpeningFloor]
+            if (kept && kept.pendingOpening === true) {
+              kept.text = text; kept.sourceText = text; kept.swipes = [text]
+            } else {
+              draft.pendingOpeningFloor = draft.chat.messages.push({ role: 'user', text, sourceText: text, ts: now(),
+                swipeId: 0, swipes: [text], variables: [{}], pendingOpening: true }) - 1
+            }
+            bumpRevision(draft)
+          }
+          return { deferred: true, input: '', context: runtimeContext(draft) }
         }
         const command = applyPendingOpeningCommand(parseOpeningCommand(args.line), draft.pendingOpening, args.line)
         draft.pendingOpening = undefined
@@ -269,6 +283,10 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         chatPluginMetadata: draft.chat.tavernPluginMetadata ? copy(draft.chat.tavernPluginMetadata) : undefined,
         preparedMessages: created.map(message => copy(message)),
         openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[selectedIndex] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
+        // A wizard's record for the floor it sent belongs to the new game's opening
+        // user floor; without the start command no such floor is ever sent.
+        openingMessageVariables: draft.startCommand && draft.pendingOpeningFloor !== undefined
+          ? copy(draft.chat.messages[draft.pendingOpeningFloor]?.variables?.[0] || {}) : undefined,
         // The projection this game starts from. Nothing is copied into the chat:
         // the game follows the library, so a later edit takes effect.
         worldbook: draft.worldBookView ? { source: draft.source, document: draft.document, view: draft.worldBookView } : null }

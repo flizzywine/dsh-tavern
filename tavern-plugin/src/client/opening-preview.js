@@ -23,7 +23,10 @@ function installOpeningPreviewBridge(token, preview) {
   }
   window.triggerSlash = function (line) {
     const command = String(line || '');
-    return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }).catch(function (error) {
+    return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }).then(function (result) {
+      if (result && result.deferred) showPendingFloor(command);
+      return result;
+    }).catch(function (error) {
       // Many legacy wizards replace their body before submitting. Keep a retry
       // entry even when their own button and form have already disappeared.
       if (typeof document !== 'undefined' && document.body) {
@@ -85,6 +88,18 @@ function installOpeningPreviewBridge(token, preview) {
   window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames, getGlobalWorldbookNames: window.getGlobalWorldbookNames, getChatWorldbookName: window.getChatWorldbookName,
     getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
   const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
+  // A wizard writes its opening record into "the floor it just sent". The game
+  // starts later, so that floor is only a promise until the host creates it;
+  // showing it here keeps the wizard's own bookkeeping working.
+  let pendingFloor = null;
+  function contextChat() { return pendingFloor ? chat.concat([pendingFloor]) : chat; }
+  function showPendingFloor(line) {
+    const match = /^\s*\/send\s+([\s\S]+)$/.exec(String(line || '').trim());
+    const text = match ? match[1].trim().replace(/\\\|/g, '|') : '';
+    if (!text) return;
+    pendingFloor = Object.assign(pendingFloor || {}, { is_user: true, name: preview.playerName || '你',
+      mes: text, message: text, swipe_id: 0, swipes: [text], variables: pendingFloor ? pendingFloor.variables : {} });
+  }
   let savedIndex = selected;
   const swipe = { to: async function (_chatId, direction, options = {}) {
     if (options.forceMesId !== undefined && Number(options.forceMesId) !== 0) throw new Error('只能切换开场消息');
@@ -95,7 +110,7 @@ function installOpeningPreviewBridge(token, preview) {
   if (!window.toastr) window.toastr = { info: console.info, success: console.info, warning: console.warn, error: console.error };
   window.SillyTavern = Object.assign({}, original && original.host, {
     chat, swipe,
-    getContext: function () { return Object.assign({}, original && original.host.getContext(), { chat, swipe, extensionSettings: original ? original.host.getContext().extensionSettings : {} }); },
+    getContext: function () { return Object.assign({}, original && original.host.getContext(), { chat: contextChat(), swipe, extensionSettings: original ? original.host.getContext().extensionSettings : {} }); },
     saveChat: async function () {
       const message = chat[0];
       const index = Number(message && message.swipe_id);
@@ -110,11 +125,18 @@ function installOpeningPreviewBridge(token, preview) {
       await window.setChatMessages([{ message_id: 0, swipe_id: savedIndex }]);
     }
   });
-  window.getCurrentMessageId = window.getLastMessageId = function () { return 0; };
+  window.getCurrentMessageId = window.getLastMessageId = function () { return contextChat().length - 1; };
   window.getChatMessages = function (id, options) {
     if (original) return original.getChatMessages(id, options);
-    if (Number(id) !== 0 || (options && options.role && !['all', 'assistant'].includes(options.role))) return [];
-    return [{ message_id: 0, role: 'assistant', message: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
+    const rows = contextChat();
+    const index = id === 'latest' || id === undefined ? rows.length - 1 : Number(id);
+    if (!Number.isInteger(index) || index < 0 || index >= rows.length) return [];
+    if (index === 0) {
+      if (options && options.role && !['all', 'assistant'].includes(options.role)) return [];
+      return [{ message_id: 0, role: 'assistant', message: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
+    }
+    if (options && options.role && !['all', 'user'].includes(options.role)) return [];
+    return [Object.assign({}, pendingFloor, { message_id: index, role: 'user' })];
   };
   // Standalone choosers without a preparation draft may await this gate without reading MVU.
   window.waitGlobalInitialized = async function (name) {

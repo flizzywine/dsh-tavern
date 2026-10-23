@@ -76,7 +76,8 @@ test('准备页的 saveChatChatData 拒绝对不上聊天或版本已过期的�
 
 test('单独 /send 只记录文本，/trigger 才落成开局命令', async () => {
   const { service, draft: prepared } = await draft()
-  assert.deepEqual(await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/send 我推门而入' }), { deferred: true, input: '' })
+  const deferred = await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/send 我推门而入' })
+  assert.deepEqual([deferred.deferred, deferred.input], [true, ''])
   assert.equal(service.resolve(prepared.id, 'card').startCommand, undefined, '记录文本不等于开局')
   // 两步之间卡会保存自己的数据，草稿必须照常接受
   const context = (await service.callRuntime(prepared.id, 'updateTavernHelperVariables', { option: { type: 'chat' }, variables: { chapter: 1 } })).context
@@ -94,7 +95,8 @@ test('单独 /send 只记录文本，/trigger 才落成开局命令', async () =
 
 test('单独 /sys 的旁白等到 /trigger 才成为开局系统楼层', async () => {
   const { service, draft: prepared } = await draft()
-  assert.deepEqual(await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/sys 天启三年' }), { deferred: true, input: '' })
+  const narrated = await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/sys 天启三年' })
+  assert.deepEqual([narrated.deferred, narrated.input], [true, ''])
   await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/send 我推门而入' })
   assert.deepEqual(await service.callRuntime(prepared.id, 'prepareOpeningCommand', { line: '/trigger' }), { deferred: false, input: '我推门而入' })
   const command = service.resolve(prepared.id, 'card').startCommand
