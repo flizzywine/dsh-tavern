@@ -43,7 +43,26 @@ async function fixture(t) {
 }
 const fetchLease = (library, url, headers = {}) => library.respondLease({ ticket: url.split('/').at(-2), resource: 'media', request: new Request(ORIGIN + url, { headers }) })
 
-test('the director gets lit blue entries by name; green and off entries are not offered; leases are reused per media', async t => {
+test('music keeps its lamps: blue and green tracks are listed with their recall, off ones are not; a track names its exact content', async t => {
+  const { library, material, castAssets } = await fixture(t)
+  const cardPath = 'cards/m.json'
+  await material.importMaterial(cardPath, '丁', ['calm', 'storm', 'gone'].map((name, i) => ({ kind: 'music', name, ext: 'wav', bytes: wav(i + 1) })))
+  const [packId] = (await castAssets.read(cardPath)).boundPackIds
+  const pack = await library.getPackSnapshot({ packId })
+  const assets = pack.manifest.assets.map(asset => asset.name === 'storm' ? { ...asset, recall: { mode: 'keyword', keywords: ['雷雨'] }, volume: 0.6, loopStart: 0.25, loopEnd: 1.5 }
+    : asset.name === 'gone' ? { ...asset, enabled: false } : asset)
+  await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets } })
+  const { music } = await material.catalog(cardPath, '丁')
+  assert.deepEqual(music.map(item => [item.name, item.recall.mode, item.pack]), [['calm', 'constant', '丁 · 本卡素材包'], ['storm', 'keyword', '丁 · 本卡素材包']])
+  const track = await material.track(music[1])
+  const storm = assets.find(asset => asset.name === 'storm')
+  assert.deepEqual({ ...track, url: undefined }, { key: packId + '/' + storm.id, ref: { packId, kind: 'music', assetId: storm.id }, identity: packId + ':music:' + storm.id + ':' + storm.media,
+    name: 'storm', pack: '丁 · 本卡素材包', url: undefined, volume: 0.6, loopStart: 0.25, loopEnd: 1.5 })
+  assert.equal(track.url, await material.mediaUrl(music[1]), 'the page gets the reused lease of that media')
+  assert.equal((await fetchLease(library, track.url)).status, 200)
+})
+
+test('the director gets lit blue backgrounds by name; green and off ones are not offered; leases are reused per media', async t => {
   const { library, material, castAssets, scopes } = await fixture(t)
   const cardPath = 'cards/a.json'
   const result = await material.importMaterial(cardPath, '甲', [
@@ -60,7 +79,7 @@ test('the director gets lit blue entries by name; green and off entries are not 
   await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets } })
 
   const catalog = await material.catalog(cardPath, '甲')
-  assert.deepEqual(catalog.background.map(item => item.name), ['room'])
+  assert.deepEqual(catalog.background.map(item => item.name), ['room'], 'green backgrounds wait for their own recall')
   assert.deepEqual(catalog.music.map(item => item.name), ['theme'])
   assert.equal(JSON.stringify(catalog).includes('/lease/'), false, 'The frozen catalog holds no lease')
 

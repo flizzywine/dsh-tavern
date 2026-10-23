@@ -1184,6 +1184,10 @@
                 }
             )), "dsh-tavern: header items");
             ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
+                { name: "conversation.session.header.utilities", id: "dsh-tavern-bgm", order: 82 },
+                props => React.createElement(TavernBgmChat, { key: props.sessionId, sessionId: props.sessionId })
+            )), "dsh-tavern: BGM header chip");
+            ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
                 { name: "conversation.session.header.utilities", id: "dsh-tavern-stage-entry", order: 83 },
                 props => React.createElement(TavernStageEntry, { key: props.sessionId, sessionId: props.sessionId, sessions: ctx.sessions, submit: submitTavernStageInput, header: true })
             )), "dsh-tavern: fullscreen stage entry");

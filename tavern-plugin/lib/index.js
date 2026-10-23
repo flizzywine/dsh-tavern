@@ -2190,7 +2190,15 @@ export async function apply(ctx) {
   })
   async function stageCatalog(sessionId) {
     const card = await castCardOf(sessionId), manifest = await castAssets.read(card.path)
-    return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...await stageMaterial.catalog(card.path, card.name) }
+    const material = await stageMaterial.catalog(card.path, card.name)
+    // BGM off (舞台设置 › 基础设置, stageToggles.music): no card offers music, so none plays and the director stops it.
+    if (!(await readTavernSettings()).stageToggles.music) material.music = []
+    return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...material }
+  }
+  // The BGM player's list: every lit track of the card's packs, in binding then pack order.
+  async function stageMusicTracks(sessionId) {
+    const card = await castCardOf(sessionId)
+    return { tracks: await Promise.all((await stageMaterial.catalog(card.path, card.name)).music.map(stageMaterial.track)) }
   }
   const publishStage = sessionId => sessionSignals.publish(sessionId, { kind: 'cast', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   async function stageStreamSource(sessionId, turn) {
@@ -2288,10 +2296,10 @@ export async function apply(ctx) {
     return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
-      cast: assets.cast, turns, stage }
+      musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage }
   }
   async function stageMusic(item) {
-    return item ? { name: item.name, url: await stageMaterial.mediaUrl(item) } : null
+    return item ? await stageMaterial.track(item) : null
   }
   // One line in its speaker's voice on the chosen channel; { skip } when voicing is off or narration is silent.
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}) {
@@ -3274,7 +3282,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, speechReply, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,

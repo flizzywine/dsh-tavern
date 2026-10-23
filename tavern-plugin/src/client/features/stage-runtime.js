@@ -146,7 +146,8 @@ function TavernStageScreen(props) {
 	React.useEffect(() => tavernStageRuntime.attach(id, {
 		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
 		speech: { on: () => readingOn.current, speak: beat => tavernSpeech.speak(tavernBeatSpeech(id, beat)), stop: () => tavernSpeech.stop() },
-		music: { play: track => tavernMusic.play(track ? track.url : "", { title: track ? track.name : "" }), stop: () => tavernMusic.stop() }
+		// A plugin's music (tavernUi.playMusic) ends with the stage view; the stage's BGM does not.
+		release: () => tavernMusic.stop()
 	}), [id]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
 	const latest = data.turns[data.turns.length - 1];
@@ -155,6 +156,8 @@ function TavernStageScreen(props) {
 	React.useEffect(() => {
 		function onKey(event) {
 			if (event.target && /^(INPUT|TEXTAREA)$/.test(event.target.tagName)) return;
+			// The BGM panel's keys are its own (its Esc closes only the panel).
+			if (event.target && event.target.closest && event.target.closest(".dsh-tavern-bgm-panel")) return;
 			if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
 			else if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter") { event.preventDefault(); step(1); }
 			else if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
@@ -177,6 +180,7 @@ function TavernStageScreen(props) {
 		h("button", { type: "button", onClick: () => step(1), disabled: atEnd, "aria-label": "下一句" }, "›"),
 		h("button", { type: "button", className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, "自动"),
 		h("button", { type: "button", onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }, "跳过"),
+		h(TavernBgmStage, { sessionId: id }),
 		h(TavernMusicToggle, null),
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));

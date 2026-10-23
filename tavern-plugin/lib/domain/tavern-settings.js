@@ -5,6 +5,8 @@ import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
+// Global stage switches a patch may set.
+const STAGE_TOGGLES = Object.freeze(['stage', 'music'])
 
 // A stored blank here is the user's choice and overrides the default; only
 // resetting (deleting the key) restores it.
@@ -254,10 +256,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.castPresentation !== 'boolean') throw new Error('对话气泡设置必须是布尔值')
     next.castPresentation = input.castPresentation
   }
-  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage.
+  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage, BGM stageToggles.music.
   if (Object.hasOwn(input, 'stageToggles')) {
     const toggles = object(input.stageToggles)
-    if (!Object.keys(toggles).length || Object.keys(toggles).some(key => key !== 'stage') || typeof toggles.stage !== 'boolean') throw new Error('舞台开关只能是 stage，且必须是布尔值')
+    if (!Object.keys(toggles).length || Object.entries(toggles).some(([key, value]) => !STAGE_TOGGLES.includes(key) || typeof value !== 'boolean')) throw new Error('舞台开关只能是 ' + STAGE_TOGGLES.join('、') + '，且必须是布尔值')
     next.stageToggles = { ...object(next.stageToggles), ...toggles }
   }
   if (Object.hasOwn(input, 'contextCompaction')) next.contextCompaction = { ...compactionPolicy(input.contextCompaction), revision: Date.now() }
@@ -336,8 +338,8 @@ export function presentTavernSettings(document, defaults) {
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     castPresentation: object(document).castPresentation === true,
-    // 舞台模式: one switch for every card, on by default; the stage also needs 对话气泡 (castPresentation).
-    stageToggles: { stage: object(object(document).stageToggles).stage !== false },
+    // 舞台模式 and BGM: one switch each for every card, on by default; the stage also needs 对话气泡 (castPresentation).
+    stageToggles: { stage: object(object(document).stageToggles).stage !== false, music: object(object(document).stageToggles).music !== false },
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // Library edits reach a running game on its next turn; only an explicit

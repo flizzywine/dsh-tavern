@@ -56,19 +56,19 @@ function createStageRuntimeStore({ read, project, changed }) {
 	return store;
 }
 
-// While a view is attached, its session plays the current page: one-shots, reading aloud,
-// auto paging and music. Detaching releases every timer, voice, animation and track.
-function createStageRuntimePlayer({ store, animate, speech, music, schedule = setTimeout, cancel = clearTimeout }) {
+// While a view is attached, its session plays the current page: one-shots, reading aloud and
+// auto paging. Detaching releases every timer, voice and animation, and whatever else the view
+// holds (`release`). The stage's BGM is not the view's: the BGM player follows the selected game
+// in chat and stage alike (modules/stage-bgm.js).
+function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout }) {
 	const performances = createStagePerformancePlayback({ play: animate, schedule, cancel });
-	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), track = null, timer = null, token = 0;
+	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), timer = null, token = 0;
 	function halt() { token++; if (timer !== null) cancel(timer); timer = null; }
 	function update() {
 		if (!attached) return;
 		const { data, reader } = store.getSnapshot();
 		const latest = data?.turns.at(-1), pages = latest?.pages || [], beat = pages[reader.index];
 		performances.update({ id: reader.key + ":" + reader.visit, at: reader.index + 1, mode: data ? reader.mode : "refresh", events: latest?.performances || [] });
-		const url = data?.music?.url || "";
-		if (url !== track) { track = url; music.play(data?.music || null); }
 		const voice = data && beat && reader.mode !== "skip" && speech.on() ? JSON.stringify([reader.key, reader.visit, beat]) : "";
 		if (!voice && spoken) { spoken = ""; speech.stop(); }
 		const atEnd = reader.index >= pages.length - 1, next = JSON.stringify([voice, reader.visit, reader.auto, atEnd]);
@@ -84,10 +84,17 @@ function createStageRuntimePlayer({ store, animate, speech, music, schedule = se
 	}
 	function detach() {
 		if (!attached) return;
-		attached = false; halt(); performances.dispose(); music.stop();
+		attached = false; halt(); performances.dispose(); release();
 		if (spoken) speech.stop();
 	}
 	return { update, detach };
+}
+
+// The game the main view shows (a subagent's view is not a game); the BGM player follows it too.
+function selectedStageSession(snapshot) {
+	const rows = snapshot.byId || {};
+	const selected = Object.values(rows).find(row => row.retainedBy?.mainView > 0)?.id || snapshot.current;
+	return selected && rows[selected]?.origin !== "subagent" ? selected : null;
 }
 
 // Native bindings own stores, not React mounts. Only open the selected session;
@@ -122,10 +129,10 @@ function createStageRuntimeSessions({ read, project, watch }) {
 		start(sessions) {
 			function reconcile() {
 				const snapshot = sessions.list.getSnapshot(), rows = snapshot.byId || {};
-				const selected = Object.values(rows).find(row => row.retainedBy?.mainView > 0)?.id || snapshot.current;
+				const selected = selectedStageSession(snapshot);
 				for (const id of records.keys()) if (!rows[id] && id !== selected) release(id);
 				const ids = new Set(records.keys());
-				if (selected && rows[selected]?.origin !== "subagent") ids.add(selected);
+				if (selected) ids.add(selected);
 				for (const id of ids) {
 					const binding = sessions.binding(id), previous = records.get(id);
 					if (previous?.binding === binding) continue;

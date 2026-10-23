@@ -64,15 +64,17 @@ try {
         await settled()
         assert.equal(await count(), baseline ? 0 : 3, 'rapid paging cancels the intermediate page')
         await page.screenshot({ path: join(output, 'fullscreen-performance.png') })
-        // The reading position belongs to the session; closing releases playback and music.
+        // The reading position belongs to the session; closing releases playback. The BGM is the game's, not the
+        // view's: it goes on without a restart.
         await page.keyboard.press('Escape'); await full.waitFor({ state: 'detached' })
-        await page.waitForFunction(() => window.stageTestAudio.length > 0 && window.stageTestAudio.every(audio => audio.paused))
+        const sources = await page.evaluate(() => window.stageTestAudio.sources)
+        assert.ok(sources > 0)
         await page.getByRole('button', { name: '舞台', exact: true }).click(); await full.waitFor()
         await full.locator('.dsh-tavern-stage-text').filter({ hasText: 'A small leap.' }).waitFor()
         assert.equal(await full.locator('.dsh-tavern-stage-progress').innerText(), '3 / 3', 'reopening returns to the page it left')
         await settled()
         assert.equal(await count(), baseline ? 0 : 3, 'reopening on a page does not replay it')
-        await page.waitForFunction(() => window.stageTestAudio.some(audio => !audio.paused && audio.currentTime > 0))
+        assert.equal(await page.evaluate(() => window.stageTestAudio.sources), sources, 'reopening neither restarts nor doubles the BGM')
         await page.screenshot({ path: join(output, 'reopened-position.png') })
         if (!baseline) {
           await stage.getByRole('button', { name: '上一句', exact: true }).click()

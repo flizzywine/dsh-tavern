@@ -23,9 +23,15 @@ function png(r, g, b) {
 // A fixture invokes the real tool/transaction; its accepted record travels through
 // native save import. No model calls or test-only production RPC are needed.
 export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, inspect }) {
+  // The stage's BGM is Web Audio: route every context into a zero gain and count the sources it starts.
   await page.addInitScript(() => {
-    window.stageTestAudio = []
-    window.Audio = class extends window.Audio { constructor(...args) { super(...args); this.muted = true; window.stageTestAudio.push(this) } }
+    const Base = window.AudioContext
+    window.stageTestAudio = { contexts: [], sources: 0 }
+    window.AudioContext = class extends Base {
+      constructor(...args) { super(...args); const silence = super.createGain(); silence.gain.value = 0; silence.connect(super.destination); this.stageTestSilence = silence; window.stageTestAudio.contexts.push(this) }
+      get destination() { return this.stageTestSilence }
+      createBufferSource() { window.stageTestAudio.sources++; return super.createBufferSource() }
+    }
   })
   const proceed = page.getByRole('button', { name: 'Continue', exact: true })
   if (await proceed.isVisible()) await proceed.click()
@@ -97,7 +103,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
   if (!demo) {
     assert.equal(before.stage.background, 'hall')
     assert.equal(before.music.name, 'theme')
-    await page.waitForFunction(() => window.stageTestAudio.some(audio => audio.muted && audio.currentTime > 0))
+    await page.waitForFunction(() => window.stageTestAudio.sources > 0 && window.stageTestAudio.contexts.some(context => context.state === 'running' && context.currentTime > 0))
   } else assert.equal(before.stage, undefined, 'The demo ignores accepted director records')
   const performance = inspect ? await inspect({ page, stage, call, sessionId: restored.sessionId, name }) : null
   await call('appendStoryRounds', { sessionId: restored.sessionId, rounds: [{ user: 'Wait.', assistant: 'A quiet moment passes.' }] })

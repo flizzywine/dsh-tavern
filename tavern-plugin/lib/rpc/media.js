@@ -3,7 +3,7 @@
 export function createMediaHandlers(deps) {
   const { backgroundConfigForSession, castAssets, castCardOf, castEdit, castPresentation, castStage,
     castView, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns, removePluginGalleryItems,
-    removePluginMediaVersion, sceneIllustrations, speakLine, speech, speechReply, str } = deps
+    removePluginMediaVersion, sceneIllustrations, speakLine, speech, speechReply, stageMusicTracks, str } = deps
   return {
     async pluginMediaForTurn(args) {
       return await pluginMediaForTurn(args && args.sessionId, args && args.turn)
@@ -20,6 +20,10 @@ export function createMediaHandlers(deps) {
     },
     async castStage(args) {
       return await castStage(args && args.sessionId, args && args.count)
+    },
+    // The BGM player's list for its game (manual picks).
+    async getStageMusicTracks(args) {
+      return await stageMusicTracks(str(args && args.sessionId))
     },
     async castSetImage(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.setImage({ cardPath, name: args.name, slot: args.slot, bytes: Buffer.from(str(args.data), 'base64') }))

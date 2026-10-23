@@ -36,11 +36,10 @@ test('three stage panels are registered like the reference design: 舞台设置,
 })
 
 
-test('基础设置 lists 对话气泡, 配音 › and 舞台模式 in order; every switch is global and writes its own owner', async () => {
+test('基础设置 lists 对话气泡, 配音 ›, 舞台模式 and BGM in order; every switch is global and writes its own owner', async () => {
   const calls = [], events = [], opened = []
   const { TavernStageSwitches, tavernStageReturn } = load({
-    states: [{ castPresentation: true, stageToggles: { stage: false } }, 'idle', ''],
-    useTavernSpeechSettings: () => ({ enabled: true }),
+    states: [{ castPresentation: true, stageToggles: { stage: false, music: true } }, 'idle', ''],    useTavernSpeechSettings: () => ({ enabled: true }),
     rpc: async (method, args) => { calls.push([method, args]); return method === 'updateTavernSettings' ? { settings: { castPresentation: true, stageToggles: { stage: true } } } : { enabled: args.enabled } },
     window: { addEventListener() {}, removeEventListener() {}, dispatchEvent: event => events.push(event.type) },
     tavernSpeechSettings: { set: value => calls.push(['speech-store', value]) },
@@ -50,8 +49,9 @@ test('基础设置 lists 对话气泡, 配音 › and 舞台模式 in order; eve
   assert.equal(text(find(tree, node => node.type === 'h3')), '基础设置')
   assert.match(find(tree, node => node.props.className === 'dsh-tavern-switch-help').props.title, /对所有卡生效/)
   const rows = rowsOf(tree)
-  assert.deepEqual(rows.map(row => [row.label, row.input.props.checked, row.input.props.disabled]), [['对话气泡', true, false], ['配音', true, false], ['舞台模式', false, false]])
-  assert.deepEqual(rows.map(row => row.input.props.role), ['switch', 'switch', 'switch'])
+  assert.deepEqual(rows.map(row => [row.label, row.input.props.checked, row.input.props.disabled]), [['对话气泡', true, false], ['配音', true, false], ['舞台模式', false, false], ['BGM?', true, true]])
+  assert.deepEqual(rows.map(row => row.input.props.role), ['switch', 'switch', 'switch', 'switch'])
+  assert.match(find(rows[3].row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /需要舞台模式/, 'sounds play on the stage')
   await rows[0].input.props.onChange({ target: { checked: false } })
   await rows[1].input.props.onChange({ target: { checked: false } })
   await rows[2].input.props.onChange({ target: { checked: true } })
@@ -67,16 +67,31 @@ test('基础设置 lists 对话气泡, 配音 › and 舞台模式 in order; eve
   assert.equal(rows[1].row.props.className, 'dsh-tavern-switch-row is-openable')
 })
 
-test('配音 and 舞台模式 are greyed while 对话气泡 is off (their stored values stay), and 舞台样式 appears only with a plugin stage view', () => {
-  const { TavernStageSwitches } = load({ states: [{ castPresentation: false, stageToggles: { stage: true } }, 'idle', ''], useTavernStageView: () => ({ views: [{ key: 'p' }] }) })
+test('配音, 舞台模式 and BGM are greyed while 对话气泡 is off (their stored values stay), and 舞台样式 appears only with a plugin stage view', () => {
+  const { TavernStageSwitches } = load({ states: [{ castPresentation: false, stageToggles: { stage: true, music: true } }, 'idle', ''], useTavernStageView: () => ({ views: [{ key: 'p' }] }) })
   const rows = rowsOf(expand(TavernStageSwitches({ sessionId: 'game' })))
-  assert.deepEqual(rows.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', '舞台样式'])
-  assert.deepEqual(rows.slice(0, 3).map(row => [row.input.props.checked, row.input.props.disabled]), [[false, false], [false, true], [true, true]])
-  for (const row of rows.slice(1, 3)) assert.match(find(row.row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /^需要对话气泡$/)
-  assert.ok(find(rows[3].row, node => node.type === 'ViewSwitch'))
+  assert.deepEqual(rows.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?', '舞台样式'])
+  assert.deepEqual(rows.slice(0, 4).map(row => [row.input.props.checked, row.input.props.disabled]), [[false, false], [false, true], [true, true], [true, true]])
+  for (const row of rows.slice(1, 4)) assert.match(find(row.row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /^需要对话气泡$/)
+  assert.ok(find(rows[4].row, node => node.type === 'ViewSwitch'))
   const none = rowsOf(expand(load({ states: [null, 'idle', ''] }).TavernStageSwitches({ sessionId: 'game' })))
-  assert.deepEqual(none.map(row => row.label), ['对话气泡', '配音?', '舞台模式?'])
+  assert.deepEqual(none.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?'])
   assert.ok(none.every(row => row.input.props.disabled), 'nothing is written before the settings load')
+})
+
+test('BGM is one global switch (stageToggles.music) for every card; switching it wakes the stage', async () => {
+  const calls = [], events = []
+  const { TavernStageSwitches } = load({
+    states: [{ castPresentation: true, stageToggles: { stage: true, music: false } }, 'idle', ''],
+    rpc: async (method, args) => { calls.push([method, args]); return { settings: { castPresentation: true, stageToggles: { stage: true, ...args.patch.stageToggles } } } },
+    window: { addEventListener() {}, removeEventListener() {}, dispatchEvent: event => events.push(event.type) },
+    tavernStageRuntime: { refresh: async id => calls.push(['refresh', id]) }
+  })
+  const music = rowsOf(expand(TavernStageSwitches({ sessionId: 'game' }))).find(row => row.label === 'BGM')
+  assert.deepEqual([music.input.props.checked, music.input.props.disabled], [false, false])
+  await music.input.props.onChange({ target: { checked: true } })
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['updateTavernSettings', { patch: { stageToggles: { music: true } } }], ['refresh', 'game']])
+  assert.deepEqual(events, ['dsh-tavern-settings-changed'])
 })
 test('舞台设置 and 舞台素材 follow the game; outside a game they point to the card library', () => {
   const page = mode => ({ useTavernSessionMode: () => mode, isPlayMode: value => value === 'story', useTavernStageRuntime: () => ({ data: { enabled: false, cast: [] } }), TavernCastManager: 'Cast' })
@@ -119,5 +134,8 @@ test('酒馆状态 keeps only the stage entry; the fullscreen stage has no 设�
   assert.equal(vm.runInNewContext(runtime.slice(start) + '; TavernStageStatus', { React: { createElement: h }, useTavernStageRuntime: () => ({ data: { enabled: false } }), TavernStageEntry: 'Entry' })({ sessionId: 'game' }), null)
   const screen = runtime.slice(runtime.indexOf('function TavernStageScreen('), runtime.indexOf('function TavernStageEntry('))
   assert.doesNotMatch(screen, /"朗读"|"设置"|localStorage/)
-  assert.match(screen, /TavernMusicToggle/, 'the ♪ quick mute stays on the control bar')
+  assert.match(screen, /TavernBgmStage, \{ sessionId: id \}/, 'the BGM chip is on the control bar')
+  assert.match(screen, /TavernMusicToggle/, 'plugin music keeps its ♪ switch')
+  assert.doesNotMatch(screen, /tavernMusic\.play/, 'the stage never plays music through the plugin player')
+  assert.match(screen, /release: \(\) => tavernMusic\.stop\(\)/, 'a plugin\'s music still ends with the stage view')
 })

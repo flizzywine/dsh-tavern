@@ -126,7 +126,7 @@ function playerFixture() {
   const view = { schedule: (fn, delay) => { const id = ++next; timers.set(id, { fn, delay }); return id }, cancel: id => timers.delete(id),
     animate: (event, id) => { log.push('play ' + event.at); return { cancel: () => log.push('cancel ' + event.at), finished: new Promise(() => {}) } },
     speech: { on: () => reading, speak: beat => { const voice = { beat, ...deferred() }; voices.push(voice); log.push('say ' + beat.text); return voice.promise }, stop: () => log.push('hush') },
-    music: { play: track => log.push('music ' + (track?.url || '')), stop: () => log.push('music stop') } }
+    release: () => log.push('release') }
   return { owner, view, timers, log, voices, sessions, bindings, relist: () => listener(), set: next => { value = next }, setReading: on => { reading = on },
     async run(delay) { await tick(); for (const [id, timer] of [...timers]) if (delay === undefined || timer.delay === delay) { timers.delete(id); timer.fn() } await tick() },
     async wake(reset) { await owner.wake(reset); await tick() } }
@@ -136,7 +136,7 @@ test('an attached view plays the session page once; closing releases everything 
   const h = playerFixture()
   h.owner.start(h.sessions); await tick()
   let detach = h.owner.attach('a', h.view); await h.run()
-  assert.deepEqual(h.log, ['music theme.wav', 'say first'], 'opening shows and reads the page but never replays its one-shot')
+  assert.deepEqual(h.log, ['say first'], 'opening shows and reads the page but never replays its one-shot; music is the BGM player\'s')
   h.log.length = 0
   h.owner.page('a', 1); await h.run(1000)
   assert.deepEqual(h.log, ['say second', 'play 2'])
@@ -147,12 +147,12 @@ test('an attached view plays the session page once; closing releases everything 
   assert.deepEqual(h.log, ['cancel 2', 'say first'], 'leaving a page cancels its running one-shot')
   h.log.length = 0
   detach()
-  assert.deepEqual(h.log, ['music stop', 'hush'])
+  assert.deepEqual(h.log, ['release', 'hush'], 'closing releases what the view holds (a plugin\'s music); the stage\'s BGM is not the view\'s')
   await h.run(); assert.equal(h.timers.size, 0, 'no timer survives closing')
   h.log.length = 0
   detach = h.owner.attach('a', h.view); await h.run()
   assert.equal(h.owner.getSnapshot('a').reader.index, 0, 'reopening returns to the page')
-  assert.deepEqual(h.log, ['music theme.wav', 'say first'], 'the dwell left pending at close does not play after reopening')
+  assert.deepEqual(h.log, ['say first'], 'the dwell left pending at close does not play after reopening')
   h.log.length = 0
   h.set(withTurns(turn('b', ['arrives'], [{ at: 1, op: 'screen.play', effect: 'shake-1' }]))); await h.wake()
   await h.run(0)
@@ -166,9 +166,11 @@ test('an attached view plays the session page once; closing releases everything 
   h.owner.page('a', 0, 'skip'); await h.run()
   assert.deepEqual(h.log, ['cancel 1', 'hush'], 'skip cancels the running one-shot, stops reading and plays nothing')
   h.log.length = 0
+  h.owner.page('a', 0, 'refresh'); await h.run()
+  assert.deepEqual(h.log, ['say regenerated'])
   h.bindings.a = {}; h.relist(); await tick()
-  assert.ok(h.log.includes('music stop'), 'replacing the binding releases the attached player')
-  detach(); h.owner.page('a', 0); await h.run(); assert.deepEqual(h.log.filter(line => line.startsWith('say') || line.startsWith('play')), [])
+  assert.deepEqual(h.log, ['say regenerated', 'release', 'hush'], 'replacing the binding releases the attached player')
+  detach(); h.owner.page('a', 0); await h.run(); assert.deepEqual(h.log.filter(line => line.startsWith('say') || line.startsWith('play')), ['say regenerated'])
 })
 
 test('auto paging waits for the line to be heard, falls back to its length and stops at the end', async () => {

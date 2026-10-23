@@ -159,16 +159,25 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
     return rows
   }
 
-  // What the stage director may use: lit blue entries. Green (keyword) entries wait for recall.
+  // What the stage may use: lit entries, in binding then pack order. Backgrounds are blue only; music is blue
+  // and green, each with its recall, so the director is offered a green track only when the text names it.
   // Names and refs only: the director's frozen catalog never holds a lease.
   async function catalog(cardPath, cardName) {
     const result = { background: [], music: [] }
     for (const { pack, asset } of await entries(cardPath, cardName)) {
-      if (asset.enabled !== true || asset.recall.mode !== 'constant') continue
+      if (asset.enabled !== true || asset.kind === 'backgrounds' && asset.recall.mode !== 'constant') continue
       const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media }
-      result[asset.kind === 'backgrounds' ? 'background' : 'music'].push(row)
+      if (asset.kind === 'backgrounds') { result.background.push(row); continue }
+      result.music.push({ ...row, pack: pack.manifest.name, recall: asset.recall,
+        ...Object.fromEntries(['volume', 'loopStart', 'loopEnd'].filter(key => asset[key] !== undefined).map(key => [key, asset[key]])) })
     }
     return result
+  }
+  // A music row as the page plays it: identity names the exact content, so a renewed lease never restarts it.
+  async function track(row) {
+    const { ref } = row
+    return { key: ref.packId + '/' + ref.assetId, ref, identity: ref.packId + ':music:' + ref.assetId + ':' + row.media, name: row.name, pack: row.pack,
+      url: await mediaUrl(row), volume: row.volume, loopStart: row.loopStart, loopEnd: row.loopEnd }
   }
 
   // Bytes for a card export, read through a host-scoped lease (bounded chunks, publication fence).
@@ -193,6 +202,7 @@ export function createStageMaterial({ library, castAssets, now = Date.now, warn 
     ready,
     catalog,
     mediaUrl,
+    track,
     exportMaterial,
     hasMaterial: async (cardPath, cardName) => (await entries(cardPath, cardName)).length > 0,
     // Material a card file carried: { kind: 'backgrounds' | 'music', name, ext, bytes }[].

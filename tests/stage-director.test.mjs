@@ -85,6 +85,57 @@ test('disabled stage has no task; canonical cast and explicit capacity are enfor
   assert.deepEqual(await request.call(delta()), { ok: true })
 })
 
+// BGM (cast-presentation.md「背景音乐」): lamps decide what the director may choose; music plays until stopped.
+const lamp = (name, mode, keywords = [], synonyms) => ({ name, recall: { mode, keywords, ...(synonyms ? { synonyms } : {}) } })
+const turn = text => current => { const last = current.messages.at(-1).turn; current.messages.push({ role: 'user', text: 'Go on.' }, { role: 'assistant', turn: last + 1, text }); current.timeline.revision++; return current }
+
+test('BGM lamps: blue is always offered, green only once the text names it; a missed trigger never stops the playing track', async () => {
+  const music = [lamp('Theme', 'constant'), lamp('Storm', 'keyword', ['雷雨']), lamp('Waltz', 'keyword', ['舞会'], { '舞会': ['ball'] })]
+  const h = await stageDirectorFixture({ ...chat(), messages: [...chat().messages.slice(0, 2), { role: 'assistant', turn: 2, text: '窗外雷雨大作。' }] }, { ...assets(), music })
+  let request = await h.prepare()
+  assert.deepEqual(JSON.parse(request.turnContext).music, ['Theme', 'Storm'])
+  assert.equal((await request.call({ music: 'Waltz' })).ok, false, 'an unnamed green track is not a choice')
+  assert.deepEqual(await request.call({ music: 'Storm' }), { ok: true })
+  await h.persistence.update('story', turn('The ball begins; nobody mentions the weather.'))
+  request = await h.prepare()
+  const context = JSON.parse(request.turnContext)
+  assert.deepEqual([context.music, context.state.music], [['Theme', 'Waltz'], 'Storm'], 'a synonym is a whole Latin word')
+  assert.match(context.musicNote, /当前 BGM：Storm，省略即保持/)
+  assert.deepEqual(await request.call({}), { ok: true })
+  assert.equal((await h.director.state('game', 3)).music, 'Storm')
+  await h.persistence.update('story', turn('A balloon drifts by.'))
+  assert.deepEqual(JSON.parse((await h.prepare()).turnContext).music, ['Theme'], 'ball inside another word is no trigger')
+})
+
+test('BGM off or the playing track switched off: the director sees silence and the turn records the stop', async () => {
+  const h = await setup()
+  await (await h.prepare()).call(delta())
+  await append(h)
+  h.assets.music = []
+  const request = await h.prepare(), context = JSON.parse(request.turnContext)
+  assert.deepEqual([context.state.music, context.music, context.musicNote], [null, [], undefined], 'no list and nothing playing: nothing about music')
+  assert.equal((await request.call({ music: 'Theme' })).ok, false)
+  assert.deepEqual(await request.call({}), { ok: true })
+  h.assets.music = assets().music
+  assert.equal((await h.director.state('game', 3)).music, null, 'switching BGM on again waits for the director')
+})
+
+test('music guidance only while a track can be chosen or one plays; a playing track alone keeps only how to stop it', async t => {
+  const h = await setup(), note = JSON.parse((await h.prepare()).turnContext).musicNote
+  assert.match(note, /当前 BGM：无（静音）/)
+  assert.match(note, /换场或情绪转折/)
+  assert.match(note, /music:null/)
+  t.diagnostic(JSON.stringify({ musicNoteBytes: Buffer.byteLength(JSON.stringify({ musicNote: note })) }))
+  const green = await stageDirectorFixture(chat(), { ...assets(), music: [lamp('Storm', 'keyword', ['雷雨'])] })
+  assert.equal(JSON.parse((await green.prepare()).turnContext).musicNote, undefined)
+  await green.persistence.update('story', current => { current.messages.at(-1).text = '雷雨。'; return current })
+  await (await green.prepare()).call({ music: 'Storm' })
+  await green.persistence.update('story', turn('Quiet.'))
+  const playing = JSON.parse((await green.prepare()).turnContext)
+  assert.deepEqual(playing.music, [])
+  assert.match(playing.musicNote, /^当前 BGM：Storm，省略即保持。玩家输入或正文让音乐停下/)
+})
+
 test('concurrent duplicate submissions cannot replace an already accepted transaction', async () => {
   const h = await setup(), request = await h.prepare(), duplicate = await h.prepare()
   const results = await Promise.all([request.call(delta()), duplicate.call({ figures: null })])

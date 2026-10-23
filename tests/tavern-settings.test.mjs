@@ -33,6 +33,14 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
   assert.throws(() => applyTavernSettingsPatch(document, { defaultWritingSkill: { name: 'one', enabled: 'false' } }), /无效/)
 })
 
+test('BGM is one global stage switch (stageToggles.music), on by default, kept beside 舞台模式; only stage booleans are accepted', () => {
+  assert.deepEqual(presentTavernSettings({}, {}).stageToggles, { stage: true, music: true })
+  const off = applyTavernSettingsPatch({ castPresentation: true, stageToggles: { stage: false } }, { stageToggles: { music: false } })
+  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles], [true, { stage: false, music: false }])
+  assert.deepEqual(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { music: true } }), {}).stageToggles, { stage: false, music: true })
+  for (const bad of [{}, { music: 'on' }, { music: true, other: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
+})
+
 test('进入游戏时打开酒馆状态：默认开，可以关', () => {
   assert.equal(presentTavernSettings({}, {}).autoOpenStatusPanel, true)
   const off = applyTavernSettingsPatch({}, { autoOpenStatusPanel: false })
@@ -114,9 +122,9 @@ test('改一边不会带上另一边；第一次改动就把旧字段折成明�
 })
 
 test('舞台模式 is one global switch (stageToggles.stage), on by default; only stage booleans are accepted', () => {
-  assert.deepEqual(presentTavernSettings({}, {}).stageToggles, { stage: true })
+  assert.equal(presentTavernSettings({}, {}).stageToggles.stage, true)
   const off = applyTavernSettingsPatch({ castPresentation: true }, { stageToggles: { stage: false } })
-  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles], [true, { stage: false }])
-  assert.deepEqual(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { stage: true } }), {}).stageToggles, { stage: true })
-  for (const bad of [{}, { stage: 'on' }, { stage: true, music: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
+  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles.stage], [true, false])
+  assert.equal(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { stage: true } }), {}).stageToggles.stage, true)
+  for (const bad of [{}, { stage: 'on' }, { stage: true, other: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
 })

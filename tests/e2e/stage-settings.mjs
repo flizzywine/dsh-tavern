@@ -68,7 +68,7 @@ try {
   }
   await openGame(name, 'Stage settings verification')
   const header = page.getByRole('button', { name: '舞台', exact: true })
-  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true }], 'fresh defaults: 舞台模式 on, 对话气泡 off')
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true, music: true }], 'fresh defaults: 舞台模式 on, 对话气泡 off')
   assert.equal(await header.count(), 0, 'no stage while 对话气泡 is off')
 
   // 酒馆状态 has no stage settings any more, and no entry while the stage is off.
@@ -85,8 +85,10 @@ try {
   const stageSwitch = settings.getByRole('switch', { name: '舞台模式', exact: true })
   const voiceSwitch = settings.getByRole('switch', { name: '配音', exact: true })
   const bubbleSwitch = settings.getByRole('switch', { name: '对话气泡', exact: true })
+  const musicSwitch = settings.getByRole('switch', { name: 'BGM', exact: true })
   await checked('舞台模式', true)
-  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式?'])
+  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式?', 'BGM?'])
+  assert.deepEqual([await musicSwitch.isChecked(), await musicSwitch.isDisabled()], [true, true], 'BGM is on by default and plays on the stage')
   assert.equal(await settings.getByRole('heading', { name: '基础设置' }).count(), 1)
   assert.deepEqual([await bubbleSwitch.isChecked(), await voiceSwitch.isChecked(), await stageSwitch.isChecked()], [false, false, true])
   assert.deepEqual([await voiceSwitch.isDisabled(), await stageSwitch.isDisabled()], [true, true], '配音 and 舞台模式 need 对话气泡')
@@ -96,13 +98,24 @@ try {
   await bubbleSwitch.click()
   await header.waitFor()
   await checked('对话气泡', true)
-  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: true }])
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: true, music: true }])
   assert.deepEqual([await voiceSwitch.isDisabled(), await stageSwitch.isDisabled()], [false, false])
   await openGame(other, 'Stage settings other card')
   await header.waitFor()
   await openGame(name, 'Stage settings verification')
   await header.waitFor()
   result.dialogueSwitch = result.globalStage = true
+
+  // BGM is one global switch (stageToggles.music).
+  await openTab('舞台设置')
+  assert.equal(await musicSwitch.isDisabled(), false)
+  await musicSwitch.click()
+  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="BGM"]')?.checked === false)
+  assert.deepEqual((await call('getTavernSettings')).settings.stageToggles, { stage: true, music: false })
+  await musicSwitch.click()
+  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="BGM"]')?.checked === true)
+  assert.deepEqual((await call('getTavernSettings')).settings.stageToggles, { stage: true, music: true })
+  result.musicSwitch = true
 
   // 配音 is the voicing service's one switch; 「›」 opens the 配音 panel with a way back.
   await openTab('舞台设置')
@@ -140,7 +153,7 @@ try {
   assert.deepEqual(await status.getByRole('button').allInnerTexts(), ['全屏舞台'])
   assert.equal(await page.getByText('角色素材', { exact: true }).filter({ visible: true }).count(), 0, 'no cast material parked in 酒馆状态')
 
-  // The fullscreen stage has no 设置 or 朗读; ♪ (when music plays) and 退出舞台 stay on its bar.
+  // The fullscreen stage has no 设置 or 朗读; the BGM chip and 退出舞台 stay on its bar.
   await header.click()
   const stage = page.locator('.dsh-tavern-stage-overlay')
   await stage.locator('.dsh-tavern-stage-progress').filter({ hasText: '1 / 2' }).waitFor()
@@ -153,6 +166,7 @@ try {
   assert.deepEqual(await paint('.dsh-tavern-stage-textbox'), ['rgb(12, 10, 20)', 'rgb(245, 242, 250)', 'rgb(188, 184, 198)', '10px'])
   assert.deepEqual((await paint('.dsh-tavern-stage-text')).slice(1, 2), ['rgb(245, 242, 250)'])
   await page.screenshot({ path: join(output, 'stage-classic.png') })
+  assert.equal(await stage.getByRole('button', { name: 'BGM', exact: true }).count(), 1, 'the BGM chip (no track yet: only ♪)')
   await page.keyboard.press('ArrowRight')
   await stage.locator('.dsh-tavern-stage-progress').filter({ hasText: '2 / 2' }).waitFor()
   assert.deepEqual((await paint('.dsh-tavern-stage-input input')).slice(0, 3), ['rgb(12, 10, 20)', 'rgb(245, 242, 250)', 'rgb(188, 184, 198)'])
@@ -170,7 +184,8 @@ try {
   await stageSwitch.click()
   await header.waitFor({ state: 'detached' })
   await checked('舞台模式', false)
-  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: false }])
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: false, music: true }])
+  assert.deepEqual([await musicSwitch.isChecked(), await musicSwitch.isDisabled()], [true, true], 'BGM keeps its value and waits for 舞台模式')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: join(output, 'settings-mobile.png') })
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -191,7 +206,7 @@ try {
   await header.waitFor({ state: 'detached' })
   await checked('对话气泡', false)
   assert.deepEqual([await stageSwitch.isChecked(), await stageSwitch.isDisabled()], [true, true])
-  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true }])
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true, music: true }])
   result.stageNeedsDialogue = true
   await writeFile(join(output, 'stage-settings.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result))
