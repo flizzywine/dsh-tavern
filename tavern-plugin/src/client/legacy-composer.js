@@ -241,6 +241,30 @@ function createTavernComposerWindow(frame, host = frame.parent) {
     roots.set(root, proxy); nativeRoots.set(proxy, root);
     return proxy;
   }
+  // A card may also build its observer from the host window
+  // (window.parent.MutationObserver, as 小手机v9 does) and hand it a host node.
+  // That constructor lives in the host realm, so it never meets the sandbox
+  // patch; wrap it here so the proxy is unwrapped on the way in too.
+  const OBSERVERS = new Set(['MutationObserver', 'IntersectionObserver', 'ResizeObserver']);
+  function compatibleObserver(Native, fallbackDocument) {
+    if (typeof Native !== 'function' || Native.__dshTavernNodeCompatible === true) return Native;
+    function CompatibleObserver(callback, ...rest) {
+      const observer = new Native(callback, ...rest);
+      const observe = observer.observe.bind(observer);
+      observer.observe = function (target, options) {
+        const nodes = (Array.isArray(target) ? target : [target]).map(unwrap)
+          .filter(node => node && typeof node === 'object' && typeof node.nodeType === 'number');
+        // An unusable target keeps the script alive: observe the document root
+        // instead of letting the native call throw.
+        if (!nodes.length) return observe(fallbackDocument && fallbackDocument.documentElement || host.document.documentElement, options);
+        for (const node of nodes) observe(node, options);
+      };
+      return observer;
+    }
+    CompatibleObserver.prototype = Native.prototype;
+    CompatibleObserver.__dshTavernNodeCompatible = true;
+    return CompatibleObserver;
+  }
   const jq = frame.jQuery;
   const anchors = new Map();
   let observedViewport = null;
@@ -380,6 +404,7 @@ function createTavernComposerWindow(frame, host = frame.parent) {
       if (key === 'parent' || key === 'top') return windowView(host);
       if (key === 'document') return target === frame ? frame.document : documentView(target.document);
       if ((key === '$' || key === 'jQuery') && jq) return new Proxy(jq, {apply(_, receiver, args) { return jquery(...args); }});
+      if (OBSERVERS.has(key)) return compatibleObserver(target[key], target.document);
       const value = target[key];
       return typeof value === 'function' && !value.prototype ? (...args) => value.apply(target, args.map(unwrap)) : value;
     }, set(_, key, value) { target[key] = value; return true; } });

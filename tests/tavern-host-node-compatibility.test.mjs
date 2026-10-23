@@ -56,6 +56,40 @@ test('兼容窗口交出的宿主节点在进入原生观察器前解包', async
   }
 })
 
+test('从宿主窗口拿到的观察器同样解包宿主节点', async () => {
+  const { dom, element, view } = await sandbox()
+  try {
+    // Chrome checks the internal slot, not the prototype: a proxy of a node is
+    // rejected even though instanceof would pass. Emulate that with a registry.
+    const real = new WeakSet([dom.window.document.documentElement, dom.window.document.head, dom.window.document.body])
+    class StrictObserver {
+      constructor(callback) { this.callback = callback; this.targets = [] }
+      observe(target, options) {
+        if (!real.has(target)) throw new TypeError("Failed to execute 'observe' on 'MutationObserver': parameter 1 is not of type 'Node'.")
+        this.targets.push(target); this.options = options
+      }
+      disconnect() {}
+      takeRecords() { return [] }
+    }
+    dom.window.MutationObserver = StrictObserver
+
+    const hostWindow = view.parent
+    const observer = new hostWindow.MutationObserver(() => {})
+    // 小手机v9 observes window.parent.document.body, which is one of our proxies.
+    observer.observe(hostWindow.document.body, { childList: true, attributes: true })
+    assert.equal(observer.targets.length, 1)
+    assert.equal(observer.targets[0], dom.window.document.body)
+    assert.deepEqual(observer.options, { childList: true, attributes: true })
+
+    const fallback = new hostWindow.MutationObserver(() => {})
+    fallback.observe({ not: 'a node' }, { childList: true })
+    assert.equal(fallback.targets[0], dom.window.document.documentElement)
+    assert.equal(hostWindow.MutationObserver.__dshTavernNodeCompatible, true)
+  } finally {
+    dom.window.close()
+  }
+})
+
 test('真实观察器在兼容层之后仍收到宿主节点变更', async () => {
   const { dom, element, view } = await sandbox()
   try {
