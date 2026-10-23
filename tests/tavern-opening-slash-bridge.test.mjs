@@ -84,6 +84,17 @@ test('单独的 /send 只记录文本，页面留在原地，等 /trigger 才开
   } finally { h.stop() }
 })
 
+test('只发 /send 不发 /trigger 的卡，页面安静下来后照样开局', async () => {
+  const h = harness()
+  try {
+    h.send('/send 我推门而入', 'one')
+    await settle()
+    assert.deepEqual(h.submitted, [], '先留出卡自己保存数据的时间')
+    await new Promise(resolve => setTimeout(resolve, 2200))
+    assert.deepEqual(h.submitted, ['我推门而入'], '安静之后按 /send 开始')
+  } finally { h.stop() }
+})
+
 test('单独的 /sys 先留住设定，随后的 /trigger 带着它开局', async () => {
   const h = harness()
   try {
