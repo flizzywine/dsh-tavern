@@ -64,7 +64,7 @@ export function apply(ctx) {
   const header = Buffer.alloc(13); header.writeUInt32BE(1); header.writeUInt32BE(1, 4); header.set([8, 6], 8)
   const image = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.from([0, 40, 80, 200, 255]))), chunk('IEND', Buffer.alloc(0))])
   await call('castSetImage', { sessionId, name: 'Native Nora', slot: 'joy', data: image.toString('base64') })
-  await call('setCardStage', { path: card.path, enabled: true })
+  await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
   await call('setConversationBackgroundModel', { sessionId, backgroundModel: model, backgroundTasks: { variables: false, posture: false, characterDesign: false, ledger: false, styleReference: false }, webSearchEnabled: false })
   await call('renameConversation', { sessionId, title: 'Native director verification' })
   if (process.argv.includes('--runtime')) {
@@ -100,7 +100,7 @@ export function apply(ctx) {
   await open(); await stage.locator('.dsh-tavern-stage-figure').waitFor()
   await page.screenshot({ path: join(output, 'native-director.png') })
   if (process.argv.includes('--runtime')) {
-    const src = () => stage.locator('.dsh-tavern-stage-figure img').getAttribute('src'), sprite = await src(), stageChanged = () => page.evaluate(() => window.dispatchEvent(new Event('dsh-tavern-card-stage-changed')))
+    const src = () => stage.locator('.dsh-tavern-stage-figure img').getAttribute('src'), sprite = await src(), stageChanged = () => page.evaluate(() => window.dispatchEvent(new Event('dsh-tavern-settings-changed')))
     // Both entries open the same session snapshot: the header 「舞台」 and 酒馆状态's 「全屏舞台」.
     await page.keyboard.press('Escape'); await stage.waitFor({ state: 'detached' }); await page.getByRole('button', { name: '全屏舞台', exact: true }).click()
     assert.equal(await src(), sprite)
@@ -117,8 +117,8 @@ export function apply(ctx) {
     await page.keyboard.press('Escape')
     await page.getByText('Native director verification', { exact: true }).first().click(); await open()
     await stage.locator('.dsh-tavern-stage-figure img').waitFor(); assert.equal(await src(), sprite)
-    await call('setCardStage', { path: card.path, enabled: false }); await stageChanged(); await stage.waitFor({ state: 'hidden' })
-    await call('setCardStage', { path: card.path, enabled: true }); await stageChanged(); await stage.locator('.dsh-tavern-stage-figure img').waitFor()
+    await call('updateTavernSettings', { patch: { stageToggles: { stage: false } } }); await stageChanged(); await stage.waitFor({ state: 'hidden' })
+    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } }); await stageChanged(); await stage.locator('.dsh-tavern-stage-figure img').waitFor()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.screenshot({ path: join(output, 'runtime-mobile.png') })
     await page.setViewportSize({ width: 1400, height: 1000 })

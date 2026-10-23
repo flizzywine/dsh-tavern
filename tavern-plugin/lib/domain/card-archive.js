@@ -116,8 +116,6 @@ async function startDefaults(zip, value) {
   }
   const settings = startSettings(value.settings)
   if (settings) result.settings = settings
-  // The card asks for its stage: shown in its games without the player turning it on.
-  if (value.stage === true) result.stage = true
   return Object.keys(result).length ? result : null
 }
 

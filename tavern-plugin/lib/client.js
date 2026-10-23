@@ -13879,12 +13879,12 @@ function watchStageRuntime(sessionId, binding, refresh) {
 		const next = binding.session.getSnapshot().running;
 		if (next !== running) { running = next; wake(); }
 	}), tavernCoordination.subscribe(sessionId, wake), tavernSessionSignals.subscribe(sessionId, "cast", wake, undefined, wake)];
-	for (const event of ["dsh-tavern-settings-changed", "dsh-tavern-card-stage-changed", "focus"]) window.addEventListener(event, wake);
+	for (const event of ["dsh-tavern-settings-changed", "focus"]) window.addEventListener(event, wake);
 	// Reconcile missed notifications without creating a director job or writing history.
 	const timer = window.setInterval(() => { if (!document.hidden) wake(); }, 5000);
 	return () => {
 		stops.forEach(stop => stop()); window.clearInterval(timer);
-		for (const event of ["dsh-tavern-settings-changed", "dsh-tavern-card-stage-changed", "focus"]) window.removeEventListener(event, wake);
+		for (const event of ["dsh-tavern-settings-changed", "focus"]) window.removeEventListener(event, wake);
 	};
 }
 const tavernStageRuntime = createStageRuntimeSessions({
@@ -14062,6 +14062,8 @@ function TavernStageStatus(props) {
 // 设置 › 配音). 酒馆状态 only opens the stage; the fullscreen stage has no settings of its own.
 const TAVERN_STAGE_TABS = Object.freeze({ settings: "dsh-tavern:stage-settings", materials: "dsh-tavern:stage-materials", voice: "dsh-tavern:voice" });
 const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式" });
+// Every switch needs its upstream switches on, as in the reference design: 配音 and 舞台模式 need 对话气泡.
+const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"], stage: ["dialogue"] });
 const TAVERN_STAGE_GLYPHS = Object.freeze({
 	bubble: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4",
@@ -14118,7 +14120,8 @@ const tavernStageReturn = (function () {
 	};
 })();
 
-// The global switches: 对话气泡 is the tavern setting castPresentation, 配音 the voicing service's own switch.
+// The global switches: 对话气泡 is the tavern setting castPresentation, 配音 the voicing service's own switch and
+// 舞台模式 the tavern setting stageToggles.stage. All of them apply to every card.
 function useTavernStageGlobals() {
 	const [settings, setSettings] = React.useState(null);
 	React.useEffect(() => {
@@ -14144,45 +14147,42 @@ function TavernStageSwitches(props) {
 		try { await job(); setStatus("saved"); }
 		catch (err) { setStatus("idle"); setError(String(err && err.message || err)); }
 	}
-	const prefs = { dialogue: settings ? settings.castPresentation === true : false, voice: Boolean(speech && speech.enabled), stage: props.data.enabled !== false };
-	// Voicing needs lines with speakers: 对话气泡 marks them in every game, 舞台模式 in this card's games.
-	const busy = status === "saving", voiceBlocked = !prefs.dialogue && !prefs.stage;
-	const setDialogue = on => save(async () => {
-		const result = await rpc("updateTavernSettings", { patch: { castPresentation: on } });
+	const prefs = { dialogue: settings ? settings.castPresentation === true : false, voice: Boolean(speech && speech.enabled), stage: settings ? settings.stageToggles?.stage !== false : false };
+	const busy = status === "saving", blocked = key => TAVERN_STAGE_REQUIRES[key].filter(need => !prefs[need]);
+	const help = key => blocked(key).length ? "需要" + blocked(key).map(need => TAVERN_STAGE_NAMES[need]).join("和") : undefined;
+	const setTavern = patch => save(async () => {
+		const result = await rpc("updateTavernSettings", { patch });
 		setSettings(result.settings);
 		window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
+		await tavernStageRuntime.refresh(props.sessionId);
 	});
+	const setDialogue = on => setTavern({ castPresentation: on });
 	const setVoice = on => save(async () => {
 		tavernSpeechSettings.set(await rpc("updateSpeechSettings", { enabled: on }));
 		window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
 	});
-	const setStage = on => save(async () => {
-		await rpc("setCardStage", { path: props.path, enabled: on });
-		window.dispatchEvent(new CustomEvent("dsh-tavern-card-stage-changed", { detail: { path: props.path } }));
-		await tavernStageRuntime.refresh(props.sessionId);
-	});
+	const setStage = on => setTavern({ stageToggles: { stage: on } });
 	const openVoice = props.openTab ? () => { tavernStageReturn.set({ toTab: TAVERN_STAGE_TABS.settings, label: "返回舞台设置" }); props.openTab(TAVERN_STAGE_TABS.voice); } : null;
 	return h("section", { className: "dsh-tavern-stage-section", "aria-label": "基础设置" },
 		h("header", { className: "dsh-tavern-stage-section-head" }, h("h3", null, "基础设置"),
-			h("span", { className: "dsh-tavern-switch-help", role: "img", "aria-label": "基础设置 说明：对话气泡和配音对所有卡生效；舞台模式只对这张卡生效。", title: "对话气泡和配音对所有卡生效；舞台模式只对这张卡生效。" }, "?"),
+			h("span", { className: "dsh-tavern-switch-help", role: "img", "aria-label": "基础设置 说明：这些开关对所有卡生效。", title: "这些开关对所有卡生效。" }, "?"),
 			h("span", { className: "dsh-tavern-stage-save-state", role: "status" }, status === "saving" ? "正在保存…" : status === "saved" ? "已保存" : "")),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.dialogue, icon: "bubble", checked: prefs.dialogue, disabled: !settings || busy, onChange: setDialogue }),
-		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.voice, icon: "voice", checked: prefs.voice, disabled: !speech || busy || voiceBlocked,
-			help: voiceBlocked ? "需要" + TAVERN_STAGE_NAMES.dialogue : undefined, onChange: setVoice,
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.voice, icon: "voice", checked: prefs.voice, disabled: !speech || busy || blocked("voice").length > 0,
+			help: help("voice"), onChange: setVoice,
 			status: openVoice ? tavernStageJump("声音设置", openVoice) : null, onOpen: openVoice || undefined }),
-		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !props.path || busy, onChange: setStage }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !settings || busy || blocked("stage").length > 0, help: help("stage"), onChange: setStage }),
 		choice.views.length ? h("div", { className: "dsh-tavern-switch-row" }, h("label", { className: "dsh-tavern-switch-main" },
 			h("span", { className: "dsh-tavern-switch-name" }, h("span", null, "舞台样式")), h(TavernStageViewSwitch, { choice }))) : null,
 		error ? h("p", { role: "alert", className: "dsh-tavern-prompt-error" }, "保存失败：" + error) : null);
 }
 
 // The game a page belongs to: a subagent's panel shows its parent game.
-function useTavernStagePage(props, name) {
+function useTavernStagePage(props) {
 	const owner = props.sessions.subagentAddress(props.sessionId)?.parentSessionId || props.sessionId;
 	const mode = useTavernSessionMode(owner);
 	const stage = useTavernStageRuntime(owner);
-	const path = useScopedLiveTavernView(owner, name, [["card", "path"]]).view?.card?.path || "";
-	return { owner, play: isPlayMode(mode), stage, path };
+	return { owner, play: isPlayMode(mode), stage };
 }
 function tavernStagePageBody(page, props, render) {
 	const h = React.createElement;
@@ -14199,15 +14199,15 @@ function tavernStagePanel(label, body, back) {
 }
 
 function TavernStageSettingsTab(props) {
-	const page = useTavernStagePage(props, "stage-settings");
+	const page = useTavernStagePage(props);
 	return tavernStagePanel("舞台设置", tavernStagePageBody(page, props, () =>
-		React.createElement(TavernStageSwitches, { sessionId: page.owner, path: page.path, data: page.stage.data, openTab: props.openTab })));
+		React.createElement(TavernStageSwitches, { sessionId: page.owner, openTab: props.openTab })));
 }
 
 // 舞台素材: the card's cast material (portraits, avatars, each figure's voice, sprite packs). It also feeds the chat's
 // avatars, so it is editable while the stage is off.
 function TavernStageMaterialsTab(props) {
-	const page = useTavernStagePage(props, "stage-materials");
+	const page = useTavernStagePage(props);
 	return tavernStagePanel("舞台素材", tavernStagePageBody(page, props, () =>
 		React.createElement(TavernCastManager, { sessionId: page.owner, data: page.stage.data, onCast: () => tavernStageRuntime.refresh(page.owner) })));
 }

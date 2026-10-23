@@ -46,7 +46,6 @@
   { "name": "dsh-card-dafeiyu-galgame", "path": "plugins/galgame/", "purpose": "每轮导演舞台：换场景、时段、服装和背景音乐，在舞台上显示" }
 ],
 "defaults": {
-  "stage": true,
   "preset": { "path": "presets/dafeiyu-stage.json", "title": "大肥鱼 · 舞台演出" },
   "settings": { "statusBarPlacement": "sidebar", "backgroundTasks": { "posture": true, "variables": true }, "webSearch": false, "sceneImages": false }
 },
@@ -58,7 +57,7 @@
 ```
 
 - `plugins`：插件随卡启用。`name` 和插件 `package.json` 里的 `name` 相同，`purpose` 显示在卡片详情里给玩家看。
-- `defaults.stage: true`：这张卡的局打开舞台，Tavern 会给每句台词标上说话人和情绪。插件的舞台就靠这份标注换表情。
+- 舞台不由卡打开：玩家在「舞台设置」打开「对话气泡」和「舞台模式」（全局开关）后，每局都有舞台，Tavern 会给每句台词标上说话人和情绪，插件的舞台就靠这份标注换表情。`defaults.stage` 不再读取。
 - `defaults.preset`：开新局默认用卡里的预设。
 - `defaults.settings`：打开后台结算。插件的导演借后台结算运行，玩家关掉所有结算项时，这一轮不结算，导演也不会工作。
 - `packs`：4 个素材包，`format` 都是 `dsh-asset-pack`。Tavern 只存储、提供文件，不看内容，由插件解读。

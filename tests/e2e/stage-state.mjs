@@ -51,7 +51,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
     { path: 'assets/emotion/sadness.png', content: png(40, 80, 200) }, { path: 'assets/background/room.png', content: png(30, 70, 90) },
     { path: 'assets/background/hall.png', content: png(90, 70, 30) }, { path: 'assets/music/theme.wav', content: wav }])
   const imported = (await call('importCard', { payload: { kind: 'charx', name: 'stage-' + run + '.charx', fileB64: archive.toString('base64') } })).card
-  await call('setCardStage', { path: imported.path, enabled: true })
+  await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' }, { name: 'Reader', is_user: true, mes: 'Begin.' }, { name, is_user: false, mes: bodyText }].map(JSON.stringify).join('\n')
   const game = await call('importChatHistoryText', { cardPath: imported.path, text: history, fileName: 'stage.jsonl' })
   assert.ok(game.sessionId, JSON.stringify(game))
@@ -69,7 +69,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
   assert.deepEqual(accepted, { ok: true })
   Object.assign(save.plugins.data.owners, (await fixture.data.snapshot(save.chat.id)).owners)
   const restored = await call('importGameSave', { fileB64: buildGameSave({ ...save, tavernVersion: save.manifest.tavernVersion, exportedAt: Date.now() }).toString('base64') })
-  await call('setCardStage', { path: restored.cardPath, enabled: true })
+  await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
   await call('castSetImage', { sessionId: restored.sessionId, name, slot: 'joy', data: png(210, 90, 40).toString('base64') })
   const title = 'Stage continuity restored ' + Date.now()
   await call('renameConversation', { sessionId: restored.sessionId, title })
@@ -134,7 +134,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
     finalSave.plugins.data.owners[owner].turns.push(...(await clearFixture.data.snapshot(finalSave.chat.id)).owners[owner].turns)
     const cleared = await call('importGameSave', { fileB64: buildGameSave({ ...finalSave, tavernVersion: finalSave.manifest.tavernVersion, exportedAt: Date.now() }).toString('base64') })
     const clearTitle = 'Explicit stage clear ' + Date.now()
-    await call('setCardStage', { path: cleared.cardPath, enabled: true })
+    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
     await call('renameConversation', { sessionId: cleared.sessionId, title: clearTitle })
     await page.reload()
     await group.waitFor()

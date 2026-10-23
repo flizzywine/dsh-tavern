@@ -83,12 +83,6 @@ export function createCardHandlers(deps) {
     async setCardPlugins(args) {
       return { plugins: await setCardPlugins(args && args.path, args && args.enabled === true) }
     },
-    async cardStage(args) {
-      return { enabled: (await castAssets.read(normalizeResourcePath(args && args.path, 'card'))).stage === true }
-    },
-    async setCardStage(args) {
-      return { enabled: (await castAssets.setStage(normalizeResourcePath(args && args.path, 'card'), args && args.enabled === true)).stage === true }
-    },
     async cardPluginScopes(args) {
       return { scopes: Object.fromEntries([...await cardPlugins.scope()].map(([name, scope]) => [name, scope.cards])) }
     },

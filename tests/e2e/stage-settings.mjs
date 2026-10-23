@@ -7,6 +7,7 @@ import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
 
 // 舞台设置, 舞台素材 and 配音 against a real host. Run only against an owned, hidden, muted fresh profile.
 // Nothing here makes a sound: the fullscreen stage is opened only while 配音 is off, and no 试听 / 朗读 button is pressed.
+// The switches are global, as in the reference design: 舞台模式 (on by default) needs 对话气泡, and so does 配音.
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
 if (!process.argv.includes('--isolated') || !endpoint || new URL(endpoint).port === '9333' || !process.argv.includes('--artifacts')) throw Error('Requires an owned fresh-profile CDP, --isolated and --artifacts DIR; never use a live browser')
@@ -44,20 +45,31 @@ const rowNames = async panel => (await panel.locator('.dsh-tavern-switch-name').
 try {
   const proceed = page.getByRole('button', { name: 'Continue', exact: true })
   if (await proceed.isVisible()) await proceed.click()
-  const name = 'Nora ' + Date.now() % 100000
-  const cardZip = writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }) }])
-  const card = (await call('importCard', { payload: { kind: 'charx', name: 'settings-nora.charx', fileB64: cardZip.toString('base64') } })).card
-  const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' }, { name: 'Reader', is_user: true, mes: 'Begin.' }, { name, is_user: false, mes: 'First line.\nSecond line.' }].map(JSON.stringify).join('\n')
-  const { sessionId } = await call('importChatHistoryText', { cardPath: card.path, text: history, fileName: 'stage-settings.jsonl' })
-  const title = 'Stage settings verification'
-  await call('renameConversation', { sessionId, title })
+  const settingsOf = async () => (await call('getTavernSettings')).settings
+  const checked = (label, value) => page.waitForFunction(([label, value]) => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="' + label + '"]')?.checked === value, [label, value])
+  const run = Date.now() % 100000
+  async function game(name, file, title) {
+    const cardZip = writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }) }])
+    const card = (await call('importCard', { payload: { kind: 'charx', name: file, fileB64: cardZip.toString('base64') } })).card
+    const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' }, { name: 'Reader', is_user: true, mes: 'Begin.' }, { name, is_user: false, mes: 'First line.\nSecond line.' }].map(JSON.stringify).join('\n')
+    const { sessionId } = await call('importChatHistoryText', { cardPath: card.path, text: history, fileName: file + '.jsonl' })
+    await call('renameConversation', { sessionId, title })
+    return card
+  }
+  const name = 'Nora ' + run, other = 'Mira ' + run
+  await game(name, 'settings-nora.charx', 'Stage settings verification')
+  await game(other, 'settings-mira.charx', 'Stage settings other card')
   await page.reload()
-  const group = page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: name })
-  await group.waitFor(); if (await group.getAttribute('aria-expanded') === 'false') await group.click()
-  await page.getByText(title, { exact: true }).first().click()
+  async function openGame(cardName, title) {
+    const group = page.locator('.dsh-tavern-history-group-toggle').filter({ hasText: cardName })
+    await group.waitFor(); if (await group.getAttribute('aria-expanded') === 'false') await group.click()
+    await page.getByText(title, { exact: true }).first().click()
+    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+  }
+  await openGame(name, 'Stage settings verification')
   const header = page.getByRole('button', { name: '舞台', exact: true })
-  await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
-  assert.equal(await header.count(), 0, 'an ordinary card shows no stage entry')
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true }], 'fresh defaults: 舞台模式 on, 对话气泡 off')
+  assert.equal(await header.count(), 0, 'no stage while 对话气泡 is off')
 
   // 酒馆状态 has no stage settings any more, and no entry while the stage is off.
   await openTab('酒馆状态')
@@ -66,32 +78,36 @@ try {
   assert.equal(await status.count(), 0)
   assert.equal(await page.getByRole('button', { name: '舞台设置', exact: true }).filter({ visible: true }).count(), 0)
 
-  // 舞台设置 › 基础设置: 对话气泡, 配音 ›, 舞台模式. 配音 needs something that marks speakers.
+  // 舞台设置 › 基础设置: 对话气泡, 配音 ›, 舞台模式. 配音 and 舞台模式 wait for 对话气泡 (greyed, stored value kept).
   await openFromStart('舞台设置')
   await page.screenshot({ path: join(output, 'start-menu.png') })
   const settings = page.locator('aside[aria-label="舞台设置"]')
   const stageSwitch = settings.getByRole('switch', { name: '舞台模式', exact: true })
   const voiceSwitch = settings.getByRole('switch', { name: '配音', exact: true })
   const bubbleSwitch = settings.getByRole('switch', { name: '对话气泡', exact: true })
-  await stageSwitch.waitFor()
-  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式'])
+  await checked('舞台模式', true)
+  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式?'])
   assert.equal(await settings.getByRole('heading', { name: '基础设置' }).count(), 1)
-  assert.deepEqual([await bubbleSwitch.isChecked(), await voiceSwitch.isChecked(), await stageSwitch.isChecked()], [false, false, false])
-  assert.equal(await voiceSwitch.isDisabled(), true, '配音 waits for 对话气泡 or 舞台模式')
+  assert.deepEqual([await bubbleSwitch.isChecked(), await voiceSwitch.isChecked(), await stageSwitch.isChecked()], [false, false, true])
+  assert.deepEqual([await voiceSwitch.isDisabled(), await stageSwitch.isDisabled()], [true, true], '配音 and 舞台模式 need 对话气泡')
   await page.screenshot({ path: join(output, 'settings-off.png') })
 
-  // 舞台模式 is this card's stage switch.
-  await stageSwitch.click()
+  // 对话气泡 on: the stage (舞台模式 already on) appears for this game and every other card's.
+  await bubbleSwitch.click()
   await header.waitFor()
-  await settings.getByText('已保存', { exact: true }).waitFor()
-  assert.equal(await stageSwitch.isChecked(), true)
-  assert.equal((await call('cardStage', { path: card.path })).enabled, true, 'the switch writes the card')
-  assert.equal(await voiceSwitch.isDisabled(), false, 'the stage marks speakers, so 配音 can be turned on')
-  result.stageModeOn = true
+  await checked('对话气泡', true)
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: true }])
+  assert.deepEqual([await voiceSwitch.isDisabled(), await stageSwitch.isDisabled()], [false, false])
+  await openGame(other, 'Stage settings other card')
+  await header.waitFor()
+  await openGame(name, 'Stage settings verification')
+  await header.waitFor()
+  result.dialogueSwitch = result.globalStage = true
 
   // 配音 is the voicing service's one switch; 「›」 opens the 配音 panel with a way back.
+  await openTab('舞台设置')
   await voiceSwitch.click()
-  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="配音"]')?.checked === true)
+  await checked('配音', true)
   assert.equal((await call('getSpeechSettings')).enabled, true)
   await settings.getByRole('button', { name: '声音设置', exact: true }).click()
   const voicePanel = page.locator('aside[aria-label="配音"]')
@@ -101,22 +117,13 @@ try {
   await voicePanel.getByRole('button', { name: '返回舞台设置', exact: true }).click()
   await stageSwitch.waitFor()
   await voiceSwitch.click()
-  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="配音"]')?.checked === false)
+  await checked('配音', false)
   assert.equal((await call('getSpeechSettings')).enabled, false)
-  result.voiceSwitch = true
-
-  // 对话气泡 is the global castPresentation setting.
-  await bubbleSwitch.click()
-  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="对话气泡"]')?.checked === true)
-  assert.equal((await call('getTavernSettings')).settings.castPresentation, true)
-  await bubbleSwitch.click()
-  await page.waitForFunction(() => document.querySelector('aside[aria-label="舞台设置"] input[aria-label="对话气泡"]')?.checked === false)
-  assert.equal((await call('getTavernSettings')).settings.castPresentation, false)
   assert.equal(await settings.getByRole('combobox', { name: '舞台样式' }).count(), 0, 'no plugin view, no 舞台样式 row')
   await page.screenshot({ path: join(output, 'settings-on.png') })
-  result.dialogueSwitch = true
+  result.voiceSwitch = true
 
-  // 舞台素材 is the card's cast material.
+  // 舞台素材 is the card's cast material, each figure's voice included.
   await openFromStart('舞台素材')
   const materials = page.locator('aside[aria-label="舞台素材"]')
   const chooser = page.waitForEvent('filechooser')
@@ -146,23 +153,34 @@ try {
   await stage.waitFor({ state: 'detached' })
   result.stageEntry = true
 
-  // Turning 舞台模式 off removes the entries; the choice is the card's and survives a reload.
+  // 舞台模式 off removes the entries for every card and survives a reload; 对话气泡 stays on.
   await openTab('舞台设置')
   await stageSwitch.click()
   await header.waitFor({ state: 'detached' })
-  assert.equal(await voiceSwitch.isDisabled(), true)
+  await checked('舞台模式', false)
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [true, { stage: false }])
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: join(output, 'settings-mobile.png') })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openTab('酒馆状态')
   await page.locator('.dsh-tavern-status-dashboard').filter({ visible: true }).waitFor()
   assert.equal(await status.count(), 0, 'the stage entry goes with the switch')
-  assert.equal((await call('cardStage', { path: card.path })).enabled, false)
   await page.reload()
-  await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
+  await openGame(other, 'Stage settings other card')
   await page.waitForTimeout(1500)
   assert.equal(await header.count(), 0)
   result.stageModeOff = true
+
+  // On again; then 对话气泡 off takes the stage with it while 舞台模式 keeps its stored value.
+  await openFromStart('舞台设置')
+  await stageSwitch.click()
+  await header.waitFor()
+  await bubbleSwitch.click()
+  await header.waitFor({ state: 'detached' })
+  await checked('对话气泡', false)
+  assert.deepEqual([await stageSwitch.isChecked(), await stageSwitch.isDisabled()], [true, true])
+  assert.deepEqual([(await settingsOf()).castPresentation, (await settingsOf()).stageToggles], [false, { stage: true }])
+  result.stageNeedsDialogue = true
   await writeFile(join(output, 'stage-settings.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify(result))
 } catch (error) {

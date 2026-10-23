@@ -514,9 +514,8 @@ try {
   if (storyToolScenario) await step('开启输入与输出走工具调用', async () => {
     const chatUrl = page.url()
     await setTavernSettings({ storyInputToolCall: true, storyOutputToolCall: true })
-    // The stage is per card and off for ordinary cards; this card turns it on.
-    const stage = await page.evaluate(async () => (await fetch('/api/dsh-tavern/setCardStage', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'cards/e2e.json', enabled: true }) })).json())
-    assert.equal(stage.enabled, true)
+    // 舞台模式 is global and needs 对话气泡 (舞台设置 › 基础设置).
+    await setTavernSettings({ castPresentation: true, stageToggles: { stage: true } })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })

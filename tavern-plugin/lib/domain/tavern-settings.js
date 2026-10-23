@@ -251,8 +251,14 @@ export function applyTavernSettingsPatch(current, patch) {
     else next.headerItems = headerItems(input.headerItems)
   }
   if (Object.hasOwn(input, 'castPresentation')) {
-    if (typeof input.castPresentation !== 'boolean') throw new Error('对话头像设置必须是布尔值')
+    if (typeof input.castPresentation !== 'boolean') throw new Error('对话气泡设置必须是布尔值')
     next.castPresentation = input.castPresentation
+  }
+  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage.
+  if (Object.hasOwn(input, 'stageToggles')) {
+    const toggles = object(input.stageToggles)
+    if (!Object.keys(toggles).length || Object.keys(toggles).some(key => key !== 'stage') || typeof toggles.stage !== 'boolean') throw new Error('舞台开关只能是 stage，且必须是布尔值')
+    next.stageToggles = { ...object(next.stageToggles), ...toggles }
   }
   if (Object.hasOwn(input, 'contextCompaction')) next.contextCompaction = { ...compactionPolicy(input.contextCompaction), revision: Date.now() }
   if (Object.prototype.hasOwnProperty.call(input, 'backgroundTasks')) {
@@ -330,6 +336,8 @@ export function presentTavernSettings(document, defaults) {
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     castPresentation: object(document).castPresentation === true,
+    // 舞台模式: one switch for every card, on by default; the stage also needs 对话气泡 (castPresentation).
+    stageToggles: { stage: object(object(document).stageToggles).stage !== false },
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // Library edits reach a running game on its next turn; only an explicit

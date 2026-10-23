@@ -217,6 +217,8 @@ export async function dshCardPlayChecks({ page, step, output, report }) {
       await page.waitForTimeout(500)
     }
     assert.doesNotMatch(reply.error || '', /没有名为/, '卡内插件启用后加载')
+    // 舞台模式 is global and needs 对话气泡; the card's plugin directs once both are on.
+    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
     await page.reload()
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText('大肥鱼', { exact: true }).first().click()

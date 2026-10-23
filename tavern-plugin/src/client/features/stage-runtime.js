@@ -29,12 +29,12 @@ function watchStageRuntime(sessionId, binding, refresh) {
 		const next = binding.session.getSnapshot().running;
 		if (next !== running) { running = next; wake(); }
 	}), tavernCoordination.subscribe(sessionId, wake), tavernSessionSignals.subscribe(sessionId, "cast", wake, undefined, wake)];
-	for (const event of ["dsh-tavern-settings-changed", "dsh-tavern-card-stage-changed", "focus"]) window.addEventListener(event, wake);
+	for (const event of ["dsh-tavern-settings-changed", "focus"]) window.addEventListener(event, wake);
 	// Reconcile missed notifications without creating a director job or writing history.
 	const timer = window.setInterval(() => { if (!document.hidden) wake(); }, 5000);
 	return () => {
 		stops.forEach(stop => stop()); window.clearInterval(timer);
-		for (const event of ["dsh-tavern-settings-changed", "dsh-tavern-card-stage-changed", "focus"]) window.removeEventListener(event, wake);
+		for (const event of ["dsh-tavern-settings-changed", "focus"]) window.removeEventListener(event, wake);
 	};
 }
 const tavernStageRuntime = createStageRuntimeSessions({

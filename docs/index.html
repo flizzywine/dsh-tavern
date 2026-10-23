@@ -1166,7 +1166,6 @@
   { &quot;name&quot;: &quot;dsh-card-dafeiyu-galgame&quot;, &quot;path&quot;: &quot;plugins/galgame/&quot;, &quot;purpose&quot;: &quot;每轮导演舞台：换场景、时段、服装和背景音乐，在舞台上显示&quot; }
 ],
 &quot;defaults&quot;: {
-  &quot;stage&quot;: true,
   &quot;preset&quot;: { &quot;path&quot;: &quot;presets/dafeiyu-stage.json&quot;, &quot;title&quot;: &quot;大肥鱼 · 舞台演出&quot; },
   &quot;settings&quot;: { &quot;statusBarPlacement&quot;: &quot;sidebar&quot;, &quot;backgroundTasks&quot;: { &quot;posture&quot;: true, &quot;variables&quot;: true }, &quot;webSearch&quot;: false, &quot;sceneImages&quot;: false }
 },
@@ -1175,7 +1174,7 @@
     &quot;contentHash&quot;: &quot;f473aee5…&quot;, &quot;path&quot;: &quot;assets/china-backgrounds/&quot;,
     &quot;credits&quot;: [&quot;assets/china-backgrounds/credits/CREDITS.md&quot;, &quot;…&quot;] }
 ]</code></pre></div>
-<ul><li><code>plugins</code>：插件随卡启用。<code>name</code> 和插件 <code>package.json</code> 里的 <code>name</code> 相同，<code>purpose</code> 显示在卡片详情里给玩家看。</li><li><code>defaults.stage: true</code>：这张卡的局打开舞台，Tavern 会给每句台词标上说话人和情绪。插件的舞台就靠这份标注换表情。</li><li><code>defaults.preset</code>：开新局默认用卡里的预设。</li><li><code>defaults.settings</code>：打开后台结算。插件的导演借后台结算运行，玩家关掉所有结算项时，这一轮不结算，导演也不会工作。</li><li><code>packs</code>：4 个素材包，<code>format</code> 都是 <code>dsh-asset-pack</code>。Tavern 只存储、提供文件，不看内容，由插件解读。</li></ul>
+<ul><li><code>plugins</code>：插件随卡启用。<code>name</code> 和插件 <code>package.json</code> 里的 <code>name</code> 相同，<code>purpose</code> 显示在卡片详情里给玩家看。</li><li>舞台不由卡打开：玩家在「舞台设置」打开「对话气泡」和「舞台模式」（全局开关）后，每局都有舞台，Tavern 会给每句台词标上说话人和情绪，插件的舞台就靠这份标注换表情。<code>defaults.stage</code> 不再读取。</li><li><code>defaults.preset</code>：开新局默认用卡里的预设。</li><li><code>defaults.settings</code>：打开后台结算。插件的导演借后台结算运行，玩家关掉所有结算项时，这一轮不结算，导演也不会工作。</li><li><code>packs</code>：4 个素材包，<code>format</code> 都是 <code>dsh-asset-pack</code>。Tavern 只存储、提供文件，不看内容，由插件解读。</li></ul>
 <h3>card.json：一张普通的 CCv3 卡</h3>
 <p>人设、开场白、世界书都和普通人物卡一样，拿去别的前端也能用。和 DSH 有关的有两处。</p>
 <p><code>data.assets</code> 列出卡面和表情图，<code>uri</code> 直接指向素材包里的文件，不用另存一份：</p>
@@ -2071,7 +2070,7 @@ try { /* 这段归我说话 */ } finally { lease.release() }</code></pre></div>
 })</code></pre></div>
 <p><code>render</code> 的参数：</p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="说明表格"><table><thead><tr><th scope="col">字段</th><th scope="col">含义</th></tr></thead><tbody><tr><td><code>stage</code></td><td>同 <code>getStage</code> 的返回值</td></tr><tr><td><code>beats</code></td><td>最新一轮拆成的「句」：<code>{ kind: &#39;line&#39;, text, speaker, emotion, turn }</code>（标注过的台词所在的一行）或 <code>{ kind: &#39;narration&#39;, text, turn }</code>（旁白段落）</td></tr><tr><td><code>index</code>、<code>beat</code></td><td>当前读到第几句、这一句</td></tr><tr><td><code>fullscreen</code></td><td>固定为 true（仅保留全屏舞台）</td></tr><tr><td><code>advance()</code></td><td>翻到下一句，点击场景时调用</td></tr><tr><td><code>footer</code></td><td>Tavern 的翻页、自动、退出按钮，请放进插件自己的文字框里</td></tr></tbody></table></div>
-<ul><li>注册后舞台默认用插件的画面；「舞台设置」出现「舞台样式」选择，玩家可以选回内置，这台浏览器记住选择。插件卸载后回到内置舞台。</li><li><code>render</code> 返回 <code>null</code> 或出错时用内置画面，错误写进错误提示。</li><li>全屏时读到最后一句，Tavern 会在底部 88px 内显示输入框；插件的画面请把这块空出来，别把文字框放在那里。</li><li>舞台入口只在玩家为这张卡打开「舞台模式」后出现。</li><li>内置独立导演负责舞台数据，插件视图只呈现宿主投影，不再附带第二个导演示例；流式前缀与最终正文共用阅读来源，刷新不重播演出。见<a href="https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md">角色演出</a>。</li></ul>
+<ul><li>注册后舞台默认用插件的画面；「舞台设置」出现「舞台样式」选择，玩家可以选回内置，这台浏览器记住选择。插件卸载后回到内置舞台。</li><li><code>render</code> 返回 <code>null</code> 或出错时用内置画面，错误写进错误提示。</li><li>全屏时读到最后一句，Tavern 会在底部 88px 内显示输入框；插件的画面请把这块空出来，别把文字框放在那里。</li><li>舞台入口只在「舞台设置」里「对话气泡」和「舞台模式」都开着时出现。</li><li>内置独立导演负责舞台数据，插件视图只呈现宿主投影，不再附带第二个导演示例；流式前缀与最终正文共用阅读来源，刷新不重播演出。见<a href="https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md">角色演出</a>。</li></ul>
 <h2 id="plugin-api-ui--section-27"><code>speak({ gameId, speaker?, text, emotion?, narration? })</code>、<code>stopSpeech()</code>（第 2 版）</h2>
 <p>在当前页面朗读一句，用玩家选的配音渠道和这个人物的声音（浏览器朗读也可以）。返回的 Promise 在读完时为 <code>true</code>，被打断、配音关闭或失败时为 <code>false</code>。同一时间只读一句，新的一句会打断正在读的；<code>stopSpeech()</code> 立即停止。适合插件的舞台画面、自己的面板逐句朗读。</p>
 <h2 id="plugin-api-ui--section-28"><code>playMusic(url | { url, title?, volume? })</code>、<code>stopMusic()</code>（第 2 版）</h2>

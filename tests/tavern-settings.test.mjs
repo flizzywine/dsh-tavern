@@ -112,3 +112,11 @@ test('改一边不会带上另一边；第一次改动就把旧字段折成明�
   assert.throws(() => applyTavernSettingsPatch({}, { storyInputToolCall: 'yes' }), /输入走工具调用设置必须是布尔值/)
   assert.throws(() => applyTavernSettingsPatch({}, { storyOutputToolCall: 1 }), /输出走工具调用设置必须是布尔值/)
 })
+
+test('舞台模式 is one global switch (stageToggles.stage), on by default; only stage booleans are accepted', () => {
+  assert.deepEqual(presentTavernSettings({}, {}).stageToggles, { stage: true })
+  const off = applyTavernSettingsPatch({ castPresentation: true }, { stageToggles: { stage: false } })
+  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles], [true, { stage: false }])
+  assert.deepEqual(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { stage: true } }), {}).stageToggles, { stage: true })
+  for (const bad of [{}, { stage: 'on' }, { stage: true, music: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
+})

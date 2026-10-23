@@ -2172,8 +2172,8 @@ export async function apply(ctx) {
   const polishRecords = createPolishRecords({ data: pluginData, turns: pluginTurns })
   // Dialogue speakers and emotions, annotated by settlement (docs/design/cast-presentation.md).
   const castPresentation = createCastPresentation({
-    // On for every game with the global switch, and for games of a card whose stage is on (the stage reads the annotations).
-    enabled: async gameId => (await readTavernSettings()).castPresentation === true || (gameId ? await cardStageOn(str(gameId)) : false),
+    // On for every game with 对话气泡; 舞台模式 needs it too, so the stage always has its annotations.
+    enabled: async () => (await readTavernSettings()).castPresentation === true,
     turns: pluginTurns,
     data: pluginData,
     publish: (sessionId, annotation) => {
@@ -2196,7 +2196,7 @@ export async function apply(ctx) {
     if (!operation || !chat.foregroundFrames?.[operation.id]) return null
     return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId, revision: chat.timeline.revision }
   }
-  const stageDirector = createStageDirector({ enabled: cardStageOn, turns: pluginTurns, data: pluginData, catalog: stageCatalog,
+  const stageDirector = createStageDirector({ enabled: stageOn, turns: pluginTurns, data: pluginData, catalog: stageCatalog,
     readContext: async body => {
       const chat = await chatHeaderForSession(body.sessionId, ['timeline', 'foregroundFrames'])
       const frame = body.operationId ? chat?.foregroundFrames?.[body.operationId] : Object.values(chat?.foregroundFrames || {}).filter(item => item.turn === body.turn && item.branchId === chat?.timeline?.branchId).at(-1)
@@ -2243,9 +2243,12 @@ export async function apply(ctx) {
     }
     return own
   }
-  async function cardStageOn(sessionId) {
-    const card = await castCardOf(sessionId).catch(() => null)
-    return Boolean(card && (await castAssets.read(card.path)).stage === true)
+  // 舞台模式 is global (舞台设置 › 基础设置, stageToggles.stage) and needs 对话气泡; a card does not switch it.
+  function stageSwitchedOn(settings) {
+    return settings.castPresentation === true && settings.stageToggles.stage === true
+  }
+  async function stageOn(sessionId) {
+    return stageSwitchedOn(await readTavernSettings()) && Boolean(await castCardOf(sessionId).catch(() => null))
   }
   async function castCardOf(sessionId) {
     const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'cardName', 'mode', 'macroState'])
@@ -2269,7 +2272,6 @@ export async function apply(ctx) {
           pages: stagePages(material.text, annotated.turns[turn] || []), performances: directed?.performances || [] })
       }
     }
-    const manifest = await castAssets.read(card.path)
     const assets = await stageCatalog(str(sessionId))
     const preview = await stageDirectorStream.preview(str(sessionId))
     if (preview) {
@@ -2279,8 +2281,7 @@ export async function apply(ctx) {
       else turns[index] = row
     }
     const stage = preview?.state || await stageDirector.state(str(sessionId), turns.at(-1)?.turn)
-    // The stage is the card's choice: off for ordinary cards, on when the player or the card turned it on.
-    return { enabled: manifest.stage === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
+    return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: assets.background.find(item => item.name === stage.background)?.url || '',
       music: assets.music.find(item => item.name === stage.music) || null,
       cast: assets.cast, turns, stage }
