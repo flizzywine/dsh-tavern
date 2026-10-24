@@ -6,7 +6,7 @@ import test from 'node:test'
 import { crc32, deflateSync } from 'node:zlib'
 import { createAssetPackService } from '../tavern-plugin/lib/asset-library/pack-v2/service.js'
 import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
-import { createStageMaterial, STAGE_MEDIA_SCOPE, STAGE_READ_SCOPE } from '../tavern-plugin/lib/domain/stage-material.js'
+import { createStageMaterial, STAGE_MEDIA_SCOPE, STAGE_READ_SCOPE, STAGE_LEASE_ORIGIN } from '../tavern-plugin/lib/domain/stage-material.js'
 import { stageSkinChoice, stageSkinPackIds } from '../tavern-plugin/lib/domain/stage-skin-choice.js'
 import { inspectCardExtensions } from '../tavern-plugin/lib/domain/card-extension-reading.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
@@ -64,7 +64,7 @@ async function fixture(t) {
   return { rpc, library, castAssets, stageMaterial, install, stageSkinOf, cardFiles, settings: () => settings }
 }
 
-test('a skin folder becomes one 舞台皮肤 entry: its document and declared files in one sealed bundle', async t => {
+test('a skin folder becomes one 舞台皮肤 entry: its document and declared files in one sealed bundle, served under one lease', async t => {
   const f = await fixture(t)
   const { pack: created } = await f.rpc.createAssetPack({ name: '皮肤包' })
   const { pack, id } = await f.install(created.manifest.id, skin('paper'), { 'art/box.png': png(240, 230, 220), 'notes.txt': Buffer.from('ignored') })
@@ -74,6 +74,14 @@ test('a skin folder becomes one 舞台皮肤 entry: its document and declared fi
   assert.equal(pack.manifest.bundles['skin-paper'].kind, 'skin')
   assert.deepEqual(pack.manifest.files.map(file => file.path).sort(), ['bundles/skin-paper/art/box.png', 'bundles/skin-paper/skin.json'])
   assert.equal(pack.skins.paper.label, '测试皮肤 paper')
+  // The page reads every file of the skin under one lease; its own paths resolve against the base.
+  const base = await f.stageMaterial.skinBase(pack.manifest.id, 'skin-paper', pack.manifest.bundles['skin-paper'].contentHash)
+  assert.match(base, /\/lease\/[^/]+\/$/)
+  const ticket = base.split('/').at(-2)
+  const response = await f.library.respondLease({ ticket, resource: 'art/box.png', request: new Request(STAGE_LEASE_ORIGIN + base + 'art/box.png') })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'image/png')
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), png(240, 230, 220))
   // A skin has no lamp: it is never part of the director's material.
   assert.deepEqual(await f.stageMaterial.catalog('cards/none.json', 'x').then(rows => [...rows.background, ...rows.music]), [])
 })

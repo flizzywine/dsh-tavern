@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { channel } from 'node:diagnostics_channel'
 import { resolveAssetSnapshot } from '../shared/asset-pack-refs.js'
 import { validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
-import { check, validateUuid, validateHash, validateAssetRef, canonicalJson } from '../asset-packs/common.js'
+import { check, validateUuid, validateHash, validateShortId, validateAssetRef, canonicalJson } from '../asset-packs/common.js'
+import { BLOB_MIME_TYPES } from '../asset-packs/manifest.js'
 import { trimAuthoringImages } from './image-closure.js'
 import { isMetadataEdit } from './metadata-edit.js'
 import { decodeMedia } from './media.js'
@@ -24,6 +25,8 @@ const storedDocument = bytes => {
 const keys = pack => new Set(pack.manifest.assets.map(a => 'asset/' + a.kind + '/' + a.id))
 // `skins`: each skin entry's dsh.skin/1 document by id, read from its bundle (checked when it was written).
 const snapshot = pack => pack && copy({manifest:pack.manifest, ...(pack.skins && Object.keys(pack.skins).length ? {skins:pack.skins} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt})
+// What a skin bundle's lease serves: its images, faces and sounds by extension (the document is the lease entry).
+const BUNDLE_TYPES = Object.freeze({...BLOB_MIME_TYPES, json:'application/json', svg:'image/svg+xml', woff2:'font/woff2'})
 function cas(current, expectedRevision, proposed) {
   const revision = current?.local?.revision ?? null
   if (expectedRevision === undefined || expectedRevision !== revision) throw Object.assign(new Error('Pack revision changed'), {code:'REVISION_CONFLICT', revision, diff:packDiff(proposed, current?.manifest)})
@@ -146,8 +149,8 @@ export function createAssetPackService(options) {
   const leaseAccess = (entry, name, action) => readRun([entry.packId], async () => {
     const pack = await metadata(entry.packId)
     check(pack, '$.packId', 'Leased pack removed', 'ASSET_UNAVAILABLE')
-    // Inert bytes follow content identity; a label or lamp publication must not break playing media.
-    check(!!pack.manifest.blobs[entry.hash], '$.revision', 'Lease content changed', 'REVISION_CONFLICT')
+    // Inert bytes follow content identity; a label or lamp publication must not break playing media or a drawn skin.
+    check(entry.kind === 'bundle' ? pack.manifest.bundles[entry.bundleKey]?.contentHash === entry.hash : !!pack.manifest.blobs[entry.hash], '$.revision', 'Lease content changed', 'REVISION_CONFLICT')
     const file = pack.manifest.files.find(file => file.path === name)
     check(file, name, 'Lease resource outside manifest', 'ASSET_UNAVAILABLE')
     const result = await action(file)
@@ -260,6 +263,18 @@ export function createAssetPackService(options) {
         const pack = await metadata(input.packId), descriptor = pack?.manifest.blobs[input.hash]
         check(descriptor, '$.hash', 'Blob missing', 'ASSET_UNAVAILABLE')
         return leases.issue({...input, revision:pack.local.revision, resources:[{name:'media', path:`media/${input.hash}.${descriptor.ext}`, mime:descriptor.mime, hash:input.hash}], entry:'media', kind:'media'})
+      })
+    },
+    // A skin's files under one lease: its document is the entry, every declared file a resource at the same relative path,
+    // so `url` minus the document's name is the base its own paths resolve against.
+    leaseBundle(input) {
+      validateUuid(input.packId); validateShortId(input.bundleKey)
+      return readRun([input.packId], async () => {
+        const pack = await metadata(input.packId), bundle = pack?.manifest.bundles[input.bundleKey]
+        check(bundle?.kind === 'skin', '$.bundleKey', 'Bundle missing', 'ASSET_UNAVAILABLE')
+        const prefix = `bundles/${input.bundleKey}/`, type = file => BUNDLE_TYPES[file.split('.').at(-1).toLowerCase()]
+        const resources = pack.manifest.files.filter(file => file.path.startsWith(prefix) && type(file.path)).map(file => ({name:file.path.slice(prefix.length), path:file.path, mime:type(file.path), hash:file.sha256}))
+        return leases.issue({...input, revision:pack.local.revision, hash:bundle.contentHash, resources, entry:bundle.entry, kind:'bundle'})
       })
     },
     respondLease:(input) => leases.response(input),

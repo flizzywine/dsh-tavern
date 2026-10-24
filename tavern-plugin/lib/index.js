@@ -2306,10 +2306,11 @@ export async function apply(ctx) {
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
       musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage,
-      skin: await stageSkinOf(card.path).then(skin => skin.document).catch(() => null) }
+      skin: await stageSkinOf(card.path).then(skin => ({ document: skin.document, base: skin.base })).catch(() => null) }
   }
-  // The skin a card's stage is drawn in (stage-skin-choice.js): { skin, fallback, document, choice, cardDefault }. The card's
-  // own default comes from its file, the rest from cast.json, its packs and the tavern settings.
+  // The skin a card's stage is drawn in (stage-skin-choice.js): { skin, fallback, document, base }, base being the URL
+  // its own files resolve against ('' for a built-in). The card's own default comes from its file, the rest from cast.json,
+  // its packs and the tavern settings.
   async function stageSkinOf(cardPath) {
     const settings = await readTavernSettings(), cast = await castAssets.read(cardPath)
     const boundPackIds = Array.isArray(cast.boundPackIds) ? cast.boundPackIds : []
@@ -2317,7 +2318,14 @@ export async function apply(ctx) {
     const workspace = await readCardWorkspace(cardPath).catch(() => undefined)
     const cardDefault = workspace === undefined ? null : cardPreparation.present({ card: workspace, as: 'card-extensions' }).defaultSkin
     const chosen = stageSkinChoice({ choice: cast.skinChoice ?? null, cardDefault, boundPackIds, global: settings.stageSkin, packs })
-    return { ...chosen, choice: cast.skinChoice ?? null, cardDefault }
+    let base = ''
+    if (typeof chosen.skin === 'object') {
+      const pack = packs.find(item => item?.manifest.id === chosen.skin.packId), asset = pack.manifest.assets.find(item => item.kind === 'skins' && item.id === chosen.skin.assetId)
+      // A failed lease draws the document without its art; the stage's next read asks again (it never drops the skin).
+      base = await stageMaterial.skinBase(pack.manifest.id, asset.bundleKey, pack.manifest.bundles[asset.bundleKey].contentHash).catch(() => '')
+      if (base && asset.entry.includes('/')) base += asset.entry.replace(/[^/]*$/, '')
+    }
+    return { ...chosen, choice: cast.skinChoice ?? null, cardDefault, base }
   }
   async function stageMusic(item) {
     return item ? await stageMaterial.track(item) : null

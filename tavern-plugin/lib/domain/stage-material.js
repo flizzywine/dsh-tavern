@@ -129,9 +129,9 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     if (event.revision !== null) return
     for (const key of leases.keys()) if (key.startsWith(event.packId + '\u0000')) leases.delete(key)
   })
-  async function mediaUrl(row) {
+  async function mediaUrl(row, bundleKey, leaseBundle) {
     if (!row) return ''
-    const key = row.ref.packId + '\u0000' + row.media
+    const key = bundleKey || row.ref.packId + '\u0000' + row.media
     const cached = leases.get(key)
     if (cached) {
       const lease = await cached.catch(() => null)
@@ -140,7 +140,7 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
       if (leases.get(key) === cached) leases.delete(key)
     }
     const issuedAt = now()
-    const pending = library.leaseMedia({ packId: row.ref.packId, hash: row.media, origin: STAGE_LEASE_ORIGIN, scope: STAGE_MEDIA_SCOPE }).then(lease => ({ ...lease, issuedAt }))
+    const pending = (leaseBundle ? leaseBundle() : library.leaseMedia({ packId: row.ref.packId, hash: row.media, origin: STAGE_LEASE_ORIGIN, scope: STAGE_MEDIA_SCOPE })).then(lease => ({ ...lease, issuedAt }))
     leases.set(key, pending)
     pending.catch(() => { if (leases.get(key) === pending) leases.delete(key) })
     while (leases.size > 256) {
@@ -283,6 +283,12 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { stageSkin: id === null ? undefined : id } })
     return { pack: snapshot }
   }
+  // A skin's files for the page: one reused lease per bundle content; `base` + a path in the skin is that file's URL.
+  async function skinBase(packId, bundleKey, contentHash) {
+    const key = packId + '\u0000bundle\u0000' + bundleKey + '\u0000' + contentHash
+    const url = await mediaUrl({ ref: { packId }, media: contentHash }, key, () => library.leaseBundle({ packId, bundleKey, origin: STAGE_LEASE_ORIGIN, scope: STAGE_MEDIA_SCOPE }))
+    return url ? url.replace(/[^/]*$/, '') : ''
+  }
   async function removeEntry(packId, expectedRevision, kind, id) {
     if (kind === 'skins') {
       // A skin goes with its bundle; a pack default or card choice naming it simply stops applying (stage-skin-choice.js).
@@ -307,6 +313,7 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     removeEntry,
     addSkin,
     setPackSkin,
+    skinBase,
     // A pack's picture or audio for the editor's previews: the same reused lease the stage plays.
     previewUrl: (packId, hash) => mediaUrl({ ref: { packId }, media: hash }),
     ready,

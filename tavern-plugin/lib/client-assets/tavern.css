@@ -3129,6 +3129,114 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-input button:disabled { opacity: .5; cursor: default; }
 @keyframes dsh-tavern-stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-figure, .dsh-tavern-stage-figure-body, .dsh-tavern-stage-figure img, .dsh-tavern-stage-text { animation: none !important; transition: none !important; } }
+.dsh-tavern-stage-name b { font-weight: inherit; }
+.dsh-tavern-stage-next, .dsh-tavern-stage-lamp { display: none; }
+/* ==== stage skin: art ====
+   A skin's own images as the text box, its name plate, the page cue and the auto lamp (stageSkinArt in stage-skin.js writes the
+   marks and --art-* tokens, numbers in px of the skin's design screen). One art px is --art-u: the stage's height over the
+   design screen's height, bounded by its width over the design width and by the box image taking at most --art-fit (96%) of
+   the width. The box (.dsh-tavern-stage-textbox) is the image's body rect, centred; the image is its ::before, offset by
+   the body's place in it. The controls row and the input stand above the image. */
+.dsh-tavern-stage-overlay[data-fk-skin-art] { --art-u: min(calc(100vh / var(--art-screen)), calc(100vw / var(--art-screen-w)), calc(var(--art-fit, .96) * 100vw / var(--art-img-w))); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox {
+  --art-fs: calc(var(--art-font) * var(--art-u)); --art-lh: var(--gal-skin-line-height);
+  --art-shift: calc((var(--art-text-y) * 2 - var(--art-body-y) * 2 - var(--art-body-h)) * var(--art-u));
+  isolation: isolate; justify-content: center; gap: 0; width: calc(var(--art-body-w) * var(--art-u)); height: calc(var(--art-body-h) * var(--art-u));
+  bottom: calc((var(--art-bottom) + var(--art-img-h) - var(--art-body-y) - var(--art-body-h)) * var(--art-u));
+  padding: max(0px, var(--art-shift)) calc((var(--art-body-x) + var(--art-body-w) - var(--art-text-r)) * var(--art-u)) max(0px, calc(var(--art-shift) * -1)) calc((var(--art-text-l) - var(--art-body-x)) * var(--art-u));
+  background: none; border: 0; border-radius: 0; box-shadow: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none; left: calc(var(--art-body-x) * var(--art-u) * -1); top: calc(var(--art-body-y) * var(--art-u) * -1);
+  width: calc(var(--art-img-w) * var(--art-u)); height: calc(var(--art-img-h) * var(--art-u)); background: var(--art-plain) 0 0 / 100% 100% no-repeat; will-change: transform; }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox.is-narration::before { background-image: var(--art-narration, var(--art-plain)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-text { flex: none; font-size: var(--art-fs); line-height: var(--art-lh); max-height: calc(var(--art-fs) * var(--art-lh) * var(--art-lines)); }
+/* art.textbox.pitch: the line pitch; align top: the first line starts at text[2] */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-pitch] .dsh-tavern-stage-textbox { --art-lh: calc(var(--art-pitch) / var(--art-font)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-align="top"] .dsh-tavern-stage-textbox { justify-content: flex-start; padding-top: calc((var(--art-text-y) - var(--art-body-y)) * var(--art-u)); padding-bottom: 0; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-stroke] .dsh-tavern-stage-text { -webkit-text-stroke: calc(var(--art-text-stroke-w) * 2 * var(--art-u)) var(--art-text-stroke); paint-order: stroke fill; }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls {
+  position: absolute; margin: 0; right: calc((var(--art-img-w) - var(--art-body-x) - var(--art-body-w)) * var(--art-u) * -1); bottom: calc(100% + var(--art-body-y) * var(--art-u) + 6px);
+  padding: 4px 6px; border-radius: var(--gal-ui-radius); background: color-mix(in srgb, var(--gal-skin-bg) 88%, transparent); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-input { bottom: calc((var(--art-bottom) + var(--art-img-h)) * var(--art-u) + 52px); }
+/* the name on the box: the layout's plate at x / y, outlined --art-np-stroke px */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name {
+  position: absolute; box-sizing: border-box; align-items: center; margin: 0; max-width: none; left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-np-y) - var(--art-body-y)) * var(--art-u));
+  height: calc(var(--art-np-h) * var(--art-u)); min-width: calc(var(--art-np-w) * var(--art-u)); font-size: calc(var(--art-np-font) * var(--art-u)); font-weight: var(--art-np-weight); letter-spacing: var(--art-np-spacing, normal);
+  -webkit-text-stroke: calc(var(--art-np-stroke) * 2 * var(--art-u)) var(--gal-skin-border); paint-order: stroke fill; white-space: nowrap; }
+/* a plate from the skin's own image: its natural size, the name `text` px in; center: the name centred on that x */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"] .dsh-tavern-stage-name {
+  width: calc(var(--art-np-w) * var(--art-u)); padding: 0 0 0 calc(var(--art-np-text) * var(--art-u)); overflow: hidden; rotate: none; border: 0; border-radius: 0;
+  background: var(--art-np-img) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"] .dsh-tavern-stage-name b { min-width: 0; overflow: clip visible; text-overflow: ellipsis; padding-inline: .12em; margin-inline: -.12em; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-center] .dsh-tavern-stage-name {
+  justify-content: center; padding-left: calc((var(--art-np-text) + max(0, 2 * var(--art-np-center) - var(--art-np-w))) * var(--art-u)); padding-right: calc((var(--art-np-text) + max(0, var(--art-np-w) - 2 * var(--art-np-center))) * var(--art-u)); }
+/* nameplate.slice: the image plate 9-sliced (--art-np-sl in image px, widths in design px), growing along the name up to
+   grow design px between its pads */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-slice] .dsh-tavern-stage-name {
+  justify-content: center; width: auto; min-width: calc(var(--art-np-w) * var(--art-u)); padding: 0 calc(var(--art-np-pad-b) * var(--art-u)) 0 calc(var(--art-np-pad-a) * var(--art-u)); background: none;
+  border: 0 solid transparent; border-image: var(--art-np-img) var(--art-np-sl) fill / calc(var(--art-np-sl-t) * var(--art-u)) calc(var(--art-np-sl-r) * var(--art-u)) calc(var(--art-np-sl-b) * var(--art-u)) calc(var(--art-np-sl-l) * var(--art-u)) / 0 stretch; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-slice] .dsh-tavern-stage-name b { max-width: calc((var(--art-np-w) + var(--art-np-grow) - var(--art-np-pad-a) - var(--art-np-pad-b)) * var(--art-u)); }
+/* nameplate.fill: the name in a two-band ink under its outline (an outline copy behind it, dropped by shadow) */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-fill][data-fk-skin-art-name] .dsh-tavern-stage-name { -webkit-text-stroke: 0; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-fill][data-fk-skin-art-name] .dsh-tavern-stage-name b {
+  position: relative; overflow: visible; padding-inline: 0; margin-inline: 0; color: transparent; -webkit-text-fill-color: transparent;
+  background: linear-gradient(180deg, var(--art-np-fill-a) 50%, var(--art-np-fill-b) 50%); -webkit-background-clip: text; background-clip: text; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-fill][data-fk-skin-art-name] .dsh-tavern-stage-name b::before {
+  content: attr(data-text); position: absolute; inset: 0; z-index: -1; pointer-events: none; white-space: nowrap; color: var(--gal-skin-border); -webkit-text-fill-color: var(--gal-skin-border);
+  -webkit-text-stroke: calc(var(--art-np-stroke) * 2 * var(--art-u)) var(--gal-skin-border); filter: drop-shadow(calc(var(--art-np-sx, 0) * var(--art-u)) calc(var(--art-np-sy, 0) * var(--art-u)) 0 var(--gal-skin-border)); }
+/* the page cue: centred on cue[0], resting on cue[1], cue[2] tall; the skin's image there (frames: one cell of its sheet),
+   or the engine's mark in the box ink; none when the original has none. It bobs --art-rise px (dip: down, blink). */
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-next {
+  --art-cue: calc(var(--art-cue-h) * var(--art-u)); display: block; position: absolute; pointer-events: none; width: var(--art-cue); height: var(--art-cue);
+  left: calc((var(--art-cue-x) - var(--art-body-x)) * var(--art-u) - var(--art-cue) / 2); bottom: calc((var(--art-body-y) + var(--art-body-h) - var(--art-cue-y)) * var(--art-u));
+  background: linear-gradient(to bottom right, var(--gal-skin-fg) 50%, transparent 50%) center / 50% 50% no-repeat; rotate: 45deg; }
+.dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-cue="none"], [data-fk-skin-art-cue="inline"], [data-fk-skin-art-cue="inline-image"]) .dsh-tavern-stage-next { display: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="image"] .dsh-tavern-stage-next {
+  width: calc(var(--art-next-w) * var(--art-u)); height: calc(var(--art-next-h) * var(--art-u)); left: calc((var(--art-cue-x) - var(--art-body-x) - var(--art-next-w) / 2) * var(--art-u));
+  background: var(--art-next) 0 0 / 100% 100% no-repeat; rotate: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue-frames] .dsh-tavern-stage-next { background-size: var(--art-next-sheet); background-position: var(--art-next-rest); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp-swap][data-stage-auto] .dsh-tavern-stage-next { visibility: hidden; }
+/* the lamp: the original's AUTO image at lamp x / y while auto paging runs */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-stage-auto] .dsh-tavern-stage-lamp {
+  display: block; position: absolute; pointer-events: none; left: calc((var(--art-lamp-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-lamp-y) - var(--art-body-y)) * var(--art-u));
+  width: calc(var(--art-lamp-w) * var(--art-u)); height: calc(var(--art-lamp-h) * var(--art-u)); background: var(--art-lamp) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art]:not([data-fk-skin-art-lamp]) .dsh-tavern-stage-lamp { display: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp="frames"] .dsh-tavern-stage-lamp { background-size: var(--art-lamp-sheet); background-position: var(--art-lamp-rest); }
+@media (prefers-reduced-motion: no-preference) {
+  .dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-cue="image"], [data-fk-skin-art-cue="glyph"]):not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-bob .933s .18s infinite; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-bob="dip"]:not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-dip .917s .18s infinite; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-bob="blink"]:not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-blink .5s .18s infinite step-end; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp="blink"] .dsh-tavern-stage-lamp { animation: dsh-art-lamp-blink var(--art-lamp-t) step-end infinite; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp="spin"] .dsh-tavern-stage-lamp { animation: dsh-art-lamp-spin var(--art-lamp-t) cubic-bezier(.3333, 0, .6667, 1) infinite; }
+}
+@keyframes dsh-art-cue-bob {
+  0%, 10.7% { transform: translateY(0); animation-timing-function: cubic-bezier(.35, 0, .75, 1); }
+  85.7% { transform: translateY(calc(var(--art-rise) * var(--art-u) * -1)); animation-timing-function: cubic-bezier(.25, .6, .45, 1); }
+  100% { transform: translateY(0); } }
+@keyframes dsh-art-cue-dip {
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
+  21.8% { transform: translateY(calc(var(--art-rise) * var(--art-u))); animation-timing-function: cubic-bezier(.3333, 0, .6667, 1); }
+  41.8%, 100% { transform: translateY(0); } }
+@keyframes dsh-art-cue-blink { 50% { visibility: hidden; } }
+@keyframes dsh-art-lamp-blink { 0% { visibility: visible; } 51.6% { visibility: hidden; } }
+@keyframes dsh-art-lamp-spin { from { rotate: 0deg; } to { rotate: -360deg; } }
+/* art on phones: the image box keeps fitting the width, but its words keep the phone reading size (body 17px, name 14px).
+   The box grows to the lines it needs and its image is 9-sliced to that height (--art-sl: art.textbox.slice, by default
+   everything outside the text block) - frame, corners and ornaments as drawn, only the middle stretches. */
+@media (max-width: 640px) {
+  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox {
+    --art-fs: max(17px, calc(var(--art-font) * var(--art-u))); --art-lh: var(--gal-skin-line-height);
+    --art-pad-t: max(8px, calc((var(--art-sl-t) - var(--art-body-y)) * var(--art-u))); --art-pad-b: max(8px, calc((var(--art-sl-b) - var(--art-img-h) + var(--art-body-y) + var(--art-body-h)) * var(--art-u)));
+    justify-content: flex-start; height: auto; min-height: calc(var(--art-body-h) * var(--art-u)); padding-top: var(--art-pad-t); padding-bottom: var(--art-pad-b);
+    padding-left: max(.6em, calc((var(--art-sl-l) - var(--art-body-x)) * var(--art-u))); padding-right: max(.6em, calc((var(--art-sl-r) - var(--art-img-w) + var(--art-body-x) + var(--art-body-w)) * var(--art-u))); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox::before {
+    height: calc(100% + (var(--art-img-h) - var(--art-body-h)) * var(--art-u)); background: none; border: 0 solid transparent;
+    border-image: var(--art-plain) var(--art-sl) fill / calc(var(--art-sl-t) * var(--art-u)) calc(var(--art-sl-r) * var(--art-u)) calc(var(--art-sl-b) * var(--art-u)) calc(var(--art-sl-l) * var(--art-u)) / 0 stretch; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox.is-narration::before { border-image-source: var(--art-narration, var(--art-plain)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name { font-size: max(14px, calc(var(--art-np-font) * var(--art-u))); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-text { margin-top: max(0px, calc((var(--art-np-y) + var(--art-np-h) - var(--art-sl-t)) * var(--art-u))); }
+}
+/* ==== end stage skin: art ==== */
 /* BGM 播放器：一个面板两处摆放。组件只读 --bgm-*，舞台映射到全屏舞台的暗色，聊天映射到宿主主题；面板底色不透明。 */
 .dsh-tavern-bgm-panel { --bgm-surface: #1b1e26; --bgm-text: #f4f1ea; --bgm-muted: rgba(244,241,234,.66); --bgm-line: rgba(255,255,255,.14); --bgm-hover: rgba(255,255,255,.08); --bgm-accent: var(--dsh-tavern-accent, #c96442); --bgm-on-accent: #fff; }
 .dsh-tavern-bgm-panel.is-chat { --bgm-surface: var(--dsw-alias-bg-base, #fff); --bgm-text: var(--dsw-alias-label-primary); --bgm-muted: var(--dsw-alias-label-secondary); --bgm-line: var(--dsw-alias-border-l2); --bgm-hover: var(--dsh-tavern-accent-soft); }

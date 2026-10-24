@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { BUILTIN_STAGE_SKINS, skinContrast, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
 
 const interpreter = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/features/stage-skin.js', import.meta.url), 'utf8')
-  + '; ({ stageSkinTokens, stageSkinQuickMenu, stageSkinPanelTokens, stageSkinRoot })', { skinContrast })
+  + '; ({ stageSkinTokens, stageSkinQuickMenu, stageSkinPanelTokens, stageSkinRoot, stageSkinArt, stageSkinArtImages })', { skinContrast, stageSkinImageOf, stageSkinSliceEdges })
 const schema = JSON.parse(readFileSync(new URL('../tavern-plugin/lib/domain/stage-skin.schema.json', import.meta.url), 'utf8'))
 const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const classic = BUILTIN_STAGE_SKINS.classic
@@ -141,4 +141,47 @@ test('the JSON Schema mirror describes the same document: same fields, the gener
     skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) })]
   for (const document of documents) { validateStageSkin(document); assert.ok(schemaAccepts(document), document.id) }
   for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) })]) assert.equal(schemaAccepts(document), false)
+})
+test('the art layer draws the skin\'s box, plate, cue and lamp from its decoded images, or not at all', () => {
+  const document = skin({ art: art({ textbox: { ...art().textbox, images: { plain: 'art/box.png', narration: 'art/narration.png' }, cue: [1700, 230, 40], rise: 6,
+    next: { image: 'art/next.png', frames: { columns: 4, rows: 2, count: 6, fps: 12 } }, lamp: { image: 'art/lamp.png', x: 1600, y: 20, frames: { columns: 2, rows: 1, fps: 4, loop: false } } },
+    nameplate: { x: 60, y: -40, h: 60, font: 30, image: 'art/plate.png', slice: [10, 20, 10, 20], grow: 300 } }) })
+  validateStageSkin(document)
+  assert.deepEqual([...interpreter.stageSkinArtImages(document)].sort(), ['art/box.png', 'art/lamp.png', 'art/narration.png', 'art/next.png', 'art/plate.png'])
+  const files = { 'art/box.png': { url: '/lease/t/art/box.png', width: 1800, height: 300 }, 'art/narration.png': { url: '/lease/t/art/narration.png', width: 1800, height: 300 },
+    'art/next.png': { url: '/lease/t/art/next.png', width: 160, height: 80 }, 'art/lamp.png': { url: '/lease/t/art/lamp.png', width: 100, height: 40 }, 'art/plate.png': { url: '/lease/t/art/plate.png', width: 240, height: 60 } }
+  const drawn = interpreter.stageSkinArt(document, files)
+  assert.equal(drawn.marks['data-fk-skin-art'], 'box')
+  assert.equal(drawn.tokens['--art-plain'], 'url("/lease/t/art/box.png")')
+  assert.equal(drawn.tokens['--art-narration'], 'url("/lease/t/art/narration.png")')
+  assert.equal(drawn.tokens['--art-screen-w'], '1920')
+  // The default phone slice keeps everything outside the three-line block centred on text[2] as drawn.
+  assert.equal(drawn.tokens['--art-sl'], '34 80 74 80')
+  // next.frames: one cell of the sheet, played through its cells and resting on the first; lamp played once rests on its last.
+  assert.equal(drawn.marks['data-fk-skin-art-cue'], 'image')
+  assert.deepEqual([drawn.tokens['--art-next-w'], drawn.tokens['--art-next-h'], drawn.tokens['--art-next-sheet'], drawn.tokens['--art-next-rest']], ['40', '40', '400% 200%', '0% 0%'])
+  assert.equal(drawn.frames.next.keys.length, 7)
+  assert.equal(drawn.frames.next.keys[5].backgroundPosition, '33.333333333333336% 100%')
+  assert.equal(drawn.frames.next.ms, 500)
+  assert.equal(drawn.marks['data-fk-skin-art-lamp'], 'frames')
+  assert.equal(drawn.tokens['--art-lamp-rest'], '100% 0%')
+  assert.equal(drawn.frames.lamp.loop, false)
+  // The plate image grows along the name, 9-sliced, between pads that default to its own side slices.
+  assert.equal(drawn.marks['data-fk-skin-art-name'], 'image')
+  assert.deepEqual([drawn.tokens['--art-np-sl'], drawn.tokens['--art-np-grow'], drawn.tokens['--art-np-pad-a'], drawn.tokens['--art-np-pad-b']], ['10 20 10 20', '300', '20', '20'])
+  // One missing image drops the whole art layer; a skin without a box art draws none.
+  const { 'art/plate.png': _plate, ...partial } = files
+  assert.equal(interpreter.stageSkinArt(document, partial), null)
+  assert.equal(interpreter.stageSkinArt(document, null), null)
+  assert.equal(interpreter.stageSkinArt(minimal, files), null)
+  assert.deepEqual([...interpreter.stageSkinArtImages(minimal)], [])
+})
+
+test('the stylesheet draws the art layer only from its tokens, and phones keep the reading size over a 9-sliced box', () => {
+  const block = css.slice(css.indexOf('/* ==== stage skin: art ===='), css.indexOf('/* ==== end stage skin: art ==== */'))
+  assert.ok(block.length > 0)
+  assert.doesNotMatch(block, /url\(/, 'images come from the skin tokens')
+  assert.match(block, /border-image: var\(--art-plain\) var\(--art-sl\) fill/)
+  assert.match(block, /--art-fs: max\(17px,/)
+  assert.match(block, /prefers-reduced-motion: no-preference/)
 })

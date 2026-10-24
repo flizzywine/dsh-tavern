@@ -63,6 +63,9 @@ function TavernStageScene(props) {
 	const data = props.data, beats = props.beats, index = props.index;
 	const beat = beats[index] || null;
 	const scene = props.scene;
+	// The skin's art layer draws the page cue and the auto lamp on its box image (stage-skin.js stageSkinArt).
+	const art = props.art ? [index < beats.length - 1 ? h("span", { key: "next", className: "dsh-tavern-stage-next", "aria-hidden": true }) : null,
+		h("span", { key: "lamp", className: "dsh-tavern-stage-lamp", "aria-hidden": true })] : null;
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -71,11 +74,11 @@ function TavernStageScene(props) {
 			const speaking = beat && (speaker ? speaker.name : beat.speaker) === name;
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
-		beat ? h("div", { className: "dsh-tavern-stage-textbox" },
-			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, beat.speaker,
+		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") },
+			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text),
-			props.footer || null)
+			art, props.footer || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文"));
 }
 
@@ -120,6 +123,20 @@ function playTavernStagePerformance(root, event, id) {
 	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
 }
 
+// The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
+// reduced motion keeps the rest cell the stylesheet draws. The cue restarts on each page, the lamp when auto paging starts.
+function useTavernStageArtFrames(sceneRef, art, index, auto) {
+	React.useEffect(() => {
+		const root = sceneRef.current;
+		if (!root || !art || !Object.keys(art.frames).length || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+		const played = Object.entries(art.frames).map(([slot, sheet]) => {
+			const node = root.querySelector(".dsh-tavern-stage-" + slot);
+			return node && (slot !== "lamp" || auto) ? node.animate(sheet.keys, { duration: sheet.ms, iterations: sheet.loop ? Infinity : 1, easing: "step-end", fill: "forwards" }) : null;
+		});
+		return () => played.forEach(animation => animation && animation.cancel());
+	}, [art, index, auto]);
+}
+
 // The stage reads each line aloud while 配音 is on (舞台设置 › 基础设置); there is no second switch.
 function useTavernStageReading() {
 	const speech = useTavernSpeechSettings();
@@ -138,8 +155,11 @@ function TavernStageScreen(props) {
 	const reading = useTavernStageReading(), choice = useTavernStageView(id);
 	// The stage is drawn in a skin, a data document read by the one generic interpreter (stage-skin.js): the one this card
 	// resolves to (stage-skin-choice.js, castStage `skin`); 经典 until it arrives.
-	const skinDocument = data && data.skin || BUILTIN_STAGE_SKINS.classic;
+	// A pack skin's art layer draws from its bundle (castStage `skin.base`) once its images have loaded.
+	const skinDocument = data && data.skin && data.skin.document || BUILTIN_STAGE_SKINS.classic;
 	const skin = React.useMemo(() => stageSkinRoot(skinDocument), [JSON.stringify(skinDocument)]);
+	const artFiles = useStageSkinArtFiles(data && data.skin && data.skin.document ? data.skin : null);
+	const art = React.useMemo(() => stageSkinArt(skinDocument, artFiles), [skinDocument === BUILTIN_STAGE_SKINS.classic ? "" : JSON.stringify(skinDocument), artFiles]);
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
@@ -152,6 +172,7 @@ function TavernStageScreen(props) {
 		release: () => tavernMusic.stop()
 	}), [id]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
+	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
 	const beats = React.useMemo(() => latest ? latest.pages.map(page => ({ turn: latest.turn, ...page })) : [], [latest]);
 	const atEnd = reader.index >= beats.length - 1, step = delta => tavernStageRuntime.page(id, index => index + delta);
@@ -187,8 +208,9 @@ function TavernStageScreen(props) {
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
-	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin },
-		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer }),
+	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
+		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined },
+		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art }),
 		atEnd ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send },
 			h("input", { value: draft, onChange: event => setDraft(event.target.value), placeholder: generating ? "正在生成下一轮…" : "接下来做什么？", "aria-label": "舞台输入", disabled: sending }),
 			h("button", { type: "submit", disabled: sending || !draft.trim() }, sending ? "发送中…" : "发送")) : null);
