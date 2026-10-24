@@ -9,16 +9,16 @@ import { stageDirectorFixture } from './helpers/stage-director-fixture.mjs'
 
 const input = { material: 'Body\n\nThe latest turn.', questions: [{ id: 'a', text: 'Does this asset fit this turn\'s story? [music] Rain; use when: rain' }] }
 function fixture(config = validateJudgeConfig({ provider: 'jev' }), transport) {
-  const calls = [], logs = [], credentials = []
+  const calls = [], logs = [], reads = []
   const service = createEngineJudge({ getConfig: async () => config, log: event => logs.push(event),
-    credentials: () => ({ resolve: async name => { credentials.push(name); return { value: 'fake-secret' } }, describe: async () => ({ configured: true, source: 'env', value: 'never-return-this' }) }),
+    credentials: () => ({ resolve: async name => { reads.push(name); return { value: 'fake-secret' } }, describe: async () => ({ configured: true, source: 'env', value: 'never-return-this' }) }),
     fetch: async (url, options) => {
       calls.push({ url, ...options })
       if (transport) return transport(url, options)
       const body = JSON.parse(options.body)
       return { ok: true, json: async () => ({ answers: Array.isArray(body.questions) ? body.questions.map(q => ({ type: 'predicate', name: q.name, probability: 0.7 })) : Object.fromEntries(Object.keys(body.questions).map(id => [id, { type: 'noul', noul: 0.7 }])), usage: { input_tokens: 100, output_tokens: 0 } }) }
     } })
-  return { service, calls, logs, credentials }
+  return { service, calls, logs, reads }
 }
 
 test('unset and off are zero calls, credential reads and request bytes; the config is strict', async () => {
@@ -26,7 +26,7 @@ test('unset and off are zero calls, credential reads and request bytes; the conf
     const f = fixture(config)
     assert.deepEqual(judgeRequests(config, input), [])
     assert.equal(await f.service.judge(input), null)
-    assert.deepEqual([f.calls, f.credentials, f.logs], [[], [], []])
+    assert.deepEqual([f.calls, f.reads, f.logs], [[], [], []])
   }
   assert.deepEqual(validateJudgeConfig({}), defaultJudgeConfig())
   assert.equal(validateJudgeConfig({ provider: 'jev' }).keyName, 'TYPESAFE_API_KEY')
@@ -44,7 +44,7 @@ test('Jev sends the Noul shape, Decisions the predicate shape; the sent body is 
   assert.deepEqual(await f.service.judge(input), new Map([['a', 0.7]]))
   assert.deepEqual([f.calls[0].url, f.calls[0].body, f.calls[0].redirect], ['https://api.typesafe.ai/v1/systemone', request.body, 'error'])
   assert.equal(Buffer.byteLength(f.calls[0].body), request.bytes)
-  assert.deepEqual(f.credentials, ['DSH_TAVERN_JUDGE_JEV_KEY'], 'a stored key is looked up first')
+  assert.deepEqual(f.reads, ['DSH_TAVERN_JUDGE_JEV_KEY'], 'a stored key is looked up first')
   assert.equal(f.logs[0].costEstimateUSD, 100 * 0.042 / 1e6)
   assert.ok(!JSON.stringify(f.logs).includes('fake-secret'))
   for (const [provider, baseUrl, url] of [['openai', '', 'https://api.openai.com/v1/decisions'], ['openai-compatible', 'http://localhost:9876/v1/', 'http://localhost:9876/v1/decisions']]) {
@@ -89,7 +89,7 @@ test('a draft test cannot send a stored credential to a server the saved config 
   const f = fixture(saved)
   assert.equal((await f.service.test({ ...saved, baseUrl: 'https://foreign.example/v1' })).error.code, 'JUDGE_KEY_URL_MISMATCH')
   assert.equal((await f.service.test({ ...saved, keyName: 'OTHER_KEY' })).error.code, 'JUDGE_KEY_URL_MISMATCH')
-  assert.deepEqual([f.calls, f.credentials], [[], []])
+  assert.deepEqual([f.calls, f.reads], [[], []])
   assert.equal((await f.service.test({ ...saved, model: 'draft-model' })).ok, true)
   assert.equal((await f.service.test(validateJudgeConfig({ provider: 'openai' }))).ok, true)
 })
