@@ -181,7 +181,7 @@ test('a removed pack drops out of the catalog and the next import makes the card
   const [packId] = (await castAssets.read(cardPath)).boundPackIds
   const url = await material.mediaUrl((await material.catalog(cardPath, '乙')).background[0])
   await library.removePack({ packId, expectedRevision: (await library.getPackSnapshot({ packId })).revision })
-  assert.deepEqual(await material.catalog(cardPath, '乙'), { background: [], music: [], sfx: [], items: [] })
+  assert.deepEqual(await material.catalog(cardPath, '乙'), { background: [], music: [], sfx: [], ambience: [], items: [] })
   await assert.rejects(fetchLease(library, url), /removed/)
   await material.importMaterial(cardPath, '乙', [{ kind: 'backgrounds', name: 'hall', ext: 'png', bytes: png(2, 2, 2) }])
   const [next] = (await castAssets.read(cardPath)).boundPackIds
@@ -221,4 +221,24 @@ test('sound effects are sfx entries: added like music, offered when lit with the
   assert.deepEqual([catalog.sfx.map(item => [item.name, item.ref.kind, item.volume]), catalog.music], [[['knock', 'sfx', .4]], []])
   assert.equal((await fetchLease(library, await material.mediaUrl(catalog.sfx[0]))).status, 200)
   assert.deepEqual((await material.exportMaterial(cardPath, '己')).map(item => item.kind), ['backgrounds'])
+})
+
+// 环境音: audio entries of their own kind like 音效, with the entry's 音量; the page plays a lit one as a track (its own identity).
+test('ambience entries: added like music, offered when lit with their volume, played as a track, never written into the card file', async t => {
+  const { library, material, castAssets } = await fixture(t)
+  const cardPath = 'cards/a.json'
+  await material.importMaterial(cardPath, '庚', [{ kind: 'backgrounds', name: 'room', ext: 'png', bytes: png(1, 2, 3) }])
+  const [packId] = (await castAssets.read(cardPath)).boundPackIds
+  const added = await material.addFiles(packId, 'ambience', [{ name: 'rain', bytes: wav() }, { name: 'picture', bytes: png(9, 9, 9) }])
+  assert.deepEqual([added.added.length, added.rejected.map(row => row.name)], [1, ['picture']])
+  const pack = added.pack
+  assert.deepEqual(pack.manifest.assets.filter(asset => asset.kind === 'ambience').map(asset => [asset.name, asset.enabled, asset.recall.mode]), [['rain', true, 'constant']])
+  await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets: pack.manifest.assets.map(asset => asset.kind === 'ambience' ? { ...asset, volume: .3 } : asset) } })
+  const catalog = await material.catalog(cardPath, '庚')
+  assert.deepEqual([catalog.ambience.map(item => [item.name, item.ref.kind, item.volume]), catalog.music, catalog.sfx], [[['rain', 'ambience', .3]], [], []])
+  const track = await material.track(catalog.ambience[0])
+  assert.match(track.identity, /:ambience:/)
+  assert.deepEqual([track.name, track.volume], ['rain', .3])
+  assert.equal((await fetchLease(library, track.url)).status, 200)
+  assert.deepEqual((await material.exportMaterial(cardPath, '庚')).map(item => item.kind), ['backgrounds'])
 })

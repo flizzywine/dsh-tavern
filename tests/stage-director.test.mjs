@@ -196,3 +196,49 @@ test('sound effects: offered by their lamps, played on a page by name; with none
   assert.doesNotMatch(none.system + JSON.stringify(none.tool), /sfx|音效/)
   assert.equal((await none.call({ performances: [{ at: 1, op: 'sfx.play', sfx: 'Knock' }] })).ok, false)
 })
+
+// 环境音 (cast-presentation.md 20/N): a lit loop of the card's packs for the place or weather, kept like the BGM until the
+// director changes or stops it; none offered and none playing, the request is byte for byte the one without the kind.
+test('ambience: offered by its lamps, persistent until changed or stopped, beside the music; with none the request is byte-identical', async () => {
+  const ambience = [lamp('Rain', 'keyword', ['下雨']), lamp('Crowd', 'constant')]
+  const h = await stageDirectorFixture({ ...chat(), messages: [...chat().messages.slice(0, 2), { role: 'assistant', turn: 2, text: '外面下雨了。' }] }, { ...assets(), ambience })
+  let request = await h.prepare()
+  assert.deepEqual(JSON.parse(request.turnContext).ambience, ['Rain', 'Crowd'], 'a green loop comes with its trigger')
+  assert.match(request.system, /ambience 是地点或天气的持续背景声/)
+  assert.match(request.tool.description, /ambience:null 停环境音/)
+  for (const value of ['Thunder', 3]) assert.equal((await request.call({ ambience: value })).ok, false, String(value))
+  assert.deepEqual(await request.call({ music: 'Theme', ambience: 'Rain' }), { ok: true })
+  assert.deepEqual(await h.director.state('game', 2), { figures: [], background: null, music: 'Theme', ambience: 'Rain' }, 'both play')
+  // Omission keeps it, though its trigger is gone from the text; the director may still stop it.
+  await h.persistence.update('story', turn('Quiet.'))
+  request = await h.prepare()
+  assert.deepEqual([JSON.parse(request.turnContext).ambience, JSON.parse(request.turnContext).state.ambience], [['Crowd'], 'Rain'])
+  assert.deepEqual(await request.call({}), { ok: true })
+  assert.equal((await h.director.state('game', 3)).ambience, 'Rain')
+  // A change replaces it; null stops it and the state reads as if none had played.
+  await h.persistence.update('story', turn('The square fills up.'))
+  assert.deepEqual(await (await h.prepare()).call({ ambience: 'Crowd' }), { ok: true })
+  assert.equal((await h.director.state('game', 4)).ambience, 'Crowd')
+  await h.persistence.update('story', turn('Night falls.'))
+  assert.deepEqual(await (await h.prepare()).call({ ambience: null }), { ok: true })
+  assert.deepEqual(await h.director.state('game', 5), { figures: [], background: null, music: 'Theme' })
+  // 环境音 off (or its entry switched off): the playing loop is dropped and the turn records the stop.
+  await h.persistence.update('story', turn('Rain again.'))
+  await (await h.prepare()).call({ ambience: 'Crowd' })
+  await h.persistence.update('story', turn('Still.'))
+  h.assets.ambience = []
+  request = await h.prepare()
+  assert.equal(JSON.parse(request.turnContext).ambience, undefined, 'nothing offered and nothing playing: nothing about ambience')
+  assert.deepEqual(await request.call({}), { ok: true })
+  h.assets.ambience = ambience
+  assert.equal((await h.director.state('game', 7)).ambience, undefined, 'switching it on again waits for the director')
+  // None offered and none playing: the system prompt, tool and context are those of a catalog without the kind.
+  await h.persistence.update('story', turn('Later.'))
+  h.assets.ambience = []
+  const none = await h.prepare()
+  delete h.assets.ambience
+  const absent = await h.prepare()
+  assert.deepEqual([none.system, JSON.stringify(none.tool), none.turnContext], [absent.system, JSON.stringify(absent.tool), absent.turnContext])
+  assert.doesNotMatch(none.system + JSON.stringify(none.tool) + none.turnContext, /ambience|环境音/)
+  assert.equal((await none.call({ ambience: 'Rain' })).ok, false)
+})

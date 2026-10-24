@@ -268,6 +268,10 @@ function playTavernStagePerformance(root, event, id) {
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
 const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
 	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
+// 环境音 (castStage `ambience`): the state's loop for the place or weather on a second BGM transport (modules/stage-music.js) on the
+// same AudioContext, so it sounds alongside the BGM. Only the open stage plays it; it follows the state across pages and turns.
+const tavernStageAmbience = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+	clock: { now: () => performance.now(), setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 
 // The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
 // reduced motion keeps the rest cell the stylesheet draws. The cue restarts on each page, the lamp when auto paging starts.
@@ -325,14 +329,22 @@ function TavernStageScreen(props) {
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
 			} },
-		// A plugin's music (tavernUi.playMusic) and the stage's sound effects end with the stage view; the stage's BGM does not.
-		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); }
+		// A plugin's music (tavernUi.playMusic), the stage's sound effects and its ambience end with the stage view; the BGM does not.
+		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); tavernStageAmbience.stop(); }
 	}), [id]);
 	// 音效 off (舞台设置 › 基础设置) silences a sound still ringing; the turn's cues decode ahead of their pages.
 	const sfxOn = data ? data.sfxEnabled !== false : true;
 	React.useEffect(() => { if (!sfxOn) tavernStageSfx.stop(); }, [sfxOn]);
 	const cues = (data && data.turns.at(-1)?.performances || []).filter(event => event.op === "sfx.play").map(event => event.audio);
 	React.useEffect(() => { cues.forEach(url => tavernStageSfx.prepare(url)); }, [cues.join("\n")]);
+	// 环境音: the same identity keeps playing (a renewed lease too), a new one crossfades in, the director's stop (or a lamp switched
+	// off) fades out; 环境音 or 舞台模式 off and a skip stop at once. While the stage reads its data again (a rollback) what plays goes on.
+	const ambienceOn = data ? data.enabled !== false && data.ambienceEnabled !== false : null, ambience = ambienceOn && data.ambience || null;
+	React.useEffect(() => {
+		if (ambienceOn === null) return;
+		if (ambience) tavernStageAmbience.play(ambience.url, reader.mode === "skip", ambience.identity, { volume: ambience.volume });
+		else tavernStageAmbience.stop(!ambienceOn || reader.mode === "skip");
+	}, [ambienceOn, ambience && ambience.identity, ambience && ambience.url, ambience && ambience.volume]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];

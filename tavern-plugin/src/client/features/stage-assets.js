@@ -1,10 +1,10 @@
 // 舞台素材: the asset library's editor (docs/design/asset-library.md「编辑界面」). The library panel lists every pack
 // with its 全局 / 本卡 / 关闭 state; a pack opens one window (entries on the left, the chosen entry on the right); 舞台设置
 // › 素材包 lists this card's packs. Every write goes to the host's store (CAS revisions); nothing is kept on the page.
-const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", sfx: "音效", props: "物品", skins: "皮肤", entrances: "入场演出" });
-const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "sfx", "props", "skins", "entrances"]);
+const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", sfx: "音效", ambience: "环境音", props: "物品", skins: "皮肤", entrances: "入场演出" });
+const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "sfx", "ambience", "props", "skins", "entrances"]);
 // Kinds whose entries are audio: a play button in the list, the player with its 音量 on the entry page.
-const tavernAssetAudible = kind => kind === "music" || kind === "sfx";
+const tavernAssetAudible = kind => kind === "music" || kind === "sfx" || kind === "ambience";
 const TAVERN_ASSET_EVENT = "dsh-tavern-asset-packs-changed";
 const TAVERN_PACK_STATES = Object.freeze({ global: "全局", card: "本卡", off: "关闭" });
 const TAVERN_PACK_STATE_ORDER = Object.freeze(["global", "card", "off"]);
@@ -16,6 +16,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	triggers: "名称本身也算触发词。不填，或填 3–6 个正文里真会出现的短词。",
 	notes: { backgrounds: "会和名称一起发给导演，用来判断这一幕用哪个背景。只写适用情景，最多 300 字。", music: "会和名称一起发给导演，用来判断什么时候放这首曲子。只写适用情景，最多 300 字。",
 		sfx: "会和名称一起发给导演，用来判断哪一页播放这个声音。只写适用情景，最多 300 字。",
+		ambience: "会和名称一起发给导演，用来判断什么地点或天气配这段环境音。只写适用情景，最多 300 字。",
 		props: "会和名称一起发给导演，用来选择要展示的物品。只写适用情景，最多 300 字。" },
 	remark: "只给你和改卡 AI 看，导演看不到",
 	usage: "这首曲子的用途笔记，不发给导演。",
@@ -25,7 +26,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	packSkin: "用到这个素材包、又没有自己皮肤的卡，默认用这套皮肤。",
 	entrance: "打开舞台时先播的一段演出，点一下或按回车可以跳过。只用卡自己的素材包里第一条开着的；导演不会用它。只有蓝灯和关闭。"
 });
-const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", sfx: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
+const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", sfx: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", ambience: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
 const TAVERN_ASSET_GLYPHS = Object.freeze({
 	back: "M10 3.5 5.5 8l4.5 4.5", close: "M4 4l8 8M12 4l-8 8", more: "M3.5 8h.01M8 8h.01M12.5 8h.01", plus: "M8 3v10M3 8h10",
 	upload: "M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5", search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3 13.5 13.5",
@@ -34,6 +35,7 @@ const TAVERN_ASSET_GLYPHS = Object.freeze({
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4", voiceOff: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 6l3 4M13.5 6l-3 4",
 	backgrounds: "M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3", music: "M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
 	sfx: "M2.5 8h1.5M5.5 5.5v5M8 3v10M10.5 5v6M13 7v2",
+	ambience: "M3.5 9.5a2.5 2.5 0 0 1 .3-5 3.5 3.5 0 0 1 6.7-.6 2.5 2.5 0 0 1 1.5 5.6zM5.5 11.5l-.75 2M8.5 11.5l-.75 2M11.5 11.5l-.75 2",
 	props: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
 	tray: "M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z", skins: "M2.5 3.5h11v9h-11zM2.5 9h11M4.5 10.75h4",
 	entrances: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4"

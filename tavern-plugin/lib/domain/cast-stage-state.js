@@ -19,6 +19,9 @@ function foldStageState(state, delta) {
     } else next.figures.push({ speaker: change.speaker, emotion: change.emotion ?? 'neutral' })
   }
   for (const field of ['background', 'music']) if (Object.hasOwn(delta, field)) next[field] = delta[field]
+  // 环境音 is only in the state while one plays, so a stage that never had one reads exactly as before.
+  if (typeof delta.ambience === 'string') next.ambience = delta.ambience
+  else if (delta.ambience === null) delete next.ambience
   return next
 }
 

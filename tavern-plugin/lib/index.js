@@ -2226,6 +2226,8 @@ export async function apply(ctx) {
     if (!toggles.music) material.music = []
     // 音效 off (stageToggles.sfx): no sound effect is offered or played.
     if (!toggles.sfx) material.sfx = []
+    // 环境音 off (stageToggles.ambience): no ambience is offered or played, and the director stops what played.
+    if (!toggles.ambience) material.ambience = []
     // 物品 off (stageToggles.items): no item is offered or shown.
     if (!toggles.items) material.items = []
     return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...material }
@@ -2345,7 +2347,10 @@ export async function apply(ctx) {
     return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
-      musicEnabled: (await readTavernSettings()).stageToggles.music, sfxEnabled: (await readTavernSettings()).stageToggles.sfx, cast: assets.cast, turns, stage,
+      // 环境音: the state's ambience while its entry is lit (a loop the stage plays alongside the BGM), or null.
+      ambience: await stageMusic(assets.ambience.find(item => item.name === stage.ambience)),
+      musicEnabled: (await readTavernSettings()).stageToggles.music, sfxEnabled: (await readTavernSettings()).stageToggles.sfx,
+      ambienceEnabled: (await readTavernSettings()).stageToggles.ambience, cast: assets.cast, turns, stage,
       skin: await stageSkinOf(card.path).then(skin => ({ document: skin.document, base: skin.base })).catch(() => null),
       // 入场演出 (stageToggles.entrance): the entrance of the card's own packs the stage opens with, or null.
       entrance: (await readTavernSettings()).stageToggles.entrance ? await stageMaterial.entrance(card.path) : null }

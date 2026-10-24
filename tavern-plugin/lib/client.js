@@ -13714,6 +13714,9 @@ function foldStageState(state, delta) {
     } else next.figures.push({ speaker: change.speaker, emotion: change.emotion ?? 'neutral' })
   }
   for (const field of ['background', 'music']) if (Object.hasOwn(delta, field)) next[field] = delta[field]
+  // 环境音 is only in the state while one plays, so a stage that never had one reads exactly as before.
+  if (typeof delta.ambience === 'string') next.ambience = delta.ambience
+  else if (delta.ambience === null) delete next.ambience
   return next
 }
 // A page visit owns its timers and animations, never persistent presentation state.
@@ -15195,6 +15198,10 @@ function playTavernStagePerformance(root, event, id) {
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
 const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
 	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
+// 环境音 (castStage `ambience`): the state's loop for the place or weather on a second BGM transport (modules/stage-music.js) on the
+// same AudioContext, so it sounds alongside the BGM. Only the open stage plays it; it follows the state across pages and turns.
+const tavernStageAmbience = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+	clock: { now: () => performance.now(), setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 
 // The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
 // reduced motion keeps the rest cell the stylesheet draws. The cue restarts on each page, the lamp when auto paging starts.
@@ -15252,14 +15259,22 @@ function TavernStageScreen(props) {
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
 			} },
-		// A plugin's music (tavernUi.playMusic) and the stage's sound effects end with the stage view; the stage's BGM does not.
-		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); }
+		// A plugin's music (tavernUi.playMusic), the stage's sound effects and its ambience end with the stage view; the BGM does not.
+		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); tavernStageAmbience.stop(); }
 	}), [id]);
 	// 音效 off (舞台设置 › 基础设置) silences a sound still ringing; the turn's cues decode ahead of their pages.
 	const sfxOn = data ? data.sfxEnabled !== false : true;
 	React.useEffect(() => { if (!sfxOn) tavernStageSfx.stop(); }, [sfxOn]);
 	const cues = (data && data.turns.at(-1)?.performances || []).filter(event => event.op === "sfx.play").map(event => event.audio);
 	React.useEffect(() => { cues.forEach(url => tavernStageSfx.prepare(url)); }, [cues.join("\n")]);
+	// 环境音: the same identity keeps playing (a renewed lease too), a new one crossfades in, the director's stop (or a lamp switched
+	// off) fades out; 环境音 or 舞台模式 off and a skip stop at once. While the stage reads its data again (a rollback) what plays goes on.
+	const ambienceOn = data ? data.enabled !== false && data.ambienceEnabled !== false : null, ambience = ambienceOn && data.ambience || null;
+	React.useEffect(() => {
+		if (ambienceOn === null) return;
+		if (ambience) tavernStageAmbience.play(ambience.url, reader.mode === "skip", ambience.identity, { volume: ambience.volume });
+		else tavernStageAmbience.stop(!ambienceOn || reader.mode === "skip");
+	}, [ambienceOn, ambience && ambience.identity, ambience && ambience.url, ambience && ambience.volume]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
@@ -15354,10 +15369,10 @@ function TavernStageStatus(props) {
 // 舞台素材: the asset library's editor (docs/design/asset-library.md「编辑界面」). The library panel lists every pack
 // with its 全局 / 本卡 / 关闭 state; a pack opens one window (entries on the left, the chosen entry on the right); 舞台设置
 // › 素材包 lists this card's packs. Every write goes to the host's store (CAS revisions); nothing is kept on the page.
-const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", sfx: "音效", props: "物品", skins: "皮肤", entrances: "入场演出" });
-const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "sfx", "props", "skins", "entrances"]);
+const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", sfx: "音效", ambience: "环境音", props: "物品", skins: "皮肤", entrances: "入场演出" });
+const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "sfx", "ambience", "props", "skins", "entrances"]);
 // Kinds whose entries are audio: a play button in the list, the player with its 音量 on the entry page.
-const tavernAssetAudible = kind => kind === "music" || kind === "sfx";
+const tavernAssetAudible = kind => kind === "music" || kind === "sfx" || kind === "ambience";
 const TAVERN_ASSET_EVENT = "dsh-tavern-asset-packs-changed";
 const TAVERN_PACK_STATES = Object.freeze({ global: "全局", card: "本卡", off: "关闭" });
 const TAVERN_PACK_STATE_ORDER = Object.freeze(["global", "card", "off"]);
@@ -15369,6 +15384,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	triggers: "名称本身也算触发词。不填，或填 3–6 个正文里真会出现的短词。",
 	notes: { backgrounds: "会和名称一起发给导演，用来判断这一幕用哪个背景。只写适用情景，最多 300 字。", music: "会和名称一起发给导演，用来判断什么时候放这首曲子。只写适用情景，最多 300 字。",
 		sfx: "会和名称一起发给导演，用来判断哪一页播放这个声音。只写适用情景，最多 300 字。",
+		ambience: "会和名称一起发给导演，用来判断什么地点或天气配这段环境音。只写适用情景，最多 300 字。",
 		props: "会和名称一起发给导演，用来选择要展示的物品。只写适用情景，最多 300 字。" },
 	remark: "只给你和改卡 AI 看，导演看不到",
 	usage: "这首曲子的用途笔记，不发给导演。",
@@ -15378,7 +15394,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	packSkin: "用到这个素材包、又没有自己皮肤的卡，默认用这套皮肤。",
 	entrance: "打开舞台时先播的一段演出，点一下或按回车可以跳过。只用卡自己的素材包里第一条开着的；导演不会用它。只有蓝灯和关闭。"
 });
-const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", sfx: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
+const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", sfx: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", ambience: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
 const TAVERN_ASSET_GLYPHS = Object.freeze({
 	back: "M10 3.5 5.5 8l4.5 4.5", close: "M4 4l8 8M12 4l-8 8", more: "M3.5 8h.01M8 8h.01M12.5 8h.01", plus: "M8 3v10M3 8h10",
 	upload: "M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5", search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3 13.5 13.5",
@@ -15387,6 +15403,7 @@ const TAVERN_ASSET_GLYPHS = Object.freeze({
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4", voiceOff: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 6l3 4M13.5 6l-3 4",
 	backgrounds: "M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3", music: "M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
 	sfx: "M2.5 8h1.5M5.5 5.5v5M8 3v10M10.5 5v6M13 7v2",
+	ambience: "M3.5 9.5a2.5 2.5 0 0 1 .3-5 3.5 3.5 0 0 1 6.7-.6 2.5 2.5 0 0 1 1.5 5.6zM5.5 11.5l-.75 2M8.5 11.5l-.75 2M11.5 11.5l-.75 2",
 	props: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
 	tray: "M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z", skins: "M2.5 3.5h11v9h-11zM2.5 9h11M4.5 10.75h4",
 	entrances: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4"
@@ -16550,9 +16567,9 @@ function TavernStageModePage(props) {
 // 舞台设置 (基础设置: the switches), 舞台素材 (the card's cast material) and 配音 (the voicing service, the same page as
 // 设置 › 配音). 酒馆状态 only opens the stage; the fullscreen stage has no settings of its own.
 const TAVERN_STAGE_TABS = Object.freeze({ settings: "dsh-tavern:stage-settings", materials: "dsh-tavern:stage-materials", voice: "dsh-tavern:voice" });
-const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式", music: "BGM", sfx: "音效", items: "物品", entrance: "入场演出" });
+const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式", music: "BGM", sfx: "音效", ambience: "环境音", items: "物品", entrance: "入场演出" });
 // Every switch needs its upstream switches on, as in the reference design: 配音 and 舞台模式 need 对话气泡; sounds play on the stage.
-const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"], stage: ["dialogue"], music: ["dialogue", "stage"], sfx: ["dialogue", "stage"], items: ["dialogue", "stage"], entrance: ["dialogue", "stage"] });
+const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"], stage: ["dialogue"], music: ["dialogue", "stage"], sfx: ["dialogue", "stage"], ambience: ["dialogue", "stage"], items: ["dialogue", "stage"], entrance: ["dialogue", "stage"] });
 const TAVERN_STAGE_GLYPHS = Object.freeze({
 	bubble: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4",
@@ -16560,6 +16577,7 @@ const TAVERN_STAGE_GLYPHS = Object.freeze({
 	chevRight: "M6 4l4 4-4 4", back: "M10 4 6 8l4 4",
 	music: "M6 12V3.5l7-1.5v8.5M6 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM13 10.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0z",
 	sfx: "M2.5 8h1.5M5.5 5.5v5M8 3v10M10.5 5v6M13 7v2",
+	ambience: "M3.5 9.5a2.5 2.5 0 0 1 .3-5 3.5 3.5 0 0 1 6.7-.6 2.5 2.5 0 0 1 1.5 5.6zM5.5 11.5l-.75 2M8.5 11.5l-.75 2M11.5 11.5l-.75 2",
 	item: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
 	entrance: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4",
 	prev: "M4 3.5v9M12.5 3.5 6 8l6.5 4.5z", next: "M12 3.5v9M3.5 3.5 10 8l-6.5 4.5z", play: "M5 3.5v9l7.5-4.5z", pause: "M5.5 3.5v9M10.5 3.5v9"
@@ -16628,7 +16646,7 @@ function useTavernStageGlobals() {
 	return [settings, setSettings];
 }
 
-// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, 默认皮肤 (本卡皮肤), BGM, 音效, 物品, 入场演出; 舞台样式 joins when a plugin offers stage views.
+// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, 默认皮肤 (本卡皮肤), BGM, 音效, 环境音, 物品, 入场演出; 舞台样式 joins when a plugin offers stage views.
 // Every switch saves at once; the section head says 正在保存… / 已保存.
 function TavernStageSwitches(props) {
 	const h = React.createElement;
@@ -16642,7 +16660,8 @@ function TavernStageSwitches(props) {
 		catch (err) { setStatus("idle"); setError(String(err && err.message || err)); }
 	}
 	const prefs = { dialogue: settings ? settings.castPresentation === true : false, voice: Boolean(speech && speech.enabled), stage: settings ? settings.stageToggles?.stage !== false : false,
-		music: settings ? settings.stageToggles?.music !== false : true, sfx: settings ? settings.stageToggles?.sfx !== false : true, items: settings ? settings.stageToggles?.items !== false : true,
+		music: settings ? settings.stageToggles?.music !== false : true, sfx: settings ? settings.stageToggles?.sfx !== false : true,
+		ambience: settings ? settings.stageToggles?.ambience !== false : true, items: settings ? settings.stageToggles?.items !== false : true,
 		entrance: settings ? settings.stageToggles?.entrance !== false : true };
 	const busy = status === "saving", blocked = key => TAVERN_STAGE_REQUIRES[key].filter(need => !prefs[need]);
 	const help = key => blocked(key).length ? "需要" + blocked(key).map(need => TAVERN_STAGE_NAMES[need]).join("和") : undefined;
@@ -16662,6 +16681,8 @@ function TavernStageSwitches(props) {
 	const setMusic = on => setTavern({ stageToggles: { music: on } });
 	// 音效 on: the director may play a sound of the card's packs on its page; off: none is offered or played, for every card.
 	const setSfx = on => setTavern({ stageToggles: { sfx: on } });
+	// 环境音 on: the director may keep a loop of the card's packs for the place or weather; off: none is offered or played, for every card.
+	const setAmbience = on => setTavern({ stageToggles: { ambience: on } });
 	// 物品 on: the director may show an item of the card's packs on its page; off: none is offered or shown, for every card.
 	const setItems = on => setTavern({ stageToggles: { items: on } });
 	// 入场演出 on: a card whose own packs hold an entrance (蓝灯) opens its stage with it; off: no stage opens with one.
@@ -16676,6 +16697,9 @@ function TavernStageSwitches(props) {
 	// 音效 ›: the sound effects of this card's packs, the same way.
 	const sfxPacks = useTavernKindPacks(props.path, "sfx");
 	const openSfx = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "sfx") : null;
+	// 环境音 ›: the ambience of this card's packs, the same way.
+	const ambiencePacks = useTavernKindPacks(props.path, "ambience");
+	const openAmbience = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "ambience") : null;
 	// 物品 ›: the items of this card's packs, the same way.
 	const itemPacks = useTavernKindPacks(props.path, "props");
 	const openItems = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "props") : null;
@@ -16699,6 +16723,8 @@ function TavernStageSwitches(props) {
 			status: openMusic ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.music, packs: musicPacks, onPick: openMusic }) : null }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.sfx, icon: "sfx", checked: prefs.sfx, disabled: !settings || busy || blocked("sfx").length > 0, help: help("sfx"), onChange: setSfx,
 			status: openSfx ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.sfx, packs: sfxPacks, onPick: openSfx }) : null }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.ambience, icon: "ambience", checked: prefs.ambience, disabled: !settings || busy || blocked("ambience").length > 0, help: help("ambience"), onChange: setAmbience,
+			status: openAmbience ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.ambience, packs: ambiencePacks, onPick: openAmbience }) : null }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.items, icon: "item", checked: prefs.items, disabled: !settings || busy || blocked("items").length > 0, help: help("items"), onChange: setItems,
 			status: openItems ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.items, packs: itemPacks, onPick: openItems }) : null }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.entrance, icon: "entrance", checked: prefs.entrance, disabled: !settings || busy || blocked("entrance").length > 0, help: help("entrance"), onChange: setEntrance,

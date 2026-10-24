@@ -5,7 +5,7 @@ import { audioKind, imageKind } from '../asset-library/pack-v2/media.js'
 import { validateStageSkin, stageSkinFiles } from './stage-skin.js'
 import { validateStageEntrance } from './stage-entrance.js'
 
-// A card's stage material (backgrounds, music, sound effects, items) lives in the asset library (docs/design/asset-library.md):
+// A card's stage material (backgrounds, music, sound effects, ambience, items) lives in the asset library (docs/design/asset-library.md):
 // entries of the card's own pack, which the card's cast manifest binds by id (boundPackIds).
 // Leases are the only way bytes leave the library: the page gets a lease URL, export reads through one.
 export const STAGE_MEDIA_SCOPE = 'dsh-tavern-stage'
@@ -19,6 +19,7 @@ const KINDS = Object.freeze({
   backgrounds: { id: 'bg', type: 'background', media: imageKind },
   music: { id: 'music', type: 'music', media: audioKind },
   sfx: { id: 'sfx', type: 'sfx', media: audioKind },
+  ambience: { id: 'ambience', type: 'ambience', media: audioKind },
   props: { id: 'prop', type: 'prop', media: imageKind }
 })
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -170,23 +171,23 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
   // green entry only when the text names it or 判断模型 recalls it (stage-judge-recall.js; a green entry's director note
   // is what the judge reads). Names and refs only: the director's frozen catalog never holds a lease.
   async function catalog(cardPath, cardName) {
-    const result = { background: [], music: [], sfx: [], items: [] }
+    const result = { background: [], music: [], sfx: [], ambience: [], items: [] }
     for (const { pack, asset } of await entries(cardPath, cardName, true)) {
       if (asset.enabled !== true) continue
       const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media, recall: asset.recall,
         ...(asset.recall.mode === 'keyword' && asset.directorNote ? { note: asset.directorNote } : {}) }
       if (asset.kind === 'backgrounds') { result.background.push(row); continue }
       if (asset.kind === 'props') { result.items.push(row); continue }
-      if (asset.kind === 'sfx') { result.sfx.push(asset.volume === undefined ? row : { ...row, volume: asset.volume }); continue }
+      if (asset.kind === 'sfx' || asset.kind === 'ambience') { result[asset.kind].push(asset.volume === undefined ? row : { ...row, volume: asset.volume }); continue }
       result.music.push({ ...row, pack: pack.manifest.name,
         ...Object.fromEntries(['volume', 'loopStart', 'loopEnd'].filter(key => asset[key] !== undefined).map(key => [key, asset[key]])) })
     }
     return result
   }
-  // A music row as the page plays it: identity names the exact content, so a renewed lease never restarts it.
+  // A music (or ambience) row as the page plays it: identity names the exact content, so a renewed lease never restarts it.
   async function track(row) {
     const { ref } = row
-    return { key: ref.packId + '/' + ref.assetId, ref, identity: ref.packId + ':music:' + ref.assetId + ':' + row.media, name: row.name, pack: row.pack,
+    return { key: ref.packId + '/' + ref.assetId, ref, identity: ref.packId + ':' + ref.kind + ':' + ref.assetId + ':' + row.media, name: row.name, pack: row.pack,
       url: await mediaUrl(row), volume: row.volume, loopStart: row.loopStart, loopEnd: row.loopEnd }
   }
 
@@ -202,8 +203,8 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
   async function exportMaterial(cardPath, cardName) {
     const items = []
     for (const { pack, asset } of await entries(cardPath, cardName)) {
-      // A card file has places for backgrounds and music only; items and sound effects stay in the library.
-      if (asset.kind === 'props' || asset.kind === 'sfx') continue
+      // A card file has places for backgrounds and music only; items, sound effects and ambience stay in the library.
+      if (['props', 'sfx', 'ambience'].includes(asset.kind)) continue
       const blob = pack.manifest.blobs[asset.media]
       items.push({ kind: asset.kind, type: KINDS[asset.kind].type, name: asset.name, ext: blob.ext, file: asset.media.slice(0, 32) + '.' + blob.ext, bytes: await readMedia(pack.manifest.id, asset.media) })
     }
