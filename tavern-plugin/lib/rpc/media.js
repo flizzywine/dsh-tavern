@@ -3,7 +3,7 @@
 export function createMediaHandlers(deps) {
   const { backgroundConfigForSession, castAssets, castCardOf, castEdit, castPresentation, castStage,
     castView, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns, removePluginGalleryItems,
-    removePluginMediaVersion, sceneIllustrations, speakLine, speech, speechReply, stageMusicTracks, str } = deps
+    removePluginMediaVersion, sceneIllustrations, speakLine, prepareVoices, speech, speechReply, stageMusicTracks, str } = deps
   return {
     async pluginMediaForTurn(args) {
       return await pluginMediaForTurn(args && args.sessionId, args && args.turn)
@@ -48,6 +48,13 @@ export function createMediaHandlers(deps) {
     },
     async speechForLine(args) {
       return await speakLine(args && args.sessionId, args || {})
+    },
+    // A channel's own model list (Fish /v1/info) for 配音 › 模型.
+    async speechServiceInfo(args) {
+      return await speech.serviceInfo({ provider: args && args.provider })
+    },
+    async speechPrepare(args) {
+      return await prepareVoices(args && args.sessionId)
     },
     async castRemoveCharacter(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.removeCharacter({ cardPath, name: args.name }))

@@ -2388,6 +2388,18 @@ export async function apply(ctx) {
     if (voice === null) return { skip: true, reason: 'narration' }
     return speechReply(await speech.synthesize({ provider: current.provider.id, text, voice, emotion, gameId: str(sessionId), speaker: name, narration: narration === true }))
   }
+  // The stage opening with 配音 on: the voices its cast speaks with on the channel in use, readied when the service offers it
+  // (cast-presentation.md 21/N). Never awaited by a line; a voice that fails to warm is still said when its line comes.
+  async function prepareVoices(sessionId) {
+    const current = await speech.active()
+    if (!current?.provider.prepare) return { prepared: 0 }
+    const card = await castCardOf(str(sessionId)).catch(() => null)
+    const characters = card ? (await castAssets.read(card.path)).characters : []
+    const voices = new Set([...characters.map(character => speech.voiceFor({ character, ...current })), current.config.narratorVoice].filter(Boolean))
+    let prepared = 0
+    for (const voice of voices) if (await speech.prepare({ voice }).catch(() => false)) prepared++
+    return { prepared }
+  }
   function speechReply(result) {
     return result.browser ? result : { url: '/api/dsh-tavern/speech-audio?id=' + result.id, mediaType: result.mediaType }
   }
@@ -3367,7 +3379,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, stageSkinOf, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, prepareVoices, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, stageSkinOf, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,

@@ -59,6 +59,9 @@ async function request(fetchImpl, url, init, signal, reason = rawReason) {
   return { bytes, mediaType: response.headers.get('content-type') || '' }
 }
 
+// No key, no Authorization header: a service without authentication never sees one.
+const fishHeaders = (apiKey, model) => ({ ...(apiKey ? { authorization: 'Bearer ' + apiKey } : {}), ...(model ? { model } : {}) })
+
 const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']
 const MINIMAX_VOICES = ['female-shaonv', 'female-yujie', 'female-chengshu', 'female-tianmei', 'male-qn-qingse', 'male-qn-jingying', 'male-qn-badao', 'male-qn-daxuesheng',
   'presenter_male', 'presenter_female', 'audiobook_male_1', 'audiobook_female_1']
@@ -161,6 +164,38 @@ export const BUILTIN_SPEECH_PROVIDERS = Object.freeze([
     }
   },
   {
+    // Fish protocol (cast-presentation.md 21/N): Fish Audio or a server of the same /v1/tts. A server may answer the
+    // optional GET /v1/info ({ models: [{ id, label? }], capabilities: { prepareVoice } }); prepareVoice offers POST /v1/warm.
+    id: 'fish', label: 'Fish 协议', key: true, keyOptional: true, voices: [],
+    description: 'Fish Audio 或自己部署的同协议服务（/v1/tts）。声音填参考声音的 ID（reference_id）。服务不需要鉴权时 Key 留空，请求不带 Authorization。服务提供 /v1/info 时，模型从服务读取；模型留空用服务列出的第一个。',
+    fields: [{ name: 'baseUrl', label: '服务地址', default: 'https://api.fish.audio', required: true }, { name: 'model', label: '模型（选填）', default: '' }],
+    // null: the service has no /v1/info (404), so nothing is discovered and the configured model is used as written.
+    async info({ config, apiKey, signal, fetchImpl }) {
+      let result
+      try { result = await request(fetchImpl, trimSlash(config.baseUrl) + '/v1/info', { method: 'GET', headers: fishHeaders(apiKey) }, signal) }
+      catch (error) { if (error?.status === 404) return null; throw error }
+      let body
+      try { body = JSON.parse(result.bytes.toString('utf8')) } catch { throw new Error('/v1/info 返回的不是 JSON') }
+      const models = (Array.isArray(body?.models) ? body.models : []).filter(model => typeof model?.id === 'string' && /^[\w.:-]{1,80}$/.test(model.id)).slice(0, 64)
+        .map(model => ({ id: model.id, label: typeof model.label === 'string' && model.label.trim() ? model.label.trim().slice(0, 80) : model.id }))
+      return { models, capabilities: { prepareVoice: body?.capabilities?.prepareVoice === true } }
+    },
+    async synthesize({ config, apiKey, text, voice, signal, fetchImpl, discover }) {
+      const model = config.model || (await discover())?.models[0]?.id || ''
+      const result = await request(fetchImpl, trimSlash(config.baseUrl) + '/v1/tts', {
+        method: 'POST', headers: { 'content-type': 'application/json', ...fishHeaders(apiKey, model) },
+        body: JSON.stringify({ text, reference_id: voice, format: 'wav' })
+      }, signal)
+      return { data: result.bytes, mediaType: audioExtension(result.mediaType) ? result.mediaType : 'audio/wav' }
+    },
+    async prepare({ config, apiKey, voice, signal, fetchImpl, discover }) {
+      const model = config.model || (await discover())?.models[0]?.id || ''
+      await request(fetchImpl, trimSlash(config.baseUrl) + '/v1/warm', {
+        method: 'POST', headers: { 'content-type': 'application/json', ...fishHeaders(apiKey, model) }, body: JSON.stringify({ reference_id: voice })
+      }, signal)
+    }
+  },
+  {
     id: 'minimax', label: 'MiniMax 语音', key: true, emotional: true, voices: MINIMAX_VOICES, defaultVoice: 'female-shaonv',
     description: 'MiniMax T2A v2 接口，按台词情绪选择语气。声音填系统音色或自己复刻的音色 ID。',
     fields: [{ name: 'baseUrl', label: 'API 根地址', default: 'https://api.minimaxi.com', required: true }, { name: 'model', label: '模型', default: 'speech-02-hd', required: true },
@@ -245,15 +280,27 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     const fields = Object.fromEntries(provider.fields.map(field => [field.name, typeof saved[field.name] === 'string' && saved[field.name] ? saved[field.name] : field.default || '']))
     return { ...fields, voice: typeof saved.voice === 'string' && saved.voice ? saved.voice : provider.defaultVoice || '', narratorVoice: typeof saved.narratorVoice === 'string' ? saved.narratorVoice : '' }
   }
-  async function keyOf(provider) {
+  // An optional key belongs to the address it was saved for (stored as keyUrl): a new address goes without it.
+  async function keyOf(provider, stored) {
     if (!provider.key) return ''
+    if (provider.keyOptional && trimSlash(stored?.providers[provider.id]?.keyUrl) !== trimSlash(settingsOf(provider, stored).baseUrl)) return ''
     return String((await credentials()?.resolve?.(keyRef(provider.id)))?.value || '')
   }
   function missing(provider, config, apiKey) {
     const field = provider.fields.find(item => item.required && !config[item.name])
     if (field) return '请填写' + field.label
-    if (provider.key && !apiKey) return '请填写 ' + (provider.keyLabel || 'API Key')
+    if (provider.key && !provider.keyOptional && !apiKey) return '请填写 ' + (provider.keyLabel || 'API Key')
     return ''
+  }
+  // What a service says about itself (models, capabilities); an answer is kept per address and key, a failure is asked again.
+  const infos = new Map()
+  function discovery(provider, config, apiKey) {
+    if (!provider.info) return async () => null
+    return () => {
+      const key = hash(JSON.stringify([provider.id, trimSlash(config.baseUrl), apiKey]))
+      if (!infos.has(key)) infos.set(key, provider.info({ config, apiKey, fetchImpl }).catch(error => { infos.delete(key); throw error }))
+      return infos.get(key)
+    }
   }
 
   async function present() {
@@ -262,7 +309,8 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     for (const provider of providers()) {
       const config = settingsOf(provider, stored)
       list.push({ id: provider.id, label: provider.label, description: provider.description, owner: provider.owner || '', browser: provider.browser === true,
-        key: provider.key, keyLabel: provider.keyLabel || 'API Key', hasKey: Boolean(await keyOf(provider)), voices: provider.voices.slice(0, 200),
+        key: provider.key, ...(provider.keyOptional ? { keyOptional: true } : {}), ...(provider.info ? { discovers: true } : {}), ...(provider.prepare ? { prepares: true } : {}),
+        keyLabel: provider.keyLabel || 'API Key', hasKey: Boolean(await keyOf(provider, stored)), voices: provider.voices.slice(0, 200),
         fields: provider.fields.map(field => ({ name: field.name, label: field.label, value: config[field.name], placeholder: field.default || '' })),
         voice: config.voice, narratorVoice: config.narratorVoice })
     }
@@ -289,9 +337,10 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     }
     if (apiKey !== undefined && (typeof apiKey !== 'string' || /[\r\n]/.test(apiKey))) throw invalid('API Key 格式不正确')
     const supplied = provider.key && typeof apiKey === 'string' ? apiKey.trim() : ''
-    const savedKey = await keyOf(provider)
-    // A key belongs to the address it was saved with; never send it to a new one.
-    if (provider.key && savedKey && !supplied && trimSlash(next.baseUrl) !== trimSlash(previous.baseUrl)) throw invalid('地址已修改，请重新填写 ' + (provider.keyLabel || 'API Key') + '；旧密钥不会发送到新地址')
+    const savedKey = await keyOf(provider, stored)
+    // A key belongs to the address it was saved with; never send it to a new one (an optional key just stays behind).
+    if (provider.key && !provider.keyOptional && savedKey && !supplied && trimSlash(next.baseUrl) !== trimSlash(previous.baseUrl)) throw invalid('地址已修改，请重新填写 ' + (provider.keyLabel || 'API Key') + '；旧密钥不会发送到新地址')
+    const keyUrl = provider.keyOptional ? supplied ? next.baseUrl : stored.providers[provider.id]?.keyUrl : undefined
     const turnOn = enabled === undefined ? stored.enabled : enabled === true
     if (turnOn) {
       const reason = missing(provider, next, supplied || savedKey)
@@ -304,8 +353,28 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     }
     const { voice, narratorVoice, ...fields } = next
     await store.writeJson(CONFIG_PATH, { enabled: turnOn, provider: provider.id,
-      providers: { ...stored.providers, [provider.id]: { ...fields, voice, narratorVoice } } })
+      providers: { ...stored.providers, [provider.id]: { ...fields, voice, narratorVoice, ...(keyUrl ? { keyUrl } : {}) } } })
     return present()
+  }
+
+  /** The models a channel's service lists (its saved address); { models: [] } when it lists none. */
+  async function serviceInfo({ provider: id } = {}) {
+    const stored = await readConfig()
+    const provider = providerOf(id || stored.provider)
+    if (!provider.info) return { models: [] }
+    const config = settingsOf(provider, stored)
+    const found = await discovery(provider, config, await keyOf(provider, stored))()
+    return { models: found ? found.models : [] }
+  }
+
+  /** Ask the channel in use to get a voice ready, when its service offers that; false when it does not. */
+  async function prepare({ voice, signal } = {}) {
+    const current = await active()
+    if (!current?.provider.prepare || typeof voice !== 'string' || !voice.trim()) return false
+    const stored = await readConfig(), apiKey = await keyOf(current.provider, stored), discover = discovery(current.provider, current.config, apiKey)
+    if (missing(current.provider, current.config, apiKey) || !(await discover())?.capabilities.prepareVoice) return false
+    await current.provider.prepare({ config: current.config, apiKey, voice: voice.trim(), signal, fetchImpl, discover })
+    return true
   }
 
   /** The channel in use, with its settings; null when voicing is off. */
@@ -322,10 +391,10 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
         ...(line.gameId ? { gameId: line.gameId } : {}), speaker: line.speaker || '', narration: line.narration === true })
       return { data: result?.data, mediaType: result?.mediaType }
     }
-    const apiKey = await keyOf(provider)
+    const apiKey = await keyOf(provider, await readConfig())
     const reason = missing(provider, config, apiKey)
     if (reason) throw invalid('配音设置不完整：' + reason)
-    return provider.synthesize({ config, apiKey, text, voice, emotion, signal, fetchImpl })
+    return provider.synthesize({ config, apiKey, text, voice, emotion, signal, fetchImpl, discover: discovery(provider, config, apiKey) })
   }
 
   /**
@@ -378,5 +447,5 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     return bytes ? { bytes, mediaType: AUDIO_TYPES[match[2]] } : undefined
   }
 
-  return Object.freeze({ providers, present, save, active, synthesize, voiceFor, readAudio })
+  return Object.freeze({ providers, present, save, active, synthesize, voiceFor, readAudio, serviceInfo, prepare })
 }

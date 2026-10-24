@@ -289,8 +289,9 @@ function useTavernStageArtFrames(sceneRef, art, index, auto) {
 
 // The stage reads each line aloud while 配音 is on (舞台设置 › 基础设置); there is no second switch.
 function useTavernStageReading() {
-	const speech = useTavernSpeechSettings();
-	return { on: Boolean(speech && speech.enabled) };
+	const speech = useTavernSpeechSettings(), on = Boolean(speech && speech.enabled);
+	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
+	return { on, prepares: Boolean(channel && channel.prepares) };
 }
 function tavernBeatSpeech(sessionId, beat) {
 	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: (beat.quotes || []).join(" ") || beat.text, emotion: beat.emotion }
@@ -315,6 +316,8 @@ function TavernStageScreen(props) {
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
+	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
+	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
 	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);

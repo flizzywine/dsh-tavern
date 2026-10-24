@@ -13304,8 +13304,19 @@ function bindTavernFontZoom(node, win) {
 			const [apiKey, setApiKey] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [message, setMessage] = React.useState("");
+			const [models, setModels] = React.useState([]);
 			const providers = settings ? settings.providers : [];
 			const provider = providers.find(function (item) { return item.id === chosen; }) || null;
+			// The saved channel whose service lists its models (Fish /v1/info) offers them under 模型, for the address as saved;
+			// a channel only picked asks nothing until it is saved.
+			const discovers = Boolean(provider && provider.discovers && settings.provider === chosen), saved = provider ? JSON.stringify(provider.fields.map(function (item) { return item.value; })) + provider.hasKey : "";
+			React.useEffect(function () {
+				setModels([]);
+				if (!discovers) return;
+				let live = true;
+				rpc("speechServiceInfo", { provider: chosen }).then(function (info) { if (live) setModels(info.models || []); }, function () {});
+				return function () { live = false; };
+			}, [chosen, discovers, saved]);
 			React.useEffect(function () {
 				if (!settings || chosen) return;
 				const active = providers.find(function (item) { return item.id === settings.provider; }) || providers[0];
@@ -13356,8 +13367,10 @@ function bindTavernFontZoom(node, win) {
 						h("label", null, "配音渠道",
 							h("select", { value: chosen, disabled: busy, "aria-label": "配音渠道", onChange: function (event) { pick(event.target.value); } },
 								providers.map(function (item) { return h("option", { key: item.id, value: item.id }, item.label + (item.owner ? "（插件 " + item.owner + "）" : "")); }))),
-						provider ? provider.fields.map(function (item) { return field(item.name, item.label, item.placeholder); }) : null,
-						provider && provider.key ? h("label", null, (provider.keyLabel || "API Key") + (provider.hasKey ? "（已保存，留空沿用）" : ""),
+						provider ? provider.fields.map(function (item) { return field(item.name, item.label, item.placeholder, item.name === "model" && models.length ? "dsh-tavern-speech-models" : undefined); }) : null,
+						models.length ? h("datalist", { id: "dsh-tavern-speech-models" }, models.map(function (model) { return h("option", { key: model.id, value: model.id, label: model.label }); })) : null,
+						models.length ? h("p", { className: "dsh-tavern-image-hint" }, "服务提供的模型：" + models.map(function (model) { return model.label; }).join("、")) : null,
+						provider && provider.key ? h("label", null, (provider.keyLabel || "API Key") + (provider.hasKey ? "（已保存，留空沿用）" : provider.keyOptional ? "（选填）" : ""),
 							h("input", { type: "password", value: apiKey, autoComplete: "new-password", disabled: busy, "aria-label": provider.keyLabel || "API Key",
 								onChange: function (event) { setApiKey(event.target.value); } })) : null),
 					section("声音", "每个人物的声音在「舞台素材」里单独选，没选的用默认声音。",
@@ -15219,8 +15232,9 @@ function useTavernStageArtFrames(sceneRef, art, index, auto) {
 
 // The stage reads each line aloud while 配音 is on (舞台设置 › 基础设置); there is no second switch.
 function useTavernStageReading() {
-	const speech = useTavernSpeechSettings();
-	return { on: Boolean(speech && speech.enabled) };
+	const speech = useTavernSpeechSettings(), on = Boolean(speech && speech.enabled);
+	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
+	return { on, prepares: Boolean(channel && channel.prepares) };
 }
 function tavernBeatSpeech(sessionId, beat) {
 	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: (beat.quotes || []).join(" ") || beat.text, emotion: beat.emotion }
@@ -15245,6 +15259,8 @@ function TavernStageScreen(props) {
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
+	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
+	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
 	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);

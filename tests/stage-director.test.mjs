@@ -242,3 +242,11 @@ test('ambience: offered by its lamps, persistent until changed or stopped, besid
   assert.doesNotMatch(none.system + JSON.stringify(none.tool) + none.turnContext, /ambience|环境音/)
   assert.equal((await none.call({ ambience: 'Rain' })).ok, false)
 })
+// 配音 (cast-presentation.md 21/N): the cast reaches the director with each character's voices (castView); they and the speech
+// settings never enter its request, which is byte for byte the one of a cast without voices.
+test('voices never reach the director: a voiced cast gives the byte-identical request', async () => {
+  const voiced = { ...assets(), cast: assets().cast.map(item => ({ ...item, voices: { fish: 'ref-' + item.name, openai: 'alloy' } })) }
+  const plain = await (await stageDirectorFixture(chat(), assets())).prepare(), withVoices = await (await stageDirectorFixture(chat(), voiced)).prepare()
+  assert.deepEqual([withVoices.system, JSON.stringify(withVoices.tool), withVoices.turnContext], [plain.system, JSON.stringify(plain.tool), plain.turnContext])
+  assert.equal(withVoices.turnContext.includes('ref-'), false)
+})

@@ -27,7 +27,7 @@ test('配音设置：默认浏览器朗读；开启前要填齐地址与 Key，�
   const initial = await speech.present()
   assert.equal(initial.enabled, false)
   assert.equal(initial.provider, 'browser')
-  assert.deepEqual(initial.providers.map(item => item.id), ['browser', 'openai', 'gpt-sovits', 'minimax', 'volcengine'])
+  assert.deepEqual(initial.providers.map(item => item.id), ['browser', 'openai', 'gpt-sovits', 'fish', 'minimax', 'volcengine'])
   await assert.rejects(speech.save({ enabled: true, provider: 'openai' }), /还不能开启配音：请填写 API Key/)
   const saved = await speech.save({ enabled: true, provider: 'openai', config: { voice: 'nova' }, apiKey: 'sk-1' })
   assert.equal(saved.enabled, true)
@@ -201,4 +201,73 @@ test('插件配音渠道：收到局、说话人和是否旁白；说话人或�
   entry.version = '2'
   await speech.synthesize({ text: '你好', gameId: 'g', speaker: '林岚' })
   assert.equal(calls.length, 3)
+})
+
+// Fish 协议 (cast-presentation.md 21/N): routes answered like a Fish-compatible server; /v1/info is optional.
+function fishHarness({ info } = {}) {
+  const h = harness(), requests = []
+  const fetchImpl = async (url, init) => {
+    const path = new URL(url).pathname
+    requests.push({ url, path, headers: init.headers || {}, body: init.body ? JSON.parse(init.body) : null })
+    if (path === '/v1/info') return info === undefined ? new Response('not found', { status: 404 }) : new Response(JSON.stringify(info), { headers: { 'content-type': 'application/json' } })
+    if (path === '/v1/warm') return new Response('', { status: 200 })
+    return new Response(Buffer.from('RIFFfish'), { headers: { 'content-type': 'audio/wav' } })
+  }
+  const credentials = { async resolve(ref) { return h.keys.has(ref) ? { value: h.keys.get(ref) } : undefined }, async set(ref, value) { h.keys.set(ref, value) } }
+  const speech = createSpeech({ store: { readJson: async path => h.files.has(path) ? JSON.parse(h.files.get(path)) : undefined, writeJson: async (path, value) => { h.files.set(path, JSON.stringify(value)) },
+    writeBytes: async (path, data) => { h.files.set(path, Buffer.from(data)) }, readBytes: async path => h.files.get(path), size: async path => h.files.has(path) ? h.files.get(path).length : 0 },
+  credentials: () => credentials, fetchImpl })
+  return { speech, requests, keys: h.keys }
+}
+
+test('Fish 协议：Key 选填，不填就不带 Authorization；模型从 /v1/info 读，留空用第一个；声音是 reference_id', async () => {
+  const { speech, requests } = fishHarness({ info: { models: [{ id: 'model-a', label: 'Model A' }, { id: 'model-b' }, { id: '../bad' }], capabilities: {} } })
+  const saved = await speech.save({ enabled: true, provider: 'fish', config: { baseUrl: 'http://127.0.0.1:8080/', voice: 'ref-lin' } })
+  const fish = saved.providers.find(item => item.id === 'fish')
+  assert.deepEqual([fish.key, fish.keyOptional, fish.hasKey, fish.discovers, fish.prepares], [true, true, false, true, true])
+  assert.deepEqual(await speech.serviceInfo({ provider: 'fish' }), { models: [{ id: 'model-a', label: 'Model A' }, { id: 'model-b', label: 'model-b' }] })
+  const audio = await speech.synthesize({ text: '“你好。”', emotion: 'joy' })
+  assert.match(audio.id, /\.wav$/)
+  const tts = requests.find(item => item.path === '/v1/tts')
+  assert.equal(tts.url, 'http://127.0.0.1:8080/v1/tts')
+  assert.equal(Object.hasOwn(tts.headers, 'authorization'), false, '没有 Key 就不带 Authorization')
+  assert.equal(tts.headers.model, 'model-a')
+  assert.deepEqual(tts.body, { text: '“你好。”', reference_id: 'ref-lin', format: 'wav' })
+  assert.equal(requests.filter(item => item.path === '/v1/info').length, 1, '同一地址的回答只问一次')
+  assert.deepEqual(await speech.synthesize({ text: '“你好。”', emotion: 'sad' }), audio, 'Fish 不按情绪区分缓存')
+  // A configured model is sent as written; the character's own voice wins.
+  await speech.save({ provider: 'fish', config: { model: 'model-b' } })
+  await speech.synthesize({ text: '再见。', voice: 'ref-nora' })
+  assert.deepEqual([requests.at(-1).headers.model, requests.at(-1).body.reference_id], ['model-b', 'ref-nora'])
+})
+
+test('Fish 协议：Key 只发给保存它的地址；服务没有 /v1/info 时照常合成、不预热', async () => {
+  const { speech, requests, keys } = fishHarness()
+  await speech.save({ enabled: true, provider: 'fish', config: { voice: 'cloud-voice', model: 's1' }, apiKey: 'fk-1' })
+  assert.equal(keys.get('DSH_TAVERN_SPEECH_FISH_API_KEY'), 'fk-1')
+  assert.deepEqual(await speech.serviceInfo({ provider: 'fish' }), { models: [] }, '404：服务不列模型')
+  await speech.synthesize({ text: '你好' })
+  assert.equal(requests.at(-1).url, 'https://api.fish.audio/v1/tts')
+  assert.equal(requests.at(-1).headers.authorization, 'Bearer fk-1')
+  assert.equal(await speech.prepare({ voice: 'cloud-voice' }), false, '没有声明 prepareVoice 就不预热')
+  assert.equal(requests.some(item => item.path === '/v1/warm'), false)
+  // A new address keeps working without the old key; it is never sent there.
+  const moved = await speech.save({ provider: 'fish', config: { baseUrl: 'http://127.0.0.1:9000' } })
+  assert.equal(moved.providers.find(item => item.id === 'fish').hasKey, false)
+  await speech.synthesize({ text: '换了地址' })
+  assert.equal(requests.at(-1).url, 'http://127.0.0.1:9000/v1/tts')
+  assert.equal(Object.hasOwn(requests.at(-1).headers, 'authorization'), false, '旧密钥不发到新地址')
+})
+
+test('Fish 协议：服务声明 prepareVoice 才调 /v1/warm；配音关着什么都不请求', async () => {
+  const { speech, requests } = fishHarness({ info: { models: [{ id: 'model-a' }], capabilities: { prepareVoice: true } } })
+  await speech.save({ provider: 'fish', config: { baseUrl: 'http://127.0.0.1:8080', voice: 'ref-lin' } })
+  assert.equal(await speech.prepare({ voice: 'ref-lin' }), false, '配音关着')
+  assert.equal(requests.length, 0)
+  await speech.save({ enabled: true, provider: 'fish' })
+  assert.equal(await speech.prepare({ voice: 'ref-lin' }), true)
+  const warm = requests.find(item => item.path === '/v1/warm')
+  assert.deepEqual([warm.headers.model, warm.body, Object.hasOwn(warm.headers, 'authorization')], ['model-a', { reference_id: 'ref-lin' }, false])
+  await speech.save({ enabled: true, provider: 'openai', config: { voice: 'alloy' }, apiKey: 'sk-1' })
+  assert.equal(await speech.prepare({ voice: 'alloy' }), false, '别的渠道没有预热')
 })
