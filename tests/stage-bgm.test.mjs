@@ -170,5 +170,5 @@ test('wiring: one transport owner, the chat header chip, the control bar chip, t
   assert.doesNotMatch(runtime, /music\.|tavernMusic/, 'the stage runtime never touches music')
   assert.match(read('tavern-plugin/lib/rpc/media.js'), /async getStageMusicTracks\(args\)/)
   assert.match(read('tavern-plugin/lib/index.js'), /musicEnabled: \(await readTavernSettings\(\)\)\.stageToggles\.music/)
-  assert.match(read('tavern-plugin/lib/index.js'), /if \(!\(await readTavernSettings\(\)\)\.stageToggles\.music\) material\.music = \[\]/)
+  assert.match(read('tavern-plugin/lib/index.js'), /const toggles = \(await readTavernSettings\(\)\)\.stageToggles\n\s*if \(!toggles\.music\) material\.music = \[\]/)
 })
