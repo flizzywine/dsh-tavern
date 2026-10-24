@@ -5,7 +5,7 @@ import vm from 'node:vm'
 import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
 
 const interpreter = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/features/stage-skin.js', import.meta.url), 'utf8')
-  + '; ({ stageSkinTokens, stageSkinQuickMenu, stageSkinPanelTokens, stageSkinRoot, stageSkinArt, stageSkinArtImages })', { skinContrast, stageSkinImageOf, stageSkinSliceEdges })
+  + '; ({ stageSkinTokens, stageSkinQuickMenu, stageSkinPanelTokens, stageSkinRoot, stageSkinArt, stageSkinArtImages, stageSkinImages, stageSkinControlIcons })', { skinContrast, stageSkinImageOf, stageSkinSliceEdges })
 const schema = JSON.parse(readFileSync(new URL('../tavern-plugin/lib/domain/stage-skin.schema.json', import.meta.url), 'utf8'))
 const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const classic = BUILTIN_STAGE_SKINS.classic
@@ -184,4 +184,54 @@ test('the stylesheet draws the art layer only from its tokens, and phones keep t
   assert.match(block, /border-image: var\(--art-plain\) var\(--art-sl\) fill/)
   assert.match(block, /--art-fs: max\(17px,/)
   assert.match(block, /prefers-reduced-motion: no-preference/)
+})
+
+test('the face window, the name on its frame and the drawn control row come from the same document and its decoded images', () => {
+  const name = { arc: [160, 60, 120], span: 80, font: 30, min: 14, ink: ['#f0e8d0', '#c8b080'], stroke: { color: '#201810', width: 2 }, bed: { color: '#000000', alpha: .4 } }
+  const document = skin({ art: art({ textbox: { ...art().textbox, images: { plain: 'art/box.png' }, controls: { x: 1700, y: 20, size: 60, w: 40, gap: 8 } },
+    portrait: { ...frame({ image: 'art/frame.png', window: [50, 50, 220, 200], round: true, front: true, glass: 'art/glass.png', speaking: 'art/speaking.png', fill: ['#304050', '#102030'], name }),
+      narrow: { width: 96, x: 0, y: -40, name: 'arc', nameMin: 10, flow: 'below', left: 16 } } }),
+    quickMenu: { bg: '#101418', fg: '#f2f2f2', place: 'box-top-right', narrow: 'edge', icons: { auto: { image: 'art/auto.svg', on: 'art/auto-on.svg' }, back: { image: 'art/back.svg' } },
+      button: { normal: 'art/button.png', hover: 'art/button-hover.png', glyph: [.2, .3, .6, .4] } } })
+  validateStageSkin(document)
+  assert.deepEqual([...interpreter.stageSkinArtImages(document)].sort(), ['art/box.png', 'art/frame.png', 'art/glass.png', 'art/speaking.png'])
+  assert.deepEqual([...interpreter.stageSkinImages(document)].sort(), ['art/auto-on.svg', 'art/auto.svg', 'art/back.svg', 'art/box.png', 'art/button-hover.png', 'art/button.png', 'art/frame.png', 'art/glass.png', 'art/speaking.png'])
+  const file = (path, width, height) => [path, { url: '/lease/t/' + path, width, height }]
+  const files = Object.fromEntries([file('art/box.png', 1800, 300), file('art/frame.png', 300, 280), file('art/glass.png', 220, 200), file('art/speaking.png', 300, 280),
+    file('art/auto.svg', 32, 32), file('art/auto-on.svg', 32, 32), file('art/back.svg', 32, 32), file('art/button.png', 60, 90), file('art/button-hover.png', 60, 90)])
+  const root = interpreter.stageSkinRoot(document)
+  assert.deepEqual([root['data-fk-skin-controls-place'], root['data-fk-skin-controls-narrow'], root['data-fk-skin-controls-icons']], ['box-top-right', 'edge', ''])
+  const drawn = interpreter.stageSkinArt(document, files)
+  for (const mark of ['frame', 'round', 'front', 'glass', 'speaking', 'fill', 'name', 'name-stroke']) assert.equal(drawn.marks['data-fk-skin-portrait-' + mark], '', mark)
+  assert.equal(drawn.marks['data-fk-skin-portrait'], 'avatar')
+  assert.equal(drawn.tokens['--art-face-frame'], 'url("/lease/t/art/frame.png")')
+  assert.deepEqual(['fw', 'fh', 'wl', 'wb', 'ww', 'wh'].map(key => drawn.tokens['--art-face-' + key]), ['300', '280', '50', '50', '220', '200'])
+  assert.equal(drawn.tokens['--art-face-fill'], 'radial-gradient(closest-side, #304050, #102030 99%, transparent 100%)')
+  // The arc in the frame image's own px (y down), and the phone's place and floor.
+  assert.deepEqual(JSON.parse(JSON.stringify(drawn.faceName)), { view: [300, 280], x: 140, y: 240, r: 120, span: 80, side: 'bottom', font: 30, ink: ['#f0e8d0', '#c8b080'], weight: 700, spacing: 0,
+    engrave: null, stroke: { color: '#201810', width: 2 }, shadow: null, bed: { color: '#000000', alpha: .4, width: 30 }, min: 14, narrowMin: 10 })
+  assert.deepEqual([drawn.marks['data-fk-skin-portrait-narrow'], drawn.marks['data-fk-skin-portrait-flow'], drawn.tokens['--art-face-nh'], drawn.tokens['--art-face-nleft']], ['', 'below', '89.6', '16'])
+  assert.deepEqual(['x', 'y', 'size', 'w', 'gap'].map(key => drawn.tokens['--art-qc-' + key]), ['1700', '20', '60', '40', '8'])
+  // Each drawn control: its icon, its `on` image and the shared button body with its glyph box and aspect.
+  const icons = interpreter.stageSkinControlIcons(document, files)
+  assert.deepEqual(Object.keys(icons), ['auto', 'back'])
+  assert.equal(icons.auto.on, '/lease/t/art/auto-on.svg')
+  assert.equal(icons.back.on, null)
+  assert.deepEqual(JSON.parse(JSON.stringify(icons.auto.button)), { normal: '/lease/t/art/button.png', hover: '/lease/t/art/button-hover.png', on: null, disabled: null, glyph: [.2, .3, .6, .4], aspect: .6667 })
+  // A bust portrait is the scene's, not the face window's; a folded menu has no row to place or draw.
+  const bust = skin({ art: art({ screenWidth: 1920, portrait: { left: 0, bottom: 0, size: 200, source: 'bust', bust: { head: [0.5, 0.2] } } }) })
+  assert.equal(interpreter.stageSkinArt(bust, { 'art/box.svg': { url: 'u', width: 1800, height: 300 } })?.marks['data-fk-skin-portrait'], undefined)
+  const folded = skin({ quickMenu: { ...document.quickMenu, layout: 'orb' } })
+  assert.equal(interpreter.stageSkinRoot(folded)['data-fk-skin-controls-place'], undefined)
+  assert.deepEqual({ ...interpreter.stageSkinControlIcons(folded, files) }, {})
+})
+
+test('the face window and the drawn controls read only their tokens; a phone keeps the side, the lines and 44px targets apart', () => {
+  const block = css.slice(css.indexOf('/* ==== stage skin: art portrait ===='), css.indexOf('/* ==== end stage skin: art ==== */'))
+  assert.ok(block.length > 0)
+  assert.doesNotMatch(block, /url\(/)
+  assert.match(block, /\.dsh-tavern-stage-textbox\.is-speaking \.dsh-tavern-stage-side\.is-on::before \{ opacity: 1/)
+  assert.match(block, /--art-u: calc\(var\(--art-face-nw\) \* 1px \/ var\(--art-face-nsw\)\)/)
+  assert.match(block, /button\.has-icon \{ width: 44px; height: 44px/)
+  assert.match(block, /--art-dock-over:/)
 })

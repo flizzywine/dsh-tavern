@@ -9,8 +9,13 @@ function tavernCastImage(data, name, emotion, preferAvatar) {
 	const character = tavernCastCharacter(data.cast, name);
 	const sprites = character ? character.sprites || {} : {};
 	const sprite = sprites[emotion] || sprites.neutral || Object.values(sprites)[0] || "";
-	const avatar = character && (character.avatars || {})[emotion] || character && character.avatarUrl || (name === data.card.name ? data.card.imageUrl : "");
+	const avatar = tavernCastAvatar(data, name, emotion);
 	return preferAvatar ? avatar || sprite : sprite || avatar;
+}
+// The speaker's avatar alone (the stage's face window shows no full figure): this mood's, the character's, or the card's own.
+function tavernCastAvatar(data, name, emotion) {
+	const character = tavernCastCharacter(data.cast, name);
+	return character && (character.avatars || {})[emotion] || character && character.avatarUrl || (name === data.card.name ? data.card.imageUrl : "") || "";
 }
 
 function watchStageRuntime(sessionId, binding, refresh) {
@@ -70,6 +75,10 @@ function TavernStageScene(props) {
 	const lamp = props.art ? h("span", { className: "dsh-tavern-stage-lamp", "aria-hidden": true }) : null;
 	const nameRef = React.useRef(null);
 	useTavernStageNameFit(nameRef, beat && beat.kind === "line" ? beat.speaker : "", props.art);
+	// The skin's face window (art.portrait, stage-skin.js stageSkinPortraitArt): the speaker's avatar on a line page; empty on
+	// narration and for a speaker without one, so no empty frame shows.
+	const side = props.art && props.art.marks["data-fk-skin-portrait"] ? h(TavernStageSide, { face: beat && beat.kind === "line" ? tavernCastAvatar(data, beat.speaker, beat.emotion) : "",
+		name: beat && beat.kind === "line" ? beat.speaker : "", nameArc: props.art.faceName }) : null;
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -78,12 +87,88 @@ function TavernStageScene(props) {
 			const speaking = beat && (speaker ? speaker.name : beat.speaker) === name;
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
-		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") },
+		// is-speaking: the page's line is being read aloud (a skin's art.portrait.frame.speaking frame shows then).
+		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") + (props.speaking && beat.kind === "line" ? " is-speaking" : "") },
+			side,
 			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { ref: nameRef, "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text, next),
 			lamp, props.footer || null, props.dock || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文", props.dock || null));
+}
+
+// The face window (tavern.css 「stage skin: art portrait」): the speaker's avatar, cut in on a new speaker (no slide or fade, as a
+// framed window does); .is-on only while there is a face. The frame's arc name is decoration: the box's plate keeps the name
+// for screen readers.
+function TavernStageSide(props) {
+	const h = React.createElement, [failed, setFailed] = React.useState("");
+	const face = props.face && failed !== props.face ? props.face : "";
+	return h("div", { className: "dsh-tavern-stage-side" + (face ? " is-on" : ""), "aria-hidden": true },
+		face ? h("img", { key: face, className: "dsh-tavern-stage-side-img", src: face, alt: "", draggable: false, onError: () => setFailed(props.face) }) : null,
+		face && props.nameArc && props.name ? h(TavernStageSideName, { arc: props.nameArc, name: props.name }) : null);
+}
+
+// art.portrait.frame.name: the speaker's name set along the frame's circle, in the frame image's own px (the svg covers the side,
+// which is the frame): the glyphs' middles on the circle, centred on its lowest (or highest) point. Any name stays inside the
+// span's arc: set smaller first, down to .72; then its tracking closed, down to -.04em; then smaller again to the skin's min
+// (on a phone, narrow.nameMin CSS px); past that pressed to the arc. Legibility: bed = a soft dark band under the run (its own
+// blurred layer), engrave = a dark copy above and a light one below, shadow = an offset outlined copy behind, stroke = an
+// outline under the ink (a gradient down the glyphs). The plain caption beside it is the phone's one line (name below).
+function TavernStageSideName(props) {
+	const h = React.createElement, a = props.arc, name = String(props.name);
+	const id = "dsh-face-name-" + React.useId().replace(/[^a-z0-9]/gi, "");
+	const ink = React.useRef(null), [fit, setFit] = React.useState({ name: "", scale: 1, spacing: a.spacing, press: 0 });
+	const top = a.side === "top", room = a.r * a.span * Math.PI / 180;
+	React.useLayoutEffect(() => {
+		const text = ink.current;
+		if (!text) return undefined;
+		let live = true;
+		// The run measured at full size in the glyphs' own face (a canvas: the svg's run is already fitted); it scales with the size.
+		const measure = () => {
+			const context = live && document.createElement("canvas").getContext("2d");
+			if (!context) return;
+			context.font = a.weight + " " + a.font + "px " + getComputedStyle(text).fontFamily;
+			const glyphs = context.measureText(name).width, gaps = Array.from(name).length * a.font, run = em => glyphs + em * gaps;
+			let scale = 1, spacing = a.spacing;
+			// a phone's own floor (narrow.nameMin, CSS px): the frame px it takes at the side's drawn scale
+			const k = text.ownerSVGElement?.getScreenCTM()?.a || 0;
+			const phone = a.narrowMin && k > 0 && matchMedia("(max-width: 640px)").matches ? a.narrowMin / k : 0;
+			const floor = Math.min(1, Math.max(a.min || a.font * .25, phone) / a.font);
+			if (run(spacing) > room) scale = Math.max(.72, floor, room / run(spacing));
+			if (run(spacing) * scale > room) spacing = Math.max(-.04, Math.min(spacing, (room / scale - glyphs) / gaps));
+			if (run(spacing) * scale > room) scale = Math.max(floor, Math.min(scale, room / run(spacing)));
+			scale = Math.round(scale * 1000) / 1000; spacing = Math.round(spacing * 1000) / 1000;
+			const press = run(spacing) * scale > room + .5 ? Math.round(room) : 0;
+			setFit(previous => previous.name === name && previous.scale === scale && previous.spacing === spacing && previous.press === press ? previous : { name, scale, spacing, press });
+		};
+		measure();
+		document.fonts.ready.then(measure);
+		// the side's drawn scale changes with the viewport (a phone's floor is in CSS px)
+		if (a.narrowMin) window.addEventListener("resize", measure);
+		return () => { live = false; window.removeEventListener("resize", measure); };
+	}, [name, room, a.narrowMin]);
+	const scale = fit.name === name ? fit.scale : 1, press = fit.name === name ? fit.press : 0, spacing = fit.name === name ? fit.spacing : a.spacing;
+	const point = angle => [a.x + a.r * Math.cos(angle * Math.PI / 180), a.y + a.r * Math.sin(angle * Math.PI / 180)].map(value => Math.round(value * 100) / 100).join(" ");
+	// Left to right: under the middle the way runs counter-clockwise (the glyphs' tops toward the centre), over it clockwise.
+	const from = top ? 270 - a.span / 2 : 90 + a.span / 2, to = top ? 270 + a.span / 2 : 90 - a.span / 2;
+	const path = "M" + point(from) + " A" + a.r + " " + a.r + " 0 " + (a.span > 180 ? 1 : 0) + " " + (top ? 1 : 0) + " " + point(to);
+	const size = a.font * scale, shift = Math.round(a.font * .045 * 100) / 100;
+	const layer = (key, fill, dy, extra) => h("text", { key, ref: key === "ink" ? ink : undefined, className: "dsh-tavern-stage-side-name-" + key, fill, transform: dy ? "translate(0 " + dy + ")" : undefined,
+		textLength: press || undefined, lengthAdjust: press ? "spacingAndGlyphs" : undefined, dominantBaseline: "central", textAnchor: "middle",
+		"data-fit": scale + " " + spacing, style: { fontSize: size + "px", fontWeight: a.weight, letterSpacing: spacing + "em" }, ...extra }, h("textPath", { href: "#" + id, startOffset: "50%" }, name));
+	const outline = color => a.stroke ? { stroke: color, strokeWidth: a.stroke.width * 2, strokeLinejoin: "round", paintOrder: "stroke fill" } : {};
+	return h(React.Fragment, null,
+		h("svg", { className: "dsh-tavern-stage-side-name", viewBox: "0 0 " + a.view[0] + " " + a.view[1], "aria-hidden": true, focusable: "false" },
+			h("defs", null, h("path", { id, d: path, fill: "none" }),
+				h("linearGradient", { id: id + "-ink", x1: 0, y1: 0, x2: 0, y2: 1 }, h("stop", { offset: 0, stopColor: a.ink[0] }), h("stop", { offset: 1, stopColor: a.ink[1] || a.ink[0] })),
+				a.bed ? h("filter", { id: id + "-bed", x: "-25%", y: "-60%", width: "150%", height: "220%" }, h("feGaussianBlur", { stdDeviation: Math.round(a.bed.width * 25) / 100 }),
+					h("feComponentTransfer", null, h("feFuncA", { type: "linear", slope: a.bed.alpha }))) : null),
+			a.bed ? layer("bed", a.bed.color, 0, { stroke: a.bed.color, strokeWidth: Math.max(0, a.bed.width - size), strokeLinejoin: "round", filter: "url(#" + id + "-bed)" }) : null,
+			a.engrave ? layer("dark", a.engrave.dark, -shift) : null,
+			a.engrave ? layer("light", a.engrave.light, shift) : null,
+			a.shadow ? layer("shadow", a.shadow.color, 0, { transform: "translate(" + a.shadow.dx + " " + a.shadow.dy + ")", ...outline(a.shadow.color) }) : null,
+			layer("ink", "url(#" + id + "-ink)", 0, a.stroke ? outline(a.stroke.color) : undefined)),
+		h("span", { className: "dsh-tavern-stage-side-caption", style: { "--name-len": Array.from(name).length } }, name));
 }
 
 // A name longer than its plate's room (an art plate: tavern.css 「stage skin: art」) is set smaller to fit, down to .6, instead of
@@ -195,14 +280,23 @@ function TavernStageScreen(props) {
 	const skin = React.useMemo(() => stageSkinRoot(skinDocument), [JSON.stringify(skinDocument)]);
 	const artFiles = useStageSkinArtFiles(data && data.skin && data.skin.document ? data.skin : null);
 	const art = React.useMemo(() => stageSkinArt(skinDocument, artFiles), [skinDocument === BUILTIN_STAGE_SKINS.classic ? "" : JSON.stringify(skinDocument), artFiles]);
+	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
+	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
+	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
 		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
-		speech: { on: () => readingOn.current, speak: beat => tavernSpeech.speak(tavernBeatSpeech(id, beat)), stop: () => tavernSpeech.stop() },
+		speech: { on: () => readingOn.current, stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
+			speak: beat => {
+				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
+				setSpeaking(true);
+				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
+				return done;
+			} },
 		// A plugin's music (tavernUi.playMusic) ends with the stage view; the stage's BGM does not.
 		release: () => tavernMusic.stop()
 	}), [id]);
@@ -232,12 +326,19 @@ function TavernStageScreen(props) {
 		catch (error) { tavernErrorHub.report("舞台发送", error); }
 		finally { setSending(false); }
 	}
+	// A control the skin draws (quickMenu.icons: back = ‹, auto, skip) shows its icon on the skin's button body; the others keep
+	// their own words. Every control keeps its action, name and keys.
+	const control = (action, label, glyph, attributes, on) => {
+		const icon = icons[action];
+		return h("button", { type: "button", "data-action": action, ...attributes, ...(icon ? { "aria-label": label, title: label, className: (attributes.className || "") + " has-icon" } : null) },
+			icon ? tavernStageControlIcon(icon, on, attributes.disabled) : glyph);
+	};
 	const footer = h("div", { className: "dsh-tavern-stage-controls", onClick: event => event.stopPropagation() },
-		h("button", { type: "button", onClick: () => step(-1), disabled: reader.index <= 0, "aria-label": "上一句" }, "‹"),
+		control("back", "上一句", "‹", { onClick: () => step(-1), disabled: reader.index <= 0, "aria-label": "上一句" }),
 		h("span", { className: "dsh-tavern-stage-progress" }, beats.length ? (reader.index + 1) + " / " + beats.length : ""),
 		h("button", { type: "button", onClick: () => step(1), disabled: atEnd, "aria-label": "下一句" }, "›"),
-		h("button", { type: "button", className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, "自动"),
-		h("button", { type: "button", onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }, "跳过"),
+		control("auto", "自动", "自动", { className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, reader.auto),
+		control("skip", "跳过", "跳过", { onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }),
 		h(TavernBgmStage, { sessionId: id }),
 		h(TavernMusicToggle, null),
 		h("span", { className: "dsh-tavern-spacer" }),
@@ -250,8 +351,23 @@ function TavernStageScreen(props) {
 	const docked = Boolean(art) && !choice.view;
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
 		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined },
-		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art, dock: docked ? input : null }),
+		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art, speaking, dock: docked ? input : null }),
 		docked ? null : input);
+}
+
+// A drawn control (stageSkinControlIcons): the icon (its `on` image while it runs) alone, or on the skin's button body - its
+// normal / on / disabled image by state and the hover image over it under the pointer and keyboard focus - in the glyph box.
+function tavernStageControlIcon(icon, on, disabled) {
+	const h = React.createElement;
+	const glyph = h("img", { key: "icon", className: "dsh-tavern-stage-control-icon", src: on && icon.on || icon.image, alt: "", draggable: false });
+	const body = icon.button;
+	if (!body) return glyph;
+	const [x, y, w, height] = body.glyph;
+	return h("span", { className: "dsh-tavern-stage-control-art", "aria-hidden": true, "data-hover": body.hover ? "" : undefined, "data-disabled": body.disabled ? "" : undefined,
+		style: { "--qm-aspect": body.aspect, "--qm-gx": x, "--qm-gy": y, "--qm-gw": w, "--qm-gh": height } },
+		h("img", { key: "body", className: "dsh-tavern-stage-control-body", src: disabled && body.disabled || on && body.on || body.normal, alt: "", draggable: false }),
+		body.hover && !disabled ? h("img", { key: "hover", className: "dsh-tavern-stage-control-body is-hover", src: on && body.on || body.hover, alt: "", draggable: false }) : null,
+		glyph);
 }
 
 // Two entries open the same fullscreen stage: the chat header's 「舞台」 and 酒馆状态's 「全屏舞台」.

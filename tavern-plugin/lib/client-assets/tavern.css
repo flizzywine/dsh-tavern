@@ -3157,7 +3157,7 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-align="top"] .dsh-tavern-stage-textbox { justify-content: flex-start; padding-top: calc((var(--art-text-y) - var(--art-body-y)) * var(--art-u)); padding-bottom: 0; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-stroke] .dsh-tavern-stage-text { -webkit-text-stroke: calc(var(--art-text-stroke-w) * 2 * var(--art-u)) var(--art-text-stroke); paint-order: stroke fill; }
 .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: absolute; margin: 0; right: 14px; bottom: 8px; }
-.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + var(--art-body-y) * var(--art-u) + 12px); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + var(--art-dock-over, calc(var(--art-body-y) * var(--art-u))) + 12px); }
 /* the name on the box: the layout's plate at x / y, outlined --art-np-stroke px */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name {
   position: absolute; box-sizing: border-box; align-items: center; margin: 0; max-width: none; left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-np-y) - var(--art-body-y)) * var(--art-u));
@@ -3259,6 +3259,130 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
   /* the controls row gets its own strip under the lines, right-aligned */
   .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: static; justify-content: flex-end; margin-top: 6px; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-text { margin-top: max(0px, calc((var(--art-np-y) + var(--art-np-h) - var(--art-sl-t)) * var(--art-u))); }
+}
+/* ==== stage skin: art portrait ====
+   art.portrait (stageSkinPortraitArt in stage-skin.js): the speaker's avatar in a face window on the box (.dsh-tavern-stage-side),
+   placed on the design screen - centred like the box, standing --art-face-y0 up - so it scales with the art. Only while a
+   face shows (.is-on) is anything drawn: narration and a speaker without an avatar leave no empty frame, and the lines never
+   move (the side is out of flow). The input docked above the box clears the window's top. */
+.dsh-tavern-stage-side { position: absolute; pointer-events: none; }
+.dsh-tavern-stage-side-img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; -webkit-user-drag: none; }
+.dsh-tavern-stage-side-name, .dsh-tavern-stage-side-caption { display: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"] .dsh-tavern-stage-textbox {
+  --art-face-x0: calc((var(--art-screen-w) - var(--art-body-w)) / 2); --art-face-y0: calc(var(--art-bottom) + var(--art-img-h) - var(--art-body-y) - var(--art-body-h));
+  --art-dock-over: calc(max(var(--art-body-y), var(--art-face-b) + var(--art-face-s) - var(--art-face-y0) - var(--art-body-h)) * var(--art-u)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"] .dsh-tavern-stage-textbox .dsh-tavern-stage-side {
+  left: calc((var(--art-face-l) - var(--art-face-x0)) * var(--art-u)); bottom: calc((var(--art-face-b) - var(--art-face-y0)) * var(--art-u));
+  width: calc(var(--art-face-s) * var(--art-u)); height: calc(var(--art-face-s) * var(--art-u)); }
+/* frame: the side is the frame image (behind the box image: the box draws over the face where they meet), the face square in it
+   clipped to the window. A cut on a new speaker, as the original: no slide or fade. */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame] .dsh-tavern-stage-textbox {
+  --art-dock-over: calc(max(var(--art-body-y), var(--art-face-fb) + var(--art-face-fh) - var(--art-face-y0) - var(--art-body-h)) * var(--art-u)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame] .dsh-tavern-stage-textbox .dsh-tavern-stage-side {
+  z-index: -2; left: calc((var(--art-face-fl) - var(--art-face-x0)) * var(--art-u)); bottom: calc((var(--art-face-fb) - var(--art-face-y0)) * var(--art-u));
+  width: calc(var(--art-face-fw) * var(--art-u)); height: calc(var(--art-face-fh) * var(--art-u));
+  --face-glass-at: calc((var(--art-face-wl) - var(--art-face-fl)) * var(--art-u)) calc((var(--art-face-fb) + var(--art-face-fh) - var(--art-face-wb) - var(--art-face-wh)) * var(--art-u));
+  --face-glass-size: calc(var(--art-face-ww) * var(--art-u)) calc(var(--art-face-wh) * var(--art-u)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on { background: var(--art-face-frame) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame] .dsh-tavern-stage-side > .dsh-tavern-stage-side-img {
+  inset: auto; left: calc((var(--art-face-l) - var(--art-face-fl)) * var(--art-u)); bottom: calc((var(--art-face-b) - var(--art-face-fb)) * var(--art-u));
+  width: calc(var(--art-face-s) * var(--art-u)); height: calc(var(--art-face-s) * var(--art-u));
+  clip-path: inset(calc((var(--art-face-b) + var(--art-face-s) - var(--art-face-wb) - var(--art-face-wh)) * var(--art-u)) calc((var(--art-face-l) + var(--art-face-s) - var(--art-face-wl) - var(--art-face-ww)) * var(--art-u))
+    calc((var(--art-face-wb) - var(--art-face-b)) * var(--art-u)) calc((var(--art-face-wl) - var(--art-face-l)) * var(--art-u))); }
+/* round = the face clipped to the window's ellipse; front = the side over the box image with the frame in front of the face
+   (::after), not behind it; glass = a sheen over the face across the window; speaking = the frame while the line is read aloud
+   (.is-speaking), faded in over the frame (::before); back = the window's own background under the face; fill = the window's
+   opaque face (a colour or a radial gradient) under the back and the face, so a cut-out avatar never shows the stage through. */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-round] .dsh-tavern-stage-side > .dsh-tavern-stage-side-img {
+  clip-path: ellipse(calc(var(--art-face-ww) / 2 * var(--art-u)) calc(var(--art-face-wh) / 2 * var(--art-u))
+    at calc((var(--art-face-wl) + var(--art-face-ww) / 2 - var(--art-face-l)) * var(--art-u)) calc((var(--art-face-b) + var(--art-face-s) - var(--art-face-wb) - var(--art-face-wh) / 2) * var(--art-u))); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side { z-index: 1; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on { background: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame]:is([data-fk-skin-portrait-front], [data-fk-skin-portrait-glass]) .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on::after {
+  content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--art-face-glass, none) var(--face-glass-at) / var(--face-glass-size) no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on::after {
+  background: var(--art-face-frame) 0 0 / 100% 100% no-repeat, var(--art-face-glass, none) var(--face-glass-at) / var(--face-glass-size) no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-speaking] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0; transition: opacity .35s ease-out; background: var(--art-face-speaking) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-speaking][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on::before { z-index: 3; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-speaking] .dsh-tavern-stage-textbox.is-speaking .dsh-tavern-stage-side.is-on::before { opacity: 1; transition-duration: .2s; }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-overlay[data-fk-skin-portrait-speaking] .dsh-tavern-stage-side.is-on::before { transition: none; } }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-back] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on {
+  background: var(--art-face-back) var(--face-glass-at) / var(--face-glass-size) no-repeat, var(--art-face-frame) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-back][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on { background: var(--art-face-back) var(--face-glass-at) / var(--face-glass-size) no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-fill] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on {
+  background: var(--art-face-back, none) var(--face-glass-at) / var(--face-glass-size) no-repeat, var(--art-face-fill) var(--face-glass-at) / var(--face-glass-size) no-repeat, var(--art-face-frame) 0 0 / 100% 100% no-repeat; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-fill][data-fk-skin-portrait-front] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.is-on {
+  background: var(--art-face-back, none) var(--face-glass-at) / var(--face-glass-size) no-repeat, var(--art-face-fill) var(--face-glass-at) / var(--face-glass-size) no-repeat; }
+/* frame.name: the speaker's name along the frame's circle (TavernStageSideName: an svg in the frame's own px over the whole side,
+   above the frame, the sheen and the speaking frame). While it shows, the box's plate steps aside: its name stays for screen
+   readers only. A speaker without a face keeps the plate as drawn. */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-frame][data-fk-skin-portrait-name] .dsh-tavern-stage-side > .dsh-tavern-stage-side-name {
+  position: absolute; inset: 0; z-index: 4; display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait-name] .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox:has(> .dsh-tavern-stage-side.is-on) > .dsh-tavern-stage-name {
+  position: absolute; width: 1px; min-width: 0; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; background: none; }
+/* narrow: on a phone the side stands at its own place - --art-face-nw CSS px wide, --art-face-nx / -ny px from the box's top-left
+   corner (over the box image's top edge when negative) - and everything in it keeps the frame's proportions (its own --art-u is
+   its width over the frame's). The lines clear it on every page, a face or none: beside (its column), wrap (beside it down to
+   its bottom, then the full width) or below (under it), from --art-face-nleft px. name below: the frame's name as one line
+   centred under the side (an arc that small does not read), down to 11px for a long name, rimmed in the name's outline. */
+@media (max-width: 640px) {
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow] .dsh-tavern-stage-textbox .dsh-tavern-stage-side.dsh-tavern-stage-side {
+    --art-u: calc(var(--art-face-nw) * 1px / var(--art-face-nsw)); inset: auto; left: calc(var(--art-face-nx) * 1px); top: calc(var(--art-face-ny) * 1px);
+    width: calc(var(--art-face-nw) * 1px); height: calc(var(--art-face-nh) * 1px); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow] .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox {
+    --art-dock-over: max(calc(var(--art-body-y) * var(--art-u)), calc(var(--art-face-ny) * -1px));
+    padding-left: max(.6em, calc((var(--art-face-nx) + var(--art-face-nw)) * 1px + .5em)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow]:is([data-fk-skin-portrait-flow="wrap"], [data-fk-skin-portrait-flow="below"]) .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox {
+    padding-left: calc(var(--art-face-nleft) * 1px); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow][data-fk-skin-portrait-flow="wrap"] .dsh-tavern-stage-textbox .dsh-tavern-stage-text::before {
+    content: ""; float: left; width: calc((var(--art-face-nx) + var(--art-face-nw) - var(--art-face-nleft)) * 1px + .4em); height: max(0px, calc((var(--art-face-ny) + var(--art-face-nh)) * 1px - var(--art-pad-t) + 2px)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow][data-fk-skin-portrait-flow="below"] .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox {
+    padding-top: max(var(--art-pad-t), calc((var(--art-face-ny) + var(--art-face-nh)) * 1px + 6px)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow][data-fk-skin-portrait-flow="below"] .dsh-tavern-stage-text { margin-top: 0; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow="below"] .dsh-tavern-stage-side > .dsh-tavern-stage-side-name.dsh-tavern-stage-side-name { display: none; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow="below"] .dsh-tavern-stage-side > .dsh-tavern-stage-side-caption {
+    display: block; position: absolute; left: 50%; top: calc(100% + 1px); z-index: 4; translate: -50% 0; margin: 0; padding: 0; white-space: nowrap; pointer-events: none;
+    font-weight: var(--art-face-nweight); font-size: clamp(11px, calc((var(--art-face-nw) * 1px + 14px) / (var(--name-len, 2) * 1.15)), 14px); line-height: 1.25;
+    letter-spacing: var(--art-face-nspacing); color: var(--art-face-nink); text-shadow: 0 -1px 0 var(--art-face-ndark, transparent), 0 1px 0 var(--art-face-nlight, transparent); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow="below"][data-fk-skin-portrait-name-stroke] .dsh-tavern-stage-side > .dsh-tavern-stage-side-caption {
+    -webkit-text-stroke: 2.5px var(--art-face-nstroke); paint-order: stroke fill; text-shadow: none; }
+}
+/* ==== stage skin: box controls ====
+   The control row is the box's own. quickMenu.place puts it in the art box's top-right or bottom-right corner; art.textbox
+   .controls places it on the box image in design px on wide stages (its right end at x, its top at y), the row's other
+   controls wrapping beside the text column. quickMenu.icons draws a control as the skin's image (its `on` image while auto
+   runs) on the skin's button body (quickMenu.button, by state, the hover image under the pointer and keyboard focus); a
+   control without an icon keeps its words. Phones: the row's own strip under the lines (narrow bottom), at the box's top
+   (narrow top) or centred on its top edge taking no room (narrow edge); drawn controls are 44px targets. */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-place] .dsh-tavern-stage-controls { top: auto; right: 10px; bottom: 8px; gap: 4px; justify-content: flex-end; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-place="box-top-right"] .dsh-tavern-stage-controls { top: 8px; bottom: auto; }
+.dsh-tavern-stage-control-icon { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon { position: relative; box-sizing: border-box; width: 40px; height: 40px; padding: 2px; border: 0; border-radius: 0; background: none; box-shadow: none; opacity: 1; }
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon:is(:hover, :focus-visible) .dsh-tavern-stage-control-icon { filter: brightness(1.3) drop-shadow(0 0 .3em var(--gal-skin-qm-on)); }
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon:disabled .dsh-tavern-stage-control-icon { filter: saturate(0) brightness(.6); }
+.dsh-tavern-stage-controls button:has(> .dsh-tavern-stage-control-art) { container-type: size; overflow: visible; }
+.dsh-tavern-stage-control-art { position: absolute; inset: 0; margin: auto; display: block; pointer-events: none; width: min(100cqw, 100cqh * var(--qm-aspect)); height: min(100cqh, 100cqw / var(--qm-aspect)); }
+.dsh-tavern-stage-control-art > img { position: absolute; display: block; margin: 0; padding: 0; pointer-events: none; }
+.dsh-tavern-stage-control-art > .dsh-tavern-stage-control-body { inset: 0; width: 100%; height: 100%; }
+.dsh-tavern-stage-control-art > .dsh-tavern-stage-control-body.is-hover { opacity: 0; }
+.dsh-tavern-stage-controls button:is(:hover, :focus-visible):not(:disabled) .dsh-tavern-stage-control-art > .dsh-tavern-stage-control-body.is-hover { opacity: 1; }
+.dsh-tavern-stage-control-art > .dsh-tavern-stage-control-icon { left: calc(var(--qm-gx) * 100%); top: calc(var(--qm-gy) * 100%); width: calc(var(--qm-gw) * 100%); height: calc(var(--qm-gh) * 100%); }
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon:is(:hover, :focus-visible, :disabled) .dsh-tavern-stage-control-art > .dsh-tavern-stage-control-icon { filter: none; }
+/* (a body without its hover / disabled image keeps the icon's lift and greying, on the whole body) */
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon:is(:hover, :focus-visible):not(:disabled) .dsh-tavern-stage-control-art:not([data-hover]) { filter: brightness(1.3) drop-shadow(0 0 .3em var(--gal-skin-qm-on)); }
+.dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon:disabled .dsh-tavern-stage-control-art:not([data-disabled]) { filter: saturate(0) brightness(.6); }
+@media (min-width: 641px) {
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-controls] .dsh-tavern-stage-controls { inset: auto; justify-content: flex-end; gap: calc(var(--art-qc-gap) * var(--art-u));
+    top: calc((var(--art-qc-y) - var(--art-body-y)) * var(--art-u)); right: calc((var(--art-body-x) + var(--art-body-w) - var(--art-qc-x)) * var(--art-u));
+    max-width: calc((var(--art-qc-x) - var(--art-text-r)) * var(--art-u)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-controls] .dsh-tavern-stage-controls button.has-icon { width: max(30px, calc(var(--art-qc-w) * var(--art-u))); height: max(30px, calc(var(--art-qc-size) * var(--art-u))); padding: 0; }
+}
+@media (max-width: 640px) {
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-place] .dsh-tavern-stage-controls { gap: 0 4px; }
+  .dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon { width: 44px; height: 44px; padding: 5px; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="top"] .dsh-tavern-stage-controls { order: -1; margin: 0 0 6px; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls { position: absolute; top: auto; right: 6px; bottom: calc(100% - 22px); margin: 0; }
 }
 /* ==== end stage skin: art ==== */
 /* BGM 播放器：一个面板两处摆放。组件只读 --bgm-*，舞台映射到全屏舞台的暗色，聊天映射到宿主主题；面板底色不透明。 */

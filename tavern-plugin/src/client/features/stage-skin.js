@@ -39,9 +39,39 @@ function stageSkinPanelTokens(document) {
 		"--gal-ui-radius": (document.ui?.radius ?? document.textbox.shape?.radius ?? 10) + "px" };
 }
 
-// The root's style and marks for a skin: data-fk-skin names the drawn skin.
+// The root's style and marks for a skin: data-fk-skin names the drawn skin; the control row's place (quickMenu.place: the box's
+// top-right or bottom-right corner), where it stands on phones (narrow top / edge; bottom is the placed default) and whether
+// it is drawn from the skin's icons. A folded menu (layout capsule / orb) has no row to place.
 function stageSkinRoot(document) {
-	return { style: stageSkinTokens(document), "data-fk-skin": document.id };
+	const root = { style: stageSkinTokens(document), "data-fk-skin": document.id }, menu = document.quickMenu;
+	if (menu && (!menu.layout || menu.layout === "bar")) {
+		if (menu.place) root["data-fk-skin-controls-place"] = menu.place;
+		if (menu.place && ["top", "edge"].includes(menu.narrow)) root["data-fk-skin-controls-narrow"] = menu.narrow;
+		if (menu.icons) root["data-fk-skin-controls-icons"] = "";
+	}
+	return root;
+}
+
+// quickMenu.icons / button: each control the skin draws, by action (auto, skip, back, ...), from the decoded files - its image,
+// its `on` image while it runs, and the button body every icon stands on (normal / hover / on / disabled, the glyph box in
+// fractions of the body, the body's aspect). The stage keeps the buttons, their actions, names and keys.
+function stageSkinControlIcons(document, files) {
+	const icons = {}, menu = document.quickMenu;
+	if (!files || !menu || menu.layout && menu.layout !== "bar") return icons;
+	for (const [action, icon] of Object.entries(menu.icons || {})) if (files[icon.image]) icons[action] = { image: files[icon.image].url, on: icon.on && files[icon.on] ? files[icon.on].url : null };
+	const button = menu.button, body = button && files[button.normal];
+	if (body) {
+		const state = key => button[key] && files[button[key]] ? files[button[key]].url : null;
+		const shared = { normal: body.url, hover: state("hover"), on: state("on"), disabled: state("disabled"), glyph: button.glyph, aspect: Math.round(body.width / body.height * 10000) / 10000 };
+		for (const icon of Object.values(icons)) icon.button = shared;
+	}
+	return icons;
+}
+// The quick menu's files (icons and button states), read with the art from the skin's lease.
+function stageSkinQuickImages(document) {
+	const menu = document.quickMenu, button = menu && menu.button;
+	if (!menu || menu.layout && menu.layout !== "bar") return [];
+	return [...Object.values(menu.icons || {}).flatMap(icon => [icon.image, icon.on]), ...(button ? [button.normal, button.hover, button.on, button.disabled] : [])].filter(Boolean);
 }
 
 // The art layer (dsh.skin/1 `art`): the skin's own images as the text box, its name plate, the page cue and the auto lamp,
@@ -51,9 +81,19 @@ function stageSkinRoot(document) {
 
 // The images the drawn parts read, as paths relative to the skin document.
 function stageSkinArtImages(document) {
-	const box = document.art?.textbox, plate = document.art?.nameplate;
+	const box = document.art?.textbox, plate = document.art?.nameplate, frame = stageSkinPortrait(document)?.frame;
 	if (!box) return [];
-	return [...new Set([...Object.values(box.images), box.next && stageSkinImageOf(box.next), box.lamp?.image, plate?.image].filter(Boolean))];
+	return [...new Set([...Object.values(box.images), box.next && stageSkinImageOf(box.next), box.lamp?.image, plate?.image,
+		...(frame ? [frame.image, frame.glass, frame.back, frame.speaking] : [])].filter(Boolean))];
+}
+// The face window the stage draws (art.portrait with the speaker's avatar; a bust cut from the stage figure is not drawn here).
+function stageSkinPortrait(document) {
+	const portrait = document.art?.portrait;
+	return portrait && (portrait.source || "avatar") === "avatar" ? portrait : null;
+}
+// Everything the stage reads from the skin's bundle: the art and the quick menu's icons.
+function stageSkinImages(document) {
+	return [...new Set([...stageSkinArtImages(document), ...stageSkinQuickImages(document)])];
 }
 
 // frames (skinFrames) on an image of w x h px: the cell, the sheet's background size, one cycle, the iteration count and the
@@ -143,14 +183,78 @@ function stageSkinArt(document, files) {
 		if (plate.shadow) Object.assign(tokens, { "--art-np-sx": n(plate.shadow[0]), "--art-np-sy": n(plate.shadow[1]) });
 		if (plate.spacing != null) tokens["--art-np-spacing"] = plate.spacing + "em";
 	}
-	return { marks, tokens, frames };
+	// controls: the control row on the box image in design px on wide stages - its right end at x, its top at y, each control
+	// w x size apart by gap (tavern.css 「stage skin: box controls」).
+	if (box.controls) {
+		const c = box.controls;
+		marks["data-fk-skin-art-controls"] = "";
+		Object.assign(tokens, { "--art-qc-x": n(c.x), "--art-qc-y": n(c.y), "--art-qc-size": n(c.size), "--art-qc-w": n(c.w || c.size), "--art-qc-gap": n(c.gap || 0) });
+	}
+	const faceName = stageSkinPortraitArt(document, size, url, n, marks, tokens);
+	return { marks, tokens, frames, faceName };
 }
 
-// The decoded art images of the skin on stage: { files } once every image the drawn parts read has loaded from the skin's
+// The face window (art.portrait): the speaker's avatar in a square on the design screen (left / bottom / size). frame: the
+// skin's frame image (left / bottom, its natural size) around a window (default the square) the face is clipped to - round
+// (the window's ellipse), front (the frame over the face), glass (a sheen over the face), back (behind a cut-out face), fill
+// (the window's own opaque face: a colour or a radial [centre, edge]) and speaking (the frame while the line is delivered).
+// frame.name: the speaker's name along a circle on the frame (TavernStageSideName), in the frame image's own px; while it
+// shows, the box's plate steps aside. narrow: where the face stands on phones (CSS px from the box's top-left corner) and how
+// the lines clear it. Writes the marks and --art-face-* tokens; returns the arc name's geometry, or null.
+function stageSkinPortraitArt(document, size, url, n, marks, tokens) {
+	const portrait = stageSkinPortrait(document);
+	if (!portrait) return null;
+	let faceName = null;
+	marks["data-fk-skin-portrait"] = "avatar";
+	Object.assign(tokens, { "--art-face-l": n(portrait.left), "--art-face-b": n(portrait.bottom), "--art-face-s": n(portrait.size) });
+	const frame = portrait.frame;
+	if (frame) {
+		const [fw, fh] = size(frame.image), [wl, wb, ww, wh] = frame.window || [portrait.left, portrait.bottom, portrait.size, portrait.size];
+		marks["data-fk-skin-portrait-frame"] = "";
+		Object.assign(tokens, { "--art-face-frame": url(frame.image), "--art-face-fl": n(frame.left), "--art-face-fb": n(frame.bottom), "--art-face-fw": n(fw), "--art-face-fh": n(fh),
+			"--art-face-wl": n(wl), "--art-face-wb": n(wb), "--art-face-ww": n(ww), "--art-face-wh": n(wh) });
+		if (frame.round) marks["data-fk-skin-portrait-round"] = "";
+		if (frame.front) marks["data-fk-skin-portrait-front"] = "";
+		if (frame.glass) { marks["data-fk-skin-portrait-glass"] = ""; tokens["--art-face-glass"] = url(frame.glass); }
+		if (frame.back) { marks["data-fk-skin-portrait-back"] = ""; tokens["--art-face-back"] = url(frame.back); }
+		// round: the ellipse closest-side, cut a hair inside it so the frame's inner edge covers the cut
+		if (frame.fill) {
+			const [inner, outer] = [].concat(frame.fill).concat([].concat(frame.fill));
+			marks["data-fk-skin-portrait-fill"] = "";
+			tokens["--art-face-fill"] = frame.round ? `radial-gradient(closest-side, ${inner}, ${outer} 99%, transparent 100%)` : `radial-gradient(farthest-corner, ${inner}, ${outer})`;
+		}
+		if (frame.speaking) { marks["data-fk-skin-portrait-speaking"] = ""; tokens["--art-face-speaking"] = url(frame.speaking); }
+		// The arc's centre and radius are in design px; while the name shows there, the box's plate steps aside.
+		if (frame.name) {
+			const f = frame.name, [ax, ab, r] = f.arc, span = f.span || 90, top = f.side === "top";
+			marks["data-fk-skin-portrait-name"] = "";
+			Object.assign(tokens, { "--art-face-nink": [].concat(f.ink)[0], "--art-face-nweight": String(f.weight || 700), "--art-face-nspacing": (f.spacing || 0) + "em" });
+			if (f.engrave) Object.assign(tokens, { "--art-face-nlight": f.engrave.light, "--art-face-ndark": f.engrave.dark });
+			if (f.stroke) { marks["data-fk-skin-portrait-name-stroke"] = ""; tokens["--art-face-nstroke"] = f.stroke.color; }
+			faceName = { view: [fw, fh], x: ax - frame.left, y: fh - (ab - frame.bottom), r, span, side: top ? "top" : "bottom", font: f.font, ink: [].concat(f.ink),
+				weight: f.weight || 700, spacing: f.spacing || 0, engrave: f.engrave || null, stroke: f.stroke || null, shadow: f.shadow ? { color: f.shadow.color, dx: f.shadow.dx || 0, dy: f.shadow.dy } : null,
+				bed: f.bed ? { color: f.bed.color, alpha: f.bed.alpha, width: f.bed.width || f.font } : null, min: f.min || f.font * .25 };
+		}
+	}
+	// narrow: the side on a phone, `width` CSS px wide at x / y from the box's top-left corner; name below = the frame's name as
+	// one line under it (arc keeps the arc, down to nameMin px); flow = how the lines clear it (beside its column, wrap round
+	// it, below it), starting `left` px in.
+	if (portrait.narrow) {
+		const nw = portrait.narrow, [sw, sh] = frame ? size(frame.image) : [portrait.size, portrait.size];
+		marks["data-fk-skin-portrait-narrow"] = nw.name === "arc" || !frame?.name ? "" : nw.name || "below";
+		marks["data-fk-skin-portrait-flow"] = nw.flow || "beside";
+		if (faceName && nw.nameMin) faceName.narrowMin = nw.nameMin;
+		Object.assign(tokens, { "--art-face-nleft": n(nw.left ?? 12), "--art-face-nw": n(nw.width), "--art-face-nh": n(Math.round(nw.width * sh / sw * 10) / 10),
+			"--art-face-nx": n(nw.x), "--art-face-ny": n(nw.y), "--art-face-nsw": n(sw) });
+	}
+	return faceName;
+}
+
+// The decoded images of the skin on stage (its art and quick menu icons): files once every image has loaded from the skin's
 // lease, else null (the document is drawn without its art). A failed load is asked again (1 s, doubling to 30 s) while the
 // same skin and lease stand: one failed read at stage open must not leave the stage without its art until a refresh.
 function useStageSkinArtFiles(skin) {
-	const names = skin && skin.base ? stageSkinArtImages(skin.document) : [];
+	const names = skin && skin.base ? stageSkinImages(skin.document) : [];
 	const key = names.length ? JSON.stringify([skin.base, skin.document.id, names]) : "";
 	const [state, setState] = React.useState({ key: "", files: null, tries: 0 });
 	const tries = state.key === key ? state.tries : 0;
