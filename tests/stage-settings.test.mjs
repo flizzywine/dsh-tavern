@@ -37,7 +37,7 @@ test('three stage panels are registered like the reference design: 舞台设置,
 })
 
 
-test('基础设置 lists 对话气泡, 配音 ›, 舞台模式, BGM, 物品 and 入场演出 in order; every switch is global and writes its own owner', async () => {
+test('基础设置 lists 对话气泡, 配音 ›, 舞台模式, BGM, 音效, 物品 and 入场演出 in order; every switch is global and writes its own owner', async () => {
   const calls = [], events = [], opened = []
   const { TavernStageSwitches, tavernStageReturn } = load({
     states: [{ castPresentation: true, stageToggles: { stage: false, music: true } }, 'idle', ''],    useTavernSpeechSettings: () => ({ enabled: true }),
@@ -50,8 +50,8 @@ test('基础设置 lists 对话气泡, 配音 ›, 舞台模式, BGM, 物品 and
   assert.equal(text(find(tree, node => node.type === 'h3')), '基础设置')
   assert.match(find(tree, node => node.props.className === 'dsh-tavern-switch-help').props.title, /对所有卡生效/)
   const rows = rowsOf(tree)
-  assert.deepEqual(rows.map(row => [row.label, row.input.props.checked, row.input.props.disabled]), [['对话气泡', true, false], ['配音', true, false], ['舞台模式', false, false], ['BGM?', true, true], ['物品?', true, true], ['入场演出?', true, true]])
-  assert.deepEqual(rows.map(row => row.input.props.role), ['switch', 'switch', 'switch', 'switch', 'switch', 'switch'])
+  assert.deepEqual(rows.map(row => [row.label, row.input.props.checked, row.input.props.disabled]), [['对话气泡', true, false], ['配音', true, false], ['舞台模式', false, false], ['BGM?', true, true], ['音效?', true, true], ['物品?', true, true], ['入场演出?', true, true]])
+  assert.deepEqual(rows.map(row => row.input.props.role), ['switch', 'switch', 'switch', 'switch', 'switch', 'switch', 'switch'])
   for (const row of rows.slice(3)) assert.match(find(row.row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /需要舞台模式/, 'sounds, items and the entrance play on the stage')
   await rows[0].input.props.onChange({ target: { checked: false } })
   await rows[1].input.props.onChange({ target: { checked: false } })
@@ -68,15 +68,15 @@ test('基础设置 lists 对话气泡, 配音 ›, 舞台模式, BGM, 物品 and
   assert.equal(rows[1].row.props.className, 'dsh-tavern-switch-row is-openable')
 })
 
-test('配音, 舞台模式, BGM, 物品 and 入场演出 are greyed while 对话气泡 is off (their stored values stay), and 舞台样式 appears only with a plugin stage view', () => {
+test('配音, 舞台模式, BGM, 音效, 物品 and 入场演出 are greyed while 对话气泡 is off (their stored values stay), and 舞台样式 appears only with a plugin stage view', () => {
   const { TavernStageSwitches } = load({ states: [{ castPresentation: false, stageToggles: { stage: true, music: true, items: false, entrance: false } }, 'idle', ''], useTavernStageView: () => ({ views: [{ key: 'p' }] }) })
   const rows = rowsOf(expand(TavernStageSwitches({ sessionId: 'game' })))
-  assert.deepEqual(rows.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?', '物品?', '入场演出?', '舞台样式'])
-  assert.deepEqual(rows.slice(0, 6).map(row => [row.input.props.checked, row.input.props.disabled]), [[false, false], [false, true], [true, true], [true, true], [false, true], [false, true]])
-  for (const row of rows.slice(1, 6)) assert.match(find(row.row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /^需要对话气泡$/)
-  assert.ok(find(rows[6].row, node => node.type === 'ViewSwitch'))
+  assert.deepEqual(rows.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?', '音效?', '物品?', '入场演出?', '舞台样式'])
+  assert.deepEqual(rows.slice(0, 7).map(row => [row.input.props.checked, row.input.props.disabled]), [[false, false], [false, true], [true, true], [true, true], [true, true], [false, true], [false, true]])
+  for (const row of rows.slice(1, 7)) assert.match(find(row.row, node => node.props.className === 'dsh-tavern-switch-help').props.title, /^需要对话气泡$/)
+  assert.ok(find(rows[7].row, node => node.type === 'ViewSwitch'))
   const none = rowsOf(expand(load({ states: [null, 'idle', ''] }).TavernStageSwitches({ sessionId: 'game' })))
-  assert.deepEqual(none.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?', '物品?', '入场演出?'])
+  assert.deepEqual(none.map(row => row.label), ['对话气泡', '配音?', '舞台模式?', 'BGM?', '音效?', '物品?', '入场演出?'])
   assert.ok(none.every(row => row.input.props.disabled), 'nothing is written before the settings load')
 })
 
@@ -111,6 +111,25 @@ test('物品 is one global switch (stageToggles.items) for every card, on by def
   assert.deepEqual([jump.props.label, jump.props.packs], ['物品', [pack]])
   jump.props.onPick(pack)
   assert.deepEqual([opened, gone[0].packId, gone[0].kind], [['dsh-tavern:stage-materials'], 'p2', 'props'])
+})
+
+// 音效: the same shape as 物品 (stageToggles.sfx); its › opens the sound effects of this card's packs.
+test('音效 is one global switch (stageToggles.sfx) for every card, on by default; 音效 › opens the sound effects of this card\'s packs', async () => {
+  const calls = [], opened = [], gone = [], pack = { manifest: { id: 'p3', name: '声音' } }
+  const { TavernStageSwitches } = load({
+    states: [{ castPresentation: true, stageToggles: { stage: true, music: true } }, 'idle', ''],
+    rpc: async (method, args) => { calls.push([method, args]); return { settings: { castPresentation: true, stageToggles: { stage: true, ...args.patch.stageToggles } } } },
+    tavernStageRuntime: { refresh: async id => calls.push(['refresh', id]) },
+    useTavernKindPacks: (path, kind) => kind === 'sfx' ? [pack] : [], tavernAssetNav: { go: target => gone.push(target) }
+  })
+  const sfx = rowsOf(expand(TavernStageSwitches({ sessionId: 'game', path: 'cards/a.json', openTab: id => opened.push(id) }))).find(row => row.label === '音效')
+  assert.deepEqual([sfx.input.props.checked, sfx.input.props.disabled], [true, false])
+  await sfx.input.props.onChange({ target: { checked: false } })
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['updateTavernSettings', { patch: { stageToggles: { sfx: false } } }], ['refresh', 'game']])
+  const jump = find(sfx.row, node => node.type === 'KindJump')
+  assert.deepEqual([jump.props.label, jump.props.packs], ['音效', [pack]])
+  jump.props.onPick(pack)
+  assert.deepEqual([opened, gone[0].packId, gone[0].kind], [['dsh-tavern:stage-materials'], 'p3', 'sfx'])
 })
 
 test('BGM › opens the music of this card\'s packs in 舞台素材, with ‹ back to 舞台设置', () => {
@@ -197,7 +216,7 @@ test('酒馆状态 keeps only the stage entry; the fullscreen stage has no 设�
   assert.match(screen, /TavernBgmStage, \{ sessionId: id \}/, 'the BGM chip is on the control bar')
   assert.match(screen, /TavernMusicToggle/, 'plugin music keeps its ♪ switch')
   assert.doesNotMatch(screen, /tavernMusic\.play/, 'the stage never plays music through the plugin player')
-  assert.match(screen, /release: \(\) => tavernMusic\.stop\(\)/, 'a plugin\'s music still ends with the stage view')
+  assert.match(screen, /release: \(\) => \{ tavernMusic\.stop\(\); tavernStageSfx\.stop\(\); \}/, 'a plugin\'s music and the stage\'s sound effects end with the stage view')
 })
 
 test('入场演出 is one global switch (stageToggles.entrance), on by default; 入场演出 › opens the entrances of this card\'s own packs only', async () => {
@@ -225,7 +244,7 @@ test('默认皮肤 and 本卡皮肤 follow 舞台模式; each pick writes its ow
   const { TavernStageSwitches } = load({ states: [{ castPresentation: true, stageToggles: { stage: true, music: true } }, 'idle', ''] })
   const tree = expand(TavernStageSwitches({ sessionId: 'game', path: 'cards/a.json' }))
   const order = all(tree, node => node.type === 'SkinRows' || /dsh-tavern-switch-row/.test(node.props.className || '')).map(node => node.type === 'SkinRows' ? 'skins' : text(find(node, child => child.props.className === 'dsh-tavern-switch-name')))
-  assert.deepEqual(order, ['对话气泡', '配音', '舞台模式', 'skins', 'BGM', '物品', '入场演出'])
+  assert.deepEqual(order, ['对话气泡', '配音', '舞台模式', 'skins', 'BGM', '音效', '物品', '入场演出'])
   assert.equal(find(tree, node => node.type === 'SkinRows').props.path, 'cards/a.json')
 
   const classic = { id: 'classic', textbox: { paint: { bg: '#000000', fg: '#ffffff' } }, nameplate: { paint: { bg: '#000000', fg: '#ffffff' } } }

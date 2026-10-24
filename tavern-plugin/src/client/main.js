@@ -854,6 +854,7 @@ window.__ModuleLoader__.load({
 // @include features/stage-mode.js
 // @include features/stage-settings.js
 // @include modules/stage-music.js
+// @include modules/stage-sfx.js
 // @include modules/stage-bgm.js
 // @include features/stage-bgm.js
 

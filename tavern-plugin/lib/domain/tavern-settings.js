@@ -8,7 +8,7 @@ function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 // Global stage switches a patch may set.
-const STAGE_TOGGLES = Object.freeze(['stage', 'music', 'items', 'entrance'])
+const STAGE_TOGGLES = Object.freeze(['stage', 'music', 'sfx', 'items', 'entrance'])
 // 舞台模式 › 可用演出: the director commands the director may use, every one on by default (stage-director.js).
 export const STAGE_DIMENSIONS = Object.freeze(['scene', 'cast', 'acts', 'screenEffects'])
 // 舞台模式 › 每轮上限: how many screen effects (`beat`) one reply may use.
@@ -308,8 +308,8 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.castPresentation !== 'boolean') throw new Error('对话气泡设置必须是布尔值')
     next.castPresentation = input.castPresentation
   }
-  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage, BGM stageToggles.music, 物品 stageToggles.items,
-  // 入场演出 stageToggles.entrance.
+  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage, BGM stageToggles.music, 音效 stageToggles.sfx,
+  // 物品 stageToggles.items, 入场演出 stageToggles.entrance.
   if (Object.hasOwn(input, 'stageToggles')) {
     const toggles = object(input.stageToggles)
     if (!Object.keys(toggles).length || Object.entries(toggles).some(([key, value]) => !STAGE_TOGGLES.includes(key) || typeof value !== 'boolean')) throw new Error('舞台开关只能是 ' + STAGE_TOGGLES.join('、') + '，且必须是布尔值')
@@ -421,7 +421,7 @@ export function presentTavernSettings(document, defaults) {
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
     castPresentation: object(document).castPresentation === true,
-    // 舞台模式, BGM, 物品 and 入场演出: one switch each for every card, on by default; the stage also needs 对话气泡 (castPresentation).
+    // 舞台模式, BGM, 音效, 物品 and 入场演出: one switch each for every card, on by default; the stage also needs 对话气泡 (castPresentation).
     stageToggles: Object.fromEntries(STAGE_TOGGLES.map(key => [key, object(object(document).stageToggles)[key] !== false])),
     stageDimensions: stageDimensions(document),
     stageActionCaps: stageActionCaps(document),

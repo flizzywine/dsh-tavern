@@ -4,7 +4,7 @@
 import { triggerEvidence } from './asset-pack-lexical.js'
 import { judgeEnabled } from './engine-judge.js'
 
-const RECALL_FIELDS = Object.freeze({ background: 'background', music: 'music', items: 'item' })
+const RECALL_FIELDS = Object.freeze({ background: 'background', music: 'music', sfx: 'sound effect', items: 'item' })
 export const judgeAssetId = row => row.ref.packId + '/' + row.ref.kind + '/' + row.ref.assetId
 // Credits do not tell use cases apart; the question keeps the entry's name and its director note.
 export function judgeItemText(name, description = '', kind) {

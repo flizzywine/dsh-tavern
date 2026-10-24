@@ -23,8 +23,9 @@ function png(r, g, b) {
 // A fixture invokes the real tool/transaction; its accepted record travels through
 // native save import. No model calls or test-only production RPC are needed.
 // `items`: { name, bytes } pictures added to the card's pack as 物品 entries (props) and offered to the director.
+// `sfx`: { name, bytes } sounds added to the card's pack as 音效 entries (sfx) and offered to the director.
 // `entrances`: dsh.entrance/1 documents added to the card's pack as 入场演出 entries (the stage opens with the first).
-export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, items = [], entrances = [], inspect }) {
+export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, items = [], sfx = [], entrances = [], inspect }) {
   // The stage's BGM is Web Audio: route every context into a zero gain and count the sources it starts.
   await page.addInitScript(() => {
     const Base = window.AudioContext
@@ -59,15 +60,15 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
     { path: 'assets/emotion/sadness.png', content: png(40, 80, 200) }, { path: 'assets/background/room.png', content: png(30, 70, 90) },
     { path: 'assets/background/hall.png', content: png(90, 70, 30) }, { path: 'assets/music/theme.wav', content: wav }])
   const imported = (await call('importCard', { payload: { kind: 'charx', name: 'stage-' + run + '.charx', fileB64: archive.toString('base64') } })).card
-  if (items.length) {
+  for (const [kind, rows] of [['props', items], ['sfx', sfx]].filter(([, rows]) => rows.length)) {
     const [packId] = (await call('getCardAssetPacks', { path: imported.path })).boundPackIds
     const files = await page.evaluate(rows => Promise.all(rows.map(async ({ name, bytes }) => {
       const reply = await (await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: Uint8Array.from(atob(bytes), c => c.charCodeAt(0)) })).json()
       if (!reply.ok) throw Error('upload: ' + JSON.stringify(reply))
       return { uploadId: reply.uploadId, name }
-    })), items.map(item => ({ name: item.name, bytes: item.bytes.toString('base64') })))
-    const added = await call('addAssetPackFiles', { packId, kind: 'props', files })
-    assert.deepEqual(added.added.length, items.length, JSON.stringify(added.rejected))
+    })), rows.map(item => ({ name: item.name, bytes: item.bytes.toString('base64') })))
+    const added = await call('addAssetPackFiles', { packId, kind, files })
+    assert.deepEqual(added.added.length, rows.length, JSON.stringify(added.rejected))
   }
   for (const document of entrances) {
     const [packId] = (await call('getCardAssetPacks', { path: imported.path })).boundPackIds
@@ -83,7 +84,8 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
   const turn = Math.max(...save.chat.messages.filter(m => m.role === 'assistant').map(m => m.turn || 1))
   const annotation = { version: 1, lines: [{ n: 1, quote: 'Ready.', speaker: name, emotion: 'joy' }] }
   save.plugins = { data: { version: 1, owners: { [CAST_DATA_OWNER]: { game: null, turns: [{ turn, key: computeSceneTarget(save.chat, turn).key, data: annotation, bytes: JSON.stringify(annotation).length, updatedAt: 1 }] } } }, media: null, attachments: [] }
-  const fixtureAssets = { player: 'Reader', cast: [{ name }], background: [{ name: 'main' }, { name: 'hall' }], music: [{ name: 'theme' }], ...(items.length ? { items: items.map(item => ({ name: item.name })) } : {}) }
+  const fixtureAssets = { player: 'Reader', cast: [{ name }], background: [{ name: 'main' }, { name: 'hall' }], music: [{ name: 'theme' }], ...(items.length ? { items: items.map(item => ({ name: item.name })) } : {}),
+    ...(sfx.length ? { sfx: sfx.map(item => ({ name: item.name })) } : {}) }
   const fixture = await stageDirectorFixture(save.chat, fixtureAssets)
   const submitted = { figures: [{ speaker: name, emotion: 'sadness' }], background: 'hall', music: 'theme', ...(performances ? { performances: performances(name) } : {}) }
   const directorRun = await runDirectorFixture(fixture, [{...submitted, music: 'Missing'}, submitted])
@@ -122,7 +124,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
     assert.equal(before.music.name, 'theme')
     await page.waitForFunction(() => window.stageTestAudio.sources > 0 && window.stageTestAudio.contexts.some(context => context.state === 'running' && context.currentTime > 0))
   } else assert.equal(before.stage, undefined, 'The demo ignores accepted director records')
-  const performance = inspect ? await inspect({ page, stage, call, sessionId: restored.sessionId, name }) : null
+  const performance = inspect ? await inspect({ page, stage, call, sessionId: restored.sessionId, name, cardPath: imported.path }) : null
   await call('appendStoryRounds', { sessionId: restored.sessionId, rounds: [{ user: 'Wait.', assistant: 'A quiet moment passes.' }] })
   await stage.locator('.dsh-tavern-stage-text').filter({ hasText: 'A quiet moment passes.' }).waitFor()
   const next = await snapshot('stage-next-turn')

@@ -4,6 +4,7 @@
 export const ASSET_CONTENT_FIELDS = Object.freeze({
   backgrounds: ['media', 'tags'],
   music: ['media', 'usage', 'tags', 'volume', 'loopStart', 'loopEnd'],
+  sfx: ['media', 'tags', 'volume'],
   props: ['media', 'tags'],
   skins: ['bundleKey', 'entry'],
   entrances: ['entrance']
@@ -15,6 +16,6 @@ export function assetContents(entry) {
 }
 export function assetContentMedia(entry) {
   const refs = new Map()
-  for (const content of assetContents(entry)) if (content.media) refs.set(content.media, {hash:content.media, type:entry.kind === 'music' ? 'audio/' : 'image/'})
+  for (const content of assetContents(entry)) if (content.media) refs.set(content.media, {hash:content.media, type:['music', 'sfx'].includes(entry.kind) ? 'audio/' : 'image/'})
   return [...refs.values()]
 }

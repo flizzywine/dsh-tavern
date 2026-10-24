@@ -44,6 +44,11 @@ test('舞台模式 › 可用演出 takes a switched-off command out of the tool
   const shown = [{ at: 1, op: 'item.play', item: 'Key' }, { at: 2, op: 'screen.play', effect: 'shake-1' }]
   assert.equal(acceptStagePerformances(shown, pages, { figures: [] }, { beat: 1, items: ['Key'] }).length, 2)
   assert.equal(stageUpdateTool({ scene: true, cast: true, acts: false, screenEffects: false, items: true }).parameters.properties.performances.items.properties.op.const, 'item.play')
+  // 音效 neither: sounds stay with both effects off and never count against 每轮上限.
+  const heard = [{ at: 1, op: 'sfx.play', sfx: 'Knock' }, { at: 1, op: 'sfx.play', sfx: 'Bell' }, { at: 2, op: 'screen.play', effect: 'shake-1' }]
+  assert.equal(acceptStagePerformances(heard, pages, { figures: [] }, { beat: 1, sfx: ['Knock', 'Bell'] }).length, 3)
+  assert.throws(() => acceptStagePerformances([{ at: 1, op: 'sfx.play', sfx: 'Knock' }], pages, { figures: [] }, {}), /没有可用音效/)
+  assert.equal(stageUpdateTool({ scene: true, cast: true, acts: false, screenEffects: false, sfx: true }).parameters.properties.performances.items.properties.op.const, 'sfx.play')
 })
 
 test('the real director repairs an event in-session, then atomically saves events separately from persistent state', async () => {

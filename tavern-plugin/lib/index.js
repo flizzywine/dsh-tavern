@@ -2224,6 +2224,8 @@ export async function apply(ctx) {
     // BGM off (舞台设置 › 基础设置, stageToggles.music): no card offers music, so none plays and the director stops it.
     const toggles = (await readTavernSettings()).stageToggles
     if (!toggles.music) material.music = []
+    // 音效 off (stageToggles.sfx): no sound effect is offered or played.
+    if (!toggles.sfx) material.sfx = []
     // 物品 off (stageToggles.items): no item is offered or shown.
     if (!toggles.items) material.items = []
     return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...material }
@@ -2315,9 +2317,14 @@ export async function apply(ctx) {
     const wanted = storyTurns.slice(-Math.max(1, Math.min(10, Number(count) || 5)))
     const annotated = await castPresentation.forTurns(str(sessionId), wanted)
     const assets = await stageCatalog(str(sessionId))
-    // An item shows its entry's picture; one that left the catalog (switched off, removed, 物品 off) is not shown.
-    const shown = events => Promise.all(events.filter(event => event.op !== 'item.play' || assets.items.some(item => item.name === event.item))
-      .map(async event => event.op === 'item.play' ? { ...event, image: await stageMaterial.mediaUrl(assets.items.find(item => item.name === event.item)) } : event))
+    // An item shows its entry's picture, a sound effect plays its entry's audio at the entry's 音量; one that left the
+    // catalog (switched off, removed, 物品 / 音效 off) is not shown or played.
+    const entryOf = event => event.op === 'item.play' ? assets.items.find(item => item.name === event.item) : event.op === 'sfx.play' ? assets.sfx.find(item => item.name === event.sfx) : undefined
+    const shown = events => Promise.all(events.filter(event => !['item.play', 'sfx.play'].includes(event.op) || entryOf(event)).map(async event => {
+      if (event.op === 'item.play') return { ...event, image: await stageMaterial.mediaUrl(entryOf(event)) }
+      if (event.op === 'sfx.play') return { ...event, audio: await stageMaterial.mediaUrl(entryOf(event)), volume: entryOf(event).volume ?? 1 }
+      return event
+    }))
     const turns = []
     for (const turn of wanted) {
       const material = await pluginTurns.readTurn(str(sessionId), turn).catch(() => null) || (turn === wanted.at(-1) ? await pluginTurns.readPendingTurn(str(sessionId)).catch(() => null) : null)
@@ -2338,7 +2345,7 @@ export async function apply(ctx) {
     return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
-      musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage,
+      musicEnabled: (await readTavernSettings()).stageToggles.music, sfxEnabled: (await readTavernSettings()).stageToggles.sfx, cast: assets.cast, turns, stage,
       skin: await stageSkinOf(card.path).then(skin => ({ document: skin.document, base: skin.base })).catch(() => null),
       // 入场演出 (stageToggles.entrance): the entrance of the card's own packs the stage opens with, or null.
       entrance: (await readTavernSettings()).stageToggles.entrance ? await stageMaterial.entrance(card.path) : null }

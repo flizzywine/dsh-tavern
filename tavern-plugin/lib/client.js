@@ -15173,6 +15173,8 @@ function TavernStageItem(props) {
 }
 
 function playTavernStagePerformance(root, event, id) {
+	// A sound plays with reduced motion too, and rings out on its own after the page turns (the player is not handed it).
+	if (event.op === "sfx.play") { void tavernStageSfx.play(event.audio, event.volume); return null; }
 	const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 	// An item tells the player something, so it shows with reduced motion too (a fade, no movement).
 	if (event.op === "item.play") {
@@ -15189,6 +15191,10 @@ function playTavernStagePerformance(root, event, id) {
 		: event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
 	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
 }
+
+// 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
+const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 
 // The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
 // reduced motion keeps the rest cell the stylesheet draws. The cue restarts on each page, the lamp when auto paging starts.
@@ -15246,9 +15252,14 @@ function TavernStageScreen(props) {
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
 			} },
-		// A plugin's music (tavernUi.playMusic) ends with the stage view; the stage's BGM does not.
-		release: () => tavernMusic.stop()
+		// A plugin's music (tavernUi.playMusic) and the stage's sound effects end with the stage view; the stage's BGM does not.
+		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); }
 	}), [id]);
+	// 音效 off (舞台设置 › 基础设置) silences a sound still ringing; the turn's cues decode ahead of their pages.
+	const sfxOn = data ? data.sfxEnabled !== false : true;
+	React.useEffect(() => { if (!sfxOn) tavernStageSfx.stop(); }, [sfxOn]);
+	const cues = (data && data.turns.at(-1)?.performances || []).filter(event => event.op === "sfx.play").map(event => event.audio);
+	React.useEffect(() => { cues.forEach(url => tavernStageSfx.prepare(url)); }, [cues.join("\n")]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
@@ -15343,8 +15354,10 @@ function TavernStageStatus(props) {
 // 舞台素材: the asset library's editor (docs/design/asset-library.md「编辑界面」). The library panel lists every pack
 // with its 全局 / 本卡 / 关闭 state; a pack opens one window (entries on the left, the chosen entry on the right); 舞台设置
 // › 素材包 lists this card's packs. Every write goes to the host's store (CAS revisions); nothing is kept on the page.
-const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", props: "物品", skins: "皮肤", entrances: "入场演出" });
-const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "props", "skins", "entrances"]);
+const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", sfx: "音效", props: "物品", skins: "皮肤", entrances: "入场演出" });
+const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "sfx", "props", "skins", "entrances"]);
+// Kinds whose entries are audio: a play button in the list, the player with its 音量 on the entry page.
+const tavernAssetAudible = kind => kind === "music" || kind === "sfx";
 const TAVERN_ASSET_EVENT = "dsh-tavern-asset-packs-changed";
 const TAVERN_PACK_STATES = Object.freeze({ global: "全局", card: "本卡", off: "关闭" });
 const TAVERN_PACK_STATE_ORDER = Object.freeze(["global", "card", "off"]);
@@ -15355,6 +15368,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	lampBackground: "背景目前只用蓝灯。",
 	triggers: "名称本身也算触发词。不填，或填 3–6 个正文里真会出现的短词。",
 	notes: { backgrounds: "会和名称一起发给导演，用来判断这一幕用哪个背景。只写适用情景，最多 300 字。", music: "会和名称一起发给导演，用来判断什么时候放这首曲子。只写适用情景，最多 300 字。",
+		sfx: "会和名称一起发给导演，用来判断哪一页播放这个声音。只写适用情景，最多 300 字。",
 		props: "会和名称一起发给导演，用来选择要展示的物品。只写适用情景，最多 300 字。" },
 	remark: "只给你和改卡 AI 看，导演看不到",
 	usage: "这首曲子的用途笔记，不发给导演。",
@@ -15364,7 +15378,7 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	packSkin: "用到这个素材包、又没有自己皮肤的卡，默认用这套皮肤。",
 	entrance: "打开舞台时先播的一段演出，点一下或按回车可以跳过。只用卡自己的素材包里第一条开着的；导演不会用它。只有蓝灯和关闭。"
 });
-const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
+const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", sfx: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
 const TAVERN_ASSET_GLYPHS = Object.freeze({
 	back: "M10 3.5 5.5 8l4.5 4.5", close: "M4 4l8 8M12 4l-8 8", more: "M3.5 8h.01M8 8h.01M12.5 8h.01", plus: "M8 3v10M3 8h10",
 	upload: "M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5", search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3 13.5 13.5",
@@ -15372,6 +15386,7 @@ const TAVERN_ASSET_GLYPHS = Object.freeze({
 	chevDown: "M5 6.5 8 9.5l3-3", chevRight: "M6 4l4 4-4 4", warning: "M8 2.5 14 13H2zM8 6.5v3M8 11.4v.1",
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4", voiceOff: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 6l3 4M13.5 6l-3 4",
 	backgrounds: "M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3", music: "M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
+	sfx: "M2.5 8h1.5M5.5 5.5v5M8 3v10M10.5 5v6M13 7v2",
 	props: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
 	tray: "M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z", skins: "M2.5 3.5h11v9h-11zM2.5 9h11M4.5 10.75h4",
 	entrances: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4"
@@ -15831,7 +15846,7 @@ function TavernLampMenu(props) {
 function TavernEntryItem(props) {
 	const h = React.createElement, item = props.item;
 	return h("li", { role: "option", "aria-selected": props.focused, className: "dsh-tavern-entry-item", "data-disabled": item.enabled === false || undefined, onClick: props.onSelect },
-		item.kind === "music" ? h(TavernAssetPlay, { audio: props.audio, asset: item }) : item.kind === "skins" ? h(TavernSkinArt, { document: props.skins && props.skins[item.id] })
+		tavernAssetAudible(item.kind) ? h(TavernAssetPlay, { audio: props.audio, asset: item }) : item.kind === "skins" ? h(TavernSkinArt, { document: props.skins && props.skins[item.id] })
 			: item.kind === "entrances" ? h(TavernEntranceSwatch, { document: item.entrance })
 			: h(TavernPackPicture, { packId: props.packId, hash: item.media, className: "dsh-tavern-entry-thumb" }),
 		h("button", { type: "button", className: "dsh-tavern-entry-main", onClick: event => { event.stopPropagation(); props.onSelect(); } }, h("span", { className: "dsh-tavern-entry-name" }, item.name)),
@@ -15918,7 +15933,7 @@ function TavernEntryDetail(props) {
 	const shows = (key, value) => !!(Array.isArray(value) ? value.length : value) || opened.has(key);
 	const status = props.audio.state && props.audio.state.id === kind + "/" + asset.id ? props.audio.state : null, pct = status && status.duration ? Math.min(100, 100 * status.time / status.duration) : 0;
 	const volume = typeof asset.volume === "number" ? Math.min(1, Math.max(0, asset.volume)) : 1;
-	const hero = kind === "music" ? h("div", { className: "dsh-tavern-asset-player", "data-playing": status && status.status === "playing" || undefined },
+	const hero = tavernAssetAudible(kind) ? h("div", { className: "dsh-tavern-asset-player", "data-playing": status && status.status === "playing" || undefined },
 		h(TavernAssetPlay, { audio: props.audio, asset, big: true }),
 		h("div", { className: "dsh-tavern-asset-player-main" },
 			h("div", { className: "dsh-tavern-asset-progress", role: "progressbar", "aria-label": "播放进度", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": Math.round(pct) }, h("span", { style: { width: pct + "%" } })),
@@ -16044,7 +16059,7 @@ function TavernPackWindow(props) {
 		if (result.added.length) { setSelected(result.added[0]); if (narrow) setDetail(true); }
 		const refused = result.rejected.map(row => row.name).join("、");
 		setNotice(result.added.length ? "已添加 " + result.added.length + " 项" + (refused ? "；没能添加：" + refused : "") : "");
-		if (!result.added.length) setError("没能添加：" + refused + "（" + (fileKind === "music" ? "请选择 MP3、OGG、WAV、M4A 或 FLAC 音频" : "请选择 4 MB 以内的 PNG、WebP 或 JPEG 图片") + "）");
+		if (!result.added.length) setError("没能添加：" + refused + "（" + (tavernAssetAudible(fileKind) ? "请选择 MP3、OGG、WAV、M4A 或 FLAC 音频" : "请选择 4 MB 以内的 PNG、WebP 或 JPEG 图片") + "）");
 	});
 	const addSkin = files => task(async () => {
 		try {
@@ -16535,15 +16550,16 @@ function TavernStageModePage(props) {
 // 舞台设置 (基础设置: the switches), 舞台素材 (the card's cast material) and 配音 (the voicing service, the same page as
 // 设置 › 配音). 酒馆状态 only opens the stage; the fullscreen stage has no settings of its own.
 const TAVERN_STAGE_TABS = Object.freeze({ settings: "dsh-tavern:stage-settings", materials: "dsh-tavern:stage-materials", voice: "dsh-tavern:voice" });
-const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式", music: "BGM", items: "物品", entrance: "入场演出" });
+const TAVERN_STAGE_NAMES = Object.freeze({ dialogue: "对话气泡", voice: "配音", stage: "舞台模式", music: "BGM", sfx: "音效", items: "物品", entrance: "入场演出" });
 // Every switch needs its upstream switches on, as in the reference design: 配音 and 舞台模式 need 对话气泡; sounds play on the stage.
-const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"], stage: ["dialogue"], music: ["dialogue", "stage"], items: ["dialogue", "stage"], entrance: ["dialogue", "stage"] });
+const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"], stage: ["dialogue"], music: ["dialogue", "stage"], sfx: ["dialogue", "stage"], items: ["dialogue", "stage"], entrance: ["dialogue", "stage"] });
 const TAVERN_STAGE_GLYPHS = Object.freeze({
 	bubble: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4",
 	stage: "M2 2.5h12M3 2.5v11M13 2.5v11M3 2.5c0 3.5 2 5 4 5.5M13 2.5c0 3.5-2 5-4 5.5M2 13.5h12",
 	chevRight: "M6 4l4 4-4 4", back: "M10 4 6 8l4 4",
 	music: "M6 12V3.5l7-1.5v8.5M6 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM13 10.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0z",
+	sfx: "M2.5 8h1.5M5.5 5.5v5M8 3v10M10.5 5v6M13 7v2",
 	item: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
 	entrance: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4",
 	prev: "M4 3.5v9M12.5 3.5 6 8l6.5 4.5z", next: "M12 3.5v9M3.5 3.5 10 8l-6.5 4.5z", play: "M5 3.5v9l7.5-4.5z", pause: "M5.5 3.5v9M10.5 3.5v9"
@@ -16612,7 +16628,7 @@ function useTavernStageGlobals() {
 	return [settings, setSettings];
 }
 
-// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, 默认皮肤 (本卡皮肤), BGM, 物品, 入场演出; 舞台样式 joins when a plugin offers stage views.
+// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, 默认皮肤 (本卡皮肤), BGM, 音效, 物品, 入场演出; 舞台样式 joins when a plugin offers stage views.
 // Every switch saves at once; the section head says 正在保存… / 已保存.
 function TavernStageSwitches(props) {
 	const h = React.createElement;
@@ -16626,7 +16642,7 @@ function TavernStageSwitches(props) {
 		catch (err) { setStatus("idle"); setError(String(err && err.message || err)); }
 	}
 	const prefs = { dialogue: settings ? settings.castPresentation === true : false, voice: Boolean(speech && speech.enabled), stage: settings ? settings.stageToggles?.stage !== false : false,
-		music: settings ? settings.stageToggles?.music !== false : true, items: settings ? settings.stageToggles?.items !== false : true,
+		music: settings ? settings.stageToggles?.music !== false : true, sfx: settings ? settings.stageToggles?.sfx !== false : true, items: settings ? settings.stageToggles?.items !== false : true,
 		entrance: settings ? settings.stageToggles?.entrance !== false : true };
 	const busy = status === "saving", blocked = key => TAVERN_STAGE_REQUIRES[key].filter(need => !prefs[need]);
 	const help = key => blocked(key).length ? "需要" + blocked(key).map(need => TAVERN_STAGE_NAMES[need]).join("和") : undefined;
@@ -16644,6 +16660,8 @@ function TavernStageSwitches(props) {
 	const setStage = on => setTavern({ stageToggles: { stage: on } });
 	// BGM on: the stage plays music and the director may choose it; off: neither, for every card.
 	const setMusic = on => setTavern({ stageToggles: { music: on } });
+	// 音效 on: the director may play a sound of the card's packs on its page; off: none is offered or played, for every card.
+	const setSfx = on => setTavern({ stageToggles: { sfx: on } });
 	// 物品 on: the director may show an item of the card's packs on its page; off: none is offered or shown, for every card.
 	const setItems = on => setTavern({ stageToggles: { items: on } });
 	// 入场演出 on: a card whose own packs hold an entrance (蓝灯) opens its stage with it; off: no stage opens with one.
@@ -16655,6 +16673,9 @@ function TavernStageSwitches(props) {
 	// BGM ›: the music of this card's packs, opened in 舞台素材 (‹ comes back here).
 	const musicPacks = useTavernKindPacks(props.path, "music");
 	const openMusic = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "music") : null;
+	// 音效 ›: the sound effects of this card's packs, the same way.
+	const sfxPacks = useTavernKindPacks(props.path, "sfx");
+	const openSfx = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "sfx") : null;
 	// 物品 ›: the items of this card's packs, the same way.
 	const itemPacks = useTavernKindPacks(props.path, "props");
 	const openItems = props.openTab ? pack => tavernStageOpenPack(props.openTab, pack.manifest.id, "props") : null;
@@ -16676,6 +16697,8 @@ function TavernStageSwitches(props) {
 		// Sounds play on the stage: greyed (the stored value kept) while 舞台模式 is off.
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.music, icon: "music", checked: prefs.music, disabled: !settings || busy || blocked("music").length > 0, help: help("music"), onChange: setMusic,
 			status: openMusic ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.music, packs: musicPacks, onPick: openMusic }) : null }),
+		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.sfx, icon: "sfx", checked: prefs.sfx, disabled: !settings || busy || blocked("sfx").length > 0, help: help("sfx"), onChange: setSfx,
+			status: openSfx ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.sfx, packs: sfxPacks, onPick: openSfx }) : null }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.items, icon: "item", checked: prefs.items, disabled: !settings || busy || blocked("items").length > 0, help: help("items"), onChange: setItems,
 			status: openItems ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.items, packs: itemPacks, onPick: openItems }) : null }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.entrance, icon: "entrance", checked: prefs.entrance, disabled: !settings || busy || blocked("entrance").length > 0, help: help("entrance"), onChange: setEntrance,
@@ -16939,6 +16962,69 @@ function createStageMusic({ context, fetch, clock }) {
 			}
 			fade = clock.setTimeout(step, 16); emit(); return stopping;
 		}
+	};
+}
+// 音效 (docs/design/cast-presentation.md「舞台 core（19/N）：音效」): the stage's one-shot sound player. A cue plays its
+// entry's audio once through the page's AudioContext at the entry's 音量 (0..1). A sound rings out across page turns, but
+// at most 10 s, then fades out over 0.5 s; at most six sound at once (a further cue is dropped). Decoded sounds are kept by
+// URL (the newest 16), so a page's cues decode before its visit plays them. stop() ends every sound, including one still
+// decoding.
+// context(): the page's AudioContext (or null); clock: { setTimeout, clearTimeout } on wall time. Bytes are read with the
+// BGM transport's bounded reader (modules/stage-music.js stageMusicBytes).
+const STAGE_SFX_LIMITS = Object.freeze({ playMs: 10000, fadeMs: 500, voices: 6, cached: 16 });
+function createStageSfx({ context, fetch, clock }) {
+	const buffers = new Map(), shots = new Set();
+	let epoch = 0;
+	function decode(url) {
+		const known = buffers.get(url);
+		if (known) { buffers.delete(url); buffers.set(url, known); return known; }
+		const ctx = context();
+		if (!ctx) return Promise.resolve(null);
+		const pending = fetch(url).then(response => {
+			if (!response.ok) throw new Error("Sound fetch failed: " + response.status);
+			return stageMusicBytes(response);
+		}).then(bytes => ctx.decodeAudioData(bytes));
+		// A failed read is not kept: the next visit asks again.
+		pending.catch(() => { if (buffers.get(url) === pending) buffers.delete(url); });
+		buffers.set(url, pending);
+		while (buffers.size > STAGE_SFX_LIMITS.cached) buffers.delete(buffers.keys().next().value);
+		return pending;
+	}
+	function release(shot) {
+		if (!shots.delete(shot)) return;
+		clock.clearTimeout(shot.timer);
+		shot.source.onended = null;
+		try { shot.source.stop(); } catch (_) {}
+		shot.source.disconnect(); shot.gain.disconnect();
+	}
+	return {
+		prepare(url) { if (url) decode(url).catch(() => {}); },
+		// Resolves true once the sound starts, false when it cannot (no audio, a failed read, six already sounding, stopped).
+		async play(url, volume = 1) {
+			if (!url || shots.size >= STAGE_SFX_LIMITS.voices) return false;
+			const mine = epoch;
+			let buffer = null;
+			try { buffer = await decode(url); } catch (_) { return false; }
+			const ctx = context();
+			if (!buffer || !ctx || mine !== epoch || shots.size >= STAGE_SFX_LIMITS.voices) return false;
+			const level = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
+			const gain = ctx.createGain(), source = ctx.createBufferSource();
+			gain.gain.value = level; source.buffer = buffer;
+			source.connect(gain); gain.connect(ctx.destination);
+			const shot = { source, gain, timer: 0 };
+			shots.add(shot);
+			source.onended = () => release(shot);
+			source.start();
+			if (ctx.state === "suspended") ctx.resume().catch(() => {});
+			shot.timer = clock.setTimeout(() => {
+				gain.gain.setValueAtTime(level, ctx.currentTime);
+				gain.gain.linearRampToValueAtTime(0, ctx.currentTime + STAGE_SFX_LIMITS.fadeMs / 1000);
+				shot.timer = clock.setTimeout(() => release(shot), STAGE_SFX_LIMITS.fadeMs);
+			}, STAGE_SFX_LIMITS.playMs);
+			return true;
+		},
+		stop() { epoch++; for (const shot of [...shots]) release(shot); },
+		sounding: () => shots.size
 	};
 }
 // The BGM player (docs/design/cast-presentation.md「背景音乐」). One page-wide owner decides what the music transport

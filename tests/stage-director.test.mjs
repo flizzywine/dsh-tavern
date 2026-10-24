@@ -165,3 +165,34 @@ test('items: offered by their lamps, shown once on a page by name; with none the
   assert.doesNotMatch(JSON.stringify(none.tool), /item\.play/)
   assert.equal((await none.call({ performances: [{ at: 1, op: 'item.play', item: 'Pocket watch' }] })).ok, false)
 })
+
+// 音效 (cast-presentation.md 19/N): a lit sound of the card's packs, played once on its page; none offered, the request is
+// byte for byte the one without the kind.
+test('sound effects: offered by their lamps, played on a page by name; with none the request is byte-identical', async () => {
+  const sfx = [lamp('Knock', 'constant'), lamp('Bell', 'keyword', ['门铃']), lamp('Glass', 'constant')]
+  const text = '有人敲门。\n门铃响了。\n她没有回头。'
+  const h = await stageDirectorFixture({ ...chat(), messages: [...chat().messages.slice(0, 2), { role: 'assistant', turn: 2, text }] }, { ...assets(), sfx })
+  const request = await h.prepare(), context = JSON.parse(request.turnContext)
+  assert.deepEqual(context.sfx, ['Knock', 'Bell', 'Glass'], 'a green sound comes with its trigger')
+  assert.match(request.system, /sfx\.play/)
+  assert.ok(JSON.stringify(request.tool.parameters.properties.performances).includes('sfx.play'))
+  for (const performances of [[{ at: 1, op: 'sfx.play', sfx: 'Thunder' }], [{ at: 4, op: 'sfx.play', sfx: 'Knock' }],
+    [{ at: 1, op: 'sfx.play', sfx: 'Knock', volume: 1 }], [{ at: 1, op: 'sfx.play', sfx: 'Knock' }, { at: 1, op: 'sfx.play', sfx: 'Knock' }]]) {
+    assert.equal((await request.call({ performances })).ok, false, JSON.stringify(performances))
+  }
+  // Two different sounds may share a page; neither counts as a screen effect.
+  const played = [{ at: 1, op: 'sfx.play', sfx: 'Knock' }, { at: 1, op: 'sfx.play', sfx: 'Glass' }, { at: 2, op: 'sfx.play', sfx: 'Bell' }]
+  assert.deepEqual(await request.call({ performances: played }), { ok: true })
+  assert.deepEqual(await h.director.performances('game', 2, (await h.body()).key), played)
+  await h.persistence.update('story', turn('Quiet.'))
+  const without = await h.prepare()
+  h.assets.sfx = []
+  const none = await h.prepare()
+  delete h.assets.sfx
+  const absent = await h.prepare()
+  assert.deepEqual([none.system, JSON.stringify(none.tool), none.turnContext], [absent.system, JSON.stringify(absent.tool), absent.turnContext])
+  assert.notEqual(without.turnContext, none.turnContext)
+  assert.equal(JSON.parse(none.turnContext).sfx, undefined)
+  assert.doesNotMatch(none.system + JSON.stringify(none.tool), /sfx|音效/)
+  assert.equal((await none.call({ performances: [{ at: 1, op: 'sfx.play', sfx: 'Knock' }] })).ok, false)
+})

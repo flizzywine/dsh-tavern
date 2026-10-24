@@ -246,6 +246,8 @@ function TavernStageItem(props) {
 }
 
 function playTavernStagePerformance(root, event, id) {
+	// A sound plays with reduced motion too, and rings out on its own after the page turns (the player is not handed it).
+	if (event.op === "sfx.play") { void tavernStageSfx.play(event.audio, event.volume); return null; }
 	const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 	// An item tells the player something, so it shows with reduced motion too (a fade, no movement).
 	if (event.op === "item.play") {
@@ -262,6 +264,10 @@ function playTavernStagePerformance(root, event, id) {
 		: event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
 	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
 }
+
+// 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
+const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 
 // The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
 // reduced motion keeps the rest cell the stylesheet draws. The cue restarts on each page, the lamp when auto paging starts.
@@ -319,9 +325,14 @@ function TavernStageScreen(props) {
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
 			} },
-		// A plugin's music (tavernUi.playMusic) ends with the stage view; the stage's BGM does not.
-		release: () => tavernMusic.stop()
+		// A plugin's music (tavernUi.playMusic) and the stage's sound effects end with the stage view; the stage's BGM does not.
+		release: () => { tavernMusic.stop(); tavernStageSfx.stop(); }
 	}), [id]);
+	// 音效 off (舞台设置 › 基础设置) silences a sound still ringing; the turn's cues decode ahead of their pages.
+	const sfxOn = data ? data.sfxEnabled !== false : true;
+	React.useEffect(() => { if (!sfxOn) tavernStageSfx.stop(); }, [sfxOn]);
+	const cues = (data && data.turns.at(-1)?.performances || []).filter(event => event.op === "sfx.play").map(event => event.audio);
+	React.useEffect(() => { cues.forEach(url => tavernStageSfx.prepare(url)); }, [cues.join("\n")]);
 	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
