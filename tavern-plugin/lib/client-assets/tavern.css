@@ -3209,6 +3209,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-mode-chip:focus-visible { outline: 2px solid var(--dsh-tavern-accent); outline-offset: 1px; }
 .dsh-tavern-mode-field { display: grid; grid-template-columns: var(--mode-label-w) minmax(0, 1fr); column-gap: 12px; align-items: center; min-height: 34px; font-size: 14px; }
 .dsh-tavern-mode-label { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-stage-panel .dsh-tavern-mode-label > label { margin: 0; color: inherit; font: inherit; font-weight: inherit; }
 .dsh-tavern-mode-fields { display: grid; gap: 2px; }
 .dsh-tavern-mode-field.is-wide { align-items: start; }
 .dsh-tavern-mode-field.is-wide > .dsh-tavern-mode-label { min-height: 34px; }
