@@ -3122,6 +3122,8 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-controls button:disabled { opacity: .35; cursor: default; }
 .dsh-tavern-stage-controls button.is-on { background: var(--gal-skin-qm-active); color: var(--gal-skin-qm-on); }
 .dsh-tavern-stage-overlay { position: fixed; inset: 0; z-index: 2147483000; background: #111318; }
+/* the stage fills the screen: the host's narrow-screen inset for modal dialogs (an !important max-width 100vw - 32px) is not for it */
+html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-width: none !important; }
 .dsh-tavern-stage-input { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(960px, 92vw); display: flex; gap: 8px; }
 .dsh-tavern-stage-input input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: var(--gal-ui-radius); border: 1px solid var(--gal-ui-line); background: var(--gal-ui-surface); color: var(--gal-ui-ink); font-size: 16px; }
 .dsh-tavern-stage-input input::placeholder { color: var(--gal-ui-muted); }
@@ -3182,6 +3184,14 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
   justify-content: center; width: auto; min-width: calc(var(--art-np-w) * var(--art-u)); padding: 0 calc(var(--art-np-pad-b) * var(--art-u)) 0 calc(var(--art-np-pad-a) * var(--art-u)); background: none;
   border: 0 solid transparent; border-image: var(--art-np-img) var(--art-np-sl) fill / calc(var(--art-np-sl-t) * var(--art-u)) calc(var(--art-np-sl-r) * var(--art-u)) calc(var(--art-np-sl-b) * var(--art-u)) calc(var(--art-np-sl-l) * var(--art-u)) / 0 stretch; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-slice] .dsh-tavern-stage-name b { max-width: calc((var(--art-np-w) + var(--art-np-grow) - var(--art-np-pad-a) - var(--art-np-pad-b)) * var(--art-u)); }
+/* a vertical sliced plate grows down from its drawn height (the cords and tassels in its top slice never stretch) */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-name-vertical][data-fk-skin-art-np-slice] .dsh-tavern-stage-name {
+  width: max(calc(var(--art-np-w) * var(--art-u)), 1.5em); min-width: 0; height: auto; min-height: calc(var(--art-np-h) * var(--art-u));
+  padding: calc(var(--art-np-pad-a) * var(--art-u)) 0 calc(var(--art-np-pad-b) * var(--art-u)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-name-vertical][data-fk-skin-art-np-slice] .dsh-tavern-stage-name b {
+  height: auto; max-width: none; max-height: calc((var(--art-np-h) + var(--art-np-grow) - var(--art-np-pad-a) - var(--art-np-pad-b)) * var(--art-u)); }
+/* a name longer than an image plate's room is set smaller to fit (--stage-name-fit, down to .6; useTavernStageNameFit) */
+.dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-name="image"], [data-fk-skin-art-name-vertical]) .dsh-tavern-stage-name b { font-size: calc(1em * var(--stage-name-fit, 1)); }
 /* nameplate.fill: the name in a two-band ink under its outline (an outline copy behind it, dropped by shadow) */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-fill][data-fk-skin-art-name] .dsh-tavern-stage-name { -webkit-text-stroke: 0; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-fill][data-fk-skin-art-name] .dsh-tavern-stage-name b {
@@ -3244,7 +3254,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
   .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox::before {
     height: calc(100% + (var(--art-img-h) - var(--art-body-h)) * var(--art-u)); background: none; border: 0 solid transparent;
     border-image: var(--art-plain) var(--art-sl) fill / calc(var(--art-sl-t) * var(--art-u)) calc(var(--art-sl-r) * var(--art-u)) calc(var(--art-sl-b) * var(--art-u)) calc(var(--art-sl-l) * var(--art-u)) / 0 stretch; }
-  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox.is-narration::before { border-image-source: var(--art-narration, var(--art-plain)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox.is-narration::before { background: none; border-image-source: var(--art-narration, var(--art-plain)); }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name { font-size: max(14px, calc(var(--art-np-font) * var(--art-u))); }
   /* the controls row gets its own strip under the lines, right-aligned */
   .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: static; justify-content: flex-end; margin-top: 6px; }

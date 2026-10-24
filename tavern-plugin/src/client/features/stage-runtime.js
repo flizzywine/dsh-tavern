@@ -68,6 +68,8 @@ function TavernStageScene(props) {
 	// (`dock`), standing above its image however tall the box grows.
 	const next = props.art && index < beats.length - 1 ? h("span", { className: "dsh-tavern-stage-next", "aria-hidden": true }) : null;
 	const lamp = props.art ? h("span", { className: "dsh-tavern-stage-lamp", "aria-hidden": true }) : null;
+	const nameRef = React.useRef(null);
+	useTavernStageNameFit(nameRef, beat && beat.kind === "line" ? beat.speaker : "", props.art);
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -77,11 +79,42 @@ function TavernStageScene(props) {
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") },
-			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { "data-text": beat.speaker }, beat.speaker),
+			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { ref: nameRef, "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text, next),
 			lamp, props.footer || null, props.dock || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文", props.dock || null));
+}
+
+// A name longer than its plate's room (an art plate: tavern.css 「stage skin: art」) is set smaller to fit, down to .6, instead of
+// losing its end. Padding and spacing do not scale with the face, so it narrows in a few measured steps (fractional px: the
+// glyph run plus padding against the box), again once fonts load and whenever the plate resizes.
+function useTavernStageNameFit(ref, name, art) {
+	React.useLayoutEffect(() => {
+		const b = ref.current;
+		if (!b || !art) return undefined;
+		const fit = () => {
+			b.style.removeProperty("--stage-name-fit");
+			const range = document.createRange();
+			let scale = 1;
+			for (let i = 0; i < 4 && scale > .6; i++) {
+				const style = getComputedStyle(b), vertical = style.writingMode.startsWith("vertical");
+				range.selectNodeContents(b);
+				const extent = vertical ? "height" : "width";
+				const padding = vertical ? parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) : parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+				const over = (range.getBoundingClientRect()[extent] + padding) / Math.max(1, b.getBoundingClientRect()[extent]);
+				if (over <= 1.001) break;
+				scale = Math.max(.6, Math.floor(1000 * scale / over - 10) / 1000);
+				b.style.setProperty("--stage-name-fit", String(scale));
+			}
+		};
+		fit();
+		let live = true;
+		document.fonts.ready.then(() => { if (live) fit(); });
+		const observer = new ResizeObserver(fit);
+		observer.observe(b.parentElement);
+		return () => { live = false; observer.disconnect(); };
+	}, [name, art]);
 }
 
 /** The stage data as plugins see it (tavernUi.getStage). */

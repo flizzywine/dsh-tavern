@@ -36,7 +36,7 @@ await writeFile(join(folder, 'skin.json'), JSON.stringify({ schema: 'dsh.skin/1'
   textbox: { paint: { bg: '#f4efe6', fg: '#1d1a22', fgMuted: '#4a4550', accent: '#2a2440', onAccent: '#ffffff', border: '#4a4550' }, shape: { radius: 4 } },
   nameplate: { shape: 'plain', paint: { bg: '#2a2440', fg: '#ffffff' } },
   art: { screen: 1080, screenWidth: 1920, textbox: { images: { plain: 'art/box.png' }, body: [0, 40, 1800, 260], bottom: 24, text: [90, 1710, 175], font: 36, lines: 3,
-    cue: [1740, 280, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } },
+    cue: [1750, 240, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } },
     nameplate: { x: 60, y: 6, h: 64, font: 30, image: 'art/plate.png', slice: [8, 24, 8, 24], grow: 400 } } }, null, 2))
 const edge = (x, y, w, h, k) => x < k || y < k || x >= w - k || y >= h - k
 await writeFile(join(folder, 'art', 'box.png'), png(1800, 300, (x, y) => y < 40 ? [0, 0, 0, 0] : edge(x, y - 40, 1800, 260, 6) ? [42, 36, 64, 255] : edge(x, y - 40, 1800, 260, 14) ? [244, 239, 230, 255] : edge(x, y - 40, 1800, 260, 16) ? [74, 69, 80, 255] : [244, 239, 230, 240]))
@@ -59,7 +59,7 @@ try {
   const proceed = page.getByRole('button', { name: 'Continue', exact: true })
   if (await proceed.isVisible()) await proceed.click()
   await page.setViewportSize({ width: 1920, height: 1080 })
-  const name = 'Iris ' + Date.now() % 100000
+  const name = '林纸鸢'
   const cardZip = writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }) }])
   const card = (await call('importCard', { payload: { kind: 'charx', name: 'skin-' + Date.now() + '.charx', fileB64: cardZip.toString('base64') } })).card
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens on a paper stage.\n\n「Welcome. Every page here is drawn by the skin.」\n\nThe lamps dim, and the next page waits.' }].map(JSON.stringify).join('\n')
@@ -249,6 +249,7 @@ try {
     await page.waitForTimeout(800)
     for (const [shot, width, height] of [['1920', 1920, 1080], ['375', 375, 812]]) {
       await page.setViewportSize({ width, height }); await page.waitForTimeout(500)
+      assert.equal(await stage.evaluate(node => node.getBoundingClientRect().width), width, 'the stage fills the screen')
       while (!await stage.locator('.dsh-tavern-stage-input').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
       await page.waitForTimeout(400)
       await page.screenshot({ path: join(output, 'real-end-' + shot + '.png') })
