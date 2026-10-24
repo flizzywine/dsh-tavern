@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import { chromium } from 'playwright'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
+import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
+import { computeSceneTarget } from '../../tavern-plugin/lib/domain/scene-illustration.js'
+import { CAST_DATA_OWNER } from '../../tavern-plugin/lib/domain/cast-annotation.js'
 
 // Skins as asset entries against a real host: 添加文件 › 皮肤 (a skin folder), 包默认, 舞台设置 › 默认皮肤 / 本卡皮肤 and the
 // fullscreen stage drawn in the skin the order picks. Run only against an owned, hidden, muted fresh profile: nothing here
@@ -60,7 +63,13 @@ try {
   const cardZip = writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }) }])
   const card = (await call('importCard', { payload: { kind: 'charx', name: 'skin-' + Date.now() + '.charx', fileB64: cardZip.toString('base64') } })).card
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens on a paper stage.\n\n「Welcome. Every page here is drawn by the skin.」\n\nThe lamps dim, and the next page waits.' }].map(JSON.stringify).join('\n')
-  const { sessionId } = await call('importChatHistoryText', { cardPath: card.path, text: history, fileName: 'skin-' + Date.now() + '.jsonl' })
+  // The quote is annotated with its speaker (the settlement's record, through a native save), so page 2 is a named line.
+  const imported = await call('importChatHistoryText', { cardPath: card.path, text: history, fileName: 'skin-' + Date.now() + '.jsonl' })
+  const save = readGameSave(Buffer.from((await call('exportGameSave', { sessionId: imported.sessionId, images: false })).base64, 'base64'))
+  const turn = Math.max(...save.chat.messages.filter(m => m.role === 'assistant').map(m => m.turn || 1))
+  const annotation = { version: 1, lines: [{ n: 1, quote: 'Welcome. Every page here is drawn by the skin.', speaker: name, emotion: 'joy' }] }
+  save.plugins = { data: { version: 1, owners: { [CAST_DATA_OWNER]: { game: null, turns: [{ turn, key: computeSceneTarget(save.chat, turn).key, data: annotation, bytes: JSON.stringify(annotation).length, updatedAt: 1 }] } } }, media: null, attachments: [] }
+  const { sessionId } = await call('importGameSave', { fileB64: buildGameSave({ ...save, tavernVersion: save.manifest.tavernVersion, exportedAt: Date.now() }).toString('base64') })
   const title = 'Stage skin ' + Date.now() % 100000
   await call('renameConversation', { sessionId, title })
   await call('updateTavernSettings', { patch: { castPresentation: true } })
@@ -148,13 +157,35 @@ try {
     return { image: getComputedStyle(box, '::before').backgroundImage, plate: name ? getComputedStyle(name).borderImageSource : '', next: next ? next.getAnimations().length : null, fs: parseFloat(getComputedStyle(node.querySelector('.dsh-tavern-stage-text')).fontSize) }
   })
   assert.match(art.image, /\/api\/dsh-asset-library\/v2\/lease\/[^/]+\/art\/box\.png/, 'the box is the skin\'s own image under its lease')
-  if (await stage.locator('.dsh-tavern-stage-name').count()) assert.match(art.plate, /art\/plate\.png/, 'the name stands on the skin\'s 9-sliced plate')
+  assert.match(art.plate, /art\/plate\.png/, 'the name stands on the skin\'s 9-sliced plate')
+  assert.equal(await stage.locator('.dsh-tavern-stage-name b').innerText(), name)
   assert.ok(Math.abs(art.fs - 36) < 1, 'the text keeps the design size at 1080 high')
+  // The controls row is the box's own: inside the box's body, at its bottom-right corner.
+  const inBox = () => stage.evaluate(node => {
+    const box = node.querySelector('.dsh-tavern-stage-textbox').getBoundingClientRect(), row = node.querySelector('.dsh-tavern-stage-controls').getBoundingClientRect()
+    return row.left >= box.left && row.right <= box.right + 0.5 && row.top >= box.top && row.bottom <= box.bottom + 0.5
+  })
+  assert.ok(await inBox(), 'the controls stand on the box')
   result.art = art
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.waitForTimeout(300)
+  assert.ok(await inBox(), 'the controls stand on the box on a phone')
+  assert.ok(await stage.evaluate(node => parseFloat(getComputedStyle(node.querySelector('.dsh-tavern-stage-text')).fontSize)) >= 17, 'phone reading size')
+  await page.screenshot({ path: join(output, 'stage-paper-line-375.png') })
+  await page.setViewportSize({ width: 1920, height: 1080 })
   await close()
   assert.deepEqual(await drawn(), ['paper', 'box'], 'the pack default draws the stage, its art included')
+  // The last page: the input docks above the box image, clear of it, at both widths.
+  while (!await stage.locator('.dsh-tavern-stage-input').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
+  const docked = () => stage.evaluate(node => {
+    const box = node.querySelector('.dsh-tavern-stage-textbox'), image = box.getBoundingClientRect().top + parseFloat(getComputedStyle(box, '::before').top)
+    return node.querySelector('.dsh-tavern-stage-textbox > .dsh-tavern-stage-input').getBoundingClientRect().bottom <= image
+  })
+  assert.ok(await docked(), 'the input stands above the box image')
   await page.screenshot({ path: join(output, 'stage-paper-1920.png') })
   await page.setViewportSize({ width: 375, height: 812 })
+  await page.waitForTimeout(300)
+  assert.ok(await docked(), 'the input stands above the box image on a phone')
   await page.screenshot({ path: join(output, 'stage-paper-375.png') })
   await page.setViewportSize({ width: 1920, height: 1080 })
   await close()
@@ -210,16 +241,21 @@ try {
     await win.getByText(/已添加皮肤/).waitFor()
     const id = JSON.parse(await (await import('node:fs/promises')).readFile(join(real, 'skin.json'), 'utf8')).id
     const realPack = (await call('getAssetPack', { packId: pack.manifest.id })).pack
-    await call('setCardStageSkin', { path: card.path, skin: { packId: realPack.manifest.id, assetId: id } })
+    await call('setCardStageSkin', { path: card.path, skin: { packId: realPack.manifest.id, kind: 'skins', assetId: id } })
     await win.getByRole('button', { name: '关闭', exact: true }).click()
     await openTab('舞台设置')
     await header.click(); await stage.waitFor()
     await page.waitForFunction(() => document.querySelector('.dsh-tavern-stage-overlay')?.hasAttribute('data-fk-skin-art'), null, { timeout: 15000 })
     await page.waitForTimeout(800)
-    await page.screenshot({ path: join(output, 'real-1920.png') })
-    await page.setViewportSize({ width: 375, height: 812 })
-    await page.waitForTimeout(500)
-    await page.screenshot({ path: join(output, 'real-375.png') })
+    for (const [shot, width, height] of [['1920', 1920, 1080], ['375', 375, 812]]) {
+      await page.setViewportSize({ width, height }); await page.waitForTimeout(500)
+      while (!await stage.locator('.dsh-tavern-stage-input').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: join(output, 'real-end-' + shot + '.png') })
+      while (!await stage.locator('.dsh-tavern-stage-name').count()) { await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(250) }
+      await page.waitForTimeout(1500)
+      await page.screenshot({ path: join(output, 'real-' + shot + '.png') })
+    }
     result.real = await stage.getAttribute('data-fk-skin')
   }
 } finally {

@@ -3136,7 +3136,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
    marks and --art-* tokens, numbers in px of the skin's design screen). One art px is --art-u: the stage's height over the
    design screen's height, bounded by its width over the design width and by the box image taking at most --art-fit (96%) of
    the width. The box (.dsh-tavern-stage-textbox) is the image's body rect, centred; the image is its ::before, offset by
-   the body's place in it. The controls row and the input stand above the image. */
+   the body's place in it. The controls row is the box's own, in its bottom-right corner; the input docks above the image. */
 .dsh-tavern-stage-overlay[data-fk-skin-art] { --art-u: min(calc(100vh / var(--art-screen)), calc(100vw / var(--art-screen-w)), calc(var(--art-fit, .96) * 100vw / var(--art-img-w))); }
 .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox {
   --art-fs: calc(var(--art-font) * var(--art-u)); --art-lh: var(--gal-skin-line-height);
@@ -3154,10 +3154,8 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-pitch] .dsh-tavern-stage-textbox { --art-lh: calc(var(--art-pitch) / var(--art-font)); }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-align="top"] .dsh-tavern-stage-textbox { justify-content: flex-start; padding-top: calc((var(--art-text-y) - var(--art-body-y)) * var(--art-u)); padding-bottom: 0; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-stroke] .dsh-tavern-stage-text { -webkit-text-stroke: calc(var(--art-text-stroke-w) * 2 * var(--art-u)) var(--art-text-stroke); paint-order: stroke fill; }
-.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls {
-  position: absolute; margin: 0; right: calc((var(--art-img-w) - var(--art-body-x) - var(--art-body-w)) * var(--art-u) * -1); bottom: calc(100% + var(--art-body-y) * var(--art-u) + 6px);
-  padding: 4px 6px; border-radius: var(--gal-ui-radius); background: color-mix(in srgb, var(--gal-skin-bg) 88%, transparent); }
-.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-input { bottom: calc((var(--art-bottom) + var(--art-img-h)) * var(--art-u) + 52px); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: absolute; margin: 0; right: 14px; bottom: 8px; }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + var(--art-body-y) * var(--art-u) + 12px); }
 /* the name on the box: the layout's plate at x / y, outlined --art-np-stroke px */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name {
   position: absolute; box-sizing: border-box; align-items: center; margin: 0; max-width: none; left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-np-y) - var(--art-body-y)) * var(--art-u));
@@ -3248,6 +3246,8 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
     border-image: var(--art-plain) var(--art-sl) fill / calc(var(--art-sl-t) * var(--art-u)) calc(var(--art-sl-r) * var(--art-u)) calc(var(--art-sl-b) * var(--art-u)) calc(var(--art-sl-l) * var(--art-u)) / 0 stretch; }
   .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox.is-narration::before { border-image-source: var(--art-narration, var(--art-plain)); }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name { font-size: max(14px, calc(var(--art-np-font) * var(--art-u))); }
+  /* the controls row gets its own strip under the lines, right-aligned */
+  .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: static; justify-content: flex-end; margin-top: 6px; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-text { margin-top: max(0px, calc((var(--art-np-y) + var(--art-np-h) - var(--art-sl-t)) * var(--art-u))); }
 }
 /* ==== end stage skin: art ==== */
