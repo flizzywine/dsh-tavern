@@ -227,6 +227,7 @@ try {
   assert.ok(phone.on && Math.abs(phone.at[0] - 8) < 1 && Math.abs(phone.at[1] + 48) < 1 && Math.abs(phone.at[2] - 96) < 1, 'the phone face place: ' + phone.at)
   assert.ok(phone.below, 'the lines start under the face')
   assert.ok(narrow.row[1] < narrow.box[1] && narrow.row[3] > narrow.box[1] && narrow.row[2] <= narrow.box[2], 'the row on the box\'s top edge: ' + JSON.stringify(narrow))
+  assert.ok(narrow.row[0] >= narrow.box[0] + phone.at[0] + phone.at[2] - 0.5, 'the row stops short of the face')
   assert.deepEqual([Math.round(narrow.auto.width), Math.round(narrow.auto.height)], [44, 44], '44px targets')
   assert.ok(await stage.evaluate(node => parseFloat(getComputedStyle(node.querySelector('.dsh-tavern-stage-text')).fontSize)) >= 17, 'phone reading size')
   await page.screenshot({ path: join(output, 'stage-paper-line-375.png') })

@@ -3157,7 +3157,7 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-align="top"] .dsh-tavern-stage-textbox { justify-content: flex-start; padding-top: calc((var(--art-text-y) - var(--art-body-y)) * var(--art-u)); padding-bottom: 0; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-stroke] .dsh-tavern-stage-text { -webkit-text-stroke: calc(var(--art-text-stroke-w) * 2 * var(--art-u)) var(--art-text-stroke); paint-order: stroke fill; }
 .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: absolute; margin: 0; right: 14px; bottom: 8px; }
-.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + var(--art-dock-over, calc(var(--art-body-y) * var(--art-u))) + 12px); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + max(var(--art-dock-over, calc(var(--art-body-y) * var(--art-u))), var(--art-dock-min, 0px)) + 12px); }
 /* the name on the box: the layout's plate at x / y, outlined --art-np-stroke px */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name {
   position: absolute; box-sizing: border-box; align-items: center; margin: 0; max-width: none; left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-np-y) - var(--art-body-y)) * var(--art-u));
@@ -3382,7 +3382,16 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-place] .dsh-tavern-stage-controls { gap: 0 4px; }
   .dsh-tavern-stage-overlay[data-fk-skin-controls-icons] .dsh-tavern-stage-controls button.has-icon { width: 44px; height: 44px; padding: 5px; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="top"] .dsh-tavern-stage-controls { order: -1; margin: 0 0 6px; }
-  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls { position: absolute; top: auto; right: 6px; bottom: calc(100% - 22px); margin: 0; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls { position: absolute; top: auto; right: 6px; bottom: calc(100% - 22px); margin: 0;
+    flex-wrap: wrap-reverse; max-width: calc(100% - 6px - var(--art-edge-clear, 6px)); }
+  /* on the edge the row stands partly over the scene: its first line on the edge, what does not fit above it (never under a
+     phone face: it stops short of the side); the words keep the box's paper under them; the input docks above two lines */
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-portrait="avatar"][data-fk-skin-portrait-narrow][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls {
+    --art-edge-clear: max(6px, calc((var(--art-face-nx) + var(--art-face-nw)) * 1px + 6px)); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls > :is(button:not(.has-icon), .dsh-tavern-bgm-anchor > button, .dsh-tavern-stage-progress):not(:hover, .is-on) {
+    background: var(--gal-skin-bg); }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-controls > .dsh-tavern-stage-progress { padding: 3px 6px; border-radius: 6px; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-textbox { --art-dock-min: 70px; }
 }
 /* ==== end stage skin: art ==== */
 /* BGM 播放器：一个面板两处摆放。组件只读 --bgm-*，舞台映射到全屏舞台的暗色，聊天映射到宿主主题；面板底色不透明。 */
