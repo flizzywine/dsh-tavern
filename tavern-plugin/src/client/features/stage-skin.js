@@ -124,6 +124,7 @@ function stageSkinArt(document, files) {
 	const plate = art.nameplate;
 	if (plate) {
 		marks["data-fk-skin-art-name"] = "";
+		if (plate.vertical) marks["data-fk-skin-art-name-vertical"] = "";
 		Object.assign(tokens, { "--art-np-x": n(plate.x), "--art-np-y": n(plate.y), "--art-np-w": n(plate.w || 0), "--art-np-h": n(plate.h), "--art-np-font": n(plate.font), "--art-np-stroke": n(plate.stroke || 0), "--art-np-weight": String(plate.weight || 500) });
 		if (plate.image) {
 			const [pw, ph] = size(plate.image, plate.scale);
@@ -132,7 +133,7 @@ function stageSkinArt(document, files) {
 			if (plate.center != null && !plate.slice) { marks["data-fk-skin-art-np-center"] = ""; tokens["--art-np-center"] = n(plate.center); }
 			if (plate.slice) {
 				const [sx, sy] = [].concat(plate.scale ?? 1).concat(plate.scale ?? 1), e = stageSkinSliceEdges(plate.slice), round = v => String(Math.round(v * 100) / 100);
-				const pad = plate.pad || [e[3] * sx, e[1] * sx];
+				const pad = plate.pad || (plate.vertical ? [e[0] * sy, e[2] * sy] : [e[3] * sx, e[1] * sx]);
 				marks["data-fk-skin-art-np-slice"] = "";
 				Object.assign(tokens, { "--art-np-sl": e.map(round).join(" "), "--art-np-sl-t": round(e[0] * sy), "--art-np-sl-r": round(e[1] * sx), "--art-np-sl-b": round(e[2] * sy), "--art-np-sl-l": round(e[3] * sx),
 					"--art-np-grow": round(plate.grow || 0), "--art-np-pad-a": round(pad[0]), "--art-np-pad-b": round(pad[1]) });

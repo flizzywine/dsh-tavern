@@ -64,8 +64,9 @@ function TavernStageScene(props) {
 	const beat = beats[index] || null;
 	const scene = props.scene;
 	// The skin's art layer draws the page cue and the auto lamp on its box image (stage-skin.js stageSkinArt).
-	const art = props.art ? [index < beats.length - 1 ? h("span", { key: "next", className: "dsh-tavern-stage-next", "aria-hidden": true }) : null,
-		h("span", { key: "lamp", className: "dsh-tavern-stage-lamp", "aria-hidden": true })] : null;
+	// The cue ends the lines (an inline cue flows after them; a placed one stands on the box).
+	const next = props.art && index < beats.length - 1 ? h("span", { className: "dsh-tavern-stage-next", "aria-hidden": true }) : null;
+	const lamp = props.art ? h("span", { className: "dsh-tavern-stage-lamp", "aria-hidden": true }) : null;
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -77,8 +78,8 @@ function TavernStageScene(props) {
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") },
 			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
-			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text),
-			art, props.footer || null)
+			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") }, beat.text, next),
+			lamp, props.footer || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文"));
 }
 

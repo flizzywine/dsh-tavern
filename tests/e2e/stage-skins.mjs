@@ -13,23 +13,32 @@ const output = process.argv[process.argv.indexOf('--artifacts') + 1]
 if (!process.argv.includes('--isolated') || !endpoint || new URL(endpoint).port === '9333' || !process.argv.includes('--artifacts')) throw Error('Requires an owned fresh-profile CDP, --isolated and --artifacts DIR; never use a live browser')
 await mkdir(output, { recursive: true })
 
-function png(r, g, b) {
+// An RGBA PNG drawn by paint(x, y) -> [r, g, b, a].
+function png(width, height, paint) {
   const chunk = (type, data) => {
     const body = Buffer.concat([Buffer.from(type), data]), result = Buffer.alloc(body.length + 8)
     result.writeUInt32BE(data.length); body.copy(result, 4); result.writeUInt32BE(crc32(body), result.length - 4)
     return result
   }
-  const header = Buffer.alloc(13); header.writeUInt32BE(1); header.writeUInt32BE(1, 4); header.set([8, 6], 8)
-  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.from([0, r, g, b, 255]))), chunk('IEND', Buffer.alloc(0))])
+  const header = Buffer.alloc(13); header.writeUInt32BE(width); header.writeUInt32BE(height, 4); header.set([8, 6], 8)
+  const rows = Buffer.alloc((width * 4 + 1) * height)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) rows.set(paint(x, y), y * (width * 4 + 1) + 1 + x * 4)
+  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
 }
-// An original skin folder: dark ink on paper, its box drawn from one image beside skin.json.
+// An original skin folder: dark ink on paper. Its art layer draws the box from a framed paper image, the name on a plate
+// image that grows with the name (slice) and the page cue as a four-cell sheet (frames).
 const folder = join(output, 'paper-skin')
 await mkdir(join(folder, 'art'), { recursive: true })
 await writeFile(join(folder, 'skin.json'), JSON.stringify({ schema: 'dsh.skin/1', id: 'paper', label: '纸', font: {}, textFx: { reveal: 'type' },
   textbox: { paint: { bg: '#f4efe6', fg: '#1d1a22', fgMuted: '#4a4550', accent: '#2a2440', onAccent: '#ffffff', border: '#4a4550' }, shape: { radius: 4 } },
   nameplate: { shape: 'plain', paint: { bg: '#2a2440', fg: '#ffffff' } },
-  art: { screen: 900, textbox: { images: { plain: 'art/box.png' }, body: [0, 0, 1, 1], bottom: 20, text: [0, 1, 0], font: 28, lines: 3 } } }, null, 2))
-await writeFile(join(folder, 'art', 'box.png'), png(244, 239, 230))
+  art: { screen: 1080, screenWidth: 1920, textbox: { images: { plain: 'art/box.png' }, body: [0, 40, 1800, 260], bottom: 24, text: [90, 1710, 175], font: 36, lines: 3,
+    cue: [1740, 280, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } },
+    nameplate: { x: 60, y: 6, h: 64, font: 30, image: 'art/plate.png', slice: [8, 24, 8, 24], grow: 400 } } }, null, 2))
+const edge = (x, y, w, h, k) => x < k || y < k || x >= w - k || y >= h - k
+await writeFile(join(folder, 'art', 'box.png'), png(1800, 300, (x, y) => y < 40 ? [0, 0, 0, 0] : edge(x, y - 40, 1800, 260, 6) ? [42, 36, 64, 255] : edge(x, y - 40, 1800, 260, 14) ? [244, 239, 230, 255] : edge(x, y - 40, 1800, 260, 16) ? [74, 69, 80, 255] : [244, 239, 230, 240]))
+await writeFile(join(folder, 'art', 'plate.png'), png(160, 64, (x, y) => edge(x, y, 160, 64, 3) ? [244, 239, 230, 255] : [42, 36, 64, 255]))
+await writeFile(join(folder, 'art', 'next.png'), png(160, 40, (x, y) => Math.abs(x % 40 - 20) + Math.abs(y - 20) < 6 + (x / 40 | 0) * 3 ? [42, 36, 64, 255] : [0, 0, 0, 0]))
 await writeFile(join(folder, 'notes.txt'), 'not declared: never uploaded')
 
 const browser = await chromium.connectOverCDP(endpoint)
@@ -50,7 +59,7 @@ try {
   const name = 'Iris ' + Date.now() % 100000
   const cardZip = writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }) }])
   const card = (await call('importCard', { payload: { kind: 'charx', name: 'skin-' + Date.now() + '.charx', fileB64: cardZip.toString('base64') } })).card
-  const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' }].map(JSON.stringify).join('\n')
+  const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens on a paper stage.\n\n「Welcome. Every page here is drawn by the skin.」\n\nThe lamps dim, and the next page waits.' }].map(JSON.stringify).join('\n')
   const { sessionId } = await call('importChatHistoryText', { cardPath: card.path, text: history, fileName: 'skin-' + Date.now() + '.jsonl' })
   const title = 'Stage skin ' + Date.now() % 100000
   await call('renameConversation', { sessionId, title })
@@ -81,7 +90,7 @@ try {
   await page.locator('input[aria-label="添加皮肤"]').setInputFiles(folder)
   await win.getByText('已添加皮肤「纸」').waitFor()
   const stored = (await call('getAssetPack', { packId: pack.manifest.id })).pack
-  assert.deepEqual(stored.manifest.files.map(file => file.path).sort(), ['bundles/skin-paper/art/box.png', 'bundles/skin-paper/skin.json'], 'only the declared files')
+  assert.deepEqual(stored.manifest.files.map(file => file.path).sort(), ['bundles/skin-paper/art/box.png', 'bundles/skin-paper/art/next.png', 'bundles/skin-paper/art/plate.png', 'bundles/skin-paper/skin.json'], 'only the declared files')
   assert.equal(await win.locator('.dsh-tavern-entry-item .dsh-tavern-asset-lamp-button').count(), 0, 'a skin has no lamp')
   await win.locator('.dsh-tavern-skin-hero .dsh-tavern-skin-art-name').waitFor()
   assert.deepEqual(await win.locator('.dsh-tavern-skin-hero .dsh-tavern-skin-art-box').evaluate(node => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]), ['rgb(244, 239, 230)', 'rgb(29, 26, 34)'])
@@ -113,9 +122,37 @@ try {
   await page.screenshot({ path: join(output, 'settings-1920.png') })
   const header = page.getByRole('button', { name: '舞台', exact: true })
   const stage = page.locator('.dsh-tavern-stage-overlay')
-  const drawn = async () => { await header.click(); await stage.waitFor(); const value = [await stage.getAttribute('data-fk-skin'), await stage.locator('.dsh-tavern-stage-textbox').first().evaluate(node => getComputedStyle(node).backgroundColor)]; return value }
+  const drawn = async () => { await header.click(); await stage.waitFor(); await page.waitForTimeout(300); return [await stage.getAttribute('data-fk-skin'), await stage.getAttribute('data-fk-skin-art')] }
   const close = async () => { await page.keyboard.press('Escape'); await stage.waitFor({ state: 'detached' }) }
-  assert.deepEqual(await drawn(), ['paper', 'rgb(244, 239, 230)'], 'the pack default draws the stage')
+  // One failed read of a skin file at stage open: the document draws without its art, the stage asks again and gains it.
+  // (The page's own scheme is not routable, so the first read of the box image is failed in the page.)
+  await page.evaluate(() => {
+    const Native = window.Image, src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src').set
+    window.__skinReads = 0; window.__nativeImage = Native
+    window.Image = function () {
+      const image = new Native()
+      Object.defineProperty(image, 'src', { set(value) { if (/\/art\/box\.png$/.test(value) && window.__skinReads++ === 0) setTimeout(() => image.onerror(new Event('error'))); else src.call(image, value) } })
+      return image
+    }
+  })
+  await header.click(); await stage.waitFor()
+  await page.waitForFunction(() => document.querySelector('.dsh-tavern-stage-overlay')?.getAttribute('data-fk-skin') === 'paper')
+  await page.waitForFunction(() => document.querySelector('.dsh-tavern-stage-overlay')?.getAttribute('data-fk-skin-art') === 'box', null, { timeout: 10000 })
+  assert.ok(await page.evaluate(() => window.__skinReads) >= 2, 'the art arrived on a second read')
+  await page.evaluate(() => { window.Image = window.__nativeImage })
+  for (let i = 0; i < 4 && !await stage.locator('.dsh-tavern-stage-name').count(); i++) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
+  result.pages = await stage.locator('.dsh-tavern-stage-progress').innerText()
+  await page.screenshot({ path: join(output, 'stage-paper-line-1920.png') })
+  const art = await stage.evaluate(node => {
+    const box = node.querySelector('.dsh-tavern-stage-textbox'), name = node.querySelector('.dsh-tavern-stage-name'), next = node.querySelector('.dsh-tavern-stage-next')
+    return { image: getComputedStyle(box, '::before').backgroundImage, plate: name ? getComputedStyle(name).borderImageSource : '', next: next ? next.getAnimations().length : null, fs: parseFloat(getComputedStyle(node.querySelector('.dsh-tavern-stage-text')).fontSize) }
+  })
+  assert.match(art.image, /\/api\/dsh-asset-library\/v2\/lease\/[^/]+\/art\/box\.png/, 'the box is the skin\'s own image under its lease')
+  if (await stage.locator('.dsh-tavern-stage-name').count()) assert.match(art.plate, /art\/plate\.png/, 'the name stands on the skin\'s 9-sliced plate')
+  assert.ok(Math.abs(art.fs - 36) < 1, 'the text keeps the design size at 1080 high')
+  result.art = art
+  await close()
+  assert.deepEqual(await drawn(), ['paper', 'box'], 'the pack default draws the stage, its art included')
   await page.screenshot({ path: join(output, 'stage-paper-1920.png') })
   await page.setViewportSize({ width: 375, height: 812 })
   await page.screenshot({ path: join(output, 'stage-paper-375.png') })
@@ -131,7 +168,7 @@ try {
   await menu.getByRole('menuitemradio', { name: '经典' }).click()
   await settings.getByRole('button', { name: '本卡皮肤：经典' }).waitFor()
   assert.equal((await call('getStageSkins', { path: card.path })).card.choice, 'classic')
-  assert.deepEqual(await drawn(), ['classic', 'rgb(12, 10, 20)'])
+  assert.deepEqual(await drawn(), ['classic', null])
   await close()
   // Keyboard: the picker opens on Enter with the current choice focused; ↑ and Enter choose.
   await settings.getByRole('button', { name: '本卡皮肤：经典' }).focus()
@@ -139,7 +176,7 @@ try {
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-checked') === 'true')
   await page.keyboard.press('ArrowUp'); await page.keyboard.press('Enter')
   await settings.getByRole('button', { name: '本卡皮肤：跟随默认' }).waitFor()
-  assert.deepEqual(await drawn(), ['paper', 'rgb(244, 239, 230)'])
+  assert.deepEqual(await drawn(), ['paper', 'box'])
   await close()
   result.cardChoice = true
 
@@ -152,7 +189,7 @@ try {
   await win.getByText('已删除').waitFor()
   await win.getByRole('button', { name: '关闭', exact: true }).click()
   await openTab('舞台设置')
-  assert.deepEqual(await drawn(), ['classic', 'rgb(12, 10, 20)'])
+  assert.deepEqual(await drawn(), ['classic', null])
   await close()
   assert.equal((await call('getAssetPack', { packId: pack.manifest.id })).pack.manifest.stageSkin, 'paper')
   await page.setViewportSize({ width: 375, height: 812 })
@@ -162,6 +199,29 @@ try {
   await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   assert.equal((await call('getStageSkins', { path: card.path })).global, 'classic')
   result.reload = true
+  // --real-skin DIR: the same steps with a real art skin folder, for the record shots only (never committed).
+  const real = process.argv.includes('--real-skin') ? process.argv[process.argv.indexOf('--real-skin') + 1] : null
+  if (real) {
+    await page.setViewportSize({ width: 1920, height: 1080 })
+    await openTab('舞台素材')
+    await materials.locator('.dsh-tavern-pack-row').filter({ hasText: packName }).first().click()
+    await win.getByRole('button', { name: '添加文件' }).first().click()
+    await page.locator('input[aria-label="添加皮肤"]').setInputFiles(real)
+    await win.getByText(/已添加皮肤/).waitFor()
+    const id = JSON.parse(await (await import('node:fs/promises')).readFile(join(real, 'skin.json'), 'utf8')).id
+    const realPack = (await call('getAssetPack', { packId: pack.manifest.id })).pack
+    await call('setCardStageSkin', { path: card.path, skin: { packId: realPack.manifest.id, assetId: id } })
+    await win.getByRole('button', { name: '关闭', exact: true }).click()
+    await openTab('舞台设置')
+    await header.click(); await stage.waitFor()
+    await page.waitForFunction(() => document.querySelector('.dsh-tavern-stage-overlay')?.hasAttribute('data-fk-skin-art'), null, { timeout: 15000 })
+    await page.waitForTimeout(800)
+    await page.screenshot({ path: join(output, 'real-1920.png') })
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.waitForTimeout(500)
+    await page.screenshot({ path: join(output, 'real-375.png') })
+    result.real = await stage.getAttribute('data-fk-skin')
+  }
 } finally {
   await writeFile(join(output, 'stage-skins.json'), JSON.stringify(result, null, 2) + '\n')
   await browser.close().catch(() => {})

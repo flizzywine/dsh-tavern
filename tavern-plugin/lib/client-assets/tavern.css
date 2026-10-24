@@ -3170,6 +3170,14 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"] .dsh-tavern-stage-name b { min-width: 0; overflow: clip visible; text-overflow: ellipsis; padding-inline: .12em; margin-inline: -.12em; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-center] .dsh-tavern-stage-name {
   justify-content: center; padding-left: calc((var(--art-np-text) + max(0, 2 * var(--art-np-center) - var(--art-np-w))) * var(--art-u)); padding-right: calc((var(--art-np-text) + max(0, var(--art-np-w) - 2 * var(--art-np-center))) * var(--art-u)); }
+/* a vertical plate: the name set down its height, text / center along it */
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-vertical] .dsh-tavern-stage-name {
+  justify-content: center; align-items: center; overflow: visible; width: max(calc(var(--art-np-w) * var(--art-u)), 1.5em); padding: calc(var(--art-np-text, 0) * var(--art-u)) 0; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-vertical][data-fk-skin-art-np-center] .dsh-tavern-stage-name {
+  padding-top: calc((var(--art-np-text) + max(0, 2 * var(--art-np-center) - var(--art-np-h))) * var(--art-u)); padding-bottom: calc((var(--art-np-text) + max(0, var(--art-np-h) - 2 * var(--art-np-center))) * var(--art-u)); }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-vertical] .dsh-tavern-stage-name b {
+  writing-mode: vertical-rl; text-orientation: upright; text-align: center; white-space: nowrap; height: 100%; min-height: 0; flex: none; overflow: visible; text-overflow: clip; padding: 0; margin: 0; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name][data-fk-skin-art-name-vertical] .dsh-tavern-stage-name .dsh-tavern-cast-emotion { position: absolute; left: calc(100% + 8px); bottom: 0; }
 /* nameplate.slice: the image plate 9-sliced (--art-np-sl in image px, widths in design px), growing along the name up to
    grow design px between its pads */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name="image"][data-fk-skin-art-np-slice] .dsh-tavern-stage-name {
@@ -3190,7 +3198,12 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
   --art-cue: calc(var(--art-cue-h) * var(--art-u)); display: block; position: absolute; pointer-events: none; width: var(--art-cue); height: var(--art-cue);
   left: calc((var(--art-cue-x) - var(--art-body-x)) * var(--art-u) - var(--art-cue) / 2); bottom: calc((var(--art-body-y) + var(--art-body-h) - var(--art-cue-y)) * var(--art-u));
   background: linear-gradient(to bottom right, var(--gal-skin-fg) 50%, transparent 50%) center / 50% 50% no-repeat; rotate: 45deg; }
-.dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-cue="none"], [data-fk-skin-art-cue="inline"], [data-fk-skin-art-cue="inline-image"]) .dsh-tavern-stage-next { display: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="none"] .dsh-tavern-stage-next { display: none; }
+/* cue inline: the mark at the end of the lines, .9em tall (the image's cell aspect with frames) */
+.dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-cue="inline"], [data-fk-skin-art-cue="inline-image"]) .dsh-tavern-stage-next {
+  position: relative; left: auto; bottom: auto; display: inline-block; width: .7em; height: .9em; margin: 0 -.9em 0 .25em; vertical-align: -.12em; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="inline-image"] .dsh-tavern-stage-next { background: var(--art-next) center / contain no-repeat; rotate: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="inline-image"][data-fk-skin-art-cue-frames] .dsh-tavern-stage-next { width: calc(.9em * var(--art-next-w) / var(--art-next-h)); }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="image"] .dsh-tavern-stage-next {
   width: calc(var(--art-next-w) * var(--art-u)); height: calc(var(--art-next-h) * var(--art-u)); left: calc((var(--art-cue-x) - var(--art-body-x) - var(--art-next-w) / 2) * var(--art-u));
   background: var(--art-next) 0 0 / 100% 100% no-repeat; rotate: none; }
@@ -3204,6 +3217,7 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp="frames"] .dsh-tavern-stage-lamp { background-size: var(--art-lamp-sheet); background-position: var(--art-lamp-rest); }
 @media (prefers-reduced-motion: no-preference) {
   .dsh-tavern-stage-overlay[data-fk-skin-art]:is([data-fk-skin-art-cue="image"], [data-fk-skin-art-cue="glyph"]):not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-bob .933s .18s infinite; }
+  .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-cue="inline-image"]:not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-bob 1.4s .18s infinite; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-bob="dip"]:not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-dip .917s .18s infinite; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-bob="blink"]:not([data-fk-skin-art-cue-frames]) .dsh-tavern-stage-next { animation: dsh-art-cue-blink .5s .18s infinite step-end; }
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-lamp="blink"] .dsh-tavern-stage-lamp { animation: dsh-art-lamp-blink var(--art-lamp-t) step-end infinite; }
