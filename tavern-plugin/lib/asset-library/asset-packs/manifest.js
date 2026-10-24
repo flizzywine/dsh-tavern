@@ -1,6 +1,7 @@
 import { assertJson, check, shape, text, integer, bool, oneOf, array, unique, extensions, record, relativePath, validateUuid, validateShortId, validateHash, ASSET_KINDS } from './common.js'
 import { validateFiles } from './hash.js'
 import { ASSET_CONTENT_FIELDS, assetContentMedia } from '../shared/asset-variant-content.js'
+import { validateStageEntrance } from '../../domain/stage-entrance.js'
 // Canonical extensions only. Signatures/decoding and transport budgets belong to the storage service.
 export const BLOB_MIME_TYPES = Object.freeze({ png: 'image/png', webp: 'image/webp', jpeg: 'image/jpeg', mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', flac: 'audio/flac' })
 export function validateBlob(value, path = '$') {
@@ -44,6 +45,8 @@ export function validateAsset(value, path = '$') {
   validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins') bool(value.enabled, path + '.enabled')
   if (value.remark !== undefined) check(typeof value.remark === 'string', path + '.remark')
   validateRecall(value.recall, path + '.recall'); text(value.directorNote, path + '.directorNote', 300, 0); validateMetadata(value, path)
+  // An entrance plays when the card's stage opens, never on a word: it is blue (on) or off.
+  if (value.kind === 'entrances') check(value.recall.mode === 'constant', path + '.recall', 'An entrance is blue (always) or off')
   validateAssetContent(value.kind, Object.fromEntries(ASSET_CONTENT_FIELDS[value.kind].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]])), path)
   return value
 }
@@ -54,6 +57,11 @@ export function validateAssetContent(kind, content, path = '$') {
   if (kind === 'skins') {
     shape(content, ['bundleKey', 'entry'], ['bundleKey', 'entry'], path)
     validateShortId(content.bundleKey, path + '.bundleKey'); relativePath(content.entry, path + '.entry')
+    return content
+  }
+  if (kind === 'entrances') {
+    shape(content, ['entrance'], ['entrance'], path)
+    try { validateStageEntrance(content.entrance) } catch (error) { check(false, path + '.entrance' + String(error.path || '').slice(1), error.message, 'INVALID_ENTRANCE') }
     return content
   }
   validateHash(value.media, path + '.media')

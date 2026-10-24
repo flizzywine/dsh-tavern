@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { BLOB_MIME_TYPES } from '../asset-library/asset-packs/index.js'
 import { audioKind, imageKind } from '../asset-library/pack-v2/media.js'
 import { validateStageSkin, stageSkinFiles } from './stage-skin.js'
+import { validateStageEntrance } from './stage-entrance.js'
 
 // A card's stage material (backgrounds, music, items) lives in the asset library (docs/design/asset-library.md):
 // entries of the card's own pack, which the card's cast manifest binds by id (boundPackIds).
@@ -280,6 +282,31 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
       patch: { assets: existing ? pack.manifest.assets : [...pack.manifest.assets, asset], bundles: { ...pack.manifest.bundles, [bundleKey]: { kind: 'skin', entry, contentHash: '0'.repeat(64) } } } })
     return { pack: snapshot, id: document.id }
   })
+  // 入场演出 arrives as its dsh.entrance/1 file and is checked once, here (and by the store's manifest check). The same
+  // document again is the same entry; a new one is on (蓝灯), named after its label or the file.
+  const addEntrance = (packId, fileName, bytes) => serial('pack:' + packId, async () => {
+    let document
+    try { document = validateStageEntrance(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))) }
+    catch (error) { throw coded(error?.message || 'Invalid entrance', 'INVALID_ENTRANCE') }
+    const pack = await packOf(packId), own = pack.manifest.assets.filter(asset => asset.kind === 'entrances')
+    const same = own.find(asset => isDeepStrictEqual(asset.entrance, document))
+    if (same) return { pack, id: same.id }
+    let id = 'entrance', n = 1
+    while (own.some(asset => asset.id === id)) id = 'entrance-' + ++n
+    const name = [...(document.label || String(fileName).replace(/\.json$/i, '').trim() || '入场演出')].slice(0, 256).join('')
+    const asset = { kind: 'entrances', id, name, enabled: true, recall: { mode: 'constant', keywords: [] }, directorNote: '', entrance: document }
+    const { snapshot } = await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets: [...pack.manifest.assets, asset] } })
+    return { pack: snapshot, id }
+  })
+  // The 入场演出 this card's stage opens with: only the card's own packs count (a global pack never opens every card's
+  // stage), in binding order, then pack order; the first entrance that is on. Never part of the director's catalog.
+  async function entrance(cardPath) {
+    for (const packId of await boundIds(cardPath)) {
+      const pack = await snapshotOf(packId), asset = pack?.manifest.assets.find(row => row.kind === 'entrances' && row.enabled === true)
+      if (asset) return { ref: { packId, kind: 'entrances', assetId: asset.id }, name: asset.name, document: asset.entrance }
+    }
+    return null
+  }
   // The pack's default stage skin (manifest.stageSkin), or none.
   async function setPackSkin(packId, expectedRevision, id) {
     const pack = await packOf(packId)
@@ -304,6 +331,13 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
       const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { assets: pack.manifest.assets.filter(asset => asset !== entry), bundles }, fileUpdates: files })
       return { pack: snapshot }
     }
+    if (kind === 'entrances') {
+      // An entrance has no files: the entry is all there is.
+      const pack = await packOf(packId), entry = pack.manifest.assets.find(asset => asset.kind === 'entrances' && asset.id === id)
+      if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
+      const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { assets: pack.manifest.assets.filter(asset => asset !== entry) } })
+      return { pack: snapshot }
+    }
     const pack = await packOf(packId), entry = pack.manifest.assets.find(asset => asset.kind === kindOf(kind) && asset.id === id)
     if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
     const assets = pack.manifest.assets.filter(asset => asset !== entry), { blobs, files } = dropUnused(pack, assets, entry.media)
@@ -316,6 +350,8 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     replaceMedia,
     removeEntry,
     addSkin,
+    addEntrance,
+    entrance,
     setPackSkin,
     skinBase,
     // A pack's picture or audio for the editor's previews: the same reused lease the stage plays.

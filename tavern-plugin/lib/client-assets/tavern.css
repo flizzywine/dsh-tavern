@@ -3149,6 +3149,10 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-item img { max-width: 100%; max-height: min(28vh, 240px); object-fit: contain; filter: drop-shadow(0 8px 22px rgba(0,0,0,.55)); }
 .dsh-tavern-stage-item strong { font-size: 18px; font-weight: 600; letter-spacing: .12em; color: #fff; text-align: center; overflow-wrap: anywhere; text-shadow: 0 1px 6px rgba(0,0,0,.75); }
 @media (max-width: 640px) { .dsh-tavern-stage-item { bottom: auto; top: 16%; } .dsh-tavern-stage-item img { max-height: 24vh; } }
+/* 入场演出 (stage-entrance.js): over the whole stage while it opens; a click skips it, after the cover it takes none. */
+.dsh-tavern-stage-entrance { position: absolute; inset: 0; z-index: 30; cursor: pointer; overflow: hidden; }
+.dsh-tavern-stage-entrance[data-covered] { pointer-events: none; cursor: auto; }
+.dsh-tavern-stage-entrance-canvas { display: block; width: 100%; height: 100%; }
 /* The stage's look is its skin (stage-skin.js): the text box, name plate, reading text, control row and input read only
    the skin tokens on the stage root, the built-in 经典 included. */
 .dsh-tavern-stage-textbox { position: absolute; box-sizing: border-box; left: 50%; width: min(960px, 92vw); transform: translateX(-50%); bottom: 88px; height: 168px; padding: 16px 22px; display: flex; flex-direction: column; gap: 4px;
@@ -3719,6 +3723,9 @@ button.dsh-tavern-pack-state[data-state="global"]:hover { background: color-mix(
 .dsh-tavern-skin-art.is-big .dsh-tavern-skin-art-name { left: 14px; top: -13px; height: auto; padding: 2px 10px; font-size: 12px; line-height: 1.4; }
 .dsh-tavern-skin-art-line em { font-style: normal; color: var(--skin-accent); }
 .dsh-tavern-skin-hero { padding: 4px 0 12px; }
+.dsh-tavern-entrance-art { display: block; flex: none; width: 64px; height: 36px; border-radius: 6px; background: var(--asset-hover); }
+.dsh-tavern-entrance-hero { padding: 4px 0 12px; }
+.dsh-tavern-entrance-still { display: block; width: 100%; max-width: 640px; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; }
 .dsh-tavern-skin-default { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsh-tavern-skin-id { color: var(--dsw-alias-label-secondary); font-size: 13px; overflow-wrap: anywhere; }
 /* The skin select (默认皮肤 / 本卡皮肤): its trigger is the row's value; the menu lists each skin with its small stage. */

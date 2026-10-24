@@ -23,7 +23,8 @@ function png(r, g, b) {
 // A fixture invokes the real tool/transaction; its accepted record travels through
 // native save import. No model calls or test-only production RPC are needed.
 // `items`: { name, bytes } pictures added to the card's pack as 物品 entries (props) and offered to the director.
-export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, items = [], inspect }) {
+// `entrances`: dsh.entrance/1 documents added to the card's pack as 入场演出 entries (the stage opens with the first).
+export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, items = [], entrances = [], inspect }) {
   // The stage's BGM is Web Audio: route every context into a zero gain and count the sources it starts.
   await page.addInitScript(() => {
     const Base = window.AudioContext
@@ -67,6 +68,11 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
     })), items.map(item => ({ name: item.name, bytes: item.bytes.toString('base64') })))
     const added = await call('addAssetPackFiles', { packId, kind: 'props', files })
     assert.deepEqual(added.added.length, items.length, JSON.stringify(added.rejected))
+  }
+  for (const document of entrances) {
+    const [packId] = (await call('getCardAssetPacks', { path: imported.path })).boundPackIds
+    const uploadId = await page.evaluate(async text => (await (await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: new TextEncoder().encode(text) })).json()).uploadId, JSON.stringify(document))
+    await call('addAssetPackEntrance', { packId, name: 'entrance.json', uploadId })
   }
   await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' }, { name: 'Reader', is_user: true, mes: 'Begin.' }, { name, is_user: false, mes: bodyText }].map(JSON.stringify).join('\n')

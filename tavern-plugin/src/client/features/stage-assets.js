@@ -1,8 +1,8 @@
 // 舞台素材: the asset library's editor (docs/design/asset-library.md「编辑界面」). The library panel lists every pack
 // with its 全局 / 本卡 / 关闭 state; a pack opens one window (entries on the left, the chosen entry on the right); 舞台设置
 // › 素材包 lists this card's packs. Every write goes to the host's store (CAS revisions); nothing is kept on the page.
-const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", props: "物品", skins: "皮肤" });
-const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "props", "skins"]);
+const TAVERN_ASSET_KINDS = Object.freeze({ backgrounds: "背景", music: "音乐", props: "物品", skins: "皮肤", entrances: "入场演出" });
+const TAVERN_ASSET_KIND_ORDER = Object.freeze(["backgrounds", "music", "props", "skins", "entrances"]);
 const TAVERN_ASSET_EVENT = "dsh-tavern-asset-packs-changed";
 const TAVERN_PACK_STATES = Object.freeze({ global: "全局", card: "本卡", off: "关闭" });
 const TAVERN_PACK_STATE_ORDER = Object.freeze(["global", "card", "off"]);
@@ -19,9 +19,10 @@ const TAVERN_ASSET_HELP = Object.freeze({
 	volume: "这条素材在游戏里播放时的响度，试听也按它播放。",
 	packs: "这张卡用到的素材包。「管理」给这张卡开启或关闭其它素材包。",
 	skin: "舞台的样子：文字框、名牌、字色和控件。皮肤没有触发策略，导演不会用它；在「舞台设置」里选用。",
-	packSkin: "用到这个素材包、又没有自己皮肤的卡，默认用这套皮肤。"
+	packSkin: "用到这个素材包、又没有自己皮肤的卡，默认用这套皮肤。",
+	entrance: "打开舞台时先播的一段演出，点一下或按回车可以跳过。只用卡自己的素材包里第一条开着的；导演不会用它。只有蓝灯和关闭。"
 });
-const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg" });
+const TAVERN_ASSET_ACCEPT = Object.freeze({ backgrounds: "image/png,image/webp,image/jpeg", music: "audio/*,.mp3,.ogg,.wav,.m4a,.flac", props: "image/png,image/webp,image/jpeg", entrances: "application/json,.json" });
 const TAVERN_ASSET_GLYPHS = Object.freeze({
 	back: "M10 3.5 5.5 8l4.5 4.5", close: "M4 4l8 8M12 4l-8 8", more: "M3.5 8h.01M8 8h.01M12.5 8h.01", plus: "M8 3v10M3 8h10",
 	upload: "M8 10.5V3M5 6l3-3 3 3M3 10.5v2.5h10v-2.5", search: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.3 10.3 13.5 13.5",
@@ -30,7 +31,8 @@ const TAVERN_ASSET_GLYPHS = Object.freeze({
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4", voiceOff: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 6l3 4M13.5 6l-3 4",
 	backgrounds: "M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3", music: "M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z",
 	props: "M3.5 5.5h9l-.8 8h-7.4zM6 5.5v-1a2 2 0 0 1 4 0v1",
-	tray: "M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z", skins: "M2.5 3.5h11v9h-11zM2.5 9h11M4.5 10.75h4"
+	tray: "M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z", skins: "M2.5 3.5h11v9h-11zM2.5 9h11M4.5 10.75h4",
+	entrances: "M8 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM8 2v2M8 12v2M2 8h2M12 8h2M3.8 3.8l1.4 1.4M10.8 10.8l1.4 1.4M3.8 12.2l1.4-1.4M10.8 5.2l1.4-1.4"
 });
 function TavernAssetGlyph(props) {
 	return React.createElement("svg", { className: "dsh-tavern-asset-glyph", width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
@@ -481,18 +483,19 @@ function TavernLampMenu(props) {
 		trigger: menu => h("button", { type: "button", className: props.named ? "dsh-tavern-asset-lamp-named" : "dsh-tavern-asset-lamp-button", "data-mode": props.mode, "aria-haspopup": "menu", "aria-expanded": menu.open,
 			"aria-busy": busy || undefined, "aria-label": props.label + "：" + name + (props.named ? "" : "，更改"), title: props.named ? undefined : name, disabled: busy, onClick: menu.toggle },
 			h("span", { className: "dsh-tavern-asset-lamp", "data-mode": props.mode }), props.named ? h("span", null, name) : null, props.named ? h(TavernAssetGlyph, { name: "chevDown" }) : null),
-		content: close => ["constant", "keyword", "off"].map(mode => h(TavernAssetMenuItem, { key: mode, lamp: mode, checked: props.mode === mode, onClick: () => { close(); pick(mode); } }, TAVERN_ENTRY_LAMPS[mode])) });
+		content: close => (props.modes || ["constant", "keyword", "off"]).map(mode => h(TavernAssetMenuItem, { key: mode, lamp: mode, checked: props.mode === mode, onClick: () => { close(); pick(mode); } }, TAVERN_ENTRY_LAMPS[mode])) });
 }
 // A list row: the picture or the play button · the name · the lamp (a quick menu; choosing never selects the row).
 function TavernEntryItem(props) {
 	const h = React.createElement, item = props.item;
 	return h("li", { role: "option", "aria-selected": props.focused, className: "dsh-tavern-entry-item", "data-disabled": item.enabled === false || undefined, onClick: props.onSelect },
 		item.kind === "music" ? h(TavernAssetPlay, { audio: props.audio, asset: item }) : item.kind === "skins" ? h(TavernSkinArt, { document: props.skins && props.skins[item.id] })
+			: item.kind === "entrances" ? h(TavernEntranceSwatch, { document: item.entrance })
 			: h(TavernPackPicture, { packId: props.packId, hash: item.media, className: "dsh-tavern-entry-thumb" }),
 		h("button", { type: "button", className: "dsh-tavern-entry-main", onClick: event => { event.stopPropagation(); props.onSelect(); } }, h("span", { className: "dsh-tavern-entry-name" }, item.name)),
 		// A skin has no lamp; the pack's default skin is marked instead.
 		item.kind === "skins" ? (props.packSkin ? h("span", { className: "dsh-tavern-skin-default" }, "包默认") : null)
-			: h(TavernLampMenu, { mode: tavernEntryLamp(item), label: item.name + " 的触发策略", onChange: props.onLamp }));
+			: h(TavernLampMenu, { mode: tavernEntryLamp(item), modes: item.kind === "entrances" ? TAVERN_ENTRANCE_LAMPS : undefined, label: item.name + " 的触发策略", onChange: props.onLamp }));
 }
 // Text that reads as text until it is edited: Enter or leaving saves, Esc restores; an invalid draft stays with its message.
 function TavernAssetText(props) {
@@ -564,6 +567,7 @@ function TavernAssetField(props) {
 // Empty optional rows are not shown; they wait as 「＋ 名称」 chips at the end and come back in place when chosen.
 function TavernEntryDetail(props) {
 	if (props.asset.kind === "skins") return React.createElement(TavernSkinDetail, props);
+	if (props.asset.kind === "entrances") return React.createElement(TavernEntranceDetail, props);
 	const h = React.createElement, asset = props.asset, kind = asset.kind, packId = props.pack.manifest.id;
 	const [error, setError] = React.useState(""), [opened, setOpened] = React.useState(() => new Set()), [confirm, setConfirm] = React.useState(false), picker = React.useRef(null);
 	const write = update => { setError(""); return props.commit(kind, asset.id, update).catch(err => { setError(tavernAssetErrorText(err)); }); };
@@ -689,7 +693,7 @@ function TavernPackWindow(props) {
 		setBusy(true); setError("");
 		try { return await job(); } catch (err) { setError(tavernAssetErrorText(err)); return undefined; } finally { setBusy(false); }
 	}
-	const addFiles = (fileKind, files) => fileKind === "skins" ? addSkin(files) : task(async () => {
+	const addFiles = (fileKind, files) => fileKind === "skins" ? addSkin(files) : fileKind === "entrances" ? addEntrances(files) : task(async () => {
 		audio.stop();
 		const uploads = [];
 		for (const file of files) uploads.push(await tavernAssetUpload(file));
@@ -706,6 +710,17 @@ function TavernPackWindow(props) {
 			setKind("skins"); setQuery(""); setFilter("all"); setSelected(result.id); if (narrow) setDetail(true);
 			setNotice("已添加皮肤「" + result.pack.manifest.assets.find(asset => asset.kind === "skins" && asset.id === result.id).name + "」");
 		} catch (err) { setError(tavernSkinErrorText(err)); }
+	});
+	// 入场演出: one dsh.entrance/1 JSON file per entry, checked by the host as it is written.
+	const addEntrances = files => task(async () => {
+		const added = [], refused = [];
+		for (const file of files) {
+			try { const upload = await tavernAssetUpload(file); added.push((await enqueue(() => rpc("addAssetPackEntrance", { packId, name: file.name, uploadId: upload.uploadId }))).id); }
+			catch (err) { refused.push(file.name + "（" + tavernAssetErrorText(err) + "）"); }
+		}
+		setKind("entrances"); setQuery(""); setFilter("all");
+		if (added.length) { setSelected(added[0]); if (narrow) setDetail(true); setNotice("已添加 " + added.length + " 项入场演出"); }
+		if (refused.length) setError("没能添加：" + refused.join("、"));
 	});
 	// 设为包默认 / 取消: the pack's default skin (manifest.stageSkin).
 	const setPackSkin = id => enqueue(current => rpc("setAssetPackStageSkin", { packId, expectedRevision: current.revision, skin: id }));
@@ -790,10 +805,11 @@ function TavernStagePacks(props) {
 			: effective.length ? h("ul", { className: "dsh-tavern-pack-list is-current", "aria-label": "当前素材包" }, effective.map(row)) : h(TavernAssetEmpty, { compact: true, text: "未使用素材包" }),
 		open ? h(TavernPackWindow, { key: open.packId, packId: open.packId, initial: open, scope, onClose: () => setOpen(null) }) : null);
 }
-// The packs this card uses that hold `kind` (全局 first, then 本卡): what a 基础设置 「›」 opens.
-function useTavernKindPacks(path, kind) {
+// The packs this card uses that hold `kind` (全局 first, then 本卡): what a 基础设置 「›」 opens. `own`: only the card's own
+// packs (入场演出 never comes from a global pack).
+function useTavernKindPacks(path, kind, own) {
 	const list = useTavernAssetPacks(), scope = useTavernPackScope(path);
-	const used = (list.packs || []).filter(pack => !pack.error && (scope.global.includes(pack.manifest.id) || scope.bound.includes(pack.manifest.id)) && tavernPackCount(pack, kind) > 0);
+	const used = (list.packs || []).filter(pack => !pack.error && (!own && scope.global.includes(pack.manifest.id) || scope.bound.includes(pack.manifest.id)) && tavernPackCount(pack, kind) > 0);
 	return [...used.filter(pack => scope.global.includes(pack.manifest.id)), ...used.filter(pack => !scope.global.includes(pack.manifest.id))];
 }
 // The quiet 「›」 of a 基础设置 row: one pack opens directly in 舞台素材 at that kind; several list their names.

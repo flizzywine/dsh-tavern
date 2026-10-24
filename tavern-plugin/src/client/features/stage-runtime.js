@@ -301,6 +301,8 @@ function TavernStageScreen(props) {
 	const artFiles = useStageSkinArtFiles(data && data.skin && data.skin.document ? data.skin : null);
 	const art = React.useMemo(() => stageSkinArt(skinDocument, artFiles), [skinDocument === BUILTIN_STAGE_SKINS.classic ? "" : JSON.stringify(skinDocument), artFiles]);
 	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
+	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
+	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
@@ -372,7 +374,7 @@ function TavernStageScreen(props) {
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
 		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art, speaking, dock: docked ? input : null }),
-		docked ? null : input);
+		docked ? null : input, entrance.element);
 }
 
 // A drawn control (stageSkinControlIcons): the icon (its `on` image while it runs) alone, or on the skin's button body - its

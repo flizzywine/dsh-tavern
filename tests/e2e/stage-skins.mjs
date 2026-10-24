@@ -116,7 +116,7 @@ try {
   await materials.locator('.dsh-tavern-pack-row').filter({ hasText: packName }).first().click()
   const win = page.locator('section.dsh-tavern-pack-window[role="dialog"]')
   await win.getByRole('button', { name: '添加文件' }).first().click()
-  assert.deepEqual(await page.locator('.dsh-tavern-asset-menu .dsh-tavern-asset-menu-text').allInnerTexts(), ['背景', '音乐', '物品', '皮肤'])
+  assert.deepEqual(await page.locator('.dsh-tavern-asset-menu .dsh-tavern-asset-menu-text').allInnerTexts(), ['背景', '音乐', '物品', '皮肤', '入场演出'])
   await page.locator('input[aria-label="添加皮肤"]').setInputFiles(folder)
   await win.getByText('已添加皮肤「纸」').waitFor()
   const stored = (await call('getAssetPack', { packId: pack.manifest.id })).pack
@@ -148,7 +148,7 @@ try {
   await openFromStart('舞台设置')
   const settings = page.locator('aside[aria-label="舞台设置"]')
   await settings.getByRole('button', { name: '本卡皮肤：跟随默认' }).waitFor()
-  assert.deepEqual((await settings.locator('.dsh-tavern-switch-name').allInnerTexts()).map(label => label.replace(/\s+/g, '')), ['对话气泡', '配音', '舞台模式', '默认皮肤?', '本卡皮肤?', 'BGM', '物品'])
+  assert.deepEqual((await settings.locator('.dsh-tavern-switch-name').allInnerTexts()).map(label => label.replace(/\s+/g, '')), ['对话气泡', '配音', '舞台模式', '默认皮肤?', '本卡皮肤?', 'BGM', '物品', '入场演出'])
   await settings.getByRole('button', { name: '默认皮肤：经典' }).waitFor()
   await page.screenshot({ path: join(output, 'settings-1920.png') })
   const header = page.getByRole('button', { name: '舞台', exact: true })

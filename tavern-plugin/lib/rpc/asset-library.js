@@ -85,6 +85,13 @@ export function createAssetLibraryHandlers(deps) {
       stageMaterialChanged()
       return result
     },
+    // 入场演出: one dsh.entrance/1 JSON file.
+    async addAssetPackEntrance(args) {
+      const [file] = await takeFiles([{ uploadId: args && args.uploadId, name: str(args && args.name) }])
+      const result = await stageMaterial.addEntrance(str(args.packId), file.name, file.bytes)
+      stageMaterialChanged()
+      return result
+    },
     // 添加皮肤: a skin folder's skin.json and the files it declares, by their paths relative to it.
     async addAssetPackSkin(args) {
       const [document] = await takeFiles([{ uploadId: args && args.document, name: 'skin.json' }])

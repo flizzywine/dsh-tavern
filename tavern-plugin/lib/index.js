@@ -2339,7 +2339,9 @@ export async function apply(ctx) {
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
       musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage,
-      skin: await stageSkinOf(card.path).then(skin => ({ document: skin.document, base: skin.base })).catch(() => null) }
+      skin: await stageSkinOf(card.path).then(skin => ({ document: skin.document, base: skin.base })).catch(() => null),
+      // 入场演出 (stageToggles.entrance): the entrance of the card's own packs the stage opens with, or null.
+      entrance: (await readTavernSettings()).stageToggles.entrance ? await stageMaterial.entrance(card.path) : null }
   }
   // The skin a card's stage is drawn in (stage-skin-choice.js): { skin, fallback, document, base }, base being the URL
   // its own files resolve against ('' for a built-in). The card's own default comes from its file, the rest from cast.json,

@@ -33,6 +33,7 @@ staging/、staging-pending/     发布中的事务目录，不是可选的版本
 | `backgrounds` | `media`（图片 hash）、`tags` |
 | `music` | `media`（音频 hash）、`usage`、`tags`、`volume`、`loopStart`/`loopEnd`（秒） |
 | `props` | `media`（图片 hash）、`tags`；导演按页展示的物品（cast-presentation.md「物品」） |
+| `entrances` | `entrance`（一份 `dsh.entrance/1` 文档，没有文件）；打开舞台时的入场演出，只有蓝灯和关闭（cast-presentation.md「入场演出」） |
 
 每个条目都有 `id`、`name`、`directorNote` 和灯态：
 
