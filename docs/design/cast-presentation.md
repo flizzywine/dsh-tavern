@@ -198,10 +198,25 @@
   - 默认皮肤：「舞台设置 › 基础设置 › 默认皮肤」（酒馆设置 `stageSkin`），可选「全局」素材包里的皮肤；
   - 经典。
   某一步指向的皮肤不在了（素材包删了或解绑、皮肤删了），就跳到下一步；存的选择不改写，皮肤回来后又生效。选择在写入时检查（内置 id，或现在还在的素材包皮肤）。
-- **宿主接口**：`addAssetPackSkin {packId, document, files:[{path, uploadId}]}`、`setAssetPackStageSkin {packId, expectedRevision, skin|null}`、`getStageSkins {path?}`（存的选择、这张卡现在用哪套、两个选择器的选项）、`setStageSkin {skin}`、`setCardStageSkin {path, skin|null}`；`castStage` 多返回 `skin`（选中的皮肤文档）。
-- 今天舞台按皮肤画文本框、名牌、正文、控件和输入框的配色；美术层（皮肤里的图片）下一步接上。
+- **宿主接口**：`addAssetPackSkin {packId, document, files:[{path, uploadId}]}`、`setAssetPackStageSkin {packId, expectedRevision, skin|null}`、`getStageSkins {path?}`（存的选择、这张卡现在用哪套、两个选择器的选项）、`setStageSkin {skin}`、`setCardStageSkin {path, skin|null}`；`castStage` 多返回 `skin`（选中的皮肤文档和它的文件地址，见 15/N）。
+- 舞台按皮肤画文本框、名牌、正文、控件和输入框的配色；皮肤里的图片由美术层（15/N）画。
 
 设计理由：照搬参考实现。皮肤和背景、音乐一样是素材包里的条目，才能随素材包安装、分享和删除；它是一个文件夹而不是一张图，所以存成 bundle，写入时一次检查完整个文件夹，读的时候只读。选用顺序从最具体到最一般，每一步都是「有就用，没有或不在了就往下」，所以删素材、解绑素材包都不会让舞台坏掉，也不需要去改写别处存的选择。参考实现的「本卡皮肤」在舞台内的 CONFIG 里，上游舞台没有 CONFIG，所以放在「舞台设置 › 基础设置」，紧跟「默认皮肤」；参考实现的包默认由作者工具写入，上游没有作者工具，所以在素材包窗口里给皮肤条目一个「包默认」开关。
+
+## 舞台 core（15/N）：皮肤美术层
+
+皮肤带 `art` 时，全屏舞台用皮肤自己的图片画文本框、名牌、翻页提示和 AUTO 灯（`src/client/features/stage-skin.js` 的 `stageSkinArt`，样式在 `tavern.css`「stage skin: art」）。坐标都是皮肤设计屏（`art.screen` / `art.screenWidth`）上的像素，舞台按高度缩放，宽度不够时按宽度缩放。
+
+- **文本框**：`art.textbox.images` 的图（旁白可单独一张）；`body` 是框的正文区，`text` 是正文的左右边和中线，`font` / `lines` / `pitch` 定字号、行数和行距，`bottom` 是图离屏幕底边的距离；`align`、`stroke` 可选。
+- **名牌**：`art.nameplate` 的位置和大小；有 `image` 时站在皮肤的名牌图上，`slice` 时九宫格拉伸、随名字变长（最多 `grow`），`vertical` 竖排，`fill` 双色字、`shadow` 投影。
+- **翻页提示**：`cue` 放在框上某点，或 `inline` 跟在正文末尾；`next` 是图片（`frames` 是逐帧图集），没有图时画一个引擎自带的记号；`bob` / `dip` / `blink` 三种动法。
+- **AUTO 灯**：自动翻页时在 `lamp` 处亮起，`frames` / `blink` / `spin` / `swap`（替换翻页提示）。
+- **控件和输入框**：控件行是框自己的，在正文区右下角；最后一页的输入框停在框图上方，框多高都不会盖住。
+- **手机**（≤640px）：框图按九宫格（`art.textbox.slice`，默认是正文区以外的部分）随行数长高，正文至少 17px、名字至少 14px，控件行在正文下面单独一条。
+- **动效**：逐帧用 Web Animations 播放；系统设置「减少动态效果」时不播，停在静止的一帧。
+- **皮肤文件**：`castStage` 的 `skin` 是 `{document, base}`，`base` 是这套皮肤 bundle 的租约地址，图片从那里读。租约拿不到时 `base` 为空，舞台只画配色，下一次读取会重试；图片解码失败从 1 秒起按倍数退避重试，最长 30 秒。没有 `art` 或图片还没到时，舞台照常按配色画。
+
+设计理由：照搬参考实现的美术层，只改接缝。参考实现的控件行默认就在框图右下角（`quickMenu.place` 和 `art.textbox.controls` 再把它挪到皮肤指定的位置），上游舞台有同样的控件行，所以也放在框上；上游的输入框在参考实现里没有对应物（参考实现的自由输入在选项里），所以停在框图上方。头像框、`quickMenu` 的落位和图标按钮在 16/N。
 ## 第三步：配音
 
 - **一个全局开关**：「舞台设置 › 基础设置 › 配音」，和「配音」页（也在「设置 › 配音」）顶部的「开启配音」是同一个开关，默认关。打开前要在「配音」页选好渠道并填齐设置。
