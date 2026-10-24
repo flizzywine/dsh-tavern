@@ -2222,7 +2222,10 @@ export async function apply(ctx) {
     const card = await castCardOf(sessionId), manifest = await castAssets.read(card.path)
     const material = await stageMaterial.catalog(card.path, card.name)
     // BGM off (舞台设置 › 基础设置, stageToggles.music): no card offers music, so none plays and the director stops it.
-    if (!(await readTavernSettings()).stageToggles.music) material.music = []
+    const toggles = (await readTavernSettings()).stageToggles
+    if (!toggles.music) material.music = []
+    // 物品 off (stageToggles.items): no item is offered or shown.
+    if (!toggles.items) material.items = []
     return { player: card.player, cast: await castView(sessionId, card.path, manifest), ...material }
   }
   // The BGM player's list: every lit track of the card's packs, in binding then pack order.
@@ -2311,20 +2314,23 @@ export async function apply(ctx) {
     const storyTurns = [...new Set((state?.messages || []).filter(message => message?.role === 'assistant').map(message => Number(message.turn || (message.greeting ? 1 : 0))).filter(turn => turn > 0))]
     const wanted = storyTurns.slice(-Math.max(1, Math.min(10, Number(count) || 5)))
     const annotated = await castPresentation.forTurns(str(sessionId), wanted)
+    const assets = await stageCatalog(str(sessionId))
+    // An item shows its entry's picture; one that left the catalog (switched off, removed, 物品 off) is not shown.
+    const shown = events => Promise.all(events.filter(event => event.op !== 'item.play' || assets.items.some(item => item.name === event.item))
+      .map(async event => event.op === 'item.play' ? { ...event, image: await stageMaterial.mediaUrl(assets.items.find(item => item.name === event.item)) } : event))
     const turns = []
     for (const turn of wanted) {
       const material = await pluginTurns.readTurn(str(sessionId), turn).catch(() => null) || (turn === wanted.at(-1) ? await pluginTurns.readPendingTurn(str(sessionId)).catch(() => null) : null)
       if (material && material.turn === turn) {
         const directed = await stageDirector.presentation(str(sessionId), turn, material.key)
         turns.push({ turn, key: directed?.presentationKey || material.key, text: material.text, lines: annotated.turns[turn] || [],
-          pages: stagePages(material.text, annotated.turns[turn] || []), performances: directed?.performances || [] })
+          pages: stagePages(material.text, annotated.turns[turn] || []), performances: await shown(directed?.performances || []) })
       }
     }
-    const assets = await stageCatalog(str(sessionId))
     const preview = await stageDirectorStream.preview(str(sessionId))
     if (preview) {
       const index = turns.findIndex(item => item.turn === preview.turn)
-      const row = { turn: preview.turn, key: preview.key, text: preview.pages.map(page => page.text).join('\n'), lines: [], pages: preview.pages, performances: preview.performances }
+      const row = { turn: preview.turn, key: preview.key, text: preview.pages.map(page => page.text).join('\n'), lines: [], pages: preview.pages, performances: await shown(preview.performances) }
       if (index < 0) turns.push(row)
       else turns[index] = row
     }

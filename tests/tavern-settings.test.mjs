@@ -34,10 +34,12 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
 })
 
 test('BGM is one global stage switch (stageToggles.music), on by default, kept beside 舞台模式; only stage booleans are accepted', () => {
-  assert.deepEqual(presentTavernSettings({}, {}).stageToggles, { stage: true, music: true })
+  assert.deepEqual(presentTavernSettings({}, {}).stageToggles, { stage: true, music: true, items: true })
   const off = applyTavernSettingsPatch({ castPresentation: true, stageToggles: { stage: false } }, { stageToggles: { music: false } })
-  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles], [true, { stage: false, music: false }])
-  assert.deepEqual(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { music: true } }), {}).stageToggles, { stage: false, music: true })
+  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles], [true, { stage: false, music: false, items: true }])
+  assert.deepEqual(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { music: true } }), {}).stageToggles, { stage: false, music: true, items: true })
+  // 物品 is the third switch, on by default.
+  assert.equal(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { items: false } }), {}).stageToggles.items, false)
   for (const bad of [{}, { music: 'on' }, { music: true, other: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
 })
 

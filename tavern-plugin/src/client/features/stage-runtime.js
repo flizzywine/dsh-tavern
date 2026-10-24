@@ -79,6 +79,8 @@ function TavernStageScene(props) {
 	// narration and for a speaker without one, so no empty frame shows.
 	const side = props.art && props.art.marks["data-fk-skin-portrait"] ? h(TavernStageSide, { face: beat && beat.kind === "line" ? tavernCastAvatar(data, beat.speaker, beat.emotion) : "",
 		name: beat && beat.kind === "line" ? beat.speaker : "", nameArc: props.art.faceName }) : null;
+	// 物品: this page's item (one at most) waits unseen, its picture already loading; the page's playback shows it once.
+	const item = (data.turns.at(-1)?.performances || []).find(event => event.op === "item.play" && event.at === index + 1);
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -87,6 +89,7 @@ function TavernStageScene(props) {
 			const speaking = beat && (speaker ? speaker.name : beat.speaker) === name;
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
+		item ? h(TavernStageItem, { key: index + ":" + item.item, item }) : null,
 		// is-speaking: the page's line is being read aloud (a skin's art.portrait.frame.speaking frame shows then).
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") + (props.speaking && beat.kind === "line" ? " is-speaking" : "") },
 			side,
@@ -234,8 +237,25 @@ function TavernStageSceneView(props) {
 		React.createElement(TavernStagePluginScene, { view: props.view, input: input, fallback: builtin }));
 }
 
+// The item showcase: the picture and its name over the scene, above the text box; it never takes a click.
+function TavernStageItem(props) {
+	const h = React.createElement, [failed, setFailed] = React.useState(false);
+	return h("div", { className: "dsh-tavern-stage-item", "aria-hidden": true },
+		props.item.image && !failed ? h("img", { src: props.item.image, alt: "", onError: () => setFailed(true) }) : null,
+		h("strong", null, props.item.item));
+}
+
 function playTavernStagePerformance(root, event, id) {
-	if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+	const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	// An item tells the player something, so it shows with reduced motion too (a fade, no movement).
+	if (event.op === "item.play") {
+		const node = root && root.querySelector(".dsh-tavern-stage-item");
+		if (!node) return null;
+		const lift = ["translate(-50%, 12px) scale(.94)", "translate(-50%, 0)", "translate(-50%, 0)", "translate(-50%, -6px)"];
+		return node.animate([0, 1, 1, 0].map((opacity, at) => ({ opacity, transform: still ? "translateX(-50%)" : lift[at], offset: [0, .14, .86, 1][at] })),
+			{ id: "stage:" + id, duration: 2800, easing: "ease-out" });
+	}
+	if (!root || still) return null;
 	const target = event.op === "screen.play" ? root : Array.from(root.querySelectorAll("[data-speaker]")).find(function (node) { return node.dataset.speaker === event.actor; });
 	if (!target) return null;
 	const frames = event.op === "screen.play" ? ["none", "translateX(-3px)", "translateX(3px)", "translateX(-2px)", "none"]

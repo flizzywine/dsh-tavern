@@ -3143,6 +3143,12 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-figure img { height: 100%; width: auto; max-width: 100%; object-fit: contain; object-position: bottom; }
 .dsh-tavern-stage-figure.is-dim { filter: brightness(.55) saturate(.8); }
 .dsh-tavern-stage-figure-letter { margin-bottom: 8%; width: min(46%, 120px); aspect-ratio: 1; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: clamp(20px, 5vw, 48px); font-weight: 600; color: #fff; background: hsl(var(--dsh-cast-hue, 210) 45% 52%); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+/* 物品 (TavernStageItem): the page's item stands above the text box, below the faces, unseen until the page plays it; clicks pass. */
+.dsh-tavern-stage-item { position: absolute; left: 50%; bottom: 280px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: min(420px, 80vw); isolation: isolate; opacity: 0; pointer-events: none; }
+.dsh-tavern-stage-item::before { content: ""; position: absolute; inset: -20% -35%; z-index: -1; background: radial-gradient(closest-side, rgba(0,0,0,.5), transparent); }
+.dsh-tavern-stage-item img { max-width: 100%; max-height: min(28vh, 240px); object-fit: contain; filter: drop-shadow(0 8px 22px rgba(0,0,0,.55)); }
+.dsh-tavern-stage-item strong { font-size: 18px; font-weight: 600; letter-spacing: .12em; color: #fff; text-align: center; overflow-wrap: anywhere; text-shadow: 0 1px 6px rgba(0,0,0,.75); }
+@media (max-width: 640px) { .dsh-tavern-stage-item { bottom: auto; top: 16%; } .dsh-tavern-stage-item img { max-height: 24vh; } }
 /* The stage's look is its skin (stage-skin.js): the text box, name plate, reading text, control row and input read only
    the skin tokens on the stage root, the built-in 经典 included. */
 .dsh-tavern-stage-textbox { position: absolute; box-sizing: border-box; left: 50%; width: min(960px, 92vw); transform: translateX(-50%); bottom: 88px; height: 168px; padding: 16px 22px; display: flex; flex-direction: column; gap: 4px;

@@ -181,10 +181,27 @@ test('a removed pack drops out of the catalog and the next import makes the card
   const [packId] = (await castAssets.read(cardPath)).boundPackIds
   const url = await material.mediaUrl((await material.catalog(cardPath, '乙')).background[0])
   await library.removePack({ packId, expectedRevision: (await library.getPackSnapshot({ packId })).revision })
-  assert.deepEqual(await material.catalog(cardPath, '乙'), { background: [], music: [] })
+  assert.deepEqual(await material.catalog(cardPath, '乙'), { background: [], music: [], items: [] })
   await assert.rejects(fetchLease(library, url), /removed/)
   await material.importMaterial(cardPath, '乙', [{ kind: 'backgrounds', name: 'hall', ext: 'png', bytes: png(2, 2, 2) }])
   const [next] = (await castAssets.read(cardPath)).boundPackIds
   assert.notEqual(next, packId)
   assert.deepEqual((await material.catalog(cardPath, '乙')).background.map(item => item.name), ['hall'])
+})
+
+// 物品: picture entries of their own kind; the director gets the lit ones by name; a card file has no place for them.
+test('items are props entries: added like pictures, offered when lit, a non-picture refused, never written into the card file', async t => {
+  const { library, material, castAssets } = await fixture(t)
+  const cardPath = 'cards/i.json'
+  await material.importMaterial(cardPath, '戊', [{ kind: 'backgrounds', name: 'room', ext: 'png', bytes: png(1, 2, 3) }])
+  const [packId] = (await castAssets.read(cardPath)).boundPackIds
+  const added = await material.addFiles(packId, 'props', [{ name: '怀表', bytes: png(9, 9, 9) }, { name: '信', bytes: png(8, 8, 8) }, { name: 'tune', bytes: wav() }])
+  assert.deepEqual([added.added.length, added.rejected.map(row => row.name)], [2, ['tune']])
+  const pack = added.pack
+  assert.deepEqual(pack.manifest.assets.filter(asset => asset.kind === 'props').map(asset => [asset.name, asset.enabled, asset.recall.mode]), [['怀表', true, 'constant'], ['信', true, 'constant']])
+  await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets: pack.manifest.assets.map(asset => asset.name === '信' ? { ...asset, enabled: false } : asset) } })
+  const catalog = await material.catalog(cardPath, '戊')
+  assert.deepEqual(catalog.items.map(item => [item.name, item.ref.kind]), [['怀表', 'props']])
+  assert.equal((await fetchLease(library, await material.mediaUrl(catalog.items[0]))).status, 200)
+  assert.deepEqual((await material.exportMaterial(cardPath, '戊')).map(item => item.kind), ['backgrounds'])
 })

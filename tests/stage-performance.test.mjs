@@ -40,6 +40,10 @@ test('舞台模式 › 可用演出 takes a switched-off command out of the tool
   const pages = stagePages('One.\nTwo.')
   assert.throws(() => acceptStagePerformances([{ at: 2, op: 'screen.play', effect: 'shake-1' }], pages, { figures: [] }, { beat: 1, earlier: [{ at: 1, op: 'screen.play', effect: 'shake-1' }] }), /至多 1 次/)
   assert.equal(acceptStagePerformances([{ at: 2, op: 'screen.play', effect: 'shake-1' }], pages, { figures: [] }, { beat: 2, earlier: [{ at: 1, op: 'screen.play', effect: 'shake-1' }] }).length, 1)
+  // 物品 is not a screen effect: an item never counts against 每轮上限, and stays when both effects are off.
+  const shown = [{ at: 1, op: 'item.play', item: 'Key' }, { at: 2, op: 'screen.play', effect: 'shake-1' }]
+  assert.equal(acceptStagePerformances(shown, pages, { figures: [] }, { beat: 1, items: ['Key'] }).length, 2)
+  assert.equal(stageUpdateTool({ scene: true, cast: true, acts: false, screenEffects: false, items: true }).parameters.properties.performances.items.properties.op.const, 'item.play')
 })
 
 test('the real director repairs an event in-session, then atomically saves events separately from persistent state', async () => {

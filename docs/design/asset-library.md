@@ -26,12 +26,13 @@ staging/、staging-pending/     发布中的事务目录，不是可选的版本
 
 ### 条目与灯态
 
-目前的条目种类就是内置舞台已经在读的两种：
+目前的条目种类就是内置舞台已经在读的这几种：
 
 | 种类 | 内容字段 |
 | --- | --- |
 | `backgrounds` | `media`（图片 hash）、`tags` |
 | `music` | `media`（音频 hash）、`usage`、`tags`、`volume`、`loopStart`/`loopEnd`（秒） |
+| `props` | `media`（图片 hash）、`tags`；导演按页展示的物品（cast-presentation.md「物品」） |
 
 每个条目都有 `id`、`name`、`directorNote` 和灯态：
 

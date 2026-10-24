@@ -142,3 +142,26 @@ test('concurrent duplicate submissions cannot replace an already accepted transa
   assert.deepEqual(results.map(result => result.ok), [true, false])
   assert.equal(h.stats().published, 1)
 })
+
+// 物品 (cast-presentation.md「物品」): a lit item of the card's packs, shown once on its page; none offered, nothing said.
+test('items: offered by their lamps, shown once on a page by name; with none the director hears nothing of them', async () => {
+  const items = [lamp('Pocket watch', 'constant'), lamp('Letter', 'keyword', ['信封'])]
+  const h = await stageDirectorFixture({ ...chat(), messages: [...chat().messages.slice(0, 2), { role: 'assistant', turn: 2, text: '她拿出一只怀表。\n桌上没有别的东西。' }] }, { ...assets(), items })
+  const request = await h.prepare(), context = JSON.parse(request.turnContext)
+  assert.deepEqual(context.items, ['Pocket watch'], 'a green item waits for its trigger')
+  assert.match(request.system, /item\.play/)
+  assert.ok(JSON.stringify(request.tool.parameters.properties.performances).includes('item.play'))
+  for (const performances of [[{ at: 1, op: 'item.play', item: 'Letter' }], [{ at: 3, op: 'item.play', item: 'Pocket watch' }],
+    [{ at: 1, op: 'item.play', item: 'Pocket watch', count: 2 }], [{ at: 1, op: 'item.play', item: 'Pocket watch' }, { at: 1, op: 'item.play', item: 'Pocket watch' }]]) {
+    assert.equal((await request.call({ performances })).ok, false, JSON.stringify(performances))
+  }
+  assert.deepEqual(await request.call({ performances: [{ at: 1, op: 'item.play', item: 'Pocket watch' }] }), { ok: true })
+  assert.deepEqual(await h.director.performances('game', 2, (await h.body()).key), [{ at: 1, op: 'item.play', item: 'Pocket watch' }])
+  await h.persistence.update('story', turn('Quiet.'))
+  h.assets.items = []
+  const none = await h.prepare()
+  assert.equal(JSON.parse(none.turnContext).items, undefined)
+  assert.doesNotMatch(none.system, /item\.play|物品/)
+  assert.doesNotMatch(JSON.stringify(none.tool), /item\.play/)
+  assert.equal((await none.call({ performances: [{ at: 1, op: 'item.play', item: 'Pocket watch' }] })).ok, false)
+})

@@ -11,7 +11,8 @@ const authored = row => JSON.stringify([primary(row), row.recall?.synonyms || {}
 const categories = /^(?:演唱|歌曲|音乐|bgm|音效|背景|服装|场景)$/u
 const EXAMPLES = Object.freeze({
   music: '离别、毕业、远行；曲名的另一种叫法放进同一个触发词的同义词',
-  backgrounds: '教室、黑板、讲台；地点的短名加它独有的东西'
+  backgrounds: '教室、黑板、讲台；地点的短名加它独有的东西',
+  props: '怀表、表链；物品的短名加它独有的样子'
 })
 
 export function lintTriggers(document, { before } = {}) {

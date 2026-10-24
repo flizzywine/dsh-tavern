@@ -3,6 +3,7 @@
 export const ASSET_CONTENT_FIELDS = Object.freeze({
   backgrounds: ['media', 'tags'],
   music: ['media', 'usage', 'tags', 'volume', 'loopStart', 'loopEnd'],
+  props: ['media', 'tags'],
   skins: ['bundleKey', 'entry']
 })
 

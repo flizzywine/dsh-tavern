@@ -3,7 +3,7 @@ import { BLOB_MIME_TYPES } from '../asset-library/asset-packs/index.js'
 import { audioKind, imageKind } from '../asset-library/pack-v2/media.js'
 import { validateStageSkin, stageSkinFiles } from './stage-skin.js'
 
-// A card's stage material (backgrounds, music) lives in the asset library (docs/design/asset-library.md):
+// A card's stage material (backgrounds, music, items) lives in the asset library (docs/design/asset-library.md):
 // entries of the card's own pack, which the card's cast manifest binds by id (boundPackIds).
 // Leases are the only way bytes leave the library: the page gets a lease URL, export reads through one.
 export const STAGE_MEDIA_SCOPE = 'dsh-tavern-stage'
@@ -15,7 +15,8 @@ export const STAGE_LEASE_ORIGIN = 'http://dsh-tavern.internal'
 export const STAGE_LEASE_TTL_MS = 24 * 60 * 60 * 1000
 const KINDS = Object.freeze({
   backgrounds: { id: 'bg', type: 'background', media: imageKind },
-  music: { id: 'music', type: 'music', media: audioKind }
+  music: { id: 'music', type: 'music', media: audioKind },
+  props: { id: 'prop', type: 'prop', media: imageKind }
 })
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const coded = (message, code) => Object.assign(new Error(message), { code })
@@ -166,12 +167,13 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
   // green entry only when the text names it or 判断模型 recalls it (stage-judge-recall.js; a green entry's director note
   // is what the judge reads). Names and refs only: the director's frozen catalog never holds a lease.
   async function catalog(cardPath, cardName) {
-    const result = { background: [], music: [] }
+    const result = { background: [], music: [], items: [] }
     for (const { pack, asset } of await entries(cardPath, cardName, true)) {
       if (asset.enabled !== true) continue
       const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media, recall: asset.recall,
         ...(asset.recall.mode === 'keyword' && asset.directorNote ? { note: asset.directorNote } : {}) }
       if (asset.kind === 'backgrounds') { result.background.push(row); continue }
+      if (asset.kind === 'props') { result.items.push(row); continue }
       result.music.push({ ...row, pack: pack.manifest.name,
         ...Object.fromEntries(['volume', 'loopStart', 'loopEnd'].filter(key => asset[key] !== undefined).map(key => [key, asset[key]])) })
     }
@@ -196,6 +198,8 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
   async function exportMaterial(cardPath, cardName) {
     const items = []
     for (const { pack, asset } of await entries(cardPath, cardName)) {
+      // A card file has places for backgrounds and music only; items stay in the library.
+      if (asset.kind === 'props') continue
       const blob = pack.manifest.blobs[asset.media]
       items.push({ kind: asset.kind, type: KINDS[asset.kind].type, name: asset.name, ext: blob.ext, file: asset.media.slice(0, 32) + '.' + blob.ext, bytes: await readMedia(pack.manifest.id, asset.media) })
     }
