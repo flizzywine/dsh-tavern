@@ -181,6 +181,7 @@ import { createPolishRecords } from './domain/polish-records.js'
 import { createCardAutoReload } from './domain/card-auto-reload.js'
 import { createRuntimeLogBuffer, runtimeHealthReport } from './domain/runtime-health.js'
 import { createStageDirector, STAGE_UPDATE_TOOL } from './domain/stage-director.js'
+import { createEngineJudge } from './domain/engine-judge.js'
 import { createStageDirectorStream } from './domain/stage-director-stream.js'
 import { stagePages } from './domain/stage-performance.js'
 import { stageDirectorCommit } from './stage-director-commit.js'
@@ -2209,6 +2210,9 @@ export async function apply(ctx) {
     if (!operation || !chat.foregroundFrames?.[operation.id]) return null
     return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId, revision: chat.timeline.revision }
   }
+  // 舞台模式 › 判断模型: the key comes from the DSH credential service; the log has codes, counts and usage, never the key.
+  const stageJudge = createEngineJudge({ getConfig: async () => (await readTavernSettings()).stageJudge, credentials: () => ctx.get('credentials'),
+    log: event => console.info('dsh-tavern:', JSON.stringify(event)) })
   const stageDirector = createStageDirector({ enabled: stageOn, turns: pluginTurns, data: pluginData, catalog: stageCatalog,
     readContext: async body => {
       const chat = await chatHeaderForSession(body.sessionId, ['timeline', 'foregroundFrames'])
@@ -2220,6 +2224,7 @@ export async function apply(ctx) {
     binding: async sessionId => (await chatHeaderForSession(sessionId, ['timeline']))?.timeline,
     // 舞台模式 › 可用演出 and 每轮上限, frozen with the turn.
     commands: async () => { const settings = await readTavernSettings(); return { dimensions: settings.stageDimensions, actionCaps: settings.stageActionCaps } },
+    judge: { config: async () => (await readTavernSettings()).stageJudge, judge: (request, config) => stageJudge.judge(request, config) },
     commit: stageDirectorCommit(chatPersistence),
     selection: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
     runAgent: input => backgroundAgentRunner.run(input),
@@ -3293,7 +3298,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, stageMaterial, stageMaterialChanged, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,

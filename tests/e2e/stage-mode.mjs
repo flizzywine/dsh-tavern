@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
 
-// 舞台设置 › 舞台模式 › against a real host: 可用演出 and 每轮上限. Run only against an owned, hidden, muted fresh profile.
-// Nothing here makes a sound or calls a model: the fullscreen stage is never opened.
+// 舞台设置 › 舞台模式 › against a real host: 判断模型, 可用演出 and 每轮上限. Run only against an owned, hidden, muted fresh profile.
+// Nothing here makes a sound or calls a model: the fullscreen stage is never opened, and 测试连接 reaches a local fake\n// Decisions endpoint only.
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
 if (!process.argv.includes('--isolated') || !endpoint || new URL(endpoint).port === '9333' || !process.argv.includes('--artifacts')) throw Error('Requires an owned fresh-profile CDP, --isolated and --artifacts DIR; never use a live browser')
@@ -53,7 +54,8 @@ try {
   const mode = page.locator('aside[aria-label="舞台模式"]')
   await mode.getByRole('heading', { name: '可用演出' }).waitFor()
   assert.equal(await page.evaluate(() => document.activeElement?.firstChild?.textContent), '舞台模式', 'the title takes the focus')
-  assert.deepEqual(await mode.locator('h3').allInnerTexts(), ['可用演出', '每轮上限'])
+  assert.deepEqual(await mode.locator('h3').allInnerTexts(), ['判断模型', '可用演出', '每轮上限'])
+  assert.equal((await settingsOf()).stageJudge.provider, 'unset', 'no judge by default')
   assert.equal(await mode.locator('.dsh-tavern-mode-meta').innerText(), '4 / 4')
   assert.deepEqual(await mode.locator('.dsh-tavern-mode-group-name').allInnerTexts(), ['场景与转场', '人物', '效果'])
   await page.screenshot({ path: join(output, 'mode-1920.png') })
@@ -90,6 +92,52 @@ try {
   await page.waitForFunction(() => !document.querySelector('aside[aria-label="舞台模式"] .dsh-tavern-mode-foot[data-dirty]'))
   assert.deepEqual((await settingsOf()).stageActionCaps, { beat: 3 })
   result.caps = true
+
+  // 判断模型: OpenAI 兼容 needs its URL before 保存; the API Key saves at once into the host credential store and never
+  // comes back; 测试连接 sends it to the saved endpoint.
+  const seen = []
+  const server = createServer((request, response) => {
+    let body = ''
+    request.on('data', chunk => { body += chunk })
+    request.on('end', () => {
+      seen.push({ path: request.url, key: request.headers.authorization === 'Bearer fake-e2e-judge-key', model: JSON.parse(body || '{}').model })
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify({ answers: [{ type: 'predicate', name: 'test', probability: 0.9 }] }))
+    })
+  })
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const baseUrl = 'http://127.0.0.1:' + server.address().port + '/v1'
+  try {
+    await mode.getByRole('button', { name: /^提供方：/ }).click()
+    await page.getByRole('menuitemradio', { name: 'OpenAI 兼容', exact: true }).click()
+    await mode.locator('.dsh-tavern-mode-save-state').getByText('请填写接口地址').waitFor()
+    assert.equal(await save.isDisabled(), true, 'a draft problem blocks 保存')
+    assert.equal(await mode.getByRole('textbox', { name: '模型', exact: true }).inputValue(), 'gpt-6-luna', 'the provider fills its model')
+    await mode.getByRole('textbox', { name: '接口地址', exact: true }).fill(baseUrl)
+    await mode.getByRole('textbox', { name: '模型', exact: true }).fill('fake-judge')
+    await mode.getByText('有未保存的修改').waitFor()
+    await page.screenshot({ path: join(output, 'judge-draft-1920.png') })
+    await save.click()
+    await page.waitForFunction(() => !document.querySelector('aside[aria-label="舞台模式"] .dsh-tavern-mode-foot[data-dirty]'))
+    const saved = (await settingsOf()).stageJudge
+    assert.deepEqual([saved.provider, saved.baseUrl, saved.model, saved.keyName, saved.enabled], ['openai-compatible', baseUrl, 'fake-judge', 'OPENAI_API_KEY', true])
+    // A machine variable of that name would show as 「已配置 · 环境变量」: replace it with a pasted key.
+    const change = mode.getByRole('button', { name: '更换', exact: true })
+    if (await change.isVisible().catch(() => false)) await change.click()
+    const key = mode.locator('#dsh-tavern-judge-key')
+    await key.fill('fake-e2e-judge-key')
+    await key.press('Enter')
+    await mode.locator('.dsh-tavern-mode-key').getByText('已配置', { exact: true }).waitFor()
+    assert.ok(!JSON.stringify(await call('getTavernSettings')).includes('fake-e2e-judge-key'), 'the key is not a setting and never comes back')
+    await mode.getByRole('button', { name: '测试连接', exact: true }).click()
+    await mode.getByText(/连接成功 · \d+ 毫秒/).waitFor()
+    assert.deepEqual(seen, [{ path: '/v1/decisions', key: true, model: 'fake-judge' }])
+    await page.screenshot({ path: join(output, 'judge-1920.png') })
+    await mode.getByRole('button', { name: '清除', exact: true }).click()
+    await key.waitFor()
+    await mode.locator('.dsh-tavern-mode').focus()
+    result.judge = true
+  } finally { server.close() }
 
   // Saved: the focus stays on the page, Esc now leaves and the focus comes back to 「舞台模式 ›」.
   await page.keyboard.press('Escape')

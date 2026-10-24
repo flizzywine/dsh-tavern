@@ -2,7 +2,7 @@ import { stagePages, stagePerformancesSchema, acceptStagePerformances } from './
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { emotionSlot } from './card-assets.js'
 import { emptyStageState, foldStageState, tavernCastCharacter } from './cast-stage-state.js'
-import { triggerEvidence } from './asset-pack-lexical.js'
+import { recallGreenAssets } from './stage-judge-recall.js'
 
 export const STAGE_DATA_OWNER = 'dsh-tavern.stage'
 // 舞台模式 › 可用演出 (tavern settings stageDimensions): 场景 is `background`, 出场 `figures`, 动作 and 画面效果 the
@@ -73,11 +73,6 @@ function acceptedDelta(args, catalog, previous) {
   return delta
 }
 
-// Lamps (docs/design/asset-library.md): a blue track is always offered, a green one only once the turn's text so far
-// names it; a switched-off track is not in the catalog. A missed trigger hides a choice, never the playing track.
-function offeredMusic(music, units) {
-  return music.filter(item => item.recall?.mode !== 'keyword' || triggerEvidence({ name: item.name, ...item.recall }, units).matched)
-}
 // Music plays until stopped. Only while there is a track to choose or one plays does the director hear about it.
 function musicNote(current, offered) {
   if (!current && !offered.length) return null
@@ -87,7 +82,9 @@ function musicNote(current, offered) {
 }
 
 // The host passes a frozen round body; no DOM, settlement context or history is read here.
-export function createStageDirector({ enabled, turns, data, catalog, binding, commit, selection, runAgent, readContext = async () => ({}), commands = async () => ({}), publish = () => {} }) {
+// `judge` (舞台模式 › 判断模型, optional): `config()` is frozen with the turn, `judge(request, config)` answers a window's
+// green-entry questions (engine-judge.js).
+export function createStageDirector({ enabled, turns, data, catalog, binding, commit, selection, runAgent, readContext = async () => ({}), commands = async () => ({}), judge = null, publish = () => {} }) {
   const accepted = async target => (await data.turnsUpTo({ chatId: target.chatId, owner: STAGE_DATA_OWNER, turn: target.turn }))
     .some(record => record.turn === target.turn && record.key === target.key)
   async function state(sessionId, turn) {
@@ -107,7 +104,8 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
   async function freeze(body) {
     if (!body || !await enabled(body.sessionId)) return null
     return structuredClone({ assets: await catalog(body.sessionId), previous: await state(body.sessionId, body.turn - 1),
-      authority: await binding(body.sessionId), context: await readContext(body), model: await selection(body.sessionId), commands: await commands(body.sessionId) })
+      authority: await binding(body.sessionId), context: await readContext(body), model: await selection(body.sessionId), commands: await commands(body.sessionId),
+      judge: judge ? await judge.config() : null })
   }
   async function save(body, value, authority, context) {
     await commit({ ...body, authority, context }, async assertActive => {
@@ -129,7 +127,8 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
     const dropped = Boolean(stored.music) && !assets.music.some(item => item.name === stored.music)
     const previous = dropped ? { ...stored, music: null } : stored
     const pages = stagePages(body.text)
-    const offered = { ...assets, music: offeredMusic(assets.music, pages.map(page => page.text)) }
+    // Lamps: a missed trigger (and a judge that passes) hides a choice, never the playing track or the current scene.
+    const offered = await recallGreenAssets(assets, pages.map(page => page.text), frozen.judge, judge && ((request, config) => judge.judge(request, config)))
     const note = musicNote(previous.music, offered.music)
     const seal = { sequence: window.sequence || 1, through: pages.length, done: true }
     const first = window.first || 1
@@ -139,7 +138,7 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
     const system = directorSystem(rules)
     const turnContext = JSON.stringify({ window: { ...seal, first }, reference: frozen.context, state: previous,
       ...(rules.cast ? { figures: assets.cast.filter(item => item.name !== assets.player).map(item => item.name) } : {}),
-      ...(rules.scene ? { background: assets.background.map(item => item.name) } : {}), music: offered.music.map(item => item.name), ...(note ? { musicNote: note } : {}) })
+      ...(rules.scene ? { background: offered.background.map(item => item.name) } : {}), music: offered.music.map(item => item.name), ...(note ? { musicNote: note } : {}) })
     async function call(args, taskSignal = signal) {
       if (!open || done || claimed) return { ok: false, retryable: false, error: '本轮导演任务已结束或正在提交' }
       claimed = true

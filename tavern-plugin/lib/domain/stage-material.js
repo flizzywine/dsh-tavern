@@ -161,16 +161,17 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     return rows
   }
 
-  // What the stage may use: lit entries, in binding then pack order. Backgrounds are blue only; music is blue
-  // and green, each with its recall, so the director is offered a green track only when the text names it.
-  // Names and refs only: the director's frozen catalog never holds a lease.
+  // What the stage may use: lit entries, in binding then pack order, each with its recall, so the director is offered a
+  // green entry only when the text names it or 判断模型 recalls it (stage-judge-recall.js; a green entry's director note
+  // is what the judge reads). Names and refs only: the director's frozen catalog never holds a lease.
   async function catalog(cardPath, cardName) {
     const result = { background: [], music: [] }
     for (const { pack, asset } of await entries(cardPath, cardName, true)) {
-      if (asset.enabled !== true || asset.kind === 'backgrounds' && asset.recall.mode !== 'constant') continue
-      const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media }
+      if (asset.enabled !== true) continue
+      const row = { name: asset.name, ref: { packId: pack.manifest.id, kind: asset.kind, assetId: asset.id }, media: asset.media, recall: asset.recall,
+        ...(asset.recall.mode === 'keyword' && asset.directorNote ? { note: asset.directorNote } : {}) }
       if (asset.kind === 'backgrounds') { result.background.push(row); continue }
-      result.music.push({ ...row, pack: pack.manifest.name, recall: asset.recall,
+      result.music.push({ ...row, pack: pack.manifest.name,
         ...Object.fromEntries(['volume', 'loopStart', 'loopEnd'].filter(key => asset[key] !== undefined).map(key => [key, asset[key]])) })
     }
     return result

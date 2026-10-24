@@ -1,6 +1,7 @@
 import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
+import { readJudgeConfig, validateJudgeConfig } from './engine-judge.js'
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -284,6 +285,9 @@ export function applyTavernSettingsPatch(current, patch) {
     if (!Object.keys(caps).length || Object.entries(caps).some(([key, value]) => !Object.hasOwn(STAGE_ACTION_CAPS, key) || !Number.isSafeInteger(value) || value < 1 || value > 256)) throw new Error('每轮上限只能是 ' + Object.keys(STAGE_ACTION_CAPS).join('、') + '，且必须是 1 到 256 的整数')
     next.stageActionCaps = { ...object(next.stageActionCaps), ...caps }
   }
+  // 舞台模式 › 判断模型 (engine-judge.js): the whole config; an omitted field takes its default or the provider's preset.
+  // The API Key itself is never a setting (rpc setJudgeKey stores it in the host credential store).
+  if (Object.hasOwn(input, 'stageJudge')) next.stageJudge = validateJudgeConfig(input.stageJudge)
   // A pack the player turns on for every card (全局) or off again: one pack per change, applied to the stored list.
   if (Object.hasOwn(input, 'globalPack')) {
     const { packId, enabled } = object(input.globalPack)
@@ -373,6 +377,8 @@ export function presentTavernSettings(document, defaults) {
     stageToggles: { stage: object(object(document).stageToggles).stage !== false, music: object(object(document).stageToggles).music !== false },
     stageDimensions: stageDimensions(document),
     stageActionCaps: stageActionCaps(document),
+    // Unset by default: no judge stage, green entries follow their triggers.
+    stageJudge: readJudgeConfig(object(document).stageJudge),
     // Asset packs on for every card (全局); a card adds its own (本卡) in its cast manifest.
     globalEnabledPackIds: globalPackIds(document),
     // Only the latest floors run a card's HTML interface; 0 renders every floor.

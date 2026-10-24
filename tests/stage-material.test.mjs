@@ -62,7 +62,7 @@ test('music keeps its lamps: blue and green tracks are listed with their recall,
   assert.equal((await fetchLease(library, track.url)).status, 200)
 })
 
-test('the director gets lit blue backgrounds by name; green and off ones are not offered; leases are reused per media', async t => {
+test('the director gets lit backgrounds by name with their recall; off ones are not offered; leases are reused per media', async t => {
   const { library, material, castAssets, scopes } = await fixture(t)
   const cardPath = 'cards/a.json'
   const result = await material.importMaterial(cardPath, '甲', [
@@ -79,7 +79,7 @@ test('the director gets lit blue backgrounds by name; green and off ones are not
   await library.patchPack({ packId, expectedRevision: pack.revision, patch: { assets } })
 
   const catalog = await material.catalog(cardPath, '甲')
-  assert.deepEqual(catalog.background.map(item => item.name), ['room'], 'green backgrounds wait for their own recall')
+  assert.deepEqual(catalog.background.map(item => [item.name, item.recall.mode]), [['room', 'constant'], ['hall', 'keyword']], 'a green background waits for its recall in the director')
   assert.deepEqual(catalog.music.map(item => item.name), ['theme'])
   assert.equal(JSON.stringify(catalog).includes('/lease/'), false, 'The frozen catalog holds no lease')
 
