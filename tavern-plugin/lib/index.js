@@ -271,6 +271,7 @@ import { createMediaHandlers } from './rpc/media.js'
 import { createSettingsHandlers } from './rpc/settings.js'
 import { createPluginHandlers } from './rpc/plugins.js'
 import { createAssetLibraryHandlers } from './rpc/asset-library.js'
+import { stageSkinChoice, stageSkinPackIds } from './domain/stage-skin-choice.js'
 import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
 // dsh-tavern 宿主插件（profile 组合行）
@@ -2304,7 +2305,19 @@ export async function apply(ctx) {
     return { enabled: stageSwitchedOn(await readTavernSettings()), player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: await stageMaterial.mediaUrl(assets.background.find(item => item.name === stage.background)),
       music: await stageMusic(assets.music.find(item => item.name === stage.music)),
-      musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage }
+      musicEnabled: (await readTavernSettings()).stageToggles.music, cast: assets.cast, turns, stage,
+      skin: await stageSkinOf(card.path).then(skin => skin.document).catch(() => null) }
+  }
+  // The skin a card's stage is drawn in (stage-skin-choice.js): { skin, fallback, document, choice, cardDefault }. The card's
+  // own default comes from its file, the rest from cast.json, its packs and the tavern settings.
+  async function stageSkinOf(cardPath) {
+    const settings = await readTavernSettings(), cast = await castAssets.read(cardPath)
+    const boundPackIds = Array.isArray(cast.boundPackIds) ? cast.boundPackIds : []
+    const packs = await Promise.all(stageSkinPackIds(boundPackIds, settings.stageSkin).map(packId => assetLibrary.getPackSnapshot({ packId }).catch(() => null)))
+    const workspace = await readCardWorkspace(cardPath).catch(() => undefined)
+    const cardDefault = workspace === undefined ? null : cardPreparation.present({ card: workspace, as: 'card-extensions' }).defaultSkin
+    const chosen = stageSkinChoice({ choice: cast.skinChoice ?? null, cardDefault, boundPackIds, global: settings.stageSkin, packs })
+    return { ...chosen, choice: cast.skinChoice ?? null, cardDefault }
   }
   async function stageMusic(item) {
     return item ? await stageMaterial.track(item) : null
@@ -3298,7 +3311,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, stageSkinOf, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,

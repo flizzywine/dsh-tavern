@@ -136,8 +136,10 @@ function TavernStageScreen(props) {
 	const h = React.createElement, id = props.sessionId;
 	const { data, scene, reader } = useTavernStageRuntime(id);
 	const reading = useTavernStageReading(), choice = useTavernStageView(id);
-	// The stage is drawn in a skin, a data document read by the one generic interpreter (stage-skin.js); 经典 is the default.
-	const skin = React.useMemo(() => stageSkinRoot(BUILTIN_STAGE_SKINS.classic), []);
+	// The stage is drawn in a skin, a data document read by the one generic interpreter (stage-skin.js): the one this card
+	// resolves to (stage-skin-choice.js, castStage `skin`); 经典 until it arrives.
+	const skinDocument = data && data.skin || BUILTIN_STAGE_SKINS.classic;
+	const skin = React.useMemo(() => stageSkinRoot(skinDocument), [JSON.stringify(skinDocument)]);
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
 	readingOn.current = reading.on;
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);

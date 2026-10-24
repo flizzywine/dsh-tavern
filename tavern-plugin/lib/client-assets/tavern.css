@@ -1268,6 +1268,13 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-background-task input[role="switch"]:checked::after, .dsh-tavern-switch-row input[role="switch"]:checked::after { transform: translateX(16px); }
 .dsh-tavern-background-task input[role="switch"]:focus-visible, .dsh-tavern-switch-row input[role="switch"]:focus-visible { outline: 2px solid #16766b; outline-offset: 3px; }
 .dsh-tavern-background-task input[role="switch"]:disabled, .dsh-tavern-switch-row input[role="switch"]:disabled { opacity: .6; cursor: not-allowed; }
+/* 包默认 (a skin entry in its pack's window) is the same switch. */
+.dsh-tavern-asset-field input[role="switch"] { appearance: none; -webkit-appearance: none; position: relative; flex: 0 0 36px; width: 36px; height: 20px; margin: 0; padding: 0; border: 0; border-radius: 10px; background: #64748b; cursor: pointer; transition: background .15s cubic-bezier(0.23, 1, 0.32, 1); }
+.dsh-tavern-asset-field input[role="switch"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s cubic-bezier(0.23, 1, 0.32, 1); }
+.dsh-tavern-asset-field input[role="switch"]:checked { background: #16766b; }
+.dsh-tavern-asset-field input[role="switch"]:checked::after { transform: translateX(16px); }
+.dsh-tavern-asset-field input[role="switch"]:focus-visible { outline: 2px solid #16766b; outline-offset: 3px; }
+.dsh-tavern-asset-field input[role="switch"]:disabled { opacity: .6; cursor: not-allowed; }
 .dsh-tavern-conversation-basics { display: grid; gap: 16px; margin-bottom: 24px; }
 .dsh-tavern-conversation-basics h3 { margin: 0; }
 .dsh-tavern-conversation-basics label { display: grid; gap: 8px; }
@@ -3393,6 +3400,34 @@ button.dsh-tavern-pack-state[data-state="global"]:hover { background: color-mix(
 .dsh-tavern-entry-thumb { position: relative; display: block; flex: none; width: 64px; height: 36px; overflow: hidden; border-radius: 6px; background: var(--asset-hover); }
 :is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture) img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .18s ease; }
 :is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture) img[data-shown] { opacity: 1; }
+/* A skin in small (stage-skins.js TavernSkinArt): a dim stage with the skin's own text box, name plate and line. */
+.dsh-tavern-skin-art { position: relative; display: block; flex: none; box-sizing: border-box; width: 64px; height: 36px; overflow: hidden; border-radius: 6px; background: linear-gradient(160deg, #3a4354, #1c2230); }
+.dsh-tavern-skin-art.is-missing { background: var(--asset-hover); border: 1px dashed var(--dsw-alias-border-l2); }
+.dsh-tavern-skin-art-box { position: absolute; left: 5px; right: 5px; bottom: 4px; height: 14px; box-sizing: border-box; border: 1px solid var(--skin-line); border-radius: var(--skin-radius); background: var(--skin-bg); }
+.dsh-tavern-skin-art-name { position: absolute; left: 4px; top: -5px; min-width: 14px; height: 6px; border-radius: 2px; background: var(--skin-name-bg); color: var(--skin-name-fg); }
+.dsh-tavern-skin-art-bar { position: absolute; left: 5px; right: 14px; top: 6px; height: 2px; border-radius: 1px; background: var(--skin-fg); }
+.dsh-tavern-skin-art.is-big { width: 100%; max-width: 640px; height: auto; aspect-ratio: 16 / 7; border-radius: 10px; }
+.dsh-tavern-skin-art.is-big .dsh-tavern-skin-art-box { left: 5%; right: 5%; bottom: 7%; height: 38%; padding: 14px 18px 0; border-radius: var(--skin-radius); color: var(--skin-fg); font-size: 15px; line-height: 1.6; }
+.dsh-tavern-skin-art.is-big .dsh-tavern-skin-art-name { left: 14px; top: -13px; height: auto; padding: 2px 10px; font-size: 12px; line-height: 1.4; }
+.dsh-tavern-skin-art-line em { font-style: normal; color: var(--skin-accent); }
+.dsh-tavern-skin-hero { padding: 4px 0 12px; }
+.dsh-tavern-skin-default { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--dsh-tavern-accent-soft); color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-skin-id { color: var(--dsw-alias-label-secondary); font-size: 13px; overflow-wrap: anywhere; }
+/* The skin select (默认皮肤 / 本卡皮肤): its trigger is the row's value; the menu lists each skin with its small stage. */
+.dsh-tavern-skin-row .dsh-tavern-switch-main { cursor: default; }
+.dsh-tavern-skin-row .dsh-tavern-skin-anchor { order: 3; min-width: 0; }
+.dsh-tavern-skin-trigger { display: inline-flex; align-items: center; gap: 8px; max-width: 220px; min-height: 32px; padding: 2px 6px 2px 2px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: none; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; cursor: pointer; }
+.dsh-tavern-skin-trigger .dsh-tavern-skin-art { width: 44px; height: 26px; border-radius: 5px; }
+.dsh-tavern-skin-trigger .dsh-tavern-skin-art-box { left: 4px; right: 4px; bottom: 3px; height: 10px; }
+.dsh-tavern-skin-trigger .dsh-tavern-skin-art-bar { top: 4px; }
+.dsh-tavern-skin-trigger:hover:not(:disabled) { background: var(--dsh-tavern-accent-soft); }
+.dsh-tavern-skin-trigger:focus-visible { outline: 2px solid #16766b; outline-offset: 2px; }
+.dsh-tavern-skin-trigger:disabled { opacity: .6; cursor: default; }
+.dsh-tavern-skin-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-skin-option { height: 44px; }
+.dsh-tavern-skin-option .dsh-tavern-skin-art { width: 52px; height: 30px; }
+.dsh-tavern-skin-hint { margin: 4px 0 0 24px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+@media (max-width: 480px) { .dsh-tavern-skin-trigger { max-width: 160px; } }
 :is(.dsh-tavern-entry-thumb, .dsh-tavern-asset-hero-picture)[data-failed] { background: color-mix(in srgb, var(--asset-error) 12%, transparent); }
 .dsh-tavern-asset-play { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--asset-hover); color: var(--dsh-tavern-accent); cursor: pointer; }
 .dsh-tavern-asset-play.is-big { width: 48px; height: 48px; background: var(--dsh-tavern-accent); color: var(--dsw-alias-label-primary-foreground, #fff); }

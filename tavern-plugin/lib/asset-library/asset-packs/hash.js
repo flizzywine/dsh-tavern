@@ -1,4 +1,4 @@
-import { assertJson, check, object, jsonHash, array, shape, integer, unique, validateHash, relativePath } from './common.js'
+import { assertJson, check, object, jsonHash, array, shape, integer, unique, validateHash, relativePath, compareCodePoints } from './common.js'
 export { canonicalJson, parseJson, sha256, jsonHash } from './common.js'
 // Machine state is not manifest data. Never silently strip arbitrary author fields.
 export const LOCAL_ONLY_FIELDS = Object.freeze(['revision', 'globalEnabledPackIds', 'leases', 'cache', 'calibration', 'placement', 'authorization', 'exportedAt'])
@@ -9,6 +9,11 @@ export function contentHashInput(manifest) {
   return portable
 }
 export const computeContentHash = manifest => jsonHash(contentHashInput(manifest))
+// A bundle's identity: its files (paths relative to bundles/<key>/, sizes and digests) in code point order.
+export function computeBundleHash(files) {
+  validateFiles(files)
+  return jsonHash([...files].sort((a, b) => compareCodePoints(a.path, b.path)))
+}
 export function validateFiles(files, path = '$.files') {
   array(files, path)
   for (const [i, file] of files.entries()) {

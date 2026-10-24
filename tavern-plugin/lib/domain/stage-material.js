@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { BLOB_MIME_TYPES } from '../asset-library/asset-packs/index.js'
 import { audioKind, imageKind } from '../asset-library/pack-v2/media.js'
+import { validateStageSkin, stageSkinFiles } from './stage-skin.js'
 
 // A card's stage material (backgrounds, music) lives in the asset library (docs/design/asset-library.md):
 // entries of the card's own pack, which the card's cast manifest binds by id (boundPackIds).
@@ -254,7 +255,45 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
       patch: { assets, blobs: { ...old.blobs, [hash]: pack.manifest.blobs[hash] || { ext, mime: BLOB_MIME_TYPES[ext], size: bytes.length } } } })
     return { pack: snapshot }
   })
+  // A skin (舞台皮肤) arrives as its folder: skin.json and the files it declares, by their paths relative to it. A skin with the
+  // same id is replaced as a whole (its old files go); a new one owns the bundle skin-<id>. The store checks the document and
+  // every file once, here; a skin is checked nowhere else.
+  const addSkin = (packId, documentBytes, items) => serial('pack:' + packId, async () => {
+    let document
+    try { document = validateStageSkin(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(documentBytes))) }
+    catch (error) { throw coded(error?.message || 'Invalid skin', error?.code === 'SKIN_CONTRAST' ? 'SKIN_CONTRAST' : 'INVALID_SKIN') }
+    const given = new Map(items.map(item => [item.path, Buffer.from(item.bytes)]))
+    const missing = stageSkinFiles(document).filter(file => !given.has(file))
+    if (missing.length) throw coded('皮肤缺少文件：' + missing.slice(0, 3).join('、'), 'MISSING_DEPENDENCY')
+    const pack = await packOf(packId), existing = pack.manifest.assets.find(asset => asset.kind === 'skins' && asset.id === document.id)
+    const bundleKey = existing ? existing.bundleKey : 'skin-' + document.id, entry = existing ? existing.entry : 'skin.json'
+    const base = 'bundles/' + bundleKey + '/', dir = entry.includes('/') ? entry.replace(/[^/]*$/, '') : ''
+    const files = new Map(pack.manifest.files.filter(file => file.path.startsWith(base)).map(file => [file.path, null]))
+    files.set(base + entry, Buffer.from(documentBytes))
+    for (const file of stageSkinFiles(document)) files.set(base + dir + file, given.get(file))
+    const asset = existing || { kind: 'skins', id: document.id, name: [...document.label].slice(0, 256).join(''), recall: { mode: 'constant', keywords: [] }, directorNote: '', bundleKey, entry }
+    const { snapshot } = await library.patchPack({ packId, expectedRevision: pack.revision, fileUpdates: files,
+      patch: { assets: existing ? pack.manifest.assets : [...pack.manifest.assets, asset], bundles: { ...pack.manifest.bundles, [bundleKey]: { kind: 'skin', entry, contentHash: '0'.repeat(64) } } } })
+    return { pack: snapshot, id: document.id }
+  })
+  // The pack's default stage skin (manifest.stageSkin), or none.
+  async function setPackSkin(packId, expectedRevision, id) {
+    const pack = await packOf(packId)
+    if (id !== null && !pack.manifest.assets.some(asset => asset.kind === 'skins' && asset.id === id)) throw coded('Skin missing', 'ASSET_UNAVAILABLE')
+    const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { stageSkin: id === null ? undefined : id } })
+    return { pack: snapshot }
+  }
   async function removeEntry(packId, expectedRevision, kind, id) {
+    if (kind === 'skins') {
+      // A skin goes with its bundle; a pack default or card choice naming it simply stops applying (stage-skin-choice.js).
+      const pack = await packOf(packId), entry = pack.manifest.assets.find(asset => asset.kind === 'skins' && asset.id === id)
+      if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
+      const bundles = { ...pack.manifest.bundles }
+      delete bundles[entry.bundleKey]
+      const files = new Map(pack.manifest.files.filter(file => file.path.startsWith('bundles/' + entry.bundleKey + '/')).map(file => [file.path, null]))
+      const { snapshot } = await library.patchPack({ packId, expectedRevision, patch: { assets: pack.manifest.assets.filter(asset => asset !== entry), bundles }, fileUpdates: files })
+      return { pack: snapshot }
+    }
     const pack = await packOf(packId), entry = pack.manifest.assets.find(asset => asset.kind === kindOf(kind) && asset.id === id)
     if (!entry) throw coded('Entry missing', 'ASSET_UNAVAILABLE')
     const assets = pack.manifest.assets.filter(asset => asset !== entry), { blobs, files } = dropUnused(pack, assets, entry.media)
@@ -266,6 +305,8 @@ export function createStageMaterial({ library, castAssets, globalPackIds = async
     addFiles,
     replaceMedia,
     removeEntry,
+    addSkin,
+    setPackSkin,
     // A pack's picture or audio for the editor's previews: the same reused lease the stage plays.
     previewUrl: (packId, hash) => mediaUrl({ ref: { packId }, media: hash }),
     ready,

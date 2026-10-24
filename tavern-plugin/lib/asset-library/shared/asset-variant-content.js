@@ -1,7 +1,9 @@
-// The content fields each entry kind stores beside its common fields (name, lamp, notes).
+// The content fields each entry kind stores beside its common fields (name, lamp, notes). A skin is a bundle: its
+// dsh.skin/1 document (`entry`, beside the files it declares) under bundles/<bundleKey>/.
 export const ASSET_CONTENT_FIELDS = Object.freeze({
   backgrounds: ['media', 'tags'],
-  music: ['media', 'usage', 'tags', 'volume', 'loopStart', 'loopEnd']
+  music: ['media', 'usage', 'tags', 'volume', 'loopStart', 'loopEnd'],
+  skins: ['bundleKey', 'entry']
 })
 
 // A stored entry has exactly one content source: the entry itself.

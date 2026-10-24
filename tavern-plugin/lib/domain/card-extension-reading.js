@@ -156,6 +156,8 @@ export function inspectCardExtensions(value) {
   const tavernHelper = object(extensions.tavern_helper) ? extensions.tavern_helper : {}
   return {
     frameSizing: normalizeCardFrameSizing(extensions.dsh_tavern?.frameSizing),
+    // The card's own stage skin (stage-skin-choice.js): a built-in id or a pack skin ref, as the card file names it.
+    defaultSkin: object(extensions.dsh_tavern?.stage) && (typeof extensions.dsh_tavern.stage.defaultSkin === 'string' || object(extensions.dsh_tavern.stage.defaultSkin)) ? clone(extensions.dsh_tavern.stage.defaultSkin) : null,
     extensionCount: regexScripts.length + helperScripts.length + otherExtensions.length + mvuResources.filter(function (item) { return item.kind === 'extension' }).length,
     regexScripts,
     helperScripts,

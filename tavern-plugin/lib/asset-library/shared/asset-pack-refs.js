@@ -1,7 +1,7 @@
 import { assertJson, shape, oneOf, check } from './asset-pack-json.js'
 export { ASSET_PACK_ERROR_CODES } from './asset-pack-json.js'
 // The entry kinds the built-in stage reads today. Further kinds arrive with the core that reads them.
-export const ASSET_KINDS = Object.freeze(['backgrounds', 'music'])
+export const ASSET_KINDS = Object.freeze(['backgrounds', 'music', 'skins'])
 export const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 export const SHORT_ID_PATTERN = '^[a-z0-9][a-z0-9_-]{0,63}$'
 export const HASH_PATTERN = '^[0-9a-f]{64}$'
@@ -22,8 +22,9 @@ export function validateAssetRef(value, path = '$', kind) {
   validateUuid(value.packId, path + '.packId'); oneOf(value.kind, kind ? [kind] : ASSET_KINDS, path + '.kind'); validateShortId(value.assetId, path + '.assetId')
   return value
 }
-// An entry is on (blue: constant, green: keyword recall) or off (enabled false).
-export function assetEntryEnabled(asset) { return Boolean(asset) && asset.enabled === true }
+// An entry is on (blue: constant, green: keyword recall) or off (enabled false). A skin has no lamp: an installed skin is
+// one the player can choose (舞台设置 › 默认皮肤), never offered to the director.
+export function assetEntryEnabled(asset) { return Boolean(asset) && (asset.kind === 'skins' || asset.enabled === true) }
 // Both the service and its snapshot consumers use this exact resolution contract.
 export function resolveAssetSnapshot(pack, ref) {
   const asset = pack?.manifest.assets.find(asset => asset.kind === ref.kind && asset.id === ref.assetId)

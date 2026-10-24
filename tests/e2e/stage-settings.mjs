@@ -87,7 +87,7 @@ try {
   const bubbleSwitch = settings.getByRole('switch', { name: '对话气泡', exact: true })
   const musicSwitch = settings.getByRole('switch', { name: 'BGM', exact: true })
   await checked('舞台模式', true)
-  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式?', 'BGM?'])
+  assert.deepEqual(await rowNames(settings), ['对话气泡', '配音?', '舞台模式?', '默认皮肤?', '本卡皮肤?', 'BGM?'])
   assert.deepEqual([await musicSwitch.isChecked(), await musicSwitch.isDisabled()], [true, true], 'BGM is on by default and plays on the stage')
   assert.equal(await settings.getByRole('heading', { name: '基础设置' }).count(), 1)
   assert.deepEqual([await bubbleSwitch.isChecked(), await voiceSwitch.isChecked(), await stageSwitch.isChecked()], [false, false, true])

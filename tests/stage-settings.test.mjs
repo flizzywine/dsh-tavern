@@ -20,7 +20,7 @@ function load({ states = [], ...context } = {}) {
     React, DshUi: {}, Date, Set, window: { addEventListener() {}, removeEventListener() {}, dispatchEvent() {} }, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail } },
     useTavernSpeechSettings: () => ({ enabled: false }), useTavernStageView: () => ({ views: [] }), TavernStageViewSwitch: 'ViewSwitch', TavernSpeechSettings: 'SpeechSettings',
     rpc: async () => ({}), tavernSpeechSettings: { set() {} }, tavernStageRuntime: { refresh: async () => {} },
-    useTavernKindPacks: () => [], TavernStageKindJump: 'KindJump', TavernStagePacks: 'StagePacks', TavernPackLibrary: 'Library', tavernAssetNav: { go() {} }, ...context
+    useTavernKindPacks: () => [], TavernStageKindJump: 'KindJump', TavernStagePacks: 'StagePacks', TavernPackLibrary: 'Library', tavernAssetNav: { go() {} }, TavernStageSkinRows: 'SkinRows', ...context
   })
 }
 const rowsOf = tree => all(tree, node => /dsh-tavern-switch-row/.test(node.props.className || '')).map(row => ({ row, label: text(find(row, node => node.props.className === 'dsh-tavern-switch-name')), input: find(row, node => node.type === 'input') }))
@@ -180,4 +180,37 @@ test('酒馆状态 keeps only the stage entry; the fullscreen stage has no 设�
   assert.match(screen, /TavernMusicToggle/, 'plugin music keeps its ♪ switch')
   assert.doesNotMatch(screen, /tavernMusic\.play/, 'the stage never plays music through the plugin player')
   assert.match(screen, /release: \(\) => tavernMusic\.stop\(\)/, 'a plugin\'s music still ends with the stage view')
+})
+
+// 默认皮肤 / 本卡皮肤 (stage-skins.js): after 舞台模式, before BGM; each picker saves its own owner at once.
+const skins = readFileSync(new URL('../tavern-plugin/src/client/features/stage-skins.js', import.meta.url), 'utf8')
+test('默认皮肤 and 本卡皮肤 follow 舞台模式; each pick writes its own owner and the open stage re-reads its skin', async () => {
+  const { TavernStageSwitches } = load({ states: [{ castPresentation: true, stageToggles: { stage: true, music: true } }, 'idle', ''] })
+  const tree = expand(TavernStageSwitches({ sessionId: 'game', path: 'cards/a.json' }))
+  const order = all(tree, node => node.type === 'SkinRows' || /dsh-tavern-switch-row/.test(node.props.className || '')).map(node => node.type === 'SkinRows' ? 'skins' : text(find(node, child => child.props.className === 'dsh-tavern-switch-name')))
+  assert.deepEqual(order, ['对话气泡', '配音', '舞台模式', 'skins', 'BGM'])
+  assert.equal(find(tree, node => node.type === 'SkinRows').props.path, 'cards/a.json')
+
+  const classic = { id: 'classic', textbox: { paint: { bg: '#000000', fg: '#ffffff' } }, nameplate: { paint: { bg: '#000000', fg: '#ffffff' } } }
+  const paper = { ...classic, id: 'paper' }, ref = { packId: 'p', kind: 'skins', assetId: 'paper' }
+  const state = { global: 'classic', globalChoices: [{ value: 'classic', label: '经典', document: classic }],
+    card: { choice: null, cardDefault: null, skin: ref, fallback: ref, choices: [{ value: 'classic', label: '经典', document: classic }, { value: ref, label: '纸', document: paper, pack: '本卡' }] } }
+  const calls = [], saved = []
+  const React = { createElement: h, Fragment: 'Fragment', useState: () => [state, () => {}], useCallback: fn => fn, useEffect() {}, useRef: () => ({ current: null }) }
+  const { TavernStageSkinRows } = vm.runInNewContext(skins + '; ({ TavernStageSkinRows })', { React, JSON, Promise,
+    rpc: async (method, args) => { calls.push([method, args]); return {} }, window: { addEventListener() {}, removeEventListener() {}, dispatchEvent: event => calls.push([event.type]) },
+    CustomEvent: class { constructor(type) { this.type = type } }, tavernStageRuntime: { refresh: async id => calls.push(['refresh', id]) }, TAVERN_ASSET_EVENT: 'assets',
+    TavernAssetMenu: 'Menu', TavernAssetGlyph: 'Glyph', tavernAssetErrorText: () => '' })
+  const rows = expand(TavernStageSkinRows({ path: 'cards/a.json', sessionId: 'game', busy: false, save: job => { saved.push(job); return job() } }))
+  const pickers = all(rows, node => node.type === 'Menu')
+  assert.deepEqual([...pickers.map(menu => menu.props.label)], ['默认皮肤', '本卡皮肤'])
+  // 本卡皮肤 opens with 「跟随默认」, drawn as the skin this card falls back to.
+  const card = pickers[1].props.content(() => {}).map(expand)
+  assert.deepEqual([...card.map(option => text(option))], ['跟随默认', '经典', '纸'])
+  assert.equal(find(card[0], node => /dsh-tavern-skin-art-box/.test(node.props.className || '')) !== null, true)
+  await pickers[1].props.content(() => {})[2].props.onClick()
+  await pickers[0].props.content(() => {})[0].props.onClick()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(saved.length, 1, 'picking the current value writes nothing')
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter(call => call[0] !== 'getStageSkins'))), [['setCardStageSkin', { path: 'cards/a.json', skin: ref }], ['dsh-tavern-settings-changed'], ['refresh', 'game']])
 })

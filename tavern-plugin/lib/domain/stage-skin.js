@@ -297,4 +297,30 @@ const BUILTIN_STAGE_SKINS = Object.freeze({
         ui:{bg:'#0c0a14',fg:'#f5f2fa',fgMuted:'#bcb8c6',accent:'#e9e4f3',onAccent:'#0c0a14',border:'#bcb8c6',radius:10}}
 });
 
-export { validateStageSkin, skinContrast, STAGE_SKIN_SFX_CUES, STAGE_SKIN_PLATE_ALPHA, BUILTIN_STAGE_SKINS }
+// The files a skin declares (paths relative to its document): what its bundle must hold, and all it may hold besides the
+// document. Images, the skin's own WOFF2 faces and short sounds.
+const skinSfxFiles = sfx => Object.values(sfx || {}).map(cue => typeof cue === 'string' ? cue : cue.file);
+function stageSkinArtFiles(art) {return [...(art?.spinner ? art.spinner.parts ? art.spinner.parts.map(part => part.image) : [art.spinner.image] : []),...Object.values(art?.textbox?.images || {}),...Object.values(art?.textbox?.tint?.masks || {}),...Object.values(art?.choices?.images || {}),...[art?.choices?.tint,art?.choices?.tool?.image,art?.choices?.tool?.tint,art?.choices?.tool?.send,art?.choices?.focus?.image,art?.choices?.focus?.alt].filter(Boolean),...stageSkinButtonFiles(art?.choices?.tool?.button),...(art?.textbox?.lamp ? [art.textbox.lamp.image] : []),...[stageSkinImageOf(art?.textbox?.next),art?.nameplate?.image].filter(Boolean),...Object.values(art?.buttons || {}).flatMap(button => [button.image,button.on,button.tint].filter(Boolean)),
+    ...(art?.nameplate?.band ? [art.nameplate.band.image] : []),...Object.values(art?.cast || {}).flatMap(entry => [entry.box,entry.plate,entry.band?.image].filter(Boolean)),...(art?.decor || []).map(item => item.image),
+    ...stageSkinScreenFiles(art),...(art?.portrait?.frame ? [art.portrait.frame.image,art.portrait.frame.glass,art.portrait.frame.back,art.portrait.frame.speaking].filter(Boolean) : []),...(art?.item ? [art.item.frame,art.item.gain?.toast?.image].filter(Boolean) : [])];}
+// The images of the drawn overlays (art.menu / art.backlog / art.config / art.confirm) and of the voice controls (art.voice).
+function stageSkinScreenFiles(art) {
+    const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm;
+    return [...new Set([...(m ? [m.sheet,m.frame?.image,...Object.values(m.rows?.images || {}),m.rows?.cursor?.image,...['title','info','keys'].flatMap(key => [m[key]?.image,m[key]?.rule?.image]),
+            ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert] : []),
+        ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
+        ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb] : []),
+        ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
+        ...Object.values(art?.voice || {})].filter(value => typeof value === 'string'))];
+}
+function stageSkinFontFiles(font) {return Object.values(font?.faces || {}).map(face => face.file);}
+function stageSkinQuickFiles(menu) {return [...Object.values(menu?.icons || {}).flatMap(icon => [icon.image,icon.on].filter(Boolean)),...stageSkinButtonFiles(menu?.button)];}
+// A buttonArt's state images (skinButtonArt).
+function stageSkinButtonFiles(button) {return button ? [button.normal,button.hover,button.on,button.disabled].filter(Boolean) : [];}
+// A playable slot's image file (skinPlayable): the image itself or its {image, frames}.image.
+function stageSkinImageOf(value) {return value && typeof value === 'object' ? value.image : value;}
+// A slice's edges (skinSlice): the array itself or its {edges}.
+function stageSkinSliceEdges(value) {return Array.isArray(value) ? value : value?.edges;}
+function stageSkinFiles(value) {return [...new Set([...stageSkinQuickFiles(value.quickMenu),...skinSfxFiles(value.sfx),...stageSkinArtFiles(value.art),...Object.values(value.modes || {}).flatMap(mode => Object.values(mode.buttons || {}).flatMap(button => [button.image,button.on,button.tint].filter(Boolean))),...(value.effects?.thinking?.image ? [value.effects.thinking.image] : []),...stageSkinFontFiles(value.font)])];}
+
+export { validateStageSkin, stageSkinFiles, stageSkinImageOf, stageSkinSliceEdges, skinContrast, STAGE_SKIN_SFX_CUES, STAGE_SKIN_PLATE_ALPHA, BUILTIN_STAGE_SKINS }

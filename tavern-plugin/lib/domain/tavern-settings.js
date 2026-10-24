@@ -2,6 +2,7 @@ import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
 import { readJudgeConfig, validateJudgeConfig } from './engine-judge.js'
+import { validateStageSkinSelection } from './stage-skin-choice.js'
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -288,6 +289,10 @@ export function applyTavernSettingsPatch(current, patch) {
   // 舞台模式 › 判断模型 (engine-judge.js): the whole config; an omitted field takes its default or the provider's preset.
   // The API Key itself is never a setting (rpc setJudgeKey stores it in the host credential store).
   if (Object.hasOwn(input, 'stageJudge')) next.stageJudge = validateJudgeConfig(input.stageJudge)
+  // 舞台设置 › 默认皮肤: a built-in skin's id or a pack skin; a missing one is passed over when drawn (stage-skin-choice.js).
+  if (Object.hasOwn(input, 'stageSkin')) {
+    try { next.stageSkin = structuredClone(validateStageSkinSelection(input.stageSkin)) } catch { throw new Error('无效的默认皮肤') }
+  }
   // A pack the player turns on for every card (全局) or off again: one pack per change, applied to the stored list.
   if (Object.hasOwn(input, 'globalPack')) {
     const { packId, enabled } = object(input.globalPack)
@@ -379,6 +384,8 @@ export function presentTavernSettings(document, defaults) {
     stageActionCaps: stageActionCaps(document),
     // Unset by default: no judge stage, green entries follow their triggers.
     stageJudge: readJudgeConfig(object(document).stageJudge),
+    // 默认皮肤: 经典 until the player picks another; stored selections were checked when written.
+    stageSkin: (skin => typeof skin === 'string' || skin && object(skin) === skin ? structuredClone(skin) : 'classic')(object(document).stageSkin),
     // Asset packs on for every card (全局); a card adds its own (本卡) in its cast manifest.
     globalEnabledPackIds: globalPackIds(document),
     // Only the latest floors run a card's HTML interface; 0 renders every floor.

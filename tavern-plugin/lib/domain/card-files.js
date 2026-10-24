@@ -122,6 +122,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     const name = str(document?.data?.name || cardPreparation.project(workspace).name || '人物卡')
     const stage = await stageMaterial.exportMaterial(cardPath, name)
     const cast = await castAssets.read(cardPath)
+    // 本卡皮肤 is this player's choice, not the card's: it never leaves with the file.
+    delete cast.skinChoice
     const files = new Map()
     for (const file of new Set([...cast.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(cast.extras || []).map(item => item.file)].filter(Boolean))) {
       files.set(file, await castAssets.readFile(cardPath, file))

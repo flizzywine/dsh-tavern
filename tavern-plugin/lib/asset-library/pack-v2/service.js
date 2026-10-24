@@ -22,7 +22,8 @@ const storedDocument = bytes => {
 }
 // Identities a pack has used; a removed entry's key is retired and never names new content.
 const keys = pack => new Set(pack.manifest.assets.map(a => 'asset/' + a.kind + '/' + a.id))
-const snapshot = pack => pack && copy({manifest:pack.manifest, revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt})
+// `skins`: each skin entry's dsh.skin/1 document by id, read from its bundle (checked when it was written).
+const snapshot = pack => pack && copy({manifest:pack.manifest, ...(pack.skins && Object.keys(pack.skins).length ? {skins:pack.skins} : {}), revision:pack.local.revision, installedAt:pack.local.installedAt, updatedAt:pack.local.updatedAt})
 function cas(current, expectedRevision, proposed) {
   const revision = current?.local?.revision ?? null
   if (expectedRevision === undefined || expectedRevision !== revision) throw Object.assign(new Error('Pack revision changed'), {code:'REVISION_CONFLICT', revision, diff:packDiff(proposed, current?.manifest)})
@@ -77,8 +78,13 @@ export function createAssetPackService(options) {
     }
     const local = await storage.local(id)
     check(typeof local?.revision === 'string' && Array.isArray(local.retired), id, 'Invalid local state', 'RECOVERY_REQUIRED')
+    const skins = {}
+    for (const asset of manifest.assets) if (asset.kind === 'skins') {
+      const file = manifest.files.find(row => row.path === `bundles/${asset.bundleKey}/${asset.entry}`)
+      skins[asset.id] = storedDocument(await storage.read(`packs/${id}/${file.path}`, file.size))
+    }
     check(signature === await storage.stamp(id), '$.packId', 'Pack changed during validation', 'REVISION_CONFLICT')
-    const pack = {manifest, local}, size = Buffer.byteLength(signature) + Buffer.byteLength(JSON.stringify(pack))
+    const pack = {manifest, skins, local}, size = Buffer.byteLength(signature) + Buffer.byteLength(JSON.stringify(pack))
     if (size <= 32 * 1024 ** 2) {
       metadataCache.set(id, {signature, pack, size}); metadataBytes += size
       while (metadataBytes > 32 * 1024 ** 2 || metadataCache.size > 128) evictMetadata(metadataCache.keys().next().value)
@@ -100,7 +106,9 @@ export function createAssetPackService(options) {
     alive()
     await storage.publish(pack.manifest.id, pack, local, before)
     const saved = {...pack, local}; emit(saved, before)
-    return {status:before ? 'updated' : 'installed', snapshot:snapshot(saved)}
+    // The published skins' documents, as every later read sees them.
+    const skins = pack.manifest.assets.some(asset => asset.kind === 'skins') ? (await metadata(pack.manifest.id)).skins : {}
+    return {status:before ? 'updated' : 'installed', snapshot:snapshot({...saved, skins})}
   }
   async function edit(input, mutate, tryMetadata = false) {
     validateUuid(input.packId)

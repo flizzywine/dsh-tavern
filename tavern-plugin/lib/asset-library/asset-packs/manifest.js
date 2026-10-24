@@ -37,10 +37,11 @@ function validateMetadata(value, path) {
 }
 export function validateAsset(value, path = '$') {
   assertJson(value)
-  const common = ['kind', 'id', 'name', 'enabled', 'recall', 'directorNote']
+  // A skin has no lamp (asset-pack-refs.js assetEntryEnabled): it is chosen, never offered to the director.
+  const common = value?.kind === 'skins' ? ['kind', 'id', 'name', 'recall', 'directorNote'] : ['kind', 'id', 'name', 'enabled', 'recall', 'directorNote']
   check(value && ASSET_KINDS.includes(value.kind), path + '.kind')
   shape(value, [...common, 'remark', ...metadata.filter(field => !ASSET_CONTENT_FIELDS[value.kind].includes(field)), ...ASSET_CONTENT_FIELDS[value.kind]], common, path)
-  validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); bool(value.enabled, path + '.enabled')
+  validateShortId(value.id, path + '.id'); text(value.name, path + '.name'); if (value.kind !== 'skins') bool(value.enabled, path + '.enabled')
   if (value.remark !== undefined) check(typeof value.remark === 'string', path + '.remark')
   validateRecall(value.recall, path + '.recall'); text(value.directorNote, path + '.directorNote', 300, 0); validateMetadata(value, path)
   validateAssetContent(value.kind, Object.fromEntries(ASSET_CONTENT_FIELDS[value.kind].filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]])), path)
@@ -50,6 +51,11 @@ export function validateAssetContent(kind, content, path = '$') {
   check(Object.hasOwn(ASSET_CONTENT_FIELDS, kind), path, 'Unknown asset kind')
   shape(content, ASSET_CONTENT_FIELDS[kind], [], path)
   const value = {...content, kind}
+  if (kind === 'skins') {
+    shape(content, ['bundleKey', 'entry'], ['bundleKey', 'entry'], path)
+    validateShortId(content.bundleKey, path + '.bundleKey'); relativePath(content.entry, path + '.entry')
+    return content
+  }
   validateHash(value.media, path + '.media')
   if (value.usage !== undefined) text(value.usage, path + '.usage', 300, 0)
   if (value.tags !== undefined) { array(value.tags, path + '.tags', 32); value.tags.forEach(t => text(t, path + '.tags', 80)) }
@@ -60,38 +66,51 @@ export function validateAssetContent(kind, content, path = '$') {
   }
   return content
 }
-// figures/sprites/bundles keep the portable pack format; their documents arrive with the cores that read them.
+// figures/sprites keep the portable pack format; their documents arrive with the cores that read them. A bundle is a
+// skin's directory (bundles/<key>/: its document and the files it declares), sealed by its own content hash.
 export function validatePackManifest(value, path = '$') {
   assertJson(value)
   const required = ['format', 'schemaVersion', 'id', 'name', 'contentHash', 'assets', 'figures', 'sprites', 'bundles', 'blobs', 'files']
-  shape(value, [...required, ...metadata], required, path)
+  shape(value, [...required, ...metadata, 'stageSkin'], required, path)
+  // stageSkin: the pack's default stage skin, one of its skins by id - what a card that binds the pack draws when it has
+  // no skin of its own (stage-skin-choice.js). A skin removed later only stops it applying; the field is not rewritten.
+  if (value.stageSkin !== undefined) validateShortId(value.stageSkin, path + '.stageSkin')
   oneOf(value.format, ['dsh-asset-pack'], path + '.format'); check([1,2].includes(value.schemaVersion), path + '.schemaVersion', 'Unsupported schemaVersion', 'UNSUPPORTED_SCHEMA_VERSION')
   validateUuid(value.id, path + '.id'); text(value.name, path + '.name'); validateHash(value.contentHash, path + '.contentHash'); validateMetadata(value, path)
   array(value.assets, path + '.assets'); value.assets.forEach((asset, i) => validateAsset(asset, `${path}.assets[${i}]`))
   unique(value.assets.map(a => `${a.kind}/${a.id}`), path + '.assets')
   array(value.figures, path + '.figures'); check(!value.figures.length, path + '.figures', 'Figures are not stored yet', 'UNKNOWN_FIELD')
   record(value.sprites, path + '.sprites', (_file, p) => check(false, p, 'Sprites are not stored yet', 'UNKNOWN_FIELD'))
-  record(value.bundles, path + '.bundles', (_bundle, p) => check(false, p, 'Bundles are not stored yet', 'UNKNOWN_FIELD'))
+  record(value.bundles, path + '.bundles', (bundle, p, key) => {
+    validateShortId(key, p); shape(bundle, ['kind', 'entry', 'contentHash'], ['kind', 'entry', 'contentHash'], p)
+    oneOf(bundle.kind, ['skin'], p + '.kind'); relativePath(bundle.entry, p + '.entry'); validateHash(bundle.contentHash, p + '.contentHash')
+  })
   record(value.blobs, path + '.blobs', (blob, p, hash) => { validateHash(hash, p); validateBlob(blob, p) })
   validateFiles(value.files, path + '.files')
   const files = new Map(value.files.map(file => [file.path, file]))
   check(!files.has('manifest.json'), path + '.files', 'Manifest cannot hash itself', 'FILE_CLOSURE_MISMATCH')
   const declared = file => check(files.has(file), path + '.files', 'Missing declared file: ' + file, 'FILE_CLOSURE_MISMATCH')
+  for (const [key, bundle] of Object.entries(value.bundles)) declared(`bundles/${key}/${bundle.entry}`)
   const mediaFiles = new Set()
   for (const [hash, blob] of Object.entries(value.blobs)) {
     const file = `media/${hash}.${blob.ext}`; declared(file); mediaFiles.add(file)
     check(files.get(file).sha256 === hash && files.get(file).size === blob.size, path + '.blobs.' + hash, 'Blob/file mismatch', 'FILE_CLOSURE_MISMATCH')
   }
   for (const file of files.keys()) {
-    const [root] = file.split('/')
-    check(root === 'credits' && file.startsWith('credits/') || root === 'media' && mediaFiles.has(file), path + '.files', 'Undeclared file namespace: ' + file, 'FILE_CLOSURE_MISMATCH')
+    const [root, key] = file.split('/')
+    check(root === 'credits' && file.startsWith('credits/') || root === 'media' && mediaFiles.has(file)
+      || root === 'bundles' && Object.hasOwn(value.bundles, key) && file.startsWith(`bundles/${key}/`), path + '.files', 'Undeclared file namespace: ' + file, 'FILE_CLOSURE_MISMATCH')
   }
   if (value.credits) value.credits.forEach(declared)
   const blobRef = (hash, type) => { const blob = value.blobs[hash]; check(blob && (!type || blob.mime.startsWith(type)), path + '.assets', 'Missing or wrong-kind blob: ' + hash, 'MISSING_DEPENDENCY') }
   for (const asset of value.assets) {
     for (const {hash, type} of assetContentMedia(asset)) blobRef(hash, type)
+    if (asset.kind === 'skins') check(value.bundles[asset.bundleKey]?.kind === 'skin' && value.bundles[asset.bundleKey].entry === asset.entry, path + '.assets', 'Missing skin bundle', 'MISSING_DEPENDENCY')
     asset.credits?.forEach(declared)
   }
+  // Each bundle belongs to exactly one skin.
+  unique(value.assets.filter(asset => asset.kind === 'skins').map(asset => asset.bundleKey), path + '.bundles')
+  for (const key of Object.keys(value.bundles)) check(value.assets.some(asset => asset.kind === 'skins' && asset.bundleKey === key), path + '.bundles.' + key, 'Unused bundle', 'FILE_CLOSURE_MISMATCH')
   return value
 }
 export function validatePackIdentities(manifests) {

@@ -268,6 +268,12 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
+  /** The player's own skin for this card (舞台设置 › 本卡皮肤, stage-skin-choice.js), checked by the caller; null clears it. */
+  async function setSkinChoice(cardPath, skin) {
+    await update(cardPath, manifest => { if (skin === null) delete manifest.skinChoice; else manifest.skinChoice = structuredClone(skin) })
+    return read(cardPath)
+  }
+
   /**
    * The end of the one move of stage material into the library: moved music leaves the kept files,
    * backgrounds the library could not hold stay as kept files, and files nothing names are deleted.
@@ -318,5 +324,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, setSkinChoice, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

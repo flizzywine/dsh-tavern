@@ -77,7 +77,7 @@ function useTavernStageGlobals() {
 	return [settings, setSettings];
 }
 
-// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, BGM; 舞台样式 joins when a plugin offers stage views.
+// 舞台设置 › 基础设置 in the reference order: 对话气泡, 配音 ›, 舞台模式, 默认皮肤 (本卡皮肤), BGM; 舞台样式 joins when a plugin offers stage views.
 // Every switch saves at once; the section head says 正在保存… / 已保存.
 function TavernStageSwitches(props) {
 	const h = React.createElement;
@@ -125,6 +125,8 @@ function TavernStageSwitches(props) {
 			status: openVoice ? tavernStageJump("声音设置", openVoice) : null, onOpen: openVoice || undefined }),
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.stage, icon: "stage", checked: prefs.stage, disabled: !settings || busy || blocked("stage").length > 0, help: help("stage"), onChange: setStage,
 			status: props.onMode ? tavernStageJump("舞台模式设置", props.onMode, modeJump) : null, onOpen: props.onMode || undefined }),
+		// 默认皮肤 and, with a card open, 本卡皮肤 (stage-skins.js), in the reference order after 舞台模式.
+		h(TavernStageSkinRows, { path: props.path, sessionId: props.sessionId, save, busy }),
 		// Sounds play on the stage: greyed (the stored value kept) while 舞台模式 is off.
 		h(TavernStageSwitchRow, { label: TAVERN_STAGE_NAMES.music, icon: "music", checked: prefs.music, disabled: !settings || busy || blocked("music").length > 0, help: help("music"), onChange: setMusic,
 			status: openMusic ? h(TavernStageKindJump, { label: TAVERN_STAGE_NAMES.music, packs: musicPacks, onPick: openMusic }) : null }),
