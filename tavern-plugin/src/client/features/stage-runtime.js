@@ -355,11 +355,24 @@ function TavernStageScreen(props) {
 		const opener = configOpener.current; configOpener.current = null;
 		if (opener && opener.isConnected) opener.focus({ preventScroll: true });
 	};
+	// 履历 (stage-backlog.js): open like CONFIG - auto paging waits and the stage's keys are the backlog's. L, the control bar's
+	// 履历 or a wheel up open it; Esc, L, right click, ✕ or a wheel down past its end close it, focus back on what opened it.
+	// A wheel gesture that just closed it does not also turn a page.
+	const [backlog, setBacklog] = React.useState(false), backlogOpen = React.useRef(false), backlogOpener = React.useRef(null), backlogClosedAt = React.useRef(0);
+	backlogOpen.current = backlog;
+	const openBacklog = opener => { backlogOpener.current = opener || null; setBacklog(true); };
+	const closeBacklog = () => { backlogClosedAt.current = Date.now(); setBacklog(false); };
+	// After the stage's controls show again (they are hidden under the backlog).
+	React.useEffect(() => {
+		if (backlog) return;
+		const opener = backlogOpener.current; backlogOpener.current = null;
+		if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+	}, [backlog]);
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
 		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
-		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current,
+		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current || backlogOpen.current,
 		speech: { on: () => readingOn.current, stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
 			speak: beat => {
 				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
@@ -383,7 +396,7 @@ function TavernStageScreen(props) {
 		if (ambience) tavernStageAmbience.play(ambience.url, reader.mode === "skip", ambience.identity, { volume: ambience.volume });
 		else tavernStageAmbience.stop(!ambienceOn || reader.mode === "skip");
 	}, [ambienceOn, ambience && ambience.identity, ambience && ambience.url, ambience && ambience.volume]);
-	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on, Boolean(config)]);
+	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on, Boolean(config), backlog]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
 	const beats = React.useMemo(() => latest ? latest.pages.map(page => ({ turn: latest.turn, ...page })) : [], [latest]);
@@ -394,7 +407,14 @@ function TavernStageScreen(props) {
 			if (event.target && /^(INPUT|TEXTAREA)$/.test(event.target.tagName)) return;
 			// The BGM panel's keys are its own (its Esc closes only the panel).
 			if (event.target && event.target.closest && event.target.closest(".dsh-tavern-bgm-panel")) return;
-			if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
+			const letter = !event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1 ? event.key.toLowerCase() : "";
+			// The backlog keeps the keyboard (arrows / Page keys scroll it; Enter on a row jumps).
+			if (backlogOpen.current) {
+				if ((event.key === "Escape" || letter === "l") && !event.repeat) { event.preventDefault(); event.stopPropagation(); closeBacklog(); }
+				return;
+			}
+			if (letter === "l") { event.preventDefault(); if (!event.repeat) openBacklog(null); }
+			else if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
 			else if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter") { event.preventDefault(); step(1); }
 			else if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
 		}
@@ -423,6 +443,7 @@ function TavernStageScreen(props) {
 		h("button", { type: "button", onClick: () => step(1), disabled: atEnd, "aria-label": "下一句" }, "›"),
 		control("auto", "自动", "自动", { className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, reader.auto),
 		control("skip", "跳过", "跳过", { onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }),
+		control("backlog", "履历", "履历", { title: "履历（L / 滚轮向上）", onClick: event => openBacklog(event.currentTarget) }),
 		h(TavernBgmStage, { sessionId: id }),
 		h(TavernMusicToggle, null),
 		h(TavernStageSoundEntry, { openConfig }),
@@ -434,12 +455,31 @@ function TavernStageScreen(props) {
 		h("button", { type: "submit", disabled: sending || !draft.trim() }, sending ? "发送中…" : "发送")) : null;
 	// With the skin's art the input docks on Tavern's own box (above its image); a plugin view keeps it under the scene.
 	const docked = Boolean(art) && !choice.view;
+	// The stage's wheel (modules/stage-backlog.js stageWheelDecision): up opens the backlog, down turns a page. An open CONFIG or
+	// backlog keeps its own wheel; the BGM panel scrolls its list.
+	const wheelGesture = React.useRef(null);
+	function wheel(event) {
+		if (configOpen.current || backlogOpen.current || Date.now() - backlogClosedAt.current < 450) return;
+		if (event.target && event.target.closest && event.target.closest(".dsh-tavern-bgm-panel")) return;
+		const decision = stageWheelDecision(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode });
+		wheelGesture.current = decision.state;
+		if (decision.action === "backlog") openBacklog(null);
+		else if (decision.action === "advance") step(1);
+	}
+	// A row of the latest turn: auto paging stops and the stage shows that page (the current one: back to the stage as it was).
+	function jumpBack(page, turn) {
+		closeBacklog();
+		if (!latest || turn !== latest.turn) return;
+		tavernStageRuntime.setAuto(id, false);
+		tavernStageRuntime.page(id, page);
+	}
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
-		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined },
+		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art, speaking, dock: docked ? input : null }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
 			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,
+		backlog ? h(TavernStageBacklog, { sessionId: id, data, page: reader.index, onJump: jumpBack, onClose: closeBacklog }) : null,
 		entrance.element);
 }
 

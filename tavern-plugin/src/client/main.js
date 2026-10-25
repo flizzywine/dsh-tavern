@@ -847,11 +847,13 @@ window.__ModuleLoader__.load({
 // @include-domain stage-entrance.js
 // @include features/stage-skin.js
 // @include modules/stage-runtime.js
+// @include modules/stage-backlog.js
 // @include features/stage-entrance.js
 // @include features/stage-audio.js
 // @include features/stage-runtime.js
 // @include features/stage-mixer.js
 // @include features/stage-config.js
+// @include features/stage-backlog.js
 // @include features/stage-assets.js
 // @include features/stage-skins.js
 // @include features/stage-mode.js
