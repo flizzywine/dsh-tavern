@@ -14,7 +14,6 @@ export const CAST_EMOTIONS = Object.freeze({
   relief: '释然', remorse: '懊悔', sadness: '难过', surprise: '惊讶'
 })
 const EMOTION_NAMES = Object.keys(CAST_EMOTIONS)
-const MAX_QUOTES = 60
 const MAX_SPEAKER = 24
 const QUOTE_PREVIEW = 40
 
@@ -53,7 +52,6 @@ export function dialogueQuotes(text) {
   for (const match of String(text ?? '').matchAll(QUOTE_PATTERN)) {
     const quote = match.slice(1).find(group => group !== undefined).trim()
     if (quote) quotes.push(quote)
-    if (quotes.length >= MAX_QUOTES) break
   }
   return quotes
 }

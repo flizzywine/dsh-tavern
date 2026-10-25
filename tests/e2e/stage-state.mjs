@@ -31,7 +31,8 @@ export async function stageNext(stage) {
 // `items`: { name, bytes } pictures added to the card's pack as 物品 entries (props) and offered to the director.
 // `sfx`: { name, bytes } sounds added to the card's pack as 音效 entries (sfx) and offered to the director.
 // `entrances`: dsh.entrance/1 documents added to the card's pack as 入场演出 entries (the stage opens with the first).
-export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', performances, items = [], sfx = [], entrances = [], inspect }) {
+// `castLines(name)`: the turn's dialogue annotation (default: one quote, "Ready.", by the card's character).
+export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', castLines, performances, items = [], sfx = [], entrances = [], inspect }) {
   // The stage's BGM is Web Audio: route every context into a zero gain and count the sources it starts.
   await page.addInitScript(() => {
     const Base = window.AudioContext
@@ -88,7 +89,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
   const exported = await call('exportGameSave', { sessionId: game.sessionId, images: false })
   const save = readGameSave(Buffer.from(exported.base64, 'base64'))
   const turn = Math.max(...save.chat.messages.filter(m => m.role === 'assistant').map(m => m.turn || 1))
-  const annotation = { version: 1, lines: [{ n: 1, quote: 'Ready.', speaker: name, emotion: 'joy' }] }
+  const annotation = { version: 1, lines: castLines ? castLines(name) : [{ n: 1, quote: 'Ready.', speaker: name, emotion: 'joy' }] }
   save.plugins = { data: { version: 1, owners: { [CAST_DATA_OWNER]: { game: null, turns: [{ turn, key: computeSceneTarget(save.chat, turn).key, data: annotation, bytes: JSON.stringify(annotation).length, updatedAt: 1 }] } } }, media: null, attachments: [] }
   const fixtureAssets = { player: 'Reader', cast: [{ name }], background: [{ name: 'main' }, { name: 'hall' }], music: [{ name: 'theme' }], ...(items.length ? { items: items.map(item => ({ name: item.name })) } : {}),
     ...(sfx.length ? { sfx: sfx.map(item => ({ name: item.name })) } : {}) }

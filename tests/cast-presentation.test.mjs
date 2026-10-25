@@ -40,6 +40,22 @@ test('结算时列出本轮台词，提交后按正文版本保存，换了版�
   assert.equal(await cast.annotation('game', 2), null)
 })
 
+test('长回复的每一句台词都编号、都能标注，第 61 句以后也按说话人分页', async () => {
+  const { stagePages } = await import('../tavern-plugin/lib/domain/stage-performance.js')
+  const text = Array.from({ length: 150 }, (_, index) => (index % 2 ? '老周' : '林曦') + '说：“第' + (index + 1) + '句。”').join('\n')
+  const { cast } = harness({ text })
+  const note = await cast.settlement.section({ gameId: 'game', turn: 2 })
+  const numbered = [...note.matchAll(/^(\d+)\. (.*)$/gm)]
+  assert.equal(numbered.length, 150)
+  assert.equal(numbered.at(-1)[0], '150. 第150句。')
+  const lines = numbered.map(([, n], index) => ({ n: Number(n), speaker: index % 2 ? '老周' : '林曦', emotion: 'neutral' }))
+  assert.deepEqual(JSON.parse(await cast.settlement.call('cast_submit', { lines }, { gameId: 'game', turn: 2 })), { ok: true, annotated: 150 })
+  const saved = (await cast.forTurns('game', [2])).turns[2]
+  const pages = stagePages(text, saved)
+  assert.deepEqual(pages.slice(59, 62).map(page => [page.kind, page.speaker, page.quotes?.[0]]), [['line', '老周', '第60句。'], ['line', '林曦', '第61句。'], ['line', '老周', '第62句。']])
+  assert.ok(pages.every(page => page.kind === 'line'))
+})
+
 const { createCastAssets, imageExtension } = await import('../tavern-plugin/lib/domain/cast-assets.js')
 const { writeZipEntries: writeZip } = await import('../tavern-plugin/lib/domain/zip-entries.js')
 const writeZipEntries = pairs => writeZip(pairs.map(([path, content]) => ({ path, content })))
