@@ -84,7 +84,12 @@ function stageAutoDelay(reading, voiced, text) {
 // holds (`release`). The stage's BGM is not the view's: the BGM player follows the selected game
 // in chat and stage alike (modules/stage-bgm.js). reading(): the reader's pace (above); held(): auto paging waits while it
 // is true (the page's line is still typing, or CONFIG / the backlog is open) and starts the page's wait afresh after.
-function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false }) {
+// 分页 (modules/stage-pager.js): card() = the card of the page on screen, { at, last, text, share } (null: the page is one
+// card); auto paging walks a page's cards (nextCard()) before it turns the page. Each card waits its own reading time; on a
+// voiced page a card that is not the last turns when the voice reaches its share of the page (speech.progress(), the share
+// heard: 0..1 or null), and the last waits autoWait after the voice ends.
+function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false,
+	card = () => null, nextCard = () => {} }) {
 	const performances = createStagePerformancePlayback({ play: animate, schedule, cancel });
 	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), timer = null, token = 0;
 	function halt() { token++; if (timer !== null) cancel(timer); timer = null; }
@@ -95,14 +100,29 @@ function createStageRuntimePlayer({ store, animate, speech, release = () => {}, 
 		performances.update({ id: reader.key + ":" + reader.visit, at: reader.index + 1, mode: data ? reader.mode : "refresh", events: latest?.performances || [] });
 		const voice = data && beat && reader.mode !== "skip" && speech.on() ? JSON.stringify([reader.key, reader.visit, beat]) : "";
 		if (!voice && spoken) { spoken = ""; speech.stop(); }
-		const atEnd = reader.index >= pages.length - 1, paused = held(), next = JSON.stringify([voice, reader.visit, reader.auto, atEnd, paused]);
+		const shown = beat ? card() : null, last = !shown || shown.last;
+		const atEnd = reader.index >= pages.length - 1, paused = held(), next = JSON.stringify([voice, reader.visit, reader.auto, atEnd, paused, shown && [shown.at, shown.last, shown.text]]);
 		if (next === plan) return;
 		plan = next; halt();
-		const current = token, auto = reader.auto && !atEnd && !paused;
+		const current = token, auto = reader.auto && !(atEnd && last) && !paused;
+		const turn = () => { timer = null; if (last) store.page(index => index + 1); else nextCard(); };
 		if (voice && voice !== spoken) { spoken = voice; heard = speech.speak(beat); }
+		let ended = false;
+		if (auto && voice && !last && speech.progress) {
+			const follow = () => {
+				timer = null;
+				if (current !== token || ended) return;
+				const at = speech.progress();
+				if (at !== null && at >= shown.share) turn(); else timer = schedule(follow, 80);
+			};
+			follow();
+		}
 		// Auto paging waits for the line to be heard, or for a time by its length.
 		(voice ? heard : Promise.resolve(false)).then(ok => {
-			if (auto && current === token) timer = schedule(() => { timer = null; store.page(index => index + 1); }, stageAutoDelay(reading(), ok, beat ? beat.text : ""));
+			ended = true;
+			if (!auto || current !== token) return;
+			if (timer !== null) cancel(timer);
+			timer = schedule(turn, stageAutoDelay(reading(), ok && last, shown ? shown.text : beat ? beat.text : ""));
 		});
 	}
 	function detach() {

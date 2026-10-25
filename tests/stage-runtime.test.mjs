@@ -213,6 +213,42 @@ test('the reader\'s pace scales every auto wait, never cuts a voice, and auto wa
   h.owner.setAuto('a', false); detach()
 })
 
+test('auto paging walks a page\'s cards: each waits its reading time, a voiced one turns at its share, the last waits the voice', async () => {
+  const h = playerFixture()
+  let cards = null, progress = null
+  const view = { ...h.view, card: () => cards && { ...cards.list[cards.at], at: cards.at, last: cards.at === cards.list.length - 1 },
+    nextCard: () => { h.log.push('card ' + (cards.at + 1)); cards.at++ }, speech: { ...h.view.speech, progress: () => progress } }
+  h.owner.start(h.sessions); await tick()
+  cards = { at: 0, list: [{ text: 'first card', share: .4 }, { text: 'last', share: 1 }] }
+  const detach = h.owner.attach('a', view); await h.run()
+  h.owner.setAuto('a', true); await tick()
+  const delays = () => [...h.timers.values()].map(timer => timer.delay).filter(delay => delay !== 1000)
+  assert.deepEqual(delays(), [80], 'a voiced card follows the voice')
+  progress = .3; await h.run(80)
+  assert.deepEqual(delays(), [80], 'not yet at its share')
+  progress = .45; await h.run(80)
+  assert.equal(cards.at, 1, 'the card turned at its share of the voice'); assert.equal(h.owner.getSnapshot('a').reader.index, 0, 'the page did not turn')
+  h.owner.sync('a'); await tick()
+  assert.deepEqual(delays(), [], 'the last card waits for the voice to end')
+  h.voices[0].resolve(true); await tick()
+  assert.deepEqual(delays(), [400], 'then autoWait')
+  await h.run(400)
+  assert.equal(h.owner.getSnapshot('a').reader.index, 1, 'after its last card the page turns')
+  assert.equal(h.voices.length, 2, 'a card turn never restarts the page\'s voice')
+  // silent: every card waits its own reading time
+  h.setReading(false); cards = { at: 0, list: [{ text: 'x'.repeat(40), share: .5 }, { text: 'y', share: 1 }] }; h.owner.sync('a'); await tick()
+  assert.deepEqual(delays(), [3200])
+  await h.run(3200); h.owner.sync('a'); await tick()
+  assert.equal(cards.at, 1); assert.deepEqual(delays(), [1500])
+  await h.run(1500)
+  assert.equal(h.owner.getSnapshot('a').reader.index, 2)
+  // the last page's cards are read too; auto stops after its last card
+  cards = { at: 0, list: [{ text: 'one', share: .5 }, { text: 'two', share: 1 }] }; h.owner.sync('a'); await tick()
+  await h.run(1500); h.owner.sync('a'); await tick()
+  assert.equal(cards.at, 1); assert.deepEqual(delays(), [], 'the last card of the last page stays')
+  h.owner.setAuto('a', false); detach()
+})
+
 test('source adapter resets on changed authority, keeps refreshes read-only and removes every watch', () => {
   let view = { chatId: 'a', card: { path: 'card' }, settlementTurn: 1 }, onView, onSession, running = false, cleared = 0
   const refreshes = [], events = new Map(), stops = []

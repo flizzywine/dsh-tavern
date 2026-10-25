@@ -13276,7 +13276,12 @@ function bindTavernFontZoom(node, win) {
 				const element = current && current.element;
 				if (element) { element.volume = level; element.playbackRate = rate; }
 			}
-			return { speak: speak, play: play, stop: stop, tune: tune };
+			// The share of the line heard so far (0..1), or null when it cannot be known (system speech, still loading).
+			function progress() {
+				const element = current && current.element;
+				return element && element.duration > 0 && Number.isFinite(element.duration) ? element.currentTime / element.duration : null;
+			}
+			return { speak: speak, play: play, stop: stop, tune: tune, progress: progress };
 		})();
 
 		/** A small speaker button that says one line; a second press stops it. */
@@ -14757,7 +14762,12 @@ function stageAutoDelay(reading, voiced, text) {
 // holds (`release`). The stage's BGM is not the view's: the BGM player follows the selected game
 // in chat and stage alike (modules/stage-bgm.js). reading(): the reader's pace (above); held(): auto paging waits while it
 // is true (the page's line is still typing, or CONFIG / the backlog is open) and starts the page's wait afresh after.
-function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false }) {
+// 分页 (modules/stage-pager.js): card() = the card of the page on screen, { at, last, text, share } (null: the page is one
+// card); auto paging walks a page's cards (nextCard()) before it turns the page. Each card waits its own reading time; on a
+// voiced page a card that is not the last turns when the voice reaches its share of the page (speech.progress(), the share
+// heard: 0..1 or null), and the last waits autoWait after the voice ends.
+function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false,
+	card = () => null, nextCard = () => {} }) {
 	const performances = createStagePerformancePlayback({ play: animate, schedule, cancel });
 	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), timer = null, token = 0;
 	function halt() { token++; if (timer !== null) cancel(timer); timer = null; }
@@ -14768,14 +14778,29 @@ function createStageRuntimePlayer({ store, animate, speech, release = () => {}, 
 		performances.update({ id: reader.key + ":" + reader.visit, at: reader.index + 1, mode: data ? reader.mode : "refresh", events: latest?.performances || [] });
 		const voice = data && beat && reader.mode !== "skip" && speech.on() ? JSON.stringify([reader.key, reader.visit, beat]) : "";
 		if (!voice && spoken) { spoken = ""; speech.stop(); }
-		const atEnd = reader.index >= pages.length - 1, paused = held(), next = JSON.stringify([voice, reader.visit, reader.auto, atEnd, paused]);
+		const shown = beat ? card() : null, last = !shown || shown.last;
+		const atEnd = reader.index >= pages.length - 1, paused = held(), next = JSON.stringify([voice, reader.visit, reader.auto, atEnd, paused, shown && [shown.at, shown.last, shown.text]]);
 		if (next === plan) return;
 		plan = next; halt();
-		const current = token, auto = reader.auto && !atEnd && !paused;
+		const current = token, auto = reader.auto && !(atEnd && last) && !paused;
+		const turn = () => { timer = null; if (last) store.page(index => index + 1); else nextCard(); };
 		if (voice && voice !== spoken) { spoken = voice; heard = speech.speak(beat); }
+		let ended = false;
+		if (auto && voice && !last && speech.progress) {
+			const follow = () => {
+				timer = null;
+				if (current !== token || ended) return;
+				const at = speech.progress();
+				if (at !== null && at >= shown.share) turn(); else timer = schedule(follow, 80);
+			};
+			follow();
+		}
 		// Auto paging waits for the line to be heard, or for a time by its length.
 		(voice ? heard : Promise.resolve(false)).then(ok => {
-			if (auto && current === token) timer = schedule(() => { timer = null; store.page(index => index + 1); }, stageAutoDelay(reading(), ok, beat ? beat.text : ""));
+			ended = true;
+			if (!auto || current !== token) return;
+			if (timer !== null) cancel(timer);
+			timer = schedule(turn, stageAutoDelay(reading(), ok && last, shown ? shown.text : beat ? beat.text : ""));
 		});
 	}
 	function detach() {
@@ -14927,6 +14952,138 @@ function stageGlyphDelay(glyphs, index, speed) {
 }
 // How long a glyph fades in (tavern.css 「stage typewriter」 dsh-tavern-stage-glyph-in).
 const STAGE_GLYPH_FADE_MS = 220;
+// 分页 (features/stage-pager.js): a page's line that does not fit the text box is shown as cards, each as much as the box
+// holds, read one after the other before the page turns. Cards are display only: a page (its index, its voice, its one-shots,
+// the backlog) stays one page.
+//
+// stagePagerCards(text, fits) -> [{ text, start, end }] (start / end in characters of `text`); fits(cardText) says whether a
+// card's text fits the box (it grows monotonically with the text).
+// An oversized bracketed passage is closed / reopened on each card; a pair that fits is kept whole. CJK line breaking
+// (kinsoku): a card never opens with closing punctuation (。、！？…～ closing brackets / quotes, small kana) and never ends on an
+// opening bracket, so 」！ ?! …… ”。 stay together. No card is near-empty: a card that is not the last holds at least a third of
+// what the box fits, and a last card that would hold less than a third of a full card makes the text re-split evenly over the
+// same number of cards (stageEvenCards).
+function stagePagerCards(text, fits) {
+	const noStart = /[、。，．,.：:；;！!？?‼⁇⁈⁉…‥～~〜ー々ゝゞヽヾ・」』）)】〕〉》］\]｝}”’ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ—―]/;
+	const noEnd = /[「『（(【〔〈《［\[｛{“‘]/;
+	const chars = Array.from(String(text || ""));
+	const pairs = { "「": "」", "『": "』", "（": "）", "(": ")", "【": "】", "[": "]", "“": "”", "‘": "’" };
+	const stack = [], matched = new Map();
+	chars.forEach(function (char, i) {
+		if (pairs[char]) stack.push(i);
+		else if (stack.length && pairs[chars[stack[stack.length - 1]]] === char) { const open = stack.pop(); matched.set(open, i); }
+	});
+	const active = [], edges = [[]];
+	chars.forEach(function (char, i) {
+		if (matched.has(i)) active.push(i);
+		else if (active.length && matched.get(active[active.length - 1]) === i) active.pop();
+		edges.push(active.slice());
+	});
+	const cardText = (start, end) => edges[start].map(i => chars[i]).join("") + chars.slice(start, end).join("") + edges[end].slice().reverse().map(i => pairs[chars[i]]).join("");
+	// Sentence ends (also behind their closing brackets) outrank clause breaks and closing brackets, which outrank the rest.
+	const rank = end => {
+		let i = end - 1;
+		while (i > 0 && /[」』）)】〕〉》］\]”’]/.test(chars[i])) i--;
+		return /[。！？!?…‥～~]/.test(chars[i]) ? 3 : i < end - 1 || /[，；：、,;:\s—―]/.test(chars[i]) ? 2 : 1;
+	};
+	const kinsoku = i => !noStart.test(chars[i]) && !noEnd.test(chars[i - 1]);
+	// Breaks in order of preference: outside brackets and kinsoku-clean, kinsoku-clean inside an oversized bracket, outside brackets.
+	const pools = [i => !edges[i].length && kinsoku(i), kinsoku, i => !edges[i].length];
+	// The furthest end that fits from a start (fits grows monotonically with the card); even a single glyph makes progress.
+	// A start next to a measured one begins from its reach, so walking every start costs about two layouts each.
+	const reach = new Map();
+	const maxEnd = start => {
+		if (reach.has(start)) return reach.get(start);
+		const near = reach.get(start - 1);
+		let low = start + 1, high = chars.length, max = start;
+		if (near !== undefined && near > start) { if (fits(cardText(start, near))) { max = near; low = near + 1; high = Math.min(high, near + 4); if (high < chars.length && fits(cardText(start, high))) { max = high; low = high + 1; high = chars.length; } } else high = near - 1; }
+		while (low <= high) {
+			const mid = Math.floor((low + high) / 2);
+			if (fits(cardText(start, mid))) { max = mid; low = mid + 1; } else high = mid - 1;
+		}
+		reach.set(start, Math.max(start + 1, max));
+		return reach.get(start);
+	};
+	const best = (ok, low, high) => { let end = 0; for (let i = low; i <= high; i++) if (ok(i) && (!end || rank(i) >= rank(end))) end = i; return end; };
+	const greedy = [];
+	for (let start = 0; start < chars.length;) {
+		const high = maxEnd(start);
+		let end = high;
+		if (high < chars.length) {
+			const floor = start + 1, least = Math.max(floor, start + Math.ceil((high - start) / 3));
+			// A short card before a bracketed passage only to keep the passage whole, never for one that cannot fit a card anyway.
+			end = best(pools[0], least, high);
+			if (!end) {
+				const early = best(pools[0], floor, high), open = edges[high][0];
+				// The passage with the punctuation that may not open a card after it (“…”？！).
+				let close = open === undefined ? -1 : matched.get(open);
+				while (close >= 0 && close + 1 < chars.length && noStart.test(chars[close + 1])) close++;
+				const whole = early && (open === undefined || close + 1 - early <= high - start) ? early : 0;
+				end = whole || best(pools[1], least, high) || early || best(pools[1], floor, high) || best(pools[2], least, high) || best(pools[2], floor, high) || high;
+			}
+		}
+		greedy.push({ text: cardText(start, end), start, end });
+		start = end;
+	}
+	if (!greedy.length) return [{ text: "", start: 0, end: 0 }];
+	const length = card => card.end - card.start, last = greedy[greedy.length - 1], prior = greedy[greedy.length - 2];
+	if (greedy.length < 2 || length(last) * 3 >= maxEnd(prior.start) - prior.start) return greedy;
+	// A tiny last card: the same number of cards, as evenly filled as the breaks allow. Evening out never cuts into a bracketed
+	// passage or breaks kinsoku more often than the greedy split did, and never cuts mid-phrase (no punctuation before the
+	// break) a text the greedy split broke at punctuation only: a short last card after 「时候，」 beats even cards cut mid-word.
+	const level = end => end >= chars.length ? 0 : pools.findIndex(ok => ok(end)) < 0 ? 3 : pools.findIndex(ok => ok(end));
+	const even = stageEvenCards(chars.length, greedy.length, maxEnd, end => [0, 30, 60, 120][level(end)] + [0, 40, 2, 0][rank(end)]);
+	const total = (cards, score) => cards.reduce((n, card) => n + (card.end < chars.length ? score(card.end) : 0), 0);
+	const midPhrase = end => rank(end) === 1 ? 1 : 0;
+	const worse = (a, b) => total(a, level) > total(b, level) || total(a, midPhrase) > 0 && !total(b, midPhrase);
+	if (!even || worse(even, greedy)) return greedy;
+	return even.map(({ start, end }) => ({ text: cardText(start, end), start, end }));
+}
+// The split of [0, to) into at most `count` cards that fit (maxEnd) with the least unused room, squared per card so the cards
+// come out even, plus each break's penalty (a weaker break, a cut into a bracket). -> [{ start, end }] or null.
+function stageEvenCards(to, count, maxEnd, penalty) {
+	const memo = new Map(), full = maxEnd(0);
+	const solve = (start, left) => {
+		if (start >= to) return { cost: 0, ends: [] };
+		if (!left) return null;
+		const key = start * (count + 1) + left;
+		if (memo.has(key)) return memo.get(key);
+		// A card that reaches the end is measured against a full card (the first one's room), so a short last card costs.
+		const reach = maxEnd(start), room = reach >= to ? Math.max(full, reach - start) : reach - start;
+		let found = null;
+		// As the greedy split: a card that is not the last holds at least a third of what fits.
+		for (let end = Math.min(to, Math.max(start + 1, start + Math.ceil((reach - start) / 3))); end <= Math.min(reach, to); end++) {
+			const rest = end >= to ? { cost: 0, ends: [] } : solve(end, left - 1);
+			if (!rest) continue;
+			const unused = (room - (end - start)) / room, cost = 100 * unused * unused + (end < to ? penalty(end) : 0) + rest.cost;
+			if (!found || cost < found.cost) found = { cost, ends: [end, ...rest.ends] };
+		}
+		memo.set(key, found);
+		return found;
+	};
+	const result = solve(0, count);
+	if (!result) return null;
+	let start = 0;
+	return result.ends.map(end => { const card = { start, end }; start = end; return card; });
+}
+
+// A card of a page holds at most STAGE_PAGE_LINES lines, fewer when the text box has room for fewer (a phone's box):
+// stageBoxRoom = the whole lines (lineHeight apart, fontSize glyphs) a text area of `content` px holds; the block's outer
+// half-leading may hang into the padding, its glyphs stay inside.
+const STAGE_PAGE_LINES = 3;
+function stageBoxRoom(content, lineHeight, fontSize) {
+	return Math.max(1, Math.floor((content + lineHeight - fontSize) / lineHeight + 1e-3));
+}
+// The card shown at a character offset into its page: the one that holds it, or the last (an offset past the end: the page's
+// last card, where a step back from the next page or a skip lands).
+function stageCardAt(cards, offset) {
+	return Math.max(0, cards.findIndex(item => item.end > offset || item === cards[cards.length - 1]));
+}
+// The share of the page's voice heard by the end of card `card`: auto paging turns a voiced page's cards at it.
+function stageCardVoiceShare(cards, card) {
+	const total = cards.reduce((sum, item) => sum + item.end - item.start, 0);
+	return total > 0 ? cards.slice(0, card + 1).reduce((sum, item) => sum + item.end - item.start, 0) / total : 1;
+}
 // 入场演出: the stage's opening performance (castStage `entrance`, a dsh.entrance/1 document of the card's own packs, shown
 // while 舞台设置 › 基础设置「入场演出」 is on). It plays over the stage each time the stage opens and never holds it: the stage is
 // drawn under it from the start; a click or a page key once the stage is ready skips to the cover; reduced motion shows one
@@ -15266,7 +15423,8 @@ function TavernStageScene(props) {
 	// The cue ends the lines (an inline cue flows after them; a placed one stands on the box). The input docks on the box
 	// (`dock`), standing above its image however tall the box grows.
 	// 逐字显示 (stage-typewriter.js): the line types out at the reader's 文字速度; the cue waits until it is typed.
-	const next = props.art && index < beats.length - 1 ? h("span", { className: "dsh-tavern-stage-next" + (props.typed ? "" : " is-waiting"), "aria-hidden": true }) : null;
+	// 分页 (stage-pager.js): a line longer than the box shows card by card (`card`: the shown card's text; `more`: a card follows).
+	const next = props.art && (index < beats.length - 1 || props.more) ? h("span", { className: "dsh-tavern-stage-next" + (props.typed ? "" : " is-waiting"), "aria-hidden": true }) : null;
 	const lamp = props.art ? h("span", { className: "dsh-tavern-stage-lamp", "aria-hidden": true }) : null;
 	const nameRef = React.useRef(null);
 	useTavernStageNameFit(nameRef, beat && beat.kind === "line" ? beat.speaker : "", props.art);
@@ -15290,8 +15448,8 @@ function TavernStageScene(props) {
 			side,
 			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { ref: nameRef, "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
-			h("div", { key: index, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") },
-				h(TavernStageTypewriter, { key: props.visit, text: beat.text, speed: props.textSpeed, instant: props.typed, onDone: props.onTyped }), next),
+			h("div", { key: index, ref: props.textRef, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") },
+				h(TavernStageTypewriter, { key: props.visit, text: props.card ?? beat.text, speed: props.textSpeed, instant: props.typed, onDone: props.onTyped }), next),
 			lamp, props.footer || null, props.dock || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文", props.dock || null));
 }
@@ -15569,16 +15727,34 @@ function TavernStageScreen(props) {
 	// stage reopened, a rollback), a backlog jump and a plugin's stage view show the whole line at once.
 	const prefs = useTavernStageReadingPrefs();
 	const visit = reader.key + ":" + reader.visit;
+	// 分页 (stage-pager.js): a page whose line the box cannot hold shows card by card. The click, key, wheel step or › that
+	// turns the page first walks its cards, ‹ walks them back (into the previous page's last card), auto paging reads each card,
+	// 跳过 lands on the last page's last card. Each card types out; a skip, a restored page or a backlog jump shows the card it
+	// lands on whole. `spot`: the card shown in this visit (its start, in characters, so a re-measured page keeps it) and how
+	// many cards it has turned through; a page turn (a new visit) starts on its first card.
+	const [spot, setSpot] = React.useState({ visit: "", offset: 0, turns: 0 });
+	const here = spot.visit === visit ? spot : { visit, offset: 0, turns: 0 };
+	const latest = data.turns[data.turns.length - 1];
+	const beats = React.useMemo(() => latest ? latest.pages.map(page => ({ turn: latest.turn, ...page })) : [], [latest]);
+	const pager = useTavernStagePager(beats, reader.index, here.offset, art || skin);
+	const cards = pager.cards, card = pager.card, lastCard = card >= cards.length - 1;
+	const cardKey = visit + ":" + here.turns;
 	const [typedVisit, setTypedVisit] = React.useState("");
-	const typed = typedVisit === visit || reader.mode === "skip" || reader.mode === "refresh" || Boolean(choice.view);
-	const typedRef = React.useRef(typed), visitRef = React.useRef(visit);
-	typedRef.current = typed; visitRef.current = visit;
+	const typed = typedVisit === cardKey || here.turns === 0 && (reader.mode === "skip" || reader.mode === "refresh") || Boolean(choice.view);
+	const typedRef = React.useRef(typed), visitRef = React.useRef(cardKey), shownRef = React.useRef(null);
+	typedRef.current = typed; visitRef.current = cardKey;
+	shownRef.current = { reader, visit, turns: here.turns, cards, card, last: lastCard };
+	// The next visit (a page turn, a skip) opens on its last card.
+	const landLast = () => { const now = shownRef.current.reader; setSpot({ visit: now.key + ":" + (now.visit + 1), offset: Infinity, turns: 0 }); };
+	const showCard = at => { const now = shownRef.current; setSpot({ visit: now.visit, offset: now.cards[at].start, turns: now.turns + 1 }); };
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
 		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
 		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current || backlogOpen.current || !typedRef.current,
-		speech: { on: () => readingOn.current, stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
+		card: () => { const now = shownRef.current; return now.cards.length > 1 ? { at: now.card, last: now.last, text: now.cards[now.card].text, share: stageCardVoiceShare(now.cards, now.card) } : null; },
+		nextCard: () => { const now = shownRef.current; if (!now.last) showCard(now.card + 1); },
+		speech: { on: () => readingOn.current, progress: () => tavernSpeech.progress(), stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
 			speak: beat => {
 				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
 				setSpeaking(true);
@@ -15601,13 +15777,22 @@ function TavernStageScreen(props) {
 		if (ambience) tavernStageAmbience.play(ambience.url, reader.mode === "skip", ambience.identity, { volume: ambience.volume });
 		else tavernStageAmbience.stop(!ambienceOn || reader.mode === "skip");
 	}, [ambienceOn, ambience && ambience.identity, ambience && ambience.url, ambience && ambience.volume]);
-	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on, Boolean(config), backlog, typed]);
+	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on, Boolean(config), backlog, typed, card, cards[card].text, lastCard]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
-	const latest = data.turns[data.turns.length - 1];
-	const beats = React.useMemo(() => latest ? latest.pages.map(page => ({ turn: latest.turn, ...page })) : [], [latest]);
 	const atEnd = reader.index >= beats.length - 1, step = delta => tavernStageRuntime.page(id, index => index + delta);
-	// A click, → / Space / Enter, a wheel step or ›: finish the line still typing, else the next page.
-	const advance = () => { if (typedRef.current) step(1); else setTypedVisit(visitRef.current); };
+	// A click, → / Space / Enter, a wheel step or ›: finish the line still typing, else the next card, else the next page.
+	const advance = () => {
+		const now = shownRef.current;
+		if (!typedRef.current) setTypedVisit(visitRef.current);
+		else if (!now.last) showCard(now.card + 1);
+		else step(1);
+	};
+	// ← / ‹: the card before, else the previous page's last card.
+	const back = () => {
+		const now = shownRef.current;
+		if (now.card > 0) showCard(now.card - 1);
+		else if (now.reader.index > 0) { landLast(); step(-1); }
+	};
 	React.useEffect(() => {
 		function onKey(event) {
 			if (configOpen.current) return;
@@ -15623,7 +15808,7 @@ function TavernStageScreen(props) {
 			if (letter === "l") { event.preventDefault(); if (!event.repeat) openBacklog(null); }
 			else if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
 			else if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter") { event.preventDefault(); advance(); }
-			else if (event.key === "ArrowLeft") { event.preventDefault(); step(-1); }
+			else if (event.key === "ArrowLeft") { event.preventDefault(); back(); }
 		}
 		document.addEventListener("keydown", onKey, true);
 		return () => document.removeEventListener("keydown", onKey, true);
@@ -15645,11 +15830,11 @@ function TavernStageScreen(props) {
 			icon ? tavernStageControlIcon(icon, on, attributes.disabled) : glyph);
 	};
 	const footer = h("div", { className: "dsh-tavern-stage-controls", onClick: event => event.stopPropagation() },
-		control("back", "上一句", "‹", { onClick: () => step(-1), disabled: reader.index <= 0, "aria-label": "上一句" }),
+		control("back", "上一句", "‹", { onClick: back, disabled: reader.index <= 0 && card === 0, "aria-label": "上一句" }),
 		h("span", { className: "dsh-tavern-stage-progress" }, beats.length ? (reader.index + 1) + " / " + beats.length : ""),
-		h("button", { type: "button", onClick: advance, disabled: atEnd, "aria-label": "下一句" }, "›"),
+		h("button", { type: "button", onClick: advance, disabled: atEnd && lastCard, "aria-label": "下一句" }, "›"),
 		control("auto", "自动", "自动", { className: reader.auto ? "is-on" : "", onClick: () => tavernStageRuntime.setAuto(id, !reader.auto), "aria-pressed": reader.auto }, reader.auto),
-		control("skip", "跳过", "跳过", { onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }),
+		control("skip", "跳过", "跳过", { onClick: () => { landLast(); tavernStageRuntime.page(id, beats.length - 1, "skip"); } }),
 		control("backlog", "履历", "履历", { title: "履历（L / 滚轮向上）", onClick: event => openBacklog(event.currentTarget) }),
 		h(TavernBgmStage, { sessionId: id }),
 		h(TavernMusicToggle, null),
@@ -15657,7 +15842,7 @@ function TavernStageScreen(props) {
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
-	const input = atEnd ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send, onClick: event => event.stopPropagation() },
+	const input = atEnd && lastCard ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send, onClick: event => event.stopPropagation() },
 		h("input", { value: draft, onChange: event => setDraft(event.target.value), placeholder: generating ? "正在生成下一轮…" : "接下来做什么？", "aria-label": "舞台输入", disabled: sending }),
 		h("button", { type: "submit", disabled: sending || !draft.trim() }, sending ? "发送中…" : "发送")) : null;
 	// With the skin's art the input docks on Tavern's own box (above its image); a plugin view keeps it under the scene.
@@ -15678,14 +15863,15 @@ function TavernStageScreen(props) {
 		closeBacklog();
 		if (!latest || turn !== latest.turn) return;
 		tavernStageRuntime.setAuto(id, false);
-		// the page shows its whole line: a turn is the next visit; the current page stays this one
-		setTypedVisit(reader.key + ":" + (page === reader.index ? reader.visit : reader.visit + 1));
+		// the page shows its first card whole: a turn is the next visit; the current page stays this one and goes back to its first card
+		if (page === reader.index) { setSpot({ visit, offset: 0, turns: here.turns + 1 }); setTypedVisit(visit + ":" + (here.turns + 1)); }
+		else setTypedVisit(reader.key + ":" + (reader.visit + 1) + ":0");
 		tavernStageRuntime.page(id, page);
 	}
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
 		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: advance, footer, art, speaking, dock: docked ? input : null,
-			visit, typed, textSpeed: prefs.textSpeed, onTyped: () => setTypedVisit(visit) }),
+			visit: cardKey, typed, textSpeed: prefs.textSpeed, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
 			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,
@@ -15795,6 +15981,91 @@ function TavernStageConfigPreview(props) {
 		h("div", { className: "dsh-tavern-stage-config-preview-text" },
 			h(TavernStageTypewriter, { key: round, text: STAGE_CONFIG_SAMPLE, speed: reading.textSpeed, onDone: () => setDone(true) }),
 			done ? h("i", { className: "dsh-tavern-stage-config-preview-next" }) : null));
+}
+// 分页 (modules/stage-pager.js): the text box's pager. It measures the stage's real text element - a hidden clone with its
+// class and width, in the same parent - and cuts each page near the one shown (the page and its neighbours) into cards of at
+// most STAGE_PAGE_LINES lines, fewer when the box holds fewer (a phone's box). New text is measured before paint; a resize,
+// a skin change and fonts that finish loading measure again; a page's cards are cached by text, width and font.
+// `offset` (characters into the page) says which card shows, so a re-measured page keeps the reader's place.
+// -> { textRef, cards, card }: the text element's ref, the shown page's cards and the shown card.
+function useTavernStagePager(pages, index, offset, look) {
+	const [element, setElement] = React.useState(null);
+	const textRef = React.useCallback(node => setElement(node), []);
+	const [layout, setLayout] = React.useState(null);
+	const cache = React.useMemo(() => tavernStagePagerCache(256), []);
+	const texts = JSON.stringify(pages.map(page => page.text));
+	const indexRef = React.useRef(index);
+	indexRef.current = index;
+	const measureNow = React.useRef(null);
+	React.useLayoutEffect(function () {
+		if (!element) return undefined;
+		let scheduled = 0;
+		const clone = element.cloneNode(false);
+		clone.removeAttribute("id"); clone.setAttribute("aria-hidden", "true");
+		Object.assign(clone.style, { position: "fixed", left: "-100000px", top: "0", height: "auto", maxHeight: "none", minHeight: "0", boxSizing: "border-box", visibility: "hidden", overflow: "visible", pointerEvents: "none", animation: "none" });
+		// Every card keeps room for the page cue where a skin flows it after the line (an inline cue); placed on the box it takes none.
+		const cue = document.createElement("span");
+		cue.className = "dsh-tavern-stage-next";
+		function measure() {
+			if (scheduled) return;
+			scheduled = requestAnimationFrame(function () { scheduled = 0; run(); });
+		}
+		function run() {
+			const width = element.clientWidth;
+			if (!width) return;
+			const own = getComputedStyle(element), lineHeight = parseFloat(own.lineHeight), fontSize = parseFloat(own.fontSize);
+			// Without the stage stylesheet there is no fixed-height box to paginate.
+			if (!(lineHeight > 0)) return;
+			// The text area: its own height in a box that sizes it (经典), or the art box's cap (max-height) where it grows with its lines.
+			const cap = parseFloat(own.maxHeight), area = (cap > 0 ? cap : element.clientHeight) - parseFloat(own.paddingTop) - parseFloat(own.paddingBottom);
+			const lines = Math.min(STAGE_PAGE_LINES, stageBoxRoom(area, lineHeight, fontSize));
+			clone.style.width = width + "px";
+			clone.textContent = "";
+			clone.appendChild(cue);
+			element.parentNode.appendChild(clone);
+			try {
+				const font = [own.fontFamily, own.fontWeight, own.fontStyle, own.fontStretch, own.fontSize, own.letterSpacing, own.lineHeight, own.wordBreak, own.overflowWrap, own.whiteSpace, own.padding, getComputedStyle(cue).display, lines].join("|");
+				const fits = text => {
+					clone.textContent = text + (/[\r\n]$/.test(text) ? "\u200b" : "");
+					clone.appendChild(cue);
+					return clone.offsetHeight <= lineHeight * lines + 0.5;
+				};
+				const near = at => Math.abs(at - indexRef.current) <= 1;
+				const next = { width, font, texts: pages.map(page => page.text), cards: pages.map((page, at) => near(at) ? cache.get(page.text, width, font, () => stagePagerCards(page.text, fits)) : null) };
+				setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+			} finally { clone.remove(); }
+		}
+		measureNow.current = run;
+		run();
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		window.addEventListener("resize", measure);
+		const fonts = document.fonts;
+		function fontsLoaded() { cache.clear(); measure(); }
+		if (fonts) fonts.addEventListener("loadingdone", fontsLoaded);
+		return () => { measureNow.current = null; cancelAnimationFrame(scheduled); clone.remove(); observer.disconnect(); window.removeEventListener("resize", measure); if (fonts) fonts.removeEventListener("loadingdone", fontsLoaded); };
+	}, [element, texts, look]);
+	// A page turn measures its new neighbourhood before paint (cached pages cost no text layout).
+	React.useLayoutEffect(function () { if (measureNow.current) measureNow.current(); }, [index]);
+	const page = pages[index];
+	// Before its text is measured a page is one card.
+	const measured = page && layout && layout.texts[index] === page.text ? layout.cards[index] : null;
+	const cards = measured || [{ text: page ? page.text : "", start: 0, end: Array.from(page ? page.text : "").length }];
+	return { textRef, cards, card: stageCardAt(cards, offset) };
+}
+function tavernStagePagerCache(limit) {
+	const entries = new Map();
+	return {
+		clear() { entries.clear(); },
+		get(text, width, font, measure) {
+			const key = JSON.stringify([text, width, font]);
+			if (entries.has(key)) { const value = entries.get(key); entries.delete(key); entries.set(key, value); return value; }
+			const value = measure();
+			entries.set(key, value);
+			while (entries.size > limit) entries.delete(entries.keys().next().value);
+			return value;
+		}
+	};
 }
 // The stage's audio layers in CONFIG › 声音 (docs/design/cast-presentation.md「舞台 core（23/N）：CONFIG」): one row per layer
 // (TavernStageMixerRows); the control bar's 「声音」 entry opens it. State: tavernStageAudio (features/stage-audio.js). Drawn

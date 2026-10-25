@@ -89,7 +89,12 @@
 				const element = current && current.element;
 				if (element) { element.volume = level; element.playbackRate = rate; }
 			}
-			return { speak: speak, play: play, stop: stop, tune: tune };
+			// The share of the line heard so far (0..1), or null when it cannot be known (system speech, still loading).
+			function progress() {
+				const element = current && current.element;
+				return element && element.duration > 0 && Number.isFinite(element.duration) ? element.currentTime / element.duration : null;
+			}
+			return { speak: speak, play: play, stop: stop, tune: tune, progress: progress };
 		})();
 
 		/** A small speaker button that says one line; a second press stops it. */
