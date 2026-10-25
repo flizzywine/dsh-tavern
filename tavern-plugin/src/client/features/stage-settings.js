@@ -8,6 +8,8 @@ const TAVERN_STAGE_REQUIRES = Object.freeze({ dialogue: [], voice: ["dialogue"],
 const TAVERN_STAGE_GLYPHS = Object.freeze({
 	bubble: "M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7.5L4.5 14v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z",
 	voice: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5M12.2 3.8a6 6 0 0 1 0 8.4",
+	speakerLow: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 5.5a3.5 3.5 0 0 1 0 5", speakerOff: "M2.5 6h2.5l3-2.5v9L5 10H2.5zM10.5 6l3 4M13.5 6l-3 4",
+	play: "M5 3.5v9l7.5-4.5z", close: "M4 4l8 8M12 4l-8 8",
 	stage: "M2 2.5h12M3 2.5v11M13 2.5v11M3 2.5c0 3.5 2 5 4 5.5M13 2.5c0 3.5-2 5-4 5.5M2 13.5h12",
 	chevRight: "M6 4l4 4-4 4", back: "M10 4 6 8l4 4",
 	music: "M6 12V3.5l7-1.5v8.5M6 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0zM13 10.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0z",

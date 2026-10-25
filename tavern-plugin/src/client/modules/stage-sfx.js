@@ -3,10 +3,11 @@
 // at most 10 s, then fades out over 0.5 s; at most six sound at once (a further cue is dropped). Decoded sounds are kept by
 // URL (the newest 16), so a page's cues decode before its visit plays them. stop() ends every sound, including one still
 // decoding.
-// context(): the page's AudioContext (or null); clock: { setTimeout, clearTimeout } on wall time. Bytes are read with the
+// context(): the page's AudioContext (or null); output(ctx): where the sounds go, the layer's bus (features/stage-audio.js;
+// the context's destination by default); clock: { setTimeout, clearTimeout } on wall time. Bytes are read with the
 // BGM transport's bounded reader (modules/stage-music.js stageMusicBytes).
 const STAGE_SFX_LIMITS = Object.freeze({ playMs: 10000, fadeMs: 500, voices: 6, cached: 16 });
-function createStageSfx({ context, fetch, clock }) {
+function createStageSfx({ context, fetch, clock, output = ctx => ctx.destination }) {
 	const buffers = new Map(), shots = new Set();
 	let epoch = 0;
 	function decode(url) {
@@ -44,7 +45,7 @@ function createStageSfx({ context, fetch, clock }) {
 			const level = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1;
 			const gain = ctx.createGain(), source = ctx.createBufferSource();
 			gain.gain.value = level; source.buffer = buffer;
-			source.connect(gain); gain.connect(ctx.destination);
+			source.connect(gain); gain.connect(output(ctx));
 			const shot = { source, gain, timer: 0 };
 			shots.add(shot);
 			source.onended = () => release(shot);

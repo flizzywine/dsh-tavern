@@ -204,7 +204,7 @@ test('配音 is the voicing service page, with ‹ back to 舞台设置 when it 
   assert.equal(tavernStageReturn.get(), null, 'the way back is used once')
 })
 
-test('酒馆状态 keeps only the stage entry; the fullscreen stage has no 设置 or 朗读 of its own', () => {
+test('酒馆状态 keeps only the stage entry; the fullscreen stage has no switches or 朗读 of its own, only the player\'s CONFIG', () => {
   const start = runtime.indexOf('function TavernStageStatus(')
   const status = vm.runInNewContext(runtime.slice(start) + '; TavernStageStatus', { React: { createElement: h }, useTavernStageRuntime: () => ({ data: { enabled: true } }), TavernStageEntry: 'Entry' })
   const tree = status({ sessionId: 'game' })
@@ -213,6 +213,7 @@ test('酒馆状态 keeps only the stage entry; the fullscreen stage has no 设�
   assert.equal(vm.runInNewContext(runtime.slice(start) + '; TavernStageStatus', { React: { createElement: h }, useTavernStageRuntime: () => ({ data: { enabled: false } }), TavernStageEntry: 'Entry' })({ sessionId: 'game' }), null)
   const screen = runtime.slice(runtime.indexOf('function TavernStageScreen('), runtime.indexOf('function TavernStageEntry('))
   assert.doesNotMatch(screen, /"朗读"|"设置"|localStorage/)
+  assert.match(screen, /h\(TavernStageSoundEntry, \{ openConfig \}\)/, 'the control bar\'s 声音 opens CONFIG (stage-config.js): the player\'s levels and pace, not stage switches')
   assert.match(screen, /TavernBgmStage, \{ sessionId: id \}/, 'the BGM chip is on the control bar')
   assert.match(screen, /TavernMusicToggle/, 'plugin music keeps its ♪ switch')
   assert.doesNotMatch(screen, /tavernMusic\.play/, 'the stage never plays music through the plugin player')

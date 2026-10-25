@@ -266,11 +266,11 @@ function playTavernStagePerformance(root, event, id) {
 }
 
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
-const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init), output: ctx => tavernStageAudio.output(ctx, "sfx"),
 	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 // 环境音 (castStage `ambience`): the state's loop for the place or weather on a second BGM transport (modules/stage-music.js) on the
 // same AudioContext, so it sounds alongside the BGM. Only the open stage plays it; it follows the state across pages and turns.
-const tavernStageAmbience = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+const tavernStageAmbience = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init), output: ctx => tavernStageAudio.output(ctx, "ambience"),
 	clock: { now: () => performance.now(), setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 
 // The art layer's frames slots (art.textbox.next / lamp `frames`): each plays its sheet's cells while it shows, looping or once;
@@ -298,6 +298,30 @@ function tavernBeatSpeech(sessionId, beat) {
 		: { sessionId: sessionId, text: beat.text, narration: true };
 }
 
+// This machine's reading pace (CONFIG › 文字 / 声音, stage-config.js): autoWait, autoSpeed and voiceRate
+// (modules/stage-runtime.js stageReadingPrefs); auto paging reads it at each wait, every voice plays at voiceRate.
+const tavernStageReadingPrefs = (function () {
+	const KEY = "dsh-tavern-stage-reading";
+	const listeners = new Set();
+	let cached = null;
+	function get() {
+		if (!cached) { let saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (_) {} cached = stageReadingPrefs(saved); }
+		return cached;
+	}
+	tavernSpeech.tune({ rate: get().voiceRate });
+	return {
+		get,
+		set(patch) {
+			cached = stageReadingPrefs({ ...get(), ...patch });
+			try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch (_) {}
+			tavernSpeech.tune({ rate: cached.voiceRate });
+			listeners.forEach(fn => fn());
+		},
+		subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+	};
+})();
+function useTavernStageReadingPrefs() { return React.useSyncExternalStore(tavernStageReadingPrefs.subscribe, tavernStageReadingPrefs.get); }
+
 // The fullscreen stage only shows its session: page, auto paging and playback belong to the
 // session runtime, which releases them when the view closes and restores the page on reopen.
 function TavernStageScreen(props) {
@@ -321,10 +345,21 @@ function TavernStageScreen(props) {
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
 	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
 	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
+	// CONFIG (stage-config.js): the stage owns its open state; while it is open auto paging waits and the stage's keys are
+	// CONFIG's. Closing returns focus to what opened it.
+	const [config, setConfig] = React.useState(null), configOpen = React.useRef(false), configOpener = React.useRef(null);
+	configOpen.current = Boolean(config);
+	const openConfig = (tab, opener) => { configOpener.current = opener || null; setConfig({ tab }); };
+	const closeConfig = () => {
+		setConfig(null);
+		const opener = configOpener.current; configOpener.current = null;
+		if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+	};
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
 		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
+		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current,
 		speech: { on: () => readingOn.current, stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
 			speak: beat => {
 				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
@@ -348,13 +383,14 @@ function TavernStageScreen(props) {
 		if (ambience) tavernStageAmbience.play(ambience.url, reader.mode === "skip", ambience.identity, { volume: ambience.volume });
 		else tavernStageAmbience.stop(!ambienceOn || reader.mode === "skip");
 	}, [ambienceOn, ambience && ambience.identity, ambience && ambience.url, ambience && ambience.volume]);
-	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on]);
+	React.useEffect(() => { tavernStageRuntime.sync(id); }, [id, reading.on, Boolean(config)]);
 	useTavernStageArtFrames(sceneRef, art, reader.index, reader.auto);
 	const latest = data.turns[data.turns.length - 1];
 	const beats = React.useMemo(() => latest ? latest.pages.map(page => ({ turn: latest.turn, ...page })) : [], [latest]);
 	const atEnd = reader.index >= beats.length - 1, step = delta => tavernStageRuntime.page(id, index => index + delta);
 	React.useEffect(() => {
 		function onKey(event) {
+			if (configOpen.current) return;
 			if (event.target && /^(INPUT|TEXTAREA)$/.test(event.target.tagName)) return;
 			// The BGM panel's keys are its own (its Esc closes only the panel).
 			if (event.target && event.target.closest && event.target.closest(".dsh-tavern-bgm-panel")) return;
@@ -389,6 +425,7 @@ function TavernStageScreen(props) {
 		control("skip", "跳过", "跳过", { onClick: () => tavernStageRuntime.page(id, beats.length - 1, "skip") }),
 		h(TavernBgmStage, { sessionId: id }),
 		h(TavernMusicToggle, null),
+		h(TavernStageSoundEntry, { openConfig }),
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
@@ -400,7 +437,10 @@ function TavernStageScreen(props) {
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
 		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: () => step(1), footer, art, speaking, dock: docked ? input : null }),
-		docked ? null : input, entrance.element);
+		docked ? null : input,
+		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
+			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,
+		entrance.element);
 }
 
 // A drawn control (stageSkinControlIcons): the icon (its `on` image while it runs) alone, or on the skin's button body - its

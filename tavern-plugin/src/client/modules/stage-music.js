@@ -47,9 +47,9 @@ async function stageMusicBytes(response) {
 }
 
 // context(): the page's AudioContext (or null). A track's voice is input -> fade envelope -> the entry's volume
-// (its authored 0..1 trim) -> output. clock: { now, setTimeout, clearTimeout } on wall time, so fades finish in a
-// hidden window too.
-function createStageMusic({ context, fetch, clock }) {
+// (its authored 0..1 trim) -> output(ctx), the layer's bus (features/stage-audio.js; the context's destination by default).
+// clock: { now, setTimeout, clearTimeout } on wall time, so fades finish in a hidden window too.
+function createStageMusic({ context, fetch, clock, output = ctx => ctx.destination }) {
 	let a = null, b = null, current = "", currentIdentity = null, fade = 0, handoff = null, stopping = null, failure = null;
 	const listeners = new Set();
 	let decoding = Promise.resolve();
@@ -57,7 +57,7 @@ function createStageMusic({ context, fetch, clock }) {
 	const trimOf = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
 	function voice(ctx, volume) {
 		const input = ctx.createGain(), envelope = ctx.createGain(), trim = ctx.createGain();
-		input.connect(envelope); envelope.connect(trim); trim.connect(ctx.destination);
+		input.connect(envelope); envelope.connect(trim); trim.connect(output(ctx));
 		envelope.gain.value = 0; trim.gain.value = trimOf(volume);
 		let level = 0;
 		return { input,

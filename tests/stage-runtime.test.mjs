@@ -194,6 +194,25 @@ test('auto paging waits for the line to be heard, falls back to its length and s
   assert.equal(h.owner.getSnapshot('a').reader.auto, false)
 })
 
+test('the reader\'s pace scales every auto wait, never cuts a voice, and auto waits while CONFIG is open', async () => {
+  const h = playerFixture()
+  let reading = { autoWait: 400, autoSpeed: 2, voiceRate: 1 }, held = false
+  h.owner.start(h.sessions); await tick()
+  const detach = h.owner.attach('a', { ...h.view, reading: () => reading, held: () => held }); await h.run()
+  h.owner.setAuto('a', true); await tick()
+  assert.equal(h.timers.size, 0, 'a voice is still waited for in full')
+  h.voices[0].resolve(true); await tick()
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay), [200])
+  held = true; h.owner.sync('a'); await tick()
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay), [], 'nothing turns while CONFIG is open')
+  reading = { ...reading, autoSpeed: .5 }; held = false; h.owner.sync('a'); await tick()
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay), [800], 'closing starts the wait afresh at the new pace')
+  await h.run(800)
+  h.setReading(false); h.owner.sync('a'); await tick()
+  assert.deepEqual([...h.timers.values()].map(timer => timer.delay).filter(delay => delay !== 1000), [3000], 'without a voice the length-based wait is divided too')
+  h.owner.setAuto('a', false); detach()
+})
+
 test('source adapter resets on changed authority, keeps refreshes read-only and removes every watch', () => {
   let view = { chatId: 'a', card: { path: 'card' }, settlementTurn: 1 }, onView, onSession, running = false, cleared = 0
   const refreshes = [], events = new Map(), stops = []

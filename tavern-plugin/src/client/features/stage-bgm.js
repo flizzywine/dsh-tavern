@@ -1,22 +1,8 @@
 // The BGM player in the page (docs/design/cast-presentation.md「背景音乐」): one panel, two placements. In the
 // fullscreen stage the 「♪ 曲名」 chip on the control bar opens it; in chat a header chip does (only for a game whose
 // stage is on). State: tavernBgm (modules/stage-bgm.js); transport: tavernStageMusic (modules/stage-music.js).
-// The panel has no volume slider: a track sounds at its entry's 音量.
-const tavernStageAudio = (function () {
-	let context = null;
-	return {
-		context() {
-			if (context) return context;
-			const Constructor = window.AudioContext || window.webkitAudioContext;
-			if (!Constructor) return null;
-			try { context = new Constructor(); } catch (_) { context = null; }
-			return context;
-		},
-		// Autoplay can refuse the first play; any later gesture resumes the audio.
-		wake() { if (context && context.state === "suspended") context.resume().catch(() => {}); }
-	};
-})();
-const tavernStageMusic = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init),
+// The panel has no volume slider: a track sounds at its entry's 音量, then the 背景音乐 layer and 总音量 (features/stage-audio.js).
+const tavernStageMusic = createStageMusic({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init), output: ctx => tavernStageAudio.output(ctx, "music"),
 	clock: { now: () => performance.now(), setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 const tavernBgm = createStageBgm({ music: tavernStageMusic, sessions: tavernStageRuntime, read: id => rpc("getStageMusicTracks", {}, id),
 	storage: (() => { try { return localStorage; } catch (_) { return null; } })() });

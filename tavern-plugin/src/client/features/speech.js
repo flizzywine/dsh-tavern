@@ -25,8 +25,10 @@
 		}
 
 		// One line at a time: a new line stops the one being said. speak resolves true when it was heard to the end.
+		// tune({ level, rate }): the stage CONFIG's 配音 × 总音量 (0..1, features/stage-audio.js) and 配音倍速 (pitch kept,
+		// features/stage-runtime.js); the line being heard follows at once, the system's speech from its next line.
 		const tavernSpeech = (function () {
-			let current = null;
+			let current = null, level = 1, rate = 1;
 			function stop() { const playing = current; current = null; if (playing) playing.cancel(); }
 			function browser(reply, playing) {
 				return new Promise(function (resolve) {
@@ -36,6 +38,7 @@
 					const voices = tavernBrowserVoices();
 					const voice = voices.find(function (item) { return item.name === reply.voice; }) || (!reply.voice ? voices.find(function (item) { return /^zh/i.test(item.lang); }) : null);
 					if (voice) { utterance.voice = voice; utterance.lang = voice.lang; } else utterance.lang = "zh-CN";
+					utterance.volume = level; utterance.rate = rate;
 					utterance.onend = function () { resolve(true); };
 					utterance.onerror = function () { resolve(false); };
 					playing.cancel = function () { synth.cancel(); resolve(false); };
@@ -46,6 +49,8 @@
 			function audio(reply, playing) {
 				return new Promise(function (resolve) {
 					const element = new Audio(reply.url);
+					element.volume = level; element.preservesPitch = true; element.playbackRate = rate;
+					playing.element = element;
 					element.onended = function () { resolve(true); };
 					element.onerror = function () { resolve(false); };
 					playing.cancel = function () { element.pause(); resolve(false); };
@@ -78,7 +83,13 @@
 				if (playing.stopped || current !== playing) return false;
 				return play(reply);
 			}
-			return { speak: speak, play: play, stop: stop };
+			function tune(next) {
+				if (next.level !== undefined) level = next.level;
+				if (next.rate !== undefined) rate = next.rate;
+				const element = current && current.element;
+				if (element) { element.volume = level; element.playbackRate = rate; }
+			}
+			return { speak: speak, play: play, stop: stop, tune: tune };
 		})();
 
 		/** A small speaker button that says one line; a second press stops it. */

@@ -56,11 +56,34 @@ function createStageRuntimeStore({ read, project, changed }) {
 	return store;
 }
 
+// The reader's pace (CONFIG › 文字 / 声音, features/stage-config.js), this browser's: autoWait = auto paging's pause after a
+// line's voice ends; a silent page waits its reading time (by its length) shifted by the same amount; autoSpeed divides
+// both waits - a voice is never sped up or cut short. voiceRate: every voice plays this much faster, pitch kept. The
+// defaults are the stage's own timing.
+const STAGE_AUTO = Object.freeze({ wait: 400, speed: 1 });
+const STAGE_READING_DEFAULTS = Object.freeze({ autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1 });
+const STAGE_READING_LIMITS = Object.freeze({ autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }); // [min, max, step]
+function stageReadingPrefs(saved) {
+	const out = { ...STAGE_READING_DEFAULTS };
+	if (!saved || typeof saved !== "object") return out;
+	for (const key of Object.keys(STAGE_READING_LIMITS)) {
+		const [min, max, step] = STAGE_READING_LIMITS[key], value = Number(saved[key]);
+		if (saved[key] !== null && saved[key] !== "" && Number.isFinite(value)) out[key] = Math.max(min, Math.min(max, Number((Math.round(value / step) * step).toFixed(3))));
+	}
+	return out;
+}
+// Milliseconds auto paging waits on a page: after its voice was heard, or (silent) for its reading time.
+function stageAutoDelay(reading, voiced, text) {
+	const hold = Math.max(1500, Math.min(10000, 400 + 70 * Array.from(text || "").length));
+	return Math.round((voiced ? reading.autoWait : Math.max(0, hold + reading.autoWait - STAGE_AUTO.wait)) / reading.autoSpeed);
+}
+
 // While a view is attached, its session plays the current page: one-shots, reading aloud and
 // auto paging. Detaching releases every timer, voice and animation, and whatever else the view
 // holds (`release`). The stage's BGM is not the view's: the BGM player follows the selected game
-// in chat and stage alike (modules/stage-bgm.js).
-function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout }) {
+// in chat and stage alike (modules/stage-bgm.js). reading(): the reader's pace (above); held(): auto paging waits while it
+// is true (the stage's CONFIG is open) and starts the page's wait afresh after.
+function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false }) {
 	const performances = createStagePerformancePlayback({ play: animate, schedule, cancel });
 	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), timer = null, token = 0;
 	function halt() { token++; if (timer !== null) cancel(timer); timer = null; }
@@ -71,15 +94,14 @@ function createStageRuntimePlayer({ store, animate, speech, release = () => {}, 
 		performances.update({ id: reader.key + ":" + reader.visit, at: reader.index + 1, mode: data ? reader.mode : "refresh", events: latest?.performances || [] });
 		const voice = data && beat && reader.mode !== "skip" && speech.on() ? JSON.stringify([reader.key, reader.visit, beat]) : "";
 		if (!voice && spoken) { spoken = ""; speech.stop(); }
-		const atEnd = reader.index >= pages.length - 1, next = JSON.stringify([voice, reader.visit, reader.auto, atEnd]);
+		const atEnd = reader.index >= pages.length - 1, paused = held(), next = JSON.stringify([voice, reader.visit, reader.auto, atEnd, paused]);
 		if (next === plan) return;
 		plan = next; halt();
-		const current = token, auto = reader.auto && !atEnd;
-		const delay = Math.max(1500, Math.min(10000, 400 + 70 * Array.from(beat ? beat.text : "").length));
+		const current = token, auto = reader.auto && !atEnd && !paused;
 		if (voice && voice !== spoken) { spoken = voice; heard = speech.speak(beat); }
 		// Auto paging waits for the line to be heard, or for a time by its length.
 		(voice ? heard : Promise.resolve(false)).then(ok => {
-			if (auto && current === token) timer = schedule(() => { timer = null; store.page(index => index + 1); }, ok ? 400 : delay);
+			if (auto && current === token) timer = schedule(() => { timer = null; store.page(index => index + 1); }, stageAutoDelay(reading(), ok, beat ? beat.text : ""));
 		});
 	}
 	function detach() {
