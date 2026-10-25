@@ -212,9 +212,18 @@ export function collectCardAssets(card, resolve) {
     }
     const avatar = character.avatar ? read(character.avatar) : null
     if (character.avatar && !avatar) result.skipped += 1
+    // Reference clips ({ audio, text }, cast-presentation.md 22/N): checked once as the card's material is stored (cast-assets.js).
+    const voiceReferences = []
+    for (const clip of Array.isArray(character.voiceReferences) ? character.voiceReferences : []) {
+      const audio = clip && read(clip.audio)
+      if (audio) voiceReferences.push({ audio, text: clip.text })
+      else result.skipped += 1
+    }
     result.cast.push({ name: character.name, aliases: Array.isArray(character.aliases) ? character.aliases.filter(alias => typeof alias === 'string') : [],
       avatar: avatar || null, sprites,
-      voices: character.voices && typeof character.voices === 'object' ? Object.fromEntries(Object.entries(character.voices).filter(([, voice]) => typeof voice === 'string')) : {} })
+      voices: character.voices && typeof character.voices === 'object' ? Object.fromEntries(Object.entries(character.voices).filter(([, voice]) => typeof voice === 'string')) : {},
+      ...(voiceReferences.length ? { voiceReferences } : {}),
+      ...(character.voiceSource && typeof character.voiceSource === 'object' ? { voiceSource: character.voiceSource } : {}) })
   }
   return result
 }
@@ -277,7 +286,10 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
     name: character.name, aliases: character.aliases || [],
     avatar: character.avatar ? place('x_dsh_cast', character.avatar, character.name + '_avatar') : null,
     sprites: Object.fromEntries(Object.entries(character.sprites || {}).map(([slot, file]) => [slot, character === main ? place('emotion', file, slot) : place('x_dsh_cast', file, character.name + '_' + slot)]).filter(([, uri]) => uri)),
-    voices: character.voices || {}
+    voices: character.voices || {},
+    ...(character.voiceReferences?.length ? { voiceReferences: character.voiceReferences
+      .map((clip, index) => ({ audio: place('x_dsh_cast', clip.file, character.name + '_voice_' + (index + 1)), text: clip.text })).filter(clip => clip.audio) } : {}),
+    ...(character.voiceSource ? { voiceSource: character.voiceSource } : {})
   }))
   data.extensions = { ...(data.extensions && typeof data.extensions === 'object' ? data.extensions : {}) }
   data.extensions.dsh_tavern = { ...(data.extensions.dsh_tavern && typeof data.extensions.dsh_tavern === 'object' ? data.extensions.dsh_tavern : {}) }

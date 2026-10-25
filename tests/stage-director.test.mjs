@@ -250,3 +250,11 @@ test('voices never reach the director: a voiced cast gives the byte-identical re
   assert.deepEqual([withVoices.system, JSON.stringify(withVoices.tool), withVoices.turnContext], [plain.system, JSON.stringify(plain.tool), plain.turnContext])
   assert.equal(withVoices.turnContext.includes('ref-'), false)
 })
+
+// 随卡参考音频 (22/N): a character's reference clips travel with the cast (castView) and never reach the director either.
+test('reference clips never reach the director: a cast with voiceReferences and a voiceSource gives the byte-identical request', async () => {
+  const clipped = { ...assets(), cast: assets().cast.map(item => ({ ...item, voices: {}, voiceSource: { provider: 'fish', clone: true }, voiceReferences: [{ file: 'a'.repeat(32) + '.wav', text: 'clip-line of ' + item.name }] })) }
+  const plain = await (await stageDirectorFixture(chat(), assets())).prepare(), withClips = await (await stageDirectorFixture(chat(), clipped)).prepare()
+  assert.deepEqual([withClips.system, JSON.stringify(withClips.tool), withClips.turnContext], [plain.system, JSON.stringify(plain.tool), plain.turnContext])
+  assert.equal([withClips.system, withClips.turnContext].join('').includes('clip-line'), false)
+})

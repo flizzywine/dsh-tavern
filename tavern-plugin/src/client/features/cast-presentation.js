@@ -191,8 +191,8 @@
 			(data.turns || []).forEach(function (turn) { (turn.lines || []).forEach(function (line) { add(line.speaker); }); });
 			async function run(method, args, done) {
 				setBusy(true); setNotice("");
-				try { const result = await rpc(method, args, props.sessionId); props.onCast(result.cast); window.dispatchEvent(new CustomEvent("dsh-tavern-cast-assets-changed")); setNotice(done(result)); }
-				catch (error) { setNotice("失败：" + String(error.message || error)); }
+				try { const result = await rpc(method, args, props.sessionId); props.onCast(result.cast); window.dispatchEvent(new CustomEvent("dsh-tavern-cast-assets-changed")); setNotice(done(result)); return true; }
+				catch (error) { setNotice("失败：" + String(error.message || error)); return false; }
 				finally { setBusy(false); }
 			}
 			function pick(accept, handle) {
@@ -205,6 +205,13 @@
 				pick("image/png,image/jpeg,image/webp,image/gif", async function (file) {
 					const data64 = await readTavernFile(file);
 					await run("castSetImage", { name: name, slot: slot, data: data64 }, function () { return "已保存 " + name + " 的" + (slot === "avatar" ? "头像" : TAVERN_CAST_EMOTIONS[slot] + "立绘"); });
+				});
+			}
+			// A reference clip with what it says (配音 22/N); the words come first, then the file.
+			function addReference(name, text, done) {
+				pick("audio/wav,audio/x-wav,audio/mpeg,audio/ogg,audio/flac,.wav,.mp3,.ogg,.flac", async function (file) {
+					const data64 = await readTavernFile(file);
+					await run("castAddVoiceReference", { name: name, text: text, data: data64 }, function () { done(); return "已为 " + name + " 加上参考音频"; });
 				});
 			}
 			function importPack() {
@@ -227,10 +234,14 @@
 						h(TavernCastAvatar, { speaker: name, imageUrl: tavernCastImage(data, name, "neutral", true) }),
 						h("span", { className: "dsh-tavern-cast-manager-name" }, name, h("small", null, count ? count + " 张立绘" : "暂无立绘")),
 						h(TavernCastVoiceField, { sessionId: props.sessionId, name: name, character: character, busy: busy,
-							onSave: function (provider, voice) { void run("castSetVoice", { name: name, provider: provider, voice: voice }, function () { return voice ? "已保存 " + name + " 的声音" : "已清除 " + name + " 的声音"; }); } }),
+							onSave: function (provider, voice) { void run("castSetVoice", { name: name, provider: provider, voice: voice }, function () { return voice ? "已保存 " + name + " 的声音" : "已清除 " + name + " 的声音"; }); },
+							onSource: function (provider, clone) { void run("castSetVoiceSource", { name: name, provider: provider, clone: clone }, function () { return "已保存 " + name + " 的配音来源"; }); } }),
 						h("button", { type: "button", disabled: busy, onClick: function () { upload(name, "avatar"); } }, "换头像"),
 						h("button", { type: "button", disabled: busy, onClick: function () { upload(name, emotion); } }, "加" + TAVERN_CAST_EMOTIONS[emotion] + "立绘"),
-						character && !character.plugin ? h("button", { type: "button", disabled: busy, onClick: function () { void run("castRemoveCharacter", { name: character.name }, function () { return "已清除 " + character.name + " 的素材"; }); } }, "清除") : null);
+						character && !character.plugin ? h("button", { type: "button", disabled: busy, onClick: function () { void run("castRemoveCharacter", { name: character.name }, function () { return "已清除 " + character.name + " 的素材"; }); } }, "清除") : null,
+						h(TavernCastVoiceSource, { name: name, character: character, busy: busy,
+							onAdd: function (text, done) { addReference(name, text, done); },
+							onRemove: function (file) { void run("castRemoveVoiceReference", { name: name, file: file }, function () { return "已删除 " + name + " 的一段参考音频"; }); } }));
 				})),
 				notice ? h("p", { role: "status", className: "dsh-tavern-settings-desc" }, notice) : null);
 		}

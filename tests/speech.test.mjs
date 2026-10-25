@@ -204,11 +204,27 @@ test('插件配音渠道：收到局、说话人和是否旁白；说话人或�
 })
 
 // Fish 协议 (cast-presentation.md 21/N): routes answered like a Fish-compatible server; /v1/info is optional.
+// The MessagePack forms fishMessagePack writes (32-bit str / bin / array / map), read back.
+function unpack(bytes) {
+  let at = 0
+  const length = () => { const value = bytes.readUInt32BE(at + 1); at += 5; return value }
+  const next = () => {
+    const tag = bytes[at], size = length()
+    if (tag === 0xdb || tag === 0xc6) { const slice = bytes.subarray(at, at + size); at += size; return tag === 0xdb ? slice.toString('utf8') : Buffer.from(slice) }
+    if (tag === 0xdd) return Array.from({ length: size }, next)
+    if (tag === 0xdf) return Object.fromEntries(Array.from({ length: size }, () => [next(), next()]))
+    throw new Error('unexpected tag ' + tag)
+  }
+  const value = next()
+  assert.equal(at, bytes.length)
+  return value
+}
+
 function fishHarness({ info } = {}) {
   const h = harness(), requests = []
   const fetchImpl = async (url, init) => {
     const path = new URL(url).pathname
-    requests.push({ url, path, headers: init.headers || {}, body: init.body ? JSON.parse(init.body) : null })
+    requests.push({ url, path, headers: init.headers || {}, body: !init.body ? null : typeof init.body === 'string' ? JSON.parse(init.body) : unpack(init.body) })
     if (path === '/v1/info') return info === undefined ? new Response('not found', { status: 404 }) : new Response(JSON.stringify(info), { headers: { 'content-type': 'application/json' } })
     if (path === '/v1/warm') return new Response('', { status: 200 })
     return new Response(Buffer.from('RIFFfish'), { headers: { 'content-type': 'audio/wav' } })
@@ -270,4 +286,67 @@ test('Fish 协议：服务声明 prepareVoice 才调 /v1/warm；配音关着什�
   assert.deepEqual([warm.headers.model, warm.body, Object.hasOwn(warm.headers, 'authorization')], ['model-a', { reference_id: 'ref-lin' }, false])
   await speech.save({ enabled: true, provider: 'openai', config: { voice: 'alloy' }, apiKey: 'sk-1' })
   assert.equal(await speech.prepare({ voice: 'alloy' }), false, '别的渠道没有预热')
+})
+// 随卡参考音频 (cast-presentation.md 22/N): a character whose 配音来源 is Fish's clone is voiced by its clips, sent inline.
+test('Fish 协议：配音来源是声音克隆时把参考音频和原文内联发送（MessagePack），参考音频进缓存键；选别的来源时不用参考音频', async () => {
+  const { speech, requests } = fishHarness({ info: { models: [{ id: 'model-a' }], capabilities: { prepareVoice: true } } })
+  const saved = await speech.save({ enabled: true, provider: 'fish', config: { baseUrl: 'http://127.0.0.1:8080', voice: 'ref-default' } })
+  assert.equal(saved.providers.find(item => item.id === 'fish').references, true)
+  assert.equal(saved.providers.find(item => item.id === 'openai').references, undefined)
+  const clips = new Map([['a'.repeat(32) + '.wav', Buffer.from('RIFF0000WAVEone')], ['b'.repeat(32) + '.mp3', Buffer.from('ID3two')]])
+  const readReference = async file => clips.get(file)
+  const character = { name: '林曦', voices: {}, voiceSource: { provider: 'fish', clone: true }, voiceReferences: [{ file: 'a'.repeat(32) + '.wav', text: '今天天气真好。' }, { file: 'b'.repeat(32) + '.mp3', text: '走吧。' }] }
+  const current = await speech.active()
+  const references = speech.referencesFor({ character, provider: current.provider })
+  assert.equal(references.length, 2)
+  assert.deepEqual(speech.referencesFor({ character, provider: current.provider, narration: true }), [], '旁白不用人物的参考音频')
+  assert.equal(speech.referencesFor({ character: { ...character, voices: { fish: 'ref-lin' } }, provider: current.provider }).length, 2, '选了声音克隆，填了 ID 也用参考音频')
+  assert.deepEqual(speech.referencesFor({ character: { ...character, voiceSource: { provider: 'fish' } }, provider: current.provider }), [], '选了 Fish 的声音 ID，有参考音频也用声音')
+  assert.deepEqual(speech.referencesFor({ character: { ...character, voiceSource: null }, provider: current.provider }), [], '没选：配音设置里的渠道和声音')
+  assert.throws(() => speech.referencesFor({ character: { ...character, voiceReferences: undefined }, provider: current.provider }),
+    /「林曦」的配音来源是「Fish 协议 · 声音克隆（参考音频）」，还没有参考音频：请在「舞台素材」里为它上传参考音频/, '没有参考音频：报可修复的错，不悄悄改用声音')
+
+  const first = await speech.synthesize({ text: '“你好。”', voice: speech.voiceFor({ character, ...current }), references, readReference })
+  const tts = requests.at(-1)
+  assert.equal(tts.path, '/v1/tts')
+  assert.equal(tts.headers['content-type'], 'application/msgpack')
+  assert.equal(tts.headers.model, 'model-a')
+  assert.equal(Object.hasOwn(tts.headers, 'authorization'), false)
+  assert.deepEqual(tts.body, { text: '“你好。”', references: [{ audio: clips.get('a'.repeat(32) + '.wav'), text: '今天天气真好。' }, { audio: clips.get('b'.repeat(32) + '.mp3'), text: '走吧。' }], format: 'wav' })
+  assert.equal(Object.hasOwn(tts.body, 'reference_id'), false, '内联参考时不带 reference_id')
+  const count = requests.length
+  assert.deepEqual(await speech.synthesize({ text: '“你好。”', voice: 'ref-default', references, readReference }), first, '同样的参考音频读缓存')
+  assert.equal(requests.length, count)
+  const plain = await speech.synthesize({ text: '“你好。”', voice: 'ref-default' })
+  assert.notEqual(plain.id, first.id, '用默认声音的同一句是另一份缓存')
+  assert.deepEqual(requests.at(-1).body, { text: '“你好。”', reference_id: 'ref-default', format: 'wav' })
+  const retold = await speech.synthesize({ text: '“你好。”', references: [{ ...references[0], text: '今天天气不错。' }, references[1]], readReference })
+  assert.notEqual(retold.id, first.id, '原文改了就重新合成')
+  const fewer = await speech.synthesize({ text: '“你好。”', references: references.slice(0, 1), readReference })
+  assert.notEqual(fewer.id, first.id, '少一段就重新合成')
+  await assert.rejects(speech.synthesize({ text: '缺文件', references: [{ file: 'c'.repeat(32) + '.wav', text: 'x' }], readReference }), /参考音频不存在/)
+
+  await speech.save({ enabled: true, provider: 'openai', config: { voice: 'alloy' }, apiKey: 'sk-1' })
+  const openai = await speech.active()
+  assert.deepEqual(speech.referencesFor({ character, provider: openai.provider }), [], '别的渠道不用这个人物的参考音频')
+})
+
+test('配音来源：人物在配好的渠道里选一个，台词就走那个渠道；没选的走配音设置里的渠道；选的渠道不在时报错', async () => {
+  const { speech, requests } = fishHarness()
+  const unsaved = await speech.present()
+  assert.deepEqual(unsaved.providers.filter(item => item.configured).map(item => item.id), ['browser'], '没保存过的渠道不算配好')
+  await speech.save({ provider: 'gpt-sovits', config: { baseUrl: 'http://127.0.0.1:9880', voice: '/data/default.wav' } })
+  await speech.save({ provider: 'openai', config: { voice: 'alloy' } })
+  const saved = await speech.save({ enabled: true, provider: 'fish', config: { baseUrl: 'http://127.0.0.1:8080', voice: 'ref-default' } })
+  assert.deepEqual(saved.providers.filter(item => item.configured).map(item => item.id), ['browser', 'gpt-sovits', 'fish'], 'OpenAI 缺 Key：不算配好')
+  const current = await speech.active()
+  assert.equal(await speech.channelFor({ character: { name: '林曦', voices: {} }, current }), current)
+  const sovits = await speech.channelFor({ character: { name: '林曦', voices: { 'gpt-sovits': '/data/lin.wav' }, voiceSource: { provider: 'gpt-sovits' } }, current })
+  assert.equal(sovits.provider.id, 'gpt-sovits')
+  assert.equal(speech.voiceFor({ character: { voices: { 'gpt-sovits': '/data/lin.wav' } }, ...sovits }), '/data/lin.wav')
+  await speech.synthesize({ provider: sovits.provider.id, text: '你好', voice: '/data/lin.wav' })
+  assert.equal(requests.at(-1).url, 'http://127.0.0.1:9880/tts', '用人物选的渠道和它保存的地址')
+  const keyless = await speech.channelFor({ character: { name: '林曦', voiceSource: { provider: 'openai' } }, current })
+  await assert.rejects(speech.synthesize({ provider: keyless.provider.id, text: '你好', voice: 'alloy' }), /配音设置不完整：请填写 API Key/, '选的渠道没配好：报错，不改用别的')
+  await assert.rejects(speech.channelFor({ character: { name: '林曦', voiceSource: { provider: 'edge-tts/edge' } }, current }), /没有这个配音渠道/)
 })

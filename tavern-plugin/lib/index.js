@@ -2281,6 +2281,7 @@ export async function apply(ctx) {
     const key = castAssets.keyOf(cardPath)
     const url = file => file ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: key, file }).toString() : ''
     return manifest.characters.map(character => ({ name: character.name, aliases: character.aliases || [], avatarUrl: url(character.avatar), avatars: {}, voices: character.voices || {},
+      voiceReferences: (character.voiceReferences || []).map(clip => ({ file: clip.file, text: clip.text })), voiceSource: character.voiceSource || null,
       sprites: Object.fromEntries(Object.entries(character.sprites || {}).map(([emotion, file]) => [emotion, url(file)])) }))
   }
   // The cast as everyone sees it: the player's own assets, then what plugins offer (a DSH card's packs).
@@ -2377,16 +2378,21 @@ export async function apply(ctx) {
   async function stageMusic(item) {
     return item ? await stageMaterial.track(item) : null
   }
-  // One line in its speaker's voice on the chosen channel; { skip } when voicing is off or narration is silent.
+  // One line in its speaker's voice: its 配音来源 (cast-presentation.md 22/N), else the chosen channel; { skip } when voicing is
+  // off or narration is silent.
   async function speakLine(sessionId, { speaker, text, emotion, narration } = {}) {
     const current = await speech.active()
     if (!current) return { skip: true, reason: 'off' }
     const card = await castCardOf(str(sessionId)).catch(() => null)
     const name = str(speaker).trim()
     const character = card && name ? (await castAssets.read(card.path)).characters.find(item => item.name === name || (item.aliases || []).includes(name)) : null
-    const voice = speech.voiceFor({ character, provider: current.provider, config: current.config, narration: narration === true })
+    const channel = narration === true ? current : await speech.channelFor({ character, current })
+    const voice = speech.voiceFor({ character, provider: channel.provider, config: channel.config, narration: narration === true })
     if (voice === null) return { skip: true, reason: 'narration' }
-    return speechReply(await speech.synthesize({ provider: current.provider.id, text, voice, emotion, gameId: str(sessionId), speaker: name, narration: narration === true }))
+    // A clone sends the character's own clips inline (cast-presentation.md 22/N).
+    const references = speech.referencesFor({ character, provider: channel.provider, narration: narration === true })
+    return speechReply(await speech.synthesize({ provider: channel.provider.id, text, voice, emotion, gameId: str(sessionId), speaker: name, narration: narration === true,
+      ...(references.length ? { references, readReference: file => castAssets.readFile(card.path, file) } : {}) }))
   }
   // The stage opening with 配音 on: the voices its cast speaks with on the channel in use, readied when the service offers it
   // (cast-presentation.md 21/N). Never awaited by a line; a voice that fails to warm is still said when its line comes.
@@ -2395,7 +2401,9 @@ export async function apply(ctx) {
     if (!current?.provider.prepare) return { prepared: 0 }
     const card = await castCardOf(str(sessionId)).catch(() => null)
     const characters = card ? (await castAssets.read(card.path)).characters : []
-    const voices = new Set([...characters.map(character => speech.voiceFor({ character, ...current })), current.config.narratorVoice].filter(Boolean))
+    // Only who speaks with this channel's voices: a clone (its own inline clips) has no reference_id to warm.
+    const voices = new Set([...characters.filter(character => (character.voiceSource?.provider || current.provider.id) === current.provider.id && !character.voiceSource?.clone)
+      .map(character => speech.voiceFor({ character, ...current })), current.config.narratorVoice].filter(Boolean))
     let prepared = 0
     for (const voice of voices) if (await speech.prepare({ voice }).catch(() => false)) prepared++
     return { prepared }

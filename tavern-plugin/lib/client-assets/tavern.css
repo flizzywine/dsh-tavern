@@ -3824,6 +3824,18 @@ button.dsh-tavern-pack-state[data-state="global"]:hover { background: color-mix(
 .dsh-tavern-speak:hover, .dsh-tavern-speak.is-playing { opacity: 1; }
 .dsh-tavern-cast-voice { display: inline-flex; align-items: center; gap: 2px; }
 .dsh-tavern-cast-voice input { width: 9em; min-width: 0; font: inherit; font-size: 12px; }
+/* A character's 配音来源 (22/N) next to its voice; its reference clips, while it is a clone, as a full-width block under its row */
+.dsh-tavern-cast-voice select { max-width: 16em; min-width: 0; font: inherit; font-size: 12px; margin-right: 4px; }
+.dsh-tavern-cast-refs { flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px; padding-left: 40px; min-width: 0; }
+.dsh-tavern-cast-refs small { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsh-tavern-cast-refs small.is-missing { color: var(--dsh-tavern-accent-error); }
+.dsh-tavern-cast-refs ol { margin: 0; padding: 0; list-style: none; counter-reset: dsh-ref; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.dsh-tavern-cast-refs li { counter-increment: dsh-ref; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dsh-tavern-cast-refs li::before { content: counter(dsh-ref) "."; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-cast-refs-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-tavern-cast-refs-add { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dsh-tavern-cast-refs-add input { flex: 1; min-width: 0; font: inherit; font-size: 12px; }
+@media (max-width: 480px) { .dsh-tavern-cast-refs { padding-left: 0; } .dsh-tavern-cast-voice { flex-wrap: wrap; max-width: 100%; } }
 
 /* A card's own plugins in the card library */
 .dsh-tavern-card-plugins { margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--dsh-tavern-border, rgba(127,127,127,.3)); border-radius: 8px; }

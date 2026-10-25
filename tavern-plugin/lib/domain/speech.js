@@ -62,6 +62,24 @@ async function request(fetchImpl, url, init, signal, reason = rawReason) {
 // No key, no Authorization header: a service without authentication never sees one.
 const fishHeaders = (apiKey, model) => ({ ...(apiKey ? { authorization: 'Bearer ' + apiKey } : {}), ...(model ? { model } : {}) })
 
+/**
+ * MessagePack for a Fish request with inline references: their audio has to be binary (bin), which JSON cannot carry.
+ * Only what such a request holds: strings, bytes, arrays and plain objects, each with a 32-bit length.
+ */
+export function fishMessagePack(value) {
+  const chunks = []
+  const head = (tag, length) => { const bytes = Buffer.alloc(5); bytes[0] = tag; bytes.writeUInt32BE(length, 1); chunks.push(bytes) }
+  const encode = item => {
+    if (item instanceof Uint8Array) { head(0xc6, item.length); chunks.push(Buffer.from(item)) }
+    else if (typeof item === 'string') { const bytes = Buffer.from(item, 'utf8'); head(0xdb, bytes.length); chunks.push(bytes) }
+    else if (Array.isArray(item)) { head(0xdd, item.length); item.forEach(encode) }
+    else if (item && typeof item === 'object') { const entries = Object.entries(item); head(0xdf, entries.length); for (const [key, entry] of entries) { encode(key); encode(entry) } }
+    else throw new TypeError('Fish 请求里不能有 ' + typeof item)
+  }
+  encode(value)
+  return Buffer.concat(chunks)
+}
+
 const OPENAI_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']
 const MINIMAX_VOICES = ['female-shaonv', 'female-yujie', 'female-chengshu', 'female-tianmei', 'male-qn-qingse', 'male-qn-jingying', 'male-qn-badao', 'male-qn-daxuesheng',
   'presenter_male', 'presenter_female', 'audiobook_male_1', 'audiobook_female_1']
@@ -166,8 +184,9 @@ export const BUILTIN_SPEECH_PROVIDERS = Object.freeze([
   {
     // Fish protocol (cast-presentation.md 21/N): Fish Audio or a server of the same /v1/tts. A server may answer the
     // optional GET /v1/info ({ models: [{ id, label? }], capabilities: { prepareVoice } }); prepareVoice offers POST /v1/warm.
-    id: 'fish', label: 'Fish 协议', key: true, keyOptional: true, voices: [],
-    description: 'Fish Audio 或自己部署的同协议服务（/v1/tts）。声音填参考声音的 ID（reference_id）。服务不需要鉴权时 Key 留空，请求不带 Authorization。服务提供 /v1/info 时，模型从服务读取；模型留空用服务列出的第一个。',
+    // references: it can also clone a character from its own clips (cast-presentation.md 22/N), sent inline in MessagePack.
+    id: 'fish', label: 'Fish 协议', key: true, keyOptional: true, references: true, voices: [],
+    description: 'Fish Audio 或自己部署的同协议服务（/v1/tts）。声音填参考声音的 ID（reference_id）；在「舞台素材」里把人物的配音来源选为「Fish 协议 · 声音克隆（参考音频）」时，合成时把它的参考音频和原文一起发给这个地址。服务不需要鉴权时 Key 留空，请求不带 Authorization。服务提供 /v1/info 时，模型从服务读取；模型留空用服务列出的第一个。',
     fields: [{ name: 'baseUrl', label: '服务地址', default: 'https://api.fish.audio', required: true }, { name: 'model', label: '模型（选填）', default: '' }],
     // null: the service has no /v1/info (404), so nothing is discovered and the configured model is used as written.
     async info({ config, apiKey, signal, fetchImpl }) {
@@ -180,11 +199,12 @@ export const BUILTIN_SPEECH_PROVIDERS = Object.freeze([
         .map(model => ({ id: model.id, label: typeof model.label === 'string' && model.label.trim() ? model.label.trim().slice(0, 80) : model.id }))
       return { models, capabilities: { prepareVoice: body?.capabilities?.prepareVoice === true } }
     },
-    async synthesize({ config, apiKey, text, voice, signal, fetchImpl, discover }) {
+    async synthesize({ config, apiKey, text, voice, references, signal, fetchImpl, discover }) {
       const model = config.model || (await discover())?.models[0]?.id || ''
+      const inline = Boolean(references?.length)
       const result = await request(fetchImpl, trimSlash(config.baseUrl) + '/v1/tts', {
-        method: 'POST', headers: { 'content-type': 'application/json', ...fishHeaders(apiKey, model) },
-        body: JSON.stringify({ text, reference_id: voice, format: 'wav' })
+        method: 'POST', headers: { 'content-type': inline ? 'application/msgpack' : 'application/json', ...fishHeaders(apiKey, model) },
+        body: inline ? fishMessagePack({ text, references, format: 'wav' }) : JSON.stringify({ text, reference_id: voice, format: 'wav' })
       }, signal)
       return { data: result.bytes, mediaType: audioExtension(result.mediaType) ? result.mediaType : 'audio/wav' }
     },
@@ -307,10 +327,13 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     const stored = await readConfig()
     const list = []
     for (const provider of providers()) {
-      const config = settingsOf(provider, stored)
+      const config = settingsOf(provider, stored), apiKey = await keyOf(provider, stored)
       list.push({ id: provider.id, label: provider.label, description: provider.description, owner: provider.owner || '', browser: provider.browser === true,
         key: provider.key, ...(provider.keyOptional ? { keyOptional: true } : {}), ...(provider.info ? { discovers: true } : {}), ...(provider.prepare ? { prepares: true } : {}),
-        keyLabel: provider.keyLabel || 'API Key', hasKey: Boolean(await keyOf(provider, stored)), voices: provider.voices.slice(0, 200),
+        ...(provider.references ? { references: true } : {}),
+        // Offered as a character's 配音来源 (22/N): saved here once with nothing missing, or nothing to set up.
+        configured: provider.browser === true || Boolean(provider.plugin) || (Boolean(stored.providers[provider.id]) && !missing(provider, config, apiKey)),
+        keyLabel: provider.keyLabel || 'API Key', hasKey: Boolean(apiKey), voices: provider.voices.slice(0, 200),
         fields: provider.fields.map(field => ({ name: field.name, label: field.label, value: config[field.name], placeholder: field.default || '' })),
         voice: config.voice, narratorVoice: config.narratorVoice })
     }
@@ -385,7 +408,7 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     return provider ? { provider, config: settingsOf(provider, stored) } : null
   }
 
-  async function produce(provider, config, text, voice, emotion, signal, line) {
+  async function produce(provider, config, text, voice, emotion, signal, line, inline) {
     if (provider.plugin) {
       const result = await provider.plugin.synthesize({ text, voice, emotion: emotion || 'neutral', signal,
         ...(line.gameId ? { gameId: line.gameId } : {}), speaker: line.speaker || '', narration: line.narration === true })
@@ -394,14 +417,21 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     const apiKey = await keyOf(provider, await readConfig())
     const reason = missing(provider, config, apiKey)
     if (reason) throw invalid('配音设置不完整：' + reason)
-    return provider.synthesize({ config, apiKey, text, voice, emotion, signal, fetchImpl, discover: discovery(provider, config, apiKey) })
+    const references = inline && await Promise.all(inline.clips.map(async clip => {
+      const audio = await inline.read(clip.file)
+      if (!audio?.length) throw new Error('参考音频不存在：' + clip.file)
+      return { audio, text: clip.text }
+    }))
+    return provider.synthesize({ config, apiKey, text, voice, emotion, signal, fetchImpl, discover: discovery(provider, config, apiKey), ...(references ? { references } : {}) })
   }
 
   /**
    * Say one line with a channel: { browser: true, voice, text } for the browser's own voices,
    * or { id, mediaType } of the cached audio. Same channel, settings, voice and text share one file.
+   * references ([{ file, text }], see referencesFor) with readReference(file) → bytes: a character's own clips, sent
+   * inline by a channel that takes them instead of the voice; the clips (their stored names are content hashes) key the cache.
    */
-  async function synthesize({ provider: id, text: raw, voice, emotion = 'neutral', signal, gameId, speaker: character, narration } = {}) {
+  async function synthesize({ provider: id, text: raw, voice, emotion = 'neutral', signal, gameId, speaker: character, narration, references, readReference } = {}) {
     const stored = await readConfig()
     const provider = providerOf(id || stored.provider)
     const config = settingsOf(provider, stored)
@@ -409,19 +439,21 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     if (!text) throw invalid('没有可以朗读的文字')
     const speaker = typeof voice === 'string' && voice.trim() ? voice.trim() : config.voice
     if (provider.browser) return { browser: true, voice: speaker, text }
-    if (!speaker) throw invalid('请先为「' + provider.label + '」填写默认声音')
+    const inline = provider.references && Array.isArray(references) && references.length && typeof readReference === 'function'
+      ? { clips: references.map(clip => ({ file: String(clip.file), text: String(clip.text) })), read: readReference } : null
+    if (!speaker && !inline) throw invalid('请先为「' + provider.label + '」填写默认声音')
     const { voice: _voice, narratorVoice: _narrator, ...fields } = config
     const usesEmotion = provider.plugin || provider.emotional === true || (provider.id === 'openai' && /gpt-4o/.test(config.model))
     // A plugin channel also hears who speaks and may voice them differently; its version marks changed synthesis.
     const line = { gameId: typeof gameId === 'string' ? gameId : '', speaker: typeof character === 'string' ? character.trim() : '', narration: narration === true }
     const digest = hash(JSON.stringify(provider.plugin ? [provider.id, fields, speaker, emotion, text, provider.plugin.version || '', line.speaker, line.narration]
-      : [provider.id, fields, speaker, usesEmotion ? emotion : '', text]))
+      : [provider.id, fields, inline ? { references: inline.clips.map(clip => [clip.file, clip.text]) } : speaker, usesEmotion ? emotion : '', text]))
     for (const extension of Object.keys(AUDIO_TYPES)) {
       if (await cached(CACHE_DIR + '/' + digest + '.' + extension)) return { id: digest + '.' + extension, mediaType: AUDIO_TYPES[extension] }
     }
     if (pending.has(digest)) return pending.get(digest)
     const job = (async () => {
-      const result = await produce(provider, config, text, speaker, emotion, signal, line)
+      const result = await produce(provider, config, text, speaker, emotion, signal, line, inline)
       const data = result?.data ? Buffer.from(result.data) : null
       const extension = audioExtension(result?.mediaType)
       if (!data?.length) throw new Error('配音渠道没有返回音频')
@@ -440,6 +472,27 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     return character?.voices?.[provider.id] || config.voice || ''
   }
 
+  /**
+   * The channel a character speaks with (cast-presentation.md 22/N): the one chosen as its 配音来源, else `current`, the
+   * channel in use. A chosen channel that is gone or not set up says so; nothing falls back to another one.
+   */
+  async function channelFor({ character, current }) {
+    const id = character?.voiceSource?.provider
+    if (!id || id === current.provider.id) return current
+    const provider = providerOf(id)
+    return { provider, config: settingsOf(provider, await readConfig()) }
+  }
+
+  /** A character's own reference clips ([{ file, text }]) when its 配音来源 is this channel's clone; a clone without clips says how to fix it. */
+  function referencesFor({ character, provider, narration }) {
+    const source = character?.voiceSource
+    if (narration || !source?.clone || source.provider !== provider.id) return []
+    const label = '「' + character.name + '」的配音来源是「' + provider.label + ' · 声音克隆（参考音频）」'
+    if (!provider.references) throw invalid(label + '，但这个渠道不支持参考音频：请在「舞台素材」里换一个配音来源')
+    if (!character.voiceReferences?.length) throw invalid(label + '，还没有参考音频：请在「舞台素材」里为它上传参考音频，或换一个配音来源')
+    return character.voiceReferences
+  }
+
   async function readAudio(id) {
     const match = /^([0-9a-f]{64})\.(mp3|wav|ogg|aac|flac)$/.exec(String(id))
     if (!match) return undefined
@@ -447,5 +500,5 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
     return bytes ? { bytes, mediaType: AUDIO_TYPES[match[2]] } : undefined
   }
 
-  return Object.freeze({ providers, present, save, active, synthesize, voiceFor, readAudio, serviceInfo, prepare })
+  return Object.freeze({ providers, present, save, active, synthesize, voiceFor, channelFor, referencesFor, readAudio, serviceInfo, prepare })
 }

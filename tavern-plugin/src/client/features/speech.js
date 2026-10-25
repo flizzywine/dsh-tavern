@@ -196,20 +196,78 @@
 						message ? h("span", { role: "status" }, message) : null)));
 		}
 
-		/** A character's voice on the channel in use, in the character material list. */
+		// A character's 配音来源 (cast-presentation.md 22/N): one choice among the configured channels, where a channel that
+		// takes reference clips (Fish) offers its clone of them as a second option; "" is the channel in use.
+		function tavernVoiceSourceValue(source) { return source ? source.provider + (source.clone ? "#clone" : "") : ""; }
+		function tavernVoiceSourceOptions(settings, active, source) {
+			const options = [{ value: "", label: "默认（" + active.label + "）" }];
+			settings.providers.forEach(function (item) {
+				if (!item.configured) return;
+				options.push({ value: item.id, label: item.label + (item.references ? " · 声音 ID" : "") });
+				if (item.references) options.push({ value: item.id + "#clone", label: item.label + " · 声音克隆（参考音频）" });
+			});
+			const value = tavernVoiceSourceValue(source);
+			if (!options.some(function (option) { return option.value === value; })) {
+				const provider = settings.providers.find(function (item) { return item.id === source.provider; });
+				options.push({ value: value, label: (provider ? provider.label : source.provider) + (source.clone ? " · 声音克隆（参考音频）" : "") + "（未配置）" });
+			}
+			return options;
+		}
+		function tavernVoiceChannel(settings, character) {
+			const active = settings && settings.enabled ? settings.providers.find(function (item) { return item.id === settings.provider; }) : null;
+			const source = character && character.voiceSource || null;
+			const channel = active && source ? settings.providers.find(function (item) { return item.id === source.provider; }) || null : active;
+			return { active: active, source: source, channel: channel, clone: Boolean(source && source.clone) };
+		}
+
+		/** A character's 配音来源 and its voice on that channel, in the character material list; 🔊 says a line with them. */
 		function TavernCastVoiceField(props) {
 			const h = React.createElement;
 			const settings = useTavernSpeechSettings();
-			const provider = settings && settings.enabled ? settings.providers.find(function (item) { return item.id === settings.provider; }) : null;
+			const route = tavernVoiceChannel(settings, props.character);
+			const provider = route.clone ? null : route.channel;
 			const saved = provider && props.character && props.character.voices ? props.character.voices[provider.id] || "" : "";
 			const [value, setValue] = React.useState(saved);
 			React.useEffect(function () { setValue(saved); }, [saved, provider && provider.id]);
-			if (!provider) return null;
-			const listId = "dsh-tavern-cast-voices-" + provider.id.replace(/[^a-z0-9]/gi, "-");
+			if (!route.active) return null;
+			const listId = provider ? "dsh-tavern-cast-voices-" + provider.id.replace(/[^a-z0-9]/gi, "-") : "";
 			function commit() { if (value.trim() !== saved) props.onSave(provider.id, value.trim()); }
 			return h("span", { className: "dsh-tavern-cast-voice" },
-				h("input", { value: value, list: listId, disabled: props.busy, placeholder: provider.voice || "默认声音", "aria-label": props.name + " 的声音",
-					onChange: function (event) { setValue(event.target.value); }, onBlur: commit, onKeyDown: function (event) { if (event.key === "Enter") commit(); } }),
-				h(TavernVoiceOptions, { id: listId, provider: provider }),
+				h("select", { value: tavernVoiceSourceValue(route.source), disabled: props.busy, "aria-label": props.name + " 的配音来源",
+					onChange: function (event) { const parts = event.target.value.split("#"); props.onSource(parts[0], parts[1] === "clone"); } },
+					tavernVoiceSourceOptions(settings, route.active, route.source).map(function (option) { return h("option", { key: option.value, value: option.value }, option.label); })),
+				provider ? h("input", { value: value, list: listId, disabled: props.busy, placeholder: provider.voice || "默认声音", "aria-label": props.name + " 的声音",
+					onChange: function (event) { setValue(event.target.value); }, onBlur: commit, onKeyDown: function (event) { if (event.key === "Enter") commit(); } }) : null,
+				provider ? h(TavernVoiceOptions, { id: listId, provider: provider }) : null,
 				h(TavernSpeakButton, { sessionId: props.sessionId, speaker: props.name, text: "你好，我是" + props.name + "。", emotion: "neutral" }));
+		}
+
+		/**
+		 * A character's reference clips while its 配音来源 is a channel's clone (22/N): the clips with what each says, a removal,
+		 * and an upload that asks for the words first. Without clips a line says how to fix it instead of being voiced.
+		 */
+		function TavernCastVoiceSource(props) {
+			const h = React.createElement;
+			const settings = useTavernSpeechSettings();
+			const [text, setText] = React.useState("");
+			const route = tavernVoiceChannel(settings, props.character);
+			if (!route.active || !route.clone) return null;
+			const clips = props.character.voiceReferences || [];
+			const label = route.channel ? route.channel.label : route.source.provider;
+			function add() {
+				const line = text.trim();
+				if (line) props.onAdd(line, function () { setText(""); });
+			}
+			return h("div", { className: "dsh-tavern-cast-refs" },
+				clips.length ? h("small", null, "合成时把这 " + clips.length + " 段录音和原话一起发给「" + label + "」，照着它们的声音说每一句。")
+					: h("small", { className: "is-missing" }, "还没有参考音频：上传之前，" + props.name + " 的台词朗读时会提示出错。先写下录音里说的原话，再上传录音（WAV、MP3、OGG、FLAC，合计 8 MB 以内）。"),
+				clips.length ? h("ol", { "aria-label": props.name + " 的参考音频" }, clips.map(function (clip, index) {
+					return h("li", { key: clip.file },
+						h("span", { className: "dsh-tavern-cast-refs-text", title: clip.text }, clip.text),
+						h("button", { type: "button", disabled: props.busy, "aria-label": "删除第 " + (index + 1) + " 段参考音频", onClick: function () { props.onRemove(clip.file); } }, "删除"));
+				})) : null,
+				h("span", { className: "dsh-tavern-cast-refs-add" },
+					h("input", { value: text, disabled: props.busy, placeholder: "先写录音里说的原话", maxLength: 500, "aria-label": props.name + " 的参考原文",
+						onChange: function (event) { setText(event.target.value); }, onKeyDown: function (event) { if (event.key === "Enter") add(); } }),
+					h("button", { type: "button", disabled: props.busy || !text.trim(), onClick: add }, "上传参考音频")));
 		}

@@ -125,7 +125,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     // 本卡皮肤 is this player's choice, not the card's: it never leaves with the file.
     delete cast.skinChoice
     const files = new Map()
-    for (const file of new Set([...cast.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(cast.extras || []).map(item => item.file)].filter(Boolean))) {
+    for (const file of new Set([...cast.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {}), ...(character.voiceReferences || []).map(clip => clip.file)]),
+      ...(cast.extras || []).map(item => item.file)].filter(Boolean))) {
       files.set(file, await castAssets.readFile(cardPath, file))
     }
     for (const item of stage) files.set(item.file, item.bytes)
@@ -156,7 +157,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     const cardPath = normalizeResourcePath(input, 'card')
     const stage = await stageMaterial.hasMaterial(cardPath, (await cardSummaries.read(cardPath).catch(() => null))?.name)
     const manifest = await castAssets.read(cardPath)
-    const hasMaterial = stage || manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean))
+    const hasMaterial = stage || manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean) || character.voiceReferences?.length)
       || (manifest.extras || []).some(item => item.file)
     if (hasMaterial) return { ...await exportCardCharx(cardPath), extension: 'charx', contentType: 'application/zip' }
     if (await fileResources.hasCardImage(cardPath)) return { ...await exportCardPng(cardPath), extension: 'png', contentType: 'image/png' }
