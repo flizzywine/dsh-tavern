@@ -1,6 +1,6 @@
 // The stage's CONFIG screen, visual-novel style (docs/design/cast-presentation.md「舞台 core（23/N）：CONFIG」) - the one home of
 // the player's lasting stage preferences on this machine. The control bar's 「声音」 opens it over the dimmed stage with left
-// tabs: 声音 (every audio layer, features/stage-mixer.js, and 配音倍速) and 文字 (the auto mode's pace). The stage owns the open
+// tabs: 声音 (every audio layer, features/stage-mixer.js, and 配音倍速) and 文字 (文字速度 and the auto mode's pace). The stage owns the open
 // state: auto paging waits while it is open and the stage's keys are its own. Drawn only in the stage's UI tokens (--gal-ui-*).
 const STAGE_CONFIG_TABS = Object.freeze([["sound", "声音", "SOUND"], ["text", "文字", "TEXT"]]);
 // The last tab stays selected while the page lives (reopening returns to it; the 「声音」 entry opens sound).
@@ -114,16 +114,23 @@ function TavernStageConfigSound(props) {
 				"所有配音按这个倍率播放，音调不变；舞台和聊天里的朗读都生效，正在播放的这一句也立即变速。默认 1.0 倍。")));
 }
 
-// 文字: the auto mode's pace.
+// 文字: text speed and the auto mode's pace, and a live preview that types and waits like the stage (stage-typewriter.js).
 function TavernStageConfigText() {
 	const reading = useTavernStageReadingPrefs();
+	const [typeMin, typeMax, typeStep] = STAGE_READING_LIMITS.textSpeed;
 	const [speedMin, speedMax, speedStep] = STAGE_READING_LIMITS.autoSpeed, [waitMin, waitMax, waitStep] = STAGE_READING_LIMITS.autoWait;
 	const seconds = ms => (ms / 1000).toFixed(1) + " 秒";
 	return stageConfigGroup("阅读", null,
+		// Speed reads left = slow, right = fast (instant at the far right); stored as milliseconds per glyph.
+		stageConfigRow("文字速度", stageConfigSlider(["慢", "快"], { min: 0, max: typeMax - typeMin, step: typeStep, value: typeMax - reading.textSpeed, label: "文字速度",
+				valueText: reading.textSpeed === 0 ? "瞬间显示" : reading.textSpeed + " 毫秒每字", output: reading.textSpeed === 0 ? "瞬间" : reading.textSpeed + " ms/字",
+				onChange: value => tavernStageReadingPrefs.set({ textSpeed: typeMax - value }) }),
+			"打字机效果每个字的间隔；拉到最右边整句直接出现。默认 " + STAGE_READING_DEFAULTS.textSpeed + " 毫秒。"),
 		stageConfigRow("自动阅读速度", stageConfigSlider(["慢", "快"], { min: speedMin, max: speedMax, step: speedStep, value: reading.autoSpeed, label: "自动阅读速度",
 				valueText: reading.autoSpeed.toFixed(1) + " 倍", output: reading.autoSpeed.toFixed(1) + "×", onChange: value => tavernStageReadingPrefs.set({ autoSpeed: value }) }),
 			"按倍率缩放无配音页的阅读时间和配音结束后的等待；不会截断正在播放的配音。默认 1.0 倍。立即生效。"),
 		stageConfigRow("自动模式等待", stageConfigSlider(["短", "长"], { min: waitMin, max: waitMax, step: waitStep, value: reading.autoWait, label: "自动模式等待",
 				valueText: seconds(reading.autoWait), output: seconds(reading.autoWait), onChange: value => tavernStageReadingPrefs.set({ autoWait: value }) }),
-			"配音结束后的基础停顿，再除以自动阅读速度；不会截断配音。无配音页按字数阅读，再加上相对默认 " + seconds(STAGE_READING_DEFAULTS.autoWait) + " 的增减，最后按速度缩放。"));
+			"配音结束后的基础停顿，再除以自动阅读速度；不会截断配音。无配音页按字数阅读，再加上相对默认 " + seconds(STAGE_READING_DEFAULTS.autoWait) + " 的增减，最后按速度缩放。"),
+		React.createElement(TavernStageConfigPreview, { reading }));
 }

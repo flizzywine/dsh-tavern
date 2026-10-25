@@ -28,9 +28,9 @@ function load(storage = memoryStorage()) {
   const tuned = [], context = audioContext()
   const window = { AudioContext: function () { return context } }
   const sandbox = { localStorage: storage, window, tavernSpeech: { tune: value => tuned.push({ ...value }) },
-    React: { createElement: h, Fragment: 'Fragment', useState: value => [typeof value === 'function' ? value() : value, () => {}], useEffect: () => {}, useRef: () => ({ current: null }) },
+    React: { createElement: h, Fragment: 'Fragment', useState: value => [typeof value === 'function' ? value() : value, () => {}], useEffect: () => {}, useRef: value => ({ current: value === undefined ? null : value }), useMemo: fn => fn() },
     TavernStageGlyph: props => h('glyph', { name: props.name }) }
-  const api = vm.runInNewContext([client('modules/stage-runtime.js'), client('features/stage-audio.js'), client('features/stage-mixer.js'), client('features/stage-config.js'),
+  const api = vm.runInNewContext([client('modules/stage-runtime.js'), client('modules/stage-typewriter.js'), client('features/stage-audio.js'), client('features/stage-mixer.js'), client('features/stage-config.js'), client('features/stage-typewriter.js'),
     '({ tavernStageAudio, stageMixLevel, stageMixIcon, TavernStageMixerRows, TavernStageSoundEntry, TavernStageConfigScreen, stageReadingPrefs, stageAutoDelay, STAGE_READING_DEFAULTS })'].join('\n;'), sandbox)
   return { ...api, storage, tuned, context, sandbox }
 }
@@ -111,7 +111,10 @@ test('CONFIG has the 声音 and 文字 tabs; the opener picks the first and the 
   const screen = expand(h(page.TavernStageConfigScreen, { tab: 'text', tests: {}, onClose() {} }))
   assert.equal(screen.props.role, 'dialog')
   assert.deepEqual(all(screen, node => node.props.role === 'tab').map(tab => [text(tab.children[1]), tab.props['aria-selected']]), [['声音', false], ['文字', true]])
-  assert.deepEqual(all(screen, node => node.type === 'input').map(input => input.props['aria-label']), ['自动阅读速度', '自动模式等待'])
+  assert.deepEqual(all(screen, node => node.type === 'input').map(input => input.props['aria-label']), ['文字速度', '自动阅读速度', '自动模式等待'])
+  const speed = all(screen, node => node.props['aria-label'] === '文字速度')[0]
+  assert.deepEqual([speed.props.min, speed.props.max, speed.props.value, speed.props['aria-valuetext']], [0, 80, 52, '28 毫秒每字'], '慢 → 快 reads left to right; the default is 28 ms per glyph')
+  assert.ok(all(screen, node => node.props.className === 'dsh-tavern-stage-config-preview').length === 1, 'the 文字 page types a sample line')
   const sound = expand(h(page.TavernStageConfigScreen, { tab: 'sound', tests: {}, onClose() {} }))
   assert.deepEqual(all(sound, node => node.type === 'input').map(input => input.props['aria-label']), ['总音量', '配音音量', '背景音乐音量', '音效音量', '环境音音量', '配音倍速'])
 })
@@ -123,6 +126,7 @@ test('the reading pace keeps the stage\'s own timing by default and scales every
     'the defaults are the old 400 ms after a voice and the length-based wait')
   const fast = stageReadingPrefs({ autoSpeed: 2, autoWait: 1000 })
   assert.deepEqual([stageAutoDelay(fast, true, short), stageAutoDelay(fast, false, short)], [500, 1050], 'the wait shifts a silent page, the speed divides both')
-  assert.deepEqual(JSON.parse(JSON.stringify(stageReadingPrefs({ autoSpeed: 9, autoWait: -5, voiceRate: 1.26, extra: 1 }))), { autoWait: 0, autoSpeed: 3, voiceRate: 1.3 }, 'saved values are clamped to their range and step')
-  assert.deepEqual(JSON.parse(JSON.stringify(stageReadingPrefs('x'))), { autoWait: 400, autoSpeed: 1, voiceRate: 1 })
+  assert.deepEqual(JSON.parse(JSON.stringify(stageReadingPrefs({ textSpeed: 95, autoSpeed: 9, autoWait: -5, voiceRate: 1.26, extra: 1 }))), { textSpeed: 80, autoWait: 0, autoSpeed: 3, voiceRate: 1.3 }, 'saved values are clamped to their range and step')
+  assert.deepEqual(JSON.parse(JSON.stringify(stageReadingPrefs('x'))), { textSpeed: 28, autoWait: 400, autoSpeed: 1, voiceRate: 1 })
+  assert.equal(stageReadingPrefs({ textSpeed: 0 }).textSpeed, 0, '0 shows each line at once')
 })

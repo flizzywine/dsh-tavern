@@ -3186,6 +3186,12 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-figure, .dsh-tavern-stage-figure-body, .dsh-tavern-stage-figure img, .dsh-tavern-stage-text { animation: none !important; transition: none !important; } }
 .dsh-tavern-stage-name b { font-weight: inherit; }
 .dsh-tavern-stage-next, .dsh-tavern-stage-lamp { display: none; }
+/* stage typewriter（stage-typewriter.js）：整句一开始就排好版，还没显示的字透明；正在出现的字淡入并稍稍上浮，减少动态时只淡入。翻页提示等整句出完。 */
+.dsh-tavern-stage-type-rest { opacity: 0; }
+.dsh-tavern-stage-glyph { position: relative; animation: dsh-tavern-stage-glyph-in .22s cubic-bezier(.2, .65, .3, 1) both; }
+@keyframes dsh-tavern-stage-glyph-in { from { opacity: 0; top: .16em; } to { opacity: 1; top: 0; } }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-glyph { animation-name: dsh-tavern-stage-fade; } }
+.dsh-tavern-stage-next.is-waiting { visibility: hidden !important; animation: none !important; }
 /* ==== stage skin: art ====
    A skin's own images as the text box, its name plate, the page cue and the auto lamp (stageSkinArt in stage-skin.js writes the
    marks and --art-* tokens, numbers in px of the skin's design screen). One art px is --art-u: the stage's height over the
@@ -3574,7 +3580,14 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-config[data-layout="compact"] .dsh-tavern-stage-mix-test { grid-area: test; }
 .dsh-tavern-stage-config[data-layout="compact"] :is(.dsh-tavern-stage-mix-mute, .dsh-tavern-stage-mix-test) { width: 40px; height: 40px; }
 .dsh-tavern-stage-config[data-layout="compact"] .dsh-tavern-stage-mix-label b { font-size: 16px; letter-spacing: .08em; }
-@media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-config-sheet { animation: none; } }
+/* 文字页的预览：按文字速度逐字打出一句示例，等待时末尾一枚翻页三角。与滑条列对齐；紧凑布局铺满。 */
+.dsh-tavern-stage-config-preview { box-sizing: border-box; max-width: 760px; margin: 8px 0 0 calc(10.5em + 24px); padding: 12px 20px 14px; border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); }
+.dsh-tavern-stage-config-preview-name { color: var(--gal-ui-accent); font-size: 11.5px; font-weight: 600; line-height: 1; letter-spacing: .32em; }
+.dsh-tavern-stage-config-preview-text { min-height: 1.8em; margin: 8px 0 0; color: var(--gal-ui-ink); font-size: clamp(16px, 1.2vw, 19px); line-height: 1.8; letter-spacing: .04em; }
+.dsh-tavern-stage-config-preview-next { display: inline-block; width: .6em; height: .5em; margin-left: 8px; vertical-align: .06em; clip-path: polygon(0 0, 100% 0, 50% 100%); background: var(--gal-ui-accent); animation: dsh-tavern-stage-config-next 1.2s ease-in-out infinite; }
+@keyframes dsh-tavern-stage-config-next { 50% { transform: translateY(.18em); } }
+.dsh-tavern-stage-config[data-layout="compact"] .dsh-tavern-stage-config-preview { max-width: none; margin: 8px 0 0; padding: 10px 14px 12px; }
+@media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-config-sheet, .dsh-tavern-stage-config-preview-next { animation: none; } }
 /* 舞台履历（stage-backlog.js）：压暗的舞台上一张居中、不透明的阅读页，每行是读过的一页，更早的轮在上、本轮在下；文字只在页上。
    页从上往下展开，不淡入。只用舞台的 UI 令牌（--gal-ui-*）；打开时舞台的文字框、控制栏和输入框隐藏。 */
 .dsh-tavern-stage-overlay[data-stage-backlog] :is(.dsh-tavern-stage-textbox, .dsh-tavern-stage-input) { visibility: hidden; pointer-events: none; }

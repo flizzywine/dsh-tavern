@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import { chromium } from 'playwright'
-import { stageStateChecks } from './stage-state.mjs'
+import { stageNext, stageStateChecks } from './stage-state.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
@@ -89,13 +89,13 @@ try {
           assert.equal(sample.takesClick, false, 'the showcase never takes a click')
           return sample
         }
-        await stage.getByRole('button', { name: '下一句', exact: true }).click()
+        await stageNext(stage)
         await stage.locator('.dsh-tavern-stage-text').filter({ hasText: 'pocket watch' }).waitFor()
         const wide = await holdMiddle('item-1920')
         await settled()
         assert.equal(await plays(), 1, 'played once')
         assert.equal(await item.evaluate(node => getComputedStyle(node).opacity), '0', 'after the showcase the item is gone again')
-        await stage.getByRole('button', { name: '下一句', exact: true }).click()
+        await stageNext(stage)
         await settled()
         assert.equal(await item.count(), 0, 'the next page has no item')
         // 375: paging back plays the page once again, inside the narrow screen.
@@ -110,7 +110,7 @@ try {
         assert.deepEqual((await call('castStage', { sessionId, count: 1 })).turns.at(-1).performances, [])
         await page.evaluate(() => window.dispatchEvent(new CustomEvent('dsh-tavern-settings-changed')))
         await stage.getByRole('button', { name: '上一句', exact: true }).click()
-        await stage.getByRole('button', { name: '下一句', exact: true }).click()
+        await stageNext(stage)
         await stage.locator('.dsh-tavern-stage-text').filter({ hasText: 'pocket watch' }).waitFor()
         await page.waitForFunction(() => !document.querySelector('.dsh-tavern-stage-overlay .dsh-tavern-stage-item'))
         await settled()

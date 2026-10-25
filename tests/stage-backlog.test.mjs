@@ -45,7 +45,7 @@ test('backlog window includes visible variable-height rows plus exactly 20 on ea
 
 test('the stage wheel: up opens the backlog per notch, down turns one page per gesture, small deltas add up', () => {
   let state = null
-  const wheel = (deltaY, now, deltaMode = 0) => { const decision = stageWheelDecision(state, { now, deltaY, deltaMode }); state = decision.state; return decision.action }
+  const wheel = (deltaY, now, deltaMode = 0, typed = true) => { const decision = stageWheelDecision(state, { now, deltaY, deltaMode, typed }); state = decision.state; return decision.action }
   assert.equal(wheel(-120, 0), 'backlog')
   assert.equal(wheel(120, 50), 'advance', 'a reversed direction is a new gesture')
   assert.deepEqual([wheel(120, 100), wheel(120, 200)], ['none', 'none'], 'the rest of that gesture is consumed, not queued')
@@ -55,6 +55,8 @@ test('the stage wheel: up opens the backlog per notch, down turns one page per g
   assert.equal(wheel(-2, 2050, 1), 'backlog', 'line-mode deltas count as lines')
   assert.equal(wheel(0, 3000), 'none')
   assert.equal(wheel(Number.NaN, 3100), 'none')
+  assert.deepEqual([wheel(120, 4000, 0, false), wheel(120, 4050, 0, false)], ['finish', 'none'], 'a line still typing is finished first, once per gesture')
+  assert.equal(wheel(-120, 4400, 0, false), 'backlog', 'up still opens the backlog')
 })
 
 test('backlog view: opens at the current page, jumps only from the latest turn, and settles when resized and scrolled with 1000 rows', async t => {

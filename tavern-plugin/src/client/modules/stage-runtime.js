@@ -58,11 +58,12 @@ function createStageRuntimeStore({ read, project, changed }) {
 
 // The reader's pace (CONFIG › 文字 / 声音, features/stage-config.js), this browser's: autoWait = auto paging's pause after a
 // line's voice ends; a silent page waits its reading time (by its length) shifted by the same amount; autoSpeed divides
-// both waits - a voice is never sped up or cut short. voiceRate: every voice plays this much faster, pitch kept. The
-// defaults are the stage's own timing.
+// both waits - a voice is never sped up or cut short. voiceRate: every voice plays this much faster, pitch kept. textSpeed:
+// milliseconds per typed glyph (逐字显示, features/stage-typewriter.js; 0 = the whole line at once); auto paging's wait starts
+// once the line is typed. The defaults are the stage's own timing.
 const STAGE_AUTO = Object.freeze({ wait: 400, speed: 1 });
-const STAGE_READING_DEFAULTS = Object.freeze({ autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1 });
-const STAGE_READING_LIMITS = Object.freeze({ autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }); // [min, max, step]
+const STAGE_READING_DEFAULTS = Object.freeze({ textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1 });
+const STAGE_READING_LIMITS = Object.freeze({ textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }); // [min, max, step]
 function stageReadingPrefs(saved) {
 	const out = { ...STAGE_READING_DEFAULTS };
 	if (!saved || typeof saved !== "object") return out;
@@ -82,7 +83,7 @@ function stageAutoDelay(reading, voiced, text) {
 // auto paging. Detaching releases every timer, voice and animation, and whatever else the view
 // holds (`release`). The stage's BGM is not the view's: the BGM player follows the selected game
 // in chat and stage alike (modules/stage-bgm.js). reading(): the reader's pace (above); held(): auto paging waits while it
-// is true (the stage's CONFIG is open) and starts the page's wait afresh after.
+// is true (the page's line is still typing, or CONFIG / the backlog is open) and starts the page's wait afresh after.
 function createStageRuntimePlayer({ store, animate, speech, release = () => {}, schedule = setTimeout, cancel = clearTimeout, reading = () => STAGE_READING_DEFAULTS, held = () => false }) {
 	const performances = createStagePerformancePlayback({ play: animate, schedule, cancel });
 	let attached = true, plan = "", spoken = "", heard = Promise.resolve(false), timer = null, token = 0;

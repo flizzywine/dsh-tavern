@@ -848,9 +848,11 @@ window.__ModuleLoader__.load({
 // @include features/stage-skin.js
 // @include modules/stage-runtime.js
 // @include modules/stage-backlog.js
+// @include modules/stage-typewriter.js
 // @include features/stage-entrance.js
 // @include features/stage-audio.js
 // @include features/stage-runtime.js
+// @include features/stage-typewriter.js
 // @include features/stage-mixer.js
 // @include features/stage-config.js
 // @include features/stage-backlog.js

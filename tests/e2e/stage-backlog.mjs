@@ -12,7 +12,7 @@ import { chromium } from 'playwright'
 import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
 import { computeSceneTarget } from '../../tavern-plugin/lib/domain/scene-illustration.js'
 import { CAST_DATA_OWNER } from '../../tavern-plugin/lib/domain/cast-annotation.js'
-import { stageStateChecks } from './stage-state.mjs'
+import { stageNext, stageStateChecks } from './stage-state.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
@@ -130,7 +130,7 @@ try {
           assert.deepEqual([cover.clip, cover.outside, cover.sideways], ['none', [], false], file + ': ' + JSON.stringify(cover))
           await page.screenshot({ path: join(output, file) })
         }
-        for (let i = 0; i < 3; i++) await stage.getByRole('button', { name: '下一句', exact: true }).click()
+        for (let i = 0; i < 3; i++) await stageNext(stage)
         await at('4 / 6')
         // 1. 「履历」 opens it: the current page is the last row, in view, the list has the keyboard; the stage's box is hidden.
         await entry.click()

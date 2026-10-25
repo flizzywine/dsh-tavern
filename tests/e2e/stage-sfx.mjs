@@ -7,7 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
-import { stageStateChecks } from './stage-state.mjs'
+import { stageNext, stageStateChecks } from './stage-state.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
@@ -68,7 +68,7 @@ try {
         const starts = async () => (await level()).starts
         const settled = () => page.waitForTimeout(1800)
         const text = value => stage.locator('.dsh-tavern-stage-text').filter({ hasText: value }).waitFor()
-        const next = () => stage.getByRole('button', { name: '下一句', exact: true }).click()
+        const next = () => stageNext(stage)
         const back = () => stage.getByRole('button', { name: '上一句', exact: true }).click()
         const sounding = async (count, label) => {
           await page.waitForFunction(count => window.sfxTap.starts.length === count, count, { timeout: 8000, polling: 100 })
@@ -144,6 +144,7 @@ try {
         assert.equal(await starts(), 0, 'a reload never replays')
         // 7. 375: the knock page plays once in the narrow layout too.
         await page.setViewportSize({ width: 375, height: 812 })
+        await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
         await stage.getByRole('button', { name: '下一句', exact: true }).evaluate(button => button.click())
         await text('knocks')
         steps.narrow = await sounding(1, 'the knock plays at 375')

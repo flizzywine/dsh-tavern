@@ -11,6 +11,7 @@ import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
 import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
 import { STAGE_DATA_OWNER } from '../../tavern-plugin/lib/domain/stage-director.js'
 import { stageDirectorFixture, runDirectorFixture } from '../helpers/stage-director-fixture.mjs'
+import { stageNext } from './stage-state.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
@@ -135,7 +136,7 @@ try {
   await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   const stage = page.locator('.dsh-tavern-stage-overlay')
   const text = value => stage.locator('.dsh-tavern-stage-text').filter({ hasText: value }).waitFor()
-  const next = () => stage.getByRole('button', { name: '下一句', exact: true }).click()
+  const next = () => stageNext(stage)
   const open = async () => { await page.getByRole('button', { name: '舞台', exact: true }).click(); await stage.waitFor() }
   // In chat (no stage open) only the BGM plays.
   result.chat = await hear({ theme: true, rain: false }, 'chat: BGM only')

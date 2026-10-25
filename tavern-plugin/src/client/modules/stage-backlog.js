@@ -33,8 +33,9 @@ function stageBacklogWindow(offsets, scrollTop, height, overscan) {
 	return { start: Math.max(0, at(top) - overscan), end: Math.min(count, at(Math.max(top, top + height - 0.001)) + 1 + overscan) };
 }
 
-// The stage's wheel: up opens the backlog, down turns a page. Consume wheel notches, never queue a burst for later: a
-// gesture is quiet for 300 ms, and its first downward page turn locks the rest of that gesture.
+// The stage's wheel: up opens the backlog, down turns a page - or, while the page's line is still typing (event.typed false),
+// finishes it, as a click does. Consume wheel notches, never queue a burst for later: a gesture is quiet for 300 ms, and its
+// first downward step locks the rest of that gesture.
 function stageWheelDecision(previous, event) {
 	const now = event.now, dy = Number(event.deltaY);
 	if (!Number.isFinite(dy) || !dy) return { state: previous, action: "none" };
@@ -48,5 +49,5 @@ function stageWheelDecision(previous, event) {
 	if (direction < 0) return { state, action: "backlog" };
 	if (state.used) return { state, action: "none" };
 	state.used = true;
-	return { state, action: "advance" };
+	return { state, action: event.typed ? "advance" : "finish" };
 }

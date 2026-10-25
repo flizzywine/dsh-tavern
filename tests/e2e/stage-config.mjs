@@ -9,7 +9,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
-import { stageStateChecks } from './stage-state.mjs'
+import { stageNext, stageStateChecks } from './stage-state.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
 const output = process.argv[process.argv.indexOf('--artifacts') + 1]
@@ -71,7 +71,7 @@ try {
         const level = () => page.evaluate(() => window.sfxLevel())
         const progress = stage.locator('.dsh-tavern-stage-progress')
         const at = value => progress.filter({ hasText: value }).waitFor()
-        const next = () => stage.getByRole('button', { name: '下一句', exact: true }).click()
+        const next = () => stageNext(stage)
         const first = async () => { while (!(await progress.innerText()).startsWith('1 /')) await stage.getByRole('button', { name: '上一句', exact: true }).click(); await at('1 / 3') }
         const sound = stage.locator('.dsh-tavern-stage-controls [data-action="sound"]')
         const config = page.locator('.dsh-tavern-stage-config[role="dialog"]')
@@ -149,7 +149,7 @@ try {
         // 5. The settings are this browser's: a reload reads them back (CONFIG reopens at its last tab via 声音 = 声音); the save is untouched.
         await open(); await config.getByRole('button', { name: '配音静音', exact: true }).click(); await close()
         const saved = await page.evaluate(() => [localStorage.getItem('dsh-tavern-stage-audio'), localStorage.getItem('dsh-tavern-stage-reading')].map(value => JSON.parse(value)))
-        assert.deepEqual(saved, [{ v: 1, master: 1, voice: 1, music: 1, sfx: 1, ambience: 1, muted: { voice: true } }, { autoWait: 400, autoSpeed: 3, voiceRate: 1 }])
+        assert.deepEqual(saved, [{ v: 1, master: 1, voice: 1, music: 1, sfx: 1, ambience: 1, muted: { voice: true } }, { textSpeed: 28, autoWait: 400, autoSpeed: 3, voiceRate: 1 }])
         await page.reload()
         await page.getByRole('button', { name: '舞台', exact: true }).click()
         await stage.waitFor(); await open()

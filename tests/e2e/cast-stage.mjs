@@ -47,14 +47,16 @@ export async function castStageChecks({ page, step, output, report }) {
     const overlay = page.locator('.dsh-tavern-stage-overlay')
     await overlay.locator('.dsh-tavern-stage-progress').filter({ hasText: /^1 \/ \d+$/ }).waitFor()
     const total = Number((await overlay.locator('.dsh-tavern-stage-progress').textContent()).split('/')[1])
-    for (let index = 1; index < total; index++) await page.keyboard.press('ArrowRight')
+    // → finishes a line still typing, then turns the page
+    for (let index = 0; index < total * 2 && (await overlay.locator('.dsh-tavern-stage-progress').textContent()) !== total + ' / ' + total; index++) await page.keyboard.press('ArrowRight')
     await overlay.locator('.dsh-tavern-stage-progress').filter({ hasText: total + ' / ' + total }).waitFor()
     await overlay.getByRole('textbox', { name: '舞台输入' }).waitFor()
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.press('ArrowLeft')
     await page.waitForTimeout(600)
     await page.screenshot({ path: join(output, 'cast-stage-fullscreen.png') })
-    for (let index = 1; index < total; index++) await page.keyboard.press('ArrowRight')
+    // → finishes a line still typing, then turns the page
+    for (let index = 0; index < total * 2 && (await overlay.locator('.dsh-tavern-stage-progress').textContent()) !== total + ' / ' + total; index++) await page.keyboard.press('ArrowRight')
     await page.keyboard.press('Escape')
     await overlay.waitFor({ state: 'detached' })
     report.castStageFullscreen = true

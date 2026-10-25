@@ -20,6 +20,12 @@ function png(r, g, b) {
   return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', header), chunk('IDAT', deflateSync(Buffer.from([0, r, g, b, 255]))), chunk('IEND', Buffer.alloc(0))])
 }
 
+// The control bar's › as one page turn: a line still typing takes the first press (逐字显示), so it waits for the line.
+export async function stageNext(stage) {
+  await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
+  await stage.getByRole('button', { name: '下一句', exact: true }).click()
+}
+
 // A fixture invokes the real tool/transaction; its accepted record travels through
 // native save import. No model calls or test-only production RPC are needed.
 // `items`: { name, bytes } pictures added to the card's pack as 物品 entries (props) and offered to the director.
