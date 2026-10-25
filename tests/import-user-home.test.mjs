@@ -64,6 +64,7 @@ test('源目录变化停止提交，旧服务运行和嵌套路径均拒绝', t 
 test('旧自定义安装的程序旁 data 目录完整进入固定数据目录', t => {
   const f = fixture(t), checkout = path.join(f.source, 'old-program')
   put(checkout, 'data/cards/card.json', '旧卡')
+  put(checkout, 'data/chats/story.json', '正文与变量')
   put(f.source, 'profiles/tavern/package.json', JSON.stringify({ dshTavern: { source: checkout } }))
   const result = importUserHome(f)
   assert.equal(get(f.target, 'profile-data/tavern/data/cards/card.json'), '旧卡')

@@ -15,9 +15,12 @@ function canonicalFuture(file) {
 function save(file, value) {
   const temporary = file + '.tmp'
   writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 })
-  const fd = openSync(temporary, 'r'); try { fsyncSync(fd) } finally { closeSync(fd) }
+  const fd = openSync(temporary, 'r+'); try { fsyncSync(fd) } finally { closeSync(fd) }
   renameSync(temporary, file)
 }
+// Tree layout with each file's size and mtime. The same tree listed twice must give
+// the same fingerprint (did it change meanwhile?); a fresh copy must give the same
+// layout. Contents are compared only where two different trees meet under one name.
 function inventory(root, relative = '', result = {}) {
   const file = path.join(root, relative)
   let stat
@@ -26,14 +29,23 @@ function inventory(root, relative = '', result = {}) {
   if (stat.isDirectory()) {
     result[relative] = 'directory'
     for (const name of readdirSync(file).sort()) inventory(root, path.join(relative, name), result)
-  } else if (stat.isFile()) result[relative] = createHash('sha256').update(readFileSync(file)).digest('hex')
+  } else if (stat.isFile()) result[relative] = [stat.size, stat.mtimeMs]
   else throw Error(`无法迁移特殊文件：${file}`)
   return result
 }
+const fingerprint = tree => JSON.stringify(tree)
+const layout = tree => JSON.stringify(Object.entries(tree).map(([name, value]) => [name, value === 'directory' ? value : value[0]]))
+// Returns the source fingerprint taken before copying, unchanged after it.
 function copyVerified(from, to) {
   const before = inventory(from)
   copyTreeSync(from, to)
-  if (JSON.stringify(before) !== JSON.stringify(inventory(from)) || JSON.stringify(before) !== JSON.stringify(inventory(to))) throw Error(`迁移校验失败或源数据正在变化：${from}`)
+  if (fingerprint(before) !== fingerprint(inventory(from)) || layout(before) !== layout(inventory(to))) throw Error(`迁移校验失败或源数据正在变化：${from}`)
+  return fingerprint(before)
+}
+function sameContent(from, to) {
+  const tree = inventory(from)
+  if (layout(tree) !== layout(inventory(to))) return false
+  return Object.keys(tree).every(name => tree[name] === 'directory' || readFileSync(path.join(from, name)).equals(readFileSync(path.join(to, name))))
 }
 function merge(from, to) {
   if (!existsSync(to)) { copyVerified(from, to); return }
@@ -41,7 +53,7 @@ function merge(from, to) {
     for (const name of readdirSync(from)) merge(path.join(from, name), path.join(to, name))
     return
   }
-  if (JSON.stringify(inventory(from)) !== JSON.stringify(inventory(to))) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
+  if (!sameContent(from, to)) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
 export function assertDesktopStopped(homes, { requireGuiClosed = false } = {}) {
   let commands
@@ -114,12 +126,9 @@ export function importUserHome({ source, target, beforePublish = () => {} }) {
   save(journalFile, journal)
   // Snapshot both sides before preparing or replacing anything.
   const sources = new Map(entries.filter(entry => existsSync(path.join(source, entry))).map(entry => [entry, path.join(source, entry)]))
-  const witnesses = new Map()
-  for (const [entry, from] of sources) {
-    copyVerified(from, path.join(backup, 'source', entry))
-    witnesses.set(from, JSON.stringify(inventory(from)))
-  }
-  for (const entry of entries) if (existsSync(path.join(target, entry))) copyVerified(path.join(target, entry), path.join(backup, 'target', entry))
+  const witnesses = new Map(), targets = new Map()
+  for (const [entry, from] of sources) witnesses.set(from, copyVerified(from, path.join(backup, 'source', entry)))
+  for (const entry of entries) if (existsSync(path.join(target, entry))) targets.set(entry, copyVerified(path.join(target, entry), path.join(backup, 'target', entry)))
   // Older installs kept Tavern data beside their source checkout or at dataRoot.
   if (existsSync(profile)) {
     const old = JSON.parse(readFileSync(profile, 'utf8')).dshTavern || {}
@@ -128,8 +137,7 @@ export function importUserHome({ source, target, beforePublish = () => {} }) {
       const resolved = realpathSync(legacy)
       if (inside(resolved, backup) || inside(backup, resolved) || inside(resolved, source)) throw Error('旧 dataRoot 指向主目录或备份目录，无法安全迁移。')
       const extra = path.join(backup, 'legacy-data')
-      copyVerified(legacy, extra)
-      witnesses.set(legacy, JSON.stringify(inventory(legacy)))
+      witnesses.set(legacy, copyVerified(legacy, extra))
       merge(extra, path.join(backup, 'source/profile-data/tavern/data'))
       sources.set('profile-data/tavern', path.join(source, 'profile-data/tavern'))
     }
@@ -145,14 +153,14 @@ export function importUserHome({ source, target, beforePublish = () => {} }) {
   }
   // No source files are modified; configuration from the selected old home wins.
   beforePublish(journal)
-  for (const [from, fingerprint] of witnesses) {
-    if (JSON.stringify(inventory(from)) !== fingerprint) throw Error('源数据发生变化，请退出旧酒馆后重试。')
+  for (const [from, witness] of witnesses) {
+    if (fingerprint(inventory(from)) !== witness) throw Error('源数据发生变化，请退出旧酒馆后重试。')
   }
   journal.phase = 'publishing'; save(journalFile, journal)
   try {
     for (const item of journal.items) {
       const destination = path.join(target, item.entry), previous = path.join(backup, 'previous', item.entry)
-      if (JSON.stringify(inventory(destination)) !== JSON.stringify(inventory(path.join(backup, 'target', item.entry)))) throw Error('目标数据发生变化，请退出官方桌面后重试。')
+      if (fingerprint(inventory(destination)) !== (targets.get(item.entry) ?? fingerprint({}))) throw Error('目标数据发生变化，请退出官方桌面后重试。')
       item.started = true; save(journalFile, journal)
       mkdirSync(path.dirname(destination), { recursive: true })
       if (item.existed) { mkdirSync(path.dirname(previous), { recursive: true }); renameSync(destination, previous) }
