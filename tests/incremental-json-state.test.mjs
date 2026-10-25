@@ -120,3 +120,29 @@ test('decoded cache budgets requested projections once instead of every nested c
  result.card.extensions.script='mutated'
  assert.equal((await tree.get(one)).card.extensions.script.length,100000)
 })
+
+test('floors sharing a large subtree decode it once per operation and still return detached copies',async()=>{
+ const f=fixture()
+ const stat_data=Object.fromEntries(Array.from({length:60},(_,i)=>['角色'+i,{好感度:i,状态:['平静','警惕'],记录:Array.from({length:4},(_,j)=>'第'+j+'天')}]))
+ const floors=Array.from({length:6},(_,i)=>({text:'floor '+i,variables:[{stat_data:i<5?stat_data:{...stat_data,额外:{at:i}}}]}))
+ const roots=[]
+ for(const value of floors)roots.push(await f.tree.create(value))
+ async function readAll(shareSubtrees,decodedCacheBytes=0){
+  let reads=0
+  const tree=createIncrementalJsonState({...f.adapter,shareSubtrees,decodedCacheBytes,read:ref=>{reads++;return f.adapter.read(ref)}})
+  const values=[]
+  for(const root of roots)values.push(await tree.get(root))
+  return {tree,values,reads}
+ }
+ const plain=await readAll(false),shared=await readAll(true)
+ assert.deepEqual(plain.values,floors)
+ assert.deepEqual(shared.values,floors)
+ assert.ok(shared.reads*3<plain.reads,`later floors reuse the shared subtree: ${shared.reads} vs ${plain.reads} reads`)
+ shared.values[0].variables[0].stat_data.角色0.好感度=99
+ assert.equal(shared.values[1].variables[0].stat_data.角色0.好感度,0,'callers own independent copies')
+ // A caller's edit never reaches the decoder-owned trees kept in the decoded cache.
+ const cached=await readAll(true,1024*1024)
+ cached.values[2].variables[0].stat_data.角色1.状态.push('改')
+ assert.deepEqual(await cached.tree.get(roots[2]),floors[2])
+ assert.deepEqual(await cached.tree.get(roots[3]),floors[3])
+})

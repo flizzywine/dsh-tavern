@@ -62,9 +62,10 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  // reads must not evict the active game's entire decoder. Public reads remain
  // detached and every request resolves the authoritative head from disk.
  const decodedCache=createDecodedJsonCache(128*1024*1024)
+ // Each tree() serves one operation, so its shared-subtree memo ends with it.
  function tree(id){
   const cache=new Map();let bytes=0
-  const value=createIncrementalJsonState({decodedCache,async read(ref){
+  const value=createIncrementalJsonState({decodedCache,shareSubtrees:true,async read(ref){
    let entry=cache.get(ref)
    if(entry){cache.delete(ref);cache.set(ref,entry)}
    else {

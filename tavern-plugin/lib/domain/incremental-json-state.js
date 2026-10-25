@@ -32,7 +32,9 @@ export function createDecodedJsonCache(maxBytes = 0) {
    if (entry) { entries.delete(ref); entries.set(ref, entry) }
    return entry
   },
-  remember(ref, value) {
+  // `owned`: the value is a decoder-owned tree no caller holds (callers get
+  // copies), so it is kept as is and may share subtrees with other entries.
+  remember(ref, value, owned = false) {
    if (!(maxBytes > 0)) return
    const size = JSON.stringify(value).length * 4 + 256
    if (size > maxBytes) return
@@ -40,7 +42,7 @@ export function createDecodedJsonCache(maxBytes = 0) {
    while (entries.size && bytes + size > maxBytes) {
     const key = entries.keys().next().value; bytes -= entries.get(key).size; entries.delete(key)
    }
-   entries.set(ref, { value: copyJsonTree(value), size }); bytes += size
+   entries.set(ref, { value: owned ? value : copyJsonTree(value), size }); bytes += size
   }
  }
 }
@@ -48,8 +50,13 @@ export function createDecodedJsonCache(maxBytes = 0) {
 // A shared decoder cache is valid only for one immutable reference namespace.
 // Native storage uses content hashes; unrelated opaque-reference stores must
 // retain the default private cache.
-export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decodedCache=createDecodedJsonCache(decodedCacheBytes)}){
- const rememberDecoded = (ref,value) => decodedCache.remember(ref,value)
+// shareSubtrees is for short-lived instances (one storage operation). Floors of a
+// chat repeat most of their tree (variables, card state); with it each referenced
+// subtree is built once per instance and shared inside the decoder-owned trees.
+// Callers still receive detached copies.
+export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decodedCache=createDecodedJsonCache(decodedCacheBytes),shareSubtrees=false}){
+ const rememberDecoded = (ref,value,owned) => decodedCache.remember(ref,value,owned)
+ const subtrees=shareSubtrees?new Map():null
  function session(){
   const cache=new Map()
   return {get:async ref=>{if(!cache.has(ref))cache.set(ref,await read(ref));return cache.get(ref)},
@@ -104,17 +111,29 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
  async function decode(s,link,cacheResult=true){
   if(own(link,'value'))return link.value
   const previous=decodedCache.get(link.ref)
-  if(previous)return copyJsonTree(previous.value)
+  // With shared subtrees a nested result stays inside a decoder-owned tree.
+  if(previous)return subtrees&&!cacheResult?previous.value:copyJsonTree(previous.value)
+  if(subtrees&&!cacheResult){
+   let work=subtrees.get(link.ref)
+   if(!work){work=build(s,link);subtrees.set(link.ref,work);work.catch(()=>subtrees.delete(link.ref))}
+   return work
+  }
+  const value=await build(s,link)
+  // Budget only requested projections. Retaining every nested subtree repeats
+  // the same large strings and evicts otherwise reusable resource snapshots.
+  if(!cacheResult)return value
+  if(!subtrees){rememberDecoded(link.ref,value);return value}
+  rememberDecoded(link.ref,value,true)
+  return copyJsonTree(value)
+ }
+ async function build(s,link){
   const node=await s.get(link.ref)
-  if(node.type==='scalar'){if(cacheResult)rememberDecoded(link.ref,node.value);return node.value}
+  if(node.type==='scalar')return node.value
   if(!['object','array'].includes(node.type))throw fail('Corrupt state value')
   const value=node.type==='array'?[]:{}
   for(const [key,child] of (await entries(s,node.entries)).sort((a,b)=>a[2]-b[2])){
    Object.defineProperty(value,key,{value:await decode(s,child,false),enumerable:true,writable:true,configurable:true})
   }
-  // Budget only requested projections. Retaining every nested subtree repeats
-  // the same large strings and evicts otherwise reusable resource snapshots.
-  if(cacheResult)rememberDecoded(link.ref,value)
   return value
  }
  async function locate(s,link,parts){
