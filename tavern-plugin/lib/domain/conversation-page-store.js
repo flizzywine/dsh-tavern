@@ -15,6 +15,18 @@ const PACK_BYTES=64*1024, PACK_ENTRIES=256
 const hash=value=>createHash('sha256').update(value).digest('hex')
 const copy=value=>JSON.parse(JSON.stringify(value))
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value)
+// Every 64-hex string inside a value, in document order: candidate block references.
+function hexRefs(value,out=[]){
+ if(typeof value==='string'){if(/^[a-f0-9]{64}$/.test(value))out.push(value)}
+ else if(Array.isArray(value))for(const item of value)hexRefs(item,out)
+ else if(record(value))for(const item of Object.values(value))hexRefs(item,out)
+ return out
+}
+// A relayout rewrites the current head only when a cold open would read more than
+// RELAYOUT_RATIO times the packs a contiguous layout needs, and at least
+// RELAYOUT_MIN_EXCESS packs (about 4 MiB) more, so small saves never churn.
+const RELAYOUT_RATIO=2,RELAYOUT_MIN_EXCESS=64,RELAYOUT_LOCK_MS=250
+const UNLINKABLE=['EXDEV','EPERM','EACCES','ENOTSUP','EOPNOTSUPP','ENOSYS','EMLINK']
 function conflict(){return Object.assign(new Error('Conversation revision conflict'),{code:'CONVERSATION_CONFLICT'})}
 function integer(value,min=0){return Number.isSafeInteger(value)&&value>=min}
 
@@ -31,9 +43,11 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   while(packed.size&&packedBytes+size>8*1024*1024){const oldest=packed.keys().next().value;packedBytes-=packed.get(oldest).size;packed.delete(oldest)}
   if(size<=8*1024*1024){packed.set(key,{value,size});packedBytes+=size}
  }
- function decodeBlock(dir,id,bytes){
+ // `contents`, when given, receives the refs the file holds (a pack holds several).
+ function decodeBlock(dir,id,bytes,contents){
   if(hash(bytes)===id){
    const value=JSON.parse(bytes)
+   contents?.push(id)
    // Content hashes are immutable across revisions. Keep small index/record
    // blocks warm across field reads; the mutable head pointer is never cached.
    if(Buffer.byteLength(bytes)<=64*1024)cachePacked(dir,id,value,Buffer.byteLength(bytes)*2+128)
@@ -52,6 +66,7 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   }
   if(!seen.has(id))throw Error('Immutable pack is missing requested block')
   for(const entry of entries)cachePacked(dir,...entry)
+  contents?.push(...seen)
   return entries.find(entry=>entry[0]===id)[1]
  }
  function directory(id){
@@ -531,18 +546,16 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
    const reference=JSON.parse(pointer)
    if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
    const marked=new Set(),queue=[[reference.headId,true]]
+   // Through the read cache: a pack is parsed once, not once per block it holds.
    async function load(ref,required){
+    const cached=packed.get(dir+'/'+ref)
+    if(cached)return cached.value
     let bytes
     try{bytes=await readFile(blobPath(dir,ref),'utf8')}catch(error){
      if(error.code==='ENOENT'&&!required)return undefined
      throw error
     }
     return decodeBlock(dir,ref,bytes)
-   }
-   function scan(value,optional){
-    if(typeof value==='string'){if(HEX.test(value)&&!marked.has(value))optional.push(value);return}
-    if(Array.isArray(value)){for(const item of value)scan(item,optional);return}
-    if(record(value))for(const item of Object.values(value))scan(item,optional)
    }
    while(queue.length){
     const [ref,required]=queue.pop()
@@ -562,7 +575,7 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
      if(retainEntry(value.key))strong.push(value.valueRef)
      else marked.add(value.valueRef)
     }
-    else scan(value,optional)
+    else for(const next of hexRefs(value))if(!marked.has(next))optional.push(next)
     for(const next of strong)queue.push([next,true])
     for(const next of optional)queue.push([next,false])
    }
@@ -586,6 +599,9 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
      const info=await stat(file)
      if(info.mtimeMs>cutoff){kept++;continue}
      await remove(file,info)
+     // A later mark must not find a removed block through the cache.
+     const cached=!dryRun&&packed.get(dir+'/'+ref)
+     if(cached){packedBytes-=cached.size;packed.delete(dir+'/'+ref)}
     }
    }
    const packs=path.join(blocks,'.packs')
@@ -605,5 +621,138 @@ export function createConversationPageStore({root,onIO=()=>{},linkFile=link}={})
   })
   return result
  }
- return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries})
+ // Each commit packs only the blocks it changed, so after many commits one floor's
+ // tree is spread over hundreds of packs and a cold open parses each pack many
+ // times. Visit the head's blocks in the order an open reads them: head, metadata,
+ // state, the page tree, then each floor newest first, each floor's tree depth
+ // first. Each unit (the header part, the page tree, one floor) counts the distinct
+ // files it touches. Older heads and the keyed-record index are not on this path.
+ async function layout(dir,headId,visit){
+  const seen=new Set(),pages=[],fileOf=new Map()
+  let unit=0
+  async function load(ref){
+   const cached=fileOf.has(ref)&&packed.get(dir+'/'+ref)
+   if(cached)return cached.value
+   const bytes=await readFile(blobPath(dir,ref),'utf8'),contents=[]
+   const value=decodeBlock(dir,ref,bytes,contents)
+   onIO({kind:'read',type:value.kind,bytes:Buffer.byteLength(bytes),reason:'relayout'})
+   for(const sibling of contents)fileOf.set(sibling,contents[0])
+   return value
+  }
+  async function walk(roots){
+   const stack=[...roots].reverse()
+   while(stack.length){
+    const [ref,required]=stack.pop()
+    if(seen.has(ref))continue
+    let value
+    try{value=await load(ref)}catch(error){if(error.code==='ENOENT'&&!required)continue;throw error}
+    if(ref!==headId&&['head','entries','entry'].includes(value.kind))continue
+    seen.add(ref);await visit(ref,value,fileOf.get(ref),unit)
+    if(value.kind==='page')pages.push(value)
+    const next=value.kind==='index'?value.children.filter(Boolean).map(child=>[child,true])
+     :value.kind==='head'||value.kind==='page'?[]:hexRefs(value).map(child=>[child,false])
+    for(let i=next.length-1;i>=0;i--)stack.push(next[i])
+   }
+  }
+  const head=validateHead(await load(headId),path.basename(dir))
+  await walk([[headId,true],[head.metadataId,true],[head.stateId,true]])
+  pages.length=0
+  unit++
+  if(head.root)await walk([[head.root,true]])
+  for(let p=pages.length-1;p>=0;p--)for(let m=pages[p].messages.length-1;m>=0;m--){
+   unit++
+   await walk(hexRefs(pages[p].messages[m]).map(ref=>[ref,false]))
+  }
+ }
+ // The same greedy grouping as writePacked and repack, in visiting order.
+ function packer(flush){
+  let group=[],groupBytes=64,index=0
+  return {
+   async add(entry,size){
+    if(group.length&&(groupBytes+size>PACK_BYTES||group.length>=PACK_ENTRIES)){await flush(group,index++);group=[];groupBytes=64}
+    group.push(entry);groupBytes+=size
+    return index
+   },
+   async end(){if(group.length)await flush(group,index++)}
+  }
+ }
+ // Measure the current head's layout; when it is fragmented, rewrite its blocks in
+ // visiting order into fresh block packs (same format and refs) and repoint each
+ // block's link atomically, as repack does. Reading and writing packs needs no lock:
+ // the head is immutable and packs are new files. Relinking holds the write lock
+ // for at most RELAYOUT_LOCK_MS at a time so queued commits run in between. A link
+ // is valid whatever head is current (content addressing); a block swept between
+ // two steps may come back only as garbage for the next sweep. The sweep frees the
+ // emptied old packs.
+ async function relayout(id,{dryRun=false}={}){
+  const dir=directory(id),pointer=await promotion.read(path.join(dir,'head.json'))
+  if(pointer===undefined)return undefined
+  const reference=JSON.parse(pointer)
+  if(!readablePointer(reference.format))throw Error('Unsupported conversation format')
+  const units=new Map(),files=new Set()
+  let blocks=0,bytes=0,phase=performance.now()
+  const touch=(unit,key)=>{if(!units.has(unit))units.set(unit,{files:new Set(),groups:new Set()});return units.get(unit)[key]}
+  const ideal=packer(async()=>{})
+  await layout(dir,reference.headId,async(ref,value,file,unit)=>{
+   const size=Buffer.byteLength(JSON.stringify(value))+70
+   blocks++;bytes+=size;files.add(file);touch(unit,'files').add(file)
+   touch(unit,'groups').add(await ideal.add(ref,size))
+  })
+  const sum=key=>[...units.values()].reduce((total,unit)=>total+unit[key].size,0)
+  const result={headId:reference.headId,blocks,bytes,files:files.size,visits:sum('files'),ideal:sum('groups'),relinked:0,written:0,
+   measureMs:Math.round(performance.now()-phase),writeMs:0,relinkMs:0,lockHolds:0,maxLockMs:0}
+  result.fragmented=result.visits>RELAYOUT_RATIO*result.ideal&&result.visits-result.ideal>=RELAYOUT_MIN_EXCESS
+  if(dryRun||!result.fragmented)return result
+  // Without hard links every block keeps its own file; there is nothing to repoint.
+  const probe=blobPath(dir,reference.headId)+'.relink-'+randomUUID()
+  try{await linkFile(blobPath(dir,reference.headId),probe)}
+  catch(error){if(UNLINKABLE.includes(error.code))return result;throw error}
+  finally{await rm(probe,{force:true})}
+  const packs=path.join(dir,'blocks','.packs'),written=[]
+  await mkdir(packs,{recursive:true})
+  const output=packer(async group=>{
+   if(group.length===1)return
+   const bytes=JSON.stringify({kind:'block-pack-v1',records:group})
+   const target=path.join(packs,hash(bytes)+'.json'),staging=target+'.staging-'+randomUUID()
+   let handle
+   try{handle=await open(staging,'wx');await handle.writeFile(bytes);await handle.sync();await handle.close();handle=null
+    await rename(staging,target)}finally{if(handle)await handle.close();await rm(staging,{force:true})}
+   onIO({kind:'write',type:'block-pack',bytes:Buffer.byteLength(bytes),reason:'relayout'})
+   result.written+=Buffer.byteLength(bytes)
+   written.push({target,refs:group.map(([ref])=>ref)})
+  })
+  await layout(dir,reference.headId,async(ref,value)=>{await output.add([ref,value],Buffer.byteLength(JSON.stringify(value))+70)})
+  await output.end()
+  await syncDirectory(packs)
+  result.writeMs=Math.round(performance.now()-(phase+result.measureMs));phase=performance.now()
+  let next=0
+  while(next<written.length){
+   let gone=false
+   await promotion.update(path.join(dir,'head.json'),async current=>{
+    if(current===undefined){gone=true;return undefined}
+    const started=performance.now(),directories=new Set()
+    while(next<written.length&&performance.now()<started+RELAYOUT_LOCK_MS){
+     const {target,refs}=written[next++]
+     let index=0
+     await Promise.all(Array.from({length:8},async()=>{
+      while(index<refs.length){
+       const destination=blobPath(dir,refs[index++]),temporary=destination+'.relink-'+randomUUID()
+       try{await linkFile(target,temporary);await rename(temporary,destination);directories.add(path.dirname(destination));result.relinked++}
+       catch(error){
+        await rm(temporary,{force:true})
+        if(error.code!=='ENOENT'&&!UNLINKABLE.includes(error.code))throw error
+       }
+      }
+     }))
+    }
+    for(const directory of directories)await syncDirectory(directory)
+    result.lockHolds++;result.maxLockMs=Math.max(result.maxLockMs,Math.round(performance.now()-started))
+    return undefined
+   })
+   if(gone)break
+  }
+  result.relinkMs=Math.round(performance.now()-phase)
+  return result
+ }
+ return Object.freeze({create,commit,readHead,openConversation,readHistoryPage,readState,writeRecord,writeRecords,readRecord,readEntries,sweep,pruneEntries,relayout})
 }

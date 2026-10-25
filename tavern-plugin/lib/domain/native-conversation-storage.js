@@ -681,5 +681,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const result=await pages.sweep(id,{graceMs,dryRun,retainEntry:needed})
   return {...result,indexKeysRemoved:pruned.removed}
  }
- return Object.freeze({compact,readRetentionHeader,patch,read,readWindow,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ // Contiguous packs in read order for a fragmented current head; no lock while reading.
+ async function relayout(id,options){return pages.relayout(id,options)}
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

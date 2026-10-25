@@ -78,6 +78,8 @@ export function createSaveMaintenance({
     // Incremental reads back to the last few rollback points stay fast.
     const recentCheckpoints = (head.timeline?.checkpoints || []).slice(-3).map(item => Number(item?.beforeRevision)).filter(Number.isSafeInteger)
     const changeFloor = recentCheckpoints.length ? Math.min(...recentCheckpoints) : undefined
+    // Before the sweep, so this same pass frees the packs the relayout emptied.
+    result.relayout = await chats.relayout(chatId)
     result.compaction = await chats.compact(chatId, { retain: revision => retain.has(revision), keepRecent, changeFloor, graceMs })
     const legacyFrom = Number(head.legacyInitialRevision)
     const oldestKept = Math.min(head._storageRevision - keepRecent + 1, ...retain)

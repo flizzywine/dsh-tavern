@@ -700,6 +700,11 @@ export function createChatJournalStore(options = {}) {
   async function compact(chatId, options) {
     return await serialize(chatId, () => native.compact(chatId, options))
   }
+  // Not serialized: it reads one pinned immutable head and takes the write lock
+  // only in short relink steps, so play is never queued behind it.
+  async function relayout(chatId, options) {
+    return await native.relayout(chatId, options)
+  }
   async function readRetentionHeader(chatId, revision) {
     try { return await native.readRetentionHeader(chatId, revision) }
     catch (error) { if (error?.code === 'DSH_TAVERN_REVISION_NOT_FOUND') return null; throw error }
@@ -719,5 +724,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
 }
