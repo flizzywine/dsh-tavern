@@ -83,6 +83,8 @@ function TavernStageScene(props) {
 		name: beat && beat.kind === "line" ? beat.speaker : "", nameArc: props.art.faceName }) : null;
 	// 物品: this page's item (one at most) waits unseen, its picture already loading; the page's playback shows it once.
 	const item = (data.turns.at(-1)?.performances || []).find(event => event.op === "item.play" && event.at === index + 1);
+	// 旁白逐行 (stage-narration.js): a skin's art.narration.lines brings a narration card in line by line instead of glyph by glyph.
+	const typer = beat && beat.kind === "narration" && props.narrationLines ? TavernStageNarrationLines : TavernStageTypewriter;
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -98,7 +100,7 @@ function TavernStageScene(props) {
 			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { ref: nameRef, "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, ref: props.textRef, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") },
-				h(TavernStageTypewriter, { key: props.visit, text: props.card ?? beat.text, speed: props.textSpeed, reveal: props.reveal, instant: props.typed, onDone: props.onTyped }), next),
+				h(typer, { key: props.visit, text: props.card ?? beat.text, speed: props.textSpeed, reveal: props.reveal, lines: props.narrationLines, instant: props.typed, onDone: props.onTyped }), next),
 			lamp, props.footer || null, props.dock || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文", props.dock || null));
 }
@@ -455,6 +457,9 @@ function TavernStageScreen(props) {
 		}, STAGE_SKIP_CARD_MS);
 		return () => clearTimeout(timer);
 	}, [skipping, atEnd, lastCard, Boolean(config), backlog, cardKey]);
+	// 旁白 (modules/stage-narration.js): a skin's art.narration lays a narration page out without the box (tavern.css 「stage narration」).
+	const narration = skinDocument.art && skinDocument.art.narration || null;
+	const narrationLayout = stageNarrationLayout({ narration, beat: beats[reader.index], skipping, mode: reader.mode, events: latest ? latest.performances : [], at: reader.index + 1 });
 	const skipHoldBlocked = Boolean(config) || backlog;
 	React.useEffect(() => {
 		if (skipHoldBlocked) { setSkipHeld(false); return undefined; }
@@ -586,9 +591,9 @@ function TavernStageScreen(props) {
 		tavernStageRuntime.page(id, page);
 	}
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
-		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
+		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-narration-layout": narrationLayout, "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: advance, footer, art, speaking, dock: docked ? input : null,
-			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
+			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, narrationLines: narration && narration.lines, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
 			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,

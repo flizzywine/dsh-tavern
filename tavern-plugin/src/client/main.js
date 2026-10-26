@@ -850,11 +850,13 @@ window.__ModuleLoader__.load({
 // @include modules/stage-backlog.js
 // @include modules/stage-typewriter.js
 // @include modules/stage-pager.js
+// @include modules/stage-narration.js
 // @include features/stage-entrance.js
 // @include features/stage-audio.js
 // @include features/stage-runtime.js
 // @include features/stage-typewriter.js
 // @include features/stage-pager.js
+// @include features/stage-narration.js
 // @include features/stage-mixer.js
 // @include features/stage-config.js
 // @include features/stage-backlog.js

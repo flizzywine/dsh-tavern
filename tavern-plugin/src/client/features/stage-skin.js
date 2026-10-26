@@ -13,7 +13,7 @@ function stageSkinTokens(document) {
 		"--gal-skin-line-height": String(document.textStyle?.lineHeight || 1.7),
 		// textFx: the ink a glyph enters in (flash) and the side a stamp drops from (tavern.css 「stage typewriter」).
 		"--gal-skin-flash": document.textFx.flash || document.textStyle?.emphasis || p.fg, "--gal-skin-stamp-y": document.textFx.from === "bottom" ? "16px" : "-16px",
-		...stageSkinGlyphPoses(document.textFx), ...stageSkinQuickMenu(document) };
+		...stageSkinGlyphPoses(document.textFx), ...stageSkinQuickMenu(document), ...stageSkinNarrationTokens(document.art) };
 	let spread = 0;
 	tokens["--gal-skin-rings"] = (shape.rings || []).map(ring => `0 0 0 ${spread += ring.width}px ${ring.color}`).join(",") || "none";
 	return Object.assign(tokens, stageSkinPanelTokens(document));
@@ -29,6 +29,20 @@ function stageSkinGlyphPoses(fx) {
 		tokens[p + "-c"] = pose.ink === "flash" ? "var(--gal-skin-flash)" : pose.ink === "accent" ? "var(--gal-skin-accent)" : "var(--gal-skin-fg)";
 	});
 	return tokens;
+}
+
+// art.narration (tavern.css 「stage narration」): the boxless narration in px of the design screen - its size, pitch, veil and
+// centre (y, by default the middle), and the band's (by default 30 / 43 px, veil 80/255, on the bottom edge). The design width
+// bounds the px as it does the art layer's; without art.screenWidth the screen is 16:9. It needs no image, so it is drawn
+// from the document alone.
+function stageSkinNarrationTokens(art) {
+	const narration = art && art.narration;
+	if (!narration) return {};
+	const band = narration.band || {};
+	return { "--nar-screen": String(art.screen), "--nar-screen-w": String(art.screenWidth || Math.round(art.screen * 16 / 9)),
+		"--art-nar-font": String(narration.font), "--art-nar-pitch": String(narration.pitch), "--art-nar-veil": String(narration.veil), "--art-nar-y": String(narration.y ?? art.screen / 2),
+		"--art-nar-band-font": String(band.font ?? 30), "--art-nar-band-pitch": String(band.pitch ?? 43), "--art-nar-band-veil": String(band.veil ?? Math.round(80 / 255 * 1000) / 1000),
+		"--art-nar-band-bottom": String(band.bottom ?? 0) };
 }
 
 // The control row sits on the text box with no plate of its own: the skin's own ink at rest (quickMenu.fg, else fgMuted,
