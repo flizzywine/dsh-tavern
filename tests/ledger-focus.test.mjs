@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { applyLedgerDelta } from '../tavern-plugin/lib/domain/story-ledger.js'
-import { pickLedgerEntities, focusedLedgerContext, assertLedgerFocus } from '../tavern-plugin/lib/domain/ledger-focus.js'
+import { pickLedgerEntities, focusedLedgerContext, assertLedgerFocus, lookupLedgerEntities } from '../tavern-plugin/lib/domain/ledger-focus.js'
 
 function fixture() {
   let ledger = applyLedgerDelta(null, {
@@ -73,4 +73,42 @@ test('关联人物只能改关系；范围外条目和地点子树不允许被�
     { scenes: { reparent: [{ node: ['城', '客栈'], newPath: ['镇', '客栈'] }] } }
   ]) assert.throws(() => assertLedgerFocus(ledger, focus, delta))
   assertLedgerFocus(ledger, focus, { items: { add: [{ name: '新获得的药' }] } })
+})
+
+test('正文只用代词且命中地点时，可查询漏选人物，关联扩展仍不超过一跳', () => {
+  const ledger = fixture(), story = '她在客栈包扎伤口。'
+  const initial = pickLedgerEntities(ledger, story)
+  assert.equal(initial.ledger.npcs.length, 0)
+  const focus = lookupLedgerEntities(ledger, initial, { kind: 'npcs', names: ['苏婉'], evidence: story }, story)
+  assert.deepEqual(focus.ledger.npcs.map(row => row.name), ['苏婉', '陈岚'])
+  assert.deepEqual(focus.related, ['陈岚'])
+  assertLedgerFocus(ledger, focus, { npcs: { update: [{ name: '苏婉', condition: '伤口已包扎' }] } })
+  assert.throws(() => assertLedgerFocus(ledger, focus, { npcs: { update: [{ name: '陈岚', location: '客栈' }] } }))
+  assert.equal(initial.ledger.npcs.length, 0, 'lookup must not mutate the previous scope')
+})
+
+test('查询必须有本批正文依据，不接受玩家计划、未知名称或错误分类，失败时不扩展范围', () => {
+  const ledger = fixture(), story = '[玩家]我要找苏婉。\n[正文]她进了客栈。', evidenceText = '她进了客栈。'
+  const focus = pickLedgerEntities(ledger, '客栈')
+  for (const args of [
+    { kind: 'npcs', names: ['苏婉'], evidence: '我要找苏婉。' },
+    { kind: 'npcs', names: ['不存在'], evidence: evidenceText },
+    { kind: 'npcs', names: ['苏婉', '不存在'], evidence: evidenceText },
+    { kind: 'unknown', names: ['苏婉'], evidence: evidenceText },
+    { kind: 'npcs', names: [], evidence: evidenceText },
+    { kind: 'npcs', names: [42], evidence: evidenceText },
+    { kind: 'npcs', names: ['苏婉'], evidence: '编造的剧情' }
+  ]) assert.throws(() => lookupLedgerEntities(ledger, focus, args, story, evidenceText))
+  assert.equal(focus.ledger.npcs.length, 0)
+})
+
+test('地点调整可补取未命中的子地点，查询物品不会把关联人物升级成出场人物', () => {
+  const ledger = fixture(), story = '苏婉在客栈检查后院入口的旧信。'
+  let focus = pickLedgerEntities(ledger, '苏婉在客栈。')
+  focus = lookupLedgerEntities(ledger, focus, { kind: 'scenes', names: ['城 / 客栈 / 后院'], evidence: '检查后院入口' }, story)
+  focus = lookupLedgerEntities(ledger, focus, { kind: 'items', names: ['旧信'], evidence: '旧信' }, story)
+  assertLedgerFocus(ledger, focus, { scenes: { reparent: [{ node: ['城', '客栈'], newPath: ['镇', '客栈'] }] } })
+  assertLedgerFocus(ledger, focus, { items: { update: [{ name: '旧信', carried: true }] } })
+  assert.deepEqual(focus.related, ['陈岚'])
+  assert.ok(!focus.ledger.npcs.some(row => row.name === '宋英'))
 })

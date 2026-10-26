@@ -2,7 +2,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createBackgroundTaskCoordinator } from '../tavern-plugin/lib/domain/background-task-coordinator.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createManualLedger } from "../tavern-plugin/lib/domain/manual-ledger.js"
+import { createManualLedger, ledgerBacklog } from "../tavern-plugin/lib/domain/manual-ledger.js"
 import { applyLedgerDelta } from '../tavern-plugin/lib/domain/story-ledger.js'
 
 const round = turn => [
@@ -28,7 +28,7 @@ test('手动整理只处理上次之后的新剧情，并记录整理到的轮�
   const seen = []
   const run = fixture(async input => {
     seen.push(input.messages[0].content[0].text)
-    assert.deepEqual(input.tools.map(tool => tool.name), ['ledger_submit'])
+    assert.deepEqual(input.tools.map(tool => tool.name), ['ledger_submit', 'ledger_lookup'])
     assert.equal(input.task, 'ledger')
     await input.onToolCall({ name: 'ledger_submit', arguments: addKey })
   })
@@ -42,6 +42,42 @@ test('手动整理只处理上次之后的新剧情，并记录整理到的轮�
   assert.deepEqual(after.ledgerInjection, { through: 2 }, 'the next story turn reads the ledger once')
   assert.match(seen[0], /第 1 轮[\s\S]*第 2 轮/)
   await assert.rejects(run.api.start({ sessionId: 'session' }), /还没有新的剧情/)
+})
+
+test('查询补取漏选人物后可更新，查询本身不修改台账；玩家计划不能作为查询证据', async () => {
+  const ledger = applyLedgerDelta(null, { npcs: { add: [{ name: '苏婉', condition: '受伤' }] }, scenes: { add: [{ path: ['客栈'], desc: '住处' }] } }, 1)
+  ledger.consolidatedTurn = 1
+  const run = fixture(async input => {
+    assert.ok(!input.messages[0].content[0].text.includes('"condition":"受伤"'))
+    const before = run.get().ledger
+    assert.equal(JSON.parse(await input.onToolCall({ name: 'ledger_lookup', arguments: { kind: 'npcs', names: ['苏婉'], evidence: '我要找她' } })).retryable, true)
+    const found = JSON.parse(await input.onToolCall({ name: 'ledger_lookup', arguments: { kind: 'npcs', names: ['苏婉'], evidence: '她在客栈包扎伤口。' } }))
+    assert.equal(found.ok, true)
+    assert.match(found.context, /受伤/)
+    assert.deepEqual(run.get().ledger, before)
+    await input.onToolCall({ name: 'ledger_submit', arguments: { npcs: { update: [{ name: '苏婉', condition: '已包扎' }] } } })
+  }, [{ role: 'user', turn: 2, text: '我要找她' }, { role: 'assistant', turn: 2, text: '她在客栈包扎伤口。' }], ledger)
+  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
+  assert.equal(run.get().ledgerTask.status, 'done')
+  assert.equal(run.get().ledger.npcs[0].condition, '已包扎')
+})
+
+test('筛选异常会终结任务并允许重试，不会一直停在整理中', async () => {
+  let called = false
+  const run = fixture(async () => { called = true }, round(1), { version: 1, items: null, npcs: [], scenes: [] })
+  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
+  assert.equal(run.get().ledgerTask.status, 'failed')
+  assert.equal(called, false)
+  await run.api.start({ sessionId: 'session' }); await run.api.wait('chat')
+  assert.equal(run.get().ledgerTask.status, 'failed')
+})
+
+test('查询证据仅来自本批正文，不包含玩家计划或预算之外的轮次', () => {
+  const chat = { messages: [
+    { role: 'user', turn: 1, text: '去找她' }, { role: 'assistant', turn: 1, text: '她开门。' },
+    { role: 'assistant', turn: 2, text: '她包扎。' }
+  ] }
+  assert.equal(ledgerBacklog(chat, 1).evidenceText, '她开门。')
 })
 
 test('手动整理使用精简上下文，越界提交可重试且不覆盖旧状态', async () => {

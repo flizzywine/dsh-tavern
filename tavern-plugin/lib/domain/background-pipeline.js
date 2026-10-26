@@ -106,7 +106,7 @@ export function createLedgerItem({ rules }) {
     trigger: 'manual',
     requirement: '本次执行玩家手动发起的台账整理。台账是给玩家查阅的备忘录，整理后下一轮正文会参考一次。',
     rules,
-    protocol: ({ from, through }) => '阅读给出的剧情（第 ' + from + '–' + through + ' 轮），对照当前台账，调用一次 ledger_submit 提交这些剧情带来的增量；没有变化也提交 {}。不得改写正文、变量或姿势。',
+    protocol: ({ from, through }) => '阅读给出的剧情（第 ' + from + '–' + through + ' 轮），对照当前台账；正文涉及的已有条目详情缺失时先用 ledger_lookup 补取。调用一次 ledger_submit 提交涉及条目的更新，人物性格和关系按当前事实核对重写；没有变化也提交 {}。不得改写正文、变量或姿势。',
     system(range) { return this.requirement + this.protocol(range) + '\n\n' + this.rules }
   })
 }

@@ -57,7 +57,7 @@ const groups = Object.fromEntries(Object.keys(fields).map(kind => [kind, {
 }]))
 export const LEDGER_SUBMIT_TOOL = Object.freeze({
   name: 'ledger_submit',
-  description: '提交本轮正文已经发生的物品、角色和地点变化。仅提交增量；无变化也须提交 {}。物品 add.qty 为新增数量，update.qty 为变更后的总数。只记账，不改变剧情或人物卡变量。',
+  description: '提交本批正文确认的物品、角色和地点更新。只输出涉及的条目；出场人物的性格和关系按当前事实核对重写，无变化也须提交 {}。物品 add.qty 为新增数量，update.qty 为变更后的总数。只记账，不改变剧情或人物卡变量。',
   parameters: { type: 'object', additionalProperties: false, properties: { location: { type: 'string' }, locationPath: { type: 'array', items: { type: 'string' }, minItems: 1 }, ...groups } }
 })
 export const LEDGER_RULES = `【台账维护】
