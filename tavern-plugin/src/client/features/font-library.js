@@ -17,7 +17,7 @@ const tavernFontLibrary = (() => {
 			if (!font || registered.has(id)) return;
 			registered.add(id);
 			if (!style) { style = document.createElement("style"); style.dataset.tavernFontLibrary = ""; document.head.appendChild(style); }
-			style.append(font.files.map(file => "@font-face{font-family:" + JSON.stringify(font.family) + ";src:url(" + JSON.stringify(file.url) + ") format(\"woff2\");font-weight:" + file.weight +
+			style.append(font.files.map(file => "@font-face{font-family:" + JSON.stringify(font.family) + ";src:url(" + JSON.stringify(file.url) + ") format(" + JSON.stringify(file.format) + ");font-weight:" + file.weight +
 				";font-style:" + file.style + ";font-display:swap}").join("\n") + "\n");
 		},
 		subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }

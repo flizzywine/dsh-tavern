@@ -18,8 +18,8 @@ const head = []
 const document = { fonts, head: { appendChild(node) { head.push(node) } }, createElement: () => ({ dataset: {}, text: '', append(text) { this.text += text } }) }
 const rpcCalls = []
 const library = [
-  { id: 'noto-sans-sc', family: 'Tavern noto-sans-sc', files: [{ weight: 400, style: 'normal', url: '/api/dsh-tavern/fonts/noto-sans-sc/400-0123456789abcdef.woff2' }, { weight: 700, style: 'normal', url: '/api/dsh-tavern/fonts/noto-sans-sc/700-0123456789abcdef.woff2' }] },
-  { id: 'neo-xihei-screen', family: 'Tavern neo-xihei-screen', files: [{ weight: 400, style: 'normal', url: '/api/dsh-tavern/fonts/neo-xihei-screen/400-0123456789abcdef.woff2' }] }
+  { id: 'noto-sans-sc', family: 'Tavern noto-sans-sc', files: [{ weight: 400, style: 'normal', format: 'woff2', url: '/api/dsh-tavern/fonts/noto-sans-sc/400-0123456789abcdef.woff2' }, { weight: 700, style: 'normal', format: 'woff2', url: '/api/dsh-tavern/fonts/noto-sans-sc/700-0123456789abcdef.woff2' }] },
+  { id: 'neo-xihei-screen', family: 'Tavern neo-xihei-screen', files: [{ weight: 400, style: 'normal', format: 'truetype', url: '/api/dsh-tavern/fonts/neo-xihei-screen/LXGWNeoXiHeiScreen.ttf' }] }
 ]
 const React = { useEffect(fn) { effects.push(fn) }, useSyncExternalStore: (subscribe, get) => get() }
 const interpreter = vm.runInNewContext(librarySource + '\n' + source + '; ({ stageSkinRoot, useStageSkinFonts, tavernFontLibrary })',
@@ -76,7 +76,7 @@ test('the stage loads what its roles name: library families once, the skin\'s fa
   interpreter.useStageSkinFonts({ document, base: '/lease/abc/skin/' }, document, library)
   const [families, faces] = effects.map(effect => effect())
   assert.equal(families, undefined)
-  assert.match(head[0].text, /Tavern neo-xihei-screen.*400-0123456789abcdef/, 'the name\'s family joined the page')
+  assert.match(head[0].text, /Tavern neo-xihei-screen.*LXGWNeoXiHeiScreen\.ttf"\) format\("truetype"\)/, 'the name\'s original TrueType family joined the page')
   assert.equal(head[0].text.match(/Tavern noto-sans-sc/g).length, 2, 'the face\'s fallback was already there: not written again')
   assert.equal(fonts.added.length, 1)
   const [face] = fonts.added
