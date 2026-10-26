@@ -4,9 +4,11 @@
 // The layout of the page on screen: none unless the skin declares art.narration and the page is narration; a fast-forward
 // keeps the box (150 ms pages must not flip the veil and the band). band: the page's item has a picture and this visit plays
 // it (a page turn or a new body: a skip and a restored page never show it). The page's events do not change during a
-// visit, so the layout holds for the whole line.
+// visit, so the layout holds for the whole line. The skin's art.narration.layout wins over the picture: box keeps the box
+// (none), free is always centred, band always the strip.
 function stageNarrationLayout({ narration, beat, skipping, mode, events, at }) {
-	if (!narration || !beat || beat.kind !== "narration" || skipping) return undefined;
+	if (!narration || !beat || beat.kind !== "narration" || skipping || narration.layout === "box") return undefined;
+	if (narration.layout) return narration.layout === "free" ? "screen" : "band";
 	const picture = (mode === "page" || mode === "live") && (events || []).some(event => event.op === "item.play" && event.at === at && event.image);
 	return picture ? "band" : "screen";
 }

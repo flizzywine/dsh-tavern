@@ -154,7 +154,9 @@ test('the JSON Schema mirror describes the same document: same fields, the gener
   const name = { arc: [160, 200, 120], font: 30, min: 14, ink: '#f0e8d0', stroke: { color: '#201810', width: 2 }, shadow: { color: '#000000', dy: 2 }, bed: { color: '#000000', alpha: .4 } }
   const documents = [classic, minimal, skin({ quickMenu: { bg: '#101418', fg: '#f2f2f2', place: 'box-top-right', narrow: 'top' } }),
     skin({ art: art({ textbox: { ...art().textbox, slice: { edges: [8, 8, 8, 8] }, cue: [900, 40, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } } }) }),
-    skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) })]
+    skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) }),
+    skin({ textStyle: { narration: '#ffffff' }, art: art({ narration: { font: 30, pitch: 50, veil: .75, layout: 'free', ink: '#1d1a22', veilColor: '#f4efe6', halo: false } }) }),
+    skin({ art: art({ narration: { font: 30, pitch: 50, veil: .6, layout: 'band', halo: { blur: 2, color: '#000000' } } }) })]
   for (const document of documents) { validateStageSkin(document); assert.ok(schemaAccepts(document), document.id) }
   for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) })]) assert.equal(schemaAccepts(document), false)
 })

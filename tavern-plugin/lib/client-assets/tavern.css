@@ -3491,12 +3491,15 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
    旁白 (modules/stage-narration.js, the skin's art.narration): the stage writes data-narration-layout on its root only for a skin
    that declares art.narration, only on a narration page and never while 跳过 fast-forwards. There is no box: its paint, image,
    name, face window, page cue and lamp are not drawn, and the control row follows the lines (the line overflow is visible: a\n   line rises into place). One design px is --nar-u: the
-   stage's height over art.screen, bounded by its width over the design width. The words are a light ink with a dark halo, as
-   film subtitles: the veil is black whatever the skin's paint, so the ink is fixed too, and the control row takes it. A card
-   still holds at most the pager's three lines (the text's max-height, which the pager reads).
-   screen: the lines centred on art.narration.y while the scene (backdrop and figures) darkens by veil.
-   band: while the page shows a picture, a strip along the bottom (band.bottom up), veiled by band.veil; the scene keeps its light. */
-.dsh-tavern-stage-overlay[data-narration-layout] { --nar-u: min(calc(100vh / var(--nar-screen)), calc(100vw / var(--nar-screen-w))); }
+   stage's height over art.screen, bounded by its width over the design width. The words take the skin's narration ink and
+   halo (--art-nar-ink / --art-nar-halo; by default a light ink with a dark halo, as film subtitles) and the control row takes
+   them too; the veil is the skin's veil colour (--art-nar-veil-rgb, by default black). A card still holds at most the pager's
+   three lines (the text's max-height, which the pager reads).
+   screen (art.narration.layout free): the lines centred on art.narration.y while the scene (backdrop and figures) is veiled.
+   band: a strip along the bottom (band.bottom up), veiled by band.veil; the scene keeps its light.
+   box (no data-narration-layout): the page keeps the text box; textStyle.narration (data-fk-skin-narration-ink) inks it. */
+.dsh-tavern-stage-overlay { --nar-u: min(calc(100vh / var(--nar-screen)), calc(100vw / var(--nar-screen-w))); }
+.dsh-tavern-stage-overlay[data-fk-skin-narration-ink]:not([data-narration-layout]) .dsh-tavern-stage-scene .dsh-tavern-stage-text.is-narration { --gal-skin-fg: var(--gal-skin-narration); }
 .dsh-tavern-stage-overlay[data-narration-layout] .dsh-tavern-stage-scene .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox {
   --nar-fs: max(17px, calc(var(--nar-font) * var(--nar-u))); --art-dock-over: 0px;
   left: 50%; right: auto; width: 100%; height: auto; min-height: 0; justify-content: flex-start; gap: 0; border: 0; border-radius: 0; box-shadow: none; background: none; }
@@ -3506,20 +3509,22 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-overlay[data-narration-layout="band"] .dsh-tavern-stage-scene .dsh-tavern-stage-textbox.dsh-tavern-stage-textbox {
   --nar-font: var(--art-nar-band-font); --nar-pitch: var(--art-nar-band-pitch);
   top: auto; bottom: calc(var(--art-nar-band-bottom) * var(--nar-u)); max-height: 50%; padding: calc(7.5 * var(--nar-u)) max(1em, 6%); transform: translateX(-50%);
-  background: rgb(0 0 0 / var(--art-nar-band-veil)); }
+  background: rgb(var(--art-nar-veil-rgb) / var(--art-nar-band-veil)); }
 .dsh-tavern-stage-overlay[data-narration-layout] .dsh-tavern-stage-scene .dsh-tavern-stage-textbox::before,
 .dsh-tavern-stage-overlay[data-narration-layout] .dsh-tavern-stage-scene .dsh-tavern-stage-textbox :is(.dsh-tavern-stage-name, .dsh-tavern-stage-side, .dsh-tavern-stage-next, .dsh-tavern-stage-lamp) { display: none; }
 .dsh-tavern-stage-overlay[data-narration-layout] .dsh-tavern-stage-scene .dsh-tavern-stage-text {
-  --gal-skin-fg: #fbf8ff; flex: none; margin: 0; padding: 0; overflow: visible; font-size: var(--nar-fs); line-height: calc(var(--nar-pitch) / var(--nar-font));
+  --gal-skin-fg: var(--art-nar-ink); flex: none; margin: 0; padding: 0; overflow: visible; font-size: var(--nar-fs); line-height: calc(var(--nar-pitch) / var(--nar-font));
   max-height: calc(3 * var(--nar-fs) * var(--nar-pitch) / var(--nar-font)); text-align: center; text-indent: 0; color: var(--gal-skin-fg);
-  text-shadow: 0 0 2px #000, 0 1px 3px rgb(0 0 0 / .95), 0 0 14px rgb(0 0 0 / .65); -webkit-text-stroke: 0; }
+  text-shadow: var(--art-nar-halo); -webkit-text-stroke: 0; }
 .dsh-tavern-stage-overlay[data-narration-layout] .dsh-tavern-stage-scene .dsh-tavern-stage-controls.dsh-tavern-stage-controls {
-  --gal-skin-qm-idle: #fbf8ff; --gal-skin-qm-on: #ffffff; --gal-skin-qm-hover: rgb(255 255 255 / .14); --gal-skin-qm-active: rgb(255 255 255 / .24);
-  position: relative; inset: auto; justify-content: flex-end; margin: .5em 0 0; text-shadow: 0 1px 3px rgb(0 0 0 / .95); }
+  --gal-skin-qm-idle: var(--art-nar-ink); --gal-skin-qm-on: var(--art-nar-ink); --gal-skin-qm-hover: rgb(var(--art-nar-ink-rgb) / .14); --gal-skin-qm-active: rgb(var(--art-nar-ink-rgb) / .24);
+  position: relative; inset: auto; justify-content: flex-end; margin: .5em 0 0; text-shadow: var(--art-nar-halo); }
 /* centred, the lines alone stand on y: the control row hangs below them */
 .dsh-tavern-stage-overlay[data-narration-layout="screen"] .dsh-tavern-stage-scene .dsh-tavern-stage-controls.dsh-tavern-stage-controls { position: absolute; top: 100%; left: max(1em, 6%); right: max(1em, 6%); }
-.dsh-tavern-stage-overlay[data-narration-layout="screen"] .dsh-tavern-stage-figures { filter: brightness(calc(1 - var(--art-nar-veil))); }
-.dsh-tavern-stage-overlay[data-narration-layout="screen"] .dsh-tavern-stage-backdrop::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / var(--art-nar-veil)); }
+/* the veil: one layer over the backdrop and the figures (the last thing the figures draw, reaching the whole scene, which clips
+   it), under the item and the text; in black it is the scene at 1 - veil of its light */
+.dsh-tavern-stage-overlay[data-narration-layout="screen"] .dsh-tavern-stage-figures::after { content: ""; position: absolute; inset: -100vmax; pointer-events: none;
+  background: rgb(var(--art-nar-veil-rgb) / var(--art-nar-veil)); }
 /* art.narration.lines (stage-narration.js): each visual line fades in, rising, `stagger` after the one before; a finished card,
    reduced motion and 文字速度 0 show them all (data-instant). The lines stay inline in the card's one flow and wrap where they
    were measured: an element per line would start a new text run, and the system font fallback for a run can change with its

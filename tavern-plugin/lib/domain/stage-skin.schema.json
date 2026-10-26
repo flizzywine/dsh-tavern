@@ -329,6 +329,9 @@
           "enum": [
             "phrase"
           ]
+        },
+        "narration": {
+          "$ref": "#/$defs/color"
         }
       }
     },
@@ -1425,6 +1428,29 @@
               "type": "number",
               "minimum": 0,
               "maximum": 4096
+            },
+            "layout": {
+              "enum": [
+                "box",
+                "free",
+                "band"
+              ]
+            },
+            "ink": {
+              "$ref": "#/$defs/color"
+            },
+            "halo": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/halo"
+                },
+                {
+                  "const": false
+                }
+              ]
+            },
+            "veilColor": {
+              "$ref": "#/$defs/color"
             },
             "band": {
               "type": "object",

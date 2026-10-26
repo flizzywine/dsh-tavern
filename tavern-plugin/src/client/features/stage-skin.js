@@ -13,7 +13,9 @@ function stageSkinTokens(document) {
 		"--gal-skin-line-height": String(document.textStyle?.lineHeight || 1.7),
 		// textFx: the ink a glyph enters in (flash) and the side a stamp drops from (tavern.css 「stage typewriter」).
 		"--gal-skin-flash": document.textFx.flash || document.textStyle?.emphasis || p.fg, "--gal-skin-stamp-y": document.textFx.from === "bottom" ? "16px" : "-16px",
-		...stageSkinGlyphPoses(document.textFx), ...stageSkinQuickMenu(document), ...stageSkinNarrationTokens(document.art) };
+		...stageSkinGlyphPoses(document.textFx), ...stageSkinQuickMenu(document), ...stageSkinNarrationTokens(document.art),
+		// textStyle.narration: narration's own ink in the box (data-fk-skin-narration-ink).
+		...(document.textStyle?.narration ? { "--gal-skin-narration": document.textStyle.narration } : {}) };
 	let spread = 0;
 	tokens["--gal-skin-rings"] = (shape.rings || []).map(ring => `0 0 0 ${spread += ring.width}px ${ring.color}`).join(",") || "none";
 	return Object.assign(tokens, stageSkinPanelTokens(document));
@@ -34,12 +36,16 @@ function stageSkinGlyphPoses(fx) {
 // art.narration (tavern.css 「stage narration」): the boxless narration in px of the design screen - its size, pitch, veil and
 // centre (y, by default the middle), and the band's (by default 30 / 43 px, veil 80/255, on the bottom edge). The design width
 // bounds the px as it does the art layer's; without art.screenWidth the screen is 16:9. It needs no image, so it is drawn
-// from the document alone.
+// from the document alone. The boxless words take ink (by default a light subtitle ink) and halo (by default a dark glow;
+// false = none; a declared halo is one shadow in design px), and the veil is veilColor (by default black) at veil / band.veil.
 function stageSkinNarrationTokens(art) {
 	const narration = art && art.narration;
 	if (!narration) return {};
-	const band = narration.band || {};
-	return { "--nar-screen": String(art.screen), "--nar-screen-w": String(art.screenWidth || Math.round(art.screen * 16 / 9)),
+	const band = narration.band || {}, halo = narration.halo, rgb = color => [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16)).join(" ");
+	const ink = narration.ink || STAGE_NARRATION_INK, u = value => "calc(" + (value || 0) + " * var(--nar-u))";
+	return { "--art-nar-ink": ink, "--art-nar-ink-rgb": rgb(ink), "--art-nar-veil-rgb": rgb(narration.veilColor || "#000000"),
+		"--art-nar-halo": halo === false ? "none" : halo ? [u(halo.x), u(halo.y), u(halo.blur), "rgb(" + rgb(halo.color) + " / " + (halo.alpha ?? 1) + ")"].join(" ")
+			: "0 0 2px #000, 0 1px 3px rgb(0 0 0 / .95), 0 0 14px rgb(0 0 0 / .65)", "--nar-screen": String(art.screen), "--nar-screen-w": String(art.screenWidth || Math.round(art.screen * 16 / 9)),
 		"--art-nar-font": String(narration.font), "--art-nar-pitch": String(narration.pitch), "--art-nar-veil": String(narration.veil), "--art-nar-y": String(narration.y ?? art.screen / 2),
 		"--art-nar-band-font": String(band.font ?? 30), "--art-nar-band-pitch": String(band.pitch ?? 43), "--art-nar-band-veil": String(band.veil ?? Math.round(80 / 255 * 1000) / 1000),
 		"--art-nar-band-bottom": String(band.bottom ?? 0) };
@@ -73,6 +79,7 @@ function stageSkinPanelTokens(document) {
 // it is drawn from the skin's icons. A folded menu (layout capsule / orb) has no row to place.
 function stageSkinRoot(document) {
 	const root = { style: stageSkinTokens(document), "data-fk-skin": document.id }, menu = document.quickMenu;
+	if (document.textStyle?.narration) root["data-fk-skin-narration-ink"] = "";
 	if (menu && (!menu.layout || menu.layout === "bar")) {
 		if (menu.place) root["data-fk-skin-controls-place"] = menu.place;
 		if (menu.place && ["top", "edge"].includes(menu.narrow)) root["data-fk-skin-controls-narrow"] = menu.narrow;

@@ -41,6 +41,12 @@ const paper = { schema: 'dsh.skin/1', id: 'paper-night', label: '纸·夜',
   textbox: { paint: { bg: '#f4efe6', fg: '#1d1a22', fgMuted: '#4a4550', accent: '#8a2a3a', onAccent: '#ffffff', border: '#4a4550' }, shape: { radius: 4 } },
   nameplate: { shape: 'plain', paint: { bg: '#2a2440', fg: '#ffffff' } }, font: {}, textFx: { reveal: 'type' },
   art: { screen: 576, screenWidth: 1024, narration: { font: 30, pitch: 54, veil: .62, y: 280, band: { font: 24, pitch: 38, veil: .5, bottom: 0 }, lines: { fade: .5, stagger: .6, rise: 18 } } } }
+// The same paper by day: dark ink with no halo over a light veil (31/N), the stage's own layout rule.
+const day = { ...paper, id: 'paper-day', label: '纸·昼',
+  art: { ...paper.art, narration: { ...paper.art.narration, veil: .75, band: { ...paper.art.narration.band, veil: .75 }, ink: '#1d1a22', halo: false, veilColor: '#f4efe6' } } }
+// And with narration kept in the box (layout box), in the skin's own narration ink, still line by line.
+const boxed = { ...paper, id: 'paper-box', label: '纸·框', textStyle: { narration: '#3a2050' },
+  art: { ...paper.art, narration: { ...paper.art.narration, layout: 'box' } } }
 
 await mkdir(output, { recursive: true })
 const browser = await chromium.connectOverCDP(endpoint)
@@ -68,7 +74,8 @@ try {
           const controls = root.querySelector('.dsh-tavern-stage-controls')
           return { layout: root.dataset.narrationLayout || '', box: rect(box), text: rect(text), font: parseFloat(getComputedStyle(text).fontSize), color: getComputedStyle(text).color,
             background: getComputedStyle(box).backgroundColor, figures: getComputedStyle(root.querySelector('.dsh-tavern-stage-figures')).filter,
-            veil: getComputedStyle(root.querySelector('.dsh-tavern-stage-backdrop'), '::after').backgroundColor, controls: controls ? rect(controls) : null,
+            veil: getComputedStyle(root.querySelector('.dsh-tavern-stage-figures'), '::after').backgroundColor, controls: controls ? rect(controls) : null,
+            shadow: getComputedStyle(text).textShadow, controlInk: controls ? getComputedStyle(controls).color : '',
             name: root.querySelector('.dsh-tavern-stage-name') ? getComputedStyle(root.querySelector('.dsh-tavern-stage-name')).display : '',
             lines: [...root.querySelectorAll('.dsh-tavern-stage-line')].map(line => ({ text: line.textContent, opacity: +getComputedStyle(line).opacity, rect: rect(line) })),
             typed: Boolean(root.querySelector('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]')), instant: Boolean(root.querySelector('.dsh-tavern-stage-lines[data-instant]')),
@@ -83,12 +90,15 @@ try {
         // The skin enters as the card's pack entry and is the pack's default.
         const upload = document => page.evaluate(async text => (await (await fetch('/api/dsh-tavern/card-upload', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: text })).json()).uploadId, JSON.stringify(document))
         const { pack } = await call('createAssetPack', { name: '纸 ' + Date.now() % 100000 })
-        await call('addAssetPackSkin', { packId: pack.manifest.id, document: await upload(paper), files: [] })
         await call('setAssetPackState', { path: cardPath, packId: pack.manifest.id, state: 'card' })
-        const revision = (await call('getAssetPack', { packId: pack.manifest.id })).pack.revision
-        await call('setAssetPackStageSkin', { packId: pack.manifest.id, expectedRevision: revision, skin: paper.id })
-        await page.evaluate(() => window.dispatchEvent(new CustomEvent('dsh-tavern-settings-changed')))
-        await page.locator('.dsh-tavern-stage-overlay[data-fk-skin="' + paper.id + '"]').waitFor()
+        const wear = async document => {
+          await call('addAssetPackSkin', { packId: pack.manifest.id, document: await upload(document), files: [] })
+          const revision = (await call('getAssetPack', { packId: pack.manifest.id })).pack.revision
+          await call('setAssetPackStageSkin', { packId: pack.manifest.id, expectedRevision: revision, skin: document.id })
+          await page.evaluate(() => window.dispatchEvent(new CustomEvent('dsh-tavern-settings-changed')))
+          await page.locator('.dsh-tavern-stage-overlay[data-fk-skin="' + document.id + '"]').waitFor()
+        }
+        await wear(paper)
         // 2. A line page keeps the box.
         await backButton.click(); await at('1 / 4')
         assert.equal(await layout(), null, 'a line page keeps its box')
@@ -105,8 +115,8 @@ try {
         assert.ok(early.lines[0].opacity > 0 && early.lines.at(-1).opacity === 0 && !early.typed, 'the first line is in, the last still waits: ' + JSON.stringify(early.lines.map(line => line.opacity)))
         assert.equal(early.background, 'rgba(0, 0, 0, 0)', 'no box paint')
         assert.ok(['', 'none'].includes(early.name), 'no name plate')
-        assert.equal(early.figures, 'brightness(0.38)', 'the figures darken by the veil')
-        assert.equal(early.veil, 'rgba(0, 0, 0, 0.62)', 'and the backdrop')
+        assert.equal(early.veil, 'rgba(0, 0, 0, 0.62)', 'one black veil over the backdrop and the figures')
+        assert.equal(early.shadow.split('rgb').length - 1, 3, 'the default halo: ' + early.shadow)
         assert.ok(Math.abs(early.font - 30 * 1080 / 576) < .5, 'design px: ' + early.font)
         assert.equal(early.color, 'rgb(251, 248, 255)')
         const middle = (early.text.top + early.text.bottom) / 2
@@ -136,7 +146,7 @@ try {
         assert.equal(band.layout, 'band')
         assert.ok(Math.abs(band.box.bottom - 1080) < 1 && Math.abs(band.box.width - 1920) < 1, 'the band spans the bottom: ' + JSON.stringify(band.box))
         assert.equal(band.background, 'rgba(0, 0, 0, 0.5)')
-        assert.equal(band.figures, 'none', 'the scene keeps its light')
+        assert.equal(band.veil, 'rgba(0, 0, 0, 0)', 'the scene keeps its light')
         assert.ok(Math.abs(band.font - 24 * 1080 / 576) < .5)
         const item = stage.locator('.dsh-tavern-stage-item')
         await page.waitForFunction(() => Number(getComputedStyle(document.querySelector('.dsh-tavern-stage-item')).opacity) > .9, null, { timeout: 4000 })
@@ -193,6 +203,49 @@ try {
         assert.equal(await layout(), 'band')
         steps.phone = { lines: phone.lines.length, font: phone.font }
         await page.setViewportSize({ width: 1920, height: 1080 })
+        const back = async () => { for (let i = 0; i < 8 && (await progress.innerText()).trim() !== '1 / 4'; i++) { await backButton.click(); await page.waitForTimeout(120) } await at('1 / 4') }
+        // 9. Dark ink on a light veil: the skin's ink with no halo, its veil colour over the scene and in the band, the controls in its ink.
+        await wear(day)
+        await back()
+        await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
+        await stageNext(stage); await at('2 / 4')
+        await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
+        const light = await look()
+        await page.screenshot({ path: join(output, 'w1920-day-screen.png') })
+        assert.equal(light.layout, 'screen')
+        assert.equal(light.color, 'rgb(29, 26, 34)', 'the skin\'s ink')
+        assert.equal(light.shadow, 'none', 'halo: false')
+        assert.equal(light.veil, 'rgba(244, 239, 230, 0.75)', 'the skin\'s veil colour at its strength')
+        assert.equal(light.controlInk, 'rgb(29, 26, 34)', 'the controls take the ink')
+        assert.ok(light.lines.every(line => line.opacity === 1))
+        for (let i = 0; i < 8 && (await progress.innerText()).trim() !== '3 / 4'; i++) await stageNext(stage)
+        await at('3 / 4'); await page.waitForTimeout(400)
+        const lightBand = await look()
+        await page.screenshot({ path: join(output, 'w1920-day-band.png') })
+        assert.equal(lightBand.layout, 'band', 'no layout declared: the item picture still takes the band')
+        assert.equal(lightBand.background, 'rgba(244, 239, 230, 0.75)')
+        assert.equal(lightBand.color, 'rgb(29, 26, 34)')
+        steps.day = { veil: light.veil, band: lightBand.background }
+        // 10. layout box: narration stays in the box (its paint, no veil, also on the item's page) in textStyle.narration, line by line.
+        await wear(boxed)
+        await back()
+        await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
+        await stageNext(stage); await at('2 / 4')
+        await page.waitForTimeout(350)
+        const kept = await look()
+        await page.screenshot({ path: join(output, 'w1920-box-lines.png') })
+        assert.equal(kept.layout, '', 'box: no boxless layout')
+        assert.equal(kept.background, 'rgb(244, 239, 230)', 'the box keeps its paint')
+        assert.equal(kept.veil, 'rgba(0, 0, 0, 0)', 'no veil')
+        assert.equal(kept.color, 'rgb(58, 32, 80)', 'textStyle.narration')
+        assert.ok(kept.lines.length >= 2 && kept.lines.at(-1).opacity < 1, 'still line by line in the box: ' + JSON.stringify(kept.lines.map(line => line.opacity)))
+        await stage.locator('.dsh-tavern-stage-text .dsh-tavern-stage-type[data-typed]').waitFor()
+        await page.screenshot({ path: join(output, 'w1920-box-typed.png') })
+        for (let i = 0; i < 8 && (await progress.innerText()).trim() !== '3 / 4'; i++) await stageNext(stage)
+        await at('3 / 4'); await page.waitForTimeout(400)
+        assert.equal(await layout(), null, 'box wins over the item picture')
+        await page.screenshot({ path: join(output, 'w1920-box-item.png') })
+        steps.box = { lines: kept.lines.length, color: kept.color }
         return steps
       }
     })
