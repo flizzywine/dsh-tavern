@@ -16,8 +16,8 @@ APK_SHA256 = '1fedf883d431af658d89c28b86d85974cc1d11b74e0c5d46ef3d3cf8650b1961'
 # 与上游 v2.1 APK 并存：签名不同，无法覆盖安装，也不该让用户卸载旧包丢数据。
 APPLICATION_ID = 'io.github.flizzywine.dshtavern.standalone'
 # 同一酒馆版本的重新打包（例如只更新 APK 内置快照）也递增，避免和已发布的包同号。
-VERSION_CODE = 30006
-VERSION_NAME = '3.0.1'
+VERSION_CODE = 30100
+VERSION_NAME = '3.1.0'
 HERE = Path(__file__).resolve().parent
 
 

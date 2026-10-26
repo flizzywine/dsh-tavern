@@ -1,7 +1,7 @@
 // The background task pipeline (docs/design/background-task-pipeline.md).
 //
 // Settlement items: work that rides on the main settlement's single model call. Tavern's own
-// items (dialogue annotation) come first, then the plugins' tools and notes. Tool definitions
+// items come first, then the plugins' tools and notes. Tool definitions
 // sit in the background session's cached prefix and never change; which may be called this
 // turn is stated in the per-turn task text.
 

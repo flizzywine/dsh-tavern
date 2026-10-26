@@ -234,19 +234,19 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 })
   await close()
   assert.deepEqual(await drawn(), ['paper', 'box'], 'the pack default draws the stage, its art included')
-  // The last page: the input docks above the box image, clear of it, at both widths.
-  while (!await stage.locator('.dsh-tavern-stage-input').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
+  // The last page: the round-end menu docks above the box image, clear of it, at both widths.
+  while (!await stage.locator('.dsh-tavern-stage-choices').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
   const docked = () => stage.evaluate(node => {
     const box = node.querySelector('.dsh-tavern-stage-textbox'), image = box.getBoundingClientRect().top + parseFloat(getComputedStyle(box, '::before').top)
-    const input = node.querySelector('.dsh-tavern-stage-textbox > .dsh-tavern-stage-input').getBoundingClientRect(), row = node.querySelector('.dsh-tavern-stage-controls').getBoundingClientRect()
+    const input = node.querySelector('.dsh-tavern-stage-textbox > .dsh-tavern-stage-choices').getBoundingClientRect(), row = node.querySelector('.dsh-tavern-stage-controls').getBoundingClientRect()
     // clear of the face window's top and of a row on the box's edge too
     return input.bottom <= Math.min(image, node.querySelector('.dsh-tavern-stage-side').getBoundingClientRect().top + 0.5, row.top + 0.5)
   })
-  assert.ok(await docked(), 'the input stands above the box image')
+  assert.ok(await docked(), 'the menu stands above the box image')
   await page.screenshot({ path: join(output, 'stage-paper-1920.png') })
   await page.setViewportSize({ width: 375, height: 812 })
   await page.waitForTimeout(300)
-  assert.ok(await docked(), 'the input stands above the box image on a phone')
+  assert.ok(await docked(), 'the menu stands above the box image on a phone')
   await page.screenshot({ path: join(output, 'stage-paper-375.png') })
   await page.setViewportSize({ width: 1920, height: 1080 })
   await close()
@@ -311,7 +311,7 @@ try {
     for (const [shot, width, height] of [['1920', 1920, 1080], ['375', 375, 812]]) {
       await page.setViewportSize({ width, height }); await page.waitForTimeout(500)
       assert.equal(await stage.evaluate(node => node.getBoundingClientRect().width), width, 'the stage fills the screen')
-      while (!await stage.locator('.dsh-tavern-stage-input').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
+      while (!await stage.locator('.dsh-tavern-stage-choices').count()) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(250) }
       await page.waitForTimeout(400)
       await page.screenshot({ path: join(output, 'real-end-' + shot + '.png') })
       while (!await stage.locator('.dsh-tavern-stage-name').count()) { await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(250) }

@@ -171,8 +171,9 @@ try {
   assert.equal(await stage.getByRole('button', { name: 'BGM', exact: true }).count(), 1, 'the BGM chip (no track yet: only ♪)')
   await page.keyboard.press('ArrowRight')
   await stage.locator('.dsh-tavern-stage-progress').filter({ hasText: '2 / 2' }).waitFor()
-  assert.deepEqual((await paint('.dsh-tavern-stage-input input')).slice(0, 3), ['rgb(12, 10, 20)', 'rgb(245, 242, 250)', 'rgb(188, 184, 198)'])
-  assert.deepEqual((await paint('.dsh-tavern-stage-input button')).slice(0, 2), ['rgb(233, 228, 243)', 'rgb(12, 10, 20)'])
+  // The round-end menu in the skin's ui paint: 生成选项 in the ink, 自由输入 in the muted ink.
+  assert.deepEqual((await paint('.dsh-tavern-stage-choice-main[data-action="generate"]')).slice(1, 2), ['rgb(245, 242, 250)'])
+  assert.deepEqual((await paint('.dsh-tavern-stage-choice-main[data-action="free"]')).slice(1, 2), ['rgb(188, 184, 198)'])
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: join(output, 'stage-classic-mobile.png') })
   await page.setViewportSize({ width: 1280, height: 900 })

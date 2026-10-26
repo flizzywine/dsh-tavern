@@ -329,7 +329,7 @@
 						h("section", { className: "dsh-tavern-status-section dsh-tavern-status-support" },
 							h("span", null, "遇到问题？卡不能玩、显示异常、太卡太慢，或者有疑问，都可以交给调试 Agent。"),
 							h(TavernDebugButton, { sessionId: props.sessionId, turn: latestDebugTurn, className: "dsh-tavern-debug-open" })),
-                        props.submitStage ? h(TavernStageStatus, { key: props.sessionId, sessionId: props.sessionId, submit: props.submitStage, generating: running }) : null,
+                        props.submitStage ? h(TavernStageStatus, { key: props.sessionId, sessionId: props.sessionId, submit: props.submitStage, choices: props.stageChoices, generating: running }) : null,
                         h(TavernBackgroundWait, {sessionId:props.sessionId, activity:view.activity}),
                         h(TavernSaveUpgrade, {key:props.sessionId,sessionId:props.sessionId,busy:running || view.activity?.busy || view.settleStatus === "running"}),
 					["story", "script"].includes(view.mode || "story") && view.requestMode !== "sillytavern" && cardReloadLine ? h("section", { className: "dsh-tavern-status-section" },
@@ -484,7 +484,7 @@
 					function () { return selector(chat.getSnapshot()); }
 				);
 			}
-			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab, submitStage: props.submitStage });
+			return h(TavernStatusPanel, { sessionId: props.sessionId, useSession: useSession, useChat: useChat, executeSlash: props.executeSlash, openStyleTab: props.openStyleTab, submitStage: props.submitStage, stageChoices: props.stageChoices });
 		}
 
         const interactions = createPlayInteractionFlow({ rpc, coordinationView, coordination: tavernCoordination,
@@ -1148,6 +1148,15 @@
                 input.setDraft(text);
                 return Promise.resolve(input.submit("queue"));
             };
+            // The stage's round-end menu (stage-choices.js) reads and drives the chat's own candidate panel and task.
+            const stageChoices = Object.freeze({ store: interactions.candidates, ready: readyCandidatePanel, submit: submitCandidateTask,
+                useMessageId(sessionId) {
+                    const subscribe = React.useCallback(listener => ctx.sessions.list.subscribe(listener), []);
+                    const binding = React.useSyncExternalStore(subscribe, () => ctx.sessions.binding(sessionId));
+                    const chat = React.useMemo(() => binding ? resolveConversationChatBinding(uiConversation, binding) : null, [binding]);
+                    const watch = React.useCallback(listener => chat ? chat.subscribe(listener) : () => {}, [chat]);
+                    return React.useSyncExternalStore(watch, () => chat ? latestTavernAssistantMessageId(chat.getSnapshot()) : null);
+                } });
             ctx.effect(() => ctx.betterSidebar.registerTab({
                 id: "dsh-tavern:conversation-settings", title: "本局设置", order: 8, single: true,
                 component: props => React.createElement(TavernConversationSettingsTab, { sessionId: props.scope.sessionId, sessions: ctx.sessions })
@@ -1189,7 +1198,7 @@
             )), "dsh-tavern: BGM header chip");
             ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
                 { name: "conversation.session.header.utilities", id: "dsh-tavern-stage-entry", order: 83 },
-                props => React.createElement(TavernStageEntry, { key: props.sessionId, sessionId: props.sessionId, sessions: ctx.sessions, submit: submitTavernStageInput, header: true })
+                props => React.createElement(TavernStageEntry, { key: props.sessionId, sessionId: props.sessionId, sessions: ctx.sessions, submit: submitTavernStageInput, choices: stageChoices, header: true })
             )), "dsh-tavern: fullscreen stage entry");
 			ctx.effect(() => tavernPanelRegistry.onPin(sessionId => openTavernSidebarTab(ctx, { type: "dsh-tavern:status" }, { sessionId })), "dsh-tavern: reveal pinned panels");
 			ctx.effect(() => ctx.betterSidebar.registerTab({
@@ -1198,7 +1207,7 @@
 				order: 7,
 				single: true,
 				component: function (props) {
-					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId, executeSlash: executeSlash, submitStage: submitTavernStageInput, openStyleTab: function (type, meta) { openTavernSidebarTab(ctx, { type: type, meta: meta }, { sessionId: props.scope.sessionId }); } });
+					return React.createElement(TavernStatusTab, { sessions: ctx.sessions, uiConversation: uiConversation, sessionId: props.scope.sessionId, executeSlash: executeSlash, submitStage: submitTavernStageInput, stageChoices: stageChoices, openStyleTab: function (type, meta) { openTavernSidebarTab(ctx, { type: type, meta: meta }, { sessionId: props.scope.sessionId }); } });
 				}
 			}), "dsh-tavern: Better Sidebar status tab");
 			registerTavernStagePanels(ctx);

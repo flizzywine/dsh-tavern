@@ -1891,13 +1891,13 @@ await ctx.tavern.updateCardRaw({ card, operations, expectedRevision: revision })
 ctx.tavern.skillSource({ dir: fileURLToPath(new URL(&#39;./skills&#39;, import.meta.url)), role: &#39;background&#39; })</code></pre></div>
 <ul><li><code>dir</code> 是绝对路径。<code>role</code> 是 SKILL.md 没写用途时给谁用：<code>&#39;card&#39;</code>（默认，卡片工作台）或 <code>&#39;background&#39;</code>（后台任务）；写了 <code>metadata.tavern.purpose</code> 的按它来。</li><li>只读：玩家可以在 Skill 页停用它、改给别的角色用，不能删改插件的文件；<code>saveSkill</code> 不能写同名 Skill。<code>listSkills</code> 里 <code>source</code> 为 <code>plugin</code>。</li><li>优先级在 Tavern 内置的之后、玩家自己的之前：和内置 Skill 同名时用内置的。</li><li>插件卸载时自动撤销。卡内插件不能添加 Skill（Skill 对所有局可见）。</li></ul>
 <h2 id="plugin-api-cards--section-2">演出：台词标注与角色素材（第 2 版）</h2>
-<p>玩家在「舞台设置」打开「对话气泡」后，后台结算会顺带标注每轮引号台词的说话人和情绪，人物卡还可以配上各人物的头像和表情立绘（见<a href="https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md">角色演出</a>）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。</p>
+<p>玩家在「舞台设置」打开「对话气泡」后，正文模型把每句台词写成带说话人和情绪的对白气泡，人物卡还可以配上各人物的头像和表情立绘（见<a href="https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md">角色演出</a>）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。</p>
 <h3><code>getCast({ gameId, turn })</code></h3>
 <p>读某一轮<strong>当前显示版本</strong>的台词标注，返回 <code>{ turn, textVersion, lines }</code>，没有标注时返回 <code>null</code>。<code>lines</code> 按正文顺序排列：</p>
 <div class="code-block"><div class="code-heading"><span>js</span><button type="button" class="copy-code" aria-label="复制这段命令" hidden>复制</button></div><pre tabindex="0"><code>[{ n: 1, quote: &#39;你来了。&#39;, speaker: &#39;林曦&#39;, emotion: &#39;joy&#39; }]</code></pre></div>
-<ul><li><code>quote</code> 是引号里的原话（不含引号），用它在正文里找到这句；<code>speaker</code> 是正文里的人名；<code>emotion</code> 是 SillyTavern 表情扩展的 28 个情绪名之一（<code>joy</code>、<code>anger</code>、<code>neutral</code>…），可以直接对应 ST 立绘包的文件名。</li><li>标注跟着正文版本走：重新生成、编辑后旧标注读不到，新版本要等这一轮结算完才有。没被标注的台词（看不出是谁说的）不在列表里。</li><li>玩家关掉「对话气泡」后不再产生新标注，已有的照常可读。</li></ul>
+<ul><li><code>quote</code> 是这句台词：对白气泡里的原话（更早的轮次是后台标注过的引号里的原话），用它在正文里找到这句；<code>speaker</code> 是正文里的人名；<code>emotion</code> 是 SillyTavern 表情扩展的 28 个情绪名之一（<code>joy</code>、<code>anger</code>、<code>neutral</code>…），可以直接对应 ST 立绘包的文件名。</li><li>台词跟着正文版本走：重新生成、编辑后读到的是新版本自己的台词，正文提交后就有。没写成对白气泡的台词不在列表里。</li><li>玩家关掉「对话气泡」后正文不再写对白气泡，已有的照常可读。</li></ul>
 <h3><code>onCastAnnotated(handler)</code></h3>
-<p>一轮的标注保存后调用 <code>handler({ gameId, turn, textVersion, lines })</code>，字段同 <code>getCast</code>。适合配音插件在这时合成语音、演出插件在这时编排下一幕。它在结算过程中触发，早于 <code>onTurnSettled</code>；插件不在这一局生效时不通知。</p>
+<p>一轮正文提交后、里面有对白气泡时调用 <code>handler({ gameId, turn, textVersion, lines })</code>，字段同 <code>getCast</code>。适合配音插件在这时合成语音、演出插件在这时编排下一幕。它不等后台结算，早于 <code>onTurnSettled</code>；插件不在这一局生效时不通知。</p>
 <h3><code>getCastAssets({ gameId })</code></h3>
 <p>这局人物卡的角色素材：<code>{ player, card: { name, imageUrl }, characters: [{ name, aliases, avatarUrl, avatars, sprites, voices }] }</code>。<code>player</code> 是玩家名；<code>avatars</code> 是各情绪的头像、<code>sprites</code> 是各情绪的立绘，都是 <code>{ 情绪名: 图片地址 }</code>；<code>voices</code> 是 <code>{ 配音渠道: 声音 }</code>；地址都可以直接放进 <code>&lt;img src&gt;</code>。素材由玩家在全屏舞台上传或导入 ST 立绘包，跟着人物卡走，所有用这张卡的局共用。找人物时同时比对 <code>name</code> 和 <code>aliases</code>。</p>
 <h3><code>castAssetSource({ name, characters })</code>（第 2 版）</h3>

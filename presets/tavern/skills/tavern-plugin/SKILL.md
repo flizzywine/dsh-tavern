@@ -19,6 +19,7 @@ description: "编写或修改给 DSH Tavern 用的插件：文生图、文生视
 ## 硬性要求
 
 - 只用接口文档列出的 `tavern`、`tavernUi` 服务和 DSH 自带服务（`llm`、`credentials`、`attachments` 等），用 `ctx.tavern.方法名()` 的形式调用。
+- 要接管官方 MVU 结算时，先读 `plugin-api-game.md` 的 v4 provider 合约；仅卡内插件可注册，按 `apiVersion` 与 `capabilities.mvuSettlementProvider` 检查能力，不用 `setVariables` 快照冒充 MVU 结算。
 - 除了插件自己的文件夹，不读写 Tavern 程序目录和数据目录，不打补丁。接口做不到的，如实告诉用户，建议到 Tavern 仓库提接口需求。
 - 插件设置用 `savePluginData` 存，密钥用 `credentials`，都不写进插件文件夹（更新插件会整体替换它）。
 - 生图等收费请求不要自动重试；失败时把媒体项标为 `failed` 并写明原因。

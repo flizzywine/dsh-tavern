@@ -38,7 +38,7 @@ try {
         const shown = () => stage.evaluate(node => {
           const type = node.querySelector('.dsh-tavern-stage-text .dsh-tavern-stage-type')
           return { progress: node.querySelector('.dsh-tavern-stage-progress').textContent, text: type ? type.textContent : '',
-            typing: Boolean(node.querySelector('.dsh-tavern-stage-type-rest')), input: Boolean(node.querySelector('.dsh-tavern-stage-input')) }
+            typing: Boolean(node.querySelector('.dsh-tavern-stage-type-rest')), input: Boolean(node.querySelector('.dsh-tavern-stage-choices')) }
         })
         // Every card the stage shows, with when it showed (a page-side observer: nothing of the test's own timing in between).
         const record = () => page.evaluate(() => {
@@ -66,7 +66,7 @@ try {
         await page.screenshot({ path: join(output, 'w1920-skipping.png') })
         await at('6 / 6')
         await page.waitForFunction(() => document.querySelector('.dsh-tavern-stage-controls [data-action="skip"]').getAttribute('aria-pressed') === 'false')
-        await stage.locator('.dsh-tavern-stage-input').waitFor()
+        await stage.locator('.dsh-tavern-stage-choices').waitFor()
         const run = await log()
         const visited = [...new Set(run.map(entry => entry.key.split(' ')[0] + ' ' + entry.key.split(' ')[1] + ' ' + entry.key.split(' ')[2]))]
         assert.deepEqual(visited, ['1 / 6', '2 / 6', '3 / 6', '4 / 6', '5 / 6', '6 / 6'], 'every page in order: ' + JSON.stringify(run.map(entry => entry.key.slice(0, 24))))

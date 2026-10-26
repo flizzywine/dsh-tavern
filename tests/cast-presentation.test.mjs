@@ -4,58 +4,6 @@ import { CAST_DATA_OWNER } from "../tavern-plugin/lib/domain/cast-annotation.js"
 import { createCastPresentation } from '../tavern-plugin/lib/domain/cast-presentation.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
 
-function harness({ enabled = true, text = '她说：“你好。”\n他答：「嗯」', key = 'v1' } = {}) {
-  const files = new Map()
-  const store = {
-    async readJson(path) { return files.has(path) ? structuredClone(files.get(path)) : undefined },
-    async updateJson(path, change) { const next = change(files.has(path) ? structuredClone(files.get(path)) : undefined); files.set(path, next); return next }
-  }
-  const state = { enabled, key, published: 0 }
-  const data = createPluginData({ store })
-  const turns = {
-    async resolveGame(sessionId) { return sessionId === 'game' ? { chatId: 'chat', sessionId } : null },
-    async currentKey(_sessionId, turn) { return turn === 2 ? state.key : null },
-    async readPendingTurn() { return { chatId: 'chat', turn: 2, key: state.key, text, greeting: false } }
-  }
-  const cast = createCastPresentation({ enabled: async () => state.enabled, turns, data, publish: (_gameId, annotation) => { state.published++; state.annotation = annotation } })
-  return { cast, data, state }
-}
-
-test('结算时列出本轮台词，提交后按正文版本保存，换了版本就读不到', async () => {
-  const { cast, data, state } = harness()
-  const note = await cast.settlement.section({ gameId: 'game', turn: 2 })
-  assert.match(note, /1\. 你好。\n2\. 嗯$/)
-  const result = JSON.parse(await cast.settlement.call('cast_submit', { lines: [{ n: 1, speaker: '林曦', emotion: 'joy' }, { n: 2, speaker: '老周', emotion: 'neutral' }] }, { gameId: 'game', turn: 2 }))
-  assert.deepEqual(result, { ok: true, annotated: 2 })
-  assert.equal(state.published, 1)
-  assert.equal((await data.turnsUpTo({ chatId: 'chat', owner: CAST_DATA_OWNER, turn: 2 })).length, 1)
-  const read = await cast.forTurns('game', [2, 3])
-  assert.deepEqual(read, { enabled: true, turns: { 2: [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }, { n: 2, quote: '嗯', speaker: '老周', emotion: 'neutral' }] } })
-  assert.deepEqual(state.annotation, { turn: 2, textVersion: 'v1', lines: read.turns[2] }, '通知带上这一轮的版本和标注')
-  state.enabled = false
-  assert.deepEqual(await cast.annotation('game', 2), { turn: 2, textVersion: 'v1', lines: read.turns[2] }, '关掉标注后已有的标注仍可读')
-  state.enabled = true
-  state.key = 'v2'
-  assert.deepEqual(await cast.forTurns('game', [2]), { enabled: true, turns: {} })
-  assert.equal(await cast.annotation('game', 2), null)
-})
-
-test('长回复的每一句台词都编号、都能标注，第 61 句以后也按说话人分页', async () => {
-  const { stagePages } = await import('../tavern-plugin/lib/domain/stage-performance.js')
-  const text = Array.from({ length: 150 }, (_, index) => (index % 2 ? '老周' : '林曦') + '说：“第' + (index + 1) + '句。”').join('\n')
-  const { cast } = harness({ text })
-  const note = await cast.settlement.section({ gameId: 'game', turn: 2 })
-  const numbered = [...note.matchAll(/^(\d+)\. (.*)$/gm)]
-  assert.equal(numbered.length, 150)
-  assert.equal(numbered.at(-1)[0], '150. 第150句。')
-  const lines = numbered.map(([, n], index) => ({ n: Number(n), speaker: index % 2 ? '老周' : '林曦', emotion: 'neutral' }))
-  assert.deepEqual(JSON.parse(await cast.settlement.call('cast_submit', { lines }, { gameId: 'game', turn: 2 })), { ok: true, annotated: 150 })
-  const saved = (await cast.forTurns('game', [2])).turns[2]
-  const pages = stagePages(text, saved)
-  assert.deepEqual(pages.slice(59, 62).map(page => [page.kind, page.speaker, page.quotes?.[0]]), [['line', '老周', '第60句。'], ['line', '林曦', '第61句。'], ['line', '老周', '第62句。']])
-  assert.ok(pages.every(page => page.kind === 'line'))
-})
-
 const { createCastAssets, imageExtension } = await import('../tavern-plugin/lib/domain/cast-assets.js')
 const { writeZipEntries: writeZip } = await import('../tavern-plugin/lib/domain/zip-entries.js')
 const writeZipEntries = pairs => writeZip(pairs.map(([path, content]) => ({ path, content })))
@@ -104,14 +52,6 @@ test('导入 ST 立绘包：单人按文件名、多人按文件夹，非情绪�
   assert.deepEqual(result.characters.sort(), ['林曦', '老周'])
   assert.deepEqual(Object.keys(result.cast.characters.find(item => item.name === '林曦').sprites).sort(), ['joy', 'sadness'])
   await assert.rejects(assets.importSpritePack({ cardPath: 'c', name: '林曦', bytes: writeZipEntries([['a.txt', Buffer.from('x')]]) }), /按情绪命名/)
-})
-
-test('台词标注按局开启：全局开关关着时，带自己插件的卡（DSH 人物卡）照样标注', async () => {
-  const seen = []
-  const cast = createCastPresentation({ enabled: async gameId => { seen.push(gameId); return gameId === 'game' }, turns: { resolveGame: async () => null }, data: {}, publish() {} })
-  assert.equal(await cast.settlement.wanted({ gameId: 'game' }), true)
-  assert.equal(await cast.settlement.wanted({ gameId: 'other' }), false)
-  assert.deepEqual(seen, ['game', 'other'])
 })
 
 test('编辑正文后台词标注带到新版本：原句照旧，台词数不变时改写的句子按位置沿用', async () => {

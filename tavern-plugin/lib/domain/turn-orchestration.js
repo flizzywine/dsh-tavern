@@ -453,12 +453,14 @@ export function createTurnOrchestrator(options) {
       chat.lastWorldBookRecall = clone(chat.preparedWorldBook)
       chat.worldBookError = foregroundWorldBook.error
     }
-    const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: mode === 'story' ? styleReferenceFor(chat) : null, variableUpdate: variableUpdateFor(chat), worldBookContext })
+    const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: mode === 'story' ? styleReferenceFor(chat) : null, variableUpdate: variableUpdateFor(chat), worldBookContext,
+      dialogueSpeakers: typeof options.dialogueSpeakers === 'function' ? await options.dialogueSpeakers({ sessionId: input.sessionId, chat, card }) : null })
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
     const pluginSections = typeof options.pluginTurnContext === 'function'
       ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
     const source = frameSource(chat, card, foregroundOperation)
     source.card.systemPromptText = plan.systemPromptText
+    source.dialogueFormatText = plan.dialogueFormatText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []

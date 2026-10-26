@@ -178,12 +178,6 @@ export function apply(ctx) {
       const goldId = perf ? 'perf-gold-' + perf.id : 'e2e-gold-' + gold, postureId = 'e2e-posture-' + gold
       const blocks = []
       if (tools.has('candidate_submit_choices')) blocks.push({ type: 'tool-call', id: 'e2e-choices', name: 'candidate_submit_choices', arguments: JSON.stringify({ actions: ['再次领取奖励', '向店主道谢', '查看任务告示', '清点背包'], scene: '夜幕降临酒馆' }) })
-      // Dialogue annotation: name every numbered quote of the settlement note.
-      const castNote = /【本轮台词】[^【]*/.exec(input.messages.flatMap(message => message.content || []).map(block => block.text || '').filter(item => item.includes('【本轮台词】')).at(-1) || '')?.[0]
-      if (tools.has('cast_submit') && castNote && !done.has('e2e-cast-' + gold)) blocks.push({
-        type: 'tool-call', id: 'e2e-cast-' + gold, name: 'cast_submit',
-        arguments: JSON.stringify({ lines: [...castNote.matchAll(/^(\d+)\. (.*)$/gm)].map(([, n, quote]) => ({ n: Number(n), speaker: quote.includes('谢谢') ? '你' : '店主', emotion: quote.includes('谢谢') ? 'gratitude' : 'joy' })) })
-      })
       // The 大肥鱼 card plugin (examples/dafeiyu-card): direct the stage from the listed scenes and music.
       const directorNote = /【舞台导演】[^【]*/.exec(input.messages.flatMap(message => message.content || []).map(block => block.text || '').filter(item => item.includes('【舞台导演】')).at(-1) || '')?.[0]
       if (tools.has('galgame_direct') && directorNote && !done.has('e2e-direct-' + gold)) blocks.push({
@@ -199,7 +193,7 @@ export function apply(ctx) {
         type: 'tool-call', id: postureId, name: 'posture_submit',
         arguments: JSON.stringify({ posture: '站在柜台前，收下奖励。' })
       })
-      if (!blocks.length) blocks.push({ type: 'text', text: (process.env.TAVERN_E2E_CAST === '1' ? '店主笑着说：“欢迎回来，这是你的奖励。”\n你接过钱袋：「谢谢。」\n' : '') + (cardUpdate ? '更新后的世界中，你又获得十枚金币。' : presetRound ? `预设切换后继续游玩，金币 ${gold}。` : gold === 30 ? '雨夜里，你重新领取了奖励。' : gold === 20 ? '你再次领取了奖励，金币累计二十枚。' : '你获得了十枚金币。') + (process.env.TAVERN_E2E_PERFORMANCE_DIR && process.env.TAVERN_PERF_HISTORY_READY === '1' ? '\n' + '这是性能测试的合成剧情，不对应真实存档。'.repeat(Number(process.env.TAVERN_PERF_BODY_REPEATS || 60)) : '') + '\n\n<StatusPlaceHolderImpl/>' })
+      if (!blocks.length) blocks.push({ type: 'text', text: (process.env.TAVERN_E2E_CAST === '1' ? (text.includes('<dialogue_format>') ? '店主笑着迎上来。\n@bubble:shopkeeper|店主|开心|[欢迎回来，这是你的奖励。]\n你接过钱袋。\n@bubble:ni|你|感激|[谢谢。]\n' : '店主笑着说：“欢迎回来，这是你的奖励。”\n你接过钱袋：「谢谢。」\n') : '') + (cardUpdate ? '更新后的世界中，你又获得十枚金币。' : presetRound ? `预设切换后继续游玩，金币 ${gold}。` : gold === 30 ? '雨夜里，你重新领取了奖励。' : gold === 20 ? '你再次领取了奖励，金币累计二十枚。' : '你获得了十枚金币。') + (process.env.TAVERN_E2E_PERFORMANCE_DIR && process.env.TAVERN_PERF_HISTORY_READY === '1' ? '\n' + '这是性能测试的合成剧情，不对应真实存档。'.repeat(Number(process.env.TAVERN_PERF_BODY_REPEATS || 60)) : '') + '\n\n<StatusPlaceHolderImpl/>' })
       if (cardUpdate && process.env.TAVERN_E2E_REQUEST_AUDIT) await appendFile(process.env.TAVERN_E2E_REQUEST_AUDIT, JSON.stringify({cardUpdate:true,newWorldbook:text.includes(tools.has('mvu_submit_update') ? 'E2E_LIVE_MVU_RULES_V2' : 'E2E_LIVE_WORLDBOOK_V2'),settlement:tools.has('mvu_submit_update') || tools.has('posture_submit')})+'\n')
       if (presetRound && blocks.some(block => block.type === 'text') && process.env.TAVERN_E2E_REQUEST_AUDIT) {
         await appendFile(process.env.TAVERN_E2E_REQUEST_AUDIT, JSON.stringify({ gold,

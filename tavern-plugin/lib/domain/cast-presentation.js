@@ -1,50 +1,18 @@
-import { CAST_DATA_OWNER, CAST_SUBMIT_TOOL, CAST_SUBMIT_TOOL_NAME, carryCastLines, castSettlementText, dialogueQuotes, normalizeCastSubmission, recentSpeakers } from './cast-annotation.js'
+import { CAST_DATA_OWNER, carryCastLines, dialogueQuotes } from './cast-annotation.js'
+import { dialogueBubbleLines } from './dialogue-bubbles.js'
 
 /**
- * Dialogue annotation as part of the background settlement. Tavern's own counterpart
- * of a plugin settlement tool: the tool stays in the cached prefix, the per-turn note
- * says whether to use it. Results live in the per-game turn data store, bound to the
- * story text version, so rollback and regeneration need no synchronization. An edit of the
- * reply (the player's, 精修, a plugin's) carries the annotation over to the edited version.
+ * Who speaks each line of a turn (docs/design/cast-presentation.md). The story model writes its spoken lines as
+ * dialogue bubbles, so a turn's lines are read from the text version shown; nothing is stored for them. A turn
+ * written before that keeps the annotation settlement saved for it, bound to its text version; an edit of the reply
+ * (the player's, 精修, a plugin's) carries that annotation over to the edited version.
  */
 export function createCastPresentation({ enabled, turns, data, publish = () => {} }) {
-  // The quotes numbered in this turn's note, so a submission maps back to text.
-  const pending = new Map()
-  const keyOf = (gameId, turn) => gameId + '\u0000' + turn
-
   async function records(chatId, turn) {
     return data.turnsUpTo({ chatId, owner: CAST_DATA_OWNER, turn })
   }
 
-  const settlement = Object.freeze({
-    tools: () => [CAST_SUBMIT_TOOL],
-    has: name => name === CAST_SUBMIT_TOOL_NAME,
-    /** Whether settlement must run for this game even with posture and variables off. */
-    wanted: async ({ gameId } = {}) => await enabled(gameId) === true,
-    async section({ gameId, turn }) {
-      pending.delete(keyOf(gameId, turn))
-      if (await enabled(gameId) !== true) return ''
-      const material = await turns.readPendingTurn(gameId)
-      if (!material || material.turn !== turn || material.greeting) return ''
-      const quotes = dialogueQuotes(material.text)
-      if (!quotes.length) return ''
-      pending.set(keyOf(gameId, turn), { chatId: material.chatId, key: material.key, quotes })
-      return castSettlementText(quotes, { speakers: recentSpeakers(await records(material.chatId, turn - 1)) })
-    },
-    async call(name, args, { gameId, turn }) {
-      const target = pending.get(keyOf(gameId, turn))
-      if (name !== CAST_SUBMIT_TOOL_NAME || !target) return JSON.stringify({ ok: false, retryable: false, error: '本轮没有需要标注的台词，不要调用 cast_submit' })
-      let lines
-      try { lines = normalizeCastSubmission(args, target.quotes) }
-      catch (error) { return JSON.stringify({ ok: false, retryable: true, error: String(error?.message || error) }) }
-      await data.saveTurn({ chatId: target.chatId, owner: CAST_DATA_OWNER, turn, key: target.key, data: { version: 1, lines } })
-      pending.delete(keyOf(gameId, turn))
-      publish(gameId, { turn, textVersion: target.key, lines })
-      return JSON.stringify({ ok: true, annotated: lines.length })
-    }
-  })
-
-  /** Annotations of the shown text versions of some turns; turns without one are left out. */
+  /** The lines of the shown text version of some turns; turns without any are left out. */
   async function forTurns(sessionId, wanted) {
     if (await enabled(sessionId) !== true) return { enabled: false, turns: {} }
     const game = await turns.resolveGame(sessionId)
@@ -53,23 +21,24 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
     const all = await records(game.chatId, Math.max(...list))
     const result = {}
     for (const turn of list) {
-      const candidates = all.filter(item => item.turn === turn)
-      if (!candidates.length) continue
       const key = await turns.currentKey(game.sessionId, turn)
-      const record = key && candidates.find(item => item.key === key)
-      const lines = record ? record.data?.lines : key && await carriedFrom(game, turn, key, candidates)
+      if (!key) continue
+      const candidates = all.filter(item => item.turn === turn)
+      const record = candidates.find(item => item.key === key)
+      const lines = record ? record.data?.lines : await shownLines(game, turn, key, candidates)
       if (Array.isArray(lines) && lines.length) result[turn] = lines
     }
     return { enabled: true, turns: result }
   }
 
-  // A turn edited before edits carried their annotation (or by a path that skips it): rebuild the
-  // shown version's lines from the earlier version sharing the most quotes, when at least a third of
-  // the shown quotes are word for word there (a regenerated text shares almost none). A version
-  // waiting for settlement (a fresh regeneration) is left to settlement.
-  async function carriedFrom(game, turn, key, candidates) {
-    const material = typeof turns.readTurn === 'function' ? await turns.readTurn(game.sessionId, turn).catch(() => null) : null
+  // The shown version's own bubbles; else, for a turn edited before edits carried their annotation (or by a path that
+  // skips it), its lines rebuilt from the earlier version sharing the most quotes, when at least a third of the shown
+  // quotes are word for word there (a regenerated text shares almost none).
+  async function shownLines(game, turn, key, candidates) {
+    const material = await turns.readTurn(game.sessionId, turn).catch(() => null)
     if (!material || material.key !== key) return null
+    const bubbles = dialogueBubbleLines(material.text)
+    if (bubbles.length || !candidates.length) return bubbles
     const quotes = dialogueQuotes(material.text)
     if (!quotes.length) return null
     let source = null, shared = 0
@@ -87,14 +56,25 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
     return lines
   }
 
-  /** One turn's annotation for the text version shown now, whether or not annotating is on. */
+  /** One turn's lines for the text version shown now, whether or not 对话气泡 is on. */
   async function annotation(sessionId, turn) {
     const game = await turns.resolveGame(sessionId)
     const key = game && await turns.currentKey(game.sessionId, turn)
     if (!key) return null
     const record = (await records(game.chatId, turn)).find(item => item.turn === turn && item.key === key)
-    const lines = record?.data?.lines
+    let lines = record?.data?.lines
+    if (!record) {
+      const material = await turns.readTurn(game.sessionId, turn).catch(() => null)
+      lines = material && material.key === key ? dialogueBubbleLines(material.text) : null
+    }
     return Array.isArray(lines) && lines.length ? { turn, textVersion: key, lines: structuredClone(lines) } : null
+  }
+
+  /** A reply was committed: its lines came with its text, so tell the chat and plugins they are there. */
+  async function announce(sessionId) {
+    const material = await turns.readTurn(sessionId)
+    const lines = material && !material.greeting ? dialogueBubbleLines(material.text) : []
+    if (lines.length) publish(material.sessionId || sessionId, { turn: material.turn, textVersion: material.key, lines })
   }
 
   /**
@@ -126,5 +106,5 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
     }
   }
 
-  return Object.freeze({ settlement, forTurns, annotation, beforeEdit })
+  return Object.freeze({ forTurns, annotation, announce, beforeEdit })
 }

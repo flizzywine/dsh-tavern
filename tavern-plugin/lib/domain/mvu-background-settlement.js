@@ -292,6 +292,27 @@ export function normalizeMvuToolSubmission(value) {
   }
 }
 
+function assertProviderPointer(pointer, label) {
+  if (typeof pointer !== 'string' || !pointer.startsWith('/stat_data/')) throw new Error(label + ' 必须是 /stat_data/ 下的完整变量路径')
+  const raw = pointer.slice(1).split('/')
+  const segments = raw.map(segment => {
+    if (/~(?![01])/.test(segment)) throw new Error(label + ' 不是有效 JSON Pointer')
+    return segment.replace(/~1/g, '/').replace(/~0/g, '~')
+  })
+  const forbidden = new Set(['schema', 'display_data', 'delta_data', '$meta', '__proto__', 'prototype', 'constructor'])
+  if (segments.some(segment => forbidden.has(segment))) throw new Error(label + ' 不能访问 MVU schema、元数据或原型路径')
+}
+
+/** Provider patches have a narrower path contract than persisted legacy submissions. */
+export function normalizeMvuProviderSubmission(value) {
+  const submission = normalizeMvuToolSubmission(value)
+  for (const [index, operation] of submission.operations.entries()) {
+    assertProviderPointer(operation.path, '变量操作 #' + (index + 1) + ' path')
+    if (operation.op === 'move') assertProviderPointer(operation.from, '变量操作 #' + (index + 1) + ' from')
+  }
+  return submission
+}
+
 function valueKind(value) {
   return Array.isArray(value) ? '列表' : value !== null && typeof value === 'object' ? '对象' : typeof value === 'number' ? '数字' : typeof value === 'boolean' ? '布尔值' : value === null ? '空值' : '文本'
 }
@@ -551,6 +572,12 @@ export function createMvuSettlementModule(options = {}) {
     return result
   }
 
+  async function resumeProviderVariables(input = {}) {
+    const submission = normalizeMvuProviderSubmission(input.submission)
+    assertMvuValueKinds(submission.operations, input.currentVariables)
+    return await resumeVariables({ ...input, submission })
+  }
+
   async function settleVariables(input = {}) {
     const frame = taskFrame(input)
     const request = projectMvuBackgroundRequest(frame)
@@ -715,5 +742,47 @@ export function createMvuSettlementModule(options = {}) {
     }
   }
 
-  return Object.freeze({ settleVariables, resumeVariables })
+  async function settleAuxiliary(input = {}) {
+    const frame = taskFrame(input)
+    const request = projectMvuBackgroundRequest(frame)
+    const tasks = normalizeBackgroundTasks(input.backgroundTasks)
+    const tools = request.tools.filter(tool => tool.name !== MVU_SUBMIT_UPDATE_TOOL_NAME)
+    const system = [
+      '只根据本轮正文处理独立的姿势与人物设计任务；不得修改或提交变量。',
+      ...(tasks.characterDesign ? ['若确实需要人物设计，使用 character-design 工具读取或保存人物档案。'] : []),
+      ...(tasks.posture ? ['调用 posture_submit 提交本轮结束时可见的人物姿势。'] : [])
+    ].join('\n')
+    let posture = null
+    let toolTail = Promise.resolve()
+    const run = await options.model.run({
+      task: 'settlement', backgroundTasks: tasks, persistent: true,
+      persistentSessionId: str(input.persistentSessionId), rewindTo: -1,
+      onPersistentSessionReady: input.onPersistentSessionReady,
+      selection: input.selection, messages: request.messages, turnContext: request.turnContext,
+      system: [str(input.system).trim(), system].filter(Boolean).join('\n\n'),
+      tools, maxToolCalls: Math.max(1, tools.length + 4),
+      temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
+      signal: input.signal, webSearchEnabled: input.webSearchEnabled === true,
+      acceptWithoutText: () => (!tasks.posture || posture !== null) && !tasks.characterDesign,
+      onToolCall(call) {
+        const pending = toolTail.then(async () => {
+          if (call?.name === CHARACTER_DESIGN_READ_TOOL_NAME || call?.name === CHARACTER_DESIGN_SAVE_TOOL_NAME) {
+            if (!tasks.characterDesign) return JSON.stringify({ ok: false, error: '人物设计已关闭' })
+            if (!characterDesign || typeof characterDesign.execute !== 'function') throw new Error('人物设计存储不可用')
+            return await characterDesign.execute(input.chatId, call)
+          }
+          if (call?.name !== POSTURE_SUBMIT_TOOL_NAME || !tasks.posture) throw new Error('后台 Agent 调用了未授权的辅助工具')
+          posture = normalizePostureSubmission(call.arguments, { charName: input.charName, macroState: input.macroState }).posture
+          return JSON.stringify({ ok: true })
+        })
+        toolTail = pending.catch(() => {})
+        return pending
+      }
+    })
+    await toolTail
+    if (tasks.posture && posture === null) throw new Error('后台 Agent 未提交有效姿势')
+    return { posture, text: str(run?.text), traceSessionId: str(run?.traceSessionId), traceBoundary: Number.isSafeInteger(run?.traceBoundary) ? run.traceBoundary : null }
+  }
+
+  return Object.freeze({ settleVariables, resumeVariables, resumeProviderVariables, settleAuxiliary })
 }

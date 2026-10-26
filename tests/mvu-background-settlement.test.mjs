@@ -1,7 +1,41 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createMvuSettlementModule } from "../tavern-plugin/lib/domain/mvu-background-settlement.js"
+import { createMvuSettlementModule, normalizeMvuProviderSubmission } from "../tavern-plugin/lib/domain/mvu-background-settlement.js"
+
+test('本地 provider 只接受完整 stat_data 绝对路径，拒绝 schema、元数据与原型路径', () => {
+  assert.deepEqual(normalizeMvuProviderSubmission({ operations: [{ op: 'replace', path: '/stat_data/宝可梦/HP', valueJson: '12' }] }),
+    { operations: [{ op: 'replace', path: '/stat_data/宝可梦/HP', value: 12 }] })
+  for (const path of ['/宝可梦/HP', '/stat_data', '/stat_data/schema/x', '/stat_data/宝可梦/$meta', '/stat_data/__proto__/polluted', '/stat_data/constructor']) {
+    assert.throws(() => normalizeMvuProviderSubmission({ operations: [{ op: 'replace', path, valueJson: '1' }] }), /路径|JSON Pointer/)
+  }
+  assert.throws(() => normalizeMvuProviderSubmission({ operations: [{ op: 'move', path: '/stat_data/a', from: '/stat_data/prototype' }] }), /路径/)
+})
+
+test('本地 provider 复用 durable submission、官方事务和效果审计；无变化提交为 error', async () => {
+  const submissions = [], prepared = [], calls = []
+  let nextVariables = { stat_data: { hp: 4 }, schema: {} }
+  const module = createMvuSettlementModule({ model: { async run() { throw new Error('本地 provider 不应调用模型') } }, runtime: {
+    async settleMvuUpdate(input) {
+      calls.push(input)
+      return { variables: nextVariables, context: { messages: [{ variables: nextVariables }] }, validation: undefined }
+    }
+  } })
+  const base = { operationId: 'provider-op', chatId: 'chat', branchId: 'branch', basedOnRevision: 9, sessionId: 'game', messageId: 1, swipeId: 0,
+    storyText: 'HP提升。', currentVariables: { stat_data: { hp: 3 }, schema: {} }, onSubmission: value => submissions.push(value), onPrepared: value => prepared.push(value) }
+  const applied = await module.resumeProviderVariables({ ...base, submission: { operations: [{ op: 'replace', path: '/stat_data/hp', valueJson: '4' }] } })
+  assert.equal(applied.receipt.status, 'updated')
+  assert.deepEqual(submissions[0].operations, [{ op: 'replace', path: '/stat_data/hp', value: 4 }])
+  assert.equal(prepared.length, 1)
+  assert.equal(calls.length, 1)
+
+  nextVariables = { stat_data: { hp: 3 }, schema: {} }
+  const rejected = await module.resumeProviderVariables({ ...base, submission: { operations: [{ op: 'replace', path: '/stat_data/hp', valueJson: '5' }] } })
+  assert.equal(rejected.receipt.status, 'error', 'runtime handled without a change fails the existing audit')
+  assert.equal(prepared.length, 1, 'rejected effects are never marked prepared')
+  await assert.rejects(module.resumeProviderVariables({ ...base, submission: { operations: [{ op: 'replace', path: '/stat_data/schema', valueJson: '{}' }] } }), /不能访问 MVU/)
+  assert.equal(calls.length, 2, 'invalid paths fail before runtime dispatch')
+})
 
 test('列表元素改变形状（文本元素换成数组元素）同样退回重提', async () => {
   const feedback=[]

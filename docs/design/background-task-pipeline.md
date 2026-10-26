@@ -55,7 +55,7 @@
 |---|---|---|
 | 姿势 `tavern.posture` | 每轮自动（可关） | 合并进主结算 |
 | 变量 `tavern.variables` | 每轮自动（官方 MVU 卡，可关） | MVU 引擎 |
-| 台词标注 `tavern.cast` | 每轮自动（全局「对话头像」） | 合并进主结算 |
+| 台词标注 `tavern.cast` | 已删除（cast-presentation.md 30/N）：正文模型直接写说话人 | — |
 | 人物设计 `tavern.character-design` | 手动 | 单独一次后台任务 |
 | 游玩台账 `tavern.ledger` | 手动 | 单独一次后台任务 |
 | 插件附加的说明与工具 | 每轮自动 | 合并进主结算 |

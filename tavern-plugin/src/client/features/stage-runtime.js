@@ -83,6 +83,8 @@ function TavernStageScene(props) {
 		name: beat && beat.kind === "line" ? beat.speaker : "", nameArc: props.art.faceName }) : null;
 	// 物品: this page's item (one at most) waits unseen, its picture already loading; the page's playback shows it once.
 	const item = (data.turns.at(-1)?.performances || []).find(event => event.op === "item.play" && event.at === index + 1);
+	// 旁白逐行 (stage-narration.js): a skin's art.narration.lines brings a narration card in line by line instead of glyph by glyph.
+	const typer = beat && beat.kind === "narration" && props.narrationLines ? TavernStageNarrationLines : TavernStageTypewriter;
 	return h("div", { ref: props.sceneRef, className: "dsh-tavern-stage-scene", onClick: props.onAdvance },
 		h("div", { className: "dsh-tavern-stage-backdrop" + (scene.backdrop ? " is-scene" : ""), style: scene.background ? { "--dsh-stage-backdrop": "url(\"" + scene.background + "\")" } : undefined }),
 		h("div", { className: "dsh-tavern-stage-figures" }, scene.figures.map(function (figure) {
@@ -92,13 +94,16 @@ function TavernStageScene(props) {
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
 		item ? h(TavernStageItem, { key: index + ":" + item.item, item }) : null,
+		// 画面效果 (features/stage-effects.js): over the scene, under the text box; idle it shows nothing.
+		h("div", { className: "dsh-tavern-stage-fx", "aria-hidden": true },
+			h("div", { className: "dsh-tavern-stage-fx-cover" }), h("div", { className: "dsh-tavern-stage-fx-vignette" }), h("div", { className: "dsh-tavern-stage-fx-wave" })),
 		// is-speaking: the page's line is being read aloud (a skin's art.portrait.frame.speaking frame shows then).
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") + (props.speaking && beat.kind === "line" ? " is-speaking" : "") },
 			side,
 			beat.kind === "line" ? h("div", { className: "dsh-tavern-stage-name" }, h("b", { ref: nameRef, "data-text": beat.speaker }, beat.speaker),
 				TAVERN_CAST_EMOTIONS[beat.emotion] && beat.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[beat.emotion]) : null) : null,
 			h("div", { key: index, ref: props.textRef, className: "dsh-tavern-stage-text" + (beat.kind === "narration" ? " is-narration" : "") },
-				h(TavernStageTypewriter, { key: props.visit, text: props.card ?? beat.text, speed: props.textSpeed, reveal: props.reveal, instant: props.typed, onDone: props.onTyped }), next),
+				h(typer, { key: props.visit, text: props.card ?? beat.text, speed: props.textSpeed, reveal: props.reveal, lines: props.narrationLines, instant: props.typed, onDone: props.onTyped }), next),
 			lamp, props.footer || null, props.dock || null)
 			: h("div", { className: "dsh-tavern-stage-textbox is-empty" }, props.empty || "还没有可以演出的正文", props.dock || null));
 }
@@ -248,7 +253,7 @@ function TavernStageItem(props) {
 		h("strong", null, props.item.item));
 }
 
-function playTavernStagePerformance(root, event, id) {
+function playTavernStagePerformance(root, event, id, skin) {
 	// A sound plays with reduced motion too, and rings out on its own after the page turns (the player is not handed it).
 	if (event.op === "sfx.play") { void tavernStageSfx.play(event.audio, event.volume); return null; }
 	const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -260,12 +265,12 @@ function playTavernStagePerformance(root, event, id) {
 		return node.animate([0, 1, 1, 0].map((opacity, at) => ({ opacity, transform: still ? "translateX(-50%)" : lift[at], offset: [0, .14, .86, 1][at] })),
 			{ id: "stage:" + id, duration: 2800, easing: "ease-out" });
 	}
+	if (event.op === "screen.play") return playTavernStageScreenEffect(root, event, id, skin, still);
 	if (!root || still) return null;
-	const target = event.op === "screen.play" ? root : Array.from(root.querySelectorAll("[data-speaker]")).find(function (node) { return node.dataset.speaker === event.actor; });
+	const target = Array.from(root.querySelectorAll("[data-speaker]")).find(function (node) { return node.dataset.speaker === event.actor; });
 	if (!target) return null;
-	const frames = event.op === "screen.play" ? ["none", "translateX(-3px)", "translateX(3px)", "translateX(-2px)", "none"]
-		: event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
-	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
+	const frames = event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
+	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: 650, easing: "ease-in-out" });
 }
 
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
@@ -341,13 +346,14 @@ function TavernStageScreen(props) {
 	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
-	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
-	readingOn.current = reading.on;
+	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument);
+	readingOn.current = reading.on; skinRef.current = skinDocument;
 	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
 	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
 	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
-	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
+	// 回合末选项 (stage-choices.js): the latest reply the round's candidates belong to.
+	const messageId = props.choices.useMessageId(id);
 	// CONFIG (stage-config.js): the stage owns its open state; while it is open auto paging waits and the stage's keys are
 	// CONFIG's. Closing returns focus to what opened it.
 	const [config, setConfig] = React.useState(null), configOpen = React.useRef(false), configOpener = React.useRef(null);
@@ -408,7 +414,7 @@ function TavernStageScreen(props) {
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
-		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
+		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key, skinRef.current),
 		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current || backlogOpen.current || !typedRef.current,
 		card: () => { const now = shownRef.current; return now.cards.length > 1 ? { at: now.card, last: now.last, text: now.cards[now.card].text, share: stageCardVoiceShare(now.cards, now.card) } : null; },
 		nextCard: () => { const now = shownRef.current; if (!now.last) showCard(now.card + 1); },
@@ -455,6 +461,9 @@ function TavernStageScreen(props) {
 		}, STAGE_SKIP_CARD_MS);
 		return () => clearTimeout(timer);
 	}, [skipping, atEnd, lastCard, Boolean(config), backlog, cardKey]);
+	// 旁白 (modules/stage-narration.js): a skin's art.narration lays a narration page out without the box (tavern.css 「stage narration」).
+	const narration = skinDocument.art && skinDocument.art.narration || null;
+	const narrationLayout = stageNarrationLayout({ narration, beat: beats[reader.index], skipping, mode: reader.mode, events: latest ? latest.performances : [], at: reader.index + 1 });
 	const skipHoldBlocked = Boolean(config) || backlog;
 	React.useEffect(() => {
 		if (skipHoldBlocked) { setSkipHeld(false); return undefined; }
@@ -523,21 +532,14 @@ function TavernStageScreen(props) {
 			}
 			if (letter === "l") { event.preventDefault(); if (!event.repeat) openBacklog(null); }
 			else if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
+			// Enter / Space on a choice press it; they turn no page.
+			else if ((event.key === " " || event.key === "Enter") && event.target && event.target.closest && event.target.closest(".dsh-tavern-stage-choices")) return;
 			else if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter") { event.preventDefault(); advance(); }
 			else if (event.key === "ArrowLeft") { event.preventDefault(); back(); }
 		}
 		document.addEventListener("keydown", onKey, true);
 		return () => document.removeEventListener("keydown", onKey, true);
 	}, [id, props.onClose]);
-	async function send(event) {
-		event.preventDefault();
-		const text = draft.trim();
-		if (!text || sending) return;
-		setSending(true);
-		try { await props.submit(id, text); setDraft(""); }
-		catch (error) { tavernErrorHub.report("舞台发送", error); }
-		finally { setSending(false); }
-	}
 	// A control the skin draws (quickMenu.icons: back = ‹, auto, skip) shows its icon on the skin's button body; the others keep
 	// their own words. Every control keeps its action, name and keys.
 	const control = (action, label, glyph, attributes, on) => {
@@ -558,11 +560,11 @@ function TavernStageScreen(props) {
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
-	const input = atEnd && lastCard ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send, onClick: event => event.stopPropagation() },
-		h("input", { value: draft, onChange: event => setDraft(event.target.value), placeholder: generating ? "正在生成下一轮…" : "接下来做什么？", "aria-label": "舞台输入", disabled: sending }),
-		h("button", { type: "submit", disabled: sending || !draft.trim() }, sending ? "发送中…" : "发送")) : null;
-	// With the skin's art the input docks on Tavern's own box (above its image); a plugin view keeps it under the scene.
-	const docked = Boolean(art) && !choice.view;
+	// The round's last card ends on the choice menu (stage-choices.js); its waits take the box's place. It docks on Tavern's
+	// own box (above the box, or its image); a plugin view keeps it under the scene.
+	const input = h(TavernStageChoices, { key: id, sessionId: id, flow: props.choices, messageId, running: generating, atEnd: atEnd && lastCard,
+		submit: text => props.submit(id, text), lines: skinDocument.waitLines || STAGE_WAIT_LINES });
+	const docked = !choice.view;
 	// The stage's wheel (modules/stage-backlog.js stageWheelDecision): up opens the backlog, down turns a page. An open CONFIG or
 	// backlog keeps its own wheel; the BGM panel scrolls its list.
 	const wheelGesture = React.useRef(null);
@@ -586,9 +588,9 @@ function TavernStageScreen(props) {
 		tavernStageRuntime.page(id, page);
 	}
 	return h("div", { className: "dsh-tavern-stage-overlay", role: "dialog", "aria-modal": "true", "aria-label": "舞台", ...skin,
-		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
+		...(art ? { ...art.marks, style: { ...skin.style, ...art.tokens } } : null), "data-narration-layout": narrationLayout, "data-stage-auto": reader.auto ? "" : undefined, "data-stage-backlog": backlog ? "" : undefined, onWheel: wheel },
 		h(TavernStageSceneView, { scene, view: choice.view, sessionId: id, data, beats, index: reader.index, sceneRef, onAdvance: advance, footer, art, speaking, dock: docked ? input : null,
-			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
+			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, narrationLines: narration && narration.lines, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
 			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,

@@ -28,7 +28,7 @@ test('舞台模式 › 可用演出 takes a switched-off command out of the tool
   assert.deepEqual(Object.keys(properties), ['sequence', 'through', 'done', 'figures', 'music', 'performances'])
   assert.equal(properties.performances.items.properties.op.const, 'screen.play')
   assert.doesNotMatch(request.system + request.tool.description, /背景|actor\.act\.play/)
-  assert.match(request.system, /screen\.play 用 shake-1/)
+  assert.match(request.system, /screen\.play 的 effect 从列出的画面效果里选/)
   assert.equal(Object.hasOwn(JSON.parse(request.turnContext), 'background'), false)
   assert.match((await request.call({ background: 'Hall' })).error, /只提交工具列出/)
   assert.match((await request.call({ figures: [{ speaker: 'Nora' }], performances: [events()[0]] })).error, /actor\.act\.play 已在可用演出里关闭/)

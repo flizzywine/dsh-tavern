@@ -839,10 +839,12 @@ window.__ModuleLoader__.load({
 
 // @include features/music.js
 
+// @include-domain dialogue-bubbles.js
 // @include features/cast-presentation.js
 
 // @include-domain cast-stage-state.js
 // @include-domain stage-performance-playback.js
+// @include-domain stage-effects.js
 // @include-domain stage-skin.js
 // @include-domain stage-entrance.js
 // @include features/stage-skin.js
@@ -850,11 +852,17 @@ window.__ModuleLoader__.load({
 // @include modules/stage-backlog.js
 // @include modules/stage-typewriter.js
 // @include modules/stage-pager.js
+// @include modules/stage-narration.js
+// @include modules/stage-choices.js
+// @include modules/stage-effects.js
 // @include features/stage-entrance.js
 // @include features/stage-audio.js
+// @include features/stage-effects.js
 // @include features/stage-runtime.js
 // @include features/stage-typewriter.js
 // @include features/stage-pager.js
+// @include features/stage-narration.js
+// @include features/stage-choices.js
 // @include features/stage-mixer.js
 // @include features/stage-config.js
 // @include features/stage-backlog.js

@@ -9,9 +9,6 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
-import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
-import { createCastPresentation } from '../../tavern-plugin/lib/domain/cast-presentation.js'
-import { stageDirectorFixture } from '../helpers/stage-director-fixture.mjs'
 import { openStagePanel } from './cast-stage.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
@@ -104,18 +101,11 @@ try {
   const imported = (await call('importCard', { payload: { kind: 'charx', name: 'voice-' + run + '.charx', fileB64: writeZipEntries([{ path: 'card.json', content: JSON.stringify(card) }]).toString('base64') } })).card
   await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
 
-  // Turn 2: Nora's line, then narration. Its annotation (who says the line) comes from the real cast tool, kept in the save.
+  // Turn 2: Nora's line as the story model writes it (a dialogue bubble naming her), then narration.
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' },
-    { name: 'Reader', is_user: true, mes: 'Hello?' }, { name, is_user: false, mes: '“Welcome back, traveller.”\nThe hall is quiet.' }].map(JSON.stringify).join('\n')
+    { name: 'Reader', is_user: true, mes: 'Hello?' }, { name, is_user: false, mes: '@bubble:nora|Nora|开心|[Welcome back, traveller.]\nThe hall is quiet.' }].map(JSON.stringify).join('\n')
   const game = await call('importChatHistoryText', { cardPath: imported.path, text: history, fileName: 'voice.jsonl' })
-  const save = readGameSave(Buffer.from((await call('exportGameSave', { sessionId: game.sessionId, images: false })).base64, 'base64'))
-  const fixture = await stageDirectorFixture(save.chat, { player: 'Reader', cast: [{ name: 'Nora' }], background: [], music: [] })
-  const cast = createCastPresentation({ enabled: async () => true, turns: { readPendingTurn: () => fixture.body() }, data: fixture.data })
-  assert.match(await cast.settlement.section({ gameId: 'game', turn: 2 }), /Welcome back/)
-  assert.equal(JSON.parse(await cast.settlement.call('cast_submit', { lines: [{ n: 1, speaker: 'Nora', emotion: 'joy' }] }, { gameId: 'game', turn: 2 })).ok, true)
-  save.plugins = { data: { version: 1, owners: (await fixture.data.snapshot(save.chat.id)).owners }, media: null, attachments: [] }
-  const restored = await call('importGameSave', { fileB64: buildGameSave({ ...save, tavernVersion: save.manifest.tavernVersion, exportedAt: Date.now() }).toString('base64') })
-  const sessionId = restored.sessionId, title = 'Voice verification ' + run
+  const sessionId = game.sessionId, title = 'Voice verification ' + run
   await call('renameConversation', { sessionId, title })
   // Nora's own voice on the Fish channel: a reference id on the service.
   await call('castSetCharacter', { sessionId, name: 'Nora' })

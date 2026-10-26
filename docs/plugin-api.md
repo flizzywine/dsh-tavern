@@ -1,8 +1,8 @@
 # Tavern 插件接口总览
 
-接口版本：**3**
+接口版本：**4**（宿主侧；浏览器侧 `tavernUi.apiVersion` 仍为 **5**）
 
-DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视频、配音，以及记忆、叙事锚点这类需要参与提示词和后台结算的功能。Tavern 提供一层稳定的接口：让插件知道「这一轮写完了、写了什么」，把图片或别的内容「挂回这一轮」，并往正文请求和后台结算里**添加**内容。多数是添加类接口，插件出错只会丢掉它自己那一份，游戏照常进行；少数替换类接口（如 `replaceSettlement`）让插件接管某个流程，插件失败时自动退回 Tavern 自己的做法。
+DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视频、配音，以及记忆、叙事锚点这类需要参与提示词和后台结算的功能。Tavern 提供一层稳定的接口：让插件知道「这一轮写完了、写了什么」，把图片或别的内容「挂回这一轮」，并往正文请求和后台结算里**添加**内容。v4 另提供仅对当前人物卡卡内插件开放的官方 MVU 变量结算 provider。多数是添加类接口，插件出错只会丢掉它自己那一份，游戏照常进行；少数替换类接口（如 `replaceSettlement`）让插件接管某个流程，插件失败时自动退回 Tavern 自己的做法。
 
 ## 三条承诺
 
@@ -108,7 +108,7 @@ export function apply(ctx) {
 两条规则：
 
 - **用 `ctx.tavern.方法名()` 的形式调用**，不要把方法单独取出来（`const { attach } = ctx.tavern` 会报错）。Tavern 靠调用方式认出是哪个插件，从而让各插件只能看到、修改自己的内容。
-- **注册类的方法（`onTurnSettled`、`onTimelineChanged`、`promptSection`、`turnSection`、`settlementSection`、`settlementTool`、`worldbookSource`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
+- **注册类的方法（`onTurnSettled`、`onTimelineChanged`、`promptSection`、`turnSection`、`settlementSection`、`settlementTool`、`worldbookSource`、`mvuSettlementProvider`、`register…`）在插件卸载时自动撤销**，也会返回一个撤销函数，可以提前调用。
 
 ## 基本概念
 
@@ -125,7 +125,7 @@ export function apply(ctx) {
 
 | 页面 | 内容 |
 |---|---|
-| [读取游戏](plugin-api-game.md) | 回合写完、读正文与人物卡、历史、时间线变化、改最新一轮 |
+| [读取游戏](plugin-api-game.md) | 回合写完、读正文与人物卡、历史、时间线变化、改最新一轮、MVU provider |
 | [正文、结算与任务](plugin-api-prompt.md) | 往正文请求、世界书、后台结算、候选、压缩里添加内容；结算任务、手动任务、`runTask`、`handle` |
 | [媒体与数据](plugin-api-data.md) | 挂图片等媒体、按轮与整局数据、插件数据、本局配置项、插件在哪些局生效 |
 | [人物卡、Skill 与演出](plugin-api-cards.md) | 人物卡库、改卡、Skill、台词标注、角色素材 |
@@ -143,7 +143,7 @@ Tavern 只给顶层会话（玩家的游戏会话）加回合上下文和「【�
 
 - 修改更早的轮次（`setVariables`、`editTurn` 目前只改最新一轮）。
 - 直接使用 Tavern 自己的常驻后台会话：它带着整局的结算历史，插件任务混进去会影响之后的结算。需要游戏背景的后台工作请用 `runTask`。
-- 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩、MVU 变量结算）。替换类接口会约定插件要交回的结果，插件失败时退回 Tavern 自己的做法。
+- 替换 Tavern 的其他流程（提示词组装、世界书召回、候选、压缩）。替换类接口会约定插件要交回的结果，插件失败时退回 Tavern 自己的做法。
 
 直接读写 Tavern 的数据目录和人物卡文件不属于接口：这些文件的格式会随版本变化，插件这样做，Tavern 一更新就可能失效。需要里面的数据，请按上面的方式提需求，由 Tavern 提供读取接口。
 

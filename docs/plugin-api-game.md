@@ -4,7 +4,52 @@
 
 ## `apiVersion`
 
-当前为 `3`。以后新增能力时会增大，旧能力保持不变。浏览器侧的 `tavernUi.apiVersion` 单独计数，当前是 `5`。标着「第 3 版」的接口，先判断 `apiVersion >= 3` 再用；旧版 Tavern 上没有时，关掉插件里对应的功能即可。
+当前为 `4`。v4 向后兼容旧版接口；浏览器侧的 `tavernUi.apiVersion` 单独计数，当前是 `5`，不受影响。调用新增的 provider 接口前同时检查 `apiVersion >= 4` 和对应能力标记；旧版 Tavern 上没有时，关闭该插件功能并沿用原生处理。
+
+## Provider 能力检查
+
+`tavern.capabilities` 只声明宿主实现了哪些 provider 接口，不代表某个插件已注册，也不代表当前游戏会选择它。检查该能力值为 `1`，并保留旧宿主的降级路径：
+
+```js
+const api = ctx.tavern
+const canSettleMvu = api.apiVersion >= 4 && api.capabilities?.mvuSettlementProvider === 1
+if (canSettleMvu) api.mvuSettlementProvider({ name: 'my-mvu', settle })
+```
+
+MVU provider 仅供**当前人物卡绑定的卡内插件**使用；普通全局插件不能接管其他卡的游戏。卡内插件停用或卸载时注册会撤销。若同一游戏有多个候选 provider，Tavern 不会任意挑选一个，会走原生结算。
+
+## `mvuSettlementProvider({ name, settle })`（第 4 版）
+
+为当前卡的官方 MVU 变量结算提供替代结果。注册返回清理函数；卸载时也会自动撤销。`settle` 收到：
+
+```js
+{
+  gameId, turn, textVersion,
+  input,                 // 玩家本轮输入
+  storyText,              // 本轮正文
+  currentVariables,       // 当前完整变量快照
+  variableSchema,         // MVU 变量结构
+  swipe, branch,
+  lifecycleRevision, storageRevision,
+  signal
+}
+```
+
+返回 `null` 或 `false` 表示不接管，继续 Tavern 原生 MVU 结算；接管时返回 `{ operations }`：
+
+```js
+async function settle({ currentVariables, signal }) {
+  signal.throwIfAborted()
+  const hp = currentVariables.stat_data.角色.体力
+  return { operations: [{ op: 'replace', path: '/stat_data/角色/体力', value: hp - 1 }] }
+}
+```
+
+`textVersion` 是宿主从当前轮 canonical `readPendingTurn().key` 读取后附给回调的正文版本。把回调当作纯计算：不要修改输入快照，也不要在里面写游戏状态或执行不可重复的外部副作用。回调可能在操作尚未持久化前因结算重试再次运行。
+
+`operations` 使用官方 MVU JSON Patch 方言（`replace`、`insert`、`add`、`delta`、`remove`、`move`），`path` 和 `move` 的 `from` 都是以 `/stat_data/` 开头的绝对 JSON Pointer。宿主会校验变量路径和值，通过官方 MVU 运行时应用、审计并原子提交；插件不要调用 `setVariables` 写回快照来模拟结算。`textVersion`、`swipe`、`branch`、`lifecycleRevision` 和 `storageRevision` 标识本次结算目标；回调应按这些字段及 `gameId`、`turn` 实现幂等。宿主会在投递操作前持久化它们；中断后恢复时复用已保存操作，不会为同一份已保存提交再次调用 provider。`signal` 中止时应停止计算，本次结果不提交。返回 `null` 或 `false`（包括多个 provider 候选时）继续原生结算。provider 抛错、返回格式错误或 patch 校验失败时不会形成变量提交，错误会记录并使本次变量结算失败，不会自动改走原生结算；用户重试时 provider 可能再次运行。若操作已持久化，恢复会重投已保存操作；若 provider 已卸载、停用或不再绑定当前卡，宿主拒绝投递这些操作。
+
+该接口只接管变量，姿势与人物设计仍按原有开关运行，不改变现有对白处理。它不是 `replaceSettlement`，也不用于没有官方 MVU 状态的游戏。启用正式 MVU 变量结算仍需人物卡启用了官方 MVU，且游戏的后台变量结算开关开启。
 
 ## `onTurnSettled(handler)`
 

@@ -57,7 +57,8 @@ export function createMvuSettlementEngine(deps) {
           lifecycleRevision: Number(snapshot.tavernHelperLifecycleRevision || 0),
           swipeId: mvuTarget.swipeId,
           posture: prepared?.posture ?? target.mvu.delivery?.posture,
-          ...(prepared ? { prepared: structuredClone({ submission: prepared.submission, receipt: prepared.receipt, effect: prepared.effect, posture: prepared.posture }) } : {})
+          ...(providerOwner ? { provider: { owner: providerOwner }, auxiliaryPending: prepared ? false : providerAuxiliaryPending } : {}),
+          ...(prepared ? { prepared: structuredClone({ submission: prepared.submission, receipt: prepared.receipt, effect: prepared.effect, posture: prepared.posture, ...(providerOwner ? { providerOwner } : {}) }) } : {})
         }
       })
     }
@@ -88,23 +89,92 @@ export function createMvuSettlementEngine(deps) {
     }
     const pendingSubmission = mvuTarget.message.mvu && mvuTarget.message.mvu.pendingSubmission
     const delivery = mvuTarget.message.mvu?.delivery
+    let providerOwner = delivery?.provider?.owner || null
+    let providerAuxiliaryPending = delivery?.auxiliaryPending === true
     if (delivery && (delivery.branchId !== taskRun.basedOn.branchId || delivery.revision !== taskRun.basedOn.revision
       || delivery.lifecycleRevision !== Number(snapshot.tavernHelperLifecycleRevision || 0) || delivery.swipeId !== mvuTarget.swipeId)) throw new Error('MVU 任务目标已过期，旧任务未执行')
+    async function assertProviderActive(owner, stage) {
+      if (!owner) return
+      const active = await deps.pluginApi?.mvuProviderActive?.({ gameId: snapshot.sessionId, owner })
+      if (active !== true) throw new Error('MVU provider 已卸载、停用或不再绑定当前卡，' + stage + '已取消')
+    }
+    async function finishProviderAuxiliary(result, { runAuxiliary = true } = {}) {
+      if (['pending', 'stale', 'error', 'partial'].includes(result.receipt?.status)) return result
+      await assertProviderActive(providerOwner, '结算提交')
+      let posture
+      let auxiliaryText = ''
+      if (runAuxiliary && (backgroundTasksSettings.posture || backgroundTasksSettings.characterDesign)) {
+        const selection = backgroundModelSelection(snapshot)
+        if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
+        const auxiliary = await mvuSettlement.settleAuxiliary({
+          ...settlementInput, system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
+          selection, persistentSessionId: trace.sessionId, signal
+        })
+        posture = auxiliary.posture
+        auxiliaryText = auxiliary.text
+        trace.sessionId = auxiliary.traceSessionId || trace.sessionId
+        trace.boundary = auxiliary.traceBoundary
+      }
+      await assertProviderActive(providerOwner, 'prepared 保存')
+      result.posture = posture
+      result.text = auxiliaryText
+      if (providerOwner) result.providerOwner = providerOwner
+      if (settlementInput.onPrepared) await settlementInput.onPrepared(structuredClone({ ...result, posture }))
+      return result
+    }
     let mvuResult
     if (delivery?.prepared) {
+      if (delivery.provider) await assertProviderActive(delivery.provider.owner, '已准备的操作提交')
       mvuResult = structuredClone(delivery.prepared)
+      if (!mvuResult.providerOwner && delivery.provider?.owner) mvuResult.providerOwner = delivery.provider.owner
     } else if (pendingSubmission && typeof pendingSubmission === 'object') {
-      mvuResult = await mvuSettlement.resumeVariables({ ...settlementInput, submission: pendingSubmission })
-    } else {
-      const selection = backgroundModelSelection(snapshot)
-      if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
-      mvuResult = await mvuSettlement.settleVariables({
+      if (delivery?.provider) await assertProviderActive(delivery.provider.owner, '已保存的操作投递')
+      mvuResult = await mvuSettlement.resumeVariables({
         ...settlementInput,
-        system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
-        selection,
-        persistentSessionId: trace.sessionId,
-        signal
+        ...(delivery?.provider ? { onPrepared: undefined } : {}),
+        submission: pendingSubmission
       })
+      if (delivery?.provider) mvuResult = await finishProviderAuxiliary(mvuResult, { runAuxiliary: delivery.auxiliaryPending === true })
+    } else {
+      const provider = deps.pluginApi?.mvuProvider
+      let provided = null
+      if (typeof provider === 'function') {
+        const playerMessage = snapshot.messages.slice(0, mvuTarget.messageId).findLast(message => message?.role === 'user')
+        const playerInput = playerMessage ? projectAgentMessageText(playerMessage, { charName: card?.name, macroState: snapshot.macroState }) : ''
+        provided = await provider({
+          gameId: snapshot.sessionId, turn: settlementInput.turn,
+          input: playerInput, storyText: settlementInput.storyText,
+          currentVariables: settlementInput.currentVariables, variableSchema: settlementInput.variableSchema,
+          swipe: mvuTarget.swipeId, branch: taskRun.basedOn.branchId,
+          lifecycleRevision: settlementInput.expectedLifecycleRevision,
+          storageRevision: taskRun.basedOn.revision, signal
+        })
+      }
+      if (provided !== null && provided !== false) {
+        if (!provided || !Array.isArray(provided.operations)) throw new Error('MVU provider 返回值无效')
+        if (typeof mvuSettlement.resumeProviderVariables !== 'function') throw new Error('MVU provider 缺少官方事务恢复入口')
+        providerOwner = provided.owner
+        providerAuxiliaryPending = backgroundTasksSettings.posture === true || backgroundTasksSettings.characterDesign === true
+        await assertProviderActive(providerOwner, '官方事务派发')
+        // onSubmission saves before dispatch. Delay onPrepared until auxiliary work
+        // finishes so a restart resumes the durable submission without rerunning provider.
+        mvuResult = await mvuSettlement.resumeProviderVariables({
+          ...settlementInput,
+          onPrepared: undefined,
+          submission: { operations: provided.operations }
+        })
+        mvuResult = await finishProviderAuxiliary(mvuResult)
+      } else {
+        const selection = backgroundModelSelection(snapshot)
+        if (selection === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
+        mvuResult = await mvuSettlement.settleVariables({
+          ...settlementInput,
+          system: backgroundTasksSettings.posture ? postureItem.requirement() : '',
+          selection,
+          persistentSessionId: trace.sessionId,
+          signal
+        })
+      }
     }
     if (mvuResult.posture === undefined && delivery?.posture !== undefined) mvuResult.posture = delivery.posture
     const text = str(mvuResult.text) || JSON.stringify({ posture: mvuResult.posture })
@@ -143,6 +213,9 @@ export function createMvuSettlementEngine(deps) {
         ? [mvuTarget.messageId, ...changes.filter(c => c.path[0] === 'messages').map(c => c.path[1])] : null,
       stateChanged: Boolean(changes.length) || Boolean(mvuResult && mvuResult.receipt && mvuResult.receipt.status === 'updated'),
       apply(draft, scope) {
+        if (mvuResult?.providerOwner && deps.pluginApi?.mvuProviderRegistered?.(mvuResult.providerOwner) !== true) {
+          throw new Error('MVU provider 已卸载，拒绝提交其变量效果')
+        }
         if (mvuResult && mvuResult.effect) applyMvuSettlementEffect(draft, mvuResult.effect, scope)
         if (mvuTarget && mvuResult === null && backgroundTasksSettings.variables === false) {
           const target = draft.messages[mvuTarget.messageId]

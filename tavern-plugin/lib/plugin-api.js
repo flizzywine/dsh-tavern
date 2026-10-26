@@ -7,7 +7,7 @@ import { normalizeGameSettings, coerceSetting, settingValues } from './domain/pl
 // The public `tavern` service for third-party DSH plugins (docs/plugin-api.md).
 // Only additive changes are allowed here: published plugins depend on every
 // name and field. Internals are reached through `deps`, never exposed.
-export const TAVERN_PLUGIN_API_VERSION = 3
+export const TAVERN_PLUGIN_API_VERSION = 4
 const TRACKER = Symbol.for('cordis.tracker')
 const SECTION_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const MAX_SECTION_TEXT = 8000
@@ -83,6 +83,22 @@ function gameIdOf(value) {
   return value
 }
 
+function boundedWithSignal(promise, label, signal, ms = PLUGIN_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    let timer
+    const finish = (callback, value) => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      callback(value)
+    }
+    const abort = () => finish(reject, signal.reason || new Error(label + ' 已取消'))
+    if (signal?.aborted) return abort()
+    timer = setTimeout(() => finish(reject, new Error(label + ' 超过 ' + ms / 1000 + ' 秒未返回')), ms)
+    signal?.addEventListener('abort', abort, { once: true })
+    Promise.resolve(promise).then(value => finish(resolve, value), error => finish(reject, error))
+  })
+}
+
 export function createTavernPluginApi(deps) {
   const settledHandlers = new Set()
   const removedHandlers = new Set()
@@ -94,6 +110,8 @@ export function createTavernPluginApi(deps) {
   const gameSettingDefs = new Map()
   const settingHandlers = new Set()
   const speechProviders = new Map()
+  const mvuSettlementProviders = new Map()
+  const capabilities = Object.freeze({ mvuSettlementProvider: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -252,6 +270,16 @@ export function createTavernPluginApi(deps) {
   const service = {
     ctx: deps.ctx,
     apiVersion: TAVERN_PLUGIN_API_VERSION,
+    capabilities,
+
+    mvuSettlementProvider({ name, settle } = {}) {
+      const owner = ownerOf(this)
+      sectionName(name)
+      if (typeof settle !== 'function') throw new TypeError('settle 必须是函数')
+      const entry = { owner, name, settle }
+      return register.call(this, mvuSettlementProviders, owner + '\u0000' + name, entry,
+        'tavern.mvuSettlementProvider()', 'MVU 提供器 ' + name + ' 已注册')
+    },
 
     onTurnSettled(handler) {
       if (typeof handler !== 'function') throw new TypeError('onTurnSettled 需要一个函数')
@@ -1221,7 +1249,52 @@ export function createTavernPluginApi(deps) {
     return entry ? entry.modes.slice() : null
   }
 
-  return Object.freeze({ service, toolModesFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved,
+  async function mvuProvider(input = {}) {
+    const gameId = gameIdOf(input.gameId)
+    const material = deps.readPendingTurn ? await deps.readPendingTurn(gameId).catch(() => null) : null
+    if (!material || material.turn !== Number(input.turn) || typeof material.key !== 'string') return null
+    const choices = await choicesFor(gameId)
+    const entries = Array.from(mvuSettlementProviders.values()).filter(entry => choices.own.has(entry.owner))
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
+    if (entries.length !== 1) {
+      if (entries.length > 1) recordError(gameId, entries.map(entry => entry.owner).join(', '), 'mvuSettlementProvider', new Error('多个卡内提供器候选，拒绝随机接管'))
+      return null
+    }
+    const entry = entries[0]
+    const { signal, ...payload } = input
+    let result
+    try {
+      signal?.throwIfAborted()
+      result = await boundedWithSignal(Promise.resolve().then(() => entry.settle({ ...structuredClone(payload), textVersion: material.key, ...(signal ? { signal } : {}) })),
+        'MVU 提供器 ' + entry.owner, signal)
+    } catch (error) {
+      recordError(gameId, entry.owner, 'mvuSettlementProvider', error)
+      throw error
+    }
+    // A callback may finish after unload, a card switch, or the canonical text changes.
+    if (mvuSettlementProviders.get(entry.owner + '\u0000' + entry.name) !== entry) return null
+    const latest = await choicesFor(gameId)
+    if (!latest.own.has(entry.owner) || latest.disabled.has(entry.owner)) return null
+    const current = await deps.readPendingTurn?.(gameId).catch(() => null)
+    if (!current || current.turn !== material.turn || current.key !== material.key) return null
+    if (result === null || result === false) return null
+    if (!result || typeof result !== 'object' || !Array.isArray(result.operations)) {
+      throw new Error('MVU 提供器必须返回 { operations } 或 null')
+    }
+    return { owner: entry.owner, operations: structuredClone(result.operations) }
+  }
+
+  async function mvuProviderActive({ gameId, owner } = {}) {
+    const choices = await choicesFor(gameId)
+    const entries = Array.from(mvuSettlementProviders.values()).filter(entry => choices.own.has(entry.owner))
+    return entries.length === 1 && entries[0].owner === owner && !choices.disabled.has(owner)
+  }
+
+  function mvuProviderRegistered(owner) {
+    return typeof owner === 'string' && Array.from(mvuSettlementProviders.values()).some(entry => entry.owner === owner)
+  }
+
+  return Object.freeze({ service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved,
     speechProviders: () => Array.from(speechProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
 }

@@ -54,6 +54,20 @@ const skinEase = skinEnum(['linear','out','in-out','back']);
 const skinMotion = value => skinObject({ms:skinNumber(60,3000),ease:skinEase,keys:skinArray(skinObject({...skinPoseFields,at:skinNumber(0,1)},['at']),2,6)},['ms','keys'])(value)
     && value.keys[0].at === 0 && value.keys.at(-1).at === 1 && value.keys.every((key,i) => i === 0 || key.at > value.keys[i-1].at);
 const skinStage = skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinNumber(0,200),ease:skinEase,fade:value => value === true},['pose','ms']);
+// transitions: how a stage surface comes and goes, as data. choices: the round-end menu's rows - enter as they appear (each
+// next row stagger ms later), leave after a pick (the others first, the picked row last; the pick is sent when it ends). A
+// transition is a wipe (the row revealed through a growing shape from `at`, or an edge wipe), a pose (dx / dy % of the row,
+// rot, scale) and / or a fade over ms after delay; ease is a named curve or a cubic Bezier [x1, y1, x2, y2].
+const STAGE_SKIN_TX_EASES = Object.freeze(['linear','out','in-out','back','snap','expo-out','quint-out','emphasized','emphasized-out','emphasized-in','spring']);
+const STAGE_SKIN_WIPES = Object.freeze(['circle','rect','diamond','triangle','left','right','up','down']);
+const skinTxEase = value => skinEnum(STAGE_SKIN_TX_EASES)(value) || skinArray(skinNumber(-1,2),4,4)(value) && value[0] >= 0 && value[0] <= 1 && value[2] >= 0 && value[2] <= 1;
+const skinTransition = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEase,delay:skinNumber(0,1000),stagger:skinNumber(0,200),
+    wipe:skinObject({shape:skinEnum(STAGE_SKIN_WIPES),at:skinArray(skinNumber(0,1),2,2)},['shape']),
+    pose:skinObject({dx:skinNumber(-100,100),dy:skinNumber(-100,100),rot:skinNumber(-180,180),scale:skinNumber(0,4)}),fade:value => value === true},['ms'])(value)
+    && ['wipe','pose','fade'].some(key => Object.hasOwn(value,key));
+const skinTransitions = skinObject({choices:value => skinObject({enter:skinTransition,leave:skinTransition})(value) && Object.keys(value).length > 0},['choices']);
+// waitLines: the short lines the text box cycles through while the choices generate or a reply is written (one line on a phone).
+const skinWaitLines = skinArray(value => typeof value === 'string' && /^\S(?:[^\n\r]{0,22}\S)?$/u.test(value),1,64);
 // textFx.poses: a glyph's entrance poses on the reveal's step clock (em, degrees, blur em, ink).
 const skinGlyphPose = skinObject({dx:skinNumber(-1,1),dy:skinNumber(-1,1),rot:skinNumber(-45,45),scale:skinNumber(0,3),sx:skinNumber(0,3),sy:skinNumber(0,3),skew:skinNumber(-45,45),
     blur:skinNumber(0,.5),ink:skinEnum(['flash','fg','accent'])});
@@ -189,7 +203,11 @@ const skinArtShape = skinObject({
         halo:skinHalo,initials:skinInitials,lift:skinNumber(-256,256),fill:skinInk,shadow:skinArray(skinNumber(-32,32),2,2),spacing:skinNumber(-0.2,0.5),band:skinNameBand,center:skinNumber(0,4096),rotate:skinNumber(-15,15),narrow:skinEnum(['pill'])},['x','y','h','font'])(value) && !(value.printed && value.image) && !(value.slice && !value.image) && !((value.grow !== undefined || value.pad) && !value.slice),
     cast:skinCast,
     decor:skinArray(skinArtDecor,1,8),
+    // layout: where a narration page reads (box = in the text box, free = centred over the veiled scene, band = a strip along
+    // the bottom; omitted = free, the band while the page's item picture shows). ink / halo (false = none) / veilColor: the
+    // boxless words and what veils the scene behind them.
     narration:skinObject({font:skinNumber(8,256),pitch:skinNumber(8,512),veil:skinNumber(0,.9),y:skinNumber(0,4096),
+        layout:skinEnum(['box','free','band']),ink:skinColor,halo:value => value === false || skinHalo(value),veilColor:skinColor,
         band:skinObject({font:skinNumber(8,256),pitch:skinNumber(8,512),veil:skinNumber(0,.9),bottom:skinNumber(0,4096)},[]),
         lines:skinObject({fade:skinNumber(0,5),stagger:skinNumber(0,5),rise:skinNumber(0,256)},['fade','stagger'])},['font','pitch','veil']),
     choices:value => skinObject({images:skinObject({plain:skinImage,off:skinImage,alt:skinImage},['plain']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),band:skinArray(skinNumber(0,4096),2,2),
@@ -242,7 +260,8 @@ const stageSkinShape = skinObject({
     textbox:skinObject({layout:skinEnum(['box','scrim','card','slash','bubble','panel','band']),paint:skinPaint,motion:skinObject({page:skinMotion},['page']),shape:skinObject({radius:skinNumber(0,40),borderWidth:skinNumber(0,8),rings:skinRings(3,12)}),frame:skinObject({top:skinBand,bottom:skinBand,corners:skinObject({kind:skinEnum(['none','diamond','rivet','bow','bracket','flourish']),colors:skinArray(skinColor,0,2)},['kind']),insets:skinArray(skinNumber(24,80),4,4),texture:skinEnum(['halftone'])})},['paint']),
     nameplate:skinObject({shape:skinEnum(['pill','tag','torn','jagged','plate','plain','ribbon','underline','ransom','fade','emblem','chamfer','outline']),tint:skinEnum(['figure']),enter:skinEnum(['unfold']),paint:skinObject({bg:skinColor,fg:skinColor,border:skinColor},['bg','fg']),rotate:skinNumber(-3,3),size:skinNumber(18,40),letterSpacing:skinNumber(0,0.2),rings:skinRings(2,8),motion:skinMotion},['shape','paint']),
     font:skinObject({body:skinId,name:skinId,ui:skinId,film:skinId,faces:skinFontFaces}),
-    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase'])}),
+    // textStyle.narration: the ink of narration in the text box, >= 7:1 on the box.
+    textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor}),
     textFx:skinObject({reveal:skinEnum(['type','ink','pop','stutter','stamp','cut','scan','scrawl']),stepFps:skinNumber(6,14),charsPerStep:skinNumber(1,6,true),cps:skinNumber(10,80),from:skinEnum(['top','bottom']),flash:skinColor,emphasis:skinEnum(['none','jitter','ink']),jitter:skinNumber(0,1.5),
         poses:skinArray(skinGlyphPose,1,4)},['reveal']),
     cursor:skinObject({name:skinEnum(['triangle','wheel','lollipop','eye','rose','rec','candle','gear','light','bell','feather','needle','teacup','whale','ring','star','arrow','fleur','gem','sphere','play']),color:skinColor,accent:skinColor,fps:skinNumber(2,12)},['name']),
@@ -254,7 +273,8 @@ const stageSkinShape = skinObject({
     art:skinArt,
     hud:skinObject({reveal:skinEnum(['auto','always']),timer:skinObject({hide:skinHudHide},['hide'])}),
     effects:skinEffects,
-    modes:skinModes
+    modes:skinModes,
+    transitions:skinTransitions,waitLines:skinWaitLines
 },['schema','id','label','textbox','nameplate','font','textFx']);
 // WCAG contrast. Readable text is part of the contract: unsafe pairs reject the skin.
 function skinLuminance(color) {
@@ -264,6 +284,17 @@ function skinLuminance(color) {
 function skinContrast(a,b) {const x=skinLuminance(a),y=skinLuminance(b); return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
 const STAGE_SKIN_PLATE_ALPHA = Object.freeze({bubble:.86,panel:.8,band:.74});
 function skinOver(front,back,alpha) {return '#'+[1,3,5].map(i => Math.round(parseInt(front.slice(i,i+2),16)*alpha+parseInt(back.slice(i,i+2),16)*(1-alpha)).toString(16).padStart(2,'0')).join('');}
+// art.narration without the box: the words' ink (by default a light subtitle ink with a dark halo) and every ground it can
+// stand on - each veil the layout can use (free: veil, band: band.veil, by default 80/255) in veilColor (by default black)
+// over a black and a white scene, and the halo (by default opaque black) over each of those. A box layout has no veil.
+const STAGE_NARRATION_INK = '#fbf8ff';
+function stageSkinNarrationGrounds(narration) {
+    if (!narration || narration.layout === 'box') return [];
+    const veils=[...(narration.layout === 'band' ? [] : [narration.veil]),...(narration.layout === 'free' ? [] : [narration.band?.veil ?? 80/255])];
+    const scenes=veils.flatMap(alpha => ['#000000','#ffffff'].map(scene => skinOver(narration.veilColor || '#000000',scene,alpha)));
+    if (narration.halo === false) return scenes;
+    return scenes.map(scene => skinOver(narration.halo?.color || '#000000',scene,narration.halo?.alpha ?? 1));
+}
 function validateStageSkin(value) {
     if (!stageSkinShape(value) || new TextEncoder().encode(JSON.stringify(value)).length > 32768) throw Object.assign(new Error('Invalid dsh.skin/1 document'),{code:'INVALID_SKIN'});
     const spinner=value.art?.spinner;
@@ -271,10 +302,11 @@ function validateStageSkin(value) {
         : !spinner.image || !skinSpinnerTiming(spinner))) throw Object.assign(new Error('Invalid skin loading animation'),{code:'INVALID_SKIN'});
     const paint=value.textbox.paint, name=value.nameplate.paint;
     const ui={...paint,...value.ui};
-    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],[paint.onAccent,paint.accent,4.5],
+    const pairs=[...(value.ui ? [[ui.fg,ui.bg,4.5],[ui.fgMuted,ui.bg,3],[ui.accent,ui.bg,4.5],[ui.onAccent,ui.accent,4.5]] : []),[paint.fg,paint.bg,4.5],[paint.fgMuted,paint.bg,3],[value.textStyle?.emphasis || paint.accent || paint.fg,paint.bg,4.5],[value.textStyle?.narration,paint.bg,7],[paint.onAccent,paint.accent,4.5],
         [name.fg,['outline','chamfer'].includes(value.nameplate.shape) ? name.border : name.bg,4.5],[value.quickMenu?.fg,value.quickMenu?.bg,4.5],
         ...(value.nameplate.shape === 'ransom' ? [[name.fg,name.border,4.5]] : [])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
+    if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
     if (value.textbox.layout === 'scrim' && skinLuminance(paint.bg) > 0.03) throw Object.assign(new Error('Skin scrim must be dark'),{code:'SKIN_CONTRAST'});
     const alpha=STAGE_SKIN_PLATE_ALPHA[value.textbox.layout];
     if (alpha && ['#000000','#ffffff'].some(scene => skinContrast(paint.fg,skinOver(paint.bg,scene,alpha))+1e-6 < 4.5)) throw Object.assign(new Error('Skin plate text contrast is unsafe over the scene'),{code:'SKIN_CONTRAST'});
@@ -323,4 +355,4 @@ function stageSkinImageOf(value) {return value && typeof value === 'object' ? va
 function stageSkinSliceEdges(value) {return Array.isArray(value) ? value : value?.edges;}
 function stageSkinFiles(value) {return [...new Set([...stageSkinQuickFiles(value.quickMenu),...skinSfxFiles(value.sfx),...stageSkinArtFiles(value.art),...Object.values(value.modes || {}).flatMap(mode => Object.values(mode.buttons || {}).flatMap(button => [button.image,button.on,button.tint].filter(Boolean))),...(value.effects?.thinking?.image ? [value.effects.thinking.image] : []),...stageSkinFontFiles(value.font)])];}
 
-export { validateStageSkin, stageSkinFiles, stageSkinImageOf, stageSkinSliceEdges, skinContrast, STAGE_SKIN_SFX_CUES, STAGE_SKIN_PLATE_ALPHA, BUILTIN_STAGE_SKINS }
+export { validateStageSkin, stageSkinFiles, stageSkinImageOf, stageSkinSliceEdges, skinContrast, STAGE_SKIN_SFX_CUES, STAGE_SKIN_PLATE_ALPHA, STAGE_NARRATION_INK, BUILTIN_STAGE_SKINS }
