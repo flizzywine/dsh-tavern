@@ -340,10 +340,13 @@ function TavernStageScreen(props) {
 	// resolves to (stage-skin-choice.js, castStage `skin`); 经典 until it arrives.
 	// A pack skin's art layer draws from its bundle (castStage `skin.base`) once its images have loaded.
 	const skinDocument = data && data.skin && data.skin.document || BUILTIN_STAGE_SKINS.classic;
-	const skin = React.useMemo(() => stageSkinRoot(skinDocument), [JSON.stringify(skinDocument)]);
+	// Its font roles resolve against the font library (features/font-library.js) once that is listed.
+	const fontLibrary = useTavernFontLibrary();
+	const skin = React.useMemo(() => stageSkinRoot(skinDocument, fontLibrary), [JSON.stringify(skinDocument), fontLibrary]);
 	const artFiles = useStageSkinArtFiles(data && data.skin && data.skin.document ? data.skin : null);
 	const art = React.useMemo(() => stageSkinArt(skinDocument, artFiles), [skinDocument === BUILTIN_STAGE_SKINS.classic ? "" : JSON.stringify(skinDocument), artFiles]);
 	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
+	useStageSkinFonts(data && data.skin && data.skin.document ? data.skin : null, skinDocument, fontLibrary);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument);

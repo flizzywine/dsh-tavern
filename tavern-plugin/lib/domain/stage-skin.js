@@ -320,12 +320,12 @@ function validateStageSkin(value) {
     }
     return value;
 }
-// Built-in skins are ordinary documents. 经典 (classic) is the default every stage falls back to. It names no font: the
-// stage keeps the client's own type.
+// Built-in skins are ordinary documents. 经典 (classic) is the default every stage falls back to; its text is the font
+// library's 霞鹜新晰黑 (neo-xihei-screen), names and panels following it.
 const BUILTIN_STAGE_SKINS = Object.freeze({
     classic:{schema:'dsh.skin/1',id:'classic',label:'经典',
         textbox:{paint:{bg:'#0c0a14',fg:'#f5f2fa',fgMuted:'#bcb8c6',accent:'#e9e4f3',onAccent:'#0c0a14',border:'#bcb8c6'},shape:{radius:10}},
-        nameplate:{shape:'plain',paint:{bg:'#0c0a14',fg:'#f5f2fa'}},font:{},textFx:{reveal:'type'},
+        nameplate:{shape:'plain',paint:{bg:'#0c0a14',fg:'#f5f2fa'}},font:{body:'neo-xihei-screen'},textFx:{reveal:'type'},
         ui:{bg:'#0c0a14',fg:'#f5f2fa',fgMuted:'#bcb8c6',accent:'#e9e4f3',onAccent:'#0c0a14',border:'#bcb8c6',radius:10}}
 });
 

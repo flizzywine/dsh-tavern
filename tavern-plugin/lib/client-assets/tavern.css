@@ -3489,6 +3489,14 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
   .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-controls-narrow="edge"] .dsh-tavern-stage-textbox { --art-dock-min: 70px; }
 }
 /* ==== end stage skin: art ==== */
+/* ==== stage skin: fonts ====
+   The stage's three type roles (stageSkinFontTokens in stage-skin.js; the root carries all three, each ending in the stage's
+   stack). ui: the stage's own text - the control row, the choices, the backlog, CONFIG and their controls; name: the speaker's
+   name on the plate and on the face window; body: the reading text. */
+.dsh-tavern-stage-overlay, .dsh-tavern-stage-overlay :is(button, input, textarea, select) { font-family: var(--gal-skin-font-ui); }
+.dsh-tavern-stage-overlay :is(.dsh-tavern-stage-name, .dsh-tavern-stage-side-name) { font-family: var(--gal-skin-font-name); }
+.dsh-tavern-stage-overlay .dsh-tavern-stage-text { font-family: var(--gal-skin-font-body); }
+/* ==== end stage skin: fonts ==== */
 /* ==== stage narration ====
    旁白 (modules/stage-narration.js, the skin's art.narration): the stage writes data-narration-layout on its root only for a skin
    that declares art.narration, only on a narration page and never while 跳过 fast-forwards. There is no box: its paint, image,

@@ -21,7 +21,7 @@ test('经典 is an ordinary dsh.skin/1 document, and so is the smallest document
   assert.deepEqual(Object.keys(BUILTIN_STAGE_SKINS), ['classic'])
   assert.equal(validateStageSkin(classic), classic)
   assert.equal(classic.label, '经典')
-  assert.deepEqual(classic.font, {}, 'the built-in names no library font')
+  assert.deepEqual(classic.font, { body: 'neo-xihei-screen' }, 'the font library\'s 霞鹜新晰黑')
   assert.equal(validateStageSkin(minimal), minimal)
 })
 
@@ -91,7 +91,8 @@ test('the interpreter reads 经典 like any skin: paint, plate, rings and readab
   assert.ok(skinContrast(tokens['--gal-ui-accent-ink'], tokens['--gal-ui-accent']) >= 4.5)
   const root = interpreter.stageSkinRoot(classic)
   assert.equal(root['data-fk-skin'], 'classic')
-  assert.deepEqual({ ...root.style }, { ...tokens })
+  // The root adds the three font roles (tests/stage-skin-fonts.test.mjs).
+  assert.deepEqual(Object.fromEntries(Object.entries(root.style).filter(([name]) => !name.startsWith('--gal-skin-font-'))), { ...tokens })
 })
 
 test('another document changes the look through the same tokens, never through a skin id', () => {

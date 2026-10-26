@@ -74,12 +74,36 @@ function stageSkinPanelTokens(document) {
 		"--gal-ui-radius": (document.ui?.radius ?? document.textbox.shape?.radius ?? 10) + "px" };
 }
 
+// font (tavern.css 「stage skin: fonts」): the stage's three type roles - body the reading text, name the speaker's name, ui
+// the rest of the stage. A role's id is one of the skin's own faces (font.faces) or a family of the font library (`library`,
+// the families listed so far: tavernFontLibrary); the first of [the role's own id, body] that resolves draws it, ahead of
+// the stage's stack. A face's fallback (a library family) follows it, for the glyphs the face lacks. Nothing that resolves:
+// the stack alone. useStageSkinFonts loads what the roles name.
+const STAGE_FONT_STACK = '"Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
+const stageSkinFaceFamily = id => "DSH Skin " + id;
+// role -> the families it is drawn in, in order: {family, face: the face id} or a library family entry.
+function stageSkinFontRoles(font, library) {
+	const faces = font.faces || {}, family = id => library.find(item => item.id === id);
+	const pick = id => {
+		if (!id) return null;
+		if (!Object.hasOwn(faces, id)) return family(id) ? [family(id)] : null;
+		const backup = faces[id].fallback && family(faces[id].fallback);
+		return [{ family: stageSkinFaceFamily(id), face: id }, ...(backup ? [backup] : [])];
+	};
+	return Object.fromEntries([["body", [font.body]], ["name", [font.name, font.body]], ["ui", [font.ui, font.body]]]
+		.map(([role, ids]) => [role, ids.map(pick).find(Boolean) || []]));
+}
+function stageSkinFontTokens(font, library) {
+	return Object.fromEntries(Object.entries(stageSkinFontRoles(font, library))
+		.map(([role, families]) => ["--gal-skin-font-" + role, [...families.map(item => JSON.stringify(item.family)), STAGE_FONT_STACK].join(", ")]));
+}
+
 // The root's style and marks for a skin: data-fk-skin names the drawn skin; the control row's place (quickMenu.place: the box's
 // top-right or bottom-right corner), where it stands on phones (narrow top / edge; bottom is the placed default) and whether
 // it is drawn from the skin's icons. A folded menu (layout capsule / orb) has no row to place.
-function stageSkinRoot(document) {
+function stageSkinRoot(document, library = []) {
 	const tx = stageSkinTransitions(document);
-	const root = { style: { ...stageSkinTokens(document), ...tx.tokens }, "data-fk-skin": document.id }, menu = document.quickMenu;
+	const root = { style: { ...stageSkinTokens(document), ...stageSkinFontTokens(document.font, library), ...tx.tokens }, "data-fk-skin": document.id }, menu = document.quickMenu;
 	if (tx.marks) root["data-fk-tx"] = tx.marks;
 	if (document.textStyle?.narration) root["data-fk-skin-narration-ink"] = "";
 	if (menu && (!menu.layout || menu.layout === "bar")) {
@@ -360,6 +384,29 @@ function stageSkinPortraitArt(document, size, url, n, marks, tokens) {
 			"--art-face-nx": n(nw.x), "--art-face-ny": n(nw.y), "--art-face-nsw": n(sw) });
 	}
 	return faceName;
+}
+
+// What the stage's font roles name while the stage shows the skin (skinDocument; skin: the pack skin with its lease base,
+// else null). The library families they use join the page once each (tavernFontLibrary.ensure). The skin's own faces
+// (font.faces) load from its lease: each joins document.fonts at its declared weight and its text swaps in once the file has
+// loaded (until then, or if it fails, the next family of the role); they leave with the skin.
+function useStageSkinFonts(skin, skinDocument, library) {
+	const families = Object.values(stageSkinFontRoles(skinDocument.font, library)).flat();
+	const libraryKey = families.filter(item => !item.face).map(item => item.id).join(" ");
+	React.useEffect(() => { libraryKey.split(" ").filter(Boolean).forEach(id => tavernFontLibrary.ensure(id)); }, [libraryKey]);
+	const faces = skin && skin.base ? Object.entries(skin.document.font.faces || {}) : [];
+	const key = faces.length ? JSON.stringify([skin.base, faces]) : "";
+	React.useEffect(() => {
+		if (!key) return undefined;
+		const added = faces.map(([id, face]) => {
+			const url = skin.base + face.file.split("/").map(encodeURIComponent).join("/");
+			const font = new FontFace(stageSkinFaceFamily(id), "url(" + JSON.stringify(url) + ") format(\"woff2\")", { weight: String(face.weight), display: "swap" });
+			document.fonts.add(font);
+			font.load().catch(() => console.warn("Stage skin font unavailable: " + face.file));
+			return font;
+		});
+		return () => added.forEach(font => document.fonts.delete(font));
+	}, [key]);
 }
 
 // The decoded images of the skin on stage (its art and quick menu icons): files once every image has loaded from the skin's
