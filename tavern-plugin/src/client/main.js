@@ -839,6 +839,7 @@ window.__ModuleLoader__.load({
 
 // @include features/music.js
 
+// @include-domain dialogue-bubbles.js
 // @include features/cast-presentation.js
 
 // @include-domain cast-stage-state.js

@@ -478,7 +478,7 @@
 				return h(TavernMessageFrame, Object.assign({}, options, { key: "opening-runtime", content: content, partIndex: 0, eager: options.eagerFrame }));
 			}
 			const renderPlain = function (text, key) { return h(TavernColoredMarkdown, { key: key, text: text, streaming: options.streaming, labels: { code: options.codeLabels, footnotes: "脚注" }, codeLabels: options.codeLabels, fileMentions: options.mentions }); };
-			const renderMarkdown = options.cast && !options.streaming ? function (text, key) { return renderTavernCastText(text, key, renderPlain, options.cast); } : renderPlain;
+			const renderMarkdown = function (text, key) { return renderTavernDialogueText(text, key, renderPlain, options.cast, options.streaming); };
 			return parts.map(function (part, index) {
 				if (part.kind === "markdown") {
 					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown) : renderMarkdown(String(part.text || ""), index);
@@ -546,7 +546,7 @@
 					})));
 					else {
 						const renderPlain = function (text, key) { return h(TavernColoredMarkdown, { key: key, text: text, streaming: input.streaming, labels: { code: codeLabels, footnotes: "脚注" }, codeLabels: codeLabels, fileMentions: input.mentions }); };
-						const renderMarkdown = input.cast && !input.streaming ? function (text, key) { return renderTavernCastText(text, key, renderPlain, input.cast); } : renderPlain;
+						const renderMarkdown = function (text, key) { return renderTavernDialogueText(text, key, renderPlain, input.cast, input.streaming); };
 						rendered.push(input.plugin ? input.plugin.render(String(block.text || ""), index, renderMarkdown) : renderMarkdown(String(block.text || ""), index));
 					}
 					projected = true;

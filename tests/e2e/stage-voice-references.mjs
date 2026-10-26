@@ -12,9 +12,6 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import { readZipEntries, writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
-import { buildGameSave, readGameSave } from '../../tavern-plugin/lib/domain/game-save.js'
-import { createCastPresentation } from '../../tavern-plugin/lib/domain/cast-presentation.js'
-import { stageDirectorFixture } from '../helpers/stage-director-fixture.mjs'
 import { openStagePanel } from './cast-stage.mjs'
 
 const endpoint = process.env.TAVERN_STAGE_TEST_CDP
@@ -136,18 +133,11 @@ try {
   const card = { spec: 'chara_card_v3', spec_version: '3.0', data: { name, description: 'Original synthetic fixture.', first_mes: 'The curtain opens.', extensions: {} } }
   const imported = (await call('importCard', { payload: { kind: 'charx', name: 'clips-' + run + '.charx', fileB64: writeZipEntries([{ path: 'card.json', content: JSON.stringify(card) }]).toString('base64') } })).card
   await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
-  // Turn 2: Nora's line, annotated by the real cast tool and kept in the save.
+  // Turn 2: Nora's line as the story model writes it (a dialogue bubble naming her).
   const history = [{ user_name: 'Reader', character_name: name }, { name, is_user: false, mes: 'The curtain opens.' },
-    { name: 'Reader', is_user: true, mes: 'Hello?' }, { name, is_user: false, mes: '“Welcome back, traveller.”\nThe hall is quiet.' }].map(JSON.stringify).join('\n')
+    { name: 'Reader', is_user: true, mes: 'Hello?' }, { name, is_user: false, mes: '@bubble:nora|Nora|开心|[Welcome back, traveller.]\nThe hall is quiet.' }].map(JSON.stringify).join('\n')
   const game = await call('importChatHistoryText', { cardPath: imported.path, text: history, fileName: 'clips.jsonl' })
-  const save = readGameSave(Buffer.from((await call('exportGameSave', { sessionId: game.sessionId, images: false })).base64, 'base64'))
-  const fixture = await stageDirectorFixture(save.chat, { player: 'Reader', cast: [{ name: 'Nora' }], background: [], music: [] })
-  const cast = createCastPresentation({ enabled: async () => true, turns: { readPendingTurn: () => fixture.body() }, data: fixture.data })
-  assert.match(await cast.settlement.section({ gameId: 'game', turn: 2 }), /Welcome back/)
-  assert.equal(JSON.parse(await cast.settlement.call('cast_submit', { lines: [{ n: 1, speaker: 'Nora', emotion: 'joy' }] }, { gameId: 'game', turn: 2 })).ok, true)
-  save.plugins = { data: { version: 1, owners: (await fixture.data.snapshot(save.chat.id)).owners }, media: null, attachments: [] }
-  const restored = await call('importGameSave', { fileB64: buildGameSave({ ...save, tavernVersion: save.manifest.tavernVersion, exportedAt: Date.now() }).toString('base64') })
-  const sessionId = restored.sessionId, title = 'Clip verification ' + run
+  const sessionId = game.sessionId, title = 'Clip verification ' + run
   await call('renameConversation', { sessionId, title })
   await call('castSetCharacter', { sessionId, name: 'Nora' })
   await call('castSetVoice', { sessionId, name: 'Nora', provider: 'fish', voice: 'ref-nora' })
@@ -302,6 +292,8 @@ try {
   await openStagePanel(page, '舞台素材')
   await refs.getByRole('button', { name: '删除第 2 段参考音频', exact: true }).click()
   await page.getByText('已删除 Nora 的一段参考音频').waitFor()
+  // The list follows the saved cast once 舞台素材 has read it again; wait for that, not only the notice.
+  await refs.locator('li').nth(1).waitFor({ state: 'detached' })
   assert.equal(await refs.locator('li').count(), 1)
   await page.goto(chatUrl)
   const from = fish.requests.length

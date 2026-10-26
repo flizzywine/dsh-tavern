@@ -2221,9 +2221,9 @@ export async function apply(ctx) {
     readTexts: async sessionId => (await bodyEditor.read(sessionId)).parts.filter(part => part.kind === 'text').map(part => part.text),
     review: (sessionId, texts, signal) => polishReviewer.review(sessionId, texts, signal)
   })
-  // Dialogue speakers and emotions, annotated by settlement (docs/design/cast-presentation.md).
+  // Who speaks each line and how they feel: the story model's dialogue bubbles (docs/design/cast-presentation.md).
   const castPresentation = createCastPresentation({
-    // On for every game with 对话气泡; 舞台模式 needs it too, so the stage always has its annotations.
+    // On for every game with 对话气泡; 舞台模式 needs it too, so the stage always has its speakers.
     enabled: async () => (await readTavernSettings()).castPresentation === true,
     turns: pluginTurns,
     data: pluginData,
@@ -2288,8 +2288,13 @@ export async function apply(ctx) {
     void directorJobs.cancel(sessionId, { wait: false }).then(() => directorJobs.start(sessionId))
       .catch(error => console.warn('dsh-tavern: 舞台导演任务失败', str(error?.message || error)))
   }
+  // A committed reply: the director starts, and its dialogue bubbles are announced (they came with the text).
+  function bodyCommitted(sessionId) {
+    directRound(sessionId)
+    void castPresentation.announce(str(sessionId)).catch(error => console.warn('dsh-tavern: 台词通知失败', str(error?.message || error)))
+  }
   ctx.effect(() => () => { stageDirectorStream.dispose(); return directorJobs.dispose() })
-  const settlementItems = createSettlementItems({ items: () => [castPresentation.settlement], plugins: () => pluginApi.settlement })
+  const settlementItems = createSettlementItems({ plugins: () => pluginApi.settlement })
   const postureItem = createPostureItem({ prompt: () => runtimePrompt('posture-settlement'), tool: POSTURE_SUBMIT_TOOL })
   function castAssetView(cardPath, manifest) {
     const key = castAssets.keyOf(cardPath)
@@ -3130,6 +3135,11 @@ export async function apply(ctx) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
     pluginTurnContext: pluginApi.turnContext,
+    // 对话气泡 (舞台设置 › 基础设置): the story model writes its spoken lines as dialogue bubbles naming the card's cast.
+    dialogueSpeakers: async ({ sessionId, chat }) => {
+      if ((await readTavernSettings()).castPresentation !== true || !chat.cardPath || !['story', 'script'].includes(chat.mode || 'story')) return null
+      return (await castView(sessionId, str(chat.cardPath), await castAssets.read(str(chat.cardPath)))).map(({ name, aliases }) => ({ name, aliases }))
+    },
     projectUserTemplate: async ({chat,text}) => {
       const global = await readPromptTemplateGlobalVariables()
       const result = await fullTemplateRuntime.forSession(chat.sessionId).renderInput(text, {userName:chat.macroState?.userName || '你',scopes:{global,local:chat.variables || {},initial:chat.promptTemplateInitialVariables || {},message:lastTavernHelperVariables(chat.messages) || {}}})
@@ -3161,7 +3171,7 @@ export async function apply(ctx) {
     store: { chatForSession, readChat, readState: taskStateReader.read, stateForSession: taskStateReader.forSession, openingStateForSession },
     tasks: backgroundTasks,
     queueBackground: queueSettlement,
-    directRound,
+    directRound: bodyCommitted,
     afterReply: sessionId => polishPrereview.start(sessionId),
     cancelDirector: (sessionId, turn) => {
       stageDirectorStream.cancel(sessionId, turn)
@@ -3281,7 +3291,7 @@ export async function apply(ctx) {
       dispatchEvent: function (event) { return tavernScriptHostAdapter.dispatchEvent(event) } },
     timeline: storyTimeline,
     queueSettlement,
-    bodyCommitted: directRound,
+    bodyCommitted,
     cancelSettlement,
     present: presentStory,
     sessionPatch,

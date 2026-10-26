@@ -1,10 +1,17 @@
 import { dialogueQuotes } from './cast-annotation.js'
+import { parseDialogueBubbles } from './dialogue-bubbles.js'
 
-// Host-owned pages: annotations decorate a row, but cannot change its address.
+// Host-owned pages: one per non-empty row. A dialogue bubble row is its speaker's line; an earlier turn's annotations
+// decorate a row, but cannot change its address.
 export function stagePages(text, lines = []) {
   let cursor = 0
   if (/^\s*(```|~~~)/m.test(text)) lines = []
-  return text.split('\n').map(row => row.trim()).filter(Boolean).map((text, index) => {
+  return text.split('\n').map(row => row.trim()).filter(Boolean).map(row => parseDialogueBubbles(row)[0]).filter(Boolean).map((row, index) => {
+    if (row.kind === 'bubble') {
+      const text = row.thought ? '（' + row.text + '）' : row.text
+      return { at: index + 1, text, kind: 'line', speaker: row.speaker, emotion: row.emotion, quotes: [row.text] }
+    }
+    const text = row.text
     let speaker
     const quotes = []
     for (const quote of dialogueQuotes(text)) {
@@ -17,6 +24,12 @@ export function stagePages(text, lines = []) {
     return { at: index + 1, text, kind: speaker ? 'line' : 'narration',
       ...(speaker ? { speaker: speaker.speaker, emotion: speaker.emotion, quotes } : {}) }
   })
+}
+
+// A page of `stagePages(text)` (no annotations) as a model reads it: a dialogue bubble row keeps its speaker, as the
+// text the story model wrote did.
+export function stagePageText(page) {
+  return page.speaker ? page.speaker + '：' + page.text : page.text
 }
 
 const ACT_SCHEMA = { type: 'object', additionalProperties: false, required: ['at', 'op', 'actor', 'motion'], properties: {

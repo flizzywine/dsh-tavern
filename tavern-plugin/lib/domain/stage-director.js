@@ -1,4 +1,4 @@
-import { stagePages, stagePerformancesSchema, acceptStagePerformances } from './stage-performance.js'
+import { stagePages, stagePageText, stagePerformancesSchema, acceptStagePerformances } from './stage-performance.js'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { emotionSlot } from './card-assets.js'
 import { emptyStageState, foldStageState, tavernCastCharacter } from './cast-stage-state.js'
@@ -133,7 +133,7 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
     const previous = foldStageState(stored, { ...(dropped ? { music: null } : {}), ...(droppedAmbience ? { ambience: null } : {}) })
     const pages = stagePages(body.text)
     // Lamps: a missed trigger (and a judge that passes) hides a choice, never the playing track or the current scene.
-    const offered = await recallGreenAssets(assets, pages.map(page => page.text), frozen.judge, judge && ((request, config) => judge.judge(request, config)))
+    const offered = await recallGreenAssets(assets, pages.map(stagePageText), frozen.judge, judge && ((request, config) => judge.judge(request, config)))
     const note = musicNote(previous.music, offered.music)
     const seal = { sequence: window.sequence || 1, through: pages.length, done: true }
     const first = window.first || 1
@@ -181,7 +181,7 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
     try {
       await runAgent({ task: 'stage-director', persistent: false, sessionId: body.sessionId, turn: body.turn,
         selection: request.model, signal, webSearchEnabled: false, system: request.system, turnContext: request.turnContext,
-        messages: [{ role: 'assistant', content: [{ type: 'text', text: request.pages.map(page => '[' + page.at + '] ' + page.text).join('\n') }] }], tools: [request.tool],
+        messages: [{ role: 'assistant', content: [{ type: 'text', text: request.pages.map(page => '[' + page.at + '] ' + stagePageText(page)).join('\n') }] }], tools: [request.tool],
         stopToolsWhen: request.done, acceptWithoutText: request.done,
         onToolCall: async (call, execution) => JSON.stringify(await request.call(call.arguments, execution?.signal || signal)) })
       return request.done()

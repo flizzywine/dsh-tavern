@@ -1,10 +1,7 @@
-		// Dialogue avatars (docs/design/cast-presentation.md): settlement annotates who says each
-		// quoted line; a paragraph holding an annotated line is shown as that speaker's line.
-		const TAVERN_CAST_EMOTIONS = { admiration: "钦佩", amusement: "逗乐", anger: "生气", annoyance: "烦躁", approval: "赞同", caring: "关心",
-			confusion: "困惑", curiosity: "好奇", desire: "渴望", disappointment: "失望", disapproval: "不满", disgust: "嫌弃",
-			embarrassment: "害羞", excitement: "兴奋", fear: "害怕", gratitude: "感激", grief: "悲痛", joy: "开心",
-			love: "爱慕", nervousness: "紧张", neutral: "平静", optimism: "期待", pride: "得意", realization: "恍然",
-			relief: "释然", remorse: "懊悔", sadness: "难过", surprise: "惊讶" };
+		// Dialogue avatars (docs/design/cast-presentation.md): the story model writes each spoken line as a dialogue bubble
+		// naming its speaker, shown as that speaker's row. A turn written before keeps settlement's annotation: a paragraph
+		// holding an annotated quote is shown as that speaker's line.
+		const TAVERN_CAST_EMOTIONS = CAST_EMOTIONS;
 
 		// One request per session for the floors mounted together; refetched on the 'cast' signal.
 		const tavernCastStore = (function () {
@@ -145,22 +142,39 @@
 			return avatars[emotion] || sprites[emotion] || character && character.avatarUrl || (cast.characterName && name === cast.characterName ? cast.characterImageUrl : "");
 		}
 
-		/** Render text with annotated lines as speaker rows; falls back to the plain renderer. */
+		function TavernCastRow(props) {
+			const h = React.createElement, cast = props.cast;
+			return h("div", { className: "dsh-tavern-cast-line" },
+				h(TavernCastAvatar, { speaker: props.speaker, imageUrl: tavernCastLineAvatar(cast, props.speaker, props.emotion) }),
+				h("div", { className: "dsh-tavern-cast-body" },
+					h("div", { className: "dsh-tavern-cast-head" },
+						h("span", { className: "dsh-tavern-cast-name", style: { "--dsh-cast-hue": tavernCastHue(props.speaker) } }, props.speaker),
+						TAVERN_CAST_EMOTIONS[props.emotion] && props.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[props.emotion]) : null,
+						cast.sessionId ? h(TavernCastSpeak, { sessionId: cast.sessionId, speaker: props.speaker, text: props.speech, emotion: props.emotion }) : null),
+					props.children));
+		}
+
+		/** Render text with its dialogue bubbles (or a turn's annotated lines) as speaker rows; falls back to the plain renderer. */
 		function renderTavernCastText(text, key, renderText, cast) {
+			const h = React.createElement;
+			if (hasDialogueBubbles(text)) return h(React.Fragment, { key: key }, parseDialogueBubbles(text).map(function (segment, index) {
+				if (segment.kind === "markdown") return renderText(segment.text, index);
+				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.text },
+					renderText(segment.thought ? "（" + segment.text + "）" : segment.text, "text"));
+			}));
 			const segments = cast && tavernCastSegments(text, cast.lines);
 			if (!segments) return renderText(text, key);
-			const h = React.createElement;
 			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
 				if (segment.kind === "text") return segment.text.trim() ? renderText(segment.text, index) : null;
-				return h("div", { key: index, className: "dsh-tavern-cast-line" },
-					h(TavernCastAvatar, { speaker: segment.speaker, imageUrl: tavernCastLineAvatar(cast, segment.speaker, segment.emotion) }),
-					h("div", { className: "dsh-tavern-cast-body" },
-						h("div", { className: "dsh-tavern-cast-head" },
-							h("span", { className: "dsh-tavern-cast-name", style: { "--dsh-cast-hue": tavernCastHue(segment.speaker) } }, segment.speaker),
-							TAVERN_CAST_EMOTIONS[segment.emotion] && segment.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[segment.emotion]) : null,
-							cast.sessionId ? h(TavernCastSpeak, { sessionId: cast.sessionId, speaker: segment.speaker, text: segment.quotes.join(" "), emotion: segment.emotion }) : null),
-						renderText(segment.text, "text")));
+				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.quotes.join(" ") }, renderText(segment.text, "text"));
 			}));
+		}
+
+		// A finished reply with its speakers shows speaker rows; one still streaming, or without them (对话气泡 off), shows
+		// each dialogue bubble as `name：“line”`, never the raw markup.
+		function renderTavernDialogueText(text, key, renderText, cast, streaming) {
+			if (cast && !streaming) return renderTavernCastText(text, key, renderText, cast);
+			return renderText(dialogueBubblePlainText(text, streaming), key);
 		}
 
 		// Cast material (sprites, avatars, voices) for the stage, edited in 舞台素材.
