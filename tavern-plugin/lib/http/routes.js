@@ -62,6 +62,7 @@ export function registerTavernHttpRoutes({
   sceneIllustrations,
   readPluginMediaFile,
   pluginAssets,
+  fontLibrary,
   sessionResources,
   str,
   tavernRemoteAssets,
@@ -254,6 +255,7 @@ export function registerTavernHttpRoutes({
           }
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
+          if (fontLibrary && await fontLibrary.serve(req, res)) return
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/cast-asset') {
             const query = new URL(req.url, 'http://x').searchParams
             const image = castAssets ? await castAssets.readImage(query.get('card'), query.get('file')) : undefined

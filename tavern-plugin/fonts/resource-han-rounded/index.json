@@ -1,0 +1,49 @@
+{
+  "id": "resource-han-rounded",
+  "label": "Resource Han Rounded CN",
+  "family": "Tavern resource-han-rounded",
+  "category": "rounded",
+  "weights": [
+    400,
+    500,
+    700
+  ],
+  "files": [
+    {
+      "weight": 400,
+      "style": "normal",
+      "file": "400-bd8eb891801bbcf9.woff2",
+      "format": "woff2",
+      "bytes": 4936772,
+      "sha256": "bd8eb891801bbcf9c8d73f8023e63c30e423e2a87b948a5be491ad187b668d56",
+      "sourceSha256": "1c5c623f008eabef10c45135a48b01b46311f9369c28857355872cfe05f48dc0"
+    },
+    {
+      "weight": 500,
+      "style": "normal",
+      "file": "500-42d73bc48bf5d5d6.woff2",
+      "format": "woff2",
+      "bytes": 4974796,
+      "sha256": "42d73bc48bf5d5d62a6e2cb5d6f5aeb2d875236be43a9d54c7800504aa06c479",
+      "sourceSha256": "b2ec1727fbc04b70255db6cb71be0eca3b7a7167ef11655059c5576cc920143f"
+    },
+    {
+      "weight": 700,
+      "style": "normal",
+      "file": "700-4e42ee4c402cce9d.woff2",
+      "format": "woff2",
+      "bytes": 5040192,
+      "sha256": "4e42ee4c402cce9dd2eaa687be8a9b8585f335ef1a916d9632a85c6234b4dbea",
+      "sourceSha256": "f713907a21a10701cd68a7ce3e345ccdce46c789e1809d65ace54e095d7107c3"
+    }
+  ],
+  "license": "SIL OFL 1.1",
+  "source": "https://github.com/CyanoHao/Resource-Han-Rounded/releases/tag/v0.990",
+  "coverage": {
+    "subset": false,
+    "unicodeCount": 30887,
+    "gb2312": 7445,
+    "gb2312Total": 7445,
+    "missingPunctuation": ""
+  }
+}

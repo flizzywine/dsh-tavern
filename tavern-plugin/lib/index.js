@@ -22,6 +22,7 @@ import { syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/use
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
+import { createFontLibrary } from './font-library.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { registerGameplayTools } from './tools/gameplay.js'
@@ -3411,6 +3412,7 @@ export async function apply(ctx) {
     onStyleEnabled: (sessionId, chatId) => { if (agentRegistry.get(sessionId)?.session) void worldbookPrefilter.start(chatId) }
   })
 
+  const fontLibrary = createFontLibrary({ dataRoot })
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   const rpcDeps = { webAccess, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds,
     applicationUpdater, assetLibrary, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog,
@@ -3437,7 +3439,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, sceneIllustrations, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, prepareVoices, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, stageSkinOf, startChat, startPluginTask, stopBackground, str,
+    fontLibrary, skillImportFiles, sleep, speakLine, prepareVoices, speech, speechReply, stageJudge, stageMaterial, stageMaterialChanged, stageMusicTracks, stageSkinOf, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,
@@ -3517,6 +3519,7 @@ export async function apply(ctx) {
     uploads,
     exposeHandler: handle => { tavernHttpHandle = handle },
     pluginAssets: createPluginAssets({ pluginsDir: userPluginPaths(dataRoot).plugins }),
+    fontLibrary,
     dispatch,
     fileResources,
     helperHistoryAccess,

@@ -1,0 +1,29 @@
+{
+  "id": "neo-xihei-screen",
+  "label": "霞鹜新晰黑 屏幕版",
+  "family": "Tavern neo-xihei-screen",
+  "category": "sans",
+  "weights": [
+    400
+  ],
+  "files": [
+    {
+      "weight": 400,
+      "style": "normal",
+      "file": "400-219e1ee84ba7ef5d.woff2",
+      "format": "woff2",
+      "bytes": 3465444,
+      "sha256": "219e1ee84ba7ef5d3fd0193e75826f98583878d349d4fa6392c7171e1d0f73fc",
+      "sourceSha256": "6f69412d8307c055b7f247e67669b0e4ab4b79bf199fe58ee93545429b586092"
+    }
+  ],
+  "license": "IPA Font License 1.0",
+  "source": "https://github.com/lxgw/LxgwNeoXiZhi-Screen/releases/tag/26.08.21",
+  "coverage": {
+    "subset": false,
+    "unicodeCount": 27770,
+    "gb2312": 7445,
+    "gb2312Total": 7445,
+    "missingPunctuation": ""
+  }
+}
