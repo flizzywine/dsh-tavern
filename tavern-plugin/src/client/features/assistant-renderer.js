@@ -581,14 +581,15 @@
 				useTavernUiExtensions();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
-				const castLines = useTavernCast(props.sessionId, storyTurn, playView && settled);
+				// While the reply streams too: its speaker rows come from the text (32/N).
+				const castState = useTavernCast(props.sessionId, storyTurn, playView, settled);
+				const castLines = castState && castState.lines.length ? castState.lines : null;
 				const castCard = liveState.view && liveState.view.card;
-				const castCharacters = castLines ? tavernCastStore.characters(props.sessionId) : null;
 				const castName = castCard && castCard.name || "", castPath = castCard && castCard.path || "";
 				const cast = React.useMemo(function () {
-					return castLines ? { sessionId: props.sessionId, lines: castLines, characters: castCharacters, characterName: castName,
+					return castState ? { sessionId: props.sessionId, lines: castState.lines, characters: castState.characters, characterName: castName,
 						characterImageUrl: castPath ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(castPath) : "" } : null;
-				}, [props.sessionId, castLines, castCharacters, castName, castPath]);
+				}, [props.sessionId, castState, castName, castPath]);
 				// Pictures Tavern drew in older versions show once the turn is settled.
 				const sceneShown = settled && playView;
 				const sceneRecord = useSceneImageRecord(sceneShown ? props.sessionId : null, storyTurn);

@@ -117,9 +117,10 @@ try {
         // whole stage (every edge point is the backlog's), nothing of the stage shows undimmed.
         const shot = async file => {
           await backlog.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)))
-          // Rows rendered past the list's edges keep their lazy avatars unloaded; wait for the ones in view.
-          await backlog.locator('img').evaluateAll(images => Promise.all(images.filter(image => { const box = image.getBoundingClientRect(); return box.bottom > 0 && box.top < innerHeight })
-            .map(image => image.complete || new Promise(done => { image.onload = image.onerror = done }))))
+          // Rows rendered past the list's edges keep their lazy avatars unloaded; wait for the ones in view (the list, not the
+          // window: a row scrolled under the header is not loaded unless the chat already showed that avatar).
+          await list.evaluate(node => { const edge = node.getBoundingClientRect(); return Promise.all([...node.querySelectorAll('img')].filter(image => { const box = image.getBoundingClientRect(); return box.bottom > edge.top && box.top < edge.bottom })
+            .map(image => image.complete || new Promise(done => { image.onload = image.onerror = done }))) })
           const cover = await backlog.evaluate(node => {
             const box = node.getBoundingClientRect(), w = innerWidth, h = innerHeight
             const points = [[1, 1], [w / 2, 1], [w - 1, 1], [1, h - 1], [w / 2, h - 1], [w - 1, h - 1], [1, h / 2], [w - 1, h / 2]]

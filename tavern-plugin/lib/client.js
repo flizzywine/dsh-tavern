@@ -13622,10 +13622,6 @@ function parseDialogueBubbles(text, streaming = false) {
   return segments
 }
 
-function hasDialogueBubbles(text) {
-  return /@bubble/.test(String(text ?? '')) && parseDialogueBubbles(text).some(segment => segment.kind === 'bubble')
-}
-
 /** The turn's spoken lines in the shape of the per-turn cast data, `{ n, quote, speaker, emotion }`. */
 function dialogueBubbleLines(text) {
   return parseDialogueBubbles(text).filter(segment => segment.kind === 'bubble' && segment.speaker && segment.text)
@@ -13645,16 +13641,17 @@ function dialogueBubblePlainText(text, streaming = false) {
   return parseDialogueBubbles(source, streaming).map(segment => segment.kind === 'markdown' ? segment.text : dialogueBubblePlainLine(segment)).join('\n\n')
 }
 		// Dialogue avatars (docs/design/cast-presentation.md): the story model writes each spoken line as a dialogue bubble
-		// naming its speaker, shown as that speaker's row. A turn written before keeps settlement's annotation: a paragraph
-		// holding an annotated quote is shown as that speaker's line.
+		// naming its speaker, shown as that speaker's row from the moment the line starts streaming (32/N). The chat reads
+		// the rows from the text alone; a turn's stored lines are for the stage and plugins.
 		const TAVERN_CAST_EMOTIONS = CAST_EMOTIONS;
 
 		// One request per session for the floors mounted together; refetched on the 'cast' signal.
 		const tavernCastStore = (function () {
-			const entries = new Map();
+			const entries = new Map(), none = Object.freeze([]);
 			function entryFor(sessionId) {
 				let entry = entries.get(sessionId);
-				if (!entry) { entry = { version: 0, generation: 0, enabled: true, characters: [], turns: new Map(), queued: new Set(), timer: null, listeners: new Set(), stop: null }; entries.set(sessionId, entry); }
+				// `shown`: 对话气泡 as the host last answered (null before its first answer); `asked`: a request is out or answered.
+				if (!entry) { entry = { version: 0, generation: 0, enabled: true, shown: null, asked: false, characters: [], turns: new Map(), queued: new Set(), timer: null, listeners: new Set(), stop: null }; entries.set(sessionId, entry); }
 				return entry;
 			}
 			function notify(entry) { entry.version += 1; Array.from(entry.listeners).forEach(function (listener) { listener(); }); }
@@ -13662,14 +13659,17 @@ function dialogueBubblePlainText(text, streaming = false) {
 				const entry = entries.get(sessionId);
 				if (!entry) return;
 				entry.enabled = true;
+				entry.asked = false;
 				entry.turns = new Map();
 					entry.generation += 1;
 				notify(entry);
 			}
+			// `turn` 0 asks only for the session's switch and characters (a reply still streaming has no lines yet).
 			function load(sessionId, turn) {
 				const entry = entryFor(sessionId);
-				if (!entry.enabled || entry.turns.has(turn)) return;
-				entry.queued.add(turn);
+				if (turn ? !entry.enabled || entry.turns.has(turn) : entry.asked) return;
+				if (turn) entry.queued.add(turn);
+				entry.asked = true;
 				if (entry.timer !== null) return;
 				entry.timer = window.setTimeout(function () {
 					entry.timer = null;
@@ -13680,6 +13680,7 @@ function dialogueBubblePlainText(text, streaming = false) {
 					rpc("castForTurns", { turns: turns }, sessionId).then(function (result) {
 						if (entries.get(sessionId) !== entry || entry.generation !== generation) return;
 						entry.enabled = result.enabled !== false;
+						entry.shown = entry.enabled;
 						if (Array.isArray(result.characters)) entry.characters = result.characters;
 						turns.forEach(function (item) { entry.turns.set(item, Array.isArray(result.turns && result.turns[item]) ? result.turns[item] : []); });
 						notify(entry);
@@ -13712,50 +13713,30 @@ function dialogueBubblePlainText(text, streaming = false) {
 				subscribe: subscribe, load: load,
 				version: function (sessionId) { return entries.get(sessionId) ? entries.get(sessionId).version : 0; },
 				generation: function (sessionId) { return entries.get(sessionId) ? entries.get(sessionId).generation : 0; },
-				characters: function (sessionId) { const entry = entries.get(sessionId); return entry ? entry.characters : []; },
+				shown: function (sessionId) { const entry = entries.get(sessionId); return entry ? entry.shown : null; },
+				characters: function (sessionId) { const entry = entries.get(sessionId); return entry ? entry.characters : none; },
 				lines: function (sessionId, turn) { const entry = entries.get(sessionId); return entry && entry.turns.get(turn) || null; }
 			};
 		})();
 
-		function useTavernCast(sessionId, turn, enabled) {
-			const active = Boolean(enabled && sessionId && turn > 0);
+		/**
+		 * A floor's cast: null while 对话气泡 is off or not yet known; else the session's characters and, once the turn is
+		 * settled, its lines (`[]` without any). A reply still streaming asks only for the switch and the characters.
+		 */
+		function useTavernCast(sessionId, turn, enabled, settled) {
+			const active = Boolean(enabled && sessionId && turn > 0), linesActive = active && Boolean(settled);
 			const subscribe = React.useCallback(function (listener) { return active ? tavernCastStore.subscribe(sessionId, listener) : function () {}; }, [sessionId, active]);
 			// Subscribe to this floor's lines only: another floor's lines arriving (one request per
 			// newly mounted floor) must not re-render every floor of a long game (#249).
-			const lines = React.useSyncExternalStore(subscribe, function () { return active ? tavernCastStore.lines(sessionId, turn) : null; });
+			const lines = React.useSyncExternalStore(subscribe, function () { return linesActive ? tavernCastStore.lines(sessionId, turn) : null; });
+			const shown = React.useSyncExternalStore(subscribe, function () { return active ? tavernCastStore.shown(sessionId) : null; });
+			const characters = React.useSyncExternalStore(subscribe, function () { return active ? tavernCastStore.characters(sessionId) : null; });
 			const generation = React.useSyncExternalStore(subscribe, function () { return active ? tavernCastStore.generation(sessionId) : 0; });
-			React.useEffect(function () { if (active && lines === null) tavernCastStore.load(sessionId, turn); }, [sessionId, turn, active, lines, generation]);
-			return lines && lines.length ? lines : null;
-		}
-
-		/** Split text into narration runs and lines holding an annotated quote, matched in order. */
-		function tavernCastSegments(text, lines) {
-			const source = String(text || "");
-			if (!lines || !lines.length || /^\s*(```|~~~)/m.test(source)) return null;
-			let cursor = 0;
-			const segments = [];
-			let narration = [];
-			let matched = 0;
-			function flush() { if (narration.length) { segments.push({ kind: "text", text: narration.join("\n") }); narration = []; } }
-			for (const row of source.split("\n")) {
-				let speaker = null;
-				const quotes = [];
-				for (const range of findTavernQuoteRanges(row)) {
-					const quote = row.slice(range[0] + 1, range[1] - 1).trim();
-					for (let index = cursor; index < lines.length; index += 1) {
-						if (String(lines[index].quote || "").trim() !== quote) continue;
-						if (!speaker) speaker = lines[index];
-						quotes.push(quote);
-						cursor = index + 1;
-						matched += 1;
-						break;
-					}
-				}
-				if (speaker && row.trim()) { flush(); segments.push({ kind: "line", text: row, speaker: speaker.speaker, emotion: speaker.emotion, quotes: quotes }); }
-				else narration.push(row);
-			}
-			flush();
-			return matched ? segments : null;
+			React.useEffect(function () {
+				if (linesActive && lines === null) tavernCastStore.load(sessionId, turn);
+				else if (active && !linesActive) tavernCastStore.load(sessionId, 0);
+			}, [sessionId, turn, active, linesActive, lines, generation]);
+			return React.useMemo(function () { return shown ? { characters: characters, lines: lines || [] } : null; }, [shown, characters, lines]);
 		}
 
 		function tavernCastHue(name) {
@@ -13796,31 +13777,25 @@ function dialogueBubblePlainText(text, streaming = false) {
 					h("div", { className: "dsh-tavern-cast-head" },
 						h("span", { className: "dsh-tavern-cast-name", style: { "--dsh-cast-hue": tavernCastHue(props.speaker) } }, props.speaker),
 						TAVERN_CAST_EMOTIONS[props.emotion] && props.emotion !== "neutral" ? h("span", { className: "dsh-tavern-cast-emotion" }, TAVERN_CAST_EMOTIONS[props.emotion]) : null,
-						cast.sessionId ? h(TavernCastSpeak, { sessionId: cast.sessionId, speaker: props.speaker, text: props.speech, emotion: props.emotion }) : null),
+						// A line still streaming has nothing to read aloud yet.
+						cast.sessionId && props.speech ? h(TavernCastSpeak, { sessionId: cast.sessionId, speaker: props.speaker, text: props.speech, emotion: props.emotion }) : null),
 					props.children));
 		}
 
-		/** Render text with its dialogue bubbles (or a turn's annotated lines) as speaker rows; falls back to the plain renderer. */
-		function renderTavernCastText(text, key, renderText, cast) {
-			const h = React.createElement;
-			if (hasDialogueBubbles(text)) return h(React.Fragment, { key: key }, parseDialogueBubbles(text).map(function (segment, index) {
-				if (segment.kind === "markdown") return renderText(segment.text, index);
-				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.text },
-					renderText(segment.thought ? "（" + segment.text + "）" : segment.text, "text"));
-			}));
-			const segments = cast && tavernCastSegments(text, cast.lines);
-			if (!segments) return renderText(text, key);
-			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
-				if (segment.kind === "text") return segment.text.trim() ? renderText(segment.text, index) : null;
-				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.quotes.join(" ") }, renderText(segment.text, "text"));
-			}));
-		}
-
-		// A finished reply with its speakers shows speaker rows; one still streaming, or without them (对话气泡 off), shows
-		// each dialogue bubble as `name：“line”`, never the raw markup.
+		/**
+		 * Text with its dialogue bubbles as speaker rows, while it streams too: a bubble is its speaker's row as soon as its
+		 * text starts (an unfinished thought has no closing bracket yet), and a last line still too short to read shows
+		 * nothing. Without speakers (对话气泡 off) each bubble reads as `name：“line”`; the raw markup never shows.
+		 */
 		function renderTavernDialogueText(text, key, renderText, cast, streaming) {
-			if (cast && !streaming) return renderTavernCastText(text, key, renderText, cast);
-			return renderText(dialogueBubblePlainText(text, streaming), key);
+			const h = React.createElement;
+			const segments = cast && String(text || "").indexOf("@") >= 0 ? parseDialogueBubbles(text, streaming) : null;
+			if (!segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(dialogueBubblePlainText(text, streaming), key);
+			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
+				if (segment.kind === "markdown") return renderText(segment.text, index);
+				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.streaming ? "" : segment.text },
+					renderText(segment.thought ? "（" + segment.text + (segment.streaming ? "" : "）") : segment.text, "text"));
+			}));
 		}
 
 		// Cast material (sprites, avatars, voices) for the stage, edited in 舞台素材.
@@ -20633,14 +20608,15 @@ function TavernBgmChat(props) {
 				useTavernUiExtensions();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
-				const castLines = useTavernCast(props.sessionId, storyTurn, playView && settled);
+				// While the reply streams too: its speaker rows come from the text (32/N).
+				const castState = useTavernCast(props.sessionId, storyTurn, playView, settled);
+				const castLines = castState && castState.lines.length ? castState.lines : null;
 				const castCard = liveState.view && liveState.view.card;
-				const castCharacters = castLines ? tavernCastStore.characters(props.sessionId) : null;
 				const castName = castCard && castCard.name || "", castPath = castCard && castCard.path || "";
 				const cast = React.useMemo(function () {
-					return castLines ? { sessionId: props.sessionId, lines: castLines, characters: castCharacters, characterName: castName,
+					return castState ? { sessionId: props.sessionId, lines: castState.lines, characters: castState.characters, characterName: castName,
 						characterImageUrl: castPath ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(castPath) : "" } : null;
-				}, [props.sessionId, castLines, castCharacters, castName, castPath]);
+				}, [props.sessionId, castState, castName, castPath]);
 				// Pictures Tavern drew in older versions show once the turn is settled.
 				const sceneShown = settled && playView;
 				const sceneRecord = useSceneImageRecord(sceneShown ? props.sessionId : null, storyTurn);

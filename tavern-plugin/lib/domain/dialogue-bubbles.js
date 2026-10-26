@@ -77,10 +77,6 @@ function parseDialogueBubbles(text, streaming = false) {
   return segments
 }
 
-function hasDialogueBubbles(text) {
-  return /@bubble/.test(String(text ?? '')) && parseDialogueBubbles(text).some(segment => segment.kind === 'bubble')
-}
-
 /** The turn's spoken lines in the shape of the per-turn cast data, `{ n, quote, speaker, emotion }`. */
 function dialogueBubbleLines(text) {
   return parseDialogueBubbles(text).filter(segment => segment.kind === 'bubble' && segment.speaker && segment.text)
@@ -100,4 +96,4 @@ function dialogueBubblePlainText(text, streaming = false) {
   return parseDialogueBubbles(source, streaming).map(segment => segment.kind === 'markdown' ? segment.text : dialogueBubblePlainLine(segment)).join('\n\n')
 }
 
-export { CAST_EMOTIONS, bubbleEmotion, parseDialogueBubbles, hasDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainLine, dialogueBubblePlainText }
+export { CAST_EMOTIONS, bubbleEmotion, parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainLine, dialogueBubblePlainText }

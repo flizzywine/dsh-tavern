@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { sourceFunction } from './fixtures/source-function.mjs'
-import { parseDialogueBubbles, hasDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainText, bubbleEmotion, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainText, bubbleEmotion, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
 import { dialogueFormatText, dialogueFormatUpdate } from '../tavern-plugin/lib/domain/dialogue-format.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
@@ -36,7 +36,7 @@ test('one reader: narration runs, marked lines with speaker and emotion, lenient
   assert.equal(segments.some(segment => /@bubble/.test(segment.text)), false)
   assert.deepEqual(['joy', '开心', 'JOY', '', '微笑'].map(bubbleEmotion), ['joy', 'joy', 'joy', 'neutral', 'neutral'])
   assert.equal(Object.keys(CAST_EMOTIONS).length, 28)
-  assert.equal(hasDialogueBubbles('她说：“你好。”'), false)
+  assert.deepEqual(dialogueBubbleLines('她说：“你好。”'), [])
   assert.deepEqual(dialogueBubbleLines(reply).map(line => [line.n, line.speaker, line.emotion, line.quote]),
     [[1, '店主', 'joy', '欢迎回来。'], [2, '林月', 'nervousness', '他还记得我吗？'], [3, '路人', 'surprise', '你也来了？'], [4, 'Lee', 'neutral', 'Hi.']])
 })
@@ -144,26 +144,39 @@ test('a turn\'s lines come from its shown bubbles, without settlement; an earlie
   assert.ok(await cast.annotation('game', 3), 'plugins read the lines whether or not 对话气泡 is on')
 })
 
-// The chat: a finished reply with its speakers shows a row per bubble; otherwise name：“line”.
+// The chat: with 对话气泡 on a reply shows a row per bubble, while it streams too (32/N); otherwise name：“line”.
 const castSource = readFileSync(new URL('../tavern-plugin/src/client/features/cast-presentation.js', import.meta.url), 'utf8')
-const quoteSource = sourceFunction(readFileSync(new URL('../tavern-plugin/src/client/text-colors.js', import.meta.url), 'utf8'), 'findTavernQuoteRanges')
 const bubbleSource = readFileSync(new URL('../tavern-plugin/lib/domain/dialogue-bubbles.js', import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
-const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleSource + '\n' + quoteSource + '\n'
-  + ['tavernCastSegments', 'TavernCastRow', 'renderTavernCastText', 'renderTavernDialogueText'].map(name => sourceFunction(castSource, name)).join('\n')
+const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleSource + '\n'
+  + ['TavernCastRow', 'renderTavernDialogueText'].map(name => sourceFunction(castSource, name)).join('\n')
   + '\nreturn { renderTavernDialogueText, TavernCastRow }')
 const h = (type, props, ...children) => ({ type, props: props || {}, children })
 const ui = client({ createElement: h, Fragment: 'fragment' }, CAST_EMOTIONS, 'avatar', 'speak', () => '', () => 0)
 const flat = node => !node || typeof node !== 'object' ? (node == null ? [] : [node]) : node.type === ui.TavernCastRow ? [node] : node.children.flat(Infinity).flatMap(flat)
 
-test('chat: speaker rows for a finished reply, name：“line” while streaming or without speakers', () => {
-  const plain = (text, key) => h('md', { key }, text)
-  const cast = { sessionId: 'game', lines: dialogueBubbleLines(reply), characters: [] }
+const plain = (text, key) => h('md', { key }, text)
+const shown = node => [node.props.speaker, node.props.emotion, node.props.speech, node.children[0].children[0]]
+const cast = { sessionId: 'game', lines: [], characters: [] }
+
+test('chat: speaker rows for a finished reply; name：“line” without speakers', () => {
   const rows = flat(ui.renderTavernDialogueText(reply, 0, plain, cast, false)).filter(node => node.type === ui.TavernCastRow)
-  assert.deepEqual(rows.map(row => [row.props.speaker, row.props.emotion, row.props.speech, row.children[0].children[0]]), [
+  assert.deepEqual(rows.map(shown), [
     ['店主', 'joy', '欢迎回来。', '欢迎回来。'], ['林月', 'nervousness', '他还记得我吗？', '（他还记得我吗？）'], ['路人', 'surprise', '你也来了？', '你也来了？'], ['Lee', 'neutral', 'Hi.', 'Hi.']])
-  const streaming = ui.renderTavernDialogueText(reply + '\n@bubble:lee|Lee|开心|[Wai', 0, plain, cast, true)
-  assert.deepEqual(streaming, h('md', { key: 0 }, dialogueBubblePlainText(reply) + '\n\nLee：“Wai'))
   assert.deepEqual(ui.renderTavernDialogueText(reply, 0, plain, null, false), h('md', { key: 0 }, dialogueBubblePlainText(reply)))
-  const quoted = ui.renderTavernDialogueText('她说：“你好。”', 0, plain, { lines: [{ quote: '你好。', speaker: '林曦', emotion: 'joy' }] }, false)
-  assert.equal(flat(quoted).find(node => node.type === ui.TavernCastRow).props.speaker, '林曦', 'an earlier turn\'s annotation still shows')
+  assert.deepEqual(ui.renderTavernDialogueText(reply + '\n@bubble:lee|Lee|开心|[Wai', 0, plain, null, true), h('md', { key: 0 }, dialogueBubblePlainText(reply) + '\n\nLee：“Wai'))
+  // An earlier turn's stored annotation is for the stage and plugins: its quotes are not matched into rows.
+  assert.deepEqual(ui.renderTavernDialogueText('她说：“你好。”', 0, plain, { ...cast, lines: [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }] }, false), h('md', { key: 0 }, '她说：“你好。”'))
+})
+
+test('chat while streaming: each bubble is its row as its text starts, earlier rows keep their place, no markup', () => {
+  const steps = ['店主擦着杯子抬起头。\n@bub', '店主擦着杯子抬起头。\n@bubble:shopkeeper|店主|开心|', '店主擦着杯子抬起头。\n@bubble:shopkeeper|店主|开心|[欢迎',
+    '店主擦着杯子抬起头。\n@bubble:shopkeeper|店主|开心|[欢迎回来。]\n@bubble:lin_yue|林月|紧张|[*他还', reply]
+  const frames = steps.map(text => ui.renderTavernDialogueText(text, 0, plain, cast, text !== reply))
+  const rows = frames.map(frame => flat(frame).filter(node => node.type === ui.TavernCastRow))
+  assert.deepEqual(frames[0], h('md', { key: 0 }, '店主擦着杯子抬起头。'), 'a line too short to read shows nothing')
+  assert.deepEqual(frames[1], h('md', { key: 0 }, '店主擦着杯子抬起头。'))
+  assert.deepEqual(rows[2].map(shown), [['店主', 'joy', '', '欢迎']], 'the row shows with the first words; nothing to read aloud yet')
+  assert.deepEqual(rows[3].map(shown), [['店主', 'joy', '欢迎回来。', '欢迎回来。'], ['林月', 'nervousness', '', '（他还']], 'an unfinished thought has no closing bracket')
+  assert.deepEqual(rows.slice(2).map(list => list.map(row => row.props.key)), [[1], [1, 2], [1, 2, 3, 4]], 'rows keep their keys from the first words to the finished reply')
+  assert.equal(JSON.stringify(frames).includes('@bub'), false)
 })
