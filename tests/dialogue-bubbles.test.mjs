@@ -147,7 +147,8 @@ test('a turn\'s lines come from its shown bubbles, without settlement; an earlie
 // The chat: with 对话气泡 on a reply shows a row per bubble, while it streams too (32/N); otherwise name：“line”.
 const castSource = readFileSync(new URL('../tavern-plugin/src/client/features/cast-presentation.js', import.meta.url), 'utf8')
 const bubbleSource = readFileSync(new URL('../tavern-plugin/lib/domain/dialogue-bubbles.js', import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
-const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleSource + '\n'
+const castStateSource = readFileSync(new URL('../tavern-plugin/lib/domain/cast-stage-state.js', import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
+const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleSource + '\n' + castStateSource + '\n'
   + ['TavernCastRow', 'renderTavernDialogueText'].map(name => sourceFunction(castSource, name)).join('\n')
   + '\nreturn { renderTavernDialogueText, TavernCastRow }')
 const h = (type, props, ...children) => ({ type, props: props || {}, children })

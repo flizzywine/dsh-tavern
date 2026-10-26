@@ -17,6 +17,8 @@ const MAX_REFERENCE_TEXT = 500
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
 const FILE = /^[0-9a-f]{32}\.[a-z0-9]{1,10}$/
 const PROVIDER = /^[a-z0-9][a-z0-9._/-]{0,96}$/
+// A 配音语言: a BCP 47 language tag (ja, en, pt-BR).
+const LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
 
 // Every stored file a manifest names, whatever field names it.
 function filesOf(manifest) {
@@ -223,6 +225,22 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
+  /**
+   * A character's 配音语言 (cast-presentation.md 33/N), the one place it is kept: the story model then writes each of their
+   * lines with the words their voice says in that language; '' is the story's own language.
+   */
+  async function setVoiceLanguage({ cardPath, name, language }) {
+    const character = castName(name)
+    if (language !== '' && (typeof language !== 'string' || !LANGUAGE.test(language))) throw invalid('配音语言无效')
+    await update(cardPath, manifest => {
+      const target = characterIn(manifest, character, Boolean(language))
+      if (!target) return
+      if (language) target.voiceLanguage = language
+      else delete target.voiceLanguage
+    })
+    return read(cardPath)
+  }
+
   /** Remove one of a character's reference clips; its file goes when nothing else names it. */
   async function removeVoiceReference({ cardPath, name, file }) {
     const character = castName(name)
@@ -309,7 +327,8 @@ export function createCastAssets({ store }) {
       let person
       try { person = castName(character.name) } catch { continue }
       const entry = { name: person, aliases: character.aliases.map(alias => { try { return castName(alias) } catch { return null } }).filter(Boolean).slice(0, 8), avatar: character.avatar ? await image(character.avatar) : null, sprites: {}, voices: character.voices, voiceReferences: [],
-        voiceSource: typeof character.voiceSource?.provider === 'string' && PROVIDER.test(character.voiceSource.provider) ? { provider: character.voiceSource.provider, ...(character.voiceSource.clone === true ? { clone: true } : {}) } : null }
+        voiceSource: typeof character.voiceSource?.provider === 'string' && PROVIDER.test(character.voiceSource.provider) ? { provider: character.voiceSource.provider, ...(character.voiceSource.clone === true ? { clone: true } : {}) } : null,
+        voiceLanguage: typeof character.voiceLanguage === 'string' && LANGUAGE.test(character.voiceLanguage) ? character.voiceLanguage : '' }
       for (const [slot, bytes] of Object.entries(character.sprites)) { const file = await image(bytes); if (file) entry.sprites[slot] = file }
       // The card's clips are checked here, once, like an upload; one that does not pass is left out.
       for (const clip of character.voiceReferences || []) {
@@ -333,6 +352,7 @@ export function createCastAssets({ store }) {
         if (Object.keys(entry.voices).length) target.voices = { ...(target.voices || {}), ...entry.voices }
         if (entry.voiceReferences.length) target.voiceReferences = entry.voiceReferences
         if (entry.voiceSource) target.voiceSource = entry.voiceSource
+        if (entry.voiceLanguage) target.voiceLanguage = entry.voiceLanguage
       }
       manifest.extras = [...(manifest.extras || []), ...extras.filter(item => !(manifest.extras || []).some(existing => existing.file === item.file && existing.type === item.type))]
     })
@@ -414,5 +434,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, setVoiceSource, addVoiceReference, removeVoiceReference, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, setSkinChoice, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, setVoiceSource, setVoiceLanguage, addVoiceReference, removeVoiceReference, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, setSkinChoice, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

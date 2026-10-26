@@ -136,9 +136,10 @@ function TavernStageBacklog(props) {
 		const line = entry.kind === "line", jump = entry.current;
 		const avatar = line ? tavernCastAvatar(data, entry.speaker, entry.emotion) : "";
 		const go = () => props.onJump(entry.page, entry.turn);
-		// The voice control follows the speaker's name; narration has no name and no voice.
+		// The voice control follows the speaker's name when the line has words to say; narration has no name and no voice.
+		const speech = line ? tavernPageSpeech(entry, data) : "";
 		const nameRow = line ? h("div", { className: "dsh-tavern-stage-backlog-name" }, h("b", null, entry.speaker),
-			h(TavernCastSpeak, { sessionId: props.sessionId, speaker: entry.speaker, text: entry.quotes.join(" ") || entry.text, emotion: entry.emotion })) : null;
+			speech ? h(TavernCastSpeak, { sessionId: props.sessionId, speaker: entry.speaker, text: speech, emotion: entry.emotion }) : null) : null;
 		const face = h("div", { className: "dsh-tavern-stage-backlog-face" }, line && avatar ? h(TavernStageBacklogFace, { key: avatar, src: avatar }) : null);
 		return h("div", { key: entry.key, ref, className: "dsh-tavern-stage-backlog-row" + (line ? " is-line" : " is-narration") + (jump ? " is-jump" : " is-past") + (entry.here ? " is-here" : ""),
 			style: line ? { "--dsh-cast-hue": tavernCastHue(entry.speaker) } : undefined,

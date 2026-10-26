@@ -52,6 +52,10 @@ export function createMediaHandlers(deps) {
     async castSetVoiceSource(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.setVoiceSource({ cardPath, name: args.name, provider: args.provider, clone: args.clone === true }))
     },
+    // A character's 配音语言 (33/N); '' is the story's own language.
+    async castSetVoiceLanguage(args) {
+      return await castEdit(args && args.sessionId, cardPath => castAssets.setVoiceLanguage({ cardPath, name: args.name, language: args.language }))
+    },
     async getSpeechSettings(args) {
       return await speech.present()
     },

@@ -13423,7 +13423,17 @@ function bindTavernFontZoom(node, win) {
 			return { active: active, source: source, channel: channel, clone: Boolean(source && source.clone) };
 		}
 
-		/** A character's 配音来源 and its voice on that channel, in the character material list; 🔊 says a line with them. */
+		// A character's 配音语言 (33/N): one that is not 中文 has the story model write each of their lines once more in it, for
+		// the voice. The control shows castVoiceLanguage (unset is 中文) and choosing 中文 stores '', so unset and 中文 are one state.
+		// 「其他语言…」 takes any BCP 47 code, checked once when it is saved; a code a card brought that is not listed stays as its code.
+		const TAVERN_VOICE_LANGUAGES = [["ja", "日语"], ["zh", "中文"], ["en", "英语"], ["ko", "韩语"], ["yue", "粤语"]];
+		const TAVERN_VOICE_LANGUAGE_OTHER = "*other";
+		function tavernVoiceLanguageOptions(value) {
+			const listed = TAVERN_VOICE_LANGUAGES.some(function (item) { return item[0] === value; }) ? TAVERN_VOICE_LANGUAGES : TAVERN_VOICE_LANGUAGES.concat([[value, value]]);
+			return listed.concat([[TAVERN_VOICE_LANGUAGE_OTHER, "其他语言…"]]);
+		}
+
+		/** A character's 配音来源, 配音语言 and its voice on that channel, in the character material list; 🔊 says a line with them. */
 		function TavernCastVoiceField(props) {
 			const h = React.createElement;
 			const settings = useTavernSpeechSettings();
@@ -13432,13 +13442,22 @@ function bindTavernFontZoom(node, win) {
 			const saved = provider && props.character && props.character.voices ? props.character.voices[provider.id] || "" : "";
 			const [value, setValue] = React.useState(saved);
 			React.useEffect(function () { setValue(saved); }, [saved, provider && provider.id]);
+			const [other, setOther] = React.useState(false);
 			if (!route.active) return null;
+			const language = castVoiceLanguage(props.character && props.character.voiceLanguage);
+			function pickLanguage(code) { setOther(false); if (code && code !== language) props.onLanguage(code === "zh" ? "" : code); }
 			const listId = provider ? "dsh-tavern-cast-voices-" + provider.id.replace(/[^a-z0-9]/gi, "-") : "";
 			function commit() { if (value.trim() !== saved) props.onSave(provider.id, value.trim()); }
 			return h("span", { className: "dsh-tavern-cast-voice" },
 				h("select", { value: tavernVoiceSourceValue(route.source), disabled: props.busy, "aria-label": props.name + " 的配音来源",
 					onChange: function (event) { const parts = event.target.value.split("#"); props.onSource(parts[0], parts[1] === "clone"); } },
 					tavernVoiceSourceOptions(settings, route.active, route.source).map(function (option) { return h("option", { key: option.value, value: option.value }, option.label); })),
+				h("select", { value: other ? TAVERN_VOICE_LANGUAGE_OTHER : language, disabled: props.busy, "aria-label": props.name + " 的配音语言", title: "不是中文时，AI 会为这个角色额外写一句这门语言的台词用来配音，画面上仍显示中文。",
+					onChange: function (event) { if (event.target.value === TAVERN_VOICE_LANGUAGE_OTHER) setOther(true); else pickLanguage(event.target.value); } },
+					tavernVoiceLanguageOptions(language).map(function (item) { return h("option", { key: item[0], value: item[0] }, "配音语言：" + item[1]); })),
+				other ? h("input", { autoFocus: true, disabled: props.busy, maxLength: 35, placeholder: "例：de-DE", "aria-label": props.name + " 的其他配音语言代码",
+					onBlur: function (event) { pickLanguage(event.target.value.trim()); },
+					onKeyDown: function (event) { if (event.key === "Enter") pickLanguage(event.target.value.trim()); else if (event.key === "Escape") setOther(false); } }) : null,
 				provider ? h("input", { value: value, list: listId, disabled: props.busy, placeholder: provider.voice || "默认声音", "aria-label": props.name + " 的声音",
 					onChange: function (event) { setValue(event.target.value); }, onBlur: commit, onKeyDown: function (event) { if (event.key === "Enter") commit(); } }) : null,
 				provider ? h(TavernVoiceOptions, { id: listId, provider: provider }) : null,
@@ -13544,8 +13563,9 @@ function bindTavernFontZoom(node, win) {
 		}
 
 // Dialogue bubbles (docs/design/cast-presentation.md): the story model writes each spoken line on its own line as
-// `@bubble:handle|name|variant|[text]` (an inner thought as `[*text*]`). One reader for the host (stage pages, the
-// turn's cast lines) and the browser (chat speaker rows); the story text itself is never rewritten.
+// `@bubble:handle|name|variant|[text]` (an inner thought as `[*text*]`); a speaker with a 配音语言 adds the words its voice
+// says, `…|[text]|[voice text]` (33/N). One reader for the host (stage pages, the turn's cast lines) and the browser
+// (chat speaker rows); the story text itself is never rewritten.
 
 // SillyTavern's Character Expressions labels, so an ST sprite pack's file names match.
 const CAST_EMOTIONS = Object.freeze({
@@ -13558,6 +13578,9 @@ const CAST_EMOTIONS = Object.freeze({
 const CAST_EMOTION_BY_LABEL = new Map(Object.entries(CAST_EMOTIONS).map(([id, label]) => [label, id]))
 
 const BUBBLE_LINE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)\]\s*$/
+// A line with a fifth field, the voice text: its display text has closed and a separator follows. The voice field may
+// still be open (a live tail) or missing; a separator after it is formatting, there is no sixth field.
+const BUBBLE_VOICED = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[([^\]\n]*)\]\s*[|｜]\s*(?:\[([^\]\n]*)(\])?)?(?:\s*[|｜])?\s*$/
 // A complete line that lost its brackets: everything after the third separator is the text.
 const BUBBLE_BARE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*([^[\s][^\n]*?)\s*$/
 // The live tail of a streaming reply whose bracket has not closed yet.
@@ -13597,6 +13620,39 @@ function bubbleSegment(match, streaming) {
     text: thought ? raw.replace(/^\*|\*$/g, '') : raw, thought, streaming: Boolean(streaming) }
 }
 
+// `voice`: the line's voice text, '' while it is unfinished or when the reply ended without it (never the display text).
+function voicedSegment(match, live) {
+  const segment = bubbleSegment(match, live)
+  segment.voice = match[6] ? match[5].trim().replace(/^\*([\s\S]*)\*$/, '$1').trim() : ''
+  return segment
+}
+
+/**
+ * A speaker's 配音语言 as it is shown and spoken: their `voiceLanguage` (a BCP 47 tag), '' (unset) is 中文, the story's
+ * language. The 配音语言 control shows this; choosing 中文 stores ''.
+ */
+function castVoiceLanguage(voiceLanguage) {
+  return String(voiceLanguage || '').trim() || 'zh'
+}
+
+/**
+ * Whether a speaker's voice needs its own voice text: their 配音语言 is not 中文, by primary subtag (`zh-CN` is 中文).
+ * Only then are their lines written with voice text.
+ */
+function voiceTranslates(voiceLanguage) {
+  return castVoiceLanguage(voiceLanguage).split('-')[0].toLowerCase() !== 'zh'
+}
+
+/**
+ * What a line's voice says, '' for nothing: its voice text when it has one; else its words, unless the speaker's voice
+ * speaks another language (voiceTranslates), when it never says the display text.
+ */
+function bubbleSpeech(segment, voiceLanguage) {
+  if (segment.streaming) return ''
+  if (segment.voice !== undefined) return segment.voice
+  return voiceTranslates(voiceLanguage) ? '' : segment.text
+}
+
 /**
  * Split a story text into Markdown narration runs and marked lines, in reading order. `streaming`: the text is a reply
  * still being written, so its last line may be unfinished (a bubble whose bracket has not closed, or `@bub` held back).
@@ -13608,6 +13664,8 @@ function parseDialogueBubbles(text, streaming = false) {
   function flush() { const markdown = buffer.join('\n'); if (markdown.trim() !== '') segments.push({ kind: 'markdown', text: markdown }); buffer = [] }
   lines.forEach((original, index) => {
     const line = stripBubbleWrapping(original), live = Boolean(streaming) && index === lines.length - 1
+    const voiced = BUBBLE_VOICED.exec(line)
+    if (voiced) { flush(); segments.push(voicedSegment(voiced, live)); return }
     const match = BUBBLE_LINE.exec(line) || BUBBLE_BARE.exec(line) || (live ? BUBBLE_PARTIAL.exec(line) : null)
     if (match) { flush(); segments.push(bubbleSegment(match, live)); return }
     if (live && (BUBBLE_START.test(line) || BUBBLE_PREFIX.test(line))) { flush(); return }
@@ -13793,7 +13851,8 @@ function dialogueBubblePlainText(text, streaming = false) {
 			if (!segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(dialogueBubblePlainText(text, streaming), key);
 			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
 				if (segment.kind === "markdown") return renderText(segment.text, index);
-				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: segment.streaming ? "" : segment.text },
+				const character = tavernCastCharacter(cast.characters, segment.speaker);
+				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: bubbleSpeech(segment, character && character.voiceLanguage) },
 					renderText(segment.thought ? "（" + segment.text + (segment.streaming ? "" : "）") : segment.text, "text"));
 			}));
 		}
@@ -13870,7 +13929,8 @@ function dialogueBubblePlainText(text, streaming = false) {
 						h("span", { className: "dsh-tavern-cast-manager-name" }, name, h("small", null, count ? count + " 张立绘" : "暂无立绘")),
 						h(TavernCastVoiceField, { sessionId: props.sessionId, name: name, character: character, busy: busy,
 							onSave: function (provider, voice) { void run("castSetVoice", { name: name, provider: provider, voice: voice }, function () { return voice ? "已保存 " + name + " 的声音" : "已清除 " + name + " 的声音"; }); },
-							onSource: function (provider, clone) { void run("castSetVoiceSource", { name: name, provider: provider, clone: clone }, function () { return "已保存 " + name + " 的配音来源"; }); } }),
+							onSource: function (provider, clone) { void run("castSetVoiceSource", { name: name, provider: provider, clone: clone }, function () { return "已保存 " + name + " 的配音来源"; }); },
+							onLanguage: function (language) { void run("castSetVoiceLanguage", { name: name, language: language }, function () { return "已保存 " + name + " 的配音语言"; }); } }),
 						h("button", { type: "button", disabled: busy, onClick: function () { upload(name, "avatar"); } }, "换头像"),
 						h("button", { type: "button", disabled: busy, onClick: function () { upload(name, emotion); } }, "加" + TAVERN_CAST_EMOTIONS[emotion] + "立绘"),
 						character && !character.plugin ? h("button", { type: "button", disabled: busy, onClick: function () { void run("castRemoveCharacter", { name: character.name }, function () { return "已清除 " + character.name + " 的素材"; }); } }, "清除") : null,
@@ -15298,7 +15358,7 @@ function stageBacklogEntries(turns, page) {
 		out.push({ type: "turn", key: "t" + item.turn, turn: item.turn, current });
 		pages.forEach(function (p, index) {
 			out.push({ type: "page", key: "p" + item.turn + ":" + index, turn: item.turn, page: index, current, here: current && index === at,
-				kind: p.kind, speaker: p.speaker || "", emotion: p.emotion || "", text: p.text, quotes: p.quotes || [] });
+				kind: p.kind, speaker: p.speaker || "", emotion: p.emotion || "", text: p.text, quotes: p.quotes || [], ...(p.voice !== undefined ? { voice: p.voice } : {}) });
 		});
 	});
 	return out;
@@ -16239,8 +16299,14 @@ function useTavernStageReading() {
 	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
 	return { on, prepares: Boolean(channel && channel.prepares) };
 }
-function tavernBeatSpeech(sessionId, beat) {
-	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: (beat.quotes || []).join(" ") || beat.text, emotion: beat.emotion }
+// What a line page's voice says (dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
+// 配音语言 is not 中文; '' says nothing. The stage, its backlog and the chat rows read the same rule.
+function tavernPageSpeech(page, data) {
+	const character = tavernCastCharacter(data && data.cast, page.speaker);
+	return bubbleSpeech({ text: (page.quotes || []).join(" ") || page.text, voice: page.voice }, character && character.voiceLanguage);
+}
+function tavernBeatSpeech(sessionId, beat, data) {
+	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: tavernPageSpeech(beat, data), emotion: beat.emotion }
 		: { sessionId: sessionId, text: beat.text, narration: true };
 }
 
@@ -16287,8 +16353,10 @@ function TavernStageScreen(props) {
 	useStageSkinFonts(data && data.skin && data.skin.document ? data.skin : null, skinDocument, fontLibrary);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
-	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument);
+	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument), dataRef = React.useRef(null);
 	readingOn.current = reading.on; skinRef.current = skinDocument;
+	// Whose 配音语言 decides what a page says (tavernPageSpeech): as the stage last read it.
+	dataRef.current = data;
 	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
 	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
@@ -16361,7 +16429,7 @@ function TavernStageScreen(props) {
 		nextCard: () => { const now = shownRef.current; if (!now.last) showCard(now.card + 1); },
 		speech: { on: () => readingOn.current, progress: () => tavernSpeech.progress(), stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
 			speak: beat => {
-				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
+				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat, dataRef.current));
 				setSpeaking(true);
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
@@ -16534,7 +16602,7 @@ function TavernStageScreen(props) {
 			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, narrationLines: narration && narration.lines, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
-			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,
+			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index], data)) : null } }) : null,
 		backlog ? h(TavernStageBacklog, { sessionId: id, data, page: reader.index, onJump: jumpBack, onClose: closeBacklog }) : null,
 		entrance.element);
 }
@@ -17315,9 +17383,10 @@ function TavernStageBacklog(props) {
 		const line = entry.kind === "line", jump = entry.current;
 		const avatar = line ? tavernCastAvatar(data, entry.speaker, entry.emotion) : "";
 		const go = () => props.onJump(entry.page, entry.turn);
-		// The voice control follows the speaker's name; narration has no name and no voice.
+		// The voice control follows the speaker's name when the line has words to say; narration has no name and no voice.
+		const speech = line ? tavernPageSpeech(entry, data) : "";
 		const nameRow = line ? h("div", { className: "dsh-tavern-stage-backlog-name" }, h("b", null, entry.speaker),
-			h(TavernCastSpeak, { sessionId: props.sessionId, speaker: entry.speaker, text: entry.quotes.join(" ") || entry.text, emotion: entry.emotion })) : null;
+			speech ? h(TavernCastSpeak, { sessionId: props.sessionId, speaker: entry.speaker, text: speech, emotion: entry.emotion }) : null) : null;
 		const face = h("div", { className: "dsh-tavern-stage-backlog-face" }, line && avatar ? h(TavernStageBacklogFace, { key: avatar, src: avatar }) : null);
 		return h("div", { key: entry.key, ref, className: "dsh-tavern-stage-backlog-row" + (line ? " is-line" : " is-narration") + (jump ? " is-jump" : " is-past") + (entry.here ? " is-here" : ""),
 			style: line ? { "--dsh-cast-hue": tavernCastHue(entry.speaker) } : undefined,

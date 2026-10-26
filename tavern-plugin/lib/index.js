@@ -6,6 +6,7 @@ import { readWebAccess } from './domain/web-access-settings.js'
 import { registerWorkbenchResearchTool } from './tools/workbench-research.js'
 import { createConversationBackgroundSettings } from './domain/conversation-background-settings.js'
 import { createChatWrites } from './domain/chat-writes.js'
+import { voiceTranslates } from './domain/dialogue-bubbles.js'
 import { upgradeReferences, upgradedAnchor } from './domain/session-upgrade-references.js'
 import { createGameSaveImporter } from './domain/game-save-import.js'
 import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
@@ -2316,7 +2317,7 @@ export async function apply(ctx) {
     const key = castAssets.keyOf(cardPath)
     const url = file => file ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: key, file }).toString() : ''
     return manifest.characters.map(character => ({ name: character.name, aliases: character.aliases || [], avatarUrl: url(character.avatar), avatars: {}, voices: character.voices || {},
-      voiceReferences: (character.voiceReferences || []).map(clip => ({ file: clip.file, text: clip.text })), voiceSource: character.voiceSource || null,
+      voiceReferences: (character.voiceReferences || []).map(clip => ({ file: clip.file, text: clip.text })), voiceSource: character.voiceSource || null, voiceLanguage: character.voiceLanguage || '',
       sprites: Object.fromEntries(Object.entries(character.sprites || {}).map(([emotion, file]) => [emotion, url(file)])) }))
   }
   // The cast as everyone sees it: the player's own assets, then what plugins offer (a DSH card's packs).
@@ -3152,10 +3153,14 @@ export async function apply(ctx) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
     pluginTurnContext: pluginApi.turnContext,
-    // 对话气泡 (舞台设置 › 基础设置): the story model writes its spoken lines as dialogue bubbles naming the card's cast.
+    // 对话气泡 (舞台设置 › 基础设置): the story model writes its spoken lines as dialogue bubbles naming the card's cast; while
+    // 配音 is on, a character whose 配音语言 is not 中文 also gets the words their voice says (33/N).
     dialogueSpeakers: async ({ sessionId, chat }) => {
-      if ((await readTavernSettings()).castPresentation !== true || !chat.cardPath || !['story', 'script'].includes(chat.mode || 'story')) return null
-      return (await castView(sessionId, str(chat.cardPath), await castAssets.read(str(chat.cardPath)))).map(({ name, aliases }) => ({ name, aliases }))
+      const settings = await readTavernSettings()
+      if (settings.castPresentation !== true || !chat.cardPath || !['story', 'script'].includes(chat.mode || 'story')) return null
+      const voiced = Boolean(await speech.active())
+      return (await castView(sessionId, str(chat.cardPath), await castAssets.read(str(chat.cardPath))))
+        .map(({ name, aliases, voiceLanguage }) => ({ name, aliases, ...(voiced && voiceTranslates(voiceLanguage) ? { voiceLanguage } : {}) }))
     },
     projectUserTemplate: async ({chat,text}) => {
       const global = await readPromptTemplateGlobalVariables()

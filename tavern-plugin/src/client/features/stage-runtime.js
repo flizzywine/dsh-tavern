@@ -301,8 +301,14 @@ function useTavernStageReading() {
 	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
 	return { on, prepares: Boolean(channel && channel.prepares) };
 }
-function tavernBeatSpeech(sessionId, beat) {
-	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: (beat.quotes || []).join(" ") || beat.text, emotion: beat.emotion }
+// What a line page's voice says (dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
+// 配音语言 is not 中文; '' says nothing. The stage, its backlog and the chat rows read the same rule.
+function tavernPageSpeech(page, data) {
+	const character = tavernCastCharacter(data && data.cast, page.speaker);
+	return bubbleSpeech({ text: (page.quotes || []).join(" ") || page.text, voice: page.voice }, character && character.voiceLanguage);
+}
+function tavernBeatSpeech(sessionId, beat, data) {
+	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: tavernPageSpeech(beat, data), emotion: beat.emotion }
 		: { sessionId: sessionId, text: beat.text, narration: true };
 }
 
@@ -349,8 +355,10 @@ function TavernStageScreen(props) {
 	useStageSkinFonts(data && data.skin && data.skin.document ? data.skin : null, skinDocument, fontLibrary);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
-	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument);
+	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument), dataRef = React.useRef(null);
 	readingOn.current = reading.on; skinRef.current = skinDocument;
+	// Whose 配音语言 decides what a page says (tavernPageSpeech): as the stage last read it.
+	dataRef.current = data;
 	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
 	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
@@ -423,7 +431,7 @@ function TavernStageScreen(props) {
 		nextCard: () => { const now = shownRef.current; if (!now.last) showCard(now.card + 1); },
 		speech: { on: () => readingOn.current, progress: () => tavernSpeech.progress(), stop: () => { spoken.current++; setSpeaking(false); tavernSpeech.stop(); },
 			speak: beat => {
-				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat));
+				const mine = ++spoken.current, done = tavernSpeech.speak(tavernBeatSpeech(id, beat, dataRef.current));
 				setSpeaking(true);
 				Promise.resolve(done).finally(() => { if (spoken.current === mine) setSpeaking(false); });
 				return done;
@@ -596,7 +604,7 @@ function TavernStageScreen(props) {
 			visit: cardKey, typed, textSpeed: prefs.textSpeed, reveal, narrationLines: narration && narration.lines, onTyped: () => setTypedVisit(cardKey), textRef: pager.textRef, card: cards[card].text, more: !lastCard }),
 		docked ? null : input,
 		config ? h(TavernStageConfigScreen, { tab: config.tab, onClose: closeConfig,
-			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index])) : null } }) : null,
+			tests: { voice: reading.on && beats[reader.index] ? () => tavernSpeech.speak(tavernBeatSpeech(id, beats[reader.index], data)) : null } }) : null,
 		backlog ? h(TavernStageBacklog, { sessionId: id, data, page: reader.index, onJump: jumpBack, onClose: closeBacklog }) : null,
 		entrance.element);
 }

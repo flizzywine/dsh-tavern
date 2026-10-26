@@ -223,7 +223,8 @@ export function collectCardAssets(card, resolve) {
       avatar: avatar || null, sprites,
       voices: character.voices && typeof character.voices === 'object' ? Object.fromEntries(Object.entries(character.voices).filter(([, voice]) => typeof voice === 'string')) : {},
       ...(voiceReferences.length ? { voiceReferences } : {}),
-      ...(character.voiceSource && typeof character.voiceSource === 'object' ? { voiceSource: character.voiceSource } : {}) })
+      ...(character.voiceSource && typeof character.voiceSource === 'object' ? { voiceSource: character.voiceSource } : {}),
+      ...(typeof character.voiceLanguage === 'string' ? { voiceLanguage: character.voiceLanguage } : {}) })
   }
   return result
 }
@@ -289,7 +290,8 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
     voices: character.voices || {},
     ...(character.voiceReferences?.length ? { voiceReferences: character.voiceReferences
       .map((clip, index) => ({ audio: place('x_dsh_cast', clip.file, character.name + '_voice_' + (index + 1)), text: clip.text })).filter(clip => clip.audio) } : {}),
-    ...(character.voiceSource ? { voiceSource: character.voiceSource } : {})
+    ...(character.voiceSource ? { voiceSource: character.voiceSource } : {}),
+    ...(character.voiceLanguage ? { voiceLanguage: character.voiceLanguage } : {})
   }))
   data.extensions = { ...(data.extensions && typeof data.extensions === 'object' ? data.extensions : {}) }
   data.extensions.dsh_tavern = { ...(data.extensions.dsh_tavern && typeof data.extensions.dsh_tavern === 'object' ? data.extensions.dsh_tavern : {}) }

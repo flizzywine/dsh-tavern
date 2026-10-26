@@ -2,15 +2,15 @@ import { dialogueQuotes } from './cast-annotation.js'
 import { parseDialogueBubbles } from './dialogue-bubbles.js'
 import { STAGE_SCREEN_EFFECTS } from './stage-effects.js'
 
-// Host-owned pages: one per non-empty row. A dialogue bubble row is its speaker's line; an earlier turn's annotations
-// decorate a row, but cannot change its address.
+// Host-owned pages: one per non-empty row. A dialogue bubble row is its speaker's line (with its voice text when it has
+// one); an earlier turn's annotations decorate a row, but cannot change its address.
 export function stagePages(text, lines = []) {
   let cursor = 0
   if (/^\s*(```|~~~)/m.test(text)) lines = []
   return text.split('\n').map(row => row.trim()).filter(Boolean).map(row => parseDialogueBubbles(row)[0]).filter(Boolean).map((row, index) => {
     if (row.kind === 'bubble') {
       const text = row.thought ? '（' + row.text + '）' : row.text
-      return { at: index + 1, text, kind: 'line', speaker: row.speaker, emotion: row.emotion, quotes: [row.text] }
+      return { at: index + 1, text, kind: 'line', speaker: row.speaker, emotion: row.emotion, quotes: [row.text], ...(row.voice !== undefined ? { voice: row.voice } : {}) }
     }
     const text = row.text
     let speaker

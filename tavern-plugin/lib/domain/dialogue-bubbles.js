@@ -1,6 +1,7 @@
 // Dialogue bubbles (docs/design/cast-presentation.md): the story model writes each spoken line on its own line as
-// `@bubble:handle|name|variant|[text]` (an inner thought as `[*text*]`). One reader for the host (stage pages, the
-// turn's cast lines) and the browser (chat speaker rows); the story text itself is never rewritten.
+// `@bubble:handle|name|variant|[text]` (an inner thought as `[*text*]`); a speaker with a 配音语言 adds the words its voice
+// says, `…|[text]|[voice text]` (33/N). One reader for the host (stage pages, the turn's cast lines) and the browser
+// (chat speaker rows); the story text itself is never rewritten.
 
 // SillyTavern's Character Expressions labels, so an ST sprite pack's file names match.
 const CAST_EMOTIONS = Object.freeze({
@@ -13,6 +14,9 @@ const CAST_EMOTIONS = Object.freeze({
 const CAST_EMOTION_BY_LABEL = new Map(Object.entries(CAST_EMOTIONS).map(([id, label]) => [label, id]))
 
 const BUBBLE_LINE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)\]\s*$/
+// A line with a fifth field, the voice text: its display text has closed and a separator follows. The voice field may
+// still be open (a live tail) or missing; a separator after it is formatting, there is no sixth field.
+const BUBBLE_VOICED = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[([^\]\n]*)\]\s*[|｜]\s*(?:\[([^\]\n]*)(\])?)?(?:\s*[|｜])?\s*$/
 // A complete line that lost its brackets: everything after the third separator is the text.
 const BUBBLE_BARE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*([^[\s][^\n]*?)\s*$/
 // The live tail of a streaming reply whose bracket has not closed yet.
@@ -52,6 +56,39 @@ function bubbleSegment(match, streaming) {
     text: thought ? raw.replace(/^\*|\*$/g, '') : raw, thought, streaming: Boolean(streaming) }
 }
 
+// `voice`: the line's voice text, '' while it is unfinished or when the reply ended without it (never the display text).
+function voicedSegment(match, live) {
+  const segment = bubbleSegment(match, live)
+  segment.voice = match[6] ? match[5].trim().replace(/^\*([\s\S]*)\*$/, '$1').trim() : ''
+  return segment
+}
+
+/**
+ * A speaker's 配音语言 as it is shown and spoken: their `voiceLanguage` (a BCP 47 tag), '' (unset) is 中文, the story's
+ * language. The 配音语言 control shows this; choosing 中文 stores ''.
+ */
+function castVoiceLanguage(voiceLanguage) {
+  return String(voiceLanguage || '').trim() || 'zh'
+}
+
+/**
+ * Whether a speaker's voice needs its own voice text: their 配音语言 is not 中文, by primary subtag (`zh-CN` is 中文).
+ * Only then are their lines written with voice text.
+ */
+function voiceTranslates(voiceLanguage) {
+  return castVoiceLanguage(voiceLanguage).split('-')[0].toLowerCase() !== 'zh'
+}
+
+/**
+ * What a line's voice says, '' for nothing: its voice text when it has one; else its words, unless the speaker's voice
+ * speaks another language (voiceTranslates), when it never says the display text.
+ */
+function bubbleSpeech(segment, voiceLanguage) {
+  if (segment.streaming) return ''
+  if (segment.voice !== undefined) return segment.voice
+  return voiceTranslates(voiceLanguage) ? '' : segment.text
+}
+
 /**
  * Split a story text into Markdown narration runs and marked lines, in reading order. `streaming`: the text is a reply
  * still being written, so its last line may be unfinished (a bubble whose bracket has not closed, or `@bub` held back).
@@ -63,6 +100,8 @@ function parseDialogueBubbles(text, streaming = false) {
   function flush() { const markdown = buffer.join('\n'); if (markdown.trim() !== '') segments.push({ kind: 'markdown', text: markdown }); buffer = [] }
   lines.forEach((original, index) => {
     const line = stripBubbleWrapping(original), live = Boolean(streaming) && index === lines.length - 1
+    const voiced = BUBBLE_VOICED.exec(line)
+    if (voiced) { flush(); segments.push(voicedSegment(voiced, live)); return }
     const match = BUBBLE_LINE.exec(line) || BUBBLE_BARE.exec(line) || (live ? BUBBLE_PARTIAL.exec(line) : null)
     if (match) { flush(); segments.push(bubbleSegment(match, live)); return }
     if (live && (BUBBLE_START.test(line) || BUBBLE_PREFIX.test(line))) { flush(); return }
@@ -96,4 +135,4 @@ function dialogueBubblePlainText(text, streaming = false) {
   return parseDialogueBubbles(source, streaming).map(segment => segment.kind === 'markdown' ? segment.text : dialogueBubblePlainLine(segment)).join('\n\n')
 }
 
-export { CAST_EMOTIONS, bubbleEmotion, parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainLine, dialogueBubblePlainText }
+export { CAST_EMOTIONS, bubbleEmotion, bubbleSpeech, castVoiceLanguage, voiceTranslates, parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainLine, dialogueBubblePlainText }

@@ -73,6 +73,8 @@ test('backlog view: opens at the current page, jumps only from the latest turn, 
     function tavernCastAvatar(data, name, emotion) { return name ? 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' : '' }
     function tavernCastHue() { return 200 }
     function TavernStageGlyph() { return React.createElement('svg') }
+    // What a line's voice says (features/stage-runtime.js; its rule is tested in dialogue-voice.test.mjs).
+    function tavernPageSpeech(page) { return page.quotes.join(' ') || page.text }
     function TavernCastSpeak(props) { return React.createElement('button', { type: 'button', className: 'dsh-tavern-speak', 'aria-label': '朗读这句', onClick: event => { event.stopPropagation(); spoken.push(props.text) } }, '🔊') }
     ` + client('modules/stage-backlog.js') + '\n' + client('features/stage-backlog.js') })
   await page.evaluate(() => {

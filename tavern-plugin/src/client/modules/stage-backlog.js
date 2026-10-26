@@ -14,7 +14,7 @@ function stageBacklogEntries(turns, page) {
 		out.push({ type: "turn", key: "t" + item.turn, turn: item.turn, current });
 		pages.forEach(function (p, index) {
 			out.push({ type: "page", key: "p" + item.turn + ":" + index, turn: item.turn, page: index, current, here: current && index === at,
-				kind: p.kind, speaker: p.speaker || "", emotion: p.emotion || "", text: p.text, quotes: p.quotes || [] });
+				kind: p.kind, speaker: p.speaker || "", emotion: p.emotion || "", text: p.text, quotes: p.quotes || [], ...(p.voice !== undefined ? { voice: p.voice } : {}) });
 		});
 	});
 	return out;
