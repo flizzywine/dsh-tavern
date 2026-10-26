@@ -3155,6 +3155,14 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-item img { max-width: 100%; max-height: min(28vh, 240px); object-fit: contain; filter: drop-shadow(0 8px 22px rgba(0,0,0,.55)); }
 .dsh-tavern-stage-item strong { font-size: 18px; font-weight: 600; letter-spacing: .12em; color: #fff; text-align: center; overflow-wrap: anywhere; text-shadow: 0 1px 6px rgba(0,0,0,.75); }
 @media (max-width: 640px) { .dsh-tavern-stage-item { bottom: auto; top: 16%; } .dsh-tavern-stage-item img { max-height: 24vh; } }
+/* 画面效果 (features/stage-effects.js): the effect layer over the scene and under the text box, a little larger than the scene so a
+   shaken cover shows no edge. Idle every part is transparent; the effect's animation draws its colour and strength. */
+.dsh-tavern-stage-fx { position: absolute; inset: -4%; overflow: hidden; pointer-events: none; }
+.dsh-tavern-stage-fx > div { position: absolute; opacity: 0; }
+.dsh-tavern-stage-fx-cover, .dsh-tavern-stage-fx-vignette { inset: 0; }
+.dsh-tavern-stage-fx-vignette { background: radial-gradient(ellipse at center, transparent 29%, color-mix(in srgb, currentColor 12%, transparent) 45%, color-mix(in srgb, currentColor 62%, transparent) 80%, currentColor 100%); }
+.dsh-tavern-stage-fx-wave { left: 50%; top: 42%; width: 0; height: 0; translate: -50% -50%; border-radius: 50%; corner-shape: round;
+	border: 2px solid rgba(255,255,255,.7); box-shadow: 0 0 26px 6px rgba(255,255,255,.35), inset 0 0 26px 6px rgba(255,255,255,.35); }
 /* 入场演出 (stage-entrance.js): over the whole stage while it opens; a click skips it, after the cover it takes none. */
 .dsh-tavern-stage-entrance { position: absolute; inset: 0; z-index: 30; cursor: pointer; overflow: hidden; }
 .dsh-tavern-stage-entrance[data-covered] { pointer-events: none; cursor: auto; }

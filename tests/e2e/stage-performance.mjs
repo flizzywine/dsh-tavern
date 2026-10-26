@@ -42,9 +42,9 @@ try {
           const sampled = await page.evaluate(() => {
             const play = window.performancePlays[0]
             play.animation.pause(); play.animation.currentTime = 120
-            return { id: play.id, transform: getComputedStyle(play.animation.effect.target).transform }
+            return { id: play.id, translate: getComputedStyle(play.animation.effect.target).translate }
           })
-          assert.notEqual(sampled.transform, 'none', 'real browser animation changes the frame')
+          assert.notEqual(sampled.translate, 'none', 'real browser animation changes the frame')
           await page.screenshot({ path: join(output, 'directed-shake.png') })
           await page.evaluate(() => window.performancePlays[0].animation.play())
         }

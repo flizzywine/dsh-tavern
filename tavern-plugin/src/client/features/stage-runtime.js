@@ -94,6 +94,9 @@ function TavernStageScene(props) {
 			return h(TavernStageFigure, { key: name, name: name, url: figure.url, dim: beat && beat.kind === "line" && !speaking });
 		})),
 		item ? h(TavernStageItem, { key: index + ":" + item.item, item }) : null,
+		// 画面效果 (features/stage-effects.js): over the scene, under the text box; idle it shows nothing.
+		h("div", { className: "dsh-tavern-stage-fx", "aria-hidden": true },
+			h("div", { className: "dsh-tavern-stage-fx-cover" }), h("div", { className: "dsh-tavern-stage-fx-vignette" }), h("div", { className: "dsh-tavern-stage-fx-wave" })),
 		// is-speaking: the page's line is being read aloud (a skin's art.portrait.frame.speaking frame shows then).
 		beat ? h("div", { className: "dsh-tavern-stage-textbox" + (beat.kind === "narration" ? " is-narration" : "") + (props.speaking && beat.kind === "line" ? " is-speaking" : "") },
 			side,
@@ -250,7 +253,7 @@ function TavernStageItem(props) {
 		h("strong", null, props.item.item));
 }
 
-function playTavernStagePerformance(root, event, id) {
+function playTavernStagePerformance(root, event, id, skin) {
 	// A sound plays with reduced motion too, and rings out on its own after the page turns (the player is not handed it).
 	if (event.op === "sfx.play") { void tavernStageSfx.play(event.audio, event.volume); return null; }
 	const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -262,12 +265,12 @@ function playTavernStagePerformance(root, event, id) {
 		return node.animate([0, 1, 1, 0].map((opacity, at) => ({ opacity, transform: still ? "translateX(-50%)" : lift[at], offset: [0, .14, .86, 1][at] })),
 			{ id: "stage:" + id, duration: 2800, easing: "ease-out" });
 	}
+	if (event.op === "screen.play") return playTavernStageScreenEffect(root, event, id, skin, still);
 	if (!root || still) return null;
-	const target = event.op === "screen.play" ? root : Array.from(root.querySelectorAll("[data-speaker]")).find(function (node) { return node.dataset.speaker === event.actor; });
+	const target = Array.from(root.querySelectorAll("[data-speaker]")).find(function (node) { return node.dataset.speaker === event.actor; });
 	if (!target) return null;
-	const frames = event.op === "screen.play" ? ["none", "translateX(-3px)", "translateX(3px)", "translateX(-2px)", "none"]
-		: event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
-	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: event.op === "screen.play" ? 450 : 650, easing: "ease-in-out" });
+	const frames = event.motion === "nod" ? ["none", "translateY(2%)", "none", "translateY(1%)", "none"] : ["none", "translateY(-6%)", "none"];
+	return target.animate(frames.map(function (transform) { return { transform: transform }; }), { id: "stage:" + id, duration: 650, easing: "ease-in-out" });
 }
 
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
@@ -343,8 +346,8 @@ function TavernStageScreen(props) {
 	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
-	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on);
-	readingOn.current = reading.on;
+	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument);
+	readingOn.current = reading.on; skinRef.current = skinDocument;
 	// A channel that can ready its voices (Fish /v1/warm, when its service offers it) is asked once as the stage opens.
 	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
@@ -411,7 +414,7 @@ function TavernStageScreen(props) {
 	const session = () => props.sessions?.binding(id)?.session;
 	const running = React.useSyncExternalStore(fn => session()?.subscribe(fn) || (() => {}), () => session()?.getSnapshot().running === true);
 	React.useEffect(() => tavernStageRuntime.attach(id, {
-		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key),
+		animate: (event, key) => playTavernStagePerformance(sceneRef.current, event, key, skinRef.current),
 		reading: () => tavernStageReadingPrefs.get(), held: () => configOpen.current || backlogOpen.current || !typedRef.current,
 		card: () => { const now = shownRef.current; return now.cards.length > 1 ? { at: now.card, last: now.last, text: now.cards[now.card].text, share: stageCardVoiceShare(now.cards, now.card) } : null; },
 		nextCard: () => { const now = shownRef.current; if (!now.last) showCard(now.card + 1); },

@@ -32,7 +32,8 @@ export async function stageNext(stage) {
 // `sfx`: { name, bytes } sounds added to the card's pack as 音效 entries (sfx) and offered to the director.
 // `entrances`: dsh.entrance/1 documents added to the card's pack as 入场演出 entries (the stage opens with the first).
 // `castLines(name)`: the turn's dialogue annotation (default: one quote, "Ready.", by the card's character).
-export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', castLines, performances, items = [], sfx = [], entrances = [], inspect }) {
+// `commands`: the director's frozen 可用演出 / 每轮上限 (default: every command on, 6 screen effects).
+export async function stageStateChecks({ page, output, demo = false, bodyText = '"Ready."', castLines, performances, items = [], sfx = [], entrances = [], commands, inspect }) {
   // The stage's BGM is Web Audio: route every context into a zero gain and count the sources it starts.
   await page.addInitScript(() => {
     const Base = window.AudioContext
@@ -93,7 +94,7 @@ export async function stageStateChecks({ page, output, demo = false, bodyText = 
   save.plugins = { data: { version: 1, owners: { [CAST_DATA_OWNER]: { game: null, turns: [{ turn, key: computeSceneTarget(save.chat, turn).key, data: annotation, bytes: JSON.stringify(annotation).length, updatedAt: 1 }] } } }, media: null, attachments: [] }
   const fixtureAssets = { player: 'Reader', cast: [{ name }], background: [{ name: 'main' }, { name: 'hall' }], music: [{ name: 'theme' }], ...(items.length ? { items: items.map(item => ({ name: item.name })) } : {}),
     ...(sfx.length ? { sfx: sfx.map(item => ({ name: item.name })) } : {}) }
-  const fixture = await stageDirectorFixture(save.chat, fixtureAssets)
+  const fixture = await stageDirectorFixture(save.chat, fixtureAssets, commands ? { commands: async () => commands } : {})
   const submitted = { figures: [{ speaker: name, emotion: 'sadness' }], background: 'hall', music: 'theme', ...(performances ? { performances: performances(name) } : {}) }
   const directorRun = await runDirectorFixture(fixture, [{...submitted, music: 'Missing'}, submitted])
   assert.equal(directorRun.receipts[0].retryable, true)

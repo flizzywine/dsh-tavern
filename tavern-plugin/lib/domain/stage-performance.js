@@ -1,5 +1,6 @@
 import { dialogueQuotes } from './cast-annotation.js'
 import { parseDialogueBubbles } from './dialogue-bubbles.js'
+import { STAGE_SCREEN_EFFECTS } from './stage-effects.js'
 
 // Host-owned pages: one per non-empty row. A dialogue bubble row is its speaker's line; an earlier turn's annotations
 // decorate a row, but cannot change its address.
@@ -35,7 +36,7 @@ export function stagePageText(page) {
 const ACT_SCHEMA = { type: 'object', additionalProperties: false, required: ['at', 'op', 'actor', 'motion'], properties: {
   at: { type: 'integer', minimum: 1 }, op: { const: 'actor.act.play' }, actor: { type: 'string' }, motion: { enum: ['nod', 'jump'] } } }
 const SCREEN_SCHEMA = { type: 'object', additionalProperties: false, required: ['at', 'op', 'effect'], properties: {
-  at: { type: 'integer', minimum: 1 }, op: { const: 'screen.play' }, effect: { const: 'shake-1' } } }
+  at: { type: 'integer', minimum: 1 }, op: { const: 'screen.play' }, effect: { enum: STAGE_SCREEN_EFFECTS } } }
 // 物品 (stageToggles.items): an item of the card's packs shown once on its page, by its name in the turn's `items` list.
 const ITEM_SCHEMA = { type: 'object', additionalProperties: false, required: ['at', 'op', 'item'], properties: {
   at: { type: 'integer', minimum: 1 }, op: { const: 'item.play' }, item: { type: 'string', description: '物品清单里的名称' } } }
@@ -49,6 +50,36 @@ export function stagePerformancesSchema({ acts = true, screenEffects = true, ite
   return kinds.length ? { type: 'array', maxItems: 12, description: '一次性演出，不跨轮继承。at 是本轮正文页号，从 1 开始。', items: kinds.length > 1 ? { oneOf: kinds } : kinds[0] } : null
 }
 export const STAGE_PERFORMANCES_SCHEMA = stagePerformancesSchema()
+
+// The submit tool's one tolerant reading of an effect name (0 B of prompt; records and renderers know the ids alone).
+// Level 1, accepted and reported as `normalized`: the same name written differently (case, width, spaces / underscores,
+// a digit without its hyphen), its Chinese label, or a family's default member. Level 2, dropped with a resendable
+// `didYouMean`: a near name, or an unknown screen.* op naming a listed effect. Otherwise the error lists the names.
+const EFFECT_LABELS = { flash: '白闪', 'flash-red': '红闪', 'shake-1': '震屏·小', 'shake-2': '震屏·中', 'shake-3': '震屏·大', shock: '冲击', blackout: '眼前一黑', glitch: '故障', heartbeat: '心跳' }
+const EFFECT_FAMILY = { shake: 'shake-2', 震屏: 'shake-2' }
+const EFFECT_SYNONYMS = { 'white-flash': 'flash', whiteout: 'flash', 'red-flash': 'flash-red', explosion: 'shock', 'black-out': 'blackout' }
+const effectText = value => value.normalize('NFKC').trim().toLowerCase().replace(/[\s_]+/g, '-')
+function spelledEffect(value) {
+  const text = effectText(value), digit = /^([a-z]+)-?(\d)$/.exec(text), name = digit ? digit[1] + '-' + digit[2] : text
+  return STAGE_SCREEN_EFFECTS.includes(name) ? name : undefined
+}
+export function repairStagePerformances(value) {
+  const normalized = []
+  if (!Array.isArray(value)) return { value, normalized }
+  return { normalized, value: value.map((event, index) => {
+    if (event?.op !== 'screen.play' || typeof event.effect !== 'string' || STAGE_SCREEN_EFFECTS.includes(event.effect)) return event
+    const text = event.effect.normalize('NFKC').trim()
+    const used = spelledEffect(text) ?? Object.keys(EFFECT_LABELS).find(id => EFFECT_LABELS[id] === text) ?? EFFECT_FAMILY[text.toLowerCase()]
+    if (!used) return event
+    normalized.push({ path: '$.performances[' + index + '].effect', received: event.effect, used })
+    return { ...event, effect: used }
+  }) }
+}
+function effectDidYouMean(event) {
+  if (event.op === 'screen.play') return typeof event.effect === 'string' && EFFECT_SYNONYMS[effectText(event.effect)] ? { ...event, effect: EFFECT_SYNONYMS[effectText(event.effect)] } : undefined
+  const verb = typeof event.op === 'string' && /^screen\.(.+)$/.exec(event.op)?.[1], effect = verb && (spelledEffect(verb) ?? EFFECT_SYNONYMS[effectText(verb)])
+  return effect ? { at: event.at, op: 'screen.play', effect } : undefined
+}
 
 // `rules`: the switched-on commands and 每轮上限 (`beat`: screen effects in the whole reply, `earlier` the turn's
 // already accepted windows); `items` / `sfx` the names of the items / sound effects this turn offers.
@@ -68,7 +99,11 @@ export function acceptStagePerformances(value = [], pages, stage, { acts = true,
       if (sfx.filter(name => name === event.sfx).length !== 1) throw Error('sfx 请使用音效清单里的唯一名称')
     } else {
       if (actor ? !acts : event.op === 'screen.play' && !screenEffects) throw Error(event.op + ' 已在可用演出里关闭，请删去这一项')
-      if (actor ? !['nod', 'jump'].includes(event.motion) || !stage.figures.some(figure => figure.speaker === event.actor) : event.op !== 'screen.play' || event.effect !== 'shake-1') throw Error('演出请使用' + [acts && '在场人物完整名称 + nod/jump', screenEffects && 'screen.play + shake-1', items.length && 'item.play + 物品名称', sfx.length && 'sfx.play + 音效名称'].filter(Boolean).join('，或 '))
+      if (actor ? !['nod', 'jump'].includes(event.motion) || !stage.figures.some(figure => figure.speaker === event.actor) : event.op !== 'screen.play' || !STAGE_SCREEN_EFFECTS.includes(event.effect)) {
+        const didYouMean = !actor && screenEffects ? effectDidYouMean(event) : undefined
+        if (didYouMean) throw Object.assign(Error('没有这个画面效果；如果想要的是 ' + didYouMean.effect + '，按 didYouMean 原样重发这一项，否则删去它'), { didYouMean })
+        throw Error('演出请使用' + [acts && '在场人物完整名称 + nod/jump', screenEffects && 'screen.play + ' + STAGE_SCREEN_EFFECTS.join('/'), items.length && 'item.play + 物品名称', sfx.length && 'sfx.play + 音效名称'].filter(Boolean).join('，或 '))
+      }
     }
     // One item per page: the showcase holds one thing at a time. Different sounds may share a page, each once.
     const target = JSON.stringify([event.at, actor ? event.actor : sound ? event.sfx : null, item, sound])

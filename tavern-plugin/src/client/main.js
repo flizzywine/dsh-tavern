@@ -844,6 +844,7 @@ window.__ModuleLoader__.load({
 
 // @include-domain cast-stage-state.js
 // @include-domain stage-performance-playback.js
+// @include-domain stage-effects.js
 // @include-domain stage-skin.js
 // @include-domain stage-entrance.js
 // @include features/stage-skin.js
@@ -853,8 +854,10 @@ window.__ModuleLoader__.load({
 // @include modules/stage-pager.js
 // @include modules/stage-narration.js
 // @include modules/stage-choices.js
+// @include modules/stage-effects.js
 // @include features/stage-entrance.js
 // @include features/stage-audio.js
+// @include features/stage-effects.js
 // @include features/stage-runtime.js
 // @include features/stage-typewriter.js
 // @include features/stage-pager.js
