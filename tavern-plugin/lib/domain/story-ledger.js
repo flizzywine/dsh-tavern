@@ -74,14 +74,39 @@ personality 通常 60–120 字：稳定底色、能作证的行为、已知的�
 export function ledgerContext(value) { return '【当前台账（已结算）】\n' + JSON.stringify(readLedger(value)) }
 
 const MAX_INJECTED_LEDGER = 12000
+function frameLedgerText(ledger) {
+  const full = JSON.stringify(ledger)
+  if (full.length <= MAX_INJECTED_LEDGER) return full
+  // Keep complete JSON and complete rows. Character detail must not disappear
+  // simply because a large item inventory happens to serialize before npcs.
+  const kinds = ['npcs', 'items', 'scenes']
+  const compact = { location: ledger.location, locationPath: ledger.locationPath,
+    npcs: [], items: [], scenes: [], omitted: Object.fromEntries(kinds.map(kind => [kind, ledger[kind].length])) }
+  if (JSON.stringify(compact).length > MAX_INJECTED_LEDGER) {
+    compact.locationPath = []
+    compact.omittedLocationPath = true
+  }
+  const rank = (a, b) => (Number(b.updatedTurn) || 0) - (Number(a.updatedTurn) || 0) || Number(Boolean(b.important)) - Number(Boolean(a.important))
+  const sorted = Object.fromEntries(kinds.map(kind => [kind, [...ledger[kind]].sort(rank)]))
+  const take = (kind, row) => {
+    compact[kind].push(row)
+    compact.omitted[kind]--
+    if (JSON.stringify(compact).length > MAX_INJECTED_LEDGER) { compact[kind].pop(); compact.omitted[kind]++ }
+  }
+  // Give all three categories a chance before filling the rest by recency.
+  for (const kind of kinds) if (sorted[kind].length) take(kind, sorted[kind][0])
+  const remaining = kinds.flatMap(kind => sorted[kind].slice(1).map(row => ({ kind, row }))).sort((a, b) => rank(a.row, b.row))
+  for (const { kind, row } of remaining) take(kind, row)
+  return JSON.stringify(compact)
+}
 /** The one-time foreground input after a manual consolidation; [] when nothing is pending. */
 export function ledgerFrameInputs(chat) {
   if (!object(chat?.ledgerInjection)) return []
   const { consolidatedTurn, version, updatedTurn, ...ledger } = readLedger(chat.ledger)
   if (!ledger.location && !['items', 'npcs', 'scenes'].some(kind => ledger[kind]?.length)) return []
-  const text = JSON.stringify(ledger)
+  const text = frameLedgerText(ledger)
   return [{ kind: 'foreground.current-state', required: false, source: { stage: 'ledger', through: chat.ledgerInjection.through },
-    text: '【游玩台账 · 整理至第 ' + chat.ledgerInjection.through + ' 轮（只在这一轮提供，用来核对物品、人物与地点；与正文冲突时以正文为准）】\n' + text.slice(0, MAX_INJECTED_LEDGER) }]
+    text: '【游玩台账 · 整理至第 ' + chat.ledgerInjection.through + ' 轮（只在这一轮提供，用来核对物品、人物与地点；与正文冲突时以正文为准；omitted 如有值表示因篇幅省略的条目数，不代表删除）】\n' + text }]
 }
 
 /** Pure, atomic delta projection. A failed call leaves the authoritative ledger untouched. */

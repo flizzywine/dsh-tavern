@@ -3,9 +3,38 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyLedgerDelta, emptyLedger, createLedgerSubmission } from '../tavern-plugin/lib/domain/story-ledger.js'
+import { applyLedgerDelta, emptyLedger, createLedgerSubmission, ledgerFrameInputs } from '../tavern-plugin/lib/domain/story-ledger.js'
 import { createLedgerEditor } from '../tavern-plugin/lib/domain/ledger-editor.js'
 import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.js'
+
+test('长台账注入保留完整条目和有效 JSON，三类都有机会展示且优先近期记录', () => {
+  const ledger = emptyLedger()
+  ledger.items = Array.from({ length: 100 }, (_, i) => ({ name: '物品' + i, desc: '物'.repeat(160), updatedTurn: i }))
+  ledger.npcs = Array.from({ length: 60 }, (_, i) => ({ name: '人物' + i, personality: '性'.repeat(120), relation: '关'.repeat(100), updatedTurn: i }))
+  ledger.scenes = [{ path: ['城', '客栈'], desc: '住处', updatedTurn: 100 }]
+  const before = structuredClone(ledger)
+  const input = ledgerFrameInputs({ ledger, ledgerInjection: { through: 100 } })[0]
+  const text = input.text.slice(input.text.indexOf('\n') + 1), injected = JSON.parse(text)
+  assert.ok(text.length <= 12000)
+  assert.equal(injected.npcs[0].name, '人物59')
+  assert.equal(injected.items[0].name, '物品99')
+  assert.equal(injected.scenes[0].desc, '住处')
+  for (const kind of ['npcs', 'items', 'scenes']) {
+    assert.equal(injected[kind].length + injected.omitted[kind], ledger[kind].length)
+    for (const row of injected[kind]) assert.ok(ledger[kind].some(original => JSON.stringify(original) === JSON.stringify(row)), 'never cut a row mid-field')
+  }
+  assert.deepEqual(ledger, before)
+})
+
+test('短台账注入不丢字段，未请求注入或空账时不提供', () => {
+  const ledger = applyLedgerDelta(null, { npcs: { add: [{ name: '角色', personality: '温和' }] } }, 1)
+  const input = ledgerFrameInputs({ ledger, ledgerInjection: { through: 1 } })[0]
+  const parsed = JSON.parse(input.text.slice(input.text.indexOf('\n') + 1))
+  assert.deepEqual(parsed.npcs, ledger.npcs)
+  assert.equal(parsed.omitted, undefined)
+  assert.deepEqual(ledgerFrameInputs({ ledger }), [])
+  assert.deepEqual(ledgerFrameInputs({ ledger: emptyLedger(), ledgerInjection: { through: 1 } }), [])
+})
 
 test('台账保留离场角色和寄存物品，部分消耗、用尽和未知更新原子处理', () => {
   const first = applyLedgerDelta(null, { items: { add: [{ name: '解药', qty: 3 }, { name: '铜匣', carried: false, location: '客栈' }] }, npcs: { add: [{ name: '林岚', relation: '同行者，互相信任', follow: true }] }, scenes: { add: [{ path: ['城', '客栈'], desc: '初遇的客栈' }] }, location: '客栈', locationPath: ['城', '客栈'] }, 1)
