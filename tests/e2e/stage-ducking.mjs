@@ -1,6 +1,6 @@
 // 避让 (cast-presentation.md 37/N) over the real stage, a stand-in Fish-compatible service and synthetic tones: while Nora's line
 // is heard the BGM and the 环境音 dip 4 dB and come back after it; a sound effect dips the 环境音 3 dB and the BGM 2 dB; CONFIG ›
-// 声音 › 自动避让 off leaves them alone; a skin's `duck` sets the amount; closing the stage mid-line brings the BGM straight back.
+// 声音 › 自动混音 off leaves them alone; a skin's `duck` sets the amount; closing the stage mid-line brings the BGM straight back.
 // Fresh disposable profile only, no model calls. Nothing reaches a speaker: the stage's AudioContext ends in an analyser feeding a
 // zero gain, every voice <audio> in a second one; the evidence is the level (dB) at each source's pitch.
 import assert from 'node:assert/strict'
@@ -163,7 +163,7 @@ try {
   const open = async () => { await page.getByRole('button', { name: '舞台', exact: true }).click(); await stage.waitFor() }
   const back = async () => { await stage.getByRole('button', { name: '上一句', exact: true }).click() }
   const config = page.locator('.dsh-tavern-stage-config[role="dialog"]')
-  const toggle = config.getByRole('switch', { name: '自动避让', exact: true })
+  const toggle = config.getByRole('switch', { name: '自动混音', exact: true })
   const openConfig = async () => { await stage.locator('.dsh-tavern-stage-controls [data-action="sound"]').click(); await config.waitFor() }
   const closeConfig = async () => { await config.getByRole('button', { name: '关闭设置', exact: true }).click(); await config.waitFor({ state: 'detached' }) }
   const voiceHeard = label => until('b.voice > -60', label)
@@ -198,7 +198,7 @@ try {
   near(result.knock.rain - result.base.rain, -3, 1, 'a sound effect lowers the 环境音 3 dB')
   near(result.knock.theme - result.base.theme, -2, 1, 'a sound effect lowers the BGM 2 dB')
   await until('b.knock < -100', 'the knock ends'); await page.waitForTimeout(600)
-  // 4. CONFIG › 声音 › 自动避让 off (on by default): Nora's line leaves the BGM alone; the switch is saved in this browser.
+  // 4. CONFIG › 声音 › 自动混音 off (on by default): Nora's line leaves the BGM alone; the switch is saved in this browser.
   await openConfig()
   assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'on by default')
   await page.screenshot({ path: join(output, 'ducking-config-1920.png') })

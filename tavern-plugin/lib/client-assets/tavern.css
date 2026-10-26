@@ -3811,7 +3811,7 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-config-slider { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 6.2em; align-items: center; gap: 14px; max-width: 760px; }
 .dsh-tavern-stage-config-end { font-size: 14px; letter-spacing: .1em; }
 .dsh-tavern-stage-config-value { font-size: 15px; font-weight: 600; line-height: 1; text-align: right; font-variant-numeric: tabular-nums; }
-/* 开关（自动避让）：一条滑轨上的圆钮和「开 / 关」，开时滑轨是强调色、圆钮在右。 */
+/* 开关（自动混音）：一条滑轨上的圆钮和「开 / 关」，开时滑轨是强调色、圆钮在右。 */
 .dsh-tavern-stage-config-switch { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; margin: 0; padding: 0 6px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--cfg-ink-2); font-size: 15px; font-weight: 600; letter-spacing: .1em; cursor: pointer; }
 .dsh-tavern-stage-config-switch i { position: relative; width: 46px; height: 26px; border-radius: 999px; background: var(--cfg-track); transition: background .15s; }
 .dsh-tavern-stage-config-switch i::after { content: ""; position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--gal-ui-ink); box-shadow: 0 1px 4px rgb(0 0 0 / .3); transition: transform .15s; }

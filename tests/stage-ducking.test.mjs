@@ -66,7 +66,7 @@ test('a dip glides down at the attack and back up after the hold, held where it 
   assert.equal(gain.glides.length, count, 'an unchanged trigger schedules nothing')
 })
 
-test('CONFIG › 声音 › 自动避让 turns it off and on, saved in this browser; off only adds duck: false', () => {
+test('CONFIG › 声音 › 自动混音 turns it off and on, saved in this browser; off only adds duck: false', () => {
   const page = load()
   page.voice(true)
   page.audio.setDucking(false)
