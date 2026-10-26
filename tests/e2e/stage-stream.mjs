@@ -61,7 +61,7 @@ try {
     const saved = async () => ({ chat: await store.read(initial.chat.id), plugins: { data: await data.snapshot(initial.chat.id) } })
     const records = save => save.plugins.data.owners['dsh-tavern.stage'].turns
     const view = () => call('castStage', { sessionId, count: 1 })
-    const send = async marker => { await stage.getByRole('button', { name: '跳过', exact: true }).click(); const box = stage.getByRole('textbox', { name: '舞台输入' }); await box.fill(marker); await stage.getByRole('button', { name: '发送', exact: true }).click() }
+    const send = async marker => { await stage.getByRole('button', { name: '跳过', exact: true }).click(); await stage.getByRole('menuitem', { name: '自由输入', exact: true }).click(); await stage.getByRole('textbox', { name: '自由输入下一步' }).fill(marker); await stage.getByRole('menuitem', { name: '发送', exact: true }).click() }
     await control('arm', 'normal')
     await send('C07B_FLOW')
     await until(async () => (await control()).foreground === 1)

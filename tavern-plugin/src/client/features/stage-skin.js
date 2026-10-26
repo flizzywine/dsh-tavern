@@ -78,7 +78,9 @@ function stageSkinPanelTokens(document) {
 // top-right or bottom-right corner), where it stands on phones (narrow top / edge; bottom is the placed default) and whether
 // it is drawn from the skin's icons. A folded menu (layout capsule / orb) has no row to place.
 function stageSkinRoot(document) {
-	const root = { style: stageSkinTokens(document), "data-fk-skin": document.id }, menu = document.quickMenu;
+	const tx = stageSkinTransitions(document);
+	const root = { style: { ...stageSkinTokens(document), ...tx.tokens }, "data-fk-skin": document.id }, menu = document.quickMenu;
+	if (tx.marks) root["data-fk-tx"] = tx.marks;
 	if (document.textStyle?.narration) root["data-fk-skin-narration-ink"] = "";
 	if (menu && (!menu.layout || menu.layout === "bar")) {
 		if (menu.place) root["data-fk-skin-controls-place"] = menu.place;
@@ -86,6 +88,41 @@ function stageSkinRoot(document) {
 		if (menu.icons) root["data-fk-skin-controls-icons"] = "";
 	}
 	return root;
+}
+
+// transitions (tavern.css 「stage choices」): per declared surface and phase (data-fk-tx lists them, e.g. "choices-enter") its
+// duration, ease, delay and row stagger, and where it moves from - the pose, the fade and the wipe's closed shape (and the open
+// one it grows to) - as tokens one keyframe reads. choices.leave holds the pick for its delay + ms before it is sent.
+const STAGE_SKIN_TX_EASE = Object.freeze({ linear: "linear", out: "cubic-bezier(.2,.7,.3,1)", "in-out": "cubic-bezier(.65,0,.35,1)", back: "cubic-bezier(.34,1.56,.64,1)", snap: "cubic-bezier(.86,0,.07,1)",
+	"expo-out": "cubic-bezier(.16,1,.3,1)", "quint-out": "cubic-bezier(.22,1,.36,1)", emphasized: "cubic-bezier(.2,0,0,1)", "emphasized-out": "cubic-bezier(.05,.7,.1,1)", "emphasized-in": "cubic-bezier(.3,0,.8,.15)", spring: "cubic-bezier(.3,1.3,.5,1)" });
+// A wipe's clip path, open (the row whole) or closed (nothing shown), in % of the row; the closed shapes grow from `at`
+// far enough to cover the row from any point.
+function stageSkinWipeClip(wipe, open) {
+	const [x, y] = (wipe.at || [.5, .5]).map(v => Math.round(v * 1000) / 10), r = (n, k) => Math.round((n + k) * 10) / 10 + "%", k = open ? 1 : 0;
+	const poly = points => "polygon(" + points.map(([dx, dy]) => r(x, dx) + " " + r(y, dy)).join(",") + ")";
+	switch (wipe.shape) {
+	case "circle": return `circle(${open ? 150 : 0}% at ${x}% ${y}%)`;
+	case "rect": return poly([[-100 * k, -100 * k], [100 * k, -100 * k], [100 * k, 100 * k], [-100 * k, 100 * k]]);
+	case "diamond": return poly([[0, -200 * k], [200 * k, 0], [0, 200 * k], [-200 * k, 0]]);
+	case "triangle": return poly([[0, -420 * k], [370 * k, 260 * k], [-370 * k, 260 * k]]);
+	case "left": return open ? "inset(0 0 0 0)" : "inset(0 100% 0 0)";
+	case "right": return open ? "inset(0 0 0 0)" : "inset(0 0 0 100%)";
+	case "up": return open ? "inset(0 0 0 0)" : "inset(100% 0 0 0)";
+	default: return open ? "inset(0 0 0 0)" : "inset(0 0 100% 0)";
+	}
+}
+function stageSkinTransitions(document) {
+	const tokens = {}, phases = [], choices = document.transitions?.choices || {};
+	for (const [phase, t] of Object.entries(choices)) {
+		const p = "--tx-choices-" + phase, pose = t.pose || {};
+		phases.push("choices-" + phase);
+		Object.assign(tokens, { [p + "-ms"]: t.ms + "ms", [p + "-ease"]: Array.isArray(t.ease) ? "cubic-bezier(" + t.ease.join(",") + ")" : STAGE_SKIN_TX_EASE[t.ease || "out"],
+			[p + "-delay"]: (t.delay || 0) + "ms", [p + "-stagger"]: (t.stagger || 0) + "ms", [p + "-o"]: t.fade ? "0" : "1",
+			[p + "-t"]: t.pose ? `translate(${pose.dx || 0}%, ${pose.dy || 0}%) rotate(${pose.rot || 0}deg) scale(${pose.scale ?? 1})` : "none",
+			[p + "-clip"]: t.wipe ? stageSkinWipeClip(t.wipe, false) : "none", [p + "-open"]: t.wipe ? stageSkinWipeClip(t.wipe, true) : "none" });
+	}
+	if (choices.leave) tokens["--tx-choices-pick-ms"] = String(choices.leave.ms + (choices.leave.delay || 0));
+	return { tokens, marks: phases.join(" ") };
 }
 
 // quickMenu.icons / button: each control the skin draws, by action (auto, skip, back, ...), from the decoded files - its image,
@@ -119,8 +156,10 @@ function stageSkinQuickImages(document) {
 function stageSkinArtImages(document) {
 	const box = document.art?.textbox, plate = document.art?.nameplate, frame = stageSkinPortrait(document)?.frame;
 	if (!box) return [];
+	const choices = document.art.choices;
 	return [...new Set([...Object.values(box.images), box.next && stageSkinImageOf(box.next), box.lamp?.image, plate?.image,
-		...(frame ? [frame.image, frame.glass, frame.back, frame.speaking] : [])].filter(Boolean))];
+		...(frame ? [frame.image, frame.glass, frame.back, frame.speaking] : []),
+		...(choices ? [...Object.values(choices.images), choices.focus?.image, choices.focus?.alt] : [])].filter(Boolean))];
 }
 // The face window the stage draws (art.portrait with the speaker's avatar; a bust cut from the stage figure is not drawn here).
 function stageSkinPortrait(document) {
@@ -226,8 +265,45 @@ function stageSkinArt(document, files) {
 		marks["data-fk-skin-art-controls"] = "";
 		Object.assign(tokens, { "--art-qc-x": n(c.x), "--art-qc-y": n(c.y), "--art-qc-size": n(c.size), "--art-qc-w": n(c.w || c.size), "--art-qc-gap": n(c.gap || 0) });
 	}
+	stageSkinChoiceArt(art, art.screen - box.bottom - h, size, url, n, marks, tokens);
 	const faceName = stageSkinPortraitArt(document, size, url, n, marks, tokens);
 	return { marks, tokens, frames, faceName };
+}
+
+// art.choices (tavern.css 「stage skin: art choices」): the round-end menu as the skin's bar image, 9-sliced, its words in the
+// text column [l, r] centred on y within band; stacked on the design centre (center, or anchor stage / above-box: the middle
+// of the room above the box image, whose top is `boxTop`), gap px apart, at x; odd / even rows tilted and shifted. focus: the
+// bar (and its ink, and dx aside) under the pointer or keyboard focus; alt: the even rows' own bar and focus bar.
+function stageSkinChoiceArt(art, boxTop, size, url, n, marks, tokens) {
+	const c = art.choices;
+	if (!c) return;
+	const [w, h] = size(c.images.plain), [st, sr, sb, sl] = stageSkinSliceEdges(c.slice), [left, right, middle] = c.text;
+	marks["data-fk-skin-choices"] = "";
+	Object.assign(tokens, { "--art-choice": url(c.images.plain), "--art-choice-off": url(c.images.off || c.images.plain), "--art-choice-w": n(w), "--art-choice-h": n(h),
+		"--art-choice-st": n(st), "--art-choice-sr": n(sr), "--art-choice-sb": n(sb), "--art-choice-sl": n(sl), "--art-choice-l": n(left), "--art-choice-r": n(right), "--art-choice-y": n(middle),
+		"--art-choice-font": n(c.font), "--art-choice-pitch": n(c.pitch), "--art-choice-gap": n(c.gap),
+		"--art-choice-center": n(c.anchor === "above-box" ? Math.round(Math.max(0, boxTop) / 2) : c.anchor === "stage" ? art.screen / 2 : c.center) });
+	if (c.anchor === "above-box") marks["data-fk-skin-choices-anchor"] = "above-box";
+	if (c.band) Object.assign(tokens, { "--art-choice-top": n(c.band[0]), "--art-choice-bottom": n(c.band[1]) });
+	if (c.x != null) tokens["--art-choice-x"] = n(c.x);
+	if (c.align) Object.assign(tokens, { "--art-choice-align": c.align, "--art-choice-justify": c.align === "center" ? "center" : c.align === "left" ? "flex-start" : "flex-end" });
+	["odd", "even"].forEach((side, i) => {
+		if (c.tilt) tokens["--art-choice-tilt-" + side] = c.tilt[i] + "deg";
+		if (c.stagger) tokens["--art-choice-shift-" + side] = n(c.stagger[i]);
+	});
+	if (c.ink) tokens["--art-choice-ink"] = c.ink;
+	if (c.weight) tokens["--art-choice-weight"] = String(c.weight);
+	if (c.spacing) tokens["--art-choice-spacing"] = c.spacing + "em";
+	if (c.focus) {
+		marks["data-fk-skin-choices-focus"] = "";
+		Object.assign(tokens, { "--art-choice-focus": url(c.focus.image), "--art-choice-focus-dx": n(c.focus.dx || 0) });
+		if (c.focus.ink) tokens["--art-choice-focus-ink"] = c.focus.ink;
+	}
+	if (c.images.alt || c.focus?.alt) {
+		marks["data-fk-skin-choices-alt"] = "";
+		tokens["--art-choice-alt"] = url(c.images.alt || c.images.plain);
+		if (c.focus) tokens["--art-choice-focus-alt"] = url(c.focus.alt || c.focus.image);
+	}
 }
 
 // The face window (art.portrait): the speaker's avatar in a square on the design screen (left / bottom / size). frame: the

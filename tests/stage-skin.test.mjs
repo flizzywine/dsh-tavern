@@ -124,12 +124,12 @@ test('textFx draws the glyphs\' entrance: its flash ink, the side a stamp drops 
   for (const reveal of ['ink', 'pop', 'stutter', 'stamp', 'cut', 'scan', 'scrawl']) assert.match(css, new RegExp('data-skin-reveal="' + reveal + '"\\] \\.dsh-tavern-stage-glyph-paint\\[data-hop="0"\\]'))
   assert.match(css, /@media \(prefers-reduced-motion: no-preference\) \{\n  \.dsh-tavern-stage-type\[data-skin-reveal="ink"\]/)
 })
-test('the stage draws only from skin tokens: no colour of its own on the box, plate, text, controls or input', () => {
-  const rules = css.match(/^\.dsh-tavern-stage-(?:textbox|name|text|controls|input)[^{]*\{[^}]*\}/gm)
+test('the stage draws only from skin tokens: no colour of its own on the box, plate, text, controls or choices', () => {
+  const rules = css.match(/^\.dsh-tavern-stage-(?:textbox|name|text|controls|choice|wait)[^{]*\{[^}]*\}/gm)
   assert.ok(rules.length >= 10)
   for (const rule of rules) assert.doesNotMatch(rule, /#[\da-f]{3,8}\b|rgba?\(|hsl\(/i, rule)
   assert.match(css, /\.dsh-tavern-stage-textbox \{[^}]*background: var\(--gal-skin-bg\)/)
-  assert.match(css, /\.dsh-tavern-stage-input button \{[^}]*background: var\(--gal-ui-accent\)/)
+  assert.match(css, /\.dsh-tavern-stage-choice:has\(> \[data-action="generate"\]\) \{[^}]*background: color-mix\(in srgb, var\(--gal-ui-accent\) 14%, var\(--gal-ui-surface\)\)/)
 })
 
 // The JSON Schema mirror for editors and tools: a small walker of the keywords it uses.
@@ -150,15 +150,18 @@ function schemaAccepts(value, s = schema, path = '$') {
 test('the JSON Schema mirror describes the same document: same fields, the generic parts, the same closed shape', () => {
   assert.equal(schema.$id, 'dsh.skin/1')
   assert.deepEqual(schema.required, ['schema', 'id', 'label', 'textbox', 'nameplate', 'font', 'textFx'])
-  assert.deepEqual(Object.keys(schema.properties).sort(), ['art', 'cursor', 'dimListeners', 'effects', 'figureSlots', 'figures', 'font', 'hud', 'id', 'label', 'license', 'maxFigures', 'modes', 'nameplate', 'quickMenu', 'schema', 'sfx', 'photosensitive', 'textFx', 'textStyle', 'textbox', 'ui'].sort())
+  assert.deepEqual(Object.keys(schema.properties).sort(), ['art', 'cursor', 'dimListeners', 'effects', 'figureSlots', 'figures', 'font', 'hud', 'id', 'label', 'license', 'maxFigures', 'modes', 'nameplate', 'quickMenu', 'schema', 'sfx', 'photosensitive', 'textFx', 'textStyle', 'textbox', 'transitions', 'ui', 'waitLines'].sort())
   const name = { arc: [160, 200, 120], font: 30, min: 14, ink: '#f0e8d0', stroke: { color: '#201810', width: 2 }, shadow: { color: '#000000', dy: 2 }, bed: { color: '#000000', alpha: .4 } }
   const documents = [classic, minimal, skin({ quickMenu: { bg: '#101418', fg: '#f2f2f2', place: 'box-top-right', narrow: 'top' } }),
     skin({ art: art({ textbox: { ...art().textbox, slice: { edges: [8, 8, 8, 8] }, cue: [900, 40, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } } }) }),
     skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) }),
     skin({ textStyle: { narration: '#ffffff' }, art: art({ narration: { font: 30, pitch: 50, veil: .75, layout: 'free', ink: '#1d1a22', veilColor: '#f4efe6', halo: false } }) }),
-    skin({ art: art({ narration: { font: 30, pitch: 50, veil: .6, layout: 'band', halo: { blur: 2, color: '#000000' } } }) })]
+    skin({ art: art({ narration: { font: 30, pitch: 50, veil: .6, layout: 'band', halo: { blur: 2, color: '#000000' } } }) }),
+    skin({ waitLines: ['灯影摇曳中', '正在翻开下一页'], transitions: { choices: { enter: { ms: 240, ease: [.2, 0, 0, 1], stagger: 40, pose: { dx: 8 }, fade: true }, leave: { ms: 300, wipe: { shape: 'circle', at: [.5, .5] } } } },
+      art: art({ choices: { images: { plain: 'art/bar.svg', off: 'art/bar-off.svg' }, slice: [10, 40, 10, 40], text: [60, 840, 40], font: 28, pitch: 40, gap: 12, anchor: 'stage', focus: { image: 'art/bar-on.svg' } } }) })]
   for (const document of documents) { validateStageSkin(document); assert.ok(schemaAccepts(document), document.id) }
-  for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) })]) assert.equal(schemaAccepts(document), false)
+  for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) }), skin({ waitLines: [' 留白'] }),
+    skin({ transitions: { choices: { enter: { ms: 200 } } } }), skin({ transitions: { choices: {} } }), skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } })]) assert.equal(schemaAccepts(document), false)
 })
 test('the art layer draws the skin\'s box, plate, cue and lamp from its decoded images, or not at all', () => {
   const document = skin({ art: art({ textbox: { ...art().textbox, images: { plain: 'art/box.png', narration: 'art/narration.png' }, cue: [1700, 230, 40], rise: 6,

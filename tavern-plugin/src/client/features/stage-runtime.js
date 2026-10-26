@@ -349,7 +349,8 @@ function TavernStageScreen(props) {
 	React.useEffect(() => { if (reading.prepares) rpc("speechPrepare", {}, id).catch(() => {}); }, [id, reading.prepares]);
 	// While a line is read aloud (from its request until it ends or is stopped); a newer reading owns the flag.
 	const [speaking, setSpeaking] = React.useState(false), spoken = React.useRef(0);
-	const [draft, setDraft] = React.useState(""), [sending, setSending] = React.useState(false);
+	// 回合末选项 (stage-choices.js): the latest reply the round's candidates belong to.
+	const messageId = props.choices.useMessageId(id);
 	// CONFIG (stage-config.js): the stage owns its open state; while it is open auto paging waits and the stage's keys are
 	// CONFIG's. Closing returns focus to what opened it.
 	const [config, setConfig] = React.useState(null), configOpen = React.useRef(false), configOpener = React.useRef(null);
@@ -528,21 +529,14 @@ function TavernStageScreen(props) {
 			}
 			if (letter === "l") { event.preventDefault(); if (!event.repeat) openBacklog(null); }
 			else if (event.key === "Escape") { event.stopPropagation(); props.onClose(); }
+			// Enter / Space on a choice press it; they turn no page.
+			else if ((event.key === " " || event.key === "Enter") && event.target && event.target.closest && event.target.closest(".dsh-tavern-stage-choices")) return;
 			else if (event.key === "ArrowRight" || event.key === " " || event.key === "Enter") { event.preventDefault(); advance(); }
 			else if (event.key === "ArrowLeft") { event.preventDefault(); back(); }
 		}
 		document.addEventListener("keydown", onKey, true);
 		return () => document.removeEventListener("keydown", onKey, true);
 	}, [id, props.onClose]);
-	async function send(event) {
-		event.preventDefault();
-		const text = draft.trim();
-		if (!text || sending) return;
-		setSending(true);
-		try { await props.submit(id, text); setDraft(""); }
-		catch (error) { tavernErrorHub.report("舞台发送", error); }
-		finally { setSending(false); }
-	}
 	// A control the skin draws (quickMenu.icons: back = ‹, auto, skip) shows its icon on the skin's button body; the others keep
 	// their own words. Every control keeps its action, name and keys.
 	const control = (action, label, glyph, attributes, on) => {
@@ -563,11 +557,11 @@ function TavernStageScreen(props) {
 		h("span", { className: "dsh-tavern-spacer" }),
 		h("button", { type: "button", onClick: props.onClose }, "退出舞台"));
 	const generating = props.generating ?? running;
-	const input = atEnd && lastCard ? h("form", { className: "dsh-tavern-stage-input", onSubmit: send, onClick: event => event.stopPropagation() },
-		h("input", { value: draft, onChange: event => setDraft(event.target.value), placeholder: generating ? "正在生成下一轮…" : "接下来做什么？", "aria-label": "舞台输入", disabled: sending }),
-		h("button", { type: "submit", disabled: sending || !draft.trim() }, sending ? "发送中…" : "发送")) : null;
-	// With the skin's art the input docks on Tavern's own box (above its image); a plugin view keeps it under the scene.
-	const docked = Boolean(art) && !choice.view;
+	// The round's last card ends on the choice menu (stage-choices.js); its waits take the box's place. It docks on Tavern's
+	// own box (above the box, or its image); a plugin view keeps it under the scene.
+	const input = h(TavernStageChoices, { key: id, sessionId: id, flow: props.choices, messageId, running: generating, atEnd: atEnd && lastCard,
+		submit: text => props.submit(id, text), lines: skinDocument.waitLines || STAGE_WAIT_LINES });
+	const docked = !choice.view;
 	// The stage's wheel (modules/stage-backlog.js stageWheelDecision): up opens the backlog, down turns a page. An open CONFIG or
 	// backlog keeps its own wheel; the BGM panel scrolls its list.
 	const wheelGesture = React.useRef(null);

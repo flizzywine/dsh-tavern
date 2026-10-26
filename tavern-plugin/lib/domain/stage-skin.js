@@ -54,6 +54,20 @@ const skinEase = skinEnum(['linear','out','in-out','back']);
 const skinMotion = value => skinObject({ms:skinNumber(60,3000),ease:skinEase,keys:skinArray(skinObject({...skinPoseFields,at:skinNumber(0,1)},['at']),2,6)},['ms','keys'])(value)
     && value.keys[0].at === 0 && value.keys.at(-1).at === 1 && value.keys.every((key,i) => i === 0 || key.at > value.keys[i-1].at);
 const skinStage = skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinNumber(0,200),ease:skinEase,fade:value => value === true},['pose','ms']);
+// transitions: how a stage surface comes and goes, as data. choices: the round-end menu's rows - enter as they appear (each
+// next row stagger ms later), leave after a pick (the others first, the picked row last; the pick is sent when it ends). A
+// transition is a wipe (the row revealed through a growing shape from `at`, or an edge wipe), a pose (dx / dy % of the row,
+// rot, scale) and / or a fade over ms after delay; ease is a named curve or a cubic Bezier [x1, y1, x2, y2].
+const STAGE_SKIN_TX_EASES = Object.freeze(['linear','out','in-out','back','snap','expo-out','quint-out','emphasized','emphasized-out','emphasized-in','spring']);
+const STAGE_SKIN_WIPES = Object.freeze(['circle','rect','diamond','triangle','left','right','up','down']);
+const skinTxEase = value => skinEnum(STAGE_SKIN_TX_EASES)(value) || skinArray(skinNumber(-1,2),4,4)(value) && value[0] >= 0 && value[0] <= 1 && value[2] >= 0 && value[2] <= 1;
+const skinTransition = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEase,delay:skinNumber(0,1000),stagger:skinNumber(0,200),
+    wipe:skinObject({shape:skinEnum(STAGE_SKIN_WIPES),at:skinArray(skinNumber(0,1),2,2)},['shape']),
+    pose:skinObject({dx:skinNumber(-100,100),dy:skinNumber(-100,100),rot:skinNumber(-180,180),scale:skinNumber(0,4)}),fade:value => value === true},['ms'])(value)
+    && ['wipe','pose','fade'].some(key => Object.hasOwn(value,key));
+const skinTransitions = skinObject({choices:value => skinObject({enter:skinTransition,leave:skinTransition})(value) && Object.keys(value).length > 0},['choices']);
+// waitLines: the short lines the text box cycles through while the choices generate or a reply is written (one line on a phone).
+const skinWaitLines = skinArray(value => typeof value === 'string' && /^\S(?:[^\n\r]{0,22}\S)?$/u.test(value),1,64);
 // textFx.poses: a glyph's entrance poses on the reveal's step clock (em, degrees, blur em, ink).
 const skinGlyphPose = skinObject({dx:skinNumber(-1,1),dy:skinNumber(-1,1),rot:skinNumber(-45,45),scale:skinNumber(0,3),sx:skinNumber(0,3),sy:skinNumber(0,3),skew:skinNumber(-45,45),
     blur:skinNumber(0,.5),ink:skinEnum(['flash','fg','accent'])});
@@ -259,7 +273,8 @@ const stageSkinShape = skinObject({
     art:skinArt,
     hud:skinObject({reveal:skinEnum(['auto','always']),timer:skinObject({hide:skinHudHide},['hide'])}),
     effects:skinEffects,
-    modes:skinModes
+    modes:skinModes,
+    transitions:skinTransitions,waitLines:skinWaitLines
 },['schema','id','label','textbox','nameplate','font','textFx']);
 // WCAG contrast. Readable text is part of the contract: unsafe pairs reject the skin.
 function skinLuminance(color) {

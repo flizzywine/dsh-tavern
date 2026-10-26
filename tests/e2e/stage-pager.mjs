@@ -106,13 +106,13 @@ try {
           const end = await shown(); fits(end)
           assert.ok(LAST.endsWith(end.text.replace(/^[「（]/, '')), 'the last card: ' + end.text)
           assert.equal(await nextButton.isDisabled(), true)
-          await stage.locator('.dsh-tavern-stage-input').waitFor()
+          await stage.locator('.dsh-tavern-stage-choices').waitFor()
           await page.waitForTimeout(450)
           await page.screenshot({ path: join(output, label + '-skip.png') })
           // A card before the last: the input waits for the last card.
           await backButton.click(); await typed()
           const before = await shown()
-          assert.equal(await stage.locator('.dsh-tavern-stage-input').count(), 0, 'the input shows on the last card only')
+          assert.equal(await stage.locator('.dsh-tavern-stage-choices').count(), 0, 'the input shows on the last card only')
           assert.equal(await nextButton.isDisabled(), false)
           // 6. A backlog jump to the long page shows its first card whole.
           await page.keyboard.press('l')

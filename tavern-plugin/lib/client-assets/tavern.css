@@ -3177,11 +3177,6 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 .dsh-tavern-stage-overlay { position: fixed; inset: 0; z-index: 2147483000; background: #111318; }
 /* the stage fills the screen: the host's narrow-screen inset for modal dialogs (an !important max-width 100vw - 32px) is not for it */
 html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-width: none !important; }
-.dsh-tavern-stage-input { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(960px, 92vw); display: flex; gap: 8px; }
-.dsh-tavern-stage-input input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: var(--gal-ui-radius); border: 1px solid var(--gal-ui-line); background: var(--gal-ui-surface); color: var(--gal-ui-ink); font-size: 16px; }
-.dsh-tavern-stage-input input::placeholder { color: var(--gal-ui-muted); }
-.dsh-tavern-stage-input button { height: 44px; padding: 0 18px; border-radius: var(--gal-ui-radius); border: 0; background: var(--gal-ui-accent); color: var(--gal-ui-accent-ink); font-size: 15px; cursor: pointer; }
-.dsh-tavern-stage-input button:disabled { opacity: .5; cursor: default; }
 @keyframes dsh-tavern-stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-figure, .dsh-tavern-stage-figure-body, .dsh-tavern-stage-figure img, .dsh-tavern-stage-text { animation: none !important; transition: none !important; } }
 .dsh-tavern-stage-name b { font-weight: inherit; }
@@ -3250,7 +3245,6 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-align="top"] .dsh-tavern-stage-textbox { justify-content: flex-start; padding-top: calc((var(--art-text-y) - var(--art-body-y)) * var(--art-u)); padding-bottom: 0; }
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-stroke] .dsh-tavern-stage-text { -webkit-text-stroke: calc(var(--art-text-stroke-w) * 2 * var(--art-u)) var(--art-text-stroke); paint-order: stroke fill; }
 .dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-controls { position: absolute; margin: 0; right: 14px; bottom: 8px; }
-.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-input { bottom: calc(100% + max(var(--art-dock-over, calc(var(--art-body-y) * var(--art-u))), var(--art-dock-min, 0px)) + 12px); }
 /* the name on the box: the layout's plate at x / y, outlined --art-np-stroke px */
 .dsh-tavern-stage-overlay[data-fk-skin-art][data-fk-skin-art-name] .dsh-tavern-stage-name {
   position: absolute; box-sizing: border-box; align-items: center; margin: 0; max-width: none; left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u)); top: calc((var(--art-np-y) - var(--art-body-y)) * var(--art-u));
@@ -3533,6 +3527,205 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 .dsh-tavern-stage-lines[data-instant] .dsh-tavern-stage-line { animation: none; }
 @keyframes dsh-tavern-stage-line-in { from { opacity: 0; top: var(--nar-rise); } to { opacity: 1; top: 0; } }
 /* ==== end stage narration ==== */
+/* ==== stage choices ====
+   回合末选项 (stage-choices.js): the round's last card ends on the menu docked on the text box, standing above it (above its
+   image with the skin's art) and centred on the stage: the reply's suggestions as ribbons, then 自由输入 (dashed, the muted
+   ink) and, when there are none, 生成选项 or 选项生成失败 · 重试. A ribbon is opaque UI paint (--gal-ui-*) whose ends feather
+   out (an eased 12-step mask, --sc-fade long); the list is as wide as its longest choice between min(78vw, 760px) and
+   min(86vw, 1500px) (phones: the whole width), a longer one wraps to balanced lines; it scrolls under the top 64px. The ✎ of
+   a suggestion shows under the pointer or focus (always, faint, on touch); a ribbon opens into its field in place.
+   Motion: the list slides up 10px and each row wipes in top-down (.25s), once per reply ([data-settled]); a pick is sent at
+   once (--stage-choice-pick-ms 0). The skin's transitions.choices replace both (below). */
+.dsh-tavern-stage-choices {
+  --sc-size: clamp(15px, calc(.5vw + .65vh), 19px); --sc-gap: clamp(10px, 2vh, 22px); --sc-fade: 116px; --stage-choice-pick-ms: 0;
+  --sc-veil: linear-gradient(180deg, color-mix(in srgb, var(--gal-ui-ink) 4%, var(--gal-ui-surface)), var(--gal-ui-surface));
+  --sc-hover: color-mix(in srgb, var(--gal-ui-ink) 8%, var(--gal-ui-surface)); --sc-active: color-mix(in srgb, var(--gal-ui-accent) 16%, var(--gal-ui-surface));
+  --sc-disabled: color-mix(in srgb, var(--gal-ui-ink) 38%, var(--gal-ui-surface)); --sc-warning: color-mix(in srgb, var(--gal-ui-ink) 70%, darkorange);
+  --sc-mask: linear-gradient(90deg, transparent 0, color-mix(in srgb, black 1.97%, transparent) calc(var(--sc-fade) * .0833), color-mix(in srgb, black 7.41%, transparent) calc(var(--sc-fade) * .1667), color-mix(in srgb, black 15.63%, transparent) calc(var(--sc-fade) * .25), color-mix(in srgb, black 25.93%, transparent) calc(var(--sc-fade) * .3333), color-mix(in srgb, black 37.62%, transparent) calc(var(--sc-fade) * .4167), color-mix(in srgb, black 50%, transparent) calc(var(--sc-fade) * .5), color-mix(in srgb, black 62.38%, transparent) calc(var(--sc-fade) * .5833), color-mix(in srgb, black 74.07%, transparent) calc(var(--sc-fade) * .6667), color-mix(in srgb, black 84.38%, transparent) calc(var(--sc-fade) * .75), color-mix(in srgb, black 92.59%, transparent) calc(var(--sc-fade) * .8333), color-mix(in srgb, black 98.03%, transparent) calc(var(--sc-fade) * .9167),
+    black var(--sc-fade) calc(100% - var(--sc-fade)),
+    color-mix(in srgb, black 98.03%, transparent) calc(100% - var(--sc-fade) * .9167), color-mix(in srgb, black 92.59%, transparent) calc(100% - var(--sc-fade) * .8333), color-mix(in srgb, black 84.38%, transparent) calc(100% - var(--sc-fade) * .75), color-mix(in srgb, black 74.07%, transparent) calc(100% - var(--sc-fade) * .6667), color-mix(in srgb, black 62.38%, transparent) calc(100% - var(--sc-fade) * .5833), color-mix(in srgb, black 50%, transparent) calc(100% - var(--sc-fade) * .5), color-mix(in srgb, black 37.62%, transparent) calc(100% - var(--sc-fade) * .4167), color-mix(in srgb, black 25.93%, transparent) calc(100% - var(--sc-fade) * .3333), color-mix(in srgb, black 15.63%, transparent) calc(100% - var(--sc-fade) * .25), color-mix(in srgb, black 7.41%, transparent) calc(100% - var(--sc-fade) * .1667), color-mix(in srgb, black 1.97%, transparent) calc(100% - var(--sc-fade) * .0833), transparent 100%);
+  position: absolute; left: 50%; bottom: calc(100% + var(--sc-gap)); z-index: 5; box-sizing: border-box; display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  width: max-content; min-width: min(78vw, 760px); max-width: min(86vw, 1500px); max-height: calc(100vh - 256px - var(--sc-gap) - 64px); overflow: auto; margin: 0; padding: 36px 0 2px;
+  transform: translateX(-50%); cursor: default; pointer-events: none; text-indent: 0; text-align: center; animation: dsh-tavern-stage-choices-in .25s ease-out; }
+.dsh-tavern-stage-choices > * { flex: none; min-width: 0; pointer-events: auto; animation: dsh-tavern-stage-choice-in .25s ease-out; }
+.dsh-tavern-stage-choices[data-settled], .dsh-tavern-stage-choices[data-settled] > * { animation: none; }
+@keyframes dsh-tavern-stage-choices-in { from { transform: translate(-50%, 10px); } }
+@keyframes dsh-tavern-stage-choice-in { from { clip-path: inset(0 0 100% 0); transform: translateY(6px); } to { clip-path: inset(0 0 0 0); } }
+/* the stage's own docks: under a plugin's stage view, at the bottom; on the skin's art, above the box image */
+.dsh-tavern-stage-overlay > .dsh-tavern-stage-choices { bottom: 24px; max-height: calc(100vh - 88px); }
+.dsh-tavern-stage-overlay[data-fk-skin-art] .dsh-tavern-stage-textbox > .dsh-tavern-stage-choices {
+  bottom: calc(100% + max(var(--art-dock-over, calc(var(--art-body-y) * var(--art-u))), var(--art-dock-min, 0px)) + var(--sc-gap));
+  max-height: calc(100vh - (var(--art-bottom) + var(--art-img-h)) * var(--art-u) - var(--sc-gap) - 64px); }
+.dsh-tavern-stage-choice { position: relative; display: flex; align-items: center; box-sizing: border-box; margin: 0; padding: 0 var(--sc-fade); border: 0; border-block: 1px solid color-mix(in srgb, var(--gal-ui-accent) 34%, transparent);
+  background: var(--sc-veil); color: var(--gal-ui-ink); font-size: var(--sc-size); -webkit-mask: var(--sc-mask); mask: var(--sc-mask); transition: background .15s, border-color .15s; }
+.dsh-tavern-stage-choice:not(.is-editing, .is-error):is(:hover, :focus-within) { border-block-color: var(--gal-ui-accent); background: var(--sc-hover); }
+.dsh-tavern-stage-choice:not(.is-editing, .is-error):active { background: var(--sc-active); transition-duration: 0s; }
+.dsh-tavern-stage-choice-main { position: relative; display: flex; flex: 1; align-items: center; justify-content: center; gap: .5em; align-self: stretch; min-width: 0; margin: 0; padding: calc(var(--sc-size) * .55) calc(34px + .9em);
+  border: 0; border-radius: 0; background: transparent; color: inherit; font-family: inherit; font-size: var(--sc-size); font-weight: 500; line-height: 1.5; letter-spacing: .05em; text-align: center; cursor: pointer; }
+.dsh-tavern-stage-choice-main:disabled { cursor: default; }
+.dsh-tavern-stage-choices button:focus-visible { outline: 2px solid var(--gal-ui-accent); outline-offset: -3px; }
+.dsh-tavern-stage-choice-text { min-width: 0; text-wrap: balance; }
+.dsh-tavern-stage-choice-edit { position: absolute; top: 50%; right: calc(var(--sc-fade) + .3em); translate: 0 -50%; display: grid; place-items: center; width: 34px; height: 34px; margin: 0; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: var(--gal-ui-muted); cursor: pointer; transition: color .15s, background .15s; }
+.dsh-tavern-stage-choice-edit:hover:not(:disabled) { background: var(--sc-active); color: var(--gal-ui-ink); }
+@media (hover: hover) { .dsh-tavern-stage-choice:not(:hover, :focus-within, [data-edited]) > .dsh-tavern-stage-choice-edit:not(:disabled) { color: transparent; } }
+@media (hover: none) { .dsh-tavern-stage-choice:not([data-edited]) > .dsh-tavern-stage-choice-edit:not(:disabled) { color: var(--sc-disabled); } }
+.dsh-tavern-stage-choice[data-edited] > .dsh-tavern-stage-choice-edit:not(:disabled) { color: var(--gal-ui-accent); }
+/* 自由输入: the last ribbon, dashed, in the muted ink with an accent ✎; a kept draft reads in the ink, on one line */
+.dsh-tavern-stage-choice.is-free:not(.is-editing) { border-block-style: dashed; }
+.dsh-tavern-stage-choice.is-free .dsh-tavern-stage-choice-main { color: var(--gal-ui-muted); letter-spacing: .08em; }
+.dsh-tavern-stage-choice.is-free:is(:hover, :focus-within, [data-edited]) .dsh-tavern-stage-choice-main { color: var(--gal-ui-ink); }
+.dsh-tavern-stage-choice.is-free .dsh-tavern-stage-choice-main svg { flex: none; color: var(--gal-ui-accent); }
+.dsh-tavern-stage-choice.is-free .dsh-tavern-stage-choice-text { overflow: clip; overflow-clip-margin: .3em; white-space: nowrap; text-overflow: ellipsis; }
+/* the field: the same ribbon with accent hairlines; one line is the ribbon's height, more grow the list upward */
+.dsh-tavern-stage-choice.is-editing { align-items: flex-end; gap: .6em; border-block-color: var(--gal-ui-accent); }
+.dsh-tavern-stage-choice.is-editing:focus-within { box-shadow: inset 0 -1px 0 var(--gal-ui-accent); }
+.dsh-tavern-stage-choice-input { flex: 1; box-sizing: border-box; min-width: 0; min-height: 0; max-height: 8.5em; margin: 0; padding: calc(var(--sc-size) * .55) 0 calc(var(--sc-size) * .55) 1em; appearance: none; resize: none; field-sizing: content;
+  border: 0; border-radius: 0; background: none; box-shadow: none; outline: none; color: var(--gal-ui-ink); caret-color: var(--gal-ui-accent); font-family: inherit; font-size: var(--sc-size); font-weight: 500; line-height: 1.5; letter-spacing: .05em; }
+.dsh-tavern-stage-choice-input::placeholder { color: var(--gal-ui-muted); opacity: 1; }
+.dsh-tavern-stage-choice-send { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin: 0 .3em max(4px, calc((var(--sc-size) * 2.6 - 44px) / 2)); padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: var(--gal-ui-accent); cursor: pointer; transition: box-shadow .15s; }
+.dsh-tavern-stage-choice-send > svg { width: 52%; height: 52%; }
+.dsh-tavern-stage-choice-send:hover:not(:disabled) { box-shadow: 0 0 0 2px var(--gal-ui-accent); }
+.dsh-tavern-stage-choice-send:disabled { color: var(--sc-disabled); cursor: default; }
+/* 生成选项: the same ribbon with an accent wash; 选项生成失败: a warning dot and a quiet outlined 重试 */
+.dsh-tavern-stage-choice:has(> [data-action="generate"]) { border-block-color: color-mix(in srgb, var(--gal-ui-accent) 75%, transparent); background: color-mix(in srgb, var(--gal-ui-accent) 14%, var(--gal-ui-surface)); }
+.dsh-tavern-stage-choice:has(> [data-action="generate"]):hover { border-block-color: var(--gal-ui-accent); background: color-mix(in srgb, var(--gal-ui-accent) 22%, var(--gal-ui-surface)); }
+.dsh-tavern-stage-choice-main[data-action="generate"] { font-weight: 600; letter-spacing: .3em; }
+.dsh-tavern-stage-choice.is-error { justify-content: center; gap: 14px; border-block-color: color-mix(in srgb, var(--sc-warning) 55%, transparent); line-height: 1.5; letter-spacing: .03em; }
+.dsh-tavern-stage-choice.is-error > span { padding: calc(var(--sc-size) * .55) 0 calc(var(--sc-size) * .55) 1.25em; background: radial-gradient(circle, var(--sc-warning) 3.5px, transparent 4px) 0 50% / 8px 8px no-repeat; }
+.dsh-tavern-stage-choice-retry { padding: 7px 14px; border: 1px solid var(--gal-ui-accent); border-radius: 999px; background: transparent; color: var(--gal-ui-ink); font-family: inherit; font-size: calc(var(--sc-size) * .75); font-weight: 600; line-height: 1; letter-spacing: .16em; cursor: pointer; }
+.dsh-tavern-stage-choice-error { margin: 0; padding: 8px 14px; border: 1px solid color-mix(in srgb, var(--sc-warning) 55%, transparent); border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); color: var(--gal-ui-ink); font-size: calc(var(--sc-size) * .8); line-height: 1.45; }
+@media (max-width: 640px) {
+  .dsh-tavern-stage-choices { --sc-fade: clamp(30px, calc(20% - 36px), 116px); width: 100vw; min-width: 0; max-width: none; gap: 5px; }
+  .dsh-tavern-stage-choice-main { padding-inline: 1em; }
+  .dsh-tavern-stage-choice[data-index] > .dsh-tavern-stage-choice-main { padding-right: calc(34px + .6em); }
+}
+/* The waits (stage-choices.js): while the choices generate or the next reply is written, one short line at a time takes the
+   page's place in the box - the skin's muted ink a size under the text, six accent dots breathing after it like an ellipsis, a
+   hairline accent rule ending in a bead on each side. The lines share one cell as wide as the widest (hidden sizers); each
+   holds 2.4s of a 9.6s cycle (fade .48s in and out). Reduced motion: the first line, the dots still. */
+.dsh-tavern-stage-textbox:has(> .dsh-tavern-stage-wait) > :is(.dsh-tavern-stage-text, .dsh-tavern-stage-name, .dsh-tavern-stage-side, .dsh-tavern-stage-next, .dsh-tavern-stage-lamp) { visibility: hidden; }
+.dsh-tavern-stage-wait { --wait-dot: .3em; --wait-gap: .24em; position: absolute; inset: 0; z-index: 2; box-sizing: border-box; display: grid; grid-template-columns: minmax(.8em, 1fr) auto minmax(.8em, 1fr); align-items: center; column-gap: .85em;
+  padding: 0 16px; pointer-events: none; color: var(--gal-skin-muted); font-size: min(calc(clamp(16px, 1.45vw, 21px) * .88), 3.4vw); font-weight: 500; line-height: 1.6; letter-spacing: .16em; text-align: center; text-indent: 0; }
+.dsh-tavern-stage-wait::before, .dsh-tavern-stage-wait::after { content: ""; justify-self: end; width: 2.4em; max-width: 100%; height: .5em;
+  background: radial-gradient(circle closest-side, var(--gal-skin-accent) 62%, transparent 72%) right center / .36em .36em no-repeat, linear-gradient(90deg, transparent, color-mix(in srgb, var(--gal-skin-accent) 62%, transparent)) left center / calc(100% - .55em) 1px no-repeat; }
+.dsh-tavern-stage-wait::after { justify-self: start; transform: scaleX(-1); }
+.dsh-tavern-stage-wait-lines { display: inline-grid; min-width: 0; max-width: 100%; }
+.dsh-tavern-stage-wait-line { grid-area: 1 / 1; align-self: center; text-wrap: balance; opacity: 0; animation: dsh-tavern-stage-wait-line 9.6s linear infinite; }
+.dsh-tavern-stage-wait-line:first-child { opacity: 1; }
+.dsh-tavern-stage-wait-sizer { grid-area: 1 / 1; text-wrap: balance; visibility: hidden; }
+.dsh-tavern-stage-wait-dots, .dsh-tavern-stage-wait-dots-space { display: inline-flex; gap: var(--wait-gap); margin-left: .2em; vertical-align: .12em; letter-spacing: 0; }
+.dsh-tavern-stage-wait-dots-space { width: calc(var(--wait-dot) * 6 + var(--wait-gap) * 5); }
+.dsh-tavern-stage-wait-dots i { width: var(--wait-dot); height: var(--wait-dot); border-radius: 50%; background: var(--gal-skin-accent); opacity: .25; transform: scale(.7); animation: dsh-tavern-stage-wait-breathe 1.8s ease-in-out infinite; }
+.dsh-tavern-stage-wait-dots i:nth-child(2) { animation-delay: .15s; }
+.dsh-tavern-stage-wait-dots i:nth-child(3) { animation-delay: .3s; }
+.dsh-tavern-stage-wait-dots i:nth-child(4) { animation-delay: .45s; }
+.dsh-tavern-stage-wait-dots i:nth-child(5) { animation-delay: .6s; }
+.dsh-tavern-stage-wait-dots i:nth-child(6) { animation-delay: .75s; }
+@keyframes dsh-tavern-stage-wait-breathe { 35% { opacity: 1; transform: none; } }
+@keyframes dsh-tavern-stage-wait-line { 0% { opacity: 0; animation-timing-function: ease-out; } 5% { opacity: 1; } 20% { opacity: 1; animation-timing-function: ease-in; } 25% { opacity: 0; } 100% { opacity: 0; } }
+/* art.choices (stageSkinChoiceArt): every row is the skin's bar image, 9-sliced at --cu px per design px, its words in the text
+   column [l, r] (the ✎'s room kept on both sides), the block centred on y within the band [top, bottom] (default: line boxes
+   12px inside the image); a longer block grows the row. Narrow stages: the bars at the menu's text size, full width, in place.
+   Wide stages: stacked on the design centre of the game area (x, center) - the gaps close (down to 8 design px), then the stack
+   scales as one, so it fits the screen - with odd / even rows tilted and shifted; the box steps aside while the menu offers
+   something (art.choices.anchor above-box keeps it). Hover / focus: the accent words, or the skin's focus bar and ink (dx
+   aside); a row that cannot act is the off bar. Motion: the bars come in together, odd ones from the right and even ones from
+   the left, 300 design px in .1s, fading in; the picked bar squeezes to .9 and swells to 1.12 fading out in .233s while the
+   others fade in .1s, then it is sent. */
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices { --cu: calc(var(--sc-size) / var(--art-choice-font)); --art-cg: var(--art-choice-gap); --art-choice-edit: max(30px, calc(32 * var(--cu))); --stage-choice-pick-ms: 233;
+  --art-choice-lead: max(0, (var(--art-choice-pitch) - var(--art-choice-font)) / 2);
+  --art-choice-d: calc(min(var(--art-choice-y) - var(--art-choice-top, (12 + var(--art-choice-lead))), var(--art-choice-bottom, (var(--art-choice-h) - 12 - var(--art-choice-lead))) - var(--art-choice-y)) + var(--art-choice-lead));
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: calc(max(0, var(--art-cg)) * var(--cu)); animation: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice {
+  justify-content: center; min-height: max(44px, calc(var(--art-choice-h) * var(--cu))); padding: 0; border: 0 none; background: none; box-shadow: none; -webkit-mask: none; mask: none;
+  border-image: var(--art-choice) var(--art-choice-st) var(--art-choice-sr) var(--art-choice-sb) var(--art-choice-sl) fill / calc(var(--art-choice-st) * var(--cu)) calc(var(--art-choice-sr) * var(--cu)) calc(var(--art-choice-sb) * var(--cu)) calc(var(--art-choice-sl) * var(--cu)) stretch;
+  --art-choice-controls: var(--art-choice-ink, var(--gal-skin-accent)); color: var(--art-choice-ink, var(--gal-skin-fg)); transition: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(:first-child) { margin-top: calc(min(0, var(--art-cg)) * var(--cu)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices][data-fk-skin-choices-alt] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:nth-child(even) { --art-choice: var(--art-choice-alt); --art-choice-focus: var(--art-choice-focus-alt); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices :is(.dsh-tavern-stage-choice-main, .dsh-tavern-stage-choice.is-error > span, .dsh-tavern-stage-choice-input) {
+  font-size: calc(var(--art-choice-font) * var(--cu)); font-weight: var(--art-choice-weight, 700); line-height: calc(var(--art-choice-pitch) / var(--art-choice-font)); letter-spacing: var(--art-choice-spacing, 0); color: inherit; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice-main { --art-pad: 0px; text-align: var(--art-choice-align, center); justify-content: var(--art-choice-justify, center);
+  padding: calc((var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu) + var(--art-pad))
+    calc((var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc(var(--art-choice-l) * var(--cu) + var(--art-pad)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice[data-index] > .dsh-tavern-stage-choice-main { --art-pad: var(--art-choice-edit); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices :is(.dsh-tavern-stage-choice.is-editing, .dsh-tavern-stage-choice.is-error) {
+  gap: .5em; padding: calc(max(0, var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu))
+    calc(max(0, var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc(var(--art-choice-l) * var(--cu)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice.is-editing .dsh-tavern-stage-choice-input { padding: calc(12 * var(--cu)) 0; caret-color: var(--art-choice-controls); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice-input::placeholder { color: var(--art-choice-ink, var(--gal-skin-muted)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(.is-editing, .is-error):focus-within { color: var(--gal-skin-accent); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(.is-editing, .is-error):active { transform: scale(.968); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice-main:focus-visible { outline: none; text-decoration: underline 2px var(--gal-skin-accent); text-underline-offset: .3em; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices][data-fk-skin-choices-focus] .dsh-tavern-stage-choices .dsh-tavern-stage-choice-main:focus-visible { text-decoration: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices][data-fk-skin-choices-focus] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(.is-editing, .is-error):is(:focus-within, .is-picked) {
+  --art-choice-controls: var(--art-choice-focus-ink, var(--art-choice-ink, var(--gal-skin-accent))); border-image-source: var(--art-choice-focus); color: var(--art-choice-focus-ink, var(--art-choice-ink, var(--gal-skin-fg))); }
+@media (hover: hover) {
+  .dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(.is-editing, .is-error):hover { color: var(--gal-skin-accent); }
+  .dsh-tavern-stage-overlay[data-fk-skin-choices][data-fk-skin-choices-focus] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:not(.is-editing, .is-error):hover {
+    --art-choice-controls: var(--art-choice-focus-ink, var(--art-choice-ink, var(--gal-skin-accent))); left: calc(var(--art-choice-focus-dx) * var(--cu));
+    border-image-source: var(--art-choice-focus); color: var(--art-choice-focus-ink, var(--art-choice-ink, var(--gal-skin-fg))); }
+}
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:has(> .dsh-tavern-stage-choice-main:disabled) { border-image-source: var(--art-choice-off); color: color-mix(in srgb, var(--art-choice-ink, var(--gal-skin-muted)) 60%, var(--gal-skin-muted)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice.is-free:not(.is-editing, [data-edited], :hover, :focus-within) { color: var(--art-choice-ink, var(--gal-skin-muted)); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices :is(.dsh-tavern-stage-choice-main svg, .dsh-tavern-stage-choice-send) { color: var(--art-choice-controls); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice[data-index] > .dsh-tavern-stage-choice-edit { right: calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu)); width: var(--art-choice-edit); height: var(--art-choice-edit);
+  background: none; color: color-mix(in srgb, var(--art-choice-controls) 55%, transparent); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice[data-index] > .dsh-tavern-stage-choice-edit:is(:hover, :focus-visible):not(:disabled) { background: none; color: var(--art-choice-controls); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices .dsh-tavern-stage-choice-retry { min-width: 44px; min-height: 44px; border-color: currentColor; color: var(--art-choice-controls); }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices:not([data-settled], [data-picked]) > .dsh-tavern-stage-choice { animation: dsh-tavern-stage-art-choice-in-r .1s linear both; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices:not([data-settled], [data-picked]) > .dsh-tavern-stage-choice:nth-child(even) { animation-name: dsh-tavern-stage-art-choice-in-l; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices[data-picked] > :not(.is-picked) { animation: dsh-tavern-stage-art-choice-out .1s linear both; pointer-events: none; }
+.dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices[data-picked] > .is-picked { animation: dsh-tavern-stage-art-choice-pick .233s linear both; pointer-events: none; }
+@keyframes dsh-tavern-stage-art-choice-in-r { from { opacity: 0; transform: translateX(calc(300 * var(--cu))); } }
+@keyframes dsh-tavern-stage-art-choice-in-l { from { opacity: 0; transform: translateX(calc(-300 * var(--cu))); } }
+@keyframes dsh-tavern-stage-art-choice-out { to { opacity: 0; } }
+@keyframes dsh-tavern-stage-art-choice-pick { 43% { opacity: 1; transform: scale(.9); } to { opacity: 0; transform: scale(1.12); } }
+@media (max-width: 640px) { .dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices { --art-cg: calc(var(--art-choice-gap) / 3); padding-inline: 6px; } }
+@media (min-width: 641px) {
+  .dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-textbox > .dsh-tavern-stage-choices {
+    --art-room: calc(var(--art-screen) - 16);
+    --art-cg: clamp(min(8, var(--art-choice-gap)), calc((var(--art-room) - var(--rows, 3) * var(--art-choice-h)) / max(1, var(--rows, 3) - 1)), var(--art-choice-gap));
+    --art-cs: min(1, calc(var(--art-room) / (var(--rows, 3) * (var(--art-choice-h) + var(--art-cg)) - var(--art-cg))));
+    --cu: calc(var(--art-u) * var(--art-cs));
+    --art-menu-y: calc((var(--art-screen) - var(--art-choice-center)) * var(--art-u));
+    --art-menu-tilt: max(abs(var(--art-choice-tilt-odd, 0deg)), abs(var(--art-choice-tilt-even, 0deg)));
+    --art-menu-pad-x: calc(max(abs(var(--art-choice-shift-odd, 0)), abs(var(--art-choice-shift-even, 0))) * var(--cu) + 2 * min(var(--art-menu-y), 100vh - var(--art-menu-y)) * sin(var(--art-menu-tilt)) / 2);
+    --art-menu-pad-y: calc(var(--art-choice-w) * var(--cu) * sin(var(--art-menu-tilt)) / 2);
+    bottom: calc(var(--art-menu-y) - (var(--art-bottom) + var(--art-img-h) - var(--art-body-y) - var(--art-body-h)) * var(--art-u));
+    left: calc(50% + (var(--art-choice-x, calc(var(--art-screen-w) / 2)) - var(--art-screen-w) / 2) * var(--art-u));
+    width: calc(var(--art-choice-w) * var(--cu) + 2 * var(--art-menu-pad-x)); min-width: 0; max-width: none;
+    max-height: calc(2 * min(var(--art-menu-y), 100vh - var(--art-menu-y)) - 16px); padding: var(--art-menu-pad-y) var(--art-menu-pad-x); transform: translate(-50%, 50%); }
+  .dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:nth-child(odd) { rotate: var(--art-choice-tilt-odd, 0deg); translate: calc(var(--art-choice-shift-odd, 0) * var(--cu)) 0; }
+  .dsh-tavern-stage-overlay[data-fk-skin-choices] .dsh-tavern-stage-choices > .dsh-tavern-stage-choice:nth-child(even) { rotate: var(--art-choice-tilt-even, 0deg); translate: calc(var(--art-choice-shift-even, 0) * var(--cu)) 0; }
+  .dsh-tavern-stage-overlay[data-fk-skin-choices]:not([data-fk-skin-choices-anchor="above-box"], [data-stage-backlog]) .dsh-tavern-stage-textbox:has(> .dsh-tavern-stage-choices:not([data-state="generating"])) { visibility: hidden; }
+  .dsh-tavern-stage-overlay[data-fk-skin-choices]:not([data-fk-skin-choices-anchor="above-box"], [data-stage-backlog]) .dsh-tavern-stage-textbox > .dsh-tavern-stage-choices { visibility: visible; }
+}
+/* transitions.choices (stageSkinTransitions): the skin's own entrance and pick replace the engine's. enter: each row from the
+   declared pose / fade / closed wipe to rest, stagger after the one before; leave, after a pick: the others first, the picked
+   row from .4 of the time, each over .6 of it, and the pick is sent when it ends (--tx-choices-pick-ms). */
+.dsh-tavern-stage-overlay.dsh-tavern-stage-overlay[data-fk-tx~="choices-enter"] .dsh-tavern-stage-choices:not([data-settled], [data-picked]) > * {
+  --tx-t: var(--tx-choices-enter-t); --tx-o: var(--tx-choices-enter-o); --tx-clip: var(--tx-choices-enter-clip); --tx-open: var(--tx-choices-enter-open);
+  animation: dsh-tavern-stage-tx-enter var(--tx-choices-enter-ms) var(--tx-choices-enter-ease) calc(var(--tx-choices-enter-delay) + var(--tx-n, 0) * var(--tx-choices-enter-stagger)) backwards; }
+.dsh-tavern-stage-overlay.dsh-tavern-stage-overlay[data-fk-tx~="choices-leave"] .dsh-tavern-stage-choices { --stage-choice-pick-ms: var(--tx-choices-pick-ms); }
+.dsh-tavern-stage-overlay.dsh-tavern-stage-overlay[data-fk-tx~="choices-leave"] .dsh-tavern-stage-choices[data-picked] > * {
+  --tx-t: var(--tx-choices-leave-t); --tx-o: var(--tx-choices-leave-o); --tx-clip: var(--tx-choices-leave-clip); --tx-open: var(--tx-choices-leave-open); pointer-events: none;
+  animation: dsh-tavern-stage-tx-leave calc(var(--tx-choices-leave-ms) * .6) var(--tx-choices-leave-ease) calc(var(--tx-choices-leave-delay) + var(--tx-n, 0) * var(--tx-choices-leave-stagger)) forwards; }
+.dsh-tavern-stage-overlay.dsh-tavern-stage-overlay[data-fk-tx~="choices-leave"] .dsh-tavern-stage-choices[data-picked] > .is-picked { animation-delay: calc(var(--tx-choices-leave-delay) + var(--tx-choices-leave-ms) * .4); }
+.dsh-tavern-stage-choices > :nth-child(2) { --tx-n: 1; }
+.dsh-tavern-stage-choices > :nth-child(3) { --tx-n: 2; }
+.dsh-tavern-stage-choices > :nth-child(4) { --tx-n: 3; }
+.dsh-tavern-stage-choices > :nth-child(5) { --tx-n: 4; }
+.dsh-tavern-stage-choices > :nth-child(n+6) { --tx-n: 5; }
+@keyframes dsh-tavern-stage-tx-enter { from { transform: var(--tx-t); opacity: var(--tx-o); clip-path: var(--tx-clip); } to { clip-path: var(--tx-open); } }
+@keyframes dsh-tavern-stage-tx-leave { from { clip-path: var(--tx-open); } to { transform: var(--tx-t); opacity: var(--tx-o); clip-path: var(--tx-clip); } }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-tavern-stage-choices, .dsh-tavern-stage-choices > * { animation: none !important; }
+  .dsh-tavern-stage-wait-dots i, .dsh-tavern-stage-wait-line { animation: none; }
+  .dsh-tavern-stage-wait-dots i { opacity: 1; transform: none; }
+}
+/* ==== end stage choices ==== */
 /* BGM 播放器：一个面板两处摆放。组件只读 --bgm-*，舞台映射到全屏舞台的暗色，聊天映射到宿主主题；面板底色不透明。 */
 .dsh-tavern-bgm-panel { --bgm-surface: #1b1e26; --bgm-text: #f4f1ea; --bgm-muted: rgba(244,241,234,.66); --bgm-line: rgba(255,255,255,.14); --bgm-hover: rgba(255,255,255,.08); --bgm-accent: var(--dsh-tavern-accent, #c96442); --bgm-on-accent: #fff; }
 .dsh-tavern-bgm-panel.is-chat { --bgm-surface: var(--dsw-alias-bg-base, #fff); --bgm-text: var(--dsw-alias-label-primary); --bgm-muted: var(--dsw-alias-label-secondary); --bgm-line: var(--dsw-alias-border-l2); --bgm-hover: var(--dsh-tavern-accent-soft); }
@@ -3670,7 +3863,7 @@ html body .dsh-tavern-stage-overlay[role="dialog"][aria-modal="true"] { max-widt
 @media (prefers-reduced-motion: reduce) { .dsh-tavern-stage-config-sheet, .dsh-tavern-stage-config-preview-next { animation: none; } }
 /* 舞台履历（stage-backlog.js）：压暗的舞台上一张居中、不透明的阅读页，每行是读过的一页，更早的轮在上、本轮在下；文字只在页上。
    页从上往下展开，不淡入。只用舞台的 UI 令牌（--gal-ui-*）；打开时舞台的文字框、控制栏和输入框隐藏。 */
-.dsh-tavern-stage-overlay[data-stage-backlog] :is(.dsh-tavern-stage-textbox, .dsh-tavern-stage-input) { visibility: hidden; pointer-events: none; }
+.dsh-tavern-stage-overlay[data-stage-backlog] :is(.dsh-tavern-stage-textbox, .dsh-tavern-stage-choices) { visibility: hidden; pointer-events: none; }
 .dsh-tavern-stage-backlog { --bl-face: clamp(46px, 3.6vw, 60px); --bl-gap: clamp(12px, 1.2vw, 18px); --bl-col: min(92%, 920px); --bl-hover: color-mix(in srgb, var(--gal-ui-ink) 8%, transparent);
   --bl-edge: max(0px, calc(50% - var(--bl-col) / 2 - 28px)); position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; cursor: default; user-select: text; -webkit-user-select: text; color: var(--gal-ui-ink);
   background: linear-gradient(90deg, transparent calc(var(--bl-edge) - 22px), var(--gal-ui-surface) var(--bl-edge), var(--gal-ui-surface) calc(100% - var(--bl-edge)), transparent calc(100% - var(--bl-edge) + 22px)), rgb(8 9 12 / .55);
