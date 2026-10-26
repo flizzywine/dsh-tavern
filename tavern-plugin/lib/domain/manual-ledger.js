@@ -1,5 +1,6 @@
 import { createLedgerItem } from './background-pipeline.js'
-import { LEDGER_RULES, LEDGER_SUBMIT_TOOL, createLedgerSubmission, ledgerContext, readLedger } from './story-ledger.js'
+import { LEDGER_RULES, LEDGER_SUBMIT_TOOL, createLedgerSubmission, readLedger } from './story-ledger.js'
+import { pickLedgerEntities, focusedLedgerContext, assertLedgerFocus } from './ledger-focus.js'
 
 // One request reads at most this much story text; longer backlogs continue on the next click.
 export const LEDGER_BATCH_CHARS = 40000
@@ -87,6 +88,7 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
   }
   async function execute(chat, backlog, model, sessionId, taskRun) {
     let result
+    const focus = pickLedgerEntities(chat.ledger, backlog.text)
     const submission = createLedgerSubmission({ enabled: true, current: chat.ledger, turn: backlog.through })
     try {
       await ensureSession(sessionId)
@@ -98,15 +100,19 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
         onPersistentSessionReady: id => taskRun.bindSession(id), sessionId, chatId: chat.id, selection: model,
         backgroundTasks: { variables: false, posture: false, characterDesign: false },
         system: LEDGER_ITEM.system({ from: backlog.from + 1, through: backlog.through }),
-        messages: [{ role: 'user', content: [{ type: 'text', text: ledgerContext(chat.ledger) + '\n\n【待整理剧情】\n' + backlog.text }] }],
+        messages: [{ role: 'user', content: [{ type: 'text', text: focusedLedgerContext(chat.ledger, focus) + '\n\n【待整理剧情】\n' + backlog.text }] }],
         tools: [LEDGER_SUBMIT_TOOL],
         maxToolCalls: 4,
         temperature: 0.2,
         stopToolsWhen: () => submission.result !== null,
         acceptWithoutText: () => submission.result !== null,
-        onToolCall: async call => call?.name === LEDGER_SUBMIT_TOOL.name
-          ? submission.execute(call)
-          : JSON.stringify({ ok: false, retryable: true, error: '本任务只允许调用 ledger_submit' })
+        onToolCall: async call => {
+          if (call?.name !== LEDGER_SUBMIT_TOOL.name) return JSON.stringify({ ok: false, retryable: true, error: '本任务只允许调用 ledger_submit' })
+          if (submission.complete) return submission.execute(call)
+          try { assertLedgerFocus(chat.ledger, focus, call.arguments) }
+          catch (error) { return JSON.stringify({ ok: false, retryable: true, error: error.message }) }
+          return submission.execute(call)
+        }
       })
       if (submission.result === null) throw new Error('模型未调用 ledger_submit 提交台账，本次未保存。请重试；若持续出现，请检查后台模型是否支持工具调用。')
       const completed = await taskRun.commit({ participant: taskRun.participant(result), stateChanged: true, apply: current => {
