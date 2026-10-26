@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url'
 import { pluginMediaRange } from './domain/plugin-media.js'
 
 // The font library (docs/design/cast-presentation.md「字体库」): open-source CJK families a stage skin names by id
-// (font.body / name / ui, a face's fallback). Each family is a folder <id>/ holding index.json, its WOFF2 files and its
+// (font.body / name / ui, a face's fallback). Each family is a folder <id>/ holding index.json, its font files and its
 // licence. The plugin ships some in tavern-plugin/fonts/; a family installed under <dataRoot>/fonts/ with the same id
 // replaces the shipped one whole.
 export const FONT_ROUTE = '/api/dsh-tavern/fonts/'
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/
-const FILE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}\.woff2$/
+const FILE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}\.(woff2|ttf|otf)$/
+const FORMATS = { woff2: { format: 'woff2', mime: 'font/woff2' }, ttf: { format: 'truetype', mime: 'font/ttf' }, otf: { format: 'opentype', mime: 'font/otf' } }
 const CATEGORIES = new Set(['sans', 'serif', 'rounded', 'hand', 'display'])
 
 export function createFontLibrary({ dataRoot, bundledRoot = fileURLToPath(new URL('../fonts/', import.meta.url)) }) {
@@ -38,11 +39,11 @@ export function createFontLibrary({ dataRoot, bundledRoot = fileURLToPath(new UR
         !CATEGORIES.has(value.category) || !Array.isArray(value.files) || !value.files.length) throw new Error('Invalid font manifest')
     const files = []
     for (const face of value.files) {
-      if (!FILE.test(face.file) || face.format !== 'woff2' || !Number.isInteger(face.weight) ||
+      if (!FILE.test(face.file) || face.format !== FORMATS[path.extname(face.file).slice(1)].format || !Number.isInteger(face.weight) ||
           face.weight < 1 || face.weight > 1000 || !['normal', 'italic', 'oblique'].includes(face.style)) throw new Error('Invalid font face')
       const info = await stat(await locate(id, face.file))
       if (!info.isFile()) throw new Error('Missing font face')
-      files.push({ weight: face.weight, style: face.style, file: face.file, format: 'woff2', bytes: info.size, url: FONT_ROUTE + id + '/' + face.file })
+      files.push({ weight: face.weight, style: face.style, file: face.file, format: face.format, bytes: info.size, url: FONT_ROUTE + id + '/' + face.file })
     }
     return { id, label: value.label, family: value.family, category: value.category,
       weights: [...new Set(files.map(face => face.weight))].sort((a, b) => a - b), files,
@@ -77,9 +78,9 @@ export function createFontLibrary({ dataRoot, bundledRoot = fileURLToPath(new UR
       handle = await open(await locate(id, file), 'r')
       const info = await handle.stat(), total = info.size, request = req.headers || {}
       const etag = '"' + total.toString(16) + '-' + info.mtimeMs.toString(16) + '"'
-      // A content-hashed name (400-<16 hex>.woff2) never changes its bytes.
-      const headers = { 'Content-Type': 'font/woff2', 'Accept-Ranges': 'bytes', ETag: etag, 'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': /-[a-f0-9]{16}\.woff2$/.test(file) ? 'private, max-age=31536000, immutable' : 'private, max-age=3600' }
+      // A content-hashed name never changes its bytes.
+      const headers = { 'Content-Type': FORMATS[path.extname(file).slice(1)].mime, 'Accept-Ranges': 'bytes', ETag: etag, 'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': /-[a-f0-9]{16}\.(woff2|ttf|otf)$/.test(file) ? 'private, max-age=31536000, immutable' : 'private, max-age=3600' }
       if (String(request['if-none-match'] || '').split(',').some(value => value.trim() === '*' || value.trim().replace(/^W\//, '') === etag)) { res.writeHead(304, headers); res.end(); return true }
       const range = request.range && (!request['if-range'] || request['if-range'] === etag) ? pluginMediaRange(request.range, total) || { invalid: true } : null
       if (range && range.invalid) { res.writeHead(416, { ...headers, 'Content-Range': 'bytes */' + total }); res.end(); return true }

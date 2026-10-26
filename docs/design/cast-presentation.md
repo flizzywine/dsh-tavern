@@ -500,19 +500,19 @@ Fish Audio 云端和自己部署的同协议服务用同一个渠道「Fish 协�
 
 皮肤合同的 `font.body` / `name` / `ui` 和字面的 `fallback` 写的是「字体库 id」，但上游一直没有字体库。现在插件自带一个开源中文字体库，按 id 提供字体文件；舞台怎么用它见 36/N。
 
-- **目录**：每个字体家族一个文件夹 `<id>/`，含 `index.json`（`id`、`label`、`family`、`category` 取 `sans|serif|rounded|hand|display`、`files [{weight, style, file, format: "woff2"}]`、`license`、`source`、`coverage`）、WOFF2 文件和许可证全文。插件自带的在 `tavern-plugin/fonts/`；数据目录 `fonts/` 下装了同 id 的家族时整体用装的那份，不混用两边的字重。
+- **目录**：每个字体家族一个文件夹 `<id>/`，含 `index.json`（`id`、`label`、`family`、`category` 取 `sans|serif|rounded|hand|display`、`files [{weight, style, file, format: "woff2"|"truetype"|"opentype"}]`、`license`、`source`、`coverage`）、字体文件（WOFF2 / TTF / OTF）和许可证全文。插件自带的在 `tavern-plugin/fonts/`；数据目录 `fonts/` 下装了同 id 的家族时整体用装的那份，不混用两边的字重。
 - **自带的家族**（都是完整字形，不做子集）：
 
   | id | 名称 | 字重 | 许可证 | 大小 |
   | --- | --- | --- | --- | ---: |
-  | `neo-xihei-screen` | 霞鹜新晰黑 屏幕版 | 400 | IPA Font License 1.0 | 3.3 MiB |
-  | `neo-zhisong-screen` | 霞鹜新致宋 屏幕版 | 400 | IPA Font License 1.0 | 5.0 MiB |
+  | `neo-xihei-screen` | 霞鹜新晰黑 屏幕阅读版 | 400 | IPA Font License 1.0 | 7.3 MiB |
+  | `neo-zhisong-screen` | 霞鹜新致宋 屏幕阅读版 | 400 | IPA Font License 1.0 | 11.4 MiB |
   | `resource-han-rounded` | Resource Han Rounded CN | 400 / 500 / 700 | SIL OFL 1.1 | 14.3 MiB |
   | `noto-sans-sc` | Noto Sans SC | 400 / 500 / 700 | SIL OFL 1.1 | 12.2 MiB |
   | `noto-serif-sc` | Noto Serif SC | 400 / 500 / 700 | SIL OFL 1.1 | 16.7 MiB |
 
-  共 51.4 MiB。来源与转换见 `tavern-plugin/fonts/README.md`。只收开源许可证允许再分发的字体，商业字体和改过字形的字体不进字体库。
-- **接口**：RPC `listFonts()` 返回 `{fonts: [{id, label, family, category, weights, files: [{weight, style, file, format, bytes, url}], url, license, source, coverage}]}`；一个家族的 `index.json` 坏了只隐藏它自己。`GET` / `HEAD /api/dsh-tavern/fonts/<id>/<file>` 只给 `index.json` 列出的 WOFF2（`font/woff2`，支持 ETag / 304、单段 Range / 206、`If-Range` 和 416）；文件名带内容哈希（`400-<16 位十六进制>.woff2`）的缓存一年，其余一小时；拒绝路径穿越、编码分隔符、未列出的文件和指向字体库之外的链接。
+  共 61.8 MiB（2 个 IPA 官方原始 TTF、9 个 OFL WOFF2）。IPA 两款逐字节原样分发，不转换或修改，附 IPA 许可证全文；OFL 三款保留 WOFF2 和 OFL 全文。来源、版本和下载摘要见 `tavern-plugin/fonts/README.md`。只收开源许可证允许再分发的字体，商业字体和改过字形的字体不进字体库。
+- **接口**：RPC `listFonts()` 返回 `{fonts: [{id, label, family, category, weights, files: [{weight, style, file, format, bytes, url}], url, license, source, coverage}]}`；一个家族的 `index.json` 坏了只隐藏它自己。`GET` / `HEAD /api/dsh-tavern/fonts/<id>/<file>` 只给 `index.json` 列出的字体（WOFF2 为 `font/woff2`、TTF 为 `font/ttf`、OTF 为 `font/otf`，支持 ETag / 304、单段 Range / 206、`If-Range` 和 416）；文件名带内容哈希（`400-<16 位十六进制>.woff2|ttf|otf`）的缓存一年，其余一小时；拒绝路径穿越、编码分隔符、未列出的文件和指向字体库之外的链接。
 - 不改存档、皮肤合同或插件接口；字体只在页面用到时才下载。
 
 设计理由：这是参考实现的字体库：同一个目录格式、同一个 RPC 和路由、装的家族优先于自带的。字体文件很大，所以单独成一个 PR，舞台使用放在 36/N。

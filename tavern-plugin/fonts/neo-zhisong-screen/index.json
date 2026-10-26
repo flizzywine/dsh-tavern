@@ -1,6 +1,6 @@
 {
   "id": "neo-zhisong-screen",
-  "label": "霞鹜新致宋 屏幕版",
+  "label": "????? ?????",
   "family": "Tavern neo-zhisong-screen",
   "category": "serif",
   "weights": [
@@ -10,11 +10,10 @@
     {
       "weight": 400,
       "style": "normal",
-      "file": "400-3735fd0b2ac06bcd.woff2",
-      "format": "woff2",
-      "bytes": 5233808,
-      "sha256": "3735fd0b2ac06bcd1796838d3b72e2ac1cae1932232de46556f2ad5b772b93cf",
-      "sourceSha256": "4e071b63ee221e72309ec720259f264024336991d1ee0bce42e80d1fb3855a1c"
+      "file": "LXGWNeoZhiSongScreen.ttf",
+      "format": "truetype",
+      "bytes": 11922650,
+      "sha256": "4e071b63ee221e72309ec720259f264024336991d1ee0bce42e80d1fb3855a1c"
     }
   ],
   "license": "IPA Font License 1.0",

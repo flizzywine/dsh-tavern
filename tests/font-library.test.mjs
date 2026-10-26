@@ -49,9 +49,13 @@ test('font library: the plugin ships its open-source families; an installed fami
   const shipped = Object.fromEntries((await api.listFonts()).fonts.map(font => [font.id, font]))
   assert.deepEqual(Object.keys(shipped).sort(), ['example', 'neo-xihei-screen', 'neo-zhisong-screen', 'noto-sans-sc', 'noto-serif-sc', 'resource-han-rounded'])
   for (const id of ['noto-sans-sc', 'noto-serif-sc', 'resource-han-rounded']) assert.deepEqual([shipped[id].license, shipped[id].weights], ['SIL OFL 1.1', [400, 500, 700]], id)
-  for (const id of ['neo-xihei-screen', 'neo-zhisong-screen']) assert.deepEqual([shipped[id].license, shipped[id].weights], ['IPA Font License 1.0', [400]], id)
+  for (const id of ['neo-xihei-screen', 'neo-zhisong-screen']) {
+    assert.deepEqual([shipped[id].license, shipped[id].weights, shipped[id].files[0].format], ['IPA Font License 1.0', [400], 'truetype'], id)
+    const head = await f.request(shipped[id].files[0].url, {}, 'HEAD', api)
+    assert.deepEqual([head.status, head.headers['Content-Type']], [200, 'font/ttf'])
+  }
   const partial = await f.request(shipped['neo-xihei-screen'].files[0].url, { range: 'bytes=0-3' }, 'GET', api)
-  assert.deepEqual([partial.status, partial.body.toString()], [206, 'wOF2'])
+  assert.deepEqual([partial.status, [...partial.body]], [206, [0, 1, 0, 0]])
   const local = path.join(f.root, 'fonts', 'noto-serif-sc')
   await mkdir(local)
   await writeFile(path.join(local, 'index.json'), JSON.stringify({ ...f.manifest, id: 'noto-serif-sc', label: '本机安装' }))
@@ -78,6 +82,19 @@ test('font library: WOFF2 type, immutable cache, HEAD, ETag and Range', async t 
   for (const range of ['bytes=50-', 'bytes=4-1', 'bytes=-0', 'bytes=0-1,3-4', 'nonsense']) assert.equal((await request(url, { range })).status, 416, range)
   assert.equal((await request(url, { range: 'bytes=0-3', 'if-range': 'stale' })).status, 200)
   assert.equal((await request(url, {}, 'POST')).status, 405)
+})
+
+test('font library: original TrueType and OpenType faces retain their format and MIME', async t => {
+  const f = await fixture(t)
+  for (const [extension, format, mime] of [['ttf', 'truetype', 'font/ttf'], ['otf', 'opentype', 'font/otf']]) {
+    const file = 'original.' + extension
+    await writeFile(path.join(f.dir, file), 'original-font')
+    await writeFile(path.join(f.dir, 'index.json'), JSON.stringify({ ...f.manifest, files: [{ weight: 400, style: 'normal', file, format }] }))
+    const font = (await f.api.listFonts()).fonts[0]
+    assert.equal(font.files[0].format, format)
+    const response = await f.request(font.files[0].url)
+    assert.deepEqual([response.status, response.headers['Content-Type'], response.body.toString()], [200, mime, 'original-font'])
+  }
 })
 
 test('font library: only a listed file inside the library is served', async t => {
