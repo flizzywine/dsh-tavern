@@ -251,6 +251,9 @@ const skinArt = value => skinArtShape(value) && (!value.portrait?.bust && !value
     && [...Object.values(value.buttons || {}),value.choices || {},value.choices?.tool || {}].every(target => !target.tint || value.textbox?.tint)
     && (!value.choices?.band || value.choices.band[0] < value.choices.text[2] && value.choices.text[2] < value.choices.band[1])
     && Object.values(value.buttons || {}).every(button => !(button.tint && button.hint));
+// duck: how far (dB) a sounding voice or sound effect lowers each layer below it, each over the engine's amount (避让).
+const skinDuckDb = skinNumber(-24,0);
+const skinDuck = value => skinObject({voice:skinObject({sfx:skinDuckDb,ambience:skinDuckDb,music:skinDuckDb}),sfx:skinObject({ambience:skinDuckDb,music:skinDuckDb})})(value) && Object.keys(value).length > 0;
 // The document. schema, id, label, textbox, nameplate, font and textFx are required; everything else falls back to the
 // engine's look.
 const stageSkinShape = skinObject({
@@ -266,7 +269,7 @@ const stageSkinShape = skinObject({
         poses:skinArray(skinGlyphPose,1,4)},['reveal']),
     cursor:skinObject({name:skinEnum(['triangle','wheel','lollipop','eye','rose','rec','candle','gear','light','bell','feather','needle','teacup','whale','ring','star','arrow','fleur','gem','sphere','play']),color:skinColor,accent:skinColor,fps:skinNumber(2,12)},['name']),
     quickMenu:skinQuickMenu,
-    sfx:skinSfx,photosensitive:value => typeof value === 'boolean',figureSlots:skinSlots,
+    sfx:skinSfx,duck:skinDuck,photosensitive:value => typeof value === 'boolean',figureSlots:skinSlots,
     maxFigures:skinNumber(1,6,true),
     figures:skinObject({scale:skinNumber(0.2,4),top:skinNumber(-0.2,0.6),mode:skinEnum(['stage','none']),ruler:skinNumber(100,250),spread:skinNumber(0.2,1)}),
     dimListeners:value => value === false,

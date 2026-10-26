@@ -274,7 +274,9 @@ function playTavernStagePerformance(root, event, id, skin) {
 }
 
 // 音效 (modules/stage-sfx.js): one page-wide one-shot player on the page's AudioContext, shared with the BGM transport.
+// While one sounds, the layers below it dip (避让, features/stage-audio.js).
 const tavernStageSfx = createStageSfx({ context: () => tavernStageAudio.context(), fetch: (url, init) => window.fetch(url, init), output: ctx => tavernStageAudio.output(ctx, "sfx"),
+	sounding: on => tavernStageAudio.duck("sfx", on),
 	clock: { setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: id => window.clearTimeout(id) } });
 // 环境音 (castStage `ambience`): the state's loop for the place or weather on a second BGM transport (modules/stage-music.js) on the
 // same AudioContext, so it sounds alongside the BGM. Only the open stage plays it; it follows the state across pages and turns.
@@ -353,6 +355,10 @@ function TavernStageScreen(props) {
 	const art = React.useMemo(() => stageSkinArt(skinDocument, artFiles), [skinDocument === BUILTIN_STAGE_SKINS.classic ? "" : JSON.stringify(skinDocument), artFiles]);
 	const icons = React.useMemo(() => stageSkinControlIcons(skinDocument, artFiles), [skinDocument, artFiles]);
 	useStageSkinFonts(data && data.skin && data.skin.document ? data.skin : null, skinDocument, fontLibrary);
+	// 避让 (stage-audio.js): the skin may set how far a voice or a sound effect lowers the layers below it; the engine's amounts
+	// return when the stage closes.
+	const duckBy = JSON.stringify(skinDocument.duck || null);
+	React.useEffect(() => { tavernStageAudio.duckBy(JSON.parse(duckBy)); return () => tavernStageAudio.duckBy(null); }, [duckBy]);
 	// 入场演出 (stage-entrance.js) plays over the stage as it opens; the stage is drawn under it all along.
 	const entrance = useTavernStageEntrance(data && data.entrance, Boolean(data));
 	const sceneRef = React.useRef(null), readingOn = React.useRef(reading.on), skinRef = React.useRef(skinDocument), dataRef = React.useRef(null);

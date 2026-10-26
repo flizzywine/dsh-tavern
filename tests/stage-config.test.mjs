@@ -27,7 +27,7 @@ function audioContext() {
 function load(storage = memoryStorage()) {
   const tuned = [], context = audioContext()
   const window = { AudioContext: function () { return context } }
-  const sandbox = { localStorage: storage, window, tavernSpeech: { tune: value => tuned.push({ ...value }) },
+  const sandbox = { localStorage: storage, window, tavernSpeech: { tune: value => tuned.push({ ...value }), watch: () => () => {} },
     React: { createElement: h, Fragment: 'Fragment', useState: value => [typeof value === 'function' ? value() : value, () => {}], useEffect: () => {}, useRef: value => ({ current: value === undefined ? null : value }), useMemo: fn => fn() },
     TavernStageGlyph: props => h('glyph', { name: props.name }) }
   const api = vm.runInNewContext([client('modules/stage-runtime.js'), client('modules/stage-typewriter.js'), client('features/stage-audio.js'), client('features/stage-mixer.js'), client('features/stage-config.js'), client('features/stage-typewriter.js'),
@@ -54,14 +54,14 @@ test('every layer starts at its old level; volume and mute are kept apart and re
   assert.equal(load(memoryStorage({ 'dsh-tavern-stage-audio': '{' })).tavernStageAudio.get().master, 1, 'an unreadable record is the defaults')
 })
 
-test('BGM, 音效 and 环境音 end in their layer bus, then 总音量; a change glides on what is already sounding', () => {
+test('BGM, 音效 and 环境音 end in their layer bus and its dip, then 总音量; a change glides on what is already sounding', () => {
   const page = load(), audio = page.tavernStageAudio, ctx = audio.context()
   const music = audio.output(ctx, 'music'), sfx = audio.output(ctx, 'sfx'), ambience = audio.output(ctx, 'ambience')
   assert.ok(music !== sfx && sfx !== ambience)
-  assert.ok(music.next === sfx.next && sfx.next === ambience.next, 'one 总音量 after every layer')
-  assert.equal(music.next.next, ctx.destination)
+  assert.ok(music.next.next === sfx.next.next && sfx.next.next === ambience.next.next, 'one 总音量 after every layer (and its 避让 dip)')
+  assert.equal(music.next.next.next, ctx.destination)
   audio.setVolume('sfx', .25); audio.toggleMute('master')
-  assert.deepEqual([sfx.gain.target, music.next.gain.target], [.25, 0])
+  assert.deepEqual([sfx.gain.target, music.next.next.gain.target], [.25, 0])
   assert.equal(audio.output({ destination: 'other' }, 'music'), 'other', 'another context keeps its own destination')
 })
 

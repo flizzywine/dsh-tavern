@@ -672,6 +672,51 @@
         }
       }
     },
+    "duck": {
+      "description": "How far (dB) a sounding voice or sound effect lowers each layer below it, each over the engine's amount.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "voice": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sfx": {
+              "type": "number",
+              "minimum": -24,
+              "maximum": 0
+            },
+            "ambience": {
+              "type": "number",
+              "minimum": -24,
+              "maximum": 0
+            },
+            "music": {
+              "type": "number",
+              "minimum": -24,
+              "maximum": 0
+            }
+          }
+        },
+        "sfx": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ambience": {
+              "type": "number",
+              "minimum": -24,
+              "maximum": 0
+            },
+            "music": {
+              "type": "number",
+              "minimum": -24,
+              "maximum": 0
+            }
+          }
+        }
+      }
+    },
     "photosensitive": {
       "type": "boolean"
     },

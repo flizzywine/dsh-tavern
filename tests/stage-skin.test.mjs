@@ -151,18 +151,20 @@ function schemaAccepts(value, s = schema, path = '$') {
 test('the JSON Schema mirror describes the same document: same fields, the generic parts, the same closed shape', () => {
   assert.equal(schema.$id, 'dsh.skin/1')
   assert.deepEqual(schema.required, ['schema', 'id', 'label', 'textbox', 'nameplate', 'font', 'textFx'])
-  assert.deepEqual(Object.keys(schema.properties).sort(), ['art', 'cursor', 'dimListeners', 'effects', 'figureSlots', 'figures', 'font', 'hud', 'id', 'label', 'license', 'maxFigures', 'modes', 'nameplate', 'quickMenu', 'schema', 'sfx', 'photosensitive', 'textFx', 'textStyle', 'textbox', 'transitions', 'ui', 'waitLines'].sort())
+  assert.deepEqual(Object.keys(schema.properties).sort(), ['art', 'cursor', 'dimListeners', 'duck', 'effects', 'figureSlots', 'figures', 'font', 'hud', 'id', 'label', 'license', 'maxFigures', 'modes', 'nameplate', 'quickMenu', 'schema', 'sfx', 'photosensitive', 'textFx', 'textStyle', 'textbox', 'transitions', 'ui', 'waitLines'].sort())
   const name = { arc: [160, 200, 120], font: 30, min: 14, ink: '#f0e8d0', stroke: { color: '#201810', width: 2 }, shadow: { color: '#000000', dy: 2 }, bed: { color: '#000000', alpha: .4 } }
   const documents = [classic, minimal, skin({ quickMenu: { bg: '#101418', fg: '#f2f2f2', place: 'box-top-right', narrow: 'top' } }),
     skin({ art: art({ textbox: { ...art().textbox, slice: { edges: [8, 8, 8, 8] }, cue: [900, 40, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } } }) }),
     skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) }),
     skin({ textStyle: { narration: '#ffffff' }, art: art({ narration: { font: 30, pitch: 50, veil: .75, layout: 'free', ink: '#1d1a22', veilColor: '#f4efe6', halo: false } }) }),
     skin({ art: art({ narration: { font: 30, pitch: 50, veil: .6, layout: 'band', halo: { blur: 2, color: '#000000' } } }) }),
+    skin({ duck: { voice: { music: -10, sfx: 0 }, sfx: { ambience: -6 } } }),
     skin({ waitLines: ['灯影摇曳中', '正在翻开下一页'], transitions: { choices: { enter: { ms: 240, ease: [.2, 0, 0, 1], stagger: 40, pose: { dx: 8 }, fade: true }, leave: { ms: 300, wipe: { shape: 'circle', at: [.5, .5] } } } },
       art: art({ choices: { images: { plain: 'art/bar.svg', off: 'art/bar-off.svg' }, slice: [10, 40, 10, 40], text: [60, 840, 40], font: 28, pitch: 40, gap: 12, anchor: 'stage', focus: { image: 'art/bar-on.svg' } } }) })]
   for (const document of documents) { validateStageSkin(document); assert.ok(schemaAccepts(document), document.id) }
   for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) }), skin({ waitLines: [' 留白'] }),
-    skin({ transitions: { choices: { enter: { ms: 200 } } } }), skin({ transitions: { choices: {} } }), skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } })]) assert.equal(schemaAccepts(document), false)
+    skin({ transitions: { choices: { enter: { ms: 200 } } } }), skin({ transitions: { choices: {} } }), skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } }),
+    skin({ duck: { sfx: { sfx: -3 } } }), skin({ duck: { voice: { music: 3 } } }), skin({ duck: { ambience: { music: -3 } } })]) assert.equal(schemaAccepts(document), false)
 })
 test('the art layer draws the skin\'s box, plate, cue and lamp from its decoded images, or not at all', () => {
   const document = skin({ art: art({ textbox: { ...art().textbox, images: { plain: 'art/box.png', narration: 'art/narration.png' }, cue: [1700, 230, 40], rise: 6,

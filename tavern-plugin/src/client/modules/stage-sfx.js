@@ -5,9 +5,10 @@
 // decoding.
 // context(): the page's AudioContext (or null); output(ctx): where the sounds go, the layer's bus (features/stage-audio.js;
 // the context's destination by default); clock: { setTimeout, clearTimeout } on wall time. Bytes are read with the
-// BGM transport's bounded reader (modules/stage-music.js stageMusicBytes).
+// BGM transport's bounded reader (modules/stage-music.js stageMusicBytes). sounding(on): true when the first sound starts, false
+// when the last one ends (the stage's 避让, features/stage-audio.js).
 const STAGE_SFX_LIMITS = Object.freeze({ playMs: 10000, fadeMs: 500, voices: 6, cached: 16 });
-function createStageSfx({ context, fetch, clock, output = ctx => ctx.destination }) {
+function createStageSfx({ context, fetch, clock, output = ctx => ctx.destination, sounding = () => {} }) {
 	const buffers = new Map(), shots = new Set();
 	let epoch = 0;
 	function decode(url) {
@@ -31,6 +32,7 @@ function createStageSfx({ context, fetch, clock, output = ctx => ctx.destination
 		shot.source.onended = null;
 		try { shot.source.stop(); } catch (_) {}
 		shot.source.disconnect(); shot.gain.disconnect();
+		if (!shots.size) sounding(false);
 	}
 	return {
 		prepare(url) { if (url) decode(url).catch(() => {}); },
@@ -50,6 +52,7 @@ function createStageSfx({ context, fetch, clock, output = ctx => ctx.destination
 			shots.add(shot);
 			source.onended = () => release(shot);
 			source.start();
+			if (shots.size === 1) sounding(true);
 			if (ctx.state === "suspended") ctx.resume().catch(() => {});
 			shot.timer = clock.setTimeout(() => {
 				gain.gain.setValueAtTime(level, ctx.currentTime);

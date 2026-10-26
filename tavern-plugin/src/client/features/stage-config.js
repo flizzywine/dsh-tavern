@@ -100,14 +100,19 @@ function stageConfigSlider(ends, slider) {
 		h("output", { className: "dsh-tavern-stage-config-value" }, slider.output));
 }
 
-// 声音: the mixer rows, with ▶ for the current line's voice; 配音倍速.
+// 声音: the mixer rows, with ▶ for the current line's voice; 避让 (stage-audio.js); 配音倍速.
 function TavernStageConfigSound(props) {
 	const h = React.createElement;
 	const state = useTavernStageAudioState(), reading = useTavernStageReadingPrefs();
 	const [rateMin, rateMax, rateStep] = STAGE_READING_LIMITS.voiceRate;
+	const ducking = state.duck !== false;
 	return h(React.Fragment, null,
 		stageConfigGroup("音量", "每层各自静音，静音时滑块保留原值。▶ 试听：配音播放当前这一句。",
 			h(TavernStageMixerRows, { state, tests: props.tests })),
+		stageConfigGroup("混音", null,
+			stageConfigRow("自动避让", h("button", { type: "button", role: "switch", className: "dsh-tavern-stage-config-switch", "aria-checked": ducking, "aria-label": "自动避让",
+					onClick: () => tavernStageAudio.setDucking(!ducking) }, h("i", { "aria-hidden": true }), h("span", null, ducking ? "开" : "关")),
+				"配音时背景音乐、环境音和音效暂时轻一些，音效响时背景音乐和环境音轻一些，结束后不到一秒恢复；轻多少可以由皮肤决定。各层音量不变。默认开启。")),
 		stageConfigGroup("配音", null,
 			stageConfigRow("配音倍速", stageConfigSlider(["慢", "快"], { min: rateMin, max: rateMax, step: rateStep, value: reading.voiceRate, label: "配音倍速",
 					valueText: reading.voiceRate.toFixed(1) + " 倍", output: reading.voiceRate.toFixed(1) + "×", onChange: value => tavernStageReadingPrefs.set({ voiceRate: value }) }),

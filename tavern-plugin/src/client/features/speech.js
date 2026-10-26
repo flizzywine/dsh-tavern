@@ -27,9 +27,12 @@
 		// One line at a time: a new line stops the one being said. speak resolves true when it was heard to the end.
 		// tune({ level, rate }): the stage CONFIG's 配音 × 总音量 (0..1, features/stage-audio.js) and 配音倍速 (pitch kept,
 		// features/stage-runtime.js); the line being heard follows at once, the system's speech from its next line.
+		// watch(fn): fn(true) when a line starts to be heard, fn(false) when it ends or is stopped (the stage's 避让).
 		const tavernSpeech = (function () {
-			let current = null, level = 1, rate = 1;
-			function stop() { const playing = current; current = null; if (playing) playing.cancel(); }
+			let current = null, level = 1, rate = 1, heard = false;
+			const watchers = new Set();
+			function hear(on) { if (heard === on) return; heard = on; watchers.forEach(function (fn) { fn(on); }); }
+			function stop() { const playing = current; current = null; if (playing) playing.cancel(); hear(false); }
 			function browser(reply, playing) {
 				return new Promise(function (resolve) {
 					const synth = window.speechSynthesis;
@@ -39,6 +42,7 @@
 					const voice = voices.find(function (item) { return item.name === reply.voice; }) || (!reply.voice ? voices.find(function (item) { return /^zh/i.test(item.lang); }) : null);
 					if (voice) { utterance.voice = voice; utterance.lang = voice.lang; } else utterance.lang = "zh-CN";
 					utterance.volume = level; utterance.rate = rate;
+					utterance.onstart = function () { if (current === playing) hear(true); };
 					utterance.onend = function () { resolve(true); };
 					utterance.onerror = function () { resolve(false); };
 					playing.cancel = function () { synth.cancel(); resolve(false); };
@@ -51,6 +55,7 @@
 					const element = new Audio(reply.url);
 					element.volume = level; element.preservesPitch = true; element.playbackRate = rate;
 					playing.element = element;
+					element.onplaying = function () { if (current === playing) hear(true); };
 					element.onended = function () { resolve(true); };
 					element.onerror = function () { resolve(false); };
 					playing.cancel = function () { element.pause(); resolve(false); };
@@ -64,7 +69,7 @@
 				const playing = { cancel: function () {} };
 				current = playing;
 				const done = reply.browser ? browser(reply, playing) : audio(reply, playing);
-				return done.finally(function () { if (current === playing) current = null; });
+				return done.finally(function () { if (current === playing) { current = null; hear(false); } });
 			}
 			async function speak(input) {
 				stop();
@@ -94,7 +99,8 @@
 				const element = current && current.element;
 				return element && element.duration > 0 && Number.isFinite(element.duration) ? element.currentTime / element.duration : null;
 			}
-			return { speak: speak, play: play, stop: stop, tune: tune, progress: progress };
+			function watch(fn) { watchers.add(fn); return function () { watchers.delete(fn); }; }
+			return { speak: speak, play: play, stop: stop, tune: tune, progress: progress, watch: watch };
 		})();
 
 		/** A small speaker button that says one line; a second press stops it. */
