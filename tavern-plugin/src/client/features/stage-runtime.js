@@ -303,11 +303,11 @@ function useTavernStageReading() {
 	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
 	return { on, prepares: Boolean(channel && channel.prepares) };
 }
-// What a line page's voice says (dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
+// What a line page's voice says (as dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
 // 配音语言 is not 中文; '' says nothing. The stage, its backlog and the chat rows read the same rule.
 function tavernPageSpeech(page, data) {
 	const character = tavernCastCharacter(data && data.cast, page.speaker);
-	return bubbleSpeech({ text: (page.quotes || []).join(" ") || page.text, voice: page.voice }, character && character.voiceLanguage);
+	return page.voice !== undefined ? page.voice : voiceTranslates(character && character.voiceLanguage) ? "" : (page.quotes || []).join(" ") || page.text;
 }
 function tavernBeatSpeech(sessionId, beat, data) {
 	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: tavernPageSpeech(beat, data), emotion: beat.emotion }

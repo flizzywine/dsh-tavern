@@ -243,7 +243,7 @@
 		}
 
 		// A character's 配音语言 (33/N): one that is not 中文 has the story model write each of their lines once more in it, for
-		// the voice. The control shows castVoiceLanguage (unset is 中文) and choosing 中文 stores '', so unset and 中文 are one state.
+		// the voice. The control shows effectiveVoiceLanguage (unset is 中文) and choosing 中文 stores '', so unset and 中文 are one state.
 		// 「其他语言…」 takes any BCP 47 code, checked once when it is saved; a code a card brought that is not listed stays as its code.
 		const TAVERN_VOICE_LANGUAGES = [["ja", "日语"], ["zh", "中文"], ["en", "英语"], ["ko", "韩语"], ["yue", "粤语"]];
 		const TAVERN_VOICE_LANGUAGE_OTHER = "*other";
@@ -263,7 +263,7 @@
 			React.useEffect(function () { setValue(saved); }, [saved, provider && provider.id]);
 			const [other, setOther] = React.useState(false);
 			if (!route.active) return null;
-			const language = castVoiceLanguage(props.character && props.character.voiceLanguage);
+			const language = effectiveVoiceLanguage(props.character && props.character.voiceLanguage);
 			function pickLanguage(code) { setOther(false); if (code && code !== language) props.onLanguage(code === "zh" ? "" : code); }
 			const listId = provider ? "dsh-tavern-cast-voices-" + provider.id.replace(/[^a-z0-9]/gi, "-") : "";
 			function commit() { if (value.trim() !== saved) props.onSave(provider.id, value.trim()); }

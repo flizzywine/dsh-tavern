@@ -4,7 +4,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { sourceFunction } from './fixtures/source-function.mjs'
-import { parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainText, bubbleSpeech, castVoiceLanguage, voiceTranslates, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { dialogueBubbleLines, dialogueBubblePlainText, bubbleSpeech, bubbleEmotion, bubbleSpeaker, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { parseBubbles, effectiveVoiceLanguage, voiceTranslates } from '../tavern-plugin/src/client/bubble-line.cjs'
 import { dialogueFormatText } from '../tavern-plugin/lib/domain/dialogue-format.js'
 import { stagePages, stagePageText } from '../tavern-plugin/lib/domain/stage-performance.js'
 import { buildCharx, cardImport } from '../tavern-plugin/lib/domain/card-assets.js'
@@ -20,46 +21,46 @@ const reply = [
 ].join('\n')
 
 test('the fifth field is the voice text: shown nowhere, the display text reads as before', () => {
-  const bubbles = parseDialogueBubbles(reply).filter(segment => segment.kind === 'bubble')
-  assert.deepEqual(bubbles.map(segment => [segment.speaker, segment.emotion, segment.text, segment.thought, segment.voice]), [
+  const bubbles = parseBubbles(reply).filter(segment => segment.kind === 'bubble')
+  assert.deepEqual(bubbles.map(segment => [bubbleSpeaker(segment), bubbleEmotion(segment.mood), segment.text, segment.thought === true, segment.voiced ? segment.speech : undefined]), [
     ['日向', 'joy', '早上好。', false, 'おはよう。'],
     ['日向', 'nervousness', '终于赶上了。', true, 'やっとまにあった。'],
     ['日向', 'optimism', '走吧。', false, 'いこう。'],
     ['林月', 'neutral', '早。', false, undefined]
   ], 'a thought keeps its asterisks out of both fields; a separator after the voice field is formatting; a four-field line has no voice')
-  assert.deepEqual(dialogueBubbleLines(reply).map(line => line.quote), ['早上好。', '终于赶上了。', '走吧。', '早。'], 'plugins read the display text, in the same shape')
-  assert.equal(dialogueBubblePlainText(reply).includes('おはよう'), false)
+  assert.deepEqual(dialogueBubbleLines(parseBubbles(reply)).map(line => line.quote), ['早上好。', '终于赶上了。', '走吧。', '早。'], 'plugins read the display text, in the same shape')
+  assert.equal(dialogueBubblePlainText(parseBubbles(reply)).includes('おはよう'), false)
   const pages = stagePages(reply)
   assert.deepEqual(pages.map(page => page.voice), [undefined, 'おはよう。', 'やっとまにあった。', 'いこう。', undefined])
   assert.equal(pages.map(stagePageText).join('\n').includes('おはよう'), false, 'the director reads the display text only')
 })
 
 test('an unfinished voice field: the line shows, says nothing, and never falls back to the display text', () => {
-  const live = text => parseDialogueBubbles(text, true).at(-1)
+  const live = text => parseBubbles(text, true).at(-1)
   for (const tail of ['@bubble:hina|日向|开心|[早上好。]|', '@bubble:hina|日向|开心|[早上好。]|[おは']) {
     const segment = live('晨光照进教室。\n' + tail)
-    assert.deepEqual([segment.text, segment.streaming, segment.voice], ['早上好。', true, ''], tail)
-    assert.equal(bubbleSpeech(segment, 'ja'), '')
+    assert.deepEqual([segment.text, segment.streaming, segment.voiced], ['早上好。', true, true], tail)
+    assert.equal(bubbleSpeech(segment, voiceTranslates('ja')), '')
   }
-  const ended = parseDialogueBubbles('@bubble:hina|日向|开心|[早上好。]|[おは')[0]
-  assert.deepEqual([ended.kind, ended.text, ended.streaming, ended.voice], ['bubble', '早上好。', false, ''], 'a reply that ended early keeps the line, without speech')
-  assert.equal(bubbleSpeech(ended, 'ja'), '')
+  const ended = parseBubbles('@bubble:hina|日向|开心|[早上好。]|[おは')[0]
+  assert.deepEqual([ended.kind, ended.text, ended.streaming, ended.speech], ['bubble', '早上好。', false, ''], 'a reply that ended early keeps the line, without speech')
+  assert.equal(bubbleSpeech(ended, voiceTranslates('ja')), '')
 })
 
 test('what a line says: its voice text; else its words, unless the speaker\'s 配音语言 is not 中文', () => {
-  const [, spoken, thought, , plain] = parseDialogueBubbles(reply)
-  assert.equal(bubbleSpeech(spoken, 'ja'), 'おはよう。')
-  assert.equal(bubbleSpeech(thought, 'ja'), 'やっとまにあった。')
-  assert.equal(bubbleSpeech(spoken, ''), 'おはよう。', 'a written voice text is said even when the setting was cleared since')
-  assert.equal(bubbleSpeech(plain, ''), '早。', 'no 配音语言: the line is said as before')
-  assert.equal(bubbleSpeech(plain, 'ja'), '', 'a Japanese voice does not read the Chinese line')
-  assert.equal(bubbleSpeech({ ...plain, streaming: true }, ''), '')
-  assert.equal(bubbleSpeech(plain, 'zh'), '早。', 'a Chinese voice reads the line')
-  assert.equal(bubbleSpeech(plain, 'zh-CN'), '早。', 'compared by primary subtag')
-  assert.equal(bubbleSpeech(spoken, 'zh'), 'おはよう。', 'written voice text is still what the voice says')
+  const [, spoken, thought, , plain] = parseBubbles(reply)
+  assert.equal(bubbleSpeech(spoken, voiceTranslates('ja')), 'おはよう。')
+  assert.equal(bubbleSpeech(thought, voiceTranslates('ja')), 'やっとまにあった。')
+  assert.equal(bubbleSpeech(spoken, voiceTranslates('')), 'おはよう。', 'a written voice text is said even when the setting was cleared since')
+  assert.equal(bubbleSpeech(plain, voiceTranslates('')), '早。', 'no 配音语言: the line is said as before')
+  assert.equal(bubbleSpeech(plain, voiceTranslates('ja')), '', 'a Japanese voice does not read the Chinese line')
+  assert.equal(bubbleSpeech({ ...plain, streaming: true }, voiceTranslates('')), '')
+  assert.equal(bubbleSpeech(plain, voiceTranslates('zh')), '早。', 'a Chinese voice reads the line')
+  assert.equal(bubbleSpeech(plain, voiceTranslates('zh-CN')), '早。', 'compared by primary subtag')
+  assert.equal(bubbleSpeech(spoken, voiceTranslates('zh')), 'おはよう。', 'written voice text is still what the voice says')
   assert.deepEqual(['', 'zh', 'ZH-tw', 'ja', 'yue', 'EN-us', 'de-DE'].map(voiceTranslates), [false, false, false, true, true, true, true])
   // The control shows the same value the rule reads: unset is 中文.
-  assert.deepEqual(['', undefined, 'ja', 'pt-BR'].map(castVoiceLanguage), ['zh', 'zh', 'ja', 'pt-BR'])
+  assert.deepEqual(['', undefined, 'ja', 'pt-BR'].map(value => effectiveVoiceLanguage(value)), ['zh', 'zh', 'ja', 'pt-BR'])
 })
 
 test('the roster tags a speaker with a 配音语言 and adds the voiced rules; without any the format is unchanged', () => {
@@ -77,8 +78,8 @@ test('the roster tags a speaker with a 配音语言 and adds the voiced rules; w
   assert.equal(voiced.includes("- Keep each character's voice:"), false, 'the voiced rules say it for both fields instead')
   assert.equal(voiced.includes("- Keep the character's way of speaking in both fields:"), true)
   assert.match(dialogueFormatText([{ name: 'Nora', voiceLanguage: 'pt-BR' }]), /- nora\|Nora \[Voice language: Brazilian Portuguese\]/)
-  const examples = voiced.match(/`@bubble:hinata[^`]+`/g).map(example => parseDialogueBubbles(example.slice(1, -1))[0])
-  assert.deepEqual(examples.map(row => [row.emotion, row.thought, row.voice]), [['joy', false, 'おはよう。'], ['nervousness', true, 'やっとまにあった。']], 'the examples read back with their voice text and a known variant')
+  const examples = voiced.match(/`@bubble:hinata[^`]+`/g).map(example => parseBubbles(example.slice(1, -1))[0])
+  assert.deepEqual(examples.map(row => [bubbleEmotion(row.mood), row.thought === true, row.speech]), [['joy', false, 'おはよう。'], ['nervousness', true, 'やっとまにあった。']], 'the examples read back with their voice text and a known variant')
 })
 
 function store() {
@@ -109,9 +110,10 @@ test('配音语言 is the character’s own voice setting: kept once, cleared wi
 // The chat row's 🔊, the stage and its backlog say what bubbleSpeech says, for the speaker's own setting.
 const castSource = readFileSync(new URL('../tavern-plugin/src/client/features/cast-presentation.js', import.meta.url), 'utf8')
 const runtimeSource = readFileSync(new URL('../tavern-plugin/src/client/features/stage-runtime.js', import.meta.url), 'utf8')
+const bubbleLineSource = readFileSync(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8')
 const domain = name => readFileSync(new URL('../tavern-plugin/lib/domain/' + name, import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
 const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue',
-  domain('dialogue-bubbles.js') + '\n' + domain('cast-stage-state.js') + '\n'
+  bubbleLineSource + '\n' + domain('dialogue-bubbles.js') + '\n' + domain('cast-stage-state.js') + '\n'
   + [sourceFunction(castSource, 'TavernCastRow'), sourceFunction(castSource, 'renderTavernDialogueText'), sourceFunction(runtimeSource, 'tavernPageSpeech'), sourceFunction(runtimeSource, 'tavernBeatSpeech')].join('\n')
   + '\nreturn { renderTavernDialogueText, TavernCastRow, tavernPageSpeech, tavernBeatSpeech }')
 const h = (type, props, ...children) => ({ type, props: props || {}, children })

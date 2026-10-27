@@ -13430,7 +13430,7 @@ function bindTavernFontZoom(node, win) {
 		}
 
 		// A character's 配音语言 (33/N): one that is not 中文 has the story model write each of their lines once more in it, for
-		// the voice. The control shows castVoiceLanguage (unset is 中文) and choosing 中文 stores '', so unset and 中文 are one state.
+		// the voice. The control shows effectiveVoiceLanguage (unset is 中文) and choosing 中文 stores '', so unset and 中文 are one state.
 		// 「其他语言…」 takes any BCP 47 code, checked once when it is saved; a code a card brought that is not listed stays as its code.
 		const TAVERN_VOICE_LANGUAGES = [["ja", "日语"], ["zh", "中文"], ["en", "英语"], ["ko", "韩语"], ["yue", "粤语"]];
 		const TAVERN_VOICE_LANGUAGE_OTHER = "*other";
@@ -13450,7 +13450,7 @@ function bindTavernFontZoom(node, win) {
 			React.useEffect(function () { setValue(saved); }, [saved, provider && provider.id]);
 			const [other, setOther] = React.useState(false);
 			if (!route.active) return null;
-			const language = castVoiceLanguage(props.character && props.character.voiceLanguage);
+			const language = effectiveVoiceLanguage(props.character && props.character.voiceLanguage);
 			function pickLanguage(code) { setOther(false); if (code && code !== language) props.onLanguage(code === "zh" ? "" : code); }
 			const listId = provider ? "dsh-tavern-cast-voices-" + provider.id.replace(/[^a-z0-9]/gi, "-") : "";
 			function commit() { if (value.trim() !== saved) props.onSave(provider.id, value.trim()); }
@@ -13568,10 +13568,261 @@ function bindTavernFontZoom(node, win) {
 				onClick: function () { tavernMusic.setEnabled(!music.enabled); } }, music.enabled ? "♪ 音乐" : "♪ 静音");
 		}
 
+// Voice directions are projections; the story's raw text remains authoritative.
+function projectVoiceCues(text, { cues = false, streaming = false, spoken = value => value } = {}) {
+    const source = String(text || "");
+    let result = "", start = 0, depth = 0, open = -1;
+    for (let i = 0; i < source.length; i++) {
+        if (source[i] === "{") {
+            if (!depth) { result += spoken(source.slice(start, i).replace(/[{}]/g, "")); open = i; }
+            depth++;
+        } else if (source[i] === "}" && depth) {
+            if (--depth === 0) {
+                const cue = source.slice(open + 1, i);
+                if (cue.includes("{")) result += spoken(cue.replace(/[{}]/g, ""));
+                else if (cues && cue.trim() && [...cue].length <= 80) result += "[" + cue + "]";
+                start = i + 1;
+            }
+        }
+    }
+    if (depth) {
+        if (!streaming) result += spoken(source.slice(open + 1).replace(/[{}]/g, ""));
+    } else result += spoken(source.slice(start).replace(/[{}]/g, ""));
+    return result;
+}
+function hasLeadingVoiceCue(text) {
+    return /^\s*\{[^{}]{1,80}\}/u.test(text);
+}
+// Shared by host parsers and the bundled client. Only whole-line code quotes
+// are syntax; backticks inside a bracket (including a streaming one) are text.
+// Body models also wrap a whole bubble line in Markdown emphasis (`*@bubble…]*`, `…]**`); the
+// markers outside the bracket are formatting, not text. Inner thoughts keep their `[*…*]` inside the bracket.
+function stripBubbleCodeQuote(line) {
+    const opening = /^([\t ]*)(?:`{1,2}|[*_~]{1,3})(?=@bubble(?:-voice)?(?:\s*[:\uff1a]|$))/.exec(line);
+    const value = opening ? opening[1] + line.slice(opening[0].length) : line;
+    if (!/^[\t ]*@bubble/.test(value)) return line;
+    return value.replace(/(\])[\t ]*[`*_~]+[\t ]*(\r?)$/, "$1$2");
+}
+// A line that still starts with @bubble but does not parse is never shown raw: it degrades to narration of its
+// bracketed (or last) field, without the prefix. Empty results are dropped.
+function bubbleFallbackText(line) {
+    const rest = String(line).replace(/^\s*@bubble(?:-voice)?\s*[:\uff1a]?\s*/, "");
+    const bracket = /\[([^\]\n]*)(?:\]([^|\uff5c\[\n]*))?/.exec(rest), fields = rest.split(/[|\uff5c]/);
+    const text = bracket ? bracket[1].trim().replace(/^\*([\s\S]*)\*$/, "$1") + (bracket[2] || "") : fields.length > 1 ? fields[fields.length - 1] : "";
+    return projectVoiceCues(text).trim();
+}
+
+// One tolerant reader for transcript and host/client stage units.
+const BUBBLE_LINE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)\]\s*$/;
+const BUBBLE_PARTIAL = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)$/;
+
+// `open`: the bracket has not closed in the text (a live tail, or a reply that ended early). Only `streaming`, the
+// caller's real stream state, marks the segment unfinished.
+function bubbleSegment(match, streaming, open = streaming) {
+    const raw = String(match[4] || "").trim();
+    const thought = /^\*[\s\S]*\*$/.test(raw) || (open && raw.startsWith("*"));
+    const speech = thought ? raw.replace(/^\*|\*$/g, "") : raw;
+    const text = projectVoiceCues(speech, {streaming:Boolean(streaming)});
+    return { kind: "bubble", alias: match[1].trim().toLowerCase(), name: match[2].trim(), mood: match[3].trim(), text, ...(text !== speech ? {speech,singleVoiceText:true} : {}), thought: thought, streaming: Boolean(streaming) };
+}
+// Split prose into Markdown narration and bubble lines.
+function parseBubbles(text, streaming, {callSpeaker} = {}) {
+    const lines = String(text || "").split("\n");
+    const segments = [];
+    let buffer = [];
+    function flush() { const md = buffer.join("\n"); if (md.trim() !== "") segments.push({ kind: "markdown", text: md }); buffer = []; }
+    lines.forEach(function (line, index) {
+        const original = line;
+        // Calls omit identity; complete the same wire line before the one shared parser reads it.
+        if (callSpeaker) line = "@bubble:" + (callSpeaker.handle || "") + "|" + (callSpeaker.name || "") + "|" + line;
+        line = stripBubbleCodeQuote(line);
+        // A fifth field opts into voice text, even before its closing bracket arrives.
+        const voiceLine = /^\s*@bubble-voice/.test(line) || /^\s*@bubble\s*[:：]\s*[^|｜\n]*[|｜][^|｜\n]*[|｜][^|｜\n]*[|｜]\s*\[[^\]\n]*\]\s*[|｜]/.test(line);
+        // Body models sometimes close a complete voice field with one more
+        // separator (`…|[voice text]|`). There is no sixth field, so it is formatting; it is not the unfinished voice field below.
+        const voiced = voiceLine && /^\s*@bubble(?:-voice)?\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[([^\]\n]*)\](?:[|｜]\s*\[([^\]\n]*)\](?:\s*[|｜])?)?\s*$/.exec(line);
+        if (voiced) { flush(); const segment = bubbleSegment(voiced, voiced[5] === undefined && streaming && index === lines.length - 1); segment.speech = (voiced[5] === undefined ? voiced[4] : voiced[5]).trim().replace(/^\*([\s\S]*)\*$/, "$1").trim(); segment.singleVoiceText = voiced[5] === undefined; segment.voiced = true; segments.push(segment); return; }
+        if (voiceLine) {
+            flush();
+            // The text shape (`[…]|` with no voice field yet) never decides streaming; only the live
+            // tail of a streaming reply is unfinished. A finished reply shows the bubble complete; its empty or unfinished
+            // voice field still has no speech (never falls back to the display text).
+            const live = Boolean(streaming) && index === lines.length - 1;
+            const partial = /^\s*@bubble(?:-voice)?\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[([^\]\n]*)(\])?/.exec(line);
+            if (partial) {
+                const segment = bubbleSegment(partial, live, !partial[5]); segment.voiced = true;
+                const voice = /\]\s*[|｜]\s*\[([^\]\n]*)$/.exec(line);
+                segment.speech = live && voice ? voice[1].replace(/^\*/, "") : "";
+                segments.push(segment);
+            }
+            return;
+        }
+        // Streaming flicker: the live tail is unfinished even when its bracket has closed - a
+        // voice field `|[…]` may still follow - so a page reads pending until its line ends (not done, then pending again).
+        const full = BUBBLE_LINE.exec(line);
+        if (full) { flush(); segments.push(bubbleSegment(full, Boolean(streaming) && index === lines.length - 1, false)); return; }
+        // An opening bracket still means an unfinished bracketed line, not bare text.
+        const bare = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*([^\[\s][^\n]*)\s*$/.exec(line);
+        if (bare) { flush(); segments.push(bubbleSegment(bare, streaming && index === lines.length - 1)); return; }
+        // A live tail that is still becoming `@bubble` (`@`, `@bub`) is held too, not shown as narration for a chunk.
+        if (streaming && index === lines.length - 1 && (/^\s*@bubble/.test(line) || /^\s*@(?:b(?:u(?:b(?:b(?:l)?)?)?)?)?$/.test(line))) {
+            const partial = BUBBLE_PARTIAL.exec(line);
+            flush();
+            if (partial) segments.push(bubbleSegment(partial, true));
+            return;
+        }
+        if (/^\s*@bubble(?:-voice)?(?:\s*[:\uff1a]|$)/.test(line)) {
+            const text = bubbleFallbackText(line);
+            if (text) buffer.push(text);
+            return;
+        }
+        buffer.push(original);
+    });
+    flush();
+    return segments;
+}
+
+// Streaming speech uses the same bubble projection as the stage, not a second wire format.
+function bubbleSpeechCut(text, first) {
+    const marks = first ? /[、，,。．！？!?…；;：:～~—]/ : /[。．！？!?…]/;
+    const trailing = /[、，,。．！？!?…；;：:～~—」』）)”’"'\s]/;
+    let letters = 0, cueDepth = 0;
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] === "{") { cueDepth++; continue; }
+        if (text[i] === "}" && cueDepth) { cueDepth--; continue; }
+        if (cueDepth) continue;
+        if (!trailing.test(text[i])) { letters++; continue; }
+        if (!marks.test(text[i]) || letters < 2) continue;
+        let end = i + 1;
+        while (end < text.length && trailing.test(text[end])) end++;
+        return end < text.length ? end : 0;
+    }
+    return 0;
+}
+function createBubbleStream({ language = "zh" } = {}) {
+    let source = "", finished = false;
+    const states = [], segments = [];
+    function project(final) {
+        const events = [];
+        const bubbles = parseBubbles(source, !final).filter(row => row.kind === "bubble");
+        bubbles.forEach((bubble, index) => {
+            const state = states[index] || (states[index] = {sent:0, closed:false});
+            if (state.closed || bubble.thought) return;
+            const speech = bubble.speech !== undefined ? bubble.speech : language === "zh" ? bubble.text : "";
+            let rest = speech.slice(state.sent);
+            const piece = (say, part) => {
+                const row = {say:say.trim(), sub:null, ...(part ? {part:true} : {})};
+                if (!row.say) return;
+                segments.push(row); state.last = segments.length - 1;
+                events.push({type:"say", index:segments.length - 1, say:row.say, ...(part ? {part:true} : {})});
+            };
+            for (let cut; (cut = bubbleSpeechCut(rest, !segments.length)) > 0;) {
+                piece(rest.slice(0, cut), true); state.sent += cut; rest = rest.slice(cut);
+            }
+            if (!bubble.streaming) {
+                piece(rest, false); state.sent = speech.length; state.closed = true;
+                const last = segments[state.last];
+                if (last && !last.part) { last.sub = bubble.text; events.push({type:"sub", index:segments.length - 1, sub:bubble.text}); }
+            }
+        });
+        return events;
+    }
+    return {
+        feed(chunk) { if (finished) return []; source += String(chunk); return project(false); },
+        finish() { if (finished) return []; finished = true; return project(true); },
+        get segments() { return segments.map(row => ({...row})); },
+        get count() { return segments.length; }
+    };
+}
+
+// A figure's vocabulary is local to its alias, never another cast member.
+// Local IDs/labels take precedence over colliding engine custom rows.
+function figureBubbleMoods(base, emotions) {
+    return (emotions === undefined ? base : emotions).filter(row=>row.label!==undefined).map(row=>({...row}));
+}
+
+// Exact names win; a shortened label wins over a builtin synonym.
+function matchBubbleMood(word, list) {
+    const text = String(word || "").trim();
+    if (!text) return null;
+    const words = group => Array.isArray(group.words) ? group.words : String(group.words || "").split(/\s+/);
+    return list.find(group => group.id === text || group.label === text)
+        || list.find(group => String(group.label).startsWith(text))
+        || list.find(group => words(group).includes(text)) || null;
+}
+// The same exact resolver is used by host, voice and browser projection.
+// A speaker resolves once per character list (a config change replaces the
+// list), not on every render: normalizing the whole catalogue per call was a page-turn hot spot.
+const bubbleCharacterLists = new WeakMap();
+function bubbleCharacter(config, segment) {
+    const rows = config?.characters || [];
+    if (!rows.length) return null;
+    let resolved = bubbleCharacterLists.get(rows);
+    if (!resolved) bubbleCharacterLists.set(rows, resolved = new Map());
+    const key = typeof segment === 'string' ? '\u0000' + segment : JSON.stringify([segment?.alias ?? null, segment?.name ?? null]);
+    if (resolved.has(key)) return resolved.get(key);
+    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
+    const result = resolver.resolveFigureName(rows.map(row => ({...row,actorKey:row.alias})),segment);
+    const row = result.status === 'resolved' ? rows.find(row => row.alias === result.actorKey) : null;
+    resolved.set(key, row);
+    return row;
+}
+// A stage actor (the scene's figures) keeps its carried key after a chat copy or
+// a pack merge, so its key need not be its card character's alias; it then names that character through its figure ref, with
+// the same canonical resolver. Everything the card character owns (形象色, a skin's cast art) is read through this.
+const stageActorCharacterLists = new WeakMap();
+function stageActorCharacter(config, figures, alias) {
+    const direct = bubbleCharacter(config, alias);
+    const figure = direct || !alias ? null : (figures || []).find(row => row.alias === alias);
+    const rows = config?.characters || [];
+    if (!figure?.ref?.figureId || !rows.length) return direct;
+    let resolved = stageActorCharacterLists.get(rows);
+    if (!resolved) stageActorCharacterLists.set(rows, resolved = new Map());
+    const key = figure.ref.packId + '\u0000' + figure.ref.figureId;
+    if (resolved.has(key)) return resolved.get(key);
+    const resolver = typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs');
+    const result = resolver.resolveFigureName(rows.map(row => ({...row,actorKey:row.alias})),figure.ref);
+    const row = result.status === 'resolved' ? rows.find(row => row.alias === result.actorKey) || null : null;
+    resolved.set(key, row);
+    return row;
+}
+function bubbleDisplayName(segment, config) {
+    const character = bubbleCharacter(config,segment);
+    return String(character?.name || segment?.name || "").trim();
+}
+// The one rule for a character's 配音语言 (a BCP 47 tag). The story is written in Chinese;
+// there is no 正文语言 setting. A voice language that is Chinese (or unset) speaks the line's one text field as written;
+// any other language makes the story model write two fields for that character: Chinese display text + voice text in
+// that language. The 配音语言 picker, the dialogue format, stage/chat voice and the phone call all read these functions.
+// effectiveVoiceLanguage: what the picker shows and the voice speaks — the stored choice, else the fallback (the voice's
+// declared language), else 中文. Picking the language equal to effectiveVoiceLanguage('', fallback) stores unset, so
+// "unset" and "the default" are one state.
+function effectiveVoiceLanguage(stored, fallback) {
+    return String(stored || fallback || '').trim() || 'zh';
+}
+// Whether a voice language needs its own voice text: its primary subtag is not 'zh' (zh-CN, zh-TW are Chinese).
+function voiceTranslates(language) {
+    const primary = String(language || '').split('-')[0].toLowerCase();
+    return primary !== '' && primary !== 'zh';
+}
+function characterVoiceLanguage(character) {
+    return effectiveVoiceLanguage(character?.voiceLanguage || character?.voiceLang);
+}
+// Shared by playback and export; missing voice text uses the display text with the same bound voice.
+// An explicitly empty/incomplete voice field stays silent; identity/mood resolution stays with the caller.
+function packSpeechInput(segment, config, character, mood) {
+    if (segment.kind !== 'bubble' || segment.streaming || !character?.voice) return null;
+    const text = segment.speech ?? segment.text;
+    if (!text || !/[\p{L}\p{N}]/u.test(text) || text.length > 1500) return null;
+    return {text, mood:mood?.id || character.defaultEmotion || null};
+}
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput };
 // Dialogue bubbles (docs/design/cast-presentation.md): the story model writes each spoken line on its own line as
 // `@bubble:handle|name|variant|[text]` (an inner thought as `[*text*]`); a speaker with a 配音语言 adds the words its voice
-// says, `…|[text]|[voice text]` (33/N). One reader for the host (stage pages, the turn's cast lines) and the browser
-// (chat speaker rows); the story text itself is never rewritten.
+// says, `…|[text]|[voice text]` (33/N). The one reader is bubble-line.cjs (parseBubbles), for the host (stage pages, the
+// turn's cast lines) and the browser (chat speaker rows); this module maps its segments onto the cast: the 28 emotion
+// names, the speaker, the voice and the narration form. Pure and import-free, so the browser includes it as is; the story
+// text itself is never rewritten.
 
 // SillyTavern's Character Expressions labels, so an ST sprite pack's file names match.
 const CAST_EMOTIONS = Object.freeze({
@@ -13583,126 +13834,45 @@ const CAST_EMOTIONS = Object.freeze({
 })
 const CAST_EMOTION_BY_LABEL = new Map(Object.entries(CAST_EMOTIONS).map(([id, label]) => [label, id]))
 
-const BUBBLE_LINE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)\]\s*$/
-// A line with a fifth field, the voice text: its display text has closed and a separator follows. The voice field may
-// still be open (a live tail) or missing; a separator after it is formatting, there is no sixth field.
-const BUBBLE_VOICED = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[([^\]\n]*)\]\s*[|｜]\s*(?:\[([^\]\n]*)(\])?)?(?:\s*[|｜])?\s*$/
-// A complete line that lost its brackets: everything after the third separator is the text.
-const BUBBLE_BARE = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*([^[\s][^\n]*?)\s*$/
-// The live tail of a streaming reply whose bracket has not closed yet.
-const BUBBLE_PARTIAL = /^\s*@bubble\s*[:：]\s*([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]([^|｜\n]*)[|｜]\s*\[(.*)$/
-const BUBBLE_START = /^\s*@bubble(?:\s*[:：]|$)/
-const BUBBLE_PREFIX = /^\s*@(?:b(?:u(?:b(?:b(?:l(?:e)?)?)?)?)?)?$/
-
 /** A variant as one of the 28 emotion names: the name itself or its Chinese label; anything else is neutral. */
 function bubbleEmotion(variant) {
   const word = String(variant ?? '').trim()
   return Object.hasOwn(CAST_EMOTIONS, word.toLowerCase()) ? word.toLowerCase() : CAST_EMOTION_BY_LABEL.get(word) || 'neutral'
 }
 
-// Story models sometimes wrap a whole marked line in a code quote or Markdown emphasis (`*@bubble…]*`); the markers
-// outside the bracket are formatting, not text. An inner thought keeps its `[*…*]` inside the bracket.
-function stripBubbleWrapping(line) {
-  const opening = /^([\t ]*)(?:`{1,2}|[*_~]{1,3})(?=@bubble(?:\s*[:：]|$))/.exec(line)
-  const value = opening ? opening[1] + line.slice(opening[0].length) : line
-  if (!/^[\t ]*@bubble/.test(value)) return line
-  return value.replace(/(\])[\t ]*[`*_~]+[\t ]*(\r?)$/, '$1$2')
-}
-
-// A line that starts with @bubble but does not parse is never shown raw: its bracketed (or last) field reads as
-// narration, without the prefix.
-function bubbleFallbackText(line) {
-  const rest = String(line).replace(/^\s*@bubble\s*[:：]?\s*/, '')
-  const bracket = /\[([^\]\n]*)(?:\]([^|｜[\n]*))?/.exec(rest), fields = rest.split(/[|｜]/)
-  const text = bracket ? bracket[1].trim().replace(/^\*([\s\S]*)\*$/, '$1') + (bracket[2] || '') : fields.length > 1 ? fields[fields.length - 1] : ''
-  return text.trim()
-}
-
-function bubbleSegment(match, streaming) {
-  const raw = String(match[4] || '').trim()
-  const thought = /^\*[\s\S]*\*$/.test(raw) || (streaming && raw.startsWith('*'))
-  const handle = match[1].trim().toLowerCase(), name = match[2].trim()
-  return { kind: 'bubble', handle, speaker: name || handle, variant: match[3].trim(), emotion: bubbleEmotion(match[3]),
-    text: thought ? raw.replace(/^\*|\*$/g, '') : raw, thought, streaming: Boolean(streaming) }
-}
-
-// `voice`: the line's voice text, '' while it is unfinished or when the reply ended without it (never the display text).
-function voicedSegment(match, live) {
-  const segment = bubbleSegment(match, live)
-  segment.voice = match[6] ? match[5].trim().replace(/^\*([\s\S]*)\*$/, '$1').trim() : ''
-  return segment
+/** A bubble segment's speaker as shown: its name, else its handle. */
+function bubbleSpeaker(segment) {
+  return segment.name || segment.alias
 }
 
 /**
- * A speaker's 配音语言 as it is shown and spoken: their `voiceLanguage` (a BCP 47 tag), '' (unset) is 中文, the story's
- * language. The 配音语言 control shows this; choosing 中文 stores ''.
+ * What a line's voice says, '' for nothing: its voice text when the line has a voice field (unfinished or missing: '');
+ * else its words, unless the speaker's voice speaks another language (`translates`: bubble-line.cjs voiceTranslates),
+ * when it never says the display text.
  */
-function castVoiceLanguage(voiceLanguage) {
-  return String(voiceLanguage || '').trim() || 'zh'
-}
-
-/**
- * Whether a speaker's voice needs its own voice text: their 配音语言 is not 中文, by primary subtag (`zh-CN` is 中文).
- * Only then are their lines written with voice text.
- */
-function voiceTranslates(voiceLanguage) {
-  return castVoiceLanguage(voiceLanguage).split('-')[0].toLowerCase() !== 'zh'
-}
-
-/**
- * What a line's voice says, '' for nothing: its voice text when it has one; else its words, unless the speaker's voice
- * speaks another language (voiceTranslates), when it never says the display text.
- */
-function bubbleSpeech(segment, voiceLanguage) {
+function bubbleSpeech(segment, translates) {
   if (segment.streaming) return ''
-  if (segment.voice !== undefined) return segment.voice
-  return voiceTranslates(voiceLanguage) ? '' : segment.text
+  if (segment.voiced) return segment.speech
+  return translates ? '' : segment.text
 }
 
-/**
- * Split a story text into Markdown narration runs and marked lines, in reading order. `streaming`: the text is a reply
- * still being written, so its last line may be unfinished (a bubble whose bracket has not closed, or `@bub` held back).
- */
-function parseDialogueBubbles(text, streaming = false) {
-  const lines = String(text ?? '').split('\n')
-  const segments = []
-  let buffer = []
-  function flush() { const markdown = buffer.join('\n'); if (markdown.trim() !== '') segments.push({ kind: 'markdown', text: markdown }); buffer = [] }
-  lines.forEach((original, index) => {
-    const line = stripBubbleWrapping(original), live = Boolean(streaming) && index === lines.length - 1
-    const voiced = BUBBLE_VOICED.exec(line)
-    if (voiced) { flush(); segments.push(voicedSegment(voiced, live)); return }
-    const match = BUBBLE_LINE.exec(line) || BUBBLE_BARE.exec(line) || (live ? BUBBLE_PARTIAL.exec(line) : null)
-    if (match) { flush(); segments.push(bubbleSegment(match, live)); return }
-    if (live && (BUBBLE_START.test(line) || BUBBLE_PREFIX.test(line))) { flush(); return }
-    if (BUBBLE_START.test(line)) {
-      const fallback = bubbleFallbackText(line)
-      if (fallback) buffer.push(fallback)
-      return
-    }
-    buffer.push(original)
-  })
-  flush()
-  return segments
-}
-
-/** The turn's spoken lines in the shape of the per-turn cast data, `{ n, quote, speaker, emotion }`. */
-function dialogueBubbleLines(text) {
-  return parseDialogueBubbles(text).filter(segment => segment.kind === 'bubble' && segment.speaker && segment.text)
-    .map((segment, index) => ({ n: index + 1, quote: segment.text, speaker: segment.speaker, emotion: segment.emotion }))
+/** The turn's spoken lines (parsed segments) in the shape of the per-turn cast data, `{ n, quote, speaker, emotion }`. */
+function dialogueBubbleLines(segments) {
+  return segments.filter(segment => segment.kind === 'bubble' && bubbleSpeaker(segment) && segment.text)
+    .map((segment, index) => ({ n: index + 1, quote: segment.text, speaker: bubbleSpeaker(segment), emotion: bubbleEmotion(segment.mood) }))
 }
 
 /** A marked line as narration, `name：“line”` (`name：（thought）`): for a reply still streaming, or one shown without
  * speaker rows. Each stays its own paragraph, as a row would. */
 function dialogueBubblePlainLine(segment) {
+  const speaker = bubbleSpeaker(segment)
   const open = segment.thought ? '（' : '“', close = segment.streaming ? '' : segment.thought ? '）' : '”'
-  return (segment.speaker ? segment.speaker + '：' : '') + open + segment.text + close
+  return (speaker ? speaker + '：' : '') + open + segment.text + close
 }
 
-function dialogueBubblePlainText(text, streaming = false) {
-  const source = String(text ?? '')
-  if (!source.includes('@')) return source
-  return parseDialogueBubbles(source, streaming).map(segment => segment.kind === 'markdown' ? segment.text : dialogueBubblePlainLine(segment)).join('\n\n')
+/** Parsed segments as narration: Markdown runs as they are, each marked line as dialogueBubblePlainLine. */
+function dialogueBubblePlainText(segments) {
+  return segments.map(segment => segment.kind === 'markdown' ? segment.text : dialogueBubblePlainLine(segment)).join('\n\n')
 }
 		// Dialogue avatars (docs/design/cast-presentation.md): the story model writes each spoken line as a dialogue bubble
 		// naming its speaker, shown as that speaker's row from the moment the line starts streaming (32/N). The chat reads
@@ -13853,12 +14023,12 @@ function dialogueBubblePlainText(text, streaming = false) {
 		 */
 		function renderTavernDialogueText(text, key, renderText, cast, streaming) {
 			const h = React.createElement;
-			const segments = cast && String(text || "").indexOf("@") >= 0 ? parseDialogueBubbles(text, streaming) : null;
-			if (!segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(dialogueBubblePlainText(text, streaming), key);
+			const source = String(text ?? ""), segments = source.indexOf("@") >= 0 ? parseBubbles(source, streaming) : null;
+			if (!cast || !segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(segments ? dialogueBubblePlainText(segments) : source, key);
 			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
 				if (segment.kind === "markdown") return renderText(segment.text, index);
-				const character = tavernCastCharacter(cast.characters, segment.speaker);
-				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: bubbleSpeech(segment, character && character.voiceLanguage) },
+				const speaker = bubbleSpeaker(segment), character = tavernCastCharacter(cast.characters, speaker);
+				return h(TavernCastRow, { key: index, cast: cast, speaker: speaker, emotion: bubbleEmotion(segment.mood), speech: bubbleSpeech(segment, voiceTranslates(character && character.voiceLanguage)) },
 					renderText(segment.thought ? "（" + segment.text + (segment.streaming ? "" : "）") : segment.text, "text"));
 			}));
 		}
@@ -14003,105 +14173,148 @@ function createStagePerformancePlayback({ play, schedule = setTimeout, cancel = 
   }
   return { update, dispose() { stop(); visit = null; played.clear() } }
 }
-// 画面效果 (cast-presentation.md 35/N): the director names an effect (screen.play `effect`) and never tunes it. Each name has
-// one definition here, the engine's own numbers; a skin's `effects[id]` (stage-skin.js, validated when it was written) merges
-// over it field by field. Times are seconds, shake amplitudes a share of the stage height (the same feel in a small window
-// and at 4K), colours #rrggbb. Flashes are always photosensitive-safe (there is no switch to turn that off).
-// Shared by the host and the browser (@include-domain): no imports, no host or DOM access.
+// The core stage effects. The director names an effect
+// (screen.play / screen.set, transition.play, title.play) and never tunes it; each name has one definition here with
+// the engine's own default numbers. A skin's `effects` table and a card-local override (P3) merge over it, field by
+// field: card/pack-local > skin > engine. One safety policy serves every source of flashes and shakes (scene beats,
+// performance timelines, keyframe flash layers, the dice ritual, CG): CONFIG 「减少动态」 and 「光敏保护」 (default on),
+// with a stage-wide gate of at most three flash starts per second. Pure; tests/stage-effects.test.mjs.
 
-const STAGE_SCREEN_EFFECT_DEFAULTS = Object.freeze({
-  flash: { kind: 'flash', color: '#ffffff', peak: 0.85, in: 0.04, hold: 0.04, out: 0.32, tail: 0, cycles: 1, ease: 'out' },
-  'flash-red': { kind: 'flash', color: '#d01030', peak: 0.55, in: 0.04, hold: 0.06, out: 0.42, tail: 0, cycles: 1, ease: 'out' },
-  blackout: { kind: 'flash', color: '#000000', peak: 1, in: 0.45, hold: 0.35, out: 0.9, tail: 0, cycles: 1, ease: 'sine' },
-  'shake-1': { kind: 'shake', amp: 0.004, ms: 450, target: 'screen' },
-  'shake-2': { kind: 'shake', amp: 0.012, ms: 600, target: 'screen' },
-  'shake-3': { kind: 'shake', amp: 0.022, ms: 750, target: 'screen' },
-  // A white burst that leaves slowly, a wave out from the centre and a small shake.
-  shock: { kind: 'shock', flash: { color: '#ffffff', peak: 0.7, in: 0.06, hold: 0, out: 0.9, tail: 0, cycles: 1, ease: 'out' }, wave: true, waveMs: 1000, shake: 'shake-1' },
-  glitch: { kind: 'glitch', ms: 420 },
-  heartbeat: { kind: 'pulse', color: '#8a0010', vignette: 0.5, zoom: 0.03, ms: 1150 }
-})
-const stageEffectObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+// The director's names (director-commands.cjs screen.play / screen.set enums; tests keep them equal).
+const STAGE_EFFECT_BEATS = Object.freeze(['shake-1', 'shake-2', 'shake-3', 'flash', 'flash-red', 'glitch', 'shock', 'heartbeat', 'blackout']);
+const STAGE_EFFECT_LOOKS = Object.freeze(['blur', 'bright', 'contrast', 'memory', 'vignette']);
+// Engine defaults. Times are seconds, shake amplitudes a share of the stage height (the same feel in a small window
+// and at 3840x2160), colours #rrggbb. A look is the stage look's params plus its own fade [in, out].
+const STAGE_EFFECTS = Object.freeze({
+    flash: { kind: 'flash', color: '#ffffff', peak: 0.85, in: 0.04, hold: 0.04, out: 0.32, tail: 0, cycles: 1, ease: 'out' },
+    'flash-red': { kind: 'flash', color: '#d01030', peak: 0.55, in: 0.04, hold: 0.06, out: 0.42, tail: 0, cycles: 1, ease: 'out' },
+    blackout: { kind: 'flash', color: '#000000', peak: 1, in: 0.45, hold: 0.35, out: 0.9, tail: 0, cycles: 1, ease: 'sine' },
+    'shake-1': { kind: 'shake', amp: 0.004, ms: 450, target: 'screen' },
+    'shake-2': { kind: 'shake', amp: 0.012, ms: 600, target: 'screen' },
+    'shake-3': { kind: 'shake', amp: 0.022, ms: 750, target: 'screen' },
+    // A white burst that leaves slowly, a wave out from the speaker's head (or the centre) and a small shake.
+    shock: { kind: 'shock', flash: { color: '#ffffff', peak: 0.7, in: 0.06, hold: 0, out: 0.9, tail: 0, cycles: 1, ease: 'out' }, wave: true, waveMs: 1000, shake: 'shake-1' },
+    glitch: { kind: 'glitch', ms: 420 },
+    heartbeat: { kind: 'pulse', color: '#8a0010', vignette: 0.5, zoom: 0.03, ms: 1150 },
+    blur: { kind: 'look', fade: [0.4, 0.5], params: { soften: 0.6, bloom: { amount: 0.25, threshold: 0.7, blur: 6 }, ui: 0.25 } },
+    bright: { kind: 'look', fade: [0.3, 0.4], params: { lift: 0.1, gain: 1.04, saturation: 0.95, ui: 0.25 } },
+    contrast: { kind: 'look', fade: [0.3, 0.4], params: { contrast: 1.35, lift: -0.05, saturation: 0.9, ui: 0.25 } },
+    memory: { kind: 'look', fade: [0.6, 0.6], params: { saturation: 0.75, gain: [1.05, 0.92, 0.72], contrast: 0.95, grain: 0.25, vignette: { amount: 0.45, color: '#3a2412', softness: 0.6 }, ui: 0.25 } },
+    vignette: { kind: 'look', fade: [0.4, 0.4], params: { vignette: { amount: 0.8, color: '#000000', softness: 0.45 }, ui: 0.25 } },
+    // A scene change the director leaves unspecified; black / white covers take out / hold / in (null: the engine's own).
+    transition: { kind: 'transition', default: 'fade', out: null, hold: null, in: null },
+    // The inner-monologue backdrop while the line on screen is inner monologue: the background dims (an image when a skin
+    // gives one, stretched to `over` x the screen), under the figures.
+    thinking: { kind: 'thinking', dim: 0.2, vignette: 0.25, image: null, over: 1, fade: [0.15, 0.25] },
+    title: { kind: 'title', in: 0.42, step: 0.105, hold: 1.4, out: 0.76 }
+});
+const stageEffectObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function stageEffectMerge(base, over) {
-  if (!stageEffectObject(over)) return base
-  const out = { ...base }
-  for (const key of Object.keys(over)) out[key] = stageEffectObject(over[key]) && stageEffectObject(base[key]) ? stageEffectMerge(base[key], over[key]) : over[key]
-  return out
+    if (!stageEffectObject(over)) return base;
+    const out = Object.assign({}, base);
+    for (const key of Object.keys(over)) out[key] = stageEffectObject(over[key]) && stageEffectObject(base[key]) ? stageEffectMerge(base[key], over[key]) : over[key];
+    return out;
 }
-// The one resolver: the engine's default <- the skin's effects[id]; null for a name that is not in the catalogue.
-function stageScreenEffectResolve(id, skinEffects) {
-  return Object.hasOwn(STAGE_SCREEN_EFFECT_DEFAULTS, id) ? stageEffectMerge(STAGE_SCREEN_EFFECT_DEFAULTS[id], skinEffects && skinEffects[id]) : null
+// The one resolver (rule 10): engine default <- the skin's effects[id] <- the card-local override. skin / local are
+// `effects` tables keyed by effect id (already validated where they were written).
+function stageEffectResolve(id, skin, local) {
+    const base = Object.prototype.hasOwnProperty.call(STAGE_EFFECTS, id) ? STAGE_EFFECTS[id] : null;
+    if (!base) return null;
+    return stageEffectMerge(stageEffectMerge(base, skin && skin[id]), local && local[id]);
 }
 
-const stageEffectRgb = color => [1, 3, 5].map(i => parseInt(String(color).slice(i, i + 2), 16) / 255)
-const stageEffectHex = rgb => '#' + rgb.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('')
-// Saturated red, the photosensitive trigger the guidelines single out.
-function stageEffectRed(color) { const [r, g, b] = stageEffectRgb(color); return r > 0.4 && r > g * 1.6 && r > b * 1.6 }
-// A cover with no bright channel (blackout) dims rather than flashes: never softened, never counted.
-const stageFlashDark = flash => Math.max(...stageEffectRgb(flash.color)) < 0.25
-// Photosensitive-safe: the colour stays, the intensity drops - white at most .5 with fades of at least 80 ms, saturated red
-// turned dark at most .4, repeats merged into one.
-function stageFlashSafe(flash) {
-  if (stageFlashDark(flash)) return flash
-  const red = stageEffectRed(flash.color)
-  return { ...flash, color: red ? stageEffectHex(stageEffectRgb(flash.color).map(v => v * 0.55)) : flash.color, peak: Math.min(flash.peak ?? 1, red ? 0.4 : 0.5),
-    in: Math.max(flash.in || 0, 0.08), out: Math.max(flash.out || 0, 0.08), tail: 0, cycles: 1 }
+// ---- safety (CONFIG is authoritative, R20; the OS preference makes the stage calm: everything plays, flashes as 光敏保护)
+function stageSafety(reading, osReduced) {
+    const reducedMotion = !!reading && reading.reducedMotion === true, calm = !!osReduced && !reducedMotion;
+    return { reducedMotion, calm, photosensitive: !reading || reading.photosensitive !== false || calm };
 }
-// The stage-wide gate: at most three flash starts in any second, whatever plays them; a fourth is dropped.
-function createStageFlashGate() {
-  let starts = []
-  return {
-    admit(now) {
-      starts = starts.filter(at => now - at < 1000 && now >= at)
-      if (starts.length >= 3) return false
-      starts.push(now)
-      return true
-    }
-  }
+const stageEffectRgb = color => [1, 3, 5].map(i => parseInt(String(color).slice(i, i + 2), 16) / 255);
+const stageEffectHex = rgb => '#' + rgb.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+function stageEffectLuma(color) { const [r, g, b] = stageEffectRgb(color); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+// Saturated red (the photosensitive trigger the guidelines single out), including the dark red 光敏保护 turns it into.
+function stageEffectRed(color) { const [r, g, b] = stageEffectRgb(color); return r > 0.4 && r > g * 1.6 && r > b * 1.6; }
+// A cover with no bright channel (blackout) dims rather than flashes: never limited, never counted. (Red is dark by
+// luminance but not by this test: it still flashes.)
+const stageFlashDark = flash => Math.max(...stageEffectRgb(flash.color)) < 0.25;
+// 光敏保护: the colour stays, the intensity drops - white at most .5 with fades of at least 80 ms, saturated red turned
+// dark at most .4, repeats merged into one.
+function stageFlashSafe(flash, policy) {
+    if (!policy || !policy.photosensitive || stageFlashDark(flash)) return flash;
+    const red = stageEffectRed(flash.color);
+    return Object.assign({}, flash, { color: red ? stageEffectHex(stageEffectRgb(flash.color).map(v => v * 0.55)) : flash.color, peak: Math.min(flash.peak == null ? 1 : flash.peak, red ? 0.4 : 0.5),
+        in: Math.max(flash.in || 0, 0.08), out: Math.max(flash.out || 0, 0.08), tail: 0, cycles: 1 });
 }
-const stageEffectOutCubic = t => 1 - Math.pow(1 - t, 3)
-// How long a flash shows, in ms (its last tail is not waited for).
-function stageFlashMs(flash) {
-  const cycle = 1000 * ((flash.in || 0) + (flash.hold || 0) + (flash.out || 0) + (flash.tail || 0))
-  return cycle * Math.max(1, Math.min(3, Math.round(flash.cycles || 1))) - 1000 * (flash.tail || 0)
-}
-// A flash's alpha at ms: in (linear, or sine), hold, out (ease: out = fast then slow, sine, linear), tail, `cycles` times.
+// The stage-wide flash gate under 光敏保护: at most three flash starts in any second, whatever plays them; a fourth is
+// dropped (its sound still plays). Real time, shared by every caller.
+const stageFlashGate = (() => {
+    let starts = [];
+    return {
+        admit(policy, now = typeof performance !== 'undefined' ? performance.now() : Date.now()) {
+            if (!policy || !policy.photosensitive) return true;
+            starts = starts.filter(at => now - at < 1000 && now >= at);
+            if (starts.length >= 3) return false;
+            starts.push(now);
+            return true;
+        },
+        reset() { starts = []; }
+    };
+})();
+const stageEffectOutCubic = t => 1 - Math.pow(1 - t, 3);
+// A flash's alpha at ms: in (linear), hold, out (ease: out = fast then slow, sine, linear), tail, `cycles` times.
+// -1 once done.
 function stageFlashAt(flash, ms) {
-  const fadeIn = 1000 * (flash.in || 0), hold = 1000 * (flash.hold || 0), fadeOut = 1000 * (flash.out || 0), cycle = fadeIn + hold + fadeOut + 1000 * (flash.tail || 0), peak = flash.peak ?? 1
-  if (ms < 0 || cycle <= 0 || ms >= stageFlashMs(flash)) return 0
-  const t = ms % cycle, sine = v => 0.5 - 0.5 * Math.cos(Math.PI * v)
-  if (t < fadeIn) return peak * (flash.ease === 'sine' ? sine(t / fadeIn) : t / fadeIn)
-  if (t < fadeIn + hold) return peak
-  if (t < fadeIn + hold + fadeOut) {
-    const u = (t - fadeIn - hold) / fadeOut
-    return peak * (flash.ease === 'linear' ? 1 - u : flash.ease === 'sine' ? 1 - sine(u) : 1 - stageEffectOutCubic(u))
-  }
-  return 0
+    const fadeIn = 1000 * (flash.in || 0), hold = 1000 * (flash.hold || 0), fadeOut = 1000 * (flash.out || 0), tail = 1000 * (flash.tail || 0);
+    const cycle = fadeIn + hold + fadeOut + tail, cycles = Math.max(1, Math.min(3, Math.round(flash.cycles || 1))), peak = flash.peak == null ? 1 : flash.peak;
+    if (ms < 0) return 0;
+    if (cycle <= 0 || ms >= cycle * cycles - tail) return -1;
+    const t = ms % cycle;
+    const sine = v => 0.5 - 0.5 * Math.cos(Math.PI * v);
+    if (t < fadeIn) return peak * (flash.ease === 'sine' ? sine(t / fadeIn) : t / fadeIn);
+    if (t < fadeIn + hold) return peak;
+    if (t < fadeIn + hold + fadeOut) {
+        const u = (t - fadeIn - hold) / fadeOut;
+        return peak * (flash.ease === 'linear' ? 1 - u : flash.ease === 'sine' ? 1 - sine(u) : 1 - stageEffectOutCubic(u));
+    }
+    return 0;
 }
-// A shake's offset in px at ms for a stage `H` px tall: a decaying pair of sines (amp x H over ms), or a skin's step path
-// ([[x, y], ...] px of a design screen `screen` px tall, one linear `step` s per point).
-const stageShakeMs = shake => shake.path ? 1000 * shake.step * shake.path.length : shake.ms
+// A shake's offset in px at ms for a stage `H` px tall: a decaying pair of sines (amp x H, ms), or a skin's step path
+// ([[x, y], ...] px of a design screen `screen` tall, one linear `step` s per point). done after the last point.
 function stageShakeAt(shake, H, seed, ms) {
-  if (ms < 0 || ms >= stageShakeMs(shake)) return { x: 0, y: 0 }
-  if (shake.path) {
-    const k = H / (shake.screen || 576), n = 1000 * shake.step, i = Math.floor(ms / n), from = i === 0 ? [0, 0] : shake.path[i - 1], to = shake.path[i], f = (ms - i * n) / n
-    return { x: k * (from[0] + (to[0] - from[0]) * f), y: k * (from[1] + (to[1] - from[1]) * f) }
-  }
-  const t = ms / shake.ms, s = seed || 0, px = shake.amp * H, env = Math.pow(1 - t, 1.6) * Math.min(1, t * 12), sec = ms / 1000
-  return { x: px * env * (0.62 * Math.sin(2 * Math.PI * 17 * sec + s) + 0.38 * Math.sin(2 * Math.PI * 27 * sec + s * 2.3)),
-    y: px * 0.6 * env * (0.6 * Math.sin(2 * Math.PI * 21 * sec + s * 1.7) + 0.4 * Math.sin(2 * Math.PI * 31 * sec + s * 3.1)) }
+    if (shake.path) {
+        const k = H / (shake.screen || 576), n = 1000 * shake.step, path = shake.path;
+        if (!path.length || !(n > 0) || ms >= path.length * n) return { x: 0, y: 0, done: true };
+        const t = Math.max(0, ms), i = Math.min(path.length - 1, Math.floor(t / n)), from = i === 0 ? [0, 0] : path[i - 1], to = path[i], f = (t - i * n) / n;
+        return { x: k * (from[0] + (to[0] - from[0]) * f), y: k * (from[1] + (to[1] - from[1]) * f), done: false };
+    }
+    const t = ms / shake.ms;
+    if (t >= 1 || t < 0) return { x: 0, y: 0, done: t >= 1 };
+    const s = seed || 0, px = shake.amp * H, env = Math.pow(1 - t, 1.6) * Math.min(1, t * 12), sec = ms / 1000;
+    return { x: px * env * (0.62 * Math.sin(2 * Math.PI * 17 * sec + s) + 0.38 * Math.sin(2 * Math.PI * 27 * sec + s * 2.3)),
+        y: px * 0.6 * env * (0.6 * Math.sin(2 * Math.PI * 21 * sec + s * 1.7) + 0.4 * Math.sin(2 * Math.PI * 31 * sec + s * 3.1)), done: false };
 }
-// The heartbeat's two pulses at ms: { zoom, vignette }.
-function stagePulseAt(pulse, ms) {
-  if (ms < 0 || ms >= pulse.ms) return { zoom: 0, vignette: 0 }
-  const bump = (at, width) => { const u = (ms - at) / width; return u < 0 || u >= 1 ? 0 : u < 0.28 ? stageEffectOutCubic(u / 0.28) : 0.5 + 0.5 * Math.cos(Math.PI * (u - 0.28) / 0.72) }
-  return { zoom: pulse.zoom * (bump(0, 300) + 0.8 * bump(340, 300)), vignette: pulse.vignette * Math.max(bump(0, 520), 0.85 * bump(340, 700)) }
+// The heartbeat's two pulses at ms: { zoom, vignette } (zoom 0 under 减少动态).
+function stagePulseAt(pulse, ms, reduced) {
+    if (ms < 0 || ms >= pulse.ms) return { zoom: 0, vignette: 0, done: ms >= pulse.ms };
+    const bump = (at, width) => { const u = (ms - at) / width; return u < 0 || u >= 1 ? 0 : u < 0.28 ? stageEffectOutCubic(u / 0.28) : 0.5 + 0.5 * Math.cos(Math.PI * (u - 0.28) / 0.72); };
+    return { zoom: reduced ? 0 : pulse.zoom * (bump(0, 300) + 0.8 * bump(340, 300)), vignette: pulse.vignette * Math.max(bump(0, 520), 0.85 * bump(340, 700)), done: false };
 }
 // The glitch's burst strength at ms (three tears).
 function stageGlitchAt(glitch, ms) {
-  const t = ms / glitch.ms
-  return [[0, 0.17, 1], [0.27, 0.46, 0.8], [0.6, 0.94, 0.55]].find(([a, b]) => t >= a && t < b)?.[2] || 0
+    const t = ms / glitch.ms;
+    if (t < 0 || t >= 1) return { strength: 0, done: t >= 1 };
+    const hit = [[0, 0.17, 1], [0.27, 0.46, 0.8], [0.6, 0.94, 0.55]].find(([a, b]) => t >= a && t < b);
+    return { strength: hit ? hit[2] : 0, done: false };
 }
+// A persistent screen look's fade (ms) entering (in) or leaving (out): 减少动态 and skipping at most 150 ms; a jump
+// in brightness under 光敏保护 never faster than .3 s.
+function stageLookFadeMs(look, entering, policy, skipping) {
+    let ms = 1000 * (look && look.fade ? look.fade[entering ? 0 : 1] : 0.4);
+    if (policy && policy.reducedMotion || skipping) ms = Math.min(ms, 150);
+    if (policy && policy.photosensitive && entering && !skipping) ms = Math.max(ms, 300);
+    return ms;
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = { STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageEffectRgb, stageEffectHex,
+    stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt, stageLookFadeMs };
 'use strict';
 // inert dsh.skin/1 contract, shared by importer and stage. No CSS input.
 const skinColor = value => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value);
@@ -16175,7 +16388,7 @@ function stageWaitLineAt(lines, first, slot, elapsed) {
 	const round = Math.max(0, Math.floor((elapsed - turn / 2 - (slot + 1) * turn) / cycle) + 1);
 	return lines[(first + slot + round * STAGE_WAIT_SLOTS) % lines.length];
 }
-// 画面效果 (cast-presentation.md 35/N): one resolved effect (domain/stage-effects.js) as keyframe tracks on the stage's layers,
+// 画面效果 (cast-presentation.md 35/N): one resolved effect (stage-effects.cjs) as keyframe tracks on the stage's layers,
 // sampled at 60 per second; features/stage-effects.js plays them with Element.animate. Layers: world (the backdrop, the figures,
 // the item and the effect layer), box (the text box, which follows the world's shake at half), backdrop, zoom (backdrop and
 // figures), tear (the figures and the item), split (the figures), cover, vignette and wave (in the effect layer).
@@ -16183,18 +16396,23 @@ function stageWaitLineAt(lines, first, slot, elapsed) {
 // the heartbeat its vignette); flash (the stage-wide gate admitted this flash); shake (the shock's own shake, resolved);
 // screen (the skin's design screen height, for a shake path); random.
 const STAGE_FX_BOX_SHARE = 0.5;
+// The built-in scene's safety: flashes are always photosensitive-safe (stage-effects.cjs stageFlashSafe / stageFlashGate).
+const TAVERN_STAGE_FX_POLICY = Object.freeze({ reducedMotion: false, calm: false, photosensitive: true });
+// Track lengths in ms: a flash's cycles without its last tail; a shake's sines or its skin path.
+const stageFxFlashMs = flash => 1000 * ((flash.in || 0) + (flash.hold || 0) + (flash.out || 0) + (flash.tail || 0)) * Math.max(1, Math.min(3, Math.round(flash.cycles || 1))) - 1000 * (flash.tail || 0);
+const stageFxShakeMs = shake => shake.path ? 1000 * shake.step * shake.path.length : shake.ms;
 function stageScreenEffectTracks(spec, env) {
 	const tracks = [], H = env.H, random = env.random || Math.random;
 	const sample = (ms, at) => { const n = Math.max(1, Math.ceil(ms * 60 / 1000)); return Array.from({ length: n + 1 }, (_, i) => ({ ...at(i * ms / n), offset: i / n })); };
 	const add = (layer, ms, at) => { if (ms > 0) tracks.push({ layer, ms, frames: sample(ms, at) }); };
 	const flash = spec.kind === "flash" ? spec : spec.kind === "shock" ? spec.flash : null;
 	if (flash && env.flash) {
-		const safe = stageFlashSafe(flash);
-		add("cover", stageFlashMs(safe), t => ({ opacity: +stageFlashAt(safe, t).toFixed(3), backgroundColor: safe.color }));
+		const safe = stageFlashSafe(flash, TAVERN_STAGE_FX_POLICY);
+		add("cover", stageFxFlashMs(safe), t => ({ opacity: +Math.max(0, stageFlashAt(safe, t)).toFixed(3), backgroundColor: safe.color }));
 	}
 	const shake = env.reduced ? null : spec.kind === "shake" ? spec : spec.kind === "shock" ? env.shake : null;
 	if (shake) {
-		const seed = random() * 6.283, path = { ...shake, screen: env.screen }, ms = stageShakeMs(shake);
+		const seed = random() * 6.283, path = { ...shake, screen: env.screen }, ms = stageFxShakeMs(shake);
 		const at = share => t => { const o = stageShakeAt(path, H, seed, t); return { translate: (share * o.x).toFixed(2) + "px " + (share * o.y).toFixed(2) + "px" }; };
 		if (shake.target === "background") add("backdrop", ms, at(1));
 		else { add("world", ms, at(1)); add("box", ms, at(STAGE_FX_BOX_SHARE)); }
@@ -16208,11 +16426,11 @@ function stageScreenEffectTracks(spec, env) {
 	if (spec.kind === "glitch" && !env.reduced) {
 		let cut = -Infinity, dx = 0;
 		add("tear", spec.ms, t => {
-			const strength = stageGlitchAt(spec, t);
+			const strength = stageGlitchAt(spec, t).strength;
 			if (t - cut >= 45) { cut = t; dx = random() * 2 - 1; }
 			return { translate: (dx * 34 * strength * H / 720).toFixed(2) + "px 0px" };
 		});
-		add("split", spec.ms, t => { const px = (9 * stageGlitchAt(spec, t) * H / 720).toFixed(2); return { filter: "drop-shadow(" + px + "px 0 0 rgba(255,0,64,.75)) drop-shadow(-" + px + "px 0 0 rgba(0,224,255,.75))" }; });
+		add("split", spec.ms, t => { const px = (9 * stageGlitchAt(spec, t).strength * H / 720).toFixed(2); return { filter: "drop-shadow(" + px + "px 0 0 rgba(255,0,64,.75)) drop-shadow(-" + px + "px 0 0 rgba(0,224,255,.75))" }; });
 	}
 	// The shock's wave: a ring out from the centre past the farthest corner, drawn at its size (a scaled small ring rasterizes badly).
 	if (spec.kind === "shock" && spec.wave !== false && !env.reduced) {
@@ -16418,6 +16636,123 @@ function TavernEntranceDetail(props) {
 		confirm ? h(TavernAssetConfirm, { title: "删除入场演出「" + asset.name + "」？", body: "从素材包「" + pack.manifest.name + "」中删除，用到这个素材包的卡打开舞台时不再播放它。",
 			confirmLabel: "删除", danger: true, onConfirm: () => props.remove(asset), onClose: () => setConfirm(false) }) : null);
 }
+// BS.1770-4: K weighting, 400 ms blocks / 100 ms steps, absolute and relative gating.
+// Kept platform-free so the browser fallback can be checked against ffmpeg in Node.
+// Bus levels before the sliders. Voice is the
+// anchor (every cached line is gained to -18 LUFS); BGM sits 6 LU under it and 10 LU under it while a line speaks,
+// ambience 12 LU under. The sliders all default to 1, so the balance lives here and nowhere else.
+const AUDIO_TARGETS = Object.freeze({ voice: -18, music: -24, sfx: -20, ui: -26, ambience: -30 });
+// Ducking matrix: trigger -> bus -> dB. Priority call > voice > sfx > ambience > music: a trigger only lowers the
+// buses below it. With several triggers sounding the deepest dip wins (never stacked). The call holds from dialling
+// (ringback) to hang-up, so BGM stays down through her pauses too.
+const AUDIO_DUCK = Object.freeze({
+    call: Object.freeze({ sfx: -6, ui: -6, ambience: -10, music: -10 }),
+    voice: Object.freeze({ sfx: -2, ui: -2, ambience: -4, music: -4 }),
+    sfx: Object.freeze({ ambience: -3, music: -2 }),
+    ambience: Object.freeze({})
+});
+// setTargetAtTime time constants in seconds: attack when the trigger starts; on its end the dip waits `hold`, then
+// releases. Back within 0.5 dB of the full level: voice 0.25 s hold + 0.38 s, call 0.63 s, SE 0.05 + 0.25 s - every dip
+// is gone within 1 s, also on the 400 ms momentary meter.
+const AUDIO_DUCK_TIME = Object.freeze({
+    call: Object.freeze({ attack: 0.08, hold: 0, release: 0.25 }),
+    voice: Object.freeze({ attack: 0.05, hold: 0.25, release: 0.2 }),
+    sfx: Object.freeze({ attack: 0.02, hold: 0.05, release: 0.15 }),
+    ambience: Object.freeze({ attack: 0.1, hold: 0, release: 0.3 })
+});
+// The engine's matrix with an open stage skin's `duck` (voice / sfx rows, -24..0 dB, checked where the skin enters) over
+// it, cell by cell; cells the skin leaves out keep the engine's amount.
+function audioDuckMatrix(skin) {
+    if (!skin) return AUDIO_DUCK;
+    const matrix = {};
+    for (const [trigger, row] of Object.entries(AUDIO_DUCK)) matrix[trigger] = { ...row, ...skin[trigger] };
+    return matrix;
+}
+// The dip (dB) of one bus for the triggers sounding now, and which trigger sets it (null: none).
+function audioDuckDb(layer, triggers, matrix = AUDIO_DUCK) {
+    let db = 0, by = null;
+    for (const trigger of Object.keys(matrix)) {
+        const value = triggers[trigger] ? matrix[trigger][layer] || 0 : 0;
+        if (value < db) { db = value; by = trigger; }
+    }
+    return { db, by };
+}
+// Five normalized cached voice outputs: -21.3..-22.1 LUFS (median -21.7).
+// Keep the provider's guaranteed -1 dBFS ceiling rather than assume spare peak headroom.
+const AUDIO_VOICE = Object.freeze({ lufs: -22, peak: -1, v: 1 });
+function audioMeasurement(value) {
+    return value && value.v === 1 && Number.isFinite(value.lufs) && value.lufs >= -100 && value.lufs <= 10 && Number.isFinite(value.peak) && value.peak >= -100 && value.peak <= 20;
+}
+function audioGain(layer, measured, gainDb = 0) {
+    // Unknown audio is assumed hot, never boosted. Silence must not become a huge gain.
+    const value = audioMeasurement(measured) ? measured : { lufs: -10, peak: 0 };
+    if (value.lufs <= -70) return 0;
+    // Authored SFX gain follows normalization, with the same true-peak ceiling.
+    const normalized = Math.min(AUDIO_TARGETS[layer] - value.lufs, -1 - value.peak, 12);
+    const authored = layer === "sfx" || layer === "ui" ? gainDb : 0;
+    return Math.pow(10, Math.min(normalized + authored, -1 - value.peak) / 20);
+}
+function audioDuck(layer, triggers, matrix) { return Math.pow(10, audioDuckDb(layer, triggers, matrix).db / 20); }
+function measureAudioLoudness(channels, rate) {
+    if (!channels.length || channels.length > 2 || !Number.isFinite(rate) || rate < 8000) throw new Error("Unsupported audio layout");
+    const length = channels[0].length;
+    if (!length || channels.some(channel => channel.length !== length)) throw new Error("Empty audio");
+    function coefficients(f, q, shelf) {
+        const k = Math.tan(Math.PI * f / rate), k2 = k * k, a0 = 1 + k / q + k2;
+        const vh = Math.pow(10, 3.999843853973347 / 20), vb = Math.pow(vh, 0.4996667741545416);
+        return shelf ? [(vh + vb * k / q + k2) / a0, 2 * (k2 - vh) / a0, (vh - vb * k / q + k2) / a0, 2 * (k2 - 1) / a0, (1 - k / q + k2) / a0]
+            : [1, -2, 1, 2 * (k2 - 1) / a0, (1 - k / q + k2) / a0];
+    }
+    const shelf = coefficients(1681.974450955533, 0.7071752369554196, true), highpass = coefficients(38.13547087602444, 0.5003270373238773, false);
+    const hop = Math.round(rate * 0.1), block = hop * 4, padded = Math.max(length, block);
+    const energy = new Float64Array(padded);
+    let peak = 0;
+    // Four-times, 48-tap windowed-sinc interpolation estimates intersample peaks.
+    const phases = [0.25, 0.5, 0.75].map(phase => {
+        const taps = []; let sum = 0;
+        for (let j = -23; j <= 24; j++) { const x = phase - j, sinc = Math.sin(Math.PI * x) / (Math.PI * x), w = 0.5 + 0.5 * Math.cos(Math.PI * x / 24); const v = sinc * w; taps.push(v); sum += v; }
+        return taps.map(v => v / sum);
+    });
+    for (const channel of channels) {
+        // The two K-weighting biquads (shelf, then highpass) inlined: no per-sample closure calls.
+        const [s0, s1, s2, s3, s4] = shelf, [h0, h1, h2, h3, h4] = highpass;
+        let sx1 = 0, sx2 = 0, sy1 = 0, sy2 = 0, hx1 = 0, hx2 = 0, hy1 = 0, hy2 = 0;
+        for (let i = 0; i < padded; i++) {
+            const sample = i < length ? channel[i] : 0;
+            const x = s0 * sample + s1 * sx1 + s2 * sx2 - s3 * sy1 - s4 * sy2; sx2 = sx1; sx1 = sample; sy2 = sy1; sy1 = x;
+            const y = h0 * x + h1 * hx1 + h2 * hx2 - h3 * hy1 - h4 * hy2; hx2 = hx1; hx1 = x; hy2 = hy1; hy1 = y;
+            energy[i] += y * y;
+            const magnitude = sample < 0 ? -sample : sample; if (magnitude > peak) peak = magnitude;
+        }
+        // Zero-padded copy: the same products in the same order, without out-of-range reads in the hot loop
+        // (a 2-minute stereo track took ~19 s, which left a new BGM at the unknown-audio gain that long).
+        // A block whose interpolation bound (sum |taps| x its largest sample) cannot pass the peak so far is skipped:
+        // the result is unchanged and most of a track never reaches the FIR.
+        const window = new Float32Array(length + 47); window.set(channel, 23);
+        const taps = phases.map(phase => Float64Array.from(phase)), bound = Math.max(...phases.map(phase => phase.reduce((s, v) => s + Math.abs(v), 0))) * (1 + 1e-9);
+        for (let start = 0; start < length; start += 256) {
+            const end = Math.min(length, start + 256);
+            let local = 0;
+            for (let k = start; k < end + 47; k++) { const v = window[k]; if (v > local) local = v; else if (-v > local) local = -v; }
+            if (local * bound <= peak) continue;
+            for (const phase of taps) for (let i = start; i < end; i++) {
+                let sample = 0;
+                for (let j = 0; j < 48; j++) sample += window[i + j] * phase[j];
+                if (sample > peak) peak = sample; else if (-sample > peak) peak = -sample;
+            }
+        }
+    }
+    const blocks = []; let sum = 0;
+    for (let i = 0; i < padded; i++) {
+        sum += energy[i]; if (i >= block) sum -= energy[i - block];
+        if (i >= block - 1 && (i + 1 - block) % hop === 0) blocks.push(sum / block);
+    }
+    const loudness = power => -0.691 + 10 * Math.log10(Math.max(1e-15, power));
+    const absolute = blocks.filter(power => loudness(power) >= -70);
+    const relative = loudness(absolute.reduce((a, b) => a + b, 0) / (absolute.length || 1)) - 10;
+    const gated = absolute.filter(power => loudness(power) >= relative);
+    return { lufs: gated.length ? loudness(gated.reduce((a, b) => a + b, 0) / gated.length) : -100, peak: peak ? Math.max(-100, 20 * Math.log10(peak) + 0.2) : -100, v: 1 };
+}
 // The stage's audio layers (docs/design/cast-presentation.md「舞台 core（23/N）：CONFIG」): the page's one AudioContext and its
 // mixer. Every stage sound ends in its layer's bus, its dip (避让, below) and then 总音量: the BGM (modules/stage-music.js), 音效 (modules/stage-sfx.js) and
 // 环境音 on Web Audio; a voice is an <audio> (or the system's speech, features/speech.js) set to 配音 × 总音量.
@@ -16428,33 +16763,9 @@ const STAGE_AUDIO_LAYERS = Object.freeze(["master", "voice", "music", "sfx", "am
 const STAGE_AUDIO_KEY = "dsh-tavern-stage-audio";
 // 避让 (core 37/N): while a voice or a sound effect sounds, the layers below it dip (dB), each after its slider: priority
 // 配音 > 音效 > 环境音 > BGM, a trigger only lowers the layers below it, and with both sounding a layer takes the deeper dip
-// (never the sum). The open stage's skin may set any of these amounts (its `duck`, merged over these); the player's
-// CONFIG › 声音 switch turns ducking off (saved as duck: false). Sliders and 总音量 are not touched.
-const STAGE_AUDIO_DUCK = Object.freeze({
-	voice: Object.freeze({ sfx: -2, ambience: -4, music: -4 }),
-	sfx: Object.freeze({ ambience: -3, music: -2 })
-});
-// setTargetAtTime time constants (s): down at the attack of the trigger that now sets the dip; up after `hold` at the release of
-// the one that set it. The hold carries a voice over the gap between two pages; every dip is gone within 0.7 s.
-const STAGE_AUDIO_DUCK_TIME = Object.freeze({
-	voice: Object.freeze({ attack: 0.05, hold: 0.25, release: 0.2 }),
-	sfx: Object.freeze({ attack: 0.02, hold: 0.05, release: 0.15 })
-});
-// The dip of one layer for the triggers sounding now, and the trigger that sets it (null: none).
-function stageAudioDip(layer, triggers, matrix) {
-	let db = 0, by = null;
-	for (const trigger of Object.keys(STAGE_AUDIO_DUCK)) {
-		const value = triggers[trigger] ? matrix[trigger][layer] ?? 0 : 0;
-		if (value < db) { db = value; by = trigger; }
-	}
-	return { db, by };
-}
-// The engine's amounts with a skin's `duck` over them, cell by cell (checked where the skin enters).
-function stageAudioDuckMatrix(skin) {
-	const matrix = {};
-	for (const [trigger, row] of Object.entries(STAGE_AUDIO_DUCK)) matrix[trigger] = { ...row, ...(skin && skin[trigger]) };
-	return matrix;
-}
+// (never the sum). The amounts and time constants are stage-audio-math.js AUDIO_DUCK / AUDIO_DUCK_TIME (audioDuckDb,
+// audioDuckMatrix); the open stage's skin may set any of them (its `duck`, merged over them); the player's CONFIG › 声音
+// switch turns ducking off (saved as duck: false). Sliders and 总音量 are not touched.
 // What was saved, as far as it still fits: each level within 0..1, the mutes as flags, ducking off only as duck: false.
 function stageAudioPreferences(saved) {
 	const prefs = { v: 1, master: 1, voice: 1, music: 1, sfx: 1, ambience: 1, muted: {} };
@@ -16478,8 +16789,8 @@ const tavernStageAudio = (function () {
 	const volume = layer => prefs.muted[layer] ? 0 : prefs[layer];
 	// 避让: which triggers sound now (the voice from features/speech.js, 音效 from its player) and the amounts in force.
 	const triggers = { voice: false, sfx: false };
-	let matrix = STAGE_AUDIO_DUCK;
-	const dipOf = layer => prefs.duck === false ? { db: 0, by: null } : stageAudioDip(layer, triggers, matrix);
+	let matrix = AUDIO_DUCK;
+	const dipOf = layer => prefs.duck === false ? { db: 0, by: null } : audioDuckDb(layer, triggers, matrix);
 	const level = db => Math.pow(10, db / 20);
 	function ensure() {
 		if (context) return context;
@@ -16504,7 +16815,7 @@ const tavernStageAudio = (function () {
 		for (const layer of Object.keys(dips)) {
 			const dip = dips[layer], next = dipOf(layer);
 			if (next.db === dip.db) { dip.by = next.by; continue; }
-			const deeper = next.db < dip.db, time = STAGE_AUDIO_DUCK_TIME[deeper ? next.by : dip.by], param = dip.node.gain, now = context.currentTime;
+			const deeper = next.db < dip.db, time = AUDIO_DUCK_TIME[deeper ? next.by : dip.by], param = dip.node.gain, now = context.currentTime;
 			(param.cancelAndHoldAtTime || param.cancelScheduledValues).call(param, now);
 			param.setTargetAtTime(level(next.db), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
 			dip.db = next.db; dip.by = next.by;
@@ -16538,7 +16849,7 @@ const tavernStageAudio = (function () {
 		// 避让: the player's switch; a trigger starting or ending ("voice", "sfx"); the open stage's skin `duck` (null: the engine's).
 		setDucking(on) { if (on) delete prefs.duck; else prefs.duck = false; save(); },
 		duck,
-		duckBy(skin) { matrix = skin ? stageAudioDuckMatrix(skin) : STAGE_AUDIO_DUCK; retarget(); }
+		duckBy(skin) { matrix = audioDuckMatrix(skin); retarget(); }
 	};
 })();
 function useTavernStageAudioState() {
@@ -16547,22 +16858,22 @@ function useTavernStageAudioState() {
 	return tavernStageAudio.get();
 }
 // 画面效果 (cast-presentation.md 35/N): screen.play on the built-in scene. The effect's look is the engine's default merged
-// with the skin's `effects` (domain/stage-effects.js), its tracks come from modules/stage-effects.js and play on the scene's
+// with the skin's `effects` (stage-effects.cjs), its tracks come from modules/stage-effects.js and play on the scene's
 // layers as one animation the page's playback owns (cancelled together with the page). A flash passes the stage-wide gate
-// (a dark cover never counts); an effect left with nothing to play is consumed silently.
-const tavernStageFlashGate = createStageFlashGate();
+// (a dark cover never counts); an effect left with nothing to play is consumed silently. Flashes are always photosensitive-safe
+// (TAVERN_STAGE_FX_POLICY, modules/stage-effects.js).
 const TAVERN_STAGE_FX_LAYERS = {
 	world: [".dsh-tavern-stage-backdrop", ".dsh-tavern-stage-figures", ".dsh-tavern-stage-item", ".dsh-tavern-stage-fx"], box: [".dsh-tavern-stage-textbox"],
 	backdrop: [".dsh-tavern-stage-backdrop"], zoom: [".dsh-tavern-stage-backdrop", ".dsh-tavern-stage-figures"], tear: [".dsh-tavern-stage-figures", ".dsh-tavern-stage-item"], split: [".dsh-tavern-stage-figures"],
 	cover: [".dsh-tavern-stage-fx-cover"], vignette: [".dsh-tavern-stage-fx-vignette"], wave: [".dsh-tavern-stage-fx-wave"]
 };
 function playTavernStageScreenEffect(root, event, id, skin, reduced) {
-	const effects = skin && skin.effects, spec = stageScreenEffectResolve(event.effect, effects);
+	const effects = skin && skin.effects, spec = stageEffectResolve(event.effect, effects, null);
 	if (!root || !spec || !root.querySelector(".dsh-tavern-stage-fx")) return null;
 	const flash = spec.kind === "flash" ? spec : spec.kind === "shock" ? spec.flash : null, size = root.getBoundingClientRect();
 	const tracks = stageScreenEffectTracks(spec, { W: size.width, H: size.height, reduced, screen: skin && skin.art && skin.art.screen || 576,
-		flash: Boolean(flash) && (stageFlashDark(flash) || tavernStageFlashGate.admit(performance.now())),
-		shake: spec.kind === "shock" && spec.shake ? stageScreenEffectResolve(spec.shake, effects) : null });
+		flash: Boolean(flash) && (stageFlashDark(flash) || stageFlashGate.admit(TAVERN_STAGE_FX_POLICY, performance.now())),
+		shake: spec.kind === "shock" && spec.shake ? stageEffectResolve(spec.shake, effects, null) : null });
 	const played = [];
 	tracks.forEach(track => TAVERN_STAGE_FX_LAYERS[track.layer].forEach(selector => {
 		const node = root.querySelector(selector);
@@ -16876,11 +17187,11 @@ function useTavernStageReading() {
 	const channel = on ? speech.providers.find(item => item.id === speech.provider) : null;
 	return { on, prepares: Boolean(channel && channel.prepares) };
 }
-// What a line page's voice says (dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
+// What a line page's voice says (as dialogue-bubbles.js bubbleSpeech): its voice text, else its words unless the speaker's
 // 配音语言 is not 中文; '' says nothing. The stage, its backlog and the chat rows read the same rule.
 function tavernPageSpeech(page, data) {
 	const character = tavernCastCharacter(data && data.cast, page.speaker);
-	return bubbleSpeech({ text: (page.quotes || []).join(" ") || page.text, voice: page.voice }, character && character.voiceLanguage);
+	return page.voice !== undefined ? page.voice : voiceTranslates(character && character.voiceLanguage) ? "" : (page.quotes || []).join(" ") || page.text;
 }
 function tavernBeatSpeech(sessionId, beat, data) {
 	return beat.kind === "line" ? { sessionId: sessionId, speaker: beat.speaker, text: tavernPageSpeech(beat, data), emotion: beat.emotion }

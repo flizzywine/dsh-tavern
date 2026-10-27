@@ -147,12 +147,12 @@
 		 */
 		function renderTavernDialogueText(text, key, renderText, cast, streaming) {
 			const h = React.createElement;
-			const segments = cast && String(text || "").indexOf("@") >= 0 ? parseDialogueBubbles(text, streaming) : null;
-			if (!segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(dialogueBubblePlainText(text, streaming), key);
+			const source = String(text ?? ""), segments = source.indexOf("@") >= 0 ? parseBubbles(source, streaming) : null;
+			if (!cast || !segments || !segments.some(function (segment) { return segment.kind === "bubble"; })) return renderText(segments ? dialogueBubblePlainText(segments) : source, key);
 			return h(React.Fragment, { key: key }, segments.map(function (segment, index) {
 				if (segment.kind === "markdown") return renderText(segment.text, index);
-				const character = tavernCastCharacter(cast.characters, segment.speaker);
-				return h(TavernCastRow, { key: index, cast: cast, speaker: segment.speaker, emotion: segment.emotion, speech: bubbleSpeech(segment, character && character.voiceLanguage) },
+				const speaker = bubbleSpeaker(segment), character = tavernCastCharacter(cast.characters, speaker);
+				return h(TavernCastRow, { key: index, cast: cast, speaker: speaker, emotion: bubbleEmotion(segment.mood), speech: bubbleSpeech(segment, voiceTranslates(character && character.voiceLanguage)) },
 					renderText(segment.thought ? "（" + segment.text + (segment.streaming ? "" : "）") : segment.text, "text"));
 			}));
 		}

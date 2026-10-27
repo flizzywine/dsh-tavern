@@ -1,5 +1,6 @@
 import { CAST_DATA_OWNER, carryCastLines, dialogueQuotes } from './cast-annotation.js'
 import { dialogueBubbleLines } from './dialogue-bubbles.js'
+import { parseBubbles } from '../../src/client/bubble-line.cjs'
 
 /**
  * Who speaks each line of a turn (docs/design/cast-presentation.md). The story model writes its spoken lines as
@@ -37,7 +38,7 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
   async function shownLines(game, turn, key, candidates) {
     const material = await turns.readTurn(game.sessionId, turn).catch(() => null)
     if (!material || material.key !== key) return null
-    const bubbles = dialogueBubbleLines(material.text)
+    const bubbles = dialogueBubbleLines(parseBubbles(material.text))
     if (bubbles.length || !candidates.length) return bubbles
     const quotes = dialogueQuotes(material.text)
     if (!quotes.length) return null
@@ -65,7 +66,7 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
     let lines = record?.data?.lines
     if (!record) {
       const material = await turns.readTurn(game.sessionId, turn).catch(() => null)
-      lines = material && material.key === key ? dialogueBubbleLines(material.text) : null
+      lines = material && material.key === key ? dialogueBubbleLines(parseBubbles(material.text)) : null
     }
     return Array.isArray(lines) && lines.length ? { turn, textVersion: key, lines: structuredClone(lines) } : null
   }
@@ -73,7 +74,7 @@ export function createCastPresentation({ enabled, turns, data, publish = () => {
   /** A reply was committed: its lines came with its text, so tell the chat and plugins they are there. */
   async function announce(sessionId) {
     const material = await turns.readTurn(sessionId)
-    const lines = material && !material.greeting ? dialogueBubbleLines(material.text) : []
+    const lines = material && !material.greeting ? dialogueBubbleLines(parseBubbles(material.text)) : []
     if (lines.length) publish(material.sessionId || sessionId, { turn: material.turn, textVersion: material.key, lines })
   }
 

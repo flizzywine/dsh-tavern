@@ -29,7 +29,7 @@ function load(storage = memoryStorage()) {
   const context = audioContext(), watchers = []
   const sandbox = { localStorage: storage, window: { AudioContext: function () { return context } },
     tavernSpeech: { tune() {}, watch: fn => { watchers.push(fn); return () => {} } }, React: {} }
-  const { tavernStageAudio } = vm.runInNewContext(client('features/stage-audio.js') + '\n;({ tavernStageAudio })', sandbox)
+  const { tavernStageAudio } = vm.runInNewContext(client('stage-audio-math.js') + '\n' + client('features/stage-audio.js') + '\n;({ tavernStageAudio })', sandbox)
   const voice = on => watchers.forEach(fn => fn(on))
   tavernStageAudio.context()
   const dip = layer => tavernStageAudio.output(context, layer).next.gain

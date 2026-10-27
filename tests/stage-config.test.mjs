@@ -30,7 +30,7 @@ function load(storage = memoryStorage()) {
   const sandbox = { localStorage: storage, window, tavernSpeech: { tune: value => tuned.push({ ...value }), watch: () => () => {} },
     React: { createElement: h, Fragment: 'Fragment', useState: value => [typeof value === 'function' ? value() : value, () => {}], useEffect: () => {}, useRef: value => ({ current: value === undefined ? null : value }), useMemo: fn => fn() },
     TavernStageGlyph: props => h('glyph', { name: props.name }) }
-  const api = vm.runInNewContext([client('modules/stage-runtime.js'), client('modules/stage-typewriter.js'), client('features/stage-audio.js'), client('features/stage-mixer.js'), client('features/stage-config.js'), client('features/stage-typewriter.js'),
+  const api = vm.runInNewContext([client('modules/stage-runtime.js'), client('modules/stage-typewriter.js'), client('stage-audio-math.js'), client('features/stage-audio.js'), client('features/stage-mixer.js'), client('features/stage-config.js'), client('features/stage-typewriter.js'),
     '({ tavernStageAudio, stageMixLevel, stageMixIcon, TavernStageMixerRows, TavernStageSoundEntry, TavernStageConfigScreen, stageReadingPrefs, stageAutoDelay, STAGE_READING_DEFAULTS })'].join('\n;'), sandbox)
   return { ...api, storage, tuned, context, sandbox }
 }

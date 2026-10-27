@@ -839,12 +839,13 @@ window.__ModuleLoader__.load({
 
 // @include features/music.js
 
+// @include bubble-line.cjs
 // @include-domain dialogue-bubbles.js
 // @include features/cast-presentation.js
 
 // @include-domain cast-stage-state.js
 // @include-domain stage-performance-playback.js
-// @include-domain stage-effects.js
+// @include stage-effects.cjs
 // @include-protocol stage-skin.cjs
 // @include-domain stage-entrance.js
 // @include features/font-library.js
@@ -857,6 +858,7 @@ window.__ModuleLoader__.load({
 // @include modules/stage-choices.js
 // @include modules/stage-effects.js
 // @include features/stage-entrance.js
+// @include stage-audio-math.js
 // @include features/stage-audio.js
 // @include features/stage-effects.js
 // @include features/stage-runtime.js

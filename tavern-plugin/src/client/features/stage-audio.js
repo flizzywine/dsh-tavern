@@ -8,33 +8,9 @@ const STAGE_AUDIO_LAYERS = Object.freeze(["master", "voice", "music", "sfx", "am
 const STAGE_AUDIO_KEY = "dsh-tavern-stage-audio";
 // 避让 (core 37/N): while a voice or a sound effect sounds, the layers below it dip (dB), each after its slider: priority
 // 配音 > 音效 > 环境音 > BGM, a trigger only lowers the layers below it, and with both sounding a layer takes the deeper dip
-// (never the sum). The open stage's skin may set any of these amounts (its `duck`, merged over these); the player's
-// CONFIG › 声音 switch turns ducking off (saved as duck: false). Sliders and 总音量 are not touched.
-const STAGE_AUDIO_DUCK = Object.freeze({
-	voice: Object.freeze({ sfx: -2, ambience: -4, music: -4 }),
-	sfx: Object.freeze({ ambience: -3, music: -2 })
-});
-// setTargetAtTime time constants (s): down at the attack of the trigger that now sets the dip; up after `hold` at the release of
-// the one that set it. The hold carries a voice over the gap between two pages; every dip is gone within 0.7 s.
-const STAGE_AUDIO_DUCK_TIME = Object.freeze({
-	voice: Object.freeze({ attack: 0.05, hold: 0.25, release: 0.2 }),
-	sfx: Object.freeze({ attack: 0.02, hold: 0.05, release: 0.15 })
-});
-// The dip of one layer for the triggers sounding now, and the trigger that sets it (null: none).
-function stageAudioDip(layer, triggers, matrix) {
-	let db = 0, by = null;
-	for (const trigger of Object.keys(STAGE_AUDIO_DUCK)) {
-		const value = triggers[trigger] ? matrix[trigger][layer] ?? 0 : 0;
-		if (value < db) { db = value; by = trigger; }
-	}
-	return { db, by };
-}
-// The engine's amounts with a skin's `duck` over them, cell by cell (checked where the skin enters).
-function stageAudioDuckMatrix(skin) {
-	const matrix = {};
-	for (const [trigger, row] of Object.entries(STAGE_AUDIO_DUCK)) matrix[trigger] = { ...row, ...(skin && skin[trigger]) };
-	return matrix;
-}
+// (never the sum). The amounts and time constants are stage-audio-math.js AUDIO_DUCK / AUDIO_DUCK_TIME (audioDuckDb,
+// audioDuckMatrix); the open stage's skin may set any of them (its `duck`, merged over them); the player's CONFIG › 声音
+// switch turns ducking off (saved as duck: false). Sliders and 总音量 are not touched.
 // What was saved, as far as it still fits: each level within 0..1, the mutes as flags, ducking off only as duck: false.
 function stageAudioPreferences(saved) {
 	const prefs = { v: 1, master: 1, voice: 1, music: 1, sfx: 1, ambience: 1, muted: {} };
@@ -58,8 +34,8 @@ const tavernStageAudio = (function () {
 	const volume = layer => prefs.muted[layer] ? 0 : prefs[layer];
 	// 避让: which triggers sound now (the voice from features/speech.js, 音效 from its player) and the amounts in force.
 	const triggers = { voice: false, sfx: false };
-	let matrix = STAGE_AUDIO_DUCK;
-	const dipOf = layer => prefs.duck === false ? { db: 0, by: null } : stageAudioDip(layer, triggers, matrix);
+	let matrix = AUDIO_DUCK;
+	const dipOf = layer => prefs.duck === false ? { db: 0, by: null } : audioDuckDb(layer, triggers, matrix);
 	const level = db => Math.pow(10, db / 20);
 	function ensure() {
 		if (context) return context;
@@ -84,7 +60,7 @@ const tavernStageAudio = (function () {
 		for (const layer of Object.keys(dips)) {
 			const dip = dips[layer], next = dipOf(layer);
 			if (next.db === dip.db) { dip.by = next.by; continue; }
-			const deeper = next.db < dip.db, time = STAGE_AUDIO_DUCK_TIME[deeper ? next.by : dip.by], param = dip.node.gain, now = context.currentTime;
+			const deeper = next.db < dip.db, time = AUDIO_DUCK_TIME[deeper ? next.by : dip.by], param = dip.node.gain, now = context.currentTime;
 			(param.cancelAndHoldAtTime || param.cancelScheduledValues).call(param, now);
 			param.setTargetAtTime(level(next.db), deeper ? now : now + time.hold, deeper ? time.attack : time.release);
 			dip.db = next.db; dip.by = next.by;
@@ -118,7 +94,7 @@ const tavernStageAudio = (function () {
 		// 避让: the player's switch; a trigger starting or ending ("voice", "sfx"); the open stage's skin `duck` (null: the engine's).
 		setDucking(on) { if (on) delete prefs.duck; else prefs.duck = false; save(); },
 		duck,
-		duckBy(skin) { matrix = skin ? stageAudioDuckMatrix(skin) : STAGE_AUDIO_DUCK; retarget(); }
+		duckBy(skin) { matrix = audioDuckMatrix(skin); retarget(); }
 	};
 })();
 function useTavernStageAudioState() {

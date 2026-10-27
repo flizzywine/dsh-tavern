@@ -3,7 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { sourceFunction } from './fixtures/source-function.mjs'
-import { parseDialogueBubbles, dialogueBubbleLines, dialogueBubblePlainText, bubbleEmotion, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { dialogueBubbleLines, dialogueBubblePlainText, bubbleEmotion, bubbleSpeaker, CAST_EMOTIONS } from '../tavern-plugin/lib/domain/dialogue-bubbles.js'
+import { parseBubbles } from '../tavern-plugin/src/client/bubble-line.cjs'
 import { dialogueFormatText, dialogueFormatUpdate } from '../tavern-plugin/lib/domain/dialogue-format.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 import { createForegroundFrameBuilder } from '../tavern-plugin/lib/domain/agent-input-frame.js'
@@ -24,8 +25,8 @@ const reply = [
 ].join('\n')
 
 test('one reader: narration runs, marked lines with speaker and emotion, lenient forms, never the raw markup', () => {
-  const segments = parseDialogueBubbles(reply)
-  assert.deepEqual(segments.map(segment => segment.kind === 'markdown' ? segment.text : [segment.handle, segment.speaker, segment.emotion, segment.text, segment.thought]), [
+  const segments = parseBubbles(reply)
+  assert.deepEqual(segments.map(segment => segment.kind === 'markdown' ? segment.text : [segment.alias, bubbleSpeaker(segment), bubbleEmotion(segment.mood), segment.text, segment.thought === true]), [
     '店主擦着杯子抬起头。',
     ['shopkeeper', '店主', 'joy', '欢迎回来。', false],
     ['lin_yue', '林月', 'nervousness', '他还记得我吗？', true],
@@ -36,16 +37,16 @@ test('one reader: narration runs, marked lines with speaker and emotion, lenient
   assert.equal(segments.some(segment => /@bubble/.test(segment.text)), false)
   assert.deepEqual(['joy', '开心', 'JOY', '', '微笑'].map(bubbleEmotion), ['joy', 'joy', 'joy', 'neutral', 'neutral'])
   assert.equal(Object.keys(CAST_EMOTIONS).length, 28)
-  assert.deepEqual(dialogueBubbleLines('她说：“你好。”'), [])
-  assert.deepEqual(dialogueBubbleLines(reply).map(line => [line.n, line.speaker, line.emotion, line.quote]),
+  assert.deepEqual(dialogueBubbleLines(parseBubbles('她说：“你好。”')), [])
+  assert.deepEqual(dialogueBubbleLines(parseBubbles(reply)).map(line => [line.n, line.speaker, line.emotion, line.quote]),
     [[1, '店主', 'joy', '欢迎回来。'], [2, '林月', 'nervousness', '他还记得我吗？'], [3, '路人', 'surprise', '你也来了？'], [4, 'Lee', 'neutral', 'Hi.']])
 })
 
 test('without speaker rows (streaming, 对话气泡 off) a marked line reads as name：“line”; an unfinished tail is held, not shown raw', () => {
-  assert.equal(dialogueBubblePlainText(reply), '店主擦着杯子抬起头。\n\n店主：“欢迎回来。”\n\n林月：（他还记得我吗？）\n\n路人：“你也来了？”\n\nLee：“Hi.”\n\n门外传来脚步声。')
-  assert.equal(dialogueBubblePlainText('她走进来。\n@bub', true), '她走进来。')
-  assert.equal(dialogueBubblePlainText('她走进来。\n@bubble:lin|林月|开心|[你', true), '她走进来。\n\n林月：“你')
-  assert.equal(dialogueBubblePlainText('邮件 a@b.c'), '邮件 a@b.c')
+  assert.equal(dialogueBubblePlainText(parseBubbles(reply)), '店主擦着杯子抬起头。\n\n店主：“欢迎回来。”\n\n林月：（他还记得我吗？）\n\n路人：“你也来了？”\n\nLee：“Hi.”\n\n门外传来脚步声。')
+  assert.equal(dialogueBubblePlainText(parseBubbles('她走进来。\n@bub', true)), '她走进来。')
+  assert.equal(dialogueBubblePlainText(parseBubbles('她走进来。\n@bubble:lin|林月|开心|[你', true)), '她走进来。\n\n林月：“你')
+  assert.equal(dialogueBubblePlainText(parseBubbles('邮件 a@b.c')), '邮件 a@b.c')
 })
 
 test('the format lists the card cast with a handle each and the 28 emotion labels as variants', () => {
@@ -132,8 +133,8 @@ test('a turn\'s lines come from its shown bubbles, without settlement; an earlie
   const read = await cast.forTurns('game', [2, 3, 4])
   assert.deepEqual(Object.keys(read.turns), ['2', '3'])
   assert.equal(read.turns[2][0].speaker, '林曦')
-  assert.deepEqual(read.turns[3], dialogueBubbleLines(reply))
-  assert.deepEqual(await cast.annotation('game', 3), { turn: 3, textVersion: 'v7', lines: dialogueBubbleLines(reply) })
+  assert.deepEqual(read.turns[3], dialogueBubbleLines(parseBubbles(reply)))
+  assert.deepEqual(await cast.annotation('game', 3), { turn: 3, textVersion: 'v7', lines: dialogueBubbleLines(parseBubbles(reply)) })
   shown[3] = { key: 'v8', text: '@bubble:lee|Lee|开心|[Again.]' }
   assert.deepEqual((await cast.forTurns('game', [3])).turns[3], [{ n: 1, quote: 'Again.', speaker: 'Lee', emotion: 'joy' }], 'a regenerated or edited reply reads its own text')
   assert.equal((await data.turnsUpTo({ chatId: 'chat', owner: CAST_DATA_OWNER, turn: 3 })).length, 1, 'nothing stored for bubble turns')
@@ -146,9 +147,10 @@ test('a turn\'s lines come from its shown bubbles, without settlement; an earlie
 
 // The chat: with 对话气泡 on a reply shows a row per bubble, while it streams too (32/N); otherwise name：“line”.
 const castSource = readFileSync(new URL('../tavern-plugin/src/client/features/cast-presentation.js', import.meta.url), 'utf8')
+const bubbleLineSource = readFileSync(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8')
 const bubbleSource = readFileSync(new URL('../tavern-plugin/lib/domain/dialogue-bubbles.js', import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
 const castStateSource = readFileSync(new URL('../tavern-plugin/lib/domain/cast-stage-state.js', import.meta.url), 'utf8').replace(/^export \{[^}]+\};?$/gm, '')
-const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleSource + '\n' + castStateSource + '\n'
+const client = new Function('React', 'TAVERN_CAST_EMOTIONS', 'TavernCastAvatar', 'TavernCastSpeak', 'tavernCastLineAvatar', 'tavernCastHue', bubbleLineSource + '\n' + bubbleSource + '\n' + castStateSource + '\n'
   + ['TavernCastRow', 'renderTavernDialogueText'].map(name => sourceFunction(castSource, name)).join('\n')
   + '\nreturn { renderTavernDialogueText, TavernCastRow }')
 const h = (type, props, ...children) => ({ type, props: props || {}, children })
@@ -163,8 +165,8 @@ test('chat: speaker rows for a finished reply; name：“line” without speaker
   const rows = flat(ui.renderTavernDialogueText(reply, 0, plain, cast, false)).filter(node => node.type === ui.TavernCastRow)
   assert.deepEqual(rows.map(shown), [
     ['店主', 'joy', '欢迎回来。', '欢迎回来。'], ['林月', 'nervousness', '他还记得我吗？', '（他还记得我吗？）'], ['路人', 'surprise', '你也来了？', '你也来了？'], ['Lee', 'neutral', 'Hi.', 'Hi.']])
-  assert.deepEqual(ui.renderTavernDialogueText(reply, 0, plain, null, false), h('md', { key: 0 }, dialogueBubblePlainText(reply)))
-  assert.deepEqual(ui.renderTavernDialogueText(reply + '\n@bubble:lee|Lee|开心|[Wai', 0, plain, null, true), h('md', { key: 0 }, dialogueBubblePlainText(reply) + '\n\nLee：“Wai'))
+  assert.deepEqual(ui.renderTavernDialogueText(reply, 0, plain, null, false), h('md', { key: 0 }, dialogueBubblePlainText(parseBubbles(reply))))
+  assert.deepEqual(ui.renderTavernDialogueText(reply + '\n@bubble:lee|Lee|开心|[Wai', 0, plain, null, true), h('md', { key: 0 }, dialogueBubblePlainText(parseBubbles(reply)) + '\n\nLee：“Wai'))
   // An earlier turn's stored annotation is for the stage and plugins: its quotes are not matched into rows.
   assert.deepEqual(ui.renderTavernDialogueText('她说：“你好。”', 0, plain, { ...cast, lines: [{ n: 1, quote: '你好。', speaker: '林曦', emotion: 'joy' }] }, false), h('md', { key: 0 }, '她说：“你好。”'))
 })

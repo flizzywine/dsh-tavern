@@ -108,5 +108,5 @@ export function createAutoChoices({ read, preferences, activity, submit,
     }
   }
 
-  return Object.freeze({ completed, cancel, cancelAll, dispose() { disposed = true; cancelAll() } })
+  return Object.freeze({ completed, cancel, cancelAll, isPending: sessionId => pending.has(sessionId), dispose() { disposed = true; cancelAll() } })
 }
