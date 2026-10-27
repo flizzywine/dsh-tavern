@@ -1,0 +1,256 @@
+{
+  "start": {
+    "scene": "room",
+    "weather": "rain",
+    "lighting": {
+      "time": "night",
+      "mood": "none"
+    },
+    "soundscape": {
+      "tags": [
+        "sealed"
+      ]
+    }
+  },
+  "entries": [
+    {
+      "at": 2,
+      "sound": [],
+      "commands": [
+        {
+          "op": "light",
+          "value": "day"
+        }
+      ]
+    },
+    {
+      "at": 4,
+      "scene": "street",
+      "commands": [
+        {
+          "op": "weather",
+          "value": "none"
+        }
+      ]
+    }
+  ],
+  "soundscape": [
+    {
+      "at": 0,
+      "state": {
+        "sceneKey": "[\"room\"]",
+        "scene": "room",
+        "weather": "rain",
+        "tags": [
+          "sealed"
+        ]
+      }
+    },
+    {
+      "at": 1,
+      "state": {
+        "sceneKey": "[\"room\"]",
+        "scene": "room",
+        "weather": "rain",
+        "tags": [
+          "sealed"
+        ]
+      }
+    },
+    {
+      "at": 2,
+      "state": {
+        "sceneKey": "[\"room\"]",
+        "scene": "room",
+        "weather": "rain",
+        "tags": []
+      }
+    },
+    {
+      "at": 3,
+      "state": {
+        "sceneKey": "[\"room\"]",
+        "scene": "room",
+        "weather": "rain",
+        "tags": []
+      }
+    },
+    {
+      "at": 4,
+      "state": {
+        "sceneKey": "[\"street\"]",
+        "scene": "street",
+        "weather": "none",
+        "tags": []
+      }
+    }
+  ],
+  "lighting": {
+    "lighting": {
+      "time": "day",
+      "mood": "none"
+    },
+    "timeFadeMs": 2500,
+    "timeShiftWithoutScene": 1
+  },
+  "figure": [
+    {
+      "height": 23,
+      "displayCm": 23
+    },
+    {
+      "height": 140,
+      "displayCm": 147.8185258328634
+    },
+    {
+      "height": 152,
+      "displayCm": 156.3407848241783
+    },
+    {
+      "height": 180,
+      "displayCm": 180
+    }
+  ],
+  "phone": {
+    "pages": [
+      {
+        "para": 1,
+        "kind": "line",
+        "alias": "friend",
+        "text": "Are you there?"
+      },
+      {
+        "para": 2,
+        "kind": "line",
+        "alias": "me",
+        "text": "Yes."
+      },
+      {
+        "para": 3,
+        "kind": "narration",
+        "text": "Rain stops."
+      }
+    ],
+    "record": {
+      "status": "done",
+      "key": "synthetic-source",
+      "entries": [
+        {
+          "at": 1,
+          "commands": [
+            {
+              "op": "phone.message",
+              "contact": "f_friend",
+              "side": "in"
+            }
+          ]
+        },
+        {
+          "at": 2,
+          "commands": [
+            {
+              "op": "phone.message",
+              "contact": "f_friend",
+              "side": "out"
+            }
+          ]
+        }
+      ]
+    },
+    "characters": [
+      {
+        "alias": "f_friend",
+        "aliases": [
+          "friend"
+        ],
+        "name": "Friend"
+      },
+      {
+        "alias": "f_me",
+        "offstage": true,
+        "aliases": [
+          "me"
+        ],
+        "name": "Player"
+      }
+    ],
+    "results": [
+      {
+        "active": true,
+        "current": {
+          "op": "phone.message",
+          "contact": "f_friend",
+          "side": "in"
+        },
+        "messages": [
+          {
+            "line": {
+              "para": 1,
+              "kind": "line",
+              "alias": "friend",
+              "text": "Are you there?"
+            },
+            "mark": {
+              "op": "phone.message",
+              "contact": "f_friend",
+              "side": "in"
+            },
+            "continued": false
+          }
+        ],
+        "contact": "f_friend",
+        "first": 1,
+        "last": 2,
+        "key": "synthetic-source:1:f_friend"
+      },
+      {
+        "active": true,
+        "current": {
+          "op": "phone.message",
+          "contact": "f_friend",
+          "side": "out"
+        },
+        "messages": [
+          {
+            "line": {
+              "para": 1,
+              "kind": "line",
+              "alias": "friend",
+              "text": "Are you there?"
+            },
+            "mark": {
+              "op": "phone.message",
+              "contact": "f_friend",
+              "side": "in"
+            },
+            "continued": false
+          },
+          {
+            "line": {
+              "para": 2,
+              "kind": "line",
+              "alias": "me",
+              "text": "Yes."
+            },
+            "mark": {
+              "op": "phone.message",
+              "contact": "f_friend",
+              "side": "out"
+            },
+            "continued": false
+          }
+        ],
+        "contact": "f_friend",
+        "first": 1,
+        "last": 2,
+        "key": "synthetic-source:1:f_friend"
+      },
+      {
+        "active": false,
+        "current": null,
+        "messages": [],
+        "key": ""
+      }
+    ]
+  }
+}

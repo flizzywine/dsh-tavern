@@ -6,13 +6,15 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
+import directorCommands from '../tavern-plugin/packages/dsh-presentation-protocol/src/director-commands.cjs'
+const STAGE_SCREEN_EFFECTS = directorCommands.byName['screen.play'].schema({}).properties.effect.enum
 import * as effects from '../tavern-plugin/lib/domain/stage-effects.js'
 import { acceptStagePerformances, repairStagePerformances, stagePages } from '../tavern-plugin/lib/domain/stage-performance.js'
 import { STAGE_DATA_OWNER, STAGE_UPDATE_TOOL } from '../tavern-plugin/lib/domain/stage-director.js'
-import { BUILTIN_STAGE_SKINS, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, validateStageSkin } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { stageDirectorFixture } from './helpers/stage-director-fixture.mjs'
 
-const { STAGE_SCREEN_EFFECTS, stageScreenEffectResolve, stageFlashSafe, createStageFlashGate, stageFlashAt, stageShakeAt } = effects
+const { stageScreenEffectResolve, stageFlashSafe, createStageFlashGate, stageFlashAt, stageShakeAt } = effects
 const tracks = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/modules/stage-effects.js', import.meta.url), 'utf8') + '; stageScreenEffectTracks', { ...effects })
 const tracksOf = (spec, options) => JSON.parse(JSON.stringify(tracks(spec, options)))
 const env = (more = {}) => ({ W: 1600, H: 900, reduced: false, flash: true, screen: 576, random: () => 0.5, ...more })

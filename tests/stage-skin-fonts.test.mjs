@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinFiles, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinFiles, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 
 // The stage's three type roles (body, name, ui): a skin's own faces or font library families, then the stage's stack.
 const source = readFileSync(new URL('../tavern-plugin/src/client/features/stage-skin.js', import.meta.url), 'utf8')
@@ -35,7 +35,7 @@ const all = value => ({ body: value, name: value, ui: value })
 test('no usable font: every role is the stage\'s stack; 经典 is 霞鹜新晰黑 from the library', () => {
   assert.deepEqual(roles(skin({})), all(stack))
   assert.deepEqual(roles(skin({ body: 'zcool-kuaile', ui: 'wenkai-screen' })), all(stack), 'ids the library does not have')
-  assert.deepEqual(BUILTIN_STAGE_SKINS.classic.font, { body: 'neo-xihei-screen' })
+  assert.deepEqual(BUILTIN_STAGE_SKINS.classic.font, { body: 'neo-xihei-screen', film: 'neo-xihei-screen' })
   assert.deepEqual(roles(BUILTIN_STAGE_SKINS.classic), all('"Tavern neo-xihei-screen", ' + stack))
   assert.deepEqual(roles(BUILTIN_STAGE_SKINS.classic, []), all(stack), 'until the library is listed')
 })

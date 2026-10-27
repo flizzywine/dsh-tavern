@@ -4,7 +4,6 @@
 // and at 4K), colours #rrggbb. Flashes are always photosensitive-safe (there is no switch to turn that off).
 // Shared by the host and the browser (@include-domain): no imports, no host or DOM access.
 
-const STAGE_SCREEN_EFFECTS = Object.freeze(['shake-1', 'shake-2', 'shake-3', 'flash', 'flash-red', 'glitch', 'shock', 'heartbeat', 'blackout'])
 const STAGE_SCREEN_EFFECT_DEFAULTS = Object.freeze({
   flash: { kind: 'flash', color: '#ffffff', peak: 0.85, in: 0.04, hold: 0.04, out: 0.32, tail: 0, cycles: 1, ease: 'out' },
   'flash-red': { kind: 'flash', color: '#d01030', peak: 0.55, in: 0.04, hold: 0.06, out: 0.42, tail: 0, cycles: 1, ease: 'out' },
@@ -99,5 +98,5 @@ function stageGlitchAt(glitch, ms) {
   return [[0, 0.17, 1], [0.27, 0.46, 0.8], [0.6, 0.94, 0.55]].find(([a, b]) => t >= a && t < b)?.[2] || 0
 }
 
-export { STAGE_SCREEN_EFFECTS, STAGE_SCREEN_EFFECT_DEFAULTS, stageScreenEffectResolve, stageEffectRed, stageFlashDark, stageFlashSafe, createStageFlashGate,
+export { STAGE_SCREEN_EFFECT_DEFAULTS, stageScreenEffectResolve, stageEffectRed, stageFlashDark, stageFlashSafe, createStageFlashGate,
   stageFlashMs, stageFlashAt, stageShakeMs, stageShakeAt, stagePulseAt, stageGlitchAt }

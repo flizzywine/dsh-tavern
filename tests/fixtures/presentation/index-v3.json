@@ -1,0 +1,24 @@
+{
+  "version": 3,
+  "records": [
+    {
+      "recordKey": "2-recordhash",
+      "target": {
+        "sessionId": "session",
+        "chatId": "chat",
+        "branchId": "branch",
+        "revision": 1,
+        "turn": 2,
+        "messageId": 4,
+        "messageIdentity": "message-4",
+        "swipeId": 0,
+        "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "prefixDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "sourceKey": "source"
+      },
+      "publicationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "recordDigest": "1c1b410af224a66f9040529afbe1359e56dbb8bc0e533d26a8e6b0d233a504d2",
+      "origin": "canonical-effect"
+    }
+  ]
+}

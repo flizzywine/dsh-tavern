@@ -8,6 +8,7 @@ import { createAssetPackService } from '../tavern-plugin/lib/asset-library/pack-
 import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { createStageMaterial, STAGE_MEDIA_SCOPE, STAGE_READ_SCOPE, STAGE_LEASE_ORIGIN } from '../tavern-plugin/lib/domain/stage-material.js'
 import { stageSkinChoice, stageSkinPackIds } from '../tavern-plugin/lib/domain/stage-skin-choice.js'
+import { BUILTIN_STAGE_SKINS } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { inspectCardExtensions } from '../tavern-plugin/lib/domain/card-extension-reading.js'
 import { applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
@@ -134,7 +135,7 @@ test('the stage skin follows 本卡选择 → 卡默认 → 包默认 → 全局
   // 全局默认: a skin from a global pack, chosen in 舞台设置 › 默认皮肤.
   await f.rpc.setAssetPackState({ path: card, packId: other.manifest.id, state: 'global' })
   const choices = await f.rpc.getStageSkins({ path: card })
-  assert.deepEqual(choices.globalChoices.map(choice => choice.value), ['classic', ref(other, 'everyone')])
+  assert.deepEqual(choices.globalChoices.map(choice => choice.value), [...Object.keys(BUILTIN_STAGE_SKINS), ref(other, 'everyone')])
   await f.rpc.setStageSkin({ skin: ref(other, 'everyone') })
   assert.deepEqual(f.settings().stageSkin, ref(other, 'everyone'))
   assert.deepEqual(await drawn(), ref(other, 'everyone'))
@@ -148,7 +149,7 @@ test('the stage skin follows 本卡选择 → 卡默认 → 包默认 → 全局
   assert.deepEqual(await drawn(), ref(own, 'card-own'))
   // 本卡选择: the player's own, from the card's packs; 「跟随默认」 (null) goes back.
   const card_ = (await f.rpc.getStageSkins({ path: card })).card
-  assert.deepEqual(card_.choices.map(choice => choice.value), ['classic', ref(own, 'pack-default'), ref(own, 'card-own'), ref(own, 'mine')])
+  assert.deepEqual(card_.choices.map(choice => choice.value), [...Object.keys(BUILTIN_STAGE_SKINS), ref(own, 'pack-default'), ref(own, 'card-own'), ref(own, 'mine')])
   await f.rpc.setCardStageSkin({ path: card, skin: ref(own, 'mine') })
   assert.deepEqual(await f.stageSkinOf(card).then(({ skin, fallback, document }) => ({ skin, fallback, id: document.id })), { skin: ref(own, 'mine'), fallback: ref(own, 'card-own'), id: 'mine' })
   // A missing skin is passed over: each removal drops the stage one step down the order; nothing stored changes.
@@ -168,7 +169,7 @@ test('the stage skin follows 本卡选择 → 卡默认 → 包默认 → 全局
 test('a chosen skin is checked when it is chosen', async t => {
   const f = await fixture(t)
   const { pack } = await f.rpc.createAssetPack({ name: '包' })
-  await assert.rejects(f.rpc.setStageSkin({ skin: 'gothic' }), { code: 'INVALID_INPUT' })
+  await assert.rejects(f.rpc.setStageSkin({ skin: 'missing-skin' }), { code: 'INVALID_INPUT' })
   await assert.rejects(f.rpc.setStageSkin({ skin: { packId: pack.manifest.id, kind: 'skins', assetId: 'nope' } }), { code: 'ASSET_UNAVAILABLE' })
   await assert.rejects(f.rpc.setCardStageSkin({ path: 'cards/a.json', skin: { packId: pack.manifest.id, kind: 'music', assetId: 'x' } }), { code: 'INVALID_INPUT' })
   assert.throws(() => applyTavernSettingsPatch({}, { stageSkin: { packId: 'x' } }), /无效的默认皮肤/)

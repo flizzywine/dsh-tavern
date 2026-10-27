@@ -845,7 +845,7 @@ window.__ModuleLoader__.load({
 // @include-domain cast-stage-state.js
 // @include-domain stage-performance-playback.js
 // @include-domain stage-effects.js
-// @include-domain stage-skin.js
+// @include-protocol stage-skin.cjs
 // @include-domain stage-entrance.js
 // @include features/font-library.js
 // @include features/stage-skin.js

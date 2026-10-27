@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 
 const client = name => readFileSync(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')
 const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
@@ -95,7 +95,8 @@ test('a skin declares its wait lines and its menu transitions; the document stay
   rejects(skin({ transitions: { choices: { enter: { ms: 200 } } } }))
   rejects(skin({ transitions: { choices: {} } }))
   rejects(skin({ transitions: { choices: { enter: { ms: 200, fade: true, shapes: [] } } } }))
-  rejects(skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } }))
+  validateStageSkin(skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } }))
+  rejects(skin({ transitions: { unknown: { enter: { ms: 200, fade: true } } } }))
 })
 
 test('transitions.choices become the stage root\'s data-fk-tx and tokens; without them the engine\'s own motion stays', () => {

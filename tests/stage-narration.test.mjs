@@ -6,8 +6,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { BUILTIN_STAGE_SKINS, STAGE_NARRATION_INK, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 
+const STAGE_NARRATION_INK = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs', import.meta.url), 'utf8') + '; STAGE_NARRATION_INK')
 const client = name => readFileSync(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')
 const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const h = (type, props, ...children) => ({ type, props: props || {}, children: children.flat().filter(child => child !== null && child !== undefined) })

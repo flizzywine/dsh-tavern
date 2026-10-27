@@ -4,7 +4,7 @@
 // the tavern setting stageSkin) > 经典. A pack skin counts only while its pack still holds it: one that is gone (pack
 // deleted or unbound, skin removed) is passed over for the next in the order. Nothing stored is rewritten, so it applies
 // again once its skin is back. Selections are checked where they are written (validateStageSkinSelection), not here.
-import { BUILTIN_STAGE_SKINS } from './stage-skin.js'
+import { BUILTIN_STAGE_SKINS } from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { validateAssetRef } from '../asset-library/shared/asset-pack-refs.js'
 import { check } from '../asset-library/shared/asset-pack-json.js'
 

@@ -1,0 +1,195 @@
+{
+  "version": 3,
+  "target": {
+    "sessionId": "session",
+    "chatId": "chat",
+    "branchId": "branch",
+    "revision": 1,
+    "turn": 2,
+    "messageId": 4,
+    "messageIdentity": "message-4",
+    "swipeId": 0,
+    "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "prefixDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceKey": "source"
+  },
+  "publicationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "unitizerRevision": "dialogue-units-v1",
+  "canonicalEffectDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "provenance": {
+    "kind": "canonical-effect",
+    "sourceDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "units": 4,
+  "start": {
+    "scene": "room",
+    "sceneCleared": false,
+    "cast": [
+      "friend"
+    ],
+    "order": [
+      "friend"
+    ],
+    "outfits": {
+      "friend": ""
+    },
+    "positions": {
+      "friend": "auto"
+    },
+    "focus": {
+      "friend": "normal"
+    },
+    "look": {
+      "friend": "viewer"
+    },
+    "figureLight": {
+      "friend": "lit"
+    },
+    "music": "",
+    "weather": "none",
+    "soundscape": {
+      "scene": "room",
+      "weather": "none",
+      "tags": []
+    },
+    "light": "auto",
+    "lighting": {
+      "time": "auto",
+      "mood": "none"
+    },
+    "camera": {
+      "value": "reset"
+    },
+    "dof": "off",
+    "widgetState": {
+      "version": 1,
+      "time": 0,
+      "scene": "room",
+      "widgets": []
+    },
+    "phone": {
+      "messages": []
+    }
+  },
+  "changes": [
+    {
+      "at": 2,
+      "state": {
+        "scene": "room",
+        "sceneCleared": false,
+        "cast": [
+          "friend"
+        ],
+        "order": [
+          "friend"
+        ],
+        "outfits": {
+          "friend": ""
+        },
+        "positions": {
+          "friend": "auto"
+        },
+        "focus": {
+          "friend": "normal"
+        },
+        "look": {
+          "friend": "viewer"
+        },
+        "figureLight": {
+          "friend": "lit"
+        },
+        "music": "",
+        "weather": "rain",
+        "soundscape": {
+          "scene": "room",
+          "weather": "rain",
+          "tags": []
+        },
+        "light": "auto",
+        "lighting": {
+          "time": "auto",
+          "mood": "none"
+        },
+        "camera": {
+          "value": "reset"
+        },
+        "dof": "off",
+        "widgetState": {
+          "version": 1,
+          "time": 0,
+          "scene": "room",
+          "widgets": []
+        },
+        "phone": {
+          "messages": [
+            {
+              "unit": {
+                "publicationId": "pub",
+                "partId": "part",
+                "unitIndex": 1,
+                "sourceRange": [
+                  10,
+                  25
+                ],
+                "unitDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "contact": "friend",
+              "side": "in"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:2:0",
+      "at": 2,
+      "event": {
+        "op": "sfx",
+        "value": "bell"
+      }
+    },
+    {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:2:1",
+      "at": 2,
+      "event": {
+        "op": "title",
+        "value": "Arrival"
+      }
+    }
+  ],
+  "figureCatalog": {
+    "friend": {
+      "": [
+        {
+          "heightCm": 160,
+          "elevationCm": 0,
+          "headRatio": 1
+        }
+      ]
+    }
+  },
+  "soundscapeScenes": [
+    {
+      "name": "room",
+      "source": "card",
+      "libraryId": "",
+      "id": "room",
+      "soundscape": {
+        "place": "none",
+        "exposure": "indoor",
+        "warnings": []
+      }
+    }
+  ],
+  "rulesHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "metadata": {
+    "warnings": [],
+    "usage": {
+      "inputTokens": 30,
+      "outputTokens": 12,
+      "totalTokens": 42
+    }
+  }
+}

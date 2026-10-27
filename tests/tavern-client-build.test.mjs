@@ -20,10 +20,11 @@ for (const check of [false, true]) {
     const builder = path.join(root, 'bin/build-tavern-client.mjs')
     const template = path.join(root, 'tavern-plugin/src/client/main.js')
     const output = path.join(root, 'tavern-plugin/lib/client.js')
-    for (const directory of ['bin', 'tavern-plugin/src/client', 'tavern-plugin/lib/client-assets']) {
+    for (const directory of ['bin/lib', 'tavern-plugin/src/client', 'tavern-plugin/lib/client-assets']) {
       await mkdir(path.join(root, directory), { recursive: true })
     }
     await copyFile(new URL('../bin/build-tavern-client.mjs', import.meta.url), builder)
+    await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
     await writeFile(path.join(root, 'tavern-plugin/lib/client-assets/tavern.css'), '')
     for (const name of ['logo', 'lockup', 'lockup-dark']) await writeFile(path.join(root, `tavern-plugin/lib/client-assets/${name}.svg`), '<svg/>')
     const valid = 'const fixture = 1;\n'

@@ -1,6 +1,7 @@
 import { dialogueQuotes } from './cast-annotation.js'
 import { parseDialogueBubbles } from './dialogue-bubbles.js'
-import { STAGE_SCREEN_EFFECTS } from './stage-effects.js'
+import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
+const STAGE_SCREEN_EFFECTS = directorCommands.byName['screen.play'].schema({}).properties.effect.enum
 
 // Host-owned pages: one per non-empty row. A dialogue bubble row is its speaker's line (with its voice text when it has
 // one); an earlier turn's annotations decorate a row, but cannot change its address.

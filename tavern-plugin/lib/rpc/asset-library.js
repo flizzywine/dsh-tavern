@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { enforceTriggers } from '../asset-library/asset-packs/trigger-lint.js'
-import { BUILTIN_STAGE_SKINS } from '../domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS } from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { validateStageSkinSelection } from '../domain/stage-skin-choice.js'
 
 // The asset library's editor: 舞台素材 (every pack) and 舞台设置 › 素材包 (this card's packs).

@@ -5,7 +5,7 @@ import { imageKind, audioKind, imageDimensions, pngSize, wavInfo, STAGE_IMAGE_MA
 import path from 'node:path'
 import { BLOB_MIME_TYPES, validatePackIdentities, validatePackDocuments, computeContentHash, computeBundleHash, canonicalJson, parseJson, sha256 } from '../asset-packs/index.js'
 import { check, relativePath, compareCodePoints } from '../asset-packs/common.js'
-import { validateStageSkin, stageSkinFiles } from '../../domain/stage-skin.js'
+import { validateStageSkin, stageSkinFiles } from '../../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { validateSkinSvg } from './skin-svg.js'
 
 export const PACK_LIMITS = Object.freeze({ entries:20000, entrySize:512 * 1024 ** 2, ...PACK_BUDGET })

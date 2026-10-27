@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dsh.glyphs/1",
+  "title": "Decorative glyph set (dsh.glyphs/1)",
+  "description": "Outline glyphs for a substitution script. em = 1000, baseline y = 0, up is negative, fill even-odd. Consumed by the barrier module's typesetter for labels/decals/ritual text and (optionally) skin nameplate script lines.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "glyphs"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["name", "em", "fillRule", "rights"],
+      "properties": {
+        "schema": { "const": "dsh.glyphs/1" },
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$" },
+        "name": { "type": "string" },
+        "em": { "const": 1000 },
+        "fillRule": { "const": "evenodd" },
+        "privateUse": { "type": "boolean" },
+        "rights": { "type": "string" },
+        "source": { "type": "string" },
+        "uncertain": { "type": "object", "additionalProperties": { "type": "string" } },
+        "missing": { "type": "string" }
+      }
+    },
+    "glyphs": {
+      "type": "object",
+      "propertyNames": { "type": "string", "minLength": 1, "maxLength": 1 },
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["d", "w", "h", "adv"],
+        "properties": {
+          "d": { "type": "string", "pattern": "^M[-0-9 .MLZ]+$" },
+          "w": { "type": "number", "minimum": 0 }, "h": { "type": "number", "minimum": 0 }, "adv": { "type": "number", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

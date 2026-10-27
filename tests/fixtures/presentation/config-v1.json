@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "enabled": true,
+  "characters": [
+    {
+      "alias": "friend",
+      "name": "Friend",
+      "note": "",
+      "color": "#aabbcc",
+      "voice": "",
+      "voiceLang": "ja",
+      "avatar": "",
+      "moods": {},
+      "full": {},
+      "offstage": false,
+      "portrait": "",
+      "outfitLabel": "",
+      "outfits": [],
+      "heightCm": 160,
+      "heightBasis": "standing",
+      "heightNote": "fixture",
+      "placement": {
+        "elevationCm": 0
+      }
+    }
+  ],
+  "emotions": [],
+  "moods": [],
+  "injection": {
+    "template": "",
+    "extra": ""
+  },
+  "voice": {
+    "enabled": false
+  },
+  "stage": {
+    "textLanguage": "zh",
+    "theme": "classic",
+    "face": "always",
+    "background": "",
+    "music": true,
+    "widgets": true,
+    "director": false,
+    "directorModel": null,
+    "directorPrompt": "",
+    "directorBudget": {
+      "maxToolCalls": 6,
+      "maxBeatsPerCall": 8,
+      "maxOpsPerCall": 32
+    },
+    "widgetTuning": {},
+    "catalogue": {
+      "caps": {
+        "backgrounds": 24,
+        "sfx": 20,
+        "ambience": 10
+      },
+      "musicLibraryThreshold": 40
+    },
+    "sources": {
+      "backgrounds": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      },
+      "music": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      },
+      "sfx": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      },
+      "ambience": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      },
+      "looks": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      },
+      "widgets": {
+        "card": true,
+        "libraries": [
+          "general"
+        ]
+      }
+    }
+  },
+  "unknownExtension": {
+    "preserved": true
+  }
+}

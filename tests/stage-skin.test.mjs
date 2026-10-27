@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
-import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/lib/domain/stage-skin.js'
+import { BUILTIN_STAGE_SKINS, skinContrast, stageSkinImageOf, stageSkinSliceEdges, validateStageSkin } from '../tavern-plugin/packages/dsh-presentation-protocol/src/stage-skin.cjs'
 
 const interpreter = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/features/stage-skin.js', import.meta.url), 'utf8')
   + '; ({ stageSkinTokens, stageSkinQuickMenu, stageSkinPanelTokens, stageSkinRoot, stageSkinArt, stageSkinArtImages, stageSkinImages, stageSkinControlIcons })', { skinContrast, stageSkinImageOf, stageSkinSliceEdges })
-const schema = JSON.parse(readFileSync(new URL('../tavern-plugin/lib/domain/stage-skin.schema.json', import.meta.url), 'utf8'))
+const schema = JSON.parse(readFileSync(new URL('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json', import.meta.url), 'utf8'))
 const css = readFileSync(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 const classic = BUILTIN_STAGE_SKINS.classic
 const minimal = { schema: 'dsh.skin/1', id: 'sample-min', label: '示例', textbox: { paint: { bg: '#101418', fg: '#f2f2f2', accent: '#7fd0ff' } },
@@ -18,10 +18,10 @@ const art = extra => ({ screen: 1080, screenWidth: 1920, textbox: { images: { pl
 const frame = extra => ({ left: 40, bottom: 40, size: 240, frame: { image: 'art/frame.svg', left: 20, bottom: 20, ...extra } })
 
 test('经典 is an ordinary dsh.skin/1 document, and so is the smallest document a designer can write', () => {
-  assert.deepEqual(Object.keys(BUILTIN_STAGE_SKINS), ['classic'])
+  assert.deepEqual(Object.keys(BUILTIN_STAGE_SKINS), ['classic', 'gothic', 'magical', 'crt', 'aero'])
   assert.equal(validateStageSkin(classic), classic)
   assert.equal(classic.label, '经典')
-  assert.deepEqual(classic.font, { body: 'neo-xihei-screen' }, 'the font library\'s 霞鹜新晰黑')
+  assert.deepEqual(classic.font, { body: 'neo-xihei-screen', film: 'neo-xihei-screen' }, 'the font library\'s 霞鹜新晰黑')
   assert.equal(validateStageSkin(minimal), minimal)
 })
 
@@ -73,8 +73,9 @@ test('the portrait frame and the control row are generic parts: fill, a legible 
   rejects(skin({ quickMenu: { bg: '#101418', fg: '#f2f2f2', button: { normal: 'art/button.svg', glyph: [.2, .2, .6, .6] } } }))
 })
 
-test('performance themes, mod options and skin assets are not part of this document', () => {
-  for (const extra of [{ levels: { default: 1 } }, { overlay: {} }, { mods: {} }, { assets: {} }]) rejects(skin(extra))
+test('the shared contract accepts extension containers and rejects malformed ones', () => {
+  for (const extra of [{ levels: { default: 1, 1: {} } }, { mods: {} }, { assets: {} }]) validateStageSkin(skin(extra))
+  for (const extra of [{ levels: { default: 4 } }, { levels: { default: 1 } }, { overlay: {} }, { overlay: [] }, { mods: [] }, { assets: { unsafe: '../image.png' } }]) rejects(skin(extra))
 })
 
 test('the interpreter reads 经典 like any skin: paint, plate, rings and readable control chips', () => {
@@ -133,38 +134,12 @@ test('the stage draws only from skin tokens: no colour of its own on the box, pl
   assert.match(css, /\.dsh-tavern-stage-choice:has\(> \[data-action="generate"\]\) \{[^}]*background: color-mix\(in srgb, var\(--gal-ui-accent\) 14%, var\(--gal-ui-surface\)\)/)
 })
 
-// The JSON Schema mirror for editors and tools: a small walker of the keywords it uses.
-function schemaAccepts(value, s = schema, path = '$') {
-  if (s.$ref) return schemaAccepts(value, s.$ref.slice(2).split('/').reduce((o, k) => o[k], schema), path)
-  const type = Array.isArray(value) ? 'array' : value === null ? 'null' : Number.isInteger(value) ? 'integer' : typeof value
-  const ok = (s.type === undefined || [].concat(s.type).some(t => t === type || t === 'number' && type === 'integer'))
-    && (!('const' in s) || JSON.stringify(s.const) === JSON.stringify(value)) && (!s.enum || s.enum.some(x => JSON.stringify(x) === JSON.stringify(value)))
-    && (typeof value !== 'number' || (s.minimum === undefined || value >= s.minimum) && (s.maximum === undefined || value <= s.maximum))
-    && (typeof value !== 'string' || (!s.pattern || new RegExp(s.pattern, 'u').test(value)) && (s.maxLength === undefined || [...value].length <= s.maxLength))
-    && (!Array.isArray(value) || (s.minItems === undefined || value.length >= s.minItems) && (s.maxItems === undefined || value.length <= s.maxItems) && (!s.items || value.every(item => schemaAccepts(item, s.items))))
-    && (Array.isArray(value) || !value || typeof value !== 'object' || (s.required || []).every(key => Object.hasOwn(value, key))
-      && Object.entries(value).every(([key, item]) => Object.hasOwn(s.properties || {}, key) ? schemaAccepts(item, s.properties[key]) : s.additionalProperties === false ? false
-        : s.additionalProperties && typeof s.additionalProperties === 'object' ? schemaAccepts(item, s.additionalProperties) : true))
-  return ok && (!s.oneOf || s.oneOf.filter(choice => schemaAccepts(value, choice)).length === 1) && (!s.anyOf || s.anyOf.some(choice => schemaAccepts(value, choice)))
-}
-
-test('the JSON Schema mirror describes the same document: same fields, the generic parts, the same closed shape', () => {
+// Consumers use the package schema; schema semantics belong to the package tests.
+test('the upstream skin consumer uses the single package JSON Schema', () => {
   assert.equal(schema.$id, 'dsh.skin/1')
-  assert.deepEqual(schema.required, ['schema', 'id', 'label', 'textbox', 'nameplate', 'font', 'textFx'])
-  assert.deepEqual(Object.keys(schema.properties).sort(), ['art', 'cursor', 'dimListeners', 'duck', 'effects', 'figureSlots', 'figures', 'font', 'hud', 'id', 'label', 'license', 'maxFigures', 'modes', 'nameplate', 'quickMenu', 'schema', 'sfx', 'photosensitive', 'textFx', 'textStyle', 'textbox', 'transitions', 'ui', 'waitLines'].sort())
-  const name = { arc: [160, 200, 120], font: 30, min: 14, ink: '#f0e8d0', stroke: { color: '#201810', width: 2 }, shadow: { color: '#000000', dy: 2 }, bed: { color: '#000000', alpha: .4 } }
-  const documents = [classic, minimal, skin({ quickMenu: { bg: '#101418', fg: '#f2f2f2', place: 'box-top-right', narrow: 'top' } }),
-    skin({ art: art({ textbox: { ...art().textbox, slice: { edges: [8, 8, 8, 8] }, cue: [900, 40, 40], next: { image: 'art/next.png', frames: { columns: 4, rows: 1, fps: 8 } } } }) }),
-    skin({ art: art({ portrait: { ...frame({ fill: ['#304050', '#102030'], name }), narrow: { width: 96, x: 8, y: -40, name: 'arc', nameMin: 10 } } }) }),
-    skin({ textStyle: { narration: '#ffffff' }, art: art({ narration: { font: 30, pitch: 50, veil: .75, layout: 'free', ink: '#1d1a22', veilColor: '#f4efe6', halo: false } }) }),
-    skin({ art: art({ narration: { font: 30, pitch: 50, veil: .6, layout: 'band', halo: { blur: 2, color: '#000000' } } }) }),
-    skin({ duck: { voice: { music: -10, sfx: 0 }, sfx: { ambience: -6 } } }),
-    skin({ waitLines: ['灯影摇曳中', '正在翻开下一页'], transitions: { choices: { enter: { ms: 240, ease: [.2, 0, 0, 1], stagger: 40, pose: { dx: 8 }, fade: true }, leave: { ms: 300, wipe: { shape: 'circle', at: [.5, .5] } } } },
-      art: art({ choices: { images: { plain: 'art/bar.svg', off: 'art/bar-off.svg' }, slice: [10, 40, 10, 40], text: [60, 840, 40], font: 28, pitch: 40, gap: 12, anchor: 'stage', focus: { image: 'art/bar-on.svg' } } }) })]
-  for (const document of documents) { validateStageSkin(document); assert.ok(schemaAccepts(document), document.id) }
-  for (const document of [{ ...minimal, css: 'x' }, { ...minimal, overlay: {} }, skin({ art: art({ portrait: frame({ fill: 'red' }) }) }), skin({ waitLines: [' 留白'] }),
-    skin({ transitions: { choices: { enter: { ms: 200 } } } }), skin({ transitions: { choices: {} } }), skin({ transitions: { menu: { enter: { ms: 200, fade: true } } } }),
-    skin({ duck: { sfx: { sfx: -3 } } }), skin({ duck: { voice: { music: 3 } } }), skin({ duck: { ambience: { music: -3 } } })]) assert.equal(schemaAccepts(document), false)
+  const consumer = readFileSync(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/skin-overlay.cjs', import.meta.url), 'utf8')
+  assert.match(consumer, /require\('\.\.\/schema\/skin\.schema\.json'\)/)
+  assert.throws(() => readFileSync(new URL('../tavern-plugin/lib/domain/stage-skin.schema.json', import.meta.url)), { code: 'ENOENT' })
 })
 test('the art layer draws the skin\'s box, plate, cue and lamp from its decoded images, or not at all', () => {
   const document = skin({ art: art({ textbox: { ...art().textbox, images: { plain: 'art/box.png', narration: 'art/narration.png' }, cue: [1700, 230, 40], rise: 6,
