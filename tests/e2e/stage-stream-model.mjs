@@ -35,10 +35,11 @@ export function apply(ctx) {
       let block
       if (tools.has('stage_update')) {
         if (tools.size !== 1) throw Error('Director must expose only its submission tool')
-        const note = JSON.parse(text.split('\n').find(line => /^\{"(window|state)":/.test(line)))
-        const results = input.messages.filter(message => message.role === 'tool').flatMap(message => message.content || [])
+        const note = JSON.parse(text.split('\n').findLast(line => /^\{"(window|state)":/.test(line)))
+        const results = input.messages.slice(input.messages.findLastIndex(message => message.role === 'user') + 1)
+          .filter(message => message.role === 'tool').flatMap(message => message.content || [])
         const window = note.window || { sequence: 1, first: 1, through: 7 }
-        requests.push({ mode, window, reference: note.reference, bytes: {
+        requests.push({ sessionId: input.sessionId, mode, window, reference: note.reference, bytes: {
           system: Buffer.byteLength(input.messages.filter(message => message.role === 'system').flatMap(message => message.content || []).map(block => block.text || '').join('\n')),
           context: Buffer.byteLength(JSON.stringify(note)), reference: Buffer.byteLength(JSON.stringify(note.reference || {})),
           toolSchemaBytes: Buffer.byteLength(JSON.stringify(input.tools.find(tool => tool.name === 'stage_update').parameters)) } })

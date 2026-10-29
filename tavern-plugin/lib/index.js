@@ -2304,7 +2304,7 @@ export async function apply(ctx) {
     selection: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
     runAgent: input => backgroundAgentRunner.run(input),
     publish: publishStage })
-  const stageDirectorStream = createStageDirectorStream({ director: stageDirector, source: stageStreamSource, catalog: stageCatalog, publish: publishStage,
+  const stageDirectorStream = createStageDirectorStream({ openConversation: () => backgroundAgentRunner.conversation(), director: stageDirector, source: stageStreamSource, catalog: stageCatalog, publish: publishStage,
     warn: error => console.warn('dsh-tavern: 舞台流已停止', str(error?.message || error)) })
   const directorJobs = createSettlementJobs({ run: async (sessionId, signal) => {
     const body = await pluginTurns.readPendingTurn(sessionId)

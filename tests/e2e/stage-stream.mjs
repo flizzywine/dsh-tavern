@@ -84,6 +84,7 @@ try {
     if (!baseline) {
       assert.equal(final.turns.at(-1).key, first.turns.at(-1).key)
       assert.deepEqual(final.turns.at(-1).pages.slice(0, 5).map(page => page.text), first.turns.at(-1).pages.map(page => page.text))
+      assert.equal(new Set(audit.requests.map(request => request.sessionId)).size, 1, 'both windows and tool repair share one director session')
       assert.match(JSON.stringify(audit.receipts), /已封口/)
       assert.deepEqual(audit.requests[0].reference, audit.requests[1].reference)
     }

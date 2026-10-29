@@ -7,11 +7,12 @@ const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 
 // One operation owns at most two requests: five sealed rows, then the submitted remainder.
 // Only tool-accepted changes enter this memory projection; save remains the journal CAS.
-export function createStageDirectorStream({ director, source, catalog, publish = () => {}, warn = () => {} }) {
+export function createStageDirectorStream({ director, source, catalog, openConversation, publish = () => {}, warn = () => {} }) {
   const active = new Map()
   let disposed = false
   function close(owner) {
     owner.controller.abort()
+    void owner.conversation?.close().catch(warn)
     if (active.get(owner.sessionId) === owner) { active.delete(owner.sessionId); publish(owner.sessionId) }
   }
   async function current(owner) {
@@ -23,10 +24,11 @@ export function createStageDirectorStream({ director, source, catalog, publish =
     return next
   }
   async function window(owner, text, first) {
+    owner.conversation ||= openConversation()
     const sequence = owner.seals.length + 1
     const accepted = await director.run({ ...owner.body, text }, owner.controller.signal, {
       // `earlier`: this turn's accepted performances, counted against 每轮上限.
-      frozen: owner.frozen, previous: owner.state, sequence, first, earlier: owner.events,
+      conversation: owner.conversation, frozen: owner.frozen, previous: owner.state, sequence, first, earlier: owner.events,
       async accept(value, context) {
         await current(owner)
         if (context.signal?.aborted || context.stopped()) throw stale()

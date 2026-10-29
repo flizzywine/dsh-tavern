@@ -180,7 +180,7 @@ export function createStageDirector({ enabled, turns, data, catalog, binding, co
     if (!request) return false
     if (!request.model) { request.close(); return false }
     try {
-      await runAgent({ task: 'stage-director', persistent: false, sessionId: body.sessionId, turn: body.turn,
+      await runAgent({ task: 'stage-director', persistent: false, conversation: window?.conversation, sessionId: body.sessionId, turn: body.turn,
         selection: request.model, signal, webSearchEnabled: false, system: request.system, turnContext: request.turnContext,
         messages: [{ role: 'assistant', content: [{ type: 'text', text: request.pages.map(page => '[' + page.at + '] ' + stagePageText(page)).join('\n') }] }], tools: [request.tool],
         stopToolsWhen: request.done, acceptWithoutText: request.done,

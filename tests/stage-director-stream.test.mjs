@@ -26,7 +26,7 @@ async function fixture(run) {
     const chat = await h.read(), operation = chat.timeline.operations.body
     return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId, revision: chat.timeline.revision }
   }
-  const stream = createStageDirectorStream({ director: h.director, source, catalog: async () => assets, warn: error => errors.push(error.message) })
+  const stream = createStageDirectorStream({ director: h.director, openConversation: () => ({ close: async () => {} }), source, catalog: async () => assets, warn: error => errors.push(error.message) })
   async function submit(finalText = text) {
     await h.persistence.update('story', chat => { chat.messages.push({ role: 'assistant', turn: 2, text: finalText }); chat.timeline.revision++; chat.timeline.operations.body.status = 'completed'; return chat })
     return h.body()
