@@ -2,7 +2,10 @@ import { projectedSceneText } from './scene-illustration.js'
 import { stagePages } from './stage-performance.js'
 import { foldStageState } from './cast-stage-state.js'
 
-const stale = () => Object.assign(Error('Stage source changed or stream closed'), { retryable: false })
+const stopped = message => Object.assign(Error(message), { retryable: false })
+// The log names why the director stopped; a model runner aborted underneath only reports a generic stop.
+const SOURCE_CHANGED = '舞台导演已停止：本轮正文已变化'
+const INTERRUPTED = '舞台导演已停止：正文生成已中止或已开始新的正文'
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 
 // One operation owns at most two requests: five sealed rows, then the submitted remainder.
@@ -14,12 +17,18 @@ export function createStageDirectorStream({ director, source, catalog, publish =
     owner.controller.abort()
     if (active.get(owner.sessionId) === owner) { active.delete(owner.sessionId); publish(owner.sessionId) }
   }
+  // Closing with a reason keeps what actually stopped this owner for the log.
+  function stop(owner, message) { owner.reason ||= stopped(message); close(owner) }
+  const stale = owner => owner.reason || stopped('Stage stream closed')
+  // The director depends on this round's body operation and branch (and, at commit, its prose), not on
+  // the story revision: choices, 手动记账 or 人物设计 committing meanwhile leave it valid.
+  // Whichever caller notices the change first (a preview, a tool call, a new request) stops it with that reason.
   async function current(owner) {
-    if (disposed || active.get(owner.sessionId) !== owner || owner.controller.signal.aborted) throw stale()
+    if (disposed || active.get(owner.sessionId) !== owner || owner.controller.signal.aborted) throw stale(owner)
     const next = await source(owner.sessionId, owner.turn)
     if (!next || next.operationId !== owner.operationId || next.branchId !== owner.branchId ||
-        next.revision !== owner.revision + (next.status === 'completed' ? 1 : 0) || !['running', 'completed'].includes(next.status)) throw stale()
-    if (active.get(owner.sessionId) !== owner || owner.controller.signal.aborted) throw stale()
+        !['running', 'completed'].includes(next.status)) { stop(owner, SOURCE_CHANGED); throw owner.reason }
+    if (active.get(owner.sessionId) !== owner || owner.controller.signal.aborted) throw stale(owner)
     return next
   }
   async function window(owner, text, first) {
@@ -29,7 +38,7 @@ export function createStageDirectorStream({ director, source, catalog, publish =
       frozen: owner.frozen, previous: owner.state, sequence, first, earlier: owner.events,
       async accept(value, context) {
         await current(owner)
-        if (context.signal?.aborted || context.stopped()) throw stale()
+        if (context.signal?.aborted || context.stopped()) throw stale(owner)
         const delta = value.delta
         for (const field of ['background', 'music']) if (Object.hasOwn(delta, field)) owner.delta[field] = delta[field]
         if (Object.hasOwn(delta, 'figures')) {
@@ -50,7 +59,7 @@ export function createStageDirectorStream({ director, source, catalog, publish =
     if (disposed || !origin || origin.status !== 'running') return null
     let owner = active.get(sessionId)
     if (owner?.operationId !== origin.operationId) {
-      if (owner) close(owner)
+      if (owner) stop(owner, SOURCE_CHANGED)
       const body = { ...origin, sessionId, turn, key: 'stage-stream:' + origin.operationId, text: '' }
       const frozen = await director.freeze(body)
       if (disposed || !frozen?.model) return null
@@ -78,9 +87,9 @@ export function createStageDirectorStream({ director, source, catalog, publish =
         owner.pages = pages.slice(0, 5)
         owner.prefix = owner.pages.map(page => page.text)
         publish(sessionId)
-        owner.work = window(owner, owner.prefix.join('\n'), 1).catch(error => { close(owner); warn(error) })
+        owner.work = window(owner, owner.prefix.join('\n'), 1).catch(error => { warn(owner.reason || error); close(owner) })
       },
-      cancel() { close(owner) }
+      cancel() { stop(owner, INTERRUPTED) }
     }
   }
   async function finish(body, signal) {
@@ -88,13 +97,13 @@ export function createStageDirectorStream({ director, source, catalog, publish =
     if (!owner || owner.turn !== body.turn) return false
     if (owner.finishing) return true
     owner.finishing = true
-    const abort = () => close(owner)
+    const abort = () => stop(owner, INTERRUPTED)
     signal?.addEventListener('abort', abort, { once: true })
     try {
-      if (signal?.aborted) throw stale()
+      if (signal?.aborted) abort()
       await current(owner)
       const pages = stagePages(body.text)
-      if (owner.prefix && !same(owner.prefix, pages.slice(0, 5).map(page => page.text))) throw stale()
+      if (owner.prefix && !same(owner.prefix, pages.slice(0, 5).map(page => page.text))) throw stopped(SOURCE_CHANGED)
       owner.pages = pages
       publish(body.sessionId)
       await owner.work
@@ -104,24 +113,32 @@ export function createStageDirectorStream({ director, source, catalog, publish =
       await current(owner)
       await director.save({ ...body, operationId: owner.operationId }, {
         delta: owner.delta, performances: owner.events, presentationKey: owner.body.key, seals: owner.seals
-      }, { branchId: owner.branchId, revision: owner.revision + 1 }, {
+      }, { branchId: owner.branchId }, {
         signal: owner.controller.signal, stopped: () => active.get(owner.sessionId) !== owner,
         async checkDependencies() {
           if (!same(await catalog(body.sessionId), owner.frozen.assets) ||
-              !same(await director.state(body.sessionId, body.turn - 1), owner.frozen.previous)) throw stale()
+              !same(await director.state(body.sessionId, body.turn - 1), owner.frozen.previous)) throw stopped('舞台导演已停止：素材或上一轮舞台已变化')
         }
       })
-    } catch (error) { warn(error) }
+    } catch (error) { warn(owner.reason || error) }
     finally { signal?.removeEventListener('abort', abort); close(owner) }
     return true
   }
   async function preview(sessionId) {
     const owner = active.get(sessionId)
     if (!owner || !owner.pages.length) return null
-    try { await current(owner) } catch { close(owner); return null }
+    try { await current(owner) } catch { return null }
     return structuredClone({ turn: owner.turn, key: owner.body.key, pages: owner.pages, performances: owner.events, state: owner.state })
   }
-  return Object.freeze({ begin, finish, preview, cancel(sessionId, turn) { const owner = active.get(sessionId); if (owner && (turn === undefined || owner.turn === turn)) close(owner) }, dispose() { disposed = true; for (const owner of active.values()) close(owner) } })
+  // A turn's own end interrupts it. A new foreground request interrupts a round whose prose still stands;
+  // over a regenerated, edited or rolled back round, `current` stops it because the prose changed.
+  async function cancel(sessionId, turn) {
+    const owner = active.get(sessionId)
+    if (!owner || (turn !== undefined && owner.turn !== turn)) return
+    if (turn === undefined) try { await current(owner) } catch { return }
+    stop(owner, INTERRUPTED)
+  }
+  return Object.freeze({ begin, finish, preview, cancel, dispose() { disposed = true; for (const owner of active.values()) close(owner) } })
 }
 
 // Buffer while the frozen snapshot is prepared; never hold up foreground token delivery.

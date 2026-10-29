@@ -47,19 +47,29 @@ test('narration-only turns and fresh instances retain state; explicit clears rem
   assert.deepEqual(await h.director.state('game', 4), emptyStageState())
 })
 
-for (const change of ['text', 'branch', 'revision', 'next-turn', 'cancel', 'stopped']) test('stale or cancelled tool cannot publish: ' + change, async () => {
+for (const change of ['text', 'branch', 'regenerate', 'next-turn', 'cancel', 'stopped']) test('stale or cancelled tool cannot publish: ' + change, async () => {
   const h = await setup(), request = await h.prepare()
   if (change === 'stopped') request.close()
   else if (change !== 'cancel') await h.persistence.update('story', current => {
     if (change === 'text') current.messages.at(-1).text = 'Replaced.'
     if (change === 'branch') current.timeline.branchId = 'other'
-    if (change === 'revision') current.timeline.revision++
+    // A new body operation for this turn, even with byte-identical prose.
+    if (change === 'regenerate') current.timeline.operations = { again: { id: 'again', kind: 'body', status: 'completed', turn: 2 } }
     if (change === 'next-turn') current.messages.push({ role: 'assistant', turn: 3, text: 'Later.' })
     return current
   })
-  assert.equal((await request.call(delta(), change === 'cancel' ? AbortSignal.abort() : undefined)).ok, false)
+  const receipt = await request.call(delta(), change === 'cancel' ? AbortSignal.abort() : undefined)
+  assert.equal(receipt.ok, false)
+  if (['text', 'regenerate'].includes(change)) assert.equal(receipt.error, '舞台导演已停止：本轮正文已变化')
   assert.equal(await h.data.snapshot('story'), null)
   assert.equal(h.stats().published, 0)
+})
+
+test('a commit that moves only the story revision (choices, 手动记账, 人物设计) leaves the director valid', async () => {
+  const h = await setup(), request = await h.prepare()
+  await h.persistence.update('story', current => { current.timeline.revision++; current.ledger = { gold: 3 }; return current })
+  assert.deepEqual(await request.call(delta()), { ok: true })
+  assert.equal((await h.director.state('game', 2)).music, 'Theme')
 })
 
 test('rollback, replaced history and another game do not read obsolete director records', async () => {

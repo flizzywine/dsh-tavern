@@ -2283,7 +2283,7 @@ export async function apply(ctx) {
     if (!chat || chat.regenInProgress) return null
     const operation = Object.values(chat.timeline?.operations || {}).filter(item => item.kind === 'body' && Number(item.turn) === Number(turn)).at(-1)
     if (!operation || !chat.foregroundFrames?.[operation.id]) return null
-    return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId, revision: chat.timeline.revision }
+    return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId }
   }
   // 舞台模式 › 判断模型: the key comes from the DSH credential service; the log has codes, counts and usage, never the key.
   const stageJudge = createEngineJudge({ getConfig: async () => (await readTavernSettings()).stageJudge, credentials: () => ctx.get('credentials'),
@@ -3140,8 +3140,8 @@ export async function apply(ctx) {
     queueBackground: queueSettlement,
     directRound: bodyCommitted,
     afterReply: sessionId => polishPrereview.start(sessionId),
-    cancelDirector: (sessionId, turn) => {
-      stageDirectorStream.cancel(sessionId, turn)
+    cancelDirector: async (sessionId, turn) => {
+      await stageDirectorStream.cancel(sessionId, turn)
       if (turn === undefined) return directorJobs.cancel(sessionId, { wait: false })
     },
     waitBackground: chatId => Promise.all([settlementJobs.pending(chatId), settlementRun.pluginTaskJob(chatId)]),

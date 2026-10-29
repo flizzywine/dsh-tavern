@@ -10,6 +10,7 @@ async function fixture(run) {
   const assets = { player: 'Reader', cast: [{ name: 'Nora' }], background: [{ name: 'Room' }], music: [{ name: 'Theme' }] }
   const reference = { input: 'Continue.', cardContext: 'Frozen card.', activeWorldbook: 'Frozen lore.', currentStateProjection: 'Before settlement.' }
   const prompts = [], receipts = [], errors = []
+  let regenerating = false
   const h = await stageDirectorFixture({ id: 'story', sessionId: 'game', mode: 'story', timeline: {
     branchId: 'branch', revision: 1, operations: { body: { id: 'body', kind: 'body', status: 'running', turn: 2 } }
   }, messages: [{ role: 'assistant', turn: 1, text: 'Opening.' }] }, assets, {
@@ -23,6 +24,8 @@ async function fixture(run) {
     }
   })
   const source = async () => {
+    // Like the host, a regenerating chat has no current round.
+    if (regenerating) return null
     const chat = await h.read(), operation = chat.timeline.operations.body
     return { chatId: chat.id, operationId: operation.id, status: operation.status, branchId: chat.timeline.branchId, revision: chat.timeline.revision }
   }
@@ -31,7 +34,7 @@ async function fixture(run) {
     await h.persistence.update('story', chat => { chat.messages.push({ role: 'assistant', turn: 2, text: finalText }); chat.timeline.revision++; chat.timeline.operations.body.status = 'completed'; return chat })
     return h.body()
   }
-  return { ...h, stream, submit, source, prompts, receipts, errors, reference }
+  return { ...h, stream, submit, source, prompts, receipts, errors, reference, regenerate: () => { regenerating = true } }
 }
 
 test('five complete rows start before body submission; only accepted prefixes render, final CAS persists both windows', async () => {
@@ -104,6 +107,75 @@ for (const change of ['prefix', 'catalog', 'branch', 'operation', 'cancel']) tes
   assert.equal(await h.data.snapshot('story'), null)
   assert.equal(await h.stream.preview('game'), null)
   assert.ok(h.errors.length)
+})
+
+for (const moment of ['streaming', 'finishing']) test('choices or bookkeeping moving the story revision do not stop the director: ' + moment, async () => {
+  const bump = () => h.persistence.update('story', chat => { chat.timeline.revision++; return chat })
+  const h = await fixture(async ({ context, call }) => {
+    if (moment === 'finishing' && context.window.sequence === 2) await bump()
+    await call(context.window.sequence === 1 ? { figures: [{ speaker: 'Nora' }], music: 'Theme' } : { performances: [{ at: 6, op: 'actor.act.play', actor: 'Nora', motion: 'jump' }] })
+  })
+  ;(await h.stream.begin('game', 2)).append(text)
+  await until(() => h.receipts.length === 1)
+  if (moment === 'streaming') await bump()
+  const body = await h.submit()
+  if (moment === 'streaming') await bump()
+  await h.stream.finish(body)
+  assert.deepEqual(h.errors, [])
+  assert.deepEqual((await h.director.presentation('game', 2, body.key)).performances.map(event => event.at), [6])
+  assert.equal((await h.director.state('game', 2)).music, 'Theme')
+})
+
+test('a stopped director logs what stopped it, not the runner\'s generic stop', async () => {
+  let release
+  const blocked = new Promise(resolve => { release = resolve })
+  const h = await fixture(async ({ input }) => {
+    await blocked
+    if (input.signal.aborted) throw Error('后台任务已停止；已生成的正文保留，可重新结算。')
+  })
+  ;(await h.stream.begin('game', 2)).append(text)
+  await until(() => h.prompts.length === 1)
+  // Regenerating starts a new body operation for the same turn.
+  await h.persistence.update('story', chat => { chat.timeline.operations.body.id = 'again'; return chat })
+  await h.stream.begin('game', 2)
+  release()
+  await until(() => h.errors.length === 1)
+  assert.deepEqual(h.errors, ['舞台导演已停止：本轮正文已变化'])
+})
+
+// Regenerating marks the chat (the source reports no round) before its new request starts; a preview or
+// the new request's cancel may notice first, and either must log the prose change.
+for (const noticedBy of ['preview', 'new request']) test('a regenerate during the second window logs that the prose changed: ' + noticedBy, async () => {
+  let release
+  const blocked = new Promise(resolve => { release = resolve })
+  const h = await fixture(async ({ context, input, call }) => {
+    if (context.window.sequence === 1) return void await call({ music: 'Theme' })
+    await blocked
+    if (input.signal.aborted) throw Error('后台任务已停止；已生成的正文保留，可重新结算。')
+  })
+  ;(await h.stream.begin('game', 2)).append(text)
+  await until(() => h.receipts.length === 1)
+  const finished = h.stream.finish(await h.submit())
+  await until(() => h.prompts.length === 2)
+  h.regenerate()
+  if (noticedBy === 'preview') assert.equal(await h.stream.preview('game'), null)
+  else await h.stream.cancel('game')
+  release()
+  await finished
+  assert.deepEqual(h.errors, ['舞台导演已停止：本轮正文已变化'])
+  assert.equal(await h.data.snapshot('story'), null)
+})
+
+test('a new request after a round that still stands logs the interruption', async () => {
+  let release
+  const blocked = new Promise(resolve => { release = resolve })
+  const h = await fixture(async ({ input }) => { await blocked; if (input.signal.aborted) throw Error('generic') })
+  ;(await h.stream.begin('game', 2)).append(text)
+  await until(() => h.prompts.length === 1)
+  await h.stream.cancel('game')
+  release()
+  await until(() => h.errors.length === 1)
+  assert.deepEqual(h.errors, ['舞台导演已停止：正文生成已中止或已开始新的正文'])
 })
 
 for (const count of [3, 5]) test('short or exact-five body needs only one director request: ' + count, async () => {
