@@ -4,7 +4,7 @@
 // pack manifest, figures, sprites, the card's own assets) follows. With --drop-live2d the
 // Live2D models go (the sample card shows static standing pictures); other bundles stay.
 // The card carries no plugin: Tavern's stage draws it from its bound packs, so an earlier build's galgame
-// plugin and its retired defaults.stage are dropped. Needs cwebp and ffmpeg (with libopus) on PATH.
+// plugin is dropped, and the card declares the stage (defaults.stage). Needs cwebp and ffmpeg (with libopus) on PATH.
 //
 //   node examples/dafeiyu-card/compress.mjs 大肥鱼.source.dshcard 大肥鱼.dshcard --drop-live2d
 import { execFile } from 'node:child_process'
@@ -50,7 +50,8 @@ const dsh = JSON.parse(files.get('dsh.json').toString('utf8'))
 // No card plugin any more (Tavern's stage draws the card from its packs): drop an earlier build's.
 for (const file of [...files.keys()]) if (file.startsWith('plugins/')) files.delete(file)
 delete dsh.plugins
-if (dsh.defaults) delete dsh.defaults.stage
+// The card uses Tavern's stage: 对话气泡 and 舞台模式 come on for it when imported.
+dsh.defaults = { ...(dsh.defaults || {}), stage: true }
 
 // Live2D models: their bundle files, the manifest's bundle entries and each outfit's binding.
 if (dropLive2d) {

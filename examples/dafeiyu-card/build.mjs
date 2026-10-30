@@ -63,7 +63,9 @@ entries.push({ path: 'dsh.json', content: JSON.stringify({
   card: { version: '1.0.0', title: data.name, author: data.creator || '' },
   requires: { tavernApi: 2 },
   // A new game starts with the stage-friendly preset and settlement on; no status bar, no web search.
+  // stage: this card uses Tavern's stage (对话气泡 and 舞台模式 come on for it when imported).
   defaults: {
+    stage: true,
     preset: { path: 'presets/dafeiyu-stage.json', title: '大肥鱼 · 舞台演出' },
     settings: { statusBarPlacement: 'sidebar', backgroundTasks: { posture: true, variables: true }, webSearch: false, sceneImages: false }
   },

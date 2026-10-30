@@ -39,8 +39,8 @@ test('hello example builds a real archive with the plugin package identity', asy
   assert.equal(pkg.version, '1.0.0')
 })
 
-// 大肥鱼 carries no plugin: Tavern's stage draws it from its bound packs. The compressor also strips
-// an earlier build's galgame plugin and its retired defaults.stage.
+// 大肥鱼 carries no plugin: Tavern's stage draws it from its bound packs, and it declares the stage
+// (defaults.stage). The compressor also strips an earlier build's galgame plugin.
 test('dafeiyu build and distribution compressor produce a card without a plugin in real ZIPs', async t => {
   const dir = await temp(t)
   const source = path.join(dir, 'bundle.zip'), built = path.join(dir, 'source.dshcard'), distributed = path.join(dir, 'distributed.dshcard')
@@ -59,12 +59,13 @@ test('dafeiyu build and distribution compressor produce a card without a plugin 
   assert.equal(result.status, 0, result.stderr)
   let card = await archive(built)
   assert.equal(card.dsh.plugins, undefined)
+  assert.equal(card.dsh.defaults.stage, true)
   assert.equal(card.paths.some(file => file.startsWith('plugins/')), false)
   // A card built before: it still carries the plugin and asks for the stage.
   const zip = await openZipFile(built), entries = []
   for (const entry of zip.entries.values()) entries.push({ path: entry.path, content: await zip.readBuffer(entry, 64 * 1024 * 1024) })
   await zip.close()
-  const dsh = { ...card.dsh, plugins: [{ name: 'dsh-card-dafeiyu-galgame', path: 'plugins/galgame/' }], defaults: { ...card.dsh.defaults, stage: true } }
+  const dsh = { ...card.dsh, plugins: [{ name: 'dsh-card-dafeiyu-galgame', path: 'plugins/galgame/' }], defaults: { ...card.dsh.defaults, stage: undefined } }
   const old = path.join(dir, 'old.dshcard')
   await writeFile(old, writeZipEntries([...entries.filter(entry => entry.path !== 'dsh.json'), { path: 'dsh.json', content: JSON.stringify(dsh) },
     { path: 'plugins/galgame/package.json', content: JSON.stringify({ name: 'dsh-card-dafeiyu-galgame', version: '1.0.0' }) }]))
@@ -72,7 +73,7 @@ test('dafeiyu build and distribution compressor produce a card without a plugin 
   assert.equal(result.status, 0, result.stderr)
   card = await archive(distributed)
   assert.equal(card.dsh.plugins, undefined)
-  assert.equal(card.dsh.defaults.stage, undefined)
+  assert.equal(card.dsh.defaults.stage, true)
   assert.equal(card.paths.some(file => file.startsWith('plugins/')), false)
 })
 

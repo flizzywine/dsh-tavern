@@ -297,3 +297,25 @@ test('old staged manifests are checked before any installed plugin is replaced',
   await assert.rejects(plugins.enable({ cardKey: 'card', cardPath: 'cards/b.json', plugins: staged }), /version/)
   assert.deepEqual(JSON.parse(await readFile(join(pluginsDir, folder, '.dsh-card.json'), 'utf8')).cards, ['cards/a.json'])
 })
+
+// dsh.json defaults.stage: the card uses Tavern's stage. It becomes the card's own declaration, so its games have
+// 对话气泡 and 舞台模式 with no player switch; a card without the extension gets one binding the package's packs.
+test('卡包声明 defaults.stage 时，人物卡自己带上对话气泡与舞台模式；不声明的卡没有', async t => {
+  const { writeZipEntries } = await import('../tavern-plugin/lib/domain/zip-entries.js')
+  const dir = await mkdtemp(join(tmpdir(), 'dshcard-stage-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const packId = '8eb406da-b0af-4070-9e67-8e056c5e9b2e'
+  const read = async (dsh, card) => {
+    const file = join(dir, 'card-' + Math.random().toString(36).slice(2) + '.dshcard')
+    await writeFile(file, writeZipEntries([{ path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, ...dsh }) },
+      { path: 'card.json', content: JSON.stringify(card) }]))
+    const zip = await openZipFile(file)
+    try { return (await readCardArchive(zip)).card } finally { await zip.close() }
+  }
+  const ordinary = await read({}, { data: { name: 'A' } })
+  assert.equal(ordinary.data.extensions, undefined)
+  const bound = await read({ defaults: { stage: true } }, { data: { name: 'B', extensions: { dsh_tavern: { schemaVersion: 1, assetBindings: { boundPackIds: [packId] }, stage: { widgets: false } } } } })
+  assert.deepEqual(bound.data.extensions.dsh_tavern.stage, { widgets: false, dialogue: true, stage: true })
+  const fresh = await read({ defaults: { stage: true }, packs: [{ id: packId, path: 'assets/a/' }] }, { data: { name: 'C' } })
+  assert.deepEqual(fresh.data.extensions.dsh_tavern, { schemaVersion: 1, assetBindings: { boundPackIds: [packId] }, stage: { dialogue: true, stage: true } })
+})
