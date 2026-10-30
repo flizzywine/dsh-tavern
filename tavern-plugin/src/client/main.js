@@ -995,9 +995,14 @@ window.__ModuleLoader__.load({
 			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
 			window.__dshTavernLoaded = true;
             installTavernPresentation(ctx);
+            // The stage's registrations ride on this boot, where one throw fails the whole web boot (DSH treats a
+            // throwing apply as a plugin load failure). A stage that cannot start is reported; the chat still starts.
+            const stageEffect = (run, label) => ctx.effect(() => {
+                try { return run(); } catch (error) { tavernErrorHub.report("舞台", error); }
+            }, label);
             // Local debug capture delegates to the same session and stage routes as the UI.
             // No endpoint, cursor writer or replay protocol: live never installs this adapter.
-            ctx.effect(() => {
+            stageEffect(() => {
                 // Debug launch fills this marker only in its isolated code copy; normal builds stay null.
                 const captureSlot = /* dsh-debug-capture-slot */ null;
                 if (!captureSlot) return;
@@ -1029,7 +1034,7 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
 			const slots = ctx.slots;
 			if (slots === undefined) return;
-			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
+			if (ctx.betterSidebar) stageEffect(() => registerTab(ctx.betterSidebar, {
 				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
 				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
 				icon: function (size) { const s = size || 16; return React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
@@ -1072,8 +1077,8 @@ window.__ModuleLoader__.load({
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
             // one input runtime per open native session, independent of React.
-            ctx.effect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
-            ctx.effect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
+            stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
+            stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
