@@ -76,7 +76,6 @@ test('改写角色按 DSL 编号恢复 metadata，补回缺失编号且不改变
 
 test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色数据编译一次', async t => {
   const temp = await mkdtemp(join(tmpdir(), 'dsh-image-redraw-'))
-  t.after(() => rm(temp, { recursive: true, force: true }))
   const packageSource = new URL('../tavern-plugin/packages/dsh-tavern-image-bundled/', import.meta.url)
   const packagePath = join(temp, 'plugin')
   await cp(packageSource, packagePath, { recursive: true })
@@ -104,7 +103,6 @@ test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色�
     imageChannels: [{ id: 'test-nai', name: 'test', provider: 'novelai', enabled: true, baseUrl: 'https://image.test', apiKey: 'test-key', options: {} }],
     promptMode: 'tags', traitMode: 'default',
   })
-  t.after(() => { for (const dispose of disposeHandlers.splice(0).reverse()) dispose(); for (const dispose of disposers.splice(0).reverse()) dispose() })
   const handler = routes.get('/plugins/dsh-tavern-image/redraw')
   assert.equal(typeof handler, 'function')
   const oldFetch = globalThis.fetch
@@ -113,9 +111,15 @@ test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色�
     payloads.push(JSON.parse(init.body))
     return new Response(PNG, { status: 200, headers: { 'content-type': 'image/png' } })
   }
-  // The plugin's job runner keeps going after the test; stop it before the real fetch is back, or a late job
-  // reaches the network (image.test) and keeps the process alive.
-  t.after(() => { for (const dispose of disposeHandlers.splice(0).reverse()) dispose(); for (const dispose of disposers.splice(0).reverse()) dispose(); globalThis.fetch = oldFetch })
+  // One cleanup, in order. The plugin's job runner keeps going after the test: stop it before the real fetch is back
+  // (a late job would reach image.test and keep the process alive), and only then remove its folder, retrying while
+  // a last job file is still being written.
+  t.after(async () => {
+    for (const dispose of disposeHandlers.splice(0).reverse()) dispose()
+    for (const dispose of disposers.splice(0).reverse()) dispose()
+    globalThis.fetch = oldFetch
+    await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  })
   const request = (route, body, method = 'POST') => new Promise((resolve, reject) => {
     const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
     Object.assign(request, { url: route, method, headers: { host: 'localhost', 'content-type': 'application/json' } })
