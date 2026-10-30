@@ -5,29 +5,29 @@
    Upstream tavern.css stays untouched so upstream merges do not conflict.
    ========================================================================== */
 
-/* The visual layer's tokens, from the host --dsw-* palette. Declared on <body> where the host tokens live,
-   and again on stage roots so a stage scheme re-resolves them. */
+/* The visual layer's tokens. Colours, radii and the UI font come from the public --dsh-tavern-* tokens (tavern.css,
+   themselves from the host --dsw-* palette), so an interface skin that sets either reaches this layer too.
+   Declared on <body> where the host tokens live, and again on stage roots so a stage scheme re-resolves them. */
 body,
 [data-ds-dark-theme],
 [data-dsh-card-stage-scheme] {
-  --fork-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --fork-font-ui: var(--dsh-tavern-font-sans);
   --fork-font-reading: var(--fork-font-reading-resolved, var(--fork-font-ui));
   --fork-reading-size: 17px;
   --fork-reading-leading: 1.9;
   --fork-reading-width: 720px;
-  /* Follows the active skin's brand colour (default DSH skin: DeepSeek blue). */
-  --fork-accent: var(--dsw-alias-brand-primary, var(--dsw-alias-button-info-fill, #4176e6));
+  --fork-accent: var(--dsh-tavern-accent, var(--dsw-alias-button-info-fill, #4176e6));
   --fork-accent-soft: color-mix(in srgb, var(--fork-accent) 12%, transparent);
-  --fork-hairline: var(--dsw-alias-border-l2);
+  --fork-hairline: var(--dsh-tavern-accent-hairline);
   --fork-hover: var(--dsw-alias-interactive-bg-hover);
-  --fork-ink: var(--dsw-alias-label-primary);
-  --fork-ink-2: var(--dsw-alias-label-secondary);
+  --fork-ink: var(--dsh-tavern-accent-ink);
+  --fork-ink-2: var(--dsh-tavern-accent-muted);
   --fork-ink-3: var(--dsw-alias-label-tertiary);
-  --fork-surface: var(--dsw-alias-bg-base);
+  --fork-surface: var(--dsh-tavern-accent-cream);
   --fork-surface-2: var(--dsw-specific-sidebar-fill);
   --fork-raised: var(--dsw-specific-input-major);
-  --fork-radius: 8px;
-  --fork-radius-lg: 12px;
+  --fork-radius: var(--dsh-tavern-radius-md);
+  --fork-radius-lg: var(--dsh-tavern-radius-lg);
   --fork-ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
 body {
@@ -86,7 +86,7 @@ body {
 /* the semantic tokens of the UI standard that had no single name.
    Declared on every context root so var() resolves against that context's re-pointed --fork-* inks. Values only alias
    existing host / fork paints; nothing reads them yet except new code (phase 2 migrates the per-component copies). */
-:where(body, [data-fk-context], .fk-surface, .ap-ui, .ap-layer) {
+:where(body, [data-dsh-card-stage-scheme], [data-fk-context], .fk-surface, .ap-ui, .ap-layer) {
   --fork-state-global: var(--dsw-alias-button-info-fill, #4176e6);
   --fork-state-card: var(--dsw-alias-state-success-primary, #2e9d5b);
   --fork-state-off: var(--fork-ink-3);

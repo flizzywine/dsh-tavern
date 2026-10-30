@@ -1,5 +1,7 @@
-/* Tavern components share the active DSH theme, including accent overrides. */
-:root, body {
+/* Tavern components share the active DSH theme, including accent overrides. These are the public skin tokens; the
+   visual layer (theme.css --fork-*) reads them. A card stage scheme re-points the host tokens on its root, so they
+   are declared there again to re-resolve. */
+:root, body, [data-dsh-card-stage-scheme] {
   --dsh-tavern-accent: var(--dsw-alias-brand-primary);
   --dsh-tavern-accent-active: var(--dsw-alias-brand-primary);
   --dsh-tavern-accent-soft: color-mix(in srgb, var(--dsw-alias-brand-primary) 16%, transparent);
@@ -14,7 +16,7 @@
   --dsh-tavern-radius-md: 8px;
   --dsh-tavern-radius-lg: 12px;
   --dsh-tavern-font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
-  --dsh-tavern-font-sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --dsh-tavern-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 body.dsh-tavern-shell-active,
 .dsh-tavern-library,
