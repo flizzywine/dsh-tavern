@@ -778,6 +778,7 @@ body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"] { visibility
 .dsh-tavern-guide-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
 .dsh-tavern-style-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 6px; }
 .dsh-tavern-style-head > .dsh-tavern-status-label { margin: 0; flex-shrink: 0; }
+.dsh-tavern-style-missed { margin-left: 6px; font-size: 11px; font-weight: normal; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-style-source { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-style-retry { margin-left: auto; flex-shrink: 0; font: inherit; font-size: 12px; color: var(--dsw-alias-label-tertiary); background: transparent; border: 0; padding: 0; cursor: pointer; }
 .dsh-tavern-style-retry:hover:not(:disabled) { color: var(--dsw-alias-label-primary); text-decoration: underline; text-underline-offset: 3px; }

@@ -3191,7 +3191,16 @@ export async function apply(ctx) {
     renderMacros: function (text, chat) {
       return renderCardText(text, { name: chat.cardName }, chat.macroState)
     },
-    pluginTurnContext: pluginApi.turnContext,
+    // Beside this turn's input: the plugins' sections, then (文风联想 on) a short reminder to make the
+    // style_reference_submit call first. The full instructions stay in the stable system prompt; the
+    // reminder is what the model reads last, so the call is not skipped.
+    pluginTurnContext: async input => {
+      const sections = await Promise.resolve(pluginApi.turnContext(input)).catch(() => [])
+      const header = await chatHeaderForSession(str(input.gameId), ['mode', 'backgroundTasks']).catch(() => null)
+      if ((header?.mode || 'story') !== 'story' || header?.backgroundTasks?.styleReference !== true) return sections
+      return [...(sections || []), { owner: 'dsh-tavern', name: 'style-reference', position: 'after',
+        text: '【本轮先做文风联想】写正文之前，先按「前台文风联想」的要求调用 style_reference_submit，记下一段贴合本轮场景的范文；调用成功后再写本轮正文。' }]
+    },
     // 对话气泡 (舞台设置 › 基础设置): the story model writes its spoken lines as dialogue bubbles naming the card's cast; while
     // 配音 is on, a character whose 配音语言 is not 中文 also gets the words their voice says (33/N).
     dialogueSpeakers: async ({ sessionId, chat }) => {

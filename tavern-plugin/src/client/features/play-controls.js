@@ -360,7 +360,9 @@
                     view.styleReferenceEnabled && view.styleReference ? h("section", { className: "dsh-tavern-status-section dsh-tavern-style-section" },
                         // Only the source and the passage's opening show; the passage opens on click, the retry input on demand.
                         h("div", { className: "dsh-tavern-style-head" },
-                            h("div", { className: "dsh-tavern-status-label" }, "最近一次文风联想"),
+                            h("div", { className: "dsh-tavern-status-label" }, "最近一次文风联想",
+                                // The writer skipped the call on the latest reply: say so, with the turn the passage is from.
+                                Number(view.latestAssistantTurn) > Number(view.styleReference.afterTurn) ? h("span", { className: "dsh-tavern-style-missed", title: "最新一轮正文写作时没有调用文风联想" }, "本轮未联想 · 第 " + view.styleReference.afterTurn + " 轮") : null),
                             view.styleReference.book ? h("span", { className: "dsh-tavern-style-source", title: "《" + view.styleReference.book + "》" + (view.styleReference.author || "") }, "《" + view.styleReference.book + "》" + (view.styleReference.author || "")) : null,
                             styleEditing ? null : h("button", { type: "button", className: "dsh-tavern-style-retry", disabled: styleBusy || running || view.regenInProgress, onClick: () => setStyleEditing(true) }, styleBusy ? "保存中…" : "设置下轮偏好")),
                         h("blockquote", { className: "dsh-tavern-style-reference" + (styleExpanded ? " is-expanded" : ""), title: styleExpanded ? "点击收起" : "点击展开全文", onClick: () => setStyleExpanded(value => !value) }, view.styleReference.quote),
