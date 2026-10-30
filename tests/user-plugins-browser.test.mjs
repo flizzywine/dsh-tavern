@@ -17,7 +17,8 @@ test('插件列表可以手动检查更新', async t => {
     if (method === 'listUserPlugins') return { plugins, dir: '/tmp/tavern/plugins' }
     if (method === 'checkUserPluginUpdates') return { plugins: updates }
   }
-  const { page } = await openTavernSettings(t, { respond, section: 'dsh-tavern: plugins settings section' })
+  // The plugin list is the 「插件」 group of the global settings page (modules/global-settings.js).
+  const { page } = await openTavernSettings(t, { respond })
   const hub = page.locator('.dsh-tavern-user-plugin').filter({ hasText: 'dsh-runninghub' })
   await hub.getByText('已是最新', { exact: true }).waitFor()
 

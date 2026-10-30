@@ -63,7 +63,9 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
       effect(run, label) { if (label === section) return run() },
       slots: { inject(_name, run) { return run() }, register(_spec, Component) { Settings = Component } }
     })
-    while (!Settings) await new Promise(resolve => setTimeout(resolve, 10))
+    // A renamed or removed section would otherwise leave the test waiting forever.
+    for (const deadline = Date.now() + 3000; !Settings; await new Promise(resolve => setTimeout(resolve, 10)))
+      if (Date.now() > deadline) throw new Error('No settings section ' + JSON.stringify(section || provided))
     modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null }))
   }, { section, provided, sessionId })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })

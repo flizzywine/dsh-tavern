@@ -15,7 +15,7 @@ test('配音设置：Fish 协议的 Key 标成选填，模型从服务读出的�
   const fish = { id: 'fish', label: 'Fish 协议', key: true, keyOptional: true, discovers: true, prepares: true, hasKey: false, voices: [], voice: 'ref-lin', narratorVoice: '', description: 'Fish',
     fields: [{ name: 'baseUrl', label: '服务地址', value: 'http://127.0.0.1:8080', placeholder: '' }, { name: 'model', label: '模型（选填）', value: '', placeholder: '' }] }
   const state = { enabled: false, provider: 'fish', providers: [...providers(), fish] }
-  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: speech settings section', respond(method) {
+  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: speech settings', respond(method) {
     if (method === 'getTavernSettings') return { settings: { castPresentation: true, defaultPlaySettings: { playerName: '你', backgroundTasks: {} } }, modelCatalog: [], releaseCapabilities: {} }
     if (method === 'getSpeechSettings') return state
     if (method === 'speechServiceInfo') return { models: [{ id: 'model-a', label: 'Model A' }, { id: 'model-b', label: 'model-b' }] }
@@ -28,8 +28,10 @@ test('配音设置：Fish 协议的 Key 标成选填，模型从服务读出的�
   assert.deepEqual(calls.filter(call => call.method === 'speechServiceInfo').at(-1).args, { provider: 'fish' })
   // A channel without discovery asks nothing and shows no list.
   const asked = calls.filter(call => call.method === 'speechServiceInfo').length
-  await page.getByRole('combobox', { name: '配音渠道', exact: true }).selectOption('openai')
-  await form.getByText('API Key', { exact: true }).waitFor()
+  // 配音渠道 is the shared inline menu: its trigger, then the option.
+  await page.locator('button[aria-label^="配音渠道："]').click()
+  await page.getByRole('menuitemradio', { name: 'OpenAI 兼容接口' }).click()
+  await form.getByText('API Key', { exact: true }).first().waitFor()
   assert.equal(await form.locator('#dsh-tavern-speech-models').count(), 0)
   assert.equal(calls.filter(call => call.method === 'speechServiceInfo').length, asked)
 })

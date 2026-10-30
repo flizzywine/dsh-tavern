@@ -24,7 +24,7 @@ test('header owns popup dismissal, saves configured display and releases listene
   vm.runInContext(source, context)
   const { HeaderItems } = context.createTavernHeaderFeature({ StatusAction: () => React.createElement('button', null, '状态'), ExportAction: () => null })
   const root = createRoot(dom.window.document.querySelector('main'))
-  await act(async () => root.render(React.createElement(HeaderItems, { sessionId: 'a', sessions: { subagentAddress() {} } })))
+  await act(async () => root.render(React.createElement(HeaderItems, { sessionId: 'a', sessions: { subagentAddress() {} }, ctx: {} })))
   const item = dom.window.document.querySelector('[data-header-item]')
   await act(async () => item.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 30 })))
   assert.ok(dom.window.document.querySelector('[role=menu]'))

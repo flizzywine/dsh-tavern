@@ -25,12 +25,14 @@ function fixture() {
 test('状态栏位置是全局显示偏好，保存后通知现有对局刷新', async t => {
   const backend = fixture()
   const { page, calls } = await openTavernSettings(t, { respond: backend.respond })
-  const select = page.getByLabel('状态栏位置（所有对局）', { exact: true })
-  await page.waitForFunction(() => Array.from(document.querySelectorAll('label')).some(row => row.textContent.includes('状态栏位置（所有对局）') && row.querySelector('select')?.disabled === false))
+  // The shared inline menu (InlineField kind "menu"): a trigger named 「title：current」 and a popup of menuitemradio options.
+  const trigger = page.locator('button[aria-label^="状态栏位置（所有对局）："]')
+  await page.waitForFunction(() => document.querySelector('button[aria-label^="状态栏位置（所有对局）："]')?.disabled === false)
   await page.evaluate(() => { window.__statusSettingsChanged = 0; window.addEventListener('dsh-tavern-settings-changed', () => window.__statusSettingsChanged++); })
-  await select.selectOption('body')
+  await trigger.click()
+  await page.getByRole('menuitemradio', { name: '正文下方' }).click()
   await page.getByText('已保存，所有对局使用此状态栏位置。', { exact: true }).waitFor()
-  assert.equal(await select.inputValue(), 'body')
+  assert.equal(await trigger.getAttribute('aria-label'), '状态栏位置（所有对局）：正文下方')
   assert.deepEqual(calls.filter(call => call.method === 'updateTavernSettings').at(-1).args.patch, { defaultPlaySettings: { statusBarPlacement: 'body' } })
   assert.equal(await page.evaluate(() => window.__statusSettingsChanged), 1)
 })

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { clientControls } from './fixtures/native-controls.mjs'
 
 // 真实 DOM 上的状态面板回归：展开、改字段、保存时只写当前楼层。
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -37,7 +38,9 @@ function panelFactory() {
   const domain = readFileSync(path.join(root, 'tavern-plugin/lib/domain/mvu-variable-editor.js'), 'utf8')
     .replace(/\r?\nexport \{[\s\S]*\}\r?\n?$/, '\n')
   const panel = readFileSync(path.join(root, 'tavern-plugin/src/client/modules/mvu-variables.js'), 'utf8')
-  return new Function('React', 'rpc', 'liveTavernView', domain + '\n' + panel + '\nreturn { TavernMvuVariables };')
+  const controls = clientControls(React)
+  const factory = new Function('React', 'rpc', 'liveTavernView', ...Object.keys(controls), domain + '\n' + panel + '\nreturn { TavernMvuVariables };')
+  return (...args) => factory(...args, ...Object.values(controls))
 }
 
 const view = {

@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
 import { createPlayInteractionFlow } from '../tavern-plugin/lib/domain/play-interaction-flow.js'
+import { clientControls } from './fixtures/native-controls.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/src/client/features/play-interaction-panels.js', import.meta.url), 'utf8')
 test('panels use the flow interface and candidate selection preserves user edits', async t => {
@@ -19,7 +20,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   dom.window.addEventListener('error', event => errors.push(event.error))
   const interactions = createPlayInteractionFlow({ rpc: async (...args) => { calls.push(args); return { task: {}, view: {} } },
     coordinationView: v => v, coordination: { setView() {}, invalidate() {} }, applyBodyResult() {}, reportError: (...args) => errors.push(args) })
-  const context = vm.createContext({ React, setInterval, clearInterval,
+  const context = vm.createContext({ React, ...clientControls(React), setInterval, clearInterval,
     rpc: async method => {
       if (method === 'polishBody') return new Promise(resolve => { finishPolish = resolve })
       if (method === 'polishProgress') return { progress: { edits: [{ reason: '更具体', find: '原句', replace: '改句' }] } }
@@ -30,7 +31,8 @@ test('panels use the flow interface and candidate selection preserves user edits
   vm.runInContext(source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
-    useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration) })
+    useCandidateGuidePanel: usePanel(interactions.guide), useRegenPanel: usePanel(interactions.regeneration),
+    usePhonePlay: () => false })
   let draft = '玩家原文'
   const props = { sessionId: 'a', useSession: select => select({ running: false }), useChat: select => select({}),
     useInput: select => select({ draft }), inputActions: { setDraft: value => { draft = value } } }
