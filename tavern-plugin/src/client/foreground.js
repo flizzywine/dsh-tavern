@@ -208,4 +208,14 @@ function createForeground(host, doc) {
         picker(open) { picker = open ? true : null; refresh(); }
     };
 }
-const forkForeground = window.forkForeground || (window.forkForeground = createForeground(window, document));
+// Built on first call, not on load: a method taken at load (the voice player's `now`) must not
+// touch the page yet, and tests load the client bundle in a sandbox that has none.
+function lazyForeground(create) {
+    let real = null;
+    const methods = new Map();
+    return new Proxy({}, { get(_target, key) {
+        if (!methods.has(key)) methods.set(key, (...args) => (real || (real = create()))[key](...args));
+        return methods.get(key);
+    } });
+}
+const forkForeground = window.forkForeground || (window.forkForeground = lazyForeground(() => createForeground(window, document)));

@@ -3332,7 +3332,17 @@ window.__ModuleLoader__.load({
 		        picker(open) { picker = open ? true : null; refresh(); }
 		    };
 		}
-		const forkForeground = window.forkForeground || (window.forkForeground = createForeground(window, document));
+		// Built on first call, not on load: a method taken at load (the voice player's `now`) must not
+		// touch the page yet, and tests load the client bundle in a sandbox that has none.
+		function lazyForeground(create) {
+		    let real = null;
+		    const methods = new Map();
+		    return new Proxy({}, { get(_target, key) {
+		        if (!methods.has(key)) methods.set(key, (...args) => (real || (real = create()))[key](...args));
+		        return methods.get(key);
+		    } });
+		}
+		const forkForeground = window.forkForeground || (window.forkForeground = lazyForeground(() => createForeground(window, document)));
 		// give every Tavern sidebar tab a meaningful host icon
 		// (better-sidebar falls back to a generic cube otherwise).
 		const TAB_ICONS = {
@@ -17096,11 +17106,11 @@ window.__ModuleLoader__.load({
         const roundLoadRows = [], roundLoadCounts = new Map();
         const roundLoadTrace = window.__dshRoundLoadTrace = {
             mark(phase, detail = {}) {
-                if (roundLoadRows.length < 200) roundLoadRows.push({phase, at:Date.now(), pageMs:Math.round(performance.now()), ...detail});
+                if (roundLoadRows.length < 200) roundLoadRows.push({phase, at:Date.now(), pageMs:typeof performance === 'undefined' ? null : Math.round(performance.now()), ...detail});
             },
             read: () => roundLoadRows.slice()
         };
-        roundLoadTrace.mark('client.module', {navigationAt:Math.round(performance.timeOrigin)});
+        roundLoadTrace.mark('client.module', {navigationAt:typeof performance === 'undefined' ? null : Math.round(performance.timeOrigin)});
 		// Bounded timing metadata only; never retain action arguments or error messages.
 		function createOpeningPerformance() {
 		  const rows = [], requests = [];

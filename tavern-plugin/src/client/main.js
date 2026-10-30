@@ -407,11 +407,11 @@ window.__ModuleLoader__.load({
         const roundLoadRows = [], roundLoadCounts = new Map();
         const roundLoadTrace = window.__dshRoundLoadTrace = {
             mark(phase, detail = {}) {
-                if (roundLoadRows.length < 200) roundLoadRows.push({phase, at:Date.now(), pageMs:Math.round(performance.now()), ...detail});
+                if (roundLoadRows.length < 200) roundLoadRows.push({phase, at:Date.now(), pageMs:typeof performance === 'undefined' ? null : Math.round(performance.now()), ...detail});
             },
             read: () => roundLoadRows.slice()
         };
-        roundLoadTrace.mark('client.module', {navigationAt:Math.round(performance.timeOrigin)});
+        roundLoadTrace.mark('client.module', {navigationAt:typeof performance === 'undefined' ? null : Math.round(performance.timeOrigin)});
 		// @include opening-performance.js
 		const pagePerformance = { observedMs: 0, longTaskCount: 0, longTaskTotalMs: 0, longTaskMaxMs: 0, slowRpcCount: 0, slowRpcMaxMs: 0, longTaskSupported: false };
 		const pagePerformanceStarted = Date.now();
