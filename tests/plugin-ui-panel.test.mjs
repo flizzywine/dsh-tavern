@@ -183,14 +183,18 @@ test('舞台插件保留公开投影；舞台视图接口已停用，退休的�
   const code = await readFile(new URL('../tavern-plugin/src/client/features/cast-stage.js', import.meta.url), 'utf8')
   const project = vm.runInNewContext(code + '; tavernStagePublicData')
   const data = { enabled: true, player: '你', card: { name: 'A' }, cast: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }], musicOwned: true, music: 'old.mp3' }
-  const ui = loadWith({ rpc: async () => data, tavernStagePublicData: project })
+  const reported = []
+  const ui = loadWith({ rpc: async () => data, tavernStagePublicData: project, tavernErrorHub: { report: (_label, error) => reported.push(error.message) } })
   const plugin = { ctx: { fiber: { name: 'dsh-tavern-galgame' } } }
   Object.setPrototypeOf(plugin, ui.service)
   const projected = JSON.parse(JSON.stringify(await plugin.getStage('game-1')))
   assert.deepEqual(projected, { enabled: true, player: '你', card: { name: 'A' }, background: '', characters: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }] })
   assert.equal(Object.hasOwn(projected, 'music'), false)
-  // The old stage's plugin views are retired: registering one fails loudly instead of showing nothing.
-  assert.throws(() => plugin.registerStageView({ id: 'vn', label: '视觉小说', render: value => value }), /已停用/)
+  // The old stage's plugin views are retired: registering one is reported, never thrown (a throw while
+  // a plugin applies fails the whole page's boot), and nothing is registered.
+  const dispose = plugin.registerStageView({ id: 'vn', label: '视觉小说', render: value => value })
+  assert.equal(typeof dispose, 'function')
+  assert.match(reported.join('\n'), /已停用的 registerStageView/)
   assert.equal(Object.hasOwn(ui, 'stageViews'), false)
 })
 test('背景音乐：同一首接着放、换曲淡入；玩家的开关记在浏览器里，关掉时不出声；插件经 playMusic 交给 Tavern', async () => {
