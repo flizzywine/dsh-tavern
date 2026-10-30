@@ -483,10 +483,17 @@ function bubblePublicationEqual(a, b) {
             Boolean(x.superseded || galIsSuperseded(x.view, x.nativeTurn, turn)) === Boolean(y.superseded || galIsSuperseded(y.view, y.nativeTurn, turn));
     });
 }
+// Every story paragraph renders through the bubble/stage publication. A failure there must not take the text with it:
+// the plain transcript stands in, and the error goes to the error panel.
+function BubbleSafePublication(props) {
+    const plain = Object.assign({}, props);
+    for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
+    return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, props), React.createElement(TavernColoredMarkdown, plain));
+}
 let bubblePublicationMemo;
 function bubblePublicationType() {
     // Keep the factory's non-React document builders usable without mounting chat.
-    return bubblePublicationMemo || (bubblePublicationMemo = React.memo(BubblePublication, bubblePublicationEqual));
+    return bubblePublicationMemo || (bubblePublicationMemo = React.memo(BubbleSafePublication, bubblePublicationEqual));
 }
 
 function BubbleMarkdown({ props, markdownProps, has, enter, segments, base, config, voice, turn }) {

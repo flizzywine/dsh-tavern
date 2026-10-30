@@ -1286,7 +1286,7 @@
 			// the BGM player's chat placement (bgm-player.js).
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-fork-bgm-player", order: 82 },
-				function (props) { return React.createElement(BgmChat, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("背景音乐", React.createElement(BgmChat, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: BGM player");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },

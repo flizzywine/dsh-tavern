@@ -61,15 +61,16 @@
 		// Stage, galgame and mod views sit inside core surfaces (the input dock, every reply). A render
 		// failure there is reported and the view disappears; the chat, input and story keep working.
 		let tavernStageBoundaryClass = null;
-		function tavernStageBoundary(label, element) {
+		// fallback: what stands in for the view after a failure (default: nothing).
+		function tavernStageBoundary(label, element, fallback = null) {
 			if (!tavernStageBoundaryClass) tavernStageBoundaryClass = class TavernStageBoundary extends React.Component {
 				constructor(props) { super(props); this.state = { failed: false }; }
 				static getDerivedStateFromError() { return { failed: true }; }
 				componentDidCatch(error) { try { tavernErrorHub.report(this.props.label, error); } catch (_) { console.error(error); } }
-				render() { return this.state.failed ? null : this.props.children; }
+				render() { return this.state.failed ? this.props.fallback : this.props.children; }
 			};
 			// Same key as the view: switching games remounts the boundary, so one game's failure stays there.
-			return React.createElement(tavernStageBoundaryClass, { key: element && element.key, label: label }, element);
+			return React.createElement(tavernStageBoundaryClass, { key: element && element.key, label: label, fallback: fallback }, element);
 		}
 
 		function usePersistentError(source) {

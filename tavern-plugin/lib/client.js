@@ -19485,15 +19485,16 @@ window.__ModuleLoader__.load({
 		// Stage, galgame and mod views sit inside core surfaces (the input dock, every reply). A render
 		// failure there is reported and the view disappears; the chat, input and story keep working.
 		let tavernStageBoundaryClass = null;
-		function tavernStageBoundary(label, element) {
+		// fallback: what stands in for the view after a failure (default: nothing).
+		function tavernStageBoundary(label, element, fallback = null) {
 			if (!tavernStageBoundaryClass) tavernStageBoundaryClass = class TavernStageBoundary extends React.Component {
 				constructor(props) { super(props); this.state = { failed: false }; }
 				static getDerivedStateFromError() { return { failed: true }; }
 				componentDidCatch(error) { try { tavernErrorHub.report(this.props.label, error); } catch (_) { console.error(error); } }
-				render() { return this.state.failed ? null : this.props.children; }
+				render() { return this.state.failed ? this.props.fallback : this.props.children; }
 			};
 			// Same key as the view: switching games remounts the boundary, so one game's failure stays there.
-			return React.createElement(tavernStageBoundaryClass, { key: element && element.key, label: label }, element);
+			return React.createElement(tavernStageBoundaryClass, { key: element && element.key, label: label, fallback: fallback }, element);
 		}
 
 		function usePersistentError(source) {
@@ -26918,10 +26919,17 @@ function tavernModelRefusalNotice(text) {
 		            Boolean(x.superseded || galIsSuperseded(x.view, x.nativeTurn, turn)) === Boolean(y.superseded || galIsSuperseded(y.view, y.nativeTurn, turn));
 		    });
 		}
+		// Every story paragraph renders through the bubble/stage publication. A failure there must not take the text with it:
+		// the plain transcript stands in, and the error goes to the error panel.
+		function BubbleSafePublication(props) {
+		    const plain = Object.assign({}, props);
+		    for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
+		    return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, props), React.createElement(TavernColoredMarkdown, plain));
+		}
 		let bubblePublicationMemo;
 		function bubblePublicationType() {
 		    // Keep the factory's non-React document builders usable without mounting chat.
-		    return bubblePublicationMemo || (bubblePublicationMemo = React.memo(BubblePublication, bubblePublicationEqual));
+		    return bubblePublicationMemo || (bubblePublicationMemo = React.memo(BubbleSafePublication, bubblePublicationEqual));
 		}
 
 		function BubbleMarkdown({ props, markdownProps, has, enter, segments, base, config, voice, turn }) {
@@ -71374,7 +71382,7 @@ function createTurnRailFilter(root, options) {
 			// the BGM player's chat placement (bgm-player.js).
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-fork-bgm-player", order: 82 },
-				function (props) { return React.createElement(BgmChat, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("背景音乐", React.createElement(BgmChat, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: BGM player");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-tavern-regen", order: -110, label: "重新生成正文" },
