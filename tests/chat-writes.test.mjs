@@ -60,3 +60,29 @@ test('存储提交前与提交失败时不通知；CAS 失败或对话消失不�
     assert.equal(events.some(([name]) => ['publish', 'templates', 'compaction'].includes(name)), false)
   }
 })
+
+test('只回传部分字段的 patch：后续处理读存档头，调用方仍拿到自己要的字段', async () => {
+  const projection = { styleReferences: [] }
+  const head = { id: 'chat', sessionId: 'session', _storageRevision: 3, cardPath: 'cards/a.json', timeline: { branchId: 'b' }, messages: [] }
+  const events = [], reads = []
+  const writes = createChatWrites({
+    persistence: { patch: async () => projection, readSlice: async (id, indices, fields) => { reads.push([id, indices, fields]); return { chat: head } } },
+    isDeleted: () => false,
+    candidatesChanged: chat => events.push(['candidates', chat]),
+    syncSummary: async (chat, observation) => events.push(['summary', chat, observation]),
+    publish: sessionId => events.push(['publish', sessionId]),
+    syncTemplates: chat => events.push(['templates', chat]),
+    queueCompaction: sessionId => events.push(['compaction', sessionId]),
+    observePatch: async (chat, changes) => events.push(['observe', chat, changes])
+  })
+  const changes = [{ op: 'set', path: ['styleReferences'], value: [] }]
+  assert.equal(await writes.patch('chat', 2, changes, { source: 'style', returnProjection: ['styleReferences'] }), projection)
+  assert.equal(reads.length, 1)
+  assert.equal(reads[0][0], 'chat')
+  assert.ok(['id', 'sessionId', 'cardPath', 'cardName', 'timeline', 'settleStatus'].every(field => reads[0][2].includes(field)))
+  assert.deepEqual(events.map(([name]) => name), ['candidates', 'summary', 'publish', 'templates', 'compaction', 'observe'])
+  assert.ok(events.filter(([name]) => name !== 'publish' && name !== 'compaction').every(([, chat]) => chat === head))
+  assert.deepEqual(events[1][2], { metadataOnly: true })
+  assert.equal(events[2][1], 'session')
+  assert.equal(events[5][2], changes)
+})
