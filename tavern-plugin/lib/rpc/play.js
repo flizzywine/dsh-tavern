@@ -184,7 +184,8 @@ export function createPlayHandlers(deps) {
       return { progress: polishReviewer.progress(str(args?.sessionId)) }
     },
     async polishComparison(args) {
-      return { comparison: await polishRecords.latest(str(args?.sessionId)), prereview: (await readTavernSettings()).polishPrereview === true }
+      const settings = await readTavernSettings()
+      return { comparison: await polishRecords.latest(str(args?.sessionId)), prereview: settings.polishPrereview === true, polishModel: settings.polishModel || null }
     },
     // Undo the latest 精修, from the 精修对比 page: only while its turn still shows the polished text.
     async undoPolish(args) {

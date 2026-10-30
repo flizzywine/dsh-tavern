@@ -33166,7 +33166,13 @@ function createTurnRailFilter(root, options) {
 			const [undoing, setUndoing] = React.useState(false);
 			const [notice, setNotice] = React.useState("");
 			const [saving, setSaving] = React.useState(false);
+			const [catalog, setCatalog] = React.useState([]);
 			const revision = React.useRef(0);
+			React.useEffect(function () {
+				let active = true;
+				rpc("getTavernSettings").then(function (result) { if (active) setCatalog(Array.isArray(result.modelCatalog) ? result.modelCatalog : []); }, function () {});
+				return function () { active = false; };
+			}, []);
 			const hover = {
 				current: tip,
 				events: function (segment) {
@@ -33181,7 +33187,7 @@ function createTurnRailFilter(root, options) {
 				setBusy(true);
 				try {
 					const result = await rpc("polishComparison", {}, sessionId);
-					if (requested === revision.current) setState({ sessionId: sessionId, comparison: result.comparison || null, prereview: result.prereview === true, error: "" });
+					if (requested === revision.current) setState({ sessionId: sessionId, comparison: result.comparison || null, prereview: result.prereview === true, polishModel: result.polishModel || null, error: "" });
 				} catch (error) {
 					if (requested === revision.current) setState({ sessionId: sessionId, comparison: null, error: String(error && error.message || error) });
 				} finally { if (requested === revision.current) setBusy(false); }
@@ -33199,6 +33205,15 @@ function createTurnRailFilter(root, options) {
 				try {
 					const result = await rpc("updateTavernSettings", { patch: { polishPrereview: enabled } });
 					setState(function (current) { return current ? Object.assign({}, current, { prereview: result.settings.polishPrereview === true }) : current; });
+				} catch (error) { setNotice("保存失败：" + String(error && error.message || error)); }
+				finally { setSaving(false); }
+			}
+			// 精修模型 is one choice for every game too; unset, 精修 uses the game's story model.
+			async function savePolishModel(selection) {
+				setSaving(true); setNotice("");
+				try {
+					const result = await rpc("updateTavernSettings", { patch: { polishModel: selection } });
+					setState(function (current) { return current ? Object.assign({}, current, { polishModel: result.settings.polishModel || null }) : current; });
 				} catch (error) { setNotice("保存失败：" + String(error && error.message || error)); }
 				finally { setSaving(false); }
 			}
@@ -33224,6 +33239,8 @@ function createTurnRailFilter(root, options) {
 						? "每轮正文写完，后台按「正文精修原则」审稿，等本轮结算完成后直接改进正文，正文下方标「已自动精修」；改了什么在这里对比，可撤销。每轮多一次模型调用。"
 						: "开启后，每轮正文写完自动精修，不用再手动点「精修」；每轮多一次模型调用。关闭时点「精修」才开始审稿，要等半分钟到一分钟。")),
 					h("input", { type: "checkbox", role: "switch", "aria-label": "自动精修", checked: prereview, disabled: !current || saving, onChange: function (event) { void togglePrereview(event.target.checked); } })),
+				h(TavernDefaultModelSetting, { label: "精修模型", title: "精修模型", description: "审稿和改字用的模型，对所有游戏生效。推理强度越低越快，但容易漏掉前后矛盾这类问题。",
+					fallback: "跟随正文模型", selection: current ? current.polishModel : null, catalog: catalog, disabled: !current || saving, onChange: function (selection) { void savePolishModel(selection); } }),
 				h("header", { className: "dsh-context-header" },
 					h("div", null, h("h3", null, "精修"),
 						h("p", null, !current ? "读取中…" : comparison

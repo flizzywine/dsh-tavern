@@ -2279,6 +2279,10 @@ export async function apply(ctx) {
   // What each 精修 changed, shown on the 精修对比 page.
   const polishRecords = createPolishRecords({ data: pluginData, turns: pluginTurns })
   const polishReviewer = createPolishReviewer({ latestFloors: (sessionId, count) => chatHeaderWithLatestFloors(sessionId, count, { includePosition: true }), readCard, prompt: runtimePrompt, runAgent: input => backgroundAgentRunner.run(input), selection: async sessionId => {
+    // 精修模型 (setting polishModel): one model for every game's 精修; unset, or a model no longer
+    // offered, follows the game's own story model.
+    const chosen = (await readTavernSettings()).polishModel
+    if (chosen && (await tavernModelCatalog()).some(group => group.provider === chosen.provider && group.models.some(model => model.id === chosen.model))) return chosen
     if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
     const selected = modelSelection(sessionId)
     if (!selected) throw new Error('没有可用的模型配置，请先选择模型')

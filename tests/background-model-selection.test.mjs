@@ -23,3 +23,12 @@ test('全局切换覆盖老游戏快照与本局选择，后续本局修改可�
   assert.equal(settings.backgroundModelRevision, revision)
   assert.deepEqual(resolveChatBackgroundModel({ ...local, backgroundModelSelection: null, backgroundModelRevision: revision }, front, settings), front)
 })
+
+test('精修模型对所有游戏生效：带推理强度保存，null 恢复跟随正文模型，无效配置报错', async () => {
+  const { applyTavernSettingsPatch, presentTavernSettings } = await import('../tavern-plugin/lib/domain/tavern-settings.js')
+  let settings = applyTavernSettingsPatch({}, { polishModel: { provider: 'p', model: 'flash', reasoningEffort: 'high' } })
+  assert.deepEqual(presentTavernSettings(settings).polishModel, { provider: 'p', model: 'flash', reasoningEffort: 'high' })
+  settings = applyTavernSettingsPatch(settings, { polishModel: null })
+  assert.equal(presentTavernSettings(settings).polishModel, null)
+  assert.throws(() => applyTavernSettingsPatch(settings, { polishModel: { provider: 'p' } }), /模型配置无效/)
+})
