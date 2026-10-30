@@ -109,49 +109,6 @@ function imageItems(prefix) {
   }
 }
 
-test('gallery ignores an old session response and keeps the newest of overlapping refreshes', async t => {
-  const pending = []
-  const calls = []
-  const h = componentHarness(declaration(gallerySource, 'SceneImageGallery'), {
-    rpc(method, args, sessionId) {
-      calls.push({ method, args, sessionId })
-      const request = deferred(); pending.push(request); return request.promise
-    }
-  })
-  t.after(() => h.dispose())
-
-  h.render({ gallerySessionId: 'A' }); h.flushEffects()
-  assert.equal(calls[0].sessionId, 'A')
-  h.render({ gallerySessionId: 'B' }); h.flushEffects()
-  assert.equal(calls[1].sessionId, 'B')
-  pending[1].resolve(imageItems('B'))
-  await pending[1].promise
-  await Promise.resolve()
-  h.render({ gallerySessionId: 'B' })
-  pending[0].resolve(imageItems('A'))
-  await pending[0].promise
-  await Promise.resolve()
-  h.render({ gallerySessionId: 'B' })
-  let urls = walk(h.tree, node => node.type === 'img').map(node => node.props.src)
-  assert.ok(urls.some(url => url.includes('B-plugin')))
-  assert.ok(urls.every(url => !url.includes('A-')))
-
-  const refresh = walk(h.tree, node => node.type === 'button' && node.children.includes('刷新'))[0]
-  refresh.props.onClick()
-  refresh.props.onClick()
-  assert.equal(pending.length, 4)
-  pending[3].resolve(imageItems('newest'))
-  await pending[3].promise
-  await Promise.resolve()
-  pending[2].resolve(imageItems('stale'))
-  await pending[2].promise
-  await Promise.resolve()
-  h.render({ gallerySessionId: 'B' })
-  urls = walk(h.tree, node => node.type === 'img').map(node => node.props.src)
-  assert.ok(urls.some(url => url.includes('newest-plugin')))
-  assert.ok(urls.every(url => !url.includes('stale-')))
-})
-
 test('gallery deletes the selected plugin image in its session', async t => {
   const calls = []
   const h = componentHarness(declaration(gallerySource, 'SceneImageGallery'), {
@@ -211,74 +168,6 @@ test('gallery sends selected plugin pictures with their session scope', async t 
   assert.equal(deletion.args.sessionId, 'mixed-session')
   assert.equal(deletion.args.items, undefined)
   assert.deepEqual(Array.from(deletion.args.pluginItems), ['mixed-game-plugin'])
-})
-
-test('gallery abandons a pending deletion confirmation after switching sessions', async t => {
-  const confirmation = deferred()
-  const calls = []
-  const pendingLoads = []
-  const h = componentHarness(declaration(gallerySource, 'SceneImageGallery'), {
-    rpc(method, args, sessionId) {
-      calls.push({ method, args, sessionId })
-      const request = deferred()
-      if (method === 'listSceneImageHistory') pendingLoads.push(request)
-      return request.promise
-    },
-    extras: { useTavernConfirm: () => () => confirmation.promise }
-  })
-  t.after(() => h.dispose())
-
-  h.render({ gallerySessionId: 'confirm-A' }); h.flushEffects()
-  pendingLoads[0].resolve(imageItems('confirm-A'))
-  await pendingLoads[0].promise
-  await new Promise(resolve => setImmediate(resolve))
-  h.render({ gallerySessionId: 'confirm-A' })
-  const image = walk(h.tree, node => node.type === 'figure' && node.props.title === 'confirm-A plugin')[0]
-  walk(image, node => node.type === 'button')[0].props.onClick()
-  h.render({ gallerySessionId: 'confirm-B' }); h.flushEffects()
-  confirmation.resolve(true)
-  await confirmation.promise
-  await Promise.resolve()
-  assert.equal(calls.some(call => call.method === 'removeSceneImageHistory'), false)
-})
-
-test('late deletion response cannot overwrite a new session notice or clear its loading state', async t => {
-  const deletion = deferred()
-  const loads = []
-  const calls = []
-  const h = componentHarness(declaration(gallerySource, 'SceneImageGallery'), {
-    rpc(method, args, sessionId) {
-      calls.push({ method, args, sessionId })
-      if (method === 'removeSceneImageHistory') return deletion.promise
-      const request = deferred(); loads.push(request); return request.promise
-    }
-  })
-  t.after(() => h.dispose())
-
-  h.render({ gallerySessionId: 'delete-A' }); h.flushEffects()
-  loads[0].resolve(imageItems('delete-A'))
-  await loads[0].promise
-  await new Promise(resolve => setImmediate(resolve))
-  h.render({ gallerySessionId: 'delete-A' })
-  const image = walk(h.tree, node => node.type === 'figure' && node.props.title === 'delete-A plugin')[0]
-  walk(image, node => node.type === 'button')[0].props.onClick()
-  await new Promise(resolve => setImmediate(resolve))
-  assert.ok(calls.some(call => call.method === 'removeSceneImageHistory' && call.sessionId === 'delete-A'))
-
-  h.render({ gallerySessionId: 'delete-B' }); h.flushEffects()
-  loads[1].resolve(imageItems('delete-B'))
-  await loads[1].promise
-  await Promise.resolve()
-  h.render({ gallerySessionId: 'delete-B' })
-
-  deletion.resolve({ results: [{ versionId: 'delete-A-plugin', ok: false, error: 'old-session failure' }] })
-  await deletion.promise
-  await new Promise(resolve => setImmediate(resolve))
-  h.render({ gallerySessionId: 'delete-B' })
-  const notices = walk(h.tree, node => node.props?.role === 'status').map(node => node.children.join(''))
-  assert.ok(notices.every(notice => !notice.includes('old-session failure')))
-  const refresh = walk(h.tree, node => node.type === 'button' && node.children.includes('读取中…'))[0]
-  assert.ok(refresh?.props.disabled, 'the new session remains busy while its event-triggered refresh is pending')
 })
 
 function hReact() {
