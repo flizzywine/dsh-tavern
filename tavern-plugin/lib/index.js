@@ -2191,7 +2191,8 @@ export async function apply(ctx) {
       }
     }
   })
-  registerWorldbookFileTools(ctx.get('tools'), worldbookSkillProvider)
+  // Like the other model tools (「模型可选工具」 below): a host without the tool service has none to add.
+  if (ctx.get('tools') !== undefined) registerWorldbookFileTools(ctx.get('tools'), worldbookSkillProvider)
   installWorldbookSkillRead(ctx, worldbookSkillProvider, {
     async virtualOnly(agent) {
       // Background read is never a general filesystem capability, even when its lease ends.
