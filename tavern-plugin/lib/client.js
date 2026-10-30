@@ -16788,6 +16788,8 @@ window.__ModuleLoader__.load({
 			if (card && card.plugins && card.plugins.length) extra.push(card.pluginError ? "卡内插件没有启用：" + card.pluginError : "卡内插件 " + card.plugins.map(function (plugin) { return plugin.name; }).join("、") + " 已启用，刷新页面后完整生效");
 			if (card && card.startDefaults) extra.push("用这张卡开新局时默认" + (card.startDefaults.preset ? "使用卡里的预设「" + card.startDefaults.preset.replace(/\.json$/i, "") + "」" + (card.startDefaults.settings ? "和推荐设置" : "") : "使用卡里的推荐设置") + "，开局后可在本局设置里改");
 			if (card && card.packs && card.packs.length) extra.push("素材包 " + card.packs.map(function (pack) { return pack.title || pack.id; }).join("、") + (card.packs.some(function (pack) { return pack.reused; }) ? "（已有的包直接复用）" : ""));
+			// What could not go into the asset library (the stage reads packs from there).
+			if (card && card.libraryNotices && card.libraryNotices.length) extra.push(card.libraryNotices.join("；"));
 			const base = tavernCardAssetText(assets);
 			return [base].concat(extra).filter(Boolean).join("；");
 		}

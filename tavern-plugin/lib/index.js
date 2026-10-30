@@ -1264,7 +1264,7 @@ export async function apply(ctx) {
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
   const { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
-    readCardWorkspace, worldBooks, pluginApi: () => pluginApi
+    readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary')
   })
   async function listCards() {
     const cardPaths = await fileResources.list('card')

@@ -1,31 +1,77 @@
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { readCardArchive } from './card-archive.js'
 import { buildCharx, cardImport, cardImportFromCard, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath, stripPngTextChunks } from './file-resources.js'
 import { openZipFile } from './zip-file.js'
+import { writeZipEntries } from './zip-entries.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
     return await storeImportedCard(cardImport(input))
   }
   // A CHARX, DSH card or card bundle read from disk: its packs first, so a failure leaves no card behind.
+  // The stage reads packs from the asset library (dsh-asset-library), so a card's packs install there too:
+  // a new pack is installed, an identical one is left as it is. A different installed version, a pack
+  // whose identity clashes or one that carries scripts is not touched; it is reported, and the player decides
+  // in the asset library.
+  async function installPacksInLibrary(zip, packs) {
+    if (!packs.length) return []
+    const library = assetLibrary()
+    if (!library || typeof library.inspectImportFile !== 'function') return ['素材库不可用：这张卡的素材包没有装进素材库，舞台用不到它们']
+    const notices = []
+    for (const pack of packs) {
+      const label = pack.title || pack.id
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'tavern-card-pack-'))
+      try {
+        const entries = []
+        for (const entry of zip.entries.values()) {
+          if (entry.path.startsWith(pack.prefix) && entry.path.length > pack.prefix.length && !entry.path.endsWith('/'))
+            entries.push({ path: entry.path.slice(pack.prefix.length), content: await zip.readBuffer(entry, 512 * 1024 * 1024) })
+        }
+        const archive = path.join(dir, 'pack.zip')
+        await writeFile(archive, writeZipEntries(entries))
+        const preview = await library.inspectImportFile({ file: archive })
+        const decision = preview.choices.includes('noop') ? 'noop'
+          : preview.choices.includes('install') && !(preview.scriptRisk || []).length ? 'install' : ''
+        if (!decision) {
+          await library.applyImport({ inspectionId: preview.inspectionId, decision: 'cancel' }).catch(() => {})
+          notices.push('素材包「' + label + '」' + ((preview.scriptRisk || []).length ? '带脚本' : '素材库里已有不同的版本') + '，没有自动装入，请在素材库里处理')
+          continue
+        }
+        await library.applyImport({ inspectionId: preview.inspectionId, decision, expectedRevision: preview.expectedRevision })
+      } catch (error) {
+        notices.push('素材包「' + label + '」装进素材库失败：' + str(error?.message || error))
+      } finally { await rm(dir, { recursive: true, force: true }) }
+    }
+    return notices
+  }
   async function importCardArchiveFile(file, name) {
     const label = /\.dshcard(\.png)?$/i.test(name) ? 'DSH 人物卡' : 'CHARX'
-    // The very same file again: open the card already imported from it (if still unchanged).
+    // The very same file again: open the card already imported from it (if still unchanged), and make sure
+    // its packs are in the asset library (cards imported before the library came carry none there).
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
-    if (existing) return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true }
+    if (existing) {
+      const zip = await openZipFile(file, { label })
+      let libraryNotices = []
+      try { libraryNotices = await installPacksInLibrary(zip, (await readCardArchive(zip)).packs) } finally { await zip.close() }
+      return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true,
+        ...(libraryNotices.length ? { libraryNotices } : {}) }
+    }
     const zip = await openZipFile(file, { label })
     try {
       const archive = await readCardArchive(zip)
+      const libraryNotices = await installPacksInLibrary(zip, archive.packs)
       const packs = []
       for (const pack of archive.packs) {
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, pack)
@@ -47,6 +93,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         ...(packs.length ? { packs: packs.map(({ id, contentHash, title, format, files, reused }) => ({ id, contentHash, title, format, files, reused })) } : {}),
         ...(plugins.length ? { plugins: plugins.map(({ name, purpose, files, bytes }) => ({ name, purpose, files, bytes, enabled: !pluginError })) } : {}),
         ...(pluginError ? { pluginError } : {}),
+        ...(libraryNotices.length ? { libraryNotices } : {}),
         ...(defaults ? { startDefaults: { preset: defaults.presetPath ? defaults.presetPath.split('/').pop() : '', settings: defaults.settings || null } } : {}) }
     } finally { await zip.close() }
   }
