@@ -42,9 +42,10 @@ export function createGameplayApi(deps) {
       await store.writeJson('automation/' + sessionId + '.json', { sessionId, createdAt: Date.now(), model: selected })
       try {
         await host.create({ sessionId, cwd: path.join(deps.dataRoot, 'resources'), agentPreset: 'tavern' })
-        host.agents.selectForNextRequest(registry.get(sessionId), selected)
         await dispatch('preparePlayStart', {})
         await dispatch('startChat', { path: cardPath, sessionId, mode: args.mode || 'story', userName: args.userName || '你', requestMode: 'dsh', cardTask: args.mode === 'card' ? (cardPath ? 'edit' : 'create') : undefined })
+        // startChat applies the player's defaults; the test override must follow it.
+        host.agents.selectForNextRequest(registry.get(sessionId), selected)
         const chat = await chatForSession(sessionId)
         return { sessionId, chat, model: selected, requiresBrowser: chat.mode !== 'card' && await deps.requiresBrowser(chat) }
       } catch (error) {
@@ -99,6 +100,7 @@ export function createGameplayApi(deps) {
         const selection = args.inputFrom ? selectCandidate(chat.candidates, args.inputFrom, args.previousRequestId) : null
         const input = selection?.input ?? args.input
         if (typeof input !== 'string' || !input.trim() || input.length > 1000000) throw new Error('输入为空或过长')
+        controller().agents.selectForNextRequest(registry.get(args.sessionId), owner.model)
         await controller().prompt({ sessionId: args.sessionId, requestId: randomUUID(), content: [{ type: 'text', text: input }], mode: 'followup' }, new AbortController().signal)
         return { accepted: true, input, selection }
       }

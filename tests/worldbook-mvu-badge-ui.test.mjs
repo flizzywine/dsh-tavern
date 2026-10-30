@@ -20,7 +20,7 @@ test('世界书编辑器把 [mvu_update] 条目标为仅后台变量更新，不
     createElement: (tag, props, ...children) => ({ tag, props: props || {}, children: children.flat() })
   }
   const Editor = vm.runInNewContext(groups + '\n' + editor + '\nWorldBookEditor', {
-    React, Set, useTavernConfirm: () => async () => true, usePersistentError: () => ['', () => {}], EmptyState() {}, notifyTavernDataChanged() {}, rpc: async () => ({})
+    React, Set, useTavernConfirm: () => async () => true, usePersistentError: () => ['', () => {}], EmptyState() {}, WorldBookKeyInput() {}, notifyTavernDataChanged() {}, rpc: async () => ({})
   })
   const tree = Editor({ record: { source: { kind: 'standalone' }, view: { displayName: '书', entries } }, sessionId: 's' })
   const nodes = node => !node || typeof node !== 'object' ? [] : [node, ...node.children.flatMap(nodes)]

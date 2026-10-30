@@ -13,7 +13,7 @@
 ## 分支
 
 - `main`：当前版本，适配 DSH 0.2.1。日常开发在这里。
-- `stable`：稳定版，适配 DSH 0.1.5，只修严重问题（先在 main 修好，再 cherry-pick 到 stable）。两条分支的安装脚本与应用内更新各自跟随自己的分支，不要互相合并。
+- `stable`：旧稳定版，适配 DSH 0.1.5，**已停止更新**：修复只进 main，不再 cherry-pick 到 stable。两条分支的安装脚本与应用内更新各自跟随自己的分支，不要互相合并。
 
 GitHub Actions 会频繁向 `origin/main`（以及 `origin/stable`）推送 `chore: publish runtime manifest [skip ci]`（只改 `dsh-tavern-runtime.json`），导致本地推送被拒。推送流程：
 

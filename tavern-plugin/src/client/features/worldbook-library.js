@@ -63,6 +63,14 @@
 		}
 
 		function createWorldBookLibraryFeatureModule() {
+		// 触发词输入框：本地保留原文，否则每次按键都 parse→join 会吞掉末尾的逗号（#425）。
+		function WorldBookKeyInput(props) {
+			const joined = (props.value || []).join(", ");
+			const [text, setText] = React.useState(joined);
+			const parse = function (value) { return String(value || "").split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(Boolean); };
+			const shown = parse(text).join(", ") === joined ? text : joined;
+			return h("input", { value: shown, placeholder: props.placeholder, onChange: function (event) { setText(event.target.value); props.onChange(parse(event.target.value)); } });
+		}
 		function WorldBookEditor(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const initial = props.record && props.record.view ? props.record.view : { displayName: "", description: "", entries: [], diagnostics: [] };
@@ -143,8 +151,6 @@
 				} catch (err) { setError(String(err && err.message || err)); }
 				finally { setBusy(false); }
 			}
-			function textList(value) { return (value || []).join(", "); }
-			function parseList(value) { return String(value || "").split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(Boolean); }
 			function numeric(value, fallback) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 			function entryRow(entry, index) {
 				const open = openRefs.has(entry.ref);
@@ -162,8 +168,8 @@
 						h("div", { className: "dsh-tavern-card-field dsh-tavern-worldbook-content" }, h("label", null, "内容"), h("textarea", { className: "large", rows: 14, "aria-label": "条目内容", value: entry.content || "", onChange: function (event) { updateEntry(index, { content: event.target.value }); } })),
 						h("details", { className: "dsh-tavern-worldbook-entry-settings" }, h("summary", null, "条目设置"),
 						h("div", { className: "dsh-tavern-card-field" }, h("label", null, "标题 / 备注"), h("input", { value: entry.comment || "", onChange: function (event) { updateEntry(index, { comment: event.target.value, title: event.target.value }); } })),
-						entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h("input", { value: textList(entry.primaryKeys), placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (event) { updateEntry(index, { primaryKeys: parseList(event.target.value) }); } })),
-							entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h("input", { value: textList(entry.secondaryKeys), placeholder: "逗号分隔", onChange: function (event) { updateEntry(index, { secondaryKeys: parseList(event.target.value) }); } })),
+						entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h(WorldBookKeyInput, { value: entry.primaryKeys, placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (keys) { updateEntry(index, { primaryKeys: keys }); } })),
+							entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h(WorldBookKeyInput, { value: entry.secondaryKeys, placeholder: "逗号分隔", onChange: function (keys) { updateEntry(index, { secondaryKeys: keys }); } })),
 							h("div", { className: "dsh-tavern-worldbook-checks" },
 							h("label", null, h("input", { type: "checkbox", checked: entry.selective === true, onChange: function (event) { updateEntry(index, { selective: event.target.checked }); } }), "使用二级条件"),
 							h("label", null, h("input", { type: "checkbox", checked: entry.caseSensitive === true, onChange: function (event) { updateEntry(index, { caseSensitive: event.target.checked }); } }), "区分大小写"),
