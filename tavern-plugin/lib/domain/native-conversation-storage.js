@@ -3,7 +3,6 @@ import {ScenePrefixHash} from './scene-prefix-hash.js'
 import {projectTavernHelperContext,projectTavernHelperMessage} from './tavern-helper-context.js'
 import {projectSessionMessage,projectChatSessionState,projectSceneImageState,projectDisplayRuntimeState} from './chat-session-state.js'
 import {createScopedMessages} from './scoped-messages.js'
-import {markStageRead,stageReadHeaderFields,stageReadIdentityFields,stageReadDisplayFields,stageReadRecordFields,stageReadFloorFields,stageReadCurrentFields,stageReadChainFields,stageReadEarlierOmitted} from './stage-read-projection.js'
 import {createBufferedJsonRecords} from './buffered-json-records.js'
 import path from 'node:path'
 import {createConversationPageStore} from './conversation-page-store.js'
@@ -176,79 +175,34 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null,
    ...(messageFields===undefined?{}:{messageFields:[...messageFields]})}
  }
- // One pinned native head supplies identity headers and the requested prefix, not historical payloads.
- // chainOnly: earlier floors carry the record identity, not the record (stageReadChainFields); readStageFloors reads
- // the earlier floors a history consumer names.
- async function readStageView(id,{turn,configOnly=false,stateOnly=false,sourceOnly=false,chainOnly=false}={}){
-  const view=await head(id)
+ // A pinned read of one save for callers that read it in their own shape (the stage's turn views): the header's
+ // selected fields, the floor summaries, and any floor's fields by sub-path, without materializing the history.
+ // Fields are dotted names; `omitted` names sub-paths left out of the selected ones, never read.
+ async function openSnapshot(id,{revision}={}){
+  const view=revision===undefined?await head(id):await headAtRevision(id,revision)
   if(!view)return null
-  const chat=await selectedHeader(id,view,sourceOnly?['id','sessionId','_storageRevision','timeline.branchId','timeline.revision']:stageReadHeaderFields),t=tree(id)
-  const summaries=(await sessionSummaries(id,view)).messages
-  chat.messages=structuredClone(summaries)
-  if(stateOnly){
-   for(let position=chat.messages.length-1;position>=0;position--){
-    if(chat.messages[position].role!=='assistant')continue
-    const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:position+1},limit:1})
-    const record=await t.get(page.messages[0].message.runtimeRef,'/stageDirectionAssetPacks')
-    if(record){chat.messages[position].stageDirectionAssetPacks=record;break}
-   }
-   return markStageRead(chat,{stateOnly:true})
-  }
-  const requested=Number(turn)||Math.max(0,...summaries.filter(row=>row.role==='assistant').map(row=>Number(row.turn || (row.greeting?1:0))))
-  const target=row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===requested
-  const index=sourceOnly?summaries.findLastIndex(target):summaries.findIndex(target)
-  const latestAssistant=summaries.findLastIndex(row=>row.role==='assistant'),latestUser=summaries.findLastIndex(row=>row.role==='user')
-  const indices=configOnly?[latestAssistant,latestUser].filter(i=>i>=0).sort((a,b)=>a-b):Array.from({length:index+1},(_,i)=>i)
-  const references=new Map()
-  // Page metadata is small and already contains original coordinates; payload reads stop at the target.
-  for(let start=0;start<indices.length;start+=500){
-   const batch=indices.slice(start,start+500),from=batch[0],end=batch.at(-1)+1
-   for(let before=end;before>from;before-=500){
-    const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before},limit:Math.min(500,before-from)})
-    for(const row of page.messages)references.set(row.position,row.message.runtimeRef)
-   }
-  }
-  const values=await mapRead(indices,async position=>{
-   const ref=references.get(position)
-   if(sourceOnly){
-    // Prefix hashing consumes the preferred source, not duplicate display text or inactive swipes.
-    const row=await t.getFields(ref,(position===index?['id','role','turn','greeting','swipeId','stageDirectionGeneration','sourceText']:['role','turn','sourceText']).map(field=>'/'+field))
-    if(row.sourceText==null){const text=await t.get(ref,'/text');if(text!==undefined)row.text=text}
-    if(position===index){
-     const swipe=Math.max(0,Number(row.swipeId)||0),selected=await selectedSceneSwipe(t,ref,swipe)
-     if(selected!==undefined)row.swipes={[swipe]:selected}
+  const t=tree(id),paths=fields=>fields.map(field=>pointer(field.split('.')))
+  return Object.freeze({
+   header:fields=>selectedHeader(id,view,fields),
+   summaries:async()=>(await sessionSummaries(id,view)).messages,
+   // Each floor's runtime record reference: one page-metadata read per 500 floors.
+   async refs(indices){
+    const sorted=[...new Set(indices)].sort((a,b)=>a-b),references=new Map()
+    for(let start=0;start<sorted.length;){
+     let end=start
+     while(end+1<sorted.length&&sorted[end+1]-sorted[start]<500)end++
+     const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:sorted[end]+1},limit:sorted[end]+1-sorted[start]})
+     for(const row of page.messages)references.set(row.position,row.message.runtimeRef)
+     start=end+1
     }
-    return row
-   }
-   if(chainOnly&&position!==index){
-    const row=await t.getFields(ref,[...stageReadChainFields,...stageReadFloorFields].map(field=>pointer(field.split('.'))))
-    if(row.sourceText==null){const text=await t.get(ref,'/text');if(text!==undefined)row.text=text}
-    return row
-   }
-   const fields=configOnly?[...stageReadIdentityFields,'stageDirectionAssetPacks.stats.judge.probabilities']:
-    [...stageReadIdentityFields,...stageReadDisplayFields,...stageReadRecordFields,...stageReadFloorFields,...(position===index?stageReadCurrentFields:[])]
-   return t.getFields(ref,fields.map(field=>pointer(field.split('.'))))
+    return references
+   },
+   get:(ref,field)=>t.get(ref,pointer(field.split('.'))),
+   fields:(ref,fields,omitted=[])=>t.getFields(ref,paths(fields),paths(omitted)),
+   selectedSwipe:(ref,swipe)=>selectedSceneSwipe(t,ref,swipe),
+   // Bounded parallel floor reads, results in input order.
+   map:(values,read,newestFirst)=>mapRead(values,read,newestFirst)
   })
-  indices.forEach((position,i)=>{chat.messages[position]={...chat.messages[position],...values[i]}})
-  return markStageRead(chat,{turn:requested,index,configOnly,...(sourceOnly?{sourceOnly:true}:{}),...(chainOnly?{chainOnly:true,full:[]}:{})})
- }
- // The earlier floors (indices) a chain-only view's consumer names, at `revision`: by default each as a stage view
- // reads an earlier floor in full, its record without the judge probabilities (stageReadEarlierOmitted); `fields`
- // selects others (the record alone, or each beat's ops). One page-metadata read per 500 floors, then each floor by
- // sub-path.
- async function readStageFloors(id,indices,{revision,fields=[...stageReadIdentityFields,...stageReadDisplayFields,...stageReadRecordFields,...stageReadFloorFields]}={}){
-  const view=await headAtRevision(id,revision??Infinity)
-  if(!view)return null
-  const t=tree(id),sorted=[...new Set(indices)].sort((a,b)=>a-b),references=new Map()
-  for(let start=0;start<sorted.length;){
-   let end=start
-   while(end+1<sorted.length&&sorted[end+1]-sorted[start]<500)end++
-   const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:sorted[end]+1},limit:sorted[end]+1-sorted[start]})
-   for(const row of page.messages)references.set(row.position,row.message.runtimeRef)
-   start=end+1
-  }
-  const paths=fields.map(field=>pointer(field.split('.'))),omitted=stageReadEarlierOmitted.map(field=>pointer(field.split('.')))
-  return mapRead(indices,position=>references.has(position)?t.getFields(references.get(position),paths,omitted):undefined,true)
  }
  // Floor summaries (role, turn, greeting, MVU flags) of the latest `count` floors, from
  // the page entries' inline summaries: never the bodies, never the whole history.
@@ -772,5 +726,5 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readStageView,readStageFloors,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,openSnapshot,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

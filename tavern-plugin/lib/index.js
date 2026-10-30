@@ -252,7 +252,7 @@ import { isAbsolute, join as joinPath } from 'node:path'
 import { readStageProjection } from './domain/stage-projection.js'
 import { spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime } from './domain/tavern-runtime-assets.js'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
-import { stageReadScope } from './domain/stage-read-projection.js'
+import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import { readWidgetWindowProjection } from './domain/widget-window-projection.js'
 import { STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement } from './domain/stage-playback.js'
 import { createStageAssets, createStageModule, createStageServices } from './stage-module.js'
@@ -1151,10 +1151,12 @@ export async function apply(ctx) {
   // By what the caller needs; see chat-reads.js for which reader a path should use.
   const chatReads = createChatReads({ links: readSessionMap, persistence: chatPersistence, whole: chatForSession, allow: wholeReads.allow })
   const { header: chatHeaderForSession, recentSummaries: recentStateForSession, latestFloors: chatHeaderWithLatestFloors, floors: chatSliceForSession } = chatReads
+  // The stage's turn views, read on storage's pinned snapshots (stage-read-projection.js).
+  const stageReads = createStageReads({ open: chatJournalStore.openSnapshot, whole: chatJournalStore.read })
   const readStageChat = createStageChatCache({
     trace:requestPerformance,
     readHeader:sessionId => chatHeaderForSession(sessionId,['_storageRevision']),
-    readChat:chatForSession, readChanges:chatPersistence.readChangedSlice, readView:chatJournalStore.readStageView, readFloors:chatJournalStore.readStageFloors
+    readChat:chatForSession, readChanges:chatPersistence.readChangedSlice, readView:stageReads.readView, readFloors:stageReads.readFloors
   })
   // A stage page's round view: earlier floors carry their record identity; a consumer
   // of earlier rounds names them (`rounds`, turns) and only those floors carry their records. Turn 0 is the latest round.
@@ -2467,7 +2469,7 @@ export async function apply(ctx) {
     }
   })
   // 舞台、导演与 mod（stage-module.js）。
-  const stageModule = await createStageModule({ctx, dataRoot, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
+  const stageModule = await createStageModule({ctx, dataRoot, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   modService = stageModule.modService
   const {managedModManagement, modConfigHost, stageDirector} = stageModule
   observeStageChat = stageDirector.observe // own director tasks with plugin/chat lifetimes

@@ -415,18 +415,8 @@ export function createChatJournalStore(options = {}) {
     }
     return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
-  async function readStageView(chatId, options) {
-    const selected = await native.readStageView(chatId, options)
-    return selected === null ? read(chatId) : selected
-  }
-  // The stage record of each named floor at `revision`, by sub-path: a chain-only turn view resolves the earlier
-  // records it needs by index once its chain is known. Floors without a
-  // record give undefined.
-  async function readStageRecords(chatId, indices, {revision} = {}) {
-    return ((await native.readStageFloors(chatId, indices, {revision, fields:['stageDirectionAssetPacks']})) || []).map(row => row?.stageDirectionAssetPacks)
-  }
-  // The earlier floors a chain-only view's consumer names, at `revision` (native storage only).
-  const readStageFloors = (chatId, indices, options) => native.readStageFloors(chatId, indices, options)
+  // A pinned native snapshot for readers with their own shape (the stage's turn views); null without one.
+  const openSnapshot = (chatId, options) => native.openSnapshot(chatId, options)
   /** Detached metadata and selected native rows, never an editable full-chat snapshot. */
   async function readSlice(chatId, indices=[], fields) {
     // A cached state at the current stamp answers directly. Otherwise read the selected rows:
@@ -779,5 +769,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readStageView, readStageRecords, readStageFloors, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove, openSnapshot })
 }

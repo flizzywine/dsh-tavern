@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {spawnSync} from 'node:child_process'
 import {createChatJournalStore} from '../tavern-plugin/lib/domain/chat-journal-store.js'
+import {createStageReads} from '../tavern-plugin/lib/domain/stage-read-projection.js'
 import {createChatPersistence} from '../tavern-plugin/lib/domain/chat-persistence.js'
 import {createConversationPageStore} from '../tavern-plugin/lib/domain/conversation-page-store.js'
 import {createConversationState} from '../tavern-plugin/lib/domain/conversation-state.js'
@@ -47,10 +48,12 @@ test('cold stage projections use the native reader and preserve the requested fl
  const {root,persistence}=await fixture(t)
  const saved=await persistence.write({id:'stage',sessionId:'stage-session',messages:[{...row(1),turn:1,sourceText:'A quiet room.'}]})
  const cold=createChatJournalStore({dataRoot:root})
- const view=await cold.readStageView('stage',{turn:1})
+ // The stage reads a save on storage's pinned snapshots; storage itself knows no stage field.
+ const stage=createStageReads({open:cold.openSnapshot,whole:cold.read})
+ const view=await stage.readView('stage',{turn:1})
  assert.equal(view.id,'stage')
  assert.equal(view._storageRevision,saved._storageRevision)
- const floors=await cold.readStageFloors('stage',[0],{revision:saved._storageRevision,fields:['sourceText','turn']})
+ const floors=await stage.readFloors('stage',[0],{revision:saved._storageRevision,fields:['sourceText','turn']})
  assert.deepEqual(floors,[{sourceText:'A quiet room.',turn:1}])
 })
 

@@ -29,7 +29,7 @@ import {stageReadCarries} from './domain/stage-read-projection.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
-  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
   let modService
   // Enumerating the built-in library must never migrate legacy card files.
   const readModCard = async cardPath => {
@@ -140,7 +140,7 @@ export async function createStageModule(core) {
     assets:assetRuntime,
     readChanges:(id,revision) => chatJournalStore.readChangedIndices(id,revision),
     // Full earlier records of a chain-only turn view, pinned to the revision the view was read at.
-    readRecords:(chat,indices) => chatJournalStore.readStageRecords(chat.id,indices,{revision:chat._storageRevision}),
+    readRecords:(chat,indices) => stageReads.readRecords(chat.id,indices,{revision:chat._storageRevision}),
     // The director writes beside the game's other work: whole-save updates for its record and
     // failure, a one-message patch for checkpoints and its running mark.
     readTaskChat: chatId => readChat(chatId),

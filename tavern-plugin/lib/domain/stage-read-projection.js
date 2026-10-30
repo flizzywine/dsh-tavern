@@ -50,3 +50,70 @@ export function stageRecordRounds(chat, turn, count = Infinity) {
   return [...new Set(rows.map(turnOf))].sort((a, b) => a - b).slice(-count)
     .filter(number => rows.some(row => turnOf(row) === number && row.stageDirectionAssetPacks))
 }
+
+// The stage's reads of a save, on storage's pinned snapshots (open: chatId, {revision} → snapshot or null; whole: the
+// complete chat, for storage without snapshots). Storage knows no stage field; these field lists are the stage's own.
+export function createStageReads({open, whole}) {
+  // One pinned head supplies identity headers and the requested prefix, not historical payloads.
+  // chainOnly: earlier floors carry the record identity, not the record (stageReadChainFields); readFloors reads
+  // the earlier floors a history consumer names.
+  async function readView(id, {turn, configOnly = false, stateOnly = false, sourceOnly = false, chainOnly = false} = {}) {
+    const snapshot = await open(id)
+    if (!snapshot) return whole(id)
+    const chat = await snapshot.header(sourceOnly ? ['id','sessionId','_storageRevision','timeline.branchId','timeline.revision'] : stageReadHeaderFields)
+    const summaries = await snapshot.summaries()
+    chat.messages = structuredClone(summaries)
+    if (stateOnly) {
+      for (let position = chat.messages.length - 1; position >= 0; position--) {
+        if (chat.messages[position].role !== 'assistant') continue
+        const record = await snapshot.get((await snapshot.refs([position])).get(position), 'stageDirectionAssetPacks')
+        if (record) { chat.messages[position].stageDirectionAssetPacks = record; break }
+      }
+      return markStageRead(chat, {stateOnly: true})
+    }
+    const requested = Number(turn) || Math.max(0, ...summaries.filter(row => row.role === 'assistant').map(turnOf))
+    const target = row => row.role === 'assistant' && turnOf(row) === requested
+    const index = sourceOnly ? summaries.findLastIndex(target) : summaries.findIndex(target)
+    const latestAssistant = summaries.findLastIndex(row => row.role === 'assistant'), latestUser = summaries.findLastIndex(row => row.role === 'user')
+    const indices = configOnly ? [latestAssistant, latestUser].filter(i => i >= 0).sort((a, b) => a - b) : Array.from({length: index + 1}, (_, i) => i)
+    // Page metadata is small and already contains original coordinates; payload reads stop at the target.
+    const references = await snapshot.refs(indices)
+    const values = await snapshot.map(indices, async position => {
+      const ref = references.get(position)
+      if (sourceOnly) {
+        // Prefix hashing consumes the preferred source, not duplicate display text or inactive swipes.
+        const row = await snapshot.fields(ref, position === index ? ['id','role','turn','greeting','swipeId','stageDirectionGeneration','sourceText'] : ['role','turn','sourceText'])
+        if (row.sourceText == null) { const text = await snapshot.get(ref, 'text'); if (text !== undefined) row.text = text }
+        if (position === index) {
+          const swipe = Math.max(0, Number(row.swipeId) || 0), selected = await snapshot.selectedSwipe(ref, swipe)
+          if (selected !== undefined) row.swipes = {[swipe]: selected}
+        }
+        return row
+      }
+      if (chainOnly && position !== index) {
+        const row = await snapshot.fields(ref, [...stageReadChainFields, ...stageReadFloorFields])
+        if (row.sourceText == null) { const text = await snapshot.get(ref, 'text'); if (text !== undefined) row.text = text }
+        return row
+      }
+      return snapshot.fields(ref, configOnly ? [...stageReadIdentityFields, 'stageDirectionAssetPacks.stats.judge.probabilities']
+        : [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields, ...(position === index ? stageReadCurrentFields : [])])
+    })
+    indices.forEach((position, i) => { chat.messages[position] = {...chat.messages[position], ...values[i]} })
+    return markStageRead(chat, {turn: requested, index, configOnly, ...(sourceOnly ? {sourceOnly: true} : {}), ...(chainOnly ? {chainOnly: true, full: []} : {})})
+  }
+  // The earlier floors (indices) a chain-only view's consumer names, at `revision`: by default each as a stage view
+  // reads an earlier floor in full, its record without the judge probabilities (stageReadEarlierOmitted); `fields`
+  // selects others (the record alone, or each beat's ops).
+  async function readFloors(id, indices, {revision, fields = [...stageReadIdentityFields, ...stageReadDisplayFields, ...stageReadRecordFields, ...stageReadFloorFields]} = {}) {
+    const snapshot = await open(id, {revision: revision ?? Infinity})
+    if (!snapshot) return null
+    const references = await snapshot.refs(indices)
+    return snapshot.map(indices, position => references.has(position) ? snapshot.fields(references.get(position), fields, stageReadEarlierOmitted) : undefined, true)
+  }
+  // The stage record of each named floor at `revision`: a chain-only turn view resolves the earlier records it needs by
+  // index once its chain is known. Floors without a record give undefined.
+  async function readRecords(id, indices, {revision} = {}) {
+    return ((await readFloors(id, indices, {revision, fields: ['stageDirectionAssetPacks']})) || []).map(row => row?.stageDirectionAssetPacks)
+  }
+  return Object.freeze({readView, readFloors, readRecords})
+}
