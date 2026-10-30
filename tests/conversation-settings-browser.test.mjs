@@ -19,11 +19,10 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
       if (method === 'setConversationBackgroundConfig') {
         if (Object.hasOwn(args, 'backgroundModel')) model = args.backgroundModel
         if (Object.hasOwn(args, 'worldbookStrategy')) strategy = args.worldbookStrategy
-        if (Object.hasOwn(args.backgroundTasks || {}, 'worldbookScreening')) screening = args.backgroundTasks.worldbookScreening
         if (Array.isArray(args.disabledForegroundTools)) disabledTools = args.disabledForegroundTools
       }
       return {
-        backgroundModel: model, worldbookStrategy: strategy, worldbookStrategies: [{ id: 'legacy', label: '当前注入策略（默认）' }, { id: 'native-skills', label: '本局原生 Skill 库' }], backgroundTasks: { variables: true, posture: true, worldbookScreening: screening },
+        backgroundModel: model, worldbookStrategy: strategy, worldbookStrategies: [{ id: 'legacy', label: '外部注入（旧机制）' }, { id: 'native-skills', label: '主动检索（推荐）' }], backgroundTasks: { variables: true, posture: true },
         disabledForegroundTools: disabledTools,
         foregroundTools: [
           { name: 'tavern_recall_history', label: '召回历史', description: '查阅历史正文。' },
@@ -35,17 +34,20 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
     }
   } })
   const name = page.getByLabel('玩家称呼', { exact: true })
+  await page.waitForFunction(() => document.querySelector('[aria-label="玩家称呼"]')?.value === '你')
   await name.fill('旅人')
   await name.press('Tab')
   await page.waitForFunction(() => document.querySelector('.dsh-local-field input')?.disabled === false)
   assert.equal(playerName, '旅人')
-  await page.getByLabel('本局预设', { exact: true }).selectOption('presets/one.json')
-  await page.waitForFunction(() => document.querySelector('[aria-label="本局预设"]')?.disabled === false)
+  const presetField = page.getByRole('button', { name: /^本局预设：/ })
+  await presetField.click()
+  await page.getByRole('menuitemradio', { name: '测试预设', exact: true }).click()
+  await page.getByRole('button', { name: /^本局预设：.*测试预设/ }).waitFor()
   assert.equal(preset.id, 'presets/one.json')
-  const select = page.getByLabel('本局后台模型', { exact: true })
-  const choice = JSON.stringify({ provider: 'p', model: 'm' })
-  await select.selectOption(choice)
-  await page.waitForFunction(() => document.querySelector('[aria-label="本局后台模型"]')?.disabled === false)
+  const modelField = page.getByRole('button', { name: /^本局后台模型：/ })
+  await modelField.click()
+  await page.getByRole('menuitemradio', { name: 'p · 测试模型', exact: true }).click()
+  await page.getByRole('button', { name: /^本局后台模型：.*测试模型/ }).waitFor()
   assert.deepEqual(model, { provider: 'p', model: 'm' })
 
   await page.locator('details.dsh-local-advanced > summary').click()
@@ -68,13 +70,15 @@ test('注册的本局设置保存玩家称呼、预设、后台模型与前台�
   assert.deepEqual(disabledTools, ['plugin_lookup'])
 
   assert.equal(await page.getByLabel('状态栏位置', { exact: true }).count(), 0)
-  assert.equal(await page.getByLabel('本局世界书策略', { exact: true }).count(), 0)
+  assert.equal(await page.getByRole('button', { name: /^读取方式：/ }).count(), 0)
   assert.equal(await page.getByLabel('世界书模型筛选', { exact: true }).count(), 0)
   assert.equal(calls.some(call => Object.hasOwn(call.args || {}, 'worldbookStrategy')), false)
   fail = true
-  await select.selectOption('')
+  await modelField.click()
+  await page.getByRole('menuitemradio', { name: '跟随前台', exact: true }).click()
   await page.getByRole('alert').filter({ hasText: '保存失败测试' }).waitFor()
-  assert.equal(await select.inputValue(), choice)
+  assert.match(await modelField.innerText(), /测试模型/)
+  assert.deepEqual(model, { provider: 'p', model: 'm' })
   for (const call of calls.filter(call => ['setPlayerName', 'applyConversationPreset', 'setConversationBackgroundConfig'].includes(call.method))) {
     assert.equal(call.args.sessionId, 'game')
   }

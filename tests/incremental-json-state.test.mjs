@@ -89,7 +89,8 @@ test('bounded decoded reuse skips repeated tree walks without sharing mutable re
 
 test('floors sharing a large subtree decode it once per operation and still return detached copies',async()=>{
  const f=fixture()
- const stat_data=Object.fromEntries(Array.from({length:60},(_,i)=>['角色'+i,{好感度:i,状态:['平静','警惕'],记录:Array.from({length:4},(_,j)=>'第'+j+'天')}]))
+ // Exceed the small-container inline budget so this exercises shared blocks, not inline values.
+ const stat_data=Object.fromEntries(Array.from({length:60},(_,i)=>['角色'+i,{好感度:i,状态:['平静','警惕'],记录:Array.from({length:16},(_,j)=>'角色'+i+'第'+j+'天')}]))
  const floors=Array.from({length:6},(_,i)=>({text:'floor '+i,variables:[{stat_data:i<5?stat_data:{...stat_data,额外:{at:i}}}]}))
  const roots=[]
  for(const value of floors)roots.push(await f.tree.create(value))

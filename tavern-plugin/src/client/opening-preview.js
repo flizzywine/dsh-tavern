@@ -42,6 +42,36 @@ function installOpeningPreviewBridge(token, preview) {
       throw error;
     });
   };
+  // the opening-form API. One player name (the
+  // prep page's), MVU values written to the draft opening, then the launch message starts the game.
+  window.dshOpening = {
+    playerName: function () { return String(preview.playerName || '你'); },
+    start: async function (options) {
+      const input = options || {};
+      const message = String(input.message || '').trim();
+      if (!message) throw new Error('开局内容为空');
+      const variables = input.variables && typeof input.variables === 'object' ? input.variables : null;
+      if (variables && Object.keys(variables).length) {
+        if (!preview.runtime || typeof window.updateVariablesWith !== 'function') throw new Error('这张卡没有开局变量');
+        if (preview.runtime.scripts.some(function (script) { return script.system === 'official-mvu'; })) await window.waitGlobalInitialized('Mvu');
+        await window.updateVariablesWith(function (all) {
+          const root = all.stat_data && typeof all.stat_data === 'object' ? all.stat_data : (all.stat_data = {});
+          for (const path of Object.keys(variables)) {
+            const keys = path.split('.');
+            let node = root;
+            for (const key of keys.slice(0, -1)) node = node[key] && typeof node[key] === 'object' ? node[key] : (node[key] = {});
+            const last = keys[keys.length - 1];
+            // MVU stores [value, description]; keep the description.
+            if (Array.isArray(node[last]) && node[last].length === 2 && typeof node[last][1] === 'string') node[last][0] = variables[path];
+            else node[last] = variables[path];
+          }
+          return all;
+        }, { type: 'message', message_id: 0 });
+      }
+      const playerName = String(input.playerName || '').trim().slice(0, 80) || window.dshOpening.playerName();
+      return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: '/send ' + message.replace(/\|/g, '\\|') + '|/trigger', playerName: playerName, scriptStart: input.scriptStart } });
+    }
+  };
   // generate builds the request from the card and preset; generateRaw takes an explicit order.
   function generation(method, config) {
     const payload = copy(config);

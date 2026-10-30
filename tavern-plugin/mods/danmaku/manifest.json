@@ -1,0 +1,417 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.danmaku",
+  "name": "弹幕",
+  "summary": "模拟观众的飘屏与直播聊天；只观看，不影响剧情",
+  "relevance": "已召回观众群对已完成剧情和主播选择的直播评论",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": []
+  },
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "permissions": {
+    "source": [
+      "dialogue"
+    ],
+    "models": [
+      "audience",
+      "memory"
+    ],
+    "stage": []
+  },
+  "commands": [],
+  "variableSlots": [],
+  "admission": {
+    "entryKinds": [
+      "audience"
+    ]
+  },
+  "builtinAssets": [
+    {
+      "id": "basic",
+      "path": "assets/audience/basic.json",
+      "type": "bundle"
+    }
+  ],
+  "modelSlots": [
+    {
+      "id": "audience",
+      "label": "弹幕模型",
+      "purpose": "观众评论与每轮短记忆",
+      "fallback": "background"
+    },
+    {
+      "id": "memory",
+      "label": "短记忆模型",
+      "purpose": "整理观众短期记忆",
+      "fallback": "background"
+    }
+  ],
+  "subscriptions": [
+    {
+      "event": "stage.entered",
+      "delivery": "active"
+    },
+    {
+      "event": "stage.left",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "page.changed",
+      "delivery": "active"
+    },
+    {
+      "event": "text.available",
+      "delivery": "active"
+    },
+    {
+      "event": "text.revealed",
+      "delivery": "active"
+    },
+    {
+      "event": "performance.presented",
+      "delivery": "active"
+    },
+    {
+      "event": "player.input",
+      "delivery": "active"
+    },
+    {
+      "event": "generation.started",
+      "delivery": "active"
+    },
+    {
+      "event": "generation.ended",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "round.committed",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "activity.changed",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "timeline.changed",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "mod.context.changed",
+      "delivery": "lifecycle"
+    },
+    {
+      "event": "session.disposed",
+      "delivery": "lifecycle"
+    }
+  ],
+  "uiLayers": [
+    {
+      "id": "overlay",
+      "entry": "view/overlay.js",
+      "band": "audience",
+      "order": 0,
+      "input": "passthrough",
+      "playback": "recorded",
+      "budget": {
+        "maxNodes": 200,
+        "maxVisible": 32
+      }
+    },
+    {
+      "id": "sidebar",
+      "entry": "view/sidebar.js",
+      "band": "audience",
+      "order": 1,
+      "input": "regions",
+      "playback": "recorded",
+      "budget": {
+        "maxNodes": 360,
+        "maxVisible": 32
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "id": "audience-rule",
+      "path": "prompts/audience.txt",
+      "target": "model",
+      "modelSlot": "audience",
+      "placement": {
+        "section": "model.rules",
+        "order": 0
+      }
+    },
+    {
+      "id": "memory-rule",
+      "path": "prompts/audience.txt",
+      "target": "model",
+      "modelSlot": "memory",
+      "placement": {
+        "section": "model.rules",
+        "order": 0
+      }
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "view",
+        "presentation": true,
+        "type": "segmented",
+        "label": "舞台弹幕",
+        "default": "overlay",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "overlay",
+            "label": "飘屏"
+          },
+          {
+            "value": "sidebar",
+            "label": "直播风格"
+          },
+          {
+            "value": "off",
+            "label": "关闭"
+          }
+        ]
+      },
+      {
+        "key": "density",
+        "type": "segmented",
+        "label": "显示密度",
+        "default": "standard",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "low",
+            "label": "疏朗"
+          },
+          {
+            "value": "standard",
+            "label": "标准"
+          }
+        ]
+      },
+      {
+        "key": "area",
+        "presentation": true,
+        "type": "segmented",
+        "label": "显示区域",
+        "default": "three-quarter",
+        "scope": "global",
+        "choices": [
+          {
+            "value": "quarter",
+            "label": "四分之一"
+          },
+          {
+            "value": "half",
+            "label": "上半屏"
+          },
+          {
+            "value": "three-quarter",
+            "label": "四分之三"
+          },
+          {
+            "value": "full",
+            "label": "全屏"
+          }
+        ]
+      },
+      {
+        "key": "opacity",
+        "presentation": true,
+        "type": "slider",
+        "label": "不透明度",
+        "default": 90,
+        "scope": "global",
+        "min": 10,
+        "max": 100,
+        "step": 5,
+        "unit": "%"
+      },
+      {
+        "key": "fontScale",
+        "presentation": true,
+        "type": "slider",
+        "label": "字号",
+        "default": 100,
+        "scope": "global",
+        "min": 50,
+        "max": 150,
+        "step": 10,
+        "unit": "%"
+      },
+      {
+        "key": "maxCallsPerMinute",
+        "type": "slider",
+        "label": "每分钟最多调用",
+        "default": 20,
+        "scope": "global",
+        "min": 1,
+        "max": 20,
+        "step": 1,
+        "unit": "次"
+      },
+      {
+        "key": "minIntervalSeconds",
+        "type": "slider",
+        "label": "最短调用间隔",
+        "default": 3,
+        "scope": "global",
+        "min": 3,
+        "max": 60,
+        "step": 1,
+        "unit": "秒"
+      },
+      {
+        "key": "commentsPerRequest",
+        "type": "slider",
+        "label": "弹幕量",
+        "default": 6,
+        "scope": "global",
+        "min": 2,
+        "max": 12,
+        "step": 1,
+        "unit": "条/次"
+      },
+      {
+        "key": "aiRatio",
+        "type": "slider",
+        "label": "弹幕来源",
+        "help": "真实弹幕取自本作的弹幕语料、不调用模型，AI 弹幕由弹幕模型现写；拖到最左只放真实弹幕，拖到最右全部由 AI 生成。",
+        "default": 25,
+        "scope": "global",
+        "min": 0,
+        "max": 100,
+        "step": 5,
+        "unit": "%"
+      }
+    ],
+    "sections": [
+      {
+        "id": "stage-controls",
+        "title": "舞台控制",
+        "fields": [
+          "view"
+        ]
+      },
+      {
+        "id": "stage-config",
+        "title": "弹幕显示",
+        "fields": [
+          "density",
+          "area",
+          "opacity",
+          "fontScale"
+        ]
+      },
+      {
+        "id": "model-cadence",
+        "title": "模型调用节奏",
+        "help": "评论与记忆请求共用额度，两项限制同时生效；不改变飘屏密度。",
+        "fields": [
+          "maxCallsPerMinute",
+          "minIntervalSeconds",
+          "commentsPerRequest"
+        ]
+      },
+      {
+        "id": "source",
+        "title": "弹幕来源",
+        "fields": [
+          "aiRatio"
+        ]
+      }
+    ]
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [],
+  "uiPages": [],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {
+      "path": "runtime.js",
+      "size": 896
+    },
+    {
+      "path": "controller.js",
+      "size": 29332
+    },
+    {
+      "path": "contract.js",
+      "size": 9976
+    },
+    {
+      "path": "audience.js",
+      "size": 2958
+    },
+    {
+      "path": "input.js",
+      "size": 1381
+    },
+    {
+      "path": "presentation.js",
+      "size": 4147
+    },
+    {
+      "path": "prompts/audience.txt",
+      "size": 1593
+    },
+    {
+      "path": "presets.js",
+      "size": 5368
+    },
+    {
+      "path": "nicknames.js",
+      "size": 2748
+    },
+    {
+      "path": "view/overlay.js",
+      "size": 473
+    },
+    {
+      "path": "view/sidebar.js",
+      "size": 455
+    },
+    {
+      "path": "corpus.js",
+      "size": 12961
+    },
+    {
+      "path": "metrics.js",
+      "size": 5785
+    },
+    {
+      "path": "reactions.js",
+      "size": 4559
+    },
+    {
+      "path": "assets/audience/basic.json",
+      "size": 284
+    }
+  ],
+  "license": {
+    "privateUse": false
+  },
+  "ui": {
+    "layout": [
+      {
+        "host": "advanced"
+      }
+    ]
+  }
+}

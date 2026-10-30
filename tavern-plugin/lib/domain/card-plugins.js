@@ -3,6 +3,7 @@ import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createWriteStream } from 'node:fs'
+import { createCardPluginManagedOwner } from './card-plugin-managed.js'
 import { pluginManifestProblem } from './plugin-manifest.js'
 
 // Plugins a DSH card carries (Wiki「设计：dsh-card-format」). Import keeps their files aside,
@@ -39,7 +40,7 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
   const serial = work => { const run = tail.catch(() => {}).then(work); tail = run; return run }
 
   /** Keep a card's plugins aside, unused: [{ folder, name, sha256, purpose, files, bytes }]. */
-  async function stage(zip, { cardKey, plugins }) {
+  async function stage(zip, { cardKey, plugins, verifiedFiles = null }) {
     const staged = []
     for (const plugin of plugins) {
       const prefix = String(plugin.path || '').replace(/\/*$/, '/')
@@ -56,11 +57,13 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
         const relative = entry.path.slice(prefix.length)
         const file = path.join(target, ...relative.split('/'))
         await mkdir(path.dirname(file), { recursive: true })
-        const fileHash = createHash('sha256')
+        // Host-only verifiedFiles accompanies an immutable byte snapshot from consent preflight.
+        const verified = verifiedFiles?.get(entry.path)
+        const fileHash = verified ? null : createHash('sha256')
         const source = await zip.stream(entry)
-        source.on('data', chunk => fileHash.update(chunk))
+        if (fileHash) source.on('data', chunk => fileHash.update(chunk))
         await pipeline(source, createWriteStream(file))
-        hash.update(relative + '\u0000' + fileHash.digest('hex') + '\n')
+        hash.update(relative + '\u0000' + (verified?.sha256 || fileHash.digest('hex')) + '\n')
         files += 1
       }
       const { name } = await readPluginManifest(target, folder)
@@ -80,14 +83,14 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
       try { marker = JSON.parse(await readFile(path.join(pluginsDir, folder, MARKER), 'utf8')) } catch {}
       // Older installs named one card (`cardPath`); now a list.
       const cards = marker ? [...new Set((Array.isArray(marker.cards) ? marker.cards : [marker.cardPath]).filter(Boolean).map(String))] : null
-      map.set(name, { folder, cards, sha256: marker ? String(marker.sha256 || '') : '' })
+      map.set(name, { folder, cards, sha256: marker ? String(marker.sha256 || '') : '', managed: marker?.managed === true })
     }
     return map
   }
 
   /** Card plugins in use: plugin name → { cards, folder }. */
   async function scope() {
-    if (!scopes) scopes = installed().then(map => new Map([...map].filter(([, item]) => item.cards?.length).map(([name, item]) => [name, { cards: item.cards, folder: item.folder }])))
+    if (!scopes) scopes = installed().then(map => new Map([...map].filter(([, item]) => !item.managed && item.cards?.length).map(([name, item]) => [name, { cards: item.cards, folder: item.folder }])))
     return await scopes
   }
 
@@ -101,6 +104,7 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
       for (const plugin of plugins) {
         const holder = current.get(plugin.name)
         if (!holder) { plan.push({ plugin, action: 'install' }); continue }
+        if (holder.managed) throw invalid('This package is owned by the managed mod installation')
         if (holder.cards && holder.sha256 === plugin.sha256) {
           await readPluginManifest(path.join(pluginsDir, holder.folder), holder.folder)
           plan.push({ plugin, holder, action: 'share' }); continue
@@ -138,7 +142,7 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
       const current = await installed()
       for (const plugin of plugins) {
         const holder = current.get(plugin.name)
-        if (!holder?.cards?.includes(cardPath)) continue
+        if (holder?.managed || !holder?.cards?.includes(cardPath)) continue
         const cards = holder.cards.filter(card => card !== cardPath)
         if (cards.length) await writeMarker(holder.folder, cards, holder.sha256)
         else await rm(path.join(pluginsDir, holder.folder), { recursive: true, force: true })
@@ -158,7 +162,7 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
     if (!from || !to || from === to) return Promise.resolve()
     return serial(async () => {
       for (const [, holder] of await installed()) {
-        if (holder.cards?.includes(from)) await writeMarker(holder.folder, [...new Set(holder.cards.map(card => card === from ? to : card))], holder.sha256)
+        if (!holder.managed && holder.cards?.includes(from)) await writeMarker(holder.folder, [...new Set(holder.cards.map(card => card === from ? to : card))], holder.sha256)
       }
       if (keyOf) {
         const source = path.join(stagingRoot, keyOf(from)), target = path.join(stagingRoot, keyOf(to))
@@ -169,5 +173,9 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
     })
   }
 
-  return Object.freeze({ stage, enable, disable, remove, movePath, scope })
+  let managedOwner
+  function managed({distributions,cardRoots,retiredIds}) {
+    return managedOwner ||= createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,distributions,cardRoots,retiredIds,invalidate:()=>{scopes=null}})
+  }
+  return Object.freeze({ stage, enable, disable, remove, movePath, scope, managed })
 }

@@ -21,6 +21,14 @@ function createTransferFeatureModule() {
 		return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + " " + pad(date.getHours()) + ":" + pad(date.getMinutes())
 	}
 
+	// The fork's self-drawn tick (.ap-check-mark, ui-design §三.15): role=checkbox, "mixed" for a partly picked part.
+	function checkBox(props) {
+		const mark = props.checked === "mixed" ? h("i", { className: "ap-check-dash" })
+			: props.checked ? h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true" }, h("path", { d: "M3.5 8.5l3 3 6-7", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round", strokeLinejoin: "round" })) : null
+		return h("button", { type: "button", role: "checkbox", className: "ap-pack-check dsh-tavern-transfer-check", "aria-checked": props.checked, "aria-label": props.label, disabled: props.disabled,
+			onClick: props.onToggle }, h("span", { className: "ap-check-mark", "aria-hidden": "true" }, mark))
+	}
+
 	function defaultPolicies(bundle) {
 		const policies = {}
 		// 对话默认只带最新进度：一局存档点动辄七八份，导一份就等于整局写七八遍。
@@ -294,7 +302,7 @@ function createTransferFeatureModule() {
 
 		function renderItem(part, item) {
 			return h("label", { className: "dsh-tavern-transfer-item", key: part.kind + ":" + item.key },
-				h("input", { type: "checkbox", checked: isSelected(part, item), onChange: function (event) { toggleItem(part, item, event.target.checked) } }),
+				checkBox({ checked: isSelected(part, item), label: item.title, onToggle: function () { toggleItem(part, item, !isSelected(part, item)) } }),
 				h("span", { className: "dsh-tavern-transfer-item-name" }, item.title),
 				item.meta ? h("span", { className: "dsh-tavern-transfer-item-note" }, item.meta) : null,
 				h("span", { className: "dsh-tavern-transfer-item-size" }, Number(item.bytes) > 0 ? fmtBytes(item.bytes) : "导出时生成")
@@ -312,14 +320,7 @@ function createTransferFeatureModule() {
 			const size = chosen.length ? (partBytes(part) > 0 ? fmtBytes(partBytes(part)) + (all ? "" : " / " + sizeText) : sizeText) : (part.items.length ? "共 " + sizeText : "—")
 			return h("article", { className: "dsh-tavern-transfer-part" + (disabled ? " is-empty" : ""), key: part.kind },
 				h("div", { className: "dsh-tavern-transfer-part-head" },
-					h("label", { className: "dsh-tavern-transfer-check" },
-						h("input", {
-							type: "checkbox", checked: all, disabled,
-							ref: function (node) { if (node) node.indeterminate = partial },
-							onChange: function () { togglePart(part) },
-							"aria-label": "选择" + part.label
-						})
-					),
+					checkBox({ checked: partial ? "mixed" : all, disabled, label: "选择" + part.label, onToggle: function () { togglePart(part) } }),
 					h("div", { className: "dsh-tavern-transfer-part-main" },
 						h("div", { className: "dsh-tavern-transfer-part-name" },
 							h("strong", null, part.label),
@@ -472,14 +473,7 @@ function createTransferFeatureModule() {
 					const disabled = !part.importable || items.length === 0
 					return h("article", { className: "dsh-tavern-transfer-part is-import", key: part.kind },
 						h("div", { className: "dsh-tavern-transfer-part-head" },
-							h("label", { className: "dsh-tavern-transfer-check" },
-								h("input", {
-									type: "checkbox", checked: allChecked, disabled: busy || disabled,
-									ref: function (node) { if (node) node.indeterminate = someChecked },
-									onChange: function () { toggleImportPart(part) },
-									"aria-label": "选择" + part.label
-								})
-							),
+							checkBox({ checked: someChecked ? "mixed" : allChecked, disabled: busy || disabled, label: "选择" + part.label, onToggle: function () { toggleImportPart(part) } }),
 							h("div", { className: "dsh-tavern-transfer-part-main" },
 								h("div", { className: "dsh-tavern-transfer-part-name" },
 									h("strong", null, part.label),
@@ -489,16 +483,13 @@ function createTransferFeatureModule() {
 								h("p", { className: "dsh-tavern-transfer-note" }, chosen.length + "/" + items.length + " 项已选" + (part.note ? " · " + part.note : ""))
 							),
 							h("div", { className: "dsh-tavern-transfer-part-side" },
-								h("select", {
-									className: "dsh-tavern-transfer-policy", value: (state.policies && state.policies[part.kind]) || "new",
-									disabled: busy || !part.importable,
-									onChange: function (event) { setPolicy(part.kind, event.target.value) },
-									"aria-label": part.label + " 的导入方式"
-								},
-									h("option", { value: "new" }, part.kind === "settings" ? "合并设置" : part.kind === "plugin-data" ? "覆盖数据" : "新建副本"),
-									part.kind === "chats" ? h("option", { value: "latest" }, "只导最新进度（快）") : null,
-									h("option", { value: "skip" }, "跳过")
-								),
+								h(InlineField, {
+									kind: "menu", hideLabel: true, label: part.label + " 的导入方式",
+									value: (state.policies && state.policies[part.kind]) || "new", disabled: busy || !part.importable,
+									onCommit: function (value) { setPolicy(part.kind, value) },
+									options: [{ value: "new", label: part.kind === "settings" ? "合并设置" : part.kind === "plugin-data" ? "覆盖数据" : "新建副本" }]
+										.concat(part.kind === "chats" ? [{ value: "latest", label: "只导最新进度（快）" }] : [], [{ value: "skip", label: "跳过" }])
+								}),
 								items.length ? h("button", {
 									type: "button", className: "dsh-tavern-transfer-expand",
 									"aria-label": (open ? "收起" : "展开") + part.label,
@@ -510,11 +501,8 @@ function createTransferFeatureModule() {
 							items.map(function (item) {
 								const bad = item.usable === false
 								return h("label", { className: "dsh-tavern-transfer-item" + (bad ? " is-bad" : ""), key: part.kind + ":" + item.key },
-									h("input", {
-										type: "checkbox", checked: selected[item.key] === true,
-										disabled: busy || disabled || bad,
-										onChange: function (event) { toggleImportItem(part, item, event.target.checked) }
-									}),
+									checkBox({ checked: selected[item.key] === true, disabled: busy || disabled || bad, label: item.title,
+										onToggle: function () { toggleImportItem(part, item, selected[item.key] !== true) } }),
 									h("span", { className: "dsh-tavern-transfer-item-name" }, item.title),
 									item.reason ? h("span", { className: "dsh-tavern-transfer-item-note" }, item.reason) : null,
 									h("span", { className: "dsh-tavern-transfer-item-size" }, fmtBytes(item.bytes))
@@ -587,9 +575,9 @@ function createTransferFeatureModule() {
 					chatsSelected ? h("span", { className: "is-warn" }, "对话按实际大小打包") : null,
 					stats.bytes > 45 * 1024 * 1024 ? h("span", { className: "is-warn" }, "超过 45 MB，可能打包失败") : null
 				),
-				h("label", { className: "dsh-tavern-transfer-switch" + (chatsSelected ? "" : " is-off") },
-					h("input", { type: "checkbox", checked: includeImages, disabled: !chatsSelected, onChange: function (event) { setIncludeImages(event.target.checked) } }),
-					h("span", null, "含对话配图")
+				h("span", { className: "dsh-tavern-transfer-switch" + (chatsSelected ? "" : " is-off") },
+					h(Switch, { label: "含对话配图", checked: includeImages, disabled: !chatsSelected, onChange: setIncludeImages }),
+					h("span", { "aria-hidden": "true" }, "含对话配图")
 				),
 				h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy || !stats.count, onClick: submitExport }, busy ? "打包中…" : "生成导出包")
 			) : null

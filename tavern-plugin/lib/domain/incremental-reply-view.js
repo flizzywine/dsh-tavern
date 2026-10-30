@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { replyBody } from './round-body.js'
 import { createIndexedArrayApi } from './indexed-array.js'
 import { freezeJson, createImmutableOrderedJsonIndex } from './freeze-json.js'
 import { statusViewDeclaration } from './status-view-declaration.js'
@@ -108,7 +109,9 @@ export function createIncrementalReplyView({ readChanges, maxBytes = 8 * 1024 * 
       if (message?.role !== 'assistant') { rowEdits.set(index,null); projectionEdits.push([index,undefined]); continue }
       const turn = Math.max(0, Number(message.turn) || (message.greeting === true ? 1 : beforeEdits.get(index)))
       if (turn === 0) { rowEdits.set(index,null); projectionEdits.push([index,undefined]); continue }
-      const row = freezeJson(projectMessages([{...message, turn}], index))
+      const row = projectMessages([{...message, turn}], index)
+      for (const projection of row.projections) projection.body = replyBody(projection, chat, message)
+      freezeJson(row)
       rowEdits.set(index,row)
       projectionEdits.push([index,row.projections[0]])
       stats.projectedMessages++

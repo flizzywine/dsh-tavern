@@ -1,6 +1,8 @@
 // The top bar, the start page and the settings list share one catalog of
 // right-sidebar pages, so a page offered in settings is the one the start page opens.
-const TAVERN_HEADER_DEFAULT = Object.freeze({ display: "icon-text", items: Object.freeze(["dsh-tavern:status", "header:export"]) });
+// by default the top bar has no 酒馆状态 button (the status tab stays in the right sidebar);
+// only 导出 (the fork's ⋯ menu). The owner can add pages, 酒馆状态 included, in 顶栏设置. Same default as DEFAULT_HEADER_ITEMS.
+const TAVERN_HEADER_DEFAULT = Object.freeze({ display: "icon-text", items: Object.freeze(["header:export"]) });
 const TAVERN_HEADER_NOT_FOLDED = Object.freeze(["dsh-tavern:status", "header:export"]);
 
 const TAVERN_START_GROUPS = Object.freeze([
@@ -126,15 +128,20 @@ function tavernHeaderMobileCapacity(itemCount, rowWidth, options) {
 }
 
 // 标题行里「不归快捷入口」的固定开销，实测值（390px 视口）：
-//   内边距 40 + 4、三处间距 4 + 4 + 4、角落按钮 40 + 外边距 8、
-//   标题至少留 16、宿主右侧动作组（子智能体触发器 + 全屏）80。
-// 窄屏会把宿主的触发器藏掉，届时 CSS 变量 --dsh-tavern-header-fixed 给出更小的值。
-const TAVERN_HEADER_MOBILE_CHROME = 196;
+//   标题行两处间距 4 + 4、标题簇内间距 10、宿主动作组（目录开关 28 + 全屏 40）68、
+//   角落按钮 40、标题至少留 16；标题行没有内边距（角落按钮在行内 flex 流里）。
+// （手机方向 A「极简游玩」）：手机游玩会话（调试视图关闭）没有角落按钮，全屏收进 ⋯（动作组 68 → 28），
+// 固定开销降到 58 = 4 + 10 + 28 + 16（角落按钮没了，标题行只剩一处间距；审计按两处估 62，390px 实测 58），
+// 由 tavern.css 在 html.dsh-fork-phone-play 下给出；卡片模式与桌面仍是 142。
+// CSS 变量 --dsh-tavern-header-fixed 是权威值，这里只是读不到时的同值后备。
+const TAVERN_HEADER_MOBILE_CHROME = 142;
+const TAVERN_HEADER_MOBILE_CHROME_PHONE_PLAY = 58;
 function tavernHeaderMobileChrome(row) {
-	if (!row) return TAVERN_HEADER_MOBILE_CHROME;
+	const fallback = typeof document !== "undefined" && document.documentElement.classList.contains("dsh-fork-phone-play") ? TAVERN_HEADER_MOBILE_CHROME_PHONE_PLAY : TAVERN_HEADER_MOBILE_CHROME;
+	if (!row) return fallback;
 	const raw = window.getComputedStyle(row).getPropertyValue("--dsh-tavern-header-fixed");
 	const value = Number.parseFloat(raw);
-	return Number.isFinite(value) && value > 0 ? value : TAVERN_HEADER_MOBILE_CHROME;
+	return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 // 手机判定：窄屏、触屏，或安卓壳注入的 frame 容器。
@@ -212,7 +219,7 @@ function TavernStartCards(props) {
 	const { newTabOptions, onNewTab } = props;
 	const h = React.createElement;
 	const groups = tavernStartGroups(newTabOptions, props.pluginGroups);
-	const css = `.dsh-tavern-start{box-sizing:border-box;padding:18px 16px 24px;overflow:auto;min-height:0;width:100%;color:var(--dsw-alias-label-primary);container-type:inline-size}.dsh-tavern-start section+section{margin-top:22px}.dsh-tavern-start h3{font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin:0 2px 8px}.dsh-tavern-start-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,104px),1fr));gap:8px}.dsh-tavern-start-card{appearance:none;font:inherit;font-size:13px;color:inherit;background:var(--dsw-specific-input-major,#fff);border:1px solid var(--dsw-alias-border-l2,#ddd);border-radius:12px;min-width:0;min-height:88px;padding:14px 8px 12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:9px;cursor:pointer;transition:border-color 140ms ease,transform 140ms ease,box-shadow 140ms ease}.dsh-tavern-start-card:hover:not(:disabled){border-color:var(--dsh-tavern-accent-border);box-shadow:0 4px 14px rgba(0,0,0,.06);transform:translateY(-1px)}.dsh-tavern-start-card:active:not(:disabled){transform:none}.dsh-tavern-start-card:focus-visible{outline:2px solid var(--dsh-tavern-accent);outline-offset:2px}.dsh-tavern-start-card:disabled{opacity:.45;cursor:default}.dsh-tavern-start-icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--dsh-tavern-accent-soft);color:var(--dsh-tavern-accent)}.dsh-tavern-start-icon svg{width:20px;height:20px}.dsh-tavern-start-label{text-align:center;line-height:1.4;overflow-wrap:anywhere}@media (prefers-reduced-motion:reduce){.dsh-tavern-start-card{transition:none}.dsh-tavern-start-card:hover:not(:disabled){transform:none}}@container(max-width:260px){.dsh-tavern-start-grid{gap:6px}.dsh-tavern-start-card{font-size:12px;padding:10px 6px;min-height:76px}}`;
+	const css = `.dsh-tavern-start{box-sizing:border-box;padding:18px 16px 24px;overflow:auto;min-height:0;width:100%;color:var(--dsw-alias-label-primary);container-type:inline-size}.dsh-tavern-start section+section{margin-top:22px}.dsh-tavern-start h3{font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary);margin:0 2px 8px}.dsh-tavern-start-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,104px),1fr));gap:8px}.dsh-tavern-start-card{appearance:none;font:inherit;font-size:13px;color:inherit;background:var(--dsw-specific-input-major,#fff);border:1px solid var(--dsw-alias-border-l2,#ddd);border-radius:12px;min-width:0;min-height:88px;padding:14px 8px 12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:9px;cursor:pointer;transition:border-color 140ms ease,transform 140ms ease,box-shadow 140ms ease}.dsh-tavern-start-card:hover:not(:disabled){border-color:var(--dsh-tavern-accent-border);box-shadow:0 4px 14px rgba(0,0,0,.06);transform:translateY(-1px)}.dsh-tavern-start-card:active:not(:disabled){transform:none}.dsh-tavern-start-card:focus-visible{outline:2px solid var(--dsh-tavern-accent);outline-offset:2px}.dsh-tavern-start-card:disabled{filter:var(--fk-current-dim, grayscale(1));cursor:default}.dsh-tavern-start-icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--dsh-tavern-accent-soft);color:var(--dsh-tavern-accent)}.dsh-tavern-start-icon svg{width:20px;height:20px}.dsh-tavern-start-label{text-align:center;line-height:1.4;overflow-wrap:anywhere}@media (prefers-reduced-motion:reduce){.dsh-tavern-start-card{transition:none}.dsh-tavern-start-card:hover:not(:disabled){transform:none}}@container(max-width:260px){.dsh-tavern-start-grid{gap:6px}.dsh-tavern-start-card{font-size:12px;padding:10px 6px;min-height:76px}}`;
 	return h('div', { className: 'dsh-tavern-start' }, h('style', null, css), groups.map(([title, options], index) => {
 		if (!options.length) return null;
 		return h('section', { key: index + ':' + title, 'aria-label': title }, h('h3', null, title), h('div', { className: 'dsh-tavern-start-grid' }, options.map(option => h('button', { key: option.id, type: 'button', className: 'dsh-tavern-start-card', disabled: option.disabled === true, title: option.label, onClick: () => onNewTab(option.id) },
@@ -232,4 +239,95 @@ function registerTavernStartPage(ctx, slots) {
    return React.createElement(TavernStartCards,{pluginGroups:tavernUiExtensions.startGroups(),newTabOptions:entries,onNewTab:id=>tab.actions.openTab(id,{replaceTab:true})});
   })), "dsh-tavern: native start page");
  });
+}
+
+// below 768px the host shows the right panel full screen, over the story. A phone page does not
+// inherit a panel left expanded on the desktop, nor one that the session's restore expands on its own (a card status
+// panel, a restored tab): for a few seconds after a session's panel first mounts on this page load at phone width,
+// an expansion without a recent tap or key press is collapsed again. Opening it yourself works as usual. While a
+// full-screen panel is open, a 「回到故事」 button (shown by CSS, tavern.css) collapses it.
+const TAVERN_PHONE_PANEL_QUERY = "(max-width: 767px)", TAVERN_PHONE_PANEL_GUARD_MS = 5000, TAVERN_PHONE_PANEL_GESTURE_MS = 1500;
+function tavernPanelSessionId(panel) {
+ try { return panel.binding?.sessionId || ""; } catch (_) { return ""; }
+}
+function registerTavernPhonePanel(ctx) {
+ ctx.inject(["sidebarRight"], injected => {
+  const panel = injected.get("sidebarRight");
+  injected.effect(() => {
+   const view = window, narrow = view.matchMedia(TAVERN_PHONE_PANEL_QUERY), list = ctx.sessions && ctx.sessions.list;
+   const guarded = new Map(); // sessionId → guard end (ms), set when its panel first mounts on this page load
+   let timer = 0, deadline = 0, disposed = false, gestureAt = -Infinity;
+   const gesture = () => { gestureAt = Date.now(); };
+   const expanded = () => { try { return panel.isExpanded(); } catch (_) { return false; } };
+   function tick() {
+    timer = 0;
+    if (disposed || !list) return;
+    const current = list.getSnapshot().current, now = Date.now();
+    if (!current) { if (now < deadline) timer = view.setTimeout(tick, 150); return; }
+    if (!guarded.has(current)) {
+     if (!narrow.matches) { guarded.set(current, 0); return; }
+     // The seat binds the session's surface (restored from storage) shortly after the session is selected.
+     if (tavernPanelSessionId(panel) !== current || !panel.mounted?.()) { if (now < deadline) timer = view.setTimeout(tick, 100); return; }
+     guarded.set(current, now + TAVERN_PHONE_PANEL_GUARD_MS);
+    }
+    const until = guarded.get(current);
+    if (now >= until || tavernPanelSessionId(panel) !== current) return;
+    if (narrow.matches && expanded() && now - gestureAt > TAVERN_PHONE_PANEL_GESTURE_MS) { try { panel.toggleExpanded(); } catch (_) {} }
+    timer = view.setTimeout(tick, 150);
+   }
+   function schedule() {
+    if (disposed) return;
+    deadline = Date.now() + 8000;
+    if (!timer) timer = view.setTimeout(tick, 0);
+   }
+   const stopList = list ? list.subscribe(schedule) : null;
+   view.addEventListener("pointerdown", gesture, true);
+   view.addEventListener("keydown", gesture, true);
+   schedule();
+   const button = document.createElement("button");
+   button.type = "button"; button.className = "dsh-tavern-story-return";
+   button.textContent = "‹ 回到故事"; button.setAttribute("aria-label", "回到故事");
+   button.addEventListener("click", () => { if (expanded()) { try { panel.toggleExpanded(); } catch (_) {} } });
+   document.body.appendChild(button);
+   const stopBottom = tavernPhoneBottomGuard(ctx, view, () => gestureAt);
+   return () => {
+    disposed = true; if (timer) view.clearTimeout(timer); stopList?.(); stopBottom(); button.remove();
+    view.removeEventListener("pointerdown", gesture, true); view.removeEventListener("keydown", gesture, true);
+   };
+  }, "dsh-tavern: phone right panel");
+ });
+}
+// the inherited bottom workbench (dsh-better-sidebar's bottom panel, e.g. a 舞台设置 tab left
+// there on the desktop) starts collapsed on a phone (≤720px): when a session's sidebar state first loads on this page
+// load, and for a few seconds after, an open bottom panel without a recent tap or key press is collapsed through the
+// panel's own collapse button (the sidebar store has no other write face). Opening a tab into it, or the ⋯ menu's
+// 「底部面板」 (tavernBottomPanel), opens it as usual. Its persisted state follows the host (collapsing is saved).
+const TAVERN_PHONE_BOTTOM_QUERY = "(max-width: 720px)";
+const tavernBottomPanel = {
+ open: sidebar => { try { return sidebar?.getSnapshot()?.state?.bottomOpen === true; } catch (_) { return false; } },
+ tabs: sidebar => { try { const root = sidebar?.getSnapshot()?.state?.bottomSplits; const walk = node => !node ? 0 : node.kind === "leaf" ? node.tabs.length : (node.children || []).reduce((n, child) => n + walk(child), 0); return walk(root); } catch (_) { return 0; } },
+ toggle() { const close = document.querySelector("[data-dsh-bottom-panel] > button"); if (close) close.click(); return !!close; }
+};
+function tavernPhoneBottomGuard(ctx, view, gestureAt) {
+ const sidebar = ctx.betterSidebar, list = ctx.sessions && ctx.sessions.list;
+ if (!sidebar || typeof sidebar.subscribeState !== "function" || !list) return () => {};
+ const narrow = view.matchMedia(TAVERN_PHONE_BOTTOM_QUERY), guarded = new Map();
+ let timer = 0, disposed = false;
+ function check() {
+  if (timer) view.clearTimeout(timer);
+  timer = 0;
+  if (disposed) return;
+  const current = list.getSnapshot().current, snapshot = sidebar.getSnapshot(), now = Date.now();
+  if (!current || !snapshot || snapshot.sessionId !== current || !snapshot.state) return;
+  if (!guarded.has(current)) guarded.set(current, narrow.matches ? now + TAVERN_PHONE_PANEL_GUARD_MS : 0);
+  if (now >= guarded.get(current)) return;
+  // Before the panel host mounts there is no collapse button yet: look again shortly.
+  if (narrow.matches && tavernBottomPanel.open(sidebar) && now - gestureAt() > TAVERN_PHONE_PANEL_GESTURE_MS && !tavernBottomPanel.toggle()) timer = view.setTimeout(check, 50);
+  else timer = view.setTimeout(check, 150);
+ }
+ // A state change is checked right after the store's notification (a microtask, before the next paint).
+ const wake = () => { if (!disposed) queueMicrotask(check); };
+ const stops = [sidebar.subscribeState(wake), list.subscribe(wake)];
+ check();
+ return () => { disposed = true; if (timer) view.clearTimeout(timer); stops.forEach(stop => stop()); };
 }

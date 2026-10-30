@@ -1,0 +1,299 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "experimental": true,
+  "id": "dsh.timer",
+  "name": "计时器",
+  "packageName": "dsh-tavern-mod-timer",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "defaultSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 86400,
+          "userAdjustable": true
+        },
+        "defaultMode": {
+          "enum": [
+            "story",
+            "reply"
+          ],
+          "type": "string",
+          "userAdjustable": true
+        },
+        "look": {
+          "type": "string",
+          "enum": [
+            "pill",
+            "plate"
+          ],
+          "userAdjustable": false
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "m:ss",
+            "mm:ss:mmm"
+          ],
+          "userAdjustable": false
+        },
+        "plate": {
+          "type": "string",
+          "maxLength": 48,
+          "x-skin-asset": true,
+          "userAdjustable": false
+        },
+        "digits": {
+          "type": "string",
+          "maxLength": 48,
+          "x-skin-asset": true,
+          "userAdjustable": false
+        },
+        "glyphs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "cell": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 1024
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32
+            },
+            "scale": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 16
+            },
+            "top": {
+              "type": "number",
+              "minimum": -8192,
+              "maximum": 8192
+            },
+            "ascent": {
+              "type": "number",
+              "minimum": -8192,
+              "maximum": 8192
+            },
+            "label": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number",
+                "minimum": -8192,
+                "maximum": 8192
+              }
+            },
+            "spacing": {
+              "type": "number",
+              "minimum": -8192,
+              "maximum": 8192
+            },
+            "chars": {
+              "type": "object",
+              "maxProperties": 16,
+              "propertyNames": {
+                "pattern": "^[0-9:]$"
+              },
+              "additionalProperties": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number",
+                  "minimum": -8192,
+                  "maximum": 8192
+                }
+              }
+            }
+          },
+          "required": [
+            "cell",
+            "columns",
+            "rows",
+            "scale",
+            "top",
+            "ascent",
+            "label",
+            "spacing",
+            "chars"
+          ],
+          "additionalProperties": false,
+          "userAdjustable": false
+        },
+        "placement": {
+          "type": "object",
+          "properties": {
+            "canvas": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 8192
+              }
+            },
+            "box": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "number",
+                "minimum": -8192,
+                "maximum": 8192
+              }
+            }
+          },
+          "required": [
+            "canvas",
+            "box"
+          ],
+          "additionalProperties": false,
+          "userAdjustable": false
+        },
+        "pauseButton": {
+          "type": "boolean",
+          "title": "暂停按钮",
+          "userAdjustable": true
+        },
+        "urgentPulse": {
+          "type": "boolean",
+          "title": "最后 10 秒提醒",
+          "userAdjustable": true
+        },
+        "hideWhenExpired": {
+          "type": "boolean",
+          "userAdjustable": false
+        }
+      },
+      "required": [
+        "defaultSeconds",
+        "defaultMode",
+        "look",
+        "format",
+        "plate",
+        "digits",
+        "glyphs",
+        "placement",
+        "pauseButton",
+        "urgentPulse",
+        "hideWhenExpired"
+      ],
+      "additionalProperties": false
+    },
+    "defaults": {
+      "defaultSeconds": 60,
+      "defaultMode": "story",
+      "look": "pill",
+      "format": "m:ss",
+      "plate": "",
+      "digits": "",
+      "glyphs": null,
+      "placement": {
+        "canvas": [
+          1920,
+          1080
+        ],
+        "box": [
+          1600,
+          40,
+          280,
+          80
+        ]
+      },
+      "pauseButton": true,
+      "urgentPulse": true,
+      "hideWhenExpired": false
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [
+    {
+      "id": "dsh.timer/timer",
+      "schemaVersion": 1,
+      "directorSelectable": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 86400
+          },
+          "look": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "label": "倒计时"
+    }
+  ],
+  "coreAssets": [
+    {
+      "id": "default",
+      "path": "assets/default.svg"
+    }
+  ],
+  "permissions": [
+    "stage.state",
+    "stage.presentation"
+  ],
+  "performances": [
+    {
+      "kind": "dsh.timer.countdown",
+      "autoHold": {
+        "minMs": 0,
+        "until": "minimum"
+      },
+      "regions": [
+        "hud"
+      ],
+      "backlog": {
+        "none": "倒计时是持续的界面状态，不是一次性演出；时间到时的自动回应作为下一轮的输入出现在履历"
+      },
+      "replay": {
+        "none": "倒计时按保存的帧显示；只有片段导出回放整轮时用不保存的私有时钟"
+      }
+    }
+  ],
+  "entry": "plugin.mjs",
+  "api": {
+    "operations": [
+      "start",
+      "resume",
+      "release",
+      "read",
+      "phase",
+      "advance"
+    ],
+    "resource": "instance-exclusive"
+  },
+  "summary": "为剧情与辩论演出提供可暂停、继续的倒计时。"
+}

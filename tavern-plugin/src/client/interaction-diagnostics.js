@@ -27,7 +27,9 @@ function createInteractionDiagnostics(win) {
     on(doc, "visibilitychange", () => record("visibility"));
     on(doc, "pointerdown", event => {
       const editor = doc.querySelector('[data-composer-input="true"]');
-      if (!editor) return;
+      // A composer under the stage cover (gal-entry.js) cannot be hit; reading its box would
+      // force layout of the whole skipped transcript on every stage click.
+      if (!editor || editor.closest('[data-fork-gal-covered]')) return;
       const rect = editor.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
       if (Date.now() - lastClick < 300) return;

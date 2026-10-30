@@ -819,6 +819,34 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
   // 回退到某一轮：逐轮执行与「回退本轮」相同的回退，直到该轮成为最新一轮。
   // 中途无法继续（如更早的轮次已被上下文压缩）时保留已退回的轮次并提示用分叉。
   // 一次撤销恢复全部轮次：撤销点取第一步的回退前状态与最后一步的回退后状态。
+  // ---------- 打断本轮（舞台的「停止」）：停止前台生成，正文未提交时撤回本轮输入 ----------
+  // A stopped reply never committed, so it is a failed tail: the rollback's own clearing hides its residue and hands
+  // the input back; Story Timeline, checkpoints and the previous round's candidates stay. A body that committed before
+  // the stop took effect is a Round, and an interruption never undoes a Round: the result then says `withdrawn: false`.
+  async function interruptTurn(sessionId, chatId) {
+    const chat = str(chatId) === '' ? await (chats.stateForSession || chatForSession)(sessionId) : await (chats.readState || readChat)(chatId)
+    if (chat === undefined) throw new Error('聊天不存在: ' + chatId)
+    if (pendingReplays.has(chat.id)) throw new Error('正在重放失败回合，请等待完成')
+    // A regeneration in flight only has its run stopped; it restores the original round itself.
+    if (pendingRegenerations.has(chat.id) || chat.regenInProgress) {
+      await stopRollbackGeneration(chat)
+      const latest = await readChat(chat.id)
+      return Object.assign(await view(latest, await readChatCard(latest)), { withdrawn: false })
+    }
+    if (pendingRollbacks.has(chat.id)) throw new Error('正在回退本轮，请等待完成')
+    pendingRollbacks.add(chat.id)
+    try {
+      await stopRollbackGeneration(chat)
+      const latest = await readChat(chat.id)
+      const session = sessions.get(latest.sessionId)?.session || sessions.getSession?.(latest.sessionId)
+      const failed = session ? rollbackAvailability(latest, { events: sessionEvents(session), nodes: session.surface?.nodes || [] }).failedTurns : []
+      if (!failed.length) return Object.assign(await view(latest, await readChatCard(latest)), { withdrawn: false })
+      return Object.assign(await rollbackChat(latest, null), { withdrawn: true })
+    } finally {
+      pendingRollbacks.delete(chat.id)
+    }
+  }
+
   // A marker no live regeneration owns is a leftover: recovery always ends it, so
   // it can never keep rollback away. Only a regeneration still running refuses.
   async function settleStaleRegeneration(chat) {
@@ -1369,5 +1397,5 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
   }
 
-  return Object.freeze({ regenerate, replayFailed: replayFailedTurn, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, undoRollback })
+  return Object.freeze({ regenerate, replayFailed: replayFailedTurn, recover: regenerationRecovery.recover, rollback: rollbackTurn, rollbackTo: rollbackToTurn, interrupt: interruptTurn, undoRollback })
 }

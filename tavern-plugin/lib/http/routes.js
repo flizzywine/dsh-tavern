@@ -2,21 +2,18 @@ import { createReadStream } from 'node:fs'
 import { FULL_PROMPT_TEMPLATE_ASSET_PREFIX, readFullPromptTemplateAsset } from '../domain/full-prompt-template-assets.js'
 import { OFFICIAL_MVU_VERSION, readOfficialMvuBundle } from '../domain/official-mvu-assets.js'
 import { TAVERN_CLIENT_ASSET_PREFIX, readTavernClientAsset } from '../domain/tavern-client-assets.js'
-import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from '../domain/tavern-runtime-assets.js'
+import { serveAssetFile } from '../http-file.js'
+import { TAVERN_RUNTIME_ASSET_PREFIX, resolveTavernRuntimeAsset } from '../domain/tavern-runtime-assets.js'
 import { observeHttpRequests } from '../domain/http-performance-diagnostics.js'
 import { projectCachedResourceBody } from '../domain/tavern-static-resource-cache.js'
 import { redactMvuLoadError } from '../domain/mvu-diagnostics.js'
 import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media.js'
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
-import { PACK_LEASE_PATH } from '../asset-library/pack-v2/service.js'
-import { STAGE_LEASE_ORIGIN } from '../domain/stage-material.js'
+import { isTrustedHostRequest } from './host-fence.js'
 
-const LEASE_STATUS = Object.freeze({ FORBIDDEN: 403, INVALID_INPUT: 400, LIMIT_EXCEEDED: 413, REVISION_CONFLICT: 409, ASSET_UNAVAILABLE: 503, RECOVERY_REQUIRED: 503, NOT_FOUND: 404 })
-const LEASE_HEADERS = ['range', 'if-range', 'if-none-match']
+// A 50 MiB save/skill ZIP expands to 69,905,068 base64 bytes, plus its JSON envelope.
+export const DEFAULT_RPC_BODY_LIMIT = 80 * 1024 * 1024
 
-// A response that fills its socket wakes us on 'drain', a client that left wakes us on 'close'.
-// Whichever fires has to drop both listeners: a stream does this once per backpressure wait, so
-// leftovers pile up on the same ServerResponse until Node warns about a listener leak.
 function waitForWritable(res) {
   return new Promise(resolve => {
     const settle = () => {
@@ -29,60 +26,25 @@ function waitForWritable(res) {
   })
 }
 
-// Asset library media by lease (Wiki「设计：asset-library」). The page's origin passes Tavern's
-// own check here; the service then checks resource, expiry and authorization on every request
-// and yields the body in bounded chunks.
-export async function respondAssetLease(assetLibrary, req, res) {
-  const url = new URL(req.url ?? '/', 'http://x')
-  const match = /^([A-Za-z0-9_-]{16,64})\/([^?]+)$/.exec(url.pathname.slice(PACK_LEASE_PATH.length))
-  const origin = req.headers.origin, host = req.headers.host
-  let response
-  try {
-    if (!url.pathname.startsWith(PACK_LEASE_PATH) || !match) throw Object.assign(new Error('not found'), { code: 'NOT_FOUND' })
-    if (typeof origin === 'string' && origin !== '' && origin !== 'null' && origin !== 'http://' + host && origin !== 'https://' + host && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' })
-    if (!['same-origin', 'none', undefined].includes(req.headers['sec-fetch-site'])) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' })
-    const headers = new Headers()
-    for (const name of LEASE_HEADERS) if (typeof req.headers[name] === 'string') headers.set(name, req.headers[name])
-    const request = new Request(STAGE_LEASE_ORIGIN + url.pathname + url.search, { method: req.method === 'HEAD' ? 'HEAD' : req.method === 'GET' ? 'GET' : 'POST', headers })
-    response = await assetLibrary.respondLease({ ticket: match[1], resource: match[2].split('/').map(decodeURIComponent).join('/'), request })
-  } catch (error) {
-    res.writeHead(LEASE_STATUS[error?.code] || 400, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
-    res.end()
-    return
-  }
-  res.writeHead(response.status, Object.fromEntries(response.headers))
-  if (!response.body || req.method === 'HEAD') { await response.body?.cancel().catch(() => {}); res.end(); return }
-  const reader = response.body.getReader()
-  res.on('close', () => { void reader.cancel().catch(() => {}) })
-  try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!res.write(value)) await waitForWritable(res)
-      if (res.destroyed) return
-    }
-    res.end()
-  } catch { res.destroy() }
-}
-
 export function registerTavernHttpRoutes({
   ctx,
+  widgetService,
+  fontLibrary,
   dispatch,
   fileResources,
   helperHistoryAccess,
   mobileCardImport,
   performanceDiagnostics,
+  requestPerformance,
   runtimeGeneration,
   runtimeReadiness,
   readPluginMediaFile,
   pluginAssets,
-  fontLibrary,
   sessionResources,
   str,
   tavernRemoteAssets,
   tavernStaticResources,
   castAssets,
-  assetLibrary,
   speech,
   exportCardFile,
   assetPacks,
@@ -112,26 +74,39 @@ export function registerTavernHttpRoutes({
       path: '/api/dsh-tavern',
       handler: (req, res) => handleTavernRequest(req, res, true)
     }), 'dsh-tavern: web route')
-    if (assetLibrary) ctx.effect(() => webServer.register({
-      kind: 'prefix',
-      path: PACK_LEASE_PATH.replace(/\/$/, ''),
-      handler: (req, res) => respondAssetLease(assetLibrary, req, res)
-    }), 'dsh-tavern: asset lease route')
   }
   // In-process callers (the server script runtime) share these exact routes.
   exposeHandler?.(handleTavernRequest)
 
   async function handleTavernRequest(req, res, external = false) {
       {
-        const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+        let pathname
+        try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname) }
+        catch { res.writeHead(400); res.end('invalid URL'); return }
         const cachedAssetMatch = /^\/api\/dsh-tavern\/remote-assets\/([0-9a-f]{64})(?:\/[^/]*)?$/i.exec(pathname)
         const readsStaticAsset = req.method === 'GET' && pathname === '/api/dsh-tavern/static-assets'
         const readsFullTemplate = req.method === 'GET' && pathname.startsWith(FULL_PROMPT_TEMPLATE_ASSET_PREFIX)
         const readsOfficialMvu = req.method === 'GET' && pathname === OFFICIAL_MVU_VERSION.assetUrl
-        const readsRuntimeAsset = req.method === 'GET' && pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)
+        const readsRuntimeAsset = ['GET', 'HEAD'].includes(req.method) && pathname.startsWith(TAVERN_RUNTIME_ASSET_PREFIX)
         const readsClientAsset = req.method === 'GET' && pathname.startsWith(TAVERN_CLIENT_ASSET_PREFIX)
         const readsPluginAsset = (req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith(PLUGIN_ASSET_PREFIX)
+        const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
+        const readsCapability = req.method === 'GET' && ['/api/dsh-tavern/session-resource', '/api/dsh-tavern/helper-history'].includes(pathname)
+        const cookieFree = req.method === 'GET' && (readsCapability || readsCachedAsset || readsStaticAsset || readsOfficialMvu || readsFullTemplate || readsRuntimeAsset || readsClientAsset || readsPluginAsset)
+        if (cookieFree) {
+          if (!isTrustedHostRequest(req, ctx.get('connection')?.trustedHosts)) {
+            res.writeHead(403); res.end('forbidden'); return
+          }
+        } else {
+          const connection = ctx.get('connection')
+          const rejection = connection ? connection.requestRejection(req) : 503
+          if (rejection) { res.writeHead(rejection); res.end('forbidden'); return }
+        }
         const origin = req.headers.origin
+        const sameOrigin = origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host
+        if (origin && !sameOrigin && !(cookieFree && origin === 'null')) {
+          res.writeHead(403); res.end('forbidden'); return
+        }
         if (pathname === '/api/dsh-tavern/session-resource' && req.method === 'GET') {
           const headers = {'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, max-age=600',
             'Access-Control-Allow-Origin':'*','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}
@@ -153,52 +128,15 @@ export function registerTavernHttpRoutes({
           } catch (_) { res.writeHead(403,headers); res.end(JSON.stringify({error:'History unavailable; refresh the session'})) }
           return
         }
-        const gameplayRoute = pathname.startsWith('/api/dsh-tavern/gameplay.')
-        if (gameplayRoute && origin && origin !== 'http://' + req.headers.host && origin !== 'https://' + req.headers.host) {
+        // Voice grants and paid asset generation still require an explicit same-origin carrier.
+        const figureVoiceRoute = /^\/api\/dsh-tavern\/(?:getFigureVoiceEditor|listFigureVoiceChoices|assignFigureVoice|previewFigureVoice|openFigureVoicePreview|closeFigureVoicePreview)$/.test(pathname)
+        const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|getAssetGenPrompts|setAssetGenPrompt)$/.test(pathname)
+        if ((figureVoiceRoute || assetGenerationRoute) && (!sameOrigin || req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin')) {
           res.writeHead(403); res.end('forbidden'); return
         }
+        const gameplayRoute = pathname.startsWith('/api/dsh-tavern/gameplay.')
         // The gallery: listing and deleting the pictures plugins attached.
         const sceneImageRoute = /^\/api\/dsh-tavern\/(?:listSceneImageHistory|removeSceneImageHistory)$/.test(pathname)
-        const pluginMediaRoute = /^\/api\/dsh-tavern\/(?:plugin-media|pluginMediaForTurn|pluginMediaTurns)$/.test(pathname)
-        if (pluginMediaRoute && origin && origin !== 'http://' + req.headers.host && origin !== 'https://' + req.headers.host && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
-          res.writeHead(403)
-          res.end('forbidden')
-          return
-        }
-        const sceneSameOrigin = (sceneImageRoute || pluginMediaRoute) && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
-        if (sceneImageRoute && origin && !sceneSameOrigin) {
-          res.writeHead(403)
-          res.end('forbidden')
-          return
-        }
-        const readsCachedAsset = req.method === 'GET' && cachedAssetMatch
-        // Compare authority under either HTTP scheme: TLS may terminate at the proxy.
-        // External operation requests also pass DSH's trusted-Host and session checks below.
-        const sameHostOrigin = typeof origin === 'string' && origin !== ''
-          && (origin === 'http://' + req.headers.host || origin === 'https://' + req.headers.host)
-        const localOrOpaqueOrigin = origin === undefined || origin === '' || origin === 'null' || sameHostOrigin || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)
-        if (readsStaticAsset && !localOrOpaqueOrigin) {
-          res.writeHead(403)
-          res.end('forbidden')
-          return
-        }
-        if (!readsCachedAsset && !readsStaticAsset && !readsOfficialMvu && !readsFullTemplate && !readsRuntimeAsset && !readsClientAsset && !readsPluginAsset && !sceneSameOrigin && typeof origin === 'string' && origin !== '' && !sameHostOrigin && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
-          res.writeHead(403)
-          res.end('forbidden')
-          return
-        }
-        // Capability-protected resource routes return above; sandbox-readable assets
-        // keep their existing policy. Never expose the in-process caller's trust to HTTP.
-        const readsSandboxAsset = readsCachedAsset || readsStaticAsset || readsOfficialMvu || readsFullTemplate || readsRuntimeAsset || readsClientAsset || readsPluginAsset
-        if (external && !readsSandboxAsset) {
-          const connection = ctx.get('connection')
-          const rejection = typeof connection?.requestRejection === 'function' ? connection.requestRejection(req) : 503
-          if (rejection !== undefined) {
-            res.writeHead(rejection, { 'Cache-Control': 'no-store' })
-            res.end(rejection === 401 ? 'authentication required' : rejection === 503 ? 'authentication unavailable' : 'forbidden')
-            return
-          }
-        }
         if (req.method === 'GET' && pathname === '/api/dsh-tavern/runtime-generation') {
           res.writeHead(200, {
             'Content-Type': 'application/json; charset=utf-8',
@@ -232,6 +170,8 @@ export function registerTavernHttpRoutes({
               'Content-Type': asset.mediaType,
               'Content-Length': asset.body.length,
               'Cache-Control': 'no-cache',
+              'Access-Control-Allow-Origin': '*',
+              'Cross-Origin-Resource-Policy': 'cross-origin',
               'X-Content-Type-Options': 'nosniff'
             })
             res.end(asset.body)
@@ -256,21 +196,17 @@ export function registerTavernHttpRoutes({
             return
           }
           if (readsRuntimeAsset) {
-            const asset = await readTavernRuntimeAsset(pathname)
-            res.writeHead(200, {
-              'Content-Type': asset.mediaType,
-              'Content-Length': asset.body.length,
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'Access-Control-Allow-Origin': '*',
-              'Cross-Origin-Resource-Policy': 'cross-origin',
-              'X-Content-Type-Options': 'nosniff'
-            })
-            res.end(asset.body)
+            const asset = await resolveTavernRuntimeAsset(pathname)
+            // The stage kit is unversioned fork code; pinned vendor files stay immutable.
+            await serveAssetFile(req, res, asset.file, asset.mediaType,
+              pathname.includes('/stage-kit/') || pathname.endsWith('/pixi-spine.js') ? 'no-cache' : 'public, max-age=31536000, immutable',
+              { 'Access-Control-Allow-Origin': '*', 'Cross-Origin-Resource-Policy': 'cross-origin' })
             return
           }
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
           if (fontLibrary && await fontLibrary.serve(req, res)) return
+          
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/cast-asset') {
             const query = new URL(req.url, 'http://x').searchParams
             const image = castAssets ? await castAssets.readImage(query.get('card'), query.get('file')) : undefined
@@ -476,6 +412,8 @@ export function registerTavernHttpRoutes({
           for await (const chunk of req) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             bodyBytes += bytes.length
+            if (bodyBytes > DEFAULT_RPC_BODY_LIMIT) throw new Error('RPC request exceeds 80 MiB')
+            if (assetGenerationRoute && bodyBytes > (method === 'prepareAssetGeneration' ? 45 * 1024 * 1024 : method === 'setAssetGenPrompt' ? 64 * 1024 : 16384)) throw new Error('素材生成请求过大')
             if (gameplayRoute && bodyBytes > 2 * 1024 * 1024) throw new Error('游戏 API 请求超过 2 MB')
             if (sceneImageRoute && bodyBytes > sceneImageBodyLimit) {
               throw new Error('图片请求数据超过 256 KB 大小限制，请减少一次批量删除的图片后重试。')
@@ -493,9 +431,13 @@ export function registerTavernHttpRoutes({
             res.end('bad json')
             return
           }
-          const result = await dispatch(method, args)
+          const host = req.headers.host
+          const origin = req.headers.origin
+          const trustedOrigin = typeof origin === 'string' && [`http://${host}`, `https://${host}`].includes(origin) ? origin : undefined
+          const result = await dispatch(method, args, {origin:trustedOrigin})
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify(Object.assign({ ok: true }, result, { runtimeGeneration })))
+          const reply = Object.assign({ ok: true }, result, { runtimeGeneration })
+          res.end(requestPerformance ? requestPerformance.serialize(method, args?.sessionId, reply) : JSON.stringify(reply))
         } catch (err) {
           if (readsOfficialMvu || readsFullTemplate || readsRuntimeAsset) {
             res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
@@ -503,9 +445,12 @@ export function registerTavernHttpRoutes({
             res.end(JSON.stringify({ ok: false, error: redactMvuLoadError(err && err.message || err) }))
             return
           }
+          const voiceCode = figureVoiceRoute ? (/^[A-Z_]+$/.test(err?.code || '') ? err.code : 'REQUEST_FAILED') : undefined
+          if (voiceCode) ctx.logger?.warn(`[voice-rpc] ${pathname.split('/').at(-1)} ${voiceCode}`)
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: false, error: str(err && err.message || err),
-            errorCode: typeof err?.code === 'string' ? err.code : undefined }))
+          res.end(JSON.stringify({ ok: false, error: voiceCode ? '声音暂时不可用' : str(err && err.message || err),
+            errorCode: voiceCode || (typeof err?.code === 'string' ? err.code : undefined),
+            ...(pathname.split('/').at(-1).startsWith('managedMod') && err?.details ? {errorDetails:err.details} : {}) }))
         }
       }
   }

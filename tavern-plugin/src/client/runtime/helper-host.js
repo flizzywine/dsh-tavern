@@ -259,6 +259,7 @@
             }
 		}
 
+		// @include card-script-patches.js
         // The parent sends the latest complete context after iframe load. Keep
         // archive data out of executable srcdoc and install the facade before
         // companion modules can continue past their existing readiness gate.
@@ -297,9 +298,11 @@
 				})
 			};
 			const context = input && input.context && typeof input.context === "object" ? input.context : {};
+			metadata.frameStorage = input && input.frameStorage || null; // persistent card storage
 			const safeMetadata = JSON.stringify(metadata).replace(/</g, "\\u003c");
 			const safeContext = input && input.deferContext === true ? "initialContext" : JSON.stringify(context).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 			let bootstrap = '(' + tavernHelperScriptBootstrap.toString() + ')(' + safeMetadata + ',' + safeContext + ',{'
+				+ 'installFrameStorage:' + installFrameStorage.toString() + ','
 				+ 'createInitializationTiming:' + createTavernInitializationTiming.toString() + ','
 				+ 'createTransport:' + createTavernHelperTransport.toString() + ','
                 + 'createIndexedArrayApi:' + createIndexedArrayApi.toString() + ','
@@ -325,7 +328,7 @@
 				+ 'installFacade:' + installTavernHelperFacade.toString() + '});';
             if (input && input.deferContext === true) bootstrap = '(' + startTavernHelperFromMessage.toString() + ')(' + safeMetadata + ',function(initialContext){' + bootstrap + '});';
 			const modules = scripts.map(function (script) {
-				return { id: String(script && script.id || ""), system: String(script && script.system || ""), assetUrl: String(script && script.assetUrl || ""), content: String(script && script.content || "") };
+				return { id: String(script && script.id || ""), system: String(script && script.system || ""), assetUrl: String(script && script.assetUrl || ""), content: patchCardScript(script) };
 			});
 			const loaderSource = 'await window.__dshTavernHelperReady;\n'
                 + 'const createTavernFrameLifecycle=' + createTavernFrameLifecycle.toString() + ';\n'

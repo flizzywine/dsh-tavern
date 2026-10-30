@@ -57,6 +57,7 @@
             const initializationTiming = modules.createInitializationTiming({ report: function (timings) { postToHost({ type: "dsh-tavern-mvu-load-diagnostic", token: metadata.token, diagnostic: { phase: "initialization-timing", timings: timings } }, "*"); } });
             window.__dshTavernInitializationTiming = initializationTiming;
             window.addEventListener("pagehide", initializationTiming.dispose, { once: true });
+			if (modules.installFrameStorage) modules.installFrameStorage(metadata.frameStorage); // persistent card storage
 			try { void window.localStorage; }
 			catch (_) {
 				let values = Object.create(null);
@@ -170,6 +171,26 @@
                         const previousEventId = activeHostEventId;
 						activeHostEventId = String(data.eventId || "");
 						try {
+                            // Host-only deterministic edit: never replay MESSAGE_RECEIVED or prose commands.
+                            if (data.name === "DSH_VARIABLE_EDIT") {
+                                if (!officialMvuEnabled || !window.Mvu || window.Mvu.__dshBootstrap || typeof window.Mvu.parseMessage !== "function") throw new Error("Official MVU edit runtime is unavailable");
+                                const id = suppliedArgs[0], command = suppliedArgs[1];
+                                if (!Number.isInteger(id) || typeof command !== "string" || !activeHostEventId.startsWith(MVU_WORK_EVENT_PREFIX)) throw new Error("Invalid MVU edit event");
+                                const option = { type: "message", message_id: id }, baseline = getVariables(option);
+                                if (!baseline.stat_data || baseline.schema === undefined) throw new Error("MVU edit baseline is unavailable");
+                                const parsed = await window.Mvu.parseMessage(command, copy(baseline));
+                                if (!parsed || !parsed.stat_data || parsed.schema === undefined) throw new Error("MVU edit validation failed");
+                                const update = { variables: parsed, message_content: String(readMessage(id)?.message || "") };
+                                await events.emitHost(data.eventId, window.Mvu.events.BEFORE_MESSAGE_UPDATE, [update]);
+                                const next = copy(baseline);
+                                for (const key of ["stat_data", "schema", "display_data", "delta_data"]) {
+                                    if (Object.prototype.hasOwnProperty.call(update.variables, key)) next[key] = copy(update.variables[key]);
+                                    else delete next[key];
+                                }
+                                localReplace(next, option);
+                                await call("updateTavernHelperVariables", { option: option, variables: next });
+                                return [id];
+                            }
 							if (data.name === "mag_variable_update_ended" && suppliedArgs.length === 0) {
 								const option = { type: "message", message_id: currentId() };
 								const variables = getVariables(option);
@@ -394,16 +415,6 @@
 				if (!Array.isArray(state.regexScripts.character)) state.regexScripts.character = [];
 				return state.regexScripts;
 			}
-			function helperRegex(script, scope) {
-				const placements = Array.isArray(script.placement) ? script.placement.map(Number) : [];
-				return {
-					id: String(script.id || ""), script_name: String(script.name || script.scriptName || ""), enabled: script.enabled !== false,
-					find_regex: String(script.findRegex || ""), trim_strings: copy(Array.isArray(script.trimStrings) ? script.trimStrings : []), replace_string: String(script.replaceString || ""),
-					source: { user_input: placements.includes(1), ai_output: placements.includes(2), slash_command: placements.includes(3), world_info: placements.includes(5), reasoning: placements.includes(6) },
-					destination: { display: script.markdownOnly === true, prompt: script.promptOnly === true }, run_on_edit: script.runOnEdit === true,
-					min_depth: script.minDepth == null ? null : Number(script.minDepth), max_depth: script.maxDepth == null ? null : Number(script.maxDepth), scope: scope
-				};
-			}
 			function internalRegex(regex) {
 				const source = regex && regex.source || {}, destination = regex && regex.destination || {};
 				return {
@@ -453,22 +464,6 @@
 			window.getCurrentMessageId = currentId;
 			window.getLastMessageId = lastId;
 			window.getChatMessages = messagesFor;
-			window.getTavernRegexes = function (option) {
-				const groups = regexGroups(), resolved = option && typeof option === "object" ? option : {};
-				let items = [];
-				if (resolved.type) {
-					if (!Object.prototype.hasOwnProperty.call(groups, resolved.type)) throw new Error("不支持的酒馆正则类型: " + resolved.type);
-					items = groups[resolved.type].map(function (script) { return helperRegex(script); });
-				} else {
-					const scope = resolved.scope || "all", enabled = resolved.enable_state || "all";
-					if (!["all", "global", "character"].includes(scope)) throw new Error("无效的酒馆正则 scope: " + scope);
-					if (!["all", "enabled", "disabled"].includes(enabled)) throw new Error("无效的酒馆正则 enable_state: " + enabled);
-					if (scope === "all" || scope === "global") items.push.apply(items, groups.global.map(function (script) { return helperRegex(script, "global"); }));
-					if (scope === "all" || scope === "character") items.push.apply(items, groups.character.map(function (script) { return helperRegex(script, "character"); }));
-					if (enabled !== "all") items = items.filter(function (script) { return script.enabled === (enabled === "enabled"); });
-				}
-				return copy(items);
-			};
 			window.getVariables = getVariables;
 			window.getAllVariables = function () {
 				return Object.assign({}, copy(state.globalVariables || {}), copy(state.characterVariables || {}), getVariables({ type: "script" }), copy(state.chatVariables || {}));

@@ -1,0 +1,1 @@
+- Spoken line with voice text: `@bubble:handle|name|variant|[display text]|[voice text]`, e.g. `@bubble:hinata|桐谷ひなた|微笑|[早上好。]|[おはよう。]`.

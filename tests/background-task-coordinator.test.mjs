@@ -52,7 +52,8 @@ for (const conflict of [false,true,'cancel']) test(`narrow background mutations 
     updateChat:(...args)=>{updates++;return p.update(...args)},
     patchChat:async(...args)=>{
       patches++
-      if(conflict)await p.update('c',chat=>{chat.messages[0].text='concurrent';if(conflict==='cancel')Object.values(chat.timeline.operations).forEach(op=>{op.status='cancelled'});return chat})
+      // A real edit each time: a save that changes nothing is not a commit and would not conflict.
+      if(conflict)await p.update('c',chat=>{chat.messages[0].text='concurrent';chat.concurrentEdits=(chat.concurrentEdits||0)+1;if(conflict==='cancel')Object.values(chat.timeline.operations).forEach(op=>{op.status='cancelled'});return chat})
       return p.patch(...args)
     }}})
   const task=await coordinator.begin(await p.read('c'),'settlement')

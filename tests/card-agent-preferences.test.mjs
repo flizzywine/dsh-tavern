@@ -57,7 +57,7 @@ test('真实卡片 Agent 请求：偏好仅在 system，附加指令置顶且修
   const strategy = createNativePlayOrchestrationStrategy({ modeFor: async () => 'card', visibleTools: async () => [], controlledToolNames: new Set(),
     cardSystemPrompt: () => '卡片 Agent 职责', workspaceContext: () => '卡片资源工作区' })
   registerTurnLifecycleHooks({ ctx: h.ctx, hookChatForSession: async () => chat, ensureNativeSystemPrefix: ensurePrefix,
-    backgroundAgentRunner: { owns: () => false }, fullTemplateRuntime: { cancel() {} }, clearRuntimePresetRequestState() {},
+    backgroundAgentRunner: { owns: () => false }, clearRuntimePresetRequestState() {},
     userMessageForTurn: () => null, contentText: () => '', foregroundHandoff: { end() {} },
     sessionStore: { flush: session => h.ctx.sessions.flush(session) }, foregroundStrategies: strategy, turnOrchestrator: { modeFor: async () => 'card' },
     publishResourceWorkspace: async () => ({}), runtimePrompt: () => append

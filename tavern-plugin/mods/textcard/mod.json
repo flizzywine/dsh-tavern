@@ -1,0 +1,101 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "experimental": true,
+  "id": "dsh.textcard",
+  "name": "文字演出",
+  "packageName": "dsh-tavern-mod-textcard",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "intensity": {
+          "enum": [
+            "restrained",
+            "standard",
+            "intense"
+          ],
+          "type": "string",
+          "userAdjustable": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "intensity"
+      ]
+    },
+    "defaults": {
+      "intensity": "standard"
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [],
+  "coreAssets": [],
+  "permissions": [
+    "stage.presentation"
+  ],
+  "performances": [
+    {
+      "kind": "dsh.textcard.compound",
+      "blocking": true,
+      "autoHold": {
+        "minMs": 0,
+        "until": "complete"
+      },
+      "regions": [
+        "center-card"
+      ],
+      "backlog": {
+        "renderer": "textcard",
+        "role": "notice"
+      },
+      "replay": {
+        "stage": true
+      }
+    },
+    {
+      "kind": "dsh.textcard.card",
+      "blocking": true,
+      "autoHold": {
+        "minMs": 0,
+        "until": "complete"
+      },
+      "regions": [
+        "center-card"
+      ],
+      "backlog": {
+        "renderer": "textcard",
+        "role": "notice"
+      },
+      "replay": {
+        "stage": true
+      }
+    }
+  ],
+  "entry": "plugin.mjs",
+  "prompts": [
+    {
+      "id": "rules",
+      "model": "director",
+      "tag": "mod_textcard",
+      "slot": "rules.after-core",
+      "order": 40,
+      "byteBudget": 4096,
+      "when": {},
+      "markdown": "- Follow the request performance budget; one template is one performance. Safe colours, automatic layout/timing; live-once.\n- beat.at is the source paragraph; after follows its last page, before precedes its first. Default after; title before.\n- show: word/name/marker/vertical/punct; one-glyph word is enlarged. title: chapters. sequence: echoes or colour signals.\n- count: seconds to zero; relate: people and directed links; compare: viewpoints; reveal: clues to an answer; repeat: obsession; read: a dossier.\n- People IDs are local keys, names are display text. Link endpoints use those IDs. All strings are nonblank.\n- Example: {\"op\":\"mod.dsh.textcard.count\",\"from\":3,\"label\":\"Door closes\"}."
+    }
+  ],
+  "summary": "用文字卡呈现剧情中的重要提示与报幕。"
+}

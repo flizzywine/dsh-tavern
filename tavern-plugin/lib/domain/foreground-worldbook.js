@@ -49,7 +49,8 @@ export function createForegroundWorldbook({ bound, runtime, globalVariables, sca
   const requests = new Map()
   const project = async function project({ requestKey, chat, card, userText, userTextInHistory = false, worldBook: snapshot, purpose = 'generation', signal, selectedRefs = [] }) {
     try {
-      let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText})
+      // No bound book is an empty projection, including its request preparation cache.
+      let worldBook = snapshot || await bound(chat.cardPath, card, chat, {purpose,userText}) || { view: { entries: [] } }
       const turn = Number([...(chat.messages || [])].reverse().find(message => message?.role === 'assistant')?.turn) || 0
       const randomState = worldbookRandomState(chat, turn)
       const templateRuntime = await runtime(chat.sessionId), globals = await globalVariables()

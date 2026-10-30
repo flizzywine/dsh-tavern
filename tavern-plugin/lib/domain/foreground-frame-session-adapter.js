@@ -2,7 +2,6 @@ import { worldbookContextDelta } from './worldbook-context-delta.js'
 import { foregroundFrameText } from './agent-input-frame.js'
 import { worldbookSnapshot } from './worldbook-snapshot.js'
 import { liveContextUpdate, cardSystemPromptSnapshot, cardSystemPromptSource } from './card-system-prompt.js'
-import { dialogueFormatUpdate } from './dialogue-format.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -57,15 +56,6 @@ export function createForegroundFrameSessionAdapter(options = {}) {
         content: [{ type: 'text', text: update.rendered }],
         source: { kind: 'plugin:dsh-tavern', form: 'card-system-prompt-update',
           trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, ...cardSystemPromptSource(update) } }
-      })
-    }
-    if (typeof frame.source?.dialogueFormatText === 'string') {
-      const update = dialogueFormatUpdate(input.session, frame.source.dialogueFormatText, input.historyMessages || messages)
-      if (update) snapshots.push({
-        id: makeId() + ':dialogue-format', role: 'user',
-        content: [{ type: 'text', text: update.rendered }],
-        source: { kind: 'plugin:dsh-tavern', form: 'dialogue-format-update',
-          trace: { frameId: frame.frameId, turn: frame.turn, operationId: frame.operationId, dialogueFormatSnapshot: update } }
       })
     }
     const text = foregroundFrameText({ contributions })

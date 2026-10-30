@@ -1,0 +1,936 @@
+/* first-party phone mod — iPhone 15 Pro Max proportions (430×932 → 280×607), Dynamic Island by default.
+   No palette of its own: every paint derives from the nine stage tokens the host sends (--gal-ui-*), or from the card's
+   custom colour settings that replace those tokens. Only transform/opacity animate; no filters, no glare. */
+:root {
+  /* 'normal' matches the host iframe element, so the frame stays transparent around the device in every theme. */
+  color-scheme: normal;
+  --sys: -apple-system, BlinkMacSystemFont, system-ui, "SF Pro Text", "Segoe UI", "PingFang SC", "Hiragino Sans", "Microsoft YaHei UI", sans-serif;
+  --font: var(--gal-ui-font, var(--sys));
+  --title-font: var(--gal-ui-title-font, var(--font));
+  --accent: var(--gal-ui-accent, #6f8fd8);
+  --accent-ink: var(--gal-ui-accent-ink, #ffffff);
+  --surface: var(--gal-ui-surface, #f4f2ec);
+  --ink: var(--gal-ui-ink, #23262b);
+  --ink-2: var(--gal-ui-ink-2, #6b6f76);
+  --app-bg: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  /* The phone's built-in wallpaper (no wallpaper chosen in 设置 › 墙纸): a soft wash of its accent. The one definition - the home
+     screen, the picker's 精选 tile and previews, and every page that stands on the wallpaper (her card, the call) use it. */
+  --wall-builtin: linear-gradient(165deg, color-mix(in srgb, var(--accent) 40%, var(--surface)), color-mix(in srgb, var(--accent) 12%, var(--surface)) 58%, color-mix(in srgb, var(--ink) 14%, var(--surface)));
+  --app-bar: color-mix(in srgb, var(--surface) 86%, transparent);
+  --app-line: color-mix(in srgb, var(--ink) 12%, transparent);
+  --bubble-in: color-mix(in srgb, var(--ink) 9%, var(--surface));
+  --bubble-radius: calc(18 * var(--pt));
+  /* messages read at iOS proportions of the phone's own width -
+     one --pt is one iOS point of a 393 pt screen (the stage's 280 px design, zoomed with the phone; the full-bleed reading sheet
+     sets its own width / 393 in fit()). The text scales with the phone, never with the dialogue box. */
+  --pt: calc(280px / 393);
+  --t: var(--theme-transition, 0ms);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; background: transparent; -webkit-font-smoothing: antialiased; }
+body { font-family: var(--font); color: var(--ink); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg { display: block; }
+
+/* ---------- device: titanium frame (border = bodyColor), black bezel, screen ---------- */
+#phone { position: absolute; inset: 0; overflow: hidden;
+  border: 2.5px solid var(--phone-body, #3b3a38); border-radius: 44px; padding: 5px; background-clip: content-box;
+  background-color: var(--app-bg); transition: border-color var(--t), background-color var(--t); }
+/* The black bezel is a ring painted above the screen content (z-index 2), so nothing on the screen (the home indicator
+   strip, a list row, a separator) can spill past the rounded screen corners into the bezel: as on a real iPhone, the
+   screen is exactly the 36.5px rounded rectangle inside it. Only the cutout sits above it. */
+#phone::after { content: ""; position: absolute; inset: 0; z-index: 4; border-radius: 41.5px; pointer-events: none;
+  box-shadow: inset 0 0 0 5px #060607, inset 0 0 0 5.5px color-mix(in srgb, #fff 9%, transparent); }
+body:not([data-presentation=open]) #phone { display: none; }
+/* Every screen layer (home screen, the two apps, the lock screen) fills the rounded screen; the status bar and the home
+   indicator float above them, as on iOS. */
+#home-screen, .app { position: absolute; inset: 5px; border-radius: 36.5px; overflow: hidden; }
+
+/* ---------- status bar + Dynamic Island / notch ---------- */
+.top { position: absolute; z-index: 5; top: 5px; left: 5px; right: 5px; height: 38px; }
+#cutout { position: absolute; z-index: 3; left: 50%; top: 7px; width: 82px; height: 24px; margin-left: -41px; border-radius: 12px; background: #050506; }
+#cutout[data-kind=notch] { top: 0; width: 118px; height: 23px; margin-left: -59px; border-radius: 0 0 15px 15px; }
+#cutout[data-kind=none] { display: none; }
+#status-bar { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr); align-items: center; padding: 0 15px 0 12px;
+  font: 600 12.5px/1 var(--sys); font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--ink); transition: color var(--t); }
+#clock { grid-column: 1; justify-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+/* Signal, Wi-Fi and battery are battery.js's SVGs, drawn on whole pixels at their own size. */
+.sys { grid-column: 3; grid-row: 1; justify-self: end; display: flex; align-items: center; gap: 4px; }
+.sys > span { display: block; }
+.sys svg { overflow: visible; }
+#battery text { font: 700 8.5px/1 var(--sys); letter-spacing: -.02em; }
+/* Carrier as on a real iPhone: none beside a Dynamic Island or notch (the time owns the left ear); on the frameless phone it
+   is on the left, ellipsized within its column, so it never reaches the centred time. */
+#carrier { grid-column: 1; grid-row: 1; justify-self: start; min-width: 0; max-width: 100%; font: 600 11px/1 var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body:not([data-cutout=none]) #carrier, #carrier:empty { display: none; }
+body[data-cutout=none] #status-bar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); column-gap: 8px; padding: 0 16px; }
+body[data-cutout=none] #clock { grid-column: 2; }
+body[data-cutout=notch] #status-bar { grid-template-columns: minmax(0, 1fr) 124px minmax(0, 1fr); }
+
+/* ---------- chat app bar ---------- */
+/* iOS 26 conversation title (measured from MacRumors' iOS 26
+   Messages frames in phone-ios-replica.md §5.2): 44 pt glass circles 16 pt in from each side (back left, call right), the
+   person's 60 pt picture - or the group's cluster - centred between them with its top on theirs, and under it, 4 pt up into
+   the picture, a 30 pt glass pill with the name and a small ›. No hairline under the bar. */
+.appbar { --glass: color-mix(in srgb, var(--surface) 88%, #fff); --glass-rim: color-mix(in srgb, var(--ink) 8%, transparent);
+  position: relative; flex: none; display: flex; align-items: flex-start; justify-content: space-between; min-height: calc(96 * var(--pt)); padding: calc(4 * var(--pt)) calc(16 * var(--pt)) calc(6 * var(--pt));
+  background: var(--app-bar); transition: background-color var(--t); }
+.appbar > button { position: relative; z-index: 1; flex: none; min-width: calc(44 * var(--pt)); height: calc(44 * var(--pt)); display: inline-flex; align-items: center; justify-content: center; gap: calc(2 * var(--pt)); padding: 0;
+  border-radius: calc(22 * var(--pt)); background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), 0 calc(2 * var(--pt)) calc(10 * var(--pt)) rgb(0 0 0 / .08); }
+#toggle { color: var(--ink); }
+#toggle:has(#back-badge:not([hidden])) { padding: 0 calc(12 * var(--pt)) 0 calc(14 * var(--pt)); }
+#back-badge { font: 500 calc(15 * var(--pt))/1 var(--sys); font-variant-numeric: tabular-nums; }
+#toggle svg { width: calc(20 * var(--pt)); height: calc(20 * var(--pt)); fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.appbar > .peer { position: absolute; top: calc(4 * var(--pt)); left: calc(68 * var(--pt)); right: calc(68 * var(--pt)); min-width: 0; min-height: calc(44 * var(--pt)); height: auto; display: flex; flex-direction: column; align-items: center; gap: 0; border-radius: calc(15 * var(--pt)); background: none; box-shadow: none; }
+/* Nobody's picture to show (messages-header): the bar keeps no room for one - it is the row of glass circles, the
+   name pill level with ‹, and the conversation starts right under it. A group always has its cluster. */
+.appbar:not(:has(> .peer > :is(#head-avatar, #head-group):not([hidden]))) { min-height: 0; }
+.appbar:not(:has(> .peer > :is(#head-avatar, #head-group):not([hidden]))) > .peer { justify-content: center; }
+.peer:disabled { cursor: default; }
+.peer:not(:disabled):active .who { background: var(--app-bg); }
+#head-avatar, #head-group { flex: none; width: calc(60 * var(--pt)); height: calc(60 * var(--pt)); }
+#head-avatar { border-radius: 50%; object-fit: cover; object-position: 50% 15%; background-color: color-mix(in srgb, var(--ink) 8%, var(--app-bg)); }
+.who { position: relative; max-width: 100%; height: calc(30 * var(--pt)); display: flex; align-items: center; gap: calc(3 * var(--pt)); padding: 0 calc(10 * var(--pt)) 0 calc(13 * var(--pt)); border-radius: calc(15 * var(--pt));
+  background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), 0 calc(1 * var(--pt)) calc(6 * var(--pt)) rgb(0 0 0 / .08); }
+.peer > :not([hidden]) ~ .who { margin-top: calc(-4 * var(--pt)); }
+#contact { min-width: 0; font: 600 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#member-count { flex: none; font: 400 calc(14 * var(--pt))/calc(20 * var(--pt)) var(--sys); font-variant-numeric: tabular-nums; }
+.who .chev { flex: none; margin-left: calc(2 * var(--pt)); width: calc(6 * var(--pt)); height: calc(11 * var(--pt)); fill: none; stroke: var(--ink-2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* Group details (iOS 26 group-details-r1; measured in phone-ios-replica.md §5.3): pushed over the conversation,
+   which slides 28 % left under it and keeps its scroll place; the page stands on the phone's wallpaper as her card does. The
+   44 pt glass back floats over the content; the 73 pt cluster's top is level with it, the name 28 pt bold right under it,
+   then the members three to a row on 129 pt centres: an 82 pt photo with the name (15 pt) under it. A short last row is
+   centred (iOS fills it with its Add key, which we have no use for). */
+#thread-view { transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+#messages-app[data-page=group] #thread-view { transform: translateX(-28%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+body[data-motion=reduced] #thread-view { transition-duration: 0s, 0s; transition-delay: 0s; }
+#group-info { box-shadow: -6px 0 18px rgb(0 0 0 / .12); }
+#group-info > header { position: absolute; z-index: 2; top: 38px; left: 0; right: 0; height: calc(44 * var(--pt)); padding: 0; background: none; box-shadow: none; pointer-events: none; }
+#group-info .nav-back { pointer-events: auto; }
+#group-info .scroll { padding-bottom: calc(40 * var(--pt) + var(--safe-bottom, 0px)); }
+.group-head { display: flex; flex-direction: column; align-items: center; padding: 0 calc(68 * var(--pt)); text-align: center; }
+#group-info-face { width: calc(73 * var(--pt)); height: calc(73 * var(--pt)); }
+#group-info-name { max-width: 100%; margin: 0; font: 700 calc(28 * var(--pt))/calc(34 * var(--pt)) var(--sys); overflow-wrap: anywhere; }
+#group-members { display: flex; flex-wrap: wrap; justify-content: center; row-gap: calc(14 * var(--pt)); margin: calc(24 * var(--pt)) calc(8 * var(--pt)) 0; }
+.member { flex: 0 0 min(calc(129 * var(--pt)), 100% / 3); min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 0 calc(4 * var(--pt)); color: #fff; border-radius: calc(16 * var(--pt)); }
+.member .owner-face { width: calc(82 * var(--pt)); height: calc(82 * var(--pt)); }
+.member .owner-face .initial { font-size: calc(32 * var(--pt)); }
+.member-name { max-width: 100%; margin-top: calc(1 * var(--pt)); font: 400 calc(15 * var(--pt))/calc(18 * var(--pt)) var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.member:active .owner-face { filter: brightness(.85); }
+button.member:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ---------- home screen: the wallpaper and two app icons, nothing else ----------
+   The built-in wallpaper is a soft wash of the theme's accent; a chosen wallpaper shows as it is under a light veil that
+   keeps the status bar and the labels readable. */
+#home-screen { z-index: 1; color: var(--ink); background: var(--wall-builtin); }
+body[data-wallpaper=image] #home-screen { background: linear-gradient(color-mix(in srgb, var(--app-bg) 22%, transparent), color-mix(in srgb, var(--app-bg) 22%, transparent)), var(--wall) center / cover no-repeat, var(--app-bg); }
+/* iOS 26 home (phone-ios-r4, the owner's 真实home, in points): a 4-column grid of 61 pt icons, 90 pt apart (16 pt side
+   margins), the first row's icons 78 pt from the top, rows 97.6 pt apart, a 12 pt label centred 13.7 pt under its icon; the
+   Dock a 98 pt glass shelf 14 pt in from each side and 11 pt above the bottom, its icons unlabelled. Only our three apps: as
+   iOS sets a phone up, 电话 and 信息 in the Dock, 设置 first on the grid - no other app, no search pill (nothing to search). */
+.board { position: absolute; inset: 0; transform-origin: 50% 40%; }
+.icons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: calc(15.9 * var(--pt)); padding: calc(78 * var(--pt)) calc(16 * var(--pt)) 0; }
+.app-icon { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: calc(6.7 * var(--pt)); padding: 0; border-radius: calc(14 * var(--pt)); }
+.dock { position: absolute; left: calc(14 * var(--pt)); right: calc(14 * var(--pt)); bottom: calc(11 * var(--pt) + var(--safe-bottom, 0px)); height: calc(98 * var(--pt)); display: flex; align-items: center; justify-content: center; gap: calc(29 * var(--pt));
+  border-radius: calc(38 * var(--pt)); background: rgb(255 255 255 / .3); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .5), 0 calc(1 * var(--pt)) calc(8 * var(--pt)) rgb(0 0 0 / .06); }
+.dock .app-name { display: none; }
+/* The home indicator keeps the strip under the Dock (iOS shows none here; ours puts the phone away). */
+body[data-app=home] .home { height: calc(11 * var(--pt)); padding-bottom: calc(3 * var(--pt)); }
+.app-icon:focus-visible { outline-offset: 1px; }
+.app-icon:active .tile { filter: brightness(.86); }
+/* iOS icon: a continuous rounded square (radius ≈ 22.5 %), the glyph centred. Phone and Messages are the iOS system greens
+    with a white handset / speech bubble drawn on the icon's 60-unit grid, as the
+   banner's app glyph is; Settings is the grey gear. */
+.tile { display: grid; place-items: center; width: calc(61 * var(--pt)); height: calc(61 * var(--pt)); border-radius: calc(13.7 * var(--pt)); box-shadow: 0 1px 3px rgb(0 0 0 / .14); }
+.tile svg { width: 62%; height: 62%; }
+.tile-messages, .tile-phone, .island-glyph { color: #fff; background: linear-gradient(180deg, #5bf675, #0cbd2a); }
+.tile-messages svg, .tile-phone svg { width: 100%; height: 100%; fill: currentColor; }
+.tile-photos { background: #fff; }
+.tile-photos svg { width: 84%; height: 84%; }
+.tile-photos rect { mix-blend-mode: multiply; opacity: .86; }
+.tile-settings { background: linear-gradient(180deg, #e8e8ed, #a4a4ab); }
+.tile-settings svg { width: 76%; height: 76%; fill: #55555c; }
+.app-name { max-width: 100%; font: 400 calc(12 * var(--pt))/calc(14 * var(--pt)) var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 0 4px color-mix(in srgb, var(--surface) 60%, transparent); }
+/* On a photo the labels are iOS's: white with a soft shadow. */
+body[data-wallpaper=image] .app-name { color: #fff; text-shadow: 0 calc(.5 * var(--pt)) calc(2 * var(--pt)) rgb(0 0 0 / .45); }
+/* iOS notification badge: system red, white count, over the icon's top-right corner. */
+.badge { flex: none; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center;
+  font: 600 10.5px/1 var(--sys); font-variant-numeric: tabular-nums; color: #fff; background: #ff3b30; }
+.app-icon .badge { position: absolute; top: calc(-10 * var(--pt)); left: calc(50% + 14 * var(--pt)); min-width: calc(24 * var(--pt)); height: calc(24 * var(--pt)); padding: 0 calc(7 * var(--pt)); border-radius: calc(12 * var(--pt)); font: 500 calc(15 * var(--pt))/1 var(--sys); }
+
+/* ---------- apps: the zoom from / into the icon is animated in JS (transform from the icon's rectangle) ---------- */
+.app { z-index: 2; display: flex; flex-direction: column; padding-top: 38px; transform-origin: 0 0; color: var(--ink);
+  background: linear-gradient(color-mix(in srgb, var(--app-bg) 58%, transparent), color-mix(in srgb, var(--app-bg) 58%, transparent)), var(--wall, none) center / cover no-repeat, var(--app-bg); }
+body:not([data-wallpaper=image]) .app { background: var(--app-bg); }
+/* iOS navigation bar: an empty row (or ‹ back + inline title) that takes its material and inline title once content
+   scrolls under it; the large title scrolls with the content. */
+.nav { position: relative; z-index: 1; flex: none; display: flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; transition: background-color 160ms, box-shadow 160ms; }
+.nav[data-state=edge], .nav[data-state=title] { background: var(--app-bar); box-shadow: 0 .5px 0 var(--app-line); }
+.nav-title { min-width: 0; max-width: 62%; font: 600 14px/1.2 var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 160ms; }
+.nav[data-state=title] .nav-title, .nav.inline .nav-title { opacity: 1; }
+.nav-back { position: absolute; left: 4px; top: 0; height: 32px; min-width: 36px; display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 4px; border-radius: 16px; color: var(--accent); font: 400 14px/1 var(--sys); }
+.nav-back svg { width: 11px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-bottom: calc(48px + var(--safe-bottom, 0px)); }
+.scroll::-webkit-scrollbar { display: none; }
+.large { margin: 0; padding: 0 16px 8px; font: 700 25px/1.15 var(--title-font); letter-spacing: -.01em; }
+
+/* ---------- Settings: grouped inset lists (iOS) ----------
+   Light: a grey page under white cells; dark: a near-black page under raised cells. Both from the stage tokens. */
+body { --group-bg: color-mix(in srgb, var(--ink) 7%, var(--surface)); --cell: var(--surface); --cell-press: color-mix(in srgb, var(--ink) 9%, var(--surface)); }
+body[data-scheme=dark] { --group-bg: color-mix(in srgb, #000 62%, var(--surface)); --cell: color-mix(in srgb, var(--ink) 9%, var(--surface)); --cell-press: color-mix(in srgb, var(--ink) 18%, var(--surface)); }
+/* Sliding pages must not scroll the app sideways when a field receives focus mid-transition. */
+#settings-app { background: var(--group-bg); padding-top: 0; overflow: clip; }
+.page { position: absolute; inset: 0; display: flex; flex-direction: column; padding-top: 38px; background: var(--group-bg);
+  transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+.page .nav[data-state] { background: color-mix(in srgb, var(--group-bg) 88%, transparent); }
+.page .nav:not([data-state=edge]):not([data-state=title]) { background: transparent; box-shadow: none; }
+/* Push: the account list slides in from the right over Settings, which shifts left under a shade; ‹ reverses it. Pages
+   off screen are hidden once they have slid away, so Tab never reaches them. */
+#settings-accounts { transform: translateX(100%); visibility: hidden; box-shadow: -6px 0 18px rgb(0 0 0 / .12); transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=accounts] #settings-accounts { transform: none; visibility: visible; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+#settings-root::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / .1); opacity: 0; pointer-events: none; transition: opacity 380ms; }
+#settings-app[data-page=accounts] #settings-root { transform: translateX(-28%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=accounts] #settings-root::after { opacity: 1; }
+body[data-motion=reduced] .page, body[data-motion=reduced] #settings-root::after { transition-duration: 0s, 0s !important; transition-delay: 0s !important; }
+.nav.inline + .scroll > .group:first-child { margin-top: 12px; }
+.group { margin: 0 14px 22px; border-radius: 11px; overflow: hidden; background: var(--cell); }
+.group > button { position: relative; width: 100%; text-align: left; transition: background-color 120ms; }
+.group > button:active { background: var(--cell-press); }
+.group > button:focus-visible { outline-offset: -2px; border-radius: 11px; }
+.group > button:not(:last-child)::after { content: ""; position: absolute; right: 0; bottom: 0; left: 52px; height: .5px; background: var(--app-line); }
+.chev { flex: none; color: var(--ink-2); opacity: .55; }
+.chev svg { width: 6px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The account card: face, name, whose phone it is, ›. */
+.account { display: flex; align-items: center; gap: 11px; min-height: 66px; padding: 10px 14px 10px 12px; }
+.account .owner-face { width: 44px; height: 44px; }
+.account .owner-face .initial { font-size: 18px; }
+.account-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+#account-name { font: 600 15px/1.25 var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#account-sub { font: 400 11.5px/1.3 var(--sys); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owner-face { position: relative; flex: none; display: block; width: 32px; height: 32px; }
+.owner-face > * { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 15%; }
+.owner-face .initial { font-size: 13px; }
+/* The list of phones: face, 「爱音的手机」, unread count, ✓ on the one in hand. */
+.owner-item { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 14px; align-items: center; column-gap: 10px; min-height: 44px; padding: 6px 14px 6px 12px; font: 400 13.5px/1.25 var(--sys); }
+.owner-item .owner-face { width: 30px; height: 30px; }
+.owner-item .badge:not([hidden]) { display: inline-grid; }
+.owner-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.owner-check { grid-column: 4; width: 14px; height: 11px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.owner-item[aria-checked=true] .owner-check { visibility: visible; }
+@media (pointer: coarse) { .owner-item { min-height: 48px; } .nav-back { height: 36px; } }
+/* Settings and Phone follow iOS 17/18 semantic surfaces and system typography, not a stage skin's display font. */
+#settings-app, #phone-app, #photos-app {
+  --ink: #000; --ink-2: #626267; --accent: #007aff; --accent-ink: #fff;
+  --group-bg: #f2f2f7; --cell: #fff; --cell-press: #e5e5ea; --app-line: #c6c6c8;
+  --switch-on: #34c759; --switch-off: #e9e9eb;
+  --font: var(--sys); --title-font: var(--sys); color: var(--ink); font-family: var(--sys);
+}
+body[data-scheme=dark] #settings-app, body[data-scheme=dark] #phone-app, body[data-scheme=dark] #photos-app {
+  --ink: #fff; --ink-2: #aeaeb2; --accent: #0a84ff; --group-bg: #000; --cell: #1c1c1e;
+  --cell-press: #3a3a3c; --app-line: #48484a; --switch-on: #30d158; --switch-off: #39393d;
+}
+#settings-app .nav { height: 44px; background: var(--group-bg); }
+#settings-app .nav-title { font: 600 17px/22px var(--sys); }
+#settings-app .nav-back { height: 44px; min-width: 44px; font-size: 17px; gap: 3px; color: var(--accent); }
+#settings-app .nav-back svg { width: 12px; height: 22px; }
+#settings-app .large { padding: 2px 20px 16px; font: 700 34px/41px var(--sys); letter-spacing: .01em; }
+#settings-app .group { margin: 0 20px 24px; border-radius: 10px; }
+#settings-app .group > button:focus-visible { border-radius: 10px; }
+#settings-app .chev { opacity: 1; color: var(--ink-2); }
+#settings-app .chev svg { width: 8px; height: 13px; }
+#settings-app .account { min-height: 80px; padding: 12px 16px; }
+#settings-app .account .owner-face { width: 52px; height: 52px; }
+#settings-app #account-name { font: 400 21px/26px var(--sys); }
+#settings-app #account-sub { font: 400 13px/18px var(--sys); }
+#settings-app .owner-item { min-height: 52px; font: 400 17px/22px var(--sys); }
+#settings-detail { transform: translateX(100%); visibility: hidden; box-shadow: -6px 0 18px rgb(0 0 0 / .12); transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=detail] #settings-detail { transform: none; visibility: visible; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+#settings-app[data-page=detail] #settings-root { transform: translateX(-28%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=detail] #settings-root::after { opacity: 1; }
+/* Safe area: the last group scrolls fully clear of the home indicator band (44px) plus iOS's bottom inset. */
+#settings-app .scroll { padding-bottom: calc(78px + var(--safe-bottom, 0px)); }
+#settings-detail .scroll { padding-top: 16px; }
+/* 设置适用于: one row in 切换手机 that pushes an iOS selection list (✓) with its footnote, over 切换手机 as that one does over Settings. */
+#scope-value { max-width: none; }
+#settings-scope { transform: translateX(100%); visibility: hidden; box-shadow: -6px 0 18px rgb(0 0 0 / .12); transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=scope] #settings-scope { transform: none; visibility: visible; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+#settings-app[data-page=scope] #settings-accounts { transform: translateX(-28%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#settings-app[data-page=scope] #settings-root { visibility: hidden; transform: translateX(-28%); }
+#settings-scope .scroll { padding-top: 16px; }
+#settings-scope .group { margin-bottom: 8px; }
+.scope-note { margin: 0 36px 24px; font: 400 13px/18px var(--sys); color: var(--ink-2); }
+.pref { position: relative; }
+.pref:not(:last-child)::after { content: ""; position: absolute; right: 0; bottom: 0; left: 58px; height: .5px; background: var(--app-line); pointer-events: none; }
+.pref-main { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 7px 16px; text-align: left; font: 400 17px/22px var(--sys); }
+.pref-main:active { background: var(--cell-press); }
+.pref-main.switch-row { gap: 12px; padding: 7px 16px; }
+.pref-main:focus-visible { outline-offset: -2px; border-radius: 10px; }
+.pref-icon { flex: none; display: grid; place-items: center; width: 29px; height: 29px; border-radius: 7px; color: #fff; background: #007aff; }
+.pref-icon[data-key=surfaceColor], .pref-icon[data-key=bodyColor], .pref-icon[data-key=cutout] { background: #5856d6; }
+.pref-icon[data-key=statusBar], .pref-icon[data-key=clockText], .pref-icon[data-key=carrier], .pref-icon[data-key=signal] { background: #636366; }
+.pref-icon[data-key=battery] { background: #248a3d; }
+.pref-icon[data-key=sound] { background: #e82e44; }
+.pref-icon svg, .photo-import svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+/* A row is one line, like iOS: a value never truncates (a time keeps its natural width). A colour value gives way first —
+   its words wrap onto a clipped second line and the swatch alone stands for the value — so nothing shows a bare "…";
+   only a label wider than the whole row ellipsizes. The stage phone is a 280 px screen, so 17 px rows are tight. */
+.pref-label, .check-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pref-value, .check-note { flex: none; white-space: nowrap; }
+.pref-value { color: var(--ink-2); font: 400 17px/22px var(--sys); }
+.pref-value:has(.pref-dot) { flex: 0 1000 auto; min-width: 18px; height: 22px; display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; column-gap: 5px; overflow: hidden; }
+.pref-dot { flex: none; width: 18px; height: 18px; margin: 2px 0; border-radius: 50%; box-shadow: inset 0 0 0 .5px var(--app-line); }
+/* iOS spacing that still fits 「状态栏时间 08:15」 and 「设置适用于 所有角色卡」 on the 280 px stage phone */
+#settings-app .pref-main { gap: 10px; padding-right: 14px; }
+#settings-app .pref-value + .chev { margin-left: -4px; }
+.pref-thumb { display: block; width: 18px; height: 30px; border-radius: 4px; object-fit: cover; }
+.prefs-status { margin: 0 20px 24px; padding: 12px 16px; border-radius: 10px; font: 400 15px/20px var(--sys); color: var(--ink); background: var(--cell); }
+.prefs-status.is-loading { display: flex; align-items: center; gap: 8px; }
+.prefs-status .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--app-line); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.link { min-height: 44px; padding: 8px; color: var(--accent); font: inherit; }
+.check-row, .switch-row, .row-action { position: relative; width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; text-align: left; font: 400 17px/22px var(--sys); }
+.check-row:active, .switch-row:active, .row-action:active { background: var(--cell-press); }
+.check-row:focus-visible, .switch-row:focus-visible, .row-action:focus-visible { outline-offset: -2px; border-radius: 10px; }
+.check-row:not(:last-child)::after { content: ""; position: absolute; right: 0; bottom: 0; left: 16px; height: .5px; background: var(--app-line); }
+.check-note { color: var(--ink-2); font: 400 15px/20px var(--sys); }
+.check-glyph { flex: none; min-width: 22px; color: var(--ink); }
+.check-mark svg { width: 16px; height: 13px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.check-row[aria-checked=true] .check-mark svg { visibility: visible; }
+.row-action { justify-content: flex-start; color: var(--accent); white-space: nowrap; }
+.switch { flex: none; position: relative; width: 51px; height: 31px; border-radius: 16px; background: var(--switch-off); transition: background-color 160ms; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .2); transition: transform 160ms var(--ease); }
+.switch-row[aria-checked=true] .switch { background: var(--switch-on); }
+.switch-row[aria-checked=true] .switch::after { transform: translateX(20px); }
+.swatches { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 4px; padding: 12px 8px; }
+.swatch { display: grid; place-items: center; height: 44px; border-radius: 8px; }
+.swatch i { display: block; width: 30px; height: 30px; border-radius: 50%; box-shadow: inset 0 0 0 .5px var(--app-line); }
+.swatch[aria-checked=true] i { box-shadow: 0 0 0 2px var(--cell),0 0 0 4px var(--accent); }
+.swatches > button:not(:last-child)::after { content: none; }
+.field-cell { display: flex; align-items: center; min-height: 48px; padding: 0 16px; }
+.field-input { flex: 1; min-width: 0; height: 46px; padding: 0; border: 0; background: transparent; color: var(--ink); font: 400 17px/22px var(--sys); font-variant-numeric: tabular-nums; }
+.field-input:focus-visible { outline-offset: -2px; }
+.slider-cell { display: flex; align-items: center; gap: 18px; min-height: 60px; padding: 8px 20px; }
+.slider { appearance: none; flex: 1; min-width: 0; height: 44px; margin: 0; background: transparent; cursor: pointer; touch-action: none; }
+.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right,var(--accent) var(--position),var(--app-line) var(--position)); }
+.slider::-webkit-slider-thumb { appearance: none; width: 28px; height: 28px; border-radius: 50%; margin-top: -12px; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / .25); }
+/* iOS slider: never a box; keyboard focus rings the knob only. */
+.slider:focus, .slider:focus-visible { outline: none; }
+.slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 1px 4px rgb(0 0 0 / .25), 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent); }
+.slider-value { flex: none; min-width: 42px; text-align: right; font: 400 17px/22px var(--sys); color: var(--ink-2); }
+.wallpaper-card { padding-top: 20px; }
+.wall-preview { display: flex; justify-content: center; gap: 12px; padding: 0 12px 18px; }
+.mini-cell { flex: 1; min-width: 0; max-width: 134px; display: grid; justify-items: center; gap: 8px; }
+.mini { position: relative; width: 100%; aspect-ratio: 9 / 19.5; border-radius: 16px; overflow: hidden; background: var(--wall-builtin) center / cover no-repeat; }
+.mini-clock { position: absolute; top: 33px; left: 0; right: 0; text-align: center; font: 600 clamp(22px,8vw,32px)/1 var(--sys); font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / .45); }
+.mini-icons { position: absolute; top: 25px; left: 9px; right: 9px; display: grid; grid-template-columns: repeat(4,1fr); gap: 7px 5px; }
+.mini-app { aspect-ratio: 1; border-radius: 4px; background: rgb(255 255 255 / .6); }
+.mini-dock { position: absolute; left: 7px; right: 7px; bottom: 13px; height: 20px; background: rgb(255 255 255 / .4); border-radius: 8px; }
+.mini-home { position: absolute; left: 33%; right: 33%; bottom: 5px; height: 2px; border-radius: 1px; background: #fff; }
+.mini-caption { font: 400 13px/18px var(--sys); color: var(--ink-2); }
+.wallpaper-add { justify-content: center; border-top: .5px solid var(--app-line); }
+#wallpaper-picker { position: absolute; inset: 0; z-index: 3; display: flex; align-items: flex-end; background: rgb(0 0 0 / .35); }
+.picker-sheet { width: 100%; height: calc(100% - 50px); display: flex; flex-direction: column; border-radius: 14px 14px 0 0; overflow: hidden; background: var(--group-bg); animation: sheet-in 250ms var(--ease); }
+@keyframes sheet-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.picker-nav { position: relative; min-height: 56px; flex: none; display: grid; place-items: center; border-bottom: .5px solid var(--app-line); }
+.picker-nav h2 { margin: 0; font: 600 17px/22px var(--sys); }
+#wallpaper-cancel { position: absolute; top: 6px; left: 8px; min-width: 44px; min-height: 44px; color: var(--accent); font: 400 17px/22px var(--sys); }
+.photo-import { display: grid; justify-items: center; gap: 6px; min-height: 80px; margin: 20px; padding: 4px; width: 64px; border-radius: 10px; color: var(--ink-2); font: 400 13px/18px var(--sys); }
+.photo-import svg { width: 52px; height: 52px; padding: 13px; border-radius: 50%; color: #007aff; background: #b9e4fb; }
+.picker-title { margin: 0 20px 14px; font: 700 22px/28px var(--sys); }
+.gallery { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 0 20px 24px; }
+.wall-tile { position: relative; aspect-ratio: 9 / 19.5; border-radius: 12px; overflow: hidden; background: var(--cell); }
+.wall-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wall-tile[aria-checked=true] { outline: 3px solid var(--accent); outline-offset: 3px; }
+.wall-tile[aria-checked=true]::after { content: "✓"; position: absolute; right: 5px; bottom: 5px; width: 22px; height: 22px; border-radius: 50%; text-align: center; font: 600 16px/22px var(--sys); background: var(--accent); color: #fff; }
+.wall-builtin { background: var(--wall-builtin); }
+#confirm, #photo-confirm { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding: 0 10px 44px; background: rgb(0 0 0 / .32); }
+.confirm-card { display: grid; border-radius: 13px; overflow: hidden; background: var(--cell); }
+#confirm-text, #photo-confirm-text { margin: 0; padding: 16px; text-align: center; font: 400 13px/18px var(--sys); color: var(--ink-2); border-bottom: .5px solid var(--app-line); }
+#confirm-ok, #confirm-cancel, #photo-confirm-ok, #photo-confirm-cancel { min-height: 56px; font: 400 20px/25px var(--sys); }
+#confirm-ok, #photo-confirm-ok { color: #ff453a; }
+#confirm-cancel, #photo-confirm-cancel { border-radius: 13px; font-weight: 600; color: var(--accent); background: var(--cell); }
+#confirm-ok:focus-visible, #confirm-cancel:focus-visible, #photo-confirm-ok:focus-visible, #photo-confirm-cancel:focus-visible { outline-offset: -3px; border-radius: 13px; }
+body[data-motion=reduced] #settings-detail, body[data-motion=reduced] .switch, body[data-motion=reduced] .switch::after { transition-duration: 0s,0s !important; transition-delay: 0s !important; }
+body[data-motion=reduced] .picker-sheet { animation: none; }
+/* Changing hands: the phone swings in from the side, locked (face · 「爱音的手机」 · the time, under the status bar), then
+   its lock screen slides up. Reduced motion: no swing, the lock screen fades. */
+#handover { position: absolute; inset: 5px; z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 72px;
+  border-radius: 36.5px; overflow: hidden; cursor: pointer; color: var(--ink); background-color: var(--app-bg);
+  background-image: linear-gradient(180deg, color-mix(in srgb, var(--accent) 30%, var(--surface)), color-mix(in srgb, var(--accent) 8%, var(--surface)));
+  background-size: cover; background-position: center; }
+#handover::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--app-bg) 42%, transparent); pointer-events: none; }
+#handover > * { position: relative; }
+#handover .lock { width: 12px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; opacity: .8; }
+#handover .owner-face { width: 52px; height: 52px; margin-top: 8px; }
+#handover .owner-face .initial { font-size: 21px; }
+#handover-name { max-width: calc(100% - 32px); font: 600 13px/1.3 var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#handover-clock { font: 600 58px/1 var(--sys); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+#phone.handover { animation: handin 340ms var(--ease) both; }
+#handover.run { animation: unlock 320ms cubic-bezier(.55, 0, .2, 1) 640ms both; }
+body[data-motion=reduced] #phone.handover { animation: none; }
+body[data-motion=reduced] #handover.run { animation: unlock-fade 140ms linear 420ms both; }
+body[data-surface=sheet] #handover { inset: 0; border-radius: 0; }
+
+/* ---------- faces: photo, else initials on the iOS grey contact circle; a group is a cluster of separate faces ---------- */
+.initial { display: grid; place-items: center; border-radius: 50%; color: var(--surface); font: 600 13px/1 var(--sys);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink) 30%, var(--surface)), color-mix(in srgb, var(--ink) 46%, var(--surface))); }
+/* Until the host's first conversation data arrives the screen shows only its wallpaper and status bar, never a placeholder
+   conversation (「未知联系人」) that is replaced a moment later. */
+body[data-source=waiting] #messages-app, body[data-source=waiting] #settings-app, body[data-source=waiting] #phone-app, body[data-source=waiting] #photos-app, body[data-source=waiting] #home-screen { visibility: hidden; }
+/* A face still being prepared: the same circle, quieter and without a letter; the photo then fades in on the spot. */
+.initial.pending { background: color-mix(in srgb, var(--ink) 12%, var(--surface)); }
+img.arrive { animation: face-arrive 220ms ease-out both; }
+@keyframes face-arrive { from { opacity: 0; } }
+body[data-motion=reduced] img.arrive { animation-duration: 120ms; }
+.stack, .pic { position: relative; flex: none; display: block; }
+.stack > *, .pic > * { position: absolute; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 15%; }
+/* Group cluster (index.js CLUSTER places each face): in the list the faces sit apart on a pale circle, each with a hairline
+   ring; the conversation's title bar shows the same faces without the circle, as iOS does above a group's name. */
+.thread-row[data-kind=group] .pic > * { background-color: var(--app-bg); box-shadow: 0 0 0 .75px var(--app-bg); }
+.stack > * { background-color: color-mix(in srgb, var(--ink) 8%, var(--app-bg)); box-shadow: 0 0 0 .75px var(--app-bg); }
+.thread-row[data-kind=group] .pic { border-radius: 50%; background: color-mix(in srgb, var(--ink) 8%, var(--app-bg)); }
+.thread-row[data-kind=group] .pic[data-count="1"] { background: none; }
+.initial.more { color: var(--ink); background-image: linear-gradient(color-mix(in srgb, var(--ink) 16%, var(--app-bg)) 0 0); font-weight: 600; letter-spacing: -.02em; }
+
+/* ---------- list of conversations (iOS Messages: large title, rows with face, name, two-line preview, unread dot) ---------- */
+.view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#threads { margin: 0; padding: 0; list-style: none; }
+.thread-row { width: 100%; display: grid; grid-template-columns: 14px 44px minmax(0, 1fr); align-items: center; column-gap: 8px; padding: 0 0 0 2px; text-align: left; }
+.thread-row:focus-visible { outline-offset: -2px; border-radius: 10px; }
+.thread-row:active { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.unread { justify-self: center; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); visibility: hidden; }
+.unread.on { visibility: visible; }
+.pic { width: 44px; height: 44px; }
+.pic .initial { font-size: 16px; }
+.main { min-width: 0; min-height: 62px; display: grid; align-content: center; gap: 1px; padding: 9px 12px 9px 0; box-shadow: inset 0 -.5px 0 var(--app-line); }
+li:last-child .main { box-shadow: none; }
+.line-top { display: flex; align-items: baseline; gap: 3px; min-width: 0; }
+.line-top strong { min-width: 0; font: 600 calc(17 * var(--pt))/1.3 var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.line-top .count { flex: none; font: 400 13px/1.3 var(--sys); font-variant-numeric: tabular-nums; }
+.line-top .count:empty { display: none; }
+.chev { flex: none; margin-left: auto; align-self: center; color: var(--ink-2); opacity: .55; }
+.chev svg { width: 6px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.preview { min-height: 2.7em; font: calc(15 * var(--pt))/1.35 var(--font); color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.preview:empty { min-height: 0; }
+.main > .dots { height: 2.7em; align-items: flex-start; padding-top: 5px; color: var(--ink-2); }
+.main > .dots i { width: 5px; height: 5px; }
+#threads-empty { margin: 0; padding-top: 40%; text-align: center; font: 500 13px/1.4 var(--sys); color: var(--ink-2); }
+
+/* ---------- history status (⚠ chips, spinner only after 150 ms) ---------- */
+#history-status { flex: none; align-self: center; margin: 8px 0 0; padding: 3px 10px; border-radius: 11px; font: 500 11px/16px var(--sys);
+  color: var(--ink); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+#history-status[data-kind=loading] { width: 22px; height: 22px; padding: 0; background: none; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  opacity: 0; animation: appear 1ms linear 150ms forwards, spin .9s linear 150ms infinite; }
+
+/* ---------- thread ---------- */
+#messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; }
+#messages::-webkit-scrollbar { display: none; }
+/* What the phone truly cannot show sits at the start of the conversation, like an iOS timestamp line. */
+article { display: flex; align-items: flex-end; gap: 6px; flex: none; max-width: 100%; transform-origin: 0 100%; }
+article[data-side=out] { flex-direction: row-reverse; transform-origin: 100% 100%; }
+article.start { margin-top: 8px; }
+article.turn-start { margin-top: 18px; }
+article > img { flex: none; width: 28px; height: 28px; border-radius: 50%; object-fit: cover; object-position: 50% 15%; }
+article[data-side=in] > img[hidden] { display: block !important; visibility: hidden; }
+article[data-side=out] > img { display: none !important; }
+article[data-initial][data-side] > img[hidden] { display: none !important; }
+article[data-initial]::before { content: attr(data-initial); flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: var(--surface); font: 600 12px/1 var(--sys);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink) 30%, var(--surface)), color-mix(in srgb, var(--ink) 46%, var(--surface))); }
+.column { min-width: 0; max-width: calc(100% - 52px); display: flex; flex-direction: column; align-items: flex-start; }
+article[data-side=out] .column { align-items: flex-end; }
+.column > .bubble { max-width: 100%; }
+.sender { margin: 0 0 2px 11px; max-width: 100%; font: 500 calc(11 * var(--pt))/1.3 var(--sys); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bubble { position: relative; min-width: 0; max-width: calc(100% - 52px); padding: calc(6.5 * var(--pt)) calc(12 * var(--pt)) calc(7 * var(--pt)); border-radius: var(--bubble-radius);
+  background: var(--bubble-in); color: var(--ink); font: calc(17 * var(--pt))/calc(22 * var(--pt)) var(--font); overflow-wrap: anywhere; transition: background-color var(--t), color var(--t); }
+article[data-side=out] .bubble { background: var(--accent); color: var(--accent-ink); }
+article[data-side=in].end .bubble { border-bottom-left-radius: 5px; }
+article[data-side=out].end .bubble { border-bottom-right-radius: 5px; }
+article.end .bubble::before { content: ""; position: absolute; bottom: 0; left: -5px; width: 12px; height: 13px; background: inherit; clip-path: path("M5 0H12V13H0C3.6 12.2 5 9.6 5 5.5Z"); }
+article[data-side=out].end .bubble::before { left: auto; right: -5px; transform: scaleX(-1); }
+.bubble p { margin: 0; white-space: pre-wrap; display: inline; }
+.bubble.sticker { background: none; padding: 0 2px; font-size: 44px; line-height: 1.1; }
+.bubble.sticker::before { display: none; }
+.note { flex: none; align-self: center; padding: 2px 8px; border-radius: 10px; font: 500 10.5px/15px var(--sys); color: var(--ink); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); white-space: nowrap; }
+.voice { display: inline-flex; align-items: center; gap: 2px; height: 22px; margin: -2px -4px -3px 6px; padding: 0 8px; border-radius: 11px; vertical-align: middle; background: color-mix(in srgb, currentColor 14%, transparent); }
+.voice svg { width: 8px; height: 9px; fill: currentColor; margin-right: 3px; }
+.voice i { width: 2.4px; border-radius: 2px; background: currentColor; opacity: .85; }
+.voice i:nth-of-type(1) { height: 6px; } .voice i:nth-of-type(2) { height: 11px; } .voice i:nth-of-type(3) { height: 8px; } .voice i:nth-of-type(4) { height: 12px; } .voice i:nth-of-type(5) { height: 5px; }
+/* Typing indicator (iMessage): a short grey bubble of three dots with the two-circle tail, from the typing sender. */
+.dots { display: inline-flex; align-items: center; gap: 4px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .4; animation: dot 1.25s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .16s; } .dots i:nth-child(3) { animation-delay: .32s; }
+.typing-bubble { display: flex; align-items: center; height: 33px; padding: 0 13px; color: color-mix(in srgb, var(--ink) 48%, var(--bubble-in));
+  transform-origin: 0 100%; animation: breathe 1.8s ease-in-out infinite; }
+article.typing.end .bubble { border-bottom-left-radius: var(--bubble-radius); }
+article.typing .bubble::before, article.typing .bubble::after { content: ""; position: absolute; border-radius: 50%; background: var(--bubble-in); clip-path: none; }
+article.typing .bubble::before { left: -1px; bottom: -1px; width: 9px; height: 9px; }
+article.typing .bubble::after { left: -5px; bottom: -5px; width: 4.5px; height: 4.5px; }
+article.typing:not(.end) .bubble::before, article.typing:not(.end) .bubble::after { display: none; }
+#island-typing { justify-self: start; height: 18px; color: var(--ink-2); }
+#island-typing i { width: 5px; height: 5px; }
+
+/* ---------- composer + home indicator ---------- */
+.composer { flex: none; display: flex; align-items: flex-end; gap: 4px; padding: 6px 8px calc(36px + var(--safe-bottom, 0px)) 4px; background: var(--app-bar); box-shadow: 0 -.5px 0 var(--app-line); transition: background-color var(--t); }
+.plus, #send { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--accent); }
+.plus svg, #send svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+#field { flex: 1; min-width: 0; min-height: 32px; max-height: calc(74px + 22 * var(--pt)); display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 7px 12px; border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--app-line); background: color-mix(in srgb, var(--surface) 70%, transparent); font: calc(17 * var(--pt))/calc(22 * var(--pt)) var(--font); }
+#draft { white-space: pre-wrap; overflow-wrap: anywhere; }
+#field .caret { display: none; width: 1.5px; height: calc(20 * var(--pt)); margin-top: calc(-21 * var(--pt)); align-self: flex-end; background: var(--accent); }
+#field.typing #draft { display: inline; }
+#field.typing .caret { display: block; animation: caret 1s steps(1) infinite; }
+#field.typing #draft:empty + .caret { margin-top: 0; align-self: flex-start; }
+#send { position: relative; }
+#send svg { position: absolute; transition: opacity .14s, transform .18s var(--ease); }
+#send .go { opacity: 0; transform: scale(.6); }
+#send.ready { background: var(--accent); color: var(--accent-ink); }
+#send.ready .go { opacity: 1; transform: none; }
+#send.ready .mic { opacity: 0; transform: scale(.6); }
+/* iOS: the home indicator floats on the screen itself, with no band of its own; in a conversation the input bar's
+   material continues down under it. A tap or a swipe up goes home (on the home screen: puts the phone away). */
+/*the hit area is a 44px band across the bottom (the conversation's input bar sits above it,
+   as iOS keeps the indicator's own strip); hovering or pressing lights a soft pill behind the bar, the bar follows a
+   swipe up, and the first time the phone opens it lifts twice, once. */
+.home { position: absolute; z-index: 5; left: 5px; right: 5px; bottom: 5px; height: 44px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 7px;
+  background: transparent; touch-action: none; cursor: pointer; border-radius: 0 0 36.5px 36.5px; }
+.home:focus-visible { outline-offset: -3px; }
+.home::before { content: ""; position: absolute; left: 50%; bottom: 1px; width: 140px; height: 16px; margin-left: -70px; border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 11%, transparent); opacity: 0; transition: opacity 160ms; pointer-events: none; }
+.home i { position: relative; width: 96px; height: 4px; border-radius: 2px; background: var(--ink); opacity: .55; pointer-events: none;
+  transform: translateY(var(--lift, 0px)); transition: scale 180ms var(--ease), opacity 160ms, transform 180ms var(--ease); }
+.home:hover::before, .home:focus-visible::before, .home.pressed::before { opacity: 1; }
+.home:hover i, .home:focus-visible i { scale: 1.125 1; opacity: .85; }
+.home.pressed i { scale: 1.17 1; opacity: .95; transition: scale 120ms, opacity 120ms; }
+.home.dragging i { transition: none; }
+.home.hint i { animation: home-hint 1.3s var(--ease) 1.1s 2; }
+.home.hint::before { animation: home-halo 1.3s ease-in-out 1.1s 2; }
+body[data-motion=reduced] .home.hint i { animation: home-hint-calm 1.3s ease-in-out 1.1s 2; }
+@keyframes home-hint { 0%, 55%, 100% { transform: none; } 20% { transform: translateY(-7px); scale: 1.17 1; opacity: .95; } 38% { transform: translateY(-1px); } }
+@keyframes home-hint-calm { 0%, 100% { opacity: .55; } 30% { opacity: 1; } }
+@keyframes home-halo { 0%, 70%, 100% { opacity: 0; } 22% { opacity: 1; } }
+
+/* ---------- reading sheet: the reader's own phone is the device, so only the screen is painted ---------- */
+body[data-surface=sheet] #phone { border: 0; border-radius: 0; padding: 0; box-shadow: none; }
+body[data-surface=sheet] #phone::after { display: none; }
+body[data-surface=sheet] #home-screen, body[data-surface=sheet] .app { inset: 0; border-radius: 0; }
+body[data-surface=sheet] .top { top: 0; left: 0; right: 0; }
+body[data-surface=sheet] .home { left: 0; right: 0; bottom: 0; }
+body[data-surface=sheet] #cutout { display: none; }
+/* On a real phone (presentation.device) the device shows its own status bar: ours goes with its band, so every screen starts
+   right under the device's safe top (only the part of it the sheet still reaches: no blank band where the
+   island was) - what stood clear of our 54 pt status bar now stands that much higher - and our home bar stays, lifted clear
+   of the system gesture zone by the safe bottom. */
+body[data-device=phone] .top { display: none; }
+body[data-device=phone] :is(.app, .page) { padding-top: var(--safe-top, 0px); }
+body[data-device=phone] #group-info > header { top: var(--safe-top, 0px); }
+body[data-device=phone] .icons { padding-top: calc(24 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] #handover { padding-top: calc(34px + var(--safe-top, 0px)); }
+body[data-device=phone] #call { padding-top: calc(51 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] #call[data-connected="true"] .call-face { top: calc(59.5 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] .ft-pill { top: calc(6 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] .ft-shutter { top: calc(8.5 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] .photos-head { height: calc(64 * var(--pt) + var(--safe-top, 0px)); padding-top: var(--safe-top, 0px); }
+body[data-device=phone] #photos-root .scroll { padding-top: calc(64 * var(--pt) + var(--safe-top, 0px)); }
+body[data-device=phone] .viewer-head { height: calc(56 * var(--pt) + var(--safe-top, 0px)); padding-top: var(--safe-top, 0px); }
+body[data-device=phone] .viewer-head .glass-round { top: var(--safe-top, 0px); }
+body[data-device=phone] .home { bottom: var(--safe-bottom, 0px); }
+
+/* ---------- compact: the incoming notification banner (a real phone's banner) ----------
+   The host frames it (rounded, frosted backdrop blur, shadow, slide down/up) at exactly the phone screen's width; this view
+   paints only the translucent card in the phone's own theme: app row, bold sender, one ellipsised line, small avatar. */
+#island { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: center; gap: 3px; padding: 9px 13px 10px;
+  border-radius: 18px; background: color-mix(in srgb, var(--surface) 74%, transparent); color: var(--ink); cursor: pointer;
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--ink) 14%, transparent); }
+body[data-presentation=compact] #island { display: flex; }
+#island:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.island-head { display: flex; align-items: center; gap: 6px; min-width: 0; font: 500 11px/16px var(--sys); color: var(--ink-2); }
+.island-glyph { flex: none; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4.5px; }
+.island-glyph svg { width: 100%; height: 100%; fill: currentColor; }
+.island-app { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .02em; }
+.island-time { flex: none; }
+.island-body { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.island-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+#island-name { font: 600 13.5px/18px var(--title-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#island-preview { font: 13px/18px var(--font); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#island-preview:empty { display: none; }
+#island-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; object-fit: cover; object-position: 50% 15%; }
+
+/* ---------- motion: subtle, transform/opacity only ---------- */
+@keyframes appear { to { opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+@keyframes sent { from { opacity: 0; transform: translateY(14px); } }
+@keyframes swap { from { opacity: 0; } }
+@keyframes handin { from { opacity: 0; transform: perspective(1100px) translateX(22%) rotateY(-26deg) scale(.92); } }
+@keyframes unlock { to { transform: translateY(-104%); } }
+@keyframes unlock-fade { to { opacity: 0; } }
+@keyframes dot { 0%, 60%, 100% { transform: none; opacity: .4; } 30% { transform: translateY(-2.5px); opacity: 1; } }
+@keyframes breathe { 0%, 100% { transform: none; } 50% { transform: scale(1.04); } }
+@keyframes calm { 0%, 100% { opacity: .3; } 40% { opacity: .85; } }
+@keyframes caret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+article.enter { animation: rise 220ms var(--ease) both; }
+article.sent { animation: sent 240ms var(--ease) both; }
+body[data-motion=reduced] article.enter, body[data-motion=reduced] article.sent { animation: swap 100ms linear both; }
+body[data-motion=reduced] .dots i { animation: calm 1.6s linear infinite; }
+body[data-motion=reduced] .typing-bubble { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  article.enter, article.sent { animation: swap 100ms linear both; }
+  .dots i { animation: calm 1.6s linear infinite; }
+  .typing-bubble { animation: none; }
+  #send svg { transition: none; }
+}
+
+article[data-form=voice] .bubble { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+article[data-form=voice] .voice { margin: 0; background: none; min-height: 30px; }
+.duration, .transcript-toggle { font-size: var(--fork-fs-meta, var(--gal-ui-meta-size)); }
+.transcript-toggle { padding: 4px; min-height: 30px; color: inherit; background: none; opacity: .8; }
+.bubble p.transcript { order: 5; flex-basis: 100%; display: block; max-height: 0; opacity: 0; overflow: hidden; transition: opacity 180ms ease; }
+.bubble p.transcript.is-expanded { max-height: none; opacity: 1; }
+@media (pointer: coarse) { article[data-form=voice] .voice, .transcript-toggle { min-height: 36px; } }
+body[data-motion=reduced] .bubble p.transcript { transition: opacity 100ms linear; }
+
+/* ---------- 电话 app: the iOS 26 Phone app, sized in iOS points
+   (--pt, one point of a 393 pt iPhone, as Messages) from the owner's iPhone screenshots - inline 17 pt title, plain list rows
+   without section labels, the floating glass tab bar; details are the contact card with round glyph-only keys. Static glass
+   (no backdrop-filter). ---------- */
+#phone-app { --plain: #fff; --glass: rgb(255 255 255 / .95); --glass-solid: #fff; --glass-rim: rgb(0 0 0 / .07); --glass-shadow: 0 calc(2 * var(--pt)) calc(14 * var(--pt)) rgb(0 0 0 / .12);
+  --round: rgb(118 118 128 / .12); --tab-pick: rgb(0 0 0 / .07); padding-top: 0; overflow: clip; background: var(--plain); }
+body[data-scheme=dark] #phone-app { --plain: #000; --glass: rgb(38 38 40 / .95); --glass-solid: #262628; --glass-rim: rgb(255 255 255 / .13); --glass-shadow: 0 calc(2 * var(--pt)) calc(14 * var(--pt)) rgb(0 0 0 / .5);
+  --round: #1c1c1e; --tab-pick: rgb(255 255 255 / .13); }
+#phone-root { background: var(--plain); }
+#phone-app .nav { height: calc(44 * var(--pt)); padding: 0 calc(16 * var(--pt)); background: transparent; box-shadow: none; }
+#phone-app .nav[data-state=edge] { background: color-mix(in srgb, var(--group-bg) 92%, transparent); box-shadow: 0 .5px 0 var(--app-line); }
+#phone-root .nav[data-state=edge] { background: color-mix(in srgb, var(--plain) 92%, transparent); }
+#phone-app .nav-title { margin: 0; max-width: 60%; font: 600 calc(17 * var(--pt))/calc(22 * var(--pt)) var(--sys); }
+/* iOS 26 back: a 44 pt glass circle with the chevron only. */
+:is(#phone-app, #group-info) .nav-back { left: calc(16 * var(--pt)); top: 0; bottom: 0; margin: auto 0; width: calc(44 * var(--pt)); height: calc(44 * var(--pt)); min-width: 0; padding: 0; justify-content: center;
+  border-radius: 50%; color: var(--ink); background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), var(--glass-shadow); }
+:is(#phone-app, #group-info) .nav-back svg { width: calc(11 * var(--pt)); height: calc(19 * var(--pt)); stroke-width: 2.4; }
+:is(#phone-app, #group-info) .nav-back:active { filter: brightness(.9); }
+:is(#phone-app, #group-info) .nav-back:focus-visible { outline-offset: 2px; }
+#phone-app .scroll { padding-bottom: calc(112 * var(--pt) + var(--safe-bottom, 0px)); }
+#phone-root .scroll { padding-top: calc(6 * var(--pt)); }
+#phone-app .chev { opacity: 1; color: var(--ink-2); }
+#phone-app .chev svg { width: calc(8 * var(--pt)); height: calc(13 * var(--pt)); }
+/* Rows: plain, edge to edge; the 0.5 pt separator runs from the text's start to the content margin, none under the last row. */
+.dial-list { display: grid; }
+.dial-row { position: relative; display: flex; align-items: center; width: 100%; text-align: left; color: var(--ink); font: 400 calc(17 * var(--pt))/calc(22 * var(--pt)) var(--sys); }
+.dial-row:not(:last-child)::after { content: ""; position: absolute; right: var(--sep-r); bottom: 0; left: var(--sep-l); height: .5px; background: var(--app-line); pointer-events: none; }
+.dial-text { flex: 1; min-width: 0; display: grid; }
+.dial-name, .dial-reason { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dial-reason { font: 400 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); color: var(--ink-2); }
+.dial-main:active, .dial-contact:active:not([aria-disabled=true]) { background: var(--cell-press); }
+.dial-main:focus-visible, .dial-contact:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 通话 (iOS 26 Recents, phone1): 68 pt rows, a 45 pt face 15 pt in, the name 17 pt semibold over ↗ 语音通话 15 pt grey, the day
+   15 pt grey, then a 46 pt round handset 15 pt from the edge. */
+.dial-recent { --sep-l: calc(69 * var(--pt)); --sep-r: calc(15 * var(--pt)); min-height: calc(68 * var(--pt)); padding-right: calc(15 * var(--pt)); gap: calc(10 * var(--pt)); }
+.dial-main { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: calc(9 * var(--pt)); padding-left: calc(15 * var(--pt)); text-align: left; color: inherit; font: inherit; }
+.dial-recent .owner-face { width: calc(45 * var(--pt)); height: calc(45 * var(--pt)); }
+.dial-recent .owner-face .initial { font-size: calc(18 * var(--pt)); }
+.dial-recent .dial-name { font-weight: 600; }
+.dial-kind { display: flex; align-items: center; gap: calc(4 * var(--pt)); min-width: 0; font: 400 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); color: var(--ink-2); white-space: nowrap; }
+.dial-arrow { flex: none; width: calc(10 * var(--pt)); height: calc(10 * var(--pt)); fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dial-meta { flex: none; font: 400 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.dial-call { flex: none; display: grid; place-items: center; width: calc(46 * var(--pt)); height: calc(46 * var(--pt)); border-radius: 50%; color: var(--accent); background: var(--round); }
+.dial-call svg { width: calc(20 * var(--pt)); height: calc(20 * var(--pt)); fill: currentColor; }
+.dial-call:active { filter: brightness(.85); }
+.dial-call[data-video] svg { width: calc(22 * var(--pt)); height: calc(15 * var(--pt)); }
+/* 通讯录 (iOS 26 Contacts, phone2 / 真实通讯录): 55 pt rows, a 36 pt face 20 pt in, the name 17 pt from 66.7 pt; the separator
+   from the text to 18 pt from the edge. A row opens her card; there is no handset on the row (iOS has none). */
+.dial-contact { --sep-l: calc(66.7 * var(--pt)); --sep-r: calc(18 * var(--pt)); min-height: calc(55 * var(--pt)); gap: calc(10 * var(--pt)); padding: calc(6 * var(--pt)) calc(20 * var(--pt)); }
+.dial-contact .owner-face { width: calc(36 * var(--pt)); height: calc(36 * var(--pt)); }
+.dial-contact .owner-face .initial { font-size: calc(15 * var(--pt)); }
+#phone-app .dial-status { margin: calc(8 * var(--pt)) calc(20 * var(--pt)); }
+.dial-status.is-loading { opacity: 0; animation: appear 1ms linear 150ms forwards; }
+.dial-empty { margin: 0; padding: 40% calc(24 * var(--pt)) 0; text-align: center; font: 400 calc(17 * var(--pt))/calc(22 * var(--pt)) var(--sys); color: var(--ink-2); }
+/* The tab bar (phone1): a floating glass capsule 56 pt tall, 20 pt above the bottom; each tab a 25 pt glyph over a 10 pt
+   label; the tab on screen in the accent colour on a glass pill. Only our two working tabs, so it is centred. */
+#dial-tabs { position: absolute; z-index: 2; left: 50%; bottom: calc(20 * var(--pt) + var(--safe-bottom, 0px)); transform: translateX(-50%); display: flex; height: calc(56 * var(--pt)); padding: calc(3.5 * var(--pt));
+  border-radius: calc(28 * var(--pt)); background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), var(--glass-shadow); }
+#dial-tabs [role=tab] { width: calc(97 * var(--pt)); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(1.5 * var(--pt)); border-radius: calc(24.5 * var(--pt));
+  color: var(--ink); font: 600 calc(10 * var(--pt))/calc(12 * var(--pt)) var(--sys); transition: background-color 200ms, color 200ms; }
+#dial-tabs [aria-selected=true] { color: var(--accent); background: var(--tab-pick); }
+#dial-tabs svg { width: calc(25 * var(--pt)); height: calc(25 * var(--pt)); fill: currentColor; }
+#dial-tabs .cut { fill: none; stroke: var(--glass-solid); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#dial-tabs .cut-fill { fill: var(--glass-solid); }
+#dial-tabs [role=tab]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body[data-motion=reduced] #dial-tabs [role=tab] { transition: none; }
+/* The home indicator under the tab bar keeps only its own strip, so the tabs answer to their whole height. */
+body[data-app=phone] .home, body[data-app=photos] .home { height: calc(20 * var(--pt)); }
+/* Pages: her card, her call history and a call's words push in from the right over the page under them (slid 28 % left),
+   as Settings' pages do (dialer.js sets data-pos). */
+:is(#phone-app, #messages-app) .page[data-pos=off] { transform: translateX(100%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+:is(#phone-app, #messages-app) .page[data-pos=on] { transform: none; visibility: visible; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s; }
+:is(#phone-app, #messages-app) .page[data-pos=under] { transform: translateX(-28%); visibility: hidden; transition: transform 380ms cubic-bezier(.3, .8, .25, 1), visibility 0s linear 380ms; }
+#call-detail, #call-history, #call-transcript { box-shadow: -6px 0 18px rgb(0 0 0 / .12); }
+/* Her pages stand on the phone's wallpaper:
+   the chosen wallpaper blurred into a wash of its own colours (iOS 26 通讯录具体条目 / 通话履历), or the built-in wallpaper, under
+   a veil, as the call screen's; white text, 62 % white for the secondary. */
+:is(#phone-app, #messages-app) .poster-page { color: #fff; }
+.poster, .call-wall { background: var(--wall-builtin); }
+.poster { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+body[data-wallpaper=image] :is(.poster, .call-wall)::before { content: ""; position: absolute; inset: -15%; background: var(--wall) center / cover no-repeat; filter: blur(calc(64 * var(--pt))) saturate(1.4); }
+.poster::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 0 / .5); }
+.poster-page > header, .poster-page > .scroll { position: relative; z-index: 1; }
+body[data-app=phone]:has(#phone-app:is([data-page=detail], [data-page=history], [data-page=transcript])) #status-bar, body[data-app=messages]:has(#messages-app[data-page=group]) #status-bar { color: #fff; }
+body[data-app=phone]:has(#phone-app:is([data-page=detail], [data-page=history], [data-page=transcript])) .home i, body[data-app=messages]:has(#messages-app[data-page=group]) .home i { background: #fff; }
+#phone-app .poster-page .nav[data-state=edge] { background: rgb(0 0 0 / .28); box-shadow: none; }
+:is(#phone-app, #messages-app) .poster-page .nav-back, .poster-page .call-action { color: #fff; background: rgb(255 255 255 / .12); box-shadow: inset 0 0 0 calc(1 * var(--pt)) rgb(255 255 255 / .3); }
+#phone-app .poster-page .chev { color: rgb(255 255 255 / .62); }
+#call-detail .scroll, #call-history .scroll, #call-transcript .scroll { padding-top: calc(4 * var(--pt)); }
+#phone-app .group { margin: 0 calc(19 * var(--pt)) calc(20 * var(--pt)); border-radius: calc(26 * var(--pt)); }
+#phone-app .poster-page .group { color: #fff; background: rgb(255 255 255 / .1); }
+#phone-app .group > button:focus-visible { border-radius: calc(26 * var(--pt)); }
+#phone-app .group > :not(:last-child)::after { content: ""; position: absolute; left: calc(19 * var(--pt)); right: calc(19 * var(--pt)); bottom: 0; height: .5px; background: rgb(255 255 255 / .18); }
+#phone-app .pref-main { position: relative; min-height: calc(51 * var(--pt)); padding: 0 calc(19 * var(--pt)); font: 400 calc(17 * var(--pt))/calc(22 * var(--pt)) var(--sys); }
+#phone-app .poster-page .pref-main:active, #phone-app .poster-page button.call-line-row:active { background: rgb(255 255 255 / .08); }
+/* The two-line title of her history and of a call's words: her name over what the page is. */
+#phone-app .nav-stack { display: grid; justify-items: center; max-width: 60%; }
+.nav-stack strong { max-width: 100%; font: 700 calc(22 * var(--pt))/calc(25 * var(--pt)) var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-stack span { font: 600 calc(16 * var(--pt))/calc(19 * var(--pt)) var(--sys); }
+/* Her card (iOS 26 通讯录具体条目): her 200 pt photo, the name 36 pt bold, round 63 pt glass keys 11 pt apart with the glyph
+   only; then the 通话记录 card: 通话记录 › (51 pt) over the call - 呼出通话 and its length, the day and time on the right. */
+.call-card { display: flex; flex-direction: column; align-items: center; margin: calc(30 * var(--pt)) calc(19 * var(--pt)) calc(20 * var(--pt)); text-align: center; }
+.call-card .owner-face { width: calc(200 * var(--pt)); height: calc(200 * var(--pt)); }
+.call-card .owner-face .initial { font-size: calc(80 * var(--pt)); }
+.call-card-name { max-width: 100%; margin: calc(19 * var(--pt)) 0 calc(11 * var(--pt)); font: 700 calc(36 * var(--pt))/calc(43 * var(--pt)) var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-actions { display: flex; justify-content: center; gap: calc(11 * var(--pt)); }
+.call-action { display: grid; place-items: center; width: calc(63 * var(--pt)); height: calc(63 * var(--pt)); border-radius: 50%; transition: filter 120ms, opacity 120ms; }
+.call-action svg { width: calc(26 * var(--pt)); height: calc(26 * var(--pt)); fill: currentColor; }
+.call-action[data-key=message] svg { width: calc(32 * var(--pt)); height: calc(32 * var(--pt)); }
+.call-action[data-key=video] svg { width: calc(29 * var(--pt)); height: calc(19 * var(--pt)); }
+.call-action:active:not(:disabled) { filter: brightness(1.2); }
+.call-action:disabled { opacity: .4; cursor: default; }
+.call-action:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* One call (the card's and the history's rows): 呼出通话 17 pt over its length in 62 % white, the day and time on the right;
+   on the card 15 / 14 pt above / below and 3.5 pt between the lines (76.5 pt), in the history 73 pt rows. A call with words
+   opens them (›). */
+.call-line-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; column-gap: calc(8 * var(--pt)); width: 100%;
+  padding: calc(14.5 * var(--pt)) calc(19 * var(--pt)); text-align: left; color: #fff; font: 400 calc(17 * var(--pt))/calc(22 * var(--pt)) var(--sys); }
+.call-line-text { display: grid; min-width: 0; }
+.call-line-kind, .call-line-length { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-line-length { color: rgb(255 255 255 / .62); }
+.call-line-when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.call-line-row .chev { align-self: center; }
+.call-log .call-line-row { padding: calc(15 * var(--pt)) calc(19 * var(--pt)) calc(14 * var(--pt)); }
+.call-log .call-line-text { row-gap: calc(3.5 * var(--pt)); }
+button.call-line-row:focus-visible { outline: 2px solid #fff; outline-offset: -2px; border-radius: calc(26 * var(--pt)); }
+/* Her history (通话履历): one darker card of every call with her, newest first; the day and time in 62 % white. */
+#phone-app .poster-page .call-history { margin-top: calc(30 * var(--pt)); background: rgb(0 0 0 / .3); }
+.call-history .call-line-when { color: rgb(255 255 255 / .62); }
+/* 通话内容 (a call's words): who and when in secondary grey over each turn, then her words as the subtitles showed them -
+   never the voice's own language. */
+.transcript-head { display: grid; justify-items: center; margin: calc(14 * var(--pt)) calc(20 * var(--pt)) calc(14 * var(--pt)); text-align: center; }
+.transcript-head span { font: 400 calc(13 * var(--pt))/calc(18 * var(--pt)) var(--sys); font-variant-numeric: tabular-nums; color: rgb(255 255 255 / .62); }
+#phone-app .poster-page .transcript { display: grid; gap: calc(18 * var(--pt)); padding: calc(16 * var(--pt)) calc(19 * var(--pt)) calc(18 * var(--pt)); background: rgb(0 0 0 / .3); }
+.transcript:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.said-who { display: flex; align-items: baseline; gap: calc(6 * var(--pt)); margin: 0 0 calc(3 * var(--pt)); font: 600 calc(13 * var(--pt))/calc(18 * var(--pt)) var(--sys); color: rgb(255 255 255 / .62); }
+.said-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.said-at { flex: none; font-weight: 400; font-variant-numeric: tabular-nums; }
+.said-text { margin: 0; font: 400 calc(17 * var(--pt))/calc(24 * var(--pt)) var(--sys); color: #fff; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- phone call (prototype): iOS 26 in-call screen ----------
+   Every size is an iOS point of a 393 x 852 pt screen (--pt), measured from the owner's iPhone (phone-ios-replica.md §4.0). */
+#call-button { margin-left: auto; color: var(--accent); }
+#call-button svg { width: calc(20 * var(--pt)); height: calc(20 * var(--pt)); fill: currentColor; }
+#call-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#call { position: absolute; inset: 5px; z-index: 4; border-radius: 36.5px; overflow: hidden; isolation: isolate; container-type: size; display: flex; flex-direction: column;
+  align-items: center; padding: calc(105 * var(--pt)) 0 calc(54 * var(--pt) + var(--safe-bottom, 0px)); color: #fff; font-family: var(--sys); }
+body[data-surface=sheet] #call { inset: 0; border-radius: 0; }
+/* The dialog itself takes focus when the call opens (Tab reaches its keys); no ring around the whole screen. */
+#call:focus { outline: none; }
+body:not([data-call=""])[data-call] .home i { background: #fff; }
+body:not([data-call=""])[data-call] #status-bar { color: #fff; }
+/* The poster behind it all: the phone's wallpaper as her pages have it (.poster above: the chosen one blurred, else the
+   built-in). A veil keeps the white text readable. The blur is a static layer of its own: the screen's slide only moves it. */
+.call-wall { position: absolute; inset: 0; z-index: -1; overflow: hidden; will-change: transform; }
+.call-wall::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgb(0 0 0 / .44), rgb(0 0 0 / .5) 40%, rgb(0 0 0 / .6)); }
+/* 通话结束 (the owner's 挂断瞬间, measured): only what the call said dims - the status to 40 % white, the name and the lines
+   to 65 %, her photo to 55 %, every key's glyph to 62 % and 结束's red to rgb(182 43 46); the poster, the glass circles and
+   the white key labels stay as they were. Its buttons stop answering until it slides away. */
+#call-status, #call-name, #call .call-face, #call-lines, .call-key svg, .call-key { transition: opacity 180ms ease, color 180ms ease, background-color 180ms ease; }
+#call[data-look="ended"] #call-status { color: rgb(255 255 255 / .4); }
+#call[data-look="ended"] #call-name, #call[data-look="ended"] #call-lines { opacity: .65; }
+#call[data-look="ended"] .call-face { opacity: .55; }
+#call[data-look="ended"] .call-buttons button:not([aria-disabled="true"]) svg { opacity: .62; }
+#call[data-look="ended"] #call-end .call-key { background: rgb(182 43 46); }
+/* Status (呼叫中… / the clock / 通话结束) in grey over the name, as iOS's 発信中…: 22 pt over a 34 pt bold name. */
+.call-top { flex: none; width: 100%; padding: 0 calc(24 * var(--pt)); display: flex; flex-direction: column; align-items: center; gap: calc(3 * var(--pt)); text-align: center; }
+#call-status { min-height: calc(28 * var(--pt)); font: 500 calc(22 * var(--pt))/calc(28 * var(--pt)) var(--sys); font-variant-numeric: tabular-nums; color: rgb(255 255 255 / .66); }
+#call-name { max-width: 100%; font: 700 calc(34 * var(--pt))/calc(41 * var(--pt)) var(--sys); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Connected (the owner's 通话中): her 55 pt photo in the top-left corner (37 pt in, its centre 141 pt down, beside the two
+   lines), the clock and the name left-aligned 11 pt after it (102 pt in) - the centre of the screen is left to the lines. */
+#call[data-connected="true"] .call-top { align-items: flex-start; padding: 0 calc(24 * var(--pt)) 0 calc(102 * var(--pt)); text-align: left; }
+#call[data-connected="true"] .call-face { position: absolute; left: calc(37 * var(--pt)); top: calc(113.5 * var(--pt)); width: calc(55 * var(--pt)); margin: 0; }
+#call[data-connected="true"] .call-ring { inset: calc(-4 * var(--pt)); border-width: calc(2 * var(--pt)); }
+#call[data-connected="true"] #call-lines { margin-top: calc(24 * var(--pt)); }
+/* Her face (iOS shows the poster; our wash is too soft to tell who it is). A short screen gives it up before the lines. */
+.call-face { position: relative; flex: none; width: clamp(0px, calc(100cqh - 470 * var(--pt)), calc(132 * var(--pt))); aspect-ratio: 1; margin: calc(30 * var(--pt)) 0 calc(14 * var(--pt)); }
+.call-face img, #call-initial { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 15%; background: rgb(255 255 255 / .16); }
+#call-initial { display: flex; align-items: center; justify-content: center; font: 500 calc(52 * var(--pt))/1 var(--sys); }
+/* The initial stands in for a missing photo only: drawn over the photo it hid her face. */
+#call-initial[hidden] { display: none; }
+.call-ring { position: absolute; inset: calc(-8 * var(--pt)); border-radius: 50%; border: calc(3.5 * var(--pt)) solid rgb(255 255 255 / .55); opacity: 0; transform: scale(1);
+  transition: transform 90ms linear, opacity 160ms linear; }
+#call[data-speaking="true"] .call-ring { opacity: .8; animation: call-talk 1.1s ease-in-out infinite alternate; }
+@keyframes call-talk { from { transform: scale(1); } to { transform: scale(1.08); } }
+#call-lines { flex: 1; min-height: 0; width: 100%; padding: 0 calc(24 * var(--pt)) calc(22 * var(--pt)); display: flex; flex-direction: column; justify-content: flex-end;
+  gap: calc(10 * var(--pt)); overflow: hidden; }
+.call-line { margin: 0; display: flex; flex-direction: column; font: 400 calc(19 * var(--pt))/1.35 var(--sys); color: rgb(255 255 255 / .94); text-align: center; }
+.call-line[data-role="player"] { color: rgb(255 255 255 / .66); font-size: calc(17 * var(--pt)); }
+.call-line:not(:last-child) { opacity: .55; }
+.call-line[data-partial] { color: rgb(255 255 255 / .45); }
+/* iOS 26 keys: a 3 x 2 grid of 78 pt glass circles evenly spaced across the screen (39.75 pt around each), a 13 pt label
+   6 pt under each: 扬声器 · FaceTime · 静音 / 更多 · 结束 · 键盘. Only 静音 and 结束 work; the other four are drawn as iOS draws
+   a key it cannot use (its FaceTime here): the glyph dimmed, aria-disabled, and a press does nothing. */
+.call-buttons { flex: none; width: 100%; display: grid; grid-template-columns: repeat(3, calc(78 * var(--pt))); justify-content: space-evenly; row-gap: calc(25 * var(--pt)); }
+.call-buttons button { width: calc(78 * var(--pt)); display: flex; flex-direction: column; align-items: center; gap: calc(6 * var(--pt)); color: #fff;
+  font: 500 calc(13 * var(--pt))/calc(16 * var(--pt)) var(--sys); white-space: nowrap; }
+.call-buttons button[aria-disabled="true"] { cursor: default; }
+.call-buttons button:focus-visible { outline: none; }
+.call-buttons button:focus-visible .call-key { outline: 2px solid #fff; outline-offset: 3px; }
+.call-key { flex: none; width: calc(78 * var(--pt)); height: calc(78 * var(--pt)); border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgb(255 255 255 / .13); box-shadow: inset 0 0 0 calc(1 * var(--pt)) rgb(255 255 255 / .42);
+  transition: background-color 120ms ease, color 120ms ease, transform 120ms ease, filter 120ms ease; }
+.call-buttons button:not(:disabled):not([aria-disabled="true"]):active .call-key { transform: scale(.94); filter: brightness(.82); }
+.call-key svg { width: calc(var(--w) * var(--pt)); height: calc(var(--h) * var(--pt)); fill: currentColor; overflow: visible; }
+.call-key .wave, .call-key .stroke { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.call-key .stroke { stroke-width: 1.9; }
+.call-buttons button[aria-disabled="true"] svg { opacity: .42; }
+/* 静音 is iOS's: the struck-through microphone on glass while she hears the player, a white circle with it in dark ink while she does not. */
+#call-mute[aria-pressed="true"] .call-key { background: #fff; color: #15171c; box-shadow: none; }
+#call-end .call-key { background: #dc1111; box-shadow: inset 0 0 0 calc(1 * var(--pt)) rgb(255 255 255 / .2); }
+/* FaceTime: her video fills the screen - the stage draws it under this page, which keeps the
+   screen clear (no wallpaper, no app behind) - with iOS 26's own furniture in iOS points measured from the on-call picture:
+   the name pill top left, the white shutter top right, the self view bottom left (only while the camera is on), four round
+   keys bottom right, and our chat bubbles above them. No status text anywhere. The glass is iOS 26 Liquid Glass: the stage
+   blurs her video (--glass-blur pt, --glass-saturate) under every translucent element here (index.js glassShapes), and this
+   page lays the darkened tint, the hairline rim and the top light over it. */
+#call-video:not([aria-disabled="true"]) { cursor: pointer; }
+#call-video:not([aria-disabled="true"]) rect { mask: none; }
+body[data-call-video=true] #phone { background-color: transparent; }
+/* The page it was dialled from goes with it: a shown page (.page[data-pos=on]) sets its own visibility, so opacity keeps it unpainted. */
+body[data-call-video=true]:not([data-call-sheet]) :is(#home-screen, .app) { visibility: hidden; opacity: 0; }
+body[data-call-sheet] #phone-app { z-index: 6; animation: ft-sheet 320ms var(--ease) both; }
+@keyframes ft-sheet { from { transform: translateY(8%); opacity: 0; } }
+body[data-motion=reduced][data-call-sheet] #phone-app { animation-duration: 120ms; }
+#call[data-video="true"] { padding: 0; }
+#call[data-video="true"] :is(.call-wall, .call-top, .call-face, #call-lines, .call-buttons) { display: none; }
+.ft { position: absolute; inset: 0; --glass: rgb(20 16 14 / .3); --rim: rgb(255 255 255 / .26); --glass-blur: 16; --glass-saturate: 1.5;
+  --glass-light: inset 0 1px 0 rgb(255 255 255 / .22), inset 0 -1px 0 rgb(255 255 255 / .06); }
+.ft-pill { position: absolute; left: calc(22 * var(--pt)); top: calc(60 * var(--pt)); height: calc(41 * var(--pt)); max-width: calc(100% - 100 * var(--pt));
+  display: flex; align-items: center; gap: calc(7 * var(--pt)); padding: 0 calc(12 * var(--pt)) 0 calc(5.5 * var(--pt)); border-radius: calc(20.5 * var(--pt));
+  background: var(--glass); box-shadow: inset 0 0 0 1px var(--rim), var(--glass-light); color: #fff; font: 600 calc(15 * var(--pt))/1 var(--sys); transition: opacity 240ms ease; }
+.ft-face { position: relative; flex: none; width: calc(30 * var(--pt)); height: calc(30 * var(--pt)); border-radius: 50%; overflow: hidden; background: rgb(255 255 255 / .2); }
+.ft-face img, #ft-initial { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 15%; }
+#ft-initial { display: flex; align-items: center; justify-content: center; font: 500 calc(14 * var(--pt))/1 var(--sys); }
+#ft-who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.ft-pill .chev { flex: none; width: calc(6 * var(--pt)); height: calc(11 * var(--pt)); fill: none; stroke: rgb(255 255 255 / .62); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ft-shutter { position: absolute; right: calc(26 * var(--pt)); top: calc(62.5 * var(--pt)); width: calc(36 * var(--pt)); height: calc(36 * var(--pt)); border-radius: 50%;
+  display: grid; place-items: center; background: #fff; box-shadow: 0 calc(1 * var(--pt)) calc(6 * var(--pt)) rgb(0 0 0 / .18); transition: transform 120ms ease, opacity 240ms ease; }
+.ft-shutter i { display: none; }
+.ft-shutter:active { transform: scale(.9); }
+.ft-self { position: absolute; left: calc(18 * var(--pt)); bottom: calc(27 * var(--pt) + var(--safe-bottom, 0px)); width: calc(120 * var(--pt)); height: calc(255 * var(--pt)); border-radius: calc(16 * var(--pt));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .34); }
+#ft-self-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: calc(10 * var(--pt)); border-radius: inherit;
+  background: var(--glass); color: rgb(255 255 255 / .86); font: 500 calc(13 * var(--pt))/1.3 var(--sys); text-align: center; }
+#ft-self-error[hidden] { display: none; }
+.ft-flip { position: absolute; left: calc(13 * var(--pt)); bottom: calc(13 * var(--pt)); width: calc(18 * var(--pt)); height: calc(14.5 * var(--pt)); fill: #fff; }
+.ft-flip .cut { fill: none; stroke: #2a2a2c; stroke-width: 1.5; stroke-linecap: round; }
+.ft-flip .cut.fill { fill: #2a2a2c; stroke: none; }
+.ft-lines { position: absolute; left: calc(19 * var(--pt)); right: calc(19 * var(--pt)); bottom: calc(294 * var(--pt) + var(--safe-bottom, 0px)); max-height: calc(176 * var(--pt)); overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: calc(6 * var(--pt));
+  -webkit-mask-image: linear-gradient(transparent, #000 calc(56 * var(--pt))); mask-image: linear-gradient(transparent, #000 calc(56 * var(--pt))); transition: opacity 240ms ease; }
+.ft-line { flex: none; max-width: 88%; margin: 0; padding: calc(7 * var(--pt)) calc(12 * var(--pt)); border-radius: calc(14 * var(--pt)); background: var(--glass); box-shadow: inset 0 0 0 1px var(--rim), var(--glass-light);
+  color: #fff; font: 400 calc(17 * var(--pt))/1.35 var(--sys); overflow-wrap: anywhere; text-shadow: 0 0 calc(8 * var(--pt)) rgb(0 0 0 / .32); }
+.ft-line[data-role="contact"] { align-self: flex-start; }
+.ft-line[data-role="player"] { align-self: flex-end; }
+.ft-line[data-partial] { color: rgb(255 255 255 / .6); }
+.ft-keys { position: absolute; right: calc(30 * var(--pt)); bottom: calc(27 * var(--pt) + var(--safe-bottom, 0px)); display: flex; flex-direction: column; gap: calc(14 * var(--pt)); }
+.ft-keys button { width: calc(52 * var(--pt)); height: calc(52 * var(--pt)); border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: var(--glass); box-shadow: inset 0 0 0 1px var(--rim), var(--glass-light); transition: background-color 120ms ease, color 120ms ease, transform 120ms ease; }
+.ft-keys button:not(:disabled):not([aria-disabled="true"]):active { transform: scale(.94); }
+.ft-keys button[aria-disabled="true"] { cursor: default; }
+.ft-keys svg { width: calc(24 * var(--pt)); height: calc(24 * var(--pt)); fill: currentColor; overflow: visible; }
+.ft-keys .stroke { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; }
+#ft-camera svg { width: calc(25 * var(--pt)); }
+#ft-mic svg { width: calc(17 * var(--pt)); height: calc(21 * var(--pt)); }
+#ft-more svg { width: calc(20 * var(--pt)); height: calc(5 * var(--pt)); }
+#ft-end svg { width: calc(15 * var(--pt)); height: calc(15 * var(--pt)); }
+#ft-end .stroke { stroke-width: 2.4; }
+.ft-keys button[aria-pressed="true"] { background: #fff; box-shadow: none; }
+#ft-camera[aria-pressed="true"] { color: #2bc84a; }
+#ft-mic[aria-pressed="true"] { color: #f08a12; }
+.ft-keys button[aria-pressed="true"] .off, .ft-keys button[aria-pressed="false"] .on { display: none; }
+#ft-end { background: rgb(196 28 30 / .88); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .22); }
+.ft :is(button):focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+/* Hung up: the picture holds still and dims (the stage), the pill, shutter and bubbles fade; nothing is written. */
+#call[data-look="ended"] :is(.ft-pill, .ft-shutter, .ft-lines) { opacity: 0; }
+/* Dialled as FaceTime and still ringing: her video is not there yet (the stage's background, blurred), so nothing to shoot. */
+#call[data-look="ringing"] .ft-shutter { visibility: hidden; }
+#call[data-look="ended"] .ft-keys button svg { opacity: .62; }
+#call[data-look="ended"] #ft-end { background: rgb(150 32 34 / .88); }
+@media (prefers-reduced-motion: reduce) { .call-ring { transition: none; animation: none !important; } }
+/* ---------- 照片 app: the iOS 26 Photos 图库, in iOS points (--pt) as measured
+   from MacRumors' iOS 26 screenshots - five square columns 1 pt apart, the large title with the count at top left, glass
+   round buttons, a full-screen viewer with glass bars. Static glass (no backdrop-filter). ---------- */
+#photos-app { --plain: #fff; --glass: rgb(255 255 255 / .92); --glass-rim: rgb(0 0 0 / .08); --glass-shadow: 0 calc(2 * var(--pt)) calc(14 * var(--pt)) rgb(0 0 0 / .14);
+  padding-top: 0; overflow: clip; background: var(--plain); }
+body[data-scheme=dark] #photos-app { --plain: #000; --glass: rgb(38 38 40 / .92); --glass-rim: rgb(255 255 255 / .14); --glass-shadow: 0 calc(2 * var(--pt)) calc(14 * var(--pt)) rgb(0 0 0 / .5); }
+.photos-page { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--plain); }
+#photos-root .scroll { padding: calc(118 * var(--pt)) 0 calc(40 * var(--pt)); }
+.photos-head { position: absolute; left: 0; right: 0; top: 0; z-index: 1; height: calc(118 * var(--pt)); display: flex; align-items: flex-start; justify-content: space-between;
+  padding: calc(54 * var(--pt)) calc(20 * var(--pt)) 0; pointer-events: none;
+  background: linear-gradient(var(--plain) 62%, transparent); }
+.photos-title { min-width: 0; display: grid; }
+.photos-title h1 { margin: 0; font: 700 calc(34 * var(--pt))/calc(41 * var(--pt)) var(--sys); letter-spacing: -.01em; }
+#photos-count { min-height: calc(20 * var(--pt)); font: 600 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.glass-round { flex: none; width: calc(44 * var(--pt)); height: calc(44 * var(--pt)); display: grid; place-items: center; padding: 0; border-radius: 50%; pointer-events: auto;
+  color: var(--ink); background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), var(--glass-shadow); }
+.glass-round svg { width: calc(20 * var(--pt)); height: calc(20 * var(--pt)); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.glass-round:active, .glass-pill:active { filter: brightness(.9); }
+#photos-add { margin-top: calc(-2 * var(--pt)); }
+#photo-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: calc(1 * var(--pt)); }
+.photo-tile { position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; border-radius: 0; background: var(--cell-press); }
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 1; }
+.photo-tile:active img { filter: brightness(.8); }
+.photos-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: calc(16 * var(--pt)) calc(20 * var(--pt)); font: 400 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); color: var(--ink-2); flex-wrap: wrap; }
+.photos-status .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--app-line); border-top-color: var(--accent); animation: spin .9s linear infinite; }
+.photos-empty { display: grid; justify-items: center; gap: calc(6 * var(--pt)); margin-top: calc(180 * var(--pt)); }
+.photos-empty strong { font: 700 calc(22 * var(--pt))/calc(28 * var(--pt)) var(--sys); color: var(--ink); }
+.photos-error { flex-basis: 100%; text-align: center; color: #ff3b30; }
+/* The viewer: the picture fills the screen between the bars; a tap hides them (black), as iOS. */
+#photo-viewer { z-index: 2; outline: none; }
+#photo-viewer[data-chrome=off] { background: #000; }
+.viewer-track { position: absolute; inset: 0; display: flex; width: 300%; touch-action: pan-y; cursor: grab; }
+.viewer-slide { flex: 0 0 calc(100% / 3); display: grid; place-items: center; overflow: hidden; }
+.viewer-slide img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+.viewer-head { position: absolute; left: 0; right: 0; top: 0; height: calc(110 * var(--pt)); display: flex; align-items: flex-start; justify-content: center; padding-top: calc(54 * var(--pt));
+  pointer-events: none; transition: opacity 200ms; }
+.viewer-head .glass-round { position: absolute; left: calc(16 * var(--pt)); top: calc(54 * var(--pt)); }
+.viewer-head .glass-round svg { width: calc(11 * var(--pt)); height: calc(19 * var(--pt)); stroke-width: 2.4; }
+.glass-pill { min-height: calc(44 * var(--pt)); display: inline-flex; align-items: center; gap: calc(6 * var(--pt)); padding: 0 calc(16 * var(--pt)); border-radius: calc(22 * var(--pt));
+  color: var(--ink); background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-rim), var(--glass-shadow); font: 600 calc(15 * var(--pt))/calc(20 * var(--pt)) var(--sys); pointer-events: auto; }
+.glass-pill svg { width: calc(20 * var(--pt)); height: calc(20 * var(--pt)); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#viewer-place { min-height: calc(36 * var(--pt)); margin-top: calc(4 * var(--pt)); font-variant-numeric: tabular-nums; pointer-events: none; }
+.viewer-bar { position: absolute; left: calc(16 * var(--pt)); right: calc(16 * var(--pt)); bottom: calc(26 * var(--pt) + var(--safe-bottom, 0px)); display: flex; align-items: center; justify-content: space-between; transition: opacity 200ms; }
+#viewer-delete svg { stroke-width: 1.8; }
+#photo-viewer[data-chrome=off] .viewer-head, #photo-viewer[data-chrome=off] .viewer-bar { opacity: 0; pointer-events: none; }
+#photo-viewer[data-chrome=off] .viewer-bar * { visibility: hidden; }
+#viewer-note { position: absolute; left: 50%; bottom: calc(86 * var(--pt) + var(--safe-bottom, 0px)); transform: translateX(-50%); margin: 0; white-space: nowrap; pointer-events: none; }
+#viewer-note[hidden] { display: none; }
+#photo-confirm { z-index: 3; }
+body[data-motion=reduced] .viewer-head, body[data-motion=reduced] .viewer-bar { transition: none; }
+/* 添加新墙纸 › 照片: the library as a four-column picker; the first tile imports a picture into 照片. */
+.photo-pick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; }
+.photo-pick > button { position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; background: var(--cell); }
+.photo-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-pick-add { display: grid; place-items: center; color: var(--accent); }
+.photo-pick-add svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.photo-pick [aria-checked=true]::after { content: "✓"; position: absolute; right: 4px; bottom: 4px; width: 20px; height: 20px; border-radius: 50%; text-align: center; font: 600 14px/20px var(--sys); background: var(--accent); color: #fff; }
+.photo-pick > button:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.photo-pick-empty { margin: 24px 20px; text-align: center; font: 700 20px/26px var(--sys); color: var(--ink); }

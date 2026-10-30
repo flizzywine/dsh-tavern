@@ -12,10 +12,15 @@ import { copyJsonTree } from './copy-json-tree.js'
 import { projectSceneImageState, projectChatSessionState, projectDisplayRuntimeState, projectChatBackgroundConfig, projectSettlementCheckpoint } from './chat-session-state.js'
 import { mkdir, open, readdir, rename, rm, stat, truncate } from 'node:fs/promises'
 import path from 'node:path'
+import { channel } from 'node:diagnostics_channel'
+import { performance } from 'node:perf_hooks'
+const readMetrics = channel('dsh.chat.read')
 
 import { applyJsonChangesShared, diffJson } from './json-mutation.js'
 
 const STORAGE_REVISION = '_storageRevision'
+// What every save stamps on itself (chat-persistence): alone, they are no change.
+const STAMPS = new Set([STORAGE_REVISION, 'updatedAt'])
 const SNAPSHOT_PATTERN = /^(\d{12})\.json(?:\.gz)?$/
 
 function revisionOf(value) {
@@ -52,7 +57,17 @@ async function directoryBytes(target) {
 export function createChatJournalStore(options = {}) {
   const dataRoot = path.resolve(String(options.dataRoot || ''))
   const chatsRoot = path.join(dataRoot, 'chats')
-  const native = createNativeConversationStorage({dataRoot,onIO:options.onNativeIO})
+  const loadMetrics = new Map()
+  const native = createNativeConversationStorage({dataRoot,onIO:event => {
+    options.onNativeIO?.(event)
+    if (event.kind === 'phase' && readMetrics.hasSubscribers) readMetrics.publish(event)
+    const row=loadMetrics.get(event.chatId)
+    if(row && event.kind==='read') {
+      row.blocks++; row.bytes+=event.bytes; row.readMs+=event.readMs||0; row.decodeMs+=event.decodeMs||0
+      row.maxReadMs=Math.max(row.maxReadMs,event.readMs||0)
+      row.refs.add(event.ref)
+    }
+  }})
   const compatible = options.compatibleStorage === false ? null : createLegacyCompatibleStorage({dataRoot,onIO:options.onCompatibilityIO})
   const legacyData = options.legacyData
   const logger = options.logger || console
@@ -243,10 +258,18 @@ export function createChatJournalStore(options = {}) {
     }
   }
 
+  // Every committed revision, whatever wrote it: save maintenance counts these.
+  function committed(chatId, revision) { options.onCommit?.(chatId, revision) }
   function serialize(chatId, operation) {
     const id = safeChatId(chatId)
     const previous = mutationTails.get(id) || Promise.resolve()
-    const current = previous.catch(function () {}).then(() => compatible ? compatible.lock(id,operation) : operation())
+    const started = performance.now()
+    const current = previous.catch(function () {}).then(async () => {
+      if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.write.wait',chatId:id,durationMs:performance.now()-started})
+      const entered = performance.now()
+      try { return await (compatible ? compatible.lock(id,operation) : operation()) }
+      finally { if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.write.hold',chatId:id,durationMs:performance.now()-entered}) }
+    })
     mutationTails.set(id, current)
     return current.finally(function () { if (mutationTails.get(id) === current) mutationTails.delete(id) })
   }
@@ -256,7 +279,8 @@ export function createChatJournalStore(options = {}) {
   }
   // Each cached game remains verified against disk on every read.
   async function cachedState(chatId) {
-    const stamp = await version(chatId)
+    const started = performance.now(), stamp = await version(chatId)
+    if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.version',chatId,durationMs:performance.now()-started})
     const entry = readCache.get(chatId)
     if (stamp && entry?.stamp === stamp) {
       readCache.delete(chatId); readCache.set(chatId, entry)
@@ -266,8 +290,15 @@ export function createChatJournalStore(options = {}) {
     // Native saves can read floors alone: building one whole on a per-turn path is reported.
     const built = state => { if (state?.native) reportWhole(chatId, state); return state }
     const pending = pendingReads.get(chatId)
-    if (pending?.stamp === stamp) return pending.promise.then(built)
-    const load = { stamp }
+    if (pending?.stamp === stamp) {
+      pending.readers++
+      const joined = performance.now()
+      try { return built(await pending.promise) }
+      finally { if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.join',chatId,durationMs:performance.now()-joined}) }
+    }
+    const load = { stamp, readers:1 }, entered = performance.now()
+    const metrics = {blocks:0,bytes:0,readMs:0,decodeMs:0,maxReadMs:0,refs:new Set()}
+    loadMetrics.set(chatId,metrics)
     load.promise = (async () => {
       try {
         const state = await materialize(chatId)
@@ -276,6 +307,8 @@ export function createChatJournalStore(options = {}) {
         }
         return state
       } finally {
+        if (readMetrics.hasSubscribers) readMetrics.publish({name:'chat.materialize',chatId,durationMs:performance.now()-entered,readers:load.readers,...metrics,refs:metrics.refs.size})
+        if(loadMetrics.get(chatId)===metrics)loadMetrics.delete(chatId)
         if (pendingReads.get(chatId) === load) pendingReads.delete(chatId)
       }
     })()
@@ -344,7 +377,7 @@ export function createChatJournalStore(options = {}) {
     const cached=readCache.get(chatId)
     if(!cached||cached.stamp!==await version(chatId)){
       const selected=await native.readSlice(chatId,[],['id','sessionId','mode','backgroundConfigVersion','conversationFeaturesVersion',
-       'backgroundModelSelection','backgroundModelRevision','backgroundTasks','worldbookStrategy','webSearchEnabled','disabledForegroundTools','cardContextRevision','timeline.participants.background.status','mvu.enabled','mvu.owner'])
+      'modModels','backgroundModelSelection','backgroundModelRevision','backgroundTasks','worldbookStrategy','webSearchEnabled','disabledForegroundTools','cardContextRevision','timeline.participants.background.status','mvu.enabled','mvu.owner'])
       if(selected!==null)return selected?projectChatBackgroundConfig(selected.chat):undefined
     }
     const state = await cachedState(chatId)
@@ -382,6 +415,18 @@ export function createChatJournalStore(options = {}) {
     }
     return {chat:structuredClone({...head,messages:indices.map(i=>messages[i])}),messageCount:messages.length,denseMessages:Array.isArray(rawMessages) && (indexedMessages.info(rawMessages)?.complete ?? messages.every(m=>m && typeof m==='object' && !Array.isArray(m)))}
   }
+  async function readStageView(chatId, options) {
+    const selected = await native.readStageView(chatId, options)
+    return selected === null ? read(chatId) : selected
+  }
+  // The stage record of each named floor at `revision`, by sub-path: a chain-only turn view resolves the earlier
+  // records it needs by index once its chain is known. Floors without a
+  // record give undefined.
+  async function readStageRecords(chatId, indices, {revision} = {}) {
+    return ((await native.readStageFloors(chatId, indices, {revision, fields:['stageDirectionAssetPacks']})) || []).map(row => row?.stageDirectionAssetPacks)
+  }
+  // The earlier floors a chain-only view's consumer names, at `revision` (native storage only).
+  const readStageFloors = (chatId, indices, options) => native.readStageFloors(chatId, indices, options)
   /** Detached metadata and selected native rows, never an editable full-chat snapshot. */
   async function readSlice(chatId, indices=[], fields) {
     // A cached state at the current stamp answers directly. Otherwise read the selected rows:
@@ -548,6 +593,7 @@ export function createChatJournalStore(options = {}) {
             const chat=applyIndexedChanges(cached.chat,normalized)
             rememberState(chatId,'native:'+saved.native.view.snapshotCursor.snapshotId,{...saved,chat},rememberChanges(recent,saved.revision,normalized))
           } else if(saved) forgetState(chatId)
+          if (saved && saved.revision !== expectedRevision) committed(chatId, saved.revision)
           return saved ? slice(saved.chat,[],metadata.returnProjection).chat : undefined
         }
       }
@@ -566,12 +612,14 @@ export function createChatJournalStore(options = {}) {
         const recent=knownChanges(chatId,state)
         const saved=await native.write(chatId,state,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
+        committed(chatId,saved.revision)
         return slice(next,[],metadata.returnProjection).chat
       }
       if(state.compatible){
         const recent=knownChanges(chatId,state)
         const saved=await compatible.write(chatId,state,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
+        committed(chatId,saved.revision)
         return slice(next,[],metadata.returnProjection).chat
       }
       if(state.legacy)await migrateLegacy(paths,state.chat)
@@ -587,6 +635,7 @@ export function createChatJournalStore(options = {}) {
       rememberState(chatId, await version(chatId), {...state,chat:next,revision:frame.revision,legacy:false,
         snapshot:rotated?.background ? state.snapshot : rotated || state.snapshot,open:rotated ? null : open,openFrameCount:rotated ? 0 : state.openFrameCount+1,openInvalidLine:0},
         rememberChanges(recentChanges, frame.revision, changes))
+      committed(chatId,frame.revision)
       return slice(next,[],metadata.returnProjection).chat
     })
   }
@@ -632,17 +681,21 @@ export function createChatJournalStore(options = {}) {
       const revision = revisionOf(next)
       if (revision !== baseRevision + 1) throw new Error('Chat Journal 写入 revision 非连续，期望 ' + (baseRevision + 1) + '，实际 ' + revision)
       const changes = diffJson(current, next)
-      if (changes.length === 0) return copyJsonTree(current)
+      // A save that changes nothing but its own revision stamp and timestamp is no save:
+      // nothing is written, the stored state and revision stay (as patch() does for no changes).
+      if (changes.every(change => change.path.length === 1 && STAMPS.has(change.path[0]))) return copyJsonTree(current)
       if(currentState.native){
         const recent=knownChanges(chatId,currentState)
         const saved=await native.write(chatId,currentState,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
+        committed(chatId,saved.revision)
         return copyJsonTree(next)
       }
       if(currentState.compatible){
         const recent=knownChanges(chatId,currentState)
         const saved=await compatible.write(chatId,currentState,next,changes,metadata.assertCurrent)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
+        committed(chatId,saved.revision)
         return copyJsonTree(next)
       }
       if (currentState.legacy) await migrateLegacy(paths, current)
@@ -671,6 +724,7 @@ export function createChatJournalStore(options = {}) {
         snapshot: rotated?.background ? currentState.snapshot : rotated || currentState.snapshot, open: rotated ? null : open,
         openFrameCount: rotated ? 0 : currentState.openFrameCount + 1, openInvalidLine: 0 },
         rememberChanges(recentChanges, revision, changes))
+      committed(chatId, revision)
       return copyJsonTree(next)
     })
   }
@@ -696,9 +750,10 @@ export function createChatJournalStore(options = {}) {
 
   // update() owns both boundaries: updater drafts and returned values are
   // detached from cached state and from each other, including aborted writes.
-  // Only native saves have unreachable revisions to drop; queued behind writes.
+  // Only native saves have unreachable revisions to drop. The pass reads and lists
+  // without the write queue; only its short publishing and deleting steps join it.
   async function compact(chatId, options) {
-    return await serialize(chatId, () => native.compact(chatId, options))
+    return await native.compact(chatId, { ...options, exclusive: operation => serialize(chatId, operation) })
   }
   // Not serialized: it reads one pinned immutable head and takes the write lock
   // only in short relink steps, so play is never queued behind it.
@@ -724,5 +779,5 @@ export function createChatJournalStore(options = {}) {
     })
   }
 
-  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
+  return Object.freeze({ compact, relayout, readRetentionHeader, removeLegacyFiles, detachedUpdate: true, upgradeStorage, migrateCompatibility, restoreLegacy, read, readWindow, readStageView, readStageRecords, readStageFloors, readRecentSummaries, readHelperContext, readSessionState, readSceneImageState, readSettlementCheckpoint, readBackgroundConfig, readDisplayRuntimeState, flushMaintenance, prepareSnapshot, readSlice, readSettlementBase, readChangedSlice, readChangedIndices, readViewDelta, patch, readRevision, update, version, remove })
 }

@@ -1,0 +1,17 @@
+{
+  "view/assets/message.wav": {
+    "lufs": -34.7,
+    "peak": -19,
+    "v": 1
+  },
+  "view/assets/chime.wav": {
+    "lufs": -17.8,
+    "peak": -6.2,
+    "v": 1
+  },
+  "view/assets/pop.wav": {
+    "lufs": -22,
+    "peak": -5.8,
+    "v": 1
+  }
+}

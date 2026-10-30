@@ -441,11 +441,13 @@ export function createBackgroundAgentSessions(options, task) {
     if (failures.length > 0) throw new AggregateError(failures, '常驻后台 Agent 释放失败')
   }
 
-  function cancel(parentSessionId) {
+  // `task`: only that task's runs (停止选项 stops the choices, an interrupted turn its director);
+  // without it every run of the game but the phone's.
+  function cancel(parentSessionId, { task } = {}) {
     let count = 0
     for (const sessionId of activeSessions) {
       const context = requestContexts.get(sessionId)
-      if (context?.parentSessionId !== parentSessionId || context.task === 'phone') continue
+      if (context?.parentSessionId !== parentSessionId || context.task === 'phone' || (task && context.task !== task)) continue
       const agent = residentHandles.get(sessionId)?.handle?.agent || agents.get(sessionId)
       const progress=residentHandles.get(sessionId)?.state.progress
       if (progress) { progress.cancel(); count++ }

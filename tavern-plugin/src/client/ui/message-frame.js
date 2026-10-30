@@ -60,8 +60,15 @@
                 if (button && typeof button.focus === "function") button.focus();
                 exitDocumentFullscreen(doc).then(function () { if (!disposed && generation === intent) setOn(false); });
             }
+            // The stage's own full screen (gal-entry.js covers the chat first) is not this mode:
+            // its header is covered, and toggling the <html> class would restyle the whole page twice.
+            let stageFullscreen = false;
             function onFsChange() {
-                setOn(!!nativeFullscreenElement(doc));
+                const full = !!nativeFullscreenElement(doc);
+                if (full && !(htmlClass && htmlClass.contains("dsh-tavern-play-fullscreen")) && doc.documentElement?.hasAttribute("data-fork-gal-stage")) { stageFullscreen = true; return; }
+                if (!full && stageFullscreen) { stageFullscreen = false; return; }
+                stageFullscreen = false;
+                setOn(full);
             }
             function onChromeEvent(event) {
                 const action = event && event.detail;
@@ -413,9 +420,10 @@
 				? h("button", { type: "button", className: "dsh-tavern-mvu-retry", disabled: retrying || props.busy, onClick: retry }, props.busy ? "结算中…" : retrying ? "重试中…" : status === "pending" ? "重新投递结算" : ["error", "stale", "interrupted", "partial"].includes(status) ? "重试变量结算" : "重新结算变量")
 				: null;
 			const hasDetails = String(receipt.summary || "") !== "" || changes.length > 0 || sideEffects.length > 0 || failures.length > 0 || retryButton;
-			if (!hasDetails) return h("div", { className: "dsh-tavern-mvu-receipt", "data-status": status }, summary);
-			return h("details", { className: "dsh-tavern-mvu-receipt", "data-status": status },
-				h("summary", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status])),
+			if (!hasDetails && !props.dialog) return h("div", { className: "dsh-tavern-mvu-receipt", "data-status": status }, summary);
+			// dialog mode renders the same content unfolded inside the receipt dialog.
+			return h(props.dialog ? "div" : "details", { className: "dsh-tavern-mvu-receipt" + (props.dialog ? " fork-receipt-content" : ""), "data-status": status },
+				h(props.dialog ? "div" : "summary", { className: "dsh-tavern-mvu-receipt-summary" }, h("span", { className: "dsh-tavern-mvu-receipt-dot" }), h("span", null, labels[status])),
 				h("div", { className: "dsh-tavern-mvu-receipt-body" },
 					receipt.summary ? h("div", { className: "dsh-tavern-mvu-receipt-reason" }, "原因：" + String(receipt.summary)) : null,
 					changes.map(function (change, index) { return h("div", { key: "change:" + index, className: "dsh-tavern-mvu-change" },
@@ -467,6 +475,13 @@
         // @include inline-fragment.js
         // @include html-sketch.js
 
+		// Plugin display fragments retain the original source part and paragraph ownership.
+		function pluginTextPosition(source, offset) {
+			if (!offset) return 0;
+			const next = String(source).slice(offset).search(/\S/);
+			return Math.max(0, galParagraphCount(String(source).slice(0, offset + Math.max(0, next) + 1)) - 1);
+		}
+
 		function renderTavernProjection(projection, options) {
 			const h = React.createElement;
 			const parts = projectionPartsOf(projection);
@@ -477,10 +492,9 @@
 				}).join("\n")) + '</div></div></div>';
 				return h(TavernMessageFrame, Object.assign({}, options, { key: "opening-runtime", content: content, partIndex: 0, eager: options.eagerFrame }));
 			}
-			const renderPlain = function (text, key) { return h(TavernColoredMarkdown, { key: key, text: text, streaming: options.streaming, labels: { code: options.codeLabels, footnotes: "脚注" }, codeLabels: options.codeLabels, fileMentions: options.mentions }); };
-			const renderMarkdown = function (text, key) { return renderTavernDialogueText(text, key, renderPlain, options.cast, options.streaming); };
 			return parts.map(function (part, index) {
 				if (part.kind === "markdown") {
+					const renderMarkdown = function (text, key, offset = 0) { return h(bubblePublicationType(), { key: key, sessionId: options.sessionId, voiceScope: String(options.turn) + ":" + index + (offset ? ":plugin:" + key : ""), stageSource: options.forkStageSource, stageParaBase: parts.slice(0, index).reduce((n, part) => n + (part.kind === "markdown" ? galParagraphCount(part.text) : 0), 0), stageParaOffset: pluginTextPosition(part.text, offset), interrupted: options.interrupted, voiceAuto: options.voiceAuto, text: text, streaming: options.streaming, labels: { code: options.codeLabels, footnotes: "脚注" }, codeLabels: options.codeLabels, fileMentions: options.mentions }); };
 					const markdown = options.plugin ? options.plugin.render(String(part.text || ""), index, renderMarkdown) : renderMarkdown(String(part.text || ""), index);
 					return options.scriptLayer && !options.streaming ? h(TavernScriptLayerPart, { key: index, layer: options.scriptLayer, partIndex: index, text: String(part.text || "") }, markdown) : markdown;
 				}
@@ -492,11 +506,11 @@
 				// Plugin markers inside card HTML cannot be split out; show them after that part.
 				const pluginHtml = options.plugin && !options.openingPreview ? options.plugin.renderHtmlMarkers(String(part.content !== undefined ? part.content : part.html || "")) : null;
 				const content = pluginHtml ? pluginHtml.html : String(part.content !== undefined ? part.content : part.html || "");
-				if (pluginHtml && pluginHtml.after) return h(React.Fragment, { key: index }, renderTavernProjection({ parts: [Object.assign({}, part, { content: content, html: undefined })] }, Object.assign({}, options, { plugin: null })), pluginHtml.after);
-                if (options.trustedCardMode === true && !options.openingPreview && parseTavernInlineFragment(content, window.document)) {
-                    return h(TavernInlineFragment, {key:index, content:content});
-                }
-				return h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, frameOwner: options.frameOwner, frameSizing: options.frameSizing, helperContext: options.helperContext, helperContextReader: options.helperContextReader, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
+				// Keep the original frame identity when markers are moved after its HTML.
+				const html = options.trustedCardMode === true && !options.openingPreview && parseTavernInlineFragment(content, window.document)
+					? h(TavernInlineFragment, { key: index, content: content })
+					: h(TavernMessageFrame, { key: index, content: content, sessionId: options.sessionId, turn: options.turn, partIndex: index, frameOwner: options.frameOwner, frameSizing: options.frameSizing, helperContext: options.helperContext, helperContextReader: options.helperContextReader, openingPreview: options.openingPreview, onSelectOpening: options.onSelectOpening, onSubmitOpening: options.onSubmitOpening, trustedCardMode: options.trustedCardMode, eager: options.eagerFrame, executeSlash: options.executeSlash });
+				return pluginHtml && pluginHtml.after ? h(React.Fragment, { key: index }, html, pluginHtml.after) : html;
 			});
 		}
 
@@ -531,7 +545,7 @@
 				if (key === "json.truncated") return "内容过长（共 " + String(values && values.total || 0) + " 项）";
 				return key;
 			};
-			const codeLabels = { copyLabel: translate("copy"), copiedLabel: translate("copied") };
+			const codeLabels = input.codeLabels || { copyLabel: translate("copy"), copiedLabel: translate("copied") };
 			const rendered = [];
 			let projected = false;
 			for (let index = 0; index < blocks.length; index += 1) {
@@ -540,13 +554,12 @@
 				if (block.kind === "text") {
 					if (input.projection && projected) continue;
 					const projection = input.projection;
-					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, frameSizing: input.frameSizing, helperContext: input.helperContext, helperContextReader: input.helperContextReader, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame, frameOwner: input.frameOwner, executeSlash: input.executeSlash, scriptLayer: input.scriptLayer , plugin: input.plugin, cast: input.cast, deferHtml: input.deferHtml })));
+					if (projection) rendered.push(h(React.Fragment, { key: index }, renderTavernProjection(projection, { forkStageSource: input.forkStageSource, interrupted: input.interrupted, voiceAuto: input.voiceAuto, streaming: input.streaming, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, frameSizing: input.frameSizing, helperContext: input.helperContext, helperContextReader: input.helperContextReader, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame, frameOwner: input.frameOwner, executeSlash: input.executeSlash, scriptLayer: input.scriptLayer , plugin: input.plugin, deferHtml: input.deferHtml })));
 					else if (input.htmlSketches) rendered.push(h(React.Fragment, { key: index }, splitTavernHtmlSketches(block.text).map(function (part, partIndex) {
 						return part.kind === "sketch" ? h(TavernHtmlSketch, { key: partIndex, html: part.html }) : h(TavernColoredMarkdown, { key: partIndex, text: part.text, streaming: input.streaming, labels: { code: codeLabels, footnotes: "脚注" }, codeLabels: codeLabels, fileMentions: input.mentions });
 					})));
 					else {
-						const renderPlain = function (text, key) { return h(TavernColoredMarkdown, { key: key, text: text, streaming: input.streaming, labels: { code: codeLabels, footnotes: "脚注" }, codeLabels: codeLabels, fileMentions: input.mentions }); };
-						const renderMarkdown = function (text, key) { return renderTavernDialogueText(text, key, renderPlain, input.cast, input.streaming); };
+						const renderMarkdown = function (text, key, offset = 0) { return h(bubblePublicationType(), { key: key, sessionId: input.sessionId, voiceScope: String(input.turn) + ":" + index + (offset ? ":plugin:" + key : ""), stageSource: input.forkStageSource, stageParaBase: (input.blocks || []).slice(0, index).reduce((n, block) => n + (block.kind === "text" ? galParagraphCount(block.text) : 0), 0), stageParaOffset: pluginTextPosition(block.text, offset), interrupted: input.interrupted, voiceAuto: input.voiceAuto, text: text, streaming: input.streaming, labels: { code: codeLabels, footnotes: "脚注" }, codeLabels: codeLabels, fileMentions: input.mentions }); };
 						rendered.push(input.plugin ? input.plugin.render(String(block.text || ""), index, renderMarkdown) : renderMarkdown(String(block.text || ""), index));
 					}
 					projected = true;
@@ -570,7 +583,7 @@
 				if (block.kind !== "tool-call") rendered.push(h(DshUi.JsonBlock, { key: index, label: translate("message.unknownBlock"), payload: block.block || block, truncatedLabel: function (total) { return translate("json.truncated", { total: total }); } }));
 			}
 			if (input.projection && !projected) {
-				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, frameSizing: input.frameSizing, helperContext: input.helperContext, helperContextReader: input.helperContextReader, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame, frameOwner: input.frameOwner, executeSlash: input.executeSlash , plugin: input.plugin, cast: input.cast, deferHtml: input.deferHtml })));
+				rendered.push(h(React.Fragment, { key: "projection" }, renderTavernProjection(input.projection, { forkStageSource: input.forkStageSource, interrupted: input.interrupted, voiceAuto: input.voiceAuto, streaming: false, codeLabels: codeLabels, mentions: input.mentions, sessionId: input.sessionId, turn: input.turn, frameSizing: input.frameSizing, helperContext: input.helperContext, helperContextReader: input.helperContextReader, trustedCardMode: input.trustedCardMode, eagerFrame: input.eagerFrame, frameOwner: input.frameOwner, executeSlash: input.executeSlash , plugin: input.plugin, deferHtml: input.deferHtml })));
 			}
 			if (input.interrupted) rendered.push(h("span", { key: "stopped", className: "dsh-tavern-assistant-stopped" }, translate("message.stopped")));
 			return rendered;

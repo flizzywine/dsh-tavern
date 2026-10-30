@@ -4,8 +4,8 @@ import { chromium } from 'playwright'
 
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
-export async function openTavernSettings(t, { respond, section: pageSection, sessionId, beforeRender } = {}) {
-  const browser = await chromium.launch({ headless: true })
+export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender } = {}) {
+  const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
   t.after(() => browser.close())
   const page = await browser.newPage()
   page.setDefaultTimeout(5000)
@@ -22,6 +22,8 @@ export async function openTavernSettings(t, { respond, section: pageSection, ses
     }
     if (result === undefined) {
       if (method === 'getTavernSettings') result = { settings: { defaultPlaySettings: { playerName: "你", backgroundTasks: { variables: true, posture: true } } } }
+      // optional runtime detection is an offline settings read.
+      else if (method === 'getSpineRuntimeStatus') result = { installed: false, runtime: '', importSupported: true }
       else if (method === 'getWebSearchStatus') result = { provider: 'tavern-search', attempts: [] }
       else if (method === 'listPresets') result = { presets: [], activePresetPath: '' }
       else if (method === 'getUserPreferenceProfile') result = { userProfile: { profiles: [], defaultProfileId: '' } }
@@ -29,6 +31,7 @@ export async function openTavernSettings(t, { respond, section: pageSection, ses
       else if (method === 'confirmSessionPatch') result = {}
       else if (method === 'getDefaultWritingSkills') result = { skills: [] }
       else if (method === 'listUserPlugins') result = { plugins: [], dir: '/tmp/tavern/plugins' }
+      else if (method === 'managedModsList') result = { revision: 'fixture', mods: [] }
       else if (method === 'listLegacyPlugins') result = { plugins: [] }
       else if (method === 'checkUserPluginUpdates') result = { plugins: [] }
       else if (method === 'getActiveInterfaceSkin') result = { id: null, css: '' }
@@ -43,13 +46,16 @@ export async function openTavernSettings(t, { respond, section: pageSection, ses
   let script = await browserReactScript()
   script += `window.__ModuleLoader__={load(definition){window.client=definition.factory(name=>name==='react'?modules.react:{});}};`
   await page.addScriptTag({ content: script })
-  const source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  let source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  if (exposeConversationModels) source = source.replace('function TavernConversationBackgroundModel(props) {', 'window.__modelSlotsChat = TavernConversationBackgroundModel; function TavernConversationBackgroundModel(props) {')
   await page.addScriptTag({ content: source })
-  const section = pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
-  await page.evaluate(async ({ section, sessionId }) => {
+  const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
+  await page.evaluate(async ({ section, provided, sessionId }) => {
     let Settings
     window.client.apply({
       inject() { return { dispose() {} } },
+      // A provided panel (e.g. ttsLineSpeechSettings, placed by another plugin's page) renders as the page itself.
+      provide(name, value) { if (name === provided) Settings = () => value.render() },
       get() {},
       sessions: { subagentAddress() {} },
       betterSidebar: { registerTab(spec) { Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } }); } },
@@ -58,8 +64,8 @@ export async function openTavernSettings(t, { respond, section: pageSection, ses
       slots: { inject(_name, run) { return run() }, register(_spec, Component) { Settings = Component } }
     })
     while (!Settings) await new Promise(resolve => setTimeout(resolve, 10))
-    modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings))
-  }, { section, sessionId })
+    modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null }))
+  }, { section, provided, sessionId })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, calls }
 }

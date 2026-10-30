@@ -78,7 +78,7 @@ export function mergeProfileManifest({ source, current = {}, pluginPath, dataRoo
   // Local subpackages and host-specific layouts are development dependencies of
   // the installable aggregate, but remain explicit dependencies of legacy Profiles.
   const localDependencies = Object.fromEntries(
-    ['dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-pocket', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-dream-skin']
+    ['dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-pocket', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-dream-skin', 'dsh-asset-library']
       .filter(name => sourceDocument.devDependencies?.[name] !== undefined)
       .map(name => [name, sourceDocument.devDependencies[name]]),
   )

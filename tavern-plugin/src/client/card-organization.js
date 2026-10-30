@@ -154,7 +154,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch) {
           h('button', { className: 'dsh-tavern-btn', disabled, 'aria-label': '重命名分组：' + group, onClick: () => nameGroup(group) }, '重命名'),
           h('button', { className: 'dsh-tavern-btn', disabled, 'aria-label': '删除分组：' + group, onClick: async () => {
             if (await askConfirm('删除分组“' + group + '”？卡片会回到未分组。')) submit({ action: 'delete', group });
-          } }, '删除'))) : h('p', { className: 'dsh-tavern-question-sub' }, '还没有自定义分组'),
+          } }, '删除'))) : h(EmptyState, { compact: true, noun: '自定义分组' }),
         h('div', { className: 'dsh-tavern-group-manager-footer' },
           h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => nameGroup() }, '＋ 创建分组'),
           h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => { setManaging(false); batch.begin(); } }, '批量整理人物卡')))) : null);

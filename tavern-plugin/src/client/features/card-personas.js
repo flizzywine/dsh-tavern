@@ -31,7 +31,8 @@
 			const body = state.loading ? h("div", { className: "dsh-tavern-status-empty" }, "正在读取性格…")
 				: active === null ? h("div", { className: "dsh-tavern-status-empty" }, "当前为空白：卡片 Agent 不带自定义性格。从上方选择一个性格，或新建一个。")
 				: h("div", { className: "dsh-tavern-prompt-editor" },
-					h("label", { className: "dsh-tavern-prompt-editor-field full" }, "内容", h("textarea", { value: text, disabled: state.busy, "aria-label": "性格内容", onChange: function (event) { const value = event.target.value; setState(function (current) { return Object.assign({}, current, { draft: value, error: "", notice: "" }); }); } })),
+					// the draft text area, saved by its own 「保存」.
+					h("label", { className: "dsh-tavern-prompt-editor-field full" }, "内容", h(TextArea, { value: text, disabled: state.busy, label: "性格内容", rows: 8, onChange: function (value) { setState(function (current) { return Object.assign({}, current, { draft: value, error: "", notice: "" }); }); } })),
 					h("div", { className: "dsh-tavern-prompt-editor-actions" },
 						active.builtin ? h("button", { className: "dsh-tavern-btn", disabled: state.busy || !active.modified, title: "恢复为内置的默认内容和名称", onClick: function () { void manage("restore", "已恢复默认内容。"); } }, "恢复默认") : null,
 						h("button", { className: "dsh-tavern-btn primary", disabled: state.busy || !dirty, onClick: function () { void manage("save", "已保存，将从下一次卡片 Agent 请求开始生效。", { text: text }); } }, "保存")));
@@ -40,9 +41,10 @@
 					h("div", { className: "dsh-tavern-status-title" }, "卡片工作台性格"),
 					h("div", { className: "dsh-tavern-question-sub" }, "选中的性格作为卡片 Agent 的自定义 system 指令，对所有卡片会话生效")),
 				h("div", { className: "dsh-tavern-profile-library-bar dsh-tavern-prompt-set-bar" },
-					h("select", { "aria-label": "卡片工作台性格", value: state.activeId, disabled: state.busy || state.loading, onChange: function (event) { const id = event.target.value; void manage("select", id ? "已切换性格，将从下一次卡片 Agent 请求开始生效。" : "已切换为空白。", { id: id }); } },
-						h("option", { value: "" }, "空白（默认）"),
-						state.items.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name + (item.modified ? "（已修改）" : "")); })),
+					// the shared menu, as on the 预设 page's 卡片工作台性格 row.
+					h(InlineField, { kind: "menu", label: "卡片工作台性格", hideLabel: true, value: state.activeId, disabled: state.busy || state.loading,
+						onCommit: function (id) { void manage("select", id ? "已切换性格，将从下一次卡片 Agent 请求开始生效。" : "已切换为空白。", { id: id }); },
+						options: [{ value: "", label: "空白（默认）" }].concat(state.items.map(function (item) { return { value: item.id, label: item.name + (item.modified ? "（已修改）" : "") }; })) }),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy || state.loading, title: "新建一个空白性格", onClick: function () { void manage("create", "已新建性格并切换使用。"); } }, "新建"),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy || active === null, title: "复制当前性格", onClick: function () { void manage("duplicate", "已复制并切换使用。"); } }, "复制"),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy || active === null, onClick: function () { void manage("rename", "已重命名。"); } }, "重命名"),

@@ -437,7 +437,9 @@
 					layout = root.ownerDocument.createElement("style");
 					layout.setAttribute("data-dsh-tavern-card-app-layout", "phone");
 					layout.layoutStyle = true;
-					layout.textContent = '.phone-wrapper{position:absolute!important;top:10px!important;left:50%!important;right:auto!important;transform:translateX(-50%) scale(var(--dsh-tavern-card-app-scale,1))!important;transform-origin:top center!important}.phone-drag-btn,.phone-charm{display:none!important}';
+					layout.textContent = '.phone-wrapper{position:absolute!important;top:10px!important;left:50%!important;right:auto!important;transform:translateX(-50%) scale(var(--dsh-tavern-card-app-scale,1))!important;transform-origin:top center!important}.phone-drag-btn,.phone-charm{display:none!important}'
+						// the page rule does not reach into this shadow root.
+						+ '*{scrollbar-width:none!important}*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}';
 					root.appendChild(layout);
 				}
 				return true;
@@ -515,16 +517,33 @@
 				for (let index = 0; index < hosts.length; index += 1) if (attach(hosts[index])) break;
 			}
 
+			// a phone host can only arrive in added nodes. Look there, not through
+			// the whole document on every mutation (the id-prefix selector walked ~23k elements per stage page turn).
+			function added(mutations) {
+				for (let i = 0; i < mutations.length; i += 1) {
+					const nodes = mutations[i].addedNodes || [];
+					for (let j = 0; j < nodes.length; j += 1) {
+						const node = nodes[j];
+						if (node.nodeType !== 1) continue;
+						if (String(node.id || "").indexOf("improved-phone-shadow-host-") === 0) return true;
+						if (typeof node.querySelector === "function" && node.querySelector(TAVERN_CARD_PHONE_HOST)) return true;
+					}
+				}
+				return false;
+			}
+
 			scan();
 			if (typeof Mutation === "function" && hostDocument.body) {
-				mutationObserver = new Mutation(function () {
+				mutationObserver = new Mutation(function (mutations) {
+					let lost = false;
 					if (attached && attached.isConnected === false) {
 						attached = null; originalParent = null; originalNext = null; originalStyle = null;
 						if (floatingButton) floatingButton.style.display = floatingDisplay;
 						floatingButton = null; floatingDisplay = null;
 						notify(false);
+						lost = true;
 					}
-					scan();
+					if (!attached && (lost || !mutations || added(mutations))) scan();
 				});
 				mutationObserver.observe(hostDocument.body, { childList: true, subtree: true });
 			}

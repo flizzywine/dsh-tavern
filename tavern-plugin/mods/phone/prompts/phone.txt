@@ -1,0 +1,6 @@
+<mod_phone>
+- Mark each paragraph containing an SMS/chat message or a phone-call line, on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.
+- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.
+- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.
+- Groups: phone-group defines a stable thread id, name and participants ($player when present). Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups.
+</mod_phone>

@@ -27,6 +27,7 @@ test('画像开关和确认版本只影响新局，不改写已创建的游戏',
   await profile.setDefaultEnabled(true)
   const h = initializationFixture({ userPreferenceProfile: profile })
   const first = await h.make().start(h.input)
+  assert.equal(h.saved.get(first.id).messages.find(row => row.role === 'assistant').stagePageVersion, 2)
   await profile.updateConfirmed({ expectedRevision: first.userProfileRevision, summary: '新偏好', injectionText: '改为快节奏冒险。' })
   await profile.setDefaultEnabled(false)
   const existing = await h.make().start(h.input)

@@ -3,6 +3,7 @@ import {ScenePrefixHash} from './scene-prefix-hash.js'
 import {projectTavernHelperContext,projectTavernHelperMessage} from './tavern-helper-context.js'
 import {projectSessionMessage,projectChatSessionState,projectSceneImageState,projectDisplayRuntimeState} from './chat-session-state.js'
 import {createScopedMessages} from './scoped-messages.js'
+import {markStageRead,stageReadHeaderFields,stageReadIdentityFields,stageReadDisplayFields,stageReadRecordFields,stageReadFloorFields,stageReadCurrentFields,stageReadChainFields,stageReadEarlierOmitted} from './stage-read-projection.js'
 import {createBufferedJsonRecords} from './buffered-json-records.js'
 import path from 'node:path'
 import {createConversationPageStore} from './conversation-page-store.js'
@@ -14,6 +15,19 @@ const pointer=parts=>parts.length?'/'+parts.map(part=>String(part).replace(/~/g,
 const failure=(code,message)=>Object.assign(new Error(message),{code})
 const header=({messages,...value})=>value
 const CHANGE_WINDOW=64
+
+// The page store bounds physical I/O across these independent decoders. Keep
+// logical workers bounded too, and install results in the original order.
+// Message lists go newest first: maintenance lays a head's blocks out in that order
+// and older floors mostly reuse subtrees the newer ones already decoded.
+async function mapRead(values,read,newestFirst=false){
+ const result=new Array(values.length)
+ let next=0
+ await Promise.all(Array.from({length:Math.min(8,values.length)},async()=>{
+  while(next<values.length){const index=newestFirst?values.length-1-next++:next++;result[index]=await read(values[index])}
+ }))
+ return result
+}
 
 /** Native pages/current-state storage behind the existing runtime Chat API.
  * Chat is a detached projection, never an authoritative monolithic disk blob.
@@ -62,23 +76,12 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  // reads must not evict the active game's entire decoder. Public reads remain
  // detached and every request resolves the authoritative head from disk.
  const decodedCache=createDecodedJsonCache(128*1024*1024)
- // Each tree() serves one operation, so its shared-subtree memo ends with it.
  function tree(id){
-  const cache=new Map();let bytes=0
-  const value=createIncrementalJsonState({decodedCache,shareSubtrees:true,async read(ref){
-   let entry=cache.get(ref)
-   if(entry){cache.delete(ref);cache.set(ref,entry)}
-   else {
-    const value=await pages.readRecord(id,ref),size=Buffer.byteLength(JSON.stringify(value))*2
-    entry={value,size}
-    if(size<=8*1024*1024){
-     while(cache.size&&bytes+size>8*1024*1024){const key=cache.keys().next().value;bytes-=cache.get(key).size;cache.delete(key)}
-     cache.set(ref,entry);bytes+=size
-    }
-   }
-   return structuredClone(entry.value)
-  },write:value=>pages.writeRecord(id,value)})
-  return value
+  // Tree operations never mutate stored nodes. Reuse the page store's bounded
+  // immutable cache; only the resulting public JSON projection is detached.
+  // Each tree() serves one operation, so its shared-subtree memo ends with it.
+  return createIncrementalJsonState({decodedCache,shareSubtrees:true,
+   read:ref=>pages.readRecord(id,ref,{shared:true}),write:value=>pages.writeRecord(id,value)})
  }
  async function head(id,snapshotId){
   const view=await pages.readHead(id,snapshotId?{snapshotId}:{})
@@ -110,15 +113,18 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  async function read(id,revision=Infinity,snapshotId){
   const view=snapshotId?await head(id,snapshotId):await headAtRevision(id,revision)
   if(!view)return null
-  const t=tree(id),chat=await selectedHeader(id,view)
-  const messages=new Array(view.messageCount)
+  const started=performance.now(),t=tree(id),chat=await selectedHeader(id,view)
+  onIO?.({kind:'phase',name:'chat.native.header',chatId:id,durationMs:performance.now()-started})
+  const historyStarted=performance.now(),messages=new Array(view.messageCount)
   let cursor=view.snapshotCursor
   while(cursor){
    const page=await pages.readHistoryPage(id,{cursor,limit:500})
-   for(const row of page.messages)messages[row.position]=await t.get(row.message.runtimeRef)
+   const decoded=await mapRead(page.messages,row=>t.get(row.message.runtimeRef),true)
+   page.messages.forEach((row,index)=>{messages[row.position]=decoded[index]})
    cursor=page.previousCursor
   }
   chat.messages=messages
+  onIO?.({kind:'phase',name:'chat.native.messages',chatId:id,durationMs:performance.now()-historyStarted})
   if(chat.id!==id||chat._storageRevision!==view.state.chatRevision)throw failure('CHAT_STORAGE_DAMAGED','Native Chat revision mismatch')
   return result(chat,view)
  }
@@ -129,15 +135,19 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const complete=!Array.isArray(fields)&&fields!=='settlement'
   const result={}
   const paths=Array.isArray(fields)?fields:await t.keys(root)
-  for(const field of paths){
-   const parts=complete?[field]:String(field).split('.').filter(Boolean)
-   if(!parts.length||parts[0]==='messages'||!complete&&parts.some(part=>['__proto__','prototype','constructor'].includes(part)))continue
+  const selected=paths.map(field=>({field,parts:complete?[field]:String(field).split('.').filter(Boolean)}))
+   .filter(({parts})=>parts.length&&parts[0]!=='messages'&&(complete||!parts.some(part=>['__proto__','prototype','constructor'].includes(part))))
+  const values=await mapRead(selected,async({field,parts})=>{
    let value
    if(fields==='settlement'&&field==='timeline'&&await t.type(root,'/timeline')==='object'){
     value={}
     for(const key of await t.keys(root,'/timeline'))if(key!=='checkpoints')Object.defineProperty(value,key,{value:await t.get(root,pointer(['timeline',key])),enumerable:true,writable:true,configurable:true})
     value.checkpoints=[]
    }else value=await t.get(root,pointer(parts))
+   return value
+  })
+  for(const [index,{parts}] of selected.entries()){
+   const value=values[index]
    if(value===undefined)continue
    let target=result
    for(const key of parts.slice(0,-1))target=target[key]??={}
@@ -147,7 +157,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
  }
  // A window is explicitly NOT a writable Chat: coordinates refer to the pinned
  // full archive, while chat.messages contains only this bounded page.
- async function readWindow(id,{limit=48,before,revision,includeCheckpoints=false,requirePartial=false,fields}={}){
+ async function readWindow(id,{limit=48,before,revision,includeCheckpoints=false,requirePartial=false,fields,messageFields}={}){
   if(!Number.isSafeInteger(limit)||limit<1||limit>500)throw Error('Invalid history window limit')
   const view=await headAtRevision(id,revision??Infinity)
   if(!view)return null
@@ -160,8 +170,85 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const chat=await selectedHeader(id,view,fields ?? (includeCheckpoints?undefined:'settlement')),t=tree(id)
   const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:end},limit})
   chat.messages=[]
-  for(const row of page.messages)chat.messages.push(await t.get(row.message.runtimeRef))
-  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null}
+  const paths=messageFields?.map(field=>pointer(field.split('.')))
+  chat.messages=await mapRead(page.messages,row=>paths===undefined
+   ? t.get(row.message.runtimeRef) : t.getFields(row.message.runtimeRef,paths),true)
+  return {chat,messageCount:view.messageCount,from,to:end-1,revision:view.state.chatRevision,worldMessage:view.state.worldMessage??null,
+   ...(messageFields===undefined?{}:{messageFields:[...messageFields]})}
+ }
+ // One pinned native head supplies identity headers and the requested prefix, not historical payloads.
+ // chainOnly: earlier floors carry the record identity, not the record (stageReadChainFields); readStageFloors reads
+ // the earlier floors a history consumer names.
+ async function readStageView(id,{turn,configOnly=false,stateOnly=false,sourceOnly=false,chainOnly=false}={}){
+  const view=await head(id)
+  if(!view)return null
+  const chat=await selectedHeader(id,view,sourceOnly?['id','sessionId','_storageRevision','timeline.branchId','timeline.revision']:stageReadHeaderFields),t=tree(id)
+  const summaries=(await sessionSummaries(id,view)).messages
+  chat.messages=structuredClone(summaries)
+  if(stateOnly){
+   for(let position=chat.messages.length-1;position>=0;position--){
+    if(chat.messages[position].role!=='assistant')continue
+    const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:position+1},limit:1})
+    const record=await t.get(page.messages[0].message.runtimeRef,'/stageDirectionAssetPacks')
+    if(record){chat.messages[position].stageDirectionAssetPacks=record;break}
+   }
+   return markStageRead(chat,{stateOnly:true})
+  }
+  const requested=Number(turn)||Math.max(0,...summaries.filter(row=>row.role==='assistant').map(row=>Number(row.turn || (row.greeting?1:0))))
+  const target=row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===requested
+  const index=sourceOnly?summaries.findLastIndex(target):summaries.findIndex(target)
+  const latestAssistant=summaries.findLastIndex(row=>row.role==='assistant'),latestUser=summaries.findLastIndex(row=>row.role==='user')
+  const indices=configOnly?[latestAssistant,latestUser].filter(i=>i>=0).sort((a,b)=>a-b):Array.from({length:index+1},(_,i)=>i)
+  const references=new Map()
+  // Page metadata is small and already contains original coordinates; payload reads stop at the target.
+  for(let start=0;start<indices.length;start+=500){
+   const batch=indices.slice(start,start+500),from=batch[0],end=batch.at(-1)+1
+   for(let before=end;before>from;before-=500){
+    const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before},limit:Math.min(500,before-from)})
+    for(const row of page.messages)references.set(row.position,row.message.runtimeRef)
+   }
+  }
+  const values=await mapRead(indices,async position=>{
+   const ref=references.get(position)
+   if(sourceOnly){
+    // Prefix hashing consumes the preferred source, not duplicate display text or inactive swipes.
+    const row=await t.getFields(ref,(position===index?['id','role','turn','greeting','swipeId','stageDirectionGeneration','sourceText']:['role','turn','sourceText']).map(field=>'/'+field))
+    if(row.sourceText==null){const text=await t.get(ref,'/text');if(text!==undefined)row.text=text}
+    if(position===index){
+     const swipe=Math.max(0,Number(row.swipeId)||0),selected=await selectedSceneSwipe(t,ref,swipe)
+     if(selected!==undefined)row.swipes={[swipe]:selected}
+    }
+    return row
+   }
+   if(chainOnly&&position!==index){
+    const row=await t.getFields(ref,[...stageReadChainFields,...stageReadFloorFields].map(field=>pointer(field.split('.'))))
+    if(row.sourceText==null){const text=await t.get(ref,'/text');if(text!==undefined)row.text=text}
+    return row
+   }
+   const fields=configOnly?[...stageReadIdentityFields,'stageDirectionAssetPacks.stats.judge.probabilities']:
+    [...stageReadIdentityFields,...stageReadDisplayFields,...stageReadRecordFields,...stageReadFloorFields,...(position===index?stageReadCurrentFields:[])]
+   return t.getFields(ref,fields.map(field=>pointer(field.split('.'))))
+  })
+  indices.forEach((position,i)=>{chat.messages[position]={...chat.messages[position],...values[i]}})
+  return markStageRead(chat,{turn:requested,index,configOnly,...(sourceOnly?{sourceOnly:true}:{}),...(chainOnly?{chainOnly:true,full:[]}:{})})
+ }
+ // The earlier floors (indices) a chain-only view's consumer names, at `revision`: by default each as a stage view
+ // reads an earlier floor in full, its record without the judge probabilities (stageReadEarlierOmitted); `fields`
+ // selects others (the record alone, or each beat's ops). One page-metadata read per 500 floors, then each floor by
+ // sub-path.
+ async function readStageFloors(id,indices,{revision,fields=[...stageReadIdentityFields,...stageReadDisplayFields,...stageReadRecordFields,...stageReadFloorFields]}={}){
+  const view=await headAtRevision(id,revision??Infinity)
+  if(!view)return null
+  const t=tree(id),sorted=[...new Set(indices)].sort((a,b)=>a-b),references=new Map()
+  for(let start=0;start<sorted.length;){
+   let end=start
+   while(end+1<sorted.length&&sorted[end+1]-sorted[start]<500)end++
+   const page=await pages.readHistoryPage(id,{cursor:{snapshotId:view.snapshotCursor.snapshotId,before:sorted[end]+1},limit:sorted[end]+1-sorted[start]})
+   for(const row of page.messages)references.set(row.position,row.message.runtimeRef)
+   start=end+1
+  }
+  const paths=fields.map(field=>pointer(field.split('.'))),omitted=stageReadEarlierOmitted.map(field=>pointer(field.split('.')))
+  return mapRead(indices,position=>references.has(position)?t.getFields(references.get(position),paths,omitted):undefined,true)
  }
  // Floor summaries (role, turn, greeting, MVU flags) of the latest `count` floors, from
  // the page entries' inline summaries: never the bodies, never the whole history.
@@ -195,7 +282,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    for(const row of selected.messages)references.set(row.position,row.message.runtimeRef)
    start=end+1
   }
-  for(const position of indices)chat.messages.push(await t.get(references.get(position)))
+  chat.messages=await mapRead(indices,position=>t.get(references.get(position)))
   return {chat,messageCount:view.messageCount,denseMessages:true}
  }
  // Revision-bounded change records; callers of rare operations may look further back.
@@ -506,7 +593,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
     ['set','delete'].includes(change.op) && change.path?.length >= 1 && ['taskMailbox','timeline','candidateAgent','candidates','scriptState','_storageRevision','updatedAt'].includes(change.path[0]))) {
    const nextRevision=changes.find(change=>change.path[0]==='_storageRevision')?.value
    if(nextRevision!==revision+1)throw Error('Invalid journal patch revision')
-   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:values=>pages.writeRecords(id,values)})
+   const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
    let chatHeaderRef=view.state.chatHeaderRef
    for (const change of changes) {
     const p=pointer(change.path)
@@ -574,7 +661,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return {...saved,chat:{...nextHeader,messages:[]}}
  }
  async function create(id,chat,assertCurrent,{migration,verifyBeforePublish}={}){
-  const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:values=>pages.writeRecords(id,values)})
+  const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
   const t=batch.tree,rows=[]
   for(const row of chat.messages??[])rows.push(await encode(id,row,undefined,undefined,t))
   const encoded=new Map(rows.map((row,i)=>[i,row]))
@@ -588,7 +675,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return result(chat,await head(id))
  }
  async function write(id,stored,next,changes,assertCurrent,worldSelection){
-  const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:values=>pages.writeRecords(id,values)})
+  const batch=createBufferedJsonRecords({read:ref=>pages.readRecord(id,ref),writeMany:(values,refs)=>pages.writeRecords(id,values,refs)})
   const view=stored.native.view,t=batch.tree,grouped=new Map(),headChanges=[]
   let from=Infinity
   for(const change of changes){
@@ -665,7 +752,8 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const header=await selectedHeader(id,view,['timeline','rollbackUndo','regenRecovery','forkedFrom','regenInProgress'])
   return {...header,id,_storageRevision:view.state.chatRevision,legacyInitialRevision:view.metadata.settings?.legacyInitialRevision}
  }
- async function compact(id,{retain=()=>false,keepRecent=64,changeFloor,graceMs,dryRun}={}){
+ // `exclusive(step)` runs one short publishing or deleting step alone with this save's writers.
+ async function compact(id,{retain=()=>false,keepRecent=64,changeFloor,graceMs,dryRun,exclusive,signal}={}){
   const view=await head(id)
   if(!view)return null
   const current=view.state.chatRevision
@@ -678,11 +766,11 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    return !change||Number(change[1])>Math.min(current-CHANGE_WINDOW,Number.isSafeInteger(changeFloor)?changeFloor:Infinity)
   }
   // Drop the index keys first: one small file per revision otherwise stays forever.
-  const pruned=dryRun?{removed:0}:await pages.pruneEntries(id,needed)
-  const result=await pages.sweep(id,{graceMs,dryRun,retainEntry:needed})
+  const pruned=dryRun?{removed:0}:await pages.pruneEntries(id,needed,{exclusive})
+  const result=await pages.sweep(id,{graceMs,dryRun,retainEntry:needed,exclusive,signal})
   return {...result,indexKeysRemoved:pruned.removed}
  }
  // Contiguous packs in read order for a fragmented current head; no lock while reading.
  async function relayout(id,options){return pages.relayout(id,options)}
- return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
+ return Object.freeze({compact,relayout,readRetentionHeader,patch,read,readWindow,readStageView,readStageFloors,readRecentSummaries,readSettlementBase,readChangedSlice,readRevisionMetadata,readHelperContext,readSlice,readSessionState,readDisplayRuntimeState,readSceneImageState,version,create,write})
 }

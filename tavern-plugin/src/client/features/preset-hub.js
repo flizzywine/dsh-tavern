@@ -65,8 +65,9 @@
 			const exportPanel = exporting ? h("section", { className: "dsh-tavern-preset-hub-export", "aria-label": "选择导出内容" },
 				h("b", null, "选择要导出的内容"),
 				parts.map(function (part) {
-					return h("label", { key: part, className: available[part] ? "" : "is-disabled" },
-						h("input", { type: "checkbox", checked: exporting[part] && available[part] === true, disabled: busy || !available[part], onChange: function (event) { const checked = event.target.checked; setExporting(function (current) { return Object.assign({}, current, { [part]: checked }); }); } }),
+					// the shared switch, not a native checkbox.
+					return h("div", { key: part, className: available[part] ? "" : "is-disabled" },
+						h(Switch, { label: "导出" + partNames[part], checked: exporting[part] && available[part] === true, disabled: busy || !available[part], onChange: function (checked) { setExporting(function (current) { return Object.assign({}, current, { [part]: checked }); }); } }),
 						h("span", null, partNames[part]), h("small", null, available[part] ? currentName(part) : "未选择，无法导出"));
 				}),
 				h("div", { className: "dsh-tavern-preset-hub-export-actions" },
@@ -132,19 +133,20 @@
 				exportPanel,
 				error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 				notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, notice) : null,
-				s === null ? h("div", { className: "dsh-tavern-status-empty" }, "正在读取…") : h("div", { className: "dsh-tavern-preset-hub-list" },
+				// the shared inline menu and loading spinner.
+				s === null ? h(PanelLoading, null) : h("div", { className: "dsh-tavern-preset-hub-list" },
 					row("preset", "酒馆预设", "新游戏默认使用；每局可在本局设置中单独切换",
-						h("select", { className: "dsh-tavern-settings-select", "aria-label": "新游戏默认预设", value: s.activePresetPath, disabled: busy, onChange: function (event) { void selectPreset(event.target.value); } },
-							h("option", { value: "" }, "不使用酒馆预设（默认）"), s.presets.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); }))),
+						h(InlineField, { kind: "menu", label: "新游戏默认预设", hideLabel: true, value: s.activePresetPath, disabled: busy, onCommit: function (value) { void selectPreset(value); },
+							options: [{ value: "", label: "不使用酒馆预设（默认）" }].concat(s.presets.map(function (item) { return { value: item.path, label: item.title }; })) })),
 					row("systemPrompts", "系统提示词", "对所有游戏生效",
-						h("select", { className: "dsh-tavern-settings-select", "aria-label": "系统提示词方案", value: s.promptSets.activeId, disabled: busy, onChange: function (event) { void selectPromptSet(event.target.value); } },
-							s.promptSets.sets.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); }))),
+						h(InlineField, { kind: "menu", label: "系统提示词方案", hideLabel: true, value: s.promptSets.activeId, disabled: busy, onCommit: function (value) { void selectPromptSet(value); },
+							options: s.promptSets.sets.map(function (item) { return { value: item.id, label: item.name }; }) })),
 					row("userProfile", "长期偏好", "新游戏默认使用；每局可在本局设置中单独切换",
-						h("select", { className: "dsh-tavern-settings-select", "aria-label": "新游戏默认长期偏好", value: s.defaultProfileId, disabled: busy, onChange: function (event) { void selectProfile(event.target.value); } },
-							h("option", { value: "" }, "不启用"), s.profiles.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); }))),
+						h(InlineField, { kind: "menu", label: "新游戏默认长期偏好", hideLabel: true, value: s.defaultProfileId, disabled: busy, onCommit: function (value) { void selectProfile(value); },
+							options: [{ value: "", label: "不启用" }].concat(s.profiles.map(function (item) { return { value: item.id, label: item.name }; })) })),
 					row("cardPersonas", "卡片工作台性格", "卡片 Agent 使用；对所有卡片会话生效",
-						h("select", { className: "dsh-tavern-settings-select", "aria-label": "卡片工作台性格", value: s.activePersonaId, disabled: busy, onChange: function (event) { void selectPersona(event.target.value); } },
-							h("option", { value: "" }, "空白（默认）"), s.personas.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })))));
+						h(InlineField, { kind: "menu", label: "卡片工作台性格", hideLabel: true, value: s.activePersonaId, disabled: busy, onCommit: function (value) { void selectPersona(value); },
+							options: [{ value: "", label: "空白（默认）" }].concat(s.personas.map(function (item) { return { value: item.id, label: item.name }; })) }))));
 		}
 
 		// Shared by the 预设 tab and its detail pages: save an {name, text} export as a download.

@@ -1,8 +1,9 @@
 import {createHash} from 'node:crypto'
 import {Script} from 'node:vm'
-import {JSDOM} from 'jsdom'
+import {createRequire} from 'node:module'
 import {marked} from 'marked'
 
+const require = createRequire(import.meta.url)
 const cache = new Map()
 let cacheBytes = 0
 const damage = /<(?:pre|code|p|br)(?:\s[^>]*|)>/i
@@ -21,6 +22,7 @@ export function repairLegacyTemplateDisplay(display, candidate) {
     || !candidate.displayParts.some(part => part.kind === 'html' && /<(?:script|style)\b/i.test(part.content))) return display
   const digest = createHash('sha256').update(JSON.stringify(display)).update(candidate.displayText).digest('hex')
   if (cache.has(digest)) return structuredClone(cache.get(digest).value)
+  const {JSDOM} = require('jsdom')
   const legacy = new JSDOM(marked.parse(candidate.displayText, {gfm:true}))
   const correct = new JSDOM(candidate.displayParts.filter(part=>part.kind==='html').map(part=>part.content).join('\n'))
   const replacements = new Map(), ambiguous = new Set()

@@ -1,0 +1,193 @@
+/* the generic UI of the two-layer mod settings — ScopeSwitch,
+   OverrideDot, ValueEditor, DataPicker, FormulaInput, PreviewHotspots (mod-config-ui.js,
+   data-picker.js). Tokens only.
+   Buttons carry four :not([data-cfg-*]) so the quiet looks beat the panel's `.ap-ui button` hover / pill rules. */
+
+/* ---- shared bits ---- */
+.fork-cfg-meta { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; }
+.fork-cfg-sep { padding: 0 2px; color: var(--fork-ink-3); font-style: normal; }
+.fork-cfg-pick mark, .fork-cfg-drop mark { border-radius: 2px; background: color-mix(in srgb, var(--fork-accent) 30%, transparent); color: inherit; }
+.fork-cfg-chip { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; padding: 1px 8px; border-radius: 10px; background: var(--fork-accent-soft); color: var(--fork-ink); font-size: var(--fork-fs-meta); line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: baseline; }
+.fork-cfg-chip > b { color: var(--fork-accent); font-weight: 600; }
+button.fork-cfg-link:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; height: auto; margin: 0 0 0 -8px; padding: 0 8px; border: 0; border-radius: var(--fork-radius); background: none; box-shadow: none; color: var(--fork-accent); font: inherit; font-size: var(--fork-fs-body); white-space: nowrap; cursor: pointer; }
+button.fork-cfg-link:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):hover:not(:disabled) { background: var(--fork-hover); }
+button.fork-cfg-link:focus-visible, button.fork-cfg-icon:focus-visible, button.fork-cfg-crumb:focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
+button.fork-cfg-icon:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { display: grid; flex: none; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--fork-radius); background: none; color: var(--fork-ink-2); }
+button.fork-cfg-icon:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):hover { background: var(--fork-hover); color: var(--fork-ink); }
+
+/* ---- OverrideDot: 7px, the R8 state colours ---- */
+.fork-cfg-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--fork-state-global); vertical-align: middle; }
+.fork-cfg-dot[data-layer=card] { background: var(--fork-state-card); }
+.fork-cfg-dot[data-layer=warn] { background: var(--fork-warn); }
+
+/* ---- ScopeSwitch ---- */
+.fork-cfg-scope { display: inline-flex; min-width: 0; max-width: 100%; }
+.fork-cfg-scope > .ap-segmented { min-width: 0; max-width: 100%; }
+.ap-ui .fork-cfg-scope > .ap-segmented button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- ValueEditor: one opaque popover (fk-surface popover level); a bottom sheet on a narrow window ---- */
+.ap-ui.fork-cfg-layer { display: contents; }
+.fork-cfg-pop, .fork-cfg-pop.fk-surface.fk-surface { position: fixed; z-index: 10012; box-sizing: border-box; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 12px 14px; border-radius: var(--fork-radius-lg); color: var(--fork-ink); font-family: var(--fork-font-ui, inherit); font-size: var(--fork-fs-body); line-height: 1.5; text-align: left; }
+/* as specific as the rule above, so the sheet spans the window. */
+.fork-cfg-pop.fk-surface.fk-surface[data-sheet], .fork-cfg-pop[data-sheet] { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 80vh; border-radius: var(--fork-radius-lg) var(--fork-radius-lg) 0 0; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+/* A field popover (a preview part) is as wide as its control; with the picker / formula box open it takes the full width. */
+.fork-cfg-pop.is-field.fk-surface.fk-surface:not([data-sheet]):not(:has(.fork-cfg-below)) { width: max-content; min-width: 200px; max-width: min(340px, calc(100vw - 16px)); }
+.fork-cfg-pop-head { display: flex; align-items: center; gap: 8px; margin: -4px -6px 10px 0; }
+.fork-cfg-pop-title { flex: 1; min-width: 0; overflow: hidden; font-size: var(--fork-fs-body); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.fork-cfg-pop-head > .fork-cfg-dot { margin-right: auto; }
+.fork-cfg-pop-head > .fork-cfg-pop-title:has(+ .fork-cfg-dot) { flex: 0 1 auto; }
+.fork-cfg-pop-body { display: grid; gap: 8px; min-width: 0; }
+.fork-cfg-pop-body > .fork-inline-field { --fork-inline-label-w: 0; min-height: 32px; }
+.fork-cfg-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; min-width: 0; }
+.fork-cfg-line > b { font-weight: 600; overflow-wrap: anywhere; }
+.fork-cfg-from { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }
+.fork-cfg-cands { display: grid; gap: 2px; }
+.fork-cfg-cands > .fork-cfg-line { align-items: center; }
+.fork-cfg-cands button.fork-cfg-link:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { margin-left: auto; margin-right: -8px; }
+.fork-cfg-result { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fork-cfg-result > b { font-weight: 600; }
+.fork-cfg-result.is-warn { color: var(--fork-warn); }
+.fork-cfg-result.is-warn button.fork-cfg-at:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { min-height: 24px; margin: 0 0 0 2px; padding: 0 4px; color: var(--fork-warn); font-size: var(--fork-fs-meta); text-decoration: underline dotted; }
+.fork-cfg-pop-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--fork-hairline); }
+.fork-cfg-pop-foot button.fork-cfg-link:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { margin: 0 -8px 0 0; }
+/* 固定 · image: the picture and a quiet 「上传」. */
+.fork-cfg-image { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.fork-cfg-thumb { display: grid; flex: none; place-items: center; width: 64px; height: 96px; overflow: hidden; border-radius: var(--fork-radius); background: var(--fork-hover); }
+.fork-cfg-thumb.is-round { width: 48px; height: 48px; border-radius: 50%; }
+.fork-cfg-thumb > img { width: 100%; height: 100%; object-fit: cover; }
+.fork-cfg-image-side { display: grid; gap: 2px; min-width: 0; }
+.fork-cfg-file { overflow-wrap: anywhere; }
+
+/* ---- DataPicker: one combobox; the list floats (or flows, inside the editor) under it ----
+   the field reads as text like every inline edit (theme.css 「fork inline
+   edit」): no underline at rest, a soft tint on hover, the accent ring while typing. */
+.fork-cfg-pick { position: relative; min-width: 0; }
+.fork-cfg-pick-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 32px; padding: 2px 6px; border-radius: 6px; transition: background-color .15s, box-shadow .15s; }
+.fork-cfg-pick-field:hover { background: var(--fork-hover); }
+.fork-cfg-pick-field:focus-within { background: var(--fork-hover); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fork-accent) 60%, transparent); }
+.fork-cfg-pick-field input.fork-cfg-pick-input:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):not([data-cfg-e]) { flex: 1; width: auto; min-width: 90px; height: 28px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; outline: none; color: var(--fork-ink); font: inherit; font-size: var(--fork-fs-body); -webkit-appearance: none; appearance: none; }
+.fork-cfg-pick-field input.fork-cfg-pick-input:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):not([data-cfg-e]):focus { border: 0; box-shadow: none; outline: none; }
+.fork-cfg-pick-input::placeholder { color: var(--fork-ink-3); }
+.fork-cfg-pick-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.fork-cfg-drop, .fork-cfg-drop.fk-surface.fk-surface { position: absolute; z-index: 10013; left: -8px; right: -8px; top: calc(100% + 4px); min-width: 260px; padding: 4px; border-radius: var(--fork-radius-lg); }
+.fork-cfg-pick.is-inline .fork-cfg-drop { position: static; min-width: 0; margin-top: 4px; padding: 0; border-radius: 0; }
+.fork-cfg-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; min-height: 30px; padding: 2px 6px 4px; border-bottom: 1px solid var(--fork-hairline); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+button.fork-cfg-crumb:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { min-width: 0; height: 24px; min-height: 0; margin: 0; padding: 0 4px; border: 0; border-radius: 4px; background: none; color: var(--fork-ink-2); font: inherit; font-size: var(--fork-fs-meta); }
+button.fork-cfg-crumb:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):hover { background: var(--fork-hover); color: var(--fork-ink); }
+.fork-cfg-crumb.is-current { padding: 0 4px; color: var(--fork-ink); font-weight: 600; }
+.fork-cfg-need { margin-left: auto; color: var(--fork-ink-3); }
+/* only the picker's own list (role=listbox) scrolls; a page's settings list shares the class name. */
+.fork-cfg-list[role=listbox] { position: relative; max-height: 288px; overflow: auto; overscroll-behavior: contain; padding-top: 2px; }
+.fork-cfg-rows { position: relative; }
+.fork-cfg-rows > * { position: absolute; left: 0; right: 0; box-sizing: border-box; }
+.fork-cfg-group { height: calc(var(--fork-fs-meta) * 2.4); padding: 8px 8px 0; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-weight: 600; line-height: 1.3; }
+.fork-cfg-opt { display: flex; align-items: center; gap: 6px; height: calc(var(--fork-fs-body) * 3.1); padding: 0 6px; border-radius: 6px; cursor: pointer; }
+.fork-cfg-opt.is-active { background: var(--fork-hover); }
+.fork-cfg-opt[aria-disabled=true] { cursor: default; }
+.fork-cfg-opt[aria-disabled=true] :is(.fork-cfg-opt-label, .fork-cfg-opt-value) { color: var(--fork-ink-3); }
+.fork-cfg-check { flex: none; width: 12px; color: var(--fork-accent); }
+.fork-cfg-opt-name { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.3; }
+.fork-cfg-opt-name > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fork-cfg-opt-pre, .fork-cfg-opt-hint { color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.fork-cfg-opt-value { display: inline-flex; align-items: center; gap: 4px; max-width: 34%; overflow: hidden; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.fork-cfg-opt-value > .fork-inline-swatch { width: 12px; height: 12px; }
+.fork-cfg-opt-type { flex: none; min-width: 28px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); text-align: right; }
+.fork-cfg-drill { display: grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: 5px; color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
+.fork-cfg-drill:hover { background: color-mix(in srgb, var(--fork-ink) 10%, transparent); color: var(--fork-ink); }
+.fork-cfg-empty { display: flex; align-items: center; gap: 8px; padding: 10px 8px; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+
+/* ---- FormulaInput: a one-line text with reference chips; the error position is a CSS highlight ---- */
+.fork-cfg-formula { display: grid; gap: 8px; min-width: 0; }
+.fork-cfg-formula-box { min-height: 34px; padding: 4px 0; border-bottom: 1px solid color-mix(in srgb, var(--fork-ink) 22%, transparent); outline: none; color: var(--fork-ink); font-family: var(--ap-mono, ui-monospace, monospace); font-size: var(--fork-fs-body); line-height: 1.9; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text; }
+.fork-cfg-formula-box:hover { border-bottom-color: color-mix(in srgb, var(--fork-ink) 40%, transparent); }
+.fork-cfg-formula-box:focus { border-bottom-color: var(--fork-accent); }
+/* The underline is the focus mark (like InlineField); no panel focus ring around the text. */
+.fork-cfg-formula .fork-cfg-formula-box:focus-visible { outline: none; }
+.fork-cfg-formula-box[aria-invalid=true] { border-bottom-color: var(--fork-warn); }
+.fork-cfg-formula-box:empty::before { content: attr(data-placeholder); color: var(--fork-ink-3); }
+.fork-cfg-formula-box > .fork-cfg-chip { margin: 0 1px; font-family: var(--fork-font-ui, inherit); cursor: default; user-select: all; }
+::highlight(fork-formula-error) { background-color: color-mix(in srgb, var(--fork-warn) 28%, transparent); text-decoration: underline wavy var(--fork-warn); }
+
+/* ---- PreviewHotspots: the mod's preview with quiet clickable regions ---- */
+.fork-cfg-preview { position: relative; isolation: isolate; width: 100%; margin: 0 auto; }
+.fork-cfg-preview-art { position: absolute; inset: 0; z-index: 0; }
+.fork-cfg-hotspots { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+button.fork-cfg-hotspot:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { position: absolute; display: block; box-sizing: border-box; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 4px; background: none; box-shadow: none; pointer-events: auto; cursor: pointer; }
+/* the outline sits on the part's own box (the spot is measured onto it); a small part keeps
+   a few more pixels to press around it. */
+button.fork-cfg-hotspot::before { content: ""; position: absolute; inset: -4px; }
+button.fork-cfg-hotspot.is-round:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]) { border-radius: 50%; }
+button.fork-cfg-hotspot:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):is(:hover, [aria-expanded=true]) { background: none; outline: 1.5px dashed color-mix(in srgb, var(--fork-accent) 80%, transparent); outline-offset: 0; }
+button.fork-cfg-hotspot:not([data-cfg-a]):not([data-cfg-b]):not([data-cfg-c]):not([data-cfg-d]):focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
+button.fork-cfg-hotspot:disabled { cursor: default; filter: none; }
+/* The override marker shows with the outline only — no permanent chrome on the preview. */
+.fork-cfg-hotspot[data-dot]:is(:hover, :focus-visible, [aria-expanded=true])::after { content: ""; position: absolute; top: -3px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--fork-state-global); box-shadow: 0 0 0 2px var(--fork-surface); }
+/* as specific as the rule above, so a 本卡 / ⚠ dot is not painted 全局 blue. */
+.fork-cfg-hotspot[data-dot=card]:is(:hover, :focus-visible, [aria-expanded=true])::after { background: var(--fork-state-card); }
+.fork-cfg-hotspot[data-dot=warn]:is(:hover, :focus-visible, [aria-expanded=true])::after { background: var(--fork-warn); }
+.fork-cfg-preview-error { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px; border-radius: var(--fork-radius); background: var(--fork-surface); color: var(--fork-warn); font-size: var(--fork-fs-meta); }
+@media (max-width: 720px) {
+  .fork-cfg-opt { height: calc(var(--fork-fs-body) * 3.4); }
+  .fork-cfg-pick.is-inline .fork-cfg-list { max-height: 40vh; }
+}
+
+/* ---- CfgField: one setting as a compact row (label · dot · control · reset); the picker / formula box under it ---- */
+.fork-cfg-list > .fork-inline-field, .fork-cfg-list > .fork-cfg-below { --fork-inline-label-w: 7em; }
+.fork-cfg-field > .fork-inline-label .fork-cfg-dot { margin-left: 2px; }
+.fork-cfg-field .ap-slider.fork-cfg-slider, .fork-cfg-bare .ap-slider.fork-cfg-slider { flex: 0 1 220px; min-width: 120px; }
+.fork-cfg-field .fork-inline-field[data-bare] { min-height: 0; }
+.fork-cfg-shown { color: var(--fork-ink-2); font-size: var(--fork-fs-body); overflow-wrap: anywhere; }
+.fork-cfg-bare { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 32px; min-width: 0; }
+.fork-cfg-below { display: grid; gap: 6px; min-width: 0; padding: 0 0 8px; }
+.fork-cfg-list > .fork-cfg-below { padding-left: calc(var(--fork-inline-label-w) + 12px); }
+@container (max-width: 560px) { .fork-cfg-list > .fork-cfg-below { padding-left: 0; } }
+@media (max-width: 720px) { .fork-cfg-list > .fork-cfg-below { padding-left: 0; } }
+
+/* ---- first-party pages (mod-config-pages.js): compact settings pages sized to their content ---- */
+/* the scope switch on top, the list, then the phone (or the packs), all
+   left-aligned; a page without packs is a narrow popup like the other settings, its popovers overlay the page. */
+.fork-cfg-page { display: grid; gap: 8px; min-width: 0; }
+.fork-cfg-scope-row { display: flex; align-items: center; gap: 4px; min-width: 0; margin: 2px 0 4px; }
+.fork-cfg-list { margin-bottom: 4px; }
+/* ---- the mod page pattern (mod-page.js, ui-design §三.30): head · 设置 · entry sections ---- */
+/* The first section sits right under the page head; sections follow the stage panel's rhythm. */
+.ap-mod-detail > .ap-subhead + .ap-section, .ap-mod-detail > .ap-subhead + .fork-cfg-page > .ap-section:first-child { padding-top: 6px; }
+.ap-mod-detail .fork-cfg-page { gap: 0; }
+/* 设置: the 全局 | 本卡 switch is the head's action (it wraps under the title on a narrow page). */
+.fork-mod-settings > .ap-section-head { flex-wrap: wrap; row-gap: 4px; }
+.fork-mod-settings > .ap-section-head .fork-cfg-scope-row { margin: 0; }
+/* A group inside 设置 (物品 › 分类): a quieter title without a second hairline. */
+.ap-stage .fork-mod-settings .ap-section[data-level="2"] { margin: 0; padding: 14px 0 0; }
+.ap-stage .fork-mod-settings .ap-section[data-level="2"] > .ap-section-head { min-height: 30px; margin-bottom: 4px; padding-bottom: 0; border-bottom: 0; }
+/* This card's entries, the library's rows (EntryItem); two columns where the page is wide. */
+.ap-ui .fork-mod-entries-list.ap-items { display: grid; flex: none; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px; overflow: visible; margin: 2px -10px 0 -6px; padding: 0; }
+.fork-mod-entries-pack + .fork-mod-entries-pack { margin-top: 10px; }
+.fork-mod-entries-pack-name { margin: 4px 0 2px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+/* ---- 物品 (items core, mod-config-pages.js StageItemsPage): 背包 field rows, the inventory by tag ---- */
+.fork-items-fields { --fork-inline-label-w: 5em; }
+/* The tag chips wrap (no sideways-only strip, R22); a long tag path is cut with an ellipsis, its full text in the tooltip. */
+.fork-items-tags { margin: 2px 0 8px; }
+.fork-items-tag-name, .ap-tag-icon-name { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fork-items-bag-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 12px; margin: 0; padding: 0; list-style: none; }
+.fork-items-bag-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 2px 4px; border-radius: var(--fork-radius); }
+/* No picture (no own image, no tag icon): the name's first character in a quiet tile, so names stay in one column. */
+.fork-items-bag-art.is-text { display: grid; place-items: center; background: var(--fork-hover); color: var(--fork-ink-3); font-size: var(--fork-fs-meta); }
+.fork-items-bag-art { display: block; flex: none; width: 34px; height: 34px; overflow: hidden; border-radius: var(--fork-radius); }
+.fork-items-bag-art img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.fork-items-bag-name { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--fork-ink); font-size: var(--fork-fs-body); text-overflow: ellipsis; white-space: nowrap; }
+.fork-items-bag-owner { flex: none; max-width: 8em; overflow: hidden; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+.fork-items-bag-count { flex: none; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .fork-items-bag-row { min-height: 44px; } }
+/* 素材包 ⋯ › 标签图标 (asset-pack-ui.js TagIconsSheet): the chips of the old 分类 editor, the chosen one's rows below. */
+.ap-tag-icons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; padding: 12px 0 4px; }
+.ap-tag-icon-fields { margin-top: 10px; }
+@media (max-width: 720px) { .ap-ui button.ap-mod-chip.ap-tag-icon-chip, .ap-ui button.ap-mod-chip.fork-items-tag { min-height: 36px; } }
+.fork-phone-contacts .fork-cfg-pop-body { gap: 2px; }
+.fork-phone-contact { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fork-phone-contact .fork-cfg-thumb.is-round { width: 32px; height: 32px; color: var(--fork-ink-2); font-size: var(--fork-fs-meta); }
+.fork-phone-contact > .fork-inline-field { flex: 1 1 auto; min-width: 0; }
+/* 联系人 faces: the figure's own avatar (faceOf) fills the round thumbnail. */
+.fork-cfg-thumb[data-art] { overflow: hidden; background: none; }
+.fork-cfg-thumb > .fork-phone-face { display: block; width: 100%; height: 100%; border-radius: 50%; overflow: hidden; }
+.fork-phone-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
+

@@ -1,0 +1,68 @@
+{
+  "name": "dsh-asset-library",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "development": "./lib/index.js",
+      "default": "./lib/index.js"
+    },
+    "./asset-packs": {
+      "types": "./lib/asset-packs/index.d.ts",
+      "default": "./lib/asset-packs/index.js"
+    },
+    "./pack-service": {
+      "types": "./lib/pack-v2/service.d.ts",
+      "default": "./lib/pack-v2/service.js"
+    },
+    "./pack-settings": {
+      "types": "./lib/pack-v2/native-settings.d.ts",
+      "default": "./lib/pack-v2/native-settings.js"
+    },
+    "./package.json": "./package.json",
+    "./client": "./lib/client.cjs"
+  },
+  "files": [
+    "lib",
+    "src",
+    "build.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "PACK-SERVICE.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "external": [
+        "react",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web",
+      "inject": [
+        "dsh-better-sidebar"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/schemastery": "3.18.2",
+    "@deepseek-ai/dsh-settings": "0.1.5-rc.2 || 0.2.0-rc.2 || 0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.5-rc.2 || 0.2.0-rc.2 || 0.2.1-rc.2"
+  },
+  "dependencies": {
+    "sharp": "0.34.5"
+  }
+}

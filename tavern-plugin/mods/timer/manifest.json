@@ -1,0 +1,177 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.timer",
+  "name": "计时器",
+  "summary": "阅读倒计时与回复时限",
+  "relevance": "Visible countdown and reply deadline",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": [
+      "stage.state"
+    ]
+  },
+  "permissions": {
+    "stage": [
+      "state"
+    ]
+  },
+  "provides": [{"id":"dsh.timer.countdown","version":"1.0.0","contract":"countdown/1","operations":["start","resume","release","read"],"handler":"countdown","resource":{"scope":"chat-branch","key":"timer/main","policy":"exclusive"}}],
+  "commands": [
+    {
+      "id": "set",
+      "resourceUse": {"capability":"dsh.timer.countdown","access":"control"},
+      "op": "mod.dsh.timer.set",
+      "mode": "adds",
+      "dsl": {
+        "verb": "timer",
+        "positional": "set",
+        "syntax": "timer <set> [key=value]"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "string",
+            "enum": [
+              "start",
+              "add",
+              "pause",
+              "resume",
+              "stop"
+            ]
+          },
+          "sec": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 86400
+          },
+          "ref": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "story",
+              "reply"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "onTimeout": {
+            "type": "string",
+            "maxLength": 160
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "timer-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 50
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 1024
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "id": "timer-rule",
+      "target": "director",
+      "path": "prompts/timer.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 50
+      }
+    }
+  ],
+  "settingsSchema": {
+    "fields": [],
+    "sections": []
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [],
+  "uiPages": [],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {"path": "activity.cjs", "size": 443},
+    {"path": "countdown.cjs", "size": 3604},
+    {
+      "path": "runtime.js",
+      "size": 1125
+    },
+    {
+      "path": "state.cjs",
+      "size": 5530
+    },
+    {
+      "path": "package.json",
+      "size": 172
+    },
+    {
+      "path": "prompts/timer.txt",
+      "size": 80
+    },
+    {
+      "path": "assets/default.svg",
+      "size": 493
+    },
+    {
+      "path": "catalogue.js",
+      "size": 448
+    },
+    {
+      "path": "assets/plate.svg",
+      "size": 183266
+    },
+    {
+      "path": "assets/plate-digits.svg",
+      "size": 6426
+    }
+  ],
+  "license": {
+    "privateUse": false
+  },
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "builtinAssets": [
+    {
+      "id": "default",
+      "path": "assets/default.svg",
+      "type": "image"
+    },
+    {
+      "id": "plate",
+      "path": "assets/plate.svg",
+      "type": "image"
+    },
+    {
+      "id": "plate-digits",
+      "path": "assets/plate-digits.svg",
+      "type": "image"
+    }
+  ],
+  "admission": {
+    "entryKinds": [
+      "timers"
+    ]
+  }
+}

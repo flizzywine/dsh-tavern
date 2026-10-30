@@ -21,19 +21,6 @@ test('全局写作 Skill 逐项保存，恢复开启不改动其他 Skill', () =
   assert.throws(() => applyTavernSettingsPatch(document, { defaultWritingSkill: { name: 'one', enabled: 'false' } }), /无效/)
 })
 
-test('舞台模式 › 可用演出 and 每轮上限 are global: every command on and 6 screen effects by default, a patch changes only what it names', () => {
-  assert.deepEqual(presentTavernSettings({}, {}).stageDimensions, { scene: true, cast: true, acts: true, screenEffects: true })
-  assert.deepEqual(presentTavernSettings({}, {}).stageActionCaps, { beat: 6 })
-  let document = applyTavernSettingsPatch({}, { stageDimensions: { acts: false } })
-  document = applyTavernSettingsPatch(document, { stageDimensions: { scene: false }, stageActionCaps: { beat: 2 } })
-  assert.deepEqual(presentTavernSettings(document, {}).stageDimensions, { scene: false, cast: true, acts: false, screenEffects: true })
-  assert.deepEqual(presentTavernSettings(document, {}).stageActionCaps, { beat: 2 })
-  for (const bad of [{}, { acts: 'off' }, { music: false }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageDimensions: bad }), /可用演出/)
-  for (const bad of [{}, { beat: 0 }, { beat: 257 }, { beat: 1.5 }, { act: 2 }]) assert.throws(() => applyTavernSettingsPatch({}, { stageActionCaps: bad }), /每轮上限/)
-  // A stored value out of range reads as the default.
-  assert.deepEqual(presentTavernSettings({ stageActionCaps: { beat: 999 } }, {}).stageActionCaps, { beat: 6 })
-})
-
 test('系统提示词方案：切换时保存当前内容，生效内容始终在顶层字段', () => {
   let document = applyTavernSettingsPatch({ promptOverrides: { story: 'A' }, systemAppendEnabled: false }, { promptSet: { action: 'create', name: '快节奏' } })
   assert.equal(document.promptOverrides, undefined)
@@ -78,14 +65,6 @@ test('改一边不会带上另一边；第一次改动就把旧字段折成明�
   assert.deepEqual(onlyInput, { storyInputToolCall: true, storyOutputToolCall: false })
   assert.throws(() => applyTavernSettingsPatch({}, { storyInputToolCall: 'yes' }), /输入走工具调用设置必须是布尔值/)
   assert.throws(() => applyTavernSettingsPatch({}, { storyOutputToolCall: 1 }), /输出走工具调用设置必须是布尔值/)
-})
-
-test('舞台模式 is one global switch (stageToggles.stage), off by default; only stage booleans are accepted', () => {
-  assert.equal(presentTavernSettings({}, {}).stageToggles.stage, false)
-  const off = applyTavernSettingsPatch({ castPresentation: true }, { stageToggles: { stage: false } })
-  assert.deepEqual([off.castPresentation, presentTavernSettings(off, {}).stageToggles.stage], [true, false])
-  assert.equal(presentTavernSettings(applyTavernSettingsPatch(off, { stageToggles: { stage: true } }), {}).stageToggles.stage, true)
-  for (const bad of [{}, { stage: 'on' }, { stage: true, other: true }, null]) assert.throws(() => applyTavernSettingsPatch({}, { stageToggles: bad }), /舞台开关/)
 })
 
 test('新游戏统一主动检索，旧默认值归一化且严格校验', () => {

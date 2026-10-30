@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import {createServer} from 'node:http'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs' // foreground document fixture
 import test from 'node:test'
 import {chromium} from 'playwright'
 import {readTavernRuntimeAsset} from '../tavern-plugin/lib/domain/tavern-runtime-assets.js'

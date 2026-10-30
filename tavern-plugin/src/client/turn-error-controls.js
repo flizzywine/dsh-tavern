@@ -173,6 +173,9 @@ function createTurnErrorControls(root, options) {
             const cleared = stale.has(id);
             const foldedNow = cleared && !expanded && folded(id);
             const dismissed = hidden.has(id) || foldedNow;
+            if (options.onVisible && !row.hidden && !dismissed && !root.ownerDocument.hidden && root.getClientRects().length && Number.isSafeInteger(turnErrorRowTurn(row))) {
+                options.onVisible?.(turnErrorRowTurn(row));
+            }
             const conceal = dismissed || (long && !entry.expanded);
             const display = conceal ? 'none' : entry.display;
             // Superseded-turn projection owns `hidden`; keep its errors hidden.

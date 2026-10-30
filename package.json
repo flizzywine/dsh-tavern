@@ -17,7 +17,9 @@
     "test:e2e:card-update": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-update",
     "test:e2e:compaction": "node bin/build-tavern-client.mjs --check && node tests/e2e/compaction-suite.mjs",
     "test:card-memory": "node --test tests/card-memory.test.mjs",
-    "test:e2e:card-memory": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-memory"
+    "test:e2e:card-memory": "node bin/build-tavern-client.mjs --check && node tests/e2e/gameplay.mjs --card-memory",
+    "build:mods": "node bin/build-tavern-mods.mjs",
+    "check:mods": "node bin/build-tavern-mods.mjs --check"
   },
   "dependencies": {
     "acorn": "8.15.0",
@@ -47,7 +49,8 @@
         "dsh-better-sidebar",
         "dsh-dream-skin",
         "dsh-tavern-plugin",
-        "dsh-tavern-remote"
+        "dsh-tavern-remote",
+        "dsh-asset-library"
       ]
     }
   },
@@ -61,7 +64,9 @@
     "dsh-pocket": "2.12.0",
     "dsh-web-mobile": "3.1.0",
     "dsh-better-sidebar": "0.28.0",
-    "dsh-dream-skin": "link:./tavern-plugin/packages/dsh-dream-skin"
+    "dsh-dream-skin": "link:./tavern-plugin/packages/dsh-dream-skin",
+    "dsh-asset-library": "link:./tavern-plugin/packages/dsh-asset-library",
+    "esbuild": "0.25.12"
   },
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "engines": {

@@ -189,6 +189,9 @@
                 }
             }
             const touchRelay = createTavernTouchRelay(hostWindow);
+			const frameZoomReleases = new Map();
+			const frameThemeReleases = new Map(); // --dsh-theme-* follow the host theme
+			const frameStorageReleases = new Map(); // capabilities follow the document owner
 			const frameSizeObservers = new Map();
             const sizingObservers = new Map();
             const frameVisibility = new Map();
@@ -209,7 +212,7 @@
 			let pending = null;
 			let height = (props.openingPreview ? 160 : restoredTavernFrameHeight(visible.heightKey, visible.content));
 			function documentKey() {
-				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision];
+				const values = [props.sessionId, props.content, props.persistent === true ? 0 : props.turn, props.observeMvuView, props.runtimeReporting, props.persistent, props.trustedCardMode, Boolean(props.helperContext), JSON.stringify(props.openingPreview), JSON.stringify(props.frameSizing), refreshRevision, props.helperContext?.frameStorageScope?.cardPath];
 				if (!documentInputs || values.some(function (value, index) { return value !== documentInputs[index]; })) {
 					documentInputs = values;
                     const keyValues = values.slice();
@@ -227,12 +230,23 @@
 					sessionId: props.sessionId,
 					trustedCardMode: props.trustedCardMode, refreshRequested: false
 				};
-				document.html = buildTavernFrameDocument({ content: props.content, frameSizing: props.frameSizing, panelId: props.panelId, token: document.token, openingPreview: props.openingPreview, helperContext: tavernFrameHelperContext(helperContext, props.turn), trustedCardMode: props.trustedCardMode === true, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent, preserveInstance: props.preserveInstance, textColorsEnabled: tavernTextColorsEnabled(hostWindow), colorScheme: hostWindow.document?.body && typeof hostWindow.getComputedStyle === "function" ? currentTavernHostTheme(hostWindow).colorScheme : undefined });
+				document.storage = forkFrameStorage.capability({ sessionId: props.sessionId, cardPath: helperContext && helperContext.frameStorageScope && helperContext.frameStorageScope.cardPath }, hostWindow); // storage token is separate from helper tokens
+				document.zoomCard = helperContext?.frameStorageScope?.cardPath || "";
+				document.html = buildTavernFrameDocument({ frameTheme: forkFrameTheme.seed(hostWindow), frameZoom: forkFrameZoom.seed(document.zoomCard), frameStorage: document.storage, content: props.content, frameSizing: props.frameSizing, panelId: props.panelId, token: document.token, openingPreview: props.openingPreview, helperContext: tavernFrameHelperContext(helperContext, props.turn), trustedCardMode: props.trustedCardMode === true, turn: props.turn, observeMvuView: props.observeMvuView, runtimeReporting: props.runtimeReporting, persistent: props.persistent, preserveInstance: props.preserveInstance, textColorsEnabled: tavernTextColorsEnabled(hostWindow), colorScheme: hostWindow.document?.body && typeof hostWindow.getComputedStyle === "function" ? currentTavernHostTheme(hostWindow).colorScheme : undefined });
 				const channel = createTavernFrameContextChannel(document);
 				// Stable callback identity preserves the per-document delta baseline.
 				document.ref = function (node) {
                     const previousSizing = sizingObservers.get(document.token);
                     if (previousSizing) { previousSizing.stop(); sizingObservers.delete(document.token); }
+                    const releaseZoom = frameZoomReleases.get(document.token);
+                    if (releaseZoom) { releaseZoom(); frameZoomReleases.delete(document.token); }
+                    if (node) frameZoomReleases.set(document.token, forkFrameZoom.register(node, document.token, document.zoomCard));
+                    const releaseTheme = frameThemeReleases.get(document.token);
+                    if (releaseTheme) { releaseTheme(); frameThemeReleases.delete(document.token); }
+                    if (node) frameThemeReleases.set(document.token, forkFrameTheme.register(node, document.token, hostWindow));
+                    const releaseStorage = frameStorageReleases.get(document.token); // revoke replaced/unmounted windows
+                    if (releaseStorage) { releaseStorage(); frameStorageReleases.delete(document.token); }
+                    if (node) frameStorageReleases.set(document.token, forkFrameStorage.register(node, document.storage));
                     const stopVisibility = frameVisibility.get(document.token);
                     if (stopVisibility) { stopVisibility(); frameVisibility.delete(document.token); }
                     const previous = frameSizeObservers.get(document.token);
@@ -326,7 +340,8 @@
 				}
 			}
 			function update(next) {
-				const sessionChanged = props.sessionId !== next.sessionId;
+				// a same-session card switch also revokes frozen context and storage
+				const sessionChanged = props.sessionId !== next.sessionId || props.helperContext?.frameStorageScope?.cardPath !== next.helperContext?.frameStorageScope?.cardPath;
 				if (sessionChanged || props.turn !== next.turn || props.partIndex !== next.partIndex) {
 					lifetime++;
 					cancelRuntimeReport();
@@ -337,6 +352,9 @@
 				if (desired.key !== documentKey()) desired = createDocument();
 				if (sessionChanged) {
 					// Never keep an old conversation's page eligible for writes in a new one.
+					frameZoomReleases.forEach(release => release()); frameZoomReleases.clear();
+					frameThemeReleases.forEach(release => release()); frameThemeReleases.clear();
+					frameStorageReleases.forEach(release => release()); frameStorageReleases.clear(); // session switch revokes old grants
                     for (const owner of Array.from(generationOwners)) retireGenerations(owner);
 					channels.clear();
 					visible = desired; pending = null;
@@ -355,13 +373,14 @@
 				height = value;
 				try { hostWindow.sessionStorage.setItem(document.heightKey, value); } catch (_) {}
 			}
-            function submitOpening(document, text) {
+            function submitOpening(document, text, playerName) {
+                if (playerName) document.openingPlayerName = String(playerName);
                 if (!listener || document !== visible || document.key !== desired.key || typeof props.onSubmitOpening !== "function") return Promise.reject(new Error("开场预览已失效，请重新打开"));
                 if (!document.openingSender) document.openingSender = createTavernFrameLifecycle(hostWindow).sender({
                     once: true,
                     valid: () => Boolean(listener) && document === visible && document.key === desired.key && typeof props.onSubmitOpening === "function",
                     stale: "开场预览已失效，请重新打开",
-                    submit: text => props.onSubmitOpening(text)
+                    submit: text => props.onSubmitOpening(text, document.openingPlayerName ? { playerName: document.openingPlayerName } : undefined)
                 });
                 return document.openingSender.send(text);
             }
@@ -388,6 +407,10 @@
 				if (!channel || !channel.accepts(event)) return;
 				const sourceDocument = visible.token === data.token ? visible : (pending && pending.token === data.token ? pending : null);
 				if (!sourceDocument) return;
+				if (data.type === "dsh-fork-font-wheel") {
+					if (sourceDocument === visible) forkFrameZoom.adjust(sourceDocument.zoomCard, data, hostWindow);
+					return;
+				}
 				const requestProps = props;
 				const requestLifetime = lifetime;
 				function current() { return lifetime === requestLifetime && channels.get(data.token) === channel && (visible === sourceDocument || pending === sourceDocument); }
@@ -399,6 +422,8 @@
 					return;
 				}
 				if (data.type === "dsh-tavern-frame-ready") {
+                    forkFrameZoom.ready(data.token); // catch updates during document load
+                    forkFrameTheme.ready(data.token);
                     frameVisibility.get(data.token)?.sync();
                     sizingObservers.get(data.token)?.schedule();
 					sendTextColors(sourceDocument);
@@ -514,10 +539,12 @@
                             if (!current() || sourceDocument !== visible) throw new Error("开场预览已失效，请重新打开");
                             const plan = await invoke("callOpeningRuntime", { id: props.openingPreview.preparationId,
                                 method: "prepareOpeningCommand", args: { line: line,
+                                    userName: data.args && data.args.playerName,
+                                    scriptStart: data.args && data.args.scriptStart,
                                     openingId: openingPreviewSelection(props.openingPreview, props.openingPreview.selectedIndex) } });
                             if (plan && plan.deferred) { sourceDocument.openingFallbackWanted = true; return { pipe: "", deferred: true }; }
                             sourceDocument.openingFallbackWanted = false;
-                            if (!sourceDocument.openingCommandStarted) sourceDocument.openingCommandStarted = submitOpening(sourceDocument, plan.input);
+                            if (!sourceDocument.openingCommandStarted) sourceDocument.openingCommandStarted = submitOpening(sourceDocument, plan.input, data.args && data.args.playerName);
                             return sourceDocument.openingCommandStarted;
                         }).catch(function (error) {
                             tavernErrorHub.report("开始游戏", error);
@@ -587,6 +614,8 @@
 					frameCall(sourceDocument, data.method, args, requestProps.sessionId).then(function (result) {
 						if (current() && data.method === "prepareSessionOpening") sourceDocument.openingRequest = result;
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: true, result: result }, "*");
+						// idle sessions do not poll; a swipe/message write must refresh its displayed projection.
+						if (current() && !(result && result.stale) && ["updateTavernHelperMessages", "createTavernHelperMessages"].includes(data.method)) invalidate(requestProps.sessionId);
 					}, function (error) {
 						if (data.method === "prepareSessionOpening") tavernErrorHub.report("开始旅程", error);
 						if (current()) event.source.postMessage({ type: "dsh-tavern-helper-response", token: data.token, requestId: data.requestId, ok: false, error: String(error && error.message || error) }, "*");
@@ -632,6 +661,9 @@
 						if (unsubscribeTheme) unsubscribeTheme();
                         frameSizeObservers.forEach(function (observer) { observer.disconnect(); });
                         frameSizeObservers.clear();
+                        frameZoomReleases.forEach(release => release()); frameZoomReleases.clear();
+                        frameThemeReleases.forEach(release => release()); frameThemeReleases.clear();
+                        frameStorageReleases.forEach(release => release()); frameStorageReleases.clear(); // lifecycle disposal
                         sizingObservers.forEach(observer => observer.stop());
                         sizingObservers.clear();
                         frameVisibility.forEach(stop => stop());

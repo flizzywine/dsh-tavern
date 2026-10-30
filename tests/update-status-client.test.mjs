@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createRequire } from 'node:module'
+const { rpcFetchPriority } = createRequire(import.meta.url)('../tavern-plugin/src/client/rpc-transport.cjs')
 import { createUpdateStatusController } from '../tavern-plugin/lib/domain/update-status-controller.js'
 import { readFileSync } from 'node:fs'
 
@@ -7,7 +9,7 @@ const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.met
 function rpcFor(fetch) {
   const start = source.includes('\t\tasync function readTavernJsonResponse(') ? source.indexOf('\t\tasync function readTavernJsonResponse(') : source.indexOf('\t\tfunction rpc(method,')
   const end = source.indexOf('\n\t\tfunction rpcWithTimeout', start)
-  return new Function('fetch', 'tavernRuntimeGenerationMonitor', source.slice(start, end) + ';return rpc')(fetch, { observe() {} })
+  return new Function('fetch', 'tavernRuntimeGenerationMonitor', 'rpcFetchPriority', 'window', source.slice(start, end) + ';return rpc')(fetch, { observe() {} }, rpcFetchPriority, {})
 }
 const ok = () => Response.json({ ok: true, status: { phase: 'update-available' } })
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -52,7 +54,8 @@ test('网络中断可恢复，认证和业务错误立即提示', async () => {
   await network.poll()
   assert.equal(network.states.at(-1).phase, 'update-available')
   network.stop()
-  for (const response of [() => new Response('', { status: 401 }), () => Response.json({ ok: false, error: '状态文件损坏' })]) {
+  // A 401 right after a restart is waited out first (rpc fetchThroughRestart, session-rpc-freshness); a 403 still surfaces at once.
+  for (const response of [() => new Response('', { status: 403 }), () => Response.json({ ok: false, error: '状态文件损坏' })]) {
     const h = pollHarness(async () => response())
     await tick()
     assert.equal(h.reports.length, 1)

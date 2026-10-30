@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
 import {createSessionViewSync} from '../tavern-plugin/lib/domain/session-view-sync.js'
 import {projectReplyHistory} from '../tavern-plugin/lib/domain/reply-presentation.js'
@@ -37,6 +38,7 @@ test('indexed reply cache preserves append, role-change and truncation results',
  async function check(){
   const actual=await cache.project(chat,options,options)
   const history=projectReplyHistory(chat.messages,options)
+  for(const projection of history.projections)projection.body=replyBody(projection,chat)
   assert.deepEqual(actual,{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
  }
  await check()

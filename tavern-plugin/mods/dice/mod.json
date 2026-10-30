@@ -1,0 +1,67 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "experimental": true,
+  "id": "dsh.dice",
+  "name": "AI检定",
+  "packageName": "dsh-tavern-mod-dice",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "permissions": [],
+  "coreAssets": [],
+  "assetKinds": [],
+  "dataVersion": 1,
+  "performances": [],
+  "entry": "plugin.mjs",
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "sound": {
+          "type": "boolean",
+          "userAdjustable": true,
+          "title": "骰子音效"
+        },
+        "rollSound": {
+          "type": "string",
+          "maxLength": 48,
+          "x-skin-asset": true,
+          "userAdjustable": false,
+          "title": "掷骰音效"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sound",
+        "rollSound"
+      ]
+    },
+    "defaults": {
+      "sound": true,
+      "rollSound": ""
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "prompts": [
+    {
+      "id": "rules",
+      "model": "foreground",
+      "tag": "dice",
+      "slot": "rules.after-core",
+      "order": 200,
+      "byteBudget": 2048,
+      "when": {},
+      "markdown": "## When to roll\n- Roll only for real uncertainty whose outcomes would split the story; otherwise narrate: let it happen, or let the world say no.\n\n## Follow the result\n- Follow the result; never reroll the same attempt. Failure moves the story on.\n- costly = success at a real price (time, injury, relationship, resource, exposure).\n- Make critical/fumble vivid but in tone.\n- Use hidden for what the character can't know (noticing, lies, hidden danger); narrate only what they perceive, never the number.\n\n## Examples\n- Search a quiet study for a diary: no roll, found.\n- Slip in during the guard change: roll hard, fail = alarm.\n- Is she lying? hidden; fail = she looks calm."
+    }
+  ],
+  "summary": "在剧情需要判定时掷骰子，展示实际结果。"
+}

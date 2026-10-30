@@ -501,6 +501,6 @@
 			const failed = state.phase === "failed" || state.phase === "error";
 			return React.createElement("div", { role: failed ? "alert" : "status", style: { padding: "8px 12px", fontSize: "13px", maxWidth: "min(420px, 80vw)" } },
 				React.createElement("div", null, state.phase === "failed" ? "MVU 下载失败，已自动重试两次。变量结算已暂停，重新加载成功后会自动继续。" : state.phase === "error" ? "MVU 初始化失败，请刷新页面或重启酒馆。为避免重复修改变量，不自动重跑初始化。" : state.phase === "evaluating" ? "正在初始化 MVU…" : "正在加载 MVU…" + (state.attempt > 1 ? "（自动重试 " + (state.attempt - 1) + "/2）" : "")),
-				failed && state.error ? React.createElement("div", { style: { opacity: 0.7, overflowWrap: "anywhere" } }, state.error) : null,
+				failed && state.error ? React.createElement("div", { style: { color: "var(--fork-ink-2, inherit)", overflowWrap: "anywhere" } }, state.error) : null,
 				state.canRetry ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: props.retry }, "重新加载 MVU") : null);
 		}

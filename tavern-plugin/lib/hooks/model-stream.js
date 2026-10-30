@@ -1,10 +1,19 @@
-import { observeStageText } from '../domain/stage-director-stream.js'
-import { createImportContextPreparation } from '../domain/import-context-preparation.js'
+import { promptSection } from '../domain/prompt-section.js'
+import { createForegroundStageStream } from '../domain/foreground-stage-stream.js'
+import { createModelStreamProgress } from '../domain/model-stream-progress.js'
+import { assertFrozenStageRequest } from '../domain/stage-shared-context.js'
+import { createImportContextPreparation, needsImportContextPreparation } from '../domain/import-context-preparation.js'
 import { createStoryCompactionRequest, nativelyRetainedRounds, retainRecentStoryRounds, storyVolumeMerge, storyVolumePlan, usesStoryCompaction } from '../domain/story-compaction.js'
 import { installCompactionRequestProjection } from '../domain/compaction-request.js'
 import { installWorkspaceInstructionPresentation } from '../domain/workspace-instruction-presentation.js'
 import { presentModelError } from '../domain/model-error-presentation.js'
 import { markRequestHandled, requestHandledBy } from '../domain/request-lineage.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "Plugin summary requirements:"
+})
+
 
 export function registerModelStreamHooks({
   agentRegistry,
@@ -15,9 +24,9 @@ export function registerModelStreamHooks({
   foregroundStrategies,
   fullTemplateRuntime,
   modelRequestLog,
+  modelSelection,
   pluginCompactionNotes,
   pluginSettlementProgress,
-  stageDirectorStream,
   replyStarted,
   requestCoordinates,
   storyRetention,
@@ -28,6 +37,7 @@ export function registerModelStreamHooks({
   str,
   updateChat,
   worldbookRecallLog,
+  beginStageStream,
 }) {
   const importContextPreparation = createImportContextPreparation({
     readChat: chatForSession, readHeader: chatHeaderForSession, updateChat,
@@ -73,7 +83,7 @@ export function registerModelStreamHooks({
     const turns = recent && (recent.messagesFrom === 0 || recentTurns.length > back) ? recentTurns
       : ((await chatForSession(str(request.sessionId)))?.messages || []).filter(message => message?.role === 'assistant' && Number(message.turn) > 0).map(message => Number(message.turn))
     const volumes = storyVolumePlan(request, { through: turns[turns.length - 1 - kept - natively], budget: retention.volumeBudget, estimate: retention.estimate })
-    const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(notes.length ? ['【插件附加的摘要要求】', ...notes.map(note => note.text)] : [])].join('\n\n')
+    const instruction = [runtimePrompt('story-compaction'), volumes.instruction, ...(notes.length ? [promptSection('plugin_compaction', [PROMPT_PROSE.p001, ...notes.map(note => note.text)].join('\n\n'))] : [])].join('\n\n')
     const story = createStoryCompactionRequest(request, instruction)
     let prefix = volumes.prefix
     if (volumes.merge) {
@@ -85,6 +95,9 @@ export function registerModelStreamHooks({
       }
     }
     return { ...retainRecentStoryRounds(story, retention.rounds - natively, retention), prefix }
+  }, {
+    // Foreground summaries use the body's model; background Agents keep their task route.
+    route: sessionId => backgroundAgentRunner.owns(sessionId) ? null : modelSelection(str(sessionId))
   })
   async function mergeStoryVolumes(merge, request) {
     const { header, prompt } = storyVolumeMerge(merge)
@@ -105,9 +118,11 @@ export function registerModelStreamHooks({
     if (!parentSessionId || parentSessionId === sessionId || backgroundAgentRunner.owns(parentSessionId)) return null
     const chat = await chatHeaderForSession(parentSessionId, ['requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot'])
     if (!chat || !['story', 'script'].includes(chat.mode)) return null
-    // The request carries no turn; file it under the game's latest turn so old bodies are pruned with the rest.
-    const turn = (await modelRequestLog.list(chat.id)).reduce((latest, entry) => Math.max(latest, Number(entry.turn) || 0), 0)
-    return { chat, context: { scope: 'background', task: 'subagent', parentSessionId, turn } }
+    return { chat, context: { scope: 'background', task: 'subagent', parentSessionId, turn: await latestLoggedTurn(chat.id) } }
+  }
+  // A request that carries no turn is filed under the game's latest turn so old bodies are pruned with the rest.
+  async function latestLoggedTurn(chatId) {
+    return (await modelRequestLog.list(chatId)).reduce((latest, entry) => Math.max(latest, Number(entry.turn) || 0), 0)
   }
   ctx.on('llm/stream', function (options, next) {
     const sessionId = str(options && options.sessionId)
@@ -123,12 +138,15 @@ export function registerModelStreamHooks({
     const backgroundContext = backgroundAgentRunner.requestContext(sessionId)
     const ownerSessionId = backgroundContext ? backgroundContext.parentSessionId : sessionId
     return (async function * () {
-      const prepared = await importContextPreparation.prepare(options)
+      // a director already owns frozen, projected sources.
+      const director = backgroundContext?.task === 'stage-director'
+      if (director) assertFrozenStageRequest(backgroundContext, options)
+      const prepared = director ? options : await importContextPreparation.prepare(options)
       if (prepared !== options) { yield * ctx.llm.stream(prepared); return }
       const chat = ownerSessionId === '' ? undefined : await chatHeaderForSession(ownerSessionId, [
         'requestMode', 'compatibilityTraces', 'bypassPlanId', 'runtimePresetSnapshot', 'foregroundFrames'
       ])
-      if (chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
+      if (!director && chat && ['story', 'script'].includes(chat.mode) && options.purpose === undefined && chat.requestMode !== 'sillytavern' && !requestHandledBy(options, 'full-template')) {
         const projected = await fullTemplateRuntime.forSession(ownerSessionId).projectRequestProjection({ messages: options.messages, system: options.system, model: options.model })
         yield * ctx.llm.stream(markRequestHandled({ ...options, ...projected }, 'full-template'))
         return
@@ -138,7 +156,11 @@ export function registerModelStreamHooks({
       // as that game's background requests so 完整上下文 can show them.
       const child = options.purpose === undefined && !backgroundContext && !chat ? await gameChildSession(sessionId) : null
       if (child) requestRecord = await modelRequestLog.record({ chat: child.chat, context: child.context, coordinates: {}, options })
-      else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
+      // Dev diagnostics: the summary request actually sent (after routing and story projection).
+      else if (options.purpose === 'compaction' && requestHandledBy(options, 'compaction-projection') && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
+        const turn = backgroundContext ? Number(backgroundContext.turn) || 0 : await latestLoggedTurn(chat.id)
+        requestRecord = await modelRequestLog.record({ chat, context: { ...backgroundContext, task: 'compaction', turn }, coordinates: { turn }, options })
+      } else if (options.purpose === undefined && chat !== undefined && ['story', 'script', 'card'].includes(chat.mode)) {
         const coordinates = requestCoordinates.get(sessionId) || {}
         requestRecord = await modelRequestLog.record({ chat, context: backgroundContext, coordinates, options })
         if (!backgroundContext && ['story', 'script'].includes(chat.mode)) {
@@ -151,36 +173,60 @@ export function registerModelStreamHooks({
       progress('start')
       // The story reply of a turn started streaming (正文开始; once per turn, see index.js).
       if (!backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)) replyStarted?.(sessionId, requestCoordinates.get(sessionId)?.turn)
-      const stage = stageDirectorStream && !backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)
-        ? observeStageText({ begin: () => stageDirectorStream.begin(sessionId, coordinates?.turn), signal: options.signal,
-          warn: error => console.warn('dsh-tavern: 舞台流已停止', str(error?.message || error)) }) : null
       let responseText = ''
-      const blockTypes = new Map()
-      let finish = null
-      let failure = null
+      // only source/asset admission precedes consumption; model work never blocks tokens.
+      const stageStream = createForegroundStageStream({signal:options.signal,
+        begin:() => !backgroundContext && options.purpose === undefined && ['story','script'].includes(chat?.mode)
+          ? beginStageStream?.(ownerSessionId,requestCoordinates.get(sessionId)?.turn) : null,
+        warn:error => console.warn('dsh-tavern: STREAMING_DIRECTOR_FAILED',String(error.message))})
+      let finish = null, usage = null
+      let failure = null, interrupted = false
+      const liveness = createModelStreamProgress({signal:options.signal,
+        onInterrupt:() => agentRegistry.get(sessionId)?.cancel?.({kind:'user'})})
+      let iterator, exhausted = false
       try {
-        for await (const chunk of stream) {
-          if (chunk?.type === 'block-start') blockTypes.set(chunk.index, chunk.blockType)
+        await liveness.wait(stageStream.ready)
+        liveness.provider()
+        iterator = stream[Symbol.asyncIterator]()
+        while (true) {
+          const item = await liveness.wait(iterator.next())
+          if (item.done) {exhausted = true; break}
+          const chunk = item.value
+          liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
             responseText += str(chunk.text)
-            if (!blockTypes.has(chunk.index) || blockTypes.get(chunk.index) === 'text') stage?.append(str(chunk.text))
+            stageStream.append(str(chunk.text))
           }
+          if (chunk && chunk.type === 'finish') {
+            finish = chunk.reason === undefined ? chunk : chunk.reason
+          }
+          // Dev diagnostics: provider-reported tokens, including prompt-cache reads/writes.
+          if (chunk && chunk.type === 'usage') usage = chunk.usage
           if (chunk && ['text-delta', 'reasoning-delta', 'tool-call-delta'].includes(chunk.type)) progress('output')
-          if (chunk && chunk.type === 'finish') finish = chunk.reason === undefined ? chunk : chunk.reason
           yield chunk
         }
+        if (!finish || finish.kind === 'aborted') {
+          agentRegistry.get(sessionId)?.cancel?.({kind:'user'})
+          throw Object.assign(new Error('模型流已中断，未收到完整结束标记。'), {code:'MODEL_STREAM_INTERRUPTED'})
+        }
       } catch (error) {
+        interrupted = /^MODEL_STREAM_/.test(error?.code || '')
         const displayedError = chat ? presentModelError(error) : error
         failure = str(displayedError && displayedError.message || displayedError)
         throw displayedError
       } finally {
+        const timing = liveness.snapshot()
+        liveness.dispose()
+        // A hung iterator must not hold the foreground/settlement release path.
+        if (!exhausted && iterator?.return) void Promise.resolve().then(() => iterator.return()).catch(() => {})
         progress('end')
-        const completed = finish && finish.kind !== 'error' && finish.kind !== 'aborted'
-        void stage?.finish(completed && !failure)
+        const completed = !failure && !options.signal?.aborted && finish && finish.kind !== 'error' && finish.kind !== 'aborted'
+        stageStream.finish(completed)
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {
-          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText, finish, error: failure }) }
+          try { await modelRequestLog.complete({ chatId: owner.id, id: requestRecord.id, text: responseText, finish, usage, error: failure,
+            interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
         }
       }

@@ -17,7 +17,7 @@
 				try {
 					const value = JSON.parse(window.sessionStorage.getItem(storageKey) || "[]");
 					return Array.isArray(value) ? value.filter(function (item) {
-						return item && typeof item.id === "string" && typeof item.source === "string" && typeof item.message === "string";
+						return item && typeof item.id === "string" && typeof item.source === "string" && typeof item.message === "string" && (item.code === undefined || typeof item.code === "string");
 					}).slice(0, 1).map(function (item) { return Object.assign({}, item, { moduleFailure: sanitizeTavernModuleFailure(item.moduleFailure) }); }) : [];
 				} catch (_) { return []; }
 			}
@@ -35,13 +35,14 @@
 					if (isIgnoredTavernError(error) && !error?.dshTavernModuleFailure) return;
 					const message = String(error && error.message || error || "").trim();
 					if (!message) return;
+					const code = error && typeof error === "object" && error.code ? String(error.code) : "";
 					const scope = String(source || "DSH Tavern");
 					const now = Date.now();
 					const existing = items[0] && items[0].source === scope && items[0].message === message ? items[0] : null;
 					if (existing) {
-						items = [{ id: existing.id, source: scope, message: message, firstAt: existing.firstAt, lastAt: now, count: existing.count + 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) || existing.moduleFailure }];
+						items = [{ id: existing.id, source: scope, message: message, code: code, firstAt: existing.firstAt, lastAt: now, count: existing.count + 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) || existing.moduleFailure }];
 					} else {
-						items = [{ id: "tavern-error-" + (++sequence), source: scope, message: message, firstAt: now, lastAt: now, count: 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) }];
+						items = [{ id: "tavern-error-" + (++sequence), source: scope, message: message, code: code, firstAt: now, lastAt: now, count: 1, moduleFailure: sanitizeTavernModuleFailure(error && error.dshTavernModuleFailure) }];
 					}
 					emit();
 				},
@@ -63,9 +64,10 @@
 			const setError = React.useCallback(function (value) {
 				const message = String(value && value.message || value || "");
 				const visible = isIgnoredTavernError(message) ? "" : message;
-				setLocalError(visible);
+				// the panel says it in plain Chinese; the raw text goes to the hub (调试视图 / 复制).
+				setLocalError(visible ? playerErrorText(value) : "");
 				if (!visible) tavernErrorHub.resolve(source);
-				else if (visible !== lastReported.current) tavernErrorHub.report(source, visible);
+				else if (visible !== lastReported.current) tavernErrorHub.report(source, value);
 				lastReported.current = visible;
 			}, [source]);
 			return [error, setError];
@@ -179,7 +181,7 @@
 					try { await opts.onSubmit(value); finish(value); }
 					catch (error) {
 						setBusy(false);
-						errorLine.textContent = String(error && error.message || error);
+						errorLine.textContent = playerErrorText(error);
 						errorLine.hidden = false;
 						input.focus();
 					}
@@ -216,13 +218,19 @@
 			if (!items.length) return null;
 			const h = React.createElement;
 			const item = items[0];
-			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + item.message + (item.moduleFailure ? "\n" + JSON.stringify(item.moduleFailure, null, 2) : "");
+			const text = "[" + formatErrorTime(item.lastAt) + "] " + item.source + (item.count > 1 ? "（重复 " + item.count + " 次）" : "") + "\n" + (item.code ? item.code + ": " : "") + item.message + (item.moduleFailure ? "\n" + JSON.stringify(item.moduleFailure, null, 2) : "");
+			// the player reads the shared Chinese sentence; the raw
+			// message (provider English, codes, ids) and the module-load details show only in the 调试视图 (body.dsh-fork-debug), and 复制 copies them.
+			const debugView = typeof document !== "undefined" && !!document.body && document.body.classList.contains("dsh-fork-debug");
+			const said = playerErrorText(item);
 			return h("section", { className: "dsh-tavern-error-center", role: "region", "aria-label": "DSH Tavern 错误记录" },
 				h("div", { className: "dsh-tavern-error-center-head" }, h("span", null, "最新错误"), h("button", { className: "dsh-tavern-btn", onClick: function () { copyErrorText(text); } }, "复制"), h("button", { className: "dsh-tavern-btn", onClick: tavernErrorHub.clear }, "清除")),
 				h("div", { className: "dsh-tavern-error-list" }, h("article", { className: "dsh-tavern-error-item", key: item.id },
 					h("div", { className: "dsh-tavern-error-meta" }, h("span", null, item.source), item.count > 1 ? h("span", null, "重复 " + item.count + " 次") : null, h("time", { dateTime: new Date(item.lastAt).toISOString() }, formatErrorTime(item.lastAt))),
-					h("div", { className: "dsh-tavern-error-message" }, item.message),
-					item.moduleFailure ? h("details", { className: "dsh-tavern-module-error-details" }, h("summary", null, "查看详情"),
+					h("div", { className: "dsh-tavern-error-message" }, said),
+					debugView && said !== item.message ? h("pre", { className: "dsh-tavern-error-raw" }, text) : null,
+					item.moduleFailure && !debugView ? h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { window.location.reload(); } }, "刷新页面重试") : null,
+					debugView && item.moduleFailure ? h("details", { className: "dsh-tavern-module-error-details" }, h("summary", null, "查看详情"),
 						h("pre", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, "阶段：模块加载\n原因：" + ({ offline: "浏览器离线", http: "依赖请求返回 HTTP 错误", unknown: "浏览器未提供确切原因" }[item.moduleFailure.reason] || "未知") + "\n浏览器信息：" + (item.moduleFailure.message || "未提供") + "\n脚本引用（不代表已确认失败）：\n" + (item.moduleFailure.references || []).join("\n") + "\n同期失败资源（浏览器可见范围）：\n" + (item.moduleFailure.resources || []).map(function (entry) { return entry.url + " — HTTP " + entry.status; }).join("\n")),
 						h("p", null, "刷新将重新初始化页面脚本，请先保存未提交的输入。"),
 						h("button", { type: "button", className: "dsh-tavern-btn", onClick: function () { window.location.reload(); } }, "刷新页面重试")) : null

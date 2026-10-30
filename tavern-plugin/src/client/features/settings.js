@@ -1,20 +1,49 @@
+        // the one row of 设置 › DSH Tavern — the name and its
+        // 「?」 on the left (explanations only in the 「?」, ui-design R3), the control on the right; `note` is a short status beside the
+        // control (已保存 / 保存失败…). A row is never a card (.dsh-tavern-settings-group): the card is its group's.
+        function TavernSettingRow(props) {
+            const h = React.createElement, title = props.title;
+            return h("div", { className: "dsh-tavern-settings-row" + (props.className ? " " + props.className : "") },
+                h("span", { className: "dsh-tavern-settings-copy" },
+                    h("span", { className: "dsh-tavern-settings-title" }, props.labelFor ? h("label", { htmlFor: props.labelFor }, title) : title,
+                        props.help && typeof HelpTip === "function" ? h(HelpTip, { label: (props.helpLabel || title) + "说明" }, props.help) : null)),
+                h("span", { className: "dsh-tavern-settings-control" },
+                    // noteRole null: a standing condition (「需要…」), not an announcement; noteTone "warn" colours a real warning.
+                    props.note ? h("span", { className: "dsh-tavern-settings-note", role: props.noteRole === null ? undefined : props.noteRole || "status", "data-tone": props.noteTone || undefined }, props.note) : null,
+                    props.children));
+        }
+
         function ContextCompactionSettings() {
-            const [policy, setPolicy] = React.useState(null), [notice, setNotice] = React.useState(""), [busy, setBusy] = React.useState(false);
-            React.useEffect(function () { let active = true; rpc("getTavernSettings").then(function (result) { if (active) setPolicy(result.settings.contextCompaction || { mode: "manual", rounds: 20, percent: 80 }); }, function (error) { if (active) setNotice(error.message); }); return function () { active = false; }; }, []);
+            const h = React.createElement;
+            const [policy, setPolicy] = React.useState(null), [saved, setSaved] = React.useState(null), [notice, setNotice] = React.useState(""), [busy, setBusy] = React.useState(false);
+            React.useEffect(function () { let active = true; rpc("getTavernSettings").then(function (result) { if (active) { const value = result.settings.contextCompaction || { mode: "manual", rounds: 20, percent: 80 }; setPolicy(value); setSaved(value); } }, function (error) { if (active) setNotice(error.message); }); return function () { active = false; }; }, []);
             async function save() {
                 setBusy(true); setNotice("");
-                try { const result = await rpc("updateTavernSettings", { patch: { contextCompaction: { mode: policy.mode, rounds: Number(policy.rounds), percent: Number(policy.percent), retainRounds: Number(policy.retainRounds ?? 10) } } }); setPolicy(result.settings.contextCompaction); setNotice("已保存，下一个安全边界生效"); }
+                try { const result = await rpc("updateTavernSettings", { patch: { contextCompaction: { mode: policy.mode, rounds: Number(policy.rounds), percent: Number(policy.percent), retainRounds: Number(policy.retainRounds ?? 10) } } }); setPolicy(result.settings.contextCompaction); setSaved(result.settings.contextCompaction); setNotice("已保存，下一个安全边界生效"); }
                 catch (error) { setNotice(String(error.message || error)); } finally { setBusy(false); }
             }
-            return React.createElement("div", { className: "dsh-tavern-settings-group dsh-tavern-compaction-settings" },
-                React.createElement("h3", { className: "dsh-tavern-settings-title" }, "上下文压缩"),
-                React.createElement("p", { className: "dsh-tavern-settings-desc" }, "默认手动，也可按轮数或占用比例自动压缩前后台。所有模式都保留接近容量或请求超限时的自动保护，不会删除原始剧情记录。"),
-                policy ? React.createElement("label", { className: "dsh-tavern-compaction-field" }, "压缩模式", React.createElement("select", { className: "dsh-tavern-settings-select", value: policy.mode, disabled: busy, onChange: function (e) { setPolicy(Object.assign({}, policy, { mode: e.target.value })); } }, [["manual", "手动压缩（默认）"], ["rounds", "每 N 轮自动压缩"], ["percent", "上下文达到 X% 自动压缩"]].map(function (item) { return React.createElement("option", { key: item[0], value: item[0] }, item[1]); }))) : null,
-                policy && policy.mode !== "manual" ? React.createElement("label", { className: "dsh-tavern-compaction-field" }, policy.mode === "rounds" ? "剧情轮数（1–1000）" : "上下文占用百分比（10–95，估算）", React.createElement("input", { className: "dsh-tavern-settings-select", type: "number", min: policy.mode === "rounds" ? 1 : 10, max: policy.mode === "rounds" ? 1000 : 95, step: 1, value: policy[policy.mode], disabled: busy, onChange: function (e) { setPolicy(Object.assign({}, policy, { [policy.mode]: e.target.value })); } })) : null,
-                policy ? React.createElement("label", { className: "dsh-tavern-compaction-field" }, "压缩后保留最近几轮原文（0–100）", React.createElement("input", { className: "dsh-tavern-settings-select", type: "number", min: 0, max: 100, step: 1, value: policy.retainRounds ?? 10, disabled: busy, onChange: function (e) { setPolicy(Object.assign({}, policy, { retainRounds: e.target.value })); } })) : null,
-                React.createElement("p", { className: "dsh-tavern-settings-desc" }, "重写同一轮、工具调用和生图不计轮数。模型窗口未知时百分比模式会提示；可改用轮数模式。保留轮数越少，压缩后上下文越短，但最近的细节只剩摘要；默认 10 轮，0 表示全部压缩。这几轮原文太长时会按模型窗口少留一些；上下文超限时的自动保护不保留原文。"),
-                React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !policy, onClick: save }, busy ? "保存中…" : "保存压缩设置"),
-                notice ? React.createElement("p", { role: "status", className: "dsh-tavern-settings-desc" }, notice) : null);
+            // a draft page (R17) — rows like the rest of the page, the explanations
+            // in 「?」, one 保存 with 「有未保存的修改」 beside it.
+            const field = (key, value) => { setNotice(""); setPolicy(Object.assign({}, policy, { [key]: value })); };
+            const same = (a, b) => !a || !b || ["mode", "rounds", "percent", "retainRounds"].every(key => String(a[key] ?? "") === String(b[key] ?? ""));
+            const dirty = !same(policy, saved);
+            const rounds = policy && policy.mode === "rounds";
+            return h("div", { className: "dsh-tavern-compaction-settings", role: "group", "aria-label": "上下文压缩" },
+                h("h3", { className: "dsh-tavern-gs-subhead" }, "上下文压缩",
+                    typeof HelpTip === "function" ? h(HelpTip, { label: "上下文压缩说明" }, "把较早的剧情压成摘要，前后台都适用；接近容量或请求超限时总会自动保护，原始剧情记录不删。") : null),
+                policy ? h(TavernSettingRow, { title: "压缩模式", help: "手动（默认）、每 N 轮或上下文达到一定比例时自动压缩。" },
+                    h(InlineField, { kind: "menu", label: "压缩模式", hideLabel: true, value: policy.mode, disabled: busy, onCommit: value => field("mode", value),
+                        options: [{ value: "manual", label: "手动压缩（默认）" }, { value: "rounds", label: "每 N 轮自动压缩" }, { value: "percent", label: "上下文达到 X% 自动压缩" }] })) : null,
+                policy && policy.mode !== "manual" ? h(TavernSettingRow, { title: rounds ? "剧情轮数" : "上下文占用",
+                        help: rounds ? "1–1000 轮；重写同一轮、工具调用和生图不计轮数。" : "10–95%，按估算；模型窗口未知时会提示，可改用轮数模式。" },
+                    h(InlineField, { kind: "number", label: rounds ? "剧情轮数" : "上下文占用百分比", hideLabel: true, integer: true, min: rounds ? 1 : 10, max: rounds ? 1000 : 95, unit: rounds ? "轮" : "%",
+                        value: policy[policy.mode], disabled: busy, onCommit: value => field(policy.mode, value) })) : null,
+                policy ? h(TavernSettingRow, { title: "保留最近原文", help: "压缩后保留最近几轮原文（0–100，默认 10，0 表示全部压缩）；原文太长时按模型窗口少留，超限保护不保留。" },
+                    h(InlineField, { kind: "number", label: "压缩后保留最近几轮原文", hideLabel: true, integer: true, min: 0, max: 100, unit: "轮", value: policy.retainRounds ?? 10, disabled: busy,
+                        onCommit: value => field("retainRounds", value) })) : null,
+                h("div", { className: "dsh-tavern-settings-actions" },
+                    notice ? h("span", { role: "status", className: "dsh-tavern-settings-note" }, notice) : dirty ? h("span", { className: "dsh-tavern-settings-note" }, "有未保存的修改") : null,
+                    h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !policy, onClick: save }, busy ? "保存中…" : "保存压缩设置")));
         }
 		const EMPTY_PROJECTION_FACE = Object.freeze({ subscribe: function () { return function () {}; }, getSnapshot: function () { return null; } });
 
@@ -73,13 +102,23 @@
                 try { await rpc(props.globalDefaults ? "setDefaultWritingSkill" : "setConversationWritingSkill", { sessionId: props.sessionId, name, enabled }, props.sessionId); setSkills(skills.map(skill => skill.name === name ? { ...skill, enabled } : skill)); setNotice(props.globalDefaults ? "已保存，下次新游戏生效" : "已生效，后续请求采用新设置"); }
                 catch (err) { setError(String(err.message || err)); } finally { setBusy(false); }
             }
+            // on 设置 › DSH Tavern the defaults are a card of switch rows, each skill's
+            // description behind its 「?」; the 本局 panel keeps its own layout below.
+            if (props.globalDefaults) return h("section", { className: "dsh-local-section dsh-tavern-default-skills", "aria-label": "默认写作 Skill" },
+                h("h3", null, "默认写作 Skill", typeof HelpTip === "function" ? h(HelpTip, { label: "默认写作 Skill 说明" }, "新游戏默认启用哪些写作 Skill；已有游戏不变，可在本局设置里逐项调整。") : null),
+                (skills || []).map(skill => h(TavernSettingRow, { key: skill.name, title: skill.name, help: skill.description, className: "dsh-tavern-writing-skill" },
+                    h(Switch, { label: skill.name, checked: skill.enabled, disabled: busy, onChange: enabled => change(skill.name, enabled) }))),
+                skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
+                !skills && !error ? h("div", { className: "dsh-tavern-settings-loading" }, h(Spinner)) : null,
+                error ? h("p", { role: "alert", className: "dsh-tavern-settings-alert" }, "⚠ " + error, " ", h("button", { type: "button", className: "dsh-tavern-text-btn", onClick: load }, "重新加载")) : null,
+                !error && (busy || notice) ? h("p", { role: "status", className: "dsh-tavern-gs-notice" }, busy ? "保存中…" : "已保存") : null);
             return h(props.globalDefaults ? "details" : "section", { className: "dsh-local-section" + (props.globalDefaults ? " dsh-tavern-default-skills" : ""), "aria-label": props.globalDefaults ? "默认写作 Skill" : "写作 Skill" },
                 props.globalDefaults ? h("summary", null, "默认写作 Skill") : h("h3", null, "写作 Skill"),
                 h("p", { className: "dsh-local-help" }, props.globalDefaults ? "设置新游戏默认启用的写作 Skill。已有游戏不变，可在本局设置中逐项调整。" : "开局采用全局默认配置，可在此逐项调整本局后续加载；前台按场景选用。"),
                 (skills || []).map(skill => h("div", { key: skill.name, className: "dsh-tavern-background-task dsh-tavern-writing-skill" },
                     h("label", { className: "dsh-tavern-writing-skill-heading" }, h("span", null, skill.name), h("input", { type: "checkbox", role: "switch", "aria-label": skill.name, checked: skill.enabled, disabled: busy, onChange: event => change(skill.name, event.target.checked) })),
                     h("p", { className: "dsh-tavern-settings-desc" }, skill.description))),
-                skills && !skills.length ? h("p", null, "暂无写作 Skill，请在 Skill 库中分配给前台。") : null,
+                skills && !skills.length ? h(EmptyState, { compact: true, noun: "写作 Skill" }) : null,
                 !props.globalDefaults ? h("p", { className: "dsh-local-help" }, "开关立即更新，后续模型请求生效；已发出的请求不受影响。通过追加通知保留已有缓存前缀，关闭后停止沿用该 Skill，历史内容保留。") : null,
                 error ? h("p", { role: "alert" }, error) : h("span", { role: "status" }, busy ? "保存中…" : skills ? notice : "正在读取…"),
                 error ? h("button", { className: "dsh-tavern-btn", onClick: load }, "重新加载") : null);
@@ -92,26 +131,41 @@
             const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
             React.useEffect(() => {
                 let active = true;
-                if (key) rpc("getBackgroundModelReasoning", JSON.parse(key)).then(result => {
+                if (key && props.kind !== "scoring") rpc("getBackgroundModelReasoning", JSON.parse(key)).then(result => {
                     if (active) setReasoning({ key, value: result.reasoning, error: "" });
                 }, err => { if (active) setReasoning({ key, value: null, error: String(err.message || err) }); });
                 return () => { active = false; };
             }, [key]);
             const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
             const known = !selection || props.catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
-            return h("div", { className: "dsh-tavern-model-row" },
-                h("div", { className: "dsh-tavern-model-row-label" }, props.title || props.label,
-                    props.description ? h("span", { className: "dsh-tavern-settings-desc" }, props.description) : null),
-                h("div", { className: "dsh-tavern-model-row-controls" },
-                h("select", { className: "dsh-tavern-settings-select", "aria-label": props.label, value: key, disabled: props.disabled,
-                    onChange: event => props.onChange(event.target.value ? JSON.parse(event.target.value) : null) },
-                    h("option", { value: "" }, props.fallback),
-                    !known ? h("option", { value: key }, backgroundModelLabel(selection, props.catalog) + "（当前不可用）") : null,
-                    props.catalog.map(group => h("optgroup", { key: group.provider, label: group.providerName || group.provider }, group.models.map(model => h("option", { key: model.id, value: JSON.stringify({ provider: group.provider, model: model.id }) }, model.name || model.id))))),
-                h("select", { className: "dsh-tavern-settings-select", "aria-label": props.label + "推理强度", value: selection?.reasoningEffort || "", disabled: props.disabled || !key || !efforts.length,
-                    onChange: event => { const next = { ...selection }; if (event.target.value) next.reasoningEffort = event.target.value; else delete next.reasoningEffort; return props.onChange(next); } },
-                    h("option", { value: "" }, key ? "模型默认" : props.fallback), efforts.map(item => h("option", { key: item.id, value: item.id }, item.name || item.id)))),
-                key && reasoning.key === key && reasoning.error ? h("p", { role: "alert" }, reasoning.error) : null);
+            // one row — the name and its 「?」, then model · reasoning as the shared
+            // inline menus (no native select, ui-design §三.5); the provider is the menu's group heading.
+            const models = [{ value: "", label: props.fallback }]
+                .concat(!known ? [{ value: key, label: backgroundModelLabel(selection, props.catalog) + "（当前不可用）" }] : [])
+                .concat(props.catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: model.name || model.id, group: group.providerName || group.provider }))));
+            // Every slot offers the same choices; a slot's declared initial effort (the phone call: off) is the
+            // value shown until this slot stores its own, where the model offers it (model-slots.js resolves the same way).
+            // 模型默认 is stored as null so it stays chosen over that initial value.
+            const initial = props.initialEffort && efforts.some(item => item.id === props.initialEffort) ? props.initialEffort : "";
+            const effort = selection && Object.hasOwn(selection, "reasoningEffort") ? selection.reasoningEffort || "" : initial;
+            return h(TavernSettingRow, { title: props.title || props.label, help: props.description, className: "dsh-tavern-model-row",
+                    note: key && reasoning.key === key && reasoning.error ? "⚠ " + reasoning.error : "", noteRole: "alert" },
+                h(InlineField, { kind: "menu", label: props.label, hideLabel: true, value: key, disabled: props.disabled, options: models, className: "dsh-tavern-model-pick",
+                    onCommit: value => props.onChange(value ? JSON.parse(value) : null) }),
+                props.kind === "scoring" ? null : h(InlineField, { kind: "menu", label: props.label + "推理强度", hideLabel: true, value: effort, disabled: props.disabled || !key || !efforts.length, className: "dsh-tavern-effort-pick",
+                    options: [{ value: "", label: "模型默认" }].concat(effort && !efforts.some(item => item.id === effort) ? [{ value: effort, label: effort }] : [], efforts.map(item => ({ value: item.id, label: item.name || item.id }))),
+                    onCommit: value => props.onChange({ ...selection, reasoningEffort: value || null }) }));
+        }
+
+        function TavernModelSlotGroups({slots = [], values = {}, catalog = [], scoringCatalog = [], disabled, local = false, onChange}) {
+            const h = React.createElement;
+            const groups = Map.groupBy(slots, slot => slot.modId);
+            return Array.from(groups, ([modId, rows]) => h(packUi.StageSection, {key:modId,title:rows[0].modName,foldKey:"model-slots/"+(local?"chat":"global")+"/"+modId,className:"dsh-local-section"},
+                rows.map(slot => h(TavernDefaultModelSetting, {key:slot.id,label:slot.label,title:slot.label,description:slot.purpose,kind:slot.kind,initialEffort:slot.reasoning,
+                    fallback:local ? "跟随全局" : slot.kind === "scoring" ? "使用判断接口默认模型" : slot.fallback === "background" ? "跟随后台" : "跟随前台",
+                    selection:values[modId]?.[slot.id] || null,disabled,
+                    catalog:slot.kind === "scoring" ? scoringCatalog.map(row=>({provider:row.provider,models:[{id:row.model}]})) : catalog,
+                    onChange:selection=>onChange({modId,slotId:slot.id,selection})}))));
         }
 
         function PromptTemplateSettingsEntry({ sessionId } = {}) {
@@ -130,6 +184,10 @@
                 if (!detail.handled) setError("请等待本局加载完成后重试。");
             }
             const h = React.createElement;
+            // on 设置 › DSH Tavern a plain row of the 高级 card (explanation in 「?」).
+            if (!sessionId) return h(TavernSettingRow, { title: "提示词模板", help: "调整 EJS 模板运行、兼容性与性能选项，对所有游戏生效。", className: "dsh-tavern-template-entry",
+                    note: error, noteRole: "alert" },
+                h("button", { type: "button", className: "dsh-tavern-btn", onClick: open }, "提示词模板设置"));
             return h("section", { className: sessionId ? "dsh-local-section" : "dsh-tavern-settings-group" },
                 h("div", { className: "dsh-tavern-settings-row" },
                     h("div", { className: "dsh-tavern-settings-copy" },
@@ -143,6 +201,7 @@
             let value = null, revision = 0;
             const listeners = new Set();
             const key = "dsh-tavern:display-preferences-changed";
+            const migrateDebug = createDebugMigration(window);
             // The top bar reads this before the first read lands; the shipped
             // default keeps it from flashing an empty row.
             function headerItemsOf(settings) {
@@ -156,11 +215,15 @@
                 return { items: tavernViewTabItems(input && typeof input === "object" && Array.isArray(input.items) ? input : null) };
             }
             function apply(settings) {
-                value = { headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                value = { hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                document.documentElement.classList.toggle("dsh-tavern-hide-process", value.hideContextAndReasoning);
+                applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
                 listeners.forEach(listener => listener());
             }
             async function refresh() {
                 const request = ++revision;
+                // retry a failed migration on focus; never discard an unsaved legacy opt-in.
+                try { await migrateDebug(hidden => displayPreferences.save({ hideContextAndReasoning: hidden })); } catch (_) {}
                 try { const result = await rpc("getDisplayPreferences"); if (request === revision) apply(result); } catch (_) {}
             }
             return {
@@ -173,16 +236,34 @@
                     try { window.localStorage.setItem(key, String(Date.now())); } catch (_) {}
                 },
                 start() {
-                    // The conversation never shows context injections, triggers or thinking; 轨迹 has them.
-                    document.documentElement.classList.add("dsh-tavern-hide-process");
+                    // hide developer/process content before the first server response.
+                    const hidden = value ? value.hideContextAndReasoning : true;
+                    document.documentElement.classList.toggle("dsh-tavern-hide-process", hidden);
+                    applyDebug(document, !hidden);
                     refresh();
                     const onStorage = event => { if (event.key === key) refresh(); };
                     window.addEventListener("focus", refresh);
                     window.addEventListener("storage", onStorage);
-                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); document.documentElement.classList.remove("dsh-tavern-hide-process"); };
+                    return () => { ++revision; window.removeEventListener("focus", refresh); window.removeEventListener("storage", onStorage); document.documentElement.classList.remove("dsh-tavern-hide-process"); applyDebug(document, false); };
                 }
             };
         })();
+        // 隐藏上下文注入和思考过程 is the 调试视图 switch (debug.js DebugSetting); this keeps upstream's
+        // 渲染深度 as a row of the 显示与交互 card (ui-design §三.5 inline menu, explanation in the 「?」).
+        function DisplayPreferencesSettings() {
+            const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
+            const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
+            async function save(patch) {
+                setBusy(true); setNotice("");
+                try { await displayPreferences.save(patch); setNotice("已保存"); }
+                catch (error) { setNotice("保存失败：" + String(error.message || error)); }
+                finally { setBusy(false); }
+            }
+            const h = React.createElement;
+            return h(TavernSettingRow, { title: "隐藏上下文注入和思考过程", help: "仅影响显示，正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
+                h(Switch, { label: "隐藏上下文注入和思考过程", checked: preferences?.hideContextAndReasoning === true, disabled: preferences === null || busy,
+                    onChange: value => save({ hideContextAndReasoning: value }) }));
+        }
         function HeaderItemsSettings(props) {
             const h = React.createElement;
             // The settings page folds this block; the 顶栏设置 dialog is already
@@ -286,7 +367,7 @@
                             h("button", { type: "button", className: "dsh-tavern-header-op", "aria-label": "上移", title: "上移", disabled: busy || index === 0, onClick: function () { void move(id, -1); } }, "↑"),
                             h("button", { type: "button", className: "dsh-tavern-header-op", "aria-label": "下移", title: "下移", disabled: busy || index === items.length - 1, onClick: function () { void move(id, 1); } }, "↓"),
                             h("button", { type: "button", className: "dsh-tavern-header-op is-danger", "aria-label": "移除", title: "移除", disabled: busy, onClick: function () { void toggle(id); } }, "×")));
-                })) : h("p", { className: "dsh-tavern-header-empty" }, "顶栏上没有可编辑的按钮了。从下方添加，或点「恢复默认」找回酒馆状态和导出。"),
+                })) : h("p", { className: "dsh-tavern-header-empty" }, "顶栏上没有可编辑的按钮了。从下方添加，或点「恢复默认」找回导出。"),
                 h("div", { className: "dsh-tavern-header-catalog" },
                     h("strong", { className: "dsh-tavern-settings-title" }, "可添加的按钮"),
                     h("p", { className: "dsh-tavern-settings-desc" }, "「顶栏工具」是顶栏自带的按钮；其余与侧栏开始页一致，插件注册的页面也会出现在这里。"),
@@ -317,6 +398,9 @@
             return mode;
         }
 
+        // the automatic candidate preference hook (its switch lives in 舞台设置 › 基础设置); no stage/bubble dependency.
+        // @include auto-choices-preference.js
+
         function CandidatePreferencesSettings() {
             const mode = useCandidatePreferences();
             const [busy, setBusy] = React.useState(false);
@@ -327,21 +411,15 @@
                 try {
                     const result = await rpc("updateTavernSettings", { patch: { candidateDismissMode: value } });
                     window.dispatchEvent(new CustomEvent("dsh-tavern-candidate-preferences", { detail: result.settings.candidateDismissMode }));
-                    setNotice("已保存，对所有游戏生效");
+                    setNotice("已保存");
                 } catch (error) { setNotice("保存失败：" + String(error.message || error)); }
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            return h("section", { className: "dsh-tavern-settings-group" },
-                h("label", { className: "dsh-tavern-settings-row" },
-                    h("span", { className: "dsh-tavern-settings-copy" },
-                        h("strong", null, "候选项"),
-                        h("p", { className: "dsh-tavern-settings-desc" }, "设置候选项的隐藏时机。")),
-                    h("select", { className: "dsh-tavern-settings-select", "aria-label": "候选项收起时机", value: mode, disabled: busy, onChange: event => save(event.target.value) },
-                        h("option", { value: "after-fill" }, "选择一项后即隐藏"),
-                        h("option", { value: "after-send" }, "可选择多项发送后才隐藏"))),
-                notice ? h("div", { className: "dsh-tavern-settings-row", role: "status" },
-                    h("span", { className: "dsh-tavern-settings-desc" }, notice)) : null);
+            // a plain row of the 显示与交互 card, not a card of its own.
+            return h(TavernSettingRow, { title: "候选项", help: "候选项什么时候收起，对所有游戏生效。", note: notice, className: "dsh-tavern-candidate-setting" },
+                h(InlineField, { kind: "menu", label: "候选项收起时机", hideLabel: true, value: mode, disabled: busy, onCommit: value => save(value),
+                    options: [{ value: "after-fill", label: "选择一项后即隐藏" }, { value: "after-send", label: "可选择多项发送后才隐藏" }] }));
         }
 
         // 设置 → DSH Tavern → 插件：粘贴 GitHub 地址或上传 ZIP 安装，列出已装插件与加载情况。
@@ -460,9 +538,10 @@
             const plugins = data ? data.plugins || [] : [];
             return h("div", { className: "dsh-tavern-settings-group dsh-tavern-user-plugins" },
                 h("div", { className: "dsh-tavern-user-plugins-install" },
-                    h("input", { className: "dsh-tavern-settings-select", value: url, disabled: busy, placeholder: "粘贴插件的 GitHub 地址，例如 https://github.com/作者/仓库",
-                        onChange: function (event) { setUrl(event.target.value); }, onKeyDown: function (event) { if (event.key === "Enter") installUrl(); } }),
-                    h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy || !url.trim(), onClick: installUrl }, busy ? "处理中…" : "安装"),
+                    // the shared inline text field; Enter keeps the address, 安装 installs it.
+                    h(InlineField, { kind: "text", label: "插件地址", hideLabel: true, value: url, disabled: busy, placeholder: "粘贴插件的 GitHub 地址，例如 https://github.com/作者/仓库",
+                        onCommit: function (value) { setUrl(value); } }),
+                    h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy, onClick: installUrl }, busy ? "处理中…" : "安装"),
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { if (zipInput.current) zipInput.current.click(); } }, "上传 ZIP"),
                     h("input", { ref: zipInput, type: "file", accept: ".zip,application/zip", style: { display: "none" }, onChange: installZip })),
                 h("p", { className: "dsh-tavern-settings-desc" }, "插件会运行在你的电脑上，只装信任的作者发布的插件。有 Release 时安装最新 Release，否则安装默认分支；连不上 GitHub 时，可以在仓库页面下载 ZIP 后上传。"),
@@ -473,7 +552,7 @@
                     plugins.some(function (plugin) { return plugin.source.kind === "github"; })
                         ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || checking, onClick: function () { void checkUpdates(true); } }, checking ? "检查中…" : "检查更新")
                         : null) : null,
-                data && plugins.length === 0 ? h("p", { className: "dsh-tavern-settings-desc" }, "还没有装插件。") : null,
+                data && plugins.length === 0 ? h(EmptyState, { compact: true, noun: "插件" }) : null,
                 plugins.length ? h("ul", { className: "dsh-tavern-user-plugins-list" }, plugins.map(function (plugin) {
                     const canToggle = plugin.source.kind !== "card" || plugin.enabled === false;
                     return h("li", { key: plugin.folder, className: "dsh-tavern-user-plugin is-" + plugin.state },
@@ -511,8 +590,13 @@
         // @include modules/interface-skin.js
         const { applyActiveInterfaceSkin, InterfaceSkinSettings } = createInterfaceSkinModule({ React, rpc });
         // @include modules/global-settings.js
-        const { TavernSettingsSection, TavernPluginsSettingsSection } = createGlobalSettingsModule({
+        const { TavernSettingsSection } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
-            TavernDefaultModelSetting, TavernConversationWritingSkills, HeaderItemsSettings,
-            CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings
+            // 隐藏上下文 is the 调试视图 row (DebugSetting); 配音 has its own settings page (main.js).
+            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings: () => null, HeaderItemsSettings,
+            CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
+            // 设置 › 高级 › 模组管理 (mod-manager.js, in the asset-pack UI factory).
+            ForkModManagerEntry: () => React.createElement(packUi.ModManagerEntry, { rpc, Row: TavernSettingRow }),
+            // the shared row and controls of the page.
+            TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });

@@ -1,0 +1,42 @@
+/* Generic source-widget reading controls. The phone appearance belongs to its pack. */
+.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}
+.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}
+.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}
+.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}
+@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}
+/* the incoming banner is a real phone's notification card — exactly as wide as the phone's
+   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down
+   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */
+.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}
+.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}
+.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}
+.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}
+@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}
+@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}
+@keyframes fork-phone-banner-fade{from{opacity:0}}
+/* while the phone is open the scene stays and dims behind it (the Pixi
+   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */
+.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}
+.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}
+.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}
+/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the
+   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,
+   7.2% of the device height: no controls) enters adjust mode (phone-layout.js usePhoneAdjust); in it a cover takes
+   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */
+.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}
+.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}
+.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}
+.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}
+.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}
+.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}
+/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */
+.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}
+.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}
+.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}
+.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:"";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}
+/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue
+   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */
+.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}
+.fork-widget-panel.is-phone.is-fill{border-radius:0}
+/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */
+.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}

@@ -59,7 +59,7 @@
                     h("p", { className: "dsh-tavern-settings-desc" }, "Guide 会注入模型上下文，用来引导剧情走向和文风。在酒馆状态中保存本局 Guide，在这里选择方案加载。加载会追加到本局，不替换已有指导。"),
                     error ? h("p", { role: "alert" }, error) : null,
                     notice ? h("p", { role: "status" }, notice) : null,
-                    items === null ? h("p", null, "正在读取Guide 库…") : !items.length ? h("p", { className: "dsh-tavern-status-empty" }, "暂无方案。可在酒馆状态的指导区域保存本局 Guide。") : items.map(item =>
+                    items === null ? h(PanelLoading, { label: "正在读取 Guide 库…" }) : !items.length ? h(EmptyState, { noun: "方案" }) : items.map(item =>
                         h("section", { key: item.id, className: "dsh-tavern-guide-library" },
                             h("div", { className: "dsh-tavern-guide-heading" }, h("h3", null, item.name), h("button", { className: "dsh-tavern-btn", disabled: busy || !!editing, onClick: () => rename(item) }, "重命名")),
                             editing?.id === item.id ? null : h("details", null, h("summary", null, "查看指导（" + item.guides.length + " 条）"), item.guides.map((text, index) => h("p", { key: index, className: "dsh-tavern-guide-text" }, text))),

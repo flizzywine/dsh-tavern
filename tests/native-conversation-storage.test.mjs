@@ -27,15 +27,31 @@ test('process death during a buffered flush cannot publish half a variable trans
  const child=spawnSync(process.execPath,['--input-type=module','-e',`
   import {createChatJournalStore} from ${JSON.stringify(new URL('../tavern-plugin/lib/domain/chat-journal-store.js',import.meta.url).href)};
   import {createChatPersistence} from ${JSON.stringify(new URL('../tavern-plugin/lib/domain/chat-persistence.js',import.meta.url).href)};
+  import {writeSync} from 'node:fs';
   let writes=0;
-  const store=createChatJournalStore({dataRoot:${JSON.stringify(root)},onNativeIO:e=>{if(['write','link'].includes(e.kind)&&e.type==='record'&&++writes===2)process.kill(process.pid,'SIGKILL')}});
+  const store=createChatJournalStore({dataRoot:${JSON.stringify(root)},onNativeIO:e=>{if(['write','link'].includes(e.kind)&&e.type==='record'&&++writes===2){writeSync(1,'fixture-kill');process.kill(process.pid,'SIGKILL')}}});
   await createChatPersistence({store}).patch('a',1,[{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:10}]);
  `],{encoding:'utf8',timeout:15000})
- assert.equal(child.signal,'SIGKILL',child.stderr)
+ // Windows reports TerminateProcess as exit code 1, not a POSIX signal.
+ assert.ifError(child.error)
+ assert.equal(child.stdout,'fixture-kill','the child must reach the intended partial-flush crash point')
+ if(process.platform==='win32')assert.equal(child.status,1,child.stderr)
+ else assert.equal(child.signal,'SIGKILL',child.stderr)
  const restarted=createChatPersistence({store:createChatJournalStore({dataRoot:root})})
  assert.deepEqual(await restarted.read('a'),original)
  await restarted.patch('a',1,[{op:'set',path:['messages',0,'variables',0,'stat_data','gold'],value:10}])
  assert.equal((await restarted.read('a')).messages[0].variables[0].stat_data.gold,10)
+})
+
+test('cold stage projections use the native reader and preserve the requested floor',async t=>{
+ const {root,persistence}=await fixture(t)
+ const saved=await persistence.write({id:'stage',sessionId:'stage-session',messages:[{...row(1),turn:1,sourceText:'A quiet room.'}]})
+ const cold=createChatJournalStore({dataRoot:root})
+ const view=await cold.readStageView('stage',{turn:1})
+ assert.equal(view.id,'stage')
+ assert.equal(view._storageRevision,saved._storageRevision)
+ const floors=await cold.readStageFloors('stage',[0],{revision:saved._storageRevision,fields:['sourceText','turn']})
+ assert.deepEqual(floors,[{sourceText:'A quiet room.',turn:1}])
 })
 
 test('cold selected reads skip historical variables and return the same session projection',async t=>{

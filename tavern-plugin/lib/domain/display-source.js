@@ -54,7 +54,8 @@ function splitHtmlBoundaries(source, editing = false) {
     // Variable protocols contain runtime data, not narrative prose. Keep the
     // complete block in editable/source history, but omit it from display.
     // Author HTML/script interiors and Markdown code examples stay opaque.
-    if (!editing && start < 0 && ['updatevariable', 'initvar'].includes(tag)) {
+    // hidden reasoning/status protocols must not become stage prose.
+    if (!editing && start < 0 && ['think', 'thinking', 'analysis', 'reasoning', 'updatevariable', 'initvar', 'variable-update'].includes(tag)) {
       append('text', source.slice(cursor, token.index))
       if (!closing && !/\/\s*>$/.test(token[0])) {
         const boundary = new RegExp('<\\/?' + tag + '\\b[^>]*>', 'gi')

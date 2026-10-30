@@ -2,17 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
+import { sourceFunction } from './fixtures/source-function.mjs'
 import { Session } from './fixtures/dsh-session-host.mjs'
 import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/session-events.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { planTranscriptRows } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 
 const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
-const React = { createElement() {}, Fragment: 'Fragment', memo: value => value, forwardRef: value => value, createContext: () => ({}), useRef() {}, useState() {}, useEffect() {}, useMemo() {}, useCallback() {}, useSyncExternalStore() {} }
 function loadClient() {
-  let descriptor
-  vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console })
-  return descriptor.factory(name => name === 'react' ? React : {})
+  const declarations = ['nodeTurn', 'latestTavernUserTurn', 'tavernPlanShowsRow'].map(name => sourceFunction(source, name)).join('\n');
+  return vm.runInNewContext(declarations + '\n({ latestTavernUserTurn })');
 }
 
 function playTurn(session, turn, text) {

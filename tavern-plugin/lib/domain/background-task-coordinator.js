@@ -3,6 +3,7 @@ import { createScopedMessages } from './scoped-messages.js'
 import { diffMvuChanges } from './mvu-settlement-effect.js'
 import { diffJson } from './json-mutation.js'
 import { participantOf, slotOf } from './background-members.js'
+import { PARALLEL_TASKS } from './background-tasks.js'
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
@@ -30,6 +31,9 @@ export function createBackgroundTaskCoordinator(options = {}) {
   const store = options.store
   const timeline = options.timeline
   const blocked = typeof options.blocked === 'function' ? options.blocked : function () { return false }
+  // Tasks the table runs beside the others (PARALLEL_TASKS: no member, no lock) share the same
+  // authoritative operations and write lock, but do not occupy the game's busy slot or admission.
+  const parallelRoles = new Set(PARALLEL_TASKS)
   // Optional work (the worldbook prefilter) yields to any other task instead of blocking it.
   // Runs outside the per-chat lock: the yielding task commits through that lock.
   const mutationTails = new Map()
@@ -48,11 +52,16 @@ export function createBackgroundTaskCoordinator(options = {}) {
   }
 
   // `slot` (background-members.js): only that member's tasks; without it, the whole game.
+  // parallel director visibility must not occupy the core busy/admission slot.
   function activity(chat, slot) {
+    const current = coreActivity(chat, slot), director = slot === undefined ? options.directorActivity?.(chat) : undefined
+    return director ? {...current, director} : current
+  }
+  function coreActivity(chat, slot) {
     const inspected = timeline.inspect({ chat })
     const allOperations = Object.values(inspected.operations || {})
     const operations = allOperations.filter(function (operation) {
-      return operation && operation.kind === 'agent' && (slot === undefined || slotOf(operation.role) === slot)
+      return operation && operation.kind === 'agent' && (slot === undefined ? !parallelRoles.has(str(operation.role)) : slotOf(operation.role) === slot)
     }).sort(function (left, right) {
       return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0)
     })
@@ -160,7 +169,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         const currentActivity = activity(source, slotOf(requestedRole))
         const expectedPending = currentActivity.phase === 'pending' && currentActivity.role === requestedRole
         const conflictingPending = currentActivity.phase === 'pending' && currentActivity.role !== requestedRole
-        if ((currentActivity.busy || conflictingPending) && !expectedPending) {
+        if (!parallelRoles.has(requestedRole) && (currentActivity.busy || conflictingPending) && !expectedPending) {
           options.lockEvent?.({ kind: 'refused', sessionId: str(chat?.sessionId || source?.sessionId), slot: slotOf(requestedRole), role: requestedRole, holder: str(currentActivity.role) })
           const error = new Error('后台 Agent 正在执行 ' + currentActivity.role + '，请等待完成')
           error.code = 'BACKGROUND_BUSY'

@@ -97,6 +97,37 @@
 		// @include turn-error-controls.js
 		// @include step-fold.js
 
+		// @include debug.js
+
+
+
+
+
+
+		// @include card-stage.js
+        // shared physical sizing contract and candidate-only measurement.
+        // @include-protocol figure-scale.cjs
+        // @include figure-measure.js
+		// @include gal-device.js
+		// @include gal-motion.js
+		// @include gal-scene.js
+// @include gal-effects.js
+		// @include widget-definitions.cjs
+		// @include stage-widgets.cjs
+		// @include widget-sandbox.js
+		// @include stage-entries.js
+		// @include gal-widgets.js
+        // @include cg-stage.js
+		// @include gal-stage.js
+		// @include gal-config.js
+        // @include danmaku-ui.js
+        // @include phone-layout.js
+		// @include bgm-player.js
+		// @include bg-manual.js
+		// @include stage-ambience.js
+		// @include gal-backlog.js
+
+
 		function createSupersededErrorProjection(root) {
 			const owned = new Map();
 			function restore(row, previous) {

@@ -10,7 +10,7 @@ const factory = source.slice(start, source.indexOf('const tavernUiExtensions = c
 function load() {
   const context = {
     React: { createElement: (type, props, ...children) => ({ type, props, children }) },
-    tavernPluginBoundary: () => 'Boundary', tavernPluginAllowed: () => true
+    tavernPluginBoundary: () => 'Boundary', tavernPluginAllowed: () => true, DshUi: { IconPuzzleOutlineRegular: 'PluginIcon' }
   }
   return vm.runInNewContext(factory + '; createTavernUiExtensions()', context)
 }
@@ -63,6 +63,7 @@ test('人物卡列表视图：插件视图拿到筛选后的卡片和动作，�
   const List = vm.runInNewContext(source.slice(start, end) + '; TavernCardList', {
     React: { createElement: h, Fragment: 'Fragment', useState: init => [typeof init === 'function' ? init() : init, () => {}] },
     useTavernUiExtensions() {}, tavernUiExtensions: ui, tavernPluginBoundary: () => 'Boundary',
+    DshUi: { Switch: 'Switch' },
     window: { localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) } }
   })
   const cards = [{ path: 'cards/甲.png', name: '甲', hasImage: true, script: { path: 's', title: '剧本一' }, group: '常玩', starred: true }, { path: 'cards\\乙.json', name: '乙', hasImage: false, script: null, readError: '坏了' }]
@@ -178,67 +179,29 @@ test('人物卡列表视图：插件视图拿到筛选后的卡片和动作，�
   assert.equal(seen.length, 1)
 })
 
-test('舞台视图：插件注册后默认用它，拿到舞台数据与当前一句，返回 null 或出错时用内置舞台；玩家可选回内置', async () => {
-  const ui = loadWith({ rpc: async (method, args, gameId) => ({ method, args, gameId, enabled: true, player: '你', card: { name: 'A' }, cast: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }] }),
-    tavernStagePublicData: data => ({ enabled: data.enabled !== false, player: data.player, card: data.card, characters: data.cast || [], turns: data.turns || [] }) })
+test('舞台插件保留公开投影与注册合同；退休的内置舞台不接管插件音乐', async () => {
+  const code = await readFile(new URL('../tavern-plugin/src/client/features/cast-stage.js', import.meta.url), 'utf8')
+  const project = vm.runInNewContext(code + '; tavernStagePublicData')
+  const data = { enabled: true, player: '你', card: { name: 'A' }, cast: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }], musicOwned: true, music: 'old.mp3' }
+  const ui = loadWith({ rpc: async () => data, tavernStagePublicData: project })
   const plugin = { ctx: { fiber: { name: 'dsh-tavern-galgame' } } }
   Object.setPrototypeOf(plugin, ui.service)
-  assert.deepEqual(JSON.parse(JSON.stringify(await plugin.getStage('game-1'))), { enabled: true, player: '你', card: { name: 'A' }, characters: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }] })
-  let input = null
-  const dispose = plugin.registerStageView({ id: 'vn', label: '视觉小说', render: value => { input = value; assert.equal(value.fullscreen, true); return value.beat ? 'vn-scene' : null } })
-  assert.throws(() => plugin.registerStageView({ id: 'vn', label: '重复', render() {} }), /已注册/)
-  assert.throws(() => plugin.registerStageView({ id: 'Bad', label: 'x', render() {} }), /id/)
-
-  const start = source.indexOf('function tavernStagePublicData(data)')
-  const choiceStart = source.indexOf('const TAVERN_VIEW_BUILTIN')
-  const code = source.slice(choiceStart, source.indexOf('function useTavernTurnView(', choiceStart)) + source.slice(start, source.indexOf('function playTavernStagePerformance(', start))
-  const h = (type, props, ...children) => ({ type, props, children: children.flat() })
-  const stored = new Map()
-  const stage = vm.runInNewContext(code + '; ({ useTavernStageView, TavernStageSceneView, TavernStageViewSwitch })', {
-    React: { createElement: h, useState: init => [typeof init === 'function' ? init() : init, () => {}] },
-    useTavernUiExtensions() {}, useTavernCardPluginScopes() { return {} }, tavernPluginAllowed: () => true, tavernUiExtensions: ui, tavernPluginBoundary: () => 'Boundary', TavernStageScene: 'Builtin',
-    window: { localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) } }
-  })
-  let choice = stage.useTavernStageView()
-  assert.equal(choice.view.label, '视觉小说', '没选过时用插件视图')
-  const beats = [{ kind: 'line', text: '“你好。”', speaker: '林曦', emotion: 'joy' }]
-  const props = (index = 0) => ({ view: choice.view, sessionId: 'game-1', data: { player: '你', card: { name: 'A' }, cast: [] }, beats, index, onAdvance() {}, footer: 'controls' })
-  let tree = stage.TavernStageSceneView(props())
-  assert.equal(tree.type, 'Boundary')
-  assert.equal(tree.props.fallback.type, 'Builtin')
-  const body = tree.children[0]
-  assert.equal(body.type(body.props), 'vn-scene')
-  assert.equal(input.gameId, 'game-1')
-  assert.equal(input.beat.speaker, '林曦')
-  assert.equal(input.footer, 'controls')
-  assert.deepEqual(input.stage.characters, [])
-  assert.equal(Object.hasOwn(input.stage, 'music'), false, '舞台 BGM 没接管时不给 music，插件自己放音乐')
-  const owned = stage.TavernStageSceneView({ ...props(), data: { player: '你', card: { name: 'A' }, cast: [], musicOwned: true, music: null } })
-  owned.children[0].type(owned.children[0].props)
-  assert.equal(Object.hasOwn(input.stage, 'music'), true, '舞台 BGM 接管时给 music（null 即静音）')
-  tree = stage.TavernStageSceneView(props(1))
-  assert.equal(tree.children[0].type(tree.children[0].props).type, 'Builtin', '返回 null 时用内置舞台')
-
-  const viewSwitch = stage.TavernStageViewSwitch({ choice })
-  const options = viewSwitch.type(viewSwitch.props).children
-  assert.deepEqual(options.map(option => option.props.value), ['dsh-tavern:builtin', 'dsh-tavern-galgame:vn'])
-  choice.choose('dsh-tavern:builtin')
-  choice = stage.useTavernStageView()
-  assert.equal(choice.view, null)
-  assert.equal(stage.TavernStageSceneView({ ...props(), view: null }).type, 'Builtin')
+  const projected = JSON.parse(JSON.stringify(await plugin.getStage('game-1')))
+  assert.deepEqual(projected, { enabled: true, player: '你', card: { name: 'A' }, background: '', characters: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }] })
+  assert.equal(Object.hasOwn(projected, 'music'), false)
+  const render = value => value
+  const dispose = plugin.registerStageView({ id: 'vn', label: '视觉小说', render })
+  assert.equal(ui.stageViews()[0].render, render)
+  assert.throws(() => plugin.registerStageView({ id: 'vn', label: '重复', render }), /已注册/)
+  assert.throws(() => plugin.registerStageView({ id: 'Bad', label: 'x', render }), /id/)
   dispose()
-  stored.clear()
-  choice = stage.useTavernStageView()
-  assert.equal(choice.view, null)
-  assert.equal(stage.TavernStageViewSwitch({ choice }), null, '没有插件视图时不显示切换')
+  assert.equal(ui.stageViews().length, 0)
 })
-
 test('背景音乐：同一首接着放、换曲淡入；玩家的开关记在浏览器里，关掉时不出声；插件经 playMusic 交给 Tavern', async () => {
-  const start = source.indexOf('const TAVERN_MUSIC_KEY')
-  const code = source.slice(start, source.indexOf('function useTavernMusic(', start))
+  const code = await readFile(new URL('../tavern-plugin/src/client/features/music.js', import.meta.url), 'utf8')
   const stored = new Map(), created = []
   class Audio { constructor(url) { this.url = url; this.volume = 1; this.paused = true; created.push(this) } play() { this.paused = false; return Promise.resolve() } pause() { this.paused = true } }
-  const music = vm.runInNewContext(code + '; tavernMusic', { Audio, setTimeout: fn => fn(), window: { localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) } } })
+  const music = vm.runInNewContext(code + '; tavernMusic', { Audio, forkStageAudio: { bind() {}, release() {}, level(element, value) { if (value !== undefined) element.volume = value; return element.volume } }, setTimeout: fn => fn(), window: { localStorage: { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) } } })
   const flush = () => new Promise(resolve => setImmediate(resolve))
   music.play('a.mp3', { title: '主题' })
   music.play('a.mp3', { title: '主题' })

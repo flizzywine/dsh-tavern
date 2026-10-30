@@ -453,14 +453,12 @@ export function createTurnOrchestrator(options) {
       chat.lastWorldBookRecall = clone(chat.preparedWorldBook)
       chat.worldBookError = foregroundWorldBook.error
     }
-    const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(chat), worldBookContext,
-      dialogueSpeakers: typeof options.dialogueSpeakers === 'function' ? await options.dialogueSpeakers({ sessionId: input.sessionId, chat, card }) : null })
+    const plan = await planner.plan({ purpose: 'body', card, chat: templateWorldBook?.macroState ? { ...chat, macroState: templateWorldBook.macroState } : chat, userText: runtimeUserText, sessionId: input.sessionId, nativeTurn: turn, scriptReference, styleReference: null, variableUpdate: variableUpdateFor(chat), worldBookContext })
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
     const pluginSections = typeof options.pluginTurnContext === 'function'
       ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
     const source = frameSource(chat, card, foregroundOperation)
     source.card.systemPromptText = plan.systemPromptText
-    source.dialogueFormatText = plan.dialogueFormatText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
     if (scriptWorldBook && typeof scriptWorldBook.recordReads === 'function') chat.worldBookReads = scriptWorldBook.recordReads(chat.worldBookReads)
     source.worldBook.templateRefs = Array.isArray(templateWorldBook && templateWorldBook.refs) ? clone(templateWorldBook.refs) : []
@@ -813,6 +811,7 @@ export function createTurnOrchestrator(options) {
           role: 'assistant',
           ...replyProse(reply.sourceText, { ...reply, sessionText: assistantText }),
           displayMode: 'html',
+          ...(input.adopt === true ? {} : {stagePageVersion: 2}),
           ts: now(),
           native: true,
           turn: turn,
@@ -921,8 +920,8 @@ export function createTurnOrchestrator(options) {
     // to the calling game's effective static worldbook generation.
     const worldbookTools = ['read', 'worldbook_list', 'worldbook_grep']
     const names = mode === 'script'
-      ? ['tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
-      : ['tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
+      ? ['tavern_roll', 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
+      : ['tavern_roll', 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
     if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     return names.filter(name => !disabled.has(name))

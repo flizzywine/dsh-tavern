@@ -2,13 +2,26 @@ import {createOrderedNumericIndex} from './ordered-numeric-index.js'
 import {createIndexedArrayApi} from './indexed-array.js'
 // Internal immutable projections may share JSON subtrees across revisions.
 // Public editable reads must still detach them before returning.
+// Branded index/proxy roots stay in one permanent set. Plain frozen nodes use
+// two generations: V8 never shrinks a WeakSet's table after its entries die, so
+// one set grew to the peak node count of every projection ever frozen (2M nodes
+// kept 256 MB after GC). Rotation happens only between top-level calls; a node
+// met again from the previous generation is re-walked into the current one, so
+// trees still in use carry over whole. A node that is forgotten anyway only
+// costs a clone, rehash or re-walk. Rotating after max(2^18, 2 x carried) new
+// nodes keeps the carry work no larger than the new work.
 const immutable = new WeakSet()
-export const isImmutableJson = value => Boolean(value && typeof value === 'object' && immutable.has(value))
+let current = new WeakSet(), previous = new WeakSet(), added = 0, carried = 0, depth = 0
+const known = value => current.has(value) || immutable.has(value)
+export const isImmutableJson = value => Boolean(value && typeof value === 'object' && (known(value) || previous.has(value)))
 export function freezeJson(value) {
-  if (!value || typeof value !== 'object' || immutable.has(value)) return value
-  for (const child of Object.values(value)) freezeJson(child)
-  Object.freeze(value)
-  immutable.add(value)
+  if (!value || typeof value !== 'object' || known(value)) return value
+  if (depth === 0 && added > Math.max(1 << 18, 2 * carried)) { previous = current; current = new WeakSet(); added = carried = 0 }
+  depth++
+  try { for (const child of Object.values(value)) freezeJson(child) } finally { depth-- }
+  if (previous.has(value)) carried++
+  else { Object.freeze(value); added++ }
+  current.add(value)
   return value
 }
 

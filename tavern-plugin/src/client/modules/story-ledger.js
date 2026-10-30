@@ -122,7 +122,7 @@ function TavernLedger(props) {
           return h("label", { key: key }, labels[key], h("input", { type: bool ? "checkbox" : key === "qty" ? "number" : "text", min: key === "qty" ? 0 : undefined, disabled: blocked, ...(bool ? { checked: editing.draft[key] } : { value: editing.draft[key] }), onChange: e => setEditing({ ...editing, draft: { ...editing.draft, [key]: bool ? e.target.checked : e.target.value } }) }));
         }),
         h("div", { className: "dsh-ledger-actions" }, h("button", { type: "submit", disabled: blocked }, busy ? "保存中…" : "保存"), h("button", { type: "button", disabled: busy, onClick: () => setEditing(null) }, "取消"))) : null,
-      !ledger[tab].length ? h("p", { className: "dsh-tavern-status-empty" }, "尚无记录") : tab === "scenes" ? sceneTree([]) : tab === "npcs" ? ["主要角色", "在场", "同区域", "不在场"].map(function (group) {
+      !ledger[tab].length ? h(EmptyState, { compact: true, text: "还没有记录" }) : tab === "scenes" ? sceneTree([]) : tab === "npcs" ? ["主要角色", "在场", "同区域", "不在场"].map(function (group) {
         const rows = ledger.npcs.filter(n => npcGroup(n) === group);
         return rows.length ? h("div", { key: group }, h("h4", null, group), rows.map(r => card(r, group))) : null;
       }) : ledger.items.map(r => card(r)),
