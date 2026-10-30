@@ -503,6 +503,21 @@ test('客户端解析：旁白保留为 Markdown，气泡行与心里话、流�
   assert.equal(context.mood('害羞').id, 'shy')
 })
 
+// The full-screen stage hides its own session's transcript; a text with no session (the opening
+// preview) must still render while no stage is active, the store's idle value being "" too.
+test('气泡正文只在本局全屏舞台打开时隐藏，没有会话的开场预览照常显示', async () => {
+  const source = await readFile(new URL('../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8')
+  const start = source.indexOf('function BubblePublication(props)'), end = source.indexOf('// thoughts are set', start)
+  const context = { stage: '', BubbleContent() {}, galActive: { subscribe: () => () => {}, get: () => context.stage },
+    React: { useSyncExternalStore: (_subscribe, get) => get(), useRef: value => ({ current: value }), createElement: (type, props) => ({ type, props }) } }
+  vm.runInNewContext(source.slice(start, end) + ';this.BubblePublication = BubblePublication', context)
+  assert.ok(context.BubblePublication({ sessionId: '', text: '开场白' }), 'no stage active: the opening preview renders')
+  context.stage = 'session-a'
+  assert.equal(context.BubblePublication({ sessionId: 'session-a', text: '正文' }), null, 'its own stage covers it')
+  assert.ok(context.BubblePublication({ sessionId: 'session-b', text: '正文' }), 'another session still renders')
+  assert.ok(context.BubblePublication({ sessionId: '', text: '开场白' }), 'no session is never covered')
+})
+
 // The test double uses the actual resource patcher, including embedded ref ordering.
 function mutableBooks(sources, documents) {
   const calls = []

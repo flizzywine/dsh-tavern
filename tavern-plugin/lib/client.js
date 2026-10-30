@@ -26781,7 +26781,9 @@ function tavernModelRefusalNotice(text) {
 		function BubblePublication(props) {
 		    const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
 		    const cached = React.useRef(null);
-		    if (active !== props.sessionId || props.voicePreview) cached.current = React.createElement(BubbleContent, props);
+		    // Hidden under its session's full-screen stage only. A text with no session (the opening
+		    // preview, "") must not match the idle store, which is "" too.
+		    if (!props.sessionId || active !== props.sessionId || props.voicePreview) cached.current = React.createElement(BubbleContent, props);
 		    return cached.current;
 		}
 		// thoughts are set in the font library's Noto Serif SC (bundled with the plugin).
