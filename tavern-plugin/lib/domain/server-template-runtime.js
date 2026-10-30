@@ -92,7 +92,10 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
         const item = record.pending.get(message.id)
         if (!item) return
         record.pending.delete(message.id); clearTimeout(item.timer)
-        message.error ? item.reject(new Error(message.error)) : item.resolve(message.result)
+        // The template engine rethrows a failed RPC by its message alone: restore the code that RPC carried.
+        const code = message.code || record.rpcErrorCodes?.get(message.error)
+        record.rpcErrorCodes?.clear()
+        message.error ? item.reject(Object.assign(new Error(message.error), code ? { code } : {})) : item.resolve(message.result)
       } else if (message.type === 'rpc') {
         // Bind ownership here, not to the arguments supplied by template code.
         const operation = record.writes.then(async () => {
@@ -104,7 +107,8 @@ export function createServerTemplateRuntime({ rpc, store, timeoutMs = 120000, id
           const result = await operation
           if (!record.closed) child.send({ type: 'rpc-result', id: message.id, result }, () => {})
         } catch (error) {
-          if (!record.closed) child.send({ type: 'rpc-result', id: message.id, error: String(error.message || error) }, () => {})
+          if (error?.code) (record.rpcErrorCodes ||= new Map()).set(String(error.message || error), String(error.code))
+          if (!record.closed) child.send({ type: 'rpc-result', id: message.id, error: String(error.message || error), ...(error?.code ? { code: String(error.code) } : {}) }, () => {})
         }
       }
     })

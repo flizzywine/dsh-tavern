@@ -41,3 +41,26 @@ test('回合进行中写入的显示同步先暂缓，回合结束放行后只�
   assert.deepEqual(runs, ['a'])
   sync.dispose()
 })
+
+test('模板运行期间存档变了（冲突）：不报失败，退避后在新状态上重跑一次', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let runs = 0
+  const errors = []
+  const sync = createServerTemplateSync({ onError: error => errors.push(error), run: async () => {
+    runs++
+    if (runs === 1) throw Object.assign(new Error('聊天正文或 swipe 已变化，模板存档未保存'), { code: 'PROMPT_TEMPLATE_STATE_CONFLICT' })
+    return {}
+  } })
+  t.after(() => sync.dispose())
+  sync.schedule('s', 1)
+  t.mock.timers.tick(250)
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  assert.equal(runs, 1)
+  t.mock.timers.tick(500)
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  assert.equal(runs, 2, 'reruns after backing off')
+  t.mock.timers.tick(5000)
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  assert.equal(runs, 2, 'a successful rerun stops')
+  assert.deepEqual(errors, [])
+})

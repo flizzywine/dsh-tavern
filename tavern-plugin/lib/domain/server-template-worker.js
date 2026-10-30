@@ -46,7 +46,8 @@ process.on('message', async message => {
     const item = pending.get(message.id)
     if (!item) return
     pending.delete(message.id)
-    message.error ? item.reject(new Error(message.error)) : item.resolve(message.result)
+    // An error crosses the process boundary as its message and code (a code decides retry vs failure upstream).
+    message.error ? item.reject(Object.assign(new Error(message.error), message.code ? { code: message.code } : {})) : item.resolve(message.result)
     return
   }
   try {
@@ -56,6 +57,6 @@ process.on('message', async message => {
     else if (message.type === 'synchronize') result = await session.synchronize()
     else throw new Error('Unknown server template operation')
     send({ type: 'result', id: message.id, result })
-  } catch (error) { send({ type: 'result', id: message.id, error: String(error.message || error) }) }
+  } catch (error) { send({ type: 'result', id: message.id, error: String(error.message || error), ...(error?.code ? { code: String(error.code) } : {}) }) }
 })
 process.on('disconnect', () => process.exit(0))

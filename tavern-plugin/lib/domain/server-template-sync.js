@@ -31,7 +31,14 @@ export function createServerTemplateSync({ run, onError, delayMs = 250, maxRetry
             record.retryDelay = Math.min(Math.max(delayMs, maxRetryDelayMs), record.retryDelay * 2)
           } else record.retryDelay = delayMs
         }
-      } catch (error) { onError?.(error) }
+      } catch (error) {
+        // The story or swipe moved while the template ran (a settlement wrote meanwhile): nothing was saved, and the
+        // display is simply rerun on the new state, backing off, not reported as a failure.
+        if (error?.code === 'PROMPT_TEMPLATE_STATE_CONFLICT') {
+          record.dirty = true
+          record.retryDelay = Math.min(Math.max(delayMs, maxRetryDelayMs), record.retryDelay * 2)
+        } else onError?.(error)
+      }
       finally {
         record.running = false
         if (record.dirty) arm(id, record)
