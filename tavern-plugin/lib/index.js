@@ -753,7 +753,7 @@ export async function apply(ctx) {
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
   async function slotDeclarations() {
-    return [...modelSlotRows(CORE_MODEL_MANIFESTS, CORE_MODEL_MANIFESTS.map(row=>row.id)), ...await modService.modelSlots()]
+    return [...modelSlotRows(CORE_MODEL_MANIFESTS, CORE_MODEL_MANIFESTS.map(row=>row.id)), ...await containStage('读取 mod 模型槽', () => modService.modelSlots(), [])]
   }
   async function resolveSlot(modId, slotId, sessionId, declaration) {
     const slot = declaration || CORE_MODEL_MANIFESTS.find(row=>row.id===modId)?.modelSlots.find(row=>row.id===slotId) || (await modService.modelSlots()).find(row => row.modId === modId && row.id === slotId)
@@ -1037,11 +1037,20 @@ export async function apply(ctx) {
     if (deletedChatIds.has(chatId)) throw new Error('对话已删除')
     return await chatPersistence.update(chatId, mutation, metadata)
   }
+  // Stage, director and mods ride on core paths (startup, every save, turn start). Their failure
+  // is logged and skipped there: it must never fail a save that committed, a turn or the plugin's load.
+  function containStage(label, run, fallback) {
+    const skip = error => { console.warn('dsh-tavern: 舞台/mod 出错，已跳过（不影响游玩）:', label, str(error && error.message || error)); return fallback }
+    try {
+      const value = run()
+      return typeof value?.then === 'function' ? value.catch(skip) : value
+    } catch (error) { return skip(error) }
+  }
   let observeStageChat = () => {} // director branch invalidation before publishing chat updates
   let conversationRegistry
   async function syncChatSummary(chat, stageObservation) {
-    if (chat) modService?.observe(chat, stageObservation)
-    if (chat) observeStageChat(chat, stageObservation) // rollback, regenerate and card changes revoke director work
+    if (chat) containStage('mod 观察存档', () => modService?.observe(chat, stageObservation))
+    if (chat) containStage('舞台导演观察存档', () => observeStageChat(chat, stageObservation)) // rollback, regenerate and card changes revoke director work
     if (!conversationRegistry || chat === undefined) return
     try { await conversationRegistry.sync(chat) }
     catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:', str(error && error.message || error)) }
@@ -1055,7 +1064,7 @@ export async function apply(ctx) {
     publish: sessionId => coordinationEvents?.publish(sessionId),
     syncTemplates: scheduleTemplateSync,
     queueCompaction: queueAutoCompaction,
-    observePatch: async (saved, changes) => {
+    observePatch: (saved, changes) => containStage('舞台导演观察正文改动', async () => {
       // Metadata-only patches must not erase the director's story projection.
       const sourceChanged = changes.some(change => change.path?.length === 0 || change.path?.[0] === 'messages'
         && (change.path.length < 3 || ['role', 'turn', 'greeting', 'text', 'sourceText', 'swipes', 'swipeId'].includes(change.path[2])))
@@ -1063,7 +1072,7 @@ export async function apply(ctx) {
         const projection = await chatPersistence.readSceneImageState(saved.id)
         if (projection) observeStageChat({ ...saved, messages: projection.messages })
       }
-    }
+    })
   })
   // Header fields only: `mutate` gets and returns those fields; the difference is patched,
   // never the history. A concurrent write retries; storage without slices, a write outside
@@ -2493,7 +2502,7 @@ export async function apply(ctx) {
     },
     resolveOptionConfig:async(manifest,f)=>resolveBoundConfig(manifest,f.choices.global,f.choices.card,{sources:modConfigHost.sources,context:await modConfigHost.context({cardId:f.cardId,sessionId:f.sessionId}),manifests:f.manifests,globalValues:f.choices.global.config,cardValues:f.choices.card.config,skin:f.skin?.document?.mods?.[manifest.id],assetAvailable:key=>Object.hasOwn(f.skin?.document?.assets || {},key)}),
     onChange:()=>{modService?.invalidate();assetRuntime.invalidate()}})
-  await managedModManagement.installBuiltins()
+  await containStage('安装内置 mod', () => managedModManagement.installBuiltins())
   const coreModCommands=[...directorCommands.definitions.map(row=>({op:row.name})),
     ...new Set([...directorCommands.definitions.map(row=>row.name.split('.')[0]),'perform'])].map(row=>typeof row==='string'?{dsl:{verb:row}}:row)
   let modConfigHost
@@ -3494,7 +3503,7 @@ export async function apply(ctx) {
   // One turn's director, or (no turn: the next one starts) every director of the game.
   // Stopping is silent: the round keeps what was saved and records no failure.
   function cancelDirector(sessionId, turn) {
-    stageDirector.cancel({ sessionId: str(sessionId) }, turn)
+    containStage('停止舞台导演', () => stageDirector.cancel({ sessionId: str(sessionId) }, turn))
   }
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
@@ -4020,7 +4029,7 @@ export async function apply(ctx) {
         yield * sessionSignals.follow(signal, ids)
       } finally {
         stops.forEach(function (stop) { stop() })
-        modService?.disconnected(ids)
+        containStage('mod 断开会话', () => modService?.disconnected(ids))
       }
     }
   }))

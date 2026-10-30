@@ -19482,6 +19482,20 @@ window.__ModuleLoader__.load({
 			};
 		})();
 
+		// Stage, galgame and mod views sit inside core surfaces (the input dock, every reply). A render
+		// failure there is reported and the view disappears; the chat, input and story keep working.
+		let tavernStageBoundaryClass = null;
+		function tavernStageBoundary(label, element) {
+			if (!tavernStageBoundaryClass) tavernStageBoundaryClass = class TavernStageBoundary extends React.Component {
+				constructor(props) { super(props); this.state = { failed: false }; }
+				static getDerivedStateFromError() { return { failed: true }; }
+				componentDidCatch(error) { try { tavernErrorHub.report(this.props.label, error); } catch (_) { console.error(error); } }
+				render() { return this.state.failed ? null : this.props.children; }
+			};
+			// Same key as the view: switching games remounts the boundary, so one game's failure stays there.
+			return React.createElement(tavernStageBoundaryClass, { key: element && element.key, label: label }, element);
+		}
+
 		function usePersistentError(source) {
 			const [error, setLocalError] = React.useState("");
 			const lastReported = React.useRef("");
@@ -37249,7 +37263,7 @@ function bindTavernFontZoom(node, win) {
 				})) : null;
 				const pluginActions = playView && settled ? React.createElement(TavernPluginMessageActions, { sessionId: props.sessionId, turn: storyTurn, settled: settled, text: replyTextForFold }) : null;
 				// the round's tavern_roll results lead its story text (dice-roll.js).
-				const diceNode = typeof props.useChat === "function" ? React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key }) : null;
+				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, foldBack, diceNode, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
@@ -71306,9 +71320,9 @@ function createTurnRailFilter(root, options) {
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
 				function (props) { return React.createElement(React.Fragment, null,
-					React.createElement(CardStageHost, { key: "stage:" + props.sessionId, sessionId: props.sessionId, executeSlash: executeSlash }),
+					tavernStageBoundary("舞台", React.createElement(CardStageHost, { key: "stage:" + props.sessionId, sessionId: props.sessionId, executeSlash: executeSlash })),
 					// galgame stage view
-					React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, replayFailed: replayFailedStageTurn, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } })); }
+					tavernStageBoundary("舞台", React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, replayFailed: replayFailedStageTurn, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } }))); }
 			)), "dsh-tavern: fork session shell");
             ctx.effect(() => slots.inject("conversation.chat.node", () => slots.register({
                 name: "conversation.chat.node", key: "manual-compaction", priority: -1
@@ -71336,11 +71350,11 @@ function createTurnRailFilter(root, options) {
 			)), "dsh-tavern: round actions in composer");
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-card-stage-toggle", order: 84 },
-				function (props) { return React.createElement(CardStageToggle, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("舞台按钮", React.createElement(CardStageToggle, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: card stage toggle");
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-fork-gal-stage-toggle", order: 83 },
-				function (props) { return React.createElement(GalStageToggle, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("舞台按钮", React.createElement(GalStageToggle, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: galgame stage toggle");
 			// the BGM player's chat placement (bgm-player.js).
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(

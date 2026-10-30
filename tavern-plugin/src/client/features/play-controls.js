@@ -1247,9 +1247,9 @@
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
 				function (props) { return React.createElement(React.Fragment, null,
-					React.createElement(CardStageHost, { key: "stage:" + props.sessionId, sessionId: props.sessionId, executeSlash: executeSlash }),
+					tavernStageBoundary("舞台", React.createElement(CardStageHost, { key: "stage:" + props.sessionId, sessionId: props.sessionId, executeSlash: executeSlash })),
 					// galgame stage view
-					React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, replayFailed: replayFailedStageTurn, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } })); }
+					tavernStageBoundary("舞台", React.createElement(GalStageHost, { key: "gal:" + props.sessionId, sessionId: props.sessionId, Regenerate: GalRegenerate, replayFailed: replayFailedStageTurn, Choices: GalChoices, choiceProps: { useChat: props.useChat, useSession: props.useSession, executeSlash: executeSlash, interruptTurn: interruptStageTurn } }))); }
 			)), "dsh-tavern: fork session shell");
             ctx.effect(() => slots.inject("conversation.chat.node", () => slots.register({
                 name: "conversation.chat.node", key: "manual-compaction", priority: -1
@@ -1277,11 +1277,11 @@
 			)), "dsh-tavern: round actions in composer");
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-card-stage-toggle", order: 84 },
-				function (props) { return React.createElement(CardStageToggle, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("舞台按钮", React.createElement(CardStageToggle, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: card stage toggle");
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-fork-gal-stage-toggle", order: 83 },
-				function (props) { return React.createElement(GalStageToggle, { key: props.sessionId, sessionId: props.sessionId }); }
+				function (props) { return tavernStageBoundary("舞台按钮", React.createElement(GalStageToggle, { key: props.sessionId, sessionId: props.sessionId })); }
 			)), "dsh-tavern: galgame stage toggle");
 			// the BGM player's chat placement (bgm-player.js).
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(

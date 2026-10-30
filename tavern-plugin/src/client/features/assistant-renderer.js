@@ -684,7 +684,7 @@
 				})) : null;
 				const pluginActions = playView && settled ? React.createElement(TavernPluginMessageActions, { sessionId: props.sessionId, turn: storyTurn, settled: settled, text: replyTextForFold }) : null;
 				// the round's tavern_roll results lead its story text (dice-roll.js).
-				const diceNode = typeof props.useChat === "function" ? React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key }) : null;
+				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
 				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, foldBack, diceNode, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
