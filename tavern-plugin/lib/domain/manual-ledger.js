@@ -1,4 +1,5 @@
 import { createLedgerItem } from './background-pipeline.js'
+import { beginOrQueue } from './background-task-coordinator.js'
 import { LEDGER_RULES, LEDGER_SUBMIT_TOOL, applyLedgerDelta, createLedgerSubmission, ledgerContext, readLedger } from './story-ledger.js'
 
 // One request reads at most this much story text; longer backlogs continue on the next click.
@@ -58,8 +59,12 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
     let latest = 0
     for (const message of chat.messages || []) latest = Math.max(latest, Number(message?.turn) || 0)
     const view = { ...state, consolidatedTurn: from, pendingRounds: Math.max(0, latest - from) }
-    return state.status === 'running' && !jobs.has(chat.id) ? { ...view, status: 'failed', error: '台账整理已中断，请重试。' } : view
+    return ['running', 'queued'].includes(state.status) && !jobs.has(chat.id) ? { ...view, status: 'failed', error: '台账整理已中断，请重试。' } : view
   }
+  const setTask = (chatId, status, backlog, error) => store.updateChat(chatId, draft => {
+    draft.ledgerTask = { status, from: backlog.from, through: backlog.through, error: error ? String(error.message || error) : '' }
+    return draft
+  })
   async function start({ sessionId }) {
     const chat = await store.chatForSession(sessionId)
     if (!chat || chat.mode === 'card') throw new Error('当前没有游玩对话')
@@ -69,21 +74,32 @@ export function createManualLedger({ store, runAgent, selection, beginTask, ensu
     const model = selection(chat)
     if (!model) throw new Error('请先选择后台模型')
     jobs.set(chat.id, true)
-    let taskRun
-    try {
-      taskRun = await beginTask(chat, sessionId)
-      await store.updateChat(chat.id, draft => {
-        draft.ledgerTask = { status: 'running', from: backlog.from, through: backlog.through, error: '' }
-        return draft
-      })
-    } catch (error) {
-      jobs.delete(chat.id)
-      if (taskRun) await taskRun.fail()
-      throw error
+    let started
+    try { started = await beginOrQueue(onQueued => beginTask(chat, sessionId, onQueued)) }
+    catch (error) { jobs.delete(chat.id); throw error }
+    if (!started.queued) {
+      try { await setTask(chat.id, 'running', backlog) }
+      catch (error) { jobs.delete(chat.id); await started.taskRun.fail(); throw error }
+      jobs.set(chat.id, execute(chat, backlog, model, sessionId, started.taskRun).catch(onError).finally(() => jobs.delete(chat.id)))
+      return { status: 'running', through: backlog.through, remaining: backlog.remaining }
     }
-    const task = execute(chat, backlog, model, sessionId, taskRun).catch(onError).finally(() => jobs.delete(chat.id))
-    jobs.set(chat.id, task)
-    return { status: 'running', through: backlog.through, remaining: backlog.remaining }
+    // 书记 is busy with another task: the click returns now; the consolidation starts once it frees.
+    jobs.set(chat.id, (async () => {
+      await setTask(chat.id, 'queued', backlog).catch(onError)
+      let taskRun
+      try {
+        taskRun = await started.begun
+        // Rounds that arrived while it waited join this consolidation.
+        const fresh = await store.chatForSession(sessionId) || chat
+        const latest = ledgerBacklog(fresh).text ? ledgerBacklog(fresh) : backlog
+        await setTask(chat.id, 'running', latest)
+        await execute(fresh, latest, model, sessionId, taskRun)
+      } catch (error) {
+        if (taskRun) await taskRun.fail().catch(onError)
+        await setTask(chat.id, 'failed', backlog, error)
+      }
+    })().catch(onError).finally(() => jobs.delete(chat.id)))
+    return { status: 'queued', through: backlog.through, remaining: backlog.remaining }
   }
   async function execute(chat, backlog, model, sessionId, taskRun) {
     let result

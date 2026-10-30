@@ -12,11 +12,11 @@ function coordinator(read, write) {
     updateChat: async (_id, fn) => { const chat = await fn(structuredClone(read())); write(chat); return chat }
   } })
 }
-function fixture(runAgent, initial = {}) {
+function fixture(runAgent, initial = {}, queue = false) {
   let chat = { id: 'chat', sessionId: 'session', messages: [{ role: 'assistant', text: '正文保持原样', variables: [{ hp: 10 }] }], ...initial }
   const tasks = coordinator(() => chat, value => { chat = value })
   const api = createManualCharacterDesign({
-    beginTask: value => tasks.begin(value, 'character-design'),
+    beginTask: queue ? (value, _sessionId, onQueued) => tasks.begin(value, 'character-design', { queue: true, onQueued }) : value => tasks.begin(value, 'character-design'),
     store: { chatForSession: async () => structuredClone(chat), readCard: async () => ({ name: '人物卡' }),
       updateChat: async (_id, update) => { chat = update(structuredClone(chat)); return chat } },
     runAgent, selection: () => ({ provider: 'fixture', model: 'fixture' })
@@ -77,4 +77,21 @@ test('玩家逐条删除人物档案：只删这一个人和本局为它生成�
   assert.deepEqual(run.get().characterDesignDocument.characters, [])
   assert.deepEqual(entries(), ['人物设计 · 李四'], 'a hand-edited entry stays')
   await assert.rejects(run.api.remove({ sessionId: 'session', name: '王五' }), /找不到人物档案/)
+})
+
+test('书记忙时点设计人物：马上返回「排队中」，书记做完再设计', async () => {
+  let ran = 0
+  const run = fixture(async input => {
+    ran++
+    assert.equal(JSON.parse(await input.onToolCall({ name: 'character_design_save', arguments: design })).ok, true)
+  }, {}, true)
+  const holder = await run.tasks.begin(run.get(), 'settlement')
+  assert.equal((await run.api.start({ sessionId: 'session' })).status, 'queued')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(run.api.project(run.get()).status, 'queued')
+  assert.equal(ran, 0)
+  await holder.commit({ stateChanged: false })
+  await run.api.wait('chat')
+  assert.equal(ran, 1)
+  assert.equal(run.get().characterDesignTask.status, 'done')
 })

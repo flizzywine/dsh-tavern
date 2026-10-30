@@ -30983,7 +30983,8 @@ function createTurnRailFilter(root, options) {
 			  const ledger = props.ledger || { items: [], npcs: [], scenes: [], itemLog: [], locationPath: [], updatedTurn: null };
 			  const [open, setOpen] = React.useState(false);
 			  const task = props.ledgerTask || { status: "idle", consolidatedTurn: 0, pendingRounds: 0 };
-			  const consolidating = task.status === "running";
+			  const queued = task.status === "queued";
+			  const consolidating = task.status === "running" || queued;
 			  const [tab, setTab] = React.useState("items");
 			  const [editing, setEditing] = React.useState(null);
 			  const [busy, setBusy] = React.useState(false);
@@ -31001,7 +31002,9 @@ function createTurnRailFilter(root, options) {
 			    catch (e) { setError(String(e.message || e)); }
 			    finally { setBusy(false); }
 			  }
-			  const progress = consolidating ? "正在更新第 " + (task.from + 1) + "–" + task.through + " 轮…"
+			  // A busy 书记 queues the update instead of refusing it.
+			  const progress = queued ? "排队中：书记忙完手上的事就更新第 " + (task.from + 1) + "–" + task.through + " 轮。"
+			    : consolidating ? "正在更新第 " + (task.from + 1) + "–" + task.through + " 轮…"
 			    : (task.consolidatedTurn ? "已更新至第 " + task.consolidatedTurn + " 轮" : "尚未更新") + (task.pendingRounds ? "，还有 " + task.pendingRounds + " 轮未更新。" : "，已是最新。");
 			  const labels = { name: "名称", qty: "数量", desc: "描述", carried: "随身携带", location: "所在地", gender: "性别", age: "年龄", title: "身份", relation: "与玩家的关系", ties: "与其他角色的关系", personality: "性格", outfit: "当前穿着", condition: "当前状态", important: "主要角色", follow: "随行", path: "地点路径（用 / 分隔）" };
 			  const fields = { items: ["name", "qty", "desc", "carried", "location"], npcs: ["name", "title", "relation", "ties", "gender", "age", "desc", "personality", "outfit", "condition", "important", "follow", "location"], scenes: ["path", "desc"] };
@@ -31082,7 +31085,7 @@ function createTurnRailFilter(root, options) {
 			    // The update button stays reachable while the notebook is collapsed.
 			    h("div", { className: "dsh-tavern-character-design-head" },
 			      h("button", { type: "button", className: "dsh-ledger-toggle", "aria-expanded": open, onClick: () => setOpen(!open) }, "游玩台账", h("span", null, open ? "收起" : "查看")),
-			      h("button", { type: "button", className: "dsh-tavern-btn", disabled: blocked || !task.pendingRounds, onClick: consolidate }, consolidating ? "更新中…" : "更新游玩台账")),
+			      h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || props.foregroundRunning || consolidating || !task.pendingRounds, onClick: consolidate }, queued ? "排队中…" : consolidating ? "更新中…" : "更新游玩台账")),
 			    h("p", { className: "dsh-tavern-status-empty", role: "status" }, progress),
 			    task.status === "failed" && task.error ? h("div", { className: "dsh-card-error", role: "alert" }, task.error) : null,
 			    open ? h("div", null,
@@ -31691,7 +31694,7 @@ function createTurnRailFilter(root, options) {
                 });
             }
             React.useEffect(function () {
-                if (view?.characterDesignTask?.status !== "running") return;
+                if (!["running", "queued"].includes(view?.characterDesignTask?.status)) return;
                 const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
                 return () => clearInterval(timer);
             }, [props.sessionId, view?.characterDesignTask?.status]);
@@ -31804,7 +31807,7 @@ function createTurnRailFilter(root, options) {
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-character-design-head" },
                             h("div", { className: "dsh-tavern-status-label" }, "人物设计档案（" + ((view.characterDesigns && view.characterDesigns.characters || []).length) + "）"),
-                            h("button", { className: "dsh-tavern-btn", disabled: running || view.activity?.busy || view.characterDesignTask?.status === "running", onClick: () => designCharacter(view.characterDesignTask?.status === "failed" ? view.characterDesignTask.guidance : "") }, view.characterDesignTask?.status === "running" ? "设计中…" : view.characterDesignTask?.status === "failed" ? "重试设计" : "设计人物")),
+                            h("button", { className: "dsh-tavern-btn", disabled: running || ["running", "queued"].includes(view.characterDesignTask?.status), onClick: () => designCharacter(view.characterDesignTask?.status === "failed" ? view.characterDesignTask.guidance : "") }, view.characterDesignTask?.status === "queued" ? "排队中…" : view.characterDesignTask?.status === "running" ? "设计中…" : view.characterDesignTask?.status === "failed" ? "重试设计" : "设计人物")),
                         view.characterDesignTask?.status === "failed" ? h("div", { className: "dsh-card-error", role: "alert" }, view.characterDesignTask.error) : null,
                         view.characterDesignTask?.status === "done" && view.characterDesignTask.published?.length ? h("div", { className: "dsh-tavern-status-empty", role: "status" }, "已写入世界书并同步到本局：" + view.characterDesignTask.published.join("、") + "。下一轮正文会带上这些档案。") : null,
                         view.characterDesignTask?.status === "done" && view.characterDesignTask.reused?.length ? h("div", { className: "dsh-tavern-status-empty", role: "status" }, "已复用本局世界书：" + view.characterDesignTask.reused.join("、") + "，未重复建立档案。") : null,
@@ -31826,7 +31829,7 @@ function createTurnRailFilter(root, options) {
 											return h("div", { key: section.key, className: "dsh-tavern-character-design-row" }, h("b", null, section.label), h("p", null, section.text));
 										}),
 										h("div", { className: "dsh-tavern-character-design-actions" },
-											h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(designRemoving) || running || view.characterDesignTask?.status === "running", onClick: function () { void removeCharacterDesign(character.name); } }, designRemoving === character.name ? "删除中…" : "删除这个人物档案"))
+											h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(designRemoving) || running || ["running", "queued"].includes(view.characterDesignTask?.status), onClick: function () { void removeCharacterDesign(character.name); } }, designRemoving === character.name ? "删除中…" : "删除这个人物档案"))
 									); }
 								});
 							}) : h("div", { className: "dsh-tavern-status-empty" }, "点击“设计人物”，按你的要求创建或补充档案。")
@@ -31834,7 +31837,7 @@ function createTurnRailFilter(root, options) {
 					),
 					h(TavernPluginTasks, { sessionId: props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
 					h(TavernPluginStatusSections, { sessionId: props.sessionId }),
-					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy }),
+					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }),
 					view.postureEnabled ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物姿势"),
 						view.posture ? h("div", { className: "dsh-tavern-status-now" }, view.posture) : h("div", { className: "dsh-tavern-status-empty" }, "等待第一轮状态结算")

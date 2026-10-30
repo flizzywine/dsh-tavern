@@ -23,7 +23,7 @@ export function createSettlementRun(deps) {
       let snapshot = await readSettlementInput(chatId, {readWindow:chatPersistence.readWindow,readChat,scanDepth:worldBookScanDepth})
       signal?.throwIfAborted()
       if (snapshot === undefined) return
-      const taskRun = await backgroundTasks.begin(snapshot, 'settlement', { reuseSnapshot: true })
+      const taskRun = await backgroundTasks.begin(snapshot, 'settlement', { reuseSnapshot: true, queue: true, signal })
       snapshot = taskRun.chat
       const trace = { sessionId: str(taskRun.participantRequest.sessionId), boundary: null }
       try {
@@ -131,7 +131,7 @@ export function createSettlementRun(deps) {
   }
   async function inPluginTaskOperation(chatId, work) {
     const { backgroundTasks, taskStateReader } = deps
-    const taskRun = await backgroundTasks.begin(await taskStateReader.read(chatId), 'plugin-task')
+    const taskRun = await backgroundTasks.begin(await taskStateReader.read(chatId), 'plugin-task', { queue: true })
     try { await work(taskRun.operationId) }
     finally { await taskRun.commit({ stateChanged: false }).catch(error => console.warn('dsh-tavern: 插件任务收尾失败:', str(error?.message || error))) }
   }

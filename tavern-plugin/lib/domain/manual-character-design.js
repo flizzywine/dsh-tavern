@@ -1,5 +1,6 @@
 import { CHARACTER_DESIGN_ITEM } from './background-pipeline.js'
 import { CHARACTER_DESIGN_SAVE_TOOL_NAME, createCharacterDesignDocumentSession } from './character-design-document.js'
+import { beginOrQueue } from './background-task-coordinator.js'
 import { applyCharacterDesignWorldbook, characterDesignWorldbookSnapshot, characterWorldbookEntries, removeCharacterDesignWorldbook } from './character-design-worldbook.js'
 
 /** One explicit request, with drafts committed only after the agent succeeds. */
@@ -7,7 +8,7 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
   const jobs = new Map()
   function project(chat) {
     const state = chat.characterDesignTask || { status: 'idle' }
-    return state.status === 'running' && !jobs.has(chat.id)
+    return ['running', 'queued'].includes(state.status) && !jobs.has(chat.id)
       ? { ...state, status: 'failed', error: '人物设计已中断，请重试。' } : state
   }
   async function start({ sessionId, guidance }) {
@@ -19,21 +20,35 @@ export function createManualCharacterDesign({ store, runAgent, selection, beginT
     const model = selection(chat)
     if (!model) throw new Error('请先选择后台模型')
     jobs.set(chat.id, true)
-    let taskRun
-    try {
-      taskRun = await beginTask(chat, sessionId)
-      await store.updateChat(chat.id, draft => {
-        draft.characterDesignTask = { status: 'running', guidance: request, error: '' }
-        return draft
-      })
-    } catch (error) {
-      jobs.delete(chat.id)
-      if (taskRun) await taskRun.fail()
-      throw error
+    const setTask = (status, error) => store.updateChat(chat.id, draft => {
+      draft.characterDesignTask = { status, guidance: request, error: error ? String(error.message || error) : '' }
+      return draft
+    })
+    let started
+    try { started = await beginOrQueue(onQueued => beginTask(chat, sessionId, onQueued)) }
+    catch (error) { jobs.delete(chat.id); throw error }
+    if (!started.queued) {
+      try { await setTask('running') }
+      catch (error) { jobs.delete(chat.id); await started.taskRun.fail(); throw error }
+      jobs.set(chat.id, execute(chat, request, model, sessionId, started.taskRun).catch(onError).finally(() => jobs.delete(chat.id)))
+      return { status: 'running' }
     }
-    const task = execute(chat, request, model, sessionId, taskRun).catch(onError).finally(() => jobs.delete(chat.id))
-    jobs.set(chat.id, task)
-    return { status: 'running' }
+    // 书记 is busy with another task: the click returns now; the design starts once it frees.
+    jobs.set(chat.id, (async () => {
+      await setTask('queued').catch(onError)
+      let taskRun
+      try {
+        taskRun = await started.begun
+        // The story and the design document may have moved while it waited.
+        const fresh = await store.chatForSession(sessionId) || chat
+        await setTask('running')
+        await execute(fresh, request, model, sessionId, taskRun)
+      } catch (error) {
+        if (taskRun) await taskRun.fail().catch(onError)
+        await setTask('failed', error)
+      }
+    })().catch(onError).finally(() => jobs.delete(chat.id)))
+    return { status: 'queued' }
   }
   async function execute(chat, guidance, model, sessionId, taskRun) {
     let result

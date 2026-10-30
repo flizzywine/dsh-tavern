@@ -287,7 +287,7 @@
                 });
             }
             React.useEffect(function () {
-                if (view?.characterDesignTask?.status !== "running") return;
+                if (!["running", "queued"].includes(view?.characterDesignTask?.status)) return;
                 const timer = setInterval(() => liveTavernView.invalidate(props.sessionId), 2000);
                 return () => clearInterval(timer);
             }, [props.sessionId, view?.characterDesignTask?.status]);
@@ -400,7 +400,7 @@
 					h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-character-design-head" },
                             h("div", { className: "dsh-tavern-status-label" }, "人物设计档案（" + ((view.characterDesigns && view.characterDesigns.characters || []).length) + "）"),
-                            h("button", { className: "dsh-tavern-btn", disabled: running || view.activity?.busy || view.characterDesignTask?.status === "running", onClick: () => designCharacter(view.characterDesignTask?.status === "failed" ? view.characterDesignTask.guidance : "") }, view.characterDesignTask?.status === "running" ? "设计中…" : view.characterDesignTask?.status === "failed" ? "重试设计" : "设计人物")),
+                            h("button", { className: "dsh-tavern-btn", disabled: running || ["running", "queued"].includes(view.characterDesignTask?.status), onClick: () => designCharacter(view.characterDesignTask?.status === "failed" ? view.characterDesignTask.guidance : "") }, view.characterDesignTask?.status === "queued" ? "排队中…" : view.characterDesignTask?.status === "running" ? "设计中…" : view.characterDesignTask?.status === "failed" ? "重试设计" : "设计人物")),
                         view.characterDesignTask?.status === "failed" ? h("div", { className: "dsh-card-error", role: "alert" }, view.characterDesignTask.error) : null,
                         view.characterDesignTask?.status === "done" && view.characterDesignTask.published?.length ? h("div", { className: "dsh-tavern-status-empty", role: "status" }, "已写入世界书并同步到本局：" + view.characterDesignTask.published.join("、") + "。下一轮正文会带上这些档案。") : null,
                         view.characterDesignTask?.status === "done" && view.characterDesignTask.reused?.length ? h("div", { className: "dsh-tavern-status-empty", role: "status" }, "已复用本局世界书：" + view.characterDesignTask.reused.join("、") + "，未重复建立档案。") : null,
@@ -422,7 +422,7 @@
 											return h("div", { key: section.key, className: "dsh-tavern-character-design-row" }, h("b", null, section.label), h("p", null, section.text));
 										}),
 										h("div", { className: "dsh-tavern-character-design-actions" },
-											h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(designRemoving) || running || view.characterDesignTask?.status === "running", onClick: function () { void removeCharacterDesign(character.name); } }, designRemoving === character.name ? "删除中…" : "删除这个人物档案"))
+											h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(designRemoving) || running || ["running", "queued"].includes(view.characterDesignTask?.status), onClick: function () { void removeCharacterDesign(character.name); } }, designRemoving === character.name ? "删除中…" : "删除这个人物档案"))
 									); }
 								});
 							}) : h("div", { className: "dsh-tavern-status-empty" }, "点击“设计人物”，按你的要求创建或补充档案。")
@@ -430,7 +430,7 @@
 					),
 					h(TavernPluginTasks, { sessionId: props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
 					h(TavernPluginStatusSections, { sessionId: props.sessionId }),
-					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy }),
+					h(TavernLedger, { sessionId: props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }),
 					view.postureEnabled ? h("section", { className: "dsh-tavern-status-section" },
 						h("div", { className: "dsh-tavern-status-label" }, "人物姿势"),
 						view.posture ? h("div", { className: "dsh-tavern-status-now" }, view.posture) : h("div", { className: "dsh-tavern-status-empty" }, "等待第一轮状态结算")

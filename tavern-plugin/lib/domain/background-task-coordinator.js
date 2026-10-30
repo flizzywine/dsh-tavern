@@ -25,6 +25,21 @@ export function isOpeningAwaitingSettlement(chat) {
 // Header-only writes retry a concurrent write with a fresh header read (cheap); a new turn
 // writes often, and the whole-Chat fallback costs the whole history.
 const HEADER_RETRIES = 10
+// A queued task re-checks its member's slot at least this often: a slot also frees through
+// timeline writes that never pass a commit here (a rollback cancels its task).
+const QUEUE_POLL_MS = 1000
+const QUEUE_MAX_MS = 15 * 60 * 1000
+
+/**
+ * Begins a queued task (`begin(onQueued)`): resolves `{ taskRun }` once begun, or
+ * `{ queued: true, begun }` as soon as it waits for its member's slot, so a click returns at once.
+ */
+export function beginOrQueue(begin) {
+  let markQueued
+  const waiting = new Promise(resolve => { markQueued = resolve })
+  const begun = begin(() => markQueued())
+  return Promise.race([begun.then(taskRun => ({ taskRun })), waiting.then(() => ({ queued: true, begun }))])
+}
 
 export function createBackgroundTaskCoordinator(options = {}) {
   const store = options.store
@@ -35,6 +50,24 @@ export function createBackgroundTaskCoordinator(options = {}) {
   const mutationTails = new Map()
   if (!store || typeof store.readChat !== 'function' || typeof store.writeChat !== 'function' || typeof store.updateChat !== 'function' || !timeline) {
     throw new Error('Background Task Coordinator 缺少存储或时间线 adapter')
+  }
+
+  // Queued begins waiting on a chat's slots; a commit wakes them to look again.
+  const slotWaiters = new Map()
+  function slotReleased(chatId) {
+    const waiters = slotWaiters.get(chatId)
+    slotWaiters.delete(chatId)
+    for (const wake of waiters || []) wake()
+  }
+  function nextRelease(chatId, signal) {
+    return new Promise(resolve => {
+      const waiters = slotWaiters.get(chatId) || new Set()
+      slotWaiters.set(chatId, waiters)
+      const wake = () => { clearTimeout(timer); waiters.delete(wake); signal?.removeEventListener('abort', wake); resolve() }
+      const timer = setTimeout(wake, QUEUE_POLL_MS)
+      waiters.add(wake)
+      signal?.addEventListener('abort', wake, { once: true })
+    })
   }
 
   function serialize(chatId, work) {
@@ -112,7 +145,43 @@ export function createBackgroundTaskCoordinator(options = {}) {
     }
   }
 
+  // `queue`: a busy member's slot (书记 has one Session) holds this task back until it frees,
+  // instead of refusing it.
+  // The wait reads task state only (never the whole history); a rollback or replaced story
+  // (a new branch) cancels it. `onQueued` fires once, when the wait starts.
   async function begin(chat, role, input = {}) {
+    if (input.queue !== true) return beginNow(chat, role, input)
+    const chatId = str(chat && chat.id)
+    const queueBranchId = str(chat?.timeline?.branchId)
+    const deadline = Date.now() + QUEUE_MAX_MS
+    let attempt = { ...input, queueBranchId }
+    while (true) {
+      try { return await beginNow(chat, role, attempt) }
+      catch (error) {
+        // Behind another run of the same task is a duplicate, not a wait.
+        if (error?.code !== 'BACKGROUND_BUSY' || error.activity?.role === str(role) || Date.now() >= deadline) throw error
+        if (!attempt.queued) { attempt = { ...attempt, queued: true, reuseSnapshot: false }; input.onQueued?.(error.activity) }
+      }
+      while (true) {
+        input.signal?.throwIfAborted()
+        await nextRelease(chatId, input.signal)
+        input.signal?.throwIfAborted()
+        const state = await (store.readRecoveryState || store.readState)?.(chatId)
+        if (!state) break
+        assertQueueBranch(state, attempt)
+        const current = activity(state, slotOf(str(role)))
+        if (!(current.busy || current.phase === 'pending' && current.role !== str(role)) || Date.now() >= deadline) break
+      }
+    }
+  }
+  function assertQueueBranch(source, input) {
+    if (!input.queueBranchId || str(source?.timeline?.branchId) === input.queueBranchId) return
+    const error = new Error('剧情已回退或改写，排队中的后台任务已取消')
+    error.code = 'BACKGROUND_QUEUE_CANCELLED'
+    throw error
+  }
+
+  async function beginNow(chat, role, input = {}) {
     const chatId = str(chat && chat.id)
     const requestId = str(input.requestId).trim().slice(0, 160)
     const begun = await serialize(chatId, async function () {
@@ -133,6 +202,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
           error.code = 'COMPACTION_RUNNING'
           throw error
         }
+        assertQueueBranch(source, input)
         if (requestId !== '') {
           const operations = Object.values(timeline.inspect({ chat: source }).operations || {})
           const existing = operations.find(function (operation) {
@@ -353,6 +423,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
           return saved === undefined ? { chat: null, status: 'missing' } : { chat: saved, status }
         })
         options.lockEvent?.({ kind: 'released', sessionId: gameId, slot: slotOf(role), role: str(role), operationId: begun.value.operationId, status: str(outcome.status) })
+        slotReleased(chatId)
         // The story moved on while the agent ran: its result was dropped, not saved.
         if (outcome.status === 'stale') options.discarded?.({ sessionId: gameId, role: str(role), agentSessionId: str(input.participant?.sessionId) })
         return outcome
@@ -400,7 +471,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
         return { chat: source, status: 'stale', activity: activity(source) }
       }
       const next = timeline.apply({ chat: source, intent: { kind: 'background.recover', cancelDelivery: Boolean(options.operationId) } })
-      if (next.value.status !== 'unchanged') await store.writeChat(next.chat, { source: 'background.recover' })
+      if (next.value.status !== 'unchanged') { await store.writeChat(next.chat, { source: 'background.recover' }); slotReleased(chatId) }
       return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })
   }

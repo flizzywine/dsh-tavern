@@ -194,3 +194,49 @@ test('复用快照开始时撞上并发写入：只重读任务状态字段再�
 // A cancelled or empty style reference fails every few turns: marking it failed is a header write.
 // #394: after a body edit rewinds the background session, the candidate rebuilds
 // its context from the messages it read; the task-state header must not wipe them.
+
+test('书记忙时，排队的任务等它提交后再开始；不排队的任务仍然直接拒绝', async () => {
+  const { coordinator, current } = coordinatorHarness()
+  const holder = await coordinator.begin(current(), 'settlement')
+  await assert.rejects(coordinator.begin(current(), 'ledger'), error => error.code === 'BACKGROUND_BUSY')
+  let queued = 0
+  let begun = null
+  const waiting = coordinator.begin(current(), 'ledger', { queue: true, onQueued: () => queued++ }).then(task => { begun = task; return task })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(queued, 1)
+  assert.equal(begun, null, 'still waiting for the slot')
+  await holder.commit({ stateChanged: false })
+  const ledger = await waiting
+  assert.equal(coordinator.activity(current()).role, 'ledger')
+  assert.equal(coordinator.activity(current()).busy, true)
+  await ledger.commit({ stateChanged: false })
+})
+
+test('同一个任务不在自己后面排队：重复的一次照旧拒绝', async () => {
+  const { coordinator, current } = coordinatorHarness()
+  const holder = await coordinator.begin(current(), 'settlement')
+  await assert.rejects(coordinator.begin(current(), 'settlement', { queue: true }), error => error.code === 'BACKGROUND_BUSY')
+  await holder.commit({ stateChanged: false })
+})
+
+test('排队期间剧情回退（换了分支），排队的任务取消，不在新剧情上开始', async () => {
+  const { coordinator, current } = coordinatorHarness()
+  const holder = await coordinator.begin(current(), 'settlement')
+  const waiting = coordinator.begin(current(), 'ledger', { queue: true })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  current().timeline.branchId = 'branch-after-rollback'
+  await holder.commit({ stateChanged: false })
+  await assert.rejects(waiting, error => error.code === 'BACKGROUND_QUEUE_CANCELLED')
+  assert.equal(coordinator.activity(current()).busy, false)
+})
+
+test('排队可以中止', async () => {
+  const { coordinator, current } = coordinatorHarness()
+  const holder = await coordinator.begin(current(), 'settlement')
+  const controller = new AbortController()
+  const waiting = coordinator.begin(current(), 'ledger', { queue: true, signal: controller.signal })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  controller.abort()
+  await assert.rejects(waiting, error => error.name === 'AbortError')
+  await holder.commit({ stateChanged: false })
+})

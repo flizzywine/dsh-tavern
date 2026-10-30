@@ -2227,9 +2227,9 @@ export async function apply(ctx) {
   const manualLedger = createManualLedger({
     store: { chatForSession, updateChat },
     runAgent: input => backgroundAgentRunner.run(input), selection: backgroundModelSelection,
-    beginTask: async (chat, sessionId) => {
+    beginTask: async (chat, sessionId, onQueued) => {
       if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再整理台账。')
-      return await backgroundTasks.begin(chat, 'ledger')
+      return await backgroundTasks.begin(chat, 'ledger', { queue: true, onQueued })
     },
     ensureSession: async sessionId => {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
@@ -2241,9 +2241,9 @@ export async function apply(ctx) {
     store: { chatForSession, updateChat, readCard: readChatCard,
       readWorldBook: (chat, card) => worldBooks.bound(chat.cardPath, card, chat) },
     runAgent: input => backgroundAgentRunner.run(input), selection: backgroundModelSelection,
-    beginTask: async (chat, sessionId) => {
+    beginTask: async (chat, sessionId, onQueued) => {
       if (agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat.regenInProgress) throw new Error('前台正在生成，请完成后再设计人物。')
-      return await backgroundTasks.begin(chat, 'character-design')
+      return await backgroundTasks.begin(chat, 'character-design', { queue: true, onQueued })
     },
     ensureSession: async sessionId => {
       if (!agentRegistry.get(sessionId)?.session) await agentRegistry.resume({ resumeSessionId: sessionId })
