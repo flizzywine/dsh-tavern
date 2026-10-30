@@ -1,13 +1,12 @@
 import { readBackgroundModelReasoning } from '../domain/background-model-selection.js'
 import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
-import { JUDGE_KEY_REFS, validateJudgeConfig } from '../domain/engine-judge.js'
 
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createSettingsHandlers(deps) {
   const { agentRegistry, autoChoices, interfaceSkins, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
     llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
-    sessionActivity, stageJudge, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
+    sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
   const handlers = {
     async getUserPreferenceProfile(args) {
       const chat = args?.sessionId && args.globalDefaults !== true ? await chatHeaderForSession(args.sessionId, ['userProfileEnabled','userProfileContextSnapshot','userProfileId','userProfileRevision']) : null
@@ -57,10 +56,14 @@ export function createSettingsHandlers(deps) {
     },
     async getDisplayPreferences(args) {
       const settings = await readTavernSettings()
-      return { headerItems: settings.headerItems, viewTabs: settings.viewTabs }
+      return { hideContextAndReasoning: settings.hideContextAndReasoning, headerItems: settings.headerItems, viewTabs: settings.viewTabs }
     },
     async getCandidatePreferences(args) {
-      return { candidateDismissMode: (await readTavernSettings()).candidateDismissMode }
+      const { readTavernSettings } = deps
+
+        const settings = await readTavernSettings()
+        return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate }
+
     },
     // 界面皮肤: imported CSS appended after Tavern's stylesheet (interface-skins.js).
     async listInterfaceSkins() { return await interfaceSkins.list() },
@@ -69,36 +72,21 @@ export function createSettingsHandlers(deps) {
     async deleteInterfaceSkin(args) { return await interfaceSkins.remove(args?.id) },
     async getActiveInterfaceSkin() { return await interfaceSkins.active() },
     async getTavernSettings(args) {
-      return { settings: await readTavernSettings(), modelCatalog: await tavernModelCatalog() }
+      const { assetEngineSettings, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
+return { settings: await readTavernSettings(), modModelSlots: await slotDeclarations(), scoringCatalog: [assetEngineSettings.read().values.judge].filter(config=>config.provider!=='unset').map(({provider,model})=>({provider,model})), modelCatalog: await tavernModelCatalog() }
     },
     async updateTavernSettings(args) {
-      const settings = await updateTavernSettings(args && args.patch)
-      // Turning it off also drops replies still waiting for background work.
-      if (!settings.candidateAutoGenerate) autoChoices.cancelAll()
-      return { settings }
-    },
-    // 舞台模式 › 判断模型: the key's status only, never its value.
-    async getJudgeCredentialStatus(args) {
-      return stageJudge.credentialStatus(args?.provider, args?.keyName)
-    },
-    // 「API Key」, validated once here (printable ASCII without spaces, ≤ 4096; null clears the stored key). A variable name
-    // that resolves now becomes the judge's keyName and drops a stored key; any other value is stored as the key. Only the
-    // status (and, for a reference, the saved settings) comes back — never the key.
-    async setJudgeKey(args) {
-      const provider = args?.provider, value = args?.value
-      if (!Object.hasOwn(JUDGE_KEY_REFS, provider)) throw Object.assign(new Error('请先选择判断模型的提供方'), { code: 'INVALID_INPUT' })
-      if (value !== null && !(typeof value === 'string' && /^[\x21-\x7e]{1,4096}$/.test(value))) throw Object.assign(new Error('API Key 不能含空格或中文'), { code: 'INVALID_INPUT' })
-      let settings
-      if (value !== null && await stageJudge.isReference(value)) {
-        settings = await updateTavernSettings({ stageJudge: { ...(await readTavernSettings()).stageJudge, keyName: value } })
-        await stageJudge.setKey(provider, null)
-      } else await stageJudge.setKey(provider, value)
-      const keyName = (settings || await readTavernSettings()).stageJudge.keyName
-      return { status: await stageJudge.credentialStatus(provider, keyName), ...(settings ? { settings } : {}) }
-    },
-    // The unsaved draft when given; one tiny real request, only on the player's click.
-    async testJudgeConnection(args) {
-      return stageJudge.test(args?.config === undefined ? undefined : validateJudgeConfig(args.config))
+      const { checkSlotSelection, autoChoices, modService, updateTavernSettings } = deps
+
+        if(args?.patch?.modModelSelection) {
+          const {modId,slotId,selection}=args.patch.modModelSelection
+          await checkSlotSelection({modId,slotId,selection})
+        }
+        const settings = await updateTavernSettings(args && args.patch)
+        if(args?.patch?.modModelSelection)modService.invalidate()
+        if (!settings.candidateAutoGenerate) autoChoices.cancelAll()
+        return { settings }
+
     },
     async getSystemPrompts(args) {
       return { systemPrompts: presentSystemPrompts(await readTavernSettings()) }

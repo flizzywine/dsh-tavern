@@ -1,0 +1,8 @@
+/* Keep the existing full GAL dialogue and its theme tokens; only replace its image surface. */
+.fork-sprite-surface { display: block; }
+.fork-sprite-surface > img, .fork-sprite-surface > canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+.fork-sprite-surface > canvas { position: absolute; inset: 0; }
+.fork-sprite-editor { margin-block: var(--fork-space-3, 12px); color: var(--fork-text); }
+.fork-sprite-editor select { max-width: 100%; color: var(--fork-text); background: var(--fork-surface); border: 1px solid var(--fork-border); border-radius: var(--fork-radius-sm, 6px); }
+.fork-sprite-preview { position: relative; width: min(100%, 220px); aspect-ratio: 1; margin-block: 8px; }
+.fork-sprite-preview > .fork-sprite-surface { position: relative; width: 100%; height: 100%; }

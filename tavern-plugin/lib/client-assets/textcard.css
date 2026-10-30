@@ -1,0 +1,154 @@
+/* 「文字演出」 full-screen text cards (textcard-stage.js).
+   Flat palette cards with hard cuts — no fades in any mode. Colours come only from --tc-bg / --tc-fg, which the
+   renderer sets from the --gal-tc-* palette tokens (theme.css stage UI tokens) or the speaker's 形象色. */
+.fork-tc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; container-type: size; }
+.fork-tc-layer.is-up { pointer-events: auto; cursor: pointer; }
+.fork-tc-host { position: absolute; inset: 0; }
+/* The live region repeats the card text. In the card face (already loaded for the card), its first Han or kana text
+   does not make the browser load a system fallback font on the main thread as the card appears. */
+.fork-tc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font-family: var(--tc-mincho, var(--gal-tc-mincho)); }
+/* Follow mounted cards synchronously, not the React commit that mirrors the player state. */
+.fork-gal-stage:has(.fork-tc-host > .fork-tc) :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }
+
+.fork-tc { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--tc-bg); color: var(--tc-fg); font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-weight: 500; line-height: 1.2; text-align: center;
+  user-select: none; -webkit-user-select: none; font-kerning: normal; }
+.fork-tc[data-face="mono"] .fork-tc-code-main { font-family: var(--gal-tc-mono); }
+.fork-tc [data-tc-center] { will-change: translate; }
+.fork-tc-ln { display: block; }
+.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: 1.05cqw; font-weight: 400; letter-spacing: .8em; opacity: .85; }
+.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: 1.3cqw; font-weight: 400; letter-spacing: .5em; }
+.fork-tc-reading.is-under { position: absolute; left: 0; right: 0; bottom: 18cqh; margin: 0; }
+.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: 1.4cqw; letter-spacing: .3em; font-variant-numeric: tabular-nums; }
+.fork-tc-mark { margin-top: 3.4cqh; font-size: 1.1cqw; line-height: 1; }
+.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: 2cqw; letter-spacing: .3em; }
+.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: 1.4cqw; font-weight: 400; letter-spacing: .62em; }
+
+/* #01 齣: a tiny vertical label in a sea of colour. */
+.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: 2.6cqw; letter-spacing: .5em; }
+.fork-tc[data-layout="punct"] .fork-tc-reading { font-size: 1cqw; }
+
+/* #02 章节 */
+.fork-tc-title-main { font-size: 4.8cqw; letter-spacing: .12em; }
+.fork-tc-title-k { margin-right: .9em; letter-spacing: .2em; }
+.fork-tc-title-main.is-single { font-size: 16cqw; font-weight: 700; letter-spacing: 0; }
+.fork-tc-frame { position: absolute; inset: 22cqh 18cqw; border: .12cqw solid currentColor; opacity: .7; pointer-events: none; }
+
+/* #03 人名 */
+.fork-tc-name { padding-left: .32em; font-size: 6cqw; font-weight: 700; letter-spacing: .32em; }
+.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; font-weight: 400; letter-spacing: .55em; }
+.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: 1.3cqw; letter-spacing: .5em; }
+.fork-tc-rule { position: absolute; left: 12cqw; right: 12cqw; height: 0; border-top: .18cqw solid currentColor; opacity: .75; }
+.fork-tc-rule.is-top { top: 9cqh; } .fork-tc-rule.is-bottom { bottom: 9cqh; }
+
+/* #04 单字 / #05 字卡 / #06 竖排 / #23 巨字 */
+.fork-tc-text { font-weight: 700; line-height: 1.3; letter-spacing: .12em; }
+.fork-tc[data-size="xl"] .fork-tc-text { font-size: 24cqw; line-height: 1; letter-spacing: 0; }
+.fork-tc[data-size="l"] .fork-tc-text { font-size: 9cqw; }
+.fork-tc[data-size="m"] .fork-tc-text { font-size: 4.4cqw; font-weight: 500; letter-spacing: .2em; }
+.fork-tc[data-dir="v"] .fork-tc-text { writing-mode: vertical-rl; text-orientation: upright; line-height: 1.9; text-align: start; }
+.fork-tc[data-dir="v"] .fork-tc-text .fork-tc-ln + .fork-tc-ln { padding-top: 3.5em; }
+.fork-tc[data-size="crop"] { align-items: flex-start; }
+.fork-tc[data-size="crop"] .fork-tc-text { position: absolute; top: 50%; left: -4cqw; font-size: 48cqh; line-height: 1; letter-spacing: -.02em; white-space: nowrap; transform: translateY(-50%); }
+.fork-tc[data-size="crop"][data-anchor="right"] .fork-tc-text { left: auto; right: -4cqw; }
+.fork-tc[data-size="crop"][data-anchor="top"] .fork-tc-text { top: -10cqh; transform: none; }
+.fork-tc[data-size="crop"][data-anchor="bottom"] .fork-tc-text { top: auto; bottom: -10cqh; transform: none; }
+.fork-tc[data-size="crop"][data-anchor="center"] .fork-tc-text { left: 50%; transform: translate(-50%, -50%); }
+
+/* #07 长文: dense vertical columns filling the page. */
+.fork-tc-page-text { position: absolute; inset: 8cqh 8cqw 12cqh; writing-mode: vertical-rl; text-orientation: upright; overflow: hidden;
+  font-size: 1.9cqw; font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }
+.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: 1cqw; letter-spacing: .4em; opacity: .8; }
+
+/* #08 字海: a big word over a dense repeat of a related word, slowly drifting. */
+.fork-tc-wall-fill { position: absolute; inset: -4cqh -2cqw; overflow: hidden; color: color-mix(in srgb, var(--tc-fg) 26%, var(--tc-bg)); font-size: 2.1cqw; line-height: 1.32; letter-spacing: .1em; word-break: break-all; text-align: start; }
+.fork-tc:not([data-reduced]) .fork-tc-wall-fill { animation: fork-tc-drift 1.2s linear both; }
+@keyframes fork-tc-drift { to { translate: -1.5cqw -3cqh; } }
+.fork-tc-wall-word { position: relative; padding: .2em .45em; background: var(--tc-bg); font-size: 12cqw; font-weight: 700; line-height: 1; letter-spacing: .06em; }
+
+/* #09 分屏: thin rules, words larger than their cells. */
+.fork-tc-split { position: absolute; inset: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+.fork-tc-cell { position: relative; display: grid; place-items: center; overflow: hidden; border: 0 solid color-mix(in srgb, var(--tc-fg) 30%, var(--tc-bg)); }
+.fork-tc-cell + .fork-tc-cell { border-left-width: .15cqw; }
+.fork-tc-cell-text { font-size: 30cqh; font-weight: 700; line-height: 1; white-space: nowrap; }
+
+/* #10 形变: components gather into one glyph. */
+.fork-tc-morph { position: absolute; inset: 0; }
+.fork-tc-part { position: absolute; left: 50%; top: 50%; font-size: 14cqw; font-weight: 700; line-height: 1; translate: -50% -50%; transition: translate var(--tc-converge, 1s) cubic-bezier(.6, 0, .3, 1), scale var(--tc-converge, 1s) ease-in; }
+.fork-tc-part[data-slot="0"] { translate: -175% -110%; } .fork-tc-part[data-slot="1"] { translate: 75% -110%; }
+.fork-tc-part[data-slot="2"] { translate: -175% 10%; } .fork-tc-part[data-slot="3"] { translate: 75% 10%; }
+.fork-tc.is-converging .fork-tc-part { translate: -50% -50%; scale: .55; }
+.fork-tc-morph-final { font-size: 24cqw; font-weight: 700; line-height: 1; }
+.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; letter-spacing: .4em; }
+
+/* #11/#13/#22 sequences and 快闪: one word per state, the layout varies by state. */
+.fork-tc-fl { position: absolute; font-weight: 700; line-height: 1; white-space: nowrap; }
+.fork-tc-fl { inset: 0; display: grid; place-items: center; font-size: 13cqw; }
+.fork-tc[data-size="xl"] .fork-tc-fl { font-size: 26cqw; }
+.fork-tc[data-size="m"] .fork-tc-fl { font-size: 6cqw; font-weight: 500; letter-spacing: .1em; }
+
+/* #12 输入: growing line, uncommitted text underlined, a thin caret. */
+.fork-tc-ime { position: relative; display: grid; font-size: 5cqw; text-align: start; }
+.fork-tc-ime > * { grid-area: 1 / 1; white-space: nowrap; }
+.fork-tc-ime-ghost { visibility: hidden; }
+.fork-tc-ime-typing { text-decoration: underline .12em; text-underline-offset: .18em; }
+.fork-tc-caret { display: inline-block; width: .06em; height: 1em; margin-left: .04em; vertical-align: -.12em; background: currentColor; }
+
+/* #14 符号 */
+.fork-tc-code-main { padding-left: .25em; font-size: 9cqw; letter-spacing: .25em; }
+.fork-tc-bars { display: flex; align-items: flex-end; gap: .6cqw; height: 3cqh; margin-top: 3cqh; }
+.fork-tc-bars i { width: .5cqw; height: 25%; background: currentColor; }
+.fork-tc-bars i[data-h="1"] { height: 50%; } .fork-tc-bars i[data-h="2"] { height: 75%; } .fork-tc-bars i[data-h="3"] { height: 100%; width: 1.2cqw; }
+.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: 1.8cqw; font-weight: 400; letter-spacing: .3em; }
+
+/* #15 图解: tree, calendar or grid laid out from a few values. */
+.fork-tc-diagram { display: flex; flex-direction: column; align-items: center; gap: 5cqh; }
+.fork-tc-dg-root { padding: .4em 1em; border: .2cqw solid currentColor; font-size: 3.4cqw; }
+.fork-tc-dg-items { position: relative; display: flex; gap: 3cqw; padding-top: 4cqh; border-top: .2cqw solid currentColor; }
+.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: 2.2cqw; }
+.fork-tc-dg-item::before { content: ""; position: absolute; left: 50%; bottom: 100%; height: 4cqh; border-left: .2cqw solid currentColor; pointer-events: none; }
+.fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-root { border: 0; font-size: 18cqw; line-height: 1; font-variant-numeric: tabular-nums; }
+.fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-items, .fork-tc-diagram[data-kind="grid"] .fork-tc-dg-items { padding-top: 0; border-top: 0; }
+.fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-item::before, .fork-tc-diagram[data-kind="grid"] .fork-tc-dg-item::before { content: none; }
+.fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-item { border: 0; border-bottom: .15cqw solid currentColor; }
+.fork-tc-diagram[data-kind="calendar"] .fork-tc-dg-item:first-child { background: var(--tc-fg); color: var(--tc-bg); }
+.fork-tc-diagram[data-kind="grid"] .fork-tc-dg-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+.fork-tc-diagram[data-kind="grid"] .fork-tc-dg-item { margin: -.075cqw; padding: 1.4em 1em; }
+
+/* #16 场景标记 */
+.fork-tc-marker { font-size: 8cqw; font-weight: 700; letter-spacing: .1em; }
+.fork-tc-marker[data-tc-center="xy"] { writing-mode: vertical-rl; text-orientation: upright; font-size: 6.4cqw; letter-spacing: .2em; }
+
+@media (max-width: 720px) {
+  .fork-tc-foot, .fork-tc-roman, .fork-tc-reading { letter-spacing: .4em; }
+  .fork-tc[data-size="m"] .fork-tc-text { font-size: 5.6cqw; }
+  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: 2.6cqw; }
+}
+
+/* Compound templates keep their complete semantic text; only repeat's short final word deliberately crops. */
+.fork-tc[data-compound] .fork-tc-text { max-width: 84cqw; overflow-wrap: anywhere; }
+.fork-tc[data-compound][data-size="crop"] .fork-tc-text { max-width: none; }
+.fork-tc[data-compound] .fork-tc-fl-word { max-width: 88cqw; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-title-main { max-width: 60cqw; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-title-k { display: block; margin: 0 0 2cqh; font-size: max(var(--fork-fs-meta), 1.6cqw); }
+.fork-tc[data-compound] .fork-tc-reading { max-width: 90cqw; overflow-wrap: anywhere; font-size: max(var(--fork-fs-meta), 1.3cqw); }
+.fork-tc[data-compound] .fork-tc-reading.is-under,
+.fork-tc[data-compound][data-size="crop"] .fork-tc-reading { position: absolute; left: 5cqw; right: 5cqw; bottom: 8cqh; margin: 0; }
+.fork-tc[data-compound] .fork-tc-wall-word { max-width: 80cqw; font-size: 7cqw; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-cell-text { max-width: 85%; font-size: 4cqw; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fork-tc-cell-name { position: absolute; top: 15cqh; left: 8%; right: 8%; font-size: max(var(--fork-fs-heading), 2cqw); letter-spacing: .2em; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-ime { width: 80cqw; font-size: 3.4cqw; }
+.fork-tc[data-compound] .fork-tc-ime > * { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-code-main { max-width: 82cqw; font-size: 4cqw; overflow-wrap: anywhere; }
+.fork-tc[data-compound] .fork-tc-page-text { font-size: max(var(--fork-fs-body), 1.9cqw); }
+.fork-tc[data-compound] .fork-tc-margin { font-size: max(var(--fork-fs-meta), 1cqw); }
+.fork-tc-relate { position: absolute; inset: 8cqh 5cqw 22cqh; }
+.fork-tc-relate svg { width: 100%; height: 100%; overflow: visible; }
+.fork-tc-relate-person, .fork-tc-relate-label { position: absolute; translate: -50% -50%; background: var(--tc-bg); overflow-wrap: anywhere; }
+.fork-tc-relate-person { max-width: 23%; padding: .3em .4em; border: .1em solid currentColor; font-size: max(var(--fork-fs-heading), 2.2cqw); letter-spacing: .12em; }
+.fork-tc-relate-label { max-width: 25%; padding: .2em .4em; font-size: max(var(--fork-fs-meta), 1.3cqw); }
+@media (max-width: 720px) {
+  .fork-tc[data-compound] .fork-tc-page-text { inset: 10cqh 5cqw; writing-mode: horizontal-tb; font-size: var(--fork-fs-body); line-height: 1.4; }
+  .fork-tc[data-compound] .fork-tc-margin { top: 5cqh; left: 5cqw; right: 5cqw; writing-mode: horizontal-tb; text-align: start; }
+  .fork-tc[data-compound] .fork-tc-ime { font-size: max(var(--fork-fs-heading), 3.4cqw); }
+}

@@ -74,7 +74,9 @@
 					h("div", { className: "dsh-tavern-status-title" }, "系统提示词"),
 					h("div", { className: "dsh-tavern-question-sub" }, "选中的方案对所有游戏生效")),
 				h("div", { className: "dsh-tavern-profile-library-bar dsh-tavern-prompt-set-bar" },
-					h("select", { "aria-label": "系统提示词方案", value: state.promptSets.activeId, disabled: state.busy, onChange: function (event) { void manageSet("select", event.target.value); } }, state.promptSets.sets.map(function (item) { return h("option", { key: item.id, value: item.id }, item.name); })),
+					// the shared inline menu, not a native select.
+					h(InlineField, { kind: "menu", label: "系统提示词方案", hideLabel: true, value: state.promptSets.activeId, disabled: state.busy, onCommit: function (value) { void manageSet("select", value); },
+						options: state.promptSets.sets.map(function (item) { return { value: item.id, label: item.name }; }) }),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy, title: "新建一套默认内容的方案", onClick: function () { void manageSet("create"); } }, "新建"),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy, title: "复制当前方案", onClick: function () { void manageSet("duplicate"); } }, "复制"),
 					h("button", { className: "dsh-tavern-btn", disabled: state.busy, onClick: function () { void manageSet("rename", state.promptSets.activeId); } }, "重命名"),
@@ -85,5 +87,5 @@
 					h("div", { className: "dsh-tavern-preset-detail-actions" }, h("button", { className: "dsh-tavern-btn danger", disabled: state.busy || !state.prompts.some(function (item) { return item.customized; }), onClick: function () { void restoreAll(); } }, "当前方案全部恢复默认")),
 					state.notice ? h("div", { className: "dsh-tavern-system-prompt-status", role: "status" }, state.notice) : null,
 					state.error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, state.error) : null,
-					state.loading ? h("div", { className: "dsh-tavern-status-empty" }, "正在读取系统提示词…") : state.prompts.map(row)));
+					state.loading ? h(PanelLoading, { shape: "fields", label: "正在读取系统提示词…" }) : state.prompts.map(row)));
 		}

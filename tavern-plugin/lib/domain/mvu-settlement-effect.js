@@ -5,7 +5,7 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
-const ALLOWED_ROOTS = new Set(['messages', 'variables', 'mvu', 'tavernScriptPrompts'])
+const ALLOWED_ROOTS = new Set(['messages', 'variables', 'mvu', 'tavernScriptPrompts', 'openingWorldbookSnapshot'])
 
 function assertIdentity(chat, effect) {
   if (!effect || effect.version !== 1 || str(effect.operationId) === '') throw new Error('MVU Settlement Effect 不合法')
@@ -22,6 +22,10 @@ function assertIdentity(chat, effect) {
     throw error
   }
   const message = Array.isArray(chat && chat.messages) ? chat.messages[Number(effect.messageId)] : null
+  if (message?.variableEdits?.[effect.swipeId]?.editedAfterSettlement === true
+    && chat.timeline?.operations?.[effect.operationId]?.kind !== 'variables.edit') {
+    throw Object.assign(new Error('edited-after-settlement'), {code:'STALE_SETTLEMENT_EFFECT'})
+  }
   if (!message || Math.max(0, Number(message.swipeId) || 0) !== Number(effect.swipeId)) {
     const error = new Error('MVU Settlement Effect Swipe 已变化')
     error.code = 'STALE_SETTLEMENT_EFFECT'

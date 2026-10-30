@@ -44,3 +44,16 @@ test('explicit moves still preserve values before automatic additions and remova
     assert.deepEqual(updated.messages[0].variables[0].stat_data,{新:75})
   }finally{runtime.dispose()}
 })
+
+test('stage projections request history only for active templated status rules after a card update', () => {
+  const runtime = createLiveCardUpdate()
+  const rule = { findRegex: '<StatusPlaceHolderImpl/>', replaceString: '<%= value %>' }
+  try {
+    assert.equal(runtime.needsHistory({}, { regexScripts: [rule] }), false)
+    assert.equal(runtime.needsHistory({ cardContextRevision: 1 }, {}), false)
+    assert.equal(runtime.needsHistory({ cardContextRevision: 1 }, { regexScripts: [rule] }), true)
+    for (const patch of [{ enabled: false }, { disabled: true }, { replaceString: 'plain' }, { findRegex: 'ordinary' }]) {
+      assert.equal(runtime.needsHistory({ cardContextRevision: 1 }, { regexScripts: [{ ...rule, ...patch }] }), false)
+    }
+  } finally { runtime.dispose() }
+})

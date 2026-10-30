@@ -30,36 +30,26 @@ function refs(v, path) {
   })
 }
 export function voiceReferences(voice) {
-  return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : s.kind === 'emotion-references' ? [...s.fallback,...Object.values(s.emotions).flat()] : [])
+  return Object.values(voice.sources).flatMap(s => s.kind === 'reference-list' ? s.references : [])
 }
 export function validateVoiceSpec(v, path = '$.voice') {
   shape(v,['name','language','defaultSource','sources','variants','emotions','fallbackSources'],['name','language','defaultSource','sources'],path)
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
   record(v.sources,path+'.sources',(s,p) => {
-    const fields = {'voice-id':['voiceId'],preset:['voiceName','model'],'reference-list':['references'],'emotion-references':['engine','model','fallback','emotions','selection']}[s?.kind]
+    const fields = {'voice-id':['voiceId'],preset:['voiceName','model'],'reference-list':['references']}[s?.kind]
     check(fields,p+'.kind'); shape(s,['kind','provider',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
     // every source may be chosen before it is set up — a clone without clips,
-    // a library voice or online preset without its voice, a local source without its model. Resolving it reports what is
+    // a library voice or online preset without its voice. Resolving it reports what is
     // missing (dsh-tts voice-resolver sourceUnsetIssue) instead of the pack refusing the choice.
     if (s.kind === 'voice-id') { check(s.provider === 'fish-audio',p+'.provider'); if (s.voiceId !== undefined) check(typeof s.voiceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(s.voiceId),p+'.voiceId') }
-    if (s.kind === 'preset') { check(s.provider !== 'local',p+'.provider'); if (s.voiceName !== undefined) text(s.voiceName,p+'.voiceName'); if (s.model !== undefined) text(s.model,p+'.model') }
+    if (s.kind === 'preset') { if (s.voiceName !== undefined) text(s.voiceName,p+'.voiceName'); if (s.model !== undefined) text(s.model,p+'.model') }
     if (s.kind === 'reference-list') { check(s.provider === 'fish-audio',p+'.provider'); refs(s.references,p+'.references') }
-    if (s.kind === 'emotion-references') {
-      check(s.provider === 'local',p+'.provider'); check((s.engine === undefined) === (s.model === undefined),p+'.model')
-      if (s.model !== undefined) {
-        id(s.engine,p+'.engine'); object(s.model,p+'.model')
-        check(s.model.engine === s.engine,p+'.model.engine'); text(s.model.modelVersion,p+'.model.modelVersion')
-        for (const key of ['gpt','sovits',...(s.model.sv ? ['sv'] : []),...(s.model.lora ? ['lora'] : [])]) check(typeof s.model[key]?.sha256 === 'string' && /^[a-f0-9]{64}$/.test(s.model[key].sha256),p+'.model.'+key)
-      }
-      refs(s.fallback,p+'.fallback'); record(s.emotions,p+'.emotions',(r,q) => refs(r,q))
-      check(s.selection === undefined || s.selection === 'stable-random',p+'.selection')
-    }
     if (s.model !== undefined) safeData(s.model,p+'.model')
   })
   check(own(v.sources,v.defaultSource),path+'.defaultSource','Unknown source')
   if (v.fallbackSources !== undefined) {
     check(Array.isArray(v.fallbackSources) && new Set(v.fallbackSources).size === v.fallbackSources.length,path+'.fallbackSources')
-    v.fallbackSources.forEach(s => check(own(v.sources,s) && v.sources[s].provider !== 'local',path+'.fallbackSources','Fallback must be an exported non-local source'))
+    v.fallbackSources.forEach(s => check(own(v.sources,s),path+'.fallbackSources','Unknown source'))
   }
   if(v.emotions!==undefined)record(v.emotions,path+'.emotions',(e,p)=>{
     shape(e,['label','tuning','referenceEmotion'],['label'],p);text(e.label,p+'.label');
@@ -93,19 +83,4 @@ export function validateVoiceBinding(v, library, path = '$.voice') {
 export function validateVoiceLibrary(v, path = '$.voiceLibrary') {
   shape(v,['version','voices'],['version','voices'],path); check(v.version === 1,path+'.version')
   record(v.voices,path+'.voices',(voice,p) => validateVoiceSpec(voice,p)); return v
-}
-// Only import may change a local selection. Availability is supplied by TTS, never inferred from URLs.
-export async function planVoiceImport(library, figures, available) {
-  const bindings = {}, changes = []
-  for (const figure of Object.values(figures)) {
-    const binding = figure.voice
-    if (!binding || binding.source === null) continue
-    const voice = library.voices[binding.voice], source = binding.source ?? voice.defaultSource
-    if (voice.sources[source].provider !== 'local' || await available(voice.sources[source],voice)) continue
-    let next = null
-    for (const candidate of voice.fallbackSources || []) if (await available(voice.sources[candidate],voice)) { next = candidate; break }
-    bindings[figure.id] = {...binding,source:next}
-    changes.push({figureId:figure.id,from:source,to:next,code:next === null ? 'LOCAL_UNAVAILABLE_MUTED' : 'LOCAL_FALLBACK'})
-  }
-  return {bindings,changes}
 }

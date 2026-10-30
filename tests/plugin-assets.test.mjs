@@ -47,5 +47,5 @@ test('插件资源：只提供 assets/ 下的文件，按包名或文件夹名�
   const cached = await fetch(base + 'map/forest.png', { headers: { 'If-None-Match': full.headers.get('etag') } })
   assert.equal(cached.status, 304)
   assert.equal((await fetch(base + 'secret.json')).status, 404)
-  assert.equal((await fetch(base + 'map/forest.png', { headers: { Origin: 'https://other.example' } })).status, 200, '跨源的 <img> 也能用')
+  assert.equal((await fetch(base + 'map/forest.png', { headers: { Origin: 'https://other.example' } })).status, 403, 'foreign origins cannot read local plugin assets')
 })

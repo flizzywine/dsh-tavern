@@ -98,5 +98,5 @@
 					h("button", { type: "button", className: "dsh-tavern-question-sub dsh-tavern-skill-description", disabled: busy, onClick: () => run(async () => setOpened(await rpc("getSkill", { name: skill.name }, props.sessionId))) }, skill.description),
 					h("details", { className: "dsh-tavern-skill-options" }, h("summary", null, "调整用途"), h("div", { className: "dsh-tavern-skill-assignments" }, roles.map(([role, label]) => h("label", { key: role }, h("input", { type: "checkbox", checked: skill.agents.includes(role), disabled: busy || skill.agents.length === 1 && skill.agents.includes(role), onChange: event => { const agents = event.target.checked ? skill.agents.concat(role) : skill.agents.filter(value => value !== role); run(async () => { await rpc("assignSkill", { name: skill.name, agents }, props.sessionId); await refresh(); }); } }), label))))
                     )) : h("div", { className: "dsh-tavern-skill-empty" }, "拖动 Skill 到这里"));
-                }), !skills.length ? h("div", { className: "dsh-tavern-status-empty" }, busy ? "正在读取 Skill…" : "暂无 Skill") : null));
+                }), !skills.length ? (busy ? h(PanelLoading, { label: "正在读取 Skill…" }) : h(EmptyState, { noun: "Skill" })) : null));
 		}

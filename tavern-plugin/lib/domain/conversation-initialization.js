@@ -204,6 +204,7 @@ export function createConversationInitialization(options) {
     if (greeting !== '') chat.messages.push(Object.assign({
       role: 'assistant',
       ...replyProse(openingSourceText, openingProjection),
+      stagePageVersion: 2,
       ts: now(),
       greeting: true,
       turn: 1

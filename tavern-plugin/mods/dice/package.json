@@ -1,0 +1,1 @@
+{"name":"dsh-tavern-mod-dice","version":"2.0.0","type":"module","exports":{".":"./plugin.mjs"},"dsh":{"entry":"plugin.mjs","mod":"mod.json"}}

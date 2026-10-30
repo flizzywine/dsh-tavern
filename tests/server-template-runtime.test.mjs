@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServerTemplateRuntime } from '../tavern-plugin/lib/domain/server-template-runtime.js'
+import { registerTurnLifecycleHooks } from '../tavern-plugin/lib/hooks/turn-lifecycle.js'
 
 function fixture(t, options = {}) {
   const snapshots = new Map(), calls = [], journals = new Map()
@@ -36,6 +37,28 @@ test('cancellation rejects running and queued work without replay', async t => {
   setTimeout(()=>runtime.cancel('s'),50)
   assert.deepEqual((await pending).map(r=>r.status),['rejected','rejected'])
   assert.equal((await engine.render('<%= typeof window.mustNotRun %>')).text,'undefined')
+})
+
+test('no agent turn end cancels the shared template process another task is rendering in', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers()
+  let armed = false
+  const {engine} = fixture(t,{beforeRpc:async method=>{
+    if (armed && method === 'getFullPromptTemplateState') { entered.resolve(); await release.promise }
+  }})
+  await engine.render('warm')
+  armed = true
+  const pending = engine.render('settled')
+  await entered.promise
+  const hooks = new Map()
+  registerTurnLifecycleHooks({ctx:{on:(name,fn)=>hooks.set(name,fn)},
+    backgroundAgentRunner:{owns:id=>id==='director',requestContext:()=>({parentSessionId:'s',task:'stage-director'})},
+    clearRuntimePresetRequestState:()=>{},userMessageForTurn:()=>null,contentText:()=>''})
+  // The background director and the game's own foreground turn both end while settlement still renders.
+  await hooks.get('agent/turn-stopping')({agent:{session:{id:'director'}},turn:1})
+  await hooks.get('agent/turn-stopping')({agent:{session:{id:'s'}},turn:1})
+  release.resolve()
+  assert.equal((await pending).text,'settled')
+  assert.equal((await engine.render('still-alive')).text,'still-alive')
 })
 
 test('child cannot inherit host secret env or write arbitrary files', async t => {

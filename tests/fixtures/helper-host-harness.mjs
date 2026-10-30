@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './client-vm.mjs'
 import { TAVERN_COMPATIBILITY_CAPABILITIES } from '../../tavern-plugin/lib/domain/tavern-compatibility-diagnostics.js'
 
 let descriptor
 vm.runInNewContext(await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {
-  window: { __ModuleLoader__: { load(value) { descriptor = value } } }, console
+  // this Node harness has no presentation document or animation loops.
+  window: { forkForeground: { now: Date.now, setInterval, clearInterval }, __ModuleLoader__: { load(value) { descriptor = value } } }, console
 })
 export const helperClient = descriptor.factory(() => ({}))
 

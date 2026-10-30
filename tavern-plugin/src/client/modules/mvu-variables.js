@@ -1,24 +1,3 @@
-// Keep decimal typing intact: parsing every keystroke would turn "1." into 1
-// and move the caret before the next digit.
-function MvuNumberInput(props) {
-  const h = React.createElement;
-  const [text, setText] = React.useState(String(props.value));
-  const focusedRef = React.useRef(false);
-  React.useEffect(function () {
-    if (!focusedRef.current) setText(String(props.value));
-  }, [props.value]);
-  function change(event) {
-    const next = event.target.value;
-    setText(next);
-    if (next.trim() !== '' && Number.isFinite(Number(next))) props.onChange(Number(next));
-  }
-  function blur() {
-    focusedRef.current = false;
-    if (text.trim() === '' || !Number.isFinite(Number(text))) setText(String(props.value));
-  }
-  return h('input', { type: 'text', inputMode: 'decimal', value: text, disabled: props.disabled, onFocus: function () { focusedRef.current = true; }, onChange: change, onBlur: blur });
-}
-
 // Player-only MVU variable inspector for the current story floor. Editing is a
 // direct card-side write; it never reaches the foreground model or reruns MVU.
 function TavernMvuVariables(props) {
@@ -109,19 +88,22 @@ function TavernMvuVariables(props) {
     finally { setBusy(false); }
   }
 
-  function inputFor(value, path) {
+  // a leaf is one shared inline field (text / number commit on Enter or blur into the
+  // draft; 保存修改 still writes the floor), a yes/no leaf the shared switch.
+  function leaf(value, path, label, key) {
     if (typeof value === 'boolean') {
-      return h('label', { className: 'dsh-mvu-check' },
-        h('input', { type: 'checkbox', checked: value, disabled: busy, onChange: function (event) { editPath(path, event.target.checked); } }),
-        value ? '是' : '否');
+      return h(InlineRow, { key: key, className: 'dsh-mvu-field', label: label },
+        h('span', { className: 'dsh-mvu-check' },
+          h(Switch, { label: label, checked: value, disabled: busy, onChange: function (next) { editPath(path, next); } }),
+          value ? '是' : '否'));
     }
-    if (typeof value === 'number') {
-      return h(MvuNumberInput, { value: Number.isFinite(value) ? value : 0, disabled: busy, onChange: function (next) { editPath(path, next); } });
+    if (typeof value === 'number' || typeof value === 'string') {
+      const number = typeof value === 'number';
+      return h(InlineField, { key: key, className: 'dsh-mvu-field', kind: number ? 'number' : 'text', label: label, trim: false, disabled: busy,
+        value: number ? (Number.isFinite(value) ? value : 0) : value, validate: number ? function (next) { return next === null ? '请输入数字' : ''; } : undefined,
+        onCommit: function (next) { editPath(path, next); } });
     }
-    if (typeof value === 'string') {
-      return h('input', { type: 'text', value: value, disabled: busy, onChange: function (event) { editPath(path, event.target.value); } });
-    }
-    return h('span', { className: 'dsh-mvu-null' }, 'null');
+    return h(InlineRow, { key: key, className: 'dsh-mvu-field', label: label }, h('span', { className: 'dsh-mvu-null' }, 'null'));
   }
 
   function node(value, path, label, depth) {
@@ -137,11 +119,8 @@ function TavernMvuVariables(props) {
         h('summary', null, h('span', { className: 'dsh-mvu-node-label' }, label), h('span', { className: 'dsh-mvu-kind' }, entries.length + ' 项')),
         entries.length ? entries.map(function ([childKey, child]) { return node(child, path.concat(childKey), childKey, depth + 1); }) : h('span', { className: 'dsh-mvu-empty' }, '空'));
     }
-    return h('label', { key: key, className: 'dsh-mvu-field' },
-      h('span', { className: 'dsh-mvu-field-key', title: label }, label),
-      inputFor(value, path));
+    return leaf(value, path, label, key);
   }
-
   const editable = Boolean(floor && floor.statData);
   const badge = floor ? (floor.turn ? '第 ' + floor.turn + ' 轮' : '楼层 #' + floor.messageId) : '暂无';
   return h('section', { className: 'dsh-tavern-status-section dsh-mvu-variables', 'aria-label': 'MVU 变量' },
@@ -167,8 +146,9 @@ function TavernMvuVariables(props) {
             : h('p', { className: 'dsh-tavern-status-empty' }, '状态数据还是空的。可以在 JSON 里添加字段。'))
         : h('div', null,
           h('p', { className: 'dsh-tavern-status-empty' }, '直接编辑 stat_data。schema、display_data 和其他变量字段会原样保留。'),
-          h('textarea', { className: 'dsh-mvu-json', value: jsonText, spellCheck: false, disabled: busy, 'aria-label': 'MVU 状态数据 JSON',
-            onChange: function (event) { setJsonText(event.target.value); setDirty(true); setNotice(''); } })),
+          // the shared draft text area.
+          h(TextArea, { className: 'dsh-mvu-json', value: jsonText, spellCheck: false, disabled: busy, label: 'MVU 状态数据 JSON', rows: 12,
+            onChange: function (next) { setJsonText(next); setDirty(true); setNotice(''); } })),
       error ? h('div', { className: 'dsh-card-error', role: 'alert' }, error) : null,
       notice ? h('p', { className: 'dsh-tavern-status-empty', role: 'status' }, notice) : null,
       h('div', { className: 'dsh-mvu-actions' },

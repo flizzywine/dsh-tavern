@@ -104,7 +104,7 @@
 					h("span", null, "自动精修", h("span", { className: "dsh-tavern-settings-desc" }, prereview
 						? "每轮正文写完，后台按「正文精修原则」审稿，等本轮结算完成后直接改进正文，正文下方标「已自动精修」；改了什么在这里对比，可撤销。每轮多一次模型调用。"
 						: "开启后，每轮正文写完自动精修，不用再手动点「精修」；每轮多一次模型调用。关闭时点「精修」才开始审稿，要等半分钟到一分钟。")),
-					h("input", { type: "checkbox", role: "switch", "aria-label": "自动精修", checked: prereview, disabled: !current || saving, onChange: function (event) { void togglePrereview(event.target.checked); } })),
+					h(Switch, { bare: true, label: "自动精修", checked: prereview, disabled: !current || saving, onChange: function (on) { void togglePrereview(on); } })),
 				h(TavernDefaultModelSetting, { label: "精修模型", title: "精修模型", description: "审稿和改字用的模型，对所有游戏生效。推理强度越低越快，但容易漏掉前后矛盾这类问题。",
 					fallback: "跟随正文模型", selection: current ? current.polishModel : null, catalog: catalog, disabled: !current || saving, onChange: function (selection) { void savePolishModel(selection); } }),
 				h("header", { className: "dsh-context-header" },
@@ -117,7 +117,8 @@
 						h("button", { disabled: busy, onClick: load }, busy ? "读取中…" : "刷新"))),
 				notice ? h("p", { role: "status" }, notice) : null,
 				current && current.error ? h("p", { role: "status" }, current.error) : null,
-				current && !comparison && !current.error ? h("p", { className: "dsh-context-empty" }, "还没有可对比的精修。在最后一轮正文下点「重新生成正文」→「精修」，改完回到这里看前后对比、撤销精修；那轮正文再改动或重新生成后，这里就清空。") : null,
+				// the shared empty state.
+				current && !comparison && !current.error ? h(EmptyState, { text: "还没有可对比的精修。在最后一轮正文下点「重新生成正文」→「精修」，改完回到这里看前后对比、撤销精修；那轮正文再改动或重新生成后，这里就清空。" }) : null,
 				comparison ? h("div", { className: "dsh-polish-cols" },
 					h("div", { className: "dsh-polish-col" }, h("h4", null, "原文"), tavernPolishParagraphs(comparison.segments, "before", hover)),
 					h("div", { className: "dsh-polish-col" }, h("h4", null, "精修"), tavernPolishParagraphs(comparison.segments, "after", hover))) : null,

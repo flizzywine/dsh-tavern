@@ -493,7 +493,10 @@
 					return owned(this, function () {
 						if (panels.has(tabId)) throw new Error("面板 " + input.id + " 已注册");
 						if (!host || !host.betterSidebar || typeof host.betterSidebar.registerTab !== "function") throw new Error("当前界面没有侧栏，无法注册插件面板");
+						// a plugin panel's tab carries the host plugin glyph like every other tab.
+						const PluginIcon = DshUi && DshUi.IconCordisPluginOutline14;
 						const dispose = host.betterSidebar.registerTab({ id: tabId, title: title, order: 60, single: true,
+							...(PluginIcon ? { icon: function (size) { return React.createElement(PluginIcon, { size: size || 16, width: size || 16, height: size || 16 }); } } : {}),
 							component: function (props) {
 								const gameId = props.scope && props.scope.sessionId || "";
 								if (gameId && !tavernPluginAllowed(owner, gameId)) return React.createElement("p", { className: "dsh-tavern-plugin-panel-empty" }, "这是另一张人物卡的插件面板。");
@@ -942,10 +945,9 @@
 			const h = React.createElement;
 			if (!props.choice.views.length) return null;
 			const current = props.choice.view ? props.choice.view.key : TAVERN_VIEW_BUILTIN;
-			return h("select", { className: props.className, value: current, "aria-label": props.label, onChange: function (event) { props.choice.choose(event.target.value); } },
-				[{ key: TAVERN_VIEW_BUILTIN, label: "内置" }].concat(props.choice.views).map(function (entry) {
-					return h("option", { key: entry.key, value: entry.key, title: entry.owner || undefined }, entry.label);
-				}));
+			// the shared inline menu, not a native select.
+			return h(InlineField, { kind: "menu", label: props.label, className: props.className, value: current, onCommit: props.choice.choose,
+				options: [{ key: TAVERN_VIEW_BUILTIN, label: "内置" }].concat(props.choice.views).map(function (entry) { return { value: entry.key, label: entry.label, title: entry.owner || undefined }; }) });
 		}
 
 		function useTavernTurnView(sessionId) {
@@ -1158,9 +1160,9 @@
 					illustrator.editPrompt ? h("button", { type: "button", className: "dsh-tavern-btn", title: "自己改这张图的提示词再画", disabled: busy || working, onClick: function () { open("prompt"); } }, "改提示词") : null,
 					illustrator.add ? h("button", { type: "button", className: "dsh-tavern-btn", title: "为这一轮另选一个场景，再加一张插图", disabled: busy, onClick: function () { open("add"); } }, "新增插图") : null) : null,
 				panel === "redraw" ? h("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-repaint", role: "region", "aria-label": "重画插图" },
-					h("textarea", { value: draft, maxLength: 2000, rows: 2, autoFocus: true, disabled: busy, "aria-label": "重画意见（选填）",
+					h(TextArea, { value: draft, maxLength: 2000, rows: 2, autoFocus: true, disabled: busy, "aria-label": "重画意见（选填）",
 						placeholder: "想怎么改？例如：改成雨夜，镜头拉近。留空则重新构思画面，或用同一份提示词再画一张",
-						onChange: function (event) { setDraft(event.target.value); },
+						onChange: function (value) { setDraft(value); },
 						onKeyDown: function (event) {
 							if (event.key === "Escape" && !busy) setPanel(null);
 							else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !busy) { event.preventDefault(); run("revise", { instruction: draft.trim() }); }
@@ -1171,10 +1173,10 @@
 						h("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-image-repaint-submit", title: draft.trim() ? "按意见改写这张图的提示词后重画" : "重新整理这张图的提示词再画，多跑一次文字模型", disabled: busy,
 							onClick: function () { return run("revise", { instruction: draft.trim() }); } }, draft.trim() ? "按意见重画" : "重新整理提示词"))) : null,
 				panel === "prompt" || panel === "add" ? h("div", { className: "dsh-tavern-image-adjust dsh-tavern-image-repaint", role: "region", "aria-label": panel === "prompt" ? "改提示词重画" : "新增插图" },
-					h("textarea", { value: draft, maxLength: 12000, rows: panel === "prompt" ? 6 : 2, autoFocus: true, disabled: busy,
+					h(TextArea, { value: draft, maxLength: 12000, rows: panel === "prompt" ? 6 : 2, autoFocus: true, disabled: busy,
 						"aria-label": panel === "prompt" ? "画面提示词" : "新插图想画什么（选填）",
 						placeholder: panel === "prompt" ? "直接写画面提示词" : "想画哪个场景？留空由插件另选一个不同的场景",
-						onChange: function (event) { setDraft(event.target.value); },
+						onChange: function (value) { setDraft(value); },
 						onKeyDown: function (event) {
 							if (event.key === "Escape" && !busy) setPanel(null);
 							else if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !busy) { event.preventDefault(); run(panel === "prompt" ? "editPrompt" : "add", panel === "prompt" ? { prompt: draft.trim() } : { instruction: draft.trim() }); }
@@ -1254,9 +1256,13 @@
 				render: function (text, key, renderText) {
 					const result = segmentPluginText(text, { markers: markers.map(function (marker) { return marker.pattern; }), anchors: anchors.filter(function (anchor) { return !placed.has(anchor.id); }) });
 					result.placed.forEach(function (id) { placed.add(id); });
-					if (result.segments.length === 1 && result.segments[0].kind === "text") return renderText(text, key);
+					if (result.segments.length === 1 && result.segments[0].kind === "text") return renderText(text, key, 0);
+					// retain source coordinates; media consumes no source text.
+					let sourceOffset = 0;
 					return React.createElement(React.Fragment, { key: key }, result.segments.map(function (segment, index) {
-						if (segment.kind === "text") return renderText(segment.text, index);
+						const offset = sourceOffset;
+						if (segment.kind === "text") { sourceOffset += segment.text.length; return renderText(segment.text, index, offset); }
+						if (segment.kind === "marker") sourceOffset += segment.match[0].length;
 						if (segment.kind === "media") return React.createElement(React.Fragment, { key: index }, segment.ids.map(function (id) {
 							if (extras.has(id)) return React.createElement(React.Fragment, { key: id }, extras.get(id).render());
 							return React.createElement(TavernPluginMediaItem, { key: id, item: byId.get(id), sessionId: input.sessionId, turn: input.turn });
@@ -1353,7 +1359,7 @@
 						return h("button", { key: count, type: "button", "aria-pressed": count === columns, "aria-label": count + " 列", onClick: function () { changeColumns(count); } }, String(count));
 					})),
 				h("span", { className: "dsh-tavern-card-grid-count" }, input.cards.length + " 张"));
-			if (!input.cards.length) return h("div", null, toolbar, h("div", { className: "dsh-tavern-card-grid-empty" }, "没有匹配的人物卡"));
+			if (!input.cards.length) return h("div", null, toolbar, h(EmptyState, { text: "没有匹配的人物卡", icon: "search" }));
 			return h("div", null, toolbar, h("div", { className: "dsh-tavern-card-grid" + (columns >= 5 ? " dense" : ""), style: { "--dsh-tavern-card-grid-cols": String(columns) } }, input.cards.map(function (card) {
 				const selected = input.isSelected(card.path);
 				const corner = [input.mention(card.path), input.menu(card.path)].filter(Boolean);
@@ -1365,8 +1371,8 @@
 							: h("span", { className: "dsh-tavern-card-grid-cover placeholder", "aria-hidden": "true" }, Array.from(String(card.name || "").replace(/^[^\p{L}\p{N}]+/u, ""))[0] || "?"),
 						h("span", { className: "dsh-tavern-card-grid-copy" },
 							h("span", { className: "dsh-tavern-card-grid-name" }, card.name))),
-					input.selecting ? h("input", { type: "checkbox", className: "dsh-tavern-card-batch-checkbox dsh-tavern-card-grid-check", checked: selected, disabled: input.busy,
-						"aria-label": "选择人物卡：" + card.name, onChange: function () { input.toggle(card.path); } }) : null,
+					input.selecting ? h(Switch, { className: "dsh-tavern-card-grid-check", checked: selected, disabled: input.busy,
+                        label: "选择人物卡：" + card.name, onChange: function () { input.toggle(card.path); } }) : null,
 					corner.length ? h("span", { className: "dsh-tavern-card-grid-corner" }, corner) : null);
 			})));
 		}

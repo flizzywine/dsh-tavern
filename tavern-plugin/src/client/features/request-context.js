@@ -146,7 +146,7 @@
                     request ? h("button", { onClick: async () => { try { await navigator.clipboard.writeText(text); } catch (e) { setError("复制失败：" + String(e.message || e)); } } }, "复制 JSON") : null,
                     request ? h("button", { onClick: downloadJson }, "下载 JSON") : null),
                 error ? h("p", { className: "dsh-context-empty", role: "alert" }, error) : null,
-                !loading && !record && !error ? h("p", { className: "dsh-context-empty" }, "暂无请求记录，发送消息后刷新查看。") : null,
+                !loading && !record && !error ? h(EmptyState, { noun: "请求记录" }) : null,
                 loading && !record ? h("p", { className: "dsh-context-empty" }, "正在读取完整上下文…") : null,
                 request ? h("div", { className: "dsh-context-list" },
                     visibleSections.map((section, sectionIndex) => h(TavernLazyDetails, { key: record.id + ":" + (section.displayKey || section.title) + (deferredQuery ? ":search" : ""),
@@ -163,7 +163,7 @@
                         section.metadataText && section.metadataText !== "{}" ? h("details", { className: "dsh-context-source" },
                             h("summary", null, h("span", { className: "dsh-context-chevron", "aria-hidden": true }, "›"), "来源与消息信息"),
                             h("pre", null, section.metadataText)) : null) })),
-                    deferredQuery && !visibleSections.length ? h("p", { className: "dsh-context-empty" }, "没有匹配的内容") : null) : null,
+                    deferredQuery && !visibleSections.length ? h(EmptyState, { query, onClear: () => setQuery("") }) : null) : null,
                 request ? h("p", { className: "dsh-context-footnote" }, "发送时的上下文快照 · 供应商协议转换前 · 消息顺序保持不变") : null
             );
 		}

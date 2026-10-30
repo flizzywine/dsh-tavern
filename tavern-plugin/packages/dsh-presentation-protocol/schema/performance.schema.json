@@ -1,0 +1,503 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "dsh.performance/1",
+ "title": "Composite performance (dsh.performance/1)",
+ "description": "A declarative stage performance the director starts with `perform <id> [level]` and ends with `perform off`. It orchestrates skins (apply / level switch / off), SFX synced to the skin overlay's moments, BGM override + lock, looks, ambience, flashes, shakes and widgets over entry / idle / turn / exit timelines. No code. Refs are <alias>:<assetId> with aliases declared in `packs`.",
+ "type": "object",
+ "additionalProperties": false,
+ "required": ["schema", "id", "label", "license", "packs", "timeline"],
+ "properties": {
+  "schema": { "const": "dsh.performance/1" },
+  "id": { "$ref": "#/$defs/id" },
+  "label": { "type": "string", "minLength": 1 },
+  "directorNote": { "type": "string", "maxLength": 120 },
+  "license": {
+   "type": "object", "additionalProperties": false, "required": ["privateUse"],
+   "properties": { "privateUse": { "type": "boolean" }, "notes": { "type": "array", "items": { "type": "string" } } }
+  },
+  "theme": { "$ref": "dsh.skin/1", "description": "Embedded skin-format theme/overlay, including performance levels. Relative resources belong to this performance bundle; skin events use self:<theme.id>." },
+  "legacySkinId": { "$ref": "#/$defs/id", "description": "Migration-only historical skin alias, equal to theme.id. Never a director catalogue asset." },
+  "shot": { "type": "object", "additionalProperties": false, "required": ["subject", "head"], "description": "While this performance holds (from its entry's end, or its start), only the current line's speaker is drawn, their rest head box placed at head.<side> = [centre x, top, height] (stage fractions) and the whole scene turned roll.<side> degrees counter-clockwise about the stage centre, zoomed to stay covering. side: alternate (first speaker left, a new speaker takes the other side, the same one keeps it) or anchor (the side of their ordinary slot). The last shot stays through the exit. Presentation only (performance-keyframes.md 「shot」), never in the director catalogue.",
+    "properties": { "subject": { "enum": ["speaker"] }, "from": { "enum": ["entry-end", "start"] }, "side": { "enum": ["alternate", "anchor"] },
+      "head": { "type": "object", "additionalProperties": false, "properties": { "left": { "$ref": "#/$defs/shotHead" }, "right": { "$ref": "#/$defs/shotHead" } } },
+      "roll": { "type": "object", "additionalProperties": false, "properties": { "left": { "$ref": "#/$defs/shotRoll" }, "right": { "$ref": "#/$defs/shotRoll" } } } } },
+  "skinMode": { "$ref": "#/$defs/id", "description": "While this performance holds, the stage skin's modes.<skinMode> presentation is on (stage-skin-adv.md 「modes」; e.g. the debate's large statements); a skin without that mode reads as before. Presentation only, never in the director catalogue." },
+  "blocking": { "type": "boolean", "description": "Sequential (true) or parallel (false, the default of the kind): a blocking performance holds the line of the page it starts or ends on - its text, voice and AUTO begin when the phase has played (beat-sequencing.md). A phase with keyframes holdDialogue always holds it. Presentation only, never in the director catalogue." },
+  "interop": {
+   "type":"array", "maxItems":1,
+   "items": {
+    "type":"object", "additionalProperties":false, "required":["use","target","release"],
+    "properties": {
+     "use":{"const":"clock"},
+     "target":{"type":"object","additionalProperties":false,"required":["packId","kind","assetId"],"properties":{"packId":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"kind":{"const":"timers"},"assetId":{"$ref":"#/$defs/id"}}},
+     "release":{"enum":["stop","freeze"]},
+     "onMissing":{"enum":["silent","notify"],"description":"A missing, disabled or unadmitted timer only leaves the countdown out: notify (default) tells the player once, silent does not. A performance never fails for a missing mod."}
+    }
+   }
+  },
+  "packs": {
+   "description": "alias -> pack id. `self` (the pack carrying this performance) is implicit.",
+   "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,15}$" },
+   "additionalProperties": { "type": "string", "pattern": "^[0-9a-f-]{36}$" }
+  },
+  "levels": {
+   "description": "Director-facing level meanings (perform <id> <level>). Omitted = single level.",
+   "type": "object", "additionalProperties": false, "required": ["default"],
+   "properties": {
+    "default": { "enum": [1, 2, 3] },
+    "1": { "$ref": "#/$defs/levelInfo" }, "2": { "$ref": "#/$defs/levelInfo" }, "3": { "$ref": "#/$defs/levelInfo" }
+   }
+  },
+  "bgm": {
+   "description": "Music override for the whole performance. lock = director bgm commands are held (not applied) until the performance ends; restore = what plays after exit.",
+   "type": "object", "additionalProperties": false, "required": ["ref"],
+   "properties": {
+    "ref": { "$ref": "#/$defs/ref" },
+    "lock": { "type": "boolean" },
+    "fadeInMs": { "type": "integer", "minimum": 0, "maximum": 4000 },
+    "restore": { "enum": ["previous", "none"] }
+   }
+  },
+  "sfxMap": {
+   "description": "Binds the skin overlay's sfx cue ids (overlay.cues.*.sfx, overlay.events[].sfx) to pack SFX, so sound lands on the exact visual moment.",
+   "type": "object", "propertyNames": { "$ref": "#/$defs/id" },
+   "additionalProperties": { "$ref": "#/$defs/sfxBind" }
+  },
+  "timeline": {
+   "type": "object", "additionalProperties": false, "required": ["entry", "exit"],
+   "properties": {
+    "entry": { "$ref": "#/$defs/block" },
+    "idle": {
+     "description": "Repeats while the performance runs (after entry), every min..max ms.",
+     "type": "object", "additionalProperties": false, "required": ["every", "events"],
+     "properties": { "every": { "type": "array", "items": { "type": "integer", "minimum": 3000 }, "minItems": 2, "maxItems": 2 }, "events": { "$ref": "#/$defs/events" } }
+    },
+    "turn": {
+     "description": "Runs once when the level rises to onLevel (or right after entry when started at/above it).",
+     "type": "object", "additionalProperties": false, "required": ["events"],
+     "properties": { "onLevel": { "enum": [2, 3] }, "events": { "$ref": "#/$defs/events" } }
+    },
+    "exit": { "$ref": "#/$defs/block" }
+   }
+  },
+  "photosensitive": { "type": "boolean" },
+  "keyframes": { "$ref": "#/$defs/keyframes" }
+ },
+ "$defs": {
+  "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$" },
+  "ref": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,15}:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+  "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+  "levelInfo": { "type": "object", "additionalProperties": false, "properties": { "label": { "type": "string", "maxLength": 24 } } },
+  "sfxBind": {
+   "oneOf": [
+    { "$ref": "#/$defs/ref" },
+    { "type": "object", "additionalProperties": false, "required": ["ref"], "properties": { "ref": { "$ref": "#/$defs/ref" }, "gainDb": { "type": "number", "minimum": -18, "maximum": 0 }, "offsetMs": { "type": "integer", "minimum": -500, "maximum": 1000 } } }
+   ]
+  },
+  "block": { "type": "object", "additionalProperties": false, "required": ["events"], "properties": { "events": { "$ref": "#/$defs/events" } } },
+  "events": { "type": "array", "maxItems": 40, "items": { "$ref": "#/$defs/event" } },
+  "event": {
+   "type": "object", "required": ["at", "do"],
+   "properties": { "at": { "type": "integer", "minimum": 0, "maximum": 20000 }, "do": { "enum": ["skin", "skin-off", "sfx", "bgm", "bgm-restore", "look", "look-off", "ambience", "ambience-off", "flash", "shake", "widget", "widget-off"] } },
+   "oneOf": [
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "skin" }, "ref": { "$ref": "#/$defs/ref" }, "level": { "enum": [1, 2, 3] } }, "description": "apply a skin or switch its level (look changes at the next page boundary or under the overlay cover)" },
+    { "additionalProperties": false, "properties": { "at": {}, "do": { "const": "skin-off" } } },
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "sfx" }, "ref": { "$ref": "#/$defs/ref" }, "gainDb": { "type": "number", "minimum": -18, "maximum": 0 } } },
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "bgm" }, "ref": { "$ref": "#/$defs/ref" }, "fadeMs": { "type": "integer", "minimum": 0, "maximum": 4000 } }, "description": "switch the locked performance music mid-performance" },
+    { "additionalProperties": false, "properties": { "at": {}, "do": { "const": "bgm-restore" }, "fadeMs": { "type": "integer", "minimum": 0, "maximum": 4000 } } },
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "look" }, "ref": { "$ref": "#/$defs/ref" } } },
+    { "additionalProperties": false, "properties": { "at": {}, "do": { "const": "look-off" } } },
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "ambience" }, "ref": { "$ref": "#/$defs/ref" }, "gainDb": { "type": "number", "minimum": -24, "maximum": 0 } } },
+    { "additionalProperties": false, "properties": { "at": {}, "do": { "const": "ambience-off" } } },
+    { "additionalProperties": false, "required": ["color", "ms"], "properties": { "at": {}, "do": { "const": "flash" }, "color": { "$ref": "#/$defs/color" }, "ms": { "type": "integer", "minimum": 40, "maximum": 400 }, "alpha": { "type": "number", "minimum": 0.1, "maximum": 0.8 } }, "description": "one full-stage flash; photosensitivity protection turns it into a 50% dim pulse" },
+    { "additionalProperties": false, "required": ["ms", "amp"], "properties": { "at": {}, "do": { "const": "shake" }, "ms": { "type": "integer", "minimum": 50, "maximum": 1500 }, "amp": { "type": "number", "minimum": 0, "maximum": 16 } } },
+    { "additionalProperties": false, "required": ["ref"], "properties": { "at": {}, "do": { "const": "widget" }, "ref": { "$ref": "#/$defs/ref" }, "slot": { "type": "string" } } },
+    { "additionalProperties": false, "properties": { "at": {}, "do": { "const": "widget-off" }, "slot": { "type": "string" } } }
+   ]
+  },
+  "keyframes": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "playback",
+    "layers",
+    "entry"
+   ],
+   "properties": {
+    "playback": {
+     "enum": [
+      "once",
+      "persistent"
+     ]
+    },
+    "layers": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 64,
+     "items": {
+      "$ref": "#/$defs/keyframeLayer"
+     }
+    },
+    "entry": {
+     "$ref": "#/$defs/keyframePhase"
+    },
+    "exit": {
+     "$ref": "#/$defs/keyframePhase"
+    }
+   }
+  },
+  "keyframeImage": {
+   "type": "string",
+   "maxLength": 240,
+   "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.(?:png|webp)$"
+  },
+  "keyframeLayer": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "id",
+    "kind",
+    "x",
+    "y",
+    "width",
+    "height"
+   ],
+   "properties": {
+    "id": {
+     "$ref": "#/$defs/id"
+    },
+    "kind": {
+     "enum": [
+      "image",
+      "solid",
+      "text",
+      "particles"
+     ]
+    },
+    "image": {
+     "$ref": "#/$defs/keyframeImage"
+    },
+    "x": {
+     "type": "number",
+     "minimum": -16000,
+     "maximum": 16000
+    },
+    "y": {
+     "type": "number",
+     "minimum": -16000,
+     "maximum": 16000
+    },
+    "width": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 16000,
+     "exclusiveMinimum": 0
+    },
+    "height": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 16000,
+     "exclusiveMinimum": 0
+    },
+    "pivot": {
+     "type": "array",
+     "minItems": 2,
+     "maxItems": 2,
+     "items": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     }
+    },
+    "scaleX": {
+     "type": "number",
+     "minimum": -100,
+     "maximum": 100
+    },
+    "scaleY": {
+     "type": "number",
+     "minimum": -100,
+     "maximum": 100
+    },
+    "rotation": {
+     "type": "number",
+     "minimum": -36000,
+     "maximum": 36000
+    },
+    "alpha": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "color": {
+     "$ref": "#/$defs/color"
+    },
+    "placement": {
+     "enum": [
+      "below-dialogue",
+      "above-dialogue"
+     ]
+    },
+    "blend": {
+     "enum": [
+      "normal",
+      "add",
+      "multiply",
+      "screen"
+     ]
+    },
+    "mask": {
+     "$ref": "#/$defs/id"
+    },
+    "maskOnly": {
+     "type": "boolean"
+    },
+    "flash": {
+     "type": "boolean"
+    },
+    "glow": {
+     "type": "object",
+     "additionalProperties": false,
+     "properties": {
+      "wave": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["cycles", "hz"],
+       "properties": {
+        "cycles": { "type": "number", "minimum": -64, "maximum": 64 },
+        "hz": { "type": "number", "minimum": -20, "maximum": 20 },
+        "phase": { "type": "number", "minimum": 0, "maximum": 1 }
+       }
+      }
+     }
+    },
+    "gain": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 8
+    },
+    "particles": { "$ref": "#/$defs/keyframeParticles" },
+    "threshold": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "dissolve": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "image"
+     ],
+     "properties": {
+      "image": {
+       "$ref": "#/$defs/keyframeImage"
+      },
+      "channel": {
+       "enum": [
+        "red",
+        "alpha"
+       ]
+      },
+      "softness": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 1
+      },
+      "invert": {
+       "type": "boolean"
+      }
+     }
+    },
+    "text": {
+     "type": "object",
+     "additionalProperties": false,
+     "required": [
+      "value",
+      "font",
+      "size"
+     ],
+     "properties": {
+      "value": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 512
+      },
+      "font": {
+       "$ref": "#/$defs/id"
+      },
+      "size": {
+       "type": "number",
+       "minimum": 1,
+       "maximum": 256
+      },
+      "align": {
+       "enum": [
+        "left",
+        "center",
+        "right"
+       ]
+      },
+      "letterSpacing": {
+       "type": "number",
+       "minimum": -32,
+       "maximum": 128
+      },
+      "lineHeight": {
+       "type": "number",
+       "minimum": 0.5,
+       "maximum": 4
+      }
+     }
+    }
+   }
+  },
+  "keyframeRange": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": -20000, "maximum": 20000 } },
+  "keyframeLifeCurve": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["t", "value"], "properties": { "t": { "type": "number", "minimum": 0, "maximum": 1 }, "value": { "type": "number", "minimum": 0, "maximum": 16 } } } },
+  "keyframeParticles": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["seed", "lifeMs", "size"],
+   "properties": {
+    "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+    "rate": { "type": "number", "minimum": 0, "maximum": 500 },
+    "emitMs": { "$ref": "#/$defs/keyframeRange" },
+    "bursts": { "type": "array", "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["at", "count"], "properties": { "at": { "type": "number", "minimum": 0, "maximum": 20000 }, "count": { "type": "integer", "minimum": 1, "maximum": 256 } } } },
+    "max": { "type": "integer", "minimum": 1, "maximum": 512 },
+    "shape": { "enum": ["point", "box", "ellipse", "ellipse-edge"] },
+    "direction": { "oneOf": [{ "type": "number", "minimum": -360, "maximum": 360 }, { "const": "radial" }] },
+    "spread": { "type": "number", "minimum": 0, "maximum": 360 },
+    "lifeMs": { "$ref": "#/$defs/keyframeRange" },
+    "speed": { "$ref": "#/$defs/keyframeRange" },
+    "size": { "$ref": "#/$defs/keyframeRange" },
+    "aspect": { "type": "number", "minimum": 0.01, "maximum": 100 },
+    "rotation": { "$ref": "#/$defs/keyframeRange" },
+    "spin": { "$ref": "#/$defs/keyframeRange" },
+    "gravity": { "$ref": "#/$defs/keyframeRange" },
+    "limit": { "type": "object", "additionalProperties": false, "required": ["speed", "damping"], "properties": { "speed": { "type": "number", "minimum": 0, "maximum": 20000 }, "damping": { "type": "number", "minimum": 0, "maximum": 1000 } } },
+    "noise": { "type": "object", "additionalProperties": false, "required": ["amplitude", "hz"], "properties": { "amplitude": { "type": "number", "minimum": 0, "maximum": 2000 }, "hz": { "type": "number", "minimum": 0, "maximum": 20 } } },
+    "stretch": { "type": "object", "additionalProperties": false, "required": ["length"], "properties": { "length": { "type": "number", "minimum": 0, "maximum": 20 }, "velocity": { "type": "number", "minimum": 0, "maximum": 10 } } },
+    "sizeOverLife": { "$ref": "#/$defs/keyframeLifeCurve" },
+    "alphaOverLife": { "$ref": "#/$defs/keyframeLifeCurve" },
+    "colorOverLife": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["t", "color"], "properties": { "t": { "type": "number", "minimum": 0, "maximum": 1 }, "color": { "$ref": "#/$defs/color" } } } }
+   }
+  },
+  "keyframePhase": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "durationMs",
+    "tracks"
+   ],
+   "properties": {
+    "durationMs": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 20000,
+     "exclusiveMinimum": 0
+    },
+    "tracks": {
+     "type": "array",
+     "maxItems": 768,
+     "items": {
+      "$ref": "#/$defs/keyframeTrack"
+     }
+    },
+    "holdDialogue": {
+     "type": "boolean",
+     "description": "While this phase plays the dialogue box is put away and the page's words, voice and AUTO wait for its end (a title card before the talk: the original's HidePrinter). Skip ends it at once. Presentation only."
+    }
+   }
+  },
+  "shotHead": {
+   "type": "array",
+   "description": "[centre x, top, height] of the rest head box as stage fractions; top may lie above the stage (a hat or bow over the crown), height up to twice the stage.",
+   "minItems": 3,
+   "maxItems": 3,
+   "items": {
+    "type": "number",
+    "minimum": -1,
+    "maximum": 2
+   }
+  },
+  "shotRoll": {
+   "type": "number",
+   "minimum": -15,
+   "maximum": 15
+  },
+  "keyframeTrack": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "layer",
+    "property",
+    "keys"
+   ],
+   "properties": {
+    "layer": {
+     "$ref": "#/$defs/id"
+    },
+    "property": {
+     "enum": [
+      "x",
+      "y",
+      "scaleX",
+      "scaleY",
+      "rotation",
+      "alpha",
+      "red",
+      "green",
+      "blue",
+      "threshold",
+      "gain"
+     ]
+    },
+    "keys": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 2048,
+     "items": {
+      "$ref": "#/$defs/keyframeKey"
+     }
+    }
+   }
+  },
+  "keyframeKey": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "at",
+    "value"
+   ],
+   "properties": {
+    "at": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 20000
+    },
+    "value": {
+     "type": "number"
+    },
+    "ease": {
+     "oneOf": [
+      {
+       "enum": [
+        "linear",
+        "step"
+       ]
+      },
+      {
+       "type": "array",
+       "minItems": 4,
+       "maxItems": 4,
+       "items": {
+        "type": "number",
+        "minimum": -10,
+        "maximum": 10
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -586,14 +586,15 @@
                             event.preventDefault(); toggleOpen(entry);
                         }
                     },
-                        h("input", {
-                            type: "checkbox", className: "dsh-tavern-rx-select", "data-stop": "",
-                            checked: checked, disabled: busy,
-                            "aria-label": "选择 " + (entry.name || "未命名正则"),
+                        h("label", {
+                            className: "dsh-tavern-rx-select", "data-stop": "",
                             onClick: function (event) { event.stopPropagation(); },
-                            onKeyDown: function (event) { event.stopPropagation(); },
+                            onKeyDown: function (event) { event.stopPropagation(); }
+                        }, h(Switch, {
+                            bare: true, checked: checked, disabled: busy,
+                            label: "选择 " + (entry.name || "未命名正则"),
                             onChange: function () { toggleSelected(source, entry.key); }
-                        }),
+                        })),
                         h("div", { className: "dsh-tavern-rx-row-main" },
                             h("div", { className: "dsh-tavern-rx-row-title" }, h("b", null, current.name || "未命名正则")),
                             h("div", { className: "dsh-tavern-rx-row-preview" },
@@ -619,11 +620,11 @@
                 return h("div", { className: "dsh-tavern-rx-chips" }, REGEX_PLACEMENTS.map(function (item) {
                     const checked = (draft.placement || []).map(Number).includes(item.id);
                     return h("label", { key: item.id, className: "dsh-tavern-rx-chip" + (checked ? " is-on" : "") },
-                        h("input", {
-                            type: "checkbox", checked: checked, disabled: busy,
-                            onChange: function (event) {
+                        h(Switch, {
+                            bare: true, label: item.label, checked: checked, disabled: busy,
+                            onChange: function (on) {
                                 const values = (draft.placement || []).map(Number).filter(function (id) { return id !== item.id; });
-                                if (event.target.checked) values.push(item.id);
+                                if (on) values.push(item.id);
                                 values.sort(function (left, right) { return left - right; });
                                 patchDraft(entry, { placement: values });
                             }
@@ -635,10 +636,10 @@
             function layerBox(draft, entry) {
                 return h("div", { className: "dsh-tavern-rx-layers" },
                     h("label", { className: "dsh-tavern-rx-check" },
-                        h("input", { type: "checkbox", checked: draft.markdownOnly === true, disabled: busy, onChange: function (event) { patchDraft(entry, { markdownOnly: event.target.checked }); } }),
+                        h(Switch, { bare: true, label: "仅显示层", checked: draft.markdownOnly === true, disabled: busy, onChange: function (on) { patchDraft(entry, { markdownOnly: on }); } }),
                         h("span", null, h("b", null, "仅显示层"), " 只改玩家看到的正文")),
                     h("label", { className: "dsh-tavern-rx-check" },
-                        h("input", { type: "checkbox", checked: draft.promptOnly === true, disabled: busy, onChange: function (event) { patchDraft(entry, { promptOnly: event.target.checked }); } }),
+                        h(Switch, { bare: true, label: "仅上下文层", checked: draft.promptOnly === true, disabled: busy, onChange: function (on) { patchDraft(entry, { promptOnly: on }); } }),
                         h("span", null, h("b", null, "仅上下文层"), " 只改发给模型的历史")),
                     h("p", { className: "dsh-tavern-rx-hint" }, "两个都不勾＝永久替换（显示和上下文都改）；两个都勾＝两层分别替换，原始输出仍留档。")
                 );
@@ -655,9 +656,9 @@
                 return h("details", { className: "dsh-tavern-rx-test" },
                     h("summary", null, "试运行", h("span", { className: "dsh-tavern-rx-hint" }, "只跑当前这一条，按" + (layer === "context" ? "上下文层" : "显示层"))),
                     h("div", { className: "dsh-tavern-rx-test-body" },
-                        h("textarea", {
-                            className: "dsh-tavern-rx-code", rows: 4, value: input, spellCheck: false, disabled: busy,
-                            onChange: function (event) { setTestInput(key, event.target.value); }
+                        h(TextArea, {
+                            className: "dsh-tavern-rx-code", rows: 4, value: input, spellCheck: false, disabled: busy, label: "试运行文本",
+                            onChange: function (text) { setTestInput(key, text); }
                         }),
                         h("div", { className: "dsh-tavern-rx-test-actions" },
                             h("button", {
@@ -690,18 +691,18 @@
             function globalEditor(entry, draft) {
                 if (!draft) return null;
                 return h("div", { className: "dsh-tavern-rx-editor" },
-                    field("名称", h("input", {
-                        type: "text", value: draft.name, disabled: busy, maxLength: 120,
-                        onChange: function (event) { patchDraft(entry, { name: event.target.value }); }
+                    field("名称", h(InlineField, {
+                        kind: "text", label: "名称", hideLabel: true, value: draft.name, disabled: busy, maxLength: 120, trim: false,
+                        onCommit: function (text) { patchDraft(entry, { name: text }); }
                     })),
-                    field("查找正则", h("textarea", {
-                        className: "dsh-tavern-rx-code", rows: 3, value: draft.findRegex, spellCheck: false, disabled: busy,
-                        onChange: function (event) { patchDraft(entry, { findRegex: event.target.value }); }
+                    field("查找正则", h(TextArea, {
+                        className: "dsh-tavern-rx-code", rows: 3, value: draft.findRegex, spellCheck: false, disabled: busy, label: "查找正则",
+                        onChange: function (text) { patchDraft(entry, { findRegex: text }); }
                     }), "SillyTavern 格式，支持 /pattern/flags。"),
                     formError ? h("p", { className: "dsh-tavern-rx-error", role: "alert" }, formError) : null,
-                    field("替换内容", h("textarea", {
-                        className: "dsh-tavern-rx-code", rows: 2, value: draft.replaceString, spellCheck: false, disabled: busy,
-                        onChange: function (event) { patchDraft(entry, { replaceString: event.target.value }); }
+                    field("替换内容", h(TextArea, {
+                        className: "dsh-tavern-rx-code", rows: 2, value: draft.replaceString, spellCheck: false, disabled: busy, label: "替换内容",
+                        onChange: function (text) { patchDraft(entry, { replaceString: text }); }
                     }), "可用 $1、$<name>、{{match}}，留空表示删除。"),
                     field("作用位置", placementChips(draft, entry), "通常只需要「AI 输出」；不选任何位置时这条规则不会运行。"),
                     h("div", { className: "dsh-tavern-rx-field" },
@@ -711,15 +712,15 @@
                         h("summary", null, "高级选项", h("span", { className: "dsh-tavern-rx-hint" }, "深度、修剪、编辑时运行")),
                         h("div", { className: "dsh-tavern-rx-advanced-body" },
                             h("label", { className: "dsh-tavern-rx-check" },
-                                h("input", { type: "checkbox", checked: draft.runOnEdit === true, disabled: busy, onChange: function (event) { patchDraft(entry, { runOnEdit: event.target.checked }); } }),
+                                h(Switch, { bare: true, label: "编辑消息时也运行", checked: draft.runOnEdit === true, disabled: busy, onChange: function (on) { patchDraft(entry, { runOnEdit: on }); } }),
                                 h("span", null, "编辑消息时也运行")),
                             h("div", { className: "dsh-tavern-rx-grid" },
                                 field("深度范围", h("div", { className: "dsh-tavern-rx-range" },
-                                    h("input", { type: "number", min: 0, value: draft.minText, placeholder: "最小", disabled: busy, onChange: function (event) { patchDraft(entry, { minText: event.target.value }); } }),
+                                    h(InlineField, { kind: "number", label: "最小深度", hideLabel: true, integer: true, optional: true, min: 0, value: draft.minText, placeholder: "最小", disabled: busy, onCommit: function (value) { patchDraft(entry, { minText: value === null ? "" : String(value) }); } }),
                                     h("span", null, "到"),
-                                    h("input", { type: "number", min: 0, value: draft.maxText, placeholder: "最大", disabled: busy, onChange: function (event) { patchDraft(entry, { maxText: event.target.value }); } })
+                                    h(InlineField, { kind: "number", label: "最大深度", hideLabel: true, integer: true, optional: true, min: 0, value: draft.maxText, placeholder: "最大", disabled: busy, onCommit: function (value) { patchDraft(entry, { maxText: value === null ? "" : String(value) }); } })
                                 ), "0 = 最新一条，留空不限。"),
-                                field("修剪字符串", h("input", { type: "text", value: draft.trimText, placeholder: "例如：\\n, 　", disabled: busy, onChange: function (event) { patchDraft(entry, { trimText: event.target.value }); } }), "逗号分隔；从捕获内容里去掉。")
+                                field("修剪字符串", h(InlineField, { kind: "text", label: "修剪字符串", hideLabel: true, trim: false, value: draft.trimText, placeholder: "例如：\\n, 　", disabled: busy, onCommit: function (text) { patchDraft(entry, { trimText: text }); } }), "逗号分隔；从捕获内容里去掉。")
                             )
                         )
                     ),
@@ -763,7 +764,7 @@
             }
 
             function empty(text) {
-                return h("p", { className: "dsh-tavern-rx-empty" }, text);
+                return h(EmptyState, { compact: true, text: text });
             }
 
             function globalSection() {
@@ -821,14 +822,14 @@
                 },
                     h("summary", null, "全链路试运行", h("span", { className: "dsh-tavern-rx-hint" }, "全局 → 预设 → 人物卡")),
                     h("div", { className: "dsh-tavern-rx-chain-body" },
-                        h("textarea", {
-                            className: "dsh-tavern-rx-code", rows: 5, value: chainInput, spellCheck: false, disabled: busy,
-                            onChange: function (event) { setChainInput(event.target.value); }
+                        h(TextArea, {
+                            className: "dsh-tavern-rx-code", rows: 5, value: chainInput, spellCheck: false, disabled: busy, label: "全链路试运行文本",
+                            onChange: function (text) { setChainInput(text); }
                         }),
                         h("div", { className: "dsh-tavern-rx-chain-tools" },
-                            h("select", { value: chainLayer, disabled: busy, onChange: function (event) { setChainLayer(event.target.value); } },
-                                h("option", { value: "display" }, "显示层"),
-                                h("option", { value: "context" }, "上下文层")),
+                            h(InlineField, { kind: "menu", label: "作用层", hideLabel: true, value: chainLayer, disabled: busy,
+                                options: [{ value: "display", label: "显示层" }, { value: "context", label: "上下文层" }],
+                                onCommit: function (value) { setChainLayer(value); } }),
                             h("button", { className: "dsh-tavern-btn", type: "button", disabled: busy, onClick: function () { void runChain(); } }, "运行"),
                             result ? h("span", { className: "dsh-tavern-rx-test-meta" }, result.result.applied.length + " 条命中" + (result.result.warnings.length ? " · " + result.result.warnings.length + " 个警告" : "")) : null
                         ),
@@ -852,7 +853,7 @@
                 return h("div", { className: "dsh-tavern-user-profile dsh-tavern-rx" },
                     h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "正则库")),
                     h("div", { className: "dsh-tavern-user-profile-body" },
-                        error ? h("p", { role: "alert" }, error) : h("p", null, "正在读取正则…")));
+                        error ? h("p", { role: "alert" }, error) : h(PanelLoading, { label: "正在读取正则…" })));
             }
 
             return h("div", { className: "dsh-tavern-user-profile dsh-tavern-rx" },
@@ -865,8 +866,7 @@
                         h("button", { className: "dsh-tavern-btn primary dsh-tavern-rx-small", type: "button", disabled: busy || !!newDraft, onClick: startNew }, "新建")
                     )
                 ),
-                h("input", {
-                    ref: importInput, type: "file", multiple: true, accept: ".json,application/json", style: { display: "none" },
+                h("input", { type: "file", ref: importInput, multiple: true, accept: ".json,application/json", style: { display: "none" },
                     onChange: function (event) {
                         const files = Array.from(event.target.files || []);
                         event.target.value = "";
@@ -885,9 +885,9 @@
                     notice ? h("p", { className: "dsh-tavern-rx-notice", role: "status" }, notice) : null,
                     chainPanel(),
                     h("div", { className: "dsh-tavern-rx-toolbar" },
-                        h("input", {
-                            className: "dsh-tavern-rx-search", type: "search", placeholder: "搜索名称、查找规则或替换内容",
-                            value: query, onChange: function (event) { setQuery(event.target.value); }
+                        h(SearchBox, {
+                            bare: true, inputClassName: "dsh-tavern-rx-search", label: "搜索正则", placeholder: "搜索名称、查找规则或替换内容",
+                            value: query, onChange: setQuery
                         }),
                         h("div", { className: "dsh-tavern-rx-filters" },
                             (playMode ? [["all", "全部"], ["global", "全局"], ["preset", "预设"], ["card", "人物卡"]] : [["all", "全部"], ["global", "全局"]]).map(function (item) {

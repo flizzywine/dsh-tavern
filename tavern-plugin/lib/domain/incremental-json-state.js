@@ -241,6 +241,42 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
   const s=session(),link=await locate(s,{ref:root},pathParts(path))
   return link?decode(s,link):undefined
  }
+ // A container behind a link: its stored node, or an inline value read as one.
+ async function container(s,link){
+  if(own(link,'inline'))return link.inline!==null&&typeof link.inline==='object'?{type:Array.isArray(link.inline)?'array':'object',inline:link.inline}:undefined
+  if(!link.ref)return undefined
+  const node=await s.get(link.ref)
+  return ['object','array'].includes(node.type)?node:undefined
+ }
+ async function members(s,node){
+  if(node.inline)return Object.keys(node.inline).map(key=>{const child=node.inline[key];return [key,child!==null&&typeof child==='object'?{inline:child}:{value:child}]})
+  return (await entries(s,node.entries)).slice().sort((a,b)=>a[2]-b[2])
+ }
+ // Selected members only (each path a pointer; `*` selects every member of a container), decoded
+ // without the rest of their record. `omitted`: pointers left out of the selected subtrees, never read.
+ async function getFields(root,paths,omitted=[]){
+  const s=session()
+  async function project(link,paths,omit){
+   const whole=paths.some(parts=>!parts.length)
+   if(whole&&!omit.length)return decode(s,link)
+   const node=await container(s,link)
+   if(!node)return whole?decode(s,link):undefined
+   const selected=new Map(),value=node.type==='array'?[]:{}
+   for(const [key,...rest] of paths){if(!selected.has(key))selected.set(key,[]);selected.get(key).push(rest)}
+   const every=selected.get('*')
+   for(const [key,child] of await members(s,node)){
+    const below=whole?[[]]:every?[...every,...(selected.get(key)||[])]:selected.get(key)
+    if(!below)continue
+    const skip=omit.filter(([first])=>first===key).map(([,...rest])=>rest)
+    if(skip.some(rest=>!rest.length))continue
+    const item=await project(child,below,skip)
+    if(item!==undefined)Object.defineProperty(value,key,{value:item,enumerable:true,writable:true,configurable:true})
+   }
+   // Every member of an empty container is still a selection.
+   return whole||every||Object.keys(value).length?value:undefined
+  }
+  return await project({ref:root},paths.map(pathParts),omitted.map(pathParts))??{}
+ }
  async function apply(root,input){
   const operations=captureJson(input)
   if(!Array.isArray(operations))throw fail('Expected changes array')
@@ -333,5 +369,5 @@ export function createIncrementalJsonState({read,write,decodedCacheBytes=0,decod
   if(result.nextRoot!==delta.nextRoot)throw fail('State delta result mismatch')
   return result.nextRoot
  }
- return Object.freeze({create,get,type,size,keys,apply,calculate,receive,exportSnapshot,importSnapshot})
+ return Object.freeze({create,get,getFields,type,size,keys,apply,calculate,receive,exportSnapshot,importSnapshot})
 }

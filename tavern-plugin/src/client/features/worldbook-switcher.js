@@ -86,11 +86,11 @@ function createWorldBookSwitcherFeatureModule() {
 		return { standalone: standalone, embedded: embedded, all: standalone.concat(embedded) };
 	}
 
+	// the one shared switch; the row click stays the big target.
 	function WbSwitch(props) {
 		const h = React.createElement;
-		return h("label", { className: "dsh-tavern-wbsw-switch", title: props.title || "", onClick: function (event) { event.stopPropagation(); } },
-			h("input", { type: "checkbox", checked: Boolean(props.checked), disabled: Boolean(props.disabled), onChange: function (event) { props.onChange(event.target.checked); } }),
-			h("span", { className: "dsh-tavern-wbsw-track", "aria-hidden": "true" }, h("span", { className: "dsh-tavern-wbsw-knob" })));
+		return h("span", { className: "dsh-tavern-wbsw-switch", onClick: function (event) { event.stopPropagation(); } },
+			h(Switch, { label: props.label || props.title, title: props.title, checked: Boolean(props.checked), disabled: Boolean(props.disabled), onChange: function (next) { props.onChange(next); } }));
 	}
 
 	function WorldBookSwitcherPanel(props) {
@@ -153,6 +153,8 @@ function createWorldBookSwitcherFeatureModule() {
 				const root = rootRef.current;
 				if (!root || root.contains(event.target)) return;
 				if (state.anchor && state.anchor.contains(event.target)) return;
+				// the book menu (InlineField) opens in the shared popup layer on <body>; a pick there is inside.
+				if (event.target && event.target.closest && event.target.closest(".fork-inline-layer")) return;
 				closeWorldBookSwitcher();
 			}
 			function onKey(event) { if (event.key === "Escape") closeWorldBookSwitcher(); }
@@ -197,24 +199,24 @@ function createWorldBookSwitcherFeatureModule() {
 				: { visibility: "hidden" }
 		},
 			h("div", { className: "dsh-tavern-wbsw-head" },
-				h("select", {
-					className: "dsh-tavern-wbsw-select", value: book ? book.key : "", "aria-label": "选择世界书",
-					onChange: function (event) {
-						const row = (catalog ? catalog.all : []).find(item => item.key === event.target.value);
+				// the shared inline menu, its groups are 独立 / the card's own books.
+				h(InlineField, {
+					kind: "menu", className: "dsh-tavern-wbsw-select", label: "选择世界书", hideLabel: true, value: book ? book.key : "", disabled: groups.length === 0,
+					options: groups.length === 0 ? [{ value: "", label: "暂无世界书" }] : groups.flatMap(function (group) {
+						return group.rows.map(row => ({ value: row.key, label: row.name + (row.cardName ? " · " + row.cardName : ""), group: group.label }));
+					}),
+					onCommit: function (value) {
+						const row = (catalog ? catalog.all : []).find(item => item.key === value);
 						if (row) void selectRow(row);
 					}
-				},
-					groups.length === 0 ? h("option", { value: "" }, "暂无世界书") : null,
-					groups.map(function (group) {
-						return h("optgroup", { key: group.label, label: group.label },
-							group.rows.map(row => h("option", { key: row.key, value: row.key }, row.name + (row.cardName ? " · " + row.cardName : ""))));
-					})),
+				}),
 				h("button", { type: "button", className: "dsh-tavern-wbsw-btn", title: "在右侧栏打开完整世界书库", onClick: openLibrary }, "完整")),
 			h("div", { className: "dsh-tavern-wbsw-list" },
-				loading ? h("div", { className: "dsh-tavern-wbsw-empty" }, "正在读取世界书…") : null,
+				// the shared loading and empty states.
+				loading ? h(PanelLoading, { label: "正在读取世界书…" }) : null,
 				error ? h("div", { className: "dsh-tavern-wbsw-error", role: "alert" }, error) : null,
-				!loading && !book && !error ? h("div", { className: "dsh-tavern-wbsw-empty" }, "还没有世界书。点「完整」进入世界书库导入。") : null,
-				!loading && book && entries.length === 0 ? h("div", { className: "dsh-tavern-wbsw-empty" }, needle ? "没有匹配的条目" : "这本世界书还没有条目") : null,
+				!loading && !book && !error ? h(EmptyState, { compact: true, text: "还没有世界书。点「完整」进入世界书库导入。" }) : null,
+				!loading && book && entries.length === 0 ? (needle ? h(EmptyState, { compact: true, plain: true, query: query.trim(), onClear: function () { setQuery(""); } }) : h(EmptyState, { compact: true, noun: "条目" })) : null,
 				entries.map(function (entry) {
 					const enabled = entry.enabled !== false;
 					return h("div", { key: entry.ref, className: "dsh-tavern-wbsw-row" + (enabled ? "" : " is-disabled"), onClick: function () { void toggleEntry(entry, !enabled); } },
@@ -222,10 +224,7 @@ function createWorldBookSwitcherFeatureModule() {
 						h("span", { className: "dsh-tavern-wbsw-row-name", title: wbRowLabel(entry) }, wbRowLabel(entry)));
 				})),
 			allEntries.length > 8 ? h("div", { className: "dsh-tavern-wbsw-footer" },
-				h("input", {
-					type: "search", className: "dsh-tavern-wbsw-search", value: query, placeholder: "搜索条目…", "aria-label": "搜索条目",
-					onChange: function (event) { setQuery(event.target.value); }
-				})) : null);
+				h(SearchBox, { bare: true, inputClassName: "dsh-tavern-wbsw-search", value: query, placeholder: "搜索条目…", label: "搜索条目", onChange: function (value) { setQuery(value); } })) : null);
 	}
 
 	function WorldBookSwitcherLayer(props) {

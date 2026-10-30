@@ -1,11 +1,9 @@
-// Green-lamp recall (Wiki「设计：asset-library」): an entry is offered when its name, a keyword or a keyword's
-// synonym appears in the text.
+// Node and browser use the same exact name normalization.
+import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
+const {normalizeCatalogueText, codepointCompare} = figureResolution
 const length = value => [...value].length
-export function normalizeCatalogueText(value) {
-  return String(value ?? '').normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim()
-}
 
-// Han words match anywhere; Latin and digit words only as whole words.
+const timeOnly = /^(?:清晨|早晨|早上|上午|中午|午后|下午|傍晚|黄昏|夜晚|夜间|深夜|凌晨|白天|日间|早|晚|夜|day|night|morning|noon|afternoon|evening|dawn|dusk)$/u
 function matchOffset(text, word) {
   let offset = text.indexOf(word)
   const han = /\p{Script=Han}/u.test(word)
@@ -16,22 +14,29 @@ function matchOffset(text, word) {
   return -1
 }
 // Names and author words are equally hard triggers; no lexical score or soft ranking.
-export function triggerEvidence(item, units, { minLength = 2 } = {}) {
-  const text = units.map(normalizeCatalogueText), candidates = new Map()
-  for (const raw of [item.name, ...(item.keywords || [])].filter(Boolean)) {
+function triggerEvidence(item, units, { excludeTimeWords = true, minLength = 2 } = {}) {
+  const candidates = new Map()
+  for (const raw of [item.name, item.label, ...(item.keywords || [])].filter(Boolean)) {
     const canonical = normalizeCatalogueText(raw)
     for (const surface of [raw, ...(item.synonyms?.[raw] || [])]) {
       const word = surface === raw ? canonical : normalizeCatalogueText(surface)
-      if (length(word) >= minLength) candidates.set(word, canonical)
+      if (length(word) >= minLength && !(excludeTimeWords && timeOnly.test(word))) candidates.set(word, canonical)
     }
   }
   const groups = new Map()
-  for (const [word, canonical] of candidates) for (let i = 0; i < text.length; i++) {
-    const offset = matchOffset(text[i], word)
+  for (const [word, canonical] of candidates) for (let i = 0; i < units.length; i++) {
+    const offset = matchOffset(units[i], word)
     if (offset < 0) continue
-    if (!groups.has(canonical)) groups.set(canonical, { word, canonical, paragraph: i + 1, offset })
+    if (!groups.has(canonical)) groups.set(canonical, {word, canonical, paragraph:i + 1, offset})
     break
   }
-  const evidence = [...groups.values()]
-  return { matched: evidence.length > 0, evidence }
+  const evidence = [...groups.values()].sort((a,b) => codepointCompare(a.canonical,b.canonical))
+  return {matched:evidence.length > 0, evidence}
 }
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) { Object.freeze(value); Object.values(value).forEach(deepFreeze) }
+  return value
+}
+
+export { normalizeCatalogueText, triggerEvidence, codepointCompare, deepFreeze }

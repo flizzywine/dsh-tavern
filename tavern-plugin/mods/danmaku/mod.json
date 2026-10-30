@@ -1,0 +1,113 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "experimental": true,
+  "id": "dsh.danmaku",
+  "name": "弹幕",
+  "packageName": "dsh-tavern-mod-danmaku",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "streamerName": {
+          "type": "string",
+          "maxLength": 64,
+          "userAdjustable": true
+        },
+        "density": {
+          "enum": [
+            "low",
+            "standard"
+          ],
+          "type": "string",
+          "userAdjustable": true,
+          "title": "弹幕密度"
+        },
+        "view": {
+          "enum": [
+            "overlay",
+            "sidebar",
+            "off"
+          ],
+          "type": "string",
+          "userAdjustable": true,
+          "title": "弹幕显示"
+        },
+        "aiRatio": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "userAdjustable": true,
+          "title": "AI 弹幕比例"
+        }
+      },
+      "required": [
+        "streamerName",
+        "density",
+        "view",
+        "aiRatio"
+      ],
+      "additionalProperties": false
+    },
+    "defaults": {
+      "streamerName": "",
+      "density": "standard",
+      "view": "overlay",
+      "aiRatio": 25
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [
+    {
+      "id": "dsh.danmaku/audience",
+      "schemaVersion": 1,
+      "directorSelectable": true,
+      "schema": {
+        "type": "object"
+      },
+      "label": "观众群"
+    }
+  ],
+  "coreAssets": [
+    {
+      "id": "basic",
+      "path": "assets/audience/basic.json"
+    }
+  ],
+  "permissions": [
+    "stage.presentation",
+    "source.dialogue",
+    "models.audience",
+    "models.memory"
+  ],
+  "performances": [
+    {
+      "kind": "dsh.danmaku.comments",
+      "autoHold": {
+        "minMs": 0,
+        "until": "minimum"
+      },
+      "regions": [],
+      "backlog": {
+        "none": "弹幕是观众的反应，不是剧情演出：翻历史时该页已录弹幕按录制间隔重放（弹幕例外）"
+      },
+      "replay": {
+        "none": "翻到那一页即按录制重放该页弹幕，不需要单独重演"
+      }
+    }
+  ],
+  "entry": "plugin.mjs",
+  "summary": "让观众用弹幕参与剧情，也可展示玩家自己的发言。"
+}

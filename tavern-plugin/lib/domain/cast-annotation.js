@@ -1,45 +1,32 @@
-// Who speaks each quoted line of a turn and how they feel, as settlement annotated it before the story model wrote
-// its lines as dialogue bubbles (Wiki「设计：cast-presentation」). Earlier turns keep the annotation they have.
-import { CAST_EMOTIONS } from './dialogue-bubbles.js'
 
-export { CAST_EMOTIONS }
-// Data owner in the per-game turn data store shared with plugins.
-export const CAST_DATA_OWNER = 'dsh-tavern.cast'
+// The emotion names cast material is keyed by, and a turn's spoken lines for plugins (Wiki「设计：cast-presentation」).
+// Settlement no longer annotates dialogue (cast_submit retired) and annotations stored by earlier turns are no longer
+// read: the lines are the round body's bubble paragraphs. Pure and import-free, so the browser includes it as is.
 
-// Same-line quote pairs, the delimiters the client colours as dialogue.
-const QUOTE_PATTERN = /"([^"\r\n]+)"|“([^”\r\n]+)”|«([^»\r\n]+)»|「([^」\r\n]+)」|『([^』\r\n]+)』|＂([^＂\r\n]+)＂/g
+// SillyTavern's Character Expressions labels, so an ST sprite pack's file names match.
+const CAST_EMOTIONS = Object.freeze({
+  admiration: '钦佩', amusement: '逗乐', anger: '生气', annoyance: '烦躁', approval: '赞同', caring: '关心',
+  confusion: '困惑', curiosity: '好奇', desire: '渴望', disappointment: '失望', disapproval: '不满', disgust: '嫌弃',
+  embarrassment: '害羞', excitement: '兴奋', fear: '害怕', gratitude: '感激', grief: '悲痛', joy: '开心',
+  love: '爱慕', nervousness: '紧张', neutral: '平静', optimism: '期待', pride: '得意', realization: '恍然',
+  relief: '释然', remorse: '懊悔', sadness: '难过', surprise: '惊讶'
+})
+const CAST_EMOTION_BY_LABEL = new Map(Object.entries(CAST_EMOTIONS).map(([id, label]) => [label, id]))
 
-/** Quoted lines of a story text, in reading order, without their delimiters. */
-export function dialogueQuotes(text) {
-  const quotes = []
-  for (const match of String(text ?? '').matchAll(QUOTE_PATTERN)) {
-    const quote = match.slice(1).find(group => group !== undefined).trim()
-    if (quote) quotes.push(quote)
-  }
-  return quotes
+/** A variant as one of the 28 emotion names: the name itself or its Chinese label; anything else is neutral. */
+function bubbleEmotion(variant) {
+  const word = String(variant ?? '').trim()
+  return Object.hasOwn(CAST_EMOTIONS, word.toLowerCase()) ? word.toLowerCase() : CAST_EMOTION_BY_LABEL.get(word) || 'neutral'
 }
 
 /**
- * An edited reply keeps its speakers: a line whose quote is unchanged keeps its speaker and
- * emotion; when the edit kept the number of quotes, a reworded quote keeps the speaker of the
- * quote at its place. Quotes the edit added stay unannotated.
+ * A round body's spoken lines (round-body.js paragraphs; bubble-line.cjs reads them) in the shape of the per-turn
+ * cast data, `{ n, quote, speaker, emotion }`: getCast, onCastAnnotated, getStage turns and registerTurnView.
+ * The speaker is the name the line was written with, else its handle.
  */
-export function carryCastLines(lines, oldQuoteCount, quotes) {
-  const old = [...(Array.isArray(lines) ? lines : [])].sort((left, right) => left.n - right.n)
-  const taken = new Map()
-  let cursor = 0
-  quotes.forEach((quote, index) => {
-    for (let at = cursor; at < old.length; at++) {
-      if (old[at].quote !== quote) continue
-      taken.set(index, old[at])
-      old[at] = null
-      cursor = at + 1
-      return
-    }
-  })
-  if (oldQuoteCount === quotes.length) {
-    for (const line of old) if (line && !taken.has(line.n - 1)) taken.set(line.n - 1, line)
-  }
-  return [...taken.entries()].sort((left, right) => left[0] - right[0])
-    .map(([index, line]) => ({ n: index + 1, quote: quotes[index], speaker: line.speaker, emotion: line.emotion }))
+function bubbleCastLines(body) {
+  return (body?.paragraphs || []).filter(paragraph => paragraph.kind === 'line' && (paragraph.name || paragraph.alias) && paragraph.segment.text)
+    .map((paragraph, index) => ({ n: index + 1, quote: paragraph.segment.text, speaker: paragraph.name || paragraph.alias, emotion: bubbleEmotion(paragraph.mood) }))
 }
+
+export { CAST_EMOTIONS, bubbleCastLines }

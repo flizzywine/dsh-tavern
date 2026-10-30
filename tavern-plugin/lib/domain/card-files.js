@@ -10,7 +10,7 @@ function str(value) {
 }
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, stageMaterial, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -92,6 +92,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     }
     const stored = { ...(presetPath ? { presetPath } : {}), ...(defaults.settings ? { settings: defaults.settings } : {}) }
     await castAssets.setStartDefaults(cardPath, Object.keys(stored).length ? stored : null)
+    if (defaults.stage) await castAssets.setStage(cardPath, true)
     return stored
   }
   async function storeImportedCard({ payload, collected }, options = {}) {
@@ -100,15 +101,8 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     const card = cardPreparation.project(workspace)
     let assets = null
     if (collected && (collected.emotions.length || collected.backgrounds.length || collected.cover || collected.extras.length || collected.cast.length || collected.skipped)) {
-      try {
-        // Backgrounds and music are stage material: the asset library first, kept files for what it cannot hold.
-        const music = collected.extras.filter(item => item.type === 'music')
-        const stage = await stageMaterial.importMaterial(cardPath, card.name, [...collected.backgrounds.map(item => ({ kind: 'backgrounds', ...item })), ...music.map(item => ({ kind: 'music', ...item }))])
-        const kept = stage.rejected.map(item => ({ type: item.kind === 'backgrounds' ? 'background' : 'music', name: item.name, ext: item.ext, bytes: item.bytes }))
-        const rest = { ...collected, backgrounds: [], extras: [...collected.extras.filter(item => item.type !== 'music'), ...kept] }
-        assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected: rest }),
-          backgrounds: stage.added.filter(item => item.kind === 'backgrounds').length, skipped: collected.skipped }
-      } catch (error) { assets = { error: str(error?.message || error) } }
+      try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected }), skipped: collected.skipped } }
+      catch (error) { assets = { error: str(error?.message || error) } }
     }
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}) }
   }
@@ -119,20 +113,12 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
     if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
     const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath) })
     const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
-    const name = str(document?.data?.name || cardPreparation.project(workspace).name || '人物卡')
-    const stage = await stageMaterial.exportMaterial(cardPath, name)
-    const cast = await castAssets.read(cardPath)
-    // 本卡皮肤 is this player's choice, not the card's: it never leaves with the file.
-    delete cast.skinChoice
+    const manifest = await castAssets.read(cardPath)
     const files = new Map()
-    for (const file of new Set([...cast.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {}), ...(character.voiceReferences || []).map(clip => clip.file)]),
-      ...(cast.extras || []).map(item => item.file)].filter(Boolean))) {
+    for (const file of new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))) {
       files.set(file, await castAssets.readFile(cardPath, file))
     }
-    for (const item of stage) files.set(item.file, item.bytes)
-    // The card file keeps its CCv3 places: library backgrounds as `background`, music as `music` assets.
-    const manifest = { ...cast, backgrounds: stage.filter(item => item.kind === 'backgrounds').map(item => ({ name: item.name, file: item.file })),
-      extras: [...(cast.extras || []), ...stage.filter(item => item.kind === 'music').map(item => ({ type: item.type, name: item.name, ext: item.ext, file: item.file }))] }
+    const name = str(document?.data?.name || cardPreparation.project(workspace).name || '人物卡')
     return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file) }) }
   }
   async function presentCardText(cardPath) {
@@ -157,10 +143,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, st
   // and Tavern imports the whole CHARX.
   async function exportCardFile(input) {
     const cardPath = normalizeResourcePath(input, 'card')
-    const stage = await stageMaterial.hasMaterial(cardPath, (await cardSummaries.read(cardPath).catch(() => null))?.name)
     const manifest = await castAssets.read(cardPath)
-    const hasMaterial = stage || manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean) || character.voiceReferences?.length)
-      || (manifest.extras || []).some(item => item.file)
+    const hasMaterial = manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean) || character.voiceReferences?.length)
+      || (manifest.backgrounds || []).some(item => item.file) || (manifest.extras || []).some(item => item.file)
     if (hasMaterial) {
       const charx = await exportCardCharx(cardPath)
       if (!await fileResources.hasCardImage(cardPath)) return { ...charx, extension: 'charx', contentType: 'application/zip' }

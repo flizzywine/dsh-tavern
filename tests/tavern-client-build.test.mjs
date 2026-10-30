@@ -25,9 +25,17 @@ for (const check of [false, true]) {
     }
     await copyFile(new URL('../bin/build-tavern-client.mjs', import.meta.url), builder)
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
-    // The copied builder imports its dependencies (acorn) by package name.
-    await symlink(new URL('../node_modules', import.meta.url).pathname, path.join(root, 'node_modules'), 'dir')
-    await writeFile(path.join(root, 'tavern-plugin/lib/client-assets/tavern.css'), '')
+    await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(root, 'bin/lib/css-syntax-guard.mjs'))
+    // The fixture includes every required inert builder input.
+    for (const name of ['surfaces.cjs', ...['motion', 'phase', 'timing', 'script', 'player'].map(part => 'skin-overlay-' + part + '.cjs')]) {
+      await copyFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), path.join(root, 'tavern-plugin/src/client', name))
+    }
+    for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'phone.css', 'mod-config.css', 'textcard.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')
+    await mkdir(path.join(root, 'tavern-plugin/shared'), { recursive: true })
+    await writeFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'module.exports = {};')
+    // The copied builder imports its dependencies (acorn) by package name. Windows needs a privilege to make
+    // symlinks; there the test runner's resolve hook finds the packages instead.
+    if (process.platform !== 'win32') await symlink(new URL('../node_modules', import.meta.url).pathname, path.join(root, 'node_modules'), 'dir')
     for (const name of ['logo', 'lockup', 'lockup-dark']) await writeFile(path.join(root, `tavern-plugin/lib/client-assets/${name}.svg`), '<svg/>')
     const valid = 'const fixture = 1;\n'
     const invalid = 'const = 1;\n'

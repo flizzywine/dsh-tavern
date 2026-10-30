@@ -1,0 +1,72 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "id": "dsh.performance",
+  "name": "Performance",
+  "packageName": "dsh-tavern-mod-performance",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [
+    {
+      "id": "dsh.timer",
+      "range": "^2.0.0",
+      "optional": true,
+      "onMissing": "notify",
+      "operations": [
+        "start",
+        "resume",
+        "release",
+        "read",
+        "phase"
+      ]
+    }
+  ],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "defaultTopicSeconds": {
+          "type": "number",
+          "minimum": 0.001,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "defaultTopicSeconds"
+      ],
+      "additionalProperties": false
+    },
+    "defaults": {
+      "defaultTopicSeconds": 60
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [
+    {
+      "id": "dsh.performance/performance",
+      "schemaVersion": 1,
+      "directorSelectable": true,
+      "schema": {
+        "type": "object"
+      },
+      "label": "\u6f14\u51fa"
+    }
+  ],
+  "coreAssets": [],
+  "permissions": [
+    "stage.state",
+    "stage.presentation"
+  ],
+  "performances": [],
+  "entry": "plugin.mjs",
+  "summary": "\u6309\u5267\u60c5\u8282\u62cd\u64ad\u653e\u6f14\u51fa\uff0c\u53ef\u914d\u5408\u5012\u8ba1\u65f6\u8fdb\u884c\u8fa9\u8bba\u3002"
+}

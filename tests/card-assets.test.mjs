@@ -73,23 +73,20 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   const cast = createCastAssets({ store: store() })
   const collected = {
     emotions: [{ name: 'happy', ext: 'png', bytes: png('joy') }, { name: '开心', ext: 'png', bytes: png('joy2') }, { name: 'thinking', ext: 'png', bytes: png('think') }],
-    // Backgrounds are stage material (stage-material.js); character material arrives without them.
-    backgrounds: [],
+    backgrounds: [{ name: 'main', ext: 'png', bytes: png('bg') }],
     cover: null, extras: [{ type: 'x-risu-asset', name: 'bgm', ext: 'mp3', bytes: Buffer.from('ID3bgm') }],
     cast: [{ name: '老周', aliases: ['周叔'], avatar: png('zhou'), sprites: { anger: png('zhou-angry') }, voices: { openai: 'onyx' } }], skipped: 0
   }
   const summary = await cast.importCardAssets({ cardPath: 'cards/a.json', name: '林曦', collected })
-  assert.deepEqual(summary, { sprites: 2, backgrounds: 0, avatars: 1, kept: 3, unmatched: ['thinking'] })
+  assert.deepEqual(summary, { sprites: 2, backgrounds: 1, avatars: 1, kept: 3, unmatched: ['thinking'] })
   const manifest = await cast.read('cards/a.json')
   assert.deepEqual(manifest.characters.map(item => [item.name, Object.keys(item.sprites)]), [['林曦', ['joy']], ['老周', ['anger']]])
-  assert.equal(manifest.backgrounds, undefined)
+  assert.equal(manifest.backgrounds.length, 1)
   assert.deepEqual(manifest.extras.map(item => [item.type, item.name]), [['emotion', 'happy'], ['emotion', 'thinking'], ['x-risu-asset', 'bgm']])
 
-  const files = new Map([['b'.repeat(32) + '.png', png('bg')]])
-  for (const file of [...manifest.characters.flatMap(item => [item.avatar, ...Object.values(item.sprites)]), ...manifest.extras.map(item => item.file)].filter(Boolean)) files.set(file, await cast.readFile('cards/a.json', file))
-  // The card export passes the library's backgrounds in the same place (card-files.js).
-  const charx = buildCharx({ document: { spec: 'chara_card_v2', data: { name: '林曦', description: 'd', extensions: { other: 1 } } }, cover: png('cover'),
-    manifest: { ...manifest, backgrounds: [{ name: 'main', file: 'b'.repeat(32) + '.png' }] }, characterName: '林曦', readFile: file => files.get(file) })
+  const files = new Map()
+  for (const file of [...manifest.characters.flatMap(item => [item.avatar, ...Object.values(item.sprites)]), ...manifest.backgrounds.map(item => item.file), ...manifest.extras.map(item => item.file)].filter(Boolean)) files.set(file, await cast.readFile('cards/a.json', file))
+  const charx = buildCharx({ document: { spec: 'chara_card_v2', data: { name: '林曦', description: 'd', extensions: { other: 1 } } }, cover: png('cover'), manifest, characterName: '林曦', readFile: file => files.get(file) })
   const entries = readZipEntries(charx)
   const exported = JSON.parse(entries.get('card.json').toString('utf8'))
   assert.equal(exported.spec, 'chara_card_v3')
@@ -105,7 +102,7 @@ test('导入角色素材再导出 CHARX：主角立绘在标准位置，其他�
   const restored = await copy.read('cards/b.json')
   assert.deepEqual(restored.characters.map(item => [item.name, item.aliases, Object.keys(item.sprites), Boolean(item.avatar), item.voices || {}]),
     [['林曦', [], ['joy'], false, {}], ['老周', ['周叔'], ['anger'], true, { openai: 'onyx' }]])
-  assert.deepEqual(again.collected.backgrounds.map(item => item.name), ['main'])
+  assert.equal(restored.backgrounds.length, 1)
   assert.deepEqual(restored.extras.map(item => [item.type, item.name]), manifest.extras.map(item => [item.type, item.name]))
   assert.ok(pngWithCard(png('c'), '{}').includes(Buffer.from('IEND')))
 })
@@ -124,73 +121,8 @@ test('素材配额按唯一地址计算；超限拒绝导入导出，缺失的�
   assert.equal(missing.skipped, 3)
 })
 
-// 随卡参考音频 (cast-presentation.md 22/N): a clip is audio by its bytes plus what it says; the card file carries both.
-const wav = tag => Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'), Buffer.from(tag)])
-
-test('参考音频：上传按字节认类型、要原文，限 8 段、合计 8 MB；删除后没人引用的文件一并删掉', async () => {
-  const backing = store()
-  backing.remove = async path => { backing.files.delete(path) }
-  const cast = createCastAssets({ store: backing })
-  const first = await cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: wav('one'), text: '  今天\n天气真好。 ' })
-  const clip = first.characters[0].voiceReferences[0]
-  assert.match(clip.file, /^[0-9a-f]{32}\.wav$/)
-  assert.equal(clip.text, '今天 天气真好。')
-  assert.deepEqual(await cast.readFile('cards/a.json', clip.file), wav('one'))
-  await assert.rejects(cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: Buffer.from('not audio'), text: 'x' }), /只支持 WAV、MP3、OGG、FLAC/)
-  await assert.rejects(cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: wav('two'), text: '   ' }), /原话/)
-  await assert.rejects(cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: Buffer.concat([wav('big'), Buffer.alloc(8 * 1024 * 1024)]), text: '大' }), /合计不能超过 8 MB/)
-  for (let index = 2; index <= 8; index++) await cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: Buffer.concat([Buffer.from([0xff, 0xfb]), Buffer.from('mp3-' + index)]), text: '第' + index + '段' })
-  const full = await cast.read('cards/a.json')
-  assert.equal(full.characters[0].voiceReferences.length, 8)
-  assert.match(full.characters[0].voiceReferences[1].file, /\.mp3$/)
-  await assert.rejects(cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: wav('nine'), text: '九' }), /最多 8 段/)
-  const after = await cast.removeVoiceReference({ cardPath: 'cards/a.json', name: '林曦', file: clip.file })
-  assert.equal(after.characters[0].voiceReferences.length, 7)
-  assert.equal(await cast.readFile('cards/a.json', clip.file), undefined, '没人引用的参考音频文件删掉')
-})
-
-test('配音来源：一个人物在配好的渠道里选一个（声音克隆是其中一项）；上传、删除参考音频都不改这个选择', async () => {
-  const backing = store()
-  backing.remove = async path => { backing.files.delete(path) }
-  const cast = createCastAssets({ store: backing })
-  assert.deepEqual((await cast.setVoiceSource({ cardPath: 'cards/a.json', name: '林曦', provider: 'fish', clone: true })).characters[0].voiceSource, { provider: 'fish', clone: true }, '没有参考音频也能选声音克隆')
-  const { characters: [{ voiceReferences: [clip], voiceSource }] } = await cast.addVoiceReference({ cardPath: 'cards/a.json', name: '林曦', bytes: wav('one'), text: '你好。' })
-  assert.deepEqual(voiceSource, { provider: 'fish', clone: true })
-  assert.deepEqual((await cast.setVoiceSource({ cardPath: 'cards/a.json', name: '林曦', provider: 'openai', clone: false })).characters[0].voiceSource, { provider: 'openai' })
-  await assert.rejects(cast.setVoiceSource({ cardPath: 'cards/a.json', name: '林曦', provider: 'Bad Id' }), /配音渠道无效/)
-  await cast.setVoiceSource({ cardPath: 'cards/a.json', name: '林曦', provider: 'fish', clone: true })
-  const after = await cast.removeVoiceReference({ cardPath: 'cards/a.json', name: '林曦', file: clip.file })
-  assert.equal(Object.hasOwn(after.characters[0], 'voiceReferences'), false)
-  assert.deepEqual(after.characters[0].voiceSource, { provider: 'fish', clone: true }, '删掉最后一段不悄悄换回去')
-  assert.equal(Object.hasOwn((await cast.setVoiceSource({ cardPath: 'cards/a.json', name: '林曦', provider: '' })).characters[0], 'voiceSource'), false, '空：回到配音设置里的渠道')
-})
-
-test('参考音频随卡导出 CHARX、导入时校验一次：音频与原文完整还原，不合格的那段跳过并计数', async () => {
-  const cast = createCastAssets({ store: store() })
-  const collected = { emotions: [], backgrounds: [], cover: null, extras: [], skipped: 0,
-    cast: [{ name: '老周', aliases: [], avatar: null, sprites: {}, voices: {}, voiceSource: { provider: 'fish', clone: true }, voiceReferences: [{ audio: wav('zhou-1'), text: '来了啊。' }, { audio: Buffer.from('<html>'), text: '坏的' }, { audio: wav('zhou-2'), text: '' }] }] }
-  const summary = await cast.importCardAssets({ cardPath: 'cards/a.json', name: '林曦', collected })
-  assert.equal(summary.references, 1)
-  assert.equal(summary.skippedReferences, 2)
-  const manifest = await cast.read('cards/a.json')
-  const [clip] = manifest.characters[0].voiceReferences
-  assert.equal(clip.text, '来了啊。')
-
-  const charx = buildCharx({ document: { data: { name: '林曦' } }, cover: null, manifest, characterName: '林曦', readFile: file => file === clip.file ? wav('zhou-1') : undefined })
-  const entries = readZipEntries(charx)
-  const exported = JSON.parse(entries.get('card.json').toString('utf8')).data.extensions.dsh_tavern.cast.characters[0]
-  assert.equal(exported.voiceReferences.length, 1)
-  assert.equal(exported.voiceReferences[0].text, '来了啊。')
-  assert.deepEqual(entries.get(exported.voiceReferences[0].audio.replace('embeded://', '')), wav('zhou-1'))
-
-  const again = cardImport({ kind: 'charx', name: '林曦.charx', fileB64: charx.toString('base64') })
-  const copy = createCastAssets({ store: store() })
-  await copy.importCardAssets({ cardPath: 'cards/b.json', name: '林曦', collected: again.collected })
-  const restored = (await copy.read('cards/b.json')).characters.find(item => item.name === '老周').voiceReferences
-  assert.deepEqual(restored, [{ file: clip.file, text: '来了啊。' }])
-  assert.deepEqual(exported.voiceSource, { provider: 'fish', clone: true })
-  assert.deepEqual((await copy.read('cards/b.json')).characters.find(item => item.name === '老周').voiceSource, { provider: 'fish', clone: true }, '配音来源随卡走')
-  assert.deepEqual(await copy.readFile('cards/b.json', clip.file), wav('zhou-1'))
-  const plain = buildCharx({ document: { data: { name: '林曦' } }, cover: null, manifest: { characters: [{ name: '林曦', sprites: {}, voices: {} }] }, characterName: '林曦', readFile: () => undefined })
-  assert.equal(Object.hasOwn(JSON.parse(readZipEntries(plain).get('card.json').toString('utf8')).data.extensions.dsh_tavern.cast.characters[0], 'voiceReferences'), false, '没有参考音频的人物，导出里不写 voiceReferences')
+test('CHARX 导出拒绝生成超过导入解压容量的文件', () => {
+  const bytes = Buffer.alloc(8 * 1024 * 1024)
+  const characters = Array.from({ length: 20 }, (_, i) => ({ name: '角色' + i, sprites: { joy: i + '.png' } }))
+  assert.throws(() => buildCharx({ document: { data: {} }, manifest: { characters }, readFile: () => bytes }), /解压后 [0-9]+ MB，超过 150 MB/)
 })

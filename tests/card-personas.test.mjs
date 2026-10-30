@@ -63,7 +63,8 @@ test('性格面板：选中内置性格修改后保存，下拉框仍停在该�
     useEffect(fn) { if (initial) effects.push(fn) }
   }
   const Component = vm.runInNewContext(body + '\n; CardPersonaTab', {
-    React, useTavernConfirm: () => async () => true, notifyTavernDataChanged() {},
+    // the panel uses the shared menu and draft text area.
+    React, InlineField: 'InlineField', TextArea: 'TextArea', useTavernConfirm: () => async () => true, notifyTavernDataChanged() {},
     rpc: async (method, args) => {
       if (method === 'manageCardPersona') document = change(document, JSON.parse(JSON.stringify(args)))
       return { cardPersonas: view(document) }
@@ -75,12 +76,12 @@ test('性格面板：选中内置性格修改后保存，下拉框仍停在该�
   render()
   effects[0]()
   await flush()
-  find(render(), node => node.type === 'textarea')[0].props.onChange({ target: { value: '喵设定，改过' } })
-  assert.equal(find(render(), node => node.type === 'select')[0].props.value, 'builtin:cat')
+  find(render(), node => node.type === 'TextArea')[0].props.onChange('喵设定，改过')
+  assert.equal(find(render(), node => node.type === 'InlineField')[0].props.value, 'builtin:cat')
   find(render(), node => node.type === 'button' && node.children[0] === '保存')[0].props.onClick()
   await flush()
-  const select = find(render(), node => node.type === 'select')[0]
+  const select = find(render(), node => node.type === 'InlineField')[0]
   assert.equal(select.props.value, 'builtin:cat')
-  assert.ok(find(select, node => node.type === 'option' && node.props.value === 'builtin:cat')[0].children.join('').includes('已修改'))
+  assert.ok(select.props.options.find(option => option.value === 'builtin:cat').label.includes('已修改'))
   assert.equal(activeCardPersonaText(document, BUILTINS), '喵设定，改过')
 })

@@ -1,6 +1,15 @@
 import { createScopedMessages } from './scoped-messages.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 
+// Story preparation, worldbook prefilter and plugin task context only. Template
+// executors and request hooks retain their own complete-message readers.
+export const storyContextMessageFields = Object.freeze([
+  'role', 'turn', 'greeting', 'text', 'sourceText', 'projectionText',
+  'swipeId', 'swipes', 'variables',
+  // A new foreground capability epoch reuses the last director's judge result.
+  'stageDirectionAssetPacks.stats.judge.probabilities'
+])
+
 const legacyStory = chat => Object.values(chat?.timeline?.operations || {}).some(operation =>
   operation?.kind === 'body' && operation.status === 'foreground-completed')
 
@@ -23,8 +32,9 @@ export function scannedStoryRows(rows, depth) {
  * depth, or a window above `maxRows`.
  */
 export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows = 2000 }) {
-  async function read(chatId, sessionId, { storyRows = 0, lastAssistant = false, lastVariables = false, enough = () => true, include = [], revision } = {}) {
-    const first = await readWindow(chatId, { limit: pageSize, includeCheckpoints: true })
+  async function read(chatId, sessionId, { storyRows = 0, lastAssistant = false, lastVariables = false, enough = () => true, include = [], revision, messageFields } = {}) {
+    const projection = messageFields === undefined ? {} : { messageFields }
+    const first = await readWindow(chatId, { limit: pageSize, includeCheckpoints: true, ...projection })
     const head = first?.chat
     if (!head || (revision !== undefined && first.revision !== revision) || (sessionId !== undefined && head.sessionId !== sessionId) || head.backgroundConfigVersion !== 1
       || head.conversationFeaturesVersion !== 1 || legacyStory(head)) return undefined
@@ -34,7 +44,7 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
     const satisfied = () => scannedStoryRows(rows, depth) && (!lastAssistant || rows.some(row => row?.role === 'assistant')) && enough(rows)
     while (from > 0 && !satisfied()) {
       if (rows.length >= maxRows) return undefined
-      const page = await readWindow(chatId, { limit: Math.min(500, Math.max(pageSize, rows.length)), before: from, revision: first.revision, fields: ['_storageRevision'] })
+      const page = await readWindow(chatId, { limit: Math.min(500, Math.max(pageSize, rows.length)), before: from, revision: first.revision, fields: ['_storageRevision'], ...projection })
       if (!page || page.revision !== first.revision || page.to !== from - 1) return undefined
       rows = page.chat.messages.concat(rows)
       from = page.from
@@ -45,7 +55,7 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
       if (position === undefined) return undefined
       if (position !== null) {
         if (position >= from) return undefined
-        const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'] })
+        const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'], ...projection })
         const row = page?.revision === first.revision ? page.chat.messages[0] : undefined
         if (!row || row.role === 'tavern-helper' || lastTavernHelperVariables([row]) === undefined) return undefined
         entries.unshift([position, row])
@@ -55,14 +65,14 @@ export function createBoundedHistory({ links, readWindow, pageSize = 48, maxRows
     for (const position of new Set(include)) {
       if (!Number.isSafeInteger(position) || position < 0 || position >= first.messageCount) return undefined
       if (position >= from || entries.some(([at]) => at === position)) continue
-      const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'] })
+      const page = await readWindow(chatId, { limit: 1, before: position + 1, revision: first.revision, fields: ['_storageRevision'], ...projection })
       if (page?.revision !== first.revision || !page.chat.messages[0]) return undefined
       entries.unshift([position, page.chat.messages[0]])
     }
     const { messages: _rows, ...header } = head
     return {
       chat: { ...header, messages: createScopedMessages(first.messageCount, entries) },
-      messageCount: first.messageCount, from, revision: first.revision
+      messageCount: first.messageCount, from, revision: first.revision, ...projection
     }
   }
   return Object.freeze({
@@ -102,20 +112,21 @@ export async function readRowsAt(readWindow, chatId, revision, indices) {
 /** The latest `limit` floors, extended on the same revision back to `from` when
  * the reader has already viewed older history. `requirePartial` keeps the old
  * contract of returning null for a history the window would cover entirely. */
-export async function readRecentWindow(readWindow, chatId, { limit, from, requirePartial = false } = {}) {
+export async function readRecentWindow(readWindow, chatId, { limit, from, requirePartial = false, messageFields } = {}) {
+  const projection = messageFields === undefined ? {} : { messageFields }
   const extended = Number.isSafeInteger(from) && from >= 0
   // Background tasks write several times a turn: a revision moving under the extension is
   // read again, never answered with "no window" (which turns the view into the whole history).
   for (let attempt = 0; attempt < 3; attempt++) {
-    let window = await readWindow(chatId, { limit, requirePartial: requirePartial && !extended })
+    let window = await readWindow(chatId, { limit, requirePartial: requirePartial && !extended, ...projection })
     // Back to `from` in one read when it fits: a single revision, nothing to stitch.
     if (window && extended && window.from > from && window.messageCount - from <= 500) {
-      window = await readWindow(chatId, { limit: Math.max(limit, window.messageCount - from) })
+      window = await readWindow(chatId, { limit: Math.max(limit, window.messageCount - from), ...projection })
       if (window && window.from > from) continue
     }
     let stitched = true
     while (window && extended && window.from > from) {
-      const page = await readWindow(chatId, { limit: Math.min(500, window.from - from), before: window.from, revision: window.revision, fields: ['_storageRevision'] })
+      const page = await readWindow(chatId, { limit: Math.min(500, window.from - from), before: window.from, revision: window.revision, fields: ['_storageRevision'], ...projection })
       if (!page || page.revision !== window.revision || page.to !== window.from - 1) { stitched = false; break }
       window = { ...window, from: page.from, chat: { ...window.chat, messages: page.chat.messages.concat(window.chat.messages) } }
     }

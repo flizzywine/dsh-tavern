@@ -1,5 +1,7 @@
-import { JSDOM } from 'jsdom'
+import { createRequire } from 'node:module'
 
+// Plain replies and host startup do not need the DOM parser's dependency graph.
+const require = createRequire(import.meta.url)
 const cache = new Map()
 let cacheBytes = 0
 function hideVariableBlocks(html) {
@@ -9,6 +11,7 @@ function hideVariableBlocks(html) {
   // Template HTML has already passed through Markdown and may wrap the protocol
   // in paragraphs. Parse without executing scripts; remove exact source ranges
   // rather than serializing the DOM and changing author markup or status keys.
+  const { JSDOM } = require('jsdom')
   const dom = new JSDOM(html, { includeNodeLocations: true })
   try {
     const ranges = []
@@ -48,6 +51,7 @@ export function annotateTemplateStatusParts(parts, html) {
   if (!String(html).includes('data-dsh-status-key')) return structuredClone(parts)
   const key = JSON.stringify([html, parts])
   if (statusPartsCache.has(key)) return structuredClone(statusPartsCache.get(key))
+  const { JSDOM } = require('jsdom')
   const dom = new JSDOM(html)
   try {
     const declarations = [...dom.window.document.querySelectorAll('[data-dsh-status-key]')].map(node => ({

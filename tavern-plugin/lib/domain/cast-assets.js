@@ -10,26 +10,7 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_EXTRA_BYTES = 20 * 1024 * 1024
 const MAX_CHARACTERS = 64
 const MAX_NAME = 24
-// A character's reference clips (cast-presentation.md 22/N) go with every line they voice, so all of them together stay small.
-const MAX_REFERENCES = 8
-const MAX_REFERENCE_BYTES = 8 * 1024 * 1024
-const MAX_REFERENCE_TEXT = 500
 const IMAGE_TYPES = Object.freeze({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })
-const FILE = /^[0-9a-f]{32}\.[a-z0-9]{1,10}$/
-const PROVIDER = /^[a-z0-9][a-z0-9._/-]{0,96}$/
-// A 配音语言: a BCP 47 language tag (ja, en, pt-BR).
-const LANGUAGE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
-
-// Every stored file a manifest names, whatever field names it.
-function filesOf(manifest) {
-  const files = new Set()
-  const visit = value => {
-    if (typeof value === 'string') { if (FILE.test(value)) files.add(value) }
-    else if (value && typeof value === 'object') Object.values(value).forEach(visit)
-  }
-  visit(manifest)
-  return files
-}
 
 function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_CAST_INVALID' }) }
 
@@ -54,23 +35,6 @@ export function imageExtension(bytes) {
   return null
 }
 
-/** A reference clip's audio type from its bytes: WAV, MP3, OGG or FLAC. */
-export function referenceAudioExtension(bytes) {
-  const head = Buffer.from(bytes.subarray(0, 12)), tag = head.subarray(0, 4).toString('latin1')
-  if (tag === 'RIFF' && head.subarray(8, 12).toString('latin1') === 'WAVE') return 'wav'
-  if (tag === 'fLaC') return 'flac'
-  if (tag === 'OggS') return 'ogg'
-  if (head.subarray(0, 3).toString('latin1') === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0)) return 'mp3'
-  return null
-}
-
-/** What is said in a reference clip, as one line of 1–500 characters. */
-export function referenceText(value) {
-  const text = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
-  if (!text || [...text].length > MAX_REFERENCE_TEXT) throw invalid('参考音频需要写上它说的原话（1–' + MAX_REFERENCE_TEXT + ' 字）')
-  return text
-}
-
 export function createCastAssets({ store }) {
   const dirOf = cardPath => 'cast-assets/' + hash(String(cardPath))
   const empty = () => ({ version: 1, characters: [] })
@@ -88,7 +52,9 @@ export function createCastAssets({ store }) {
     const source = dirOf(from), target = dirOf(to)
     const manifest = await store.readJson(source + '/cast.json')
     if (!valid(manifest)) return
-    for (const file of filesOf(manifest)) {
+    const files = new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]),
+      ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))
+    for (const file of files) {
       const bytes = await store.readBytes(source + '/files/' + file)
       if (!bytes) throw new Error('人物素材文件不存在: ' + file)
       await store.writeBytes(target + '/files/' + file, bytes)
@@ -167,7 +133,7 @@ export function createCastAssets({ store }) {
   /** A character's voice for one speech provider (Wiki「设计：cast-presentation」); '' clears it. */
   async function setVoice({ cardPath, name, provider, voice }) {
     const character = castName(name)
-    if (typeof provider !== 'string' || !PROVIDER.test(provider)) throw invalid('配音渠道无效')
+    if (typeof provider !== 'string' || !/^[a-z0-9][a-z0-9._/-]{0,96}$/.test(provider)) throw invalid('配音渠道无效')
     const value = typeof voice === 'string' ? voice.trim() : ''
     if ([...value].length > 300) throw invalid('声音设置最多 300 字')
     await update(cardPath, manifest => {
@@ -179,80 +145,6 @@ export function createCastAssets({ store }) {
       target.voices = voices
     })
     return read(cardPath)
-  }
-
-  // A clip checked as the player's upload and a card's import both are: its type from its bytes, its text, the size of all of one character's.
-  async function writeReference(cardPath, bytes, text, existing) {
-    const line = referenceText(text)
-    if (!bytes?.length || !referenceAudioExtension(bytes)) throw invalid('参考音频只支持 WAV、MP3、OGG、FLAC')
-    if (existing.length >= MAX_REFERENCES) throw invalid('一个人物最多 ' + MAX_REFERENCES + ' 段参考音频')
-    let total = bytes.length
-    for (const clip of existing) total += (await store.readBytes(dirOf(cardPath) + '/files/' + clip.file))?.length || 0
-    if (total > MAX_REFERENCE_BYTES) throw invalid('一个人物的参考音频合计不能超过 8 MB')
-    const file = hash(bytes).slice(0, 32) + '.' + referenceAudioExtension(bytes)
-    await store.writeBytes(dirOf(cardPath) + '/files/' + file, bytes)
-    return { file, text: line }
-  }
-
-  /** Add a reference clip (audio and what it says) to a character, for channels that take them inline (Fish). */
-  async function addVoiceReference({ cardPath, name, bytes, text }) {
-    const character = castName(name)
-    const existing = characterIn(await read(cardPath), character, false)?.voiceReferences || []
-    const clip = await writeReference(cardPath, bytes, text, existing)
-    await update(cardPath, manifest => {
-      const target = characterIn(manifest, character, true)
-      const clips = (target.voiceReferences || []).filter(item => item.file !== clip.file)
-      if (clips.length >= MAX_REFERENCES) throw invalid('一个人物最多 ' + MAX_REFERENCES + ' 段参考音频')
-      target.voiceReferences = [...clips, clip]
-    })
-    return read(cardPath)
-  }
-
-  /**
-   * The one voice a character speaks with (cast-presentation.md 22/N): a configured channel ({ provider }, its voice there),
-   * or that channel's clone of the character's own reference clips ({ provider, clone: true }); '' goes back to the channel
-   * in use. Choosing never looks at the clips: a clone without them is told so when a line is said.
-   */
-  async function setVoiceSource({ cardPath, name, provider, clone }) {
-    const character = castName(name)
-    if (provider !== '' && (typeof provider !== 'string' || !PROVIDER.test(provider))) throw invalid('配音渠道无效')
-    await update(cardPath, manifest => {
-      const target = characterIn(manifest, character, Boolean(provider))
-      if (!target) return
-      if (provider) target.voiceSource = { provider, ...(clone === true ? { clone: true } : {}) }
-      else delete target.voiceSource
-    })
-    return read(cardPath)
-  }
-
-  /**
-   * A character's 配音语言 (cast-presentation.md 33/N), the one place it is kept: the story model then writes each of their
-   * lines with the words their voice says in that language; '' is the story's own language.
-   */
-  async function setVoiceLanguage({ cardPath, name, language }) {
-    const character = castName(name)
-    if (language !== '' && (typeof language !== 'string' || !LANGUAGE.test(language))) throw invalid('配音语言无效')
-    await update(cardPath, manifest => {
-      const target = characterIn(manifest, character, Boolean(language))
-      if (!target) return
-      if (language) target.voiceLanguage = language
-      else delete target.voiceLanguage
-    })
-    return read(cardPath)
-  }
-
-  /** Remove one of a character's reference clips; its file goes when nothing else names it. */
-  async function removeVoiceReference({ cardPath, name, file }) {
-    const character = castName(name)
-    await update(cardPath, manifest => {
-      const target = characterIn(manifest, character, false)
-      if (!target?.voiceReferences) return
-      target.voiceReferences = target.voiceReferences.filter(item => item.file !== file)
-      if (!target.voiceReferences.length) delete target.voiceReferences
-    })
-    const after = await read(cardPath)
-    if (FILE.test(String(file)) && !filesOf(after).has(file)) await store.remove(dirOf(cardPath) + '/files/' + file)
-    return after
   }
 
   async function removeCharacter({ cardPath, name }) {
@@ -298,15 +190,13 @@ export function createCastAssets({ store }) {
 
   /**
    * Material a card file carried (see card-assets.js collectCardAssets): the main character's
-   * expressions and avatar, Tavern's own cast entry; anything not usable is kept. Backgrounds and
-   * music are the stage's and go to the asset library first (stage-material.js); what it could
-   * not hold arrives here as kept files.
+   * expressions and avatar, backgrounds, Tavern's own cast entry; anything not usable is kept.
    */
   async function importCardAssets({ cardPath, name, collected }) {
     const owner = castName(name)
     const image = async (bytes) => imageExtension(bytes) && bytes.length <= MAX_IMAGE_BYTES ? writeImage(cardPath, bytes) : null
     const summary = { sprites: 0, backgrounds: 0, avatars: 0, kept: 0, unmatched: [] }
-    const sprites = [], extras = [], cast = []
+    const sprites = [], backgrounds = [], extras = [], cast = []
     let avatar = null
     const taken = new Set()
     // The closest name gets each emotion: 'sad' rather than 'crying' for sadness.
@@ -318,6 +208,11 @@ export function createCastAssets({ store }) {
       extras.push({ type: 'emotion', name: emotion.name, ext: emotion.ext, file: await writeExtra(cardPath, emotion.bytes, emotion.ext) })
       if (!slot) summary.unmatched.push(emotion.name)
     }
+    for (const background of collected.backgrounds) {
+      const file = await image(background.bytes)
+      if (file) backgrounds.push({ name: background.name, file })
+      else extras.push({ type: 'background', name: background.name, ext: background.ext, file: await writeExtra(cardPath, background.bytes, background.ext) })
+    }
     if (collected.cover) {
       avatar = await image(collected.cover.bytes)
       if (!avatar) extras.push({ type: 'icon', name: 'main', ext: collected.cover.ext, file: await writeExtra(cardPath, collected.cover.bytes, collected.cover.ext) })
@@ -326,15 +221,8 @@ export function createCastAssets({ store }) {
     for (const character of collected.cast) {
       let person
       try { person = castName(character.name) } catch { continue }
-      const entry = { name: person, aliases: character.aliases.map(alias => { try { return castName(alias) } catch { return null } }).filter(Boolean).slice(0, 8), avatar: character.avatar ? await image(character.avatar) : null, sprites: {}, voices: character.voices, voiceReferences: [],
-        voiceSource: typeof character.voiceSource?.provider === 'string' && PROVIDER.test(character.voiceSource.provider) ? { provider: character.voiceSource.provider, ...(character.voiceSource.clone === true ? { clone: true } : {}) } : null,
-        voiceLanguage: typeof character.voiceLanguage === 'string' && LANGUAGE.test(character.voiceLanguage) ? character.voiceLanguage : '' }
+      const entry = { name: person, aliases: character.aliases.map(alias => { try { return castName(alias) } catch { return null } }).filter(Boolean).slice(0, 8), avatar: character.avatar ? await image(character.avatar) : null, sprites: {}, voices: character.voices }
       for (const [slot, bytes] of Object.entries(character.sprites)) { const file = await image(bytes); if (file) entry.sprites[slot] = file }
-      // The card's clips are checked here, once, like an upload; one that does not pass is left out.
-      for (const clip of character.voiceReferences || []) {
-        try { entry.voiceReferences.push(await writeReference(cardPath, clip.audio, clip.text, entry.voiceReferences)) }
-        catch (error) { if (error?.code !== 'TAVERN_CAST_INVALID') throw error; summary.skippedReferences = (summary.skippedReferences || 0) + 1 }
-      }
       cast.push(entry)
     }
     await update(cardPath, manifest => {
@@ -350,17 +238,14 @@ export function createCastAssets({ store }) {
         if (entry.avatar) target.avatar = entry.avatar
         Object.assign(target.sprites, entry.sprites)
         if (Object.keys(entry.voices).length) target.voices = { ...(target.voices || {}), ...entry.voices }
-        if (entry.voiceReferences.length) target.voiceReferences = entry.voiceReferences
-        if (entry.voiceSource) target.voiceSource = entry.voiceSource
-        if (entry.voiceLanguage) target.voiceLanguage = entry.voiceLanguage
       }
+      manifest.backgrounds = [...(manifest.backgrounds || []), ...backgrounds.filter(item => !(manifest.backgrounds || []).some(existing => existing.file === item.file))]
       manifest.extras = [...(manifest.extras || []), ...extras.filter(item => !(manifest.extras || []).some(existing => existing.file === item.file && existing.type === item.type))]
     })
     summary.sprites = sprites.length + cast.reduce((total, entry) => total + Object.keys(entry.sprites).length, 0)
+    summary.backgrounds = backgrounds.length
     summary.avatars = (avatar ? 1 : 0) + cast.filter(entry => entry.avatar).length
     summary.kept = extras.length
-    const references = cast.reduce((total, entry) => total + entry.voiceReferences.length, 0)
-    if (references) summary.references = references
     return summary
   }
 
@@ -372,40 +257,17 @@ export function createCastAssets({ store }) {
     return read(cardPath)
   }
 
-  /** The asset library packs whose entries are this card's stage material (stage-material.js). */
-  async function setBoundPackIds(cardPath, ids) {
-    await update(cardPath, manifest => { manifest.boundPackIds = [...new Set(ids)] })
-    return read(cardPath)
-  }
-
-  /** The player's own skin for this card (舞台设置 › 本卡皮肤, stage-skin-choice.js), checked by the caller; null clears it. */
-  async function setSkinChoice(cardPath, skin) {
-    await update(cardPath, manifest => { if (skin === null) delete manifest.skinChoice; else manifest.skinChoice = structuredClone(skin) })
-    return read(cardPath)
-  }
-
-  /**
-   * The end of the one move of stage material into the library: moved music leaves the kept files,
-   * backgrounds the library could not hold stay as kept files, and files nothing names are deleted.
-   */
-  async function finishStageMove(cardPath, { moved, kept }) {
-    const before = await read(cardPath)
-    const leaving = new Set(moved)
-    await update(cardPath, manifest => {
-      delete manifest.backgrounds
-      manifest.extras = [...(manifest.extras || []).filter(item => !(item.type === 'music' && leaving.has(item.file))), ...kept]
-      if (!Array.isArray(manifest.boundPackIds)) manifest.boundPackIds = []
-    })
-    const after = await read(cardPath), named = filesOf(after)
-    for (const file of filesOf(before)) if (!named.has(file)) await store.remove(dirOf(cardPath) + '/files/' + file)
-    return after
-  }
-
   /** The plugins a card carries (card-plugins.js) and whether the player turned them on. */
   async function setPlugins(cardPath, plugins) {
     await update(cardPath, manifest => {
       manifest.plugins = plugins.map(plugin => ({ folder: plugin.folder, name: plugin.name, sha256: plugin.sha256, purpose: plugin.purpose || '', files: plugin.files || 0, bytes: plugin.bytes || 0, enabled: plugin.enabled === true }))
     })
+    return read(cardPath)
+  }
+
+  /** Whether this card's games show the stage (off unless the player or the card turns it on). */
+  async function setStage(cardPath, on) {
+    await update(cardPath, manifest => { if (on) manifest.stage = true; else delete manifest.stage })
     return read(cardPath)
   }
 
@@ -434,5 +296,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, setVoiceSource, setVoiceLanguage, addVoiceReference, removeVoiceReference, removeCharacter, importSpritePack, importCardAssets, bindPacks, setBoundPackIds, setSkinChoice, finishStageMove, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStage, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

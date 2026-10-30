@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
@@ -42,32 +40,14 @@ export function packContentHash(files) {
   return hash.digest('hex')
 }
 
-export function createAssetPacks({ root, store }) {
-  const base = path.join(path.resolve(root), 'asset-packs')
-  const blobPath = sha256 => path.join(base, 'blobs', sha256.slice(0, 2), sha256)
+export function createAssetPacks({ store, mediaStore }) {
   const indexPath = (id, contentHash) => 'asset-packs/packs/' + id + '/' + contentHash + '.json'
 
-  async function exists(file) { try { return (await stat(file)).isFile() } catch { return false } }
-
-  /** Store a stream as a blob; returns { sha256, size }. Rejects above maxBytes. */
+  /** Store a stream as a blob; preserve the existing upload error contract. */
   async function putBlob(source, { maxBytes = Infinity } = {}) {
-    await mkdir(path.join(base, 'tmp'), { recursive: true })
-    const temporary = path.join(base, 'tmp', randomUUID())
-    const hash = createHash('sha256')
-    let size = 0
-    const meter = new Transform({ transform(chunk, _encoding, done) {
-      size += chunk.length
-      if (size > maxBytes) { done(Object.assign(new Error('素材文件超过 ' + Math.round(maxBytes / 1048576) + ' MB'), { code: 'TAVERN_PACK_TOO_LARGE' })); return }
-      hash.update(chunk); done(null, chunk)
-    } })
-    try {
-      await pipeline(source, meter, createWriteStream(temporary))
-      const sha256 = hash.digest('hex'), target = blobPath(sha256)
-      if (await exists(target)) await rm(temporary, { force: true })
-      else { await mkdir(path.dirname(target), { recursive: true }); await rename(temporary, target) }
-      return { sha256, size }
-    } catch (error) {
-      await rm(temporary, { force: true })
+    try { return await mediaStore.put(source, { maxBytes }) }
+    catch (error) {
+      if (error.code === 'LIMIT_EXCEEDED') throw Object.assign(new Error('素材文件超过 ' + Math.round(maxBytes / 1048576) + ' MB'), { code: 'TAVERN_PACK_TOO_LARGE' })
       throw error
     }
   }
@@ -125,9 +105,9 @@ export function createAssetPacks({ root, store }) {
     const pack = await readPack(id, contentHash)
     const entry = pack && Object.hasOwn(pack.files, String(relative)) ? pack.files[relative] : null
     if (!entry || !HASH.test(entry.sha256)) return undefined
-    const absolute = blobPath(entry.sha256)
-    if (!await exists(absolute)) return undefined
-    return { path: absolute, size: entry.size, sha256: entry.sha256, ...packMediaType(relative) }
+    const resolved = await mediaStore.resolve(entry)
+    if (!resolved) return undefined
+    return { path: resolved.absolutePath, size: entry.size, sha256: entry.sha256, ...packMediaType(relative) }
   }
 
   return Object.freeze({ readPack, importFromZip, importFiles, file, putBlob })

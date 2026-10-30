@@ -168,7 +168,8 @@ export function renderTavernMacros(text, context = {}) {
     dynamicMacros: {},
     extra: {}
   }
-  let rendered = normalizeLegacyVariableExpressions(text)
+  // Legacy identity tokens are macros too, not HTML elements.
+  let rendered = normalizeLegacyVariableExpressions(str(text).replace(/<(user|char)>/gi, (_, name) => '{{' + name.toLowerCase() + '}}'))
   const diagnostics = []
   // Some ecosystem cards deliberately escape a macro once so that an outer
   // macro pass exposes it for the next pass. Resolve those delayed macros, but

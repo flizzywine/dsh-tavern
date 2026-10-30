@@ -1,5 +1,15 @@
+import {migrateFigureNameCopies} from '../../packages/dsh-asset-library/lib/asset-packs/figure-names.js'
 import { withTavernCredit } from './card-credit.js'
 import { inspectCardExtensions } from './card-extension-reading.js'
+import { validateCardAssetExtension } from './card-asset-bindings.js'
+import { validateModSystem } from './mod-system-contract.js'
+
+function validateOptInAssets(raw, previousRaw) {
+  const extension = rawData(raw).extensions?.dsh_tavern
+  const previous = previousRaw && rawData(previousRaw).extensions?.dsh_tavern
+  if (extension !== undefined && (Object.hasOwn(extension || {}, 'assetBindings') || Object.hasOwn(previous || {}, 'assetBindings'))) validateCardAssetExtension(extension)
+  if (extension?.modSystem !== undefined) validateModSystem('card', extension.modSystem)
+}
 
 const TEXT_FIELDS = Object.freeze([
   'name', 'description', 'personality', 'scenario', 'first_mes', 'mes_example',
@@ -29,7 +39,7 @@ function isWorkspace(value) {
   return object(value) && value.kind === WORKSPACE_KIND && value.version === WORKSPACE_VERSION && object(value.raw)
 }
 
-function rawData(raw) {
+export function rawData(raw) {
   if (!object(raw)) throw new Error('人物卡格式错误')
   if ((raw.spec === 'chara_card_v2' || raw.spec === 'chara_card_v3') && object(raw.data)) return raw.data
   return raw
@@ -37,6 +47,7 @@ function rawData(raw) {
 
 function makeWorkspace(raw, meta = {}) {
   if (!object(raw)) throw new Error('人物卡格式错误')
+  validateOptInAssets(raw)
   return {
     kind: WORKSPACE_KIND,
     version: WORKSPACE_VERSION,
@@ -392,7 +403,7 @@ export function createCardPreparation(options = {}) {
   function create(request) {
     if (request === null || typeof request !== 'object') throw new Error('缺少人物卡准备请求')
     if (request.kind === 'import') {
-      const raw = importedObject(request.payload)
+      const raw = migrateFigureNameCopies(importedObject(request.payload))
       if (isStandaloneWorldBook(raw)) throw new Error('检测到世界书，请从右侧“世界书库”导入。')
       return makeWorkspace(raw, { id: nextId(), importedAt: now(), revisionHistory: [] })
     }
@@ -469,6 +480,7 @@ export function createCardPreparation(options = {}) {
       ? clone(request.card)
       : migrate({ working: object(request.card) ? request.card : {}, payload: null })
     const viewBefore = project(workspace)
+    const previousRaw = clone(workspace.raw)
     const changedFields = applyRawOperations(workspace.raw, request.rawOperations).map(function (pointer) { return 'raw:' + pointer })
     const data = rawData(workspace.raw)
     for (const field of TEXT_FIELDS) {
@@ -503,6 +515,7 @@ export function createCardPreparation(options = {}) {
         if (field !== 'character_book' && CARD_FIELDS.has(field) && Object.prototype.hasOwnProperty.call(workspace.raw, field)) workspace.raw[field] = clone(data[field])
       }
     }
+    validateOptInAssets(workspace.raw, previousRaw)
     if (changedFields.length > 0) {
       workspace.meta.updatedAt = now()
       if (request.revision !== undefined && request.revision !== null) {

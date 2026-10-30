@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import test from 'node:test'
 import { deflateRawSync } from 'node:zlib'
+import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPacks, packMediaType } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { pngCarriesCardArchive, readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { createUploads } from '../tavern-plugin/lib/domain/uploads.js'
@@ -99,7 +100,7 @@ test('封面 PNG 后接卡档案（.dshcard.png）：偏移整体后移也能读
 test('素材包：每个文件按内容只存一份，同 id 同摘要的包直接复用；只按白名单直接提供', async t => {
   const dir = await temp(t)
   const store = memoryStore()
-  const packs = createAssetPacks({ root: dir, store })
+  const packs = createAssetPacks({ store, mediaStore: createMediaStore({ root: join(dir, 'asset-packs') }) })
   const file = await zipFile(dir, 'p.zip', { 'assets/fish/manifest.json': '{"id":"fish"}', 'assets/fish/media/a.png': PNG, 'assets/fish/media/b.png': PNG, 'assets/fish/x.html': '<script>1</script>', 'card.json': '{}' })
   const zip = await openZipFile(file)
   const first = await packs.importFromZip(zip, { prefix: 'assets/fish/', id: 'fish', format: 'dsh-asset-pack', title: '鱼', credits: ['manifest.json', 'missing.md'] })
@@ -234,6 +235,7 @@ test('卡内插件：导入时放在一边不加载；启用后进 plugins/；�
 
   await plugins.enable({ cardKey: 'k'.repeat(64), cardPath: 'cards/鱼.png', plugins: staged })
   await plugins.remove({ cardKey: 'k'.repeat(64), cardPath: 'cards/鱼.png', plugins: staged })
+  assert.equal(existsSync(join(pluginsDir, folder)), false)
   assert.equal(existsSync(join(dir, 'card-plugins', 'k'.repeat(64))), false)
 })
 
@@ -250,14 +252,11 @@ test('开局默认：dsh.json 指向包内预设，只认少数几项设置，�
   const bad = await openZipFile(await zipFile(dir, 'b.dshcard', { 'card.json': '{}', 'dsh.json': JSON.stringify({ ...dsh, defaults: { preset: '../x.json' } }) }))
   await assert.rejects(readCardArchive(bad), /defaults\.preset/)
   await bad.close()
-  const staged = await openZipFile(await zipFile(dir, 'c.dshcard', { 'card.json': '{}', 'dsh.json': JSON.stringify({ ...dsh, defaults: { stage: true } }) }))
-  assert.equal((await readCardArchive(staged)).defaults, null, '舞台模式是全局开关，卡不能替玩家打开舞台')
-  await staged.close()
 })
 
 test('素材包：插件用零散文件建包，与卡带的包同一存储；路径不安全、重复或空包时拒绝', async t => {
   const dir = await temp(t)
-  const packs = createAssetPacks({ root: dir, store: memoryStore() })
+  const packs = createAssetPacks({ store: memoryStore(), mediaStore: createMediaStore({ root: join(dir, 'asset-packs') }) })
   const first = await packs.importFiles([{ path: 'bg/night.png', data: PNG }, { path: 'manifest.json', data: Buffer.from('{}') }], { id: 'stage-bg', format: 'my-director', title: '背景' })
   assert.equal(first.reused, false)
   assert.equal(first.pack.format, 'my-director')

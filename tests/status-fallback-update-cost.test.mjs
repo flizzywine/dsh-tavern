@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
 import {projectPersistentStatusView} from '../tavern-plugin/lib/domain/persistent-status-view.js'
 import {projectReplyHistory} from '../tavern-plugin/lib/domain/reply-presentation.js'
@@ -32,6 +33,7 @@ test('opening declarations retain priority over receipts and survive transitions
  async function check(expected){
   const result=await cache.project(chat,options,options)
   const history=projectReplyHistory(chat.messages,options)
+  for(const projection of history.projections)projection.body=replyBody(projection,chat)
   assert.deepEqual(result,{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
   assert.equal(result.statusView?.sourceTurn,expected)
  }

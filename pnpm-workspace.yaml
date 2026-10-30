@@ -9,6 +9,7 @@ confirmModulesPurge: false
 ignorePnpmfile: true
 allowBuilds:
   node-pty: false
+  esbuild: true
 minimumReleaseAgeExclude:
   - dsh-mnemon-source-runtime@0.5.14
   - dsh-mnemon-strategy-default-three-tier@0.5.9

@@ -14,6 +14,9 @@ function installVisualViewportPin(doc) {
     const properties = ["--dsh-vv-top", "--dsh-vv-height", "--dsh-composer-offset", "--dsh-sheet-max", "--dsh-header-bottom", "--dsh-composer-left", "--dsh-composer-width"];
     const previous = properties.map(name => [name, html.style.getPropertyValue(name), html.style.getPropertyPriority(name)]);
     let frame = 0, disposed = false, seat = null, header = null;
+    // classList.add/remove rewrite the class attribute even when nothing changes; that no-op mutation
+    // re-ran document-wide observers (surface styles, quote colours) on every focus change.
+    function removeClasses(...names) { const present = names.filter(name => html.classList.contains(name)); if (present.length) html.classList.remove(...present); }
     const observer = typeof view.ResizeObserver === "function" ? new view.ResizeObserver(schedule) : null;
     function setPx(name, value) {
         const next = Math.max(0, Math.round(value)) + "px";
@@ -41,7 +44,7 @@ function installVisualViewportPin(doc) {
         if (disposed) return;
         html.classList.toggle("dsh-tavern-coarse-play", narrow.matches);
         if (!narrow.matches && !touch.matches) {
-            html.classList.remove("dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
+            removeClasses("dsh-tavern-viewport-pinned", "dsh-tavern-short-viewport", "dsh-tavern-seat-scroll");
             restore();
             return;
         }
@@ -53,7 +56,7 @@ function installVisualViewportPin(doc) {
         if (!(height > 0)) return;
         setPx("--dsh-vv-top", top);
         setPx("--dsh-vv-height", height);
-        html.classList.add("dsh-tavern-viewport-pinned");
+        html.classList.toggle("dsh-tavern-viewport-pinned", true);
         // 整个外壳使用可视区高度，输入条仍贴外壳底部，避免重复叠加键盘补偿。
         const headerBottom = header ? header.getBoundingClientRect().bottom - top : 44;
         setPx("--dsh-header-bottom", headerBottom);

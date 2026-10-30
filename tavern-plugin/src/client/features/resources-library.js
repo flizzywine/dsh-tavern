@@ -132,7 +132,7 @@
 			function group(title, kind, items, actions) {
 				return h("section", { className: "dsh-tavern-resource-group" },
 					h("div", { className: "dsh-tavern-resource-group-title" }, h("span", null, title + " · " + items.length), actions || null),
-					items.length ? items.map(function (item) { return row(kind, item); }) : h("div", { className: "dsh-tavern-status-empty" }, "暂无")
+					items.length ? items.map(function (item) { return row(kind, item); }) : h(EmptyState, { compact: true, text: "暂无" })
 				);
 			}
 				if (openedScript) return h("div", { className: "dsh-tavern-resources" },
@@ -148,7 +148,7 @@
 		function register(input) {
 			const ctx = input.ctx;
 			const appendMention = input.appendMention;
-			return ctx.effect(() => ctx.betterSidebar.registerTab({
+			return ctx.effect(() => registerTab(ctx.betterSidebar, {
 				id: "dsh-tavern:resources",
 					title: "剧本与素材库",
 				order: 7,

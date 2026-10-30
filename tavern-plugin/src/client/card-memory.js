@@ -47,7 +47,7 @@ function TavernCardMemoryTab(props) {
             h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: () => run(() => editPreference()) }, "添加偏好"),
             h("h4", null, "错误与修复经验"),
             h("p", null, "显示当前卡片和通用经验的检索结果。待验证记录不代表已有可靠解决方案。"),
-            !(memory.experiences || []).length ? h("p", null, "没有匹配的经验。") : null,
+            !(memory.experiences || []).length ? h(EmptyState, { compact: true, text: "没有匹配的经验" }) : null,
             (memory.experiences || []).map(entry => {
                 let record;
                 try { record = JSON.parse(entry.content); } catch (_error) { record = { problem: entry.content }; }

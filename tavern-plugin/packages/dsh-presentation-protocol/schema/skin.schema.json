@@ -6889,7 +6889,7 @@
    "type": "object",
    "additionalProperties": false,
    "minProperties": 1,
-   "description": "How the stage surfaces come and go, at every width. Data only: wipes through closed shapes, poses, fades and flat sweeping shapes; the engine plays them with transforms, opacity and clip paths.",
+   "description": "How the stage surfaces come and go, at every width. Data only: wipes through closed shapes, poses, slides and flat sweeping shapes; the engine plays them with transforms, opacity and clip paths.",
    "properties": {
     "loading": {
      "type": "object",
@@ -10541,7 +10541,7 @@
    "required": [
     "ms"
    ],
-   "description": "One surface transition (at least one of wipe, pose, fade, shapes, parts). enter plays from these values to the surface as drawn; leave from the surface as drawn to them. CONFIG 减少动态 shows the end state at once; the system reduced-motion preference turns it into a short fade.",
+   "description": "One surface transition (at least one of wipe, pose, slide, shapes, parts). enter plays from these values to the surface as drawn; leave from the surface as drawn to them. CONFIG 减少动态 shows the end state at once; the system reduced-motion preference turns it into a short fade.",
    "properties": {
     "ms": {
      "type": "number",
@@ -10616,8 +10616,9 @@
       }
      }
     },
-    "fade": {
-     "const": true
+    "slide": {
+     "const": true,
+     "description": "menu / config / backlog / choices: the panels rise 32 px into place (enter) or sink 32 px away (leave), their text opaque the whole time (about 200 ms reads best). menu / config / backlog move their panels (direct children) and the menu's dim fades; choices moves each row. Not with parts (write the slide in parts)."
     },
     "stagger": {
      "type": "number",
@@ -10675,7 +10676,7 @@
   "transitionParts": {
    "type": "object",
    "additionalProperties": false,
-   "description": "The surface's own parts (its direct children, in order) as a second layer (pose or fade required): enter from the pose / nothing to rest, delay ms after the transition starts, each next part stagger ms later; leave from rest away, before the surface (within its delay + ms). Not for choices (its rows are its parts) or page.",
+   "description": "The surface's own parts (its direct children, in order) as a second layer (pose or slide required): enter from the pose / 32 px below to rest, delay ms after the transition starts, each next part stagger ms later; leave from rest away, before the surface (within its delay + ms). Not for choices (its rows are its parts) or page.",
    "properties": {
     "ms": {
      "type": "number",
@@ -10722,8 +10723,9 @@
       }
      }
     },
-    "fade": {
-     "const": true
+    "slide": {
+     "const": true,
+     "description": "Each part rises 32 px into place (enter) or sinks 32 px away (leave), opaque the whole time."
     }
    }
   },

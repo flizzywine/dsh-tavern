@@ -83,7 +83,7 @@ const skinStage = skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinN
 // stage itself (enter: the text box as the stage is revealed; leave: the whole stage before it closes), the Esc menu, CONFIG,
 // the backlog, the turn-end choices (rows staggered; leave = after a pick) and the page turn (enter only: shapes over it).
 // A transition is data only: a wipe (the surface revealed through a growing closed shape from `at`, 0..1 of the surface, or
-// an edge wipe; leave shrinks it away), a pose (dx / dy % of the surface, rot, scale), a fade, and up to four flat shapes
+// an edge wipe; leave shrinks it away), a pose (dx / dy % of the surface, rot, scale), a slide, and up to four flat shapes
 // (circle / square / triangle / bar in one colour, size = share of the stage height) sweeping from -> to (0..1 of the stage,
 // may start or end off it) turning rot degrees, delay = share of ms. Every surface at every width; CONFIG 减少动态 shows the end
 // state at once and the system's reduced-motion preference replaces it with a short fade.
@@ -107,16 +107,22 @@ const skinTxPose = skinObject({dx:skinNumber(-100,100),dy:skinNumber(-100,100),r
 // delay: ms before the surface itself moves (its parts or shapes lead). parts: the surface's own parts (its direct children,
 // in order) moving as a second layer - enter: from pose / nothing to rest, delay ms after the transition starts, each next
 // one stagger ms later; leave: from rest away, before the surface (inside its delay + ms).
-const skinTransitionParts = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEase,delay:skinNumber(0,1000),stagger:skinNumber(0,200),pose:skinTxPose,fade:value => value === true})(value)
-    && (Object.hasOwn(value,'pose') || Object.hasOwn(value,'fade'));
+// slide: the panels rise 32 px into place (enter) or sink 32 px away (leave) with
+// their text opaque the whole time; about 200 ms reads best. On menu / CONFIG / backlog it moves the surface's panels (its
+// direct children, the parts) and the menu's dim fades; on choices it moves each row. Not on the loading veil or the stage
+// (their panels slide through parts.slide) and not beside parts (write the slide in parts).
+const STAGE_SKIN_SLIDE_SURFACES = Object.freeze(['menu','config','backlog','choices']);
+const skinTransitionParts = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEase,delay:skinNumber(0,1000),stagger:skinNumber(0,200),pose:skinTxPose,slide:value => value === true})(value)
+    && (Object.hasOwn(value,'pose') || Object.hasOwn(value,'slide'));
 const skinTransition = value => skinObject({ms:skinNumber(60,1500),ease:skinTxEase,delay:skinNumber(0,1000),wipe:skinObject({shape:skinEnum(STAGE_SKIN_WIPES),at:skinArray(skinNumber(0,1),2,2)},['shape']),
-    pose:skinTxPose,fade:value => value === true,stagger:skinNumber(0,200),parts:skinTransitionParts,
-    shapes:skinArray(skinTransitionShape,1,4),sameSpeaker:value => value === true},['ms'])(value) && ['wipe','pose','fade','shapes','parts'].some(key => Object.hasOwn(value,key));
+    pose:skinTxPose,slide:value => value === true,stagger:skinNumber(0,200),parts:skinTransitionParts,
+    shapes:skinArray(skinTransitionShape,1,4),sameSpeaker:value => value === true},['ms'])(value) && ['wipe','pose','slide','shapes','parts'].some(key => Object.hasOwn(value,key));
 // page: enter only, shapes only (the box's own page motion is textbox.motion.page); stagger only staggers the choice rows;
 // the choice rows are the choices' parts already (no parts there). sameSpeaker: the page's shapes play only on a page that keeps the speaker - a change of speaker
 // (to, from or between speakers) turns quietly.
 const skinTransitions = value => skinObject(Object.fromEntries(STAGE_SKIN_TRANSITION_SURFACES.map(surface => [surface,skinObject({enter:skinTransition,leave:skinTransition})])))(value)
-    && Object.keys(value).length > 0 && Object.entries(value).every(([surface,phases]) => Object.keys(phases).length > 0 && Object.values(phases).every(t => (surface === 'choices' || t.stagger === undefined) && (surface !== 'choices' || t.parts === undefined) && (surface === 'page' || t.sameSpeaker === undefined))
+    && Object.keys(value).length > 0 && Object.entries(value).every(([surface,phases]) => Object.keys(phases).length > 0 && Object.values(phases).every(t => (surface === 'choices' || t.stagger === undefined) && (surface !== 'choices' || t.parts === undefined) && (surface === 'page' || t.sameSpeaker === undefined)
+            && (!t.slide || STAGE_SKIN_SLIDE_SURFACES.includes(surface) && !t.parts))
         && (!['page','speaker'].includes(surface) || !phases.leave && Object.keys(phases.enter).every(key => ['ms','ease','shapes','sameSpeaker'].includes(key)) && Boolean(phases.enter.shapes)));
 // A glyph's pose on the reveal's step clock (textFx.poses): em offsets, degrees, scale (sx / sy per axis), skew, a blur in em
 // and its ink (the flash colour, the body ink or the accent); held opaque like the reveals' own poses.
@@ -863,4 +869,4 @@ const BUILTIN_STAGE_SKINS = Object.freeze(Object.fromEntries([
     // Film subtitles stay 新晰黑 in every built-in (migrated from the old per-theme table).
     nameplate:{shape:'plain',paint:{bg,fg}},font:{...(stage ? {body:stage} : {}),film:'neo-xihei-screen'},textFx:{reveal:'type'},
     ui:{bg,fg,fgMuted,accent,onAccent:bg,border,radius,...(veil ? {veil} : {})}}])));
-if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};
+if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_SOURCE_KINDS,validateStageSkin,stageSkinFiles,stageSkinConfigFiles,STAGE_CONFIG_LOOKS,stageSkinScreenFiles,stageSkinImageOf,stageSkinSliceEdges,skinContrast,STAGE_SKIN_SFX_CUES,stageSkinAppearance,BUILTIN_STAGE_SKINS,STAGE_SKIN_PLATE_ALPHA,STAGE_BACKLOG_ROLES,STAGE_SKIN_TRANSITION_SURFACES,STAGE_SKIN_SLIDE_SURFACES,STAGE_SKIN_WIPES,STAGE_SKIN_TX_EASES};

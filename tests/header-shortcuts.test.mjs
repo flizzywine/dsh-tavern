@@ -4,10 +4,17 @@ import vm from 'node:vm'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 
+import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 import { DEFAULT_HEADER_ITEMS, applyTavernSettingsPatch, presentTavernSettings } from '../tavern-plugin/lib/domain/tavern-settings.js'
 
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+
+// the default top bar has only 导出 (the fork's ⋯ menu), no 酒馆状态 button.
+test('顶栏默认值与改动前一致：只有导出，图标加文字', () => {
+  assert.deepEqual({ display: DEFAULT_HEADER_ITEMS.display, items: [...DEFAULT_HEADER_ITEMS.items] }, { display: 'icon-text', items: ['header:export'] })
+  assert.deepEqual(presentTavernSettings({}, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
+})
 
 test('非法顶栏设置被拒绝', () => {
   for (const bad of [
@@ -26,9 +33,15 @@ test('传 null 恢复默认顶栏', () => {
   assert.deepEqual(document.headerItems, { display: 'icon', items: ['dsh-tavern:cards'] })
   document = applyTavernSettingsPatch(document, { headerItems: null })
   assert.equal(Object.hasOwn(document, 'headerItems'), false)
-  assert.deepEqual(presentTavernSettings(document, {}).headerItems, { display: 'icon-text', items: ['dsh-tavern:status', 'header:export'] })
+  assert.deepEqual(presentTavernSettings(document, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
   // 存档里损坏的值不会让读取失败。
-  assert.deepEqual(presentTavernSettings({ headerItems: { display: 'nope', items: ['bad id'] } }, {}).headerItems, { display: 'icon-text', items: ['dsh-tavern:status', 'header:export'] })
+  assert.deepEqual(presentTavernSettings({ headerItems: { display: 'nope', items: ['bad id'] } }, {}).headerItems, { display: 'icon-text', items: ['header:export'] })
+})
+
+test('getDisplayPreferences 一并返回顶栏设置与顶部标签', async () => {
+  const handlers = createSettingsHandlers({ readTavernSettings: async () => ({ hideContextAndReasoning: false, headerItems: { display: 'icon', items: ['header:export'] }, viewTabs: { items: ['chat', 'dsh-tavern:polish'] } }) })
+  const preferences = await handlers.getDisplayPreferences({})
+  assert.deepEqual(preferences, { hideContextAndReasoning: false, headerItems: { display: 'icon', items: ['header:export'] }, viewTabs: { items: ['chat', 'dsh-tavern:polish'] } })
 })
 
 test('客户端顶栏默认值与服务端一致，设置在首次读取前就用默认值', async () => {
@@ -43,7 +56,9 @@ test('客户端顶栏默认值与服务端一致，设置在首次读取前就�
     document: dom.window.document,
     window: dom.window,
     tavernViewTabItems: value => value && Array.isArray(value.items) ? ['chat'].concat(value.items.filter(id => id !== 'chat')) : ['chat'],
-    rpc: async () => ({ headerItems: { display: 'icon', items: ['dsh-tavern:cards'] }, viewTabs: { items: ['chat', 'dsh-tavern:gallery'] } })
+    rpc: async () => ({ hideContextAndReasoning: true, headerItems: { display: 'icon', items: ['dsh-tavern:cards'] }, viewTabs: { items: ['chat', 'dsh-tavern:gallery'] } }),
+    // the store also drives the 调试视图 classes (debug.js); the shipped default is read before the first load.
+    createDebugMigration: () => async () => {}, applyDebug() {}, TAVERN_HEADER_DEFAULT: value
   })
   assert.equal(store.snapshot(), null, '第一次读取前没有快照，顶栏回落到默认值')
   const stop = store.start()
@@ -52,6 +67,15 @@ test('客户端顶栏默认值与服务端一致，设置在首次读取前就�
   assert.deepEqual(JSON.parse(JSON.stringify(store.snapshot().viewTabs)), { items: ['chat', 'dsh-tavern:gallery'] })
   stop()
   dom.window.close()
+})
+
+// the fork settings layout keeps 顶栏配置 last in 高级 (02951363b); the header also opens it as 顶栏设置.
+test('默认对小白无感：开始页没有图钉，「⋯」只在有按钮收起时出现，配置放在高级末尾', () => {
+  assert.doesNotMatch(client, /dsh-tavern-start-pin/)
+  assert.doesNotMatch(client, /dsh-tavern-header-divider/)
+  assert.match(client, /foldedEntries\.length \? h\("div", \{ className: "dsh-tavern-more-actions dsh-tavern-header-more" \}/)
+  assert.doesNotMatch(client.slice(client.indexOf('group("显示与交互"'), client.indexOf('group("高级"')), /HeaderItemsSettings/)
+  assert.match(client.slice(client.indexOf('group("高级"')), /^group\("高级"[^]*?h\(HeaderItemsSettings\)\)\)\s*\);/)
 })
 
 test('空间不足时从尾部收起页面，酒馆状态和导出永不收起', () => {
@@ -98,3 +122,25 @@ test('手机上最多保留三个快捷入口，导出优先，其余进 ⋮', (
   // 显式传 1 时只留一个，其余进 ⋮。
   assert.deepEqual(Array.from(fold(['a', 'b'], 1)), ['b'])
 })
+
+test('手机顶栏的布局约束：角落按钮留座、宿主动作组保持自然宽度', () => {
+  // 预算变量写在标题行上，JS 读它折算槽位；数值是 390px 实测（mobile-layout-browser 断言），标题行不再留 44px 右内边距。
+  assert.match(css, /\[class\*="_titleRow"\] \{\s*--dsh-tavern-header-fixed: 142px;/)
+  assert.match(client, /const TAVERN_HEADER_MOBILE_CHROME = 142;/)
+  // a phone play session has no corner button and folds 全屏 into ⋯ (fork-phone-play-browser measures it).
+  assert.match(css, /html\.dsh-fork-phone-play [^{]*\[class\*="_titleRow"\] \{\s*--dsh-tavern-header-fixed: 58px;/)
+  assert.match(client, /const TAVERN_HEADER_MOBILE_CHROME_PHONE_PLAY = 58;/)
+  // 0.2.x 的 headerActions 是 display:contents 插槽，侧栏开关/文件/全屏都在里面；
+  // 容器压窄会让固定尺寸按钮互相覆盖，因此保持自然宽度，让标题区收缩。
+  assert.match(css, /\[class\*="_headerActions"\] \{\s*flex: none; min-width: 0; gap: 0;/)
+  assert.doesNotMatch(css, /--dsh-tavern-header-fixed: 156px;/)
+  // dsh-web-mobile 隐藏 titleRow 的 corner 时，酒馆要放回宿主右侧栏按钮，并隐藏重复的文件按钮。
+  assert.match(css, /\[data-mobile-nav="frame"\][\s\S]{0,240}\[data-conversation-header-corner\][\s\S]{0,80}display: flex !important;/)
+  assert.match(css, /\[data-mobile-nav="frame"\][\s\S]{0,300}\[data-mobile-nav="files"\]\s*\{\s*display: none !important;/)
+  // 手机判定与上限要暴露给夹具。
+  assert.match(client, /function useTavernMobileHeader\(\)/)
+  assert.match(client, /"data-tavern-header-limit": mobile \? mobileLimit : ""/)
+  // ⋮ 在手机上竖排三点。
+  assert.match(client, /mobile \? "M12 5h\.01M12 12h\.01M12 19h\.01"/)
+})
+

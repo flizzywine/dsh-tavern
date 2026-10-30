@@ -15,6 +15,28 @@ function fixture(entries, render = async text => ({ ok: true, text, scopes: {} }
   }
   return { worldBook, chat, project, run }
 }
+test('an unbound worldbook projects empty context and can gain entries in the same request', async () => {
+  let worldBook = null
+  const project = createForegroundWorldbook({ bound: async () => worldBook,
+    runtime: async () => ({ render: async text => ({ ok: true, text, scopes: {} }) }),
+    globalVariables: async () => ({}) })
+  const chat = { sessionId: 'unbound', messages: [] }
+  const run = () => project({ chat, card: {}, requestKey: 'one' })
+  const empty = await run()
+  assert.equal(empty.error, null)
+  assert.equal(empty.context, '')
+  assert.equal(empty.prefixContext, '')
+  assert.deepEqual(empty.refs, [])
+  worldBook = { view: { entries: [entry('setting', 'A quiet room.')] } }
+  const bound = await run()
+  assert.equal(bound.error, null)
+  assert.equal(bound.prefixContext, 'A quiet room.')
+  worldBook = null
+  const removed = await run()
+  assert.equal(removed.error, null)
+  assert.equal(removed.prefixContext, '')
+})
+
 test('new earlier setters survive cached controller replay and refresh pure readers', async () => {
   const entries = [entry('a', '<% controller %>', true, { order: 10 }), entry('b', '{{setvar::weather::snow}}', false, { order: 0 }), entry('c', '{{getvar::weather}}', true, { order: 20 })]
   let calls = 0

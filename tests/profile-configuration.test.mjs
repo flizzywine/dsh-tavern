@@ -77,6 +77,11 @@ for (const host of ['desktop', 'android', 'cli']) {
       assert.deepEqual(mergeProfileManifest({ ...options, current: next }), next)
       const fresh = mergeProfileManifest(options)
       assert.deepEqual(fresh.dsh.profile.bundles.filter(name => names.includes(name)), selected ? [selected] : [])
+      // Every bundle the repository links from tavern-plugin is installed with it (a bundle without its
+      // dependency is skipped at startup, e.g. the asset library).
+      const linked = Object.entries(source.devDependencies).filter(([name, spec]) => spec.startsWith('link:./tavern-plugin') && source.dsh.profile.bundles.includes(name))
+      assert.ok(linked.some(([name]) => name === 'dsh-asset-library'))
+      for (const [name, spec] of linked) assert.equal(fresh.dependencies[name], 'link:' + path.resolve('/app', spec.slice('link:'.length)).replaceAll(path.sep, '/'), name)
       for (const manifest of [next, fresh]) {
         assert.equal(manifest.dependencies['dsh-dream-skin'], 'link:/app/tavern-plugin/packages/dsh-dream-skin')
         assert.equal(manifest.dsh.profile.bundles.filter(name => name === 'dsh-dream-skin').length, 1)

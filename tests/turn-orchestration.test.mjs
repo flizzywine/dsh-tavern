@@ -331,6 +331,7 @@ test('漏写的一轮可以按它自己的请求号补记进存档（#196 自愈
   assert.notEqual(adopted.duplicate, true)
   assert.deepEqual(run.chat().messages.map(message => message.text), ['推开窗', '雨水扑进房间。', '关上窗', '窗关上了。'])
   assert.equal(Number(run.chat().messages.at(-1).turn), 3)
+  assert.equal(run.chat().messages.at(-1).stagePageVersion, 2)
 })
 
 test('本局前台工具可逐项关闭，卡片模式不受影响', async () => {

@@ -266,9 +266,11 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if ((Object.keys(defaults).length && chat.mvu?.enabled || plans.length || removedPaths.length) && !count) throw Error('当前存档缺少可迁移的 MVU 快照，未应用更新')
     return migrated
   }
+  const liveStatusRule = rule => rule.enabled !== false && !rule.disabled && statusViewDeclaration(rule) && /<%/.test(rule.replaceString)
+  const needsHistory = (chat, options) => !!chat.cardContextRevision && (options.regexScripts || []).some(liveStatusRule)
   async function project(chat, card, display, options) {
     const rules = options.regexScripts || []
-    if (!chat.cardContextRevision || !rules.some(rule => rule.enabled !== false && !rule.disabled && statusViewDeclaration(rule) && /<%/.test(rule.replaceString))) return display
+    if (!needsHistory(chat, options)) return display
     const vars = lastTavernHelperVariables(chat.messages)
     const globals = await readGlobals()
     const key = hash([globals,chat.id,chat.cardContextRevision,rules,vars,chat.variables,chat.openingWorldbookSnapshot,chat.messages.at(-1)?.turn])
@@ -276,7 +278,7 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     if (!pending) {
       pending = preview(chat, card, async render => {
         const rendered = []
-        for (const rule of rules) rendered.push(rule.enabled !== false && !rule.disabled && statusViewDeclaration(rule) && /<%/.test(rule.replaceString) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
+        for (const rule of rules) rendered.push(liveStatusRule(rule) ? {...rule,replaceString:await render(rule.replaceString)} : rule)
         return rendered
       }, globals)
       cache.set(key,pending)
@@ -289,5 +291,5 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
     const cleaned = projectPersistentStatusView(chat.messages, display.projections, {...options,allowStaticStatus:true})
     return {...display,...projectPersistentStatusView(chat.messages, cleaned.projections, {...options,regexScripts:rendered,allowStaticStatus:true})}
   }
-  return {prepare,project,dispose:()=>runtime.dispose()}
+  return {prepare,project,needsHistory,dispose:()=>runtime.dispose()}
 }

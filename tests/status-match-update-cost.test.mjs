@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {replyBody} from '../tavern-plugin/lib/domain/round-body.js'
 import {createIncrementalReplyView} from '../tavern-plugin/lib/domain/incremental-reply-view.js'
 import {projectReplyHistory} from '../tavern-plugin/lib/domain/reply-presentation.js'
 import {projectPersistentStatusView} from '../tavern-plugin/lib/domain/persistent-status-view.js'
@@ -18,7 +19,12 @@ for(const count of [20,400,10000])test(`status matching and filtering touch one 
  assert.equal(old.statusView.sourceTurn,count)
  assert.equal(next.projections[0],old.projections[0])
  const history=projectReplyHistory(messages,options)
- assert.deepEqual(JSON.parse(JSON.stringify(next)),{...projectPersistentStatusView(messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
+ for(const projection of history.projections)projection.body=replyBody(projection,chat)
+ const expected={...projectPersistentStatusView(messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked}
+ // Bound failure rendering: a 10k-row object diff can exhaust the test process.
+ assert.equal(next.projections.length,expected.projections.length)
+ for(let i=0;i<count;i++)assert.deepEqual(next.projections[i],expected.projections[i], 'projection '+i)
+ assert.deepEqual({...next,projections:[]},{...expected,projections:[]})
 })
 
 test('status incremental output matches fresh projection after append, truncation and source removal',async()=>{
@@ -26,6 +32,7 @@ test('status incremental output matches fresh projection after append, truncatio
  const cache=createIncrementalReplyView({readChanges:async()=>changes})
  async function check(){
   const history=projectReplyHistory(chat.messages,options)
+  for(const projection of history.projections)projection.body=replyBody(projection,chat)
   assert.deepEqual(await cache.project(chat,options,options),{...projectPersistentStatusView(chat.messages,history.projections,options),presentation:null,latestSourceBacked:history.latestSourceBacked})
  }
  await check()

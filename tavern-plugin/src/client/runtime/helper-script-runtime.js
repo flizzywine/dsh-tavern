@@ -223,8 +223,8 @@
 					pending.reject(new Error("人物卡脚本运行时已重置，事件未完成"));
 				}
 				if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
-				if (record.mvuDataTimer) hostWindow.clearTimeout(record.mvuDataTimer);
 				if (record.trustedCardMode) releaseTavernHostJQueryHandlers(hostWindow, record.frame.contentWindow);
+				if (record.releaseStorage) record.releaseStorage(); // revoke before detaching the card sandbox
 				record.frame.remove();
 				if (record.hostArtifacts) record.hostArtifacts.dispose();
 				records.delete(id);
@@ -247,6 +247,9 @@
 				return core && core.initializationFailed ? "MVU 模块加载失败：" + (core.initializationError || "初始化未完成") + "\n请刷新页面或重启酒馆后重试。" : record && record.mvuDataError || "";
 			}
             function mvuDataReady(record) {
+                // A blank opening has no floor yet; MVU initializes it in the chat scope.
+                const initial = record.context?.chatVariables;
+                if (!record.context?.messages?.length) return initial?.stat_data !== undefined && initial?.schema !== undefined;
                 const info = applyTavernVariableReceipt.indexApi.info(record.context?.messages);
                 return info ? info.eligible > 0 : (record.context?.messages || []).some(message =>
                     message?.variables?.stat_data !== undefined && message?.variables?.schema !== undefined);
@@ -256,23 +259,9 @@
 				if (!core || core.initializationFailed || !record.subscriptionsReady) return;
 				const ready = mvuDataReady(record);
 				if (ready) {
-					if (record.mvuDataTimer) hostWindow.clearTimeout(record.mvuDataTimer);
-					record.mvuDataTimer = null;
 					record.mvuDataError = "";
-				} else if (!record.mvuDataTimer && !record.mvuDataError) {
-					const startedAt = now();
-					record.mvuProgressAt = startedAt;
-					record.mvuDataTimer = hostWindow.setTimeout(function check() {
-						const remaining = Math.min(initializationTimeoutMs - (now() - record.mvuProgressAt), initializationTimeoutMs * 4 - (now() - startedAt));
-						if (remaining > 0) { record.mvuDataTimer = hostWindow.setTimeout(check, remaining); return; }
-						record.mvuDataTimer = null;
-						if (records.get(record.id) !== record || mvuDataReady(record)) return;
-						record.mvuDataError = "MVU 脚本已加载，但初始变量尚未保存。请导出日志检查开场初始化；刷新页面后可重试。";
-						recordMvuLoadDiagnostic(record, { phase: "initialization-timeout", failureStep: "initial-variables", message: record.mvuDataError });
-						record.mvuLoadState = { phase: "error", canRetry: false, error: record.mvuDataError };
-						onMvuLoadState(record.mvuLoadState);
-					}, initializationTimeoutMs);
 				}
+                // pending initialization writes are not failures merely because they are slow.
 				const phase = ready ? "ready" : record.mvuDataError ? "error" : "evaluating";
 				if (!record.mvuLoadState || record.mvuLoadState.phase !== phase) {
 					recordMvuLoadDiagnostic(record, { phase: ready ? "initialization-ready" : "initialization-waiting", failureStep: "initial-variables" });
@@ -313,7 +302,7 @@
                         post(record, { type: "dsh-tavern-helper-context", context: record.context });
                     }
 				}
-				if (!record.subscriptions.has(String(name))) return Promise.resolve(args);
+				if (name !== "DSH_VARIABLE_EDIT" && !record.subscriptions.has(String(name))) return Promise.resolve(args);
 				const eventId = String(hostEventId || "") || "host-event-" + (++eventSequence);
 				const startedAt = now();
 				return new Promise(function (resolve, reject) {
@@ -392,7 +381,7 @@
 			function createRecord(sessionId, scripts, context, trustedCardMode, viewer) {
 				const container = ensureRoot();
 				const frame = hostDocument.createElement("iframe");
-				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer);
+				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer) + "\ncard=" + String(context.frameStorageScope && context.frameStorageScope.cardPath || ""); // card changes revoke the sandbox capability
 				const record = {
 					id: "shared",
 					sessionId: sessionId,
@@ -423,7 +412,8 @@
 				frame.title = "人物卡共享脚本沙箱";
 				if (!trustedCardMode) frame.sandbox = "allow-scripts";
 				frame.referrerPolicy = "no-referrer";
-				frame.srcdoc = buildTavernHelperScriptDocument({ token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
+				record.storage = forkFrameStorage.capability({ sessionId: sessionId, cardPath: context.frameStorageScope && context.frameStorageScope.cardPath }, hostWindow); // owner-only storage grant
+				frame.srcdoc = buildTavernHelperScriptDocument({ frameStorage: record.storage, token: record.token, scripts: scripts, context: context, trustedCardMode: trustedCardMode, deferContext: true });
 				frame.addEventListener("load", function () {
 					if (records.get(record.id) !== record) return;
 					record.loaded = true;
@@ -437,6 +427,7 @@
 					maybeAnnounceReady();
 				});
 				container.appendChild(frame);
+				record.releaseStorage = forkFrameStorage.register(frame, record.storage); // contentWindow exists only after insertion
 				records.set(record.id, record);
                 if (record.hostArtifacts) record.hostArtifacts.setVisible(foreground);
 				return record;
@@ -506,7 +497,7 @@
 				const officialOwner = Boolean(view && view.tavernMvuRuntime && view.tavernMvuRuntime.owner === "official");
 				// Viewers mirror committed data without replaying settlement callbacks.
 				const queuedEvents = officialOwner || viewer ? [] : eventsBetween(previous, nextSnapshot);
-				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer);
+				const fingerprint = scripts.map(function (script) { return script.id + "\n" + script.content; }).join("\n---\n") + "\ntrusted=" + String(trustedCardMode) + "\nviewer=" + String(viewer) + "\ncard=" + String(context.frameStorageScope && context.frameStorageScope.cardPath || "");
 				if (record && record.fingerprint !== fingerprint) { removeRecord("shared"); record = null; }
 				if (!record) record = createRecord(nextSessionId, scripts, context, trustedCardMode, viewer);
 				else {
@@ -583,6 +574,9 @@
 						script.initializationFailed = status.failed === true;
 						if (script.subscriptionsReady && !script.initializationFailed) resolveError("人物卡脚本「" + script.name + "」", record.startedAt);
 						if (script.id === "__dsh_official_mvu__" && (script.subscriptionsReady || script.initializationFailed)) {
+                            // the core deadline must not time out companion imports or variable RPCs.
+                            if (record.initializationTimer) hostWindow.clearTimeout(record.initializationTimer);
+                            record.initializationTimer = null;
 							const phase = script.initializationFailed ? "initialization-failed" : "subscriptions-ready";
 							if (record.mvuLastInitializationDiagnostic !== phase) recordMvuLoadDiagnostic(record, { phase: phase, message: mvuInitializationError(record) });
 							record.mvuLastInitializationDiagnostic = phase;
@@ -851,7 +845,6 @@
 						const pending = pendingEvents.get(String(data.eventId || ""));
 						if (pending && pending.record === record) {
 							pending.contactAt = now();
-							if (record.mvuDataTimer) record.mvuProgressAt = now();
 						}
 					}
 					// Readiness follows acknowledged persistence, not an iframe's speculative variables.

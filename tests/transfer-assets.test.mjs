@@ -6,7 +6,7 @@ import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import test from 'node:test'
 
-import { createAssetPackService } from '../tavern-plugin/lib/asset-library/pack-v2/service.js'
+import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
 import { createTransferAssets } from '../tavern-plugin/lib/domain/transfer-assets.js'
 import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
@@ -27,7 +27,7 @@ function wav(samples = 8) {
   return bytes
 }
 const media = (bytes, ext, mime) => ({ hash: digest(bytes), descriptor: { ext, mime, size: bytes.length }, bytes })
-const entry = (kind, id, hash, extra = {}) => ({ kind, id, name: id, enabled: true, recall: { mode: 'keyword', keywords: [id + '-a', id + '-b'] }, directorNote: '', media: hash, ...extra })
+const entry = (kind, id, hash, extra = {}) => ({ kind, id, name: id, enabled: true, recall: { mode: 'keyword', keywords: [id + '-a', id + '-b', id + '-c'] }, directorNote: '', media: hash, ...extra })
 
 async function tempRoot(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'transfer-assets-'))

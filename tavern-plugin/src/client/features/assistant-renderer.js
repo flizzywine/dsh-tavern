@@ -218,105 +218,8 @@
 			});
 		})();
 
-		// The plan behind a picture, for judging whether the Agent's staging or the image model fell short.
-		function sceneImagePlanDetails(version, onEditPrompt) {
-			if (!version || !(version.prompt || version.composition || version.description)) return null;
-			const details = document.createElement("details");
-			details.className = "dsh-tavern-image-plan";
-			const summary = document.createElement("summary");
-			summary.textContent = "画面方案";
-			details.append(summary);
-			[["画面", version.description], ["时刻", version.moment === "earlier" ? "本轮中间的瞬间" : "本轮结尾"], ["构图", version.composition], ["画风", version.style], ["提示词", version.prompt]].forEach(function (row) {
-				if (!row[1]) return;
-				const label = document.createElement("dt");
-				label.textContent = row[0];
-				const value = document.createElement("dd");
-				value.textContent = row[1];
-				details.append(label, value);
-			});
-			if (version.planPrompt && onEditPrompt) {
-				const edit = document.createElement("button");
-				edit.type = "button";
-				edit.className = "dsh-tavern-image-plan-edit";
-				edit.textContent = "改提示词重画";
-				edit.addEventListener("click", onEditPrompt);
-				details.append(edit);
-			}
-			details.addEventListener("click", function (event) { event.stopPropagation(); });
-			return details;
-		}
-
-		// gallery: { urls, index } pages through several pictures with ‹ › and the arrow keys.
-		function openSceneImagePreview(url, opener, version, onEditPrompt, gallery, label) {
-			const dialog = document.createElement("dialog");
-			// A labelled picture (an avatar) is shown at a moderate size, not stretched to the screen.
-			dialog.className = "dsh-tavern-image-preview" + (label ? " is-compact" : "");
-			dialog.setAttribute("aria-label", (label || "场景插画") + "预览");
-			const close = document.createElement("button");
-			close.type = "button";
-			close.textContent = "缩小并返回 ×";
-			close.setAttribute("aria-label", "缩小并返回");
-			const image = document.createElement("img");
-			image.src = url;
-			image.alt = "放大的" + (label || "场景插画");
-			// An avatar grows out of the one clicked and shrinks back into it when closed.
-			const grow = Boolean(label && opener && typeof image.animate === "function" && !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches));
-			function origin() {
-				const from = opener.getBoundingClientRect(), to = image.getBoundingClientRect();
-				if (!from.width || !to.width) return "";
-				return "translate(" + (from.left + from.width / 2 - to.left - to.width / 2) + "px, " + (from.top + from.height / 2 - to.top - to.height / 2) + "px) scale(" + from.width / to.width + ")";
-			}
-			function dismiss() {
-				const start = grow && opener.isConnected && !dialog.dataset.closing ? origin() : "";
-				if (!start) { dialog.close(); return; }
-				dialog.dataset.closing = "1";
-				// The timer closes it even where animations do not run (a hidden tab).
-				const done = function () { if (dialog.open) dialog.close(); };
-				image.animate([{ transform: "none", opacity: 1 }, { transform: start, opacity: 0.4 }], { duration: 180, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).finished.then(done, done);
-				window.setTimeout(done, 240);
-			}
-			if (grow) {
-				dialog.addEventListener("cancel", function (event) { event.preventDefault(); dismiss(); });
-				const play = function () { const start = origin(); if (start) image.animate([{ transform: start, opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.2, .8, .2, 1)" }); };
-				image.addEventListener("load", play, { once: true });
-			}
-			close.addEventListener("click", dismiss);
-			dialog.addEventListener("click", function (event) { if (event.target === dialog) dismiss(); });
-			dialog.addEventListener("close", function () { dialog.remove(); if (opener && opener.isConnected) opener.focus(); }, { once: true });
-			dialog.append(close, image);
-			const urls = gallery && gallery.urls || [];
-			if (urls.length > 1) {
-				let at = Math.max(0, Math.min(urls.length - 1, Number(gallery.index) || 0));
-				const counter = document.createElement("span");
-				counter.className = "dsh-tavern-image-preview-counter";
-				const pager = ["‹", "›"].map(function (text, side) {
-					const button = document.createElement("button");
-					button.type = "button";
-					button.textContent = text;
-					button.className = "dsh-tavern-image-preview-page";
-					button.dataset.side = side ? "next" : "prev";
-					button.setAttribute("aria-label", side ? "下一张" : "上一张");
-					button.addEventListener("click", function () { step(side ? 1 : -1); });
-					return button;
-				});
-				function show() {
-					image.src = urls[at];
-					counter.textContent = (at + 1) + " / " + urls.length;
-					pager[0].disabled = at === 0; pager[1].disabled = at === urls.length - 1;
-				}
-				function step(delta) { if (urls[at + delta]) { at += delta; show(); } }
-				dialog.addEventListener("keydown", function (event) {
-					if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); step(event.key === "ArrowLeft" ? -1 : 1); }
-				});
-				dialog.append(counter, pager[0], pager[1]);
-				show();
-			}
-			const plan = sceneImagePlanDetails(version, onEditPrompt && function () { dialog.close(); onEditPrompt(); });
-			if (plan) dialog.append(plan);
-			document.body.append(dialog);
-			dialog.showModal();
-			close.focus();
-		}
+		// the one shared large view (image-viewer.js openSceneImage).
+		function openSceneImagePreview(url, opener, version, onEditPrompt, gallery, label) { return openSceneImage(url, opener, version, onEditPrompt, gallery, label); }
 
 		function createTavernAssistantRendererFeatureModule() {
 			function TavernUserNodeView(props) {
@@ -399,7 +302,7 @@
 			}
 			function tavernAssistantViewPaths(turn, eager = true) {
 				return ["mode", eager ? "tavernHelper" : "$helperAvailable",
-					"cardSave", "tavernRuntimePolicy", "tavernMvuRuntime", "statusBarPlacement"].map(field => [field]).concat([["$projectionTurn", String(turn)], ["$projectionLatestTurn", String(turn)]]);
+					"cardSave", "tavernRuntimePolicy", "tavernMvuRuntime", "statusBarPlacement", "regenInProgress", "replacingDshTurns", "suppressedDshTurns"].map(field => [field]).concat([["$projectionTurn", String(turn)], ["$projectionLatestTurn", String(turn)]]);
 			}
 			function tavernReceiptViewPaths(turn, receipt, latest) {
 				const paths = [["$mvuReceiptTurn", String(turn)], ["$settlementOwner", String(turn)], ["polishedTurns"], ["autoPolishedTurns"]];
@@ -478,6 +381,96 @@
 					return function () { observer.disconnect(); if (timer !== null) window.clearTimeout(timer); };
 				}, [ref, enabled]);
 				return height;
+			}
+
+			// opening a long chat used to mount every loaded floor in the host's one React
+			// commit (小圆: 12 floors, ~20k nodes, ~300 ms). A settled floor other than the latest is first rendered as an
+			// empty placeholder and gets its content once it is within TAVERN_DEFERRED_FLOOR_VIEWPORTS of the chat
+			// viewport. The check runs before paint (a rAF after the commit, and the scroller's scroll event, which also
+			// follows the host's toBottom, restored position and turn jumps), so a placeholder is never painted in view;
+			// an IntersectionObserver is the backstop (resize, leaving the stage). Floors only go from placeholder to
+			// mounted. The stage text index, 履历, jumps and voice read the session, not this DOM.
+			const TAVERN_EAGER_FLOORS = 1;
+			const TAVERN_DEFERRED_FLOOR_VIEWPORTS = 1.5;
+			const tavernDeferredFloors = (function () {
+				const pending = new Map(), observers = new WeakMap();
+				let frame = null, listening = false;
+				function flowItem(node) { return node.closest('[class*="_flowItem"]') || node; }
+				function mountAll(mounts) {
+					if (!mounts.length) return;
+					const run = function () { mounts.forEach(function (mount) { mount(); }); };
+					// Commit before this frame paints; outside React work flushSync is synchronous.
+					if (ReactDOM && typeof ReactDOM.flushSync === "function") ReactDOM.flushSync(run); else run();
+				}
+				function release(node) {
+					const entry = pending.get(node);
+					if (!entry) return null;
+					pending.delete(node);
+					entry.observer?.unobserve(node);
+					if (!pending.size && listening) { document.removeEventListener("scroll", check, true); listening = false; }
+					return entry.mount;
+				}
+				function check(event) {
+					if (event && event.type === "scroll" && ![...pending.values()].some(function (entry) { return entry.scroller === event.target; })) return;
+					if (frame !== null) { cancelAnimationFrame(frame); frame = null; }
+					// Under the stage cover the transcript is content-visibility:hidden; a rect read there would
+					// lay out the whole skipped chat. The observer mounts what is near once it is uncovered.
+					if (!pending.size || document.documentElement.hasAttribute("data-fork-gal-stage")) return;
+					const views = new Map(), near = [];
+					for (const [node, entry] of pending) {
+						if (!node.isConnected) { release(node); continue; }
+						const scroller = entry.scroller;
+						let view = views.get(scroller);
+						if (!view) {
+							const box = scroller ? scroller.getBoundingClientRect() : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
+							const margin = (box.height || window.innerHeight) * TAVERN_DEFERRED_FLOOR_VIEWPORTS;
+							view = { top: box.top - margin, bottom: box.bottom + margin, shown: box.height > 0 };
+							views.set(scroller, view);
+						}
+						if (!view.shown) continue;
+						const box = flowItem(node).getBoundingClientRect();
+						if (box.height > 0 && box.bottom >= view.top && box.top <= view.bottom) near.push(node);
+					}
+					mountAll(near.map(release).filter(Boolean));
+				}
+				function observerFor(scroller) {
+					if (!scroller || typeof window.IntersectionObserver !== "function") return null;
+					let observer = observers.get(scroller);
+					if (!observer) {
+						observer = new window.IntersectionObserver(function (entries) {
+							mountAll(entries.filter(function (entry) { return entry.isIntersecting; }).map(function (entry) { return release(entry.target); }).filter(Boolean));
+						}, { root: scroller, rootMargin: TAVERN_DEFERRED_FLOOR_VIEWPORTS * 100 + "% 0px" });
+						observers.set(scroller, observer);
+					}
+					return observer;
+				}
+				return {
+					add(node, mount) {
+						if (!node) { mount(); return function () {}; }
+						const scroller = node.closest("[data-conversation-scroll]"), observer = observerFor(scroller);
+						pending.set(node, { mount, scroller, observer });
+						observer?.observe(node);
+						if (!listening) { document.addEventListener("scroll", check, { capture: true, passive: true }); listening = true; }
+						// After the commit (host scroll restore / toBottom included), before the first paint.
+						if (frame === null) frame = requestAnimationFrame(function () { frame = null; check(); });
+						return function () { release(node); };
+					}
+				};
+			})();
+			function useTavernLatestDshTurn(useChat) {
+				const latest = typeof useChat === "function" ? useChat(function (chat) { const order = chat && chat.timeline && chat.timeline.turnOrder; return order && order.length ? order[order.length - 1] : null; }) : null;
+				return latest === null || latest === undefined || !Number.isFinite(Number(latest)) ? null : Number(latest);
+			}
+			function useTavernDeferredFloor(ref, far, content) {
+				// Decided once, by the first render that would mount the floor's content (an old floor may first wait
+				// for its history window): a floor that grows old while mounted stays mounted.
+				const decided = React.useRef(null), [mounted, setMounted] = React.useState(false);
+				if (decided.current === null && content) decided.current = far;
+				const deferred = decided.current === true && !mounted;
+				React.useLayoutEffect(function () {
+					if (deferred) return tavernDeferredFloors.add(ref.current, function () { setMounted(true); });
+				}, [ref, deferred]);
+				return deferred;
 			}
 
 			// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
@@ -561,21 +554,16 @@
 					return { turn: turnRef, seq: data.finalNode.seq, openFile: props.openFile };
 				}, [turnRef, data.finalNode, tail, props.openFile]);
 				const mentions = React.useMemo(function () { return owner === undefined ? undefined : props.fileMentions(owner); }, [owner, props.fileMentions]);
+				const copyLabel = props.t ? props.t("copy") : "复制", copiedLabel = props.t ? props.t("copied") : "已复制";
+				const codeLabels = React.useMemo(() => ({ copyLabel, copiedLabel }), [copyLabel, copiedLabel]);
+				const superseded = galIsSuperseded(liveState.view, turn, storyTurn);
+				const forkStageSource = React.useMemo(() => ({ nativeTurn: turn, nodeId: props.node.id, order: props.node.anchorSeq, superseded }), [turn, props.node.id, props.node.anchorSeq, superseded]);
 				const waitingForHistory = Boolean(currentView?.historyWindow && ownsTurn && !projection && settled && storyTurn>0 && storyTurn<latestProjectionTurn);
 				const playView = isPlayMode(liveState.view && liveState.view.mode) && storyTurn > 0 && !sessionTransitioning && ownsTurn;
 				useTavernUiExtensions();
 				useTavernProseLayoutRevision();
 				const turnView = useTavernTurnView(props.sessionId);
 				const pluginMedia = useTavernPluginMedia(props.sessionId, storyTurn, playView && settled);
-				// While the reply streams too: its speaker rows come from the text (32/N).
-				const castState = useTavernCast(props.sessionId, storyTurn, playView, settled);
-				const castLines = castState && castState.lines.length ? castState.lines : null;
-				const castCard = liveState.view && liveState.view.card;
-				const castName = castCard && castCard.name || "", castPath = castCard && castCard.path || "";
-				const cast = React.useMemo(function () {
-					return castState ? { sessionId: props.sessionId, lines: castState.lines, characters: castState.characters, characterName: castName,
-						characterImageUrl: castPath ? "/api/dsh-tavern/card-image?path=" + encodeURIComponent(castPath) : "" } : null;
-				}, [props.sessionId, castState, castName, castPath]);
 				const pluginText = playView ? createTavernPluginTextContext({ items: pluginMedia.items, extras: [], sessionId: props.sessionId, turn: storyTurn, streaming: data.status === "running" }) : null;
 
                 // 正文走工具调用时整段正文一次性落地：宿主把提交折叠成一条普通回复，
@@ -593,12 +581,30 @@
                     tavernReplyRunWatch.mark(props.sessionId, replyMessageId);
                     if (historyNode.current) tavernReplyReveal(historyNode.current, { host: window });
                 }, [props.sessionId, replyMessageId, replyText, playView, settled]);
-                const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : renderTavernAssistantBlocks({
-					blocks: data.blocks,
+                // The host chat store knows the latest turn before the Tavern view has loaded (a reload, a cold chat).
+                const latestDshTurn = useTavernLatestDshTurn(props.useChat);
+                const eagerFloor = latestDshTurn !== null && turn > 0 && turn === latestDshTurn || storyTurn > 0 && latestProjectionTurn > 0 && latestProjectionTurn - storyTurn < TAVERN_EAGER_FLOORS;
+                const deferredFloor = useTavernDeferredFloor(historyNode, settled && !eagerFloor && (data.blocks || []).length > 0, !sessionTransitioning && !waitingForHistory);
+                // the newest floor is on screen when the chat opens; tavern.css keeps it out of
+                // content-visibility, so the deferred floors measure it at its real height, not the 800 px estimate.
+                const floorShown = data.status === "running" || data.status === "interrupted" || (data.blocks || []).length > 0;
+                React.useLayoutEffect(function () {
+                    const item = eagerFloor && historyNode.current ? historyNode.current.closest('[class*="_flowItem"]') : null;
+                    if (!item) return;
+                    item.setAttribute("data-fork-latest-floor", "");
+                    return function () { item.removeAttribute("data-fork-latest-floor"); };
+                }, [eagerFloor, floorShown]);
+                const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : deferredFloor ? [] : renderTavernAssistantBlocks({
+					// Publish native identity and this node's regeneration decision, not the whole view.
+					forkStageSource,
+					codeLabels,
+					blocks: isPlayMode(liveState.view?.mode) && !ownsTurn ? [] : data.blocks,
 					groupPart: props.groupPart,
 					deferHtml: deferHtml,
 					streaming: data.status === "running",
 					interrupted: data.status === "interrupted",
+					// also prepare the newest reply after a reload, not only turns seen streaming.
+					voiceAuto: voiceObservedTurn(props.sessionId, turn, data.status === "running") || (settled && storyTurn > 0 && storyTurn === latestProjectionTurn),
 					projection: projection,
 					helperContext: liveState.view && liveState.view.tavernHelper,
                     frameSizing: liveState.view?.tavernRuntimePolicy?.frameSizing,
@@ -617,14 +623,14 @@
 					})(),
 					renderMessageImages: function (images) { return renderTavernMessageImages(props, images && images.images, images && images.align); },
 					plugin: pluginText,
-					cast: cast,
 					mentions: mentions,
 					t: props.t
 				});
-				const distantHeight = useTavernDistantFloor(historyNode, settled && !sessionTransitioning && storyTurn > 0 && latestProjectionTurn - storyTurn >= TAVERN_LIVE_FLOORS);
+				const distantHeight = useTavernDistantFloor(historyNode, !deferredFloor && settled && !sessionTransitioning && storyTurn > 0 && latestProjectionTurn - storyTurn >= TAVERN_LIVE_FLOORS);
 				// A reply the row plan does not draw (an old body being regenerated, a repair
 				// copy): its row is hidden; render nothing into it either. After all hooks.
 				if (!tavernPlanShowsRow(tavernPlanOf(liveState.view), String(turn), "assistant-step")) return null;
+				if (deferredFloor) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-deferred-floor": true, style: { minHeight: "800px" } });
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
 				if (distantHeight > 0) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-distant-floor": true, style: { height: distantHeight + "px" } });
 				// A registered presenter may fold this finished reply into one line; only the step
@@ -668,7 +674,7 @@
                 // A plugin's look for the whole turn (registerTurnView) wraps Tavern's own rendering.
                 const body = playView && !waitingForHistory ? tavernTurnViewElement(turnView.view, { gameId: props.sessionId, turn: storyTurn, settled: settled, streaming: data.status === "running",
                     greeting: greetingId === 0, text: (data.blocks || []).filter(block => block && block.kind === "text").map(block => String(block.text || "")).join("\n"),
-                    lines: castLines || [] }, tavernBody) : tavernBody;
+                    lines: bubbleCastLines(projection && projection.body) }, tavernBody) : tavernBody;
                 const refusalNotice = settled && !sessionTransitioning ? tavernModelRefusalNotice((data.blocks || []).filter(block => block && block.kind === "text").map(block => String(block.text || "")).join("\n")) : "";
                 const refusalNode = refusalNotice ? React.createElement("div", { className: "dsh-tavern-refusal-notice", role: "note" }, refusalNotice) : null;
 				// Plugin media without a found anchor goes after the text.
@@ -677,8 +683,10 @@
 					return React.createElement(TavernPluginMediaItem, { key: item.id, item: item, sessionId: props.sessionId, turn: storyTurn });
 				})) : null;
 				const pluginActions = playView && settled ? React.createElement(TavernPluginMessageActions, { sessionId: props.sessionId, turn: storyTurn, settled: settled, text: replyTextForFold }) : null;
+				// the round's tavern_roll results lead its story text (dice-roll.js).
+				const diceNode = typeof props.useChat === "function" ? React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key }) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, foldBack, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, foldBack, diceNode, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);

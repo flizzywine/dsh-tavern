@@ -96,7 +96,8 @@ test('package import graph is closed, inert and independent of Tavern/plugin imp
       if (match[1].endsWith('.json')) assert.equal(typeof JSON.parse(dependency), 'object')
     }
     assertNoAmbientDocument(source)
-    assert.doesNotMatch(source, /\b(?:fetch|setTimeout|setInterval|requestAnimationFrame)\s*\(|\b(?:localStorage|process)\.|node:|@deepseek-ai|export\s+function\s+apply\b/)
+    // ambient timers and I/O only: an injected clock's own methods (performance-timeline.cjs foreground.setTimeout) are inert
+    assert.doesNotMatch(source, /(?<![.\w])(?:fetch|setTimeout|setInterval|requestAnimationFrame)\s*\(|\b(?:localStorage|process)\.|node:|@deepseek-ai|export\s+function\s+apply\b/)
   }
 })
 

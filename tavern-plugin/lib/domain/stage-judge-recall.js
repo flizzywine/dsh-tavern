@@ -1,53 +1,34 @@
-// Green-lamp recall (Wiki「设计：asset-library」): a blue entry is always offered; a green one when the text so far names
-// it, or — with 判断模型 configured — when the judge finds it fits this turn. A switched-off entry is never in the catalog
-// and never asked about. Judge failures fall back to triggers only; nothing is filled in at random.
-import { triggerEvidence } from './asset-pack-lexical.js'
-import { judgeEnabled } from './engine-judge.js'
-
-const RECALL_FIELDS = Object.freeze({ background: 'background', music: 'music', sfx: 'sound effect', ambience: 'ambience', items: 'item' })
-export const judgeAssetId = row => row.ref.packId + '/' + row.ref.kind + '/' + row.ref.assetId
-// Credits do not tell use cases apart; the question keeps the entry's name and its director note.
-export function judgeItemText(name, description = '', kind) {
-  const note = description
-    .replace(/;\s*based on\s+[^.!?。]+\s+by\s+[^.!?。]+(?:[.!?。]|$)/gi, '.')
-    .replace(/(?:[;；]\s*|^|(?<=[.!?。])\s*)(?:licensed under|licen[cs]e:|copyright\s)[^.!?。]+(?:[.!?。]|$)/gi, ' ')
-    .trim()
-  return '<judge_request>\n' + `Does this asset fit this turn's story? [${kind}] ${name}; use when: ${note}` + '\n</judge_request>'
+// judge candidates use the same eligibility/trigger decisions as the catalogue.
+import {assetRefKey} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import {figureRefKey} from './figure-catalogue.js'
+import {normalizeCatalogueText,triggerEvidence} from './asset-pack-lexical.js'
+import {judgeItemText} from './judge-item-text.js'
+const names = {backgrounds:'background',music:'music',sfx:'sound effect',ambience:'ambience',cg:'CG',looks:'lighting',outfits:'outfit',figures:'character',performances:'performance',widgets:'widget'}
+export const outfitJudgeId = (actor,key) => JSON.stringify(['outfit',actor,key])
+export const figureJudgeId = ref => 'figure:' + figureRefKey(ref)
+export function greenJudgeQuestions({catalogue,actors,figures,units,state,dimensions}) {
+  const rows = catalogue.rows.filter(row => row.excluded === 'no-trigger').map(row => ({id:assetRefKey(row.ref),kind:row.ref.kind,title:row.asset.name,description:row.asset.directorNote || row.asset.description || ''}))
+  for (const row of figures.all.filter(row => !row.reasons.length)) rows.push({id:figureJudgeId(row.ref),kind:'figures',title:row.name,description:row.figure?.description || ''})
+  const text = units.map(unit => normalizeCatalogueText(typeof unit === 'string' ? unit : unit.text || ''))
+  if (dimensions.actors && dimensions.outfit) for (const [alias,actor] of Object.entries(actors)) {
+    for (const [index,outfit] of actor.outfits.entries()) {
+      if (!outfit.enabled || index === 0 || state?.actors?.[alias]?.outfitKey === outfit.key || outfit.recall?.mode === 'constant') continue
+      if (triggerEvidence({name:outfit.label,...outfit.recall},text,{excludeTimeWords:false,minLength:1}).matched) continue
+      rows.push({id:outfitJudgeId(alias,outfit.key),kind:'outfits',title:outfit.label,description:outfit.guidance || ''})
+    }
+  }
+  return rows.map(row => ({id:row.id,kind:row.kind,text:judgeItemText(row.title,row.description,names[row.kind] || row.kind)}))
 }
-// The shared material: the preamble, then the turn's text so far. No player input, history, variables or card.
-export const judgeMaterial = (preamble, units) => [preamble, ...units].filter(Boolean).join('\n\n')
-
-// p ≥ threshold, then per kind the most likely capPerKind (ties by id).
-export function selectJudgeRecall(questions, probabilities, config) {
+export function selectJudgeRecall(questions,probabilities,config) {
   const selected = new Set(), groups = new Map()
   if (!probabilities) return selected
   for (const question of questions) {
     const probability = probabilities.get(question.id)
     if (probability === undefined || probability < config.threshold) continue
     const rows = groups.get(question.kind) || []
-    rows.push({ id: question.id, probability }); groups.set(question.kind, rows)
+    rows.push({id:question.id,probability});groups.set(question.kind,rows)
   }
-  for (const rows of groups.values()) for (const row of rows.sort((a, b) => b.probability - a.probability || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, config.capPerKind)) selected.add(row.id)
+  for (const rows of groups.values()) for (const row of rows.sort((a,b) => b.probability-a.probability || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0,config.capPerKind)) selected.add(row.id)
   return selected
 }
-
-// The catalog this window offers: blue entries, green entries the text names, then the green ones the judge recalls.
-// `ask(request)` is the judge; it is called only when it is configured and some green entry was not named.
-export async function recallGreenAssets(assets, units, config, ask) {
-  const offered = { ...assets }, missed = []
-  for (const field of Object.keys(RECALL_FIELDS)) {
-    offered[field] = (assets[field] || []).filter(item => {
-      if (item.recall?.mode !== 'keyword' || triggerEvidence({ name: item.name, ...item.recall }, units).matched) return true
-      missed.push({ field, item })
-      return false
-    })
-  }
-  if (!missed.length || !judgeEnabled(config) || !ask) return offered
-  const questions = missed.map(({ field, item }) => ({ id: judgeAssetId(item), kind: field, text: judgeItemText(item.name, item.note || '', RECALL_FIELDS[field]) }))
-  const probabilities = await ask({ material: judgeMaterial(config.preamble, units), questions: questions.map(({ id, text }) => ({ id, text })) }, config)
-  const selected = selectJudgeRecall(questions, probabilities, config)
-  if (!selected.size) return offered
-  // Recalled entries keep catalog order.
-  for (const field of Object.keys(RECALL_FIELDS)) offered[field] = (assets[field] || []).filter(item => offered[field].includes(item) || selected.has(judgeAssetId(item)))
-  return offered
-}
+export const judgeMaterial = (preamble,units) => [preamble,...units.map(unit => typeof unit === 'string' ? unit : unit.text || '')].filter(Boolean).join('\n\n')

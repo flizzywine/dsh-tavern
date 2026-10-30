@@ -1,0 +1,11 @@
+{
+  "format": "dsh-mod-pack",
+  "schemaVersion": 1,
+  "id": "9a3990de-45f3-4f84-a077-bca2fef71fd6",
+  "modId": "dsh.phone",
+  "requiresModVersion": ">=1.0.0 <2.0.0",
+  "name": "壁纸",
+  "fields": {},
+  "entries": [],
+  "files": []
+}

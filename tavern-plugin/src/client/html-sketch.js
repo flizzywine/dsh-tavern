@@ -16,7 +16,7 @@ function splitTavernHtmlSketches(text) {
 }
 function tavernSketchDocument(html) {
     return '<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:">'
-        + '<style>html,body{margin:0}body{padding:8px;font-family:system-ui,sans-serif;overflow-wrap:anywhere}</style>' + String(html || "");
+        + '<style>html,body{margin:0}body{padding:8px;font-family:system-ui,sans-serif;overflow-wrap:anywhere}*{scrollbar-width:none!important}</style>' + String(html || "");
 }
 function TavernHtmlSketch(props) {
     const frame = React.useRef(null);

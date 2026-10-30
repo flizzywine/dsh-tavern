@@ -1,0 +1,415 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 4,
+  "experimental": true,
+  "id": "dsh.phone",
+  "name": "手机",
+  "packageName": "dsh-tavern-mod-phone",
+  "version": "2.0.0",
+  "hostApi": ">=1.0.0 <2.0.0",
+  "dependencies": [],
+  "config": {
+    "version": 1,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "clockText": {
+          "type": "string",
+          "maxLength": 16,
+          "userAdjustable": true
+        },
+        "dateText": {
+          "type": "string",
+          "maxLength": 64,
+          "userAdjustable": true
+        },
+        "weekdayText": {
+          "type": "string",
+          "maxLength": 64,
+          "userAdjustable": true
+        },
+        "statusBar": {
+          "type": "boolean",
+          "userAdjustable": true
+        },
+        "battery": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "userAdjustable": true
+        },
+        "signal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "userAdjustable": true
+        },
+        "carrier": {
+          "type": "string",
+          "maxLength": 64,
+          "userAdjustable": true
+        },
+        "cutout": {
+          "enum": [
+            "island",
+            "notch",
+            "none"
+          ],
+          "type": "string",
+          "userAdjustable": true
+        },
+        "accentColor": {
+          "type": "string",
+          "maxLength": 32,
+          "userAdjustable": true
+        },
+        "surfaceColor": {
+          "type": "string",
+          "maxLength": 32,
+          "userAdjustable": true
+        },
+        "bodyColor": {
+          "type": "string",
+          "maxLength": 32,
+          "userAdjustable": true
+        },
+        "sound": {
+          "enum": [
+            "drop",
+            "chime",
+            "pop"
+          ],
+          "type": "string",
+          "userAdjustable": true
+        },
+        "contacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "avatarRef": {
+                "type": "object",
+                "x-tavern-asset": {
+                  "media": "image"
+                },
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "packId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "kind": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "packId",
+                      "kind",
+                      "assetId"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "userAdjustable": true
+        },
+        "defaultWallpaperRef": {
+          "type": "object",
+          "x-tavern-asset": {
+            "media": "image"
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "packId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "packId",
+                "kind",
+                "assetId"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "title": "壁纸",
+          "userAdjustable": true
+        },
+        "photos": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          "title": "照片",
+          "userAdjustable": true
+        },
+        "wallpaper": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false,
+          "title": "墙纸",
+          "userAdjustable": true
+        },
+        "notificationToneRef": {
+          "type": "object",
+          "x-tavern-asset": {
+            "media": "audio"
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "packId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "packId",
+                "kind",
+                "assetId"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "title": "提示音素材",
+          "userAdjustable": true
+        },
+        "muted": {
+          "type": "boolean",
+          "title": "静音",
+          "userAdjustable": true
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "title": "音量",
+          "userAdjustable": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "clockText",
+        "dateText",
+        "weekdayText",
+        "statusBar",
+        "battery",
+        "signal",
+        "carrier",
+        "cutout",
+        "accentColor",
+        "surfaceColor",
+        "bodyColor",
+        "sound",
+        "contacts",
+        "defaultWallpaperRef",
+        "photos",
+        "wallpaper",
+        "notificationToneRef",
+        "muted",
+        "volume"
+      ]
+    },
+    "defaults": {
+      "clockText": "09:41",
+      "dateText": "",
+      "weekdayText": "",
+      "statusBar": true,
+      "battery": 80,
+      "signal": 4,
+      "carrier": "",
+      "cutout": "island",
+      "accentColor": "#6f8fd8",
+      "surfaceColor": "#f4f2ec",
+      "bodyColor": "#3b3a38",
+      "sound": "drop",
+      "contacts": {},
+      "defaultWallpaperRef": {},
+      "photos": [],
+      "wallpaper": {},
+      "notificationToneRef": {},
+      "muted": false,
+      "volume": 1
+    }
+  },
+  "preferences": {
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "defaults": {}
+  },
+  "dataVersion": 1,
+  "assetKinds": [
+    {
+      "id": "dsh.phone/wallpaper",
+      "schemaVersion": 1,
+      "directorSelectable": true,
+      "schema": {
+        "type": "object"
+      },
+      "label": "手机壁纸"
+    }
+  ],
+  "coreAssets": [
+    {
+      "id": "device",
+      "path": "builtin/device.json"
+    },
+    {
+      "id": "view-html",
+      "path": "view/index.html"
+    },
+    {
+      "id": "view-css",
+      "path": "view/style.css"
+    },
+    {
+      "id": "view-script",
+      "path": "view/index.js"
+    },
+    {
+      "id": "view-battery",
+      "path": "view/battery.js"
+    },
+    {
+      "id": "view-dialer",
+      "path": "view/dialer.js"
+    },
+    {
+      "id": "view-photos",
+      "path": "view/photos.js"
+    },
+    {
+      "id": "tone-drop",
+      "path": "view/assets/message.wav"
+    },
+    {
+      "id": "tone-chime",
+      "path": "view/assets/chime.wav"
+    },
+    {
+      "id": "tone-pop",
+      "path": "view/assets/pop.wav"
+    }
+  ],
+  "permissions": [
+    "stage.presentation",
+    "source.dialogue",
+    "stage.state"
+  ],
+  "performances": [
+    {
+      "kind": "dsh.phone.message",
+      "autoHold": {
+        "minMs": 0,
+        "until": "complete"
+      },
+      "regions": [
+        "device"
+      ],
+      "backlog": {
+        "line": {
+          "label": "手机",
+          "icon": "M8.5 2h7A2.5 2.5 0 0 1 18 4.5v15a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 6 19.5v-15A2.5 2.5 0 0 1 8.5 2zM8.75 3.75a1 1 0 0 0-1 1v14.5a1 1 0 0 0 1 1h6.5a1 1 0 0 0 1-1V4.75a1 1 0 0 0-1-1zM10.5 5h3a.6.6 0 0 1 0 1.2h-3a.6.6 0 0 1 0-1.2z",
+          "command": "mark",
+          "voice": {
+            "when": "/form",
+            "is": "voice"
+          }
+        }
+      },
+      "replay": {
+        "stage": true
+      }
+    }
+  ],
+  "callVideo": {
+    "backdrop": "stage",
+    "remote": {
+      "head": [0.5, 0.17, 0.32]
+    },
+    "self": {
+      "head": [0.5, 0.2, 0.34]
+    }
+  },
+  "entry": "plugin.mjs",
+  "prompts": [
+    {
+      "id": "rules",
+      "model": "director",
+      "tag": "mod_phone",
+      "slot": "rules.after-core",
+      "order": 30,
+      "byteBudget": 4096,
+      "when": {},
+      "markdown": "- Mark each paragraph containing an SMS/chat message or a phone-call line, on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.\n- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.\n- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.\n- Groups: phone-group defines a stable thread id, name and participants ($player when present). Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups."
+    }
+  ],
+  "summary": "将剧情中的通话与消息呈现在手机界面中。"
+}

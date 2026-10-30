@@ -121,7 +121,8 @@ function installFrameHostComposer(doc, ownsFrame, submit, report, fill, read) {
     // hidden element cannot take focus, so park the controls offscreen
     // instead of using the hidden attribute.
     controls.setAttribute('aria-hidden', 'true');
-    controls.setAttribute('style', 'position:fixed;left:-10000px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;');
+    // off screen is already invisible, so no translucent opacity layer.
+    controls.setAttribute('style', 'position:fixed;left:-10000px;top:0;width:1px;height:1px;overflow:hidden;pointer-events:none;');
     const area = doc.createElement('textarea'), button = doc.createElement('button');
     // Card scripts focus() this field programmatically; on phones that would pop
     // the soft keyboard for an invisible box, so ask for no virtual keyboard.

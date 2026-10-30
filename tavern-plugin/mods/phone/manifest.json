@@ -1,0 +1,362 @@
+{
+  "format": "dsh-mod",
+  "schemaVersion": 2,
+  "id": "dsh.phone",
+  "name": "手机",
+  "summary": "将原文手机对白呈现为手机消息并保留所选壁纸",
+  "relevance": "角色之间用手机收发消息、来电",
+  "version": "1.7.0",
+  "apiVersion": 1,
+  "dependencies": {
+    "hostApi": 1,
+    "capabilities": [
+      "stage.place",
+      "stage.state"
+    ]
+  },
+  "modelSlots": [
+    {
+      "id": "call",
+      "label": "通话模型",
+      "purpose": "与联系人进行独立电话对话",
+      "kind": "chat",
+      "fallback": "foreground",
+      "reasoning": "off"
+    }
+  ],
+  "permissions": {
+    "models": ["call"],
+    "stage": [
+      "place",
+      "state"
+    ],
+    "source": [
+      "dialogue",
+      "avatar",
+      "voice-replay"
+    ]
+  },
+  "commands": [
+    {
+      "id": "mark",
+      "op": "mod.dsh.phone.mark",
+      "dsl": {
+        "verb": "phone-mark",
+        "syntax": "phone-mark mark to=<recipient|$player> form=text|voice; groups: thread=<id> instead of to"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Recipient handle or $player."
+          },
+          "thread": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Existing group id; replaces to."
+          },
+          "form": {
+            "type": "string",
+            "enum": [
+              "text",
+              "voice"
+            ],
+            "description": "text 纯文字；voice 语音气泡，按需播放角色配音，可展开原文。由导演按剧情选择。"
+          }
+        },
+        "required": [
+          "form"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "marker",
+      "handler": "command",
+      "promptId": "phone-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 30
+      },
+      "caps": {
+        "perTurn": 40,
+        "bytes": 2048
+      },
+      "mode": "adds"
+    },
+    {
+      "id": "group",
+      "op": "mod.dsh.phone.group",
+      "dsl": {
+        "verb": "phone-group",
+        "syntax": "phone-group group thread=<id> name=<title> participants=<JSON array>"
+      },
+      "paramsStyle": "flat",
+      "params": {
+        "type": "object",
+        "properties": {
+          "thread": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "participants": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "thread",
+          "name",
+          "participants"
+        ],
+        "additionalProperties": false
+      },
+      "persistence": "state",
+      "handler": "command",
+      "promptId": "phone-rule",
+      "placement": {
+        "section": "director.commands.presentation",
+        "order": 31
+      },
+      "caps": {
+        "perTurn": 8,
+        "bytes": 4096
+      },
+      "mode": "adds"
+    }
+  ],
+  "prompts": [
+    {
+      "id": "phone-rule",
+      "target": "director",
+      "path": "prompts/phone.txt",
+      "placement": {
+        "section": "director.rules.presentation",
+        "order": 30
+      }
+    }
+  ],
+  "settingsSchema": {
+    "fields": [
+      {
+        "key": "clockText",
+        "type": "text",
+        "label": "状态栏文字",
+        "default": "09:41",
+        "maxLength": 16,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "statusBar",
+        "type": "toggle",
+        "label": "显示状态栏",
+        "default": true,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "battery",
+        "type": "slider",
+        "label": "装饰电量",
+        "default": 80,
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "cutout",
+        "type": "segmented",
+        "label": "顶部样式",
+        "default": "island",
+        "choices": [
+          {
+            "value": "island",
+            "label": "灵动岛"
+          },
+          {
+            "value": "notch",
+            "label": "刘海"
+          },
+          {
+            "value": "none",
+            "label": "无开孔"
+          }
+        ],
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "accentColor",
+        "label": "强调色",
+        "stageToken": "--gal-ui-accent",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "surfaceColor",
+        "label": "内容底色",
+        "stageToken": "--gal-ui-surface",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "bodyColor",
+        "label": "机身颜色",
+        "stageToken": "--gal-ui-line",
+        "type": "colour",
+        "default": "auto",
+        "scope": "global",
+        "bindable": false
+      },
+      {
+        "key": "sound",
+        "type": "toggle",
+        "label": "来信提示音",
+        "default": true,
+        "scope": "global",
+        "bindable": false
+      }
+    ],
+    "sections": [
+      {
+        "id": "appearance",
+        "title": "外观",
+        "fields": [
+          "clockText",
+          "statusBar",
+          "battery",
+          "cutout",
+          "accentColor",
+          "surfaceColor",
+          "bodyColor",
+          "sound"
+        ]
+      }
+    ]
+  },
+  "packSchema": {
+    "fields": []
+  },
+  "assetKinds": [],
+  "uiPages": [],
+  "runtime": {
+    "entry": "runtime.js"
+  },
+  "defaultPacks": [],
+  "files": [
+    {"path": "audio-loudness.json", "size": 246},
+    {
+      "path": "runtime.js",
+      "size": 984
+    },
+    {
+      "path": "logic.js",
+      "size": 395
+    },
+    {
+      "path": "package.json",
+      "size": 128
+    },
+    {
+      "path": "prompts/phone.txt",
+      "size": 1039
+    },
+    {
+      "path": "builtin/device.json",
+      "size": 144
+    },
+    {
+      "path": "view/index.html",
+      "size": 21867
+    },
+    {
+      "path": "view/battery.js",
+      "size": 3583
+    },
+    {
+      "path": "view/dialer.js",
+      "size": 22222
+    },
+    {
+      "path": "view/photos.js",
+      "size": 11279
+    },
+    {
+      "path": "view/index.js",
+      "size": 104942
+    },
+    {
+      "path": "view/style.css",
+      "size": 97773
+    },
+    {
+      "path": "view/assets/message.wav",
+      "size": 13274
+    },
+    {
+      "path": "view/assets/chime.wav",
+      "size": 27386
+    },
+    {
+      "path": "view/assets/pop.wav",
+      "size": 7100
+    }
+  ],
+  "license": {
+    "privateUse": false,
+    "notes": [
+      "First-party phone presentation code: AGPL-3.0; owner-created notification sounds: CC BY-NC-SA 4.0, see LICENSE-ASSETS.md"
+    ]
+  },
+  "compatibility": {
+    "compatible": [],
+    "incompatible": []
+  },
+  "admission": {
+    "entryKinds": []
+  },
+  "builtinAssets": [
+    {
+      "id": "device",
+      "path": "builtin/device.json",
+      "type": "bundle"
+    },
+    {
+      "id": "message",
+      "path": "view/assets/message.wav",
+      "type": "audio"
+    },
+    {
+      "id": "chime",
+      "path": "view/assets/chime.wav",
+      "type": "audio"
+    },
+    {
+      "id": "pop",
+      "path": "view/assets/pop.wav",
+      "type": "audio"
+    }
+  ]
+}

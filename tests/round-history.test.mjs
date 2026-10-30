@@ -819,6 +819,38 @@ test('rescued history blocks regeneration and rollback without modifying old tex
  assert.deepEqual(h.chat,before)
 })
 
+// the stage's 停止 while the reply is written stops the run and withdraws the pick, exactly
+// the failed-tail clearing of 撤回这条输入; a body that already committed is a Round and stays.
+test('舞台打断：停止生成并撤回未提交的输入，剧情、checkpoint 与上一轮候选不变', async () => {
+  const h = harness({ checkpoint: true })
+  h.chat.candidates = { messageId: 'm2', choices: [{ type: 'action', text: '走进雨里' }] }
+  const before = structuredClone(h.chat)
+  h.session.append('turn/start', { turn: 3 })
+  h.session.append('user/message', { role: 'user', content: [{ type: 'text', text: '走进雨里' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  h.session.append('assistant/message', { turn: 3, step: 1, message: { role: 'assistant', source: { kind: 'model', provider: 'fixture', model: 'fixture' }, content: [{ type: 'text', text: '雨下得' }] } }, { surfaceOp: 'append' })
+  const stops = []
+  h.agent.phase = { kind: 'running', lastTurn: 2 }
+  h.agent.cancel = reason => { stops.push(reason.kind); h.session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } }); h.agent.phase = { lastTurn: 2 } }
+  h.agent.whenIdle = async () => {}
+  const result = await h.create().interrupt('session', 'chat')
+  assert.deepEqual(stops, ['user'])
+  assert.equal(result.withdrawn, true)
+  assert.equal(result.clearedInput, '走进雨里')
+  assert.deepEqual(h.chat.messages, before.messages)
+  assert.deepEqual(h.chat.timeline, before.timeline)
+  assert.deepEqual(h.chat.candidates, before.candidates)
+})
+
+test('舞台打断：正文已提交时不回退该轮', async () => {
+  const h = harness({ checkpoint: true })
+  const before = structuredClone(h.chat)
+  const result = await h.create().interrupt('session', 'chat')
+  assert.equal(result.withdrawn, false)
+  assert.deepEqual(h.chat.messages, before.messages)
+  assert.deepEqual(h.chat.timeline, before.timeline)
+  assert.equal(h.chat.rollbackUndo, undefined)
+})
+
 
 test('读卡期间重放已独占失败回合，读卡失败释放锁后可重试', async () => {
   const h = harness()

@@ -6,6 +6,7 @@ import { browserReactScript } from './fixtures/browser-react.mjs'
 
 const source = await readFile(new URL('../tavern-plugin/src/client/features/regex-library.js', import.meta.url), 'utf8')
 const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
+const forkInlineSource = await readFile(new URL('../tavern-plugin/src/client/inline-field.js', import.meta.url), 'utf8')
 
 const DATA = {
   sessionId: 's1', mode: 'story', revision: 'r1', migrated: 0, warning: '',
@@ -92,6 +93,8 @@ test('正则库页面：三来源、开关、本局覆盖、新建与试运行',
     window.downloadTavernBlob = function (blob, filename) { window.__downloads.push({ name: filename, size: blob && blob.size }); };
     window.parseTextResourceFile = async function () { return { name: 'x.json', text: '[]' }; };
   ` })
+  // the page uses the shared controls (Switch, TextArea, InlineField, SearchBox, EmptyState).
+  await page.addScriptTag({ content: forkInlineSource + '\nwindow.PanelLoading = function () { return null; };' })
   await page.addScriptTag({ content: source })
   await page.evaluate(() => {
     const React = modules.react
@@ -170,7 +173,8 @@ test('正则库页面：三来源、开关、本局覆盖、新建与试运行',
 
   // multi-select: a row checkbox selects without expanding the row, select-all follows the current filters
   const presetRow = page.locator('.dsh-tavern-rx-row.src-preset')
-  await presetRow.locator('.dsh-tavern-rx-select').check()
+  // the row selector is the shared Switch (role=switch) inside the .dsh-tavern-rx-select label.
+  await presetRow.locator('.dsh-tavern-rx-select input').click()
   await page.waitForFunction(() => document.querySelector('.dsh-tavern-rx-bulk-count')?.textContent === '已选 1 条')
   assert.equal(await presetRow.locator('.dsh-tavern-rx-row-head').getAttribute('aria-expanded'), 'false')
   await page.locator('.dsh-tavern-rx-bulk').getByRole('button', { name: '清除' }).click()
@@ -205,7 +209,7 @@ test('正则库页面：三来源、开关、本局覆盖、新建与试运行',
   assert.match(await page.locator('.dsh-tavern-rx-notice').innerText(), /已删除 2 条全局正则/)
 
   // selecting only source rules cannot delete them, and says why
-  await page.locator('.dsh-tavern-rx-row.src-preset .dsh-tavern-rx-select').check()
+  await page.locator('.dsh-tavern-rx-row.src-preset .dsh-tavern-rx-select input').click()
   await page.locator('.dsh-tavern-rx-bulk').getByRole('button', { name: '删除' }).evaluate(element => element.click())
   await page.waitForFunction(() => document.querySelector('.dsh-tavern-rx-notice')?.textContent.includes('不能在这里删除'))
   assert.equal(await page.locator('.dsh-tavern-rx-row.src-preset').count(), 1)

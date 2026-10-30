@@ -1,0 +1,17 @@
+{
+  "kind": "audience",
+  "id": "basic",
+  "name": "直播间观众",
+  "enabled": true,
+  "recall": {
+    "mode": "constant",
+    "keywords": []
+  },
+  "directorNote": "",
+  "content": {
+    "persona": "观众",
+    "tone": "中性",
+    "catchphrases": [],
+    "examples": []
+  }
+}

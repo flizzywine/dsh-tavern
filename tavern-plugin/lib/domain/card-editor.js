@@ -1,7 +1,22 @@
 import { normalizeResourcePath } from './file-resources.js'
 
+export const CARD_PROJECTION_REVISIONS = 'card-projection-revisions.json'
+
+/** The card's projection revision (the updateCard expectedRevision). */
+export function cardProjectionRevisionOf(state, cardPath) {
+  return Math.max(0, Number(state && state.cards && state.cards[String(cardPath || '')]) || 0)
+}
+
+/** Next card-projection-revisions.json after a saved edit of one card. */
+export function bumpCardProjectionState(value, normalizedPath) {
+  const state = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const cards = state.cards && typeof state.cards === 'object' && !Array.isArray(state.cards) ? state.cards : {}
+  const version = Math.max(0, Number(state.version) || 0) + 1
+  return { version, cards: Object.assign({}, cards, { [normalizedPath]: version }) }
+}
+
 /** Serialize a card edit through persistence and its dependent projections. */
-export function createCardEditor({ readCardWorkspace, cardPreparation, fileResources, bumpCardProjectionRevision, syncCardName, cardRevision }) {
+export function createCardEditor({ readCardWorkspace, cardPreparation, fileResources, bumpCardProjectionRevision, syncCardName, cardRevision, withCardLock, cardAssetWorkspaceRevision }) {
   const pending = new Map()
   async function edit(cardPath, patch, revision, rawOperations, options = {}) {
     const workspace = await readCardWorkspace(cardPath)
@@ -10,6 +25,7 @@ export function createCardEditor({ readCardWorkspace, cardPreparation, fileResou
     if (options.expectedRevision !== undefined && typeof cardRevision === 'function' && await cardRevision(cardPath) !== options.expectedRevision) {
       throw Object.assign(new Error('人物卡在读取之后已被修改，请重新读取后再改'), { code: 'REVISION_CONFLICT' })
     }
+    if (options.expectedAssetRevision !== undefined && cardAssetWorkspaceRevision(workspace) !== options.expectedAssetRevision) throw Object.assign(new Error('Card changed'), { code: 'REVISION_CONFLICT' })
     const change = cardPreparation.update({ kind: 'card', card: workspace, patch: patch, revision: revision, rawOperations: rawOperations })
     const savedWorkspace = change.card
     if (!change.changed) {
@@ -28,7 +44,13 @@ export function createCardEditor({ readCardWorkspace, cardPreparation, fileResou
   }
   return function updateCard(cardPath, patch, revision, rawOperations, options) {
     const key = normalizeResourcePath(cardPath, 'card')
-    const operation = (pending.get(key) || Promise.resolve()).catch(() => {}).then(() => edit(key, patch, revision, rawOperations, options))
+    const operation = (pending.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
+      // Asset bindings and ordinary card edits share the same owner lock.
+      if (!withCardLock) return edit(key, patch, revision, rawOperations, options)
+      const workspace = await readCardWorkspace(key)
+      if (workspace === undefined) throw new Error('人物卡不存在: ' + key)
+      return withCardLock(workspace.meta.id, () => edit(key, patch, revision, rawOperations, options))
+    })
     pending.set(key, operation)
     const release = () => { if (pending.get(key) === operation) pending.delete(key) }
     operation.then(release, release)

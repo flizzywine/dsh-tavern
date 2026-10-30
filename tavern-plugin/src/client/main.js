@@ -1,16 +1,33 @@
 // @include android-web-polyfills.js
 window.__ModuleLoader__.load({
 	id: "dsh-tavern-plugin",
-	factory: (require) => {
+	// Parenthesized: V8 compiles this 6 MB factory with the off-thread streamed script instead of
+	// lazily re-parsing all of it on the main thread when the loader first calls it (~57 ms per load).
+	factory: ((require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
 			Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 			let React = require("react");
 			let DshUi = require("@deepseek-ai/dsh-client-ui-primitives");
+			// portals the sidebar theme menu into the host logo row.
+			let ReactDOM = (function () { try { return require("react-dom"); } catch (_) { return null; } })();
 
 		// @include crypto-digest.js
 		// @include stylesheet.js
-		if (typeof document !== "undefined") installTavernStylesheet(document, __TAVERN_BUNDLED_CSS__);
+        // @include surfaces.cjs
+		// @include hscroll.js
+		if (typeof document !== "undefined") { installTavernStylesheet(document, __TAVERN_BUNDLED_CSS__, __TAVERN_FEATURE_CSS__);  }
+		// @include spinner.js
+		// @include stage-load-progress.cjs
+		// @include wait-lines.js
+		// @include jump-latest.js
+		// @include inline-field.js
+		// @include spine-runtime-entry.js
+        // @include pixi-runtime.js
+		// @include image-viewer.js
+		// @include data-picker.js
+		// @include mod-config-ui.js
+
 
 		// `dsh-tavern-shell-active` gates every Tavern rule that touches host chrome.
 		// It used to be added only when the left sidebar mounted. On a phone that
@@ -30,6 +47,15 @@ window.__ModuleLoader__.load({
 		}
 		markTavernShellActive();
 
+
+		// @include foreground.js
+		// @include tab-icons.js
+		// @include variable-bindings.cjs
+		// @include pack-transport.js
+		// @include asset-pack-binding.js
+		// @include stage-empty.js
+		// @include asset-pack-ui.js
+		// @include figure-color-contrast.js
 
 		function isPlayMode(mode) {
 			return mode === "story" || mode === "script";
@@ -126,8 +152,12 @@ window.__ModuleLoader__.load({
 			if (name.toLowerCase().endsWith(".json")) {
 				return file.text().then(function (text) { return { kind: "text", name: name, text: text }; });
 			}
+			// a card bundle ZIP picked here gets pointed at its own importer.
+			const ZIP_CARD_HINT = "这是卡 ZIP，请用「导入卡 ZIP」打开";
+			if (name.toLowerCase().endsWith(".zip")) return Promise.reject(new Error(ZIP_CARD_HINT));
 			return file.arrayBuffer().then(function (buf) {
 				const bytes = new Uint8Array(buf);
+				if (bytes.length > 4 && ascii(bytes, 0, 4) === "PK\x03\x04") throw new Error(ZIP_CARD_HINT);
 				if (bytes.length <= 8 || ascii(bytes, 0, 8) !== "\x89PNG\r\n\x1a\n") {
 					throw new Error("无法识别的人物卡文件（需要 PNG、JSON、CHARX 或 DSH 人物卡 .dshcard）");
 				}
@@ -303,8 +333,8 @@ window.__ModuleLoader__.load({
 						h("span", null, file.directory + " · " + Math.ceil(file.size / 1024) + " KB")));
 			}
 			function emptyState() {
-				if (needle) return h("div", { className: "dsh-tavern-empty" }, "没有匹配“" + filter.trim() + "”的文件");
-				return h("div", { className: "dsh-tavern-empty" }, catalog && catalog.storageAccessible === false ? "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。" : "下载目录里还没有 PNG/JSON 人物卡。");
+				if (needle) return h(EmptyState, { query: filter, onClear: function () { setFilter(""); } });
+				return catalog && catalog.storageAccessible === false ? h("div", { className: "dsh-tavern-empty" }, "DSHA 无法读取下载目录。请在系统设置中允许 DSHA ‘访问所有文件’，然后点刷新；也可尝试系统文件选择器。") : h(EmptyState, { text: "下载目录里还没有 PNG/JSON 人物卡" });
 			}
 			const countText = "共 " + allFiles.length + " 个文件"
 				+ (needle ? "，匹配 " + files.length + " 个" : "")
@@ -373,6 +403,15 @@ window.__ModuleLoader__.load({
 			catch (_error) { throw failure("服务返回非 JSON 或不完整的响应，请稍后重试", true); }
 		}
 
+        // Bounded, metadata-only startup trace, persisted by the read-only scenario collector.
+        const roundLoadRows = [], roundLoadCounts = new Map();
+        const roundLoadTrace = window.__dshRoundLoadTrace = {
+            mark(phase, detail = {}) {
+                if (roundLoadRows.length < 200) roundLoadRows.push({phase, at:Date.now(), pageMs:Math.round(performance.now()), ...detail});
+            },
+            read: () => roundLoadRows.slice()
+        };
+        roundLoadTrace.mark('client.module', {navigationAt:Math.round(performance.timeOrigin)});
 		// @include opening-performance.js
 		const pagePerformance = { observedMs: 0, longTaskCount: 0, longTaskTotalMs: 0, longTaskMaxMs: 0, slowRpcCount: 0, slowRpcMaxMs: 0, longTaskSupported: false };
 		const pagePerformanceStarted = Date.now();
@@ -404,6 +443,9 @@ window.__ModuleLoader__.load({
 		// @include modules/session-compat.js
 		const beginSessionViewRead = createSessionViewReader();
 
+        // @include rpc-transport.cjs
+        const presentationRequest = createPresentationQueue();
+
 		// A save whose session log cannot be upgraded may not open at all, so this works from the
 		// conversation menu too: the structure goes to the developer, the story text stays home.
 		async function downloadSessionDiagnostics(args, sessionId) {
@@ -425,9 +467,17 @@ window.__ModuleLoader__.load({
 				}
 			}
 			const runtimeControl = ["claimTavernScriptWork", "startTavernScriptWork", "getTavernScriptWorkState", "heartbeatTavernScriptRuntime", "completeTavernHelperEvent", "releaseTavernHelperRuntime"].includes(method);
+            // Keep stage reads on authenticated HTTP; the upstream mux only declares script controls.
 			const controlChannel = runtimeControl && typeof tavernSessionSignals !== "undefined" && typeof tavernSessionSignals.control === "function" ? tavernSessionSignals : null;
 			const started = Date.now();
             const clockStart = performance.now();
+            const roundKey = method + ':' + (sessionId || args?.sessionId || '');
+            const roundTrace = ['getSession','getStageDirection','getDialogueBubbles','getAssetPackPresentation','getStageMusicTracks','getStageBackgrounds'].includes(method)
+                && roundLoadCounts.size < 64 && (roundLoadCounts.get(roundKey) || 0) < 3;
+            if (roundTrace) {
+                roundLoadCounts.set(roundKey, (roundLoadCounts.get(roundKey) || 0) + 1);
+                roundLoadTrace.mark('rpc.begin', {method, sessionId:sessionId || args?.sessionId, channel:controlChannel ? 'mux' : 'http'});
+            }
             const traced = ["getSession", "syncSession", "getCardOpenings", "initializeOpeningTemplate", "preparePlayStart", "startChat"].includes(method);
             const trace = traced ? { id: window.crypto?.randomUUID?.() || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const n = Math.floor(Math.random() * 16); return (c === "x" ? n : (n & 3) | 8).toString(16); }), method, sentAt: started, active: ++performanceActiveRequests } : null;
             const payload = Object.assign({}, args || {});
@@ -449,7 +499,8 @@ window.__ModuleLoader__.load({
 			const request = {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: requestBody
+				body: requestBody,
+                priority: rpcFetchPriority(method)
 			};
 			if (requestOptions && requestOptions.signal) request.signal = requestOptions.signal;
 			// Release ownership even when a cancelled carrier never settles.
@@ -459,9 +510,10 @@ window.__ModuleLoader__.load({
 				else request.signal.addEventListener("abort", releaseViewRead, { once: true });
 			}
 			if (requestOptions && requestOptions.keepalive === true) request.keepalive = true;
-			const responsePromise = controlChannel
-				? Promise.resolve().then(() => controlChannel.control(method, JSON.parse(requestBody), requestOptions && requestOptions.signal))
-				: fetchThroughRestart("/api/dsh-tavern/" + method, request).then(async function (response) {
+
+            const httpRead = () => {
+                if (roundTrace) roundLoadTrace.mark('rpc.dispatch', {method, sessionId:payload.sessionId, priority:request.priority});
+                return fetchThroughRestart("/api/dsh-tavern/" + method, request).then(async function (response) {
                 if (trace) trace.headersMs = Math.round(performance.now() - clockStart);
                 const result = await readTavernJsonResponse(response, trace ? body => { trace.bodyChars = body.length; } : undefined);
                 if (trace) {
@@ -473,7 +525,13 @@ window.__ModuleLoader__.load({
 					} catch (_error) {}
 				}
                 return result;
-            });
+                });
+            };
+            // Projections retain their HTTP authority and origin-bound media lease checks.
+            const responsePromise = controlChannel
+                ? Promise.resolve().then(() => controlChannel.control(method, JSON.parse(requestBody), requestOptions && requestOptions.signal))
+                : ['getAssetPackPresentation', 'getStagePhonePresentation'].includes(method)
+                    ? presentationRequest(httpRead, request.signal) : httpRead();
 			function checkCancelled() {
 				if (request.signal && request.signal.aborted) {
 					if (typeof request.signal.throwIfAborted === "function") request.signal.throwIfAborted();
@@ -487,11 +545,21 @@ window.__ModuleLoader__.load({
 				result = viewRead && viewRead.current() || result;
 				tavernRuntimeGenerationMonitor.observe(result && result.runtimeGeneration);
 				if (!result || !result.ok) {
-					const error = new Error(result && result.error ? result.error : "操作失败");
+					const detail = result?.error && typeof result.error === "object" ? result.error : null;
+					const error = new Error(detail?.message || result?.error || "操作失败");
+					if (detail) { error.code = detail.code; error.retryable = detail.retryable === true; error.mayHaveCharged = detail.mayHaveCharged === true; }
 					if (typeof result?.errorCode === "string" && result.errorCode) error.code = result.errorCode;
+					// the cycle ids / conflicting mods the player message names (UI-CONTRACT.md 错误).
+					if (result?.errorDetails) error.details = result.errorDetails;
 					throw error;
 				}
+                ;
+                ;
 				const accepted = viewRead ? viewRead.accept(result) : result;
+                if (method === 'getSession' && accepted.view && payload.sessionId) {
+                    ;
+                    ;
+                }
 				if (viewRead) rememberHistoryWindow(payload.sessionId, accepted.view);
                 if (accepted.contextWindow) return {...accepted,context:expandTavernOpeningWindow(accepted.contextWindow).tavernHelper};
                 return accepted.view && accepted.view.historyWindow ? {...accepted,view:expandTavernOpeningWindow(accepted.view)} : accepted;
@@ -505,6 +573,7 @@ window.__ModuleLoader__.load({
 				if (viewRead) viewRead.release();
 				if (releaseViewRead && request.signal) request.signal.removeEventListener("abort", releaseViewRead);
 				const elapsed = Date.now() - started;
+                if (roundTrace) roundLoadTrace.mark('rpc.end', {method, sessionId:sessionId || args?.sessionId, durationMs:Math.round(performance.now() - clockStart)});
                 if (trace) {
                     performanceActiveRequests--;
                     trace.durationMs = Math.round(performance.now() - clockStart);
@@ -678,7 +747,7 @@ window.__ModuleLoader__.load({
 				requestMode: sync.requestMode === "sillytavern" ? "sillytavern" : "dsh",
 				cardPath: String(sync.cardPath || ""),
 				cardName: String(sync.cardName || ""),
-				activity: background ? { phase: background.status === "queued" ? "pending" : (background.status === "succeeded" ? "idle" : background.status), busy: background.busy === true, role: background.kind, operationId: background.operationId, updatedAt: background.updatedAt } : (sync.activity || null),
+				activity: background ? { ...sync.activity, phase: background.status === "queued" ? "pending" : (background.status === "succeeded" ? "idle" : background.status), busy: background.busy === true, role: background.kind, operationId: background.operationId, updatedAt: background.updatedAt } : (sync.activity || null),
 				task: tasks.candidate || sync.task || null,
 				tasks: tasks,
 				mailboxVersion: Number(sync.mailboxVersion) || 0,
@@ -851,44 +920,7 @@ window.__ModuleLoader__.load({
 
 // @include features/music.js
 
-// @include bubble-line.cjs
-// @include-domain dialogue-bubbles.js
-// @include features/cast-presentation.js
-
-// @include-domain cast-stage-state.js
-// @include-domain stage-performance-playback.js
-// @include stage-effects.cjs
-// @include-protocol stage-skin.cjs
-// @include-domain stage-entrance.js
-// @include features/font-library.js
-// @include features/stage-skin.js
-// @include modules/stage-runtime.js
-// @include modules/stage-backlog.js
-// @include modules/stage-typewriter.js
-// @include modules/stage-pager.js
-// @include modules/stage-narration.js
-// @include modules/stage-choices.js
-// @include modules/stage-effects.js
-// @include features/stage-entrance.js
-// @include stage-audio-math.js
-// @include features/stage-audio.js
-// @include features/stage-effects.js
-// @include features/stage-runtime.js
-// @include features/stage-typewriter.js
-// @include features/stage-pager.js
-// @include features/stage-narration.js
-// @include features/stage-choices.js
-// @include features/stage-mixer.js
-// @include features/stage-config.js
-// @include features/stage-backlog.js
-// @include features/stage-assets.js
-// @include features/stage-skins.js
-// @include features/stage-mode.js
-// @include features/stage-settings.js
-// @include modules/stage-music.js
-// @include modules/stage-sfx.js
-// @include modules/stage-bgm.js
-// @include features/stage-bgm.js
+// @include features/cast-stage.js
 
 // @include ui/message-frame.js
 
@@ -902,6 +934,7 @@ window.__ModuleLoader__.load({
 // @include features/scene-images.js
 // @include modules/view-tabs.js
 // @include features/settings.js
+// @include modules/model-image-input.js
 
 // @include features/prose-layout.js
 // @include features/text-layout.js
@@ -948,12 +981,45 @@ window.__ModuleLoader__.load({
 // @include features/request-context.js
 // @include features/polish-compare.js
 
+// @include stage-session-binding.js
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "tavernSessionSignals", "theme"];
+
+
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
+
+		// @include tavern-presentation.js
 
 		function apply(ctx) {
 			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
 			window.__dshTavernLoaded = true;
+            installTavernPresentation(ctx);
+            // Local debug capture delegates to the same session and stage routes as the UI.
+            // No endpoint, cursor writer or replay protocol: live never installs this adapter.
+            ctx.effect(() => {
+                // Debug launch fills this marker only in its isolated code copy; normal builds stay null.
+                const captureSlot = /* dsh-debug-capture-slot */ null;
+                if (!captureSlot) return;
+                const navigate = async ({ sessionId, turn, para = 1 }) => {
+                    if (!sessionId || !Number.isSafeInteger(turn) || turn < 1 || !Number.isSafeInteger(para) || para < 1) throw new Error('Debug capture target refused');
+                    await createSessionCompat(ctx.sessions, ctx.get("uiWorkspace")).open(sessionId);
+                    galEnter(sessionId, { turn, para });
+                    // A round before the conversation's loaded window is not indexed, so the stage's navigation skipped it and the
+                    // stage stayed on the previous round. Pull earlier pages through the backlog's 「加载更早」 route, then enter it.
+                    const index = () => stageSessions.get(sessionId)?.getSnapshot().textIndex;
+                    for (let wait = 0; wait < 200 && !index()?.size; wait++) await new Promise(resolve => setTimeout(resolve, 50));
+                    if (index()?.size && !index().has(turn)) {
+                        while (!index().has(turn) && stageSessions.owner.hasOlder(sessionId) && await stageSessions.owner.loadOlder(sessionId));
+                        galEnter(sessionId, { turn, para });
+                    }
+                    const data = bubbleStore.get(sessionId);
+                    return { loaded: Boolean(data), available: Boolean(data?.cardPath && data?.config?.enabled) };
+                };
+                window.forkCaptureNavigate = navigate;
+                return () => { if (window.forkCaptureNavigate === navigate) delete window.forkCaptureNavigate; };
+            }, 'dsh-tavern: debug capture navigation');
+			ctx.effect(() => installFrameStorageBridge(window), "dsh-tavern: frame storage bridge");
+			ctx.effect(() => forkStageAudio.install(window), "dsh-tavern: audio resume gesture");
+			ctx.effect(() => installForkFonts(ctx), "dsh-tavern: layered local fonts");
 			ctx.effect(function () { return tavernTextLayoutFeature.register(ctx); }, "dsh-tavern: text layout in appearance settings");
 			ctx.effect(() => displayPreferences.start(), "dsh-tavern: global display preferences");
 			ctx.effect(() => tavernInteractionDiagnostics.start(), "dsh-tavern: interaction diagnostics");
@@ -961,6 +1027,18 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => syncTavernCardAgentResources(ctx.sessions), "dsh-tavern: card Agent resource refresh");
 			const slots = ctx.slots;
 			if (slots === undefined) return;
+			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
+				// the tab reads 「舞台设置」 (「Tavern 舞台」 was cut off).
+				id: "dsh-tavern:bubbles", title: "舞台设置", order: 9, single: true,
+				icon: function (size) { const s = size || 16; return React.createElement("svg", { width: s, height: s, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+					React.createElement("rect", { x: 1.5, y: 2.5, width: 4, height: 4, rx: 1.2, stroke: "currentColor", strokeWidth: 1.2 }),
+					React.createElement("path", { d: "M7.5 3.5h6.5M7.5 6h4.5M1.5 10.5h13M1.5 13h9", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round" })); },
+				component: props => React.createElement(TavernStageTab, props)
+			}), "dsh-tavern: dialogue bubbles tab");
+			if (ctx.betterSidebar) ctx.effect(() => registerTab(ctx.betterSidebar, {
+				id: "dsh-tavern:card-scripts", title: "卡片脚本", order: 10, single: true,
+				component: props => React.createElement(CardScriptsTab, props)
+			}), "dsh-tavern: card helper scripts tab");
             ctx.effect(() => slots.inject("conversation.view", () => slots.register({
                 name: "conversation.view", id: "dsh-tavern:full-context", order: 11,
                 label: "完整上下文", inject: sessionId => ({ contextSessionId: sessionId })
@@ -989,10 +1067,11 @@ window.__ModuleLoader__.load({
 			const signals = ctx.tavernSessionSignals;
 			if (!signals || typeof signals.subscribe !== "function") throw new Error("DSH Tavern Remote 状态流不可用");
 			tavernSessionSignals = signals;
-			ctx.effect(() => tavernStageRuntime.start(ctx.sessions), "dsh-tavern: session-owned stage runtime");
-			ctx.effect(() => startTavernBgm(ctx.sessions), "dsh-tavern: BGM player");
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
+            // one input runtime per open native session, independent of React.
+            ctx.effect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
+            ctx.effect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
@@ -1047,7 +1126,7 @@ window.__ModuleLoader__.load({
 				async function clean() {
 					const draft = String(input.state.getSnapshot().draft || "");
 					const taskStart = draft.indexOf("【卡片任务：");
-					if (busy || stopped || !draft.startsWith("【当前 Tavern 资源工作区】") || taskStart < 0) return;
+					if (busy || stopped || !(draft.startsWith("<card_workspace>\n") || draft.startsWith("【当前 Tavern 资源工作区】")) || taskStart < 0) return;
 					busy = true;
 					try {
 						const result = await rpc("getCardTaskPrompt", { task: "edit" }, sessionId);
@@ -1115,6 +1194,7 @@ window.__ModuleLoader__.load({
 			// 界面皮肤 (modules/interface-skin.js): apply the imported skin once Tavern's routes answer.
 			void applyActiveInterfaceSkin().catch(function () {});
 			registerTavernStartPage(ctx, slots);
+			registerTavernPhonePanel(ctx);
 			playControlsFeature.register({ ctx: ctx, slots: slots });
 			assistantRendererFeature.register({ ctx: ctx, slots: slots });
 			tavernReplyObserverFeature.register({ ctx: ctx, slots: slots });
@@ -1130,7 +1210,8 @@ window.__ModuleLoader__.load({
 					name: "settings.section",
 					id: "dsh-tavern",
 					order: 110,
-					label: function () { return "DSH Tavern"; }
+					label: function () { return "DSH Tavern"; },
+                    children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
 			// 界面皮肤 sits in 「Theme / 外观」 (the bundled dream-skin's item list), next to its
@@ -1142,29 +1223,27 @@ window.__ModuleLoader__.load({
 					order: 26
 				}, InterfaceSkinSettings); });
 			}, "dsh-tavern: interface skin settings");
+			// 「能看图」 inside each pi-ai card of the upstream Models page (modules/model-image-input.js).
 			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({
-					name: "settings.section",
-					id: "dsh-tavern-speech",
-					order: 112,
-					label: function () { return "配音"; }
-				}, function () { return React.createElement("div", { className: "dsh-tavern-settings-section dsh-tavern-global-settings" }, React.createElement(TavernSpeechSettings, null)); }); });
-			}, "dsh-tavern: speech settings section");
+				return slots.inject("settings.models.provider-card", function () { return slots.register({ name: "settings.models.provider-card", key: MODEL_IMAGE_NS },
+					function (props) { return React.createElement(ModelImageInput, Object.assign({}, props, { remote: ctx.remote })); }); });
+			}, "dsh-tavern: model image input");
 			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({
-					name: "settings.section",
-					id: "dsh-tavern-plugins",
-					order: 113,
-					label: function () { return "酒馆插件"; }
-				}, TavernPluginsSettingsSection); });
-			}, "dsh-tavern: plugins settings section");
+				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-asset-gen", order: 112, label: function () { return "生图"; } },
+					function () { return React.createElement("div", { className: "dsh-tavern-settings-section" }, React.createElement(packUi.GenPromptSettings, { call: engineRpc })); }); });
+			}, "dsh-tavern: asset generation prompt settings section");
+			ctx.effect(function () {
+				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-speech", order: 113, label: function () { return "台词朗读"; } },
+					function () { return React.createElement("div", { className: "dsh-tavern-global-settings" }, React.createElement(TavernSpeechSettings, null)); }); });
+			}, "dsh-tavern: speech settings");
+			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			resourcesLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
-            ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:guide-library", title: "Guide 库", order: 9, single: true, component: GuideLibraryTab }), "dsh-tavern: guide library");
-            ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:regex-library", title: "正则库", order: 9, single: true, component: RegexLibraryTab }), "dsh-tavern: regex library");
-			ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:skills", title: "Skill 库", order: 8, single: true, component: props => React.createElement(TavernSkillsTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: Skill library");
-            ctx.effect(() => ctx.betterSidebar.registerTab({ id: "dsh-tavern:card-memory", title: "改卡记忆", order: 9, single: true, component: props => React.createElement(TavernCardMemoryTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: card memory");
+            ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:guide-library", title: "Guide 库", order: 9, single: true, component: GuideLibraryTab }), "dsh-tavern: guide library");
+			ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:skills", title: "Skill 库", order: 8, single: true, component: props => React.createElement(TavernSkillsTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: Skill library");
+            ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:card-memory", title: "改卡记忆", order: 9, single: true, component: props => React.createElement(TavernCardMemoryTab, { sessionId: props.scope.sessionId }) }), "dsh-tavern: card memory");
+            ctx.effect(() => registerTab(ctx.betterSidebar, { id: "dsh-tavern:regex-library", title: "正则库", order: 9, single: true, component: RegexLibraryTab }), "dsh-tavern: regex library");
 			worldBookLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			ctx.effect(function () {
 				return worldBookSwitcherFeature.register({
@@ -1303,5 +1382,5 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		// would report the missing patch for the whole profile.
 		if (!window.__dshTavernHeadless) installTavernSessionHistoryPatch(require, rpc);
 		return module.exports;
-	}
+	})
 });

@@ -1,25 +1,10 @@
 import { compactionPolicy } from './auto-compaction.js'
 import { normalizeBackgroundModel } from './background-model-selection.js'
 import { applyCardPersonaChange, presentCardPersonas } from './card-personas.js'
-import { readJudgeConfig, validateJudgeConfig } from './engine-judge.js'
-import { validateStageSkinSelection } from './stage-skin-choice.js'
 
 function object(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
-// Global stage switches a patch may set.
-const STAGE_TOGGLES = Object.freeze(['stage', 'music', 'sfx', 'ambience', 'items', 'entrance'])
-// 舞台模式 › 可用演出: the director commands the director may use, every one on by default (stage-director.js).
-export const STAGE_DIMENSIONS = Object.freeze(['scene', 'cast', 'acts', 'screenEffects'])
-// 舞台模式 › 每轮上限: how many screen effects (`beat`) one reply may use.
-export const STAGE_ACTION_CAPS = Object.freeze({ beat: 6 })
-const stageDimensions = document => Object.fromEntries(STAGE_DIMENSIONS.map(key => [key, object(object(document).stageDimensions)[key] !== false]))
-const stageActionCaps = document => Object.fromEntries(Object.entries(STAGE_ACTION_CAPS).map(([key, fallback]) => {
-  const value = object(object(document).stageActionCaps)[key]
-  return [key, Number.isSafeInteger(value) && value >= 1 && value <= 256 ? value : fallback]
-}))
-const PACK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const globalPackIds = document => Array.isArray(object(document).globalEnabledPackIds) ? document.globalEnabledPackIds.filter(id => typeof id === 'string' && PACK_ID.test(id)) : []
 
 // A stored blank here is the user's choice and overrides the default; only
 // resetting (deleting the key) restores it.
@@ -62,7 +47,8 @@ function promptSetName(value) {
 const HEADER_ITEM_LIMIT = 24
 const HEADER_ITEM_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,79}$/
 const HEADER_DISPLAYS = ['icon', 'icon-text']
-export const DEFAULT_HEADER_ITEMS = Object.freeze({ display: 'icon-text', items: Object.freeze(['dsh-tavern:status', 'header:export']) })
+// no 酒馆状态 button in the top bar by default; the owner adds pages in 顶栏设置.
+export const DEFAULT_HEADER_ITEMS = Object.freeze({ display: 'icon-text', items: Object.freeze(['header:export']) })
 
 export function headerItems(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('无效的顶栏设置')
@@ -258,6 +244,25 @@ export function applyTavernSettingsPatch(current, patch) {
     if (input[name] !== null && !selection) throw new Error('默认模型配置无效')
     next[name] = selection
   }
+  if (Object.hasOwn(input, 'modModelSelection')) {
+    const {modId,slotId,selection}=object(input.modModelSelection)
+    if(typeof modId!=='string' || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(modId) || typeof slotId!=='string' || !/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(slotId) || ['constructor','prototype','__proto__'].includes(slotId))throw new Error('无效的模组模型槽')
+    const model=normalizeBackgroundModel(selection)
+    if(selection!==null && !model)throw new Error('无效的模组模型配置')
+    // 模型默认 chosen on the effort menu is kept as null: it overrides a slot's declared initial effort (model-slots.js).
+    if(model && selection.reasoningEffort===null)model.reasoningEffort=null
+    next.modModels={...object(next.modModels),[modId]:{...object(next.modModels?.[modId]),[slotId]:model}}
+  }
+  // opt-in global automatic candidates, stored beside dismissal preferences.
+  
+  if (Object.hasOwn(input, 'candidateAutoGenerate')) {
+    if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
+    next.candidateAutoGenerate = input.candidateAutoGenerate
+  }
+  if (Object.hasOwn(input, 'hideContextAndReasoning')) {
+    if (typeof input.hideContextAndReasoning !== 'boolean') throw new Error('无效的对话显示设置')
+    next.hideContextAndReasoning = input.hideContextAndReasoning
+  }
   if (Object.hasOwn(input, 'polishPrereview')) {
     if (typeof input.polishPrereview !== 'boolean') throw new Error('无效的自动精修设置')
     next.polishPrereview = input.polishPrereview
@@ -265,10 +270,6 @@ export function applyTavernSettingsPatch(current, patch) {
   if (Object.hasOwn(input, 'candidateDismissMode')) {
     if (!['after-fill', 'after-send'].includes(input.candidateDismissMode)) throw new Error('无效的候选项收起方式')
     next.candidateDismissMode = input.candidateDismissMode
-  }
-  if (Object.hasOwn(input, 'candidateAutoGenerate')) {
-    if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
-    next.candidateAutoGenerate = input.candidateAutoGenerate
   }
   // Two independent directions: input replays the history that is sent to the
   // model, output turns this turn's body into a submission call. Legacy switches
@@ -314,44 +315,6 @@ export function applyTavernSettingsPatch(current, patch) {
     // null restores the shipped tab row (all five tabs, 对话 first).
     if (input.viewTabs === null) delete next.viewTabs
     else next.viewTabs = viewTabs(input.viewTabs)
-  }
-  if (Object.hasOwn(input, 'castPresentation')) {
-    if (typeof input.castPresentation !== 'boolean') throw new Error('对话气泡设置必须是布尔值')
-    next.castPresentation = input.castPresentation
-  }
-  // The stage's global switches (舞台设置 › 基础设置); 舞台模式 is stageToggles.stage, BGM stageToggles.music, 音效 stageToggles.sfx,
-  // 环境音 stageToggles.ambience, 物品 stageToggles.items, 入场演出 stageToggles.entrance.
-  if (Object.hasOwn(input, 'stageToggles')) {
-    const toggles = object(input.stageToggles)
-    if (!Object.keys(toggles).length || Object.entries(toggles).some(([key, value]) => !STAGE_TOGGLES.includes(key) || typeof value !== 'boolean')) throw new Error('舞台开关只能是 ' + STAGE_TOGGLES.join('、') + '，且必须是布尔值')
-    next.stageToggles = { ...object(next.stageToggles), ...toggles }
-  }
-  // 舞台模式 › 可用演出 and 每轮上限: every card's director; a patch names only what it changes.
-  if (Object.hasOwn(input, 'stageDimensions')) {
-    const dimensions = object(input.stageDimensions)
-    if (!Object.keys(dimensions).length || Object.entries(dimensions).some(([key, value]) => !STAGE_DIMENSIONS.includes(key) || typeof value !== 'boolean')) throw new Error('可用演出只能是 ' + STAGE_DIMENSIONS.join('、') + '，且必须是布尔值')
-    next.stageDimensions = { ...object(next.stageDimensions), ...dimensions }
-  }
-  if (Object.hasOwn(input, 'stageActionCaps')) {
-    const caps = object(input.stageActionCaps)
-    if (!Object.keys(caps).length || Object.entries(caps).some(([key, value]) => !Object.hasOwn(STAGE_ACTION_CAPS, key) || !Number.isSafeInteger(value) || value < 1 || value > 256)) throw new Error('每轮上限只能是 ' + Object.keys(STAGE_ACTION_CAPS).join('、') + '，且必须是 1 到 256 的整数')
-    next.stageActionCaps = { ...object(next.stageActionCaps), ...caps }
-  }
-  // 舞台模式 › 判断模型 (engine-judge.js): the whole config; an omitted field takes its default or the provider's preset.
-  // The API Key itself is never a setting (rpc setJudgeKey stores it in the host credential store).
-  if (Object.hasOwn(input, 'stageJudge')) next.stageJudge = validateJudgeConfig(input.stageJudge)
-  // 舞台设置 › 默认皮肤: a built-in skin's id or a pack skin; a missing one is passed over when drawn (stage-skin-choice.js).
-  if (Object.hasOwn(input, 'stageSkin')) {
-    try { next.stageSkin = structuredClone(validateStageSkinSelection(input.stageSkin)) } catch { throw new Error('无效的默认皮肤') }
-  }
-  // A pack the player turns on for every card (全局) or off again: one pack per change, applied to the stored list.
-  if (Object.hasOwn(input, 'globalPack')) {
-    const { packId, enabled } = object(input.globalPack)
-    if (typeof packId !== 'string' || !PACK_ID.test(packId) || typeof enabled !== 'boolean') throw new Error('无效的素材包设置')
-    const ids = globalPackIds(next).filter(id => id !== packId)
-    if (enabled) ids.push(packId)
-    if (ids.length) next.globalEnabledPackIds = ids
-    else delete next.globalEnabledPackIds
   }
   if (Object.hasOwn(input, 'contextCompaction')) next.contextCompaction = { ...compactionPolicy(input.contextCompaction), revision: Date.now() }
   if (Object.prototype.hasOwnProperty.call(input, 'backgroundTasks')) {
@@ -419,32 +382,23 @@ export function presentTavernSettings(document, defaults) {
   return {
     defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings),
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
+    modModels: structuredClone(object(document).modModels || {}),
     defaultForegroundModel: normalizeBackgroundModel(object(document).defaultForegroundModel),
     defaultBackgroundModel: normalizeBackgroundModel(object(document).defaultBackgroundModel),
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
+    hideContextAndReasoning: object(document).hideContextAndReasoning !== false,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),
     candidateDismissMode: object(document).candidateDismissMode === 'after-fill' ? 'after-fill' : 'after-send',
-    // 自动生成候选项: off by default, since it adds a background request after every reply.
+    // existing profiles stay manual until explicitly enabled.
+    
     candidateAutoGenerate: object(document).candidateAutoGenerate === true,
     // 自动精修: off by default, since it reviews and rewords every reply.
     polishPrereview: object(document).polishPrereview === true,
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
-    castPresentation: object(document).castPresentation === true,
-    // 舞台模式, BGM, 音效, 环境音, 物品 and 入场演出: one switch each for every card, all off until turned on
-    // (舞台模式 starts the stage director); the stage also needs 对话气泡 (castPresentation).
-    stageToggles: Object.fromEntries(STAGE_TOGGLES.map(key => [key, object(object(document).stageToggles)[key] === true])),
-    stageDimensions: stageDimensions(document),
-    stageActionCaps: stageActionCaps(document),
-    // Unset by default: no judge stage, green entries follow their triggers.
-    stageJudge: readJudgeConfig(object(document).stageJudge),
-    // 默认皮肤: 经典 until the player picks another; stored selections were checked when written.
-    stageSkin: (skin => typeof skin === 'string' || skin && object(skin) === skin ? structuredClone(skin) : 'classic')(object(document).stageSkin),
-    // Asset packs on for every card (全局); a card adds its own (本卡) in its cast manifest.
-    globalEnabledPackIds: globalPackIds(document),
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // Library edits reach a running game on its next turn; only an explicit

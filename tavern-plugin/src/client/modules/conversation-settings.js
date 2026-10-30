@@ -5,33 +5,41 @@ function createConversationSettingsModule({
     invalidateView, notifyTavernDataChanged,
     UserPreferenceProfileTab, TavernConversationWritingSkills, backgroundModelLabel
 }) {
+    const tavernSettingsSessionReads = new Map();
+    function readTavernSettingsSession(sessionId) {
+            const pending = tavernSettingsSessionReads.get(sessionId);
+            if (pending) return pending;
+            const read = rpc("getSession", {}, sessionId).finally(() => { if (tavernSettingsSessionReads.get(sessionId) === read) tavernSettingsSessionReads.delete(sessionId); });
+            tavernSettingsSessionReads.set(sessionId, read);
+            return read;
+        }
     function TavernConversationPreset(props) {
         const h = React.createElement;
         const [data, setData] = React.useState(null);
         const [error, setError] = React.useState("");
         const [busy, setBusy] = React.useState(false);
         const [notice, setNotice] = React.useState("");
-        async function refresh() {
-            const [catalog, session] = await Promise.all([rpc("listPresets", {}, props.sessionId), rpc("getSession", {}, props.sessionId)]);
+        async function refresh(mount) {
+            const [catalog, session] = await Promise.all([rpc("listPresets", {}, props.sessionId), mount ? readTavernSettingsSession(props.sessionId) : rpc("getSession", {}, props.sessionId)]);
             setData({ presets: catalog.presets || [], current: session.view?.runtimePreset });
         }
-        React.useEffect(() => { refresh().catch(err => setError(String(err.message || err))); }, []);
+        React.useEffect(() => { refresh(true).catch(err => setError(String(err.message || err))); }, []);
         async function change(path) {
             setBusy(true); setError(""); setNotice("");
             try { await rpc("applyConversationPreset", { sessionId: props.sessionId, path }, props.sessionId); await refresh(); setNotice("已保存"); invalidateView(props.sessionId); notifyTavernDataChanged(["presets", "sessions"], "presets"); }
             catch (err) { setError(String(err.message || err)); }
             finally { setBusy(false); }
         }
-        return h("div", { className: "dsh-local-field" }, h("label", null, "当前预设", h("select", { className: "dsh-tavern-settings-select", "aria-label": "本局预设", value: data?.current?.id || "", disabled: busy || !data, onChange: event => change(event.target.value) },
-            h("option", { value: "" }, "不使用酒馆预设"),
-            data?.current?.id && !data.presets.some(p => p.path === data.current.id) ? h("option", { value: data.current.id }, data.current.name + "（源文件已移除）") : null,
-            (data?.presets || []).filter(p => p.valid && p.recognized).map(p => h("option", { key: p.path, value: p.path }, p.title)))),
+        return h("div", { className: "dsh-local-field" }, h(InlineField, { kind: "menu", label: "本局预设", value: data?.current?.id || "", disabled: busy || !data, onCommit: change,
+                    options: [{ value: "", label: "不使用酒馆预设" },
+                        ...(data?.current?.id && !data.presets.some(p => p.path === data.current.id) ? [{ value: data.current.id, label: data.current.name + "（源文件已移除）" }] : []),
+                        ...(data?.presets || []).filter(p => p.valid && p.recognized).map(p => ({ value: p.path, label: p.title }))] }),
             h("p", { className: "dsh-tavern-settings-desc" }, "用于后续正文，选择后自动保存。"), error ? h("p", { role: "alert" }, "保存失败：" + error) : h("span", { role: "status", className: "dsh-local-feedback" }, busy ? "保存中…" : notice));
     }
 
     function TavernLocalPlayerName(props) {
         const [name, setName] = React.useState(null), [busy, setBusy] = React.useState(false), [status, setStatus] = React.useState("");
-        React.useEffect(() => { let active = true; rpc("getSession", {}, props.sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setStatus("读取失败：" + err.message); }); return () => { active = false; }; }, []);
+        React.useEffect(() => { let active = true; readTavernSettingsSession(props.sessionId).then(result => { if (active) setName(result.view?.playerName || "你"); }, err => { if (active) setStatus("读取失败：" + err.message); }); return () => { active = false; }; }, []);
         async function save(value) {
             if (busy || value === name) return;
             setBusy(true); setStatus("保存中…");
@@ -40,7 +48,7 @@ function createConversationSettingsModule({
             finally { setBusy(false); }
         }
         return React.createElement("div", { className: "dsh-local-field" },
-            React.createElement("label", null, "玩家称呼", React.createElement("input", { key: name, defaultValue: name || "", placeholder: "你", maxLength: 80, disabled: name === null || busy, onBlur: event => save(event.target.value), onKeyDown: event => { if (event.key === "Enter" && !event.nativeEvent?.isComposing && event.nativeEvent?.keyCode !== 229) event.currentTarget.blur(); } })),
+            React.createElement(InlineField, { label: "玩家称呼", value: name || "", placeholder: "你", maxLength: 80, disabled: name === null || busy, onCommit: save }),
             React.createElement("p", { className: "dsh-local-help" }, "离开输入框后保存，仅用于后续内容。"), React.createElement("span", { role: "status", className: "dsh-local-feedback" }, status));
     }
 
@@ -51,9 +59,9 @@ function createConversationSettingsModule({
         const [busy, setBusy] = React.useState(false);
         const [error, setError] = React.useState("");
         const load = React.useCallback(async function () {
-            try { setData((await rpc("listGamePlugins", {}, props.sessionId)).plugins); setError(""); }
-            catch (err) { setError(String(err.message || err)); }
-        }, [props.sessionId]);
+                try { setData((await rpc("listGamePlugins", {}, props.sessionId)).plugins); setError(""); }
+                catch (err) { setError(String(err.message || err)); }
+            }, [props.sessionId]);
         React.useEffect(function () { void load(); }, [load]);
         async function change(payload) {
             setBusy(true); setError("");
@@ -74,27 +82,17 @@ function createConversationSettingsModule({
     function TavernPluginSettingField(props) {
         const h = React.createElement;
         const field = props.field;
-        const [draft, setDraft] = React.useState(String(props.value ?? ""));
-        React.useEffect(() => { setDraft(String(props.value ?? "")); }, [props.value]);
-        const description = field.description ? h("span", { className: "dsh-tavern-settings-desc" }, field.description) : null;
-        if (field.type === "boolean") return h("label", { className: "dsh-tavern-background-task" },
-            h("span", null, field.label, description),
-            h("input", { type: "checkbox", role: "switch", "aria-label": field.label, checked: props.value === true, disabled: props.busy, onChange: event => props.onChange(event.target.checked) }));
-        if (field.type === "select") return h("div", { className: "dsh-local-field" },
-            h("label", null, field.label, h("select", { className: "dsh-tavern-settings-select", "aria-label": field.label, value: props.value, disabled: props.busy, onChange: event => props.onChange(event.target.value) },
-                field.options.map(option => h("option", { key: option.value, value: option.value }, option.label)))),
-            field.description ? h("p", { className: "dsh-local-help" }, field.description) : null);
-        // Numbers and text are saved when the field loses focus or on Enter.
-        function commit() {
-            const value = field.type === "number" ? Number(draft) : draft;
-            if (field.type === "number" && (draft.trim() === "" || !Number.isFinite(value))) { setDraft(String(props.value ?? "")); return; }
-            if (value !== props.value) props.onChange(value);
-        }
-        return h("div", { className: "dsh-local-field" },
-            h("label", null, field.label, h("input", { className: "dsh-tavern-settings-select", "aria-label": field.label, disabled: props.busy, value: draft,
-                type: field.type === "number" ? "number" : "text", min: field.min, max: field.max, step: field.step, maxLength: field.maxLength,
-                onChange: event => setDraft(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === "Enter") commit(); } })),
-            field.description ? h("p", { className: "dsh-local-help" }, field.description) : null);
+        // the shared switch / inline field; a plugin's description is the 「?」.
+        const help = field.description && typeof HelpTip === "function" ? h(HelpTip, { label: field.label + "说明" }, field.description) : null;
+        if (field.type === "boolean") return h(InlineRow, { label: field.label, help },
+            h(Switch, { label: field.label, checked: props.value === true, disabled: props.busy, onChange: value => props.onChange(value) }));
+        if (field.type === "select") return h(InlineField, { kind: "menu", label: field.label, help, value: props.value, disabled: props.busy,
+                options: field.options.map(option => ({ value: option.value, label: option.label })), onCommit: value => props.onChange(value) });
+        // Numbers and text are saved when the field loses focus or on Enter; an empty number keeps the saved value.
+        const number = field.type === "number";
+        return h(InlineField, { kind: number ? "number" : "text", label: field.label, help, value: props.value ?? "", disabled: props.busy,
+                min: field.min, max: field.max, step: field.step, maxLength: field.maxLength, validate: number ? value => value === null ? "请输入数字" : "" : undefined,
+                onCommit: value => { if (value !== props.value) props.onChange(value); } });
     }
 
     // Per-game foreground tools: one switch per tool, stored as the disabled
@@ -196,11 +194,13 @@ function createConversationSettingsModule({
         const [error, setError] = React.useState("");
         const [notice, setNotice] = React.useState("");
         const [reasoning, setReasoning] = React.useState({ key: "", value: null, error: "" });
+        const [slotState, setSlotState] = React.useState({slots:[],values:{},scoringCatalog:[]});
         const key = selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
         async function load() {
             setError("");
             try {
                 const result = await rpc("getConversationBackgroundConfig", { sessionId: props.sessionId }, props.sessionId);
+                setSlotState({slots:result.modModelSlots || [],values:result.modModels || {},scoringCatalog:result.scoringCatalog || []});
                 setCatalog(result.modelCatalog || []); setSelection(result.backgroundModel);
                 setTasks(result.backgroundTasks); setFeatures({ webSearchEnabled: result.webSearchEnabled === true, mvuCard: result.mvuCard === true }); setLoaded(true);
             } catch (err) { setError(String(err.message || err)); }
@@ -217,7 +217,8 @@ function createConversationSettingsModule({
             if (busy || !loaded) return;
             setBusy(true); setError(""); setNotice("");
             try {
-                const result = await rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId }, patch), props.sessionId);
+                const result = await rpc("setConversationBackgroundConfig", Object.assign({ sessionId: props.sessionId, backgroundModel: selection }, patch), props.sessionId);
+                setSlotState(current=>({...current,values:result.modModels || {}}));
                 setSelection(result.backgroundModel); setTasks(result.backgroundTasks); setFeatures({ ...features, webSearchEnabled: result.webSearchEnabled });
                 setNotice("已保存");
                 invalidateView(props.sessionId);
@@ -225,20 +226,23 @@ function createConversationSettingsModule({
             finally { setBusy(false); }
         }
         const efforts = reasoning.key === key ? reasoning.value?.efforts || [] : [];
-        const modelOptions = () => catalog.map(group => h("optgroup", { key: group.provider, label: group.providerName || group.provider }, group.models.map(model => h("option", { key: model.id, value: JSON.stringify({ provider: group.provider, model: model.id }) }, model.name || model.id))));
+        const modelOptions = () => catalog.flatMap(group => group.models.map(model => ({ value: JSON.stringify({ provider: group.provider, model: model.id }), label: (group.providerName || group.provider) + " · " + (model.name || model.id) })));
         const known = !selection || catalog.some(group => group.provider === selection.provider && group.models.some(model => model.id === selection.model));
         const toggle = (name, title, description, checked, patch, disabled = false) => h("label", { key: name, className: "dsh-tavern-background-task" },
             h("span", null, title, h("span", { className: "dsh-tavern-settings-desc" }, description)),
-            h("input", { type: "checkbox", role: "switch", "aria-label": title, checked, disabled: !loaded || busy || disabled, onChange: event => save(patch(event.target.checked)) }));
+            h(Switch, { label: title, checked, disabled: !loaded || busy || disabled, onChange: value => save(patch(value)) }));
         return h("div", { className: "dsh-local-runtime" },
-            h("section", { className: "dsh-local-section" }, h("h3", null, "模型"),
-                h("p", { className: "dsh-tavern-settings-desc" }, "下一次后台任务生效。建议 High 推理强度；Max 容易过度思考、增加等待。"),
-                h("label", null, "后台模型", h("select", { "aria-label": "本局后台模型", className: "dsh-tavern-settings-select", value: key, disabled: !loaded || busy, onChange: event => { return save({ backgroundModel: event.target.value ? JSON.parse(event.target.value) : null }); } },
-                    h("option", { value: "" }, "跟随前台"),
-                    !known ? h("option", { value: key }, backgroundModelLabel(selection, catalog) + "（当前不可用）") : null,
-                    modelOptions())),
-                h("label", null, "推理强度", h("select", { "aria-label": "本局后台推理强度", className: "dsh-tavern-settings-select", value: selection?.reasoningEffort || "", disabled: !key || !efforts.length || busy, onChange: event => { const next = { ...selection }; if (event.target.value) next.reasoningEffort = event.target.value; else delete next.reasoningEffort; return save({ backgroundModel: next }); } },
-                    h("option", { value: "" }, key ? "模型默认" : "跟随前台"), efforts.map(item => h("option", { key: item.id, value: item.id }, item.name || item.id))))),
+            h(TavernModelSlotGroups,{slots:slotState.slots,values:slotState.values,catalog,scoringCatalog:slotState.scoringCatalog,local:true,disabled:!loaded || busy,onChange:modModelSelection=>save({modModelSelection})}),
+            h("section", { className: "dsh-local-section" }, h("h3", null, "后台模型"),
+                h("p", { className: "dsh-tavern-settings-desc" }, "仅影响本局，下一次后台任务生效。正在运行的任务不变，保留原后台 Agent 和历史。"),
+                h("p", { className: "dsh-tavern-settings-desc" }, "建议前台和后台使用 High 推理强度，优先保证正文输出和后台任务的质量。不推荐 Max，以免过度思考、增加等待。若更在意响应速度，可按需降低。"),
+                h("p", { className: "dsh-local-warning" }, "切换模型或推理强度会使缓存失效，首次请求会增加耗时和费用。"),
+                h(InlineField, { kind: "menu", label: "本局后台模型", value: key, disabled: !loaded || busy,
+                        onCommit: value => save({ backgroundModel: value ? JSON.parse(value) : null }),
+                        options: [{ value: "", label: "跟随前台" }, ...(!known ? [{ value: key, label: backgroundModelLabel(selection, catalog) + "（当前不可用）" }] : []), ...modelOptions()] }),
+                h(InlineField, { kind: "menu", label: "本局后台推理强度", value: selection?.reasoningEffort || "", disabled: !key || !efforts.length || busy,
+                        onCommit: value => { const next = { ...selection }; if (value) next.reasoningEffort = value; else delete next.reasoningEffort; return save({ backgroundModel: next }); },
+                        options: [{ value: "", label: key ? "模型默认" : "跟随前台" }, ...efforts.map(item => ({ value: item.id, label: item.name || item.id }))] })),
             h("section", { className: "dsh-local-section" }, h("h3", null, "功能"),
                 toggle("posture", "人物姿势", "每轮总结人物的位置、动作和姿势，供前台保持一致。", tasks.posture, checked => ({ backgroundTasks: { posture: checked } })),
                 toggle("styleReference", "文风联想", "仅自由模式。前台写正文前，结合本轮场景联想一段笔调参考；与写作共享上下文，不另开后台任务。", tasks.styleReference === true, checked => ({ backgroundTasks: { styleReference: checked } })),

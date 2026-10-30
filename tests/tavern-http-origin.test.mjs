@@ -6,7 +6,8 @@ import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
 // 只做一次 exposeHandler 回调，不注册任何路由，也不读取其它依赖。
 function handle() {
   let handler
-  const ctx = { get: () => undefined, effect: () => {} }
+  // every HTTP request passes the host Connection first (routes.js); this one admits all.
+  const ctx = { get: name => name === 'connection' ? { requestRejection: () => undefined, trustedHosts: [] } : undefined, effect: () => {} }
   registerTavernHttpRoutes({
     ctx,
     dispatch: async () => {},
@@ -48,11 +49,14 @@ test('反向代理下同源 Origin 放行：Origin 与请求 Host 一致时不�
   assert.match(res.body, /runtimeGeneration|ok/)
 })
 
-test('loopback 形式与空 Origin 仍然放行（原有行为不变）', async () => {
+test('空 Origin 仍然放行；其它主机的 loopback Origin 不算同源', async () => {
   const handler = handle()
-  for (const origin of [undefined, '', 'http://127.0.0.1:3081', 'http://localhost:3081']) {
+  for (const origin of [undefined, '']) {
     const res = await call(handler, { host: PUBLIC, origin })
     assert.equal(res.status, 200, `Origin=${String(origin)} 应保持放行`)
+  }
+  for (const origin of ['http://127.0.0.1:3081', 'http://localhost:3081']) {
+    assert.equal((await call(handler, { host: PUBLIC, origin })).status, 403, `Origin=${origin} 与 Host 不同源`)
   }
 })
 
@@ -90,6 +94,7 @@ function externalRoutes(connection) {
     ctx: { get: name => ({ webServer, connection })[name], effect: fn => fn() },
     performanceDiagnostics: { http() {} }, runtimeReadiness: { ok: true }, runtimeGeneration: 1,
     dispatch: async () => { calls++; return {} }, str: String,
+    fontLibrary: { serve: async () => false }, // unrelated asset route adapter
     sessionResources: { read: async cap => { if (cap !== 'valid') throw Error('denied'); return '{}' } },
     exposeHandler: fn => { internal = fn },
   })
@@ -124,16 +129,17 @@ test('HTTP 操作遵守 DSH 登录和可信 Host 拒绝结果，鉴权前不派�
   assert.equal(routes.calls(), 1)
 })
 
-test('鉴权服务缺失时 HTTP 失败关闭，进程内调用保持独立', async () => {
+// in-process calls go through the same Connection check, so they fail closed too.
+test('鉴权服务缺失时 HTTP 与进程内调用都失败关闭', async () => {
   const routes = externalRoutes(undefined)
   assert.equal((await operation(routes.external)).status, 503)
+  assert.equal((await operation(routes.internal)).status, 503)
   assert.equal(routes.calls(), 0)
-  assert.equal((await operation(routes.internal)).status, 200)
-  assert.equal(routes.calls(), 1)
 })
 
 test('沙箱资源仍凭能力票据访问，不要求主页面登录 Cookie', async () => {
-  const routes = externalRoutes({ requestRejection: () => { throw Error('must not check session') } })
+  // cookie-free capability reads pass the Host fence (trustedHosts) instead of the session check.
+  const routes = externalRoutes({ trustedHosts: [PUBLIC], requestRejection: () => { throw Error('must not check session') } })
   for (const [cap, expected] of [['valid', 200], ['invalid', 403]]) {
     assert.equal((await call(routes.external, { host: PUBLIC, origin: 'null', url: `/api/dsh-tavern/session-resource?cap=${cap}` })).status, expected)
   }

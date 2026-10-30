@@ -11,7 +11,8 @@ export function cardOpeningChoices(card) {
   for (let index = 0; index < alternatives.length; index += 1) {
     const alternative = alternatives[index]
     const text = str(alternative)
-    if (text.trim() !== '') choices.push({ id: 'alternate:' + index, text })
+    // An explicitly authored empty alternate is a selectable blank start.
+    if (alternative === '' || text.trim() !== '') choices.push({ id: 'alternate:' + index, text })
   }
   return choices
 }
@@ -28,7 +29,7 @@ export function resolveCardOpening(card, openingId) {
 /** SillyTavern removes an empty primary greeting before assigning swipe indices. */
 export function cardOpeningSwipes(card) {
   const swipes = [str(card?.first_mes), ...(Array.isArray(card?.alternate_greetings) ? card.alternate_greetings.map(str) : [])]
-  const openingIds = swipes.map((text, index) => text.trim() ? (index ? 'alternate:' + (index - 1) : 'primary') : null)
+  const openingIds = swipes.map((text, index) => text.trim() || (index > 0 && card.alternate_greetings[index - 1] === '') ? (index ? 'alternate:' + (index - 1) : 'primary') : null)
   if (swipes.length > 1 && swipes[0] === '') { swipes.shift(); openingIds.shift() }
   return { swipes, openingIds }
 }

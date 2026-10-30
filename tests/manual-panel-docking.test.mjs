@@ -11,7 +11,7 @@ const source = await readFile(new URL('../tavern-plugin/lib/client.js', import.m
 // Exercise the real parent component, not only the separately exported runtime:
 // #419 had a Helper gate at both levels.
 test('酒馆状态父组件在没有 Helper 时仍挂载手动停靠区，两种状态栏位置均可用', () => {
-  const start = source.indexOf('function TavernStatusPanel(')
+  const start = source.indexOf('function StatusPanelView(')
   assert.ok(start >= 0)
   const node = parseExpressionAt(source, start, { ecmaVersion: 'latest' })
   for (const placement of ['sidebar', 'body']) {
@@ -26,9 +26,9 @@ test('酒馆状态父组件在没有 Helper 时仍挂载手动停靠区，两种
       useLiveTavernView: () => ({ view, phase: 'ready' }), isMissingTavernCardError: () => false,
       latestTavernAssistantMessageId: () => null, TavernPersistentStatusRuntime: runtime
     }
-    for (const name of ['TavernDebugButton', 'TavernBackgroundWait', 'TavernBackgroundRunsLink', 'TavernSaveUpgrade', 'TavernCardAppDock', 'TavernPluginTasks', 'TavernPluginStatusSections', 'TavernLedger', 'TavernMvuVariables']) context[name] = () => {}
+    for (const name of ['TextArea', 'EmptyState', 'TavernDebugButton', 'TavernBackgroundWait', 'TavernBackgroundRunsLink', 'TavernSaveUpgrade', 'TavernCardAppDock', 'TavernPluginTasks', 'TavernPluginStatusSections', 'TavernLedger', 'TavernMvuVariables']) context[name] = () => {}
     const component = vm.runInNewContext('(' + source.slice(start, node.end) + ')', context)
-    const result = component({ sessionId: 's', useSession: () => false, useChat: () => null })
+    const result = component({ view, props:{sessionId:'s'}, guideDraft:'' })
     const found = []
     function walk(value) {
       if (!value || typeof value !== 'object') return
@@ -43,16 +43,13 @@ test('酒馆状态父组件在没有 Helper 时仍挂载手动停靠区，两种
 })
 
 test('没有已注册面板时固定明确失败，而不是静默丢掉操作', () => {
-  let descriptor
-  vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } } })
-  const client = descriptor.factory(() => ({}))
-  assert.throws(() => client.createTavernPanelRegistry().pin('missing', true), /面板尚未准备好/)
+  const createRegistry = vm.runInNewContext('(' + declaration('createTavernPanelRegistry') + ')')
+  assert.throws(() => createRegistry().pin('missing', true), /面板尚未准备好/)
 })
 
 test('浏览器不支持 moveBefore 时拒绝固定，不能改用会重载 iframe 的移动', () => {
-  let descriptor
-  vm.runInNewContext(source, { window: { __ModuleLoader__: { load(value) { descriptor = value } } } })
-  const client = descriptor.factory(() => ({})), registry = client.createTavernPanelRegistry()
+  const createRegistry = vm.runInNewContext('(' + declaration('createTavernPanelRegistry') + ')')
+  const registry = createRegistry()
   const home = { isConnected: true, appendChild() { assert.fail('must not fall back to appendChild') } }
   const node = { parentNode: home }, entry = { id: 'panel', sessionId: 's', node, home, pinned: false }
   registry.register(entry)

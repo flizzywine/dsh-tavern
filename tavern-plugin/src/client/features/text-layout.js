@@ -49,7 +49,7 @@ function tavernThemeTextFontSize(snapshot) {
     const sizes = snapshot && snapshot.fontSizes;
     if (sizes && Number.isFinite(sizes.text)) return sizes.text;
     const fontSize = snapshot && snapshot.fontSize;
-    return Number.isFinite(fontSize) ? fontSize : 14;
+    return Number.isFinite(fontSize) ? fontSize : TAVERN_THEME_FONT_DEFAULT;
 }
 
 function setTavernThemeTextFontSize(theme, px) {
@@ -61,6 +61,7 @@ function setTavernThemeTextFontSize(theme, px) {
 // 字号上限由宿主决定：0.2.0 和没打上补丁的 0.2.1 是 22，Tavern 打过补丁的宿主是 32。
 // 先按 32 给，宿主拒绝时收窄到它报出的上限并重试——手机滑到 23 以上也不会整段失灵。
 const TAVERN_THEME_FONT_MIN = 10;
+const TAVERN_THEME_FONT_DEFAULT = 14;
 const TAVERN_THEME_FONT_MAX = 32;
 function tavernHostFontRange(message) {
     const match = /outside\s+(\d+)\s*\.\.\s*(\d+)/.exec(String(message || ""));
@@ -118,31 +119,34 @@ function createTavernTextLayoutFeature() {
         const shownFontSize = Math.max(TAVERN_THEME_FONT_MIN, Math.min(maxFontSize, fontSize));
         const lineHeight = current.lineHeight === null ? defaultTavernLineHeight(shownFontSize) : current.lineHeight;
         const letterSpacing = current.letterSpacing === null ? 0 : current.letterSpacing;
-        function field(label, hint, value, min, max, step, unit, onChange) {
-            return h("label", { className: "dsh-tavern-text-layout-field" },
+        // the one shared slider, not a native range. Line and letter spacing follow the drag;
+        // the font size goes to the host once, on release or per key step.
+        function field(label, hint, value, min, max, step, unit, onChange, live) {
+            return h("div", { className: "dsh-tavern-text-layout-field" },
                 h("span", { className: "dsh-tavern-text-layout-label" }, label, h("small", null, hint)),
-                h("input", { type: "range", min: min, max: max, step: step, value: value, "aria-label": label, onChange: function (event) { onChange(Number(event.target.value)); } }),
+                h(Slider, { label: label, min: min, max: max, step: step, value: value, valueText: function (shown) { return shown + unit; },
+                    onChange: live ? onChange : undefined, onCommit: onChange }),
                 h("span", { className: "dsh-tavern-text-layout-value" }, value + unit));
         }
         function toggle(label, description, checked, onChange) {
-            return h("label", { className: "dsh-tavern-text-layout-switch" },
+            return h("div", { className: "dsh-tavern-text-layout-switch" },
                 h("span", { className: "dsh-tavern-text-layout-switch-copy" },
                     h("b", null, label),
                     h("small", null, description)),
-                h("input", { type: "checkbox", role: "switch", "aria-label": label, checked: checked === true, onChange: function (event) { onChange(event.target.checked); } }));
+                h(Switch, { checked: checked === true, onChange: onChange, label: label }));
         }
         const preview = layoutTavernProseText("夜色从窗棂上滑下来，落在她的发梢。她抬起头，轻声说：「雨停了，我们走吧。」窗外的水声一层层退下去，像有人在很远的地方翻书。她没有等到回答，只是把伞往他那边斜了斜，自己半边肩膀湿在雨里。", current);
         return h("section", { className: "dsh-tavern-text-layout" },
             h("div", { className: "dsh-tavern-text-layout-head" },
                 h("strong", null, "正文排版"),
-                h("button", { type: "button", className: "dsh-tavern-btn", disabled: current.lineHeight === null && current.letterSpacing === null && shownFontSize === 14 && current.paragraphs === TAVERN_PROSE_DEFAULTS.paragraphs && current.indent === false && current.sentences === TAVERN_PROSE_DEFAULTS.sentences,
-                    onClick: function () { update({ lineHeight: null, letterSpacing: null, paragraphs: TAVERN_PROSE_DEFAULTS.paragraphs, indent: false, sentences: TAVERN_PROSE_DEFAULTS.sentences }); if (shownFontSize !== 14) changeFontSize(14); } }, "恢复默认")),
+                h("button", { type: "button", className: "dsh-tavern-btn", disabled: current.lineHeight === null && current.letterSpacing === null && shownFontSize === TAVERN_THEME_FONT_DEFAULT && current.paragraphs === TAVERN_PROSE_DEFAULTS.paragraphs && current.indent === false && current.sentences === TAVERN_PROSE_DEFAULTS.sentences,
+                    onClick: function () { update({ lineHeight: null, letterSpacing: null, paragraphs: TAVERN_PROSE_DEFAULTS.paragraphs, indent: false, sentences: TAVERN_PROSE_DEFAULTS.sentences }); if (shownFontSize !== TAVERN_THEME_FONT_DEFAULT) changeFontSize(TAVERN_THEME_FONT_DEFAULT); } }, "恢复默认")),
             h("p", { className: "dsh-tavern-settings-desc" }, "作用于酒馆正文、你的对话气泡和舞台文本，卡片自带的界面不受影响。字号与「通用设置」里的字号大小是同一个设置。"),
-            field("字号", "px", shownFontSize, TAVERN_THEME_FONT_MIN, maxFontSize, 1, "px", changeFontSize),
-            field("行间距", "倍", lineHeight, 1, 3, 0.05, "×", function (value) { update({ lineHeight: value }); }),
-            field("字间距", "em", letterSpacing, -0.1, 0.3, 0.01, "em", function (value) { update({ letterSpacing: value }); }),
+            field("字号", "px", shownFontSize, TAVERN_THEME_FONT_MIN, maxFontSize, 1, "px", changeFontSize, false),
+            field("行间距", "倍", lineHeight, 1, 3, 0.05, "×", function (value) { update({ lineHeight: value }); }, true),
+            field("字间距", "em", letterSpacing, -0.1, 0.3, 0.01, "em", function (value) { update({ letterSpacing: value }); }, true),
             toggle("自动分段", "模型把整轮正文写成一整块时，按句子重新分段；代码块、列表和台词行原样保留。只改显示，不改存档。", current.paragraphs, function (value) { update({ paragraphs: value }); }),
-            field("每段", "句", current.sentences, TAVERN_PROSE_SENTENCE_RANGE[0], TAVERN_PROSE_SENTENCE_RANGE[1], 1, "句", function (value) { update({ sentences: value }); }),
+            field("每段", "句", current.sentences, TAVERN_PROSE_SENTENCE_RANGE[0], TAVERN_PROSE_SENTENCE_RANGE[1], 1, "句", function (value) { update({ sentences: value }); }, false),
             toggle("段首缩进", "正文每一段缩进两个字，像纸书排版。", current.indent, function (value) { update({ indent: value }); }),
             h("p", { className: "dsh-tavern-text-layout-preview", style: { fontSize: shownFontSize + "px", lineHeight: lineHeight, letterSpacing: letterSpacing + "em", textIndent: current.indent ? "2em" : undefined } },
                 preview),
