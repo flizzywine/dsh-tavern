@@ -179,7 +179,7 @@ test('人物卡列表视图：插件视图拿到筛选后的卡片和动作，�
   assert.equal(seen.length, 1)
 })
 
-test('舞台插件保留公开投影与注册合同；退休的内置舞台不接管插件音乐', async () => {
+test('舞台插件保留公开投影；舞台视图接口已停用，退休的内置舞台不接管插件音乐', async () => {
   const code = await readFile(new URL('../tavern-plugin/src/client/features/cast-stage.js', import.meta.url), 'utf8')
   const project = vm.runInNewContext(code + '; tavernStagePublicData')
   const data = { enabled: true, player: '你', card: { name: 'A' }, cast: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }], musicOwned: true, music: 'old.mp3' }
@@ -189,13 +189,9 @@ test('舞台插件保留公开投影与注册合同；退休的内置舞台不�
   const projected = JSON.parse(JSON.stringify(await plugin.getStage('game-1')))
   assert.deepEqual(projected, { enabled: true, player: '你', card: { name: 'A' }, background: '', characters: [{ name: '林曦' }], turns: [{ turn: 2, text: 't', lines: [] }] })
   assert.equal(Object.hasOwn(projected, 'music'), false)
-  const render = value => value
-  const dispose = plugin.registerStageView({ id: 'vn', label: '视觉小说', render })
-  assert.equal(ui.stageViews()[0].render, render)
-  assert.throws(() => plugin.registerStageView({ id: 'vn', label: '重复', render }), /已注册/)
-  assert.throws(() => plugin.registerStageView({ id: 'Bad', label: 'x', render }), /id/)
-  dispose()
-  assert.equal(ui.stageViews().length, 0)
+  // The old stage's plugin views are retired: registering one fails loudly instead of showing nothing.
+  assert.throws(() => plugin.registerStageView({ id: 'vn', label: '视觉小说', render: value => value }), /已停用/)
+  assert.equal(Object.hasOwn(ui, 'stageViews'), false)
 })
 test('背景音乐：同一首接着放、换曲淡入；玩家的开关记在浏览器里，关掉时不出声；插件经 playMusic 交给 Tavern', async () => {
   const code = await readFile(new URL('../tavern-plugin/src/client/features/music.js', import.meta.url), 'utf8')

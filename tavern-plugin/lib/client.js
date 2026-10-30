@@ -33890,7 +33890,6 @@ function bindTavernFontZoom(node, win) {
 			const panels = new Map();
 			const startGroups = [];
 			const cardListViews = [];
-			const stageViews = [];
 			const statusSections = [];
 			const turnViews = [];
 			const illustrators = [];
@@ -34588,18 +34587,11 @@ function bindTavernFontZoom(node, win) {
 						return function () { disposed = true; stopView(); stopCast(); };
 					}, "tavernUi.watchStage()");
 				},
-				// Another look for the stage, in the right panel and full screen. Tavern keeps the reading
-				// (paging, auto play, input); the view draws the scene, and Tavern's own is used when it fails.
-				registerStageView(input) {
-					if (!input || typeof input.id !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(input.id)) throw new TypeError("registerStageView 的 id 只能用小写字母、数字、点、下划线和连字符");
-					if (typeof input.label !== "string" || !input.label.trim() || input.label.trim().length > 20) throw new TypeError("registerStageView 需要 1–20 字的 label");
-					if (typeof input.render !== "function") throw new TypeError("registerStageView 需要 render 函数");
-					const owner = ownerOf(this);
-					const entry = { key: owner + ":" + input.id, owner: owner, label: input.label.trim(), render: input.render };
-					return owned(this, function () {
-						if (stageViews.some(function (view) { return view.key === entry.key; })) throw new Error("舞台视图 " + input.id + " 已注册");
-						return addTo(stageViews, entry);
-					}, "tavernUi.registerStageView()");
+				// Retired with the old stage (#424): Tavern now draws the stage itself from the card's 素材包 and
+				// the director; a plugin can no longer replace its scene. Fails loudly rather than register a
+				// view nothing would show.
+				registerStageView() {
+					throw new Error("registerStageView 已停用：舞台改由 Tavern 按人物卡绑定的素材包绘制。请给人物卡绑定素材包并打开对话气泡，改用 Tavern 的舞台。");
 				},
 				// This plugin's own settings in a game (declared on the host side with tavern.gameSettings):
 				// { key: value }, or null when it declared none or is off in that game.
@@ -34780,7 +34772,6 @@ function bindTavernFontZoom(node, win) {
 				messageActions: function () { return messageActions.slice(); },
 				composerActions: function () { return composerActions.slice(); },
 				cardListViews: function () { return cardListViews.slice(); },
-				stageViews: function () { return stageViews.slice(); },
 				statusSections: function () { return statusSections.slice(); },
 				turnViews: function () { return turnViews.slice(); },
 				// The latest registered illustrator handling `kind`; without a kind, the latest one that can draw.

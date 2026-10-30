@@ -334,38 +334,9 @@ ctx.tavernUi.registerTurnView({
 
 舞台要显示的东西：`{ enabled, player, card, background, characters, turns }`。`background` 是人物卡带的主背景图地址，没有时为空字符串。`turns` 是最近 `count` 轮（默认 5，最多 10）的 `{ turn, text, lines }`，`text` 是去掉 HTML 块的正文，`lines` 同宿主侧 `getCast`；`characters` 同宿主侧 `getCastAssets`；`enabled` 是玩家是否打开了「对话头像」。`watchStage` 先回调一次，之后在新的一轮、新的标注、素材变化后再回调，只在这一局在当前页面打开时有效。
 
-## `registerStageView({ id, label, render })`（第 2 版）
+## `registerStageView`（已停用）
 
-换掉舞台的画面：只有全屏舞台使用它。Tavern 保留阅读流程（逐句翻页、自动播放、读到最后一句时的输入框），插件只画场景，例如加背景、镜头、Live2D、特效。
-
-```js
-ctx.tavernUi.registerStageView({
-  id: 'vn', label: '视觉小说',
-  render({ gameId, stage, beats, index, beat, fullscreen, advance, footer }) {
-    const who = beat?.kind === 'line' ? stage.characters.find(c => c.name === beat.speaker) : null
-    return h('div', { className: 'my-scene', onClick: advance },
-      who?.sprites[beat.emotion] ? h('img', { src: who.sprites[beat.emotion] }) : null,
-      h('div', { className: 'my-textbox' }, beat?.speaker, beat?.text, footer))
-  },
-})
-```
-
-`render` 的参数：
-
-| 字段 | 含义 |
-|---|---|
-| `stage` | 同 `getStage` 的返回值 |
-| `beats` | 最新一轮拆成的「句」：`{ kind: 'line', text, speaker, emotion, turn }`（标注过的台词所在的一行）或 `{ kind: 'narration', text, turn }`（旁白段落） |
-| `index`、`beat` | 当前读到第几句、这一句 |
-| `fullscreen` | 固定为 true（仅保留全屏舞台） |
-| `advance()` | 翻到下一句，点击场景时调用 |
-| `footer` | Tavern 的翻页、自动、退出按钮，请放进插件自己的文字框里 |
-
-- 注册后舞台默认用插件的画面；「舞台设置」出现「舞台样式」选择，玩家可以选回内置，这台浏览器记住选择。插件卸载后回到内置舞台。
-- `render` 返回 `null` 或出错时用内置画面，错误写进错误提示。
-- 全屏时读到最后一句，Tavern 会在底部 88px 内显示输入框；插件的画面请把这块空出来，别把文字框放在那里。
-- 舞台入口只在「舞台设置」里「对话气泡」和「舞台模式」都开着时出现。
-- 舞台数据由内置独立导演生成；插件视图只呈现宿主投影，不再附带第二个导演示例。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会直接报错。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 
