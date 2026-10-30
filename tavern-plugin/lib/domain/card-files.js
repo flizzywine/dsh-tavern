@@ -92,7 +92,6 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     const stored = { ...(presetPath ? { presetPath } : {}), ...(defaults.settings ? { settings: defaults.settings } : {}) }
     await castAssets.setStartDefaults(cardPath, Object.keys(stored).length ? stored : null)
-    if (defaults.stage) await castAssets.setStage(cardPath, true)
     return stored
   }
   async function storeImportedCard({ payload, collected }, options = {}) {

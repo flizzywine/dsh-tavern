@@ -2750,8 +2750,8 @@ export async function apply(ctx) {
     for (const item of turns) item.lines = lines.get(item.turn)
     const manifest = await castAssets.read(card.path)
     const background = (manifest.backgrounds || [])[0]
-    // The stage is the card's choice: off for ordinary cards, on when the player or the card turned it on.
-    return { enabled: manifest.stage === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
+    // Whether this card's games show the stage: the player's 舞台 switch, for a card with bound packs.
+    return { enabled: (await dialogueBubbles.read(card.path).catch(() => null))?.stage?.enabled === true, player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
       background: background ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file: background.file }).toString() : '',
       cast: await castView(sessionId, card.path, manifest), turns }
   }
