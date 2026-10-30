@@ -4,6 +4,7 @@ import { entryRandom, renderWorldbookRandom } from './worldbook-random.js'
 import { projectAgentContent } from './runtime-content-projection.js'
 import { lastTavernHelperVariables } from './tavern-helper-context.js'
 import { activateWorldBook, promptOrder, worldBookSettings } from './worldbook-activation.js'
+import { isMvuUpdateEntry } from './worldbook-mvu-entry.js'
 
 const READ_COOLDOWN_TURNS = 10
 
@@ -99,9 +100,7 @@ function transcriptOf(chat) {
   })
 }
 
-export function isMvuUpdateEntry(entry) {
-  return /^\s*(?:\d+[a-z]?[_\s.-]*)?\[mvu_update\]/i.test(str(entry && (entry.comment || entry.title || entry.name)))
-}
+export { isMvuUpdateEntry }
 
 export function mvuUpdateRulesFromWorldBook(worldBook) {
   return enabledEntries(worldBook).filter(isMvuUpdateEntry).map(function (entry) {

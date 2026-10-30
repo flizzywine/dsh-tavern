@@ -1,12 +1,14 @@
 		function groupWorldBookEditorEntries(entries, query) {
-			const groups = { constant: [], dynamic: [] };
+			const groups = { constant: [], dynamic: [], background: [] };
 			const needle = String(query || "").trim().toLocaleLowerCase();
 			for (const [index, entry] of (entries || []).entries()) {
 				if (needle && ![entry.comment, entry.title, entry.content, ...(entry.primaryKeys || []), ...(entry.secondaryKeys || [])].join("\n").toLocaleLowerCase().includes(needle)) continue;
-				groups[entry && entry.constant === true ? "constant" : "dynamic"].push({ entry: entry, index: index });
+				groups[isMvuUpdateEntry(entry) ? "background" : entry && entry.constant === true ? "constant" : "dynamic"].push({ entry: entry, index: index });
 			}
 			return groups;
 		}
+		// @include-domain worldbook-mvu-entry.js
+		const WORLD_BOOK_BACKGROUND_HELP = "只交给后台变量更新任务，不发给正文模型";
 
 		const WORLD_BOOK_SORT_STORAGE_KEY = "dsh-tavern-worldbook-sort";
 		function normalizeWorldBookSort(value) {
@@ -146,19 +148,22 @@
 			function numeric(value, fallback) { const number = Number(value); return Number.isFinite(number) ? number : fallback; }
 			function entryRow(entry, index) {
 				const open = openRefs.has(entry.ref);
+				const background = isMvuUpdateEntry(entry);
 				return h("details", { key: entry.ref, className: "dsh-tavern-worldbook-entry" + (entry.enabled === false ? " disabled" : ""), open: open, onToggle: function (event) { setEntryOpen(entry.ref, event.currentTarget.open); } },
 					h("summary", { className: "dsh-tavern-worldbook-entry-head" }, entry.comment || entry.title || "未命名条目"),
 					open ? h("div", { className: "dsh-tavern-worldbook-entry-body" },
 						h("div", { className: "dsh-tavern-worldbook-entry-actions" },
 							h("label", null, h("input", { type: "checkbox", checked: entry.enabled !== false, onChange: function (event) { updateEntry(index, { enabled: event.target.checked }); } }), "启用"),
 
-							h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { updateEntry(index, { constant: !entry.constant }); } }, entry.constant ? "常驻" : "非常驻")
+							background
+								? h("span", { className: "dsh-tavern-worldbook-kind is-background", title: WORLD_BOOK_BACKGROUND_HELP }, "仅后台变量更新")
+								: h("button", { className: "dsh-tavern-worldbook-kind", onClick: function () { updateEntry(index, { constant: !entry.constant }); } }, entry.constant ? "常驻" : "非常驻")
 						),
 						h("div", { className: "dsh-tavern-card-field dsh-tavern-worldbook-content" }, h("label", null, "内容"), h("textarea", { className: "large", rows: 14, "aria-label": "条目内容", value: entry.content || "", onChange: function (event) { updateEntry(index, { content: event.target.value }); } })),
 						h("details", { className: "dsh-tavern-worldbook-entry-settings" }, h("summary", null, "条目设置"),
 						h("div", { className: "dsh-tavern-card-field" }, h("label", null, "标题 / 备注"), h("input", { value: entry.comment || "", onChange: function (event) { updateEntry(index, { comment: event.target.value, title: event.target.value }); } })),
-						entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h("input", { value: textList(entry.primaryKeys), placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (event) { updateEntry(index, { primaryKeys: parseList(event.target.value) }); } })),
-							entry.constant ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h("input", { value: textList(entry.secondaryKeys), placeholder: "逗号分隔", onChange: function (event) { updateEntry(index, { secondaryKeys: parseList(event.target.value) }); } })),
+						entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "主触发词"), h("input", { value: textList(entry.primaryKeys), placeholder: "逗号分隔；支持 /pattern/flags", onChange: function (event) { updateEntry(index, { primaryKeys: parseList(event.target.value) }); } })),
+							entry.constant || background ? null : h("div", { className: "dsh-tavern-card-field" }, h("label", null, "二级触发词"), h("input", { value: textList(entry.secondaryKeys), placeholder: "逗号分隔", onChange: function (event) { updateEntry(index, { secondaryKeys: parseList(event.target.value) }); } })),
 							h("div", { className: "dsh-tavern-worldbook-checks" },
 							h("label", null, h("input", { type: "checkbox", checked: entry.selective === true, onChange: function (event) { updateEntry(index, { selective: event.target.checked }); } }), "使用二级条件"),
 							h("label", null, h("input", { type: "checkbox", checked: entry.caseSensitive === true, onChange: function (event) { updateEntry(index, { caseSensitive: event.target.checked }); } }), "区分大小写"),
@@ -220,9 +225,10 @@
                     h("div", { className: "dsh-tavern-worldbook-summary" }, draft.entries.length + " 个条目 · " + draft.entries.filter(function (entry) { return entry.enabled !== false; }).length + " 个启用"),
 					(initial.diagnostics || []).map(function (item, index) { return h("div", { key: index, className: "dsh-tavern-dock-error" }, item.message); }),
 					h("div", { className: "dsh-tavern-worldbook-head" }, h("span", { className: "dsh-tavern-worldbook-title" }, "条目"), h("button", { className: "dsh-tavern-worldbook-add", onClick: addEntry }, "＋ 新增条目")),
-					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "搜索条目"), h("input", { type: "search", value: query, placeholder: "搜索标题、正文或触发词", onChange: function (event) { setQuery(event.target.value); } }), h("span", null, "匹配 " + (entryGroups.constant.length + entryGroups.dynamic.length) + " / " + draft.entries.length + " 条")),
+					h("div", { className: "dsh-tavern-card-field" }, h("label", null, "搜索条目"), h("input", { type: "search", value: query, placeholder: "搜索标题、正文或触发词", onChange: function (event) { setQuery(event.target.value); } }), h("span", null, "匹配 " + (entryGroups.constant.length + entryGroups.dynamic.length + entryGroups.background.length) + " / " + draft.entries.length + " 条")),
 					entryGroup("常驻条目", "始终进入上下文", entryGroups.constant),
 					entryGroup("非常驻条目", "按触发词匹配", entryGroups.dynamic),
+					entryGroups.background.length ? entryGroup("仅后台变量更新", WORLD_BOOK_BACKGROUND_HELP, entryGroups.background) : null,
 					error ? h("div", { className: "dsh-card-error" }, error) : null,
 					h("div", { className: "dsh-tavern-worldbook-editor-actions" }, h("button", { className: "dsh-card-primary", disabled: busy, onClick: save }, busy ? "保存中…" : "保存世界书"))
 				)
