@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import { clientControls } from './fixtures/native-controls.mjs'
 
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const start = client.indexOf('const WBSW_STORAGE_KEY')
@@ -64,9 +65,10 @@ test('世界书快捷面板：换书、开关条目、完整与关闭', async ()
 		if (name === 'react-dom/client') return ReactDOMClient
 		throw new Error('未预期的 require：' + name)
 	}
-	const factory = new Function('React', 'rpc', 'rpcWithTimeout', 'notifyTavernDataChanged', 'require', 'window', 'document',
+	const controls = clientControls(React)
+	const factory = new Function('React', 'rpc', 'rpcWithTimeout', 'notifyTavernDataChanged', 'require', 'window', 'document', ...Object.keys(controls),
 		source + '\nreturn worldBookSwitcherFeature;')
-	const feature = factory(React, rpc, rpc, () => {}, requireShim, dom.window, dom.window.document)
+	const feature = factory(React, rpc, rpc, () => {}, requireShim, dom.window, dom.window.document, ...Object.values(controls))
 	const tick = async () => { await act(async () => { await new Promise(resolve => setImmediate(resolve)) }) }
 	const query = selector => dom.window.document.querySelector(selector)
 	const queryAll = selector => Array.from(dom.window.document.querySelectorAll(selector))

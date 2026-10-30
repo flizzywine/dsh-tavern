@@ -25,7 +25,7 @@ test('插件面板与媒体回调抛错时由局部边界接住，正文保持�
     }
   })
   const reports = []
-  const context = vm.createContext({ React, useTavernUiExtensions() {}, tavernPluginAllowed: () => true, tavernErrorHub: { report: (_owner, error) => reports.push(error.message) } })
+  const context = vm.createContext({ React, DshUi: null, useTavernUiExtensions() {}, tavernPluginAllowed: () => true, tavernErrorHub: { report: (_owner, error) => reports.push(error.message) } })
   vm.runInContext(fragment('let tavernPluginBoundaryClass = null', 'const tavernPluginMediaIndex ='), context)
   const ui = vm.runInContext(fragment('function createTavernUiExtensions()', 'const tavernUiExtensions = createTavernUiExtensions()') + '; createTavernUiExtensions()', context)
   context.tavernUiExtensions = ui

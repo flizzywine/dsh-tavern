@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import { clientControls } from './fixtures/native-controls.mjs'
 
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 // 正文排版的行距/字距读的是同一个设置对象，自动分段的规则与开关在 prose-layout.js 里，
@@ -18,7 +19,8 @@ async function setup() {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const React = (await import('react')).default
-  const api = new Function('React', 'window', 'document', source + '\nreturn { feature: tavernTextLayoutFeature, prose: tavernProseLayoutSettings, layoutText: layoutTavernProseText };')(React, dom.window, dom.window.document)
+  const controls = clientControls(React)
+  const api = new Function('React', 'window', 'document', ...Object.keys(controls), source + '\nreturn { feature: tavernTextLayoutFeature, prose: tavernProseLayoutSettings, layoutText: layoutTavernProseText };')(React, dom.window, dom.window.document, ...Object.values(controls))
   return { dom, React, feature: api.feature, prose: api.prose, layoutText: api.layoutText }
 }
 
