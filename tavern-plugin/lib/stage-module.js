@@ -1,3 +1,5 @@
+// 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
+//
 // 舞台、导演与 mod：托管 mod 的安装与配置、mod 服务、舞台导演。它们由核心创建一次，
 // 只通过 `core` 里列出的这些能力读写存档、调用模型、发信号；核心反过来只用返回的四个对象。
 import {createBuiltinModService} from './mod-service.js'
@@ -12,6 +14,18 @@ import {managedConfigStore} from './mod-system-execution.js'
 import {createStageDirector} from './domain/stage-director.js'
 import {normalizeResourcePath} from './domain/file-resources.js'
 import directorCommands from '../packages/dsh-presentation-protocol/src/director-commands.cjs'
+import {createAssetEngineSettings} from './asset-engine.js'
+import {createEngineJudge} from './domain/engine-judge.js'
+import {createJudgeRpc} from './engine-judge.js'
+import {createDirectorProbeStore, createDirectorProbeRpc} from './director-probe.js'
+import {createFigureVoiceAuthoring} from './figure-voice-authoring.js'
+import {createAssetRuntime} from './asset-runtime.js'
+import {createStageTimerService} from '../mods/timer/stage-service.js'
+import {createWidgetVariableService} from './domain/widget-variable-service.js'
+import {createCgGallery} from './cg-gallery.js'
+import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
+import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
+import {stageReadCarries} from './domain/stage-read-projection.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -160,4 +174,93 @@ export async function createStageModule(core) {
   })
   ctx.effect(() => () => stageDirector.dispose(), 'dsh-tavern: dispose stage director')
   return {modService, managedModManagement, modConfigHost, stageDirector}
+}
+
+// 舞台的素材与判断：素材引擎设置、概率判断、导演探针、人物语音、素材运行时。核心在很早就要用到它们
+// （写卡时让素材运行时失效、模型槽读判断模型），所以单独先建；只通过 `core` 里的几项读卡与解析模型槽。
+export function createStageAssets(core) {
+  const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
+  const assetEngineSettings = createAssetEngineSettings(ctx)
+  const engineJudge = createEngineJudge({resolveConfig:input => resolveSlot('dsh.stage','judge',input?.sessionId),getConfig:() => assetEngineSettings.read().values.judge,credentials:() => ctx.get('credentials'),log:event => console.info('dsh-tavern:',JSON.stringify(event))})
+  const judgeRpc = createJudgeRpc(assetEngineSettings,engineJudge)
+  const directorProbeRpc = createDirectorProbeRpc({store:createDirectorProbeStore(ctx),
+    stream:request => ctx.llm.stream(request),
+    resolveSelection:async args => {
+      return Object.hasOwn(args,'selection') ? args.selection : resolveSlot('dsh.stage','director',args.sessionId)
+    }})
+  const figureVoiceAuthoring = createFigureVoiceAuthoring({getLibrary:() => ctx.get('assetLibrary'),getTts:() => ctx.get('tts'),getSettings:() => assetEngineSettings.read().values})
+  ctx.effect(() => assetEngineSettings.subscribe(() => figureVoiceAuthoring.invalidate()))
+  ctx.effect(() => () => figureVoiceAuthoring.dispose())
+  for (const name of ['assetLibrary','tts']) ctx.inject([name], child => child.effect(() => () => figureVoiceAuthoring.invalidate()))
+  const assetRuntime = createAssetRuntime({ctx, readWorkspace:readCardWorkspace, engineSettings:assetEngineSettings,
+    onInvalidate:() => { void coordinationEvents?.publishAll() }})
+  ctx.effect(() => () => assetRuntime.dispose())
+  return {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+}
+
+// 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
+export function createStageServices(core) {
+  const {ctx, profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, stageDirector, modService, managedModManagement} = core
+  // only the trusted stage host selects a read point and installed widget.
+  const widgetVariables = createWidgetVariableService({
+    prepareCommit:input=>modService.variableCommit(input),
+    index: async sessionId => {
+      const chatId = (await readSessionMap())[sessionId]
+      return chatId ? chatPersistence.readSessionState(chatId) : null
+    },
+    readWindow: chatPersistence.readWindow, timeline: storyTimeline, patch: patchChat,
+    execute: input => tavernScriptHostAdapter.editMvuVariables(input),
+    availability: sessionId => tavernScriptDispatch.status(sessionId),
+    authorize: async input => {
+      const chat = await chatForSession(input.sessionId)
+      if (!chat || chat.mode === 'card' || !input.ref || input.ref.kind !== 'widgets') return null
+      const revision = assetRuntime.revision, settings = assetEngineSettings.read()
+      const current = () => assetRuntime.revision === revision && assetEngineSettings.read().revision === settings.revision
+      const direction = await stageDirector.get(chat,input.turn,null,{readOnly:true,includePredecessor:true})
+      if (!direction.token || JSON.stringify(direction.token) !== JSON.stringify(input.expectedDirectionToken)) return null
+      const page = stageProjectionPage(direction,input.at,input.page)
+      if (!page) return null
+      const consumer = await assetRuntime.consumer(chat,input.origin)
+      if (!consumer?.presentation.available()) return null
+      const projection = await readStageProjection({expectedDirectionToken:input.expectedDirectionToken,at:input.at,page:input.page,
+        performanceEnabled:assetEngineSettings.read().values.stageToggles.performance !== false,
+        readDirection:async () => direction,readConsumer:async () => consumer,readSettings:() => assetEngineSettings.read(),revision:() => assetRuntime.revision})
+      const matches = item => item.ref?.packId === input.ref.packId && item.ref?.kind === input.ref.kind && item.ref?.assetId === input.ref.assetId
+      let widget = [...(projection.value?.widgets || []),...(projection.value?.performance?.executionDependencies || [])].find(matches)
+      if (!widget) {
+        const window = await readWidgetWindowProjection({widgetWindow:{ref:input.ref},turn:input.turn,at:input.at,page:input.page,
+          expectedDirectionToken:input.expectedDirectionToken,readDirection:turn => stageDirector.get(chat,turn,null,{readOnly:true}),
+          readTurns:async () => chat.messages.filter(row => row.role === 'assistant').map(row => Number(row.turn || (row.greeting ? 1 : 0))),
+          readConsumer:async () => consumer,readSettings:() => settings,revision:() => revision,isCurrent:current})
+        widget = window.widgets?.find(matches)
+      }
+      if (!current() || !widget || widget.definition.contentIdentity !== input.identity) return null
+      return {chatId:chat.id,storageRevision:chat._storageRevision,declarations:widget.definition.document.variables || {},current,
+        settings:{document:widget.definition.document,defaults:widget.definition.settingsDefaults,override:widget.definition.settingsOverride || {}},
+        lastPage:direction.complete === true && page.index === direction.pageIndex.pages.length-1}
+    }
+  })
+  ctx.effect(() => {
+    const wake = sessionId => sessionSignals.publish(sessionId,{kind:'tavern-state',version:'widget-runtime:'+Date.now()})
+    const ready = tavernScriptDispatch.subscribeReady(wake), settled = tavernScriptDispatch.subscribeSettled(wake)
+    void conversationRegistry.list().then(rows => Promise.all(rows.map(row => widgetVariables.recover(row.sessionId))))
+      .catch(error => console.warn('dsh-tavern: widget edit recovery failed:',error.message))
+    return () => {ready();settled();widgetVariables.dispose()}
+  })
+
+  // no gallery state is exported through cards or asset packs.
+  const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStage.resolve,chatForSession,assets:assetRuntime,
+    readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
+
+  const stageControllerEnabled = (chat, consumer) => consumer === 'core.performance'
+    ? assetEngineSettings.read().values.stageToggles.performance !== false
+    : managedModManagement.enabled({modId:consumer,cardPath:chat.cardPath})
+
+  const stageTimer = createStageTimerService({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),
+    // The clock reads the latest round's view; its latest saved timer may sit on an earlier round, read with that round.
+    readDirection:async (chat,turn)=>stageDirector.get(stageReadCarries(chat,turn) ? chat : await readRoundView(chat.sessionId,turn),turn,null,{readOnly:true}),patchChat:chatPersistence.patch,
+    enabled:chat=>managedModManagement.enabled({modId:'dsh.timer',cardPath:chat.cardPath}),
+    controllerEnabled:stageControllerEnabled,publish:({sessionId,event})=>modService.stageEvent(sessionId,event)})
+  ctx.effect(()=>()=>stageTimer.dispose(), 'dsh-tavern: close stage clocks')
+  return {widgetVariables, cgGallery, stageTimer}
 }
