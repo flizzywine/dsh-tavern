@@ -19,6 +19,7 @@ import { stagePageIndex } from '../../src/client/stage-page-index.cjs'
 import { prepareStageItems, finalizeStageItems, coreItemIntents } from './stage-items.js'
 import { prepareAssetPackDirector, assetPackDirectorCatalogue, buildAssetPackRequest, nameModSections, nameModCommands, runAssetPackDirector, readAssetPackRecord, readAssetPackPreview, ASSET_PACK_RECORD_FIELD as RECORD, ASSET_PACK_DRAFT_FIELD as DRAFT } from './stage-asset-pack-director.js'
 import { createStreamingPackDirector } from './stage-streaming-pack.js'
+import { randomUUID } from 'node:crypto'
 import { cardGreetings, messageOpeningId, resolveOpeningScene } from './stage-opening-scene.js'
 import { ASSET_PACK_FORMAT } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import {modCorrectionSourceMatches} from './mods/stage-corrections.js'
@@ -31,6 +32,10 @@ const expired = () => Object.assign(new Error('Director task expired; retry expl
 // The log names why a director stopped; the player UI shows only debug text for it.
 const sourceChanged = () => Object.assign(new Error('舞台导演已停止：本轮正文已变化'), {code:'REVISION_CONFLICT'})
 const FAILURE = 'stageDirectionAssetPacksFailure'
+// A director at work on its round: written when it starts, cleared with its record or failure.
+// One left by an earlier run of Tavern means a restart cut it off (DIRECTOR_INTERRUPTED).
+const RUNNING = 'stageDirectionRunning'
+const BOOT = randomUUID()
 // The director depends on its round's prose (proseFence), never on the whole-game revision:
 // choices, bookkeeping, character design or settlement must not void it.
 const withoutRevision = ({revision, ...target}) => target
@@ -40,7 +45,7 @@ function playerInputBefore(chat, index, raw) {
   return previous?.role === 'user' ? projectAgentMessageText(previous, {charName:raw?.name || raw?.data?.name, macroState:chat.macroState}) : ''
 }
 
-// One task owner and one Story Timeline commit gate, for both new and resumed jobs.
+// Directors write their round into the save beside the game's other work (writer below).
 export function createStageDirector(deps) {
   const jobs = new Map(), failures = new Map(), tasks = new Set(), versions = new Map(), listeners = new Set(), openingAssets = new Map()
   const streams = new Map(), streamStarts = new Map(), judgeResults = new Map(), retryPreparations = new Map(), openingCommits = new Map()
@@ -138,40 +143,30 @@ export function createStageDirector(deps) {
     return canonicalJson({cardPath:chat.cardPath,target:withoutRevision(targetAt(chat,index)),
       generation:chat.messages[index].stageDirectionGeneration || 0,operation:operation?.id || null})
   }
-  // Retire a task another commit moved past and admit a new ordinary timeline task while this
-  // round's prose fence still holds. Timeline's CAS is unchanged.
-  async function beginDirectedTask(chat, turn) {
-    let current = await deps.beginTask(chat)
-    const fence = proseFence(current.chat,turn)
+  // The director's writes, beside settlement and every other task: no background task, no story
+  // revision. A write queues only for the save itself (milliseconds). The prose fence is the one
+  // proof the final record needs: this round's prose finished, unchanged, still the latest.
+  async function directedWriter(chat, turn) {
+    const basis = await deps.readTaskChat(chat.id)
+    if (!basis) throw expired()
+    const fence = proseFence(basis,turn)
     const assertSource = value => { if (!fence || proseFence(value,turn) !== fence) throw sourceChanged() }
-    async function atCurrentRevision(run) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        let latest = await deps.readChat(chat.sessionId)
-        assertSource(latest)
-        if (latest.timeline.revision !== current.basedOn.revision) {
-          const operation = latest.timeline.operations[current.operationId]
-          if (!operation || !['running','stale'].includes(operation.status)) throw expired()
-          await current.commit({status:'failed',stateChanged:false,participant:null})
-          latest = await deps.readChat(chat.sessionId); assertSource(latest)
-          current = await deps.beginTask(latest); assertSource(current.chat)
-        }
-        try {
-          const result = await run(current,assertSource)
-          if (result?.status !== 'stale') return result
-        } catch (error) {
-          if (error.code !== 'REVISION_CONFLICT' && error.message !== '后台任务保存点已过期') throw error
-          const after = await deps.readChat(chat.sessionId)
-          assertSource(after)
-          if (after.timeline.revision === current.basedOn.revision) throw error
-        }
-      }
-      throw expired()
-    }
-    return {...current,
-      checkpointMessage(index,apply,options) { return atCurrentRevision(task => task.checkpointMessage(index,apply,options)) },
-      commit(input) {
-        if (input.status || !input.apply) return current.commit(input)
-        return atCurrentRevision((task,validate) => task.commit({...input,apply(draft) {validate(draft); input.apply(draft)}}))
+    return {chat:basis,
+      // Marks the round as being directed, so a restart can tell it was cut off.
+      markRunning(index) { return deps.writeMessage(basis.id, index, message => { message[RUNNING] = {boot:BOOT, at:Date.now()} }) },
+      checkpointMessage(index, apply, options = {}) {
+        return deps.writeMessage(basis.id, index, message => { options.assertCurrent?.(); apply(null, message) })
+      },
+      async commit(input) {
+        let committed = false
+        await deps.updateChat(basis.id, draft => {
+          assertSource(draft)
+          input.apply(draft)
+          delete draft.messages[messageIndex(draft,turn)]?.[RUNNING]
+          committed = true
+          return draft
+        })
+        return {status:committed ? 'committed' : 'missing'}
       }}
   }
   const frozenDisplay = async (chat, turn) => {
@@ -213,24 +208,26 @@ export function createStageDirector(deps) {
       const id = key(chat,turn)
       if (!openingCommits.has(id)) {
         const pending = (async () => {
-          const task = await deps.beginTask(chat)
-          try {
-            if (disposed || !assets.current() || targetAt(task.chat,index).sourceKey !== target.sourceKey) throw expired()
-            const existing = recordAt(task.chat,index)
-            if (existing) {await task.commit({stateChanged:false,participant:null}); return existing}
-            const candidate = task.chat.messages[index][DRAFT]?.imageReplay
-            const replay = candidate?.target.sourceKey === target.sourceKey && candidate.unitsDigest === binding.unitsDigest ? candidate : undefined
-            const saved = makeRecord(initializeStateImages(opening.state,context,Math.random,replay,opening.emotions))
-            const committed = await task.commit({stateChanged:false,participant:null,apply(draft) {
-              if (disposed || !assets.current() || targetAt(draft,index).sourceKey !== target.sourceKey) throw expired()
-              draft.messages[index][RECORD] = saved
-              delete draft.messages[index][DRAFT]
-              delete draft.messages[index][FAILURE]
-            }})
-            if (committed.status !== 'committed') throw expired()
-            publish({sessionId:chat.sessionId,turn})
-            return saved
-          } catch (error) {await task.commit({status:'failed',stateChanged:false,participant:null}); throw error}
+          // A greeting has no prose fence: its own source key guards the write.
+          const basis = await deps.readTaskChat(chat.id)
+          if (!basis || disposed || !assets.current() || targetAt(basis,index).sourceKey !== target.sourceKey) throw expired()
+          const existing = recordAt(basis,index)
+          if (existing) return existing
+          const candidate = basis.messages[index][DRAFT]?.imageReplay
+          const replay = candidate?.target.sourceKey === target.sourceKey && candidate.unitsDigest === binding.unitsDigest ? candidate : undefined
+          const saved = makeRecord(initializeStateImages(opening.state,context,Math.random,replay,opening.emotions))
+          let committed = false
+          await deps.updateChat(basis.id, draft => {
+            if (disposed || !assets.current() || targetAt(draft,index).sourceKey !== target.sourceKey) throw expired()
+            draft.messages[index][RECORD] = saved
+            delete draft.messages[index][DRAFT]
+            delete draft.messages[index][FAILURE]
+            committed = true
+            return draft
+          })
+          if (!committed) throw expired()
+          publish({sessionId:chat.sessionId,turn})
+          return saved
         })()
         openingCommits.set(id,pending)
       }
@@ -407,9 +404,8 @@ export function createStageDirector(deps) {
       try {
         const bodyOperation = Object.values(chat.timeline?.operations || {}).findLast(op => op.kind === 'body' && Number(op.turn) === turn)
         if (bodyOperation?.id !== job.operationId) throw expired()
-        // Only the canonical commit below needs the timeline task. Its admission queues behind every
-        // other write of this chat (settlement, candidate), so the remainder window must not wait for it.
-        admission = beginDirectedTask(chat,turn)
+        // Reading the writer's basis must not hold up the remainder window.
+        admission = directedWriter(chat,turn).then(async writer => { await writer.markRunning(messageIndex(writer.chat,turn)); return writer })
         admission.catch(() => {})
         const frozen = await frozenDisplay(chat,turn)
         // Final-body hooks and judge run under the ordinary persisted source proof.
@@ -428,7 +424,7 @@ export function createStageDirector(deps) {
           canonicalJson(finalDisplay.units) !== canonicalJson(frozen.units) || canonicalJson(finalDisplay.pageIndex) !== canonicalJson(frozen.pageIndex)) throw expired()
         const binding = {...prepared.prepared.binding,...(job.pack.binding.items ? {items:job.pack.binding.items} : {}),generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
         const effect = job.pack.complete(binding,frozen.units.length)
-        const result = await task.commit({stateChanged:false,participant:null,apply(draft) {
+        const result = await task.commit({apply(draft) {
           if (disposed || streams.get(key(chat,turn)) !== job || job.pack.kernel.snapshot().phase !== 'settled' || !job.current() || canonicalJson(withoutRevision(targetAt(draft,index))) !== canonicalJson(withoutRevision(prepared.target))) throw expired()
           draft.messages[index][RECORD] = effect
           if (prepared.judgeResult) draft.messages[index][RECORD].stats.judge = prepared.judgeResult
@@ -441,7 +437,7 @@ export function createStageDirector(deps) {
         deps.mods?.applied(prepared.mods,effect)
         streams.delete(key(chat,turn))
       } catch (error) {
-        // A failure before admission settled still owns that task: close it with the failure.
+        // A failure before admission settled still records through its writer.
         task ||= await admission?.catch(() => undefined)
         const failure = {status:'error',sourceKey:captureStageTarget(chat,messageIndex(chat,turn)).sourceKey,error:String(error.message),retryable:true}
         const snapshot = job.pack.kernel.snapshot(), prepared = job.finalInput?.prepared
@@ -479,6 +475,7 @@ export function createStageDirector(deps) {
         captureStageTarget(draft,index).sourceKey !== failure.sourceKey ||
         (message.stageDirectionGeneration || 0) !== (job.generation || 0) || message[RECORD]) return undefined
       message[FAILURE] = failure
+      delete message[RUNNING]
       apply(message)
       saved = true
       return draft
@@ -488,30 +485,18 @@ export function createStageDirector(deps) {
   async function saveFailure(task, job, failure, apply = () => {}) {
     if (job.stopped) {
       deps.log?.({kind:'director-stopped',sessionId:job.sessionId,turn:job.turn,error:failure.error})
-      await task?.commit({status:'failed',stateChanged:false,participant:null})
+      // Stopped is silent: the round keeps what was saved, only its running mark goes.
+      if (task) await deps.writeMessage(job.chatId, messageIndex(task.chat,job.turn), message => { delete message[RUNNING] }).catch(() => {})
       return true
     }
     deps.log?.({kind:'director-failure',sessionId:job.sessionId,turn:job.turn,sourceKey:failure.sourceKey,code:failure.code,error:failure.error})
     let saved = false
     if (task && !disposed) {
-      try {
-        // Failure identity needs the full source prefix; checkpointMessage is a one-row projection.
-        if (deps.updateChat) saved = await persistFailure(job,failure,apply)
-        else {
-          await task.checkpoint(draft => {
-            const index = messageIndex(draft,job.turn)
-            if (draft.cardPath !== job.cardPath || captureStageTarget(draft,index).sourceKey !== failure.sourceKey) throw expired()
-            draft.messages[index][FAILURE] = failure
-            apply(draft.messages[index])
-          })
-          saved = true
-        }
-      } catch (error) {
-        deps.log?.({kind:'director-failure-persistence',sessionId:job.sessionId,turn:job.turn,phase:'checkpoint',error:String(error.message),stack:error.stack})
+      try { saved = await persistFailure(job,failure,apply) }
+      catch (error) {
+        deps.log?.({kind:'director-failure-persistence',sessionId:job.sessionId,turn:job.turn,phase:'write',error:String(error.message),stack:error.stack})
       }
     }
-    try { await task?.commit({status:'failed',stateChanged:false,participant:null}) }
-    catch (error) { deps.log?.({kind:'director-failure-persistence',sessionId:job.sessionId,turn:job.turn,phase:'commit',error:String(error.message),stack:error.stack}) }
     return saved
   }
   async function getValue(chat, turn, config, options = {}) {
@@ -551,13 +536,10 @@ export function createStageDirector(deps) {
       return {...visible,baseline}
     }
     if (options.generate === false || turn !== latestTurn(chat) && !options.generate) {
-      // Recovery interrupts the task, but a killed worker cannot save its per-message failure.
-      // Report that terminal state rather than leaving phone/voice consumers waiting for a prefix forever.
-      const operations = Object.values(chat.timeline?.operations || {})
-      const body = operations.findLast(op => op.kind === 'body' && Number(op.turn) === turn && op.committedBranchId === chat.timeline.branchId)
-      const interrupted = body && operations.findLast(op => op.kind === 'agent' && op.role === 'stage-director' &&
-        op.basedOn?.branchId === body.committedBranchId && op.basedOn?.revision === body.committedRevision)
-      if (interrupted?.status === 'interrupted') return {status:'error',code:'DIRECTOR_INTERRUPTED',error:'演出编排因重启中断。',baseline}
+      // A killed Tavern cannot save its per-message failure. Its running mark tells, so
+      // phone/voice consumers are not left waiting for a prefix forever.
+      const running = chat.messages[index]?.[RUNNING]
+      if (running && running.boot !== BOOT) return {status:'error',code:'DIRECTOR_INTERRUPTED',error:'演出编排因重启中断。',baseline}
       return {status:'missing',baseline}
     }
     const job = {chatId:chat.id, sessionId:chat.sessionId, cardPath:chat.cardPath, turn, target:targetAt(chat,index), stopId:'director:' + (++revision), controller:new AbortController(), value:{status:'running',baseline}}
@@ -569,8 +551,9 @@ export function createStageDirector(deps) {
     const promise = (async () => {
       let task
       try {
-        task = await beginDirectedTask(chat,turn)
+        task = await directedWriter(chat,turn)
         const basis = task.chat
+        await task.markRunning(messageIndex(basis,turn))
         job.fence = proseFence(basis,turn)
         job.generation = basis.messages[index].stageDirectionGeneration || 0
         let input, preparationFailure
@@ -596,9 +579,9 @@ export function createStageDirector(deps) {
             if (!getCurrentBinding()) throw expired()
             message[DRAFT] = checkpoint
           }, {trace, assertCurrent:() => { if (!getCurrentBinding()) throw expired() }})})
-        const generated = deps.trace ? await deps.trace.run('stage-director', task.operationId, generate) : await generate()
+        const generated = deps.trace ? await deps.trace.run('stage-director', job.stopId, generate) : await generate()
         if (preparationFailure) (generated.effect.stats ||= {}).imageAdmission = preparationFailure
-        const committed = await task.commit({stateChanged:false, participant:null, apply(draft) {
+        const committed = await task.commit({apply(draft) {
           if (!generated.isCurrent() || canonicalJson(withoutRevision(targetAt(draft,input.index))) !== canonicalJson(withoutRevision(input.target))) throw expired()
           draft.messages[input.index][RECORD] = generated.effect
           if (input.judgeResult) draft.messages[input.index][RECORD].stats.judge = input.judgeResult

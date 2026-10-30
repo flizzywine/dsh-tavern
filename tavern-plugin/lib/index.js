@@ -1081,6 +1081,27 @@ export async function apply(ctx) {
     }
     return updateChat(chatId, async current => Object.assign(current, await mutate(structuredClone(pick(current)))), metadata)
   }
+  // One message's own fields, patched against a one-row read: the history is not read whole.
+  async function updateChatMessage(chatId, index, mutate, metadata) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const selected = (await chatPersistence.readSlice(chatId, [index]))?.chat
+      const before = selected?.messages?.[0]
+      if (!before || !Number.isSafeInteger(selected._storageRevision)) break
+      const after = structuredClone(before)
+      mutate(after)
+      const changes = diffJson(before, after).map(change => ({ ...change, path: ['messages', index, ...change.path] }))
+      if (!changes.length) return true
+      if (await patchChat(chatId, selected._storageRevision, changes, metadata)) return true
+    }
+    let written = false
+    await rawUpdateChat(chatId, current => {
+      if (!current.messages?.[index]) return undefined
+      mutate(current.messages[index])
+      written = true
+      return current
+    }, metadata)
+    return written
+  }
   async function persistClearedBodyEdits(chat, cleared) {
     const drop = new Set(cleared || [])
     if (!chat?.id || !drop.size) return
@@ -2555,8 +2576,11 @@ export async function apply(ctx) {
     readChanges:(id,revision) => chatJournalStore.readChangedIndices(id,revision),
     // Full earlier records of a chain-only turn view, pinned to the revision the view was read at.
     readRecords:(chat,indices) => chatJournalStore.readStageRecords(chat.id,indices,{revision:chat._storageRevision}),
-    beginTask: chat => backgroundTasks.begin(chat, 'stage-director'),
-    updateChat: (id, mutate) => rawUpdateChat(id, mutate, {source:'stage-director.failure'}),
+    // The director writes beside the game's other work: whole-save updates for its record and
+    // failure, a one-message patch for checkpoints and its running mark.
+    readTaskChat: chatId => readChat(chatId),
+    updateChat: (id, mutate) => rawUpdateChat(id, mutate, {source:'stage-director'}),
+    writeMessage: (chatId, index, mutate) => updateChatMessage(chatId, index, mutate, {source:'stage-director.checkpoint'}),
     resetTask: (chat, turn, {regenerate, imageReplay}) => updateChat(chat.id, current => {
       const message = current.messages?.find(item => item.role === 'assistant' && Number(item.turn || (item.greeting ? 1 : 0)) === turn)
       if (message) {

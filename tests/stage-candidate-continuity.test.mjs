@@ -173,3 +173,25 @@ test('stopping one turn leaves another turn\'s director running', async t => {
   const done = await f.director.get(f.read(),1,null,{readOnly:true})
   assert.equal(done.phase,'done',done.error)
 })
+
+// The director writes beside the background tasks: a running mark while it works, cleared with
+// its record; a mark an earlier run of Tavern left behind reads as cut off by the restart.
+test('a director marks its round while it works and a mark from before a restart reads as interrupted', async t => {
+  const started = deferred(), release = deferred()
+  const f = await fixture(async request => {started.resolve(); await release.promise; return modelCall(request,{name:'stage_update',arguments:answer})})
+  t.after(async () => {release.resolve(); await f.dispose()})
+  await f.director.get(f.read(),1); await started.promise
+  assert.ok(f.read().messages[0].stageDirectionRunning, 'marked while it works')
+  assert.equal(f.director.activity(f.read()).busy, true)
+  release.resolve(); await f.director.drain()
+  assert.equal(f.read().messages[0].stageDirectionRunning, undefined, 'cleared with its record')
+  assert.equal((await f.director.get(f.read(),1,null,{readOnly:true})).phase,'done')
+
+  await f.store.updateChat('chat', chat => {
+    delete chat.messages[0].stageDirectionAssetPacks
+    chat.messages[0].stageDirectionRunning = {boot:'an-earlier-run', at:1}
+    return chat
+  })
+  const cut = await f.director.get(f.read(),1,null,{readOnly:true})
+  assert.equal(cut.code,'DIRECTOR_INTERRUPTED')
+})

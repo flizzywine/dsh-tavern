@@ -48,7 +48,8 @@ export async function fixture(model, {bound = true, tts, getBinding, greeting = 
   const calls = []
   director = createStageDirector({assets, judge, mods, paragraphParts, bodyForTurn, log, // fake judge injection
     updateChat:store.updateChat, readChat:store.readChat,
-    publish:event => signals.publish(event.sessionId,event), beginTask:value => tasks.begin(value,'stage-director'), /* the director runs on the chat model (foreground) */ foreground:foreground || (async () => ({provider:'fake',model:'fake'})),
+    publish:event => signals.publish(event.sessionId,event), readTaskChat:store.readChat,
+    writeMessage:async (_id,index,mutate) => {const next = clone(chat); if (!next.messages[index]) return false; mutate(next.messages[index]); chat = next; director?.observe(chat); return true}, /* the director runs on the chat model (foreground) */ foreground:foreground || (async () => ({provider:'fake',model:'fake'})),
     resetTask:async (_chat,turn,{regenerate,imageReplay}) => {const message=chat.messages.find(message=>message.turn===turn);message.stageDirectionGeneration = (message.stageDirectionGeneration || 0) + 1; delete message.stageDirectionAssetPacksDraft; if (imageReplay) message.stageDirectionAssetPacksDraft = {imageReplay}; delete message.stageDirectionAssetPacksFailure; if(regenerate) delete message.stageDirectionAssetPacks; return clone(chat)},
     runAgent:async request => {calls.push(request); await model(modelRequest(request))}})
   return {director,signals,tasks,calls,assets,services,workspace,engineSettings,ctx, store, read:() => clone(chat), reads:() => reads,

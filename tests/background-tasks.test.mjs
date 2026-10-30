@@ -3,7 +3,7 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { BACKGROUND_TASK_CATALOG, PARALLEL_TASKS, describeTasks, registerBackgroundTasks } from '../tavern-plugin/lib/domain/background-tasks.js'
+import { BACKGROUND_TASK_CATALOG, describeTasks, registerBackgroundTasks } from '../tavern-plugin/lib/domain/background-tasks.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
 import { createWorkflow } from '../tavern-plugin/lib/domain/workflow.js'
 
@@ -58,9 +58,4 @@ test('one table: registering it gives the scheduler each task\'s triggers and th
   assert.deepEqual(workflow.runs('game').map(run => [run.id, run.status]).sort(), [['polish', 'completed'], ['stage-director', 'skipped']])
   stop()
   assert.deepEqual(workflow.table(), [])
-})
-
-test('the coordinator runs the table\'s tasks with no member and no lock beside the game\'s other work', () => {
-  // PARALLEL_TASKS is derived from the table; it never makes the game busy.
-  assert.deepEqual(PARALLEL_TASKS, ['stage-director'])
 })

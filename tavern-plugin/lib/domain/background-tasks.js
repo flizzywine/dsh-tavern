@@ -93,9 +93,6 @@ export const BACKGROUND_TASK_CATALOG = Object.freeze(definitions({}).filter(entr
   return Object.freeze(item)
 }))
 
-/** Tasks with no member and no lock (舞台导演) run beside the game's others: they neither make the whole game busy nor wait to be admitted. */
-export const PARALLEL_TASKS = Object.freeze(BACKGROUND_TASK_CATALOG.filter(item => !item.member && !item.lock).map(item => item.task))
-
 /** The member whose Session and slot a task uses, '' for a fresh Agent or an unknown task. */
 export function taskMember(task) {
   return BACKGROUND_TASK_CATALOG.find(item => item.task === task)?.member || ''
