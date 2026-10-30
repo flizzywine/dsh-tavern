@@ -16,6 +16,8 @@ import { promisify } from 'node:util'
 import { openZipFile } from '../../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
 import { packContentHash } from '../../tavern-plugin/lib/domain/asset-packs.js'
+import { computeBundleHash, computeContentHash, verifyPackHashes } from '../../tavern-plugin/packages/dsh-asset-library/src/asset-packs/index.js'
+import { groupBundleFiles } from '../../tavern-plugin/packages/dsh-asset-library/src/asset-packs/bundle-files.js'
 
 const run = promisify(execFile)
 const [source, target] = process.argv.slice(2).filter(arg => !arg.startsWith('--'))
@@ -161,7 +163,14 @@ for (const pack of dsh.packs) {
     manifest.files = inPack.map(file => ({ path: file.slice(pack.path.length), sha256: sha256(files.get(file)), size: files.get(file).length }))
       .sort((a, b) => a.path.localeCompare(b.path))
   }
-  manifest.contentHash = packContentHash(Object.fromEntries((manifest.files || []).map(item => [item.path, item])))
+  // Sealed the way the asset library verifies a pack (verifyPackHashes): each bundle's hash over its own files, then
+  // the manifest's. A pack sealed any other way is refused when the card is imported (Content hash mismatch).
+  const grouped = groupBundleFiles(manifest.files || [])
+  for (const [key, bundle] of Object.entries(manifest.bundles || {})) {
+    bundle.contentHash = await computeBundleHash((grouped.get(key) || []).map(file => ({ ...file, path: file.path.slice(('bundles/' + key + '/').length) })))
+  }
+  manifest.contentHash = await computeContentHash(manifest)
+  await verifyPackHashes(manifest)
   files.set(manifestPath, Buffer.from(JSON.stringify(manifest, null, 2)))
   const all = Object.fromEntries([...files.keys()].filter(file => file.startsWith(pack.path)).map(file => [file.slice(pack.path.length), { sha256: sha256(files.get(file)) }]))
   pack.contentHash = packContentHash(all)
