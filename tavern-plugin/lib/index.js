@@ -3217,7 +3217,10 @@ export async function apply(ctx) {
   // An opening has no reply and so no 正文写完: its settlement starts the director, which never
   // calls a model for a greeting and only saves a pooled opening picture once.
   async function directOpening(chatId) {
-    const chat = await readChat(chatId)
+    // Every queued settlement asks this: only whether the latest reply is the opening, from the latest floors'
+    // summaries and the session id, never the whole save (storage without floor reads falls back to it).
+    const recent = await chatPersistence.readRecentSummaries(chatId, 4)
+    const chat = recent ? { ...(await chatPersistence.readSlice(chatId, [], ['sessionId']))?.chat, messages: recent.messages } : await readChat(chatId)
     if (chat?.messages?.findLast(message => message?.role === 'assistant')?.greeting === true) await directRound(chat.sessionId)
   }
   function queueSettlement(chatId) {
@@ -4047,9 +4050,14 @@ export async function apply(ctx) {
     updateChat,
     worldbookRecallLog,
     beginStageStream:async (sessionId,turn) => {
+      if (!Number.isSafeInteger(turn)) return null
+      // The streaming round body (getRoundBody) is the stage's alone: a card without one reads no stage view and
+      // re-splits no reply on every delta, and its first token waits for nothing but this header read.
+      const header = await chatHeaderForSession(sessionId, ['cardPath'])
+      const config = header?.cardPath ? await dialogueBubbles.read(header.cardPath) : null
+      if (!config?.enabled) return null
       const chat = await readStageChat(sessionId)
-      if (!chat || !Number.isSafeInteger(turn)) return null
-      const config = await dialogueBubbles.read(chat.cardPath)
+      if (!chat) return null
       const director = config?.enabled && config.stage?.director === true ? await stageDirector.beginStream(chat,turn) : null
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
       const prefix = assistantResultForTurn(session,turn)?.text || ''
