@@ -144,8 +144,6 @@ import { computeSceneTarget, projectedSceneText } from './domain/scene-illustrat
 import { createPluginMedia } from './domain/plugin-media.js'
 import { createPluginMediaViews } from './domain/plugin-media-views.js'
 import { createAssetGeneration, assetGenerationResult } from './domain/asset-generation.js'
-import { createImageGenerationModule } from './domain/asset-image/module.js'
-import { createModuleSceneImageSettings } from './domain/asset-image/settings.js'
 import { createPluginData } from './domain/plugin-data.js'
 import { createPluginTurnReader, RECENT_FLOORS } from './domain/plugin-turns.js'
 import { createPluginVariableWriter } from './domain/plugin-variables.js'
@@ -2480,10 +2478,8 @@ export async function apply(ctx) {
     characterDesign: characterDesignDocuments
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
-  const imageModule = createImageGenerationModule({store:profileData, credentials:() => ctx.get('credentials'),
-    onDiagnostic: undefined})
-  const assetImageSettings = createModuleSceneImageSettings({store:profileData, credentials:() => ctx.get('credentials'), imageModule})
-  const assetGeneration = createAssetGeneration({store:profileData, imageModule, capture:assetImageSettings.capture, getLibrary:() => ctx.get('assetLibrary')})
+  // Asset pictures come from an image plugin (tavern.imageProvider); Tavern keeps no image channels.
+  const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary')})
   ctx.effect(() => () => assetGeneration.dispose(), 'dsh-tavern: dispose asset generation')
   // Public extension service for third-party DSH plugins (docs/plugin-api.md).
   const pluginMedia = createPluginMedia({ store: profileData })

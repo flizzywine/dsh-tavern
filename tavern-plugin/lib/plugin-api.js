@@ -135,6 +135,7 @@ export function createTavernPluginApi(deps) {
   const gameSettingDefs = new Map()
   const settingHandlers = new Set()
   const speechProviders = new Map()
+  const imageProviders = new Map()
   const mvuSettlementProviders = new Map()
   const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1 })
   const sections = new Map()
@@ -477,6 +478,27 @@ export function createTavernPluginApi(deps) {
       const entry = { id: key, owner, label: label.trim(), description: String(description).slice(0, 300), voices: voices.slice(0, 200), defaultVoice: String(defaultVoice || ''), version,
         synthesize: input => bounded(synthesize(input), '配音渠道 ' + key, REPLACEMENT_TIMEOUT_MS).catch(error => { recordError(null, owner, '配音', error); throw error }) }
       return register.call(this, speechProviders, key, entry, 'tavern.speechProvider()', '配音渠道 ' + id + ' 已注册')
+    },
+
+    // Picture generation Tavern itself asks for (stage asset packs). Tavern keeps no image channels:
+    // status() → { ready, reason?, model?, maxReferences } describes the plugin's current channel;
+    // generate({ prompt, references: [{ data, mediaType }], width, height, background, quality, signal })
+    // → { data, mediaType }. A thrown error with requestMayHaveSucceeded === false says nothing was billed.
+    imageProvider({ id, label, status, generate } = {}) {
+      const owner = ownerOf(this)
+      sectionName(id)
+      if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
+      if (typeof status !== 'function') throw new TypeError('imageProvider 需要 status 函数')
+      if (typeof generate !== 'function') throw new TypeError('imageProvider 需要 generate 函数')
+      const key = owner + '/' + id
+      const entry = { id: key, owner, label: label.trim(),
+        status: async () => {
+          const value = await bounded(status(), '生图渠道 ' + key, POOL_TIMEOUT_MS)
+          const maxReferences = Number.isSafeInteger(value?.maxReferences) && value.maxReferences > 0 ? value.maxReferences : 0
+          return { ready: value?.ready === true, reason: String(value?.reason || '').slice(0, 200), model: String(value?.model || '').slice(0, 100), maxReferences }
+        },
+        generate: input => Promise.resolve().then(() => generate(input)).catch(error => { recordError(null, owner, '生图', error); throw error }) }
+      return register.call(this, imageProviders, key, entry, 'tavern.imageProvider()', '生图渠道 ' + id + ' 已注册')
     },
 
     // Say a line in a character's voice on the channel the player chose: { url, mediaType }, or
@@ -1582,6 +1604,6 @@ export function createTavernPluginApi(deps) {
   }
 
   return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
-    speechProviders: () => Array.from(speechProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    speechProviders: () => Array.from(speechProviders.values()), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
 }

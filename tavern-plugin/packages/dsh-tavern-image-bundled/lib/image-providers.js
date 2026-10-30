@@ -350,12 +350,13 @@ async function generateOpenai(channel, request, ctx, provider) {
   const { width, height } = requestedDims(ch, request)
   const path = endpointFromOption(ch, 'generatePath', '/images/generations')
   const orientationSize = width > height * 1.15 ? '1536x1024' : height > width * 1.15 ? '1024x1536' : '1024x1024'
-  const size = provider === 'seedream' ? option(ch, 'size', '2K') : option(ch, 'size', orientationSize)
+  const size = provider === 'seedream' ? option(ch, 'size', '2K') : request.exactSize === true ? orientationSize : option(ch, 'size', orientationSize)
   const payload = { model: ch.model || PROVIDERS[provider][2], prompt: combinedPrompt(request), size, n: 1 }
   if (provider === 'openai') {
     if (payload.model.startsWith('gpt-image-')) {
-      payload.quality = option(ch, 'quality', 'medium')
-      payload.output_format = option(ch, 'outputFormat', 'png')
+      payload.quality = ['low', 'medium', 'high', 'auto'].includes(request.quality) ? request.quality : option(ch, 'quality', 'medium')
+      payload.output_format = request.background === 'transparent' ? 'png' : option(ch, 'outputFormat', 'png')
+      if (request.background === 'transparent') payload.background = 'transparent'
     }
   }
   if (provider === 'grok') delete payload.size
@@ -381,6 +382,7 @@ async function generateOpenai(channel, request, ctx, provider) {
     body.append('n', '1')
     if (payload.quality) body.append('quality', String(payload.quality))
     if (payload.output_format) body.append('output_format', String(payload.output_format))
+    if (payload.background) body.append('background', String(payload.background))
     for (const [index, ref] of refs.entries()) body.append('image[]', new Blob([ref.bytes], { type: ref.mediaType }), `reference-${index + 1}.${imageExtension(ref.mediaType)}`)
     const data = await fetchJson(fetchImpl, joinUrl(base, endpointFromOption(ch, 'editPath', '/images/edits')),
       { method: 'POST', headers: requestHeaders(ch, provider, false), body }, jsonLimit, signal, ch)
@@ -394,7 +396,7 @@ async function generateGemini(channel, request, ctx) {
   const { base, fetchImpl, signal, max, channel: ch, jsonLimit } = ctx
   const model = encodeURIComponent(ch.model || PROVIDERS.gemini[2])
   const { width, height } = dims(request)
-  const ratio = option(ch, 'aspectRatio', closestRatio(width, height))
+  const ratio = request.exactSize === true ? closestRatio(width, height) : option(ch, 'aspectRatio', closestRatio(width, height))
   let imageSize = option(ch, 'imageSize', option(ch, 'size', sizeLabel(width, height)))
   const sizePixels = String(imageSize).match(/^(\d{2,5})\s*[x×*]\s*(\d{2,5})$/i)
   if (sizePixels) imageSize = sizeLabel(Number(sizePixels[1]), Number(sizePixels[2]))
@@ -417,6 +419,8 @@ function closestRatio(w, h) {
 function sizeLabel(w, h) { const pixels = w * h; return pixels > 7_000_000 ? '4K' : pixels > 2_000_000 ? '2K' : '1K' }
 function requestedDims(channel, request) {
   let { width, height } = dims(request)
+  // Tavern's stage assets need the size they ask for (sprite sheets are sliced by it).
+  if (request.exactSize === true) return { width, height }
   // 宽高分开填：两个都填了就以它们为准（优先于下面的 size 文本）
   const rawWidth = Number(option(channel, 'sizeWidth', 0)), rawHeight = Number(option(channel, 'sizeHeight', 0))
   if (Number.isFinite(rawWidth) && Number.isFinite(rawHeight) && rawWidth > 0 && rawHeight > 0) {
@@ -670,6 +674,8 @@ async function generateSdwebui(channel, request, ctx) {
 
 /**
  * request.references?: Array<{ data: Uint8Array | Buffer, mediaType: string, name?: string }>
+ * request.exactSize / background ('transparent') / quality: Tavern stage-asset requests; they win
+ * over the channel's own size and quality options.
  * Callers load local bytes; no path/URL fetching happens here. Array order is
  * the image-number order used by the prompt.
  * onGenerationSubmit is awaited immediately before the first billable POST for

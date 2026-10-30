@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-image",
-  "version": "3.3.1",
+  "version": "3.4.0",
   "note": "由 bin/bundled-scene-image-plugin.mjs 在 Tavern 安装或更新时安装/升级到 data/plugins/dsh-tavern-image/。此文件本身不安装。",
   "builtFrom": "weixinlll/dsh-tavern-image"
 }

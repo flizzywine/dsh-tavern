@@ -9,7 +9,8 @@
   const GEN_WARNINGS={NO_TRANSPARENCY:'没有透明背景',EDGE_CONTACT:'人物碰到边缘',CELL_EDGE_CONTACT:'碰到格子边缘',ASPECT_MISMATCH:'比例不对',LOW_RESOLUTION:'分辨率偏低',
     EMPTY_IMAGE:'图是空的',CHECK_UNAVAILABLE:'无法自动检查',SHEET_UNSLICEABLE:'不能自动切分'};
   // The host has no API that opens a settings section, so the way there is written out once.
-  const GEN_PROBLEMS={UNSUPPORTED_CHANNEL:'当前生图渠道不能生成素材 · 设置 → 场景生图 → 接口格式选 Responses image tool',NOT_CONFIGURED:'还没配置生图渠道 · 设置 → 场景生图'};
+  // Pictures come from the 配图 plugin's channel; the server's message names what to change there.
+  const GEN_PROBLEMS={UNSUPPORTED_CHANNEL:'当前生图渠道不能生成这张素材 · 设置 → 配图',NOT_CONFIGURED:'还没配置生图渠道 · 设置 → 配图'};
   // An earlier request of the same slot never answered: the next one asks first (the backend's confirmNewRequestIds gate).
   const GEN_UNCERTAIN='上一次请求没有返回结果，不会自动重试。仍要再生成一张吗？';
   const GEN_POSE_ROLE='User pose reference: borrow only the pose and expression idea, never the face or outfit';
@@ -79,9 +80,9 @@
     React.useEffect(()=>{if(!jobs?.some(j=>j.status==='running'))return;const t=setTimeout(refresh,GEN_POLL_MS);return()=>clearTimeout(t);},[jobs]);
     React.useEffect(()=>{
       if(typeof window==='undefined')return;
-      const settings=()=>setProblem(''),focus=()=>{if(active.current)refresh();};
-      window.addEventListener('dsh-tavern-image-settings-changed',settings);window.addEventListener('focus',focus);
-      return()=>{window.removeEventListener('dsh-tavern-image-settings-changed',settings);window.removeEventListener('focus',focus);};
+      const focus=()=>{if(active.current)refresh();};
+      window.addEventListener('focus',focus);
+      return()=>window.removeEventListener('focus',focus);
     },[]);
     // One picture waits per slot: when a newer candidate arrives (a 重画 / 改图 of a waiting one), the older one is dropped;
     // until then the older one stays, and it is on show again when the newer request brings nothing.
@@ -105,7 +106,7 @@
         if(!plan){
           const pack=await settle();
           try{plan=await call('prepareAssetGeneration',{target,expectedRevision:pack.revision,...input});}
-          catch(e){if(GEN_PROBLEMS[e.code])setProblem(e.code);throw e;}
+          catch(e){if(GEN_PROBLEMS[e.code])setProblem(e.message||GEN_PROBLEMS[e.code]);throw e;}
           if(alive.current)setProblem('');
           const confirm=plan.confirmNewRequestIds||[];
           if(confirm.length&&!approved&&!await ask(confirm.length))return null;
@@ -537,7 +538,7 @@
     return h(Modal,{title:title+' · '+sub,className:'ap-gen-dialog',frame:{'data-mode':mode},onClose:close,busy,head,foot,initialFocus:'dialog'},
       h('div',{className:'ap-gd-body','data-mode':mode,onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target?.blur?.();setTimeout(()=>submitRef.current(),0);}}},
         h('div',{className:'ap-gd-fields'},...fields.filter(Boolean),
-          gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,GEN_PROBLEMS[gen.problem])),
+          gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
           reason&&reason!==GEN_REASONS.edit&&!(adding&&!name.trim())&&h('p',{className:'ap-gen-reason'},reason),
           startError&&!gen.problem&&h('p',{className:'ap-alert',role:'alert'},startError),
           error&&h('p',{className:'ap-alert',role:'alert'},h(Glyph,{name:'warning'}),error))));
@@ -601,7 +602,7 @@
     // with nothing to say beside it (a picture just being looked at), the picture
     // takes the whole width, so a landscape 设定图 is not letterboxed into a tall empty stage.
     const side=[
-      gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,GEN_PROBLEMS[gen.problem])),
+      gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
       state==='candidate'&&h(GenWarnings,{warnings:sideWarnings}),
       state==='candidate'&&kind==='background'&&!target.assetId&&h(InlineField,{kind:'chips',label:'触发词',controlLabel:'背景触发词',className:'ap-gen-row is-words',value:words,split:splitKeywords,validate:keywordProblem,onCommit:setWords,help:h(Help,{text:'填写 3–6 个正文里会出现的短词，如：教室、黄昏、樱花。',label:'触发词说明'})}),
       state==='candidate'&&['sprite','avatar'].includes(kind)&&h('div',{className:'ap-gen-tones','data-shape':kind},['light','dark'].map(tone=>h('span',{key:tone,className:'ap-gen-tone','data-tone':tone,title:tone==='light'?'浅色底':'深色底'},h(CandidateArt,{gen,jobId:job.jobId})))),
@@ -775,7 +776,7 @@
       takes:id=>spriteSlotTakesStill(outfit,manifest,id),bust:id=>outfit.sprite&&stateBust(outfit,emotionState(outfit,manifest,id))};
     c.blank=!!outfit&&rows.every(r=>!c.hasSprite(r.id)&&!c.avatar(r.id));
     const head=(text,count,tools,className)=>h('h4',{className:'ap-gw-head'+(className?' '+className:'')},h('span',null,text),count!==undefined&&h('span',{className:'ap-gw-count'},count),tools&&h('span',{className:'ap-gw-tools'},tools));
-    const problem=gen.problem&&!gen.sheet&&!gen.dialog&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,GEN_PROBLEMS[gen.problem]));
+    const problem=gen.problem&&!gen.sheet&&!gen.dialog&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem));
     const person=h('section',{className:'ap-gw-sec','aria-label':'人物'},head('人物'),h(GenSettei,{c,level:'figure'}));
     const dialogs=confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)});
     if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,h(EmptyState,{noun:'服装'}),dialogs);

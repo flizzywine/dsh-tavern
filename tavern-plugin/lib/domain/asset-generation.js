@@ -1,5 +1,4 @@
 import {figureDefaultEmotion,matchBubbleMood,GEN_RECORDS} from '../../packages/dsh-asset-library/lib/asset-packs/figure-emotions.js'
-import {assetImageCapability} from './asset-image/channels.js'
 import {createHash, randomUUID} from 'node:crypto'
 import {readFile} from 'node:fs/promises'
 import {checkPurchaseConfirmation} from './image-billing-confirmation.js'
@@ -10,22 +9,6 @@ import {validateUuid, validateHash, validateShortId, validateStateId} from '../.
 import {validateIdentitySettei} from '../../packages/dsh-asset-library/lib/asset-packs/identity-settei.js'
 import {PACK_GEN_STYLES} from '../../packages/dsh-asset-library/lib/asset-packs/manifest.js'
 import {imageKind, imageDimensions, pngSize} from '../../packages/dsh-asset-library/lib/pack-v2/media.js'
-
-// imageFailure is bounded and credential-redacted at the provider boundary.
-export function assetImageFailureReason({httpStatus, message = '', code = '', param = ''}) {
-  const detail = `${code} ${message} ${param}`
-  let reason = '生图服务拒绝请求'
-  if (/moderation|content_policy|safety|审核/i.test(detail)) reason = '内容审核未通过，请调整描述或参考图'
-  else if (httpStatus === 401 || httpStatus === 403) reason = '生图服务鉴权失败，请检查密钥或模型权限'
-  else if (httpStatus === 402) reason = '生图服务余额不足'
-  else if (/image|reference/i.test(detail) && /required|missing|至少|缺少/i.test(detail)) reason = '生图接口缺少参考图'
-  else if (/size|resolution|尺寸/i.test(detail)) reason = '生图服务不支持请求的尺寸'
-  else if (httpStatus === 404) reason = '生图接口或模型不存在，请检查渠道配置'
-  else if (httpStatus === 429) reason = '生图服务限流或额度不足'
-  else if (httpStatus >= 500) reason = '生图服务暂时异常'
-  const summary = message.replace(/\s+/g, ' ').trim().slice(0, 180)
-  return `${reason}（HTTP ${httpStatus}）${summary ? '：' + summary : ''}`
-}
 
 const ROOT = 'asset-generation/', INDEX = ROOT + 'jobs.json'
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -161,7 +144,7 @@ function inspectImage(bytes, mediaType, max) {
   return {hash:hash(bytes),mediaType,size:bytes.length,width,height}
 }
 /** One profile owner. Network work never occupies the short mutation gate. */
-export function createAssetGeneration({store, imageModule, capture, getLibrary, now = Date.now,
+export function createAssetGeneration({store, imageProvider = () => null, getLibrary, now = Date.now,
   readTemplate = kind => readFile(new URL(`../../presets/asset-gen/templates/${kind}.md`, import.meta.url), 'utf8'),
   planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000}) {
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
@@ -230,10 +213,14 @@ export function createAssetGeneration({store, imageModule, capture, getLibrary, 
   }
   async function run(job, plan, controller) {
     try {
-      const result = await imageModule.generate({...plan.active, apiKey:plan.apiKey, prompt:plan.prompt,
-        referenceImages:plan.images, assetOutput:plan.output, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]), maxBytes:20 * 1024 ** 2})
+      // Pictures come from the image plugin's current channel; Tavern keeps no image channels of its own.
+      const [width, height] = plan.output.size.split('x').map(Number)
+      const reply = await plan.source.generate({prompt:plan.prompt, references:plan.images, width, height,
+        background:plan.output.background, quality:plan.output.quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])})
       if (controller.signal.aborted) return
-      assert(result.mediaType === 'image/png', 'INVALID_ARGUMENT', '素材生图必须返回 PNG')
+      assert(reply?.data instanceof Uint8Array && reply.data.length <= 20 * 1024 ** 2, 'INVALID_ARGUMENT', '生图渠道没有返回有效图片')
+      const result = {data:Buffer.from(reply.data.buffer, reply.data.byteOffset, reply.data.byteLength), mediaType:String(reply.mediaType || '')}
+      assert(result.mediaType === 'image/png', 'INVALID_ARGUMENT', `素材生图需要 PNG，当前渠道返回了 ${result.mediaType || '未知格式'}；请在 配图 设置里换用能出 PNG 的渠道`)
       const candidate = inspectImage(result.data, result.mediaType, 20 * 1024 ** 2)
       candidate.checks = checkAssetImage(result.data,job.target.kind === 'avatar-sheet' ? 'avatar' : job.target.kind,{sheet:job.target.kind === 'avatar-sheet'})
       if (job.target.kind === 'avatar-sheet') {
@@ -253,9 +240,10 @@ export function createAssetGeneration({store, imageModule, capture, getLibrary, 
     } catch (error) {
       await serial(async () => {
         if (job.status !== 'running') return
-        job.status = 'failed'; job.outcome = error.imageOutcome || 'unconfirmed'
-        const refusal = ['IMAGE_NO_RESULT','IMAGE_REFUSED'].includes(error.code)
-        job.error = {code:refusal ? error.code : 'GENERATION_FAILED',message:error.imageFailure ? (job.outcome === 'unconfirmed' ? '没有拿到结果，不会自动重试；' : '') + assetImageFailureReason(error.imageFailure) : refusal ? '服务没有提供图片或拒绝了此描述；请手动修改后再请求，不会自动改词重试' : job.outcome === 'not_requested' ? '配置已变化或不完整，未发送图片请求' : job.outcome === 'rejected' ? '服务明确拒绝请求，请检查配置或提示词' : '没有拿到结果，不会自动重试',retryable:false,mayHaveCharged:job.outcome === 'unconfirmed'}
+        // The plugin says requestMayHaveSucceeded === false only when nothing can have been billed.
+        job.status = 'failed'; job.outcome = error.requestMayHaveSucceeded === false ? 'rejected' : 'unconfirmed'
+        const message = String(error?.message || '').replace(/\s+/g, ' ').trim().slice(0, 300) || '生图失败'
+        job.error = {code:'GENERATION_FAILED',message:(job.outcome === 'unconfirmed' ? '没有拿到结果，不会自动重试；' : '') + message,retryable:false,mayHaveCharged:job.outcome === 'unconfirmed'}
         await save()
       })
     } finally { controllers.delete(job.jobId) }
@@ -269,11 +257,11 @@ export function createAssetGeneration({store, imageModule, capture, getLibrary, 
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.
       const preview = input.preview === true
-      const {active,apiKey} = preview ? {active:null,apiKey:null} : await capture()
-      const capability = preview ? null : assetImageCapability(active)
+      const source = preview ? null : imageProvider()
+      const status = source ? await source.status() : null
       if (!preview) {
-        assert(capability.supported, 'UNSUPPORTED_CHANNEL', '当前渠道不支持素材生成；请选择 OpenAI Images 或 Responses image tool')
-        assert(active.ready && apiKey, 'NOT_CONFIGURED', '请先完成场景生图渠道配置')
+        assert(source, 'NOT_CONFIGURED', '素材生图由「配图」插件出图；请先安装并启用配图插件')
+        assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
       }
       const count = input.count ?? 1
       assert(Number.isInteger(count) && count >= 1 && count <= 4, 'LIMIT_EXCEEDED', '每次显式请求 1 至 4 张候选')
@@ -364,14 +352,17 @@ export function createAssetGeneration({store, imageModule, capture, getLibrary, 
         }
       }
       assert(images.length <= 4, 'LIMIT_EXCEEDED', '全部参考合计最多四张')
+      if (!preview) assert(images.length <= status.maxReferences, 'UNSUPPORTED_CHANNEL', status.maxReferences
+        ? `当前生图渠道最多带 ${status.maxReferences} 张参考图，这次需要 ${images.length} 张；可在对话框里少选几张参考`
+        : '当前生图渠道不支持参考图；请在 配图 设置里换用支持参考图的渠道')
       const output = assetOutput(target.kind,input.quality || ASSET_PRODUCTION_DEFAULTS.quality)
       assert(['auto','low','medium','high'].includes(output.quality), 'INVALID_ARGUMENT', '无效的图片质量')
       if (preview) return clone({preview:true,target,expectedRevision:pack.revision,prompt,...(parts ? {parts} : {}),promptBytes:Buffer.byteLength(prompt),references:refs,output})
-      const planId = randomUUID(), provider = Object.fromEntries(['provider','baseURL','model','protocol','dispatcherModel'].map(key => [key,active[key]]))
-      const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),references:refs,provider,capability,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
+      const planId = randomUUID(), provider = {label:source.label, model:status.model}
+      const view = {defaults:ASSET_PRODUCTION_DEFAULTS,planId,target,expectedRevision:pack.revision,prompt,promptBytes:Buffer.byteLength(prompt),references:refs,provider,output,consentToken:randomUUID(),expiresAt:now() + planTtlMs,imageCount:count}
       const confirmations = uncertain(target).map(job => job.jobId)
       if (confirmations.length) { view.confirmNewRequestIds = confirmations; view.confirmNewRequestId = confirmations[0] }
-      plans.set(planId,{...view,active,apiKey,images,basePrompt,backgroundName,redrawOf:input.redrawOf,slot:ctx.slot,authority:authority(ctx,target.kind),anchor,userPrompt,followUp})
+      plans.set(planId,{...view,source,images,basePrompt,backgroundName,redrawOf:input.redrawOf,slot:ctx.slot,authority:authority(ctx,target.kind),anchor,userPrompt,followUp})
       return clone(view)
     }),
     generate: input => serial(async () => {

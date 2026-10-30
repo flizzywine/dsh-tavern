@@ -897,6 +897,28 @@ test('配音渠道：插件注册的渠道带上归属，合成超时或出错�
   await assert.rejects(tavern.synthesizeSpeech({ gameId: 'game-1', text: ' ' }), /text/)
 })
 
+test('生图渠道：插件注册的出图能力带上归属，状态被规整，出错记入插件错误', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  let tavern
+  await h.root.plugin({ name: 'painter', inject: ['tavern'], apply(ctx) {
+    tavern = ctx.tavern
+    ctx.tavern.imageProvider({ id: 'online', label: '配图', status: () => ({ ready: true, model: 'gpt-image', maxReferences: 4.5 }),
+      generate: async ({ prompt }) => {
+        if (prompt === 'boom') throw Object.assign(new Error('渠道挂了'), { requestMayHaveSucceeded: false })
+        return { data: new Uint8Array([1]), mediaType: 'image/png' }
+      } })
+  } })
+  await tick()
+  const [entry] = h.api.imageProviders()
+  assert.equal(entry.id, 'painter/online')
+  assert.equal(entry.label, '配图')
+  assert.deepEqual(await entry.status(), { ready: true, reason: '', model: 'gpt-image', maxReferences: 0 })
+  assert.deepEqual(await entry.generate({ prompt: 'a' }), { data: new Uint8Array([1]), mediaType: 'image/png' })
+  await assert.rejects(entry.generate({ prompt: 'boom' }), error => error.requestMayHaveSucceeded === false)
+  assert.throws(() => tavern.imageProvider({ id: 'online', label: '重复', status() {}, generate() {} }), /已注册/)
+  assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', generate() {} }), /status/)
+})
+
 test('卡内插件只在所属人物卡的局里出现：回调不触发、调用被拒、人物卡列表只剩本卡、本局插件面板不列出', { skip: !cordis }, async t => {
   let cardOfGame = 'cards/other.json'
   const settled = []

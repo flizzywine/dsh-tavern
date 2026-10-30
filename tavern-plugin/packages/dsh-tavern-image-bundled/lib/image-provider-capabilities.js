@@ -25,6 +25,13 @@ export function supportsImageReferences(channel) {
   return referenceProtocols.has(provider)
 }
 
+/** How many reference pictures one request of this channel takes (0 = none). */
+export function imageReferenceLimit(channel) {
+  if (!supportsImageReferences(channel)) return 0
+  const provider = effectiveImageProvider(channel)
+  return provider === 'grok' || provider === 'sdwebui' ? 1 : 4
+}
+
 export function supportsImageTaskResume(channel) {
   return resumableProtocols.has(effectiveImageProvider(channel))
 }
