@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +11,7 @@ const repo = fileURLToPath(new URL('..', import.meta.url))
 const family = FONT_CATALOG.families[0], face = family.files[0]
 const relative = `tavern-plugin/fonts/${family.id}/${face.file}`
 function fixture(t) {
-  const home = mkdtempSync(path.join(tmpdir(), 'tavern-font-adoption-'))
+  const home = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-font-adoption-')))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const app = path.join(home, 'apps/tavern'), source = path.join(home, 'source')
   mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, 'package.json'), '{}')

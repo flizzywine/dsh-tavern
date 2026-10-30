@@ -6,7 +6,7 @@ import path from 'node:path'
 import { inspectInstallation, validateInstallationRequest, performInstallation } from '../tavern-plugin/packages/dsh-profile-bridge/lib/installation.mjs'
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, typeof value === 'string' ? value : JSON.stringify(value)) }
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-management-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-management-')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }

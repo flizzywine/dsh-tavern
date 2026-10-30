@@ -18,7 +18,7 @@ const json = (file, value) => put(file, JSON.stringify(value))
 const text = file => fs.readFileSync(file, 'utf8')
 const link = (target, destination) => fs.symlinkSync(target, destination, process.platform === 'win32' ? 'junction' : 'dir')
 function fixture(t, { legacy = false } = {}) {
-  const root = fs.mkdtempSync(path.join(tmpdir(), 'bridge-refresh-中文 '))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'bridge-refresh-中文 ')))
   t.after(() => removeTreeSync(root))
   const home = path.join(root, 'home'), profiles = path.join(home, 'profiles')
   const desktop = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
@@ -407,7 +407,7 @@ for (const mode of ['original', 'tavern']) test(`redirected user-home ancestor p
   const f = fixture(t)
   if (mode === 'original') await switchProfile({ mode: 'unlink', profilesRoot: f.profiles, liveDir: f.desktop, stamp: 'redirected-original' })
   f.newSource()
-  const aliasRoot = fs.mkdtempSync(path.join(tmpdir(), 'bridge-user-alias-'))
+  const aliasRoot = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'bridge-user-alias-')))
   t.after(() => removeTreeSync(aliasRoot))
   const userHome = path.join(aliasRoot, 'redirected-user')
   link(f.root, userHome)
@@ -422,7 +422,7 @@ for (const mode of ['original', 'tavern']) test(`redirected user-home ancestor p
 
 test('bridge transaction pins trusted user-home identity before ancestor is redirected', t => {
   const f = fixture(t); f.newSource()
-  const aliases = fs.mkdtempSync(path.join(tmpdir(), 'bridge-home-pin-'))
+  const aliases = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'bridge-home-pin-')))
   t.after(() => removeTreeSync(aliases))
   const user = path.join(aliases, 'user'), replacement = path.join(aliases, 'replacement')
   fs.mkdirSync(replacement); link(f.root, user)
@@ -435,7 +435,7 @@ test('bridge transaction pins trusted user-home identity before ancestor is redi
 
 for (const managed of ['home', 'profile-bridge', 'profiles']) test(`redirected user ancestor does not permit linked managed ${managed}`, t => {
   const f = fixture(t); f.newSource()
-  const aliases = fs.mkdtempSync(path.join(tmpdir(), 'bridge-home-guard-'))
+  const aliases = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'bridge-home-guard-')))
   t.after(() => removeTreeSync(aliases))
   const user = path.join(aliases, 'user'); link(f.root, user)
   const source = managed === 'home' ? f.home : path.join(f.home, managed)
@@ -448,7 +448,7 @@ for (const managed of ['home', 'profile-bridge', 'profiles']) test(`redirected u
 
 for (const stored of ['logical', 'physical']) test(`redirected user home refreshes migrated bridge with ${stored} registry paths`, t => {
   const f = fixture(t); f.newSource()
-  const aliases = fs.mkdtempSync(path.join(tmpdir(), 'bridge-relocated-home-'))
+  const aliases = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'bridge-relocated-home-')))
   t.after(() => removeTreeSync(aliases))
   const user = path.join(aliases, 'user'); link(f.root, user)
   const home = path.join(user, 'home'), registryHome = stored === 'logical' ? home : f.home

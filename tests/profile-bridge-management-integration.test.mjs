@@ -12,7 +12,7 @@ import { copyTreeSync } from '../bin/portable-fs.mjs'
 const repo = fileURLToPath(new URL('../', import.meta.url))
 const put = (p, value) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(value)) }
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(tmpdir(), 'pb-management-e2e-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'pb-management-e2e-')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), app = path.join(home, 'apps/dsh-tavern')
   const paths = { home, stateDir: path.join(home, 'profile-bridge'), activeDir: path.join(home, 'profiles/desktop') }

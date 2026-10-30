@@ -1,13 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, unlinkSync, readFileSync, renameSync, chmodSync } from 'node:fs'
+import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, rmSync, symlinkSync, unlinkSync, readFileSync, renameSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import location from '../bin/installation-location.cjs'
 
 function fixture(t) {
-  const root = mkdtempSync(path.join(tmpdir(), 'tavern-location-'))
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-location-')))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const home = path.join(root, 'home'), destination = path.join(root, 'other volume 中文')
   const appDir = path.join(home, 'apps', 'dsh-tavern')
@@ -116,7 +116,7 @@ test('linked terminal management journal is never trusted', { skip: process.plat
 // Native Windows uses real directory junctions; POSIX uses directory symlinks.
 // Fixtures never touch the current user's configured home.
 function redirectedFixture(t, { nested = false } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), 'tavern-home-redirect-'))
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-home-redirect-')))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const physicalUser = path.join(root, 'physical user 中文'), logicalUser = path.join(root, 'user-link')
   mkdirSync(physicalUser)

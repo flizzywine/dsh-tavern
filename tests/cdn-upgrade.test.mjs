@@ -105,7 +105,7 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   }
   const env = { ...process.env, DSH_HOME: root, DSH_TAVERN_HOST: 'desktop', DSH_TAVERN_APP_DIR: app, DSH_DESKTOP_APP_EXECUTABLE: executable,
     DSH_TAVERN_CDN_METADATA_URL: `${base}/manifest`, DSH_TAVERN_CDN_ROOT_URL: `${base}/source`,
-    DSH_TAVERN_ARCHIVE_URL: `${base}/forbidden-archive`, DSH_TAVERN_TARGET_COMMIT: revision,
+    DSH_TAVERN_ARCHIVE_URL: `${base}/missing-archive`, DSH_TAVERN_TARGET_COMMIT: revision,
   }
   const searchPath = Object.entries(process.env).find(([key]) => key.toLowerCase() === 'path')?.[1] || ''
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key]
@@ -121,7 +121,8 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   assert.equal(await readFile(path.join(app, installerName), 'utf8'), downloaded)
   for (const file of [...patches, integrityFile]) assert.deepEqual(await readFile(path.join(app, file)), files.get(file))
   for (const [file, content] of protectedFiles) assert.equal(await readFile(file, 'utf8'), content)
-  assert.ok(!requests.includes('/forbidden-archive'), 'CDN success must not fall back to archive')
+  // GitHub archive is tried before jsDelivr (5fa69fcd); a failed archive must fall through to the CDN.
+  assert.ok(requests.indexOf('/missing-archive') !== -1 && requests.indexOf('/missing-archive') < requests.indexOf('/manifest'), 'a failed archive download must fall back to CDN')
   assert.ok(!requests.some(url => /escape|do-not-download/.test(url)))
   // EXIT cleanup must preserve a dependency failure, including on macOS sh.
   await assert.rejects(run({ DSH_TEST_DEPENDENCY_EXIT: '23' }), error => {
