@@ -473,7 +473,7 @@ export async function apply(ctx) {
   // Oldest floor each browser session has viewed; the template window covers it.
   const templateHistoryFrom = new Map()
   const fullTemplateRuntime = createServerTemplateRuntime({ store: profileData,
-    rpc: (method, args) => dispatchMethod(method, args, true),
+    rpc: (method, args) => dispatchMethod(method, args, undefined, true),
     onDiagnostic: diagnostic => console.warn('dsh-tavern: 服务端模板进程异常:', diagnostic)
   })
   let candidateWorldbookPreparation
