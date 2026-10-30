@@ -3,15 +3,19 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 const execute = promisify(execFile)
 const validLoudness = value => value.v === 1 && Number.isFinite(value.lufs) && value.lufs >= -100 && value.lufs <= 10 && Number.isFinite(value.peak) && value.peak >= -100 && value.peak <= 20
+// Only a found ffmpeg is remembered: a probe that timed out on a busy machine (first launch, a virus scan) must not
+// leave every later import unable to measure loudness until the app restarts.
 let executable
 export async function resolveAudioFfmpeg() {
   if (!executable) executable = (async () => {
     for (const candidate of [...new Set([process.env.FFMPEG_PATH, 'ffmpeg'].filter(Boolean))]) {
-      try { await execute(candidate, ['-version'], { windowsHide: true, timeout: 5000 }); return candidate } catch {}
+      try { await execute(candidate, ['-version'], { windowsHide: true, timeout: 15000 }); return candidate } catch {}
     }
     return null
   })()
-  return executable
+  const found = await executable
+  if (!found) executable = undefined
+  return found
 }
 export async function measureAudioFile(file) {
   const ffmpeg = await resolveAudioFfmpeg()
