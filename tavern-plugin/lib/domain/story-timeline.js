@@ -525,6 +525,8 @@ export function createStoryTimeline(options = {}) {
       delete chat.messages[index].sessionText // retired copy of text (reply-prose.js)
       // An edit is a new scene; only 自动精修 keeps the original one (body.polish).
       delete chat.messages[index].polishedFrom
+      // A plain edit is no longer the 精修's text; a manual 精修 (also a body.edit) sets it again.
+      if (intent.patch?.polished !== true) delete chat.messages[index].polished
       chat.timeline.revision++
       // Editing keeps the same committed round, but its next settlement must
       // bind to the edited revision. Old in-flight work still fails basedOn.

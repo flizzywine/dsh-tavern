@@ -74,6 +74,16 @@ test('旧 checkpoint 丢失直接来源时向前恢复最近的有效后台边�
   assert.equal(begun.value.participant.rewindTo, 42)
 })
 
+test('「已精修」标记：手动精修（正文编辑）带上，之后普通编辑去掉', async () => {
+  const { timeline, chat } = harness()
+  let current = beginAndCommitBody(timeline, chat, 1, '你好', '原来的正文。')
+  current.messages.at(-1).turn = 1
+  current = timeline.apply({ chat: current, intent: { kind: 'body.edit', turn: 1, patch: { text: '精修后的正文。', sourceText: '精修后的正文。', polished: true } } }).chat
+  assert.equal(current.messages.at(-1).polished, true)
+  current = timeline.apply({ chat: current, intent: { kind: 'body.edit', turn: 1, patch: { text: '玩家又改了。', sourceText: '玩家又改了。' } } }).chat
+  assert.equal(current.messages.at(-1).polished, undefined)
+})
+
 test('自动精修只改措辞：版本号、候选项、姿势和结算都不动，场景键沿用原文；之后手动编辑才算新场景', async () => {
   const { computeSceneTarget, sceneSourceDigest } = await import('../tavern-plugin/lib/domain/scene-illustration.js')
   const { timeline, chat } = harness()

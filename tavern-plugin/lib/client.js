@@ -21531,7 +21531,7 @@ function TavernBgmChat(props) {
 					"cardSave", "tavernRuntimePolicy", "tavernMvuRuntime", "statusBarPlacement"].map(field => [field]).concat([["$projectionTurn", String(turn)], ["$projectionLatestTurn", String(turn)]]);
 			}
 			function tavernReceiptViewPaths(turn, receipt, latest) {
-				const paths = [["$mvuReceiptTurn", String(turn)], ["$settlementOwner", String(turn)]];
+				const paths = [["$mvuReceiptTurn", String(turn)], ["$settlementOwner", String(turn)], ["polishedTurns"], ["autoPolishedTurns"]];
 				if (latest || receipt?.status === "pending") paths.push(["$receiptBusy"]);
 				return paths;
 			}
@@ -21540,9 +21540,11 @@ function TavernBgmChat(props) {
 				const state = useLiveTavernView(props.sessionId, "receipt", tavernReceiptViewPaths(props.turn,
 					tavernMvuReceiptForTurn(current, props.turn), props.turn === current?.settlementTurn));
 				const receipt = tavernMvuReceiptForTurn(state.view, props.turn);
-				// 自动精修 reworded this reply after it was shown: say so, the 精修 page has the comparison.
-				const polished = (state.view?.autoPolishedTurns || current?.autoPolishedTurns || []).includes(Number(props.turn))
-					? React.createElement("div", { className: "dsh-tavern-auto-polished", title: "正文写完后已按精修原则自动润色，「精修」页可对比和撤销" }, "已自动精修") : null;
+				// This reply's text is a 精修 (manual or automatic): a small mark, the 精修 page has the comparison.
+				const view = state.view || current;
+				const auto = (view?.autoPolishedTurns || []).includes(Number(props.turn));
+				const polished = auto || (view?.polishedTurns || []).includes(Number(props.turn))
+					? React.createElement("div", { className: "dsh-tavern-auto-polished", title: (auto ? "正文写完后已按精修原则自动润色" : "这轮正文已精修") + "，「精修」页可对比和撤销" }, "已精修") : null;
 				return receipt ? React.createElement(React.Fragment, null, React.createElement(TavernMvuReceipt, { ...props, receipt,
 					latest: props.turn === state.view?.settlementTurn, busy: Boolean(state.view?.activity?.busy) }), polished) : polished;
 			}

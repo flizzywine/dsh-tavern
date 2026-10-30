@@ -171,7 +171,7 @@ export function createPlayHandlers(deps) {
         edits = [...review.edits, ...followed.edits]
       }
       if (!chosen.length && !guided.length) return { edits, guidance: '', view: null }
-      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished })
+      const view = await bodyEditor.save(sessionId, { token: edit.token, texts: polished }, { polished: true })
       polishPrereview.settle(sessionId, polished)
       notifyPluginTimeline(sessionId, 'edit', { settled: true })
       // The record backs the 精修对比 page and its undo; one that cannot be kept never fails the 精修.

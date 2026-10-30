@@ -157,7 +157,8 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     return editableReplyParts(source(latest(chat))).filter(part => part.kind === 'text').map(part => part.text)
   }
   // `kind`: body.edit, or body.polish for 自动精修 (same text checks, nothing else invalidated).
-  async function saveText(sessionId, input, kind = 'body.edit') {
+  // `polished`: the new text is a 精修 (manual or automatic); the reply shows 「已精修」 until it is edited again.
+  async function saveText(sessionId, input, kind = 'body.edit', { polished = kind === 'body.polish' } = {}) {
     if (pending.has(sessionId)) throw new Error('正在保存正文，请稍候')
     pending.add(sessionId)
     try {
@@ -178,6 +179,7 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
         ...replyProse(text, { ...reply, projectionText: text }),
         // The scene stays the original reply's (scene-illustration.js), however often it is reworded.
         ...(kind === 'body.polish' ? { polishedFrom: message.polishedFrom || sceneSourceDigest(source(message)) } : {}),
+        ...(polished ? { polished: true } : {}),
         ...(target ? { bodyEdit: { formatVersion: 4, id: 'tavern-body-edit:' + randomUUID(), seq: target.assistantSeq, turn: target.turn } } : {})
       }
       if (Array.isArray(message.swipes)) {
@@ -207,9 +209,9 @@ export function createBodyEditor({ chats, sessions, timeline, activity, project,
     } finally { pending.delete(sessionId) }
   }
   // What hangs on the shown text version (dialogue speakers) follows the edit once it is saved.
-  async function save(sessionId, input) {
+  async function save(sessionId, input, options) {
     const carry = typeof beforeReplyEdit === 'function' ? await beforeReplyEdit(sessionId) : null
-    const saved = await saveText(sessionId, input)
+    const saved = await saveText(sessionId, input, 'body.edit', options)
     if (carry) await carry()
     return saved
   }
