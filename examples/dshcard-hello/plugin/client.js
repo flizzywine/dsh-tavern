@@ -1,6 +1,4 @@
-// 最小卡内插件（浏览器侧）：用 registerStageView 画自己的舞台。
-// 底色按宿主侧记下的氛围变，人物用 Tavern 的「角色素材」（导入卡时从 card.json 的 assets 带进来），
-// 翻页、朗读、全屏这些阅读流程仍由 Tavern 负责，插件只画场景，把 footer 放进自己的对白框。
+// 最小卡内插件（浏览器侧）：在「酒馆状态」里加一节「本幕氛围」，底色按宿主侧记下的氛围变。
 window.__ModuleLoader__.load({
   id: 'dsh-card-hello-mood',
   factory: (require) => {
@@ -22,19 +20,12 @@ window.__ModuleLoader__.load({
       return mood
     }
 
-    function Stage({ ui, gameId, stage, beat, fullscreen, advance, footer }) {
-      const mood = useMood(ui, gameId, beat && beat.turn)
+    // 酒馆状态里的一节：这一幕的氛围，底色跟着氛围变。
+    function MoodSection({ ui, gameId }) {
+      const mood = useMood(ui, gameId, 0)
       const [dark, light] = COLORS[mood] || COLORS.warm
-      const who = beat && beat.kind === 'line' ? stage.characters.find(c => c.name === beat.speaker) : stage.characters[0]
-      const picture = who && ((beat && who.sprites[beat.emotion]) || who.sprites.neutral || who.avatarUrl)
-      return h('div', { onClick: advance, style: { display: 'flex', flexDirection: 'column', height: fullscreen ? '100%' : 420, borderRadius: fullscreen ? 0 : 8, overflow: 'hidden', cursor: 'pointer', color: '#fff' } },
-        h('div', { style: { position: 'relative', flex: '1 1 auto', minHeight: 0, background: 'linear-gradient(160deg, ' + light + ', ' + dark + ')', transition: 'background .8s' } },
-          h('div', { style: { position: 'absolute', top: 10, left: 12, fontSize: 12, padding: '2px 10px', borderRadius: 12, background: 'rgba(0,0,0,.35)' } }, '氛围：' + mood),
-          picture ? h('img', { src: picture, alt: '', style: { position: 'absolute', left: '50%', bottom: 0, transform: 'translateX(-50%)', height: '92%', borderRadius: '10px 10px 0 0', boxShadow: '0 10px 40px rgba(0,0,0,.4)' } }) : null),
-        h('div', { style: { flex: 'none', minHeight: 96, padding: '10px 14px', background: 'rgba(12,14,20,.92)' } },
-          beat && beat.kind === 'line' ? h('div', { style: { fontWeight: 600, marginBottom: 4 } }, beat.speaker) : null,
-          h('div', { style: { lineHeight: 1.6 } }, beat ? beat.text : '还没有可以演出的正文'),
-          footer))
+      return h('div', { style: { padding: '10px 14px', borderRadius: 8, color: '#fff', background: 'linear-gradient(160deg, ' + light + ', ' + dark + ')', transition: 'background .8s' } },
+        '氛围：' + mood)
     }
 
     return {
@@ -42,8 +33,8 @@ window.__ModuleLoader__.load({
       inject: ['tavernUi'],
       apply(ctx) {
         const ui = ctx.tavernUi
-        if (typeof ui.registerStageView !== 'function') return
-        ui.registerStageView({ id: 'mood', label: '金麦穗舞台', render: input => h(Stage, { ui, ...input }) })
+        if (typeof ui.registerStatusSection !== 'function') return
+        ui.registerStatusSection({ id: 'mood', title: '本幕氛围', render: ({ gameId }) => h(MoodSection, { ui, gameId }) })
       },
     }
   },
