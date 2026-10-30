@@ -11,8 +11,9 @@ export function validateStageSkinSelection(skin, path) {
 }
 
 export function validateCardStage(value, path = '$.stage') {
-  // no 双语配音 switch; a figure's voice language decides.
-  const switches = ['widgets']
+  // no 双语配音 switch; a figure's voice language decides. dialogue (对话气泡) and stage (舞台模式) are the card's:
+  // a card that declares them has a stage, an ordinary card never does.
+  const switches = ['widgets', 'dialogue', 'stage']
   shape(value, [...switches, 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
@@ -77,9 +78,11 @@ export function packStageSkin(manifest) {
 export function effectiveCardStage(extension, engine) {
   const stored = extension?.stage || {}
   validateCardStage(stored)
-  const value = {widgets:false, ...stored,
-    ...(engine?.stageToggles || defaultAssetEngineSettings().stageToggles)}
-  value.stage = value.stage && value.dialogue
+  // 对话气泡 and 舞台模式 come from the card alone; the global switches cover the rest (配音, music, sounds, …).
+  const { dialogue: _dialogue, stage: _stage, ...global } = engine?.stageToggles || defaultAssetEngineSettings().stageToggles
+  const value = {widgets:false, ...stored, ...global}
+  value.dialogue = stored.dialogue === true
+  value.stage = stored.stage === true && value.dialogue
   return value
 }
 

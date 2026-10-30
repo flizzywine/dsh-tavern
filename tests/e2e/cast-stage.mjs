@@ -209,12 +209,10 @@ export async function dshCardPlayChecks({ page, step, output, report }) {
   await step('大肥鱼 DSH 人物卡：导入即带上素材包，打开舞台后由 Tavern 的舞台演出', async () => {
     const started = Date.now()
     const card = await importArchive(page, basename(cardFile), await readFile(cardFile))
-    report.dafeiyu = { importMs: Date.now() - started, packs: card.packs.map(item => item.title + ' ' + item.files), plugins: card.plugins.map(item => item.name) }
-    assert.deepEqual(card.plugins, [], '卡里不带插件')
+    report.dafeiyu = { importMs: Date.now() - started, packs: card.packs.map(item => item.title + ' ' + item.files), plugins: (card.plugins || []).map(item => item.name) }
+    assert.deepEqual(card.plugins || [], [], '卡里不带插件')
     assert.equal(card.packs.length, 4)
-    const call = (method, args) => page.evaluate(async ([method, args]) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json(), [method, args])
-    // 舞台 and 对话气泡 are global switches (舞台设置 › 基础设置), off by default.
-    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true, dialogue: true } } })
+    // The card declares the stage (dsh.json defaults.stage): no switch to turn on.
     await page.reload()
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText('大肥鱼', { exact: true }).first().click()

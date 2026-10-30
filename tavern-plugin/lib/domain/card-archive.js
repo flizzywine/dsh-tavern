@@ -85,6 +85,7 @@ export async function readCardArchive(zip) {
       if (problem) throw invalid('插件 ' + folder + ' 的 ' + problem)
     }
     defaults = await startDefaults(zip, manifest.defaults)
+    if (manifest.defaults?.stage === true) card = declareStage(card, packs.map(pack => pack.id))
   } else if (zip.entries.has('dsh-tavern-card-bundle.json')) {
     // The Galgame fork's bundle: card/card.json, packs/<id>/, a cover beside the card.
     kind = 'bundle'
@@ -121,6 +122,22 @@ export async function readCardArchive(zip) {
     return match ? Buffer.from(match[1], 'base64') : undefined
   }
   return { kind, card, packs, plugins, info, defaults, resolve }
+}
+
+/**
+ * dsh.json `defaults.stage: true`: this card uses the stage. It becomes the card's own declaration (extensions.dsh_tavern
+ * stage.dialogue / stage.stage, card-stage-settings.js), so its games have 对话气泡 and 舞台模式 with no player switch;
+ * an ordinary card never declares it. A card without the extension gets one that binds the package's packs.
+ */
+function declareStage(card, packIds) {
+  const next = JSON.parse(JSON.stringify(card))
+  const data = next && typeof next.data === 'object' && next.data ? next.data : next
+  data.extensions = data.extensions && typeof data.extensions === 'object' ? data.extensions : {}
+  const own = data.extensions.dsh_tavern && typeof data.extensions.dsh_tavern === 'object'
+    ? data.extensions.dsh_tavern : { schemaVersion: 1, assetBindings: { boundPackIds: packIds } }
+  own.stage = { ...(own.stage && typeof own.stage === 'object' ? own.stage : {}), dialogue: true, stage: true }
+  data.extensions.dsh_tavern = own
+  return next
 }
 
 /**

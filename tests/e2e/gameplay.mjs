@@ -515,17 +515,26 @@ try {
     for (const [name, value] of Object.entries(patch)) assert.equal(result.settings?.[name], value, JSON.stringify(result))
     return result
   }
+  // 对话气泡 / 舞台模式 are the card's own (stage.dialogue / stage.stage): turn them on for the fixture card the way
+  // 舞台设置 › 基础设置 does.
+  const setCardStage = async stage => page.evaluate(async stage => {
+    const rpc = async (method, args) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json()
+    const card = await rpc('getCardAssetBindings', { path: 'cards/e2e.json' })
+    const extension = card.extension || { assetBindings: { boundPackIds: [] } }
+    const saved = await rpc('saveCardAssetBindings', { path: 'cards/e2e.json', expectedRevision: card.revision,
+      patch: { assetBindings: extension.assetBindings, stage: { ...(extension.stage || {}), ...stage } } })
+    if (saved.ok === false) throw new Error(saved.error)
+  }, stage)
   if (storyToolScenario) await step('开启输入与输出走工具调用', async () => {
     const chatUrl = page.url()
     await setTavernSettings({ storyInputToolCall: true, storyOutputToolCall: true })
-    // 舞台模式 is global and needs 对话气泡 (舞台设置 › 基础设置).
-    await setTavernSettings({ castPresentation: true, stageToggles: { stage: true } })
+    await setCardStage({ dialogue: true, stage: true })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })
   if (castScenario) await step('开启对话头像', async () => {
     const chatUrl = page.url()
-    await setTavernSettings({ castPresentation: true })
+    await setCardStage({ dialogue: true })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })

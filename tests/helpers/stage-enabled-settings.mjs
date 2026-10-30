@@ -1,8 +1,6 @@
-import { defaultAssetEngineSettings } from '../../tavern-plugin/lib/domain/asset-engine-settings.js'
-// New profiles start with 对话气泡 and 舞台模式 off. Suites that exercise the stage
-// state that precondition explicitly with these settings; suites about the defaults use defaultAssetEngineSettings().
+// 对话气泡 and 舞台模式 are the card's own declaration (extensions.dsh_tavern.stage). Suites that exercise the stage
+// state that precondition on their fixture card with this; an ordinary card never has a stage.
 export const STAGE_ENABLED_TOGGLES = Object.freeze({ dialogue: true, stage: true })
-export function stageEnabledEngineSettings() {
-  const settings = defaultAssetEngineSettings()
-  return { ...settings, stageToggles: { ...settings.stageToggles, ...STAGE_ENABLED_TOGGLES } }
+export function stageEnabledExtension(extension) {
+  return { ...extension, stage: { ...(extension?.stage || {}), ...STAGE_ENABLED_TOGGLES } }
 }

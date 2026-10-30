@@ -7,7 +7,8 @@ import { normalizeBubbleInjection } from './dialogue-bubble-presets.js'
 import { createHash } from 'node:crypto'
 import { assertJson, check, shape, text, bool, array, unique, cloneJson, canonicalJson, parseJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
-export const STAGE_TOGGLES = Object.freeze(['dialogue','voice','stage','music','sfx','ambience','items','performance','entrance'])
+// 对话气泡 and 舞台模式 are no longer global: each card declares them (card-stage-settings.js).
+export const STAGE_TOGGLES = Object.freeze(['voice','music','sfx','ambience','items','performance','entrance'])
 export const ENGINE_SECTION = 'tavern-asset-engine'
 // camera.close is the sole close-up dimension.
 export const DIRECTOR_DIMENSIONS = Object.freeze(Object.keys(directorCommands.dimensions))
@@ -20,7 +21,7 @@ export const DIALOGUE_COLOR_TOKENS = Object.freeze(['--gal-ui-ink', '--gal-ui-in
 const id = (value, path) => check(typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value) && !['constructor', 'prototype', '__proto__'].includes(value), path)
 const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && value >= min && value <= max, path)
 export function defaultAssetEngineSettings() {
-  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,!['dialogue','stage'].includes(key)])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
+  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,true])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
     dimensions:Object.fromEntries(ENGINE_DIMENSIONS.map(key => [key, true])), actionCaps:{...ACTION_CAPS},
     voiceServices:{}, judge:defaultJudgeConfig(), narrator:{enabled:false, voice:null} }
 }
@@ -65,6 +66,8 @@ export function validateAssetEngineSettings(value) {
   value.stageToggles.performance ??= true
   // 入场演出 - the stage opens with the card's entrance asset (stage-entrance.js); default on.
   value.stageToggles.entrance ??= true
+  // The retired global 对话气泡 / 舞台模式 switches of settings saved before they became the card's.
+  delete value.stageToggles.dialogue; delete value.stageToggles.stage
   shape(value.stageToggles, STAGE_TOGGLES, STAGE_TOGGLES, '$.stageToggles')
   for (const key of STAGE_TOGGLES) bool(value.stageToggles[key], '$.stageToggles.' + key)
   value.judge = validateJudgeConfig(value.judge ?? defaultJudgeConfig())
@@ -79,7 +82,7 @@ export function validateAssetEngineSettings(value) {
     array(value[key], '$.' + key, 128); unique(value[key].map(item => item.id), '$.' + key)
     for (const item of value[key]) { check(item.format === format, '$.' + key); validateEnginePreset(item) }
   }
-  // The sole dialogue switch is stageToggles.dialogue, not the retired dialogue.enabled.
+  // The dialogue switch is the card's (stage.dialogue), not the retired dialogue.enabled.
   if (value.dialogue && typeof value.dialogue === 'object' && !Array.isArray(value.dialogue)) delete value.dialogue.enabled
   // Retired dialogue.textLanguage is migrated offline, never read.
   shape(value.dialogue, ['emotions','injection'], ['emotions','injection'], '$.dialogue')

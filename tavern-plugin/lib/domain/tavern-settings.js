@@ -220,6 +220,8 @@ export function applyTavernSettingsPatch(current, patch) {
   const next = Object.assign({}, object(current))
   const input = object(patch)
   delete next.webAccess // Retired Tavern search settings never affect the host.
+  // The old stage's settings: the stage now has its own engine settings, and 对话气泡 / 舞台模式 are each card's.
+  for (const key of ['stageToggles', 'stageDimensions', 'stageActionCaps', 'stageSkin', 'castPresentation']) delete next[key]
 
   if (Object.hasOwn(input, 'defaultPlaySettings')) {
     const patch = object(input.defaultPlaySettings)

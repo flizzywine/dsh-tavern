@@ -10827,10 +10827,23 @@ window.__ModuleLoader__.load({
 		  // (asset-pack-engine-ui.js); a card has no command chips and its stored stage.dimensions is never read or written.
 
 		  // ---------- Pure helpers (tests/card-centric-stage-ui.test.mjs) ----------
-		  // Global switches share the backend defaults; card preferences remain card-owned.
+		  // 对话气泡 and 舞台模式 are the card's own (stage.dialogue / stage.stage): a card that declares them has a stage, an ordinary
+		  // card never does. Every other switch is global and shares the backend defaults.
+		  const CARD_SWITCHES=['dialogue','stage'];
 		  function stagePrefs(ext,engine) {
+		    const {dialogue:_dialogue,stage:_stage,...global}=engine?.values?.stageToggles||{};
 		    return {widgets:false,...(ext?.stage||{}),
-		      dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,...engine?.values?.stageToggles};
+		      voice:true,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,...global,
+		      dialogue:ext?.stage?.dialogue===true,stage:ext?.stage?.stage===true};
+		  }
+		  // Writes switches where each lives: the card's two into this card, the rest into the global settings.
+		  function stageWrite(writer,changes) {
+		    const card={},global={};
+		    for(const [key,value] of Object.entries(changes))(CARD_SWITCHES.includes(key)?card:global)[key]=value;
+		    const jobs=[];
+		    if(Object.keys(card).length)jobs.push(writer.write(ext=>stagePatch(ext,card)));
+		    if(Object.keys(global).length)jobs.push(writer.global(global));
+		    return Promise.all(jobs);
 		  }
 		  // What actually runs: every switch needs its upstream switches on.
 		  function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice,stage:dialogue&&!!prefs.stage}; }
@@ -10990,7 +11003,7 @@ window.__ModuleLoader__.load({
 		    const ttsState=!binding.tts?'off':services.value&&!services.value.length?'empty':'ok';
 		    // machine service settings return to the page, never to a retired card voice editor.
 		    const openVoice=()=>{writeStageReturn(stageSession(),{label:'返回舞台设置',payload:{cardPath:path}});return nav?.openTab?.(VOICE_TAB);};
-		    const enable=key=>writer.global(stageEnable(key));
+		    const enable=key=>stageWrite(writer,stageEnable(key));
 		    const status=writer.status;
 		    const saveState=h('span',{className:'ap-save-state',role:'status','data-state':typeof status==='object'?'error':status},status==='saving'?'正在保存…':status==='saved'?'已保存':'');
 		    const wizardButton=stageSetupReady(binding)&&h('button',{type:'button',className:'ap-manage ap-wizard-open',ref:wizardReturn,onClick:()=>setWizard(true)},'设置向导');
@@ -11114,7 +11127,7 @@ window.__ModuleLoader__.load({
 		  // 5.2: the only solid button on the page.
 		  function StageFirstRun({writer,cardName}) {
 		    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState('');
-		    async function start(){setBusy(true);setError('');try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{}}));}catch(e){setError(errorText(e));}finally{setBusy(false);}}
+		    async function start(){setBusy(true);setError('');try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{dialogue:true,stage:true}}));}catch(e){setError(errorText(e));}finally{setBusy(false);}}
 		    return h('div',{className:'ap-first-run'},
 		      h('p',{className:'ap-first-title'},'这张卡还没有舞台设置'),
 		      h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'启用舞台（对话气泡）'),
@@ -11215,10 +11228,10 @@ window.__ModuleLoader__.load({
 		  // 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
 		  // follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
 		  // dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
-		  const STAGE_BASIC_HELP='这些开关对所有卡生效；某张卡没有对应素材时，导演不会收到相关说明。';
+		  const STAGE_BASIC_HELP='对话气泡和舞台模式只对这张卡生效，带舞台的人物卡导入时会自己打开；其余开关对所有卡生效。某张卡没有对应素材时，导演不会收到相关说明。';
 		  const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
 		  function StageSwitches({ctx}) {
-		    const {prefs,active,writer}=ctx,set=(key,value)=>writer.global({[key]:value});
+		    const {prefs,active,writer}=ctx,set=(key,value)=>stageWrite(writer,{[key]:value});
 		    const row=(key,status,onOpen)=>{const blocked=stageMissing(key,active).some(k=>k!==key);
 		      return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],checked:prefs[key],disabled:blocked,help:blocked?(key==='stage'?'先打开对话气泡':stageNeedText(key,active)):undefined,onChange:v=>set(key,v),status,onOpen});};
 		    // Sounds play on the stage: greyed (stored value kept) while 舞台模式 is off, like a dependent switch.

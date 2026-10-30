@@ -3,7 +3,8 @@ import { createStageDirector } from '../../tavern-plugin/lib/domain/stage-direct
 import { createAssetRuntime } from '../../tavern-plugin/lib/asset-runtime.js'
 import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
 import { createBackgroundTaskCoordinator } from '../../tavern-plugin/lib/domain/background-task-coordinator.js'
-import { stageEnabledEngineSettings } from './stage-enabled-settings.mjs'
+import { stageEnabledExtension } from './stage-enabled-settings.mjs'
+import { defaultAssetEngineSettings } from '../../tavern-plugin/lib/domain/asset-engine-settings.js'
 import { createSessionSignalTransport } from '../../tavern-plugin/lib/domain/session-signal-transport.js'
 import { syntheticPack, cardExtension, PACK_ID } from '../fixtures/asset-packs/pack.mjs'
 const clone = value => structuredClone(value)
@@ -11,7 +12,7 @@ export const deferred = () => {let resolve; const promise = new Promise(r => {re
 export const answer = {sequence:1, through:2, done:true, beats:[{at:1,ops:[{op:"scene.set", background:{packId:PACK_ID,kind:'backgrounds',assetId:'classroom'}, time:'day'}]},{at:2,ops:[{op:"scene.set", background:{packId:PACK_ID,kind:'backgrounds',assetId:'classroom'}, time:'dusk'}]}]}
 export const GREETINGS = ['Synthetic greeting.\n\nSynthetic hello.', 'Alternate greeting.']
 // `greeting` starts the chat with a card greeting (turn 1) instead of a directed reply.
-export async function fixture(model, {bound = true, tts, getBinding, greeting = false, extension = cardExtension(), sessionId = 'session', paragraphParts, bodyForTurn, timedWidgets = false, configurePack, engineValues = {}, foreground, judge, mods, log} = {}) {
+export async function fixture(model, {bound = true, tts, getBinding, greeting = false, extension = stageEnabledExtension(cardExtension()), sessionId = 'session', paragraphParts, bodyForTurn, timedWidgets = false, configurePack, engineValues = {}, foreground, judge, mods, log} = {}) {
   const pack = await syntheticPack(), packListeners = new Set(), engineListeners = new Set(), effects = []
   // new-schema tests author figures explicitly without changing legacy-record fixtures.
   configurePack?.(pack)
@@ -31,7 +32,7 @@ export async function fixture(model, {bound = true, tts, getBinding, greeting = 
   const services = new Map([['assetLibrary',library],...(tts ? [['tts',tts]] : [])])
   const ctx = {get:key => services.get(key), inject(names, fn) {if(names.every(name => services.has(name))) fn(this)}, effect(fn) {effects.push(fn())}}
   // engineValues overrides engine settings (e.g. directorModel).
-  const engineSettings = {read:() => ({values:{...stageEnabledEngineSettings(),...engineValues},revision:engineRevision}), subscribe(fn) {engineListeners.add(fn); return () => engineListeners.delete(fn)}}
+  const engineSettings = {read:() => ({values:{...defaultAssetEngineSettings(),...engineValues},revision:engineRevision}), subscribe(fn) {engineListeners.add(fn); return () => engineListeners.delete(fn)}}
   const assets = createAssetRuntime({ctx,readWorkspace:async () => clone(workspace),engineSettings,getBinding})
   const signals = createSessionSignalTransport()
   let n = 0, director
