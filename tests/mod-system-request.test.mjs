@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {Context} from '@deepseek-ai/cordis'
+import {createRequire} from 'node:module'
+import {pathToFileURL} from 'node:url'
+// cordis is the DSH host's: load it from the runtime the test runner names (DSH_BOOT_MODULE), else beside the plugin.
+const hostRequire=createRequire(process.env.DSH_BOOT_MODULE ? pathToFileURL(process.env.DSH_BOOT_MODULE) : new URL('../tavern-plugin/package.json',import.meta.url))
+const {Context}=await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/cordis')).href)
 import {createTavernPluginApi} from '../tavern-plugin/lib/plugin-api.js'
 import {createManagedModHost} from '../tavern-plugin/lib/domain/mod-system-host.js'
 import {emptyCardMods,emptyGlobalMods} from '../tavern-plugin/lib/domain/mod-system-contract.js'

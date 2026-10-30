@@ -10,10 +10,11 @@ function setup() {
   const rpc = async (_, { payload }) => { state.calls.push(payload.name); if (payload.name === 'bad.json') throw new Error('invalid card'); return { card: { path: payload.name } } }
   const parseCardFile = async file => file
   const run = new Function('busy', 'importing', 'setBusy', 'setError', 'setImportStatus', 'rpc', 'parseCardFile', 'notifyTavernDataChanged', 'refreshCards', 'loadCard',
-    'importTavernCardFile', 'tavernCardAssetNotice', body + '; return importCardFiles;')(
+    'importTavernCardFile', 'tavernCardAssetNotice', 'forkCardZip', body + '; return importCardFiles;')(
     false, importing, value => { state.busy = value }, value => { state.error = value }, value => { state.status = value },
     rpc, parseCardFile, () => {}, async () => { state.refreshes++ }, async path => { state.loads.push(path) },
-    async (file, call) => call('importCard', { payload: await parseCardFile(file) }), () => '')
+    async (file, call) => call('importCard', { payload: await parseCardFile(file) }), () => '',
+    null) // no asset library: card ZIPs are not routed to its import sheet here
   return { state, run, importing }
 }
 

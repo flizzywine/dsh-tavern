@@ -77,7 +77,7 @@ test('opening stop/release/expiry cancels only its own pending generations and a
   assert.equal(signals.get(first.id).aborted, true)
 })
 
-test('没有开场白的卡从空白开局，只有备选开场白时默认取第一个备选', async () => {
+test('没有开场白的卡从空白开局，只有备选开场白时默认取第一个备选（作者写的空备选也算，与 SillyTavern 一致）', async () => {
   const cards = { blank: { name: '未命名角色', first_mes: '', alternate_greetings: [] }, alternates: { name: '备选', first_mes: '', alternate_greetings: ['', '第二幕'] } }
   const service = createOpeningPreparation({ readCard: async path => cards[path], worldBooks: { bound: async () => null } })
   const blank = await service.create('blank')
@@ -86,7 +86,9 @@ test('没有开场白的卡从空白开局，只有备选开场白时默认取�
   assert.deepEqual(resolved.openingMessages, {})
   assert.throws(() => service.resolve(blank.id, 'blank', 'primary'), /人物卡开场白不存在/)
   const alternates = await service.create('alternates')
-  assert.equal(service.resolve(alternates.id, 'alternates', '').openingId, 'alternate:1')
+  // SillyTavern keeps an authored empty alternate as a blank swipe, so it is the first choice; 第二幕 stays selectable.
+  assert.equal(service.resolve(alternates.id, 'alternates', '').openingId, 'alternate:0')
+  assert.equal(service.resolve(alternates.id, 'alternates', 'alternate:1').openingId, 'alternate:1')
 })
 
 test('普通开场白只取草稿 id，需要时才生成整份展示投影', async () => {
