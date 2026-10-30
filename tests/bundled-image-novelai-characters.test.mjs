@@ -113,7 +113,9 @@ test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色�
     payloads.push(JSON.parse(init.body))
     return new Response(PNG, { status: 200, headers: { 'content-type': 'image/png' } })
   }
-  t.after(() => { globalThis.fetch = oldFetch })
+  // The plugin's job runner keeps going after the test; stop it before the real fetch is back, or a late job
+  // reaches the network (image.test) and keeps the process alive.
+  t.after(() => { for (const dispose of disposeHandlers.splice(0).reverse()) dispose(); for (const dispose of disposers.splice(0).reverse()) dispose(); globalThis.fetch = oldFetch })
   const request = (route, body, method = 'POST') => new Promise((resolve, reject) => {
     const request = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))])
     Object.assign(request, { url: route, method, headers: { host: 'localhost', 'content-type': 'application/json' } })
@@ -129,7 +131,9 @@ test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色�
   const emptyResult = await request('/plugins/dsh-tavern-image/redraw', { jobId: sourceId, prompt: '<scene_composition>new scene</scene_composition>' })
   assert.equal(emptyResult.status, 200)
   assert.equal(emptyResult.body.ok, true)
-  for (let i = 0; payloads.length < 1 && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  // Jobs run in the background; a busy machine (the full suite in parallel) can take seconds to send one.
+  const sent = async count => { for (const deadline = Date.now() + 10000; payloads.length < count && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 10)) }
+  await sent(1)
   assert.deepEqual(payloads[0]?.parameters.v4_prompt.caption.char_captions, [])
   assert.equal(payloads[0]?.parameters.v4_negative_prompt.caption.char_captions.length, 0)
 
@@ -139,7 +143,7 @@ test('真实 /redraw handler 接受显式空角色 DSL，并只对原始角色�
   const detailResult = await request('/plugins/dsh-tavern-image/job-detail?id=' + roleResult.body.jobId, undefined, 'GET')
   assert.equal(detailResult.status, 200)
   assert.deepEqual(detailResult.body.job.characters, [{ prompt: 'Alice', centers: '', uc: 'manual exclusion' }])
-  for (let i = 0; payloads.length < 2 && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  await sent(2)
   const rolePayload = payloads[1]
   assert.equal(rolePayload?.parameters.v4_prompt.caption.char_captions[0]?.char_caption, 'Alice')
   const roleNegative = rolePayload?.parameters.v4_negative_prompt.caption.char_captions[0]?.char_caption ?? ''
