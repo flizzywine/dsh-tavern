@@ -109,3 +109,18 @@ test('global choices and preferences use the native settings revision, change no
   await assert.rejects(owner.compareAndSwap({expectedRevision:before.revision,expectedValue:before.value,value:next}),{code:'MOD_REVISION_CONFLICT'})
   dispose();assert.throws(()=>owner.read(),{code:'MOD_DISABLED'})
 })
+
+// Copied card files can share an identity: listing keeps the first and leaves the copy out,
+// instead of refusing the whole list (which kept Tavern from starting).
+test('card owners list a duplicated card identity once, keeping the first file', async () => {
+  const { createManagedModCardOwner } = await import('../tavern-plugin/lib/domain/mod-system-choices.js')
+  const { createModCardOwner } = await import('../tavern-plugin/lib/mod-owners.js')
+  const files = { 'cards/a.json': 'same-id', 'cards/a-copy.json': 'same-id', 'cards/b.json': 'other-id' }
+  const deps = { listPaths: async () => Object.keys(files), readWorkspace: async path => ({ meta: { id: files[path], updatedAt: 1 }, raw: { data: {} } }) }
+  const warn = console.warn; console.warn = () => {}
+  try {
+    for (const owner of [createManagedModCardOwner(deps), createModCardOwner(deps)]) {
+      assert.deepEqual((await owner.list()).map(row => row.cardId), ['same-id', 'other-id'])
+    }
+  } finally { console.warn = warn }
+})

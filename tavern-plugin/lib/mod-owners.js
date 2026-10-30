@@ -2,6 +2,7 @@ import z from '@deepseek-ai/schemastery'
 import { installSettingsSection, settingsSectionProvider } from './native-settings.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import {rawData} from './domain/card-preparation.js'
+import {warnDuplicateCard} from './domain/mod-system-choices.js'
 import {validateModCardBindings} from './domain/mods/card-bindings.js'
 import contract from '../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check,modShape:shape,modJson,modFreeze} = contract
@@ -67,7 +68,9 @@ export function createModCardOwner({cardPreparation,listPaths,readWorkspace,writ
       for (const path of await listPaths()) {
         const workspace = await readWorkspace(path)
         if (!workspace) continue
-        check(!paths.has(workspace.meta.id), '$.cardId', 'Duplicate card identity', 'MOD_REVISION_CONFLICT')
+        // Copied card files can share an identity; the first keeps its mods, a copy is left out
+        // (refusing the whole list would keep Tavern from starting).
+        if (paths.has(workspace.meta.id)) { warnDuplicateCard(paths.get(workspace.meta.id), path); continue }
         paths.set(workspace.meta.id,path)
         rows.push({cardId:workspace.meta.id,revision:revision(workspace),value:value(workspace)})
       }

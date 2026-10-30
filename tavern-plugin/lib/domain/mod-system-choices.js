@@ -3,6 +3,14 @@ import {rawData} from './card-preparation.js'
 import {emptyCardMods,validateModSystem,modError} from './mod-system-contract.js'
 import {resolveMods} from './mod-system.js'
 
+// Copied card files can share an identity. Listing runs often: each copy is logged once.
+const warnedDuplicates=new Set()
+export function warnDuplicateCard(kept,skipped) {
+  if(warnedDuplicates.has(skipped))return
+  warnedDuplicates.add(skipped)
+  console.warn('dsh-tavern: 人物卡身份重复，mod 设置只跟随第一张：',kept,skipped)
+}
+
 // Resolve a proposed card edit before the existing card owner publishes it.
 export function planCardModChoices({previous=emptyCardMods(),card,global,manifests,authorized=[],enableDependencies=[]}) {
   validateModSystem('card',card)
@@ -36,7 +44,9 @@ export function createManagedModCardOwner({cardPreparation,listPaths,readWorkspa
       for(const path of await listPaths()) {
         const workspace=await readWorkspace(path)
         if(!workspace)continue
-        if(next.has(workspace.meta.id))throw modError('MOD_REVISION_CONFLICT','Duplicate card identity',{cardId:workspace.meta.id})
+        // Copied card files can share an identity; the first keeps its mods, a copy is left out
+        // (refusing the whole list would keep Tavern from starting).
+        if(next.has(workspace.meta.id)){warnDuplicateCard(next.get(workspace.meta.id),path);continue}
         next.set(workspace.meta.id,path);rows.push({cardId:workspace.meta.id,revision:revision(workspace),value:value(workspace)})
       }
       paths.clear();for(const [id,path] of next)paths.set(id,path)
