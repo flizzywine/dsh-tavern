@@ -42,6 +42,7 @@ async function mount(t, outcome) {
         confirmSessionPatch: {},
         syncSession: { sync: sync() },
         getSession: { view: { mode: 'story', latestAssistantTurn: 1, activity: { busy: false }, tavernHelper: { messages: [] } } },
+        getActiveInterfaceSkin: { css: '' },
       }
       if (!(method in responses)) unexpected.push(method)
       result = { ok: true, ...responses[method] }
@@ -57,9 +58,9 @@ async function mount(t, outcome) {
     const sessionState = { current: '', byId: {} }
     const ctx = {
       inject() { return { dispose() {} } },
-      get() {},
+      get() {}, provide() {},
       effect(run, label) {
-        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions'].includes(label)) return run()
+        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: round actions in composer'].includes(label)) return run()
         return () => {}
       },
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
@@ -70,9 +71,10 @@ async function mount(t, outcome) {
     window.client.apply(ctx)
     const React = modules.react
     modules['react-dom/client'].createRoot(document.querySelector('#sidebar')).render(React.createElement(slots['sidebar.workspaces'], {
-      wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }),
+      wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
     }))
-    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-tavern-candidate-actions'], {
+    // A top-level play session shows its round actions in the composer (input.left).
+    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-fork-round-actions'], {
       sessionId: 'game', useSession: select => select({ running: false }), useInput: select => select({ draft: '' }),
       useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-1' }] } }),
     }))
