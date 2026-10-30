@@ -141,10 +141,23 @@
 			const [apiKey, setApiKey] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [message, setMessage] = React.useState("");
+			const [listed, setModels] = React.useState([]);
 			// browser speech is one provider of the page's 「语音服务」,
 			// not a second channel here; this section lists the online and plugin channels only.
 			const providers = settings ? settings.providers.filter(function (item) { return !item.browser; }) : [];
 			const provider = providers.find(function (item) { return item.id === chosen; }) || null;
+			// The saved channel whose service lists its models (Fish /v1/info) offers them under 模型, for the address as saved;
+			// a channel only picked asks nothing until it is saved.
+			const discovers = Boolean(provider && provider.discovers && settings.provider === chosen), saved = provider ? JSON.stringify(provider.fields.map(function (item) { return item.value; })) + provider.hasKey : "";
+			React.useEffect(function () {
+				setModels([]);
+				if (!discovers) return;
+				let live = true;
+				rpc("speechServiceInfo", { provider: chosen }).then(function (info) { if (live) setModels(info.models || []); }, function () {});
+				return function () { live = false; };
+			}, [chosen, discovers, saved]);
+			// Only the channel that listed them shows them, from the very render that switches away.
+			const models = discovers ? listed : [];
 			React.useEffect(function () {
 				if (!settings || chosen) return;
 				const active = providers.find(function (item) { return item.id === settings.provider; }) || providers[0];
@@ -190,8 +203,10 @@
                         provider && provider.description ? h(HelpTip, { label: "配音渠道说明" }, provider.description) : null),
 						h(InlineField, { kind: "menu", value: chosen, disabled: busy, label: "配音渠道", hideLabel: true, onCommit: pick,
                             options: providers.map(item => ({ value: item.id, label: item.label + (item.owner ? "（插件 " + item.owner + "）" : "") })) })),
-					provider ? provider.fields.map(function (item) { return field(item.name, item.label, item.placeholder); }) : null,
-					provider && provider.key ? h("div", { className: "dsh-tavern-speech-field" }, h("span", null, keyLabel + (provider.hasKey ? "（已保存，留空沿用）" : "")),
+					provider ? provider.fields.map(function (item) { return field(item.name, item.label, item.placeholder, item.name === "model" && models.length ? "dsh-tavern-speech-models" : undefined); }) : null,
+					models.length ? h("datalist", { id: "dsh-tavern-speech-models" }, models.map(function (model) { return h("option", { key: model.id, value: model.id, label: model.label }); })) : null,
+					models.length ? h("p", { className: "dsh-tavern-settings-desc" }, "服务提供的模型：" + models.map(function (model) { return model.label; }).join("、")) : null,
+					provider && provider.key ? h("div", { className: "dsh-tavern-speech-field" }, h("span", null, keyLabel + (provider.hasKey ? "（已保存，留空沿用）" : provider.keyOptional ? "（选填）" : "")),
 						h(InlineField, { secret: true, value: apiKey, disabled: busy, label: keyLabel, hideLabel: true, onCommit: setApiKey })) : null,
 					field("voice", "默认声音", "", "dsh-tavern-speech-voices"),
 					field("narratorVoice", "旁白声音", "留空则旁白不念", "dsh-tavern-speech-voices"),
