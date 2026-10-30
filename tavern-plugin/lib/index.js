@@ -1,9 +1,8 @@
-import { createForkHandlers } from './rpc/fork.js'
+import { createStageHandlers } from './rpc/stage.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
 import { readCardVariableSources } from './domain/card-variable-bindings.js'
-import { frozenStageBackground, assertFrozenStageRequest } from './domain/stage-shared-context.js'
 import { createForegroundCapabilities } from './domain/foreground-capabilities.js'
 import { isWorldBookTemplateEntry, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import { createSkillTextContext } from './domain/skill-text-context.js'
@@ -2338,6 +2337,13 @@ export async function apply(ctx) {
   void branchOrigin.sweep().catch(error => console.warn('dsh-tavern: 检查旧分支会话头部失败', error?.message || error))
   const runtimePresetSnapshots = new Map()
   const BACKGROUND_TOOLS = [POSTURE_SUBMIT_TOOL, CHARACTER_DESIGN_READ_TOOL, CHARACTER_DESIGN_SAVE_TOOL, CHARACTER_DESIGN_REUSE_TOOL, MVU_SUBMIT_UPDATE_TOOL, CANDIDATE_SUBMIT_TOOL, SCRIPT_READ_TOOL, SCRIPT_POINT_TOOL, LEDGER_SUBMIT_TOOL]
+  // What a background task asks of the runner beyond the game's background defaults, declared by the task's owner:
+  // ownModel (keep the selection it brings), webSearch: false, cardContext: false (no card/worldbook injection),
+  // frozenContext(input) → a frozen shared context {worldbook, stablePrefix, stablePrefixRevision} or null.
+  // The stage module declares its director's; 精修 brings its own model.
+  const backgroundTaskPolicies = new Map([['polish', { ownModel: true }]])
+  const taskPolicy = input => backgroundTaskPolicies.get(input?.task) || {}
+  const frozenContext = input => taskPolicy(input).frozenContext?.(input) || null
   const backgroundAgentRunner = createBackgroundAgentRunner({
     retirement: backgroundRetirement,
     onRunFinished: run => { try { storyEvents.emit('task-finished', run) } catch (error) { console.warn('dsh-tavern: 任务完成通知失败', str(error?.message || error)) } },
@@ -2347,8 +2353,8 @@ export async function apply(ctx) {
     // Nor does it learn of a new one; the same signal reloads the list so the header counts it.
     onCreated: (_id, parentId) => sessionSignals.publish(parentId, { kind: 'subagents', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) }),
     systemAppend: () => runtimePrompt('system-append'),
-    resolveModelSelection: async input => ['stage-director', 'polish'].includes(input.task) ? input.selection : backgroundModelSelection(await backgroundConfigForSession(input.sessionId)) || input.selection,
-    resolveWebSearch: async input => input.task !== 'stage-director' && (await backgroundConfigForSession(input.sessionId))?.webSearchEnabled === true,
+    resolveModelSelection: async input => taskPolicy(input).ownModel ? input.selection : backgroundModelSelection(await backgroundConfigForSession(input.sessionId)) || input.selection,
+    resolveWebSearch: async input => taskPolicy(input).webSearch !== false && (await backgroundConfigForSession(input.sessionId))?.webSearchEnabled === true,
     resolveWorldbookSkills: async () => true,
     backgroundTools: BACKGROUND_TOOLS,
     // Set up after the runner: plugin tools are read when a background Session is set up.
@@ -2368,10 +2374,10 @@ export async function apply(ctx) {
       return chat?.backgroundSessionStatus === 'needs-session'
     },
     resolveCurrentWorldbook: async function (input) {
-      const frozen = frozenStageBackground(input)
+      const frozen = frozenContext(input)
       if (frozen) return frozen.worldbook
       if (input.preparedWorldbook !== undefined) return input.preparedWorldbook
-      if (input.task === 'stage-director') return undefined
+      if (taskPolicy(input).cardContext === false) return undefined
       // The server template engine owns absolute history and reads old floors
       // on demand. Only its variable scope needs a proven latest snapshot here.
       const recent = await readOpeningWindow(input.sessionId)
@@ -2380,14 +2386,14 @@ export async function apply(ctx) {
       return chat ? await nativeWorldBookTemplateContext(chat, await readChatCard(chat)) : undefined
     },
     resolveStablePrefixRevision: async input => {
-      const frozen = frozenStageBackground(input)
+      const frozen = frozenContext(input)
       return frozen ? frozen.stablePrefixRevision : Number((await backgroundConfigForSession(input.sessionId))?.cardContextRevision) || 0
     },
     resolveStablePrefix: async function (input) {
-      const frozen = frozenStageBackground(input)
+      const frozen = frozenContext(input)
       if (frozen) return frozen.stablePrefix
-      // director preview is its whole prompt, with no card/worldbook injection.
-      if (input.task === 'stage-director') return ''
+      // A task whose prompt is whole without the card (the director preview) gets no card/worldbook injection.
+      if (taskPolicy(input).cardContext === false) return ''
       // Image tasks share the opening snapshot; current-worldbook replacement stays disabled above
       // because a requested illustration may target an earlier story turn.
       const header = await chatHeaderForSession(input.sessionId, ['cardContextSnapshot', 'cardContextSnapshotVersion', 'cardEditContext', 'cardReferenceContext'])
@@ -2467,7 +2473,9 @@ export async function apply(ctx) {
     }
   })
   // 舞台、导演与 mod（stage-module.js）。
-  const stageModule = await createStageModule({ctx, dataRoot, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
+  // Work other modules report as busy to the deployment gate (getDeploymentActivity).
+  const deploymentWork = []
+  const stageModule = await createStageModule({ctx, dataRoot, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   modService = stageModule.modService
   const {managedModManagement, modConfigHost, stageDirector} = stageModule
   observeStageChat = stageDirector.observe // own director tasks with plugin/chat lifetimes
@@ -3661,6 +3669,7 @@ export async function apply(ctx) {
     configureAgentCompaction: { get: () => configureAgentCompaction },
     deletedChatIds: { get: () => deletedChatIds },
     deploymentActivity: { get: () => deploymentActivity },
+    deploymentWork: { get: () => deploymentWork },
     describeOpeningScenes: { get: () => describeOpeningScenes },
     dialogueBubblePresets: { get: () => dialogueBubblePresets },
     dialogueBubbles: { get: () => dialogueBubbles },
@@ -3737,7 +3746,7 @@ export async function apply(ctx) {
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps),
-    createForkHandlers(rpcDeps))
+    createStageHandlers(rpcDeps))
   rpcHandlers.getStageTimer = rpcHandlers.updateStageTimer
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   for (const method of ['getJudgeConfig', 'saveJudgeConfig', 'getJudgeCredentialStatus', 'setJudgeKey']) rpcHandlers[method] = rpcHandlers.testJudgeConnection

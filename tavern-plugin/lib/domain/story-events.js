@@ -14,6 +14,8 @@ export const STORY_EVENTS = Object.freeze({
   'turn-settled': '本轮结算完',
   // { sessionId, turn }: a reply failed or was stopped, and its turn is thrown away.
   'turn-discarded': '回合作废',
+  // { sessionId, turn, withdrawn }: the player stopped the turn (舞台的「停止」); `withdrawn`: its reply never committed.
+  'turn-interrupted': '回合打断',
   // { sessionId, kind }: the story was rolled back, a reply regenerated or edited, or a
   // rollback undone (kind: rollback / regenerate / edit / undo-rollback).
   'story-rewound': '剧情回退或改写',

@@ -1,4 +1,4 @@
-import { createForkHandlers } from '../tavern-plugin/lib/rpc/fork.js'
+import { createStageHandlers } from '../tavern-plugin/lib/rpc/stage.js'
 // tagged English defaults; retain protocol, payload, cache and budget assertions.
 // historical vocabulary is fixture data, not a runtime default.
 // include source literally, without String.replace replacement-token expansion.
@@ -283,7 +283,7 @@ async function bubbleRpcFixture({chat,config,placement,foregroundCapabilities}) 
     dialogueBubbles:{snapshot:async()=>({config:normalizeBubbleConfig(config),requireAvailable:()=>normalizeBubbleConfig(config)})},dialogueBubblePresets:{list:async()=>[]},
     DEFAULT_BUBBLE_TEMPLATE,bubbleInstructionPreview,bubbleInjection,readDialogueBubblePlacement:async()=>placement,
     worldBooks:{},normalizeBubbleConfig,str:value=>String(value || ''),assetEngineSettings:{read:()=>({values:{dialogue:config}})},foregroundCapabilities}
-  const handlers = createForkHandlers(dependencies)
+  const handlers = createStageHandlers(dependencies)
   return (method, args) => handlers[method](args, method)
 }
 

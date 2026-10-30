@@ -26,10 +26,11 @@ import {createCgGallery} from './cg-gallery.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {stageReadCarries} from './domain/stage-read-projection.js'
+import {frozenStageBackground} from './domain/stage-shared-context.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
-  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
   let modService
   // Enumerating the built-in library must never migrate legacy card files.
   const readModCard = async cardPath => {
@@ -173,6 +174,14 @@ export async function createStageModule(core) {
     }
   })
   ctx.effect(() => () => stageDirector.dispose(), 'dsh-tavern: dispose stage director')
+  // A stopped turn takes its director with it; deployment waits while a director runs.
+  ctx.effect(() => storyEvents.on('turn-interrupted', '停止舞台导演', ({sessionId, turn}) => {
+    stageDirector.cancel({sessionId}, turn)
+    backgroundAgentRunner.cancel(sessionId, {task:'stage-director'})
+  }), 'dsh-tavern: stop the director with its turn')
+  deploymentWork.push(() => ({director:{busy:stageDirector.pendingCount() > 0}}))
+  // The director brings its own model, never searches the web, and reads the context frozen for it, never the card's.
+  backgroundTaskPolicies.set('stage-director', {ownModel:true, webSearch:false, cardContext:false, frozenContext:frozenStageBackground})
   return {modService, managedModManagement, modConfigHost, stageDirector}
 }
 

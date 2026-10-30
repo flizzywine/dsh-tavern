@@ -1,19 +1,12 @@
 import { widgetSourceRounds } from '../domain/widget-window-projection.js'
 import { NARRATOR_VOICE } from '../domain/asset-pack-speech.js'
+import { phoneMark, phoneMarkRounds as phoneRounds } from '../../mods/phone/call-context.js'
+// The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
+// They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
 // A dsh.phone message mark: the phone reads in full only the earlier rounds whose record binds a phone view and marks one.
-
-// requests use the same authenticated dispatcher and canonical service owners.
-export function createForkHandlers(deps) {
+export function createStageHandlers(deps) {
   const { ctx } = deps
   return {
-    
-    
-    
-    
-    
-    
-    
-    
     // DEV DIAGNOSTICS.
     
     async readWidgetVariables(args, method, serverTemplate, authority) {
@@ -405,10 +398,6 @@ return assetEngineSettings.importPreset(args || {})
       const { assetEngineSettings } = deps
 return assetEngineSettings.exportPreset(args || {})
     },
-    async getFrameStorage(args, method, serverTemplate, authority) {
-      const { frameStorage } = deps
-return { values: await frameStorage.read() }
-    },
     async previewStageDirectorPrompt(args, method, serverTemplate, authority) {
       const { chatForSession, dialogueBubbles, stageDirector, str } = deps
 
@@ -488,21 +477,6 @@ return spineRuntimeStatus()
 return importSpineRuntime(args)
     },
     
-    async setCardScriptMuted(args, method, serverTemplate, authority) {
-      const { cardScripts, cardStage, chatForSession, readCardExtensions, str } = deps
-
-        const chat = await chatForSession(args && args.sessionId)
-        if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
-        const extensions = await readCardExtensions(chat.cardPath, chat, true)
-        const scripts = await cardScripts.list(extensions?.helperScripts, chat.cardPath)
-        if (method === 'setCardScriptMuted') {
-          const id = typeof args?.id === 'string' ? args.id.trim() : ''
-          if (!scripts.scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
-          await cardScripts.setMuted(chat.cardPath, id, args.muted)
-        }
-        return { cardName: str(chat.cardName), cardId: await cardStage.resolve(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
-
-    },
     async previewForegroundVoicePlan(args, method, serverTemplate, authority) {
       const { chatForSession, foregroundCapabilities } = deps
 
@@ -554,14 +528,6 @@ return await dialogueBubblePresets.remove(args && args.presetId)
         return { config, ...bubbleInstructionPreview(config, { userName: chat?.macroState?.userName }), warnings: config.voiceWarnings || [] }
 
     },
-    async getModelPricing(args, method, serverTemplate, authority) {
-      const { modelSelection, routerPricing } = deps
-return await routerPricing.quote(modelSelection(args && args.sessionId))
-    },
-    async updateFrameStorage(args, method, serverTemplate, authority) {
-      const { frameStorage } = deps
-return await frameStorage.update(args && args.ops)
-    },
     async prepareAssetGeneration(args, method, serverTemplate, authority) {
       const { assetGeneration, assetGenerationResult } = deps
 return assetGenerationResult(() => assetGeneration.prepare(args))
@@ -606,73 +572,5 @@ return assetGenerationResult(() => assetGeneration.prompts())
       const { assetGeneration, assetGenerationResult } = deps
 return assetGenerationResult(() => assetGeneration.setPrompt(args))
     },
-    async reserveCardZipTarget(args, method, serverTemplate, authority) {
-      const { cardZipTargets } = deps
-return await cardZipTargets.reserve()
-    },
-    async releaseCardZipTarget(args, method, serverTemplate, authority) {
-      const { cardZipTargets, normalizeResourcePath, path } = deps
-return cardZipTargets.release(normalizeResourcePath(args && args.path, 'card'))
-    },
-    async duplicateCard(args, method, serverTemplate, authority) {
-      const { duplicateCard, path } = deps
-return { card: await duplicateCard(args && args.path, args && args.name) }
-    },
-    async getDeploymentActivity(args, method, serverTemplate, authority) {
-      const { agentRegistry, backgroundAgentRunner, backgroundTasks, deploymentActivity, autoChoices, listTavernSessions, pluginSettlementProgress, speech, stageDirector, taskStateReader,  } = deps
-
-        const work = [], sessions = await listTavernSessions(), chats = []
-        for (const { sessionId } of sessions) chats.push(await taskStateReader.forSession(sessionId))
-        // No awaits from the live-owner snapshot through the hand-off return boundary.
-        for (const [index, { sessionId }] of sessions.entries()) {
-          const chat = chats[index], background = chat ? backgroundTasks.activity(chat) : null
-          work.push(deploymentActivity({
-            foreground: agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat?.regenInProgress,
-            background, director: background?.director,
-            progress: backgroundAgentRunner.progress(sessionId) || pluginSettlementProgress.snapshot(sessionId),
-            choices: autoChoices.isPending(sessionId)
-          }))
-        }
-        work.push(deploymentActivity({
-          foreground: agentRegistry.list().some(agent => agent.phase.kind !== 'idle'),
-          background: { busy: backgroundTasks.pendingCount() > 0 }, director: { busy: stageDirector.pendingCount() > 0 },
-          voice: speech.pendingCount()
-        }))
-        const reasons = [...new Set(work.flatMap(item => item.reasons))]
-        return { work: { version: 1, busy: reasons.length > 0, reasons } }
-
-    },
-    async interruptTurn(args, method, serverTemplate, authority) {
-      const { backgroundAgentRunner, chatForSession, interruptTurn, notifyPluginTimeline, pluginApi, reconcileStory, stageDirector } = deps
-
-        await reconcileStory(args && args.sessionId)
-        const view = await interruptTurn(args && args.sessionId, args && args.chatId)
-        // The stopped reply's staging goes with it: a withdrawn turn's director (and its plugin tasks) would only be
-        // discarded as stale; a body that committed first keeps its text and is read with heuristic staging. MVU
-        // settlement and the choices are left alone (the committed round's state; the choices have their own 停止).
-        const stopped = await chatForSession(args && args.sessionId)
-        if (stopped) {
-          // Only the stopped turn's director (its latest body); the previous turn's choices and 精修 keep running.
-          const turn = Object.values(stopped.timeline?.operations || {}).findLast(op => op?.kind === 'body')?.turn
-          stageDirector.cancel(stopped, turn)
-          backgroundAgentRunner.cancel(stopped.sessionId, { task: 'stage-director' })
-          if (view.withdrawn) pluginApi.stopTasks(stopped.sessionId)
-        }
-        if (view.withdrawn) notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: null })
-        return { view }
-
-    },
-    async stopChoices(args, method, serverTemplate, authority) {
-      const { backgroundAgentRunner, backgroundTasks, candidateTasks, autoChoices, str } = deps
-
-        autoChoices.cancel(args && args.sessionId)
-        const stopped = await candidateTasks.cancel({ sessionId: args && args.sessionId, taskId: args && args.taskId })
-        if (stopped.operationId) {
-          backgroundAgentRunner.cancel(str(args && args.sessionId), { task: 'candidate' })
-          await backgroundTasks.recover({ id: stopped.chatId }, { operationId: stopped.operationId })
-        }
-        return { sync: stopped.sync }
-
-    }
   }
 }

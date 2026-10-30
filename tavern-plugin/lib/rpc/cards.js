@@ -102,5 +102,30 @@ export function createCardHandlers(deps) {
       const characterBook = await worldBooks.characterBookForCard(cardPath)
       return { document: cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook }) }
     },
+    async reserveCardZipTarget(args, method, serverTemplate, authority) {
+      const { cardZipTargets } = deps
+return await cardZipTargets.reserve()
+    },
+    async releaseCardZipTarget(args, method, serverTemplate, authority) {
+      const { cardZipTargets, normalizeResourcePath, path } = deps
+return cardZipTargets.release(normalizeResourcePath(args && args.path, 'card'))
+    },
+    async duplicateCard(args, method, serverTemplate, authority) {
+      const { duplicateCard, path } = deps
+return { card: await duplicateCard(args && args.path, args && args.name) }
+    },
+    async setCardScriptMuted(args, method, serverTemplate, authority) {
+      const { cardScripts, cardStage, chatForSession, readCardExtensions, str } = deps
+        const chat = await chatForSession(args && args.sessionId)
+        if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
+        const extensions = await readCardExtensions(chat.cardPath, chat, true)
+        const scripts = await cardScripts.list(extensions?.helperScripts, chat.cardPath)
+        if (method === 'setCardScriptMuted') {
+          const id = typeof args?.id === 'string' ? args.id.trim() : ''
+          if (!scripts.scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
+          await cardScripts.setMuted(chat.cardPath, id, args.muted)
+        }
+        return { cardName: str(chat.cardName), cardId: await cardStage.resolve(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
+    },
   }
 }

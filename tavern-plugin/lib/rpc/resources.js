@@ -196,5 +196,13 @@ export function createResourceHandlers(deps) {
     async listGuideLibrary(args) {
       return { items: await guideLibrary.list() }
     },
+    async getFrameStorage(args, method, serverTemplate, authority) {
+      const { frameStorage } = deps
+return { values: await frameStorage.read() }
+    },
+    async updateFrameStorage(args, method, serverTemplate, authority) {
+      const { frameStorage } = deps
+return await frameStorage.update(args && args.ops)
+    },
   }
 }

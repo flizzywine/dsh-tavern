@@ -107,6 +107,29 @@ export function createMaintenanceHandlers(deps) {
     async captureDisplayRuntime(args) {
       return await displayRuntimeCaptures.capture(args && args.sessionId, args && args.turn, args && args.partIndex, args && args.runtime)
     },
+    async getDeploymentActivity(args, method, serverTemplate, authority) {
+      const { agentRegistry, backgroundAgentRunner, backgroundTasks, deploymentActivity, deploymentWork, autoChoices, listTavernSessions, pluginSettlementProgress, taskStateReader } = deps
+        const work = [], sessions = await listTavernSessions(), chats = []
+        for (const { sessionId } of sessions) chats.push(await taskStateReader.forSession(sessionId))
+        // No awaits from the live-owner snapshot through the hand-off return boundary.
+        for (const [index, { sessionId }] of sessions.entries()) {
+          const chat = chats[index], background = chat ? backgroundTasks.activity(chat) : null
+          work.push(deploymentActivity({
+            foreground: agentRegistry.get(sessionId)?.phase?.kind === 'running' || chat?.regenInProgress,
+            background, director: background?.director,
+            progress: backgroundAgentRunner.progress(sessionId) || pluginSettlementProgress.snapshot(sessionId),
+            choices: autoChoices.isPending(sessionId)
+          }))
+        }
+        work.push(deploymentActivity({
+          // Each game's background work is checked above, from its own save; speech keeps no running count.
+          foreground: agentRegistry.list().some(agent => agent.phase.kind !== 'idle')
+        }))
+        // Work other modules registered (the stage director): each reports what deploymentActivity reads.
+        for (const report of deploymentWork) work.push(deploymentActivity(report()))
+        const reasons = [...new Set(work.flatMap(item => item.reasons))]
+        return { work: { version: 1, busy: reasons.length > 0, reasons } }
+    },
   }
   handlers.upgradeSave = handlers.getSaveUpgrade
   return handlers

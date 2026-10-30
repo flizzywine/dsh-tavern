@@ -280,5 +280,33 @@ export function createPlayHandlers(deps) {
     async retryMvuSettlement(args) {
       return { view: await retrySettlement(args && args.sessionId, args && args.turn, args && args.guidance) }
     },
+    async interruptTurn(args, method, serverTemplate, authority) {
+      const { chatForSession, interruptTurn, notifyPluginTimeline, pluginApi, reconcileStory, storyEvents } = deps
+        await reconcileStory(args && args.sessionId)
+        const view = await interruptTurn(args && args.sessionId, args && args.chatId)
+        // The stopped reply's staging goes with it: a withdrawn turn's director (and its plugin tasks) would only be
+        // discarded as stale; a body that committed first keeps its text and is read with heuristic staging. MVU
+        // settlement and the choices are left alone (the committed round's state; the choices have their own 停止).
+        const stopped = await chatForSession(args && args.sessionId)
+        if (stopped) {
+          // Only the stopped turn's work (its latest body) follows it, e.g. the stage director; the previous turn's
+          // choices and 精修 keep running.
+          const turn = Object.values(stopped.timeline?.operations || {}).findLast(op => op?.kind === 'body')?.turn
+          storyEvents.emit('turn-interrupted', { sessionId: stopped.sessionId, turn, withdrawn: view.withdrawn === true })
+          if (view.withdrawn) pluginApi.stopTasks(stopped.sessionId)
+        }
+        if (view.withdrawn) notifyPluginTimeline(args && args.sessionId, 'rollback', { turn: null })
+        return { view }
+    },
+    async stopChoices(args, method, serverTemplate, authority) {
+      const { backgroundAgentRunner, backgroundTasks, candidateTasks, autoChoices, str } = deps
+        autoChoices.cancel(args && args.sessionId)
+        const stopped = await candidateTasks.cancel({ sessionId: args && args.sessionId, taskId: args && args.taskId })
+        if (stopped.operationId) {
+          backgroundAgentRunner.cancel(str(args && args.sessionId), { task: 'candidate' })
+          await backgroundTasks.recover({ id: stopped.chatId }, { operationId: stopped.operationId })
+        }
+        return { sync: stopped.sync }
+    },
   }
 }

@@ -112,6 +112,10 @@ return { settings: await readTavernSettings(), modModelSlots: await slotDeclarat
       if (!['create', 'duplicate', 'select', 'rename', 'delete'].includes(action)) throw new Error('未知的系统提示词方案操作')
       return { systemPrompts: presentSystemPrompts(await updateTavernSettings({ promptSet: { action, id: args.id, name: args.name } })) }
     },
+    async getModelPricing(args, method, serverTemplate, authority) {
+      const { modelSelection, routerPricing } = deps
+return await routerPricing.quote(modelSelection(args && args.sessionId))
+    },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel
   handlers.setConversationBackgroundConfig = handlers.setConversationBackgroundModel
