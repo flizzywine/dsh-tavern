@@ -75,13 +75,14 @@ export function createForegroundHandoff(options = {}) {
     return true
   }
 
-  async function recover(chatIds) {
+  // startedBefore: when this process started; work begun since then is live, not left over.
+  async function recover(chatIds, { startedBefore } = {}) {
     if (typeof store.readChat !== 'function' || typeof tasks.recover !== 'function') return
     for (const chatId of chatIds || []) {
       try {
         const chat = await (store.readState || store.readChat)(chatId)
         if (chat === undefined) continue
-        await tasks.recover(chat)
+        await tasks.recover(chat, startedBefore ? { startedBefore } : {})
       } catch (error) {
         logger.error('dsh-tavern: 恢复后台周期失败 ' + str(chatId), error && error.message || error)
       }

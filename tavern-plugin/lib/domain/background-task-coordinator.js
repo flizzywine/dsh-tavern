@@ -476,7 +476,7 @@ export function createBackgroundTaskCoordinator(options = {}) {
       if (options.operationId && activity(source).operationId !== options.operationId) {
         return { chat: source, status: 'stale', activity: activity(source) }
       }
-      const next = timeline.apply({ chat: source, intent: { kind: 'background.recover', cancelDelivery: Boolean(options.operationId) } })
+      const next = timeline.apply({ chat: source, intent: { kind: 'background.recover', cancelDelivery: Boolean(options.operationId), ...(options.startedBefore ? { startedBefore: options.startedBefore } : {}) } })
       if (next.value.status !== 'unchanged') { await store.writeChat(next.chat, { source: 'background.recover' }); slotReleased(chatId) }
       return { chat: next.chat, status: next.value.status, activity: activity(next.chat) }
     })

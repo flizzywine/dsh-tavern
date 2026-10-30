@@ -3436,7 +3436,7 @@ export async function apply(ctx) {
     await resourceGraph.recover()
     return await readIndex()
   }
-  async function recoverRuntimeHistory(recoveredIndex) {
+  async function recoverRuntimeHistory(recoveredIndex, startedBefore) {
     const activeChatIds = []
     for (const row of recoveredIndex.chats || []) {
       try { await recoverRegeneration(row.id) }
@@ -3456,8 +3456,9 @@ export async function apply(ctx) {
       } catch (error) { console.warn('dsh-tavern: 对话预设恢复失败', chat.id, error) }
       await syncChatSummary(chat)
     }
-    await foregroundHandoff.recover(activeChatIds)
-    await candidateTasks.recover(activeChatIds)
+    // Runs after the service is ready: work started since startup belongs to this process and is left alone.
+    await foregroundHandoff.recover(activeChatIds, { startedBefore })
+    await candidateTasks.recover(activeChatIds, { startedBefore })
     // Recovery must first convert durable running operations back to pending.
     void mvuSettlementReconciler.scan()
   }
@@ -4204,10 +4205,11 @@ export async function apply(ctx) {
   }
 
   try {
+    const startedAt = Date.now()
     const recoveredIndex = await initializeRuntimeState()
     settleRuntimeReadiness({ ok: true })
     setImmediate(function () {
-      recoverRuntimeHistory(recoveredIndex).catch(function (error) {
+      recoverRuntimeHistory(recoveredIndex, startedAt).catch(function (error) {
         console.error('dsh-tavern: 后台恢复历史对话失败', error && error.message || error)
       })
     })

@@ -67,3 +67,22 @@ test('mailbox scoped writes retry revision conflicts without reading or overwrit
   assert.equal((await mailbox.sync('c',{requestId:'r'})).task.status,'succeeded')
   assert.equal(chat.story,'concurrent')
 })
+
+test('startup recovery interrupts only tasks an earlier process left running', async () => {
+  // History recovery runs after the service is ready; a task begun since startup is live work of this process.
+  let chat = { id: 'c', taskMailbox: { version: 1, latestByKind: { candidate: 'fresh' }, tasks: {
+    old: { taskId: 'old', kind: 'candidate', status: 'running', requestId: 'r1', input: {}, createdAt: 100 },
+    fresh: { taskId: 'fresh', kind: 'candidate', status: 'running', requestId: 'r2', input: {}, createdAt: 300 }
+  } } }
+  const mailbox = createDurableTaskMailbox({
+    store: {
+      readState: async () => structuredClone(chat),
+      readChat: async () => structuredClone(chat),
+      writeChat: async value => { chat = structuredClone(value); return value }
+    },
+    reconcile: () => null
+  })
+  await mailbox.recover('c', { startedBefore: 200 })
+  assert.equal(chat.taskMailbox.tasks.old.status, 'interrupted')
+  assert.equal(chat.taskMailbox.tasks.fresh.status, 'running')
+})

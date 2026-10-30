@@ -235,13 +235,15 @@ export function createDurableTaskMailbox(options = {}) {
     })
   }
 
-  async function recover(chatId) {
+  // startedBefore: when this process started; a task begun since then is live, not left over by a restart.
+  async function recover(chatId, { startedBefore } = {}) {
+    const leftOver = task => str(task?.status) === 'running' && !(Number(startedBefore) > 0 && Number(task.createdAt) >= Number(startedBefore))
     return await serialize(chatId, async function () {
       if (store.readState) {
         const state = await store.readState(chatId)
         if (!state) return { mailboxVersion: 0, tasks: [] }
         const mailbox = mailboxOf(state)
-        if (!Object.values(mailbox.tasks).some(task => task?.status === 'running')) {
+        if (!Object.values(mailbox.tasks).some(leftOver)) {
           return { mailboxVersion: mailbox.version, tasks: Object.values(mailbox.tasks).map(publicTask) }
         }
       }
@@ -250,7 +252,7 @@ export function createDurableTaskMailbox(options = {}) {
       const mailbox = mailboxOf(chat)
       let changed = false
       for (const task of Object.values(mailbox.tasks)) {
-        if (!task || str(task.status) !== 'running') continue
+        if (!leftOver(task)) continue
         const repair = await reconcile(chat, publicTask(task))
         changed = applyPatch(mailbox, task, repair && typeof repair === 'object' ? repair : {
           status: 'interrupted', stage: 'interrupted', error: '服务重启中断了本次后台任务'

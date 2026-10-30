@@ -160,9 +160,9 @@ export function createCandidateTasks({ chats, generator, backgroundTasks, sessio
     return { operationId: prepared.operationId, basedOn: prepared.basedOn }
   }
 
-  async function recover(chatIds) {
+  async function recover(chatIds, options) {
     for (const chatId of chatIds) {
-      const recovered = await taskMailbox.recover(chatId)
+      const recovered = await taskMailbox.recover(chatId, options)
       for (const task of recovered.tasks) {
         if (task.kind === 'candidate' && task.status === 'queued') scheduleCandidateTask(chatId, task)
       }
