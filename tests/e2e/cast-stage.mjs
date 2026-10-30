@@ -199,73 +199,29 @@ export async function castCardFileChecks({ page, step, report, savedChat }) {
   })
 }
 
-// 大肥鱼.dshcard (examples/dafeiyu-card): import it with its plugin,
-// play a turn, and see the card plugin's stage. Runs last: it opens a game of another card.
+// 大肥鱼.dshcard (examples/dafeiyu-card): it carries no plugin; Tavern's stage draws it from its bound packs.
+// Import it, turn the stage on, open a game and enter the stage. Runs last: it opens a game of another card.
 const DEMO_CARD = fileURLToPath(new URL('../../examples/dafeiyu-card/大肥鱼.dshcard', import.meta.url))
 
 export async function dshCardPlayChecks({ page, step, output, report }) {
   const cardFile = process.env.TAVERN_E2E_DSHCARD || (existsSync(DEMO_CARD) ? DEMO_CARD : '')
   if (!cardFile) return
-  await step('大肥鱼 DSH 人物卡：导入即带上卡内插件，开局后舞台由卡内插件导演', async () => {
+  await step('大肥鱼 DSH 人物卡：导入即带上素材包，打开舞台后由 Tavern 的舞台演出', async () => {
     const started = Date.now()
     const card = await importArchive(page, '大肥鱼.dshcard', await readFile(cardFile))
-    report.dafeiyu = { importMs: Date.now() - started, sprites: card.assets?.sprites, packs: card.packs.map(item => item.title + ' ' + item.files), plugins: card.plugins.map(item => item.name) }
+    report.dafeiyu = { importMs: Date.now() - started, packs: card.packs.map(item => item.title + ' ' + item.files), plugins: card.plugins.map(item => item.name) }
+    assert.deepEqual(card.plugins, [], '卡里不带插件')
+    assert.equal(card.packs.length, 4)
     const call = (method, args) => page.evaluate(async ([method, args]) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json(), [method, args])
-    assert.deepEqual(card.plugins.map(item => item.enabled), [true])
-    let reply = null
-    for (let attempt = 0; attempt < 60; attempt++) {
-      reply = await call('callPluginHandler', { name: 'dsh-card-dafeiyu-galgame/scene', args: {} })
-      if (!/没有名为/.test(reply.error || '')) break
-      await page.waitForTimeout(500)
-    }
-    assert.doesNotMatch(reply.error || '', /没有名为/, '卡内插件启用后加载')
-    // 舞台模式 is global and needs 对话气泡; the card's plugin directs once both are on.
-    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true } } })
+    // 舞台 and 对话气泡 are global switches (舞台设置 › 基础设置), off by default.
+    await call('updateTavernSettings', { patch: { castPresentation: true, stageToggles: { stage: true, dialogue: true } } })
     await page.reload()
     await page.getByRole('button', { name: /选择人物卡.*新开游玩/ }).click()
     await page.getByText('大肥鱼', { exact: true }).first().click()
     await page.getByRole('button', { name: '开始新游戏', exact: true }).click()
-    const composer = page.getByRole('textbox', { name: /发消息|Message/ })
-    await composer.waitFor()
-    // A new game opens its settings and status tabs first; open the stage after that.
-    await page.getByText(/人物设计档案/).filter({ visible: true }).first().waitFor()
-    // The stage look is a row of 舞台设置 › 基础设置 once a plugin offers a stage view.
-    await openStagePanel(page, '舞台设置')
-    const choice = page.getByRole('combobox', { name: '舞台样式' })
-    await choice.locator('option', { hasText: '大肥鱼舞台' }).waitFor({ state: 'attached' })
-    await choice.selectOption({ label: '大肥鱼舞台（dsh-card-dafeiyu-galgame）' })
+    await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
     await page.getByRole('button', { name: '舞台', exact: true }).click()
-    const tab = page.locator('.dsh-tavern-stage-overlay')
-    // The opening scene comes from the card: living room at night, its music, the maid outfit.
-    await tab.getByText(/^现代客厅 · ♪ /).waitFor()
-    const portrait = tab.locator('img[alt="大肥鱼"]')
-    await portrait.waitFor()
-    const opening = await portrait.getAttribute('src')
-    report.dafeiyu.opening = await tab.getByText(/^现代客厅 · ♪ /).textContent()
-    await page.screenshot({ path: join(output, 'dafeiyu-opening.png') })
-    await page.keyboard.press('Escape')
-    await composer.fill('一起去地铁站吧')
-    await composer.press('Enter')
-    // The settlement directs the next scene (the fixed model picks the Claude outfit): the portrait changes.
-    await page.getByText('一起去地铁站吧', { exact: true }).filter({ visible: true }).first().waitFor()
-    await page.locator('[data-chat-flow-kind="turn-tail"]').last().waitFor({ timeout: 120000 })
-    // What the card plugin directed for this turn (the fixed model picks the Claude outfit, night, the first track).
-    const game = ((await call('listSessions', {})).sessions || []).find(item => item.cardPath === card.path)
-    assert.ok(game, '找到大肥鱼的这一局')
-    // Settlement finishes after the reply; poll until it has directed this turn.
-    let directed = null
-    for (let attempt = 0; attempt < 120; attempt++) {
-      directed = await call('callPluginHandler', { name: 'dsh-card-dafeiyu-galgame/scene', args: { gameId: game.sessionId, turn: 2 } })
-      if (directed.ok && directed.result.figure.outfit !== '女仆装') break
-      await page.waitForTimeout(500)
-    }
-    assert.equal(directed.ok, true, JSON.stringify(directed))
-    assert.equal(directed.result.figure.outfit, 'Claude')
-    assert.equal(directed.result.time, 'night')
-    report.dafeiyu.directed = { background: directed.result.background.name, outfit: directed.result.figure.outfit, music: directed.result.music.name }
-    await page.getByRole('button', { name: '舞台', exact: true }).click()
-    // Reopening uses the updated scene.
-    await page.waitForFunction(([selector, before]) => { const image = document.querySelector(selector); return image && image.offsetParent && image.getAttribute('src') !== before }, ['.dsh-tavern-stage-overlay img[alt="大肥鱼"]', opening], { timeout: 30000 })
+    await page.locator('.fork-gal-mount').waitFor()
     await page.waitForTimeout(800)
     await page.screenshot({ path: join(output, 'dafeiyu-stage.png') })
     await page.keyboard.press('Escape')

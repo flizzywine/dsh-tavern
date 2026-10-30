@@ -3,7 +3,8 @@
 // content-addressed: a re-encoded file gets a new hash, and every reference to it (the
 // pack manifest, figures, sprites, the card's own assets) follows. With --drop-live2d the
 // Live2D models go (the sample card shows static standing pictures); other bundles stay.
-// The card plugin is refreshed from ./plugin. Needs cwebp and ffmpeg (with libopus) on PATH.
+// The card carries no plugin: Tavern's stage draws it from its bound packs, so an earlier build's galgame
+// plugin and its retired defaults.stage are dropped. Needs cwebp and ffmpeg (with libopus) on PATH.
 //
 //   node examples/dafeiyu-card/compress.mjs 大肥鱼.source.dshcard 大肥鱼.dshcard --drop-live2d
 import { execFile } from 'node:child_process'
@@ -12,10 +13,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { fileURLToPath } from 'node:url'
 import { openZipFile } from '../../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
-import { pluginManifestProblem } from '../../tavern-plugin/lib/domain/plugin-manifest.js'
 import { packContentHash } from '../../tavern-plugin/lib/domain/asset-packs.js'
 
 const run = promisify(execFile)
@@ -24,10 +23,6 @@ const dropLive2d = process.argv.includes('--drop-live2d')
 if (!source || !target) { console.error('用法：node compress.mjs <输入.dshcard> <输出.dshcard>'); process.exit(1) }
 
 // Validate before opening source archives or producing a distributable.
-const pluginDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'plugin')
-const pluginManifest = JSON.parse(await readFile(path.join(pluginDir, 'package.json'), 'utf8'))
-const manifestProblem = pluginManifestProblem(pluginManifest)
-if (manifestProblem) throw new Error(pluginDir + ': ' + manifestProblem)
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const MIME = { webp: 'image/webp', ogg: 'audio/ogg', png: 'image/png' }
@@ -52,11 +47,10 @@ const files = new Map()
 for (const entry of zip.entries.values()) files.set(entry.path, await zip.readBuffer(entry, 512 * 1024 * 1024))
 await zip.close()
 const dsh = JSON.parse(files.get('dsh.json').toString('utf8'))
-// The card plugin always comes from ./plugin, so a distributed card never carries a stale copy.
-for (const file of ['client.js', 'index.mjs', 'package.json']) files.set('plugins/galgame/' + file, await readFile(path.join(pluginDir, file)))
-// dsh.json names the plugin as its package.json does.
-const pluginName = pluginManifest.name
-for (const plugin of dsh.plugins || []) if (plugin.path === 'plugins/galgame/') plugin.name = pluginName
+// No card plugin any more (Tavern's stage draws the card from its packs): drop an earlier build's.
+for (const file of [...files.keys()]) if (file.startsWith('plugins/')) files.delete(file)
+delete dsh.plugins
+if (dsh.defaults) delete dsh.defaults.stage
 
 // Live2D models: their bundle files, the manifest's bundle entries and each outfit's binding.
 if (dropLive2d) {

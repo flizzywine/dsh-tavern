@@ -1,5 +1,5 @@
 // Build 大肥鱼.source.dshcard (the raw source for compress.mjs) from the Galgame fork's card bundle (Wiki「设计：dsh-card-format」):
-// the card, its four asset packs as they are, and the galgame card plugin in ./plugin.
+// the card and its four asset packs as they are. It carries no plugin: Tavern's stage draws it from those packs.
 //
 //   node examples/dafeiyu-card/build.mjs dafeiyu.card-bundle.zip 大肥鱼.source.dshcard
 //
@@ -10,17 +10,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openZipFile } from '../../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../../tavern-plugin/lib/domain/zip-entries.js'
-import { pluginManifestProblem } from '../../tavern-plugin/lib/domain/plugin-manifest.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const [source, target] = process.argv.slice(2)
 if (!source || !target) { console.error('用法：node build.mjs <dafeiyu.card-bundle.zip> <输出.dshcard>'); process.exit(1) }
-
-// Validate before opening source archives or producing a distributable.
-const pluginDir = path.join(here, 'plugin')
-const pluginManifest = JSON.parse(await readFile(path.join(pluginDir, 'package.json'), 'utf8'))
-const manifestProblem = pluginManifestProblem(pluginManifest)
-if (manifestProblem) throw new Error(pluginDir + ': ' + manifestProblem)
 
 // Readable folder names for the packs; each pack keeps its id in its own manifest.json.
 const NAMES = { '8eb406da-b0af-4070-9e67-8e056c5e9b2e': 'dafeiyu', 'af7b2c46-40f1-4ea5-984b-5c03108a238d': 'china-backgrounds',
@@ -65,14 +58,10 @@ entries.push({ path: 'card.json', content: JSON.stringify(card, null, 2) })
 // The recommended preset for new games (dsh.json defaults).
 for (const file of await readdir(path.join(here, 'presets'))) entries.push({ path: 'presets/' + file, content: await readFile(path.join(here, 'presets', file)) })
 
-// The card plugin: everything in ./plugin.
-for (const file of await readdir(pluginDir)) entries.push({ path: 'plugins/galgame/' + file, content: await readFile(path.join(pluginDir, file)) })
-
 entries.push({ path: 'dsh.json', content: JSON.stringify({
   format: 'dshcard', formatVersion: 1,
   card: { version: '1.0.0', title: data.name, author: data.creator || '' },
   requires: { tavernApi: 2 },
-  plugins: [{ name: pluginManifest.name, path: 'plugins/galgame/', purpose: '每轮导演舞台：换场景、时段、服装和背景音乐，在舞台上显示' }],
   // A new game starts with the stage-friendly preset and settlement on; no status bar, no web search.
   defaults: {
     preset: { path: 'presets/dafeiyu-stage.json', title: '大肥鱼 · 舞台演出' },
@@ -82,4 +71,4 @@ entries.push({ path: 'dsh.json', content: JSON.stringify({
 }, null, 2) })
 await zip.close()
 await writeFile(target, writeZipEntries(entries))
-console.log('已生成 ' + target + '：' + entries.length + ' 个文件，' + packs.length + ' 个素材包，1 个卡内插件')
+console.log('已生成 ' + target + '：' + entries.length + ' 个文件，' + packs.length + ' 个素材包')

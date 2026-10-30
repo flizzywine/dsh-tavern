@@ -17,6 +17,13 @@ async function temp(t) {
 function run(script, ...args) {
   return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' })
 }
+async function archive(file) {
+  const zip = await openZipFile(file)
+  try {
+    const dsh = JSON.parse((await zip.readBuffer(zip.entries.get('dsh.json'), 65536)).toString())
+    return { dsh, paths: [...zip.entries.keys()] }
+  } finally { await zip.close() }
+}
 async function manifest(file, folder) {
   const zip = await openZipFile(file)
   try { return JSON.parse((await zip.readBuffer(zip.entries.get('plugins/' + folder + '/package.json'), 65536)).toString()) }
@@ -32,7 +39,9 @@ test('hello example builds a real archive with the plugin package identity', asy
   assert.equal(pkg.version, '1.0.0')
 })
 
-test('dafeiyu build and distribution compressor preserve the validated identity in real ZIPs', async t => {
+// 大肥鱼 carries no plugin: Tavern's stage draws it from its bound packs. The compressor also strips
+// an earlier build's galgame plugin and its retired defaults.stage.
+test('dafeiyu build and distribution compressor produce a card without a plugin in real ZIPs', async t => {
   const dir = await temp(t)
   const source = path.join(dir, 'bundle.zip'), built = path.join(dir, 'source.dshcard'), distributed = path.join(dir, 'distributed.dshcard')
   const packId = '8eb406da-b0af-4070-9e67-8e056c5e9b2e'
@@ -46,19 +55,31 @@ test('dafeiyu build and distribution compressor preserve the validated identity 
     ...Object.entries(files).map(([path, value]) => ({ path, content: JSON.stringify(value) })),
     { path: 'cover.png', content: Buffer.from('fixture') },
   ]))
-  for (const [script, input, output] of [['build.mjs', source, built], ['compress.mjs', built, distributed]]) {
-    const result = run(path.join(root, 'examples/dafeiyu-card', script), input, output)
-    assert.equal(result.status, 0, result.stderr)
-    const pkg = await manifest(output, 'galgame')
-    assert.equal(pkg.name, 'dsh-card-dafeiyu-galgame')
-    assert.equal(pkg.version, '1.0.0')
-  }
+  let result = run(path.join(root, 'examples/dafeiyu-card/build.mjs'), source, built)
+  assert.equal(result.status, 0, result.stderr)
+  let card = await archive(built)
+  assert.equal(card.dsh.plugins, undefined)
+  assert.equal(card.paths.some(file => file.startsWith('plugins/')), false)
+  // A card built before: it still carries the plugin and asks for the stage.
+  const zip = await openZipFile(built), entries = []
+  for (const entry of zip.entries.values()) entries.push({ path: entry.path, content: await zip.readBuffer(entry, 64 * 1024 * 1024) })
+  await zip.close()
+  const dsh = { ...card.dsh, plugins: [{ name: 'dsh-card-dafeiyu-galgame', path: 'plugins/galgame/' }], defaults: { ...card.dsh.defaults, stage: true } }
+  const old = path.join(dir, 'old.dshcard')
+  await writeFile(old, writeZipEntries([...entries.filter(entry => entry.path !== 'dsh.json'), { path: 'dsh.json', content: JSON.stringify(dsh) },
+    { path: 'plugins/galgame/package.json', content: JSON.stringify({ name: 'dsh-card-dafeiyu-galgame', version: '1.0.0' }) }]))
+  result = run(path.join(root, 'examples/dafeiyu-card/compress.mjs'), old, distributed)
+  assert.equal(result.status, 0, result.stderr)
+  card = await archive(distributed)
+  assert.equal(card.dsh.plugins, undefined)
+  assert.equal(card.dsh.defaults.stage, undefined)
+  assert.equal(card.paths.some(file => file.startsWith('plugins/')), false)
 })
 
 test('all card packagers reject missing, blank, and non-string identity before reading inputs or writing output', async t => {
   const dir = await temp(t)
   await symlink(path.join(root, 'tavern-plugin'), path.join(dir, 'tavern-plugin'), 'dir')
-  for (const relative of ['dshcard-hello/build.mjs', 'dafeiyu-card/build.mjs', 'dafeiyu-card/compress.mjs']) {
+  for (const relative of ['dshcard-hello/build.mjs']) {
     const script = path.join(dir, 'examples', relative), plugin = path.join(path.dirname(script), 'plugin')
     await mkdir(plugin, { recursive: true })
     await copyFile(path.join(root, 'examples', relative), script)
