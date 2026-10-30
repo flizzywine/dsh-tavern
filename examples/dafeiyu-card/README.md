@@ -21,6 +21,6 @@ node examples/dshcard-png.mjs examples/dafeiyu-card/大肥鱼.dshcard examples/d
 
 使用：在 Tavern 的人物卡库导入 `.dshcard.png`（或 `.dshcard`），刷新页面；在「舞台设置 › 基础设置」打开「对话气泡」和「舞台」，开一局，点聊天顶部的「舞台」。
 
-`--cast` e2e 在 `大肥鱼.dshcard` 存在时会导入它玩一轮（也可以用 `TAVERN_E2E_DSHCARD` 指定别的路径）。
+`--cast` e2e 在 `大肥鱼.dshcard.png` 存在时会导入它玩一轮（也可以用 `TAVERN_E2E_DSHCARD` 指定别的路径）。
 
 第一版是样板，不复刻分支的全部功能：没有 Live2D、眨眼、口型、镜头、天气和模组。素材的署名与许可见卡内各素材包的 `credits/`。

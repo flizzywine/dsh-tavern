@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -201,14 +201,14 @@ export async function castCardFileChecks({ page, step, report, savedChat }) {
 
 // 大肥鱼.dshcard (examples/dafeiyu-card): it carries no plugin; Tavern's stage draws it from its bound packs.
 // Import it, turn the stage on, open a game and enter the stage. Runs last: it opens a game of another card.
-const DEMO_CARD = fileURLToPath(new URL('../../examples/dafeiyu-card/大肥鱼.dshcard', import.meta.url))
+const DEMO_CARD = fileURLToPath(new URL('../../examples/dafeiyu-card/大肥鱼.dshcard.png', import.meta.url))
 
 export async function dshCardPlayChecks({ page, step, output, report }) {
   const cardFile = process.env.TAVERN_E2E_DSHCARD || (existsSync(DEMO_CARD) ? DEMO_CARD : '')
   if (!cardFile) return
   await step('大肥鱼 DSH 人物卡：导入即带上素材包，打开舞台后由 Tavern 的舞台演出', async () => {
     const started = Date.now()
-    const card = await importArchive(page, '大肥鱼.dshcard', await readFile(cardFile))
+    const card = await importArchive(page, basename(cardFile), await readFile(cardFile))
     report.dafeiyu = { importMs: Date.now() - started, packs: card.packs.map(item => item.title + ' ' + item.files), plugins: card.plugins.map(item => item.name) }
     assert.deepEqual(card.plugins, [], '卡里不带插件')
     assert.equal(card.packs.length, 4)
