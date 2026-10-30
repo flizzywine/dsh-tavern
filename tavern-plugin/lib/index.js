@@ -3408,6 +3408,7 @@ export async function apply(ctx) {
     // input because the replayed history calls name that tool.
     storyToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
     storyInputToolCall: async () => (await readTavernSettings()).storyInputToolCall,
+    modEnabled: (modId, cardPath) => cardPath ? managedModManagement.enabled({ modId, cardPath }) : false,
     store: {
       chatForSession,
       storyContextForSession: sessionId => storyContext({ sessionId }),
@@ -4277,6 +4278,7 @@ export async function apply(ctx) {
     })))
     registerGameplayTools({
       authorizeMod: (modId,chat)=>managedModManagement.enabled({modId,cardPath:chat.cardPath}),
+      markModToolUsed: chat => updateChatHeader(chat.id, ['usedModTools'], current => ({ ...current, usedModTools: [...new Set([...(current.usedModTools || []), 'tavern_roll'])] })),
       activeTurnOf,
       chatForSession,
       isBackground: sessionId => backgroundAgentRunner.owns(sessionId),

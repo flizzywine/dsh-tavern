@@ -5,6 +5,7 @@ import { dshParameterFields } from '../domain/dsh-tool-schema.js'
 
 export function registerGameplayTools({
   authorizeMod,
+  markModToolUsed,
   activeTurnOf,
   chatForSession,
   isBackground,
@@ -13,7 +14,7 @@ export function registerGameplayTools({
   recallHistoryForSession,
   tools,
 }) {
-  tools.register(defineTool(createDiceTool({ activeTurnOf, chatForSession, isBackground, authorizeMod })))
+  tools.register(defineTool(createDiceTool({ activeTurnOf, chatForSession, isBackground, authorizeMod, markUsed: markModToolUsed })))
   tools.register(defineTool({
     name: 'tavern_test_response',
     description: '用正式游玩 API 为已保存人物卡创建独立测试存档，按保存的案例逐轮调用模型并检查拒绝信号。configure 保存案例，start 启动，status 查询（最多等待 10 秒），cancel 停止。最长 5 分钟；真实调用产生费用。不支持浏览器脚本卡。未发现拒绝不等于内容合规。',

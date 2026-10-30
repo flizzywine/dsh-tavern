@@ -95,6 +95,7 @@ function harness(mode, options = {}) {
   }
   const orchestrator = createTurnOrchestrator({
     storyToolCall: async () => options.storyToolCall === true,
+    modEnabled: async (modId, cardPath) => (options.enabledMods || []).includes(modId) && cardPath === 'cards/阿芙拉.json',
     storyInputToolCall: async () => options.storyInputToolCall === true,
     store,
     planner: {
@@ -365,4 +366,12 @@ test('本局前台工具可逐项关闭，卡片模式不受影响', async () =>
 
   const card = harness('card', { chatFields: { disabledForegroundTools: disabled } })
   assert.ok((await card.orchestrator.visibleTools('session-1')).includes('tavern_update_card'))
+})
+
+test('骰子工具只在本卡开了骰子 mod 时提供给正文模型，仍可逐项关闭', async () => {
+  assert.equal((await harness('story').orchestrator.visibleTools('session-1')).includes('tavern_roll'), false)
+  assert.equal((await harness('story', { enabledMods: ['dsh.dice'] }).orchestrator.visibleTools('session-1')).includes('tavern_roll'), true)
+  assert.equal((await harness('script', { enabledMods: ['dsh.dice'] }).orchestrator.visibleTools('session-1')).includes('tavern_roll'), true)
+  const off = harness('story', { enabledMods: ['dsh.dice'], chatFields: { disabledForegroundTools: ['tavern_roll'] } })
+  assert.equal((await off.orchestrator.visibleTools('session-1')).includes('tavern_roll'), false)
 })

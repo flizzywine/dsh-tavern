@@ -904,7 +904,7 @@ export function createTurnOrchestrator(options) {
 
   async function visibleTools(sessionId) {
     // Every model call asks: mode, the web-search switch and the disabled tools live in the header.
-    const chat = store.headerForSession ? await store.headerForSession(sessionId, ['mode', 'webSearchEnabled', 'disabledForegroundTools', 'worldbookStrategy', 'backgroundTasks'])
+    const chat = store.headerForSession ? await store.headerForSession(sessionId, ['mode', 'cardPath', 'usedModTools', 'webSearchEnabled', 'disabledForegroundTools', 'worldbookStrategy', 'backgroundTasks'])
       : await (store.stateForSession || store.chatForSession)(sessionId)
     if (chat === undefined || chat === null) return []
     const mode = chat.mode || 'story'
@@ -919,9 +919,12 @@ export function createTurnOrchestrator(options) {
     // Search and browse expose current real files; native read is restricted
     // to the calling game's effective static worldbook generation.
     const worldbookTools = ['read', 'worldbook_list', 'worldbook_grep']
+    // The dice tool belongs to the 骰子 mod: offered where the card has it on, or where this game's
+    // history already calls it (a replayed call needs its tool declared).
+    const modTools = (chat.usedModTools || []).includes('tavern_roll') || await options.modEnabled?.('dsh.dice', chat.cardPath) === true ? ['tavern_roll'] : []
     const names = mode === 'script'
-      ? ['tavern_roll', 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
-      : ['tavern_roll', 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
+      ? [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_read_script', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
+      : [...modTools, 'tavern_read_variables', 'skill', 'tavern_read_skill_reference', 'tavern_recall_history', ...worldbookTools, ...webTools, ...storyTools]
     if (mode === 'story' && chat.backgroundTasks?.styleReference === true) names.push('style_reference_submit')
     const disabled = new Set(normalizeDisabledForegroundTools(chat.disabledForegroundTools))
     return names.filter(name => !disabled.has(name))

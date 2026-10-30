@@ -13,7 +13,7 @@ export const DICE_TOOL = {
   }
 }
 
-export function createDiceTool({ activeTurnOf, chatForSession, isBackground, authorizeMod = async () => true }) {
+export function createDiceTool({ activeTurnOf, chatForSession, isBackground, authorizeMod = async () => true, markUsed = async () => {} }) {
   return {
     ...DICE_TOOL,
     output: {
@@ -35,6 +35,8 @@ export function createDiceTool({ activeTurnOf, chatForSession, isBackground, aut
         throw new Error('tavern_roll requires an active foreground story/script turn')
       }
       if (!await authorizeMod('dsh.dice',chat)) throw new Error('Dice mod is disabled for this card')
+      // Its calls now sit in this game's history: keep the tool declared even if the mod goes off later.
+      if (!(chat.usedModTools || []).includes(DICE_TOOL.name)) await markUsed(chat)
       return rollDice(args)
     }
   }

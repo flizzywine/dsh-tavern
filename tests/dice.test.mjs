@@ -70,10 +70,20 @@ test('registered tool returns full hidden record, gates execution and keeps sche
   await assert.rejects(tool.execute(args, { agent: { session: { id: 'background' }, phase: exec.agent.phase } }))
   await assert.rejects(tool.execute(args, { agent: { session: { id: 'front' }, phase: { kind: 'idle' } } }))
   await assert.rejects(tool.execute(args, { ...exec, signal: { aborted: true } }))
-  for (mode of ['story', 'script', 'card']) {
-    const orchestrator = createTurnOrchestrator({ store: { chatForSession: deps.chatForSession }, frameBuilder: { build() {} } })
-    assert.equal((await orchestrator.visibleTools('front')).includes('tavern_roll'), mode !== 'card')
+  // Offered where the card has the 骰子 mod on, or where this game's history already calls it.
+  for (const [enabled, usedModTools] of [[true, undefined], [false, ['tavern_roll']], [false, undefined]]) {
+    for (mode of ['story', 'script', 'card']) {
+      const orchestrator = createTurnOrchestrator({ store: { chatForSession: async () => ({ mode, cardPath: 'cards/a.json', usedModTools }) },
+        modEnabled: async modId => enabled && modId === 'dsh.dice', frameBuilder: { build() {} } })
+      assert.equal((await orchestrator.visibleTools('front')).includes('tavern_roll'), mode !== 'card' && (enabled || Boolean(usedModTools)))
+    }
   }
+  mode = 'story'
+  const marked = []
+  await createDiceTool({ ...deps, markUsed: async chat => marked.push(chat) }).execute(args, exec)
+  assert.equal(marked.length, 1, 'the first roll marks the game')
+  await createDiceTool({ ...deps, chatForSession: async () => ({ mode: 'story', usedModTools: ['tavern_roll'] }), markUsed: async chat => marked.push(chat) }).execute(args, exec)
+  assert.equal(marked.length, 1, 'a marked game is not written again')
   const diceRules = JSON.parse(await readFile(new URL('../tavern-plugin/mods/dice/mod.json', import.meta.url), 'utf8')).prompts.find(row => row.id === 'rules').markdown
   assert.ok(diceRules.includes('costly'))
   const { name, description, parameters } = defineTool(tool)
