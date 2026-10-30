@@ -371,15 +371,19 @@ for (const kind of ['traversal','case','crc','reparse','symlink','encrypted','zi
   assert.deepEqual(await service.listPacks(),[])
 })
 
-test('filesystem reparse checks include root ancestors and reject before any read/write', async t => {
+test('filesystem reparse checks cover what lies beneath the root and reject before any read/write', async t => {
   const {assetRoot} = await fixture(t)
-  let calls = 0
   await assert.rejects(checkedPath(assetRoot,'packs/' + PACK_ID,async target => {
-    calls++
-    if (target === path.dirname(assetRoot)) return {isSymbolicLink:() => true}
+    if (target === path.join(assetRoot,'packs')) return {isSymbolicLink:() => true}
     return lstat(target)
   }),rejected('INVALID_PATH'))
-  assert.ok(calls > 1)
+  // The configured root may sit beneath a link (macOS /var, Android /data/user/0): its ancestors are not checked.
+  const inspected = []
+  assert.equal(await checkedPath(assetRoot,'packs/' + PACK_ID,async target => {
+    inspected.push(target)
+    return target === path.dirname(assetRoot) ? {isSymbolicLink:() => true} : lstat(target).catch(() => undefined)
+  }),path.join(assetRoot,'packs',PACK_ID))
+  assert.ok(inspected.every(target => target.startsWith(assetRoot + path.sep)))
 })
 
 test('resolution keeps full refs, missing/disabled diagnostics and change events, without implicit binding', async t => {
