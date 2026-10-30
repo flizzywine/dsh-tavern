@@ -139,7 +139,8 @@ test('failed native flush restores only durable events and finishes the publishe
  await h.continueWithAgent()
  assert.equal(h.requests.length,1)
  assert.equal(h.requests[0].messages.filter(m=>m.source?.form==='foreground-frame').length,2)
- assert.equal(h.requests[0].messages.filter(m=>m.content.some(b=>b.type==='text' && b.text.includes('Native fixture writing rules'))).length,2)
+ // Fixed writing rules are sent once and stay in force until they change (foreground-frame-session-adapter.js).
+ assert.equal(h.requests[0].messages.filter(m=>m.content.some(b=>b.type==='text' && b.text.includes('Native fixture writing rules'))).length,1)
  const actual=h.requests[0].messages.map(m=>m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'))
  for(const phrase of ['导入开场','走到花店','抵达花店','返回邮局','已回邮局','继续。']) assert.equal(actual.filter(t=>t===phrase).length,1)
  assert.doesNotMatch(JSON.stringify(actual),/玩家，你好。/)
