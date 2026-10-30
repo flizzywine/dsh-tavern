@@ -1492,6 +1492,25 @@ export async function apply(ctx) {
     if (result.deleted) await cardOrganization.movePath(normalizeResourcePath(cardPath, 'card'), null)
     return result
   }
+  // 人物卡库「复制」：与卡片工作台的 tavern_copy_card 同一份复制（工作数据与封面，换新的人物卡身份，
+  // 否则 mod 设置会跟错卡）。默认名「原名 副本」，重名时依次编号；副本放进原卡所在的分组。
+  async function duplicateCard(cardPath, name) {
+    const source = normalizeResourcePath(cardPath, 'card')
+    const workspace = await fileResources.readCard(source)
+    if (!workspace) throw new Error('人物卡不存在: ' + source)
+    const chosen = str(name).trim()
+    const base = chosen || (cardPreparation.isWorkspace(workspace) ? cardPreparation.project(workspace).name : path.basename(source, '.json')) + ' 副本'
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const copied = await fileResources.copyCard(source, attempt === 1 ? base : base + ' ' + attempt)
+        const group = (await cardOrganization.read()).cards[source]?.group
+        if (group) await cardOrganization.update({ action: 'cards', paths: [copied.path], group }, [copied.path])
+        return { path: copied.path, sourcePath: source, imageCopied: copied.imageCopied }
+      } catch (error) {
+        if (chosen || attempt >= 50 || !str(error?.message).startsWith('副本名称已存在')) throw error
+      }
+    }
+  }
   const sessionInventory = createSessionInventory({
     persistence: ctx.get('sessionPersistence'), sessions: sessionStore, agents: agentRegistry,
     references: () => conversationRegistry.list(), archived: () => ctx.get('workspaceRegistry')?.archivedSessionIds
