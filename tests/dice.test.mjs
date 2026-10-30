@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 import { DICE_TARGETS, diceTier, rollDice } from '../tavern-plugin/lib/domain/dice.js'
 import { createDiceTool } from '../tavern-plugin/lib/tools/dice.js'
 import { registerGameplayTools } from '../tavern-plugin/lib/tools/gameplay.js'
@@ -11,6 +12,8 @@ import { appendSessionEvent, sessionEvents } from '../tavern-plugin/lib/domain/s
 import { locateRollbackSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surface-mutations.js'
 import { prompt } from '../tavern-plugin/lib/prompt-catalog.js'
+// dsh-tools is the plugin's dependency (tavern-plugin/node_modules), not resolvable from tests/.
+const { defineTool } = await import(pathToFileURL(createRequire(new URL('../tavern-plugin/package.json', import.meta.url)).resolve('@deepseek-ai/dsh-tools')).href)
 
 const args = { check: '潜行', attempt: 'Get the ledger', difficulty: 'normal', reason: 'Patrol nearby', stakes: 'Get evidence or expose the entrance' }
 const exec = { agent: { session: { id: 'front' }, phase: { kind: 'running', turn: 1 } } }

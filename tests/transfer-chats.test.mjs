@@ -114,7 +114,7 @@ test('importOne 把内容转回 base64 交给 importSave，并返回新的对话
   const content = saveBytes('session-story')
   const result = await createTransferChats(deps).importOne({ title: '作家 · 第 3 章', content })
 
-  assert.deepEqual(imports, [{ fileB64: content.toString('base64') }])
+  assert.deepEqual(imports, [{ fileB64: content.toString('base64'), latestOnly: false }])
   assert.deepEqual(result, { chatId: 'chat-imported', sessionId: 'session-imported', title: '作家 · 第 3 章（导入）' })
 })
 

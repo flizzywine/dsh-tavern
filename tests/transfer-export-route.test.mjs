@@ -13,7 +13,8 @@ import { createTransferExportStore } from '../tavern-plugin/lib/domain/transfer-
 function handle(transferExports) {
   let handler
   registerTavernHttpRoutes({
-    ctx: { get: () => undefined, effect: () => {} },
+    // Routes refuse every cookie request while the host has no connection service (fail closed); this one admits.
+    ctx: { get: name => name === 'connection' ? { requestRejection: () => 0 } : undefined, effect: () => {} },
     dispatch: async () => {},
     fileResources: {}, helperHistoryAccess: {}, mobileCardImport: {},
     performanceDiagnostics: {}, runtimeGeneration: 1, runtimeReadiness: { ok: true },

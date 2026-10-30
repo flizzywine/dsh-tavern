@@ -93,7 +93,7 @@ test('DSH 人物卡带的开局默认：新局用卡里的预设和设置，其�
   const chat = await h.make().start(h.input)
   assert.equal(chat.runtimePresetPath, 'presets/大肥鱼 · 舞台演出.json')
   assert.deepEqual(h.state.presetPaths.at(-1), 'presets/大肥鱼 · 舞台演出.json')
-  assert.equal(chat.statusBarPlacement, 'body')
+  assert.equal(chat.statusBarPlacement, undefined, '状态栏位置是全局显示偏好（bd0c590e），卡不决定')
   assert.equal(chat.backgroundTasks.posture, false)
   assert.equal(chat.backgroundTasks.variables, true, '卡没提到的设置沿用全局默认')
   assert.equal(chat.macroState.userName, '玩家', '玩家称呼不由卡决定')
