@@ -34,11 +34,25 @@ item = {
 
 修改自己挂的媒体项，`changes` 只需写要改的字段，返回修改后的媒体项。不能修改 `id`、`turn`、`textVersion`。
 
-图片换成新的 `attachment` 时（比如重画），旧图自动保留为早期版本，最多 8 个，在返回值的 `history` 里（`{ caption, prompt, createdAt }`）。玩家可以在插图卡上翻看和删除这些版本。
+图片换成新的 `attachment` 时（比如重画），旧图自动保留为早期版本，最多 8 个，在返回值的 `history` 里（`{ caption, prompt, createdAt, data? }`）。旧图当时的 `data` 也随版本保存（第 5 版），插件可据此找到要删的版本，玩家删除时也原样还给插件（见 `onMediaRemoved`）；删掉当前图、由上一版顶上时，`data` 也换回上一版的。玩家可以在插图卡上翻看和删除这些版本。
 
-## `remove(id)`
+## `remove(id, { version? })`
 
 删除自己挂的媒体项，删掉返回 `true`，不存在或不属于本插件返回 `false`。
+
+`version`（第 5 版）只删一张图：`'current'` 删当前图，由最近的早期版本顶上；数字是 `history` 里的下标。删掉最后一张时整项删除。
+
+## `onMediaRemoved(handler)`（第 5 版）
+
+玩家在对话或画廊里删掉本插件挂的图时调用，只通知这张图的主人；插件自己 `remove` 不会触发。收到：
+
+```js
+{ gameId, itemId, kind, turn, textVersion,
+  itemRemoved,  // 整项都没了时为 true；只删了一个版本时为 false
+  pictures: [{ caption, prompt, createdAt, data? }] }  // 被删的每张图，data 是挂图或重画时写入的那份
+```
+
+插件自己另存了图（生成记录、缓存文件）时，在这里一并删掉，让两边同进同退。
 
 ## `list({ gameId, turn? })`
 

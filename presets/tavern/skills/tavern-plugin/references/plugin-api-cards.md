@@ -112,7 +112,7 @@ ctx.tavern.skillSource({ dir: fileURLToPath(new URL('./skills', import.meta.url)
 
 ## 演出：台词标注与角色素材（第 2 版）
 
-玩家在「舞台设置」打开「对话气泡」后，后台结算会顺带标注每轮引号台词的说话人和情绪，人物卡还可以配上各人物的头像和表情立绘（见[角色演出](design/cast-presentation.md)）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。
+玩家在「舞台设置」打开「对话气泡」后，正文模型把每句台词写成带说话人和情绪的对白气泡，人物卡还可以配上各人物的头像和表情立绘（见[角色演出](https://github.com/flizzywine/dsh-tavern/blob/main/docs/design/cast-presentation.md)）。这些是给配音、立绘、Galgame 式演出这类插件用的公共数据：插件读它们，不用自己再让模型标一遍。
 
 ### `getCast({ gameId, turn })`
 
@@ -122,13 +122,13 @@ ctx.tavern.skillSource({ dir: fileURLToPath(new URL('./skills', import.meta.url)
 [{ n: 1, quote: '你来了。', speaker: '林曦', emotion: 'joy' }]
 ```
 
-- `quote` 是引号里的原话（不含引号），用它在正文里找到这句；`speaker` 是正文里的人名；`emotion` 是 SillyTavern 表情扩展的 28 个情绪名之一（`joy`、`anger`、`neutral`…），可以直接对应 ST 立绘包的文件名。
-- 标注跟着正文版本走：重新生成、编辑后旧标注读不到，新版本要等这一轮结算完才有。没被标注的台词（看不出是谁说的）不在列表里。
-- 玩家关掉「对话气泡」后不再产生新标注，已有的照常可读。
+- `quote` 是这句台词：对白气泡里的原话（更早的轮次是后台标注过的引号里的原话），用它在正文里找到这句；`speaker` 是正文里的人名；`emotion` 是 SillyTavern 表情扩展的 28 个情绪名之一（`joy`、`anger`、`neutral`…），可以直接对应 ST 立绘包的文件名。
+- 台词跟着正文版本走：重新生成、编辑后读到的是新版本自己的台词，正文提交后就有。没写成对白气泡的台词不在列表里。
+- 玩家关掉「对话气泡」后正文不再写对白气泡，已有的照常可读。
 
 ### `onCastAnnotated(handler)`
 
-一轮的标注保存后调用 `handler({ gameId, turn, textVersion, lines })`，字段同 `getCast`。适合配音插件在这时合成语音、演出插件在这时编排下一幕。它在结算过程中触发，早于 `onTurnSettled`；插件不在这一局生效时不通知。
+一轮结算完（与 `onTurnSettled` 同一时刻）、里面有对白气泡时调用 `handler({ gameId, turn, textVersion, lines })`，字段同 `getCast`。适合配音插件在这时合成语音、演出插件在这时编排下一幕。插件不在这一局生效时不通知。
 
 ### `getCastAssets({ gameId })`
 

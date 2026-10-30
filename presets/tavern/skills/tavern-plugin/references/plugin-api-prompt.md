@@ -115,6 +115,27 @@ ctx.tavern.replaceSettlement({
 - **范围**：只替换普通卡的姿势结算（以及同一步里的人物设计）。使用官方 MVU 变量的卡，变量结算仍由 Tavern 负责，不会调用 `settle`。玩家关掉了所有后台结算项时，这一轮不结算，也不调用 `settle`。
 - **只有一个生效**：每个插件只能注册一次。只有一个插件注册时，它自动生效；有多个时都不生效，用 Tavern 自己的结算。
 
+## `replaceLedger({ consolidate })`（第 6 版）
+
+由插件**接管**玩家手动发起的「整理台账」（替换类接口）。适合想用自己的办法挑选上下文、查询旧条目或校验提交的插件。Tavern 仍负责发起、计算待整理的剧情、校验并保存结果，以及下一轮把台账给正文看一次。
+
+```js
+ctx.tavern.replaceLedger({
+  async consolidate({ gameId, from, through, text, ledger, rules, tool, signal }) {
+    // text：第 from–through 轮待整理的剧情；ledger：当前完整台账
+    // rules、tool：Tavern 自己整理时用的规则和 ledger_submit 工具定义，可直接复用
+    const delta = await myConsolidation({ text, ledger, rules, tool, signal })
+    return { delta }  // 格式同 ledger_submit 的参数；返回 null 表示这次交给 Tavern 自己整理
+  },
+})
+```
+
+- **必须交回什么**：`{ delta }`，格式同 `ledger_submit` 的参数（物品、人物、地点的 add / update / remove，地点还有 reparent），无变化交 `{ delta: {} }`。Tavern 按自己的规则原子校验并保存，并记下整理到第 `through` 轮。
+- **失败时退回**：`consolidate` 抛错、120 秒没有返回、或者 `delta` 校验不通过，这次自动改用 Tavern 自己的整理，并把原因记进 Tavern 日志。返回 `null` 也由 Tavern 自己整理，但不记错误。
+- **停止**：玩家点「停止后台」时 `signal` 中止，这次整理按失败处理，不会改用 Tavern 自己的整理。
+- **模型**：Tavern 不替插件调用模型。可以用 `runTask` 让 Tavern 开一个带自定义工具的后台 Agent（整理期间可以调用；它的 `prompt` 最多 2 万字，而 `text` 最多 4 万字，需要自己挑选或分段），也可以用插件自己的模型或子 Agent。
+- **只有一个生效**：规则同 `replaceSettlement`。
+
 ## `settlementTask({ name, title?, phase?, run })`（第 2 版）
 
 注册一个**结算任务**：每轮正文写完后，和 Tavern 自己的结算排在一起依次运行。适合记忆整理、世界推演、写作建议这类每轮都要做、有自己的提示词和流程的后台工作。

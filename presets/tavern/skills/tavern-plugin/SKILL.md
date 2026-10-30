@@ -13,6 +13,7 @@ description: "编写或修改给 DSH Tavern 用的插件：文生图、文生视
 
 - `plugin-api.md`：接口总览与快速开始，动手前必读；再按需要读分页 `plugin-api-game.md`、`plugin-api-prompt.md`、`plugin-api-data.md`、`plugin-api-cards.md`、`plugin-api-ui.md`。
 - `plugin-recipes.md`：按要做的插件找写法。
+- `plugin-tasks.md`：插件的后台任务要接在 Tavern 的任务后面、或在成员上跑时读（任务表、`job`、`member`、`needs`）。
 - `example-plugin.md`：起步代码。
 - `plugin-publishing.md`：用户要把插件分享出去时读。
 - `interface-skin.md`：用户只想换外观时读；皮肤是一个 .css 文件，不是插件。
