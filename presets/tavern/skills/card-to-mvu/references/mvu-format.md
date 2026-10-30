@@ -85,6 +85,8 @@ body{margin:0;font:14px/1.6 system-ui,sans-serif;color:#2b2b2b}
 </html>
 ```
 
+面板里可以放可点的动作按钮（道具、快捷行动），按钮的 `onclick` 调酒馆助手接口：`triggerSlash('/setinput 递上热毛巾')` 把文字写进本局输入框、由玩家自己发送；`triggerSlash('/send 递上热毛巾 | /trigger')` 直接发送。只作用于面板所在的这一局，不需要插件。
+
 容易出错的地方（校验会提示）：
 
 - `replaceString` 会被当作正则替换文本：`$1`、`$&`、`$$` 会被改写。脚本里需要美元符号写成 `$`。
