@@ -31,7 +31,7 @@ export function readCardAssetExtension(raw) {
   if (data.extensions === undefined) return undefined
   check(object(data.extensions), '$.extensions')
   if (!Object.hasOwn(data.extensions, 'dsh_tavern')) return undefined
-  if (data.extensions.dsh_tavern?.stage !== undefined) validateCardStage(data.extensions.dsh_tavern.stage)
+  // The stage was checked when it was written or imported; a read keeps fields this version does not know.
   return cloneJson(data.extensions.dsh_tavern)
 }
 export function cardAssetRawOperations(raw, patch) {
