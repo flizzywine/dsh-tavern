@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createFontLibrary, FONT_ROUTE } from '../tavern-plugin/lib/font-library.js'
+import { createFontLibrary, FONT_ROUTE } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-library.js'
 
 // The font library (font-library.js): the families a skin's font ids name, the shipped ones and an installed one.
 async function fixture(t) {

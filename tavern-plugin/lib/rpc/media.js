@@ -2,13 +2,9 @@
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createMediaHandlers(deps) {
   const { backgroundConfigForSession, castAssets, castEdit, castStage,
-    fontLibrary, pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns, removePluginGalleryItems,
+    pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns, removePluginGalleryItems,
     removePluginMediaVersion, speakLine, speech, speechReply, str } = deps
   return {
-    // The font library's families (font-library.js): what a skin's font ids resolve to.
-    async listFonts() {
-      return await fontLibrary.listFonts()
-    },
     async pluginMediaForTurn(args) {
       return await pluginMediaForTurn(args && args.sessionId, args && args.turn)
     },

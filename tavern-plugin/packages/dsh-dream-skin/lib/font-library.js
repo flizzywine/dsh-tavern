@@ -1,10 +1,10 @@
+import {serveAssetFile} from './http-file.js'
 import { FONT_CATALOG, createFontAssets } from './font-assets.js'
-import { serveAssetFile } from './http-file.js'
 import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const FONT_ROUTE = '/api/dsh-tavern/fonts/'
+export const FONT_ROUTE = '/dream-skin/fonts/'
 const ID = /^[a-z0-9][a-z0-9-]{0,79}$/
 const FILE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}\.(woff2|ttf|otf)$/
 const FORMATS = { woff2: { format: 'woff2', mime: 'font/woff2' }, ttf: { format: 'truetype', mime: 'font/ttf' }, otf: { format: 'opentype', mime: 'font/otf' } }

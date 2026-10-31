@@ -7,10 +7,10 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import * as skin from '../tavern-plugin/packages/dsh-dream-skin/lib/index.js'
 
-function mount(requestRejection) {
+function mount(requestRejection, routePath = "/dream-skin/api") {
   let handler
   const services = { connection: { trustedHosts: [], requestRejection } }
-  skin.apply({ effect: fn => fn(), get: key => services[key], webServer: { register: row => { handler = row.handler } } })
+  skin.apply({ effect: fn => fn(), get: key => services[key], webServer: { register: row => { if (row.path === routePath) handler = row.handler } } })
   return handler
 }
 
@@ -71,4 +71,13 @@ test('CSS skins use the authenticated plugin route and keep legacy profile files
     if(saved===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=saved
     fs.rmSync(home,{recursive:true,force:true})
   }
+})
+
+test('font catalog and file routes require the skin plugin host session',async()=>{
+  const catalog=await call(mount(()=>undefined),{}, {method:'listFonts'})
+  assert.equal(catalog.status,200)
+  assert.ok(catalog.json.value.fonts.length>=5)
+  assert.ok(catalog.json.value.fonts.every(font=>font.files.every(face=>face.url.startsWith('/dream-skin/fonts/'))))
+  assert.equal((await call(mount(()=>401,'/dream-skin/fonts/'),{},{})).status,401)
+  assert.equal((await call(mount(()=>undefined,'/dream-skin/fonts/'),{origin:'https://evil.test'},{})).status,403)
 })

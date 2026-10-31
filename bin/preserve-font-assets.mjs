@@ -2,12 +2,12 @@
 // This never downloads: offline upgrades adopt only bytes matching the trusted catalog.
 import path from 'node:path'
 import { readdir } from 'node:fs/promises'
-import { adoptBundledFonts } from '../tavern-plugin/lib/font-assets.js'
+import { adoptBundledFonts } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js'
 import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 
 export async function preserveInstallationFonts(app, { dataRoot = resolveTavernDataRoot(), androidBackups = false } = {}) {
   const root = path.resolve(app)
-  const bundledRoots = [root, root + '.previous'].map(directory => path.join(directory, 'tavern-plugin', 'fonts'))
+  const bundledRoots = [root, root + '.previous'].flatMap(directory => [path.join(directory, 'tavern-plugin', 'fonts'), path.join(directory, 'tavern-plugin/packages/dsh-dream-skin/fonts')])
   if (androidBackups) {
     // Android's replacement installer retains its old source here until the new
     // profile install succeeds. Only immediate real directories with its fixed
@@ -18,7 +18,7 @@ export async function preserveInstallationFonts(app, { dataRoot = resolveTavernD
     })
     for (const entry of entries) {
       if (entry.isDirectory() && /^\.dsh-tavern-download\.[a-zA-Z0-9_-]+$/.test(entry.name)) {
-        bundledRoots.push(path.join(path.dirname(root), entry.name, 'previous-source', 'tavern-plugin', 'fonts'))
+        for (const suffix of ['tavern-plugin/fonts', 'tavern-plugin/packages/dsh-dream-skin/fonts']) bundledRoots.push(path.join(path.dirname(root), entry.name, 'previous-source', suffix))
       }
     }
   }

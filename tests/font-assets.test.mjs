@@ -4,10 +4,10 @@ import { mkdtemp, readFile, writeFile, mkdir, rm, readdir, symlink } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { FONT_CATALOG, createFontAssets, adoptBundledFonts } from '../tavern-plugin/lib/font-assets.js'
-import { createFontLibrary } from '../tavern-plugin/lib/font-library.js'
+import { FONT_CATALOG, createFontAssets, adoptBundledFonts } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js'
+import { createFontLibrary } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-library.js'
 const family = FONT_CATALOG.families[0], face = family.files[0]
-const bundle = new URL('../tavern-plugin/fonts/', import.meta.url).pathname
+const bundle = new URL('../tavern-plugin/packages/dsh-dream-skin/fonts/', import.meta.url).pathname
 async function fixture(t, handler) {
   const root = await mkdtemp(path.join(tmpdir(), 'font-assets-'))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -70,11 +70,11 @@ test('lazy fonts: trusted download failure returns no-store 503; installed URLs 
   let calls = 0
   const library = createFontLibrary({ dataRoot: f.root, bundledRoot: path.join(f.root, 'absent'), fetchImpl: async () => { calls++; throw Error('offline') } })
   const response = { writeHead(status, headers) { this.status = status; this.headers = headers }, end() {} }
-  await library.serve({ method: 'GET', url: '/api/dsh-tavern/fonts/' + family.id + '/' + face.file }, response)
+  await library.serve({ method: 'GET', url: '/dream-skin/fonts/' + family.id + '/' + face.file }, response)
   assert.equal(response.status, 503); assert.equal(response.headers['Cache-Control'], 'no-store'); assert.equal(calls, 2)
   const dir = path.join(f.root, 'fonts', family.id); await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'index.json'), JSON.stringify({ ...family, files: [{ ...face, url: 'http://127.0.0.1/secret' }] }))
-  await library.serve({ method: 'GET', url: '/api/dsh-tavern/fonts/' + family.id + '/' + face.file }, response)
+  await library.serve({ method: 'GET', url: '/dream-skin/fonts/' + family.id + '/' + face.file }, response)
   assert.equal(response.status, 404); assert.equal(calls, 2)
 })
 test('lazy fonts: stalled response body times out and leaves no partial cached face', { timeout: 30_000 }, async t => {

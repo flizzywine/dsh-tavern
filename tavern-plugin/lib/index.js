@@ -30,7 +30,6 @@ import { syncUserPlugins, watchUserPlugins, userPluginPaths } from './domain/use
 import { createUserPluginInstaller } from './domain/user-plugin-install.js'
 import { createPluginDataStore } from './domain/plugin-data-store.js'
 import { createPluginAssets } from './domain/plugin-assets.js'
-import { createFontLibrary } from './font-library.js'
 import { registerModelStreamHooks } from './hooks/model-stream.js'
 import { registerTurnLifecycleHooks } from './hooks/turn-lifecycle.js'
 import { registerGameplayTools } from './tools/gameplay.js'
@@ -3599,7 +3598,6 @@ export async function apply(ctx) {
     },
   })
 
-  const fontLibrary = createFontLibrary({ dataRoot })
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   const rpcDeps = { frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds,
@@ -3675,7 +3673,6 @@ export async function apply(ctx) {
     duplicateCard: { get: () => duplicateCard },
     figureVoiceAuthoring: { get: () => figureVoiceAuthoring },
     fileResources: { get: () => fileResources },
-    fontLibrary: { get: () => fontLibrary },
     foregroundCapabilities: { get: () => foregroundCapabilities },
     autoChoices: { get: () => autoChoices },
     hasCardAssetBindings: { get: () => hasCardAssetBindings },
@@ -3839,7 +3836,6 @@ export async function apply(ctx) {
   }))
 
   registerTavernHttpRoutes({
-    fontLibrary,
     ctx,
     castAssets,
     speech,

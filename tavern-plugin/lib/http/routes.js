@@ -29,7 +29,6 @@ function waitForWritable(res) {
 export function registerTavernHttpRoutes({
   ctx,
   widgetService,
-  fontLibrary,
   dispatch,
   fileResources,
   helperHistoryAccess,
@@ -205,7 +204,6 @@ export function registerTavernHttpRoutes({
           }
           const readiness = await runtimeReadiness
           if (!readiness.ok) throw readiness.error
-          if (fontLibrary && await fontLibrary.serve(req, res)) return
           
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/cast-asset') {
             const query = new URL(req.url, 'http://x').searchParams

@@ -1,3 +1,4 @@
+import {createFontLibrary, FONT_ROUTE} from './font-library.js';
 import {createInterfaceSkins} from './interface-skins.js';
 import {createSkinStore} from './skin-store.js';
 /**
@@ -217,7 +218,7 @@ function writeJson(res, status, value) {
 }
 
 /** Handle one fenced API request. */
-async function handleApi(req, res, skins) {
+async function handleApi(req, res, skins, fonts) {
 	if (req.method !== "POST") {
 		writeJson(res, 405, { ok: false, error: { code: "method-error", message: "method not allowed" } });
 		return;
@@ -241,6 +242,7 @@ async function handleApi(req, res, skins) {
 		return;
 	}
 	const skinMethods = {
+        listFonts: () => fonts.listFonts(),
         listInterfaceSkins: () => skins.list(),
         getActiveInterfaceSkin: () => skins.active(),
         importInterfaceSkin: () => skins.importSkin(payload.args),
@@ -310,9 +312,10 @@ function trustedHosts(ctx) {
  */
 export function apply(ctx) {
     const skins = createInterfaceSkins({store:createSkinStore()});
-	ctx.effect(() => ctx.webServer.register({
+    const fonts = createFontLibrary({dataRoot:join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'profile-data/tavern/data')});
+	for (const route of [API_PREFIX, FONT_ROUTE]) ctx.effect(() => ctx.webServer.register({
 		kind: "prefix",
-		path: API_PREFIX,
+		path: route,
 		handler: async (req, res) => {
 			if (!isTrustedApiRequest(req, trustedHosts(ctx))) {
 				writeJson(res, 403, { ok: false, error: { code: "forbidden", message: "forbidden" } });
@@ -326,7 +329,8 @@ export function apply(ctx) {
 				return;
 			}
 			try {
-				await handleApi(req, res, skins);
+				if (route === FONT_ROUTE) { await fonts.serve(req,res); return; }
+                await handleApi(req, res, skins, fonts);
 			} catch (error) {
 				// Do not echo the internal error back to the browser — the
 				// trusted-origin page does not need filesystem paths etc.

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { preserveInstallationFonts } from '../bin/preserve-font-assets.mjs'
-import { FONT_CATALOG } from '../tavern-plugin/lib/font-assets.js'
+import { FONT_CATALOG } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js'
 const repo = fileURLToPath(new URL('..', import.meta.url))
 const family = FONT_CATALOG.families[0], face = family.files[0]
 const relative = `tavern-plugin/fonts/${family.id}/${face.file}`
@@ -20,7 +20,7 @@ function fixture(t) {
   function putFace(root) {
     const destination = path.join(root, relative)
     mkdirSync(path.dirname(destination), { recursive: true })
-    copyFileSync(path.join(repo, relative), destination)
+    copyFileSync(path.join(repo, relative.replace('tavern-plugin/fonts/', 'tavern-plugin/packages/dsh-dream-skin/fonts/')), destination)
     return destination
   }
   function run(script, ...args) {
@@ -36,7 +36,7 @@ test('staged CLI preserves old verified fonts before commit removes previous rel
   assert.equal(result.status, 0, result.stderr)
   assert.equal(existsSync(f.app + '.previous'), false)
   assert.deepEqual(readFileSync(f.cache), expected)
-  const { createFontAssets } = await import('../tavern-plugin/lib/font-assets.js')
+  const { createFontAssets } = await import('../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js')
   assert.equal(await createFontAssets({ dataRoot: f.dataRoot, bundledRoots: [], fetchImpl: () => { throw new Error('offline') } }).ensure(family.id, face.file), f.cache)
 })
 test('new desktop pruner adopts bundled font before removing tracked old binary', t => {

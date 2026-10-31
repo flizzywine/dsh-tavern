@@ -5175,6 +5175,7 @@ window.__ModuleLoader__.load({
 		 * @param ctx - client cordis context.
 		 */
 // BEGIN TAVERN INTERFACE SKIN
+const SKIN_FONT_PICKER_CSS = "/* ==== font picker (font-picker.js: CONFIG 文字 → 舞台字体 / 字幕字体, 外观 → 正文字体) ==== */\n/* Options are drawn in their own face (inline font-family); everything else here is chrome. Both lists are opaque.\n   Stage variant: the trigger lives in the CONFIG sheet, the list is portaled to <body> as a .fork-gal-theme-scope\n   of the stage's theme, so it uses only --gal-ui-* tokens (no theme selectors). */\n.fork-font-pick { position: relative; min-width: 0; }\n.fork-font-trigger .fork-icon { flex: none; transition: transform .15s; }\n.fork-font-pick.is-open .fork-font-trigger .fork-icon { transform: rotate(180deg); }\n.fork-font-trigger-name { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-list { display: grid; gap: 10px; }\n/* The popover itself is the opaque layer; the inner listbox must not get the generic floating-layer Canvas fill. */\n.fork-font-pop .fork-font-list[role=\"listbox\"] { background-image: none; -webkit-backdrop-filter: none; backdrop-filter: none; }\n.fork-font-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }\n.fork-font-group-label { grid-column: 1 / -1; padding: 4px 4px 0; }\n.fork-font-pop .fork-font-option { position: relative; display: grid; gap: 3px; box-sizing: border-box; min-width: 0; margin: 0; padding: 10px 34px 10px 14px; border: 0; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }\n.fork-font-pop .fork-font-option.is-follow { grid-column: 1 / -1; }\n.fork-font-option-sample { overflow: hidden; font-size: 19px; line-height: 1.45; letter-spacing: .04em; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-option-name { overflow: hidden; font-size: var(--fork-fs-body); line-height: 1.3; letter-spacing: .06em; white-space: nowrap; text-overflow: ellipsis; }\n.fork-font-option-check { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; }\n/* Stage: the CONFIG row trigger and the themed list. */\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger { display: inline-flex; align-items: center; gap: 12px; box-sizing: border-box; width: min(100%, 420px); height: 52px; margin: 0; padding: 0 16px 0 20px; border: 0;\n  border-radius: calc(var(--gal-ui-radius) * .8 + 4px); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 19px/1.2 var(--gal-ui-font); letter-spacing: .06em; text-align: left; cursor: pointer; transition: background .15s, box-shadow .15s; }\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:hover { background: var(--gal-ui-hover); }\n.fork-gal-stage .fork-font-pick.is-stage.is-open .fork-font-trigger { box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }\n.fork-gal-stage .fork-font-pick.is-stage .fork-font-trigger:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }\n.fork-font-pick.is-stage .fork-font-trigger .fork-icon { color: var(--gal-ui-accent); }\n.fork-font-pick.is-stage .fork-font-trigger-tag { flex: none; padding: 4px 10px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-accent); font: 600 12px/1 var(--gal-ui-font); letter-spacing: .12em; }\n[data-fork-gal-stage] .fork-popover.fork-font-pop { z-index: 2147483002; }\n.fork-popover.fork-font-pop.is-stage { width: min(620px, calc(100vw - 16px)); max-width: none; padding: 12px; border-radius: min(var(--gal-ui-radius), 18px); background: var(--gal-ui-surface-2);\n  box-shadow: var(--gal-ui-shadow), inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); font: 400 14px/1.4 var(--gal-ui-font); animation: fork-gal-mixer-in .16s ease-out; }\n.fork-font-pop.is-stage .fork-font-group-label { color: var(--gal-ui-accent); font: 600 12.5px/1.2 var(--gal-ui-title-font); letter-spacing: .3em; }\n.fork-font-pop.is-stage .fork-font-option { border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: inset 0 0 0 1px var(--gal-ui-line); color: var(--gal-ui-ink); }\n.fork-font-pop.is-stage .fork-font-option:hover { background: var(--gal-ui-hover); }\n.fork-font-pop.is-stage .fork-font-option.is-on { background: var(--gal-ui-active); box-shadow: inset 0 0 0 2px var(--gal-ui-accent); }\n.fork-font-pop.is-stage .fork-font-option:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; }\n.fork-font-pop.is-stage .fork-font-option-check { color: var(--gal-ui-accent); }\n/* CONFIG preview: the typed line is in the stage font; the subtitle line in the film font on a letterbox strip. */\n.fork-gal-config-preview-text { font-family: var(--gal-ui-font); }\n.fork-gal-config-preview-film { display: grid; gap: 6px; justify-items: center; margin: 12px 0 0; padding: 10px 16px 12px; border-radius: max(4px, calc(var(--gal-ui-radius) * .6)); background: var(--film-bar-color); }\n.fork-gal-config-preview-film .fork-gal-config-preview-name { justify-self: start; }\n/* Text look: the film subtitle tokens (Stage direction v2), the same ones the in-stage subtitle reads. */\n.fork-gal-config-preview-film > p { margin: 0; text-align: center; color: var(--film-text-ink); font: var(--film-text); letter-spacing: var(--film-text-spacing); text-shadow: var(--film-text-shadow); }\n/* Settings (外观 → 正文字体): the regular settings row, an inline opaque list (Canvas under the skin's menu colour). */\n.fork-font-pick.is-settings .fork-font-trigger { display: inline-flex; align-items: center; gap: 10px; box-sizing: border-box; width: min(100%, 420px); min-height: 44px; margin: 0; padding: 6px 12px 6px 14px; border: 1px solid var(--fork-hairline); border-radius: 10px;\n  background: transparent; color: var(--fork-ink); font: 400 16px/1.3 var(--fork-font-ui); text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }\n.fork-font-pick.is-settings .fork-font-trigger:hover { background: var(--fork-hover); }\n.fork-font-pick.is-settings.is-open .fork-font-trigger { border-color: var(--fork-accent); }\n.fork-font-pick.is-settings .fork-font-trigger:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }\n.fork-font-pick.is-settings .fork-font-trigger-tag { flex: none; padding: 3px 8px; border-radius: 999px; background: var(--fork-accent-soft); color: var(--fork-accent); font: 500 12px/1.2 var(--fork-font-ui); }\n.fork-font-pick.is-settings .fork-font-trigger .fork-icon { color: var(--fork-ink); }\n.fork-font-pop.is-inline { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; box-sizing: border-box; width: min(560px, calc(100vw - 48px)); max-height: min(62vh, 480px); overflow: auto; overscroll-behavior: contain; padding: 8px;\n  border: 1px solid var(--fork-hairline); border-radius: 12px; background: linear-gradient(var(--dsw-specific-menu, var(--fork-surface-2)), var(--dsw-specific-menu, var(--fork-surface-2))), Canvas;\n  box-shadow: 0 12px 32px rgb(0 0 0 / .18), 0 2px 6px rgb(0 0 0 / .06); color: var(--fork-ink); font: 400 13px/1.4 var(--fork-font-ui); animation: fork-voice-menu-in .14s ease-out; }\n.fork-font-pop.is-inline .fork-font-group-label { color: var(--fork-accent); font: 600 12px/1.2 var(--fork-font-ui); letter-spacing: .08em; }\n.fork-font-pop.is-inline .fork-font-option { border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--fork-hairline); color: var(--fork-ink); }\n.fork-font-pop.is-inline .fork-font-option:hover { background: var(--fork-hover); }\n.fork-font-pop.is-inline .fork-font-option.is-on { background: var(--fork-accent-soft); box-shadow: inset 0 0 0 2px var(--fork-accent); }\n.fork-font-pop.is-inline .fork-font-option:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }\n.fork-font-pop.is-inline .fork-font-option-check { color: var(--fork-accent); }\n@media (max-width: 560px) { .fork-font-group { grid-template-columns: minmax(0, 1fr); } }\n@media (prefers-reduced-motion: reduce) and (update: none) { .fork-popover.fork-font-pop.is-stage, .fork-font-pop.is-inline { animation: none; } }\n/* ==== end font picker ==== */\n";
 // 界面皮肤: the active imported skin is one <style> appended after Tavern's own
 // stylesheet, so its rules win at equal specificity. Every browser of this profile
 // reads it on load; a change in settings re-applies it here at once.
@@ -5323,6 +5324,204 @@ function installInterfaceSkinSettings(ctx, React, dream) {
         }
         return dispose;
     }, 'dsh-dream-skin: interface skin settings');
+}
+
+// Shared font catalog and face lifetime. Role/skin precedence belongs to consumers.
+function createSkinFontLibrary({document:doc, request}) {
+    let fonts = null, pending = null, style = null, disposed = false;
+    const registered = new Set();
+    async function list() {
+        if (disposed) return [];
+        if (fonts) return fonts;
+        if (!pending) pending = Promise.resolve().then(request).then(result => {
+            if (disposed) return [];
+            fonts = Object.freeze((result.fonts || []).filter(font => /^[a-z0-9][a-z0-9-]{0,79}$/.test(font.id) && /^[a-zA-Z0-9 _-]{1,120}$/.test(font.family) && Array.isArray(font.files)));
+            return fonts;
+        }).finally(() => {pending = null;});
+        return pending;
+    }
+    async function ensure(id) {
+        const font = (await list()).find(row => row.id === id);
+        if (disposed || !font || registered.has(id)) return font || null;
+        const rules = font.files.filter(face => ['woff2','truetype','opentype'].includes(face.format) && ['normal','italic','oblique'].includes(face.style)
+            && Number.isInteger(face.weight) && face.weight >= 1 && face.weight <= 1000
+            && new RegExp('^/dream-skin/fonts/' + id + '/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.(woff2|ttf|otf)$').test(face.url))
+            .map(face => '@font-face{font-family:' + JSON.stringify(font.family) + ';src:url(' + JSON.stringify(face.url) + ') format(' + JSON.stringify(face.format) + ');font-weight:' + face.weight + ';font-style:' + face.style + ';font-display:swap;}');
+        if (!rules.length) return null;
+        if (!style) {style = doc.createElement('style');style.dataset.dshSkinFonts = '';doc.head.appendChild(style);}
+        style.appendChild(doc.createTextNode(rules.join('\n')));registered.add(id);
+        return font;
+    }
+    return Object.freeze({list,ensure,createPicker:createSkinFontPicker,dispose() {disposed=true;fonts=null;style?.remove();registered.clear();}});
+}
+function installSkinFontLibrary(ctx) {
+    ctx.effect(() => {
+        const controller = new AbortController();
+        const library = createSkinFontLibrary({document, request:async () => {
+            const response = await fetch('/dream-skin/api', {method:'POST',credentials:'same-origin',signal:controller.signal,
+                headers:{'content-type':'application/json'},body:JSON.stringify({method:'listFonts'})});
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw Error('字体库暂时不可用');
+            return result.value;
+        }});
+        const style = document.createElement('style');style.dataset.dshSkinFontPicker = '';style.textContent = SKIN_FONT_PICKER_CSS;document.head.appendChild(style);
+        window.dshSkinFonts = library;
+        window.dispatchEvent(new Event('dsh-font-library-changed'));
+        return () => {
+            controller.abort();library.dispose();style.remove();
+            if (window.dshSkinFonts === library) {delete window.dshSkinFonts;window.dispatchEvent(new Event('dsh-font-library-changed'));}
+        };
+    }, 'dsh-dream-skin: font library');
+}
+
+function createSkinFontPicker({React, Icon, FloatingPanel, defaultApi}) {
+const tavernFonts = defaultApi;
+// the font picker shared by the stage CONFIG screen (文字 → 舞台字体 /
+// 字幕字体, gal-config.js) and the 外观 settings page (正文字体, appearance.js).
+// A trigger shows the current choice in its own face. The list starts with 「跟随…（default）」, which clears
+// the override (null); after it come all installed fonts grouped by category, each option drawn in its own face
+// with a short sample and its name. Faces register lazily through tavernFonts.ensure when an option scrolls into
+// view or is hovered / focused; a choice applies at once (tavernFonts notifies the stage and the story body).
+// variant "stage": portaled popover that re-derives the stage tokens (.fork-gal-theme-scope + data-theme).
+// variant "settings": inline popover in the regular settings style (the host settings dialog keeps focus inside).
+
+const FONT_SAMPLE = "……你、你还有什么事。";
+// Short Chinese names for the installed catalogue; anything else uses its index label.
+const FONT_NAMES = Object.freeze({
+    "neo-xihei-screen": "霞鹜新晰黑", "neo-zhisong-screen": "霞鹜新致宋", "resource-han-rounded": "源圆黑体",
+    "wenkai-screen": "霞鹜文楷", zhuque: "朱雀仿宋", xiaolai: "小赖", "zcool-kuaile": "站酷快乐体"
+});
+const FONT_CATEGORIES = [["sans", "黑体"], ["rounded", "圆体"], ["serif", "宋体 · 仿宋"], ["hand", "楷体 · 手写"], ["display", "趣味"]];
+
+function fontName(font, builtin) {
+    if (!font) return builtin || "内置字体";
+    return FONT_NAMES[font.id] || String(font.label || font.id).replace(/\s*屏幕版$/, "");
+}
+// CSS family for drawing an option in its own face (the generic tail shows until the face swaps in).
+function fontFace(font) {
+    if (!font) return undefined;
+    return JSON.stringify(font.family) + ", " + (font.category === "serif" ? "serif" : "sans-serif");
+}
+function fontGroups(fonts) {
+    const known = FONT_CATEGORIES.map(([id, label]) => ({ id, label, fonts: fonts.filter(font => font.category === id) }));
+    const rest = fonts.filter(font => !FONT_CATEGORIES.some(([id]) => id === font.category));
+    return known.concat([{ id: "other", label: "其他", fonts: rest }]).filter(group => group.fonts.length);
+}
+// props: { role, label, follow ("跟随样式" | "跟随皮肤"), builtin (name when no default font is installed),
+//          context (tavernFonts.resolve context; omitted = the active stage's skin, e.g. { skinFont } for reading),
+//          variant ("stage" | "settings"), theme (stage popover scope), api }
+function FontPicker(props) {
+    const h = React.createElement;
+    const api = props.api || tavernFonts;
+    const role = props.role, context = props.context || {};
+    React.useSyncExternalStore(api.subscribe, api.getSnapshot);
+    const [fonts, setFonts] = React.useState([]);
+    const [open, setOpen] = React.useState(false);
+    const wrap = React.useRef(null), trigger = React.useRef(null), pop = React.useRef(null);
+    // A skin's own face (fonts.md) is not in the catalogue list; api.get still names it for 「跟随…」.
+    const byId = id => fonts.find(font => font.id === id) || (id && typeof api.get === "function" ? api.get(id) : null) || null;
+    const current = api.resolve(role, context);
+    const chosen = current.source === "override" ? current.id : null;
+    const currentFont = byId(current.id);
+    // What 「跟随…」 resolves to: the resolver's skin layer for this skin and role, ignoring the override.
+    const defaultFont = byId(current.default);
+    const currentName = fontName(currentFont, props.builtin);
+    function ensure(id) { if (id) Promise.resolve(api.ensure(id)).catch(() => {}); }
+    React.useEffect(function () {
+        let live = true;
+        Promise.resolve(api.list()).then(list => { if (live) setFonts(list || []); }, () => {});
+        return () => { live = false; };
+    }, [api]);
+    // The trigger is drawn in the current face.
+    React.useEffect(function () { ensure(current.id); }, [current.id]);
+    function close(refocus) {
+        setOpen(false);
+        if (refocus && trigger.current && typeof trigger.current.focus === "function") trigger.current.focus({ preventScroll: true });
+    }
+    function choose(id) { api.setOverride(role, id); close(true); }
+    // Open: focus the current option; Esc (capture, before the CONFIG screen or a host dialog) and a press
+    // outside close it.
+    React.useEffect(function () {
+        if (!open || typeof window === "undefined" || typeof document === "undefined") return undefined;
+        const root = pop.current;
+        const selected = root && root.querySelector ? root.querySelector('[role="option"][aria-selected="true"]') : null;
+        if (selected && typeof selected.focus === "function") selected.focus({ preventScroll: false });
+        function outside(event) {
+            const target = event.target;
+            if (wrap.current && wrap.current.contains(target) || pop.current && pop.current.contains(target)) return;
+            setOpen(false);
+        }
+        function escape(event) {
+            if (event.key !== "Escape") return;
+            event.preventDefault(); event.stopImmediatePropagation(); event.stopPropagation();
+            close(true);
+        }
+        document.addEventListener("pointerdown", outside, true);
+        window.addEventListener("keydown", escape, true);
+        return () => { document.removeEventListener("pointerdown", outside, true); window.removeEventListener("keydown", escape, true); };
+    }, [open]);
+    // Lazy faces: register a family when its option becomes visible in the list.
+    React.useEffect(function () {
+        const root = pop.current;
+        if (!open || !root || !root.querySelectorAll || typeof IntersectionObserver !== "function") return undefined;
+        const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) ensure(entry.target.getAttribute("data-font-id")); }), { root, rootMargin: "120px 0px" });
+        root.querySelectorAll("[data-font-id]").forEach(node => observer.observe(node));
+        return () => observer.disconnect();
+    }, [open, fonts]);
+    function onListKey(event) {
+        event.stopPropagation();
+        if (event.key === "Tab") { event.preventDefault(); close(true); return; }
+        const items = pop.current && pop.current.querySelectorAll ? Array.from(pop.current.querySelectorAll('[role="option"]')) : [];
+        if (!items.length) return;
+        const at = items.indexOf(typeof document !== "undefined" ? document.activeElement : null);
+        const next = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? (at < 0 ? items.length - 1 : at - 1) : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+        if (next === null) return;
+        event.preventDefault();
+        items[(next + items.length) % items.length].focus();
+    }
+    // Presses on the list's padding or headings keep focus on the option (Esc then still reaches the picker).
+    function keepFocus(event) { if (!(event.target && event.target.closest && event.target.closest('[role="option"]'))) event.preventDefault(); }
+    function option(font, key, id, name, extra) {
+        const selected = chosen === id;
+        return h("button", { key, type: "button", role: "option", "aria-selected": selected, className: "fork-font-option" + (selected ? " is-on" : "") + (extra ? " " + extra : ""),
+            "data-font-id": font ? font.id : undefined, style: font ? { fontFamily: fontFace(font) } : undefined,
+            onPointerEnter: () => ensure(font && font.id), onFocus: () => ensure(font && font.id), onClick: () => choose(id) },
+            h("span", { className: "fork-font-option-sample" }, FONT_SAMPLE),
+            h("span", { className: "fork-font-option-name" }, name),
+            selected ? h("span", { className: "fork-font-option-check", "aria-hidden": true }, h(Icon, { name: "check", size: 16 })) : null);
+    }
+    const followName = props.follow + "（" + fontName(defaultFont, props.builtin) + "）";
+    const list = h("div", { className: "fork-font-list", role: "listbox", "aria-label": props.label, onKeyDown: onListKey },
+        option(defaultFont, "follow", null, followName, "is-follow"),
+        fontGroups(fonts).map(group => h("div", { key: group.id, className: "fork-font-group", role: "group", "aria-label": group.label },
+            h("div", { className: "fork-font-group-label", "aria-hidden": true }, group.label),
+            group.fonts.map(font => option(font, font.id, font.id, fontName(font))))));
+    const variant = props.variant === "stage" ? "stage" : "settings";
+    // the list is portaled outside the stage; retain its current skin tokens.
+    // ...and the stage's skin font declaration, so fonts.js resolves the same faces on the portaled list.
+    const stageTokens={};
+    let skinFonts;
+    if(open && variant==='stage' && trigger.current) {
+        const style=getComputedStyle(trigger.current);
+        for(const key of style)if(key.startsWith('--gal-'))stageTokens[key]=style.getPropertyValue(key);
+        const stage=trigger.current.closest && trigger.current.closest('[data-fk-fonts]');
+        skinFonts=stage ? stage.getAttribute('data-fk-fonts') : undefined;
+    }
+    const popover = !open ? null : variant === "stage"
+        ? h(FloatingPanel, { anchor: trigger, popRef: pop, className: "fork-font-pop is-stage fork-gal-theme-scope", style:stageTokens, "data-theme": props.theme || "", "data-fk-fonts": skinFonts, gap: 8, onMouseDown: keepFocus }, list)
+        : h("div", { ref: pop, className: "fork-font-pop is-inline", onMouseDown: keepFocus }, list);
+    return h("div", { ref: wrap, className: "fork-font-pick is-" + variant + (open ? " is-open" : ""), "data-role": role },
+        h("button", { ref: trigger, type: "button", className: "fork-font-trigger", "aria-haspopup": "listbox", "aria-expanded": open,
+            "aria-label": props.label + "：" + currentName + (chosen === null ? "，" + props.follow : ""),
+            onClick: () => setOpen(value => !value),
+            onKeyDown: event => { if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) { event.preventDefault(); setOpen(true); } } },
+            h("span", { className: "fork-font-trigger-name", style: currentFont ? { fontFamily: fontFace(currentFont) } : undefined }, currentName),
+            chosen === null ? h("span", { className: "fork-font-trigger-tag" }, props.follow) : null,
+            h(Icon, { name: "chevron", size: 16 })),
+        popover);
+}
+
+return FontPicker;
 }
 
 // END TAVERN INTERFACE SKIN
@@ -5649,6 +5848,7 @@ function installInterfaceSkinSettings(ctx, React, dream) {
 				styles
 			});
 
+			installSkinFontLibrary(ctx);
 			installInterfaceSkinSettings(ctx, _react, window.dshDreamSkin);
 
 			const wallpaperInjected = (actions) => {
@@ -6105,6 +6305,7 @@ function installInterfaceSkinSettings(ctx, React, dream) {
 		exports.SKINS = SKINS;
 		exports.DEFAULT_SKIN = DEFAULT_SKIN;
 		exports.installInterfaceSkinSettings = installInterfaceSkinSettings;
+		exports.installSkinFontLibrary = installSkinFontLibrary;
 		exports.apply = apply;
 		exports.inject = inject;
 		return module.exports;

@@ -24,7 +24,7 @@ required.push('bin/build-tavern-client.mjs')
 // In the repository and the Git package, but never read by an installed copy (lib/client.js is the
 // built client; only settings.html and the licenses of the vendored upstream sources are loaded).
 const developmentOnly = ['tavern-plugin/src/client/main.js', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/package.json', 'tavern-plugin/lib/vendor/magvarupdate/upstream/package.json']
-const lazyFontBinaries = ['tavern-plugin/fonts/example/face.woff2', 'tavern-plugin/fonts/example/face.ttf', 'tavern-plugin/fonts/example/face.otf']
+const lazyFontBinaries = ['tavern-plugin/fonts', 'tavern-plugin/packages/dsh-dream-skin/fonts'].flatMap(root => ['woff2', 'ttf', 'otf'].map(ext => root + '/example/face.' + ext))
 const fontMetadata = ['tavern-plugin/fonts/example/index.json', 'tavern-plugin/fonts/example/OFL.txt', 'tavern-plugin/fonts/example/LICENSE']
 const keptUpstream = ['tavern-plugin/lib/vendor/st-prompt-template/upstream/settings.html', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/LICENSE', 'tavern-plugin/lib/vendor/magvarupdate/upstream/LICENSE']
 

@@ -1,5 +1,5 @@
 // Optional offline preparation. Does not change skin selections or delete existing fonts.
-import { FONT_CATALOG, createFontAssets } from '../tavern-plugin/lib/font-assets.js'
+import { FONT_CATALOG, createFontAssets } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js'
 import { resolveTavernDataRoot } from '../tavern-plugin/lib/domain/tavern-data.js'
 const assets = createFontAssets({ dataRoot: resolveTavernDataRoot() })
 let failed = 0

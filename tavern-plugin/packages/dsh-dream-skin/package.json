@@ -26,7 +26,8 @@
 		"docs/screenshots",
 		"docs/examples",
 		"docs/themes-spec.md",
-		"docs/design-philosophy.md"
+		"docs/design-philosophy.md",
+		"fonts"
 	],
 	"author": "dsh-dream-skin contributors",
 	"repository": {

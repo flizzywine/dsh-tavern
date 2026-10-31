@@ -61,7 +61,9 @@ function createTavernFonts(options) {
     }
     function list() {
         if (loaded) return Promise.resolve(fonts);
-        if (!loading) loading = Promise.resolve().then(function () { return options.rpc("listFonts"); }).then(function (result) {
+        const epoch = generation;
+        if (!loading) loading = Promise.resolve().then(function () { return options.readFonts(); }).then(function (result) {
+            if (epoch !== generation) return fonts;
             fonts = Object.freeze((result && Array.isArray(result.fonts) ? result.fonts : []).filter(function (font) {
                 return validId(font.id) && typeof font.family === "string" && /^[a-zA-Z0-9 _-]{1,120}$/.test(font.family) && Array.isArray(font.files);
             }).map(function (font) { return Object.freeze(font); }));
@@ -74,17 +76,10 @@ function createTavernFonts(options) {
         if (own) { if (own.fallback) register(own.fallback); return own; }
         const font = fonts.find(function (item) { return item.id === id; });
         if (!font || registered.has(id) || !doc) return font || null;
-        const rules = font.files.filter(function (file) {
-            return ["woff2", "truetype", "opentype"].includes(file.format) && ["normal", "italic", "oblique"].includes(file.style) &&
-                Number.isInteger(file.weight) && file.weight >= 1 && file.weight <= 1000 &&
-                typeof file.url === "string" && new RegExp("^/api/dsh-tavern/fonts/" + id + "/[a-zA-Z0-9][a-zA-Z0-9._-]*\\.(woff2|ttf|otf)$").test(file.url);
-        }).map(function (file) {
-            return "@font-face{font-family:" + JSON.stringify(font.family) + ";src:url(" + JSON.stringify(file.url) + ") format(" + JSON.stringify(file.format) + ");font-weight:" + file.weight + ";font-style:" + file.style + ";font-display:swap;}";
-        });
-        if (!rules.length) return null;
-        if (!faceStyle) { faceStyle = doc.createElement("style"); faceStyle.dataset.forkFontFaces = ""; doc.head.appendChild(faceStyle); }
-        faceStyle.appendChild(doc.createTextNode(rules.join("\n") + "\n"));
-        registered.add(id);
+        if (options.library) {
+            void options.library()?.ensure(id).catch(() => {});
+            return font;
+        }
         return font;
     }
     function ensure(id) {
@@ -139,6 +134,7 @@ function createTavernFonts(options) {
             skinFont = nextFont; currentTheme = nextTheme; currentSkin = nextSkin; currentKey = key; notify();
         },
         syncStorage: function () { readOverrides(); notify(); },
+        invalidateLibrary: function () { generation++; fonts = []; loaded = false; loading = null; registered.clear(); notify(); },
         dispose: function () {
             generation++; if (faceStyle) faceStyle.remove(); faceStyle = null; registered.clear();
             provided.forEach(function (entry) { if (entry.face && doc && doc.fonts) doc.fonts.delete(entry.face); }); provided.clear(); providing.clear();
@@ -147,7 +143,8 @@ function createTavernFonts(options) {
 }
 const tavernFonts = createTavernFonts({ document: typeof document === "undefined" ? null : document,
     storage: (function () { try { return window.localStorage; } catch (_) { return null; } })(),
-    rpc: function (method) { return rpc(method); },
+    library: () => typeof window === 'undefined' ? null : window.dshSkinFonts,
+    readFonts: async function () { return {fonts:await (typeof window !== 'undefined' && window.dshSkinFonts?.list() || Promise.resolve([]))}; },
     // Read lazily: the stage skin contract is bundled later in the same client scope.
     builtinFont: function (theme) { const skin = Object.hasOwn(BUILTIN_STAGE_SKINS, theme) ? BUILTIN_STAGE_SKINS[theme] : null; return skin ? skin.font : null; } });
 // A stage root's declaration: data-fk-fonts (JSON, set by useStageSkin) or the built-in of its data-theme.
@@ -206,6 +203,8 @@ function installForkFonts(ctx) {
     }
     function schedule() { if (!disposed && !queued) { queued = true; Promise.resolve().then(refresh); } }
     const unsubscribe = tavernFonts.subscribe(schedule);
+    function libraryChanged() {tavernFonts.invalidateLibrary();tavernFonts.list().then(schedule, () => {});}
+    window.addEventListener('dsh-font-library-changed', libraryChanged);
     const offTheme = ctx.on("theme/change", schedule);
     const observer = new MutationObserver(function (changes) {
         if (changes.some(function (change) {
@@ -222,6 +221,7 @@ function installForkFonts(ctx) {
     tavernFonts.list().then(schedule, function (error) { console.warn("dsh-tavern: font library unavailable", error); });
     return function () {
         disposed = true; observer.disconnect(); unsubscribe(); if (typeof offTheme === "function") offTheme();
+        window.removeEventListener("dsh-font-library-changed", libraryChanged);
         window.removeEventListener("storage", storage); typography.remove(); tavernFonts.dispose();
         if (doc.body) doc.body.style.removeProperty("--fork-font-reading-resolved");
         doc.querySelectorAll(rootSelector).forEach(function (element) {

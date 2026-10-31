@@ -26,7 +26,7 @@ test('runtime archive gate rejects empty, directory and >=20 MB before publicati
 test('every bundled font is below the per-file limit and matches its catalog digest/size', async () => {
   const { readdir } = await import('node:fs/promises')
   const { createHash } = await import('node:crypto')
-  const root = new URL('../tavern-plugin/fonts/', import.meta.url)
+  const root = new URL('../tavern-plugin/packages/dsh-dream-skin/fonts/', import.meta.url)
   let count = 0
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
