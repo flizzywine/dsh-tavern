@@ -41,14 +41,14 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
         createElement:(type,props,...children) => ({type,props,children}),
       }
-      const views = input.createViews({React,navigation:{},loader:{},admission:{performance:{now:() => 0}},
+      const views = input.createViews({React,navigation:{},loader:{},video:{},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
       for (const name of ['Host','Toggle','Typewriter','NarrationLines','HudLabels','NamePlate']) assert.equal(typeof views[name],'function')
       assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0].children[0],'完整文字')
       views.progress.store.begin('s',1)
       assert.equal(views.progress.store.get('s').id,1)
       seen.push('tab')
-      return () => {views.admission.dispose(); views.progress.store.dispose(); views.loader.dispose(); seen.push('remove-tab')}
+      return () => {views.admission.dispose(); views.progress.store.dispose(); views.loader.dispose(); views.video.dispose(); seen.push('remove-tab')}
     },
     () => {seen.push('sessions'); return () => seen.push('stop-sessions')},
   ]})
