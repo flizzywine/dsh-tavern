@@ -886,8 +886,7 @@ function GalStage(props) {
         // transcript would force its whole skipped layout first.
         return () => { queueMicrotask(() => { if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); }); };
     }, [sessionId]);
-    const applyUi = React.useMemo(() => galUiApplier(), []);
-    const onUi = React.useCallback(frame => applyUi(rootRef.current, frame), [applyUi]);
+    const onUi = stageViews.lookUi.useApply(rootRef);
     const track = accepted.music;
     // Every dialogue consumer resolves the same current figure ref; off-stage speakers keep their card identity.
     const speakerRows = React.useMemo(() => stageViews.speaker.rows(pack.characters), [pack.characters]);

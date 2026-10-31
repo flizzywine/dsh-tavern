@@ -6402,6 +6402,87 @@ return galLookArt;
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageLookArt};
 
+        // DOM projection of the scene look. Each applier owns only the styles and attributes it writes.
+function createStageLookUi({React}) {
+    const frameVars = new Set(['--look-vig', '--look-vig-color', '--look-haze', '--look-haze-color', '--look-grain']);
+    const appliers = new Set();
+    let disposed = false;
+    function create() {
+        let dead = false, rootNode = null, paintNode = null, matrixNode = null;
+        const writes = new Map();
+        const fmt = value => Math.round(value * 1000) / 1000;
+        const rgb = value => value.map(v => Math.round(v * 255)).join(' ');
+        function write(node, name, value, style = false) {
+            if (!node) return;
+            let entries = writes.get(node);
+            if (!entries) { entries = new Map(); writes.set(node, entries); }
+            const key = (style ? 'style:' : 'attr:') + name;
+            const get = () => style ? node.style.getPropertyValue(name) : node.getAttribute(name);
+            const set = (next, priority = '') => {
+                if (style) { if (next) node.style.setProperty(name, next, priority); else node.style.removeProperty(name); }
+                else if (next === null) node.removeAttribute(name); else node.setAttribute(name, next);
+            };
+            let record = entries.get(key);
+            if (!record) {
+                record = {before:get(), priority:style ? node.style.getPropertyPriority(name) : '', value:undefined, get, set,
+                    currentPriority:() => style ? node.style.getPropertyPriority(name) : ''};
+                entries.set(key, record);
+            }
+            if (record.value === value) return;
+            record.value = value; set(value);
+        }
+        function restore(node) {
+            const entries = writes.get(node);
+            if (!entries) return;
+            writes.delete(node);
+            for (const record of entries.values()) {
+                if (record.get() === record.value && record.currentPriority() === '') record.set(record.before, record.priority);
+            }
+        }
+        function clear() { for (const node of [...writes.keys()]) restore(node); }
+        const api = {
+            apply(root, frame) {
+                if (dead || disposed) return;
+                if (root !== rootNode) { clear(); rootNode = root; paintNode = matrixNode = null; }
+                if (!root) return;
+                appliers.add(api);
+                const nextMatrix = root.querySelector('.fork-gal-look-defs feColorMatrix');
+                if (matrixNode !== nextMatrix) { restore(matrixNode); matrixNode = nextMatrix; }
+                const matrix = frame?.matrix ? frame.matrix.map(fmt).join(' ') : '';
+                if (matrix) write(matrixNode, 'values', matrix);
+                else restore(matrixNode);
+                write(root, 'data-look-ui', matrix ? '' : null);
+                const nextPaint = root.querySelector('.fork-gal-frame');
+                if (paintNode !== nextPaint) { restore(paintNode); paintNode = nextPaint; }
+                const vars = frame ? {
+                    '--look-shake-x':fmt(frame.shake.x) + 'px', '--look-shake-y':fmt(frame.shake.y) + 'px',
+                    '--look-vig':String(fmt(frame.vignette.alpha)), '--look-vig-color':rgb(frame.vignette.color),
+                    '--look-haze':String(fmt(frame.haze.alpha)), '--look-haze-color':rgb(frame.haze.color), '--look-grain':String(fmt(frame.grain))
+                } : {'--look-shake-x':'0px', '--look-shake-y':'0px', '--look-vig':'0', '--look-vig-color':'0 0 0', '--look-haze':'0', '--look-haze-color':'255 255 255', '--look-grain':'0'};
+                for (const [name, value] of Object.entries(vars)) write(frameVars.has(name) ? paintNode : root, name, value, true);
+                write(root, 'data-look-grain', frame && frame.grain > 0.01 ? '' : null);
+            },
+            dispose() { if (dead) return; dead = true; appliers.delete(api); clear(); rootNode = paintNode = matrixNode = null; }
+        };
+        return api;
+    }
+    function useApply(rootRef) {
+        const slot = React.useRef(null);
+        React.useLayoutEffect(() => {
+            const api = create(); slot.current = api;
+            return () => { if (slot.current === api) slot.current = null; api.dispose(); };
+        }, []);
+        return React.useCallback(frame => slot.current?.apply(rootRef.current, frame), [rootRef]);
+    }
+    return {create, useApply, dispose() {
+        if (disposed) return; disposed = true;
+        const errors = [];
+        for (const api of [...appliers]) try { api.dispose(); } catch (error) { errors.push(error); }
+        if (errors.length) throw new AggregateError(errors, 'Look UI cleanup failed');
+    }};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageLookUi};
+
         function createStageLooks({math={},shaders,art:galLookArt,matrix:galMatrix,clamp:galClamp01,ease:galEase,fade:stageLookFadeMs,useFilter:galUseFilter,weather:weatherModule,colors,document,Image}){
 let disposed=false;const instances=new Set();
 const {GAL_LOOK_MS, galLookHex, GAL_LOOK_NEUTRAL, galLookMix, galLookMatrix, galLookPlan, galGradeUniforms, GAL_LOOKS_EMPTY, galLookResolve, galLookComposeMatrix, galLookCompose, galFitAffine, galLookUi}=math;
@@ -12000,7 +12081,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const danmaku=own(createStageDanmaku({display:danmakuDisplay,scheduler:danmakuScheduler,session:danmakuSession,liveroom,createAvatar:createStageDanmakuAvatar,window,...options.danmaku}));
                     const danmakuSettings=own(createStageDanmakuSettings({window,CustomEvent:window.CustomEvent}));
                     const danmakuUi=own(createStageDanmakuUi({React:options.React,window,document,CustomEvent:window.CustomEvent,...options.danmakuUi,settings:danmakuSettings,fields:configFields}));
-                    return {looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
