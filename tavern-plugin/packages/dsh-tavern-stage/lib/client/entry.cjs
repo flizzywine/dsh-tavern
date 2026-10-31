@@ -3,7 +3,7 @@
 function createStageClientEntry({startLifetime, install, report}) {
     let mounted = null, disposed = false;
     return Object.freeze({
-        mount() {
+        mount(input) {
             if (disposed) throw new Error('Stage client host is disposed');
             if (mounted) throw new Error('Stage client is already mounted');
             const token = {};
@@ -12,7 +12,7 @@ function createStageClientEntry({startLifetime, install, report}) {
                 const stop = startLifetime(({own}) => {
                     for (const run of install) {
                         if (disposed) throw new Error('Stage client host is disposed');
-                        const cleanup = run();
+                        const cleanup = run(input);
                         if (cleanup) own(cleanup);
                         if (disposed) throw new Error('Stage client host is disposed');
                     }

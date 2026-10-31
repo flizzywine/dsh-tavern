@@ -1,131 +1,39 @@
-// Stage entry and exit: the active-stage store, F12 / ????? paths and the system-menu request (gal-stage.js includes
-// this source inside its module factory; Node tests evaluate it beside their stubs). The mounted stage assigns
-// galLeaveHold; clip-render.js sets galEntry.
-// Revalidate on every visit; only the latest pending turn or an explicit generation polls.
-// The stage is a full-screen mode of one session at a time; it is not remembered across reloads.
-const galStageAvailable = (() => {
-    let enabled = false;
+// Stable readers keep core React subscribers alive while the optional provider comes and goes.
+let stageNavigation = null;
+const stageNavigationSignals = new Map();
+function stageNavigationSignal(name, fallback) {
     const listeners = new Set();
-    return {get: () => enabled, subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn);},
-        set(value) {if (enabled === value) return; enabled = value; for (const fn of listeners) fn();}};
-})();
-let galVisitGeneration = 0;
-function galStageLifetime() {
-    galStageAvailable.set(true);
-    let live = true;
+    const signal = {get: () => stageNavigation?.[name].get() ?? fallback,
+        subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn);},
+        emit() {for (const fn of listeners) fn();}};
+    stageNavigationSignals.set(name,signal);
+    return signal;
+}
+const galActive = stageNavigationSignal('galActive', '');
+const galStageAvailable = stageNavigationSignal('galStageAvailable', false);
+const galMenuSignal = stageNavigationSignal('galMenuRequest', 0);
+const galMenuRequest = {...galMenuSignal, request: () => stageNavigation?.galMenuRequest.request()};
+const galEntering = {get: () => stageNavigation?.galEntering.get() || ''};
+const galEnter = (...args) => stageNavigation?.galEnter(...args);
+const galLeave = () => stageNavigation?.galLeave();
+const galEscapeLock = on => stageNavigation?.galEscapeLock(on);
+const galStageShortcut = () => stageNavigation.galStageShortcut();
+const galStageLifetime = () => stageNavigation.galStageLifetime();
+const galCurrentEntry = () => stageNavigation?.getEntry() || null;
+const galHoldLeave = hold => stageNavigation?.holdLeave(hold) || (() => {});
+function bindStageNavigation(createNavigation, ctx) {
+    if (stageNavigation) throw new Error('Stage navigation already mounted');
+    const navigation = createNavigation({window, document, navigator:window.navigator,
+        playCue:cue => forkUiSfx.play(cue), checkSetup:stageSetupGate,
+        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id),
+        uncover:() => galUncover?.()});
+    const stops = [];
+    stageNavigation = navigation;
+    for (const [name, signal] of stageNavigationSignals) stops.push(navigation[name].subscribe(signal.emit));
     return () => {
-        if (!live) return;
-        live = false;
-        galVisitGeneration++;
-        galEntry = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
-        try { galStageAvailable.set(false); }
-        finally {
-            try { galLeaveNow(); }
-            finally { galEscapeLock(false); if (typeof galUncover === 'function') galUncover(); }
-        }
+        for (const stop of stops) stop();
+        if (stageNavigation !== navigation) return;
+        stageNavigation = null;
+        galActive.emit(); galStageAvailable.emit();
     };
 }
-const galActive = (function () {
-    let session = "";
-    const listeners = new Set();
-    return {
-        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-        get: () => session,
-        set(value) { session = value || ""; listeners.forEach(fn => fn()); }
-    };
-})();
-// The session whose stage entry was asked for and is not mounted yet (the setup check below is a host read). The
-// transcript under it starts no new face leases meanwhile: they would take the entry's connections (bubbles.js).
-const galEntering = (function () {
-    let session = "";
-    return { get: () => session, set(value) { session = value || ""; } };
-})();
-let galEntry = null;
-function galEnter(sessionId, target) {
-    if (!galStageAvailable.get()) return;
-    const generation = ++galVisitGeneration;
-    const current = () => galStageAvailable.get() && generation === galVisitGeneration;
-    // the first entry on a card without 素材包 opens 舞台设置 › 设置向导 instead
-    // (asset-launcher.js stageSetupGate; absent where the stage is loaded on its own). The host check is one
-    // local read, well inside the click's activation window, so full screen is still granted afterwards.
-    const setup = typeof stageSetupGate === "function" ? stageSetupGate(sessionId, current) : null;
-    if (setup) {
-        galEntering.set(sessionId);
-        setup.then(opened => { if (!current()) return; galEntering.set(""); if (!opened) galOpen(sessionId, target); }, () => {if (current()) galEntering.set("");});
-        return;
-    }
-    galOpen(sessionId, target);
-}
-function galOpen(sessionId, target) {
-    if (!galStageAvailable.get()) return;
-    forkUiSfx.play("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
-    galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
-    galActive.set(sessionId);
-    // Called from the click itself, so the browser grants full screen.
-    const root = document.documentElement;
-    if (!document.fullscreenElement && root.requestFullscreen) root.requestFullscreen().catch(() => {});
-}
-// Requests for the stage's system menu from outside the stage (the host: system full screen was left, which the
-// browser does on Esc before the page sees the key). A counter; the mounted stage opens its menu on a change.
-const galMenuRequest = (function () {
-    let count = 0;
-    const listeners = new Set();
-    return {
-        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-        get: () => count,
-        request() { count++; listeners.forEach(fn => fn()); }
-    };
-})();
-// in full screen the stage holds Esc (Keyboard Lock), so a press reaches the page and opens
-// the menu in place - no exit, no window shrink. Holding Esc still leaves full screen (the browser's rule). Without the
-// API the host's fullscreen-lost path opens the menu instead.
-function galEscapeLock(on) {
-    const keyboard = typeof navigator !== "undefined" ? navigator.keyboard : null;
-    if (!keyboard || typeof keyboard.lock !== "function") return;
-    if (on) keyboard.lock(["Escape"]).catch(() => {}); else keyboard.unlock();
-}
-// 「返回主页面」(the system menu, the chat button and the top-bar ✕): leave the stage, keep the bookmark.
-// a mounted stage whose skin declares transitions.stage.leave plays it first
-// (galLeaveHold returns true and calls back when it ends); a second request during it is the same leave.
-let galLeaveHold = null, galLeavePending = false;
-function galLeave() {
-    if (galLeavePending) return;
-    forkUiSfx.play("close");
-    const leaving = galActive.get();
-    if (galLeaveHold && galLeaveHold(() => { galLeavePending = false; if (galActive.get() === leaving) galLeaveNow(); })) { galLeavePending = true; return; }
-    galLeaveNow();
-}
-function galLeaveNow() {
-    galVisitGeneration++;
-    galEntering.set("");
-    galActive.set("");
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-}
-// One plugin-owned capture listener also works when an editor or modal has focus.
-function galStageShortcut(ctx) {
-    let composing = false;
-    const compositionStart = () => { composing = true; };
-    const compositionEnd = () => { composing = false; };
-    function onKey(event) {
-        if (event.key !== "F12" || composing || event.isComposing || event.keyCode === 229) return;
-        const sessionId = tavernMainSessionId(ctx.sessions);
-        const data = sessionId && bubbleStore.get(sessionId);
-        if (!data?.cardPath || !data.config?.enabled) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.repeat) return;
-        if (galActive.get() === sessionId) galLeave();
-        else galEnter(sessionId);
-    }
-    window.addEventListener("compositionstart", compositionStart, true);
-    window.addEventListener("compositionend", compositionEnd, true);
-    window.addEventListener("blur", compositionEnd);
-    window.addEventListener("keydown", onKey, true);
-    return function () {
-        window.removeEventListener("compositionstart", compositionStart, true);
-        window.removeEventListener("compositionend", compositionEnd, true);
-        window.removeEventListener("blur", compositionEnd);
-        window.removeEventListener("keydown", onKey, true);
-    };
-}
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut };

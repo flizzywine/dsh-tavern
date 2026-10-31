@@ -1,6 +1,8 @@
 window.__ModuleLoader__.load({
     id: 'dsh-tavern-stage',
-    factory: () => ({
+    factory: () => {
+        __STAGE_NAVIGATION__
+        return ({
         name: 'dsh-tavern-stage',
         inject: ['tavernStageFrontend'],
         apply(ctx) {
@@ -18,10 +20,10 @@ window.__ModuleLoader__.load({
                 style.textContent = __STAGE_PRESENTATION_CSS__;
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount();}
+                try {stop = host.mount({createNavigation:createStageNavigation});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');
         }
-    })
+    });}
 });

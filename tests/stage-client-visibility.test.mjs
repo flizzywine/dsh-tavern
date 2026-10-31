@@ -2,13 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-const source = readFileSync(new URL('../tavern-plugin/src/client/gal-stage-active.cjs', import.meta.url),'utf8')
+import {createRequire} from 'node:module'
+const {createStageNavigation} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/navigation.cjs')
 function setup() {
   const gates = [], events = []
   const document = {fullscreenElement:null, documentElement:{requestFullscreen:async () => events.push('fullscreen')}, exitFullscreen:async () => events.push('exit')}
-  const api = vm.runInNewContext(source + '\n({galStageAvailable, galStageLifetime, galEnter, galActive, galEntering, galLeaveNow})', {
-    document, forkUiSfx:{play:cue => events.push(cue)},
-    galUncover:() => events.push('uncover'), stageSetupGate:() => new Promise(resolve => gates.push(resolve)),
+  const api = createStageNavigation({
+    document, playCue:cue => events.push(cue),
+    uncover:() => events.push('uncover'), checkSetup:() => new Promise(resolve => gates.push(resolve)),
   })
   return {api, gates, events, document}
 }
@@ -61,4 +62,34 @@ test('a stopped entry cannot open the delayed setup wizard or consume its offer'
   assert.equal(opened,0)
   assert.equal(setup.offered('card'),false)
   assert.equal(setup.take('card'),false)
+})
+
+test('core navigation readers survive optional provider removal and replacement', () => {
+  const calls = [], window = {navigator:{}}
+  const document = {documentElement:{requestFullscreen:async () => {}},fullscreenElement:null}
+  const bridge = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/gal-stage-active.cjs',import.meta.url),'utf8') + '\n({bindStageNavigation,galStageLifetime,galActive,galStageAvailable,galEnter,galCurrentEntry,galHoldLeave,galLeave})', {
+    window, document, forkUiSfx:{play:cue => calls.push(cue)}, stageSetupGate:() => null,
+    tavernMainSessionId:() => 's',bubbleStore:{get:() => ({})},galUncover:null,
+  })
+  const snapshots = []
+  const unsubscribe = bridge.galActive.subscribe(() => snapshots.push(bridge.galActive.get()))
+  bridge.galEnter('absent')
+  assert.equal(calls.length,0)
+  for (let cycle=0; cycle<2; cycle++) {
+    const unbind=bridge.bindStageNavigation(createStageNavigation,{sessions:{}})
+    const stop=bridge.galStageLifetime()
+    bridge.galEnter('s',{turn:2,para:3})
+    assert.equal(bridge.galCurrentEntry().turn,2)
+    assert.equal(bridge.galStageAvailable.get(),true)
+    let finish
+    const releaseHold=bridge.galHoldLeave(done => {finish=done;return true})
+    bridge.galLeave()
+    assert.equal(bridge.galActive.get(),'s')
+    stop();unbind();releaseHold();finish()
+    assert.equal(bridge.galActive.get(),'')
+    assert.equal(bridge.galCurrentEntry(),null)
+    assert.equal(bridge.galStageAvailable.get(),false)
+  }
+  assert.equal(snapshots.filter(value => value==='s').length,2)
+  unsubscribe()
 })

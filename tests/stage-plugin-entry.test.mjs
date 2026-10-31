@@ -34,7 +34,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   })
   assert.equal(definition.id, 'dsh-tavern-stage')
   const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
-    () => {seen.push('tab'); return () => seen.push('remove-tab')},
+    input => {assert.equal(typeof input.createNavigation,'function'); seen.push('tab'); return () => seen.push('remove-tab')},
     () => {seen.push('sessions'); return () => seen.push('stop-sessions')},
   ]})
   const ctx = new Context()

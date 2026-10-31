@@ -527,7 +527,7 @@ function GalStage(props) {
     const latestTurn = runtime.latestSource?.turn || turns[turns.length - 1] || 0;
     if (latestTurn && !turns.includes(latestTurn)) turns.push(latestTurn);
     // The active session string does not change when an entry targets an already mounted stage.
-    const entry = React.useSyncExternalStore(galActive.subscribe, () => galEntry && galEntry.sessionId === sessionId ? galEntry : null);
+    const entry = React.useSyncExternalStore(galActive.subscribe, () => {const entry = galCurrentEntry(); return entry?.sessionId === sessionId ? entry : null;});
     const initial = React.useMemo(() => ({ saved: galReadBookmark(sessionId), entry }), [sessionId]);
     const turn = runtime.source?.turn || latestTurn;
     const target = entry;
@@ -838,8 +838,7 @@ function GalStage(props) {
             setStageLeaving(true); setTimeout(done, ms);
             return true;
         };
-        galLeaveHold = hold;
-        return () => { if (galLeaveHold === hold) galLeaveHold = null; };
+        return galHoldLeave(hold);
     });
     // ADV skins (textbox.layout other than box) read like the official games: no
     // 【】「」, no face window; quickMenu capsule / orb folds the quick buttons into the system menu behind one top-right
