@@ -14,11 +14,12 @@ function setup(overrides={}) {
 }
 test('stage owns director job registration, opening, cancellation and removal',async()=>{
   const {events,workflow,stage,calls}=setup()
+  assert.equal(workflow.catalog().some(row=>row.task==='stage-director'),true)
   events.emit('reply-committed',{sessionId:'game'});await tick()
   events.emit('turn-discarded',{sessionId:'game',turn:1});await tick()
   await stage.settlementQueued('chat')
   assert.deepEqual(calls,['direct','cancel','direct'])
-  stage.dispose();assert.deepEqual(workflow.table(),[])
+  stage.dispose();assert.deepEqual(workflow.table(),[]);assert.deepEqual(workflow.catalog(),[])
   events.emit('reply-committed',{sessionId:'game'});await stage.settlementQueued('chat');await tick()
   assert.equal(calls.length,3)
 })
@@ -46,4 +47,16 @@ test('removed workflow jobs cannot publish late outputs to a replacement job',as
   assert.equal(workflow.output('game',1,'stage'),undefined)
   events.emit('reply-committed',{sessionId:'game',turn:1});await tick()
   assert.equal(workflow.output('game',1,'stage'),42);replacement()
+})
+
+test('optional task catalog follows registration and cannot replace a core task',()=>{
+  const workflow=createWorkflow({events:createStoryEvents(),tasks:[{task:'core',name:'Core'}]})
+  assert.throws(()=>workflow.job({id:'bad',task:'core',taskInfo:{name:'Replacement'},on:'reply-committed',run(){}}),/任务目录/)
+  assert.deepEqual(workflow.table(),[])
+  for(let i=0;i<2;i++) {
+    const stop=workflow.job({id:'optional',task:'optional',taskInfo:{name:'Optional',needs:['core']},on:'reply-committed',run(){}})
+    const snapshot=workflow.catalog();snapshot[1].needs.push('mutated')
+    assert.deepEqual(workflow.catalog()[1].needs,['core'])
+    stop();stop();assert.deepEqual(workflow.catalog(),[{task:'core',name:'Core'}])
+  }
 })

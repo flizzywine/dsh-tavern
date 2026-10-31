@@ -101,6 +101,8 @@ export function createWorkflow({ events, tasks = [], logger = console, now = Dat
     // `condition`: its `if` in words; both only describe it on the 后台任务 page.
     const task = String(declaration?.task || '')
     const condition = String(declaration?.condition || '')
+    const taskInfo = declaration?.taskInfo ? Object.freeze({...structuredClone(declaration.taskInfo),task}) : null
+    if (taskInfo && (!task || catalog.has(task))) throw new Error('任务目录已存在或缺少标识: ' + task)
     // `flow`: a flow starts it at these moments itself and waits for it (变量结算), so it is
     // only declared here, to be listed with the rest; it has no run.
     const flow = declaration?.flow === true
@@ -156,9 +158,11 @@ export function createWorkflow({ events, tasks = [], logger = console, now = Dat
     }
     for (const need of after) dependents.set(need, [...(dependents.get(need) || []), start])
     jobs.set(id, entry)
+    if (taskInfo) catalog.set(task,taskInfo)
     return () => {
       if (jobs.get(id) !== entry) return
       jobs.delete(id)
+      if (taskInfo && catalog.get(task) === taskInfo) catalog.delete(task)
       for (const stop of stops) stop()
       for (const need of after) dependents.set(need, (dependents.get(need) || []).filter(item => item !== start))
     }
@@ -194,5 +198,5 @@ export function createWorkflow({ events, tasks = [], logger = console, now = Dat
     await waitAll([...catalog.values()].filter(item => item.blocksNextTurn).map(item => item.task), chat)
   }
 
-  return Object.freeze({ job, table, waiter, needs, beforeNextTurn, output, runs })
+  return Object.freeze({ job, table, catalog:() => structuredClone([...catalog.values()]), waiter, needs, beforeNextTurn, output, runs })
 }

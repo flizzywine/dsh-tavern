@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { BACKGROUND_TASK_CATALOG, describeTasks, registerBackgroundTasks } from '../tavern-plugin/lib/domain/background-tasks.js'
+import { STAGE_DIRECTOR_TASK } from '../tavern-plugin/lib/stage-workflow.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
 import { createWorkflow } from '../tavern-plugin/lib/domain/workflow.js'
 
@@ -22,7 +23,7 @@ test('the page lines are written from the declarations: starting moments, needs 
   const jobs = [{ task: 'settlement', on: ['reply-committed'], cancelOn: [], condition: '', flow: true }, { task: 'polish', on: ['reply-committed', 'turn-settled'], cancelOn: [], condition: '开启自动精修时' },
     { task: 'stage-director', on: ['reply-committed'], cancelOn: ['turn-discarded'], condition: '' }]
   const names = { 'reply-committed': '正文写完', 'turn-settled': '本轮结算完', 'turn-discarded': '回合作废' }
-  const lines = Object.fromEntries(describeTasks(BACKGROUND_TASK_CATALOG, jobs, event => names[event]).map(item => [item.task, item]))
+  const lines = Object.fromEntries(describeTasks([...BACKGROUND_TASK_CATALOG,STAGE_DIRECTOR_TASK], jobs, event => names[event]).map(item => [item.task, item]))
   assert.equal(lines.polish.trigger, '正文写完、本轮结算完（开启自动精修时）；点「精修」')
   assert.deepEqual(lines.polish.spec.on, [{ moments: ['正文写完', '本轮结算完'], needs: [], condition: '开启自动精修时', flow: false }])
   assert.deepEqual(lines.settlement.spec.neededBy, ['生成选项'])

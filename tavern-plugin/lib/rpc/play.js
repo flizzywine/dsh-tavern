@@ -264,9 +264,10 @@ export function createPlayHandlers(deps) {
       return { progress: backgroundAgentRunner.progress(args && args.sessionId) || pluginSettlementProgress.snapshot(args && args.sessionId) }
     },
     async getBackgroundRuns(args) {
-      const names = Object.fromEntries(BACKGROUND_TASK_CATALOG.map(item => [item.task, item.name]))
+      const registered = workflow?.catalog?.() || BACKGROUND_TASK_CATALOG
+      const names = Object.fromEntries(registered.map(item => [item.task, item.name]))
       const runs = backgroundAgentRunner.runs(args && args.sessionId).map(run => ({ ...run, name: names[run.task] || run.task }))
-      const catalog = describeTasks([...BACKGROUND_TASK_CATALOG, ...(pluginApi?.taskCatalog?.() || [])], workflow?.table() || [], event => STORY_EVENTS[event] || event)
+      const catalog = describeTasks([...registered, ...(pluginApi?.taskCatalog?.() || [])], workflow?.table() || [], event => STORY_EVENTS[event] || event)
       const moments = storyEvents?.history(args && args.sessionId) || []
       const turns = buildRunTree({ moments, jobRuns: workflow?.runs(args && args.sessionId) || [], runs, catalog })
       return { runs, turns, catalog, members: listMembers(), moments, locks: backgroundAgentRunner.locks(args && args.sessionId) }
