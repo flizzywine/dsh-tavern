@@ -21,6 +21,7 @@ required.push('bin/bundled-scene-image-plugin.mjs', 'tavern-plugin/packages/dsh-
 required.push('tavern-plugin/lib/domain/server-template-runtime.js', 'tavern-plugin/lib/domain/server-template-worker.js', 'tavern-plugin/lib/vendor/st-prompt-template/server-artifact/engine.js', 'tavern-plugin/lib/vendor/st-prompt-template/server-artifact/manifest.json')
 required.push('tavern-plugin/lib/domain/tavern-client-assets.js', 'tavern-plugin/lib/client-assets/tavern.css')
 required.push('bin/build-tavern-client.mjs')
+required.push(...['package.json','cordis.patch.yml','lib/index.js'].map(file=>'tavern-plugin/packages/dsh-tavern-stage/'+file))
 // In the repository and the Git package, but never read by an installed copy (lib/client.js is the
 // built client; only settings.html and the licenses of the vendored upstream sources are loaded).
 const developmentOnly = ['tavern-plugin/src/client/main.js', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/package.json', 'tavern-plugin/lib/vendor/magvarupdate/upstream/package.json']

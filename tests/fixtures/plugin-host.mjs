@@ -63,7 +63,7 @@ export async function createPluginHost({ withTools = false, composition, config 
       for (const [name, value] of services) ctx.provide(name, value)
       // External host services are adapters; both owners and their optional
       // registration/disposal run in real Cordis, in generated entry order.
-      for (const entry of composition.entries.filter(entry => ['dsh-tavern', 'dsh-asset-library'].includes(entry.id))) {
+      for (const entry of composition.entries.filter(entry => ['dsh-tavern', 'dsh-asset-library', 'dsh-tavern-stage'].includes(entry.id))) {
         if (entry.disabled) continue
         const plugin = await import(composition.modules.get(entry.name) || entry.name)
         const fiber = ctx.plugin(plugin, composition.configFor(entry))
@@ -91,7 +91,11 @@ export async function createPluginHost({ withTools = false, composition, config 
         on: name => events.add(name),
         provide(name,value) {services.set(name,value);return () => {if(services.get(name)===value)services.delete(name)}}
       }
-      await apply(ctx, config)
+      await apply(ctx)
+      if(config?.stage !== false) {
+        const stage=await import('../../tavern-plugin/packages/dsh-tavern-stage/lib/index.js')
+        await stage.apply(ctx)
+      }
       await new Promise(resolve => setImmediate(resolve))
     }
   } catch (error) { await dispose(); throw error }

@@ -332,7 +332,7 @@ function historyLayoutFile() {
   return path.join(process.env.DSH_HOME || path.join(process.env.HOME || '/', '.dsh'), 'tavern-history-layout.txt')
 }
 
-export async function apply(ctx, config = {}) {
+export async function apply(ctx) {
   // 插件侧的联网请求（更新检查、插件市场、内置搜索）都走 fetch，
   // 而 Node 的 fetch 不认系统代理：启动时先应用一次，进程内所有请求生效。
   try {
@@ -706,7 +706,7 @@ export async function apply(ctx, config = {}) {
   // 舞台的素材与判断（stage-module.js）。
   const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:config.stage !== false})
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:false})
   const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------

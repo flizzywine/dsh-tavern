@@ -50,7 +50,8 @@
         "dsh-dream-skin",
         "dsh-tavern-plugin",
         "dsh-tavern-remote",
-        "dsh-asset-library"
+        "dsh-asset-library",
+        "dsh-tavern-stage"
       ]
     }
   },
@@ -66,7 +67,8 @@
     "dsh-better-sidebar": "0.28.0",
     "dsh-dream-skin": "link:./tavern-plugin/packages/dsh-dream-skin",
     "dsh-asset-library": "link:./tavern-plugin/packages/dsh-asset-library",
-    "esbuild": "0.25.12"
+    "esbuild": "0.25.12",
+    "dsh-tavern-stage": "link:./tavern-plugin/packages/dsh-tavern-stage"
   },
   "description": "DSH Tavern: standalone tavern Profile bundle",
   "engines": {
