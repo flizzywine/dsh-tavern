@@ -1074,18 +1074,29 @@
 			};
 		})();
 		const TAVERN_ILLUSTRATION_NOTICE_MS = 8000;
-		async function runTavernIllustrator(illustrator, sessionId, turn) {
+		async function runTavernIllustrator(illustrator, sessionId, turn, instruction) {
+			let normalizedInstruction;
+			if (instruction !== undefined) {
+				if (typeof instruction !== "string") throw new TypeError("配图要求必须是文本");
+				normalizedInstruction = instruction.trim();
+				if (normalizedInstruction.length > 2000) throw new RangeError("配图要求不能超过 2000 字");
+			}
 			const planning = { planning: true };
 			tavernIllustrationDrafts.set(sessionId, turn, planning);
 			let draft = null;
+			let failure = null;
 			try {
-				const result = await illustrator.draw({ gameId: sessionId, turn: turn });
+				const request = { gameId: sessionId, turn: turn };
+				if (normalizedInstruction) request.instruction = normalizedInstruction;
+				const result = await illustrator.draw(request);
 				const notice = result && typeof result.notice === "string" ? result.notice.trim() : "";
 				if (notice) draft = { text: notice.slice(0, 200) };
-			} catch (error) { draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
-			if (tavernIllustrationDrafts.get(sessionId, turn) !== planning) return;
-			tavernIllustrationDrafts.set(sessionId, turn, draft);
-			if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);
+			} catch (error) { failure = error; draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
+			if (tavernIllustrationDrafts.get(sessionId, turn) === planning) {
+				tavernIllustrationDrafts.set(sessionId, turn, draft);
+				if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);
+			}
+			if (failure && instruction !== undefined) throw failure;
 		}
 		// `items` are the turn's plugin media: once the illustrator attaches a new one, planning is
 		// over and that item's own card shows the drawing, so the placeholder goes.

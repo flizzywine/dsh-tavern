@@ -76,7 +76,8 @@ function createMessageDrawRunner(send, onStart) {
     const gameId = String(context && context.gameId || '')
     const turn = Number(context && context.turn)
     if (!gameId || !Number.isSafeInteger(turn) || turn < 1) return Promise.resolve(null)
-    const key = JSON.stringify([gameId, turn])
+    const instruction = typeof (context && context.instruction) === 'string' ? context.instruction.trim() : ''
+    const key = JSON.stringify([gameId, turn, instruction])
     if (inFlight.has(key)) return inFlight.get(key)
     try { onStart?.(context) } catch {}
     const request = Promise.resolve().then(() => send(context))
@@ -6173,10 +6174,17 @@ function versionsOf(jobId) {
           }
           try {
             const drawTurn = async context => {
-              const r = await jsonFetch(BASE + '/attach-turn', {
+              const body = { gameId: context.gameId, turn: context.turn }
+              if (context.instruction !== undefined) {
+                if (typeof context.instruction !== 'string') throw new TypeError('配图要求必须是文本')
+                const instruction = context.instruction.trim()
+                if (instruction.length > 2000) throw new RangeError('配图要求不能超过 2000 字')
+                if (instruction) body.instruction = instruction
+              }
+              const r = await jsonFetch(BASE + '/draw-turn', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ gameId: context.gameId, turn: context.turn }),
+                body: JSON.stringify(body),
               }).catch(error => ({ ok: false, error: String(error && error.message || error) }))
               reportHost('attach-turn', {
                 gameId: String(context && context.gameId || '').slice(0, 12), turn: context && context.turn,
@@ -6206,7 +6214,7 @@ function versionsOf(jobId) {
               }
               // 进度和结果由 Tavern 显示在这一轮正文里：成功不提示，跳过返回说明，失败抛错。
               const draw = createMessageDrawRunner(async context => {
-                const r = await drawTurn({ gameId: context.gameId, turn: context.turn })
+                const r = await drawTurn(context)
                 if (r && r.ok && r.attached) return Array.isArray(r.warnings) && r.warnings.length ? { notice: '已配图。' + r.warnings.join('；') } : {}
                 if (r && r.ok && r.skipped) return { notice: '本轮跳过配图：' + (r.reason || '没有合适的画面') }
                 throw new Error('没出画面：' + ((r && r.error) || '规划没有产出画面'))
