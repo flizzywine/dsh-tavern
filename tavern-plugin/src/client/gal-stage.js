@@ -1419,6 +1419,7 @@ function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         directorCommands,
+        resourceDependencies:{stageResourceMatches,stageRuntimeErrorText,createPerformanceTimeline,performanceSustained},
         runtimeKernel:{createStageRuntimeState,reduceStageRuntime},
         entranceContract:stageEntranceContract,
         entrance:{reading:stageReading,safety:stageSafety,flashGate:stageFlashGate},

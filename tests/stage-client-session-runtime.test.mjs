@@ -38,3 +38,24 @@ test('plugin disposal stops director IO and fences late watches, timers and new 
  director.runEffect('s',{type:'read-director',token},dispatch,snapshot)
  assert.equal(reads,1);assert.deepEqual(events,[]);assert.equal(await runtime.projectDirection({phase:'done'},source),null)
 })
+
+
+test('plugin resource disposal cancels all sessions despite progress cleanup failure and rejects new work',async()=>{
+ const {createStageResourceRunnerModule:createResourceModule}=require('../tavern-plugin/packages/dsh-tavern-stage/lib/client/resource-runner.cjs')
+ const runtime=createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createResourceModule,resourceDependencies:{}})
+ const pending=[],ended=[],events=[];let released=0,reads=0
+ const resources=runtime.createResources({owner:{dispose(){released++}},read(){reads++;return new Promise(resolve=>pending.push(resolve))},progress:{begin(){},end(id){ended.push(id);throw Error('progress cleanup')}}})
+ for(const id of ['a','b']){
+  const source={sessionId:id,turn:1,authorityEpoch:1},token={id:1,source},direction={revision:1}
+  resources.onEffect(id,{type:'project',token,carry:{source,token:direction},at:1},event=>events.push(event),()=>({cursor:{mode:'live'},projection:{token}}))
+ }
+ await Promise.resolve();assert.equal(reads,2)
+ assert.throws(()=>runtime.dispose(),/cleanup failed/)
+ assert.deepEqual(ended,['a','b']);assert.equal(released,1)
+ for(const finish of pending)finish({status:'ready'})
+ await new Promise(resolve=>setImmediate(resolve))
+ resources.onEffect('c',{type:'project'},()=>assert.fail('late event'),()=>assert.fail('late state read'))
+ await resources.prefetch({sessionId:'c'},{complete:true,token:{},through:1})
+ resources.dispose();assert.equal(reads,2);assert.equal(released,1);assert.deepEqual(events,[])
+ assert.throws(()=>runtime.createResources({}),/disposed/)
+})

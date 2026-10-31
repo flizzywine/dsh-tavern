@@ -10,7 +10,6 @@
 // @include stage-page-index.cjs
 // @include stage-text-index.cjs
 // @include stage-resources.cjs
-// @include stage-resource-runner.cjs
 // @include stage-ui.js
 // @include-protocol stage-skin.cjs
 // @include stage-skin-adapter.cjs
@@ -22,6 +21,7 @@
 // @include performance-layer.js
 
 // gal-entry.js (stage bundle) owns the entry signal; harnesses that load this file alone treat every stage as shown.
+const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
 const stageEntryShown = () => typeof galEntryShown === 'undefined' ? {get: () => undefined, subscribe: () => () => {}, wait: () => Promise.resolve()} : galEntryShown;
 const stageSessions = {
     owner: null,
@@ -151,7 +151,7 @@ const stageSessions = {
         window.forkStageResourceDebug = resourceDebug;
         own(() => { if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug; });
         const overlayModule=createSkinOverlayLoader();
-        const resources = createStageResourceRunner({
+        const resources = stageViews.sessionRuntime.createResources({
             foreground:forkForeground,
             resolveSpeaker:(state,page) => bubbleCharacter(state.settings?.config,page)?.alias,
             async idle(id,current) {

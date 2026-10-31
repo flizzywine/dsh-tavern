@@ -1,5 +1,5 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
@@ -7,6 +7,10 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         const dispose=owner.dispose.bind(owner);let closed=false;
         owner.dispose=()=>{if(closed)return;closed=true;owners.delete(owner);dispose();};
         owners.add(owner);return owner;
+    }
+    function createResources(inputs){
+        if(disposed)throw new Error('Stage session runtime disposed');
+        return own(createResourceModule(resourceDependencies).createStageResourceRunner(inputs));
     }
     function director(){return directorModule ||= createDirectorModule({directorCommands});}
     function createDirector(inputs){
@@ -23,7 +27,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         sessionModule ||= createSessionModule(createStoreModule(kernel));
         return own(sessionModule.createStageSessionOwner(inputs));
     }
-    return {createSessionOwner,createDirector,projectDirection,dispose(){
+    return {createSessionOwner,createDirector,createResources,projectDirection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;

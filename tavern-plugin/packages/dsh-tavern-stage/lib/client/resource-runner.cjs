@@ -133,6 +133,7 @@ function stagePlaybackVisual(value, requestToken, directionToken) {
 // `progress` receives each foreground load's real items (stage-load-progress.cjs).
 const STAGE_NO_PROGRESS = {begin() {}, plan() {}, resource() {}, settle() {}, end() {}};
 function createStageResourceRunner({read, owner, clock = globalThis, foreground = clock, idle = async () => true, resolveSpeaker = (_snapshot,page) => page.voice?.character?.alias, music, preparePerformance = async () => {}, performance = () => {}, present = () => {}, play = () => {}, cancelPlayback = () => {}, visual, progress = STAGE_NO_PROGRESS}) {
+    let disposed = false;
     const timelineFactory = createPerformanceTimeline;
     const sustained = performanceSustained;
     const now = () => typeof foreground.now === 'function' ? foreground.now() : foreground.now ?? globalThis.performance.now();
@@ -225,7 +226,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         }
     }
     async function prefetch(source, envelope) {
-        if (!envelope?.complete || !envelope.token) return;
+        if (disposed || !envelope?.complete || !envelope.token) return;
         const state = session(source.sessionId), revision = state.revision;
         // Only adjacent boundary pages are speculative. Walking hundreds of historical
         // paragraphs transfers the same catalogue repeatedly while the current scene loads.
@@ -266,20 +267,30 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         }
         await Promise.all([worker(),worker()]);
     }
+    function cleanupAll(tasks) {
+        const errors = [];
+        for (const task of tasks) try { task(); } catch (error) { errors.push(error); }
+        if (errors.length) throw new AggregateError(errors, 'Stage resource cleanup failed');
+    }
     function cancel(job) {
         if (!job) return;
-        job.cancelled = true; job.controller?.abort(); job.finish?.(); clock.clearTimeout(job.timer);
-        for (const prepared of job.groups?.values() || []) prepared.release();
-        job.groups?.clear(); job.prepared?.release();
+        job.cancelled = true;
+        const groups = [...job.groups?.values() || []], prepared = job.prepared;
+        job.groups?.clear(); job.prepared = null;
+        cleanupAll([() => job.controller?.abort(), () => job.finish?.(), () => clock.clearTimeout(job.timer),
+            ...groups.map(value => () => value.release()), () => prepared?.release()]);
     }
-    function releaseAccepted(state) { for (const prepared of state.accepted.values()) prepared.release(); state.accepted.clear(); }
-    // a round (source + reading mode) owns its warm pins, not page visits or prefix revisions.
-    // Two sequential workers bound both projection RPCs and media preparation.
+    function releaseAccepted(state) {
+        const prepared = [...state.accepted.values()]; state.accepted.clear();
+        cleanupAll(prepared.map(value => () => value.release()));
+    }
+    // A round owns its warm pins, not page visits or prefix revisions.
     function releaseWarm(state) {
-        if (!state.warm) return;
-        state.warm.cancelled = true;
-        for (const prepared of state.warm.prepared) prepared.release();
-        state.warm = null;
+        const warm = state.warm;
+        if (!warm) return;
+        warm.cancelled = true; state.warm = null;
+        const prepared = warm.prepared.splice(0);
+        cleanupAll(prepared.map(value => () => value.release()));
     }
     // the lookahead covers every page of
     // the round, nearest-ahead first, so a forward page turn finds its projection and media ready. A page turn only
@@ -408,6 +419,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         owner.revoke(scope,stageResourceAuthority(source));
     }
     function onEffect(sessionId, intent, dispatch, getSnapshot) {
+        if (disposed) return;
         const state = session(sessionId), token = intent.token;
         state.dispatch = dispatch; state.getSnapshot = getSnapshot;
         switch (intent.type) {
@@ -421,7 +433,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
             if (!expectedDirectionToken) return;
             const warm = carry ? {cancelled:false,pin:async () => {},start() {}} : warmTimeline(state,token,expectedDirectionToken,history,getSnapshot);
             const job = {token,groups:new Map(),cancelled:false,failures:0,groupFailures:new Map(),controller:new AbortController()};
-            job.done = new Promise(resolve => {job.finish = () => {progress.end(sessionId,token.id); resolve();};});
+            job.done = new Promise(resolve => {job.finish = () => {try {progress.end(sessionId,token.id);} finally {resolve();}};});
             state.foreground = job; state.jobs.set(token.id,job);
             progress.begin(sessionId,token.id);
             const authority = stageResourceAuthority(token.source);
@@ -740,6 +752,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         return warm ? {queued:warm.queue.size, read:warm.read.size, running:!!warm.running, pins:warm.prepared.length, current:warm.current} : null;
     };
     return {onEffect, prefetch, invalidate, lookahead, revoke(sessionId,scope,dispatch,getSnapshot) {
+        if (disposed) return;
         const source = getSnapshot().source;
         if (source) revoke(session(sessionId),scope,source,dispatch,getSnapshot);
     },
@@ -753,8 +766,15 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         for (const job of state.jobs.values()) cancel(job);
         state.jobs.clear();
     }, dispose() {
-        for (const state of sessions.values()) {state.timeline?.dispose(); state.finishPerformance?.(); state.musicLock?.handle?.release({token:state.musicLock.token,reason:'dispose',snap:true}); for (const job of state.jobs.values()) cancel(job); for (const shot of state.shots.values()) cancel(shot); releaseWarm(state); releaseAccepted(state);}
-        sessions.clear(); owner.dispose();
+        if (disposed) return;
+        disposed = true;
+        const states = [...sessions.values()]; sessions.clear();
+        cleanupAll([...states.flatMap(state => [
+            () => state.timeline?.dispose(), () => state.finishPerformance?.(),
+            () => state.musicLock?.handle?.release({token:state.musicLock.token,reason:'dispose',snap:true}),
+            ...[...state.jobs.values(), ...state.shots.values()].map(job => () => cancel(job)),
+            () => releaseWarm(state), () => releaseAccepted(state)
+        ]), () => owner.dispose()]);
     }};
 }
 return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
