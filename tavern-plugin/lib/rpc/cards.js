@@ -115,7 +115,7 @@ return cardZipTargets.release(normalizeResourcePath(args && args.path, 'card'))
 return { card: await duplicateCard(args && args.path, args && args.name) }
     },
     async setCardScriptMuted(args, method, serverTemplate, authority) {
-      const { cardScripts, cardStage, chatForSession, readCardExtensions, str } = deps
+      const { cardScripts, resolveCardId, chatForSession, readCardExtensions, str } = deps
         const chat = await chatForSession(args && args.sessionId)
         if (!chat?.cardPath) throw new Error('找不到对话或人物卡')
         const extensions = await readCardExtensions(chat.cardPath, chat, true)
@@ -125,7 +125,7 @@ return { card: await duplicateCard(args && args.path, args && args.name) }
           if (!scripts.scripts.some(script => script.id === id)) throw new Error('Unknown card script ID')
           await cardScripts.setMuted(chat.cardPath, id, args.muted)
         }
-        return { cardName: str(chat.cardName), cardId: await cardStage.resolve(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
+        return { cardName: str(chat.cardName), cardId: await resolveCardId(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
     },
   }
 }

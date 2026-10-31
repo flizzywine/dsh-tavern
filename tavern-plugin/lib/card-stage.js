@@ -1,7 +1,6 @@
 import {directionStyles} from './domain/direction-styles.js'
 import {figureCatalogue} from './domain/figure-catalogue.js'
 import skinContract from '../packages/dsh-presentation-protocol/src/stage-skin.cjs'
-import { CARD_ID } from './card-storage.js'
 import { effectiveCardStage, cardStageSkin, effectiveNarrator } from './domain/card-stage-settings.js'
 import { selectStageEntrance } from './domain/stage-entrance.js'
 import { rawData } from './domain/card-preparation.js'
@@ -176,16 +175,8 @@ export function watchFigureBubbleBooks({service, listCards, readWorkspace, sync,
   return {drain:() => pending, dispose() {active = false; stop(); stopSettings?.()}}
 }
 
-export function createCardStage({profileData, chatForSession, getEngine, getAssetLibrary = () => null, getGlobalEnabledPackIds = () => [], getTts = () => null, measure = (_name,run) => run()}) {
-  async function workspace(cardPath) {
-    if (typeof cardPath !== 'string' || !cardPath.startsWith('cards/') || cardPath.includes('\\') || cardPath.split('/').some(s => !s || s === '.' || s === '..' || /[:\x00-\x1f]/.test(s))) throw new Error('Invalid card path')
-    return profileData.readJson('resources/' + cardPath)
-  }
-  async function resolve(cardPath) {
-    const id = (await workspace(cardPath))?.meta?.id
-    if (!CARD_ID.test(id || '')) throw new Error('Card has no identity')
-    return id
-  }
+export function createCardStage({cardStorage, getEngine, getAssetLibrary = () => null, getGlobalEnabledPackIds = () => [], getTts = () => null, measure = (_name,run) => run()}) {
+  const workspace = cardStorage.readWorkspace
   const bubbles = {
     async read(cardPath, options) { return (await bubbles.snapshot(cardPath, options)).config },
     async snapshot(cardPath, {requireAvailable = false} = {}) {
@@ -212,5 +203,5 @@ export function createCardStage({profileData, chatForSession, getEngine, getAsse
       return syncDialogueBubbleWorldbook(worldBooks, cardPath, await bubbles.read(cardPath))
     }
   }
-  return {resolve, bubbles, async forSession(sessionId) {const chat = await chatForSession(sessionId); return {cardId:await resolve(chat?.cardPath)}}}
+  return {bubbles}
 }

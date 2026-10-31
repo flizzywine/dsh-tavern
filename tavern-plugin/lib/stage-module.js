@@ -288,7 +288,7 @@ export function createStageServices(core) {
   })
 
   // no gallery state is exported through cards or asset packs.
-  const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStage.resolve,chatForSession,assets:assetRuntime,
+  const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
   const stageControllerEnabled = (chat, consumer) => consumer === 'core.performance'

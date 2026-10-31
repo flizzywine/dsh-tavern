@@ -489,8 +489,8 @@ export async function apply(ctx) {
   const tavernExtensionSettings = createTavernExtensionSettings(profileData)
   const dialogueBubblePresets = createDialogueBubblePresets(profileData)
   const cardStorage = createCardStorage({ dataRoot, profileData })
-  const cardStage = createCardStage({ctx, dataRoot, profileData, chatForSession, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), getTts:() => ctx.get('tts'), getEngine:() => assetEngineSettings.read().values, getAssetLibrary:() => ctx.get('assetLibrary'), getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
-  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStage.resolve })
+  const cardStage = createCardStage({cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), getTts:() => ctx.get('tts'), getEngine:() => assetEngineSettings.read().values, getAssetLibrary:() => ctx.get('assetLibrary'), getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
+  const cardScripts = createCardScripts({ profileData, cardIdFor: cardStorage.resolve })
   const dialogueBubbles = cardStage.bubbles
   const mvuDiagnostics = createMvuDiagnosticStore(profileData)
   ctx.effect(() => () => mvuDiagnostics.dispose(), 'dsh-tavern: flush diagnostic logs')
@@ -3621,7 +3621,7 @@ export async function apply(ctx) {
     cardAssetBindings: { get: () => cardAssetBindings },
     cardPreparation: { get: () => cardPreparation },
     cardScripts: { get: () => cardScripts },
-    cardStage: { get: () => cardStage },
+    resolveCardId: { get: () => cardStorage.resolve },
     cardZipTargets: { get: () => cardZipTargets },
     cgGallery: { get: () => cgGallery },
     chatForSession: { get: () => chatForSession },

@@ -23,9 +23,18 @@ export async function checkedAssetPath(root, relative, inspect = lstat) {
 }
 
 // Shared card-write queue used by Card Preparation and pack/card transactions.
-export function createCardStorage({dataRoot}) {
+export function createCardStorage({dataRoot, profileData}) {
   const held = new AsyncLocalStorage(), queues = new Map()
-  return {dataRoot:path.resolve(dataRoot), withCardLock(cardId, task) {
+  async function readWorkspace(cardPath) {
+    if (typeof cardPath !== 'string' || !cardPath.startsWith('cards/') || cardPath.includes('\\') || cardPath.split('/').some(s => !s || s === '.' || s === '..' || /[:\x00-\x1f]/.test(s))) throw new Error('Invalid card path')
+    return profileData.readJson('resources/' + cardPath)
+  }
+  async function resolve(cardPath) {
+    const id = (await readWorkspace(cardPath))?.meta?.id
+    if (!CARD_ID.test(id || '')) throw new Error('Card has no identity')
+    return id
+  }
+  return {dataRoot:path.resolve(dataRoot), readWorkspace, resolve, withCardLock(cardId, task) {
     if (!CARD_ID.test(cardId)) throw new Error('Invalid cardId')
     const outer = held.getStore() || new Set()
     if (outer.has(cardId)) throw Object.assign(new Error('Card lock reentry'), {code:'LOCK_REENTRY'})
