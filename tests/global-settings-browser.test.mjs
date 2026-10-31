@@ -128,13 +128,14 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
   assert.ok(calls.some(call=>call.method==='listUserPlugins'))
 })
 
- test('插件管理页展示舞台真实状态，并可独立启停', async t => {
+ test('舞台设置保留真实状态与独立启停', async t => {
   let enabled = true
-  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: plugins settings section', respond(method,args) {
+  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: stage settings section', respond(method,args) {
+    if (method === 'getAssetGenPrompts') return {data:{kinds:[],revision:'fixture'}}
     if (method === 'setStageEnabled') enabled = args.enabled
     if (method === 'getStageRuntimeStatus' || method === 'setStageEnabled') return {installed:true, enabled, status:enabled?'ready':'disabled'}
   }})
-  await page.locator('.dsh-tavern-user-plugins-list .dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-stage'}).waitFor()
+  await page.getByRole('button', {name:'停用', exact:true}).waitFor()
   assert.equal(await page.getByRole('heading', {name:'内置舞台插件', exact:true}).count(), 0)
   await page.getByRole('button', {name:'停用', exact:true}).click()
   await page.getByRole('button', {name:'启用', exact:true}).waitFor()
@@ -168,14 +169,15 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   assert.equal(settings.modModels['dsh.stage'].director.model,'next')
 })
 
-test('内置舞台模组提供可用管理入口而非人物卡灰按钮', async t => {
+test('插件列表隐藏内置配图与模组，保留用户安装的插件', async t => {
   const {page}=await openTavernSettings(t,{section:'dsh-tavern: plugins settings section',respond(method){
-    if(method==='getStageRuntimeStatus')return {enabled:true,status:'ready',installed:true}
-    if(method==='listUserPlugins')return {plugins:[{folder:'dice',name:'dsh-tavern-mod-dice',state:'loaded',enabled:true,source:{kind:'managed',builtin:true,modId:'dsh.dice'}}]}
+    if(method==='listUserPlugins')return {plugins:[
+      {folder:'dice',name:'dsh-tavern-mod-dice',state:'loaded',enabled:true,source:{kind:'managed',builtin:true,modId:'dsh.dice'}},
+      {folder:'image',name:'dsh-tavern-image',state:'loaded',enabled:true,source:{kind:'builtin'}},
+      {folder:'custom',name:'custom-plugin',state:'loaded',enabled:true,source:{kind:'folder'}}]}
   }})
-  const row=page.locator('.dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-mod-dice'})
-  await row.getByText('内置舞台模组 · 随酒馆提供',{exact:true}).waitFor()
-  assert.equal(await row.getByRole('button',{name:'删除',exact:true}).count(),0)
-  await row.getByRole('button',{name:'管理模组',exact:true}).click()
-  await page.getByRole('dialog').waitFor()
+  await page.locator('.dsh-tavern-user-plugin').filter({hasText:'custom-plugin'}).waitFor()
+  assert.equal(await page.locator('.dsh-tavern-user-plugin').count(),1)
+  assert.equal(await page.getByText('dsh-tavern-stage',{exact:true}).count(),0)
+  await page.getByRole('button',{name:'删除',exact:true}).waitFor()
 })

@@ -258,3 +258,15 @@ test('舞台管理标记与普通人物卡插件分开识别', async t => {
   assert.deepEqual(rows.find(x=>x.folder==='card').source,{kind:'card'})
   assert.equal(rows.find(x=>x.folder==='custom').source.builtin,false)
 })
+
+test('内置配图默认启用，标注内置来源且拒绝删除', async t => {
+  const {installer,plugins}=await setup(t)
+  const dir=path.join(plugins,'dsh-tavern-image')
+  await mkdir(dir,{recursive:true})
+  await writeFile(path.join(dir,'package.json'),JSON.stringify({name:'dsh-tavern-image',version:'3.4.0'}))
+  const [row]=await installer.list()
+  assert.equal(row.enabled,true)
+  assert.equal(row.source.kind,'builtin')
+  await assert.rejects(installer.remove('dsh-tavern-image'),/内置配图插件/)
+  assert.equal(JSON.parse(await readFile(path.join(dir,'package.json'),'utf8')).name,'dsh-tavern-image')
+})

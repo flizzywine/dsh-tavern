@@ -227,7 +227,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const restart = problem || disabled.includes(folder) ? null : await readJson(path.join(dir, RESTART_FILE))
         const card = await readJson(path.join(dir, CARD_MARKER))
         const isDisabled = disabled.includes(folder)
-        const source = card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.danmaku','dsh.dice','dsh.phone','dsh.textcard','dsh.timer'].includes(card.modId) } : { kind: 'card' }) : await readJson(path.join(dir, SOURCE_FILE)) || { kind: 'folder' }
+        const source = pkg.name === 'dsh-tavern-image' ? { kind: 'builtin' } : card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.danmaku','dsh.dice','dsh.phone','dsh.textcard','dsh.timer'].includes(card.modId) } : { kind: 'card' }) : await readJson(path.join(dir, SOURCE_FILE)) || { kind: 'folder' }
         // Install sources from before the replaced flag: infer a past replacement from the backup's load record.
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')
           ? await replacedLoadedPlugin(folder)
@@ -322,6 +322,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const name = folderOf(folder)
         if (existsSync(path.join(paths.plugins, name, CARD_MARKER))) fail('这是人物卡自带的插件，请在人物卡库里停用')
         const pkg = await readJson(path.join(paths.plugins, name, 'package.json'))
+        if (pkg?.name === 'dsh-tavern-image') fail('这是内置配图插件，随酒馆提供，不可删除')
         const kept = await backup(name)
         // The plugin's own data goes into the same backup, so reinstalling from there brings it back by hand.
         const data = pluginDataFile(dataRoot, String(pkg?.name || name))
