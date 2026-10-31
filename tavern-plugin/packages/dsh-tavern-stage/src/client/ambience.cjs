@@ -12,7 +12,7 @@ function createAmbience({player, session, owner, authority}) {
     // pins: the loops the plan sounds, and the ones still fading out. leasing: descriptors whose lease is in flight.
     // epoch: bumped when the pins are dropped, so a lease that lands late is released instead of kept.
     const pins = new Map(), leasing = new Set();
-    let epoch = 0;
+    let epoch = 0, disposed = false;
     const sound = () => instance ||= player();
     function inputs(state) {
         return {plan:state?.accepted?.ambience || null,
@@ -64,6 +64,7 @@ function createAmbience({player, session, owner, authority}) {
         pins.clear();
     }
     function changed() {
+        if (disposed || !selector) return;
         const next = selector.getSnapshot(), previous = input;
         input = next;
         if (next.authority !== previous?.authority) { performance = null; stop(); }
@@ -72,6 +73,7 @@ function createAmbience({player, session, owner, authority}) {
     return {
         // The selected session; call again once its runtime store exists.
         activate(id) {
+            if (disposed) return;
             id = id || null;
             const next = id ? session(id) : null;
             if (id === active && next === store) return;
@@ -85,18 +87,18 @@ function createAmbience({player, session, owner, authority}) {
         },
         // The stage's consumer: a projection it presents now (the store may publish it a moment later).
         present(plan, snap) {
-            if (!input) return Promise.resolve();
+            if (disposed || !input) return Promise.resolve();
             input = {...input, plan:plan || null};
             return apply(snap);
         },
         // The stage performance's ambience layer (a loaded track, null clears it).
-        performance(track, snap) { performance = track || null; return apply(snap); },
+        performance(track, snap) { if (disposed) return; performance = track || null; return apply(snap); },
         // The runtime released or revoked its presentation: nothing of it sounds any more.
         release() { performance = null; if (input) input = {...input, plan:null}; stop(); },
         // A user gesture retries playback the autoplay policy refused.
         resume() { return instance?.resume(); },
         snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
-        dispose() { selector?.dispose(); selector = null; store = null; active = null; input = null; performance = null; stop(); }
+        dispose() { if (disposed) return; disposed = true; selector?.dispose(); selector = null; store = null; active = null; input = null; performance = null; try {stop();} finally {instance?.dispose(); instance = null;} }
     };
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};

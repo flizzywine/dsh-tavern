@@ -1611,6 +1611,298 @@ return {useSlot:useStageTimerSlot, createReactionScope, useTimer:useStageTimer, 
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageTimer};
 
+        // Dormant until a caller explicitly constructs and applies a player. No global mixer ownership.
+// apply(v1 plan, {snap}) reconciles place/weather; empty/invalid plans hush owned audio.
+// stop() releases immediately; dispose() also makes the instance inert. resume() is for a
+// user gesture (wakes the shared mixer and retries blocked playback). The caller owns visibility
+// and turn lifecycles. snapshot() returns frozen diagnostics, never media nodes or Error objects.
+function createSoundscapePlayer(deps) {
+    const { Audio, mixer } = deps;
+    const now = deps.now || (() => performance.now());
+    // audio fades use a wall-clock scheduler, not visibility-paused RAF.
+    const requestFrame = deps.requestFrame || (fn => setTimeout(fn, 16));
+    const cancelFrame = deps.cancelFrame || (id => clearTimeout(id));
+    // performance: the stage performance's own ambience layer (stage-ambience.cjs), beside the scene's place/weather.
+    const slots = { place: { current: null, outgoing: null }, weather: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
+    const duration = 1200, openCutoff = 24000;
+    let frame = null, disposed = false, warnings = [];
+    const settled = new Set();
+    function acknowledge() { for (const resolve of settled) resolve(); settled.clear(); }
+    const text = value => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').slice(0, 512) : '';
+    function validUrl(value) {
+        if (typeof value !== 'string' || !value || value.length > 4096 || /[\s\\\x00-\x1f\x7f]/.test(value)) return null;
+        if (/^blob:/.test(value)) return value;
+        if (!/^\/(?!\/)/.test(value) && !/^https?:\/\//i.test(value)) return null;
+        try {
+            const parsed = new URL(value, 'https://soundscape.invalid');
+            if (parsed.username || parsed.password || parsed.hash) return null;
+            return /^\//.test(value) ? parsed.pathname + parsed.search : parsed.href;
+        } catch (_) { return null; }
+    }
+    function validate(plan) {
+        if (!plan || plan.version !== 1) return { error: 'unsupported-plan' };
+        if (!Array.isArray(plan.layers) || plan.layers.length > 3) return { error: 'invalid-layers' };
+        const seenSlots = new Set(), identities = new Set(), layers = [];
+        for (const layer of plan.layers) {
+            if (!layer || !Object.hasOwn(slots, layer.slot) || seenSlots.has(layer.slot)) return { error: 'invalid-slot' };
+            const url = validUrl(layer.url);
+            if (!url) return { error: 'invalid-url' };
+            if (identities.has(layer.identity)) return { error: 'duplicate-identity' };
+            if (!Number.isFinite(layer.gain) || layer.gain < 0 || layer.gain > 1 ||
+                (layer.lowpassHz != null && (!Number.isFinite(layer.lowpassHz) || layer.lowpassHz < 0))) return { error: 'invalid-config' };
+            seenSlots.add(layer.slot); identities.add(layer.identity);
+            // the entry's authored 音量 (mixer gain; default 1), separate from the fade gain.
+            layers.push({ slot: layer.slot, id: text(layer.id), identity:layer.identity, url, gain: layer.gain, volume: Number.isFinite(layer.volume) ? Math.max(0, Math.min(1, layer.volume)) : 1,
+                lowpassHz: layer.lowpassHz ? Math.max(20, Math.min(openCutoff, layer.lowpassHz)) : null, ...(layer.loudness ? { loudness: layer.loudness } : {}),
+                // The audio trace's source (audio-trace.cjs): the entry and its name.
+                ...(layer.ref ? { ref: layer.ref } : {}), ...(layer.name ? { name: text(layer.name) } : {}) });
+        }
+        return { layers };
+    }
+    function clearMedia(node) {
+        node.pause(); node.removeAttribute('src'); node.load();
+    }
+    function release(track) {
+        if (!track || !track.alive) return;
+        track.alive = false; track.ticket++;
+        track.node.removeEventListener('error', track.onError);
+        mixer.level(track.node, 0);
+        clearMedia(track.node);
+        if (typeof mixer.release === 'function') mixer.release(track.node);
+    }
+    function play(track) {
+        if (!track.alive || track.status === 'pending' || track.status === 'playing') return;
+        const ticket = ++track.ticket;
+        track.status = 'pending'; track.error = null;
+        const failed = () => {
+            if (!disposed && track.alive && track.ticket === ticket) { track.status = 'error'; track.error = 'play-rejected'; }
+        };
+        try {
+            Promise.resolve(track.node.play()).then(() => {
+                if (!track.alive) { clearMedia(track.node); return; }
+                if (!disposed && track.ticket === ticket) { track.status = 'playing'; track.error = null; }
+            }, failed);
+        } catch (_) { failed(); }
+    }
+    function create(layer) {
+        const node = new Audio();
+        node.loop = true; node.preload = 'auto'; node.volume = 0;
+        const track = { ...layer, node, alive: true, ticket: 0, status: 'idle', error: null,
+            cutoff: layer.lowpassHz, transition: null };
+        track.onError = () => { if (track.alive) { track.ticket++; track.status = 'error'; track.error = 'media-error'; } };
+        node.addEventListener('error', track.onError);
+        try {
+            node.src = layer.url;
+            mixer.bind(node, 'ambience', layer.url, { volume: layer.volume, identity: layer.identity, loudness: layer.loudness,
+                trace: { reason: 'ambience:' + layer.slot, ref: layer.ref, label: layer.name || layer.id } }); mixer.level(node, 0);
+            if (layer.lowpassHz && typeof mixer.filter === 'function') mixer.filter(node, layer.lowpassHz);
+            play(track);
+        } catch (_) { release(track); throw new Error('audio-init-failed'); }
+        return track;
+    }
+    function setCutoff(track, value) {
+        if (track.cutoff === value) return;
+        track.cutoff = value;
+        if (typeof mixer.filter === 'function') mixer.filter(track.node, value);
+    }
+    function target(track, gain, cutoff, snap) {
+        if (snap) {
+            track.transition = null; mixer.level(track.node, gain); setCutoff(track, cutoff); return;
+        }
+        track.transition = { at: now(), from: mixer.level(track.node), to: gain, cutoffFrom: track.cutoff, cutoffTo: cutoff };
+    }
+    function step() {
+        frame = null;
+        if (disposed) return;
+        for (const slot of Object.values(slots)) for (const key of ['current', 'outgoing']) {
+            const track = slot[key], fade = track && track.transition;
+            if (!fade) continue;
+            const t = Math.max(0, Math.min(1, (now() - fade.at) / duration));
+            mixer.level(track.node, fade.from + (fade.to - fade.from) * t);
+            if (fade.cutoffFrom !== fade.cutoffTo) setCutoff(track, t === 1 ? fade.cutoffTo :
+                (fade.cutoffFrom || openCutoff) + ((fade.cutoffTo || openCutoff) - (fade.cutoffFrom || openCutoff)) * t);
+            if (t === 1) {
+                track.transition = null;
+                if (key === 'outgoing') { release(track); slot[key] = null; }
+            }
+        }
+        schedule();
+    }
+    function schedule() {
+        const moving = Object.values(slots).some(slot => slot.current?.transition || slot.outgoing?.transition);
+        if (moving && frame === null) frame = requestFrame(step);
+        else if (!moving && frame !== null) { cancelFrame(frame); frame = null; }
+        if (!moving) acknowledge();
+    }
+    function apply(plan, { snap = false } = {}) {
+        if (disposed) return snapshot();
+        const checked = validate(plan), layers = checked.layers || [];
+        warnings = checked.error ? [checked.error] : (Array.isArray(plan.warnings) ? plan.warnings.slice(0, 32).map(text).filter(Boolean) : []);
+        if (checked.error && plan && typeof mixer.traceFailure === 'function') mixer.traceFailure('ambience', '', { reason: 'ambience-plan' }, checked.error);
+        // A content handle moving between slots must not overlap itself during either slot's fade.
+        for (const [name, slot] of Object.entries(slots)) for (const key of ['current', 'outgoing']) {
+            if (slot[key] && layers.some(layer => layer.slot !== name && layer.identity === slot[key].identity)) {
+                release(slot[key]); slot[key] = null;
+            }
+        }
+        for (const [name, slot] of Object.entries(slots)) {
+            const layer = layers.find(item => item.slot === name), current = slot.current;
+            if (layer && current && current.identity === layer.identity) {
+                if (current.gain !== layer.gain || current.lowpassHz !== layer.lowpassHz || snap) target(current, layer.gain, layer.lowpassHz, snap);
+                if (current.volume !== layer.volume && typeof mixer.trim === 'function') mixer.trim(current.node, layer.volume);
+                current.url = layer.url; current.id = layer.id; current.gain = layer.gain; current.volume = layer.volume; current.lowpassHz = layer.lowpassHz;
+                play(current);
+                if (snap) { release(slot.outgoing); slot.outgoing = null; }
+                continue;
+            }
+            if (!layer && !current) {
+                if (snap) { release(slot.outgoing); slot.outgoing = null; }
+                continue;
+            }
+            release(slot.outgoing); slot.outgoing = current; slot.current = null;
+            if (current) {
+                if (snap) { release(current); slot.outgoing = null; }
+                else target(current, 0, current.cutoff, false);
+            }
+            if (layer) {
+                try { slot.current = create(layer); target(slot.current, layer.gain, layer.lowpassHz, snap); }
+                catch (_) { warnings.push('audio-init-failed'); }
+            }
+        }
+        schedule(); return snapshot();
+    }
+    function stop() {
+        if (frame !== null) { cancelFrame(frame); frame = null; }
+        for (const slot of Object.values(slots)) { release(slot.current); release(slot.outgoing); slot.current = slot.outgoing = null; }
+        acknowledge();
+    }
+    function snapshot() {
+        const describe = track => track && Object.freeze({ slot: track.slot, id: track.id, url: track.url,
+            gain: track.gain, level: mixer.level(track.node), lowpassHz: track.lowpassHz,
+            status: track.status, error: track.error, transitioning: !!track.transition });
+        return Object.freeze({ disposed, warnings: Object.freeze([...warnings]), slots: Object.freeze(
+            Object.fromEntries(Object.entries(slots).map(([name, slot]) => [name, Object.freeze({ current: describe(slot.current), outgoing: describe(slot.outgoing) })]))) });
+    }
+    return {
+        apply, stop, snapshot,
+        whenSettled() { return frame === null ? Promise.resolve() : new Promise(resolve => settled.add(resolve)); },
+        dispose() { if (!disposed) { stop(); disposed = true; } },
+        resume() {
+            if (!disposed) {
+                if (typeof mixer.wake === 'function') mixer.wake();
+                for (const slot of Object.values(slots)) if (slot.current) play(slot.current);
+            }
+            return snapshot();
+        }
+    };
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined' && module.exports) module.exports = { createSoundscapePlayer };
+
+        'use strict';
+// ambience follows the BGM player's rule (bgm-player.cjs). One page-wide owner
+// plays the selected session's accepted soundscape in the stage and in chat alike, so opening or leaving the stage
+// never restarts or cuts a loop. It co-owns (pins) the loaded loops it plays, so a director handoff releasing the
+// runner's pin cannot revoke a Blob URL that still sounds. The stage only adds its performance layer and waits for
+// the fade it asked for (present). Background pausing is the sound policy's (foreground.js), not this owner's.
+
+// player(): the soundscape player (createSoundscapePlayer), made on first use. session(id): the session's runtime
+// store. owner(): the stage resource owner. authority(source): the resource owner's authority key.
+function createAmbience({player, session, owner, authority}) {
+    let active = null, store = null, selector = null, input = null, performance = null, instance = null;
+    // pins: the loops the plan sounds, and the ones still fading out. leasing: descriptors whose lease is in flight.
+    // epoch: bumped when the pins are dropped, so a lease that lands late is released instead of kept.
+    const pins = new Map(), leasing = new Set();
+    let epoch = 0, disposed = false;
+    const sound = () => instance ||= player();
+    function inputs(state) {
+        return {plan:state?.accepted?.ambience || null,
+            authority:state?.source ? authority(state.source) : null,
+            snap:!!state && (state.cursor.skipping || state.cursor.mode === 'history')};
+    }
+    const same = (a, b) => !!a && !!b && Object.keys(a).every(key => Object.is(a[key], b[key]));
+    // A loop sounds from the owner's pin of its media, as the BGM track does: a descriptor is leased (acquire waits until the
+    // media is ready), an identity the owner already holds is co-owned (retain), a plain URL plays as it is. A descriptor whose
+    // lease is still in flight yields null: that layer is left out and joins the plan when its lease lands (apply again), so
+    // the other layers of the plan keep sounding.
+    function sourced(layer, snap) {
+        const pin = pins.get(layer.identity);
+        if (pin) return {...layer, url:pin.handle.url};
+        const owned = input?.authority ? owner() : null;
+        if (typeof layer.url === 'object' && layer.url) { if (owned) lease(owned, layer, snap); return null; }
+        const held = owned?.retain(layer.identity, input.authority) || null;
+        if (!held) return layer;
+        pins.set(layer.identity, held);
+        return {...layer, url:held.handle.url};
+    }
+    function lease(owned, layer, snap) {
+        if (leasing.has(layer.identity)) return;
+        leasing.add(layer.identity);
+        const mine = epoch;
+        owned.acquire(layer.url, input.authority, {usage:'ambience'}).then(pin => {
+            if (mine !== epoch) { pin.release(); return; }
+            leasing.delete(layer.identity);
+            pins.set(layer.identity, pin);
+            apply(snap);
+        }, () => { if (mine === epoch) leasing.delete(layer.identity); });
+    }
+    function apply(snap) {
+        const layers = [...(input?.plan?.layers || [])];
+        if (performance) layers.push({...performance, slot:'performance', id:performance.identity, lowpassHz:null});
+        const plan = {version:1, layers:layers.map(layer => sourced(layer, snap)).filter(Boolean), warnings:input?.plan?.warnings || []};
+        sound().apply(plan, {snap});
+        const done = sound().whenSettled();
+        // A loop that left the plan keeps its pin until its fade-out has ended.
+        const stale = [...pins].filter(([identity]) => !layers.some(layer => layer.identity === identity));
+        for (const [identity] of stale) pins.delete(identity);
+        done.then(() => stale.forEach(([, pin]) => pin?.release()));
+        return done;
+    }
+    function stop() {
+        epoch++; leasing.clear();
+        instance?.stop();
+        for (const pin of pins.values()) pin?.release();
+        pins.clear();
+    }
+    function changed() {
+        if (disposed || !selector) return;
+        const next = selector.getSnapshot(), previous = input;
+        input = next;
+        if (next.authority !== previous?.authority) { performance = null; stop(); }
+        apply(next.snap || next.authority !== previous?.authority);
+    }
+    return {
+        // The selected session; call again once its runtime store exists.
+        activate(id) {
+            if (disposed) return;
+            id = id || null;
+            const next = id ? session(id) : null;
+            if (id === active && next === store) return;
+            if (id !== active) { performance = null; stop(); }
+            active = id; store = next;
+            selector?.dispose();
+            selector = store ? store.select(inputs, same) : null;
+            selector?.subscribe(changed);
+            input = selector ? selector.getSnapshot() : null;
+            apply(true);
+        },
+        // The stage's consumer: a projection it presents now (the store may publish it a moment later).
+        present(plan, snap) {
+            if (disposed || !input) return Promise.resolve();
+            input = {...input, plan:plan || null};
+            return apply(snap);
+        },
+        // The stage performance's ambience layer (a loaded track, null clears it).
+        performance(track, snap) { if (disposed) return; performance = track || null; return apply(snap); },
+        // The runtime released or revoked its presentation: nothing of it sounds any more.
+        release() { performance = null; if (input) input = {...input, plan:null}; stop(); },
+        // A user gesture retries playback the autoplay policy refused.
+        resume() { return instance?.resume(); },
+        snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
+        dispose() { if (disposed) return; disposed = true; selector?.dispose(); selector = null; store = null; active = null; input = null; performance = null; try {stop();} finally {instance?.dispose(); instance = null;} }
+    };
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};
+
         'use strict';
 function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
 const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
@@ -1705,7 +1997,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
                     const loader = createStageLoader(options.loader);
                     const progress = createStageProgress({React:options.React, ...options.admission});
                     const admission = createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission});
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, ambience:createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}), timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...createStageText({React:options.React, document, ...options.text})};
                 }});}

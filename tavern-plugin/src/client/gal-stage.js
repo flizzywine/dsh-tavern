@@ -10,7 +10,6 @@
 // @include stage-speaker.cjs
 // @include-protocol stage-pacing.cjs
 // @include-protocol stage-soundscape.cjs
-// @include stage-soundscape-player.cjs
 // @include gal-history.js
 // @include gal-menu.js
 // @include mod-performance.js
@@ -2042,6 +2041,8 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        ambience:{session:id => stageSessions.get(id), owner:() => stageSessions.resourceOwner, authority:source => stageResourceAuthority(source)},
+        soundscape:{Audio, mixer:forkStageAudio},
         timer:{rpc, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
@@ -2050,5 +2051,12 @@ function bindStageViews(createViews) {
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
-    return () => {if (stageViews === views) stageViews = null; try {views.admission.dispose();} finally {views.progress.store.dispose(); try {views.timer.dispose();} finally {try {views.video.dispose();} finally {views.loader.dispose();}}}};
+    return () => {
+        if (stageViews === views) stageViews = null;
+        const errors = [];
+        for (const owner of [views.admission, views.progress.store, views.ambience, views.timer, views.video, views.loader]) {
+            try {owner.dispose();} catch (error) {errors.push(error);}
+        }
+        if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');
+    };
 }
