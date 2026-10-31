@@ -1,5 +1,5 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
@@ -27,9 +27,9 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         sessionModule ||= createSessionModule(createStoreModule(kernel));
         return own(sessionModule.createStageSessionOwner(inputs));
     }
-    function createConnection({resources:resourceInputs,direction,session:sessionInputs,waitForEntry=async()=>{}}){
+    function createConnection({resources:resourceInputs,direction,session:sessionInputs,notifications:notificationInputs,waitForEntry=async()=>{}}){
         if(disposed)throw new Error('Stage session runtime disposed');
-        const acquired=[];let closed=false,owner,resources;
+        const acquired=[];let closed=false,owner,resources,notifications;
         function dispose(){
             if(closed)return;closed=true;
             const errors=[];
@@ -37,10 +37,15 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             if(errors.length)throw new AggregateError(errors,'Stage connection cleanup failed');
         }
         try{
+            if(notificationInputs){
+                notifications=createModNotifications({...notificationInputs,getSnapshot:id=>owner?.get(id)?.getSnapshot()});
+                acquired.push(notifications);
+            }
             resources=createResources(resourceInputs);acquired.push(resources);
-            const source=createDirector({...direction,onEffect:resources.onEffect});acquired.push(source);
+            const source=createDirector({...direction,watch:(origin,wake)=>direction.watch(origin,wake,()=>notifications?.reannounce(origin.sessionId)),onEffect:resources.onEffect});acquired.push(source);
             owner=createSessionOwner({...sessionInputs,
                 runEffect:source.runEffect,
+                observe:notifications?notifications.observe.bind(notifications):sessionInputs.observe,
                 readHistory:(args,origin,text)=>closed?null:source.cached(origin,text)||direction.read(args),
                 primeHistory:source.prime,
                 async prefetchHistory(origin,envelope){
