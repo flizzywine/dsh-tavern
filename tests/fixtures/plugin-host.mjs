@@ -8,7 +8,7 @@ const { HostConnectionService } = await import(pathToFileURL(require.resolve('@d
 
 // Host adapters only: apply(), HTTP dispatch, storage, and projections stay real.
 // Call from an isolated child process with its own DSH_HOME.
-export async function createPluginHost({ withTools = false, composition } = {}) {
+export async function createPluginHost({ withTools = false, composition, config } = {}) {
   globalThis.fetch = async () => new Response('/* test asset */', { headers: { 'content-type': 'text/css' } })
   const { apply } = await import('../../tavern-plugin/lib/index.js')
   const routes = new Map(), nativeRoutes = new Map(), events = new Set(), disposers = []
@@ -91,7 +91,7 @@ export async function createPluginHost({ withTools = false, composition } = {}) 
         on: name => events.add(name),
         provide: (name, value) => services.set(name, value)
       }
-      await apply(ctx)
+      await apply(ctx, config)
       await new Promise(resolve => setImmediate(resolve))
     }
   } catch (error) { await dispose(); throw error }

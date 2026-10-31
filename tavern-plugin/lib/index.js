@@ -249,7 +249,7 @@ import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import { readWidgetWindowProjection } from './domain/widget-window-projection.js'
 import { STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement } from './domain/stage-playback.js'
-import {createStageRuntime} from './stage-runtime.js'
+import {createOptionalStage} from './optional-stage.js'
 import { STAGE_TIMER_FIELD } from '../mods/timer/stage-service.js'
 import {readAudienceCorpus} from './danmaku-corpus.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
@@ -332,7 +332,7 @@ function historyLayoutFile() {
   return path.join(process.env.DSH_HOME || path.join(process.env.HOME || '/', '.dsh'), 'tavern-history-layout.txt')
 }
 
-export async function apply(ctx) {
+export async function apply(ctx, config = {}) {
   // 插件侧的联网请求（更新检查、插件市场、内置搜索）都走 fetch，
   // 而 Node 的 fetch 不认系统代理：启动时先应用一次，进程内所有请求生效。
   try {
@@ -706,7 +706,7 @@ export async function apply(ctx) {
   // 舞台的素材与判断（stage-module.js）。
   const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
-  const stageRuntime = createStageRuntime({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents})
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:config.stage !== false})
   const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
