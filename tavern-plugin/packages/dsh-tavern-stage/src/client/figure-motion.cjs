@@ -1,73 +1,34 @@
-// uninterrupted idle, an independent gesture queue, then parameter springs.
-// Cubism4-specific adapter; the vendored runtime and loaded clip cache stay untouched.
-function galGestureWeight(age, duration, fadeIn = 0.40, fadeOut = 0.50) {
-    const ramp = (x, time) => { if (!(time > 0)) return 1; x = Math.max(0, Math.min(1, x / time)); return x * x * (3 - 2 * x); };
-    return age < 0 || age >= duration ? 0 : ramp(age, fadeIn) * ramp(duration - age, fadeOut);
-}
-// Gesture fades are what the model declares: the motion3 Meta, then its model3 motion entry (Cubism's order in the
-// runtime's createMotion); the stage's 0.40 / 0.50 s apply only when neither declares one.
-function galGestureFades(meta, entry) {
-    const declared = key => [meta && meta[key], entry && entry[key]].find(value => Number.isFinite(value) && value >= 0);
-    const fadeIn = declared("FadeInTime"), fadeOut = declared("FadeOutTime");
-    return { fadeIn: fadeIn === undefined ? 0.40 : fadeIn, fadeOut: fadeOut === undefined ? 0.50 : fadeOut };
-}
-// Switches are only what the model declares as one: pose3 groups/links and PartOpacity tracks (poseIds), and
-// parameters named as a switch (our rigs' ParamArmPoseSwitch, game rigs' ParamHand*Display). Arm-set letters are
-// not switches: game rigs key continuous angles as ParamArmLA02 / ParamArmRB03 / ParamArmLC01, the arm-set
-// choice itself is their pose3 parts, so those angles blend and spring like any other arm parameter.
-function galMotionDiscrete(id, poseIds) {
-    return Boolean(poseIds && poseIds.has(id)) || /^Param(?:Arm|Hand).*(?:Display|Switch|Visible|Opacity)$/.test(id);
-}
-function galMotionParameter(id) {
-    if (galMotionDiscrete(id)) return null;
-    if (/^ParamAngle[XYZ]$/.test(id)) return { omega: 14, velocity: 180 };
-    if (/^ParamBodyAngle[XYZ]$/.test(id)) return { omega: 14, velocity: 90 };
-    if (/^ParamEyeBall[XY]$/.test(id)) return { omega: 20, velocity: Infinity };
-    if (/^Param(?:Arm|Hand|Shoulder)/.test(id)) return { omega: 12, velocity: Infinity };
-    return null;
-}
-function galMotionSpring(s, target, omega, velocity, dt) {
-    if (!(dt > 0)) return s.v;
-    const old = s.v;
-    galSpring(s, target, omega, dt);
-    s.d = Math.max(-velocity, Math.min(velocity, s.d));
-    s.v = Math.max(old - velocity * dt, Math.min(old + velocity * dt, s.v));
-    return s.v;
-}
-function galMotionClone(source, gesture, discreteIds, loop = false) {
-    const motion = Object.assign(Object.create(Object.getPrototypeOf(source)), source);
-    motion._motionData = Object.assign({}, source._motionData, {
-        curves: source._motionData.curves.map(function (curve) {
-            const discrete = curve.type === 2 || galMotionDiscrete(curve.id, discreteIds);
-            // Route PartOpacity through its (often virtual) parameter channel, independent of
-            // CubismConfig.setOpacityFromMotion. Publish the winning track to real parts later.
-            return Object.assign({}, curve, {
-                type: curve.type === 2 ? 1 : curve.type, forkDiscrete: discrete,
-                fadeInTime: discrete ? 0 : gesture ? -1 : curve.fadeInTime < 0 ? -1 : galMotionFade(curve.fadeInTime),
-                fadeOutTime: discrete ? 0 : gesture ? -1 : curve.fadeOutTime < 0 ? -1 : galMotionFade(curve.fadeOutTime)
-            });
-        })
-    });
-    motion._firedEventValues = [];
-    motion.setIsLoop(loop);
-    // Gesture envelopes are applied once by our mixer, not again by Cubism's curve fades.
-    motion.setFadeInTime(gesture ? 0 : galMotionFade(source.getFadeInTime()));
-    motion.setFadeOutTime(gesture ? 0 : galMotionFade(source.getFadeOutTime()));
-    motion.setFinishedMotionHandler(undefined);
-    return motion;
-}
+function createStageFigureMotion({math,lipSyncIds:galLipSyncIds}) {
+let disposed=false;const releases=new Set();
+const {galGestureWeight,galGestureFades,galMotionDiscrete,galMotionParameter,galMotionSpring,galMotionClone}=math;
 function galInstallMotionLayers(internal) {
+    if(disposed)return;
     const manager = internal.motionManager, core = internal.coreModel;
     if (manager.forkMotionLayers || !manager.queueManager || !core) return;
+    const fields=[[internal,'update'],...['forkMotionLayers','stopMoodMotion','settleMoodMotion','createMotion','_startMotion','startMotion','update','stopAllMotions'].map(key=>[manager,key]),[manager.groups,'idle']];
+    const before=fields.map(([object,key])=>Object.getOwnPropertyDescriptor(object,key)),listeners=[];
+    let installed=null,releaseDone=false,state,queue;
+    const snapshot=()=>fields.map(([object,key])=>object[key]);
+    const release=()=>{
+        if(releaseDone)return;releaseDone=true;releases.delete(release);
+        if(state){state.dead=true;state.serial++;state.pending=null;state.gesture=null;state.idle=null;state.springs.clear();state.idleClips.length=0;}
+        const errors=[];
+        for(const off of listeners){try{off();}catch(error){errors.push(error);}}
+        for(let i=0;i<fields.length;i++){const [object,key]=fields[i];if(object[key]===installed[i])try{if(before[i])Object.defineProperty(object,key,before[i]);else delete object[key];}catch(error){errors.push(error);}}
+        try{queue?.stopAllMotions();}catch(error){errors.push(error);}
+        if(errors.length)throw new AggregateError(errors,'Figure motion cleanup failed');
+    };
+    const on=(name,fn)=>{const guarded=(...args)=>{if(!state?.dead)fn(...args);};internal.on(name,guarded);listeners.push(()=>internal.off(name,guarded));};
+    try {
     // Pose's first update resets its virtual selectors; initialize it before taking our snapshots.
     if (internal.pose) internal.pose.updateParameters(core, 0);
     const parameters = core.getModel().parameters, values = parameters.values, ids = parameters.ids;
     // The core's view of the values array is replaced when its heap grows (cubismHeapGuard): read it per frame.
     const liveValues = () => core.getModel().parameters.values;
     const partIds = core.getModel().parts && core.getModel().parts.ids || [];
-    const queue = new manager.queueManager.constructor();
-    queue.setEventCallback((q, event) => manager.emit("motion:" + event));
-    const state = manager.forkMotionLayers = {
+    queue = new manager.queueManager.constructor();
+    queue.setEventCallback((q, event) => {if(state && !state.dead)manager.emit("motion:" + event);});
+    state = manager.forkMotionLayers = {
         queue, time: 0, dt: 0, previousTime: null, gesture: null, pending: null, serial: 0, idleLead: null,
         base: new Float32Array(values), scratch: new Float32Array(values.length),
         output: new Float32Array(values), springs: new Map(), idleClips: [], dead: false,
@@ -97,14 +58,16 @@ function galInstallMotionLayers(internal) {
     // clip, ForkStageHold plays it once and keeps its last frame until replaced (a native ADV client:
     // startNativeStoryMotion(id, loop = id < 100)).
     manager.stopMoodMotion = function () {
+        if(state.dead)return;
         if (state.pending && state.pending.priority <= 2) { state.serial++; state.pending = null; }
         if (state.gesture?.loop || state.gesture?.hold) { state.gesture = null; queue.stopAllMotions(); }
     };
     // The next held pose starts on its last frame (restoring a pose after history, a skip or a preempting act is not
     // a replay of its gesture).
-    manager.settleMoodMotion = function () { state.settle = true; };
+    manager.settleMoodMotion = function () { if(!state.dead)state.settle = true; };
     const internalUpdate = internal.update;
     internal.update = function (dt, now) {
+        if(state.dead)return;
         if (!state.reduced) return internalUpdate.call(this, dt, now);
         // Stage preference only: freeze body, physics, breath and blink; expressions remain selectable.
         state.reducedSeconds += dt / 1000;
@@ -117,6 +80,7 @@ function galInstallMotionLayers(internal) {
     const profiles = Array.from(ids, galMotionParameter), lipIds = new Set(galLipSyncIds(internal.settings));
     const start = manager.startMotion, update = manager.update, stop = manager.stopAllMotions, create = manager.createMotion;
     manager.createMotion = function (data, group, definition) {
+        if(state.dead)return null;
         const motion = create.call(this, data, group, definition);
         motion.forkGestureFades = galGestureFades(data && data.Meta, definition);
         return motion;
@@ -141,7 +105,7 @@ function galInstallMotionLayers(internal) {
         manager.queueManager.startMotion(motion, false, state.time);
         state.idle = { source, motion, start: null, lead };
     }
-    manager._startMotion = function (motion) { beginIdle(motion); };
+    manager._startMotion = function (motion) { if(!state.dead)beginIdle(motion); };
     if (idleGroup) {
         manager.groups.idle = idleGroup;
         manager.definitions[idleGroup].forEach((_, index) => {
@@ -186,6 +150,7 @@ function galInstallMotionLayers(internal) {
         return true;
     };
     manager.update = function (model, time) {
+        if(state.dead)return false;
         time -= state.reducedSeconds;
         state.dt = state.previousTime == null ? 0 : Math.max(0, time - state.previousTime);
         state.previousTime = time; state.time = time;
@@ -201,12 +166,12 @@ function galInstallMotionLayers(internal) {
         }
         return update.call(this, model, time);
     };
-    internal.on("beforeMotionUpdate", function () {
+    on("beforeMotionUpdate", function () {
         // Do not feed last frame's gesture, spring or blink back into the continuously evaluated idle.
         liveValues().set(state.base);
         for (const channel of state.visibility.values()) core.setParameterValueByIndex(channel.index, channel.idle);
     });
-    internal.on("afterMotionUpdate", function () {
+    on("afterMotionUpdate", function () {
         const values = liveValues();
         state.base.set(values);
         for (const channel of state.visibility.values()) channel.idle = core.getParameterValueByIndex(channel.index);
@@ -249,6 +214,7 @@ function galInstallMotionLayers(internal) {
         state.output.set(values);
     });
     manager.stopAllMotions = function () {
+        if(state.dead)return;
         state.serial++; state.pending = null; state.gesture = null; state.idle = null;
         queue.stopAllMotions(); state.springs.clear(); state.previousTime = null;
         const values = liveValues();
@@ -257,5 +223,11 @@ function galInstallMotionLayers(internal) {
         return stop.call(this);
     };
     // InternalModel emits destroy before destroying its manager (which calls stopAllMotions again).
-    internal.once("destroy", function () { state.dead = true; state.serial++; queue.stopAllMotions(); state.springs.clear(); });
+    internal.once("destroy", release);listeners.push(()=>internal.off('destroy',release));
+    installed=snapshot();releases.add(release);return release;
+    }catch(error){installed=snapshot();try{release();}catch(cleanup){throw new AggregateError([error,cleanup],'Figure motion setup failed');}throw error;}
 }
+
+return {install:galInstallMotionLayers,dispose(){if(disposed)return;disposed=true;const errors=[];for(const release of [...releases])try{release();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure motion cleanup failed');}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureMotion};

@@ -21,7 +21,6 @@
 // @include sprite-blink.cjs
 // @include spine.js
 // @include spine-preview.js
-// @include gal-idle.js
 
 // Stage-keyed readers expose geometry, never Pixi nodes or mutable scene state.
 const galFigureSources = new WeakMap();
@@ -474,8 +473,8 @@ function galCreateScene(host, options) {
         const entry = { key: figure.key, kind: figure.kind, identity:figure.identity, url: figure.url || "", src: "", pendingSrc: "", container, figure, leaving: false, leavingSince: 0,
             model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, actNonce: null, flatAct: null, started: false,
             filters: galFilterChain(container, null, ["shade", "rim", "dof"], true), shadeFilter: tune(new PIXI.filters.ColorMatrixFilter()),
-            slots: {}, glow: galSpringValue(0), shadow: galSpringValue(0), blur: galSpringValue(0), idle: galIdleState(galIdleSeed(figure.key)), tapReaction: null, armed: galSpringValue(0) };
-        // Per-figure idle rhythm (galIdleJitter): the plain breath below keeps the same phase and period factor.
+            slots: {}, glow: galSpringValue(0), shadow: galSpringValue(0), blur: galSpringValue(0), idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null, armed: galSpringValue(0) };
+        // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
         entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
         entry.filters.set("shade", entry.shadeFilter);
         figuresBox.addChild(container);
@@ -791,9 +790,9 @@ function galCreateScene(host, options) {
         galSpring(entry.glow, mode === "glow" ? 1 : 0, 6, dt);
         galSpring(entry.shadow, mode === "shadow" ? 1 : 0, 6, dt);
         galSpring(entry.blur, dofTarget && dofTarget !== entry && quality === "high" ? 2 : 0, 6, dt);
-        // figure-life armed cue (galTapArm): a soft steady outline in the figure's colour while taps on it react; it
+        // figure-life armed cue (stageViews.figureTap.galTapArm): a soft steady outline in the figure's colour while taps on it react; it
         // fades out when the period ends (reduced motion: on and off without a fade).
-        const armedOn = galTapArmed(tapArm, entry.key, performance.now()) ? 1 : 0;
+        const armedOn = stageViews.figureTap.galTapArmed(tapArm, entry.key, performance.now()) ? 1 : 0;
         if (galBlinkCalm()) { entry.armed.v = armedOn; entry.armed.d = 0; } else galSpring(entry.armed, armedOn, 5, dt);
         const glow = entry.glow.v, shadow = entry.shadow.v, armed = entry.armed.v;
         const hasFilters = Boolean(PIXI.filters.GlowFilter);
@@ -826,20 +825,20 @@ function galCreateScene(host, options) {
     // Hidden figures (container off, CG / phone / leave) do no idle work; reduced motion keeps today's idle.
     function figureLifeOn(desc) { return Boolean(desc) && !state.destroyed; }
     function staticIdle(entry, desc, dt, now) {
-        const reduced = galBlinkCalm(), tap = galTapFrame(entry.tapReaction, now, reduced);
+        const reduced = galBlinkCalm(), tap = stageViews.figureTap.galTapFrame(entry.tapReaction, now, reduced);
         const out = { on: false, scaleY: 1, scaleX: tap.scaleX, rotation: tap.tilt * 0.5 * Math.PI / 180, dx: tap.dx, tapY: tap.scaleY };
-        const warp = !reduced && entry.kind === "static" && galStaticWarps(entry.figure);
+        const warp = !reduced && entry.kind === "static" && stageViews.figureGeometry.galStaticWarps(entry.figure);
         const active = figureLifeOn(desc) && !reduced && entry.kind === "static" && entry.sprite && entry.container.visible && figuresBox.visible;
         if (active) {
-            const frame = galStaticIdleStep(entry.idle, dt, warp);
+            const frame = stageViews.figureIdle.galStaticIdleStep(entry.idle, dt, warp);
             entry.idleBreath = frame.breath;
             out.on = true; out.scaleY = frame.scaleY; out.scaleX *= frame.scaleX; out.rotation += frame.rotation; out.dx += frame.dx;
             if (warp) {
-                if (!entry.warp) { entry.warp = tune(galWarpFilter(PIXI)); entry.filters.set("warp", entry.warp, { before: "shade" }); }
+                if (!entry.warp) { entry.warp = tune(stageViews.figureWarp.galWarpFilter(PIXI)); entry.filters.set("warp", entry.warp, { before: "shade" }); }
                 const sprite = entry.sprite;
-                if (sprite.forkIdleBody === undefined) sprite.forkIdleBody = galStaticBody(sprite);
+                if (sprite.forkIdleBody === undefined) sprite.forkIdleBody = stageViews.figureGeometry.galStaticBody(sprite);
                 entry.warp.forkSprite = sprite; entry.warp.forkBody = sprite.forkIdleBody;
-                entry.warp.forkMotion = [0.0045 * frame.breath, 0.012 * frame.breath, frame.headTilt - tap.tilt * 0.02, galStaticCenterU(sprite)];
+                entry.warp.forkMotion = [0.0045 * frame.breath, 0.012 * frame.breath, frame.headTilt - tap.tilt * 0.02, stageViews.figureGeometry.galStaticCenterU(sprite)];
                 entry.warp.padding = Math.ceil(Math.abs(sprite.height) * 0.008) + 4;
             }
         }
@@ -896,22 +895,22 @@ function galCreateScene(host, options) {
         return pending;
     }
     function reactToTap(entry, hit, now, desc) {
-        if (!state.tap) state.tap = galTapState();
-        const plan = galTapPlan(state.tap, entry, hit.region, now);
+        if (!state.tap) state.tap = stageViews.figureTap.galTapState();
+        const plan = stageViews.figureTap.galTapPlan(state.tap, entry, hit.region, now);
         entry.tapReaction = { start: now, region: hit.region, kind: plan.kind, side: hit.side };
         if (!plan.full) return;
-        const figure = entry.figure, emote = GAL_TAP_EMOTES[plan.kind];
+        const figure = entry.figure, emote = stageViews.figureTap.GAL_TAP_EMOTES[plan.kind];
         if (emote) state.debugEffects.push({ op: "emote", id: figure.alias, value: emote, color: figure.color || "", nonce: "tap:" + (++state.tap.serial) });
         // Never fight lip sync or the line's own expression while the figure is speaking.
         if (figure.speaking) return;
-        const reaction = figure.reactions && figure.reactions[GAL_TAP_EMOTION[plan.kind]] || {};
+        const reaction = figure.reactions && figure.reactions[stageViews.figureTap.GAL_TAP_EMOTION[plan.kind]] || {};
         if (entry.kind === "spine" && reaction.animation) {
-            entry.tapAnimation = { animation: reaction.animation, base: figure.animation, until: now + FIGURE_LIFE.animationMs };
+            entry.tapAnimation = { animation: reaction.animation, base: figure.animation, until: now + stageViews.figureIdle.FIGURE_LIFE.animationMs };
         } else if (entry.kind === "static" && reaction.still && typeof desc.tapMedia === "function") {
             const src = entry.src;
             entry.tapStillError = null;
             tapStill(entry, reaction.still, desc.tapMedia).then(still => {
-                if (still && !entry.dead && entry.src === src && entry.tapReaction && entry.tapReaction.start === now) entry.tapTexture = { texture: still.texture, src, until: state.clock + FIGURE_LIFE.stillMs };
+                if (still && !entry.dead && entry.src === src && entry.tapReaction && entry.tapReaction.start === now) entry.tapTexture = { texture: still.texture, src, until: state.clock + stageViews.figureIdle.FIGURE_LIFE.stillMs };
             }, error => { entry.tapStillError = String(error && error.code || error && error.message || error); console.warn("[fork-gal-scene] tap still unavailable", error); });
         }
     }
@@ -925,28 +924,28 @@ function galCreateScene(host, options) {
         for (const entry of entries) {
             let hit = null;
             try {
-                hit = entry.kind === "spine" ? galTapHitSpine(entry.sprite, entry.spineFigure && entry.spineFigure.spine, point, app.renderer, PIXI)
-                    : entry.kind === "static" ? galTapHitStatic(entry.sprite, point) : null;
+                hit = entry.kind === "spine" ? stageViews.figureTap.galTapHitSpine(entry.sprite, entry.spineFigure && entry.spineFigure.spine, point, app.renderer, PIXI)
+                    : entry.kind === "static" ? stageViews.figureTap.galTapHitStatic(entry.sprite, point) : null;
             } catch (error) { console.warn("[fork-gal-scene] tap hit test failed", error); }
             if (hit) return { entry, hit };
         }
         return null;
     }
-    // (arming, galTapArm): a deliberate tap (galTapDeliberate) on a figure's visible body is a page
+    // (arming, stageViews.figureTap.galTapArm): a deliberate tap (stageViews.figureTap.galTapDeliberate) on a figure's visible body is a page
     // turn, except the second tap of a double tap on it or any tap on an armed figure: those react and stop here, before
     // the stage's page-turn handler. Everything else (drags, long presses, a second finger, transparent pixels, empty
     // scene, the text box and every control) passes through untouched. The stage's tapGate says when a click must keep
     // its stage meaning (box hidden, a click that stops SKIP, a text card, menus, phone, CG).
-    const tapTracker = galTapTracker(), tapArm = galTapArmState();
-    function onStagePointer(event) { galTapPointer(tapTracker, event); }
+    const tapTracker = stageViews.figureTap.galTapTracker(), tapArm = stageViews.figureTap.galTapArmState();
+    function onStagePointer(event) { stageViews.figureTap.galTapPointer(tapTracker, event); }
     function onStageTap(event) {
-        const desc = state.desc, deliberate = galTapDeliberate(tapTracker, event), at = event.timeStamp, x = event.clientX, y = event.clientY;
+        const desc = state.desc, deliberate = stageViews.figureTap.galTapDeliberate(tapTracker, event), at = event.timeStamp, x = event.clientX, y = event.clientY;
         const eligible = deliberate && figureLifeOn(desc) && typeof desc.tapGate === "function" && desc.tapGate() && figuresBox.visible && world.visible &&
-            !desc.hideFigures && !desc.figuresAway && galTapBareTarget(event.target, app.view, host);
+            !desc.hideFigures && !desc.figuresAway && stageViews.figureTap.galTapBareTarget(event.target, app.view, host);
         if (!eligible) { tapArm.first = null; return; }
         // Hit-test now only when this tap could be claimed; a plain page turn never waits for it.
-        const found = galTapNeedsHit(tapArm, x, y, at) ? figureAt(x, y) : undefined;
-        const plan = galTapArm(tapArm, found === undefined ? undefined : found && found.entry.key, x, y, at);
+        const found = stageViews.figureTap.galTapNeedsHit(tapArm, x, y, at) ? figureAt(x, y) : undefined;
+        const plan = stageViews.figureTap.galTapArm(tapArm, found === undefined ? undefined : found && found.entry.key, x, y, at);
         if (!plan.claim) {
             // A possible first tap: which figure it hit is resolved after this click has turned the page.
             const first = tapArm.first;

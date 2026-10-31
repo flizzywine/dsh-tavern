@@ -4915,6 +4915,741 @@ return {create:createDanmakuLayer,replay(...args){if(!closed)session.danmakuRepl
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageDanmaku};
 
+        function createStageFigureGeometry() {
+// Head / chest landmarks in texture-normalized v (0 = top). Pack anatomy when present, else the measured head top.
+function galStaticBody(sprite) {
+    const anatomy = sprite.figureInput && sprite.figureInput.anatomy;
+    const top = anatomy && Number.isFinite(anatomy.headTop) ? anatomy.headTop : sprite.forkHeadTop || 0;
+    const chin = anatomy && Number.isFinite(anatomy.chin) && anatomy.chin > top ? anatomy.chin : top + 0.14;
+    const span = chin - top;
+    return [top, chin, chin + span * 0.9, chin + span * 2.6];
+}
+function galStaticCenterU(sprite) {
+    const anatomy = sprite.figureInput && sprite.figureInput.anatomy;
+    return anatomy && Number.isFinite(anatomy.centerX) ? anatomy.centerX : sprite.anchor.x || 0.5;
+}
+// The warp bends a standing body around its neck; a seated, lying or otherwise posed figure keeps S1 only.
+function galStaticWarps(figure) {
+    const sizing = figure && figure.figureSizing;
+    return !sizing || !sizing.heightBasis || sizing.heightBasis === "standing";
+}
+
+return {galStaticBody, galStaticCenterU, galStaticWarps};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureGeometry};
+
+        function createStageFigureMotionMath({spring:galSpring,fade:galMotionFade}) {
+// uninterrupted idle, an independent gesture queue, then parameter springs.
+// Cubism4-specific adapter; the vendored runtime and loaded clip cache stay untouched.
+function galGestureWeight(age, duration, fadeIn = 0.40, fadeOut = 0.50) {
+    const ramp = (x, time) => { if (!(time > 0)) return 1; x = Math.max(0, Math.min(1, x / time)); return x * x * (3 - 2 * x); };
+    return age < 0 || age >= duration ? 0 : ramp(age, fadeIn) * ramp(duration - age, fadeOut);
+}
+// Gesture fades are what the model declares: the motion3 Meta, then its model3 motion entry (Cubism's order in the
+// runtime's createMotion); the stage's 0.40 / 0.50 s apply only when neither declares one.
+function galGestureFades(meta, entry) {
+    const declared = key => [meta && meta[key], entry && entry[key]].find(value => Number.isFinite(value) && value >= 0);
+    const fadeIn = declared("FadeInTime"), fadeOut = declared("FadeOutTime");
+    return { fadeIn: fadeIn === undefined ? 0.40 : fadeIn, fadeOut: fadeOut === undefined ? 0.50 : fadeOut };
+}
+// Switches are only what the model declares as one: pose3 groups/links and PartOpacity tracks (poseIds), and
+// parameters named as a switch (our rigs' ParamArmPoseSwitch, game rigs' ParamHand*Display). Arm-set letters are
+// not switches: game rigs key continuous angles as ParamArmLA02 / ParamArmRB03 / ParamArmLC01, the arm-set
+// choice itself is their pose3 parts, so those angles blend and spring like any other arm parameter.
+function galMotionDiscrete(id, poseIds) {
+    return Boolean(poseIds && poseIds.has(id)) || /^Param(?:Arm|Hand).*(?:Display|Switch|Visible|Opacity)$/.test(id);
+}
+function galMotionParameter(id) {
+    if (galMotionDiscrete(id)) return null;
+    if (/^ParamAngle[XYZ]$/.test(id)) return { omega: 14, velocity: 180 };
+    if (/^ParamBodyAngle[XYZ]$/.test(id)) return { omega: 14, velocity: 90 };
+    if (/^ParamEyeBall[XY]$/.test(id)) return { omega: 20, velocity: Infinity };
+    if (/^Param(?:Arm|Hand|Shoulder)/.test(id)) return { omega: 12, velocity: Infinity };
+    return null;
+}
+function galMotionSpring(s, target, omega, velocity, dt) {
+    if (!(dt > 0)) return s.v;
+    const old = s.v;
+    galSpring(s, target, omega, dt);
+    s.d = Math.max(-velocity, Math.min(velocity, s.d));
+    s.v = Math.max(old - velocity * dt, Math.min(old + velocity * dt, s.v));
+    return s.v;
+}
+function galMotionClone(source, gesture, discreteIds, loop = false) {
+    const motion = Object.assign(Object.create(Object.getPrototypeOf(source)), source);
+    motion._motionData = Object.assign({}, source._motionData, {
+        curves: source._motionData.curves.map(function (curve) {
+            const discrete = curve.type === 2 || galMotionDiscrete(curve.id, discreteIds);
+            // Route PartOpacity through its (often virtual) parameter channel, independent of
+            // CubismConfig.setOpacityFromMotion. Publish the winning track to real parts later.
+            return Object.assign({}, curve, {
+                type: curve.type === 2 ? 1 : curve.type, forkDiscrete: discrete,
+                fadeInTime: discrete ? 0 : gesture ? -1 : curve.fadeInTime < 0 ? -1 : galMotionFade(curve.fadeInTime),
+                fadeOutTime: discrete ? 0 : gesture ? -1 : curve.fadeOutTime < 0 ? -1 : galMotionFade(curve.fadeOutTime)
+            });
+        })
+    });
+    motion._firedEventValues = [];
+    motion.setIsLoop(loop);
+    // Gesture envelopes are applied once by our mixer, not again by Cubism's curve fades.
+    motion.setFadeInTime(gesture ? 0 : galMotionFade(source.getFadeInTime()));
+    motion.setFadeOutTime(gesture ? 0 : galMotionFade(source.getFadeOutTime()));
+    motion.setFinishedMotionHandler(undefined);
+    return motion;
+}
+
+return {galGestureWeight,galGestureFades,galMotionDiscrete,galMotionParameter,galMotionSpring,galMotionClone};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureMotionMath};
+
+        function createStageFigureMotion({math,lipSyncIds:galLipSyncIds}) {
+let disposed=false;const releases=new Set();
+const {galGestureWeight,galGestureFades,galMotionDiscrete,galMotionParameter,galMotionSpring,galMotionClone}=math;
+function galInstallMotionLayers(internal) {
+    if(disposed)return;
+    const manager = internal.motionManager, core = internal.coreModel;
+    if (manager.forkMotionLayers || !manager.queueManager || !core) return;
+    const fields=[[internal,'update'],...['forkMotionLayers','stopMoodMotion','settleMoodMotion','createMotion','_startMotion','startMotion','update','stopAllMotions'].map(key=>[manager,key]),[manager.groups,'idle']];
+    const before=fields.map(([object,key])=>Object.getOwnPropertyDescriptor(object,key)),listeners=[];
+    let installed=null,releaseDone=false,state,queue;
+    const snapshot=()=>fields.map(([object,key])=>object[key]);
+    const release=()=>{
+        if(releaseDone)return;releaseDone=true;releases.delete(release);
+        if(state){state.dead=true;state.serial++;state.pending=null;state.gesture=null;state.idle=null;state.springs.clear();state.idleClips.length=0;}
+        const errors=[];
+        for(const off of listeners){try{off();}catch(error){errors.push(error);}}
+        for(let i=0;i<fields.length;i++){const [object,key]=fields[i];if(object[key]===installed[i])try{if(before[i])Object.defineProperty(object,key,before[i]);else delete object[key];}catch(error){errors.push(error);}}
+        try{queue?.stopAllMotions();}catch(error){errors.push(error);}
+        if(errors.length)throw new AggregateError(errors,'Figure motion cleanup failed');
+    };
+    const on=(name,fn)=>{const guarded=(...args)=>{if(!state?.dead)fn(...args);};internal.on(name,guarded);listeners.push(()=>internal.off(name,guarded));};
+    try {
+    // Pose's first update resets its virtual selectors; initialize it before taking our snapshots.
+    if (internal.pose) internal.pose.updateParameters(core, 0);
+    const parameters = core.getModel().parameters, values = parameters.values, ids = parameters.ids;
+    // The core's view of the values array is replaced when its heap grows (cubismHeapGuard): read it per frame.
+    const liveValues = () => core.getModel().parameters.values;
+    const partIds = core.getModel().parts && core.getModel().parts.ids || [];
+    queue = new manager.queueManager.constructor();
+    queue.setEventCallback((q, event) => {if(state && !state.dead)manager.emit("motion:" + event);});
+    state = manager.forkMotionLayers = {
+        queue, time: 0, dt: 0, previousTime: null, gesture: null, pending: null, serial: 0, idleLead: null,
+        base: new Float32Array(values), scratch: new Float32Array(values.length),
+        output: new Float32Array(values), springs: new Map(), idleClips: [], dead: false,
+        visibility: new Map(), discreteIndices: new Set(), reduced: false, reducedSeconds: 0
+    };
+    function registerDiscrete(id, part) {
+        const index = core.getParameterIndex(id);
+        if (index < values.length) state.discreteIndices.add(index);
+        let channel = state.visibility.get(id);
+        if (!channel) {
+            channel = { index, part: -1, idle: core.getParameterValueByIndex(index) };
+            state.visibility.set(id, channel);
+        }
+        if (part) channel.part = partIds.indexOf(id);
+    }
+    for (const id of ids) if (galMotionDiscrete(id)) registerDiscrete(id, false);
+    const poseParts = internal.pose && internal.pose._partGroups || [];
+    for (const part of poseParts) {
+        registerDiscrete(part.partId, true);
+        for (const link of part.link || []) registerDiscrete(link.partId, true);
+    }
+    function prepareMotion(source, gesture, loop = false) {
+        for (const curve of source._motionData.curves) if (curve.type === 2) registerDiscrete(curve.id, true);
+        return galMotionClone(source, gesture, state.visibility, loop);
+    }
+    // A pack may declare a sustained emotion pose, distinct from a one-shot director gesture: ForkStageLoop repeats the
+    // clip, ForkStageHold plays it once and keeps its last frame until replaced (a native ADV client:
+    // startNativeStoryMotion(id, loop = id < 100)).
+    manager.stopMoodMotion = function () {
+        if(state.dead)return;
+        if (state.pending && state.pending.priority <= 2) { state.serial++; state.pending = null; }
+        if (state.gesture?.loop || state.gesture?.hold) { state.gesture = null; queue.stopAllMotions(); }
+    };
+    // The next held pose starts on its last frame (restoring a pose after history, a skip or a preempting act is not
+    // a replay of its gesture).
+    manager.settleMoodMotion = function () { if(!state.dead)state.settle = true; };
+    const internalUpdate = internal.update;
+    internal.update = function (dt, now) {
+        if(state.dead)return;
+        if (!state.reduced) return internalUpdate.call(this, dt, now);
+        // Stage preference only: freeze body, physics, breath and blink; expressions remain selectable.
+        state.reducedSeconds += dt / 1000;
+        liveValues().set(state.output);
+        core.saveParameters();
+        manager.expressionManager?.update(core, now / 1000);
+        this.emit("beforeModelUpdate");
+        core.update(); core.loadParameters();
+    };
+    const profiles = Array.from(ids, galMotionParameter), lipIds = new Set(galLipSyncIds(internal.settings));
+    const start = manager.startMotion, update = manager.update, stop = manager.stopAllMotions, create = manager.createMotion;
+    manager.createMotion = function (data, group, definition) {
+        if(state.dead)return null;
+        const motion = create.call(this, data, group, definition);
+        motion.forkGestureFades = galGestureFades(data && data.Meta, definition);
+        return motion;
+    };
+    const idleGroup = Object.keys(manager.definitions).find(group => /^idle$/i.test(group));
+    function beginIdle(source) {
+        const motion = prepareMotion(source, false);
+        // Overlap even when the clip declares zero fades. Never let an idle's last frame empty the queue.
+        const duration = motion.getDuration();
+        motion.setFadeInTime(Math.min(motion.getFadeInTime(), duration / 3));
+        motion.setFadeOutTime(Math.min(motion.getFadeOutTime(), duration / 3));
+        for (const curve of motion._motionData.curves) {
+            if (curve.forkDiscrete) continue;
+            if (curve.fadeInTime >= 0) curve.fadeInTime = motion.getFadeInTime();
+            if (curve.fadeOutTime >= 0) curve.fadeOutTime = motion.getFadeOutTime();
+        }
+        // The first clip may start partway in (state.idleLead, a 0..1 fraction from live2dStartIdle's per-figure
+        // jitter) so figures loaded together are not in step; it still fades in from the current pose. Later clips start at 0.
+        const lead = Number.isFinite(state.idleLead) ? Math.max(0, Math.min(1, state.idleLead)) * Math.max(0, duration - Math.min(0.50, duration / 3)) * 0.8 : 0;
+        state.idleLead = null;
+        if (lead > 0) motion.setOffsetTime(lead);
+        manager.queueManager.startMotion(motion, false, state.time);
+        state.idle = { source, motion, start: null, lead };
+    }
+    manager._startMotion = function (motion) { if(!state.dead)beginIdle(motion); };
+    if (idleGroup) {
+        manager.groups.idle = idleGroup;
+        manager.definitions[idleGroup].forEach((_, index) => {
+            Promise.resolve(manager.loadMotion(idleGroup, index)).then(motion => {
+                if (!state.dead && motion && motion.getLoopDuration() > 0) state.idleClips.push(motion);
+            }).catch(() => {});
+        });
+    }
+    manager.startMotion = async function (group, index, priority) {
+        if (state.dead) return false;
+        if (group === manager.groups.idle) return start.call(this, group, index, priority);
+        priority = priority == null ? 2 : priority;
+        const settleRequested = state.settle === true;
+        state.settle = false;
+        if (state.dead || (state.pending && state.pending.priority > priority) || (state.gesture && state.gesture.priority > priority)) return false;
+        const request = { serial: ++state.serial, priority };
+        state.pending = request;
+        let source;
+        try { source = await this.loadMotion(group, index); }
+        finally { if (state.pending === request) state.pending = null; }
+        if (!source || state.dead || request.serial !== state.serial) return false;
+        const definition = this.definitions[group]?.[index], loop = definition?.ForkStageLoop === true;
+        const hold = !loop && definition?.ForkStageHold === true, settle = hold && settleRequested;
+        const motion = prepareMotion(source, true, loop), duration = loop ? motion.getLoopDuration() : motion.getDuration();
+        if (!(duration > 0)) return false;
+        const lead = settle ? Math.max(0, duration - 1e-3) : 0;
+        if (lead) motion.setOffsetTime(lead);
+        const fades = source.forkGestureFades || galGestureFades();
+        const from = state.gesture ? new Float32Array(state.output) : null;
+        const touchedIds = new Set(motion._motionData.curves.filter(curve => curve.type !== 0).map(curve => curve.id));
+        for (const curve of motion._motionData.curves) {
+            if (curve.type === 0 && curve.id === "EyeBlink") for (const id of motion._eyeBlinkParameterIds) touchedIds.add(id);
+            if (curve.type === 0 && curve.id === "LipSync") for (const id of motion._lipSyncParameterIds) touchedIds.add(id);
+        }
+        const touched = new Set(state.gesture ? state.gesture.touched : []);
+        ids.forEach((id, index) => { if (touchedIds.has(id)) touched.add(index); });
+        // A pose snapshot provides bounded-cost interruption even under rapid FORCE replacements.
+        queue.stopAllMotions();
+        queue.startMotion(motion, false, state.time);
+        state.gesture = { motion, group, index, priority, duration, loop, hold, lead, fadeIn: fades.fadeIn, fadeOut: fades.fadeOut, start: null, from, touched };
+        this.emit("motionStart", group, index);
+        return true;
+    };
+    manager.update = function (model, time) {
+        if(state.dead)return false;
+        time -= state.reducedSeconds;
+        state.dt = state.previousTime == null ? 0 : Math.max(0, time - state.previousTime);
+        state.previousTime = time; state.time = time;
+        if (state.dt > 0.25) state.springs.clear(); // Resume/teleport, not a large integration step.
+        if (state.idle) {
+            if (state.idle.start == null) state.idle.start = time - (state.idle.lead || 0);
+            const duration = state.idle.motion.getDuration(), overlap = Math.min(0.50, duration / 3);
+            if (time - state.idle.start >= duration - overlap) {
+                const clips = state.idleClips;
+                beginIdle(clips.length ? clips[Math.floor(Math.random() * clips.length)] : state.idle.source);
+                state.idle.start = time;
+            }
+        }
+        return update.call(this, model, time);
+    };
+    on("beforeMotionUpdate", function () {
+        // Do not feed last frame's gesture, spring or blink back into the continuously evaluated idle.
+        liveValues().set(state.base);
+        for (const channel of state.visibility.values()) core.setParameterValueByIndex(channel.index, channel.idle);
+    });
+    on("afterMotionUpdate", function () {
+        const values = liveValues();
+        state.base.set(values);
+        for (const channel of state.visibility.values()) channel.idle = core.getParameterValueByIndex(channel.index);
+        const gesture = state.gesture;
+        let gestureDominates = false;
+        if (gesture) {
+            if (gesture.start == null) gesture.start = state.time;
+            const age = state.time - gesture.start, sustained = gesture.loop || gesture.hold;
+            const weight = galGestureWeight(age, sustained ? Infinity : gesture.duration, gesture.fadeIn, gesture.fadeOut);
+            gestureDominates = weight >= 0.5;
+            state.scratch.set(values);
+            // A held clip is evaluated no later than its last frame, so it never finishes and never restarts.
+            queue.doUpdateMotion(core, gesture.hold ? Math.min(state.time, gesture.start - gesture.lead + gesture.duration - 1e-3) : state.time);
+            const t = gesture.fadeIn > 0 ? Math.max(0, Math.min(1, age / gesture.fadeIn)) : 1, change = t * t * (3 - 2 * t);
+            for (let i = 0; i < values.length; i++) {
+                if (state.discreteIndices.has(i)) continue;
+                if (!gesture.touched.has(i)) { values[i] = state.scratch[i]; continue; }
+                const target = state.scratch[i] + (values[i] - state.scratch[i]) * weight;
+                values[i] = gesture.from ? gesture.from[i] + (target - gesture.from[i]) * change : target;
+            }
+            if (!sustained && age >= gesture.duration) { state.gesture = null; queue.stopAllMotions(); }
+        }
+        // Pose runs later (after physics). Its selected parts already have the authored opacity,
+        // so its own fade/links cannot cross-dissolve mutually exclusive 0/1 arm variants.
+        for (const channel of state.visibility.values()) {
+            const value = gestureDominates ? core.getParameterValueByIndex(channel.index) : channel.idle;
+            core.setParameterValueByIndex(channel.index, value);
+            if (channel.part >= 0) core.setPartOpacityByIndex(channel.part, Math.max(0, Math.min(1, value)));
+        }
+        const expressionIds = new Set();
+        const expressions = manager.expressionManager && manager.expressionManager.queueManager._motions || [];
+        for (const entry of expressions) for (const parameter of entry._motion._parameters || []) expressionIds.add(parameter.parameterId);
+        for (let i = 0; i < values.length; i++) {
+            const profile = profiles[i];
+            if (!profile || state.discreteIndices.has(i) || lipIds.has(ids[i]) || expressionIds.has(ids[i])) { state.springs.delete(i); continue; }
+            let spring = state.springs.get(i);
+            if (!spring) { spring = { v: values[i], d: 0 }; state.springs.set(i, spring); }
+            values[i] = galMotionSpring(spring, values[i], profile.omega, profile.velocity, Math.min(0.05, state.dt));
+        }
+        state.output.set(values);
+    });
+    manager.stopAllMotions = function () {
+        if(state.dead)return;
+        state.serial++; state.pending = null; state.gesture = null; state.idle = null;
+        queue.stopAllMotions(); state.springs.clear(); state.previousTime = null;
+        const values = liveValues();
+        state.base.set(values); state.output.set(values);
+        for (const channel of state.visibility.values()) channel.idle = core.getParameterValueByIndex(channel.index);
+        return stop.call(this);
+    };
+    // InternalModel emits destroy before destroying its manager (which calls stopAllMotions again).
+    internal.once("destroy", release);listeners.push(()=>internal.off('destroy',release));
+    installed=snapshot();releases.add(release);return release;
+    }catch(error){installed=snapshot();try{release();}catch(cleanup){throw new AggregateError([error,cleanup],'Figure motion setup failed');}throw error;}
+}
+
+return {install:galInstallMotionLayers,dispose(){if(disposed)return;disposed=true;const errors=[];for(const release of [...releases])try{release();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure motion cleanup failed');}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureMotion};
+
+        function createStageFigureIdle({spring:galSpring,springValue:galSpringValue}) {
+let disposed=false;const releases=new Set();
+const FIGURE_LIFE = Object.freeze({ live2dGain: 0.6, stillMs: 2200, expressionMs: 2600, animationMs: 2400 });
+
+function galIdleHash(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; }
+function galIdleNoise(t, seed) {
+    const i = Math.floor(t), f = t - i, u = f * f * f * (f * (f * 6 - 15) + 10);
+    return galIdleHash(i + seed) * (1 - u) + galIdleHash(i + 1 + seed) * u;
+}
+// Fractal value noise in [-1, 1]: decoupled, non-repeating slow drift instead of one sine.
+function galIdleFbm(t, seed, octaves = 3) {
+    let sum = 0, amp = 1, norm = 0, freq = 1;
+    for (let k = 0; k < octaves; k++) { sum += amp * galIdleNoise(t * freq, seed + k * 17.31); norm += amp; amp *= 0.5; freq *= 2.03; }
+    return sum / norm;
+}
+function galIdleRandom(state) { state.rng = (state.rng * 16807) % 2147483647; return (state.rng - 1) / 2147483646; }
+// ---- per-figure phase desync (three figures breathed, swayed and blinked in lockstep). Every figure
+// instance draws its own seed from its key and a per-mount salt, so figures created together (a page turn, a scene
+// change, a remount, a replay) never start in step and a remount never snaps back into the old relationship. The seed
+// fixes the figure's whole idle rhythm: breath phase and period (±10 %), blink interval (±20 %), which Live2D idle clip
+// it starts on and where in that clip, and its Cubism breath phase. Amplitudes are untouched: each figure still moves
+// as before, only out of step with the others.
+const GAL_IDLE_JITTER = Object.freeze({ period: 0.1, blink: 0.2 });
+function galIdleSeed(key, salt = Math.random()) {
+    let hash = 2166136261;
+    const text = String(key == null ? "" : key);
+    for (let i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+    const seed = ((hash >>> 0) / 4294967296 + salt * 0.6180339887) % 1;
+    return seed > 1e-6 ? seed : 0.5;
+}
+function galIdleJitter(seed) {
+    const s = { rng: Math.max(1, Math.floor(((seed * 7919.123) % 1) * 2147483000)) }, r = () => galIdleRandom(s);
+    r();
+    return Object.freeze({ phase: r(), period: 1 + (r() * 2 - 1) * GAL_IDLE_JITTER.period,
+        blink: 1 + (r() * 2 - 1) * GAL_IDLE_JITTER.blink, pick: r(), offset: r() });
+}
+// Live2D: the runtime's breath is sin(2π t / cycle) on a clock that starts at 0 for every model, and the blink interval
+// is the same 4 s everywhere — so models of one rig loaded together breathe in step. Stretch this figure's breath
+// cycles by its period factor, start its breath clock somewhere in its longest cycle and scale its blink interval.
+// Called once per model, before the first update.
+function galLive2dDesync(internal, jitter) {
+    if (!internal || !jitter) return;
+    if(disposed)return;
+    const restore=[];
+    const breath = internal.breath;
+    if (breath && typeof breath.getParameters === "function" && typeof breath.setParameters === "function" && !breath.forkDesynced) {
+        const params = breath.getParameters() || [];
+        const beforeTime=breath._currentTime;
+        restore.push(()=>{breath.setParameters(params);breath._currentTime=beforeTime;delete breath.forkDesynced;});
+        breath.setParameters(params.map(p => Object.assign(Object.create(Object.getPrototypeOf(p)), p, { cycle: p.cycle * jitter.period })));
+        const longest = params.reduce((max, p) => Math.max(max, Math.abs(p.cycle) || 0), 0) * jitter.period;
+        if (typeof breath._currentTime === "number") breath._currentTime += jitter.phase * longest;
+        breath.forkDesynced = true;
+    }
+    const blink = internal.eyeBlink;
+    if (blink && typeof blink.setBlinkingInterval === "function" && !blink.forkDesynced) {
+        const interval = Number.isFinite(blink._blinkingIntervalSeconds) ? blink._blinkingIntervalSeconds : 4;
+        restore.push(()=>{blink.setBlinkingInterval(interval);delete blink.forkDesynced;});
+        blink.setBlinkingInterval(interval * jitter.blink);
+        blink.forkDesynced = true;
+    }
+    if(restore.length){const release=()=>{if(!releases.delete(release))return;const errors=[];try{internal.off?.('destroy',release);}catch(error){errors.push(error);}for(const fn of restore)try{fn();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure rhythm cleanup failed');};releases.add(release);internal.once?.('destroy',release);}
+}
+function galIdleState(seed) {
+    const jitter = galIdleJitter(seed);
+    return { seed: seed * 997, rng: Math.max(1, Math.floor(seed * 2147483000)), time: 0, phase: jitter.phase * Math.PI * 2, jitter,
+        shift: galSpringValue(0), shiftTarget: 0, nextShift: 2 + seed * 4, tilt: galSpringValue(0), tiltTarget: 0, nextTilt: 4 + seed * 6,
+        lag: galSpringValue(0),
+        // Live2D attention: eyes jump first, the head follows; micro-saccades while fixating.
+        gaze: { x: 0, y: 0 }, eye: { x: galSpringValue(0), y: galSpringValue(0) }, head: { x: galSpringValue(0), y: galSpringValue(0) },
+        headTarget: { x: 0, y: 0 }, headGoal: null, headAt: Infinity, nextAttention: 3 + seed * 5, nextSaccade: 1, micro: { x: 0, y: 0 } };
+}
+// Static idle. S1 (transform): breathing with a drifting period, event-driven weight shifts that settle like a damped
+// spring (most of the time the figure is still), a tiny layered-noise sway; rotation pivots on the feet. With the warp
+// (S2) the breath moves into the shoulders/chest and the head gets its own lagging tilt.
+function galStaticIdleStep(s, dt, warp) {
+    s.time += dt;
+    const period = (3.8 + 0.5 * galIdleFbm(s.time * 0.05, s.seed + 3, 2)) * (s.jitter ? s.jitter.period : 1);
+    s.phase += 2 * Math.PI * dt / period;
+    // Inhale slightly faster than exhale.
+    const breath = Math.pow((1 - Math.cos(s.phase)) / 2, 1.15);
+    if (s.time >= s.nextShift) {
+        s.shiftTarget = galIdleRandom(s) < 0.3 ? 0 : galIdleRandom(s) * 2 - 1;
+        s.nextShift = s.time + 5 + galIdleRandom(s) * 7;
+    }
+    galSpring(s.shift, s.shiftTarget, 1.5, dt);
+    const sway = galIdleFbm(s.time * 0.13, s.seed + 11, 2);
+    const rotation = (s.shift.v * 0.32 + sway * 0.1) * Math.PI / 180;
+    // Secondary motion for the warp: the head lags the body lean (slower spring) and has its own occasional tilt.
+    galSpring(s.lag, rotation, 2.2, dt);
+    if (s.time >= s.nextTilt) {
+        s.tiltTarget = galIdleRandom(s) < 0.45 ? 0 : (galIdleRandom(s) < 0.5 ? -1 : 1) * (0.5 + galIdleRandom(s) * 0.5);
+        s.nextTilt = s.time + 6 + galIdleRandom(s) * 9;
+    }
+    galSpring(s.tilt, s.tiltTarget, 2.6, dt);
+    const headTilt = (s.lag.v - rotation) * 1.4 + (s.tilt.v * 0.7 + galIdleFbm(s.time * 0.09, s.seed + 29, 2) * 0.15) * Math.PI / 180;
+    if (warp) return { scaleY: 1 + 0.003 * breath, scaleX: 1, rotation, dx: s.shift.v * 0.0016, breath, headTilt };
+    return { scaleY: 1 + 0.009 * breath, scaleX: 1 + 0.0018 * breath, rotation, dx: s.shift.v * 0.0016, breath, headTilt: 0 };
+}
+// Live2D idle offsets: multi-octave drift on head/body angles, attention shifts (eyes lead, head follows) and
+// micro-saccades while fixating. Added after the motion layers and the director's head offsets, before physics.
+// While the director aims the gaze the eyes stay on its target: no attention shift, no saccade, a quieter drift.
+function galLive2dIdleStep(s, dt, speaking, looking) {
+    s.time += dt;
+    const k = looking ? 0.6 : speaking ? 0.85 : 1;
+    if (s.time >= s.nextAttention) {
+        const back = looking || galIdleRandom(s) < (speaking ? 0.6 : 0.35);
+        s.gaze = back ? { x: 0, y: 0 } : { x: (galIdleRandom(s) * 2 - 1) * (speaking ? 0.35 : 0.65), y: (galIdleRandom(s) * 2 - 1) * 0.35 - 0.05 };
+        s.headTarget = { x: s.gaze.x * (0.5 + galIdleRandom(s) * 0.4), y: s.gaze.y * 0.6 };
+        s.headAt = s.time + 0.12 + galIdleRandom(s) * 0.12;
+        s.micro = { x: 0, y: 0 };
+        s.nextAttention = s.time + 4 + galIdleRandom(s) * 8;
+        s.nextSaccade = s.time + 0.8 + galIdleRandom(s) * 1.5;
+    }
+    if (looking) { s.gaze = { x: 0, y: 0 }; s.headTarget = { x: 0, y: 0 }; s.micro = { x: 0, y: 0 }; }
+    if (s.time >= s.headAt) { s.headAt = Infinity; s.headGoal = s.headTarget; }
+    if (s.time >= s.nextSaccade) {
+        s.micro = looking ? { x: 0, y: 0 } : { x: (galIdleRandom(s) * 2 - 1) * 0.09, y: (galIdleRandom(s) * 2 - 1) * 0.06 };
+        // Fixations of 1–3 s (skewed short); no continuous eye drift.
+        s.nextSaccade = s.time + 0.9 + Math.pow(galIdleRandom(s), 1.6) * 2.2;
+    }
+    const goal = looking ? { x: 0, y: 0 } : s.headGoal || { x: 0, y: 0 };
+    galSpring(s.eye.x, s.gaze.x + s.micro.x, 42, dt);
+    galSpring(s.eye.y, s.gaze.y + s.micro.y, 42, dt);
+    galSpring(s.head.x, goal.x, 4.2, dt);
+    galSpring(s.head.y, goal.y, 4.2, dt);
+    const t = s.time, seed = s.seed;
+    return {
+        ParamAngleX: (4 * galIdleFbm(t * 0.09, seed + 1) + 11 * s.head.x.v) * k,
+        ParamAngleY: (2.6 * galIdleFbm(t * 0.07, seed + 5) + 9 * s.head.y.v) * k,
+        ParamAngleZ: (2.2 * galIdleFbm(t * 0.06, seed + 9) - 3 * s.head.x.v) * k,
+        ParamBodyAngleX: (1.8 * galIdleFbm(t * 0.05, seed + 13) + 3 * s.head.x.v) * k,
+        ParamBodyAngleZ: 1.2 * galIdleFbm(t * 0.045, seed + 21) * k,
+        ParamEyeBallX: looking ? 0 : s.eye.x.v * k,
+        ParamEyeBallY: looking ? 0 : s.eye.y.v * k
+    };
+}
+
+function dispose(){if(disposed)return;disposed=true;const errors=[];for(const release of [...releases])try{release();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure idle cleanup failed');}
+
+return {FIGURE_LIFE, galIdleSeed, galIdleJitter, galIdleState, galStaticIdleStep, galLive2dIdleStep, galLive2dDesync, dispose};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureIdle};
+
+        function createStageFigureWarp() {
+let disposed=false;const filters=new Set();
+// S2: one-pass warp filter on the figure container (sprite + mouth/blink children deform together): shoulders/chest
+// rise with the breath and fade out by the waist, the chest widens a little, the head tilts around the neck with a
+// smooth falloff (hair at head height follows; hair below the chin bends slightly — the secondary lag).
+// The globals are shared with Pixi's highp filter vertex shader: their precision must match or the program fails to link.
+const GAL_WARP_FRAGMENT = `precision highp float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform highp vec4 inputSize;
+uniform highp vec4 outputFrame;
+uniform vec4 inputClamp;
+uniform vec3 uInvX;
+uniform vec3 uInvY;
+uniform vec4 uFwd;
+uniform vec4 uBody;
+uniform vec4 uMotion;
+uniform float uAspect;
+void main(void) {
+    vec2 q = vTextureCoord * inputSize.xy + outputFrame.xy;
+    vec3 h = vec3(q, 1.0);
+    vec2 uv = vec2(dot(uInvX, h), dot(uInvY, h));
+    float rise = (1.0 - smoothstep(uBody.z, uBody.w, uv.y)) * uMotion.x;
+    float cy = (uv.y - uBody.z) / 0.09;
+    float chestBand = exp(-cy * cy);
+    vec2 d = vec2((uv.x - uMotion.w) * uMotion.y * chestBand, -rise);
+    float headW = 1.0 - smoothstep(uBody.y - 0.015, uBody.y + 0.08, uv.y);
+    float a = uMotion.z * headW;
+    vec2 r = vec2((uv.x - uMotion.w) * uAspect, uv.y - uBody.y);
+    vec2 rr = vec2(cos(a) * r.x + sin(a) * r.y, -sin(a) * r.x + cos(a) * r.y);
+    d += vec2((r.x - rr.x) / uAspect, r.y - rr.y);
+    vec2 src = q - vec2(uFwd.x * d.x + uFwd.z * d.y, uFwd.y * d.x + uFwd.w * d.y);
+    vec2 coord = clamp((src - outputFrame.xy) * inputSize.zw, inputClamp.xy, inputClamp.zw);
+    gl_FragColor = texture2D(uSampler, coord);
+}`;
+function galWarpFilter(PIXI) {
+    if(disposed)throw new Error('Figure warp is disposed');
+    const filter = new PIXI.Filter(undefined, GAL_WARP_FRAGMENT, {
+        uInvX: new Float32Array([1, 0, 0]), uInvY: new Float32Array([0, 1, 0]), uFwd: new Float32Array([1, 0, 0, 1]),
+        uBody: new Float32Array([0.05, 0.2, 0.32, 0.6]), uMotion: new Float32Array([0, 0, 0, 0.5]), uAspect: 1 });
+    filter.forkSprite = null; filter.forkBody = null; filter.forkMotion = null;
+    const apply = filter.apply, destroy=filter.destroy;let dead=false;
+    filter.destroy=function(...args){if(dead)return;dead=true;filters.delete(filter);this.forkSprite=null;this.forkBody=null;this.forkMotion=null;return destroy.apply(this,args);};
+    filters.add(filter);
+    // Matrices from the sprite's world transform at render time (after this frame's transforms), not last frame's.
+    filter.apply = function (manager, input, output, clear, state) {
+        if(dead)return;
+        const sprite = this.forkSprite, texture = sprite && sprite.texture;
+        if (sprite && texture && !sprite.destroyed && this.forkMotion) {
+            const m = sprite.worldTransform, w = texture.width, hgt = texture.height;
+            const fa = m.a * w, fb = m.b * w, fc = m.c * hgt, fd = m.d * hgt, det = fa * fd - fc * fb || 1;
+            const i00 = fd / det, i01 = -fc / det, i10 = -fb / det, i11 = fa / det, ax = sprite.anchor.x, ay = sprite.anchor.y;
+            const u = this.uniforms;
+            u.uInvX[0] = i00; u.uInvX[1] = i01; u.uInvX[2] = -i00 * m.tx - i01 * m.ty + ax;
+            u.uInvY[0] = i10; u.uInvY[1] = i11; u.uInvY[2] = -i10 * m.tx - i11 * m.ty + ay;
+            u.uFwd[0] = fa; u.uFwd[1] = fb; u.uFwd[2] = fc; u.uFwd[3] = fd;
+            u.uAspect = w / (hgt || 1);
+            u.uBody.set(this.forkBody);
+            u.uMotion.set(this.forkMotion);
+        }
+        apply.call(this, manager, input, output, clear, state);
+    };
+    return filter;
+}
+
+function dispose(){if(disposed)return;disposed=true;const errors=[];for(const filter of [...filters])try{filter.destroy();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure warp cleanup failed');}
+
+return {galWarpFilter, dispose};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureWarp};
+
+        function createStageFigureTap({document,geometry}) {
+let disposed=false,masks=new WeakMap();
+const {galStaticBody,galStaticCenterU}=geometry;
+// ---- deliberate tap (mobile mis-taps): one primary pointer, primary button, no second finger, no
+// pointercancel (the browser took it for a scroll / pan), at most `slopPx` CSS px from the press at any time (no drag,
+// swipe) and released within `maxMs` (no long press). Mouse, pen and touch share the rule; the click that follows the
+// release is the one judged. Pure: the scene feeds it the stage's pointer events (capture phase, never consumed).
+const GAL_TAP_RULE = Object.freeze({ slopPx: 8, maxMs: 300, clickMs: 800 });
+function galTapTracker() { return { down: null, pointers: new Set() }; }
+function galTapPointer(tracker, event) {
+    const id = event.pointerId, down = tracker.down, own = down && down.id === id;
+    const moved = own ? Math.hypot(event.clientX - down.x, event.clientY - down.y) : 0;
+    if (event.type === "pointerdown") {
+        if (tracker.pointers.size || !event.isPrimary) { if (down) down.multi = true; tracker.pointers.add(id); return; }
+        tracker.pointers.add(id);
+        tracker.down = { id, type: event.pointerType || "mouse", button: event.button, x: event.clientX, y: event.clientY, at: event.timeStamp, moved: 0, multi: false, cancelled: false, upAt: 0 };
+        return;
+    }
+    if (event.type === "pointerup" || event.type === "pointercancel") tracker.pointers.delete(id);
+    if (!own) return;
+    down.moved = Math.max(down.moved, moved);
+    if (event.type === "pointerup") down.upAt = event.timeStamp;
+    else if (event.type === "pointercancel") down.cancelled = true;
+}
+// The click judged once: true only for a deliberate tap that just ended.
+function galTapDeliberate(tracker, click) {
+    const down = tracker.down;
+    tracker.down = null;
+    if (!down || click.button !== 0 || down.button !== 0 || down.multi || down.cancelled || !down.upAt) return false;
+    return down.moved <= GAL_TAP_RULE.slopPx && down.upAt - down.at <= GAL_TAP_RULE.maxMs && click.timeStamp - down.upAt <= GAL_TAP_RULE.clickMs;
+}
+
+// Arming (the common mis-tap is a page turn that lands on a figure). A deliberate tap on a figure is a
+// page turn, unless it is the second tap of a double tap on that figure (≤ doubleMs after the first, ≤ doublePx away)
+// or the figure is armed: then it reacts, does not turn the page and (re)arms the figure for armedMs. The first tap of
+// a double tap has already turned the page; no page turn ever waits for a possible second tap. `key` is the figure the
+// tap hit (null: none; undefined: not tested — the scene resolves a first tap's figure after the page turn).
+const GAL_TAP_ARM = Object.freeze({ doubleMs: 350, doublePx: 24, armedMs: 5000 });
+function galTapArmState() { return { first: null, until: {} }; }
+function galTapArmed(arm, key, at) { return (arm.until[key] || 0) > at; }
+// Whether this tap needs a hit test now: some figure is armed, or it may finish a double tap.
+function galTapNeedsHit(arm, x, y, at) {
+    const first = arm.first;
+    return Object.values(arm.until).some(until => until > at) || Boolean(first && at - first.at <= GAL_TAP_ARM.doubleMs && Math.hypot(x - first.x, y - first.y) <= GAL_TAP_ARM.doublePx);
+}
+function galTapArm(arm, key, x, y, at) {
+    const first = arm.first, near = first && at - first.at <= GAL_TAP_ARM.doubleMs && Math.hypot(x - first.x, y - first.y) <= GAL_TAP_ARM.doublePx;
+    arm.first = null;
+    for (const name in arm.until) if (arm.until[name] <= at) delete arm.until[name];
+    if (key) {
+        const armed = galTapArmed(arm, key, at);
+        if (armed || near && first.key === key) { arm.until[key] = at + GAL_TAP_ARM.armedMs; return { claim: true, armed: !armed }; }
+    }
+    arm.first = { x, y, at, key };
+    return { claim: false, armed: false };
+}// A tap counts only on the bare scene: the Pixi canvas itself or a passive node of the scene host; never a control, the
+// text box, choices, chips, the phone or any other stage UI above it (those clicks keep their own meaning).
+const GAL_TAP_UI = "button, a, input, textarea, select, label, summary, [role], [tabindex], [contenteditable], .fork-gal-box";
+function galTapBareTarget(target, canvas, host) {
+    if (!target || target === canvas) return Boolean(target);
+    if (!host || typeof host.contains !== "function" || !host.contains(target)) return false;
+    for (let node = target; node && node !== host; node = node.parentElement) if (node.matches && node.matches(GAL_TAP_UI)) return false;
+    return true;
+}
+// Live2D fallback gesture when the figure's emotionMap has none: the model's own Tap motion group (Cubism sample
+// convention TapHead / TapBody / Tap, any case or separator), matched to the tapped region.
+function galTapMotionGroup(motions, region) {
+    const groups = Object.keys(motions || {}).filter(name => Array.isArray(motions[name]) && motions[name].length);
+    const find = pattern => groups.find(name => pattern.test(name.replace(/[\s_-]/g, "")));
+    return find(region === "head" ? /^taphead$/i : /^tapbody$/i) || find(/^tap$/i) || null;
+}
+// ---- tap feedback (purely visual: never sends, never calls a model, never changes story state, never plays a voice)
+const GAL_TAP_BAGS = { head: ["happy", "shy", "happy-note"], body: ["surprised", "question", "sweat"] };
+// shy has no mark: the shy emotion blushes with the model's own cheek.
+const GAL_TAP_EMOTES = { happy: "heart", "happy-note": "note", surprised: "!", question: "?", sweat: "sweat", annoyed: "anger" };
+// The emotion each reaction asks the figure's own emotion list for (resolved by matchBubbleMood, packFigureReactions).
+const GAL_TAP_EMOTION = { happy: "joy", shy: "shy", "happy-note": "joy", surprised: "anxious", question: "anxious", sweat: "shy", annoyed: "anger" };
+function galTapState() { return { bags: {}, serial: 0 }; }
+// Shuffle bag per figure and region; a 3.5 s cooldown per figure between full reactions (taps inside it only squash);
+// ≥4 taps on one figure within 5 s escalate to "annoyed" once, then not again for 6 s.
+function galTapPlan(tap, entry, region, now, random = Math.random) {
+    const cooldown = 3500, key = entry.key + ":" + region;
+    entry.tapTimes = (entry.tapTimes || []).filter(at => now - at < 5000);
+    entry.tapTimes.push(now);
+    const escalate = entry.tapTimes.length >= 4 && !(entry.tapAnnoyedAt > now - 6000);
+    if (escalate) { entry.tapAnnoyedAt = now; entry.tapLast = now; return { kind: "annoyed", full: true }; }
+    if (now - (entry.tapLast ?? -Infinity) < cooldown) return { kind: region === "head" ? "pat" : "poke", full: false };
+    let bag = tap.bags[key];
+    if (!bag || !bag.length) {
+        bag = GAL_TAP_BAGS[region].slice();
+        for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+        tap.bags[key] = bag;
+    }
+    entry.tapLast = now;
+    return { kind: bag.pop(), full: true };
+}
+// Damped squash-and-stretch about the feet (volume-preserving), a small shake when annoyed, and the head flinch.
+// Reduced motion: none of it (the emote and the 差分 still show).
+function galTapFrame(reaction, now, reduced) {
+    const frame = { scaleX: 1, scaleY: 1, dx: 0, tilt: 0, flinch: 0 };
+    if (!reaction || reduced) return frame;
+    const t = (now - reaction.start) / 1000;
+    if (t < 0 || t > 1.2) return frame;
+    const pat = reaction.region === "head";
+    const amp = reaction.kind === "annoyed" ? 0.03 : pat ? 0.022 : 0.032;
+    const wave = Math.exp(-5.5 * t) * Math.cos(2 * Math.PI * 2.8 * t);
+    frame.scaleY = 1 - amp * wave;
+    frame.scaleX = 1 + amp * 0.55 * wave;
+    if (reaction.kind === "annoyed") frame.dx = 0.006 * Math.sin(2 * Math.PI * 7 * t) * Math.exp(-3.5 * t);
+    frame.flinch = Math.exp(-4 * t) * Math.sin(Math.PI * Math.min(1, t / 0.12));
+    frame.tilt = (reaction.side || 1) * frame.flinch;
+    return frame;
+}
+// Alpha mask of a static texture, 1/4 resolution, built on the first tap only.
+function galTapAlpha(texture) {
+    if(disposed)return null;
+    if(masks.has(texture))return masks.get(texture);
+    let mask=null;
+    try {
+        const source = texture.baseTexture.resource && texture.baseTexture.resource.source, frame = texture.frame;
+        if (!source) return null;
+        const w = Math.max(1, Math.round(frame.width / 4)), h = Math.max(1, Math.round(frame.height / 4));
+        const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(source, frame.x, frame.y, frame.width, frame.height, 0, 0, w, h);
+        mask = { w, h, data: ctx.getImageData(0, 0, w, h).data };
+    } catch (_) {}
+    masks.set(texture,mask);return mask;
+}
+// Static (flat or layered) sprite, or a Spine body (sprite-like container): the point's texture-normalized u/v.
+function galTapUv(sprite, point) {
+    if (!sprite || sprite.destroyed || !sprite.worldVisible || !sprite.texture || !sprite.texture.width || !sprite.texture.height) return null;
+    const local = sprite.toLocal(point), tex = sprite.texture;
+    const u = local.x / tex.width + sprite.anchor.x, v = local.y / tex.height + sprite.anchor.y;
+    return u < 0 || u > 1 || v < 0 || v > 1 ? null : { u, v };
+}
+function galTapRegion(sprite, uv) {
+    return { region: uv.v < galStaticBody(sprite)[1] ? "head" : "body", side: uv.u < galStaticCenterU(sprite) ? -1 : 1 };
+}
+// Only the visible body counts: the pixel must be solid (not a soft edge, shadow or glow) and so must
+// its four neighbours in the 1/4 mask (±4 texels), so a tap grazing hair wisps or a transparent margin is a page turn.
+function galTapHitStatic(sprite, point) {
+    const uv = sprite && sprite.texture && sprite.texture.orig ? galTapUv(sprite, point) : null;
+    if (!uv) return null;
+    const mask = galTapAlpha(sprite.texture);
+    if (mask) {
+        const x = Math.min(mask.w - 1, Math.floor(uv.u * mask.w)), y = Math.min(mask.h - 1, Math.floor(uv.v * mask.h));
+        const alpha = (dx, dy) => { const px = x + dx, py = y + dy; return px < 0 || py < 0 || px >= mask.w || py >= mask.h ? 0 : mask.data[(py * mask.w + px) * 4 + 3]; };
+        if (alpha(0, 0) < 128 || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => alpha(dx, dy) < 40)) return null;
+    }
+    return galTapRegion(sprite, uv);
+}
+// The largest alpha of a 3×3 px render of `target` under the point (stage coordinates; the target has a parent).
+function galTapProbe(target, point, renderer, PIXI) {
+    const texture = renderer.generateTexture(target, { region: new PIXI.Rectangle(Math.floor(point.x) - 1, Math.floor(point.y) - 1, 3, 3), resolution: 1 });
+    try {
+        const pixels = renderer.plugins.extract.pixels(texture);
+        let alpha = 0;
+        for (let i = 3; i < pixels.length; i += 4) alpha = Math.max(alpha, pixels[i]);
+        return alpha;
+    } finally { texture.destroy(true); }
+}
+// Spine: the rendered skeleton under the point.
+function galTapHitSpine(body, spine, point, renderer, PIXI) {
+    const uv = galTapUv(body, point);
+    if (!uv || !spine || spine.destroyed) return null;
+    return galTapProbe(spine, point, renderer, PIXI) < 96 ? null : galTapRegion(body, uv);
+}
+// Live2D, for any model without per-figure data: a visible art-mesh triangle must contain the point, then the rendered
+// model must be solid there (meshes carry transparent texels; model3 HitAreas are bounding boxes, so they only name the
+// region: a head/face area → head). Otherwise head = above the head frame's chin (0.3 of the canvas).
+function galTapHitLive2d(model, point, headFrame, renderer, PIXI) {
+    if (!model || model.destroyed || !model.worldVisible) return null;
+    const im = model.internalModel, p = model.toModelPosition(point);
+    if (p.x < 0 || p.y < 0 || p.x > im.originalWidth || p.y > im.originalHeight) return null;
+    const core = im.coreModel, count = core.getDrawableCount();
+    let mesh = false;
+    for (let i = count - 1; i >= 0 && !mesh; i--) {
+        if (core.getDrawableOpacity(i) < 0.1 || (core.getDrawableDynamicFlagIsVisible && !core.getDrawableDynamicFlagIsVisible(i))) continue;
+        const v = im.getDrawableVertices(i), idx = core.getDrawableVertexIndices(i);
+        for (let j = 0; j + 2 < idx.length; j += 3) {
+            const a = idx[j] * 2, b = idx[j + 1] * 2, c = idx[j + 2] * 2;
+            const d1 = (p.x - v[b]) * (v[a + 1] - v[b + 1]) - (v[a] - v[b]) * (p.y - v[b + 1]);
+            const d2 = (p.x - v[c]) * (v[b + 1] - v[c + 1]) - (v[b] - v[c]) * (p.y - v[c + 1]);
+            const d3 = (p.x - v[a]) * (v[c + 1] - v[a + 1]) - (v[c] - v[a]) * (p.y - v[a + 1]);
+            if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) { mesh = true; break; }
+        }
+    }
+    if (!mesh || (renderer && galTapProbe(model, point, renderer, PIXI) < 96)) return null;
+    const side = p.x < im.originalWidth / 2 ? -1 : 1, areas = Object.keys(im.hitAreas || {}).length ? im.hitTest(p.x, p.y) : [];
+    const region = areas.some(name => /head|face/i.test(name)) || p.y / im.originalHeight < (headFrame ? headFrame.Chin : 0.3) ? "head" : "body";
+    return { region, side };
+}
+function dispose(){disposed=true;masks=new WeakMap();}
+
+return {GAL_TAP_RULE, galTapTracker, galTapPointer, galTapDeliberate, GAL_TAP_ARM, galTapArmState, galTapArmed, galTapNeedsHit, galTapArm, GAL_TAP_UI, galTapBareTarget, galTapMotionGroup, GAL_TAP_BAGS, GAL_TAP_EMOTES, GAL_TAP_EMOTION, galTapState, galTapPlan, galTapFrame, galTapAlpha, galTapUv, galTapRegion, galTapHitStatic, galTapProbe, galTapHitSpine, galTapHitLive2d, dispose};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureTap};
+
         function createStageLiveroom({spark:danmakuSparkPaths,count:danmakuCount,price:danmakuPrice,setTimeout,clearTimeout}) {
 let closed=false;const dashboards=new Set();
 
@@ -10193,6 +10928,12 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter,createGate:createTextcardGate,peak:textcardPeak}));
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
                     const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
+                    const figureMotionMath=createStageFigureMotionMath(options.figureMotion||{});
+                    const figureMotion=own(createStageFigureMotion({math:figureMotionMath,...options.figureMotion}));
+                    const figureGeometry=createStageFigureGeometry();
+                    const figureIdle=own(createStageFigureIdle(options.figureIdle||{}));
+                    const figureWarp=own(createStageFigureWarp());
+                    const figureTap=own(createStageFigureTap({document,geometry:figureGeometry}));
                     const danmakuDisplay=createStageDanmakuDisplay();
                     const danmakuScheduler=createStageDanmakuScheduler(danmakuDisplay);
                     const danmakuSession=own(createStageDanmakuSession(danmakuDisplay));
@@ -10200,7 +10941,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const danmaku=own(createStageDanmaku({display:danmakuDisplay,scheduler:danmakuScheduler,session:danmakuSession,liveroom,createAvatar:createStageDanmakuAvatar,window,...options.danmaku}));
                     const danmakuSettings=own(createStageDanmakuSettings({window,CustomEvent:window.CustomEvent}));
                     const danmakuUi=own(createStageDanmakuUi({React:options.React,window,document,CustomEvent:window.CustomEvent,...options.danmakuUi,settings:danmakuSettings,fields:configFields}));
-                    return {danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),

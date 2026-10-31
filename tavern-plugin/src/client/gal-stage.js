@@ -1425,6 +1425,8 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        figureMotion:{spring:galSpring,fade:galMotionFade,lipSyncIds:galLipSyncIds},
+        figureIdle:{spring:galSpring,springValue:galSpringValue},
         danmaku:{renderers:MOD_STAGE_RENDERERS,Image,getComputedStyle,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,performance},
         danmakuUi:{sections:STAGE_CONFIG_SECTIONS,entries:stageEntries,report:useStageEntryState,confirm:useTavernConfirm,sounds:forkUiSfx,setTimeout,clearTimeout},
         textcard:{clock:forkForeground},

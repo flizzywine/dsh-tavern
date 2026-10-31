@@ -150,7 +150,7 @@ function galPlayMoodMotion(entry, figure, now, suppressed) {
     }
 }
 function galMotionFade(seconds) { return Number.isFinite(seconds) && seconds >= 0.45 ? seconds : 0.45; }
-function galMotionTransitions(internal) { galInstallMotionLayers(internal); }
+function galMotionTransitions(internal) { stageViews.figureMotion.install(internal); }
 function galShouldBlink(eyeOpen) { return !Number.isFinite(eyeOpen) || eyeOpen >= 0.2; }
 function forkGalOwnBlink(internal, seconds) {
     const blink = internal.eyeBlink;
@@ -174,7 +174,7 @@ function live2dStartIdle(model, seconds, jitter) {
     const internal = model.internalModel, groups = internal.settings.motions || {};
     galMotionTransitions(internal);
     const layers = internal.motionManager.forkMotionLayers;
-    galLive2dDesync(internal, jitter);
+    stageViews.figureIdle.galLive2dDesync(internal, jitter);
     forkGalOwnBlink(internal, seconds || (() => layers ? layers.dt : 0));
     const idle = Object.keys(groups).find(name => /^idle$/i.test(name));
     if (!idle) return;
