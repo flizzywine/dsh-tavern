@@ -1425,6 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        textcardPlayer:{performance,requestAnimationFrame,cancelAnimationFrame,setInterval,clearInterval,setTimeout,clearTimeout,createGate:createTextcardGate,peak:textcardPeak},
         textcardLayout:{getComputedStyle,figureTextColor,figurePlateColor},
         choices:{ReactDOM,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
         choiceLayout:{getComputedStyle},
