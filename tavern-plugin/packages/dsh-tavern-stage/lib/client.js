@@ -6692,6 +6692,54 @@ return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(co
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageBackgroundLayers};
 
+        // Viewport cast arrangement, fit transitions, and parked-figure projection.
+function createStageCastLayout({calculate,mix}) {
+    let disposed=false;const instances=new Set();
+    function create(){
+        if(disposed)throw new Error('Cast layout owner disposed');
+        let closed=false,layout=null,seen=null,transition=null,memo=null,shown=null;
+        function fit(now){
+            if(!transition)return {fit:1,drop:0};
+            const {from,to,start}=transition,k=mix(0,1,now-start);
+            if(k===1)return {...to};
+            return {fit:from.fit+(to.fit-from.fit)*k,drop:from.drop+(to.drop-from.drop)*k,
+                top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread};
+        }
+        function update({plan,figures,W,H,now,top,ruler,loaded,crops,instant}){
+            if(closed)return {layout:null,report:null};
+            if(!plan){layout=seen=transition=null;return {layout:null,report:null};}
+            if(seen&&seen.plan===plan&&seen.figures===figures&&seen.W===W&&seen.H===H&&seen.top===top&&seen.ruler===ruler&&seen.loaded===loaded){
+                if(instant)transition.from=transition.to;
+                return {layout,report:null};
+            }
+            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(plan.slots||null),plan.max||0,JSON.stringify(plan.framing||null)].join('|');
+            let report=null;
+            if(layout?.key!==key){
+                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,slots:plan.slots,max:plan.max,framing:plan.framing})};
+                const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread};
+                transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:fit(now),to,start:now};
+                layout=next;
+                const signature=JSON.stringify([layout.x,W]);
+                if(signature!==shown){shown=signature;report={count:layout.count,x:layout.x,visible:layout.visible,width:W};}
+            }else if(instant)transition.from=transition.to;
+            seen={plan,figures,W,H,top,ruler,loaded};
+            return {layout,report};
+        }
+        function project(source,arrangement=layout){
+            if(closed)return [];
+            if(memo&&memo.source===source&&memo.layout===arrangement)return memo.list;
+            const figures=source.filter(figure=>figure&&figure.key&&(figure.kind==='static'||figure.kind==='spine'));
+            const list=arrangement?figures.map(figure=>figure.alias in arrangement.x?(figure.x===arrangement.x[figure.alias]?figure:{...figure,x:arrangement.x[figure.alias]})
+                :{...figure,visible:false,parked:true,speaking:false,talking:false,audio:null,act:null}):figures;
+            memo={source,layout:arrangement,list};return list;
+        }
+        const view={update,fit,project,get layout(){return layout;},get target(){return transition?{...transition.to}:{fit:1,drop:0};},dispose(){if(closed)return;closed=true;instances.delete(view);layout=seen=transition=memo=shown=null;}};
+        instances.add(view);return view;
+    }
+    return {create,dispose(){if(disposed)return;disposed=true;for(const view of [...instances])view.dispose();}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageCastLayout};
+
         // Scene cast membership and last-good replacement policy. Rendering resources are supplied by the figure owner.
 function createStageCast() {
     let disposed=false;const casts=new Set();
@@ -16174,7 +16222,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
                     const backgroundLayers=own(createStageBackgroundLayers({...options.visualEffects,...options.backgroundLayers}));
                     const backgrounds=own(createStageBackgrounds({...options.visualEffects,...options.backgrounds,layers:backgroundLayers}));
-                    return {cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    return {castLayout:own(createStageCastLayout(options.castLayout||{})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

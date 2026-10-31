@@ -123,6 +123,7 @@ function galCreateScene(host, options) {
 
     const cameraMotion=stageViews.sceneCamera.create();
     let closeHead=null;
+    const sceneLayout=stageViews.castLayout.create();
     const cast=stageViews.cast.create({build:(figure,pending)=>addFigure(figure,!pending),release:destroyFigure});
     const state = {
         desc: null, override: null, debugEffects: [], destroyed: false,
@@ -317,34 +318,17 @@ function galCreateScene(host, options) {
     const GAL_NO_FIGURES = [];
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
-    function figureLayout(desc, W, H, now) {
-        const plan = desc.figureLayout;
-        if (!plan) { state.figureLayout = state.figureLayoutSeen = state.fit = null; return null; }
-        const env = faceEnvironment(desc, W, H), ruler = state.figureScale, seen = state.figureLayoutSeen;
-        if (seen && seen.plan === plan && seen.figures === desc.figures && seen.W === W && seen.H === H && seen.top === env.layoutTop && seen.ruler === ruler && seen.loaded === state.figureLoads) {
-            if (desc.snap || desc.skipping) state.fit.from = state.fit.to;
-            return state.figureLayout;
+    function figureLayout(desc,W,H,now) {
+        const crops={};
+        for(const figure of desc.figures||[]){
+            const entry=figure&&state.figures.get(figure.key);
+            const anatomy=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)?.anatomy||figure?.figureSizing?.anatomy;
+            if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
         }
-        state.figureLayoutSeen = { plan, figures: desc.figures, W, H, top: env.layoutTop, ruler, loaded: state.figureLoads };
-        // A cropped picture (pack anatomy: feet below its visible bottom) needs its edge hidden too. A loaded figure's
-        // anatomy is its head-normalised one (packFigureAnatomy), whose feet may lie below a knee-up picture.
-        const crops = {};
-        (desc.figures || []).forEach(figure => {
-            const entry = figure && state.figures.get(figure.key), a = (entry?.model ? entry.figureSizing : entry?.sprite?.figureInput)?.anatomy || figure?.figureSizing?.anatomy;
-            if (a && a.feet > a.visibleBottom) crops[figure.alias] = (a.feet - a.visibleBottom) / (a.feet - (a.headTop ?? a.figureTop));
-        });
-        const key = [W, H, env.layoutTop, ruler?.to, ruler?.groundTo, plan.cast.join("\n"), plan.priority.join("\n"), JSON.stringify(crops), JSON.stringify(plan.slots || null), plan.max || 0, JSON.stringify(plan.framing || null)].join("|");
-        if (state.figureLayout?.key !== key) {
-            state.figureLayout = { key, W, H, ...galFigureLayout({ W, H, boxTop: env.layoutTop, hMax: ruler?.to, groundRatio: ruler?.groundTo, cast: plan.cast, priority: plan.priority, crops, slots: plan.slots, max: plan.max, framing: plan.framing }) };
-            const to = { fit: state.figureLayout.fit, drop: state.figureLayout.drop, top: state.figureLayout.top, framed: state.figureLayout.framed, ruler: state.figureLayout.ruler, shrunk: state.figureLayout.shrunk, spread: state.figureLayout.spread };
-            // A skin's fixed ruler replaces the scene's: a ruler change (another skin) lands at once, never tweens across two rulers.
-            state.fit = !state.fit || desc.snap || desc.skipping || state.fit.to.ruler !== to.ruler || state.fit.to.spread !== to.spread ? { from: to, to, start: now } : { from: fitFrame(now), to, start: now };
-            // Reported only when who stands where (or the stage width) changes: the stage's stand-ins and the speaker anchor
-            // (--speaker-x on the text box) follow it; a new priority alone is silent.
-            const shown = JSON.stringify([state.figureLayout.x, W]);
-            if (options.onLayout && shown !== state.figureLayoutShown) { state.figureLayoutShown = shown; state.layoutReport = { count: state.figureLayout.count, x: state.figureLayout.x, visible: state.figureLayout.visible, width: W }; reportLayout(); }
-        } else if (desc.snap || desc.skipping) state.fit.from = state.fit.to;
-        return state.figureLayout;
+        const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
+        if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
+        return result.layout;
     }
     // One report for the stage: the layout plus where the camera settles (its goal, sampled when the shot or the stage size
     // changes, never per frame), so the speaker anchor can place a figure under a close-up: screen x = (x - fx) * zoom + ax.
@@ -370,23 +354,6 @@ function galCreateScene(host, options) {
         state.bodySample = now;
         if (next) { state.bodyReport = next; reportLayout(); }
     }
-    function fitFrame(now) {
-        const fit = state.fit;
-        if (!fit) return { fit: 1, drop: 0 };
-        const mix = galFrameMix(0, 1, now - fit.start);
-        if (mix === 1) return fit.to;
-        return { fit: fit.from.fit + (fit.to.fit - fit.from.fit) * mix, drop: fit.from.drop + (fit.to.drop - fit.from.drop) * mix,
-            top: fit.from.top + (fit.to.top - fit.from.top) * mix, framed: fit.to.framed, ruler: fit.to.ruler, shrunk: fit.to.shrunk, spread: fit.to.spread };
-    }
-    function laidOut(source, layout) {
-        const memo = state.laidOut;
-        if (memo && memo.source === source && memo.layout === layout) return memo.list;
-        const figures = source.filter(figure => figure && figure.key && (figure.kind === "static" || figure.kind === "spine"));
-        const list = layout ? figures.map(figure => figure.alias in layout.x ? (figure.x === layout.x[figure.alias] ? figure : { ...figure, x: layout.x[figure.alias] })
-            : { ...figure, visible: false, parked: true, speaking: false, talking: false, audio: null, act: null }) : figures;
-        state.laidOut = { source, layout, list };
-        return list;
-    }
     function syncFigures(desc, now, W, H) {
         // replay owns scene timing; previews without a director get one fixed scene.
         const snapshot = desc.figureScale || state.figureSnapshot || (() => {
@@ -406,7 +373,7 @@ function galCreateScene(host, options) {
             if (state.figureScale !== previousScale && state.figureScale.warning) console.warn("[fork-gal-scene] mid-scene rescale");
         }
         const layout = figureLayout(desc, W, H, now);
-        const figures = laidOut(desc.figures || GAL_NO_FIGURES, layout);
+        const figures = sceneLayout.project(desc.figures || GAL_NO_FIGURES, layout);
         cast.update(figures,now).forEach(function({entry,replacement}) {
             const figure=entry.figure;
             if(replacement){
@@ -601,7 +568,7 @@ function galCreateScene(host, options) {
         const sceneFrame = figureSceneFrame(state.figureScale, now);
         state.figureScale = sceneFrame.state;
         // normal and film use the same stable occluder contract as REST.
-        const fit = fitFrame(now);
+        const fit = sceneLayout.fit(now);
         // A skin's fixed ruler (galFigureLayout) stands in for the scene's: one height, one head line, whoever is present.
         const ruled = fit.ruler != null;
         const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
@@ -732,7 +699,7 @@ function galCreateScene(host, options) {
     function tickFaceRest(desc, now, W, H) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
-        const fitTo = state.fit ? state.fit.to : { fit: 1, drop: 0 };
+        const fitTo = sceneLayout.target;
         const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, fitTo.fit, fitTo.drop, fitTo.top, fitTo.ruler, fitTo.spread].join(":");
         const ruled = fitTo.ruler != null;
         state.figures.forEach(entry => {
@@ -817,7 +784,7 @@ function galCreateScene(host, options) {
         state.figures.forEach(other => { if (other !== entry) other.container.visible = false; });
         if (!head) return;
         // The head box's top lands on the shot's head top; the scale floors the head at half the ruler's (galFramedHead).
-        const k = frame.head.height / galFramedHead(Math.max(1, head.chin - head.top), state.figureLayout?.head);
+        const k = frame.head.height / galFramedHead(Math.max(1, head.chin - head.top), sceneLayout.layout?.head);
         entry.container.scale.set(k);
         entry.container.position.set(frame.head.x - head.x * k, frame.head.top - head.top * k);
     }
@@ -868,7 +835,7 @@ function galCreateScene(host, options) {
         const spec=desc.bust && W>640 && !desc.hideFigures && !desc.shot ? desc.bust : null;
         const entry=spec && entryOf(spec.alias);
         bust.tick({spec,subject:entry ? {container:entry.container,head:entry.localHead} : null,
-            now,W,H,instant:desc.snap || desc.skipping || desc.reducedMotion,rulerHead:state.figureLayout?.head});
+            now,W,H,instant:desc.snap || desc.skipping || desc.reducedMotion,rulerHead:sceneLayout.layout?.head});
     }
 
     // ---- one-shot effects (screen.play beats, emotes) and the camera
@@ -900,7 +867,7 @@ function galCreateScene(host, options) {
     }
     function tickCamera(desc, now, W, H, frame) {
         const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
-        const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,state.figureLayout?.head):null;
+        const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,sceneLayout.layout?.head):null;
         const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
         const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
         if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
@@ -1108,7 +1075,7 @@ function galCreateScene(host, options) {
         },
         figureScale() { return { ...state.figureScale, hMax: figureSceneFrame(state.figureScale, state.clock).hMax }; },
         // the current viewport cast layout and its eased fit.
-        figureLayout() { const layout = state.figureLayout; return layout && { W: layout.W, H: layout.H, count: layout.count, fit: layout.fit, drop: layout.drop, top: layout.top, framed: layout.framed, head: layout.head, x: layout.x, visible: layout.visible, current: fitFrame(state.clock) }; },
+        figureLayout() { const layout = sceneLayout.layout; return layout && { W: layout.W, H: layout.H, count: layout.count, fit: layout.fit, drop: layout.drop, top: layout.top, framed: layout.framed, head: layout.head, x: layout.x, visible: layout.visible, current: sceneLayout.fit(state.clock) }; },
         figureWarnings() { return figureMixedWarning(Array.from(state.figures.values()).filter(e => !e.leaving && e.figure.visible !== false).map(e => e.figureResolved || { mode: "legacy" })); },
         head(alias) { return headOf(alias); },
         // figure-life: read-only hit test at a client point (the figure a deliberate tap there would claim), no reaction.
@@ -1174,6 +1141,7 @@ function galCreateScene(host, options) {
             app.ticker.remove(frame);
             effects.destroy();
             cast.dispose();
+            sceneLayout.dispose();
             state.offstage.forEach(entry => { if (entry.next) destroyFigure(entry.next); destroyFigure(entry); });
             call.dispose();
             offstageBox.destroy();
