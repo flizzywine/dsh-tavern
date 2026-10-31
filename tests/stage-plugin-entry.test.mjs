@@ -41,7 +41,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
         createElement:(type,props,...children) => ({type,props,children}),
       }
-      const views = input.createViews({React,navigation:{},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
+      const views = input.createViews({React,sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
       assert.equal(views.sceneMath.galSpringValue(3).v,3)
       assert.equal(views.sceneMath.galClamp01(2),1)

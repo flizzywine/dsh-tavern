@@ -46128,8 +46128,34 @@ function cardLibraryDisplayName(card) {
 		const galFigureSources = new WeakMap();
 
 		// ---------- Scene helpers (pure; gal-scene-helpers.cjs) ----------
+		// Shared by material look previews and stage rendering; no plugin or browser state.
+		// Colour matrices (pixi ColorMatrixFilter layout: 4 rows × 5, offsets in 0..1). multiply(a, b) = apply b, then a.
+		const galMatrix = {
+		    identity: () => [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+		    multiply(a, b) {
+		        const out = new Array(20);
+		        for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) {
+		            let sum = c === 4 ? a[r * 5 + 4] : 0;
+		            for (let k = 0; k < 4; k++) sum += a[r * 5 + k] * b[k * 5 + c];
+		            out[r * 5 + c] = sum;
+		        }
+		        return out;
+		    },
+		    chain(...list) { return list.reduce((acc, m) => galMatrix.multiply(m, acc), galMatrix.identity()); },
+		    saturate(s) {
+		        const r = 0.2126 * (1 - s), g = 0.7152 * (1 - s), b = 0.0722 * (1 - s);
+		        return [r + s, g, b, 0, 0, r, g + s, b, 0, 0, r, g, b + s, 0, 0, 0, 0, 0, 1, 0];
+		    },
+		    scale(r, g, b) { return [r, 0, 0, 0, 0, 0, g, 0, 0, 0, 0, 0, b, 0, 0, 0, 0, 0, 1, 0]; },
+		    contrast(c) { const o = 0.5 * (1 - c); return [c, 0, 0, 0, o, 0, c, 0, 0, o, 0, 0, c, 0, o, 0, 0, 0, 1, 0]; },
+		    offset(r, g, b) { return [1, 0, 0, 0, r, 0, 1, 0, 0, g, 0, 0, 1, 0, b, 0, 0, 0, 1, 0]; },
+		    mix(a, b, t) { return a.map((value, i) => value + (b[i] - value) * t); },
+		    isIdentity(m) { const id = galMatrix.identity(); return m.every((value, i) => Math.abs(value - id[i]) < 1e-3); }
+		};
+		function galClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+		if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={galMatrix,galClamp01};
 		// Temporary host delegates while scene and control consumers move into the plugin.
-		const stageSceneMathNode = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-tavern-stage/src/client/scene-math.cjs').createStageSceneMath({figureScale:require('../../packages/dsh-presentation-protocol/src/figure-scale.cjs')}) : null;
+		const stageSceneMathNode = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-tavern-stage/src/client/scene-math.cjs').createStageSceneMath({colorMath:require('../../shared/color-math.cjs'),figureScale:require('../../packages/dsh-presentation-protocol/src/figure-scale.cjs')}) : null;
 		function galFigureRects(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureRects(...args); }
 		function galCropHidden(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCropHidden(...args); }
 		function galBodyX(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBodyX(...args); }
@@ -46159,7 +46185,6 @@ function cardLibraryDisplayName(card) {
 		function galLipSyncIds(...args) { return (stageSceneMathNode || stageViews.sceneMath).galLipSyncIds(...args); }
 		function galApplyLipSync(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyLipSync(...args); }
 		function galApplyStageHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyStageHead(...args); }
-		function galClamp01(...args) { return (stageSceneMathNode || stageViews.sceneMath).galClamp01(...args); }
 		function galSpring(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpring(...args); }
 		function galSpringValue(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpringValue(...args); }
 		function galTween(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTween(...args); }
@@ -53358,6 +53383,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        sceneColorMath:{galMatrix,galClamp01},
 		        figureScale:{FIGURE_DISPLAY,figureDisplayCm,figurePixelsPerCm,figureGroundY},
 		        figureMetrics:{source:figureSource,measure:figureMeasureTexture,anatomy:packFigureAnatomy,record:packFigureRecord,resolve:resolveFigureSizing,bodyCentre:figureBodyCentre},
 		        figureBlink:{clock:forkForeground},

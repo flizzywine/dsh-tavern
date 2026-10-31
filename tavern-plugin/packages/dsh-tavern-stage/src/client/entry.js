@@ -179,7 +179,7 @@ window.__ModuleLoader__.load({
                     const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter,createGate:createTextcardGate,peak:textcardPeak}));
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
                     const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
-                    const sceneMath=createStageSceneMath({figureScale:options.figureScale,reading:options.entrance?.reading,motion:()=>figureMotion,idle:()=>figureIdle,document,getComputedStyle:window.getComputedStyle});
+                    const sceneMath=createStageSceneMath({colorMath:options.sceneColorMath,figureScale:options.figureScale,reading:options.entrance?.reading,motion:()=>figureMotion,idle:()=>figureIdle,document,getComputedStyle:window.getComputedStyle});
                     const visualMath={matrix:sceneMath.galMatrix,ease:sceneMath.galEase,clamp:sceneMath.galClamp01};
                     const spineFigures=own(createStageSpineFigures(options.spineFigures||{}));
                     const figureAssets=own(createStageFigureAssets({spineFigures,metrics:{...options.figureMetrics,headTop:sceneMath.galTextureHeadTop,bodyX:sceneMath.galBodyX}}));

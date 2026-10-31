@@ -7883,7 +7883,8 @@ function createStageModNotifications({getSnapshot,send,browseMs,now=Date.now,rep
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageModNotifications};
 
-        function createStageSceneMath({figureScale,reading,motion,idle,document,getComputedStyle}={}){
+        function createStageSceneMath({colorMath,figureScale,reading,motion,idle,document,getComputedStyle}={}){
+const {galMatrix,galClamp01}=colorMath;
 // Scene helpers: pure functions of the galgame scene (gal-scene.js includes this source inside its module factory;
 // Node tests require it). Runtime neighbours (motion layers, idle desync, stage reading) are read only when called.
 function galFigureRects(figures, camera, W, H) {
@@ -8189,7 +8190,7 @@ const galEase = {
     inOutCubic: t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
     inOutSine: t => (1 - Math.cos(Math.PI * t)) / 2
 };
-function galClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+
 // Critically damped spring, exact for any time step: starts smoothly, never overshoots from rest and
 // keeps its velocity when the target changes mid-move. s = { v: value, d: velocity }; dt in seconds.
 function galSpring(s, target, omega, dt) {
@@ -8333,29 +8334,6 @@ function galIrisSize(progress, W, H, cx, cy, inner) {
     return progress * 2 * reach / (inner || 1);
 }
 
-// Colour matrices (pixi ColorMatrixFilter layout: 4 rows × 5, offsets in 0..1). multiply(a, b) = apply b, then a.
-const galMatrix = {
-    identity: () => [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-    multiply(a, b) {
-        const out = new Array(20);
-        for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) {
-            let sum = c === 4 ? a[r * 5 + 4] : 0;
-            for (let k = 0; k < 4; k++) sum += a[r * 5 + k] * b[k * 5 + c];
-            out[r * 5 + c] = sum;
-        }
-        return out;
-    },
-    chain(...list) { return list.reduce((acc, m) => galMatrix.multiply(m, acc), galMatrix.identity()); },
-    saturate(s) {
-        const r = 0.2126 * (1 - s), g = 0.7152 * (1 - s), b = 0.0722 * (1 - s);
-        return [r + s, g, b, 0, 0, r, g + s, b, 0, 0, r, g, b + s, 0, 0, 0, 0, 0, 1, 0];
-    },
-    scale(r, g, b) { return [r, 0, 0, 0, 0, 0, g, 0, 0, 0, 0, 0, b, 0, 0, 0, 0, 0, 1, 0]; },
-    contrast(c) { const o = 0.5 * (1 - c); return [c, 0, 0, 0, o, 0, c, 0, 0, o, 0, 0, c, 0, o, 0, 0, 0, 1, 0]; },
-    offset(r, g, b) { return [1, 0, 0, 0, r, 0, 1, 0, 0, g, 0, 0, 1, 0, b, 0, 0, 0, 1, 0]; },
-    mix(a, b, t) { return a.map((value, i) => value + (b[i] - value) * t); },
-    isIdentity(m) { const id = galMatrix.identity(); return m.every((value, i) => Math.abs(value - id[i]) < 1e-3); }
-};
 // The time of day is graded per picture and per figure (not on world, where the mood looks live), from
 // the `time` stage looks (galTimeGrade / galLayerCorrection, gal-looks.js): the paired grade
 // on every picture and figure alike (so nobody looks pasted on) and, for a stand-in picture that shows
@@ -19916,7 +19894,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter,createGate:createTextcardGate,peak:textcardPeak}));
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
                     const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
-                    const sceneMath=createStageSceneMath({figureScale:options.figureScale,reading:options.entrance?.reading,motion:()=>figureMotion,idle:()=>figureIdle,document,getComputedStyle:window.getComputedStyle});
+                    const sceneMath=createStageSceneMath({colorMath:options.sceneColorMath,figureScale:options.figureScale,reading:options.entrance?.reading,motion:()=>figureMotion,idle:()=>figureIdle,document,getComputedStyle:window.getComputedStyle});
                     const visualMath={matrix:sceneMath.galMatrix,ease:sceneMath.galEase,clamp:sceneMath.galClamp01};
                     const spineFigures=own(createStageSpineFigures(options.spineFigures||{}));
                     const figureAssets=own(createStageFigureAssets({spineFigures,metrics:{...options.figureMetrics,headTop:sceneMath.galTextureHeadTop,bodyX:sceneMath.galBodyX}}));

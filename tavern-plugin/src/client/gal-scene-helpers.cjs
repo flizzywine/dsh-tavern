@@ -1,5 +1,6 @@
+// @include-shared color-math.cjs
 // Temporary host delegates while scene and control consumers move into the plugin.
-const stageSceneMathNode = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-tavern-stage/src/client/scene-math.cjs').createStageSceneMath({figureScale:require('../../packages/dsh-presentation-protocol/src/figure-scale.cjs')}) : null;
+const stageSceneMathNode = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-tavern-stage/src/client/scene-math.cjs').createStageSceneMath({colorMath:require('../../shared/color-math.cjs'),figureScale:require('../../packages/dsh-presentation-protocol/src/figure-scale.cjs')}) : null;
 function galFigureRects(...args) { return (stageSceneMathNode || stageViews.sceneMath).galFigureRects(...args); }
 function galCropHidden(...args) { return (stageSceneMathNode || stageViews.sceneMath).galCropHidden(...args); }
 function galBodyX(...args) { return (stageSceneMathNode || stageViews.sceneMath).galBodyX(...args); }
@@ -29,7 +30,6 @@ function galSmoothHead(...args) { return (stageSceneMathNode || stageViews.scene
 function galLipSyncIds(...args) { return (stageSceneMathNode || stageViews.sceneMath).galLipSyncIds(...args); }
 function galApplyLipSync(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyLipSync(...args); }
 function galApplyStageHead(...args) { return (stageSceneMathNode || stageViews.sceneMath).galApplyStageHead(...args); }
-function galClamp01(...args) { return (stageSceneMathNode || stageViews.sceneMath).galClamp01(...args); }
 function galSpring(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpring(...args); }
 function galSpringValue(...args) { return (stageSceneMathNode || stageViews.sceneMath).galSpringValue(...args); }
 function galTween(...args) { return (stageSceneMathNode || stageViews.sceneMath).galTween(...args); }

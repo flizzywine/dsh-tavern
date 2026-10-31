@@ -1438,6 +1438,7 @@ function bindStageViews(createViews) {
         effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
         looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
         spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+        sceneColorMath:{galMatrix,galClamp01},
         figureScale:{FIGURE_DISPLAY,figureDisplayCm,figurePixelsPerCm,figureGroundY},
         figureMetrics:{source:figureSource,measure:figureMeasureTexture,anatomy:packFigureAnatomy,record:packFigureRecord,resolve:resolveFigureSizing,bodyCentre:figureBodyCentre},
         figureBlink:{clock:forkForeground},
