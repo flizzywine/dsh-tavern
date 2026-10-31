@@ -1,3 +1,47 @@
+'use strict';
+function createStageChatEntry({React, MutationObserver, markdown:TavernColoredMarkdown, enter:navigate, plain:galPlain, blocks:galBlocks, paragraphs:galParagraphs, parse:parseBubbles, schedule, cancel:cancelTimer}) {
+let disposed = false;
+const galEnter = (...args) => { if (!disposed) return navigate(...args); };
+const cleanups = new Set(), timers = new Set();
+function setTimeout(fn, delay) {
+    if (disposed) return null;
+    const timer = schedule(() => { timers.delete(timer); if (!disposed) fn(); }, delay);
+    timers.add(timer); return timer;
+}
+function clearTimeout(timer) { timers.delete(timer); cancelTimer(timer); }
+function own(cleanup) {
+    let active = true;
+    const stop = () => { if (!active) return; active = false; cleanups.delete(stop); cleanup(); };
+    if (disposed) stop(); else cleanups.add(stop);
+    return stop;
+}
+// Presentation-only turn navigation. No history read here may start a director task.
+function galParagraphCount(text) {
+    return galParagraphs([{ segments: parseBubbles(String(text || ''), false) }]).length;
+}
+// Icon-only: the stage glyph is drawn by CSS (theme.css "chat stage entry"), so the button adds no text to the
+// paragraph (copying prose never picks up a label); the tooltip and the accessible name carry the words.
+function StageEnterHere(props) {
+    return React.createElement('button', { type: 'button', className: 'fork-stage-enter-here', 'aria-label': '从这里进入舞台', title: '从这里进入舞台',
+        onClick: event => { event.preventDefault(); event.stopPropagation(); galEnter(props.sessionId, { turn: props.turn, para: props.para }); } });
+}
+// The entry sits at the end of the bubble's last line: the row renders it (props.enter) inside its text block.
+// no portal; each portal container installed React's full delegated listener set.
+function StageParagraph(props) {
+    const timer = React.useRef(null), root = React.useRef(null);
+    const [pressed, setPressed] = React.useState(false);
+    React.useLayoutEffect(function () {
+        if (!root.current) return;
+        root.current.querySelectorAll('p, .fork-bubble').forEach(node => {
+            node.setAttribute('data-fork-stage-turn', props.turn); node.setAttribute('data-fork-stage-para', props.para);
+        });
+    }, [props.turn, props.para, props.children]);
+    function cancel() { clearTimeout(timer.current); }
+    React.useEffect(() => own(cancel), []);
+    return React.createElement('div', { ref: root, className: 'fork-stage-paragraph' + (pressed ? ' is-long-pressed' : ''), 'data-fork-stage-turn': props.turn, 'data-fork-stage-para': props.para,
+        onPointerDown: event => { if (event.pointerType !== 'mouse') timer.current = setTimeout(() => setPressed(true), 500); }, onPointerUp: cancel, onPointerCancel: cancel, onPointerMove: cancel },
+        props.children);
+}
 // Keep MarkdownText intact (lists, fenced code, references and footnotes may span blank lines).
 // Match rendered reading blocks to source paragraph starts, then end each block with a plain entry button.
 // no per-block React portal. Every portal container installs React's full set of
@@ -34,6 +78,7 @@ function StageMarkdown(props) {
         const parent = root.current;
         if (!parent) return;
         function collect() {
+            if (disposed) return;
             const blocks = galBlocks(props.text);
             const nodes = Array.from(parent.querySelectorAll('p, h1, h2, h3, h4, h5, h6, pre, li, table, blockquote')).filter(node =>
                 !node.closest('button') && !node.querySelector('p, pre, li, table, blockquote'));
@@ -57,15 +102,16 @@ function StageMarkdown(props) {
             collect();
         });
         observer.observe(parent, { childList: true, subtree: true, characterData: true });
-        return () => observer.disconnect();
+        return own(() => { observer.disconnect(); parent.querySelectorAll(".fork-stage-enter-here").forEach(button => button.remove()); });
     }, [props.text, props.turn, props.base]);
     function cancel() { clearTimeout(timer.current); }
-    React.useEffect(() => cancel, []);
+    React.useEffect(() => own(cancel), []);
     // Capture phase: like the former portalled button, the click reaches no Markdown handler in between.
     function enter(event) {
         const button = event.target.closest('.fork-stage-enter-here'), block = button && button.parentNode;
         if (!block || !block.hasAttribute('data-fork-stage-para')) return;
         event.preventDefault(); event.stopPropagation();
+        if (disposed) return;
         galEnter(props.sessionId, { turn: props.turn, para: Number(block.getAttribute('data-fork-stage-para')) });
     }
     return React.createElement('div', { ref: root, className: 'fork-stage-markdown', onClickCapture: enter,
@@ -73,3 +119,12 @@ function StageMarkdown(props) {
         onPointerUp: cancel, onPointerMove: cancel, onPointerCancel: cancel },
         React.createElement(TavernColoredMarkdown, props.markdownProps));
 }
+
+return {EnterHere:StageEnterHere, Paragraph:StageParagraph, Markdown:StageMarkdown, count:galParagraphCount, targets:galParagraphTargets, dispose() {
+    if (disposed) return; disposed = true;
+    const errors = [];
+    for (const stop of [...cleanups, ...[...timers].map(timer => () => clearTimeout(timer))]) { try {stop();} catch (error) {errors.push(error);} }
+    if (errors.length) throw new AggregateError(errors, 'Stage chat entry cleanup failed');
+}};
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageChatEntry};
