@@ -105,7 +105,7 @@ function galCreateEffects(env) {
     }
     const lowRes = filter => { filter.forkLowRes = true; return filter; };
     // ---- stage looks (world passes and overlays; gal-looks.js)
-    const looks = galCreateLookRenderer({ PIXI, app, filters, overlay: lookLayer, tune: env.tune, use });
+    const looks = stageViews.looks.create({ PIXI, app, filters, overlay: lookLayer, tune: env.tune });
 
     // ---- depth of field and the look's background softness: one blur on the backdrop.
     function tickBackdrop(desc, now, dof, high) {

@@ -1425,6 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        looks:{math:stageLookMath,fade:stageLookFadeMs,useFilter:galUseFilter,Image},
         visualEffects:{matrix:galMatrix,ease:galEase,clamp:galClamp01,canvasTexture:galCanvasTexture},
         figureMotion:{spring:galSpring,fade:galMotionFade,lipSyncIds:galLipSyncIds},
         figureIdle:{spring:galSpring,springValue:galSpringValue},
