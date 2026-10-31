@@ -1,8 +1,5 @@
 // Core components use the same declaration protocol as installed mods.
-export const CORE_MODEL_MANIFESTS = [{ id: 'dsh.stage', name: '舞台', modelSlots: [
-  { id: 'director', label: '导演模型', purpose: '安排舞台演出', fallback: 'foreground' },
-  { id: 'judge', label: '智能判断', purpose: '判断素材与剧情的相关概率', fallback: 'background', kind: 'scoring' },
-] }, { id: 'dsh.scene-image', name: '场景图片', modelSlots: [
+export const CORE_MODEL_MANIFESTS = [{ id: 'dsh.scene-image', name: '场景图片', modelSlots: [
   { id: 'prompt', label: '画面提示词', purpose: '为场景图片整理画面与提示词', fallback: 'foreground' },
 ] }]
 

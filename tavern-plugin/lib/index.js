@@ -1,3 +1,4 @@
+import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
@@ -706,7 +707,9 @@ export async function apply(ctx) {
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
   installPluginSettingsMigration(ctx)
   // 舞台的素材与判断（stage-module.js）。
-  const stageRuntime = createStageRuntime({ctx, resolveSlot, readCardWorkspace, coordinationEvents})
+  const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
+  ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
+  const stageRuntime = createStageRuntime({ctx, modelSlots, resolveSlot, readCardWorkspace, coordinationEvents})
   const {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime} = stageRuntime.assets
   let modService
 
@@ -717,23 +720,22 @@ export async function apply(ctx) {
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
   async function slotDeclarations() {
-    return [...modelSlotRows(CORE_MODEL_MANIFESTS, CORE_MODEL_MANIFESTS.map(row=>row.id)), ...await containStage('读取 mod 模型槽', () => modService.modelSlots(), [])]
+    return modelSlots.rows()
   }
   async function resolveSlot(modId, slotId, sessionId, declaration) {
-    const slot = declaration || CORE_MODEL_MANIFESTS.find(row=>row.id===modId)?.modelSlots.find(row=>row.id===slotId) || (await modService.modelSlots()).find(row => row.modId === modId && row.id === slotId)
+    const slot = declaration || (await modelSlots.rows()).find(row => row.modId === modId && row.id === slotId)
     if (!slot) throw new Error('模型槽未启用')
     const settings = await readTavernSettings(), chat = sessionId ? await backgroundConfigForSession(sessionId) || {} : {}
-    return resolveModelSlotOffered({slot,modId,chat,settings,foreground:sessionId ? modelSelection(sessionId, false) : null,defaultModel:slot.kind === 'scoring' ? null : modelSelection(),scoringConfig:assetEngineSettings.read().values.judge},
+    return resolveModelSlotOffered({slot,modId,chat,settings,foreground:sessionId ? modelSelection(sessionId, false) : null,defaultModel:slot.kind === 'scoring' ? null : modelSelection(),scoringConfig:modelSlots.scoring()},
       async selection => (await readBackgroundModelReasoning(llm, selection))?.efforts)
   }
   async function checkSlotSelection({modId,slotId,selection}) {
-    const manifests = [...CORE_MODEL_MANIFESTS, ...await modService.manifests()]
-    const slot = manifests.find(row=>row.id===modId)?.modelSlots?.find(row=>row.id===slotId)
+    const slot = (await modelSlots.rows()).find(row=>row.modId===modId && row.id===slotId)
     if (!slot) throw new Error('模型槽未启用')
     if (selection === null) return
     if (slot.kind === 'scoring') {
-      const config = assetEngineSettings.read().values.judge
-      if (selection.provider !== config.provider || selection.model !== config.model) throw new Error('请选择已配置的概率判断模型')
+      const config = modelSlots.scoring()
+      if (!config || selection.provider !== config.provider || selection.model !== config.model) throw new Error('请选择已配置的概率判断模型')
     } else { const {reasoningEffort, ...route} = selection; await llm.resolveCallConfig(reasoningEffort === null ? route : selection) }
   }
 
@@ -2463,7 +2465,7 @@ export async function apply(ctx) {
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   const stageModule = await stageRuntime.start({dataRoot,
-    presentationObservers, workflow, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
+    presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   modService = stageModule.modService
@@ -3546,7 +3548,7 @@ export async function apply(ctx) {
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),
     isPlayMode: mode => groupOfMode(mode) === 'play',
     presentExtras: chat => ({ modModels: chat.modModels || {} }),
-    readExtras: async () => ({ modModelSlots: await slotDeclarations(), scoringCatalog: [assetEngineSettings.read().values.judge].filter(config => config.provider !== 'unset').map(({provider,model}) => ({provider,model})) }),
+    readExtras: async () => ({ modModelSlots: await slotDeclarations(), scoringCatalog: [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model})) }),
     validatePatch: async args => { if (args.modModelSelection) await checkSlotSelection(args.modModelSelection) },
     extraTools: async sessionId => {
       const cached = foregroundExtraTools.get(String(sessionId))

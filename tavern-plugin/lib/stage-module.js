@@ -1,3 +1,4 @@
+import {modelSlotRows} from './domain/model-slots.js'
 import {createStageWorkflow} from './stage-workflow.js'
 import {createStageRequests} from './stage-requests.js'
 import {createStageStoryObserver} from './stage-story-observer.js'
@@ -114,6 +115,7 @@ export async function createStageModule(core) {
     }})
   const offModAssets=assetRuntime.subscribe(()=>modService.assetsChanged())
   ctx.effect(()=>()=>{offModAssets();modService.dispose()})
+  ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods',{rows:() => modService.modelSlots()}), 'dsh-tavern: mod model slots')
   const configCards=async()=>Promise.all((await fileResources.list('card')).map(async path=>({path,workspace:await readModCard(path)})))
   modConfigHost=createModConfigHost({workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,
     getAssetLibrary:()=>ctx.get('assetLibrary'),getEngine:()=>({...assetEngineSettings.read(),assetRevision:assetRuntime.revision}),
@@ -220,6 +222,12 @@ export async function createStageModule(core) {
 export function createStageAssets(core) {
   const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
   const assetEngineSettings = createAssetEngineSettings(ctx)
+  const manifests = [{id:'dsh.stage',name:'舞台',modelSlots:[
+    {id:'director',label:'导演模型',purpose:'安排舞台演出',fallback:'foreground'},
+    {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
+  ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
+    rows:() => modelSlotRows(manifests,['dsh.stage']),scoring:() => assetEngineSettings.read().values.judge
+  }), 'dsh-tavern: stage model slots')
   const engineJudge = createEngineJudge({resolveConfig:input => resolveSlot('dsh.stage','judge',input?.sessionId),getConfig:() => assetEngineSettings.read().values.judge,credentials:() => ctx.get('credentials'),log:event => console.info('dsh-tavern:',JSON.stringify(event))})
   const judgeRpc = createJudgeRpc(assetEngineSettings,engineJudge)
   const directorProbeRpc = createDirectorProbeRpc({store:createDirectorProbeStore(ctx),
