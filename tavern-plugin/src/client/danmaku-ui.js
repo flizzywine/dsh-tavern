@@ -11,52 +11,10 @@
 // through the stage UI tokens (theme.css danmaku section).
 
 const DANMAKU_MOD = 'dsh.danmaku';
-const DANMAKU_VIEW_NAMES = Object.freeze({ overlay: '飘屏', sidebar: '直播风格', off: '关闭' });
-// The stage CONFIG rows, in order; a row shows only when the manifest declares its field (P6-REQUESTS.md F9).
-const DANMAKU_AREA_NAMES = Object.freeze({ quarter: '1/4', half: '半屏', 'three-quarter': '3/4', full: '不限' });
-const DANMAKU_STAGE_FIELDS = Object.freeze(['area', 'opacity', 'fontScale']);
-// The menu rows: the manifest's view choices in order, plus 关闭 when the setting accepts it. Pure; tests.
-function danmakuViewOptions(manifest) {
-    const field = manifest?.settingsSchema?.fields?.find(f => f.key === 'view');
-    const values = (field?.choices || []).map(c => c.value).filter(v => Object.hasOwn(DANMAKU_VIEW_NAMES, v));
-    return values.map(value => ({ value, label: DANMAKU_VIEW_NAMES[value] }));
-}
-// D on the stage: 关闭 ⇄ the last shown view (飘屏 when there is none). Only when 关闭 is a real choice; never while typing
-// or with modifiers.
-function danmakuShortcut(event, { current, last, options }) {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return null;
-    if (event.key !== 'd' && event.key !== 'D') return null;
-    const t = event.target;
-    if (t && t.closest && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="menu"], [role="dialog"]')) return null;
-    if (!options.some(o => o.value === 'off')) return null;
-    const on = options.find(o => o.value === last && last !== 'off') || options.find(o => o.value === 'overlay') || options.find(o => o.value !== 'off');
-    return current === 'off' ? on?.value || null : 'off';
-}
-// The stage CONFIG rows the manifest really declares: [{key, field}] in DANMAKU_STAGE_FIELDS order. Pure; tests.
-function danmakuStageFields(manifest) {
-    const fields = manifest?.settingsSchema?.fields || [];
-    return DANMAKU_STAGE_FIELDS.map(key => ({ key, field: fields.find(f => f.key === key) })).filter(row => row.field);
-}
-// One CAS write of a settings patch over the stored values; a revision conflict is retried once with fresh values.
-async function danmakuSave(rpc, patch, presentationOnly = false, confirm) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-        const current = await rpc('getMod', { modId: DANMAKU_MOD });
-        let revision = current.revision;
-        try {
-            // A release can revoke its grant while retaining global scope and the chosen view.
-            if (patch.view && patch.view !== 'off' && !current.authorized) {
-                if (!await confirm?.('允许弹幕读取已显示的剧情并调用所选模型？模型调用可能计费。', { confirmText: '允许并开启弹幕' })) return false;
-                revision = (await rpc('authorizeMod', { modId: DANMAKU_MOD, allowed: true, expectedRevision: revision })).revision;
-                presentationOnly = false;
-            }
-            await rpc('saveModSettings', { modId: DANMAKU_MOD, values: { ...current.settings.storedValues, ...patch }, expectedRevision: revision });
-            break;
-        } catch (error) { if (error?.code !== 'MOD_REVISION_CONFLICT' || attempt) throw error; }
-    }
-    window.dispatchEvent(new CustomEvent('dsh-tavern-mods-changed', { detail: { modId: DANMAKU_MOD, presentationOnly } }));
-    return true;
-}
-
+function danmakuViewOptions(manifest){return stageViews.danmakuSettings.options(manifest);}
+function danmakuShortcut(event,state){return stageViews.danmakuSettings.shortcut(event,state);}
+function danmakuStageFields(manifest){return stageViews.danmakuSettings.fields(manifest);}
+function danmakuSave(...args){return stageViews.danmakuSettings.save(...args);}
 // The mod's global settings as the stage needs them: enabled (global scope), values, manifest, view choices, set(patch).
 function useDanmakuMod(rpc) {
     const [state, setState] = React.useState({ loading: true, enabled: false, authorized: false, values: {}, manifest: null, options: [], error: '' });
@@ -154,10 +112,10 @@ function DanmakuToggle({ rpc }) {
     }, [dm.enabled, dm.view, dm.last, dm.options]);
     // the entry's state for the skin's menu; nothing usable = nowhere (rule 15).
     if (typeof useStageEntryState === 'function') useStageEntryState('mod:' + DANMAKU_MOD, { available: Boolean(dm.enabled && dm.options.length), on: dm.view !== 'off',
-        detail: dm.error ? '⚠ ' + dm.error : DANMAKU_VIEW_NAMES[dm.view] || '' });
+        detail: dm.error ? '⚠ ' + dm.error : stageViews.danmakuSettings.viewNames[dm.view] || '' });
     if (!dm.enabled || !dm.options.length) return null;
     const off = dm.view === 'off';
-    const label = '弹幕：' + (!dm.authorized ? '需要授权' : DANMAKU_VIEW_NAMES[dm.view] || DANMAKU_VIEW_NAMES.overlay) + (dm.error ? '（' + dm.error + '）' : '');
+    const label = '弹幕：' + (!dm.authorized ? '需要授权' : stageViews.danmakuSettings.viewNames[dm.view] || stageViews.danmakuSettings.viewNames.overlay) + (dm.error ? '（' + dm.error + '）' : '');
     const stop = event => event.stopPropagation();
     const keys = event => {
         event.stopPropagation();
@@ -191,7 +149,7 @@ function DanmakuStageConfig({ rpc }) {
     };
     const row = ({ key, field }) => {
         if (key === 'area') return galConfigRow('飘屏区域', galConfigSegmented({ label: '飘屏区域', value: value(key, field),
-            options: (field.choices || []).filter(c => DANMAKU_AREA_NAMES[c.value]).map(c => [c.value, DANMAKU_AREA_NAMES[c.value]]), onChange: v => dm.set({ area: v }) }),
+            options: (field.choices || []).filter(c => stageViews.danmakuSettings.areaNames[c.value]).map(c => [c.value, stageViews.danmakuSettings.areaNames[c.value]]), onChange: v => dm.set({ area: v }) }),
             '飘屏的滚动和顶部弹幕只用画面上方这一部分；底部弹幕照常贴在文本框上沿。');
         if (key === 'opacity') return galConfigRow('飘屏不透明度', slider(key, field, ['淡', '浓'], '飘屏不透明度'));
         return galConfigRow('飘屏字号', slider(key, field, ['小', '大'], '飘屏字号'));
@@ -207,4 +165,3 @@ if (typeof STAGE_CONFIG_SECTIONS === 'object' && STAGE_CONFIG_SECTIONS) STAGE_CO
 if (typeof stageEntries === 'object') stageEntries.register({ id: 'mod:' + DANMAKU_MOD, priority: 85, group: 'feature', icon: 'danmaku', label: '弹幕',
     render: ctx => React.createElement(DanmakuToggle, { rpc: ctx.rpc, sessionId: ctx.sessionId }) });
 
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { DANMAKU_STAGE_CONFIG, DANMAKU_MOD, DANMAKU_VIEW_NAMES, DANMAKU_AREA_NAMES, DANMAKU_STAGE_FIELDS, danmakuViewOptions, danmakuShortcut, danmakuStageFields };
