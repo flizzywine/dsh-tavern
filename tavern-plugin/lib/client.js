@@ -26939,191 +26939,6 @@ function tavernModelRefusalNotice(text) {
 		            h("button", { key: id, type: "button", role: "radio", "aria-checked": value === id, className: "fork-stage-theme", "data-theme": id, onClick: () => { if (id !== value) props.onChange(id); } },
 		                h("span", { className: "fork-stage-theme-swatch", "aria-hidden": true }, h("i")), h("b", null, label))));
 		}
-		// One decoded buffer per live track; the audio render thread owns every loop boundary.
-		function musicLoop(buffer, points = {}) {
-		    const rate = buffer.sampleRate, length = buffer.length;
-		    if (points.loopStart !== undefined && points.loopEnd <= buffer.duration && points.loopStart < points.loopEnd) {
-		        return {offset:0, start:points.loopStart, end:points.loopEnd, fallback:false};
-		    }
-		    const channels = Array.from({length:buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i));
-		    const audible = i => channels.some(channel => Math.abs(channel[i]) > .001);
-		    let start = 0, end = length;
-		    while (start < end && !audible(start)) start++;
-		    while (end > start && !audible(end - 1)) end--;
-		    if (start === end) return {offset:0, start:0, end:buffer.duration, fallback:true};
-		    // Bake one equal-power overlap into the tail. Native looping then wraps to the
-		    // sample immediately after the overlapped head, with no timer or decode at the seam.
-		    const overlap = Math.min(Math.round(rate * .04), Math.floor((end - start) / 4));
-		    const tails = channels.map(channel => channel.slice(end - overlap, end));
-		    for (let i = 0; i < overlap; i++) {
-		        const phase = i / Math.max(1, overlap - 1) * Math.PI / 2;
-		        for (const channel of channels) channel[end - overlap + i] = channel[end - overlap + i] * Math.cos(phase) + channel[start + i] * Math.sin(phase);
-		    }
-		    return {offset:start / rate, start:(start + overlap) / rate, end:end / rate, fallback:true,
-		        restore() { channels.forEach((channel, i) => channel.set(tails[i], end - overlap)); }};
-		}
-		async function musicBytes(response) {
-		    const limit = 60 * 1024 * 1024, reader = response.body?.getReader();
-		    if (!reader) {
-		        const bytes = await response.arrayBuffer();
-		        if (bytes.byteLength > limit) throw new Error('Music exceeds decode limit');
-		        return bytes;
-		    }
-		    const chunks = []; let length = 0;
-		    try {
-		        for (;;) {
-		            const {done,value} = await reader.read();
-		            if (done) break;
-		            length += value.byteLength;
-		            if (length > limit) { await reader.cancel(); throw new Error('Music exceeds decode limit'); }
-		            chunks.push(value);
-		        }
-		    } finally { reader.releaseLock(); }
-		    const bytes = new Uint8Array(length); let at = 0;
-		    for (const chunk of chunks) { bytes.set(chunk,at); at += chunk.length; }
-		    return bytes.buffer;
-		}
-		const stageMusic = (function () {
-		    let a = null, b = null, current = '', currentIdentity = null, fade = 0, handoff = null, stopping = null, blocked = false, failure = null;
-		    const listeners = new Set();
-		    let decoding = Promise.resolve();
-		    const emit = () => listeners.forEach(fn => fn());
-		    const setBlocked = value => { if (blocked !== value) { blocked = value; emit(); } };
-		    const level = (track, value) => track?.voice ? track.voice.level(value) : 0;
-		    function position(track) {
-		        if (!track) return 0;
-		        let time = track.offset + (track.source ? track.context.currentTime - track.started : 0);
-		        if (track.loop && time >= track.loop.end) time = track.loop.start + (time - track.loop.start) % (track.loop.end - track.loop.start);
-		        return time;
-		    }
-		    function pause(track) {
-		        if (!track) return;
-		        track.offset = position(track); track.paused = true;
-		        if (track.source) { track.source.stop(); track.source.disconnect(); track.source.buffer = null; track.source = null; }
-		    }
-		    function release(track) {
-		        if (!track) return;
-		        track.cancel.abort(); pause(track); track.voice?.release(); track.voice = null; track.buffer = null; track.loop = null;
-		        track.context?.removeEventListener('statechange', track.statechange);
-		    }
-		    function start(track) {
-		        // The sound policy (foreground.js) holds a playing track at its position while DSH Tavern is not in front.
-		        if (!track || !track.buffer || track.source || track !== a || !forkForeground.isAudible()) return;
-		        const ctx = track.context, source = ctx.createBufferSource();
-		        source.buffer = track.buffer; source.loop = true; source.loopStart = track.loop.start; source.loopEnd = track.loop.end;
-		        source.connect(track.voice.input); source.start(0, track.offset);
-		        track.source = source; track.started = ctx.currentTime; track.paused = false;
-		        ctx.removeEventListener('statechange', track.statechange);
-		        track.statechange = () => { if (track === a) setBlocked(ctx.state === 'suspended' && !track.paused && forkForeground.isAudible()); };
-		        ctx.addEventListener('statechange', track.statechange);
-		        track.statechange();
-		        void ctx.resume().then(track.statechange, () => { if (track === a) setBlocked(true); });
-		    }
-		    // Leaving stops the source at its position without marking the track paused (the player still shows it playing);
-		    // a live call keeps the mixer running, so the context suspension alone would not hold the music. Subscribed with
-		    // the first track.
-		    let policy = null;
-		    const follow = () => policy ||= forkForeground.subscribeAudio(on => {
-		        if (!a) return;
-		        if (on) { if (!a.paused) start(a); return; }
-		        // A crossfade in flight lands on the incoming track.
-		        if (b) { settle(); level(a,1); }
-		        if (a.source) { pause(a); a.paused = false; }
-		        setBlocked(false);
-		    });
-		    function settle() {
-		        forkForeground.clearTimeout(fade);
-		        release(b); b = null;
-		        handoff?.(); handoff = null; stopping = null;
-		    }
-		    function configure(track, points) {
-		        if (!track || track.points.loopStart === points.loopStart && track.points.loopEnd === points.loopEnd) return;
-		        track.points = {loopStart:points.loopStart,loopEnd:points.loopEnd};
-		        if (!track.buffer) return;
-		        const wasPaused = track.paused;
-		        // Started sources acquire their PCM; a point edit must also replace any baked tail.
-		        pause(track); track.loop.restore?.(); track.loop = musicLoop(track.buffer, track.points);
-		        track.offset = position(track); track.paused = wasPaused;
-		        if (!wasPaused) start(track);
-		    }
-		    return {
-		        subscribe(fn) { listeners.add(fn); const off = forkStageAudio.subscribe(fn); return () => { listeners.delete(fn); off(); }; },
-		        subscribeBlocked(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-		        blocked: () => blocked,
-		        ready: () => !!a?.buffer,
-		        get() { const prefs = forkStageAudio.get(); return {current,identity:currentIdentity,paused:!a || a.paused,volume:prefs.music,muted:!!prefs.muted.music,error:failure,position:position(a),loopStart:a?.loop?.start,loopEnd:a?.loop?.end}; },
-		        analyser: () => a?.voice?.analyser() || null,
-		        // trace: the source for the audio trace (audio-trace.cjs: reason, ref, label).
-		        play(url, snap = false, identity, {fadeMs = 1200, volume, loopStart, loopEnd, loudness, trace} = {}) {
-		            if (!url) return this.stop();
-		            identity ??= url;
-		            if (identity === currentIdentity && current && !failure) { this.trim(volume, {loopStart,loopEnd}); this.resume(); return; }
-		            follow();
-		            if (a && !a.buffer && b) { release(a); a = b; b = null; }
-		            settle();
-		            if (a && !a.buffer) { release(a); a = null; }
-		            b = a;
-		            const track = {cancel:new AbortController(),paused:false,offset:0,source:null,buffer:null,points:{loopStart,loopEnd}};
-		            a = track; current = url; currentIdentity = identity; failure = null;
-		            const complete = new Promise(resolve => { handoff = resolve; });
-		            // Decode is not abortable. Serialize loads so rapid selections cannot
-		            // accumulate full decoded buffers while an obsolete load is completing.
-		            decoding = decoding.then(async () => {
-		                if (track.cancel.signal.aborted) return;
-		                try {
-		                    const ctx = forkStageAudio.musicContext();
-		                    if (!ctx) throw new Error('Web Audio unavailable');
-		                    track.context = ctx;
-		                    const response = await fetch(url,{signal:track.cancel.signal});
-		                    if (!response.ok) throw new Error('Music fetch failed: ' + response.status);
-		                    const bytes = await musicBytes(response);
-		                    const buffer = await ctx.decodeAudioData(bytes);
-		                    if (track !== a || track.cancel.signal.aborted) return;
-		                    if (buffer.duration > 900 || buffer.numberOfChannels > 2 || buffer.length * buffer.numberOfChannels * 4 > 384 * 1024 * 1024) throw new Error('Unsupported music decode size');
-		                    track.buffer = buffer; track.loop = musicLoop(buffer, track.points); track.offset = track.loop.offset;
-		                    track.voice = forkStageAudio.musicVoice(url, volume, identity, loudness, trace, buffer.duration);
-		                    if (!track.paused) start(track);
-		                    const previous = b, from = level(previous);
-		                    if (snap || fadeMs === 0 || track.paused) { level(track,1); settle(); emit(); return; }
-		                    const at = forkForeground.now();
-		                    function step() {
-		                        const t = Math.min(1,(forkForeground.now() - at) / Math.max(1,fadeMs));
-		                        level(previous,from * (1 - t)); level(track,t);
-		                        if (t < 1) fade = forkForeground.setTimeout(step,16);
-		                        else { settle(); emit(); }
-		                    }
-		                    fade = forkForeground.setTimeout(step,16); emit();
-		                } catch (error) {
-		                    if (track !== a || track.cancel.signal.aborted) return;
-		                    failure = String(error.message || error); forkStageAudio.traceFailure('music', url, trace, failure); release(track); a = null; settle(); setBlocked(false); emit();
-		                }
-		            });
-		            emit(); return complete;
-		        },
-		        pause() { if (!current) return; settle(); level(a,1); if (a && !a.paused) a.voice?.mark('pause'); pause(a); emit(); },
-		        resume() { if (!a) return; if (a.paused) a.voice?.mark('resume'); a.paused = false; start(a); if (a.context?.state === 'suspended') void a.context.resume().then(() => { if (a) setBlocked(false); }, () => setBlocked(true)); emit(); },
-		        trim(volume, points) { a?.voice?.trim(volume); if (points) configure(a,points); },
-		        stop(snap = true) {
-		            if (!snap && stopping) return stopping;
-		            forkForeground.clearTimeout(fade); handoff?.(); handoff = null; stopping = null;
-		            const tracks = [a,b].filter(Boolean), levels = tracks.map(track => level(track));
-		            tracks.forEach(track => track.cancel.abort());
-		            current = ''; currentIdentity = null; failure = null; setBlocked(false);
-		            const finish = () => { tracks.forEach(release); a = b = null; handoff?.(); handoff = null; stopping = null; emit(); };
-		            if (snap || tracks.every(track => !track.source)) { finish(); return; }
-		            stopping = new Promise(resolve => { handoff = resolve; });
-		            const at = forkForeground.now();
-		            function step() {
-		                const t = Math.min(1,(forkForeground.now() - at) / 1200);
-		                tracks.forEach((track,i) => level(track,levels[i] * (1 - t)));
-		                if (t < 1) fade = forkForeground.setTimeout(step,16); else finish();
-		            }
-		            fade = forkForeground.setTimeout(step,16); emit(); return stopping;
-		        },
-		        setVolume(value) { forkStageAudio.setVolume('music',value); },
-		        toggleMute() { forkStageAudio.toggleMute('music'); }
-		    };
-		})();
 		// pack-projected audio; no catalogue owner.
 		// One page-wide one-shot player, with at most six concurrent sounds.
 		// a one-shot rings out across page turns, so a mis-tagged long asset is
@@ -55060,7 +54875,7 @@ function galUiApplier() {
 		    return grouped;
 		}
 		function galPageAtPara(pages, para, offset = 0) {
-		    const anchors = galPositionAnchors(pages);
+		    const anchors = stageViews.position.anchors(pages);
 		    const exact = anchors.findIndex(item => item.para === para && item.offset <= offset && offset < item.offset + item.length);
 		    return exact >= 0 ? exact : Math.max(0, pages.findIndex(page => page.para >= para));
 		}
@@ -59626,176 +59441,6 @@ function galUiApplier() {
 		        return texts.map((text, n) => ({ ...page, text, pending: page.pending && n === texts.length - 1 }));
 		    });
 		}
-		// Film cards are display-only: offsets count source characters, never director paragraphs.
-		// An oversized bracketed passage is closed/reopened on each card; a pair that fits is kept whole.
-		// hold (galHeldCards) = the cards kept from before a streaming page
-		// changed and the end of its unchanged text. The kept cards stay as they were and the next one is only split at or after
-		// that end: text the reader may already see is never pulled back onto the next card when a chunk overflows the box.
-		// CJK line breaking (kinsoku) - a card never opens with closing
-		// punctuation (。、！？…～ closing brackets/quotes, small kana) and never ends on an opening bracket, so 」！ ?! …… ”。 stay together.
-		// No card is near-empty: a card that is not the last holds at least a third of what the box fits, and a last card that
-		// would hold less than a third of a full card makes the text re-split evenly over the same number of cards
-		// (galEvenCards).
-		// limit = at most that many cards (the player's input page between rounds shows 3). A
-		// text that needs more keeps the first limit - 1 cards and ends the last one with 「……」 at a sensible break; the rest
-		// is not shown (the backlog keeps the whole input).
-		function galSubtitleCards(text, fits, hold, limit) {
-		    const noStart = /[、。，．,.：:；;！!？?‼⁇⁈⁉…‥～~〜ー々ゝゞヽヾ・」』）)】〕〉》］\]｝}”’ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ—―]/;
-		    const noEnd = /[「『（(【〔〈《［\[｛{“‘]/;
-		    const chars = Array.from(String(text || ""));
-		    const pairs = { "「": "」", "『": "』", "（": "）", "(": ")", "【": "】", "[": "]", "“": "”", "‘": "’" };
-		    const stack = [], matched = new Map();
-		    chars.forEach(function (char, i) {
-		        if (pairs[char]) stack.push(i);
-		        else if (stack.length && pairs[chars[stack[stack.length - 1]]] === char) { const open = stack.pop(); matched.set(open, i); }
-		    });
-		    const active = [], edges = [[]];
-		    chars.forEach(function (char, i) {
-		        if (matched.has(i)) active.push(i);
-		        else if (active.length && matched.get(active[active.length - 1]) === i) active.pop();
-		        edges.push(active.slice());
-		    });
-		    const cardText = (start, end) => edges[start].map(i => chars[i]).join("") + chars.slice(start, end).join("") + edges[end].slice().reverse().map(i => pairs[chars[i]]).join("");
-		    // Sentence ends (also behind their closing brackets) outrank clause breaks and closing brackets, which outrank the rest.
-		    const rank = end => {
-		        let i = end - 1;
-		        while (i > 0 && /[」』）)】〕〉》］\]”’]/.test(chars[i])) i--;
-		        return /[。！？!?…‥～~]/.test(chars[i]) ? 3 : i < end - 1 || /[，；：、,;:\s—―]/.test(chars[i]) ? 2 : 1;
-		    };
-		    const kinsoku = i => !noStart.test(chars[i]) && !noEnd.test(chars[i - 1]);
-		    // Breaks in order of preference: outside brackets and kinsoku-clean, kinsoku-clean inside an oversized bracket, outside brackets.
-		    const pools = [i => !edges[i].length && kinsoku(i), kinsoku, i => !edges[i].length];
-		    // The furthest end that fits from a start (fits grows monotonically with the card); even a single glyph makes progress.
-		    // A start next to a measured one begins from its reach, so walking every start costs about two layouts each.
-		    const reach = new Map();
-		    const maxEnd = start => {
-		        if (reach.has(start)) return reach.get(start);
-		        const near = reach.get(start - 1);
-		        let low = start + 1, high = chars.length, max = start;
-		        if (near !== undefined && near > start) { if (fits(cardText(start, near))) { max = near; low = near + 1; high = Math.min(high, near + 4); if (high < chars.length && fits(cardText(start, high))) { max = high; low = high + 1; high = chars.length; } } else high = near - 1; }
-		        while (low <= high) {
-		            const mid = Math.floor((low + high) / 2);
-		            if (fits(cardText(start, mid))) { max = mid; low = mid + 1; } else high = mid - 1;
-		        }
-		        reach.set(start, Math.max(start + 1, max));
-		        return reach.get(start);
-		    };
-		    const kept = hold ? hold.cards.slice() : [], from = kept.length ? kept[kept.length - 1].end : 0;
-		    const best = (ok, low, high) => { let end = 0; for (let i = low; i <= high; i++) if (ok(i) && (!end || rank(i) >= rank(end))) end = i; return end; };
-		    const floorOf = (start, high) => hold && start === from ? Math.max(start + 1, Math.min(hold.end, high)) : start + 1;
-		    const split = () => {
-		        const cards = kept.slice();
-		        for (let start = from; start < chars.length;) {
-		            const high = maxEnd(start);
-		            let end = high;
-		            if (high < chars.length) {
-		                const floor = floorOf(start, high);
-		                const least = Math.max(floor, start + Math.ceil((high - start) / 3));
-		                // A short card before a bracketed passage only to keep the passage whole, never for one that cannot fit a card anyway.
-		                end = best(pools[0], least, high);
-		                if (!end) {
-		                    const early = best(pools[0], floor, high), open = edges[high][0];
-		                    // The passage with the punctuation that may not open a card after it (“…”？！).
-		                    let close = open === undefined ? -1 : matched.get(open);
-		                    while (close >= 0 && close + 1 < chars.length && noStart.test(chars[close + 1])) close++;
-		                    const whole = early && (open === undefined || close + 1 - early <= high - start) ? early : 0;
-		                    end = whole || best(pools[1], least, high) || early || best(pools[1], floor, high) || best(pools[2], least, high) || best(pools[2], floor, high) || high;
-		                }
-		            }
-		            cards.push({ text: cardText(start, end), start, end });
-		            start = end;
-		        }
-		        return cards;
-		    };
-		    const greedy = split(), count = greedy.length - kept.length;
-		    if (!greedy.length) return [{ text: "", start: 0, end: 0 }];
-		    if (limit && greedy.length > limit) {
-		        // The 「……」 sits inside any bracket still open at the cut and is measured with the card, so it never overflows.
-		        const start = greedy[limit - 1].start;
-		        const cut = end => edges[start].map(i => chars[i]).join("") + chars.slice(start, end).join("").replace(/[\s，、；：,;:。．]+$/, "") + "……" + edges[end].slice().reverse().map(i => pairs[chars[i]]).join("");
-		        let low = start + 1, high = greedy[limit - 1].end, max = start + 1;
-		        while (low <= high) {
-		            const mid = Math.floor((low + high) / 2);
-		            if (fits(cut(mid))) { max = mid; low = mid + 1; } else high = mid - 1;
-		        }
-		        const least = start + Math.ceil((max - start) * 2 / 3);
-		        const end = best(pools[0], least, max) || best(pools[1], least, max) || max;
-		        return greedy.slice(0, limit - 1).concat({ text: cut(end), start, end });
-		    }
-		    const length = card => card.end - card.start, last = greedy[greedy.length - 1], prior = greedy[greedy.length - 2];
-		    if (count < 2 || length(last) * 3 >= maxEnd(prior.start) - prior.start) return greedy;
-		    // A tiny last card: the same number of cards, as evenly filled as the breaks allow (galEvenCards). Evening out never
-		    // cuts into a bracketed passage or breaks kinsoku more often than the greedy split did, and never cuts mid-phrase (no
-		    // punctuation before the break) a text the greedy split broke at punctuation only: a short last card after 「时候，」
-		    // beats even cards cut at 「宝|石」.
-		    const level = end => end >= chars.length ? 0 : pools.findIndex(ok => ok(end)) < 0 ? 3 : pools.findIndex(ok => ok(end));
-		    const even = galEvenCards(from, chars.length, count, maxEnd, floorOf, end => [0, 30, 60, 120][level(end)] + [0, 40, 2, 0][rank(end)]);
-		    const total = (cards, score) => cards.reduce((n, card) => n + (card.end < chars.length ? score(card.end) : 0), 0);
-		    const midPhrase = end => rank(end) === 1 ? 1 : 0;
-		    const worse = (a, b) => total(a, level) > total(b, level) || total(a, midPhrase) > 0 && !total(b, midPhrase);
-		    if (!even || worse(even, greedy.slice(kept.length))) return greedy;
-		    return kept.concat(even.map(({ start, end }) => ({ text: cardText(start, end), start, end })));
-		}
-		// The split of [from, to) into at most `count` cards that fit (maxEnd) with the least unused room, squared per card so the
-		// cards come out even, plus each break's penalty (a weaker break, a cut into a bracket). floorOf(start, reach) is the
-		// earliest end a card from `start` may take (the held cards of a streaming page). -> [{ start, end }] or null.
-		function galEvenCards(from, to, count, maxEnd, floorOf, penalty) {
-		    const memo = new Map(), full = maxEnd(from) - from;
-		    const solve = (start, left) => {
-		        if (start >= to) return { cost: 0, ends: [] };
-		        if (!left) return null;
-		        const key = start * (count + 1) + left;
-		        if (memo.has(key)) return memo.get(key);
-		        // A card that reaches the end is measured against a full card (the first one's room), so a short last card costs.
-		        const reach = maxEnd(start), room = reach >= to ? Math.max(full, reach - start) : reach - start;
-		        let found = null;
-		        // As the greedy split: a card that is not the last holds at least a third of what fits.
-		        for (let end = Math.min(to, Math.max(floorOf(start, reach), start + Math.ceil((reach - start) / 3))); end <= Math.min(reach, to); end++) {
-		            const rest = end >= to ? { cost: 0, ends: [] } : solve(end, left - 1);
-		            if (!rest) continue;
-		            const unused = (room - (end - start)) / room, cost = 100 * unused * unused + (end < to ? penalty(end) : 0) + rest.cost;
-		            if (!found || cost < found.cost) found = { cost, ends: [end, ...rest.ends] };
-		        }
-		        memo.set(key, found);
-		        return found;
-		    };
-		    const result = solve(from, count);
-		    if (!result) return null;
-		    let start = from;
-		    return result.ends.map(end => { const card = { start, end }; start = end; return card; });
-		}
-		// The measured cards of a page whose text changed in place (a streaming page grew, or its paragraph's pagination moved the
-		// unfinished sentence to the next page): every card but the last inside the unchanged prefix, and the end of the text that
-		// may already be on screen. `shown` (galShownEnd) excludes the held unfinished sentence of a streaming narration page:
-		// it was never typed, so it may still move to the next card and the card can break at the sentence end the box fits
-		// (「…少女身」: freezing the split at the chunk boundary cut the paragraph
-		// mid-sentence at the box's last line, unlike the same paragraph read from history).
-		function galHeldCards(cards, before, text, shown = Infinity) {
-		    const a = Array.from(before), b = Array.from(text);
-		    let end = 0;
-		    while (end < a.length && end < b.length && a[end] === b[end]) end++;
-		    end = Math.min(end, Math.max(shown, cards.length > 1 ? cards[cards.length - 2].end : 0));
-		    const kept = [];
-		    for (const card of cards.slice(0, -1)) { if (card.end > end) break; kept.push(card); }
-		    return { cards: kept, end };
-		}
-		// The end (in characters) of a page's text that may be on screen: all of it, except the unfinished last sentence of a
-		// streaming narration page (or the unfinished clause of one that opens it: stagePageHeldTail), which its last card holds
-		// back (GalStage `movable`).
-		function galShownEnd(item) {
-		    const length = Array.from(item.text).length;
-		    return item.pending && item.kind === "narration" ? length - Array.from(stagePageHeldTail(item.text)).length : length;
-		}
-		function galSubtitleStep(page, card, delta, counts) {
-		    if (delta > 0 && card + 1 < counts[page]) return { page, card: card + 1 };
-		    if (delta < 0 && card > 0) return { page, card: card - 1 };
-		    const next = Math.max(0, Math.min(counts.length - 1, page + delta));
-		    return { page: next, card: next === page ? card : delta < 0 ? counts[next] - 1 : 0 };
-		}
-		function galSubtitleVoiceTime(cards, card, duration) {
-		    const total = cards.reduce((sum, item) => sum + item.end - item.start, 0);
-		    return total > 0 && Number.isFinite(duration) && duration > 0 ? duration * cards.slice(0, card + 1).reduce((sum, item) => sum + item.end - item.start, 0) / total : null;
-		}
 		// Display only (classic text box): a spoken line reads 「…」. Text that already opens with a bracket
 		// (a thought's （…）, a quote the model wrote itself) is left alone; the closing bracket waits until
 		// the line has finished streaming.
@@ -59874,44 +59519,6 @@ function galUiApplier() {
 		    if (previous && previous.sessionId === sessionId && previous.turn === turn) return previous;
 		    return { sessionId, turn, start: previous && previous.sessionId === sessionId && turn === previous.turn + 1 ? previous.end : null, end: null };
 		}
-		// Hash text only: voice readiness and other render metadata must not invalidate a bookmark.
-		function galTextDigest(parts) {
-		    const text = parts.map(part => typeof part.text === "string" ? part.text : (part.segments || []).map(segment => segment.text || "").join("\n")).join("\n");
-		    let hash = 2166136261;
-		    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-		    return (hash >>> 0).toString(16).padStart(8, "0");
-		}
-		// Offsets ignore pagination whitespace (page splitting trims its edges).
-		function galPositionAnchors(pages) {
-		    const offsets = new Map();
-		    return pages.map(function (page) {
-		        if (page.anchor) return { para: page.anchor.para, offset: page.anchor.offset, length: String(page.text || "").length };
-		        const offset = offsets.get(page.para) || 0;
-		        const length = String(page.text || "").replace(/\s/g, "").length;
-		        offsets.set(page.para, offset + length);
-		        return { para: page.para, offset, length };
-		    });
-		}
-		function galRestorePosition(saved, turn, pageCount, textDigest, pages = []) {
-		    const valid = saved && saved.turn === turn && saved.textDigest === textDigest && Number.isInteger(saved.page);
-		    let page = valid ? Math.max(0, Math.min(saved.page, Math.max(0, pageCount - 1))) : 0;
-		    const anchors = galPositionAnchors(pages), anchor = valid && saved.anchor;
-		    const anchored = anchor && Number.isInteger(anchor.para) && Number.isInteger(anchor.offset) && anchor.offset >= 0
-		        ? anchors.findIndex(item => item.para === anchor.para && item.offset <= anchor.offset && anchor.offset < item.offset + item.length) : -1;
-		    if (anchored >= 0) page = anchored;
-		    const target = anchored >= 0 ? anchor : anchors[page];
-		    return { turn, page, pageCount, textDigest, ...(Number.isInteger(saved && saved.latestSeenTurn) ? { latestSeenTurn: saved.latestSeenTurn } : {}), ...(target ? { anchor: { para: target.para, offset: target.offset } } : {}) };
-		}
-		// a cold runtime can publish an empty/unloaded row or a temporary
-		// text prefix. None of those is permission to consume a durable reading bookmark.
-		// callers that also restore pass `digestOf` so the turn text is hashed at most once.
-		function galPositionReady(saved, turn, parts, pages, digestOf = () => galTextDigest(parts)) {
-		    if (!turn || !parts.length || !pages.length || parts.some(part => part.streaming || part.unloaded) || pages.some(page => page.pending)) return false;
-		    if (!saved || saved.turn !== turn) return true;
-		    if (saved.textDigest !== digestOf()) return false;
-		    if (saved.anchor) return galPositionAnchors(pages).some(item => item.para === saved.anchor.para && item.offset <= saved.anchor.offset && saved.anchor.offset < item.offset + item.length);
-		    return pages.length >= (saved.pageCount || saved.page + 1);
-		}
 		// Consume wheel notches, never queue a burst for later. A gesture is quiet for 300ms; its first downward
 		// action (finish the line, else the next page) locks the rest of that gesture, even if typing completes.
 		function galWheelDecision(previous, event) {
@@ -59929,222 +59536,6 @@ function galUiApplier() {
 		    if (state.used) return { state, action: 'none' };
 		    state.used = true;
 		    return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
-		}
-		function galPositionWriter(sessionId, storage, schedule, cancel) {
-		    const key = "fork-stage-position:" + sessionId;
-		    let saved = null, pending = null, timer = null;
-		    try { saved = JSON.parse(storage && storage.getItem(key) || "null"); } catch (_) {}
-		    function flush() {
-		        if (timer !== null) cancel(timer);
-		        timer = null;
-		        if (!pending) return;
-		        try { if (storage && sessionId) storage.setItem(key, JSON.stringify(pending)); } catch (_) {}
-		        pending = null;
-		    }
-		    function discard() { if (timer !== null) cancel(timer); timer = null; pending = null; }
-		    return { saved, flush, discard,
-		        write(value) { pending = value; if (timer === null) timer = schedule(flush, 250); } };
-		}
-		function galSubtitleCache(limit) {
-		    const entries = new Map();
-		    return {
-		        clear() { entries.clear(); },
-		        get(text, width, font, size, measure) {
-		            const key = JSON.stringify([text, width, font, size]);
-		            if (entries.has(key)) { const value = entries.get(key); entries.delete(key); entries.set(key, value); return value; }
-		            const value = measure();
-		            entries.set(key, value);
-		            while (entries.size > limit) entries.delete(entries.keys().next().value);
-		            return value;
-		        }
-		    };
-		}
-		// Display cards fit the actual text box without changing canonical/director page indices.
-		// lines per card at a percent of the skin's size. A full card keeps the height
-		// of the skin's own full card: the whole line count whose block is nearest to `lines` lines of the skin's size (a tie
-		// takes the shorter block), so its margins in the box stay the skin's. A box sized for exactly the skin's lines (classic,
-		// ADV layouts) never holds more than floor(lines / scale). A box with room of its own (--gal-skin-lines-fit: box, the art
-		// textbox image) holds the stage's GAL_PAGE_LINES reading lines whatever the skin's own count (art.textbox.lines, which
-		// is at most that) - no more than `room`, the whole lines the box's text area holds (galBoxRoom).
-		// So a 3-line display line is never cut over two 2-line cards when the box has room for its 3 lines.
-		const GAL_PAGE_LINES = 3;
-		function stageTextLines(lines, percent, room) {
-		    const full = room === undefined ? lines : Math.max(lines, GAL_PAGE_LINES);
-		    const scaled = full * 100 / percent, nearest = Math.ceil(scaled - .5 - 1e-6);
-		    return Math.max(1, Math.min(nearest, room === undefined ? Math.floor(scaled + 1e-6) : room));
-		}
-		// The whole lines (lineHeight apart, fontSize glyphs) that fit a box's text area (its content height): the block's outer
-		// half-leading may hang into the padding, its glyphs stay inside (a centred art column sits 3 lines 1-2 px past its padded
-		// area at 1920, its glyphs 12 px clear of the box).
-		function galBoxRoom(content, lineHeight, fontSize) {
-		    return Math.floor((content + lineHeight - fontSize) / lineHeight + 1e-3);
-		}
-		// textScales (CONFIG 文字大小) only re-measures when a value changes; the scale itself is read off the box (--fk-text-scale).
-		// the stage runs two of these on the
-		// one text element - the round's pages and the player's input page between rounds - and only the active one measures, so
-		// neither lays out its text in the other's box (the input page's box is pre-wrap with its own indent) and the one that
-		// becomes active re-measures before paint. limit caps the cards of each page (galSubtitleCards; the input page: 3).
-		const GAL_INPUT_CARDS = 3;
-		// the input page's label rides the box's top
-		// edge where the skin puts it (theme.css「Between turns」); where that edge is the text's first line (a frameless or
-		// slanted art box) the text gets room of its own below the label. Measured here, by the pager, so the cards are cut for the
-		// room left: with a full page's column in place (a centred column starts no higher), the label's overhang past the text top
-		// becomes top padding on the text (box data-fk-input-room, --fk-input-page / --fk-input-room), which the
-		// measuring clone carries too. No overhang: nothing is reserved and the skin's column is as before. Layout px (dock scaling).
-		function galInputLabelRoom(text, page) {
-		    const box = text.closest(".fork-gal-box"), label = box && box.querySelector(":scope > .fork-gal-transition-label");
-		    if (!label) return 0;
-		    box.style.setProperty("--fk-input-page", page + "px");
-		    box.style.setProperty("--fk-input-room", "0px");
-		    box.setAttribute("data-fk-input-room", "");
-		    // The column's top for exactly a full page, whatever cards it shows now (else the top and the room would chase each other).
-		    const scale = box.getBoundingClientRect().height / box.offsetHeight || 1, height = text.style.height;
-		    text.style.height = page + "px";
-		    const over = (label.getBoundingClientRect().bottom - text.getBoundingClientRect().top) / scale;
-		    text.style.height = height;
-		    if (over <= 0) { box.removeAttribute("data-fk-input-room"); return 0; }
-		    const room = Math.ceil(over) + 2;
-		    box.style.setProperty("--fk-input-room", room + "px");
-		    return room;
-		}
-		function useGalSubtitles(film, pages, page, identity, theme, textScales, active = true, limit = 0) {
-		    const [element, setElement] = React.useState(null);
-		    const textRef = React.useCallback(node => setElement(node), []);
-		    const [layout, setLayout] = React.useState(null);
-		    const layoutRef = React.useRef(null);
-		    const [position, setPosition] = React.useState(null);
-		    const cache = React.useMemo(() => galSubtitleCache(256), []);
-		    const measureNode = React.useRef(null);
-		    const texts = JSON.stringify(pages.map(item => item.text));
-		    const key = identity + ":" + page;
-		    const current = layout && layout.theme === theme && layout.film === film ? layout : null;
-		    // a page keeps its last measured cards until the new text is measured
-		    // (before paint, below); a streaming page that changed keeps the cards of its unchanged text and the rest is one card
-		    // meanwhile. Falling back to one whole-page card for that render painted the next card's lines into the box (or jumped
-		    // a later card back to the first and remounted its typewriter) on every chunk.
-		    const cardsOf = (item, index) => {
-		        const old = current && current.cards[index], before = current && current.pageTexts[index];
-		        if (!old || typeof before !== "string") return null;
-		        if (before === item.text) return old;
-		        const kept = galHeldCards(old, before, item.text).cards, chars = Array.from(item.text), from = kept.length ? kept[kept.length - 1].end : 0;
-		        return kept.concat({ text: chars.slice(from).join(""), start: from, end: chars.length });
-		    };
-		    // only the current page and its neighbours are measured (navigation needs
-		    // their card counts). Measuring every page of the turn on each width change (the face gutter toggles it between
-		    // faced and unfaced pages) thrashed the cache and cost a 0.5–1 s long task per toggle in reading and fast-forward.
-		    const pageRef = React.useRef(page);
-		    pageRef.current = page;
-		    const measureNow = React.useRef(null);
-		    const all = pages.map((item, index) => cardsOf(item, index) || [{ text: item.text, start: 0, end: Array.from(item.text).length }]);
-		    const cards = all[page] || [{ text: "", start: 0, end: 0 }];
-		    const sameText = position && pages[page] && (pages[page].text === position.text || position.pending && pages[page].text.startsWith(position.text));
-		    const offset = position && position.key === key && sameText ? position.offset : 0;
-		    const card = Math.max(0, cards.findIndex(item => item.end > offset || item === cards[cards.length - 1]));
-		    React.useLayoutEffect(function () {
-		        if (!element) return;
-		        let scheduled = 0;
-		        const clone = measureNode.current || (measureNode.current = element.cloneNode(false));
-		        clone.removeAttribute("id"); clone.removeAttribute("aria-live"); clone.setAttribute("aria-hidden", "true");
-		        clone.className = element.className;
-		        Object.assign(clone.style, { position: "fixed", left: "-100000px", top: "0", height: "auto", maxHeight: "none", minHeight: "0", boxSizing: "border-box", visibility: "hidden", overflow: "visible", pointerEvents: "none" });
-		        // The typing indicator at its full inline width (on the stage it hangs past the line end with a negative margin).
-		        const typingSlot = document.createElement("span");
-		        typingSlot.className = "fork-gal-typing";
-		        typingSlot.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
-		        typingSlot.style.marginRight = "0";
-		        function measure() {
-		            if (scheduled) return;
-		            scheduled = forkForeground.requestAnimationFrame(function () { scheduled = 0; run(); });
-		        }
-		        function run() {
-		            if (!active) return;
-		            const width = element.clientWidth || element.getBoundingClientRect().width;
-		            if (!width) return;
-		            clone.style.width = width + "px";
-		            element.parentNode.appendChild(clone);
-		            try {
-		                const style = getComputedStyle(clone), lineHeight = parseFloat(style.lineHeight);
-		                // Without the stage stylesheet there is no fixed-height box to paginate.
-		                if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-		                // Match the visible stage: ADV art layouts do not add classic dialogue brackets.
-		                const skinLayout = element.closest('.fork-gal-stage')?.dataset.fkSkinLayout;
-		                const quoted = !film && (theme || 'classic') === 'classic' && (!skinLayout || skinLayout === 'box');
-		                const font = [style.fontFamily, style.fontWeight, style.fontStyle, style.fontStretch, style.letterSpacing, style.lineHeight, style.wordBreak, style.overflowWrap, style.whiteSpace, style.padding, style.boxSizing, quoted].join("|");
-		                // a skin's art textbox holds up to GAL_PAGE_LINES lines per page, as many
-		                // whole lines of the CONFIG 文字大小 text as its text area fits (stageTextLines, galBoxRoom).
-		                const percent = Math.round((parseFloat(style.getPropertyValue("--fk-text-scale")) || 1) * 100), box = style.getPropertyValue("--gal-skin-lines-fit").trim() === "box" ? element.closest(".fork-gal-box") : null;
-		                // a box whose height follows
-		                // its lines holds up to its max lines - a fixed room, never its current height (that would chase the cards).
-		                const fitMax = !film && box ? parseInt(style.getPropertyValue("--art-fit-max"), 10) || 0 : 0, fitMin = parseInt(style.getPropertyValue("--art-fit-min"), 10) || 1;
-		                const boxStyle = box && getComputedStyle(box), room = box ? fitMax || galBoxRoom(box.clientHeight - parseFloat(boxStyle.paddingTop) - parseFloat(boxStyle.paddingBottom), lineHeight, parseFloat(style.fontSize)) : undefined;
-		                const lines = film ? 2 : stageTextLines(parseInt(style.getPropertyValue("--gal-skin-lines"), 10) || 3, percent, room), near = index => Math.abs(index - pageRef.current) <= 1;
-		                const labelRoom = !film && pages.some(item => item.kind === "transition") ? galInputLabelRoom(element, lineHeight * lines) : 0;
-		                const fits = item => text => {
-		                    // The real inline typewriter/cursor also occupies the line after a trailing newline.
-		                    clone.textContent = (quoted && item.kind === 'line' ? galQuoted(text, false) : text) + (/[\r\n]$/.test(text) ? "\u200b" : "");
-		                    // the last line keeps room for the typing indicator that
-		                    // follows the last glyph while the page streams; a full third line wrapped it onto a clipped fourth.
-		                    // Every card reserves it, so a paragraph read live and from history still has the same cards.
-		                    if (!film) clone.appendChild(typingSlot);
-		                    // Layout pixels ignore both dock scaling and statement rotation; a rotated AABB distorts height.
-		                    return clone.offsetHeight <= lineHeight * lines + 0.5;
-		                };
-		                // In the same box a page keeps its cards; one whose text changed since (streaming) keeps them as galSubtitleCards' hold.
-		                const at = JSON.stringify([width, font, lines, labelRoom, style.fontSize, theme || 'classic']), prev = layoutRef.current && layoutRef.current.at === at ? layoutRef.current : null;
-		                const next = { pageTexts: pages.map(item => item.text), pageShown: pages.map(galShownEnd), at, theme, film, cards: pages.map((item, index) => {
-		                    if (!near(index)) return null;
-		                    const before = prev && prev.pageTexts[index], old = prev && prev.cards[index];
-		                    if (old && before === item.text) return old;
-		                    const hold = old && typeof before === "string" ? galHeldCards(old, before, item.text, prev.pageShown[index]) : null;
-		                    if (hold && hold.end > 0) return galSubtitleCards(item.text, fits(item), hold, limit);
-		                    return cache.get(item.text, width, font + ':' + lines + ':' + labelRoom + ':' + item.kind + ':' + limit, style.fontSize, () => galSubtitleCards(item.text, fits(item), null, limit));
-		                }) };
-		                // The fitted box: each card of the current page as its whole lines (min..max) and their block in px.
-		                const shown = pageRef.current, own = fitMax && pages[shown] && next.cards[shown];
-		                next.fit = own ? { page: shown, cards: own.map(card => {
-		                    fits(pages[shown])(card.text);
-		                    const count = Math.min(fitMax, Math.max(fitMin, Math.ceil((clone.offsetHeight - 0.5) / lineHeight)));
-		                    return { lines: count, block: Math.round(count * lineHeight * 100) / 100 };
-		                }) } : null;
-		                layoutRef.current = next;
-		                setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-		            } finally { clone.remove(); }
-		        }
-		        measureNow.current = run;
-		        // New text is measured before paint (only the changed page costs a text layout; the rest is cached).
-		        run();
-		        const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-		        if (observer) observer.observe(element);
-		        window.addEventListener("resize", measure);
-		        const stage = element.closest('.fork-gal-stage');
-		        // A skin, skin mode or layout change on the stage (dispatched from its layout effect, after this one in the same commit)
-		        // re-measures at once, so the first painted frame already has the cards of the box it paints in.
-		        stage?.addEventListener('stage-layout', run);
-		        let disposed = false;
-		        const unsubscribe = typeof tavernFonts !== "undefined" ? tavernFonts.subscribe(() => Promise.resolve().then(() => { if (!disposed) measure(); })) : null;
-		        const fonts = typeof document !== "undefined" && document.fonts;
-		        function fontLoaded() { cache.clear(); layoutRef.current = null; measure(); }
-		        if (fonts) fonts.addEventListener("loadingdone", fontLoaded);
-		        return () => { disposed = true; measureNow.current = null; forkForeground.cancelAnimationFrame(scheduled); clone.remove(); if (observer) observer.disconnect(); window.removeEventListener("resize", measure); stage?.removeEventListener('stage-layout', run); if (unsubscribe) unsubscribe(); if (fonts) fonts.removeEventListener("loadingdone", fontLoaded); };
-		    }, [film, texts, theme, element, textScales, active, limit]);
-		    // A page turn measures its new neighbourhood before paint (cached pages cost no text layout).
-		    React.useLayoutEffect(function () { if (measureNow.current) measureNow.current(); }, [page]);
-		    function select(nextPage, nextCard) {
-		        const target = all[nextPage] && all[nextPage][nextCard];
-		        const source = pages[nextPage];
-		        setPosition({ key: identity + ":" + nextPage, text: source && source.text, pending: source && source.pending, offset: target ? target.start : 0 });
-		    }
-		    // The current page's cards are a stand-in until its new text is measured (before paint): nothing counts it as read.
-		    const provisional = Boolean(current && current.cards[page] && pages[page] && current.pageTexts[page] !== pages[page].text);
-		    // fit: the shown card's lines and block for a box whose height follows them (null for a box without fit lines). Until a
-		    // turned-to page is measured (before paint) the box keeps the block it shows: dropping it for that render let the
-		    // measurement's forced style start the height's ease from the unfitted body - a one-line box sprang a line taller
-		    // and shrank back on every page turn.
-		    const shownFit = React.useRef(null);
-		    if (!current || !current.fit) shownFit.current = null;
-		    else if (current.fit.page === page && current.fit.cards[card]) shownFit.current = current.fit.cards[card];
-		    const fit = shownFit.current;
-		    return { textRef, cards, card, text: cards[card].text, counts: all.map(items => items.length), select, provisional, fit };
 		}
 		function galNewEffects(memory, key, effects) {
 		    if (memory.key !== key) { memory.key = key; memory.played = new Set(); }
@@ -60458,7 +59849,7 @@ function galUiApplier() {
 		    for (let i = Math.min(at, pages.length - 1); i >= 0; i--) if (pages[i].kind === "line" && bubbleCharacter(config, pages[i])?.alias === alias) return pages[i].mood || "";
 		    return "";
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galSubtitleCards, galEvenCards, galHeldCards, galShownEnd, galSubtitleStep, galSubtitleVoiceTime, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galTextDigest, galPositionAnchors, galRestorePosition, galPositionReady, galWheelDecision, galPositionWriter, galSubtitleCache, GAL_PAGE_LINES, stageTextLines, galBoxRoom, GAL_INPUT_CARDS, galInputLabelRoom, useGalSubtitles, galNewEffects, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, useGalPresence, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galWheelDecision, galNewEffects, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, useGalPresence, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };
 		// Stable readers keep core React subscribers alive while the optional provider comes and goes.
 		let stageNavigation = null;
 		const stageNavigationSignals = new Map();
@@ -60503,14 +59894,7 @@ function galUiApplier() {
 		function GalNarrationLines(props) {
 		    return stageViews ? React.createElement(stageViews.NarrationLines, props) : null;
 		}
-		// Dialogue box dressing: filigree corners (generated art, runtime-assets/gal-stage) and a
-		// light sweep along the top edge; purely decorative.
-		function GalBoxFrame() {
-		    const h = React.createElement;
-		    // look / grain: the stage look pressed onto the box (vignette and haze on the edges, a light film grain).
-		    return h("span", { className: "fork-gal-frame", "aria-hidden": true }, h("i", { className: "look" }), h("i", { className: "grain" }), h("i", { className: "tl" }), h("i", { className: "br" }), h("i", { className: "sweep" }), h("i", { className: "bow" }),
-		        [0, 1, 2, 3, 4, 5].map(n => h("i", { key: n, className: "spark s" + n })));
-		}
+		function GalBoxFrame(props) { return stageViews ? React.createElement(stageViews.BoxFrame, props) : null; }
 		// Scene names are 「地点·细节·时间」. When the cued scene has no picture yet (待补图), stand in with the
 		// closest picture of the card's range: shared place words first, then the same time of day, and grade
 		// the picture towards the wanted time (a night filter over a daytime street) rather than show sunshine.
@@ -60529,195 +59913,10 @@ function galUiApplier() {
 		    });
 		    return bestScore >= 1.5 ? best : null;
 		}
-		// Face window at the left of the text box: the speaker's static mood avatar (the stage figure is
-		// already the moving portrait, so the face stays a still picture).
-		function GalFace(props) {
-		    const h = React.createElement;
-		    const face = props.face;
-		    const emote = props.emote;
-		    return h("div", { className: "fork-gal-face" + (face ? " is-on" : ""), "aria-hidden": true },
-		        face && face.spriteBundle ? h(SpriteImage, { className: "fork-gal-face-img", bundle: face.spriteBundle, audio: face.audio, enabled: face.enabled, voiceKey: face.voiceKey }) : face && face.src ? h(PackImage, { key: face.key, identity:face.identity, className: "fork-gal-face-img", src: face.src, crop:face.crop, avatar:face.avatar, alt: "" }) : null,
-		        // An emote for a speaker who is not standing on stage pops up on their face window instead.
-		        face && emote ? h("img", { key: emote.nonce, className: "fork-gal-face-emote", "data-kind": emote.kind, src: galEmoteDataUrl(emote.kind, galCssColor(emote.color)), alt: "" }) : null);
-		}
-		// Classic theme side image: the speaker's mood avatar unframed at the bottom-left, rising out of the box.
-		// A mood change crossfades; a new speaker slides in from the left; no face (narration) clears it quickly
-		// (props.clearMs, the hold of the next page's text in useGalFaceHandoff). Leaving layers stay mounted for their
-		// animation, then are dropped. props.snap (skip, page back / jump, a click that finished a held page): no animation,
-		// leaving layers go at once and a new face is simply there. props.calm: the clear is a plain fade (reduced motion).
-		function GalSide(props) {
-		    const h = React.createElement;
-		    const face = props.face && (props.face.src || props.face.glyph) ? props.face : null;
-		    const emote = props.emote;
-		    const seq = React.useRef(1), snap = React.useRef(false);
-		    snap.current = Boolean(props.snap);
-		    const [layers, setLayers] = React.useState(() => face ? [{ id: 0, key: face.key, identity:face.identity, src: face.src, glyph: face.glyph, crop:face.crop, avatar:face.avatar, spriteBundle: face.spriteBundle, revision: JSON.stringify(face.crop || face.spriteBundle?.revision || ""), enter: "none", out: "" }] : []);
-		    const faceKey = face ? face.key : "", faceSrc = face ? face.src || "glyph:" + face.glyph : "", faceIdentity = face?.identity, faceRevision = JSON.stringify(face?.crop || face?.spriteBundle?.revision || "");
-		    React.useLayoutEffect(function () {
-		        setLayers(function (list) {
-		            const top = list.filter(layer => !layer.out).pop() || null;
-		            if (!faceSrc) return snap.current ? [] : top ? list.map(layer => layer.out ? layer : Object.assign({}, layer, { out: "clear" })) : list;
-		            if (top && top.key === faceKey && top.identity === faceIdentity && top.revision === faceRevision) return list;
-		            const same = Boolean(top && top.key === faceKey);
-		            const next = { id: seq.current++, key: faceKey, identity:faceIdentity, src: face.src, glyph: face.glyph, crop:face?.crop, avatar:face?.avatar, spriteBundle: face && face.spriteBundle, revision: faceRevision, enter: snap.current ? "none" : same ? "fade" : "slide", out: "" };
-		            if (snap.current) return [next];
-		            // Fast paging keeps at most the two newest leaving layers.
-		            return list.map(layer => layer.out ? layer : Object.assign({}, layer, { out: same ? "fade" : "slide" })).slice(-2).concat([next]);
-		        });
-		        const timer = forkForeground.setTimeout(() => setLayers(list => list.filter(layer => !layer.out)), 420);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [faceKey, faceIdentity, faceRevision]);
-		    // A snap that arrives while a layer is still leaving drops it in the same frame (state follows, so it never returns).
-		    React.useLayoutEffect(function () { if (props.snap && layers.some(layer => layer.out)) setLayers(list => list.filter(layer => !layer.out)); }, [props.snap, layers]);
-		    const shown = props.snap ? layers.filter(layer => !layer.out) : layers;
-		    // the frame's caption names the 差分
-		    // the face shows - its readable label through the shared resolver (props.moodOf); no label, no caption.
-		    const mood = face && props.moodOf ? props.moodOf(face.avatar?.stateId) : "";
-		    // a new speaker's face (a slide-in layer) names its entrance a
-		    // or b by turn, so the next new face restarts the skin's frame motion (theme.css «art portrait frame motion»); a snap
-		    // (a click that finished the page, skip, history) drops it and the side stands at rest at once.
-		    const entering = shown.filter(layer => !layer.out).pop();
-		    const faceIn = entering && entering.enter === "slide" && !props.snap ? (entering.id % 2 ? "a" : "b") : undefined;
-		    // The frame waits at its first pose until the new face is decoded and shown (a crop stays hidden until its image loads),
-		    // so the face rides up with the frame instead of popping in mid-rise; decode() keeps the work off the entrance's frames.
-		    // It starts after 500 ms whatever happens, so a slow image never holds the speaker back.
-		    const sideRef = React.useRef(null), [shownIn, setShownIn] = React.useState(0);
-		    const enteringId = faceIn ? entering.id : 0;
-		    React.useLayoutEffect(function () {
-		        const root = sideRef.current;
-		        if (!enteringId || !root) return undefined;
-		        let done = false, frame = 0;
-		        const start = () => { if (!done) { done = true; setShownIn(enteringId); } };
-		        const check = () => {
-		            frame = 0;
-		            const layer = [...root.querySelectorAll(".fork-gal-side-img:not([data-out])")].pop();
-		            if (layer && layer.classList.contains("fork-gal-side-glyph")) { start(); return; } // a placeholder glyph has nothing to decode
-		            const img = layer && (layer.tagName === "IMG" ? layer : layer.querySelector("img"));
-		            if (!img || !img.complete || !img.naturalWidth || img.style.visibility === "hidden") return;
-		            (img.decode ? img.decode() : Promise.resolve()).catch(() => {}).then(() => forkForeground.requestAnimationFrame(start));
-		        };
-		        const later = () => { if (!frame) frame = forkForeground.requestAnimationFrame(check); };
-		        root.addEventListener("load", later, true);
-		        const watch = new MutationObserver(later);
-		        watch.observe(root, { subtree: true, attributes: true, attributeFilter: ["style", "src"] });
-		        check();
-		        const cap = forkForeground.setTimeout(start, 500);
-		        return () => { done = true; root.removeEventListener("load", later, true); watch.disconnect(); forkForeground.clearTimeout(cap); if (frame) forkForeground.cancelAnimationFrame(frame); };
-		    }, [enteringId]);
-		    return h("div", { ref: sideRef, className: "fork-gal-side" + (face ? " is-on" : "") + (props.calm ? " is-calm" : ""), "aria-hidden": true, "data-face-in": faceIn, "data-face-wait": faceIn && shownIn !== enteringId ? "" : undefined, style: props.clearMs ? { "--gal-face-clear-ms": props.clearMs + "ms" } : undefined },
-		        // identify each layer so its orientation follows its own stage actor.
-		        shown.map(layer => layer.glyph ? h("span", { key: layer.id, "data-face-actor": layer.key, className: "fork-gal-side-img fork-gal-side-glyph", "data-enter": layer.enter, "data-out": layer.out || undefined }, h("b", null, layer.glyph)) : layer.spriteBundle ? h(SpriteImage, { key: layer.id, faceActor: layer.key, className: "fork-gal-side-img", bundle: !layer.out && face?.identity === layer.identity ? face.spriteBundle : layer.spriteBundle, enter: layer.enter, out: layer.out, audio: !layer.out && face ? face.audio : null, enabled: !layer.out && face && face.enabled, voiceKey: !layer.out && face ? face.voiceKey : "out:" + layer.id }) : h(PackImage, { key: layer.id, identity:layer.identity, "data-face-actor": layer.key, cropOverflow:true, className: "fork-gal-side-img", "data-enter": layer.enter, "data-out": layer.out || undefined, src: !layer.out && face?.identity === layer.identity ? face.src : layer.src, crop:!layer.out && face?.identity === layer.identity ? face.crop : layer.crop, avatar:!layer.out && face?.identity === layer.identity ? face.avatar : layer.avatar, alt: "", draggable: false })),
-		        face && emote ? h("img", { key: "e" + emote.nonce, className: "fork-gal-face-emote", "data-kind": emote.kind, src: galEmoteDataUrl(emote.kind, galCssColor(emote.color)), alt: "" }) : null,
-		        mood ? h("span", { key: "mood", className: "fork-gal-side-mood" }, mood) : null,
-		        // the frame's masked part in the speaker colour, a layer of the side itself.
-		        face && props.tint ? h("i", { key: "tint", className: "fork-gal-side-tint" }) : null,
-		        face && props.nameArc && props.name ? h(GalSideName, { key: "name", arc: props.nameArc, name: props.name }) : null);
-		}
-		// the speaker's name set along the frame's circle, in the
-		// frame image's own px (the svg covers the side, which is the frame): the glyphs' middles on the circle, centred on its lowest
-		// (or highest) point; engraved - a dark copy a hair above, a light one below, the ink (a gradient down the glyphs) on top. Any
-		// name (live text: two glyphs or eight, CJK or Latin) stays inside the span's arc, never over the frame's ornaments past it:
-		// set smaller first, down to .72; then its tracking closed, down to -.04em; then smaller again as far as it takes (to the
-		// skin's min, default .25 of the font); past that (or a measure off by a hair) pressed to the arc - narrower glyphs at the
-		// same height. Legibility (skin-interface.md「框上的名字」): bed = a soft dark band under the run (the channel darkened behind
-		// it); stroke = an outline on the ink itself (paint-order: stroke, then fill - one crisp vector edge); shadow = one hard copy
-		// of the outlined glyphs offset behind them. Nothing over the glyphs is filtered or rasterised: the bed's blur is its own
-		// layer under them (an svg filter on the ink softened its whole edge - measured 2.75 px against 1.65 px). The plain line
-		// beside it is the same name for a phone's small side (theme.css: shown under the side there, never with the arc).
-		// Decoration only: the box's plate keeps the name for screen readers.
-		function GalSideName(props) {
-		    const h = React.createElement, a = props.arc, name = String(props.name);
-		    const id = "fk-face-name-" + React.useId().replace(/[^a-z0-9]/gi, "");
-		    const ink = React.useRef(null), [fit, setFit] = React.useState({ name: "", scale: 1, spacing: a.spacing, press: 0 });
-		    const top = a.side === "top", room = a.r * a.span * Math.PI / 180;
-		    (React.useLayoutEffect || React.useEffect)(function () {
-		        const text = ink.current;
-		        if (!text || typeof document === "undefined") return;
-		        let live = true;
-		        // The run measured at the full size in the glyphs' own face (a canvas: the svg's run is already fitted), so a refit
-		        // never reads its own result; the length scales with the size.
-		        const measure = () => {
-		            const context = live && document.createElement("canvas").getContext("2d");
-		            if (!context) return;
-		            context.font = a.weight + " " + a.font + "px " + getComputedStyle(text).fontFamily;
-		            // the run at full size: its glyphs alone, and its gaps (one spacing after every glyph, as the svg sets it)
-		            const glyphs = context.measureText(name).width, gaps = Array.from(name).length * a.font, run = em => glyphs + em * gaps;
-		            let scale = 1, spacing = a.spacing;
-		            // a phone's own floor (narrow.nameMin, CSS px): the frame px it takes at the side's drawn scale
-		            const svg = text.ownerSVGElement, k = svg && svg.getScreenCTM ? svg.getScreenCTM()?.a : 0;
-		            const phone = a.narrowMin && k > 0 && typeof matchMedia === "function" && matchMedia("(max-width: 640px)").matches ? a.narrowMin / k : 0;
-		            const floor = Math.min(1, Math.max(a.min || a.font * .25, phone) / a.font);
-		            if (run(spacing) > room) scale = Math.max(.72, floor, room / run(spacing));
-		            if (run(spacing) * scale > room) spacing = Math.max(-.04, Math.min(spacing, (room / scale - glyphs) / gaps));
-		            if (run(spacing) * scale > room) scale = Math.max(floor, Math.min(scale, room / run(spacing)));
-		            scale = Math.round(scale * 1000) / 1000; spacing = Math.round(spacing * 1000) / 1000;
-		            const press = run(spacing) * scale > room + .5 ? Math.round(room) : 0;
-		            setFit(previous => previous.name === name && previous.scale === scale && previous.spacing === spacing && previous.press === press ? previous : { name, scale, spacing, press });
-		        };
-		        measure();
-		        if (typeof document !== "undefined" && document.fonts?.ready) document.fonts.ready.then(measure);
-		        // the side's drawn scale changes with the viewport (a phone's floor is in CSS px)
-		        const resized = () => measure();
-		        if (a.narrowMin && typeof window !== "undefined") window.addEventListener("resize", resized);
-		        return () => { live = false; if (a.narrowMin && typeof window !== "undefined") window.removeEventListener("resize", resized); };
-		    }, [name, room, a.narrowMin]);
-		    const scale = fit.name === name ? fit.scale : 1, press = fit.name === name ? fit.press : 0, spacing = fit.name === name ? fit.spacing : a.spacing;
-		    const point = angle => [a.x + a.r * Math.cos(angle * Math.PI / 180), a.y + a.r * Math.sin(angle * Math.PI / 180)].map(n => Math.round(n * 100) / 100).join(" ");
-		    // Left to right: under the middle the way runs counter-clockwise (the glyphs' tops toward the centre), over it clockwise.
-		    const from = top ? 270 - a.span / 2 : 90 + a.span / 2, to = top ? 270 + a.span / 2 : 90 - a.span / 2;
-		    const path = "M" + point(from) + " A" + a.r + " " + a.r + " 0 " + (a.span > 180 ? 1 : 0) + " " + (top ? 1 : 0) + " " + point(to);
-		    const size = a.font * scale, shift = Math.round(a.font * .045 * 100) / 100;
-		    const layer = (key, fill, dy, extra) => h("text", Object.assign({ key, ref: key === "ink" ? ink : undefined, className: "fork-gal-side-name-" + key, fill, transform: dy ? "translate(0 " + dy + ")" : undefined,
-		        textLength: press || undefined, lengthAdjust: press ? "spacingAndGlyphs" : undefined, dominantBaseline: "central", textAnchor: "middle",
-		        "data-fit": scale + " " + spacing, style: { fontSize: size + "px", fontWeight: a.weight, letterSpacing: spacing + "em" } }, extra), h("textPath", { href: "#" + id, startOffset: "50%" }, name));
-		    const box = { x: "-25%", y: "-60%", width: "150%", height: "220%" };
-		    const outline = color => a.stroke ? { stroke: color, strokeWidth: a.stroke.width * 2, strokeLinejoin: "round", paintOrder: "stroke fill" } : {};
-		    return h(React.Fragment, null,
-		        h("svg", { className: "fork-gal-side-name", viewBox: "0 0 " + a.view[0] + " " + a.view[1], "aria-hidden": true, focusable: "false" },
-		            h("defs", null, h("path", { id, d: path, fill: "none" }),
-		                h("linearGradient", { id: id + "-ink", x1: 0, y1: 0, x2: 0, y2: 1 }, h("stop", { offset: 0, stopColor: a.ink[0] }), h("stop", { offset: 1, stopColor: a.ink[1] || a.ink[0] })),
-		                a.bed ? h("filter", Object.assign({ id: id + "-bed" }, box), h("feGaussianBlur", { stdDeviation: Math.round(a.bed.width * 25) / 100 }),
-		                    h("feComponentTransfer", null, h("feFuncA", { type: "linear", slope: a.bed.alpha }))) : null,
-		                null),
-		            a.bed ? layer("bed", a.bed.color, 0, { stroke: a.bed.color, strokeWidth: Math.max(0, a.bed.width - size), strokeLinejoin: "round", filter: "url(#" + id + "-bed)" }) : null,
-		            a.engrave ? layer("dark", a.engrave.dark, -shift) : null,
-		            a.engrave ? layer("light", a.engrave.light, shift) : null,
-		            a.shadow ? layer("shadow", a.shadow.color, 0, Object.assign({ transform: "translate(" + a.shadow.dx + " " + a.shadow.dy + ")" }, outline(a.shadow.color))) : null,
-		            layer("ink", "url(#" + id + "-ink)", 0, a.stroke ? outline(a.stroke.color) : undefined)),
-		        h("span", { className: "fork-gal-side-caption", style: { "--name-len": Array.from(name).length } }, name));
-		}
-		// the stand-in face for a named line without one - the skin's
-		// image, or (initial) the engine's disc with the displayed name's first letter (a Latin one upper-cased); keyed by the name,
-		// so a change of speaker enters as a new face does. Display only: the avatar resolver stays the one source of faces.
-		function galPlaceholderFace(spec, name) {
-		    const key = "placeholder:" + name;
-		    if (spec.image) return { key, identity: key, src: spec.image };
-		    const glyph = (String(name).match(/[\p{L}\p{N}]/u) || Array.from(String(name)))[0] || "";
-		    return glyph ? { key, identity: key, src: "", glyph: glyph.toUpperCase() } : null;
-		}
-		// Title card (director `title`, one-shot): black screen, serif text typed out, a short hold, fade out.
-		// Click skips it. props.title: { text, nonce }.
-		// Timings: the resolved `title` effect (stage-effects.cjs); 减少动态 shows the text at once, holds, then fades out.
-		function GalTitle(props) {
-		    const h = React.createElement;
-		    const text = Array.from(props.title.text || "");
-		    const spec = props.timing || STAGE_EFFECTS.title, calm = props.reducedMotion === true;
-		    const [shown, setShown] = React.useState(calm ? text.length : 0);
-		    const [phase, setPhase] = React.useState(calm ? "hold" : "in"); // in → typing → hold → out
-		    React.useEffect(function () {
-		        let timer = 0;
-		        if (phase === "in") timer = forkForeground.setTimeout(() => setPhase("typing"), 1000 * spec.in);
-		        else if (phase === "typing") timer = shown < text.length ? forkForeground.setTimeout(() => setShown(n => n + 1), 1000 * spec.step) : forkForeground.setTimeout(() => setPhase("hold"), 60);
-		        else if (phase === "hold") timer = forkForeground.setTimeout(() => setPhase("out"), 1000 * spec.hold);
-		        else if (phase === "out") timer = forkForeground.setTimeout(() => props.onDone(), 1000 * spec.out);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [phase, shown]);
-		    return h("div", { className: "fork-gal-title is-" + phase, role: "status", "aria-label": props.title.text, title: "点击跳过",
-		        onClick: event => { event.stopPropagation(); if (phase !== "out") setPhase("out"); } },
-		        h("div", { className: "fork-gal-title-text", "aria-hidden": true },
-		            text.map((ch, i) => h("span", { key: i, className: i < shown ? "is-on" : "" }, ch))),
-		        h("i", { className: "fork-gal-title-rule", "aria-hidden": true }));
-		}
+		function GalFace(props) { return stageViews ? React.createElement(stageViews.Face, props) : null; }
+		function GalSide(props) { return stageViews ? React.createElement(stageViews.Side, props) : null; }
+		function galPlaceholderFace(...args) { return stageViews.placeholderFace(...args); }
+		function GalTitle(props) { return stageViews ? React.createElement(stageViews.Title, props) : null; }
 		// Machine preference: film mode (letterbox + subtitles instead of the dialogue box), off by default.
 		const stageFilm = (function () {
 		    const KEY = "fork-stage-film";
@@ -60909,10 +60108,10 @@ function galUiApplier() {
 		        }
 		        if (!row) return;
 		        let textDigest = null;
-		        const digestOf = () => textDigest === null ? (textDigest = galTextDigest(row.parts)) : textDigest;
-		        if (!galPositionReady(initial.entry ? null : saved,selected,row.parts,row.text.pages,digestOf)) return;
+		        const digestOf = () => textDigest === null ? (textDigest = stageViews.position.digest(row.parts)) : textDigest;
+		        if (!stageViews.position.ready(initial.entry ? null : saved,selected,row.parts,row.text.pages,digestOf)) return;
 		        const index = initial.entry?.para ? row.text.pages.findIndex(page => page.anchor.para >= initial.entry.para) :
-		            galRestorePosition(saved,selected,row.text.pages.length,digestOf(),row.text.pages).page;
+		            stageViews.position.restore(saved,selected,row.text.pages.length,digestOf(),row.text.pages).page;
 		        // A restored position (reload) shows its history page still (it never auto-plays); an explicit entry is a jump.
 		        stageSessions.owner.navigate(sessionId,selected,Math.max(0,index || 0),selected === latestTurn && !initial.entry,initial.entry?.para,!initial.entry);
 		        setRestored(sessionId);
@@ -60922,7 +60121,7 @@ function galUiApplier() {
 		    const playerInputs = useGalPlayerInputs(sessionId, props.choiceProps && props.choiceProps.useChat);
 		    const film = useStageFilm();
 		    const textScales = useStageReading().textScale;
-		    const subtitles = useGalSubtitles(film, pages, page, sessionId + ":" + turn, config.stage && config.stage.theme, textScales, !transitioning);
+		    const subtitles = stageViews.subtitles.useSubtitles(film, pages, page, sessionId + ":" + turn, config.stage && config.stage.theme, textScales, !transitioning);
 		    const card = subtitles.card;
 		    const lastCard = card >= subtitles.cards.length - 1;
 		    const [typed, setTyped] = React.useState(false);
@@ -60930,8 +60129,8 @@ function galUiApplier() {
 		    const readingPage = transitioning ? { kind: "transition", para: pages[page]?.para || 1, text: playerInputs[turns[turnIndex + 1]] || "（这一轮没有可显示的玩家输入）" } : pages[page] || null;
 		    // the player's input page (「你 · 第 N 轮」) is paginated by the same pager into cards that fit the
 		    // box (kinsoku, balanced last card); paging forward and back walks its cards like any page's (go). The input shows
-		    // at most GAL_INPUT_CARDS cards, the last one ending in 「……」 when the input needs more; the backlog keeps it whole.
-		    const inputSubtitles = useGalSubtitles(film, transitioning ? [readingPage] : [], 0, sessionId + ":" + turn + ":input", config.stage && config.stage.theme, textScales, transitioning, GAL_INPUT_CARDS);
+		    // at most stageViews.subtitles.inputCards cards, the last one ending in 「……」 when the input needs more; the backlog keeps it whole.
+		    const inputSubtitles = stageViews.subtitles.useSubtitles(film, transitioning ? [readingPage] : [], 0, sessionId + ":" + turn + ":input", config.stage && config.stage.theme, textScales, transitioning, stageViews.subtitles.inputCards);
 		    const inputCard = transitioning ? inputSubtitles.card : 0, inputLast = inputCard >= inputSubtitles.cards.length - 1;
 		    const textRef = React.useCallback(node => { subtitles.textRef(node); inputSubtitles.textRef(node); }, [subtitles.textRef, inputSubtitles.textRef]);
 		    const streaming = parts.some(part => part.streaming);
@@ -61140,7 +60339,7 @@ function galUiApplier() {
 		        onLatest() { closeMenu(); jumpLatest(); },
 		        onKeys() { closeMenu(); firstRun.showKeys(); },
 		        onLeave() { menuFullscreen.current = false; setMenu(false); props.onExit(); },
-		        // 自动 / 跳过 rows where the screen shows no such control (galActionHomes).
+		        // 自动 / 跳过 rows where the screen shows no such control (stageViews.controls.actionHomes).
 		        onAuto() { closeMenu(); setSkipping(false); setAuto(value => !value); },
 		        onSkip() { closeMenu(); toggleSkip(); }
 		    };
@@ -61214,9 +60413,9 @@ function galUiApplier() {
 		    const ransom = activeSkin?.nameplate?.shape === 'ransom';
 		    // art.nameplate.initials sets the name by part (galNameParts).
 		    const nameInitials = Boolean(activeSkin?.art?.nameplate?.initials);
-		    // where each reading action lives on this stage (galActionHomes) - the control row or the
+		    // where each reading action lives on this stage (stageViews.controls.actionHomes) - the control row or the
 		    // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
-		    const homes = galActionHomes(activeSkin, narrow), menuFold = homes.fold;
+		    const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
 		    // the entries' reports - a badge keeps its entry on screen while the top
 		    // bar hides; the first-run key list names D only while 弹幕 is usable.
 		    const entryStore = React.useMemo(createStageEntryStore, []);
@@ -61329,7 +60528,7 @@ function galUiApplier() {
 		            else { setTransition(null); setTyped(false); }
 		            return true;
 		        }
-		        const next = galSubtitleStep(page, card, delta, subtitles.counts);
+		        const next = stageViews.subtitles.step(page, card, delta, subtitles.counts);
 		        if (next.page === page && next.card === card) return false;
 		        showCard(next.page, next.card, delta > 0);
 		        return true;
@@ -61362,7 +60561,7 @@ function galUiApplier() {
 		    // is followed as its pages arrive; skip ends at the round's end. A held Ctrl ends there like the SKIP control.
 		    function stopSkip() { setSkipping(false); setSkipHeld(false); }
 		    // The one SKIP toggle every home calls (control row, a mode widget's row, a skin's drawn button, the Esc menu row): skip
-		    // on ends auto. Every home's control carries GAL_SKIP_CONTROL, which the stop-on-any-press rule below leaves alone.
+		    // on ends auto. Every home's control carries stageViews.controls.skipSelector, which the stop-on-any-press rule below leaves alone.
 		    function toggleSkip() { setAuto(false); setSkipping(value => !value); }
 		    // the SKIP control behaves like a held Ctrl — any key, click or
 		    // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
@@ -61449,7 +60648,7 @@ function galUiApplier() {
 		            const timer = forkForeground.setInterval(function () {
 		                const now = voicePlayer.get();
 		                const audio = now && now.owner === voice.owner && now.id === voice.id && now.audio;
-		                const target = audio && galSubtitleVoiceTime(subtitles.cards, card, audio.duration);
+		                const target = audio && stageViews.subtitles.voiceTime(subtitles.cards, card, audio.duration);
 		                if (audio && !audio.paused && target !== null && audio.currentTime >= target) go(1, true);
 		            }, 80);
 		            return () => forkForeground.clearInterval(timer);
@@ -61524,7 +60723,7 @@ function galUiApplier() {
 		            else if (letter === "r") replay();
 		            // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
 		            // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
-		            else if (letter === "g") { if (galPressRegenerate(rootRef.current)) event.preventDefault(); }
+		            else if (letter === "g") { if (stageViews.controls.pressRegenerate(rootRef.current)) event.preventDefault(); }
 		            // Like the AUTO control: turning auto on also ends a SKIP.
 		            else if (letter === "a") { if (!auto) setSkipping(false); setAuto(!auto); }
 		        }
@@ -61543,7 +60742,7 @@ function galUiApplier() {
 		        // any other key, click or wheel also stops a SKIP-control fast-forward, and
 		        // input() / wheel() drop that input instead of turning a page. The SKIP control's own press toggles it instead.
 		        function interrupt(event) {
-		            const own = event && event.type === "pointerdown" && event.target && typeof event.target.closest === "function" && event.target.closest(GAL_SKIP_CONTROL);
+		            const own = event && event.type === "pointerdown" && event.target && typeof event.target.closest === "function" && event.target.closest(stageViews.controls.skipSelector);
 		            const running = skippingRef.current && !own;
 		            skipStopped.current = running;
 		            cancel();
@@ -61946,7 +61145,7 @@ function galUiApplier() {
 		        // the skin's own LOG / AUTO / SKIP on the stage;
 		        // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
 		        // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.
-		        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(StageSkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: GAL_KEY_CAPS, auto, skipping: skipLatch, atEnd, menuOpen,
+		        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(stageViews.SkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
 		            onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
 
 		        awaiting ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
@@ -61992,9 +61191,9 @@ function galUiApplier() {
 		            // (the keyed node restarts its CSS fade); hover still shows it in full.
 		            h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
 		                h("span", null, pages.length ? (page + 1) + " / " + pages.length + (streaming ? "+" : "") : "")),
-		            // phones show only galControlIds(true); the rest is in the menu.
+		            // phones show only stageViews.controls.ids(true); the rest is in the menu.
 		            menuFold ? null : h("div", { className: "fork-gal-controls", role: "toolbar", "aria-label": "舞台控制", "data-compact": narrow || undefined },
-		                galControlIds(narrow).filter(id => galControlDrawn(id, activeSkin)).map(id =>
+		                stageViews.controls.ids(narrow).filter(id => stageViews.controls.drawn(id, activeSkin)).map(id =>
 		                    id === "auto" ? control("auto", auto ? "停止自动（A）" : "自动翻页（A）", () => { setSkipping(false); setAuto(!auto); }, auto) :
 		                    id === "skip" ? control("skip", skipLatch ? "停止跳过" : "跳过（按住 Ctrl 快进）", toggleSkip, skipping, atEnd) :
 		                    id === "eye-off" ? control("eye-off", "隐藏文本框（H / 右键）", () => setHidden(true)) :
@@ -62063,11 +61262,11 @@ function galUiApplier() {
 		            onClick: event => { event.stopPropagation(); openMenu(false); } }, controlIcon("menu", menuOpen));
 		    }
 		    function control(icon, label, action, active, disabled) {
-		        return h("button", { key: icon, type: "button", className: "fork-gal-control" + (active ? " is-active" : ""), "data-action": GAL_CONTROL_ACTIONS[icon] || icon, title: label, "aria-label": label, "aria-pressed": active === undefined ? undefined : Boolean(active), disabled: Boolean(disabled),
+		        return h("button", { key: icon, type: "button", className: "fork-gal-control" + (active ? " is-active" : ""), "data-action": stageViews.controls.actionFor(icon), title: label, "aria-label": label, "aria-pressed": active === undefined ? undefined : Boolean(active), disabled: Boolean(disabled),
 		            onClick: event => { event.stopPropagation(); action(); refocusStage(event, icon === "eye-off"); } }, controlIcon(icon, active, disabled));
 		    }
 		    function controlIcon(icon, active, disabled) {
-		        const art = activeSkin?.resolvedControlIcons?.[GAL_CONTROL_ACTIONS[icon] || icon];
+		        const art = activeSkin?.resolvedControlIcons?.[stageViews.controls.actionFor(icon)];
 		        if (!art) return h(Icon, { name: icon, size: 17 });
 		        const glyph = h("img", { key: "icon", className: "fork-gal-control-icon", src: active && art.on || art.image, alt: "", "aria-hidden": true, draggable: false });
 		        // the icon on the skin's drawn body - its
@@ -62095,136 +61294,12 @@ function galUiApplier() {
 		    }
 		}
 
-		// the text column (is-facing gutter) is decided once per page, when it opens, from what is known
-		// synchronously: the face window is on, the page is a spoken line, and the speaker has a face (the accepted
-		// portraits, else what this session already learned, else "is a configured character"). Portrait loading never
-		// moves it mid-page: a face that arrives later fades into the reserved window; one that turns out missing leaves
-		// the gutter empty until the page ends. Narration stays full width.
-		// stand: the page shows a face whatever the speaker has (a skin's art.portrait.placeholder stands in for a missing one).
-		function useGalFaceColumn(sessionId, pageKey, speaker, portraits, characters, enabled, stand) {
-		    const memory = React.useRef(null), latch = React.useRef(null);
-		    if (!memory.current || memory.current.sessionId !== sessionId) memory.current = { sessionId, faces: new Map() };
-		    for (const [alias, face] of portraits) memory.current.faces.set(alias, Boolean(face));
-		    const key = JSON.stringify([sessionId, pageKey, speaker, Boolean(enabled), Boolean(stand)]);
-		    if (!latch.current || latch.current.key !== key) {
-		        const known = memory.current.faces.get(speaker);
-		        latch.current = { key, facing: Boolean(enabled && (stand || speaker && (known ?? (characters || []).some(character => character && character.alias === speaker)))) };
-		    }
-		    return latch.current.facing;
-		}
-		// face handoff between pages. The classic text column follows
-		// the face gutter, so a page that drops the gutter (a faced line followed by narration, a faceless line or a
-		// close-up) would start writing where the previous face still stands. The new page is laid out at once (no reflow),
-		// the face clears in clearMs and only then does the first glyph appear: text never shares the screen with a face it
-		// would run under. A page that gains the gutter does not wait (the face slides into reserved space beside the text).
-		// Skip, page back / jumps and reopening snap (no hold, no animation); a click during the hold shows the page and
-		// cuts the face at once. Reduced motion keeps the order with a shorter, plain fade.
-		// The clear animation (theme.css fork-gal-side-clear) and the text hold: the hold adds two frames so the face
-		// is gone even when its animation started a frame after the page committed.
-		const GAL_FACE_CLEAR_MS = 120, GAL_FACE_CLEAR_CALM_MS = 90, GAL_FACE_HOLD_MARGIN_MS = 32;
-		function galFaceClearMs(calm) { return calm ? GAL_FACE_CLEAR_CALM_MS : GAL_FACE_CLEAR_MS; }
-		// previous: the page shown before ({ facing, shown }), next: { facing, moves (the column follows the gutter), snap, calm }.
-		function galFaceHold(previous, next) {
-		    if (!previous || !next || next.snap || !next.moves) return 0;
-		    return previous.facing && previous.shown && !next.facing ? galFaceClearMs(next.calm) + GAL_FACE_HOLD_MARGIN_MS : 0;
-		}
-		// Auto mode: a held page's wait is shortened by the hold, so auto pacing per page stays as without the handoff.
-		function galHandoffAutoDelay(delay, heldMs) { return Math.max(0, delay - (heldMs || 0)); }
-		// Returns { holding (typewriter waits), cut (the outgoing face must go now), heldMs (for auto pacing) }.
-		function useGalFaceHandoff(pageKey, { facing, shown, moves, snap, calm, typed }) {
-		    const ref = React.useRef(null), [, setReleased] = React.useState(0);
-		    if (!ref.current || ref.current.key !== pageKey) {
-		        const hold = galFaceHold(ref.current, { facing, moves, snap, calm });
-		        ref.current = { key: pageKey, facing, shown, hold, released: !hold };
-		    }
-		    const current = ref.current;
-		    // What this page shows last is what the next page hands off from (a late face counts, a lost one does not).
-		    current.shown = Boolean(shown);
-		    React.useEffect(function () {
-		        if (current.released) return;
-		        const timer = forkForeground.setTimeout(() => { current.released = true; setReleased(n => n + 1); }, current.hold);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [current]);
-		    return { holding: !current.released && !typed && !snap, cut: current.hold > 0 && Boolean(typed || snap), heldMs: current.hold };
-		}
-		// localized, theme-matching runtime notices. Display only;
-		// they stack under the top-right controls, clear of the place/music HUD; Chinese failure details list right under the title. No reassurance
-		// subtitles (panel-ui-design.md §一.5): a short title is the whole notice.
-		// Scene diagnostics are internal: only the 调试视图 (body.dsh-fork-debug) shows them.
-		const GAL_DIAGNOSTIC_TEXT = { 'legacy-media-reconstructed': '旧存档未记录素材版本，已按当前素材重建' };
-		const GAL_DEBUG_HOWTO = '打开「设置 › DSH Tavern › 调试视图」，这里会显示具体原因。';
-		// with the shared display preference in scope (features/settings.js) the line is
-		// one action instead — 「打开调试视图」 turns the same switch on, and the technical line shows in place.
-		const GAL_DEBUG_PREFS = () => typeof displayPreferences === 'object' && displayPreferences && typeof displayPreferences.save === 'function' ? displayPreferences : null;
-		// The shared display preference snapshot (settings.js displayPreferences): null until read, then { hideContextAndReasoning, … }.
-		const galDebugHidden = snapshot => snapshot ? snapshot.hideContextAndReasoning : null;
-		// every display fallback of a missing 差分 image in this
-		// session (packSpriteFallbacks rows), once per figure · outfit · 差分, in the order they first happened. Rows are kept
-		// across pages until the session changes; nothing is written anywhere.
-		function useGalSpriteFallbacks(sessionId, rows) {
-		    const seen = React.useRef(null);
-		    if (!seen.current || seen.current.sessionId !== sessionId) seen.current = { sessionId, rows: new Map(), list: [] };
-		    const current = seen.current;
-		    let added = false;
-		    for (const row of rows) if (!current.rows.has(row.key)) { current.rows.set(row.key, row); added = true; }
-		    if (added) current.list = [...current.rows.values()];
-		    return current.list;
-		}
-		// 「大肥鱼 · 女仆装 · 平和 → 喜悦」: figure · outfit · requested 差分 → what the stage showed instead.
-		function galSpriteFallbackLine(row, nameOf) {
-		    const shown = row.shown === '@avatar' ? '头像（小图）' : row.shown ? row.shownLabel || row.shown : '没有可显示的图';
-		    return [row.figure || (nameOf && nameOf(row.alias)) || row.alias, row.outfit, row.requestedLabel || row.requested].filter(Boolean).join(' · ') + ' → ' + shown;
-		}
-		function galSpriteFallbackTitle(rows) {
-		    return rows.every(row => row.shown === 'calm') ? '差分缺图，已临时显示平和' : '差分缺图，已临时替代显示';
-		}
-		// A sprite outfit without any image (not even calm) stands in as its avatar: a small framed portrait in the figure's
-		// stage slot, under CG and the text box. Display only.
-		function GalStandIns({ members, portraits, colorOf }) {
-		    const h = React.createElement;
-		    return h('div', { className: 'fork-gal-standins', 'aria-hidden': true }, members.map(member => {
-		        const face = portraits.get(member.id);
-		        return h('div', { key: member.id, className: 'fork-gal-standin', 'data-alias': member.id, style: { left: 100 * member.x + '%', '--figure-color': colorOf(member.id) || 'var(--fork-accent)' } },
-		            h(PackImage, { identity: face.identity, src: face.src, crop: face.crop, avatar: face.avatar, className: 'fork-gal-standin-img', alt: '' }));
-		    }));
-		}
-		// a notice row's raw technical text (code: message) sits right under its
-		// reason in the same list — secondary mono ink, selectable. Longer than three lines it is clamped and a click (not a text
-		// selection) or Enter / Space unfolds it in place.
-		function GalRawText({ text }) {
-		    const h = React.createElement, ref = React.useRef(null);
-		    const [open, setOpen] = React.useState(false), [long, setLong] = React.useState(false);
-		    React.useLayoutEffect(function () {
-		        const el = ref.current;
-		        if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1);
-		    }, [text, open]);
-		    const toggle = () => setOpen(value => !value);
-		    const expandable = long || open;
-		    return h('code', { ref, className: 'fork-gal-runtime-raw', 'data-clamped': open ? undefined : '',
-		        ...(expandable ? { role: 'button', tabIndex: 0, 'aria-expanded': open,
-		            onClick: () => { const selection = typeof getSelection === 'function' ? getSelection() : null; if (!selection || selection.isCollapsed) toggle(); },
-		            onKeyDown: event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); toggle(); } } } : {}) }, text);
-		}
-		// With the shared preference the raw text follows the 调试视图 switch (re-rendered when it changes, here or in 设置).
-		function GalRawLine({ text }) {
-		    const prefs = GAL_DEBUG_PREFS();
-		    const hidden = galDebugHidden(React.useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot));
-		    return hidden === false ? React.createElement(GalRawText, { text }) : null;
-		}
-		// The list's last row while the 调试视图 is off: one action 「打开调试视图」, and the raw text shows under each reason.
-		function GalDebugLine() {
-		    const h = React.createElement, prefs = GAL_DEBUG_PREFS();
-		    const hidden = galDebugHidden(React.useSyncExternalStore(prefs.subscribe, prefs.snapshot, prefs.snapshot));
-		    const [opening, setOpening] = React.useState(false), [failed, setFailed] = React.useState(false);
-		    if (hidden === false) return null;
-		    async function open() {
-		        if (opening) return;
-		        setOpening(true); setFailed(false);
-		        try { await prefs.save({ hideContextAndReasoning: false }); } catch (_) { setFailed(true); } finally { setOpening(false); }
-		    }
-		    return h('li', { className: 'fork-gal-runtime-howto' }, failed ? '⚠ 没能打开调试视图 ' : null,
-		        h('button', { type: 'button', className: 'fork-gal-runtime-open-debug', disabled: opening, onClick: open }, opening ? '正在打开…' : '打开调试视图'));
-		}
+		function useGalFaceColumn(...args) { return stageViews.useFaceColumn(...args); }
+		function useGalFaceHandoff(...args) { return stageViews.useFaceHandoff(...args); }
+		function galFaceClearMs(...args) { return stageViews.faceClearMs(...args); }
+		function galHandoffAutoDelay(...args) { return stageViews.handoffAutoDelay(...args); }
+		function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFallbacks(...args); }
+		function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
 		// an on-stage Live2D figure is showing its static sprite (or nothing) because
 		// this machine has no Cubism Core (the user imports it: official page, then the file). One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry
 		// (CubismCoreEntry, as in 设置 › DSH Tavern › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
@@ -62238,63 +61313,8 @@ function galUiApplier() {
 		// gesture resumes the audio (the BGM kick and the mixer resume listen to it). A click on the bare stage only dismisses
 		// (it does not also turn the page); keys pass through (A still starts auto). the first page turn
 		// (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
-		const GAL_KEYS_HINT = 'stage-shortcuts', GAL_NO_MUSIC = { subscribeBlocked: () => () => {}, blocked: () => false },
-		    GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
-		let galSoundHintShown = false;
-		function useGalFirstRunHints(visible, rootRef, position) {
-		    const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
-		    const [keys, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
-		    const music = typeof stageMusic === 'object' && stageMusic && typeof stageMusic.subscribeBlocked === 'function' ? stageMusic : GAL_NO_MUSIC;
-		    const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
-		    React.useEffect(function () {
-		        if (!visible || !store) return undefined;
-		        let live = true;
-		        Promise.resolve(store.load()).then(() => { if (live && store.loaded() && !store.seen(GAL_KEYS_HINT)) setKeys(true); }, () => {});
-		        return () => { live = false; };
-		    }, [visible]);
-		    const sound = Boolean(visible && blocked && !soundGone);
-		    if (sound) galSoundHintShown = true;
-		    React.useEffect(function () {
-		        if (!keys && !sound) return undefined;
-		        let timer = 0;
-		        const swallow = event => { event.stopPropagation(); event.preventDefault(); };
-		        function dismiss(event) {
-		            if (keys) store.markSeen(GAL_KEYS_HINT);
-		            setKeys(false); setSoundGone(true);
-		            const target = event.target, root = rootRef.current;
-		            if (event.type === 'pointerdown' && root && target && root.contains(target) && !(target.closest && target.closest('button, input, select, textarea, a'))) {
-		                document.addEventListener('click', swallow, { capture: true, once: true });
-		                timer = setTimeout(() => document.removeEventListener('click', swallow, true), 600);
-		            }
-		        }
-		        window.addEventListener('keydown', dismiss, true);
-		        window.addEventListener('pointerdown', dismiss, true);
-		        return () => { window.removeEventListener('keydown', dismiss, true); window.removeEventListener('pointerdown', dismiss, true); };
-		    }, [keys, sound]);
-		    const shownAt = React.useRef(null);
-		    React.useEffect(function () {
-		        if (!keys) { shownAt.current = null; return; }
-		        if (shownAt.current === null) { shownAt.current = position; return; }
-		        if (shownAt.current !== position) { if (store) store.markSeen(GAL_KEYS_HINT); setKeys(false); }
-		    }, [keys, position]);
-		    const showKeys = React.useCallback(() => setKeys(true), []);
-		    return React.useMemo(() => ({ keys, sound, showKeys }), [keys, sound, showKeys]);
-		}
-		// The stage's real key bindings (the window keydown handler in GalStage, the held Ctrl and galStageShortcut's F12):
-		// [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
-		// stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
-		// R replays the line's voice; D (danmaku-ui.js) is listed only while 弹幕 is usable (galShortcuts).
-		const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'R', 'replay'], ['弹幕', 'D', 'danmaku'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
-		function galShortcuts(danmaku) { return GAL_SHORTCUTS.filter(([, , action]) => action !== 'danmaku' || danmaku); }
-		// G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
-		// the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
-		function galPressRegenerate(root) {
-		    const control = root?.querySelector?.('.fork-gal-choices [data-action="regenerate"]');
-		    if (!control || control.disabled || !control.getClientRects().length) return false;
-		    control.click();
-		    return true;
-		}
-		const GAL_KEY_CAPS = Object.fromEntries(GAL_SHORTCUTS.map(([, key, action, cap]) => [action, cap || key]));
+		const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
+		function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 		// The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
 		const GAL_AWAITING_WRITING = '正在书写下一幕';
 		function galAwaitingText(activity) {
@@ -62303,143 +61323,8 @@ function galUiApplier() {
 		    }
 		    return GAL_AWAITING_WRITING;
 		}
-		// a notice with rows starts folded to its header chip; the
-		// open / folded choice per notice is kept for the current session view only (module memory, reset when the session changes).
-		const galNoticeFolds = { scope: undefined, open: new Map() };
-		function galNoticeOpen(scope) {
-		    if (galNoticeFolds.scope !== scope) { galNoticeFolds.scope = scope; galNoticeFolds.open = new Map(); }
-		    return galNoticeFolds.open;
-		}
-		// the failure notice's one action, the host's replay of the failed turn (the
-		// chat error row's 重新生成本轮). It lives in the title line; a click never folds the notice or turns the page.
-		function GalRetryBody({ onRetry }) {
-		    const [busy, setBusy] = React.useState(false);
-		    async function retry(event) {
-		        event.preventDefault(); event.stopPropagation();
-		        if (busy) return;
-		        setBusy(true);
-		        try { await onRetry(); } finally { setBusy(false); }
-		    }
-		    return React.createElement('button', { type: 'button', className: 'fork-gal-runtime-action', 'data-action': 'retry-body', disabled: busy, 'aria-busy': busy || undefined, onClick: retry }, busy ? '正在重新生成…' : '重新生成');
-		}
-		// 「画面载入失败」 says what failed in plain words. A picture failure is not fixed by
-		// regenerating the story, so the notice never hints at 重新生成 (AGENTS 「玩家界面不显示…「重新生成」提示」); its one action is
-		// 重新载入, which retries the failed models (or starts the renderer again). The raw error is the 调试视图's only.
-		function galSceneFailureText(error) {
-		    const text = String(error || '');
-		    const network = /Failed to fetch|Network error|Load failed|NetworkError|ERR_|资源读取失败|网络/i.test(text);
-		    const what = /^(Spine )?模型加载失败/.test(text) ? '人物模型没能载入'
-		        : /Live2D|Cubism|live2d/.test(text) ? 'Live2D 运行组件没能载入'
-		        : /pixi|WebGL|renderer|canvas/i.test(text) ? '画面渲染组件没能载入'
-		        : network ? '画面资源没能载入' : '部分画面没能载入';
-		    return network ? what + '：网络连接失败' : what;
-		}
-		function GalSceneReload({ onReload }) {
-		    const click = event => { event.preventDefault(); event.stopPropagation(); onReload(); };
-		    return React.createElement('button', { type: 'button', className: 'fork-gal-runtime-action', 'data-action': 'reload-scene', onClick: click }, '重新载入');
-		}
-		'use strict';
-		function createCapabilityNotices() {
-		    const sessions = new Set();
-		    return {
-		        take(sessionId, consumer, resolution) {
-		            if (sessions.has(sessionId)) return [];
-		            const missing = (resolution[consumer] || []).find(row => !row.available && row.onMissing === 'notify');
-		            if (!missing) return [];
-		            sessions.add(sessionId);
-		            return [missing.message];
-		        },
-		        dispose(sessionId) { sessions.delete(sessionId); }
-		    };
-		}
-		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createCapabilityNotices};
-		const capabilityNotices = createCapabilityNotices();
-		function useCapabilityNotice(sessionId, live, rows) {
-		    const [notice, setNotice] = React.useState(null);
-		    React.useEffect(() => {
-		        if (!live || !rows?.length) return;
-		        const messages = capabilityNotices.take(sessionId, 'presented', {presented:rows.map(row => ({...row,available:false,onMissing:'notify'}))});
-		        if (!messages.length) return;
-		        setNotice(messages[0]);
-		    }, [sessionId, live, rows]);
-		    React.useEffect(() => {
-		        if (!notice) return;
-		        const timer = forkForeground.setTimeout(() => setNotice(null), 6000);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [notice]);
-		    return live ? notice : null;
-		}
-		// page = this page's beats are not accepted yet (「正在生成演出…」, a spinner and
-		// no progress bar);
-		// round = the round's phase, 'body' | 'staging' | null (「正在生成正文…」 / 「正在生成后续演出…」, the round's 停止 when onStop is given).
-		// The stop's label is the phrase without the ellipsis, like the text box's 「正在生成选项」.
-		const GAL_ROUND_TEXT = { body: '正在生成正文', staging: '正在生成后续演出' };
-		function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, danmaku, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], nameOf, scope }) {
-		    const h = React.createElement;
-		    const notes = diagnostics || [], cancelled = error === 'cancelled';
-		    const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
-		        h('path', { d: 'M12 4.5 20.5 19h-17L12 4.5zM12 10v4.2M12 16.8v.2', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }));
-		    // one flat notice — the title line, then directly one list (a single
-		    // opaque panel), each row 「第 N 段 · reason」 with its raw technical line (code: message) attached under it. The title is
-		    // the only fold (native details, folded by default, galNoticeOpen). Raw text renders only while the 调试视图 is on (body.dsh-fork-debug,
-		    // read each render, or the shared preference); otherwise the list ends with 「打开调试视图」. rows: [{ at, text, raw,
-		    // always }] — always: the whole notice is debug-only already (scene diagnostics). Raw validator prose never reaches
-		    // the player's DOM.
-		    const debugView = typeof document !== 'undefined' && !!document.body && document.body.classList.contains('dsh-fork-debug');
-		    const prefs = GAL_DEBUG_PREFS();
-		    const debugOn = prefs ? galDebugHidden(prefs.snapshot()) === false : debugView;
-		    const rawOf = row => !row.raw ? null : row.always || (!prefs && debugView) ? h(GalRawText, { text: row.raw }) : prefs ? h(GalRawLine, { text: row.raw }) : null;
-		    const opened = galNoticeOpen(scope);
-		    const keys = event => { if ([' ', 'Enter'].includes(event.key) && event.target.closest?.('summary, button')) event.stopPropagation(); };
-		    // action: one control after the title (「⚠ 正文生成失败 · 重新生成」, ui-design §三.18).
-		    const notice = (key, tone, mark, title, rows, action, after = null) => {
-		        rows = (rows || []).filter(row => row && row.text);
-		        const hiddenRaw = rows.some(row => row.raw && !row.always);
-		        return h('div', { key, className: 'fork-gal-runtime-status', 'data-tone': tone, role: 'status', onKeyDown: rows.length || action ? keys : undefined }, mark,
-		            h('div', { className: 'fork-gal-runtime-text' }, !rows.length ? action ? h('div', { className: 'fork-gal-runtime-head' }, h('strong', null, title), ' · ', action) : h(React.Fragment, null, title ? h('strong', null, title) : null, after) : h('details', { open: opened.get(key) === true, onToggle: event => opened.set(key, event.currentTarget.open) },
-		                h('summary', null, h('strong', null, title), action ? ' · ' : null, action, rows.length > 1 ? h('span', { className: 'fork-gal-runtime-count' }, rows.length) : null),
-		                h('ul', { className: 'fork-gal-runtime-rows' }, rows.map((row, index) => h('li', { key: index, 'data-at': row.at ? '' : undefined },
-		                    row.at ? h('span', { className: 'fork-gal-runtime-at' }, '第 ' + row.at + ' 段') : null, h('span', { className: 'fork-gal-runtime-reason' }, row.text), rawOf(row))),
-		                    hiddenRaw ? prefs ? h(GalDebugLine, { key: 'debug' }) : debugView ? null : h('li', { key: 'debug', className: 'fork-gal-runtime-howto' }, GAL_DEBUG_HOWTO) : null))));
-		    };
-		    // The round line: one quiet line under the page layer (or alone, page staged); while the round works it is the stage's
-		    // 停止 (gal-stage.js stopReply), the same StageWaitStop as the text box's wait.
-		    const roundText = GAL_ROUND_TEXT[round] || null;
-		    const roundLine = roundText ? h('span', { className: 'fork-gal-runtime-round', 'data-round': round },
-		        onStop ? h(StageWaitStop, { className: 'is-plain', label: roundText, busy: stopping, onStop }, roundText + '…') : roundText + '…') : null;
-		    const providerRefusal = bodyFailure && error && tavernProviderRefusalNotice(stageRuntimeErrorText(error));
-		    const errorTitle = providerRefusal ? '正文模型被服务商内容审核拒绝' : cancelled ? '正文生成已停止' : '正文生成失败';
-		    // The player sees the title and its action; a provider refusal adds its one plain line. The technical text is the
-		    // 调试视图's only (AGENTS 「玩家界面不显示错误码、开发文案」).
-		    const failureRaw = bodyFailure && error && !cancelled ? stageDiagnosticText(stageRuntimeErrorText(error), true) : '';
-		    const failureRows = providerRefusal ? [{ text: providerRefusal, raw: debugOn ? failureRaw : '', always: true }] : debugOn ? [{ text: failureRaw }] : [];
-		    const direction = bodyFailure && error ? notice('direction', 'error', icon, errorTitle, cancelled ? [] : failureRows, cancelled || !onRetry ? null : h(GalRetryBody, { onRetry }))
-		        : page ? notice('direction', 'busy', h(Spinner, { className: 'fork-gal-runtime-spinner' }), '正在生成演出…', null, null, roundLine)
-		        : roundLine ? notice('direction', 'round', h(Spinner, { className: 'fork-gal-runtime-spinner' }), null, null, null, roundLine) : null;
-		    // first-run hints ride the same stack (no modal): 「点任意处开启声音」 while the
-		    // browser holds the BGM back, and the stage's real shortcuts once (useGalFirstRunHints).
-		    return h('div', { className: 'fork-gal-notices', onWheel: event => event.stopPropagation(), onClick: event => event.stopPropagation() },
-		        hints?.sound ? notice('sound', 'hint', h('span', { className: 'fork-gal-runtime-icon', 'aria-hidden': true }, h(Icon, { name: 'speaker', size: 15 })), '点任意处开启声音') : null,
-		        hints?.keys ? h('div', { key: 'keys', className: 'fork-gal-runtime-status fork-gal-runtime-keys', 'data-tone': 'hint', role: 'note', 'aria-label': '快捷键' },
-		            h('dl', null, galShortcuts(danmaku).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
-		        direction,
-		        interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
-		        null,
-		        notes.length ? notice('diagnostics', 'debug', icon, '场景诊断', notes.map(note => ({
-		            text: GAL_DIAGNOSTIC_TEXT[typeof note === 'string' ? note.split(':')[0] : note?.code] || stageDiagnosticText(note), raw: stageDiagnosticText(note, true), always: true }))) : null,
-		        spriteFallbacks.length ? notice('sprite-fallback', 'error', icon, galSpriteFallbackTitle(spriteFallbacks),
-		            spriteFallbacks.map(row => ({ text: galSpriteFallbackLine(row, nameOf) }))) : null,
-		        cgNotice ? notice('cg-gallery', 'error', icon, cgNotice) : null,
-		        sceneError ? notice('scene', 'error', icon, '画面载入失败', [{ text: galSceneFailureText(sceneError), raw: String(sceneError) }],
-		            onReloadScene ? h(GalSceneReload, { onReload: onReloadScene }) : null) : null);
-		}
-		// the classic control row is 自动 / 跳过 / 隐藏 / 上一页 / 履历 / ≡
-		// (设置 and 返回主页面 are menu items, ✕ is in the top bar). Phones (the one stage breakpoint, 640px - the skin art, the
-		// CONFIG compact layout and this row share it) keep four 44 px targets: 自动 / 跳过 / 履历 / ≡; hiding the box is right click /
-		// long press or H, the previous page ← or the backlog.
-		const GAL_NARROW_QUERY = "(max-width: 640px)";
-		const GAL_CONTROLS_FULL = ["auto", "skip", "eye-off", "chevron-left", "backlog", "menu"];
-		const GAL_CONTROLS_NARROW = ["auto", "skip", "backlog", "menu"];
+		function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
+		function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
 		// a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
 		// cleanup). Pages without the UI sound module (tests, previews) stay silent.
 		function galSkinSfx(cue, palette) {
@@ -62448,133 +61333,9 @@ function galUiApplier() {
 		    sfx?.useSkin?.(palette || null);
 		    return () => sfx?.useSkin?.(null);
 		}
-		function galControlIds(narrow) { return narrow ? GAL_CONTROLS_NARROW : GAL_CONTROLS_FULL; }
-		// a row drawn from the skin's icons (quickMenu.icons) shows hide and back only with an
-		// icon of their own (their keys - H / right click, ← / PageUp - stay); every other control keeps the engine's icon if unset.
-		function galControlDrawn(id, skin) {
-		    const icons = skin?.resolvedControlIcons;
-		    return !icons || !(id === "eye-off" || id === "chevron-left") || Boolean(icons[GAL_CONTROL_ACTIONS[id]]);
-		}
-		// The action each control-row icon performs (data-action on every on-stage control: the row, the folded menu control, a skin's
-		// drawn buttons), read by the mechanical skin check (bin/lib/stage-action-homes.mjs).
-		const GAL_CONTROL_ACTIONS = { "eye-off": "hide", "chevron-left": "back" };
-		// Every on-stage SKIP control - the control row's and a skin's drawn button (stage-skin-buttons.js) - is
-		// [data-action="skip"]: its own press toggles skip instead of only stopping it (SKIP stayed on).
-		const GAL_SKIP_CONTROL = '[data-action="skip"]';
-		// one place decides where 自动 / 跳过 / 履历 live. A skin with a folded quick menu
-		// (quickMenu.layout capsule / orb) has no control row; its drawn buttons (art.buttons) stand at every width, on phones in a
-		// touch-sized unit (theme.css「stage skin: art」 手机版 SKIP / LOG 不是 fallback). The Esc menu lists exactly the actions with no home on screen;
-		// 履历 is not one of them - it is always a menu row (gal-menu.js), also beside a drawn LOG button.
-		const GAL_MENU_ACTIONS = ["auto", "skip"];
-		function galActionHomes(skin, narrow) {
-		    const fold = skin && (skin.quickMenu?.layout === "capsule" || skin.quickMenu?.layout === "orb") ? skin.quickMenu.layout : null;
-		    const row = fold ? [] : galControlIds(narrow).map(id => GAL_CONTROL_ACTIONS[id] || id);
-		    const drawn = skin?.resolvedArt?.buttons.map(button => button.action) || [];
-		    const onStage = new Set([...row, ...drawn, ...(fold ? ["menu"] : [])]);
-		    // declared: the skin's own art.buttons, resolved or not - the stage root carries them (data-skin-buttons) so the real-stage
-		    // check (stage screenshots) catches drawn buttons that silently failed to resolve and left their actions to the menu.
-		    // A mode's skin without buttons of its own keeps the stage skin's controls (useStageSkin `controls`): those are declared.
-		    return { fold, row, drawn, declared: skin?.resolvedArt?.controls?.declared || Object.keys(skin?.art?.buttons || {}), menu: GAL_MENU_ACTIONS.filter(id => !onStage.has(id)) };
-		}
-		function useGalNarrow() {
-		    const has = typeof matchMedia === "function";
-		    const [narrow, setNarrow] = React.useState(() => has && matchMedia(GAL_NARROW_QUERY).matches);
-		    React.useEffect(function () {
-		        if (!has) return undefined;
-		        const list = matchMedia(GAL_NARROW_QUERY), changed = () => setNarrow(list.matches);
-		        changed();
-		        if (list.addEventListener) list.addEventListener("change", changed);
-		        return () => { if (list.removeEventListener) list.removeEventListener("change", changed); };
-		    }, []);
-		    return narrow;
-		}
-		// on phones the top bar's
-		// icons are one group at the top centre. The bar's free width (its padding: the screen edges or a skin's drawn corner buttons,
-		// theme.css) is where they may stand; the group packs into it as flex-wrap does and --fk-bar-group is its widest row, so
-		// the CSS can place a box of that width on the stage's centre line, or as near it as the corner buttons allow. One row is the
-		// box (centred); further rows start at its left edge, as text wraps. Wider
-		// screens lay the bar out without it.
-		function galTopbarGroup(bar) {
-		    const widths = [];
-		    const walk = node => {
-		        for (const child of node.children) {
-		            const style = getComputedStyle(child);
-		            if (style.display === "contents") walk(child);
-		            else if (style.display !== "none" && style.position !== "absolute" && style.position !== "fixed")
-		                widths.push(child.getBoundingClientRect().width + parseFloat(style.marginLeft) + parseFloat(style.marginRight));
-		        }
-		    };
-		    walk(bar);
-		    // The free width with the group's box unset (its padding then is the free width's edges).
-		    bar.style.removeProperty("--fk-bar-group");
-		    const style = getComputedStyle(bar), free = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-		    let widest = 0, row = 0;
-		    for (const width of widths) {
-		        if (row && row + width > free + 0.5) row = 0;
-		        row += width;
-		        widest = Math.max(widest, row);
-		    }
-		    if (widest) bar.style.setProperty("--fk-bar-group", Math.ceil(widest) + "px");
-		}
-		// Keeps --fk-bar-group on the bar element current while `on` (the phone breakpoint): the bar's size, and its icons coming, going or changing words.
-		function useGalTopbarGroup(bar, on) {
-		    React.useLayoutEffect(() => {
-		        if (!bar || !on) return undefined;
-		        const measure = () => galTopbarGroup(bar);
-		        measure();
-		        const resize = new ResizeObserver(measure), mutate = new MutationObserver(measure);
-		        resize.observe(bar);
-		        mutate.observe(bar, { childList: true, subtree: true, characterData: true });
-		        return () => { resize.disconnect(); mutate.disconnect(); bar.style.removeProperty("--fk-bar-group"); };
-		    }, [bar, on]);
-		}
-
-		// the top bar is the stage entries'
-		// only home and adds nothing the original game lacks while reading. state (data-hud on the stage, theme.css「stage top bar
-		// reveal」): 'always' (mode), 'shown' - a mouse in the top fifth of the stage or over the bar (hidden 2 s after it leaves),
-		// keyboard focus inside the bar, or one of its popovers open - 'flash' - the place / track line for 3 s after a live change - or
-		// null. Touch reveals it with the menu (CSS). An entry with a badge stays on screen either way.
-		const GAL_HUD_ZONE = 0.2, GAL_HUD_LINGER = 2000, GAL_HUD_FLASH = 3000;
-		function useGalHudReveal(rootRef, { mode, labels, live }) {
-		    const [shown, setShown] = React.useState(false), [flash, setFlash] = React.useState(false);
-		    const timer = React.useRef(0), seen = React.useRef(labels);
-		    React.useEffect(function () {
-		        if (seen.current === labels) return undefined;
-		        seen.current = labels;
-		        if (!live || !labels.trim()) return undefined;
-		        setFlash(true);
-		        const at = forkForeground.setTimeout(() => setFlash(false), GAL_HUD_FLASH);
-		        return () => { forkForeground.clearTimeout(at); setFlash(false); };
-		    }, [labels]);
-		    React.useEffect(() => () => forkForeground.clearTimeout(timer.current), []);
-		    const bar = () => rootRef.current?.querySelector(".fork-gal-topbar");
-		    function show() { forkForeground.clearTimeout(timer.current); timer.current = 0; setShown(true); }
-		    // An open popover of an entry (BGM, background, danmaku, phone list) or focus inside keeps the bar; a hidden chip gives
-		    // its focus back to the stage.
-		    function linger() {
-		        if (timer.current) return;
-		        timer.current = forkForeground.setTimeout(function hide() {
-		            timer.current = 0;
-		            const node = bar(), focused = node && node.contains(document.activeElement);
-		            if (node && node.querySelector("[role='dialog'], [role='menu']")) { timer.current = forkForeground.setTimeout(hide, GAL_HUD_LINGER); return; }
-		            setShown(false);
-		            if (focused && rootRef.current) rootRef.current.focus({ preventScroll: true });
-		        }, GAL_HUD_LINGER);
-		    }
-		    return {
-		        state: mode === "always" ? "always" : shown ? "shown" : flash ? "flash" : null,
-		        onPointerMove(event) {
-		            if (mode === "always" || event.pointerType !== "mouse" || !rootRef.current) return;
-		            const rect = rootRef.current.getBoundingClientRect();
-		            if (event.clientY - rect.top < rect.height * GAL_HUD_ZONE || event.target?.closest?.(".fork-gal-topbar")) show();
-		            else if (shown) linger();
-		        },
-		        // The mouse leaving the stage (out of the window over the top edge too) starts the same linger.
-		        onPointerLeave(event) { if (mode !== "always" && event.pointerType === "mouse" && shown) linger(); },
-		        onFocus() { if (mode !== "always") show(); },
-		        onBlur(event) { if (mode !== "always" && !(event.relatedTarget && event.currentTarget.contains(event.relatedTarget))) linger(); }
-		    };
-		}
+		function useGalNarrow() { return stageViews.useNarrow(); }
+		function useGalTopbarGroup(...args) { return stageViews.useTopbarGroup(...args); }
+		function useGalHudReveal(...args) { return stageViews.useHudReveal(...args); }
 
 		function GalHudLabels(props) {
 		    return stageViews ? React.createElement(stageViews.HudLabels, props) : null;
@@ -62599,7 +61360,8 @@ function galUiApplier() {
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        useBubbles, GalStage, Icon,
 		        admission:{performance, setTimeout, clearTimeout, Spinner},
-		        bgm:{music:stageMusic,session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
+		        music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
+		        bgm:{session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
 		            read:id => rpc("getStageMusicTracks",{},id), storage:(() => {try {return localStorage;} catch (_) {return null;}})(), authority:source => stageResourceAuthority(source)},
 		        ambience:{session:id => stageSessions.get(id), owner:() => stageSessions.resourceOwner, authority:source => stageResourceAuthority(source)},
 		        soundscape:{Audio, mixer:forkStageAudio},
@@ -62607,22 +61369,35 @@ function galUiApplier() {
 		            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
 		        video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
 		        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+		        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor, navigate:(...args) => stageSessions.owner.navigate(...args)},
+		        subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
+		        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
+		        hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
+		        presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
+		        portraits:{foreground:forkForeground, SpriteImage, PackImage, emoteDataUrl:galEmoteDataUrl, cssColor:galCssColor, MutationObserver, getComputedStyle, matchMedia},
 		        labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
 		        text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
 		            fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
 		    stageViews = views;
-		    const stopBgm = views.bgm.subscribe(bgmChanged);
-		    bgmChanged();
-		    return () => {
-		        stopBgm();
+		    let stopBgm = null, disposed = false;
+		    const dispose = () => {
+		        if (disposed) return;
+		        disposed = true;
 		        if (stageViews === views) stageViews = null;
-		        bgmChanged();
 		        const errors = [];
-		        for (const owner of [views.admission, views.progress.store, views.bgm, views.ambience, views.timer, views.video, views.loader]) {
-		            try {owner.dispose();} catch (error) {errors.push(error);}
+		        for (const cleanup of [() => stopBgm?.(), bgmChanged, () => views.dispose()]) {
+		            try { cleanup(); } catch (error) { errors.push(error); }
 		        }
 		        if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');
 		    };
+		    try {
+		        stopBgm = views.bgm.subscribe(bgmChanged);
+		        bgmChanged();
+		        return dispose;
+		    } catch (error) {
+		        try { dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage view binding failed'); }
+		        throw error;
+		    }
 		}
 		// the stage's CONFIG screen, visual-novel
 		// style - the one home of the stage's lasting preferences. The system menu's 设置 (and the top bar's 声音) open a full-screen
@@ -73128,37 +71903,7 @@ function useStageRuntime(sessionId) {
     return {...inputs, accepted, director, ledger, indicators, store};
 }
 
-function useStagePosition(sessionId, runtime, parts, pages, {restored, onSelect}) {
-    const writer = React.useMemo(() => {
-        let storage = null;
-        try { storage = localStorage; } catch (_) {}
-        return galPositionWriter(sessionId,storage,setTimeout,clearTimeout);
-    },[sessionId]);
-    const turn = runtime.source?.turn || 0;
-    const page = Math.max(0,pages.findIndex(item => sameAnchor(item.anchor,runtime.cursor.anchor)));
-    // the turn's text digest is hashed once per parts array, not on every render.
-    const textDigest = React.useMemo(() => galTextDigest(parts), [parts]);
-    const anchor = pages[page]?.anchor;
-    const active = {turn,page,textDigest,pageCount:pages.length,anchor:anchor ? {para:anchor.para,offset:anchor.offset} : null,latestSeenTurn:runtime.latestSource?.turn || turn};
-    // A replay (clip export, a 履历 row's single replay) is not a reading position: the bookmark stays where the reader was.
-    const ready = restored && runtime.cursor.mode !== 'replay' && !runtime.text.streaming && galPositionReady(null,turn,parts,pages);
-    React.useEffect(() => {
-        if (ready) writer.write(active);
-        else writer.discard();
-    },[writer,turn,page,textDigest,ready,pages.length,active.latestSeenTurn]);
-    React.useEffect(() => {
-        window.addEventListener('pagehide',writer.flush);
-        return () => {window.removeEventListener('pagehide',writer.flush);writer.flush();};
-    },[writer]);
-    // The shown page is read to its end: the runtime's in-page reading progress (one-shots placed after it).
-    return [page,index => {
-        onSelect();
-        if (index !== page) stageSessions.owner.navigate(sessionId,turn,index,index > page);
-    },writer.saved,() => {
-        const current = pages[page];
-        runtime.store.dispatch({type:'READ_PROGRESS',source:runtime.source,anchor:current?.anchor,readThrough:(current?.anchor.offset || 0) + (current?.text.length || 0)});
-    }];
-}
+function useStagePosition(...args) { return stageViews.position.usePosition(...args); }
 
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, available) {
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, available);
@@ -75988,83 +74733,6 @@ function StageSkinFrame({skin, page = '', narration = false}) {
         drawings[corner?.kind]?at.map(position=>h('svg',{key:position,className:'fork-skin-corner '+position,'data-corner':corner.kind,viewBox:'0 0 32 32',style:{rotate:['tl','tr','br','bl'].indexOf(position)*90+'deg'},fill:'none'},
             h('path',{d:drawings[corner.kind][0],stroke:corner.colors?.[0]||skin.textbox.paint.border||skin.textbox.paint.fg,strokeWidth:fine?1.6:3,strokeLinecap:fine?'round':undefined}),
             h('path',{d:drawings[corner.kind][1],fill:corner.colors?.[1]||skin.textbox.paint.accent||skin.textbox.paint.fg,stroke:corner.colors?.[0]||skin.textbox.paint.fg,strokeWidth:fine?.6:1.5}))):null);
-}
-// a skin's on-stage quick buttons, drawn
-// from its own bundle images (stageSkinArt in stage-skin-adapter.cjs). They are the existing quick actions, not new ones:
-// backlog (履历), auto (its lit image while on), skip (跳过: fast page turns to the latest page) and menu - the stage menu (Esc), the one
-// entry to everything the original lacks, in place of the folded menu control. Placed in art px of the skin's design screen
-// (--art-u, theme.css「stage skin: art」); on phones in one touch-sized unit, all hanging from the top edge (ntop). Enter / Space
-// act on a keyboard-focused button and never also turn the page; after a pointer press they page (the stage's key guard,
-// galKeyboardFocus in gal-stage.js).
-const STAGE_SKIN_BUTTON_LABELS = {backlog: "履历（L）", auto: "自动翻页（A）", skip: "跳过", menu: "菜单（Esc）"};
-// a button with a tint mask (the SKIP frame) carries its image and mask
-// (--art-btn-img / --art-btn-tint): theme.css recolours the masked part with the speaker's colour as it does the box trim.
-// a button with a hint (art.buttons.*.hint) shows its action's real
-// key - keyCaps, the stage's binding table (GAL_KEY_CAPS in gal-stage.js) - as a key cap in place of its image's
-// own input prompt (the image shows only its label part). The row is cap, then label, and the hinted rows of one corner
-// share the cap's outer edge (button.col, stageSkinArt), whatever widths the original prompt glyphs had. Decorative: the
-// button's label already names the key.
-// decor (art.decor): the original's still HUD prints with no action here, drawn in the same layer, hidden from assistive tech.
-// A skin mode's buttons (modes.<id>.buttons, button.mode) are the same actions, marked data-fk-mode-button: the 计时器 plate
-// they are drawn beside (e.g. a debate's fast-forward) does not step away from them (TIMER_SKIN_ART).
-// A mode's hud.beside timer (button.dock, stageSkinArt): while the stage shows a 计时器 the row stands just left of it, centred
-// on it, wherever the plate is (its own reference grid, moved clear of other art) - the layer carries the timer's left edge
-// and middle (--dock-x / --dock-y, px in the layer) and data-timer-dock; without a timer each button keeps its own place.
-// Measured when the stage resizes, the timer mounts, moves or resizes - never per frame.
-function useTimerDock(docked) {
-    const ref = React.useRef(null);
-    React.useLayoutEffect(() => {
-        const layer = ref.current, stage = layer?.parentElement;
-        if (!docked || !layer || !stage) return;
-        let frame = 0, timer = null;
-        const size = new ResizeObserver(() => schedule()), moves = new MutationObserver(() => schedule());
-        const measure = () => {
-            frame = 0;
-            const next = [...stage.children].find(node => node.classList.contains("fork-timer")) || null;
-            if (next !== timer) { moves.disconnect(); moves.observe(stage, { childList: true }); if (next) moves.observe(next, { attributes: true }); timer = next; }
-            const plate = timer?.querySelector(".fork-timer-plate, .fork-timer-pill");
-            if (plate) size.observe(plate);
-            const box = plate?.getBoundingClientRect();
-            if (!box?.width) { layer.removeAttribute("data-timer-dock"); return; }
-            const own = layer.getBoundingClientRect();
-            layer.style.setProperty("--dock-x", Math.round(box.left - own.left) + "px");
-            layer.style.setProperty("--dock-y", Math.round(box.top + box.height / 2 - own.top) + "px");
-            layer.setAttribute("data-timer-dock", "");
-        };
-        const schedule = () => { if (!frame) frame = forkForeground.requestAnimationFrame(measure); };
-        size.observe(stage);
-        moves.observe(stage, { childList: true });
-        measure();
-        return () => { size.disconnect(); moves.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); layer.removeAttribute("data-timer-dock"); };
-    }, [docked]);
-    return ref;
-}
-function StageSkinButtons({buttons, decor = [], keyCaps, auto, skipping, atEnd, menuOpen, onBacklog, onAuto, onSkip, onMenu}) {
-    const h = React.createElement;
-    const dock = useTimerDock(buttons.some(button => "dock" in button));
-    const on = {auto: Boolean(auto), skip: Boolean(skipping)};
-    const run = {backlog: onBacklog, auto: onAuto, skip: onSkip, menu: onMenu};
-    const place = item => ({ "--art-bw": item.width, "--art-bh": item.height, ...("top" in item ? { "--art-top": item.top } : { "--art-by": item.bottom }), ...("ntop" in item ? { "--art-ntop": item.ntop } : null), ...("left" in item ? { "--art-left": item.left } : { "--art-right": item.right }) });
-    return h("div", { ref: dock, className: "fork-stage-skin-buttons", role: buttons.length ? "toolbar" : undefined, "aria-label": buttons.length ? "舞台快捷按钮" : undefined, onClick: event => event.stopPropagation() },
-        decor.map((item, index) => h("img", { key: "decor-" + index, className: "fork-stage-skin-decor", src: item.url, alt: "", "aria-hidden": true, draggable: false, style: place(item) })),
-        buttons.map(button => {
-            const lit = on[button.action] === true, menu = button.action === "menu";
-            const label = button.action === "auto" && lit ? "停止自动（A）" : button.action === "skip" && lit ? "停止跳过" : STAGE_SKIN_BUTTON_LABELS[button.action];
-            const cap = button.hint && keyCaps ? keyCaps[button.hint.action] || null : null;
-            // data-action is also the stage's skip-control mark (GAL_SKIP_CONTROL): a press here toggles, it is not a stop.
-            // data-on-art: the button has its own lit image; without one the pressed look is theme.css's (stage skin: art).
-            const phone = button.narrow || null;
-            return h("button", { key: (button.mode ? button.mode + ":" : "") + button.action, type: "button", className: "fork-stage-skin-button", "data-action": button.action, "data-fk-mode-button": button.mode || undefined, "data-dock": "dock" in button ? "" : undefined, "data-narrow": phone ? "" : undefined, "data-on-art": button.on ? "" : undefined, "data-tint": button.tint ? "" : undefined, "data-hint": cap ? "" : undefined, "data-col": cap && !("left" in button) ? "" : undefined, title: label, "aria-label": label,
-                "aria-pressed": button.action in on ? lit : undefined, "aria-haspopup": menu ? "menu" : undefined, "aria-expanded": menu ? Boolean(menuOpen) : undefined,
-                disabled: button.action === "skip" && atEnd && !lit,
-                style: { "--art-bw": button.width, "--art-bh": button.height, ...(button.tint ? { "--art-btn-img": 'url("' + (lit && button.on ? button.on : button.url) + '")', "--art-btn-tint": 'url("' + button.tint + '")' } : null), ...("top" in button ? { "--art-top": button.top } : { "--art-by": button.bottom }), ...("ntop" in button ? { "--art-ntop": button.ntop } : null), ...("left" in button ? { "--art-left": cap ? button.col : button.left } : cap ? { "--art-col": button.col } : { "--art-right": button.right }), ...(cap ? { "--art-hint-w": button.hint.w, "--art-hint-h": button.hint.h } : null), ...("dock" in button ? { "--art-dock": button.dock } : null),
-                    ...(phone ? { "--art-ntop": phone.ntop, "--art-nbw": phone.width, "--art-nbh": phone.height, ...("left" in phone ? { "--art-nleft": phone.left } : { "--art-nright": phone.right }) } : null) },
-                onClick: event => { event.stopPropagation(); run[button.action](); } },
-                ...(cap ? [h("span", { key: "key", className: "fork-stage-skin-key", "aria-hidden": true }, h("kbd", null, cap))] : []),
-                h("img", { key: "img", src: lit && button.on ? button.on : button.url, alt: "", draggable: false }),
-                // narrow (P5): the phone art, shown at 640px and less in place of the design image (theme.css)
-                ...(phone ? [h("img", { key: "phone", className: "fork-stage-skin-phone", src: lit && phone.on ? phone.on : phone.url, alt: "", draggable: false })] : []));
-        }));
 }
 'use strict';
 // shared read-only geometry. Consumers never measure in their animation tick.

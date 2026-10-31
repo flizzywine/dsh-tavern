@@ -11,6 +11,8 @@ import { assembleTavernClient } from '../bin/build-tavern-client.mjs'
 test('完整客户端必须可解析，局部源码测试不能代替入口语法检查', async () => {
   const source = await assembleTavernClient()
   assert.doesNotThrow(() => new vm.Script(source, { filename: 'tavern-plugin/lib/client.js' }))
+  const shipped = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
+  assert.equal(shipped, source, 'committed core client must match current sources; run node bin/build-tavern-client.mjs')
   assert.equal(source.includes('function createStageNavigation('), false, 'navigation implementation belongs to the optional client')
   assert.equal(source.includes('.fork-tc-layer {'), false, 'stage text-card CSS is not embedded in core')
   assert.equal(source.includes('.fork-widget-source-controls{position:absolute;'), false, 'stage widget layout CSS is not embedded in core')
