@@ -62,7 +62,9 @@ export function createChatWrites({ persistence, isDeleted, candidatesChanged, sy
     assertWritable(id)
     const saved = await persistence.patch(id, revision, changes, metadata)
     if (!saved || metadata?.returnProjection === undefined) {
-      const result = await committed('patch', saved, metadata)
+      // Even the default patch result is a header with an empty history projection.
+      // Source edits are observed separately through observePatch below.
+      const result = await committed('patch', saved, metadata, saved, { metadataOnly: true })
       if (saved) await observePatch?.(saved, changes)
       return result
     }

@@ -8,7 +8,7 @@ function fixture(persist = async () => saved) {
     persistence: Object.fromEntries(['write', 'writeHeader', 'update', 'patch'].map(name => [name, persist])),
     isDeleted: id => id === 'deleted',
     candidatesChanged: (chat, metadata) => events.push(['candidates', chat, metadata]),
-    syncSummary: async chat => events.push(['summary', chat]),
+    syncSummary: async (chat, observation) => events.push(['summary', chat, observation]),
     publish: sessionId => events.push(['publish', sessionId]),
     syncTemplates: (chat, metadata) => events.push(['templates', chat, metadata]),
     queueCompaction: sessionId => events.push(['compaction', sessionId])
@@ -85,4 +85,11 @@ test('只回传部分字段的 patch：后续处理读存档头，调用方仍�
   assert.deepEqual(events[1][2], { metadataOnly: true })
   assert.equal(events[2][1], 'session')
   assert.equal(events[5][2], changes)
+})
+
+test('默认 patch 返回存档头，不能把空投影当成正文已删除', async () => {
+  const head = {...saved, messages: []}
+  const {writes, events} = fixture(async () => head)
+  await writes.patch('chat', 1, [{op:'set',path:['messages',1,'stageDirectionRunning'],value:{boot:'test'}}])
+  assert.deepEqual(events.find(([name]) => name === 'summary')[2], {metadataOnly:true})
 })

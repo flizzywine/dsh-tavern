@@ -13,6 +13,24 @@ export function apply(ctx) {
     async *stream(input) {
       if (process.env.TAVERN_E2E_COMPACTION_DIR) { yield* compactionStream(input); return }
       const tools = new Set((input.tools || []).map(tool => tool.name))
+      if(process.env.TAVERN_E2E_DIRECTOR_DIR && (tools.has('stage_update')||tools.has('submit_direction'))) {
+        const directory=process.env.TAVERN_E2E_DIRECTOR_DIR
+        const control=JSON.parse(await readFile(directory+'/director-control.json','utf8'))
+        await appendFile(directory+'/director-attempts.jsonl',JSON.stringify({mode:control.mode,tools:[...tools]})+'\n')
+        if(control.mode==='fail')throw new Error('E2E stage director unavailable')
+        const parts=input.messages.flatMap(message=>message.content||[])
+        const objects=parts.filter(block=>block.type==='text').flatMap(block=>embeddedObjects(block.text))
+        const reply=objects.findLast(value=>Array.isArray(value.reply))?.reply||[]
+        const through=Math.max(...reply.map(row=>row.at))
+        if(!Number.isInteger(through)||through<1)throw new Error('E2E director reply fixture is missing')
+        const tool=tools.has('stage_update')?'stage_update':'submit_direction'
+        const block={type:'tool-call',id:'e2e-stage-'+Date.now(),name:tool,arguments:JSON.stringify(tool==='stage_update'?{sequence:objects.findLast(value=>value.progress)?.progress.nextSequence||1,through,done:true,beats:[]}:{beats:[]})}
+        yield {type:'block-start',index:0,blockType:'tool-call'}
+        yield {type:'block-end',index:0,block}
+        yield {type:'finish',reason:{kind:'tool-calls'}}
+        return
+      }
+
       // Every settlement request verbatim, to compare refactors of the background pipeline.
       if (process.env.TAVERN_E2E_SETTLEMENT_DUMP && JSON.stringify(input.messages || []).includes('任务类型：状态结算')) {
         await appendFile(process.env.TAVERN_E2E_SETTLEMENT_DUMP, JSON.stringify({ system: input.system, tools: (input.tools || []).map(tool => tool.name), messages: input.messages }) + '\n')
@@ -223,4 +241,28 @@ export function apply(ctx) {
     }
   }
   ctx.llm.registerAdapter(['tavern-e2e'], new Model())
+}
+
+// Background sessions combine request blocks with explanatory prose. Read the
+// embedded JSON objects without assuming one provider text block per object.
+function embeddedObjects(text) {
+  const values=[]
+  for(let start=0;start<text.length;start++) {
+    if(text[start]!=='{')continue
+    let depth=0,quoted=false,escaped=false
+    for(let end=start;end<text.length;end++) {
+      const char=text[end]
+      if(quoted) {
+        if(escaped)escaped=false
+        else if(char==='\\')escaped=true
+        else if(char==='"')quoted=false
+      } else if(char==='"')quoted=true
+      else if(char==='{')depth++
+      else if(char==='}'&&!--depth) {
+        try {values.push(JSON.parse(text.slice(start,end+1)));start=end} catch {}
+        break
+      }
+    }
+  }
+  return values
 }

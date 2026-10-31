@@ -55,6 +55,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageDirectorFault=process.argv.includes('--stage-director-fault')
 const stageAudioFault = process.argv.includes('--stage-audio-fault')
 const stageAudioLifecycle = stageAudioFault || process.argv.includes('--stage-audio-lifecycle')
 const stageMediaFault = process.argv.includes('--stage-media-fault')
@@ -67,7 +68,7 @@ const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('-
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageAudioLifecycle || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageDirectorFault || stageAudioLifecycle || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -172,7 +173,8 @@ try {
       await mkdir(data,{recursive:true})
       await writeFile(join(data,'tavern-extension-settings.json'),JSON.stringify({EjsTemplate:{enabled:true,render_enabled:true,raw_message_evaluation_enabled:false,preload_worldinfo_enabled:false,code_blocks_enabled:true}}))
     }
-    if(stageMediaFault||stageAudioLifecycle)report.stageMedia=await setupStageMedia(root,{audio:stageAudioLifecycle})
+    if(stageMediaFault||stageAudioLifecycle||stageDirectorFault)report.stageMedia=await setupStageMedia(root,{audio:stageAudioLifecycle,director:stageDirectorFault})
+    if(stageDirectorFault)await writeFile(join(output,'director-control.json'),JSON.stringify({mode:'fail'}))
     await access(cli).catch(() => { throw Error('找不到 DSH runtime；先安装酒馆，或设置 TAVERN_E2E_RUNTIME。') })
     report.applicationSource=applicationSource
     report.runtimeVersion = JSON.parse(await readFile(join(modules, '@deepseek-ai/dsh/package.json'), 'utf8')).version
@@ -258,6 +260,7 @@ try {
       const env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SYSTEMROOT'].filter(key => process.env[key]).map(key => [key, process.env[key]]))
       child = spawn(process.execPath, [...(process.argv.includes('--settlement-performance') ? ['--import', join(source, 'tests/e2e/settlement-perf-register.mjs')] : []), cli, '--profile', 'tavern', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
         cwd: source, env: { ...env, DSH_HOME: root, DSH_CWD: root,
+          TAVERN_E2E_DIRECTOR_DIR:stageDirectorFault?output:'',
           TAVERN_E2E_STAGE_CONTROL: stageServerLifecycle ? output : '',
           TAVERN_E2E_COMPACTION_DIR: compactionScenario ? output : '',
           TAVERN_E2E_RECOVERY_DIR: recoveryScenario ? output : '',
@@ -594,7 +597,7 @@ try {
   })
   if (castScenario && stageIsolation !== 'absent') await step('开启对话头像', async () => {
     const chatUrl = page.url()
-    await setCardStage({ dialogue: true,...(stageAudioLifecycle?{stage:true}:{}) })
+    await setCardStage({ dialogue: true,...((stageAudioLifecycle||stageDirectorFault)?{stage:true}:{}) })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })
@@ -608,6 +611,11 @@ try {
   })
   if (stagePluginScenario) {
     await step(stageIsolation ? '舞台不可用时普通聊天仍可生成、保存和刷新' : '真实舞台进入、退出，再回到普通聊天', async () => {
+      async function retryDirector() {
+        const chat=await savedChat(),turn=chat.messages.filter(row=>row.role==='assistant'&&!row.greeting).at(-1).turn
+        const result=await page.evaluate(async args=>(await fetch('/api/dsh-tavern/retryStageDirection',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(args)})).json(),{sessionId:chat.sessionId,turn})
+        assert.notEqual(result.ok,false,JSON.stringify(result))
+      }
       if(stageIsolation) {
         assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
         assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
@@ -615,7 +623,7 @@ try {
       } else {
       await page.getByRole('button', { name: '舞台', exact: true }).click()
       await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
-      if(stageMediaFault||stageAudioLifecycle)await page.waitForFunction(()=>{const text=document.querySelector('[aria-label="舞台文本"]')?.textContent||'';return text.includes('店主笑着迎上来。')||text.includes('店主笑着说：“欢迎回来，这是你的奖励。”')})
+      if(stageMediaFault||stageAudioLifecycle||stageDirectorFault)await page.waitForFunction(()=>{const text=document.querySelector('[aria-label="舞台文本"]')?.textContent||'';return text.includes('店主笑着迎上来。')||text.includes('店主笑着说：“欢迎回来，这是你的奖励。”')})
       else await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       if(stageRpcFault) {
@@ -626,6 +634,26 @@ try {
         })
         for(let attempt=0;attempt<100 && !report.directionFailures;attempt++)await page.waitForTimeout(100)
         assert.ok(report.directionFailures,'必须在舞台正常显示后实际触发演出 RPC 失败')
+      }
+      if(stageDirectorFault) {
+        await retryDirector()
+        let attempts=[]
+        for(let i=0;i<100;i++) {
+          attempts=(await readFile(join(output,'director-attempts.jsonl'),'utf8').catch(()=>'' )).trim().split('\n').filter(Boolean).map(JSON.parse)
+          if(attempts.some(row=>row.mode==='fail'))break
+          await page.waitForTimeout(100)
+        }
+        assert.ok(attempts.some(row=>row.mode==='fail'),'必须实际触发导演模型任务失败')
+        let failed
+        for(let i=0;i<100;i++) {
+          failed=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).at(-1)
+          if(failed?.stageDirectionAssetPacksFailure&&!failed.stageDirectionRunning)break
+          await page.waitForTimeout(100)
+        }
+        assert.match(failed?.stageDirectionAssetPacksFailure?.error||'',/E2E stage director unavailable/)
+        assert.equal(failed.stageDirectionRunning,undefined)
+        report.directorFailed=true
+        await writeFile(join(output,'director-control.json'),JSON.stringify({mode:'success'}))
       }
       if(stageAudioLifecycle) {
         await page.keyboard.press('Escape')
@@ -784,6 +812,20 @@ try {
         await page.waitForTimeout(200)
       }
       assert.ok(replies.length > priorReplies, '舞台操作后的新一轮正文必须真实生成并保存')
+      if(stageDirectorFault) {
+        await retryDirector()
+        let recovered
+        for(let i=0;i<100;i++) {
+          recovered=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).at(-1)
+          if(recovered?.stageDirectionAssetPacks&&!recovered.stageDirectionRunning)break
+          await page.waitForTimeout(150)
+        }
+        assert.ok(recovered?.stageDirectionAssetPacks,'恢复后的导演任务必须实际写入演出记录')
+        assert.equal(recovered.stageDirectionRunning,undefined)
+        assert.equal(recovered.stageDirectionAssetPacksFailure,undefined)
+        report.directorRecovered=true
+      }
+
       await page.reload({ waitUntil: 'domcontentloaded' })
       await composer.waitFor({ state: 'visible' })
       if(stageAudioLifecycle)assert.equal(await page.evaluate(()=>window.__stageAudioProbe().looping),0,'普通聊天刷新后不能恢复舞台音乐')
