@@ -1418,6 +1418,7 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
+        displayVoice:{allowed:phoneModAutoVoiceAllowed,handle:stageVoiceHandle,stopPlayback:id=>{if(voicePlayer.get()?.owner===id+':stage')voicePlayer.stopPlayback();},stop:id=>{if(voicePlayer.get()?.owner===id+':stage')voicePlayer.stopPlayback();}},
         directorCommands,
         resourceDependencies:{stageResourceMatches,stageRuntimeErrorText,createPerformanceTimeline,performanceSustained},
         runtimeKernel:{createStageRuntimeState,reduceStageRuntime},
