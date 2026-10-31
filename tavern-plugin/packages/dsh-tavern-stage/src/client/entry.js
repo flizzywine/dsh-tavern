@@ -119,17 +119,27 @@ window.__ModuleLoader__.load({
             // UI implementation is being extracted from the core client closure.
             const host = ctx.get('tavernStageFrontend');
             ctx.effect(() => {
-                const theme = document.createElement('style');
-                theme.dataset.pluginCss = 'dsh-tavern-stage/themes.css';
-                theme.textContent = __STAGE_THEME_CSS__;
-                const anchor = document.querySelector('[data-plugin-css="dsh-tavern-plugin/features-after-stage.css"]');
-                document.head.insertBefore(theme, anchor);
-                const style = document.createElement('style');
-                style.dataset.pluginCss = 'dsh-tavern-stage/presentation.css';
-                style.textContent = __STAGE_PRESENTATION_CSS__;
-                document.head.appendChild(style);
-                let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
+                const cleanups=[];
+                let disposed=false;
+                const dispose=()=>{
+                    if(disposed)return;disposed=true;const errors=[];
+                    for(const cleanup of cleanups.splice(0).reverse())try{cleanup();}catch(error){errors.push(error);}
+                    if(errors.length)throw new AggregateError(errors,'Stage activation cleanup failed');
+                };
+                try {
+                    if(!host || typeof host.mount!=='function')throw new Error('Stage host is unavailable');
+                    const theme=document.createElement('style');
+                    cleanups.push(()=>theme.remove());
+                    theme.dataset.pluginCss='dsh-tavern-stage/themes.css';
+                    theme.textContent=__STAGE_THEME_CSS__;
+                    const anchor=document.querySelector('[data-plugin-css="dsh-tavern-plugin/features-after-stage.css"]');
+                    document.head.insertBefore(theme,anchor);
+                    const style=document.createElement('style');
+                    cleanups.push(()=>style.remove());
+                    style.dataset.pluginCss='dsh-tavern-stage/presentation.css';
+                    style.textContent=__STAGE_PRESENTATION_CSS__;
+                    document.head.appendChild(style);
+                    const stop=host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
                     const skinResources = own(createStageSkinResources({React:options.React,...options.skinResources}));
                     const skin = own(createStageSkinAdapter({contract:options.skinContract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()}));
                     const controls = createStageControls();
@@ -194,9 +204,13 @@ window.__ModuleLoader__.load({
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...textViews};
-                })});}
-                catch (error) {style.remove(); theme.remove(); throw error;}
-                return () => {try {stop();} finally {style.remove(); theme.remove();}};
+                })});
+                    cleanups.push(stop);
+                    return dispose;
+                }catch(error){
+                    try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage activation failed');}
+                    throw error;
+                }
             }, 'dsh-tavern-stage: client lifetime');
         }
     });}

@@ -105,3 +105,32 @@ test('browser stage entry removes its style when mounting fails', async () => {
   assert.throws(() => definition.factory().apply({get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}), /failed/)
   assert.equal(styles.size,0)
 })
+
+test('stage activation rolls back partial style insertion and retries without touching unrelated styles',async()=>{
+  let definition,fail=true,mounted=0,stopped=0
+  const original={name:'ordinary-chat'},styles=new Set([original])
+  const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this)}}),head:{insertBefore(style){styles.add(style)},appendChild(style){styles.add(style);if(fail)throw Error('style insertion failed')}}}
+  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document,window:{__ModuleLoader__:{load(value){definition=value}}}})
+  const plugin=definition.factory(),context={get:()=>({mount(){mounted++;return ()=>stopped++}}),effect:run=>run()}
+  assert.throws(()=>plugin.apply(context),/style insertion failed/)
+  assert.deepEqual([...styles],[original]);assert.equal(mounted,0)
+  fail=false;let cleanup;plugin.apply({...context,effect:run=>cleanup=run()})
+  assert.equal(styles.size,3);cleanup();cleanup();assert.equal(stopped,1);assert.deepEqual([...styles],[original])
+})
+
+test('stage shutdown removes every owned style even when mount cleanup and one removal fail',async()=>{
+  let definition,cleanup
+  const styles=new Set(),removed=[]
+  const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){removed.push(this.dataset.pluginCss);styles.delete(this);if(this.dataset.pluginCss.endsWith('presentation.css'))throw Error('style cleanup failed')}}),head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
+  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document,window:{__ModuleLoader__:{load(value){definition=value}}}})
+  definition.factory().apply({get:()=>({mount:()=>()=>{throw Error('mount cleanup failed')}}),effect:run=>cleanup=run()})
+  assert.throws(()=>cleanup(),error=>error.name==='AggregateError'&&error.errors.length===2)
+  assert.equal(styles.size,0);assert.equal(removed.length,2);cleanup();assert.equal(removed.length,2)
+})
+
+test('missing stage host fails before adding styles',async()=>{
+  let definition,created=0
+  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document:{createElement(){created++;throw Error('must not allocate')}},window:{__ModuleLoader__:{load(value){definition=value}}}})
+  assert.throws(()=>definition.factory().apply({get:()=>null,effect:run=>run()}),/Stage host is unavailable/)
+  assert.equal(created,0)
+})
