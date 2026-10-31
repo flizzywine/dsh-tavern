@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "revision": "1606243c15eeb9d3e4f84775e7b65c92ec4313f0",
-  "releaseSequence": 1001,
-  "version": "3.1.0",
+  "revision": "baf74b9d60d55404bd2553113c1e8f585afa5c5a",
+  "releaseSequence": 1002,
+  "version": "3.2.0",
   "files": [
     {
       "path": "android/apk/build-offline-bundle.sh",
@@ -426,17 +426,17 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "77793b616d003f520b2f30f930bcdf5165b835c3e8757c2581c9cdc8483bf7a9",
+      "sha256": "23d67ad7a079b4849634b2af037014786f179187757917e3519571389779463f",
       "size": 107045
     },
     {
       "path": "install.sh",
-      "sha256": "5e144cb6496e877f9fb5464199fa3d77c78e9c8e117f52ed75e6da49e02378f1",
+      "sha256": "4ed61c39599fc2ba9da532cbb6a763d9585ccf91b8cadf049dbe8c832360b2cb",
       "size": 80143
     },
     {
       "path": "package.json",
-      "sha256": "8b2980964dd7fa97f0a503ef0a47986a049f5167ae8c59f980de67f6d066ed57",
+      "sha256": "6cce850da3a7f28d55e097460d0e47cdfba8f43655819e7d937be3aea99b8c42",
       "size": 3056
     },
     {
@@ -5086,7 +5086,7 @@
     },
     {
       "path": "tavern-plugin/package.json",
-      "sha256": "7f1d9796ac30d5af2a42062ccf2069c2050a985195c14be3ff6c48922eefd635",
+      "sha256": "d2310db2ea5aadc740fa17cce60f17c34fc338b1c0a5e4e7b5eff264e8b710de",
       "size": 2215
     },
     {
@@ -8566,9 +8566,9 @@
     }
   ],
   "archive": {
-    "commit": "b51dadc890fda56276bfa561634c88d194f5873a",
+    "commit": "3c43fa002da2e31938a6b63b7e8c3e7c2753351f",
     "path": "runtime.zip",
-    "sha256": "5bdb8cef925873993af98c2884dd14275ae0a8ee0b61748bc929f0fd4030ef75",
-    "size": 15165521
+    "sha256": "fddd222c38251836e2e05e79abc0d301e0f40f19efe461f215cc83620313b78e",
+    "size": 15165525
   }
 }
