@@ -53,7 +53,7 @@ window.__ModuleLoader__.load({
 		// @include variable-bindings.cjs
 		// @include pack-transport.js
 		// @include asset-pack-binding.js
-		// @include stage-empty.js
+		// @include-shared canvas-empty.cjs
 		// @include asset-pack-ui.js
 		// @include figure-color-contrast.js
 

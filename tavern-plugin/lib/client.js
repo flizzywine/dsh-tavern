@@ -3307,13 +3307,13 @@ window.__ModuleLoader__.load({
 		    const probe = document.createElement('span');
 		    scope.appendChild(probe);
 		    const resolve = color => { probe.style.color = color; return getComputedStyle(probe).color; };
-		    const colors = [
+		    try {
+		    return [
 		        resolve('color-mix(in srgb, var(--gal-empty-accent, #9572cc) 25%, var(--gal-empty-surface, #1d1630))'),
 		        resolve('var(--gal-empty-surface, #1d1630)'),
 		        resolve('var(--gal-empty-deep, #0e0b16)')
 		    ];
-		    probe.remove();
-		    return colors;
+		    } finally { probe.remove(); }
 		}
 		function stagePaintEmpty(ctx, w, h, colors) {
 		    ctx.save(); ctx.translate(w / 2, h * 0.2); ctx.scale(1.2, 0.9);
@@ -3321,6 +3321,8 @@ window.__ModuleLoader__.load({
 		    [0, 0.55, 1].forEach((stop, i) => radial.addColorStop(stop, colors[i]));
 		    ctx.fillStyle = radial; ctx.fillRect(-w, -h, w * 2, h * 2); ctx.restore();
 		}
+
+		if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {stageEmptyPalette, stagePaintEmpty};
 		// P5 workbench mounted through the authenticated v2 browser port.
 		// This file lives in the outer client factory; it never reaches into another feature closure.
 		// deterministic art signature and consumer-side WCAG contrast; no I/O or cache.
@@ -46105,17 +46107,19 @@ function cardLibraryDisplayName(card) {
 		// unsubscribe. A resolution query matches one ratio only, so it is re-armed at the new ratio after each change.
 		function galResolutionSubscribe(changed) {
 		    if (typeof matchMedia !== "function") return () => {};
-		    let list = null;
+		    let list = null, active = true;
 		    const arm = () => { list?.removeEventListener("change", fire); list = matchMedia("(resolution: " + (globalThis.devicePixelRatio || 1) + "dppx)"); list.addEventListener("change", fire); };
-		    function fire() { arm(); changed(); }
+		    function fire() { if (!active) return; arm(); changed(); }
 		    arm();
-		    return () => list.removeEventListener("change", fire);
+		    return () => { if (!active) return; active = false; list.removeEventListener("change", fire); };
 		}
 		// A Pixi application (resizeTo, autoDensity) kept at the ratio, for the editor previews; returns the unsubscribe. The scene
 		// also retunes its filters on a change, so it subscribes itself (galCreateScene applyQuality).
 		function galFollowResolution(app) {
 		    return galResolutionSubscribe(() => { app.renderer.resolution = galResolution("high"); app.resize(); });
 		}
+
+		if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {galResolution, galResolutionSubscribe, galFollowResolution};
 		// automatic blinking for static sprites that carry an authored blink patch.
 		// Timers only: nothing runs per display frame. The caller owns the overlay; the scheduler only
 		// reports 'open' | 'half' | 'closed'. No patch, no blink (there is no procedural fallback).

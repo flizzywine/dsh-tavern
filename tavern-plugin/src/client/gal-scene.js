@@ -17,7 +17,7 @@
 //   └─ overlay     screen space: transition cover, look overlays (vignette, haze, leaks, flare), flashes,
 //                  lightning, blackout
 
-// @include stage-resolution.js
+// @include-shared canvas-resolution.cjs
 // @include sprite-blink.cjs
 // @include spine.js
 // @include spine-preview.js
