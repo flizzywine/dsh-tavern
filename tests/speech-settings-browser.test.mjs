@@ -37,30 +37,41 @@ test('配音设置：Fish 协议的 Key 标成选填，模型从服务读出的�
 })
 
 
-test('配音页可以选择朗读对白或全文，保存后重新打开仍显示所选模式', async t => {
-  let state = { enabled: false, readMode: 'full', provider: 'openai', providers: providers() }
+test('配音页只配置对白和旁白声音，保存两种声音并允许清空旁白', async t => {
+  let state = { enabled: false, provider: 'browser', providers: providers() }
+  // An old readMode must not override the new two-voice behavior.
+  state.readMode = 'dialogue'
   const respond = (method, args) => {
     if (method === 'getSpeechSettings') return state
-    if (method === 'updateSpeechSettings') { state = {...state,readMode:args.readMode}; return state }
+    if (method === 'updateSpeechSettings') {
+      state = {...state,providers:state.providers.map(p=>p.id===args.provider?{...p,...args.config}:p)}
+      return state
+    }
   }
   const {page,calls} = await openTavernSettings(t, {section:'dsh-tavern: speech settings',respond})
-  const mode = page.locator('button[aria-label^="朗读内容："]')
-  await mode.click()
-  await page.getByRole('menuitemradio', {name:'朗读对白',exact:true}).click()
+  const dialogue = page.getByLabel('对白声音', {exact:true})
+  const narrator = page.getByLabel('旁白声音', {exact:true})
+  await dialogue.fill('对白音色')
+  await dialogue.press('Enter')
+  await narrator.fill('旁白音色')
+  await narrator.press('Enter')
+  assert.equal(await page.locator('button[aria-label^="朗读内容："]').count(), 0)
   await page.getByRole('button', {name:'保存',exact:true}).click()
   await page.getByRole('status').getByText('已保存，朗读已关闭', {exact:true}).waitFor()
-  assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.readMode, 'dialogue')
+  assert.deepEqual(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.config, {voice:'对白音色',narratorVoice:'旁白音色'})
+  assert.equal('readMode' in calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args, false)
   const reopened = await openTavernSettings(t, {section:'dsh-tavern: speech settings',respond})
-  await reopened.page.locator('button[aria-label="朗读内容：朗读对白"]').waitFor()
-  await mode.click()
-  await page.getByRole('menuitemradio', {name:'朗读正文全文',exact:true}).click()
+  await reopened.page.waitForFunction(() => document.querySelector('input[aria-label="对白声音"]')?.value === '对白音色')
+  assert.equal(await reopened.page.getByLabel('对白声音', {exact:true}).inputValue(), '对白音色')
+  assert.equal(await reopened.page.getByLabel('旁白声音', {exact:true}).inputValue(), '旁白音色')
+  await narrator.fill('')
+  await narrator.press('Enter')
   await page.getByRole('button', {name:'保存',exact:true}).click()
-  await page.waitForFunction(() => document.querySelector('[role="status"]')?.textContent.includes('已保存'))
-  assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.readMode, 'full')
+  assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.config.narratorVoice, '')
 })
 
 test('浏览器朗读保留在配音渠道，系统音色加载后可选，开启保存无需 Key 且不切换到在线渠道', async t => {
-  let state = { enabled: false, readMode: 'dialogue', provider: 'browser', providers: providers() }
+  let state = { enabled: false, provider: 'browser', providers: providers() }
   const {page,calls} = await openTavernSettings(t, {
     section: 'dsh-tavern: speech settings',
     beforeRender() {
@@ -86,7 +97,7 @@ test('浏览器朗读保留在配音渠道，系统音色加载后可选，开�
   const saved = calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args
   assert.equal(saved.provider, 'browser')
   assert.equal(saved.enabled, true)
-  assert.equal(saved.readMode, 'dialogue')
+  assert.equal('readMode' in saved, false)
   await page.locator('button[aria-label^="配音渠道："]').click()
   await page.getByRole('menuitemradio', {name:'OpenAI 兼容接口',exact:true}).click()
   await page.locator('button[aria-label^="配音渠道："]').click()

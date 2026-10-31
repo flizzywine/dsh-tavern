@@ -299,19 +299,23 @@ test('配音来源：人物在配好的渠道里选一个，台词就走那个�
 })
 
 
-test('朗读内容经 RPC 保存，省略时保留，重建服务后仍能读回；旧设置默认全文', async () => {
+test('对白与旁白声音通过 RPC 保存，旁白留空即静音，旧朗读模式不再影响配置', async () => {
   const {speech,files,keys} = harness()
-  files.set('speech/config.json', JSON.stringify({enabled:true,provider:'browser',providers:{}}))
-  assert.equal((await speech.present()).readMode, 'full')
+  files.set('speech/config.json', JSON.stringify({enabled:true,provider:'browser',readMode:'dialogue',providers:{}}))
   const handlers = createMediaHandlers({speech})
-  assert.equal((await handlers.updateSpeechSettings({readMode:'dialogue'})).readMode, 'dialogue')
-  assert.equal((await speech.save({enabled:false})).readMode, 'dialogue')
+  await handlers.updateSpeechSettings({config:{voice:'对白音色',narratorVoice:'旁白音色'}})
+  let current = await speech.active()
+  assert.equal(speech.voiceFor({...current,narration:false}), '对白音色')
+  assert.equal(speech.voiceFor({...current,narration:true}), '旁白音色')
+  assert.equal((await speech.synthesize({text:'旁白',voice:speech.voiceFor({...current,narration:true})})).voice, '旁白音色')
+  assert.equal('readMode' in await speech.present(), false)
   const restored = createSpeech({
     store: { readJson: async path => JSON.parse(files.get(path)) },
     credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }) })
   })
-  assert.equal((await restored.present()).readMode, 'dialogue')
-  await assert.rejects(handlers.updateSpeechSettings({readMode:'invalid'}), /请选择朗读/)
-  assert.equal((await speech.present()).readMode, 'dialogue')
-  assert.equal((await handlers.updateSpeechSettings({readMode:'full'})).readMode, 'full')
+  assert.equal((await restored.active()).config.narratorVoice, '旁白音色')
+  await handlers.updateSpeechSettings({config:{narratorVoice:''}})
+  current = await speech.active()
+  assert.equal(speech.voiceFor({...current,narration:true}), null)
+  assert.equal(speech.voiceFor({...current,narration:false}), '对白音色')
 })

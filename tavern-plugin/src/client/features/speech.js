@@ -87,22 +87,26 @@
 			}
 			async function speak(input) {
                 stop();
-                const text = String(input.text || "").trim();
-                if (!text) return false;
                 // The host accepts at most 1000 code points per request. Keep a body in one
                 // playback lease so stop/new playback also cancels its remaining requests.
-                const chunks = input.body ? tavernBodySpeechChunks(text) : [text];
+                const parts = input.parts || [{ text: String(input.text || "").trim(), narration: input.narration === true }];
+                const lines = parts.filter(part => part.text).flatMap(part =>
+                    (input.body ? tavernBodySpeechChunks(part.text) : [part.text]).map(text => ({ text, narration: part.narration })));
+                if (!lines.length) return false;
                 const playing = { owner: input.owner, cancel: function () {} };
                 current = playing;
+                let heardAny = false;
                 try {
-                    for (const chunk of chunks) {
-                        const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: chunk, emotion: input.emotion || "neutral", narration: input.narration === true }, input.sessionId);
-                        if (current !== playing || !reply || reply.skip) return false;
+                    for (const line of lines) {
+                        const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: line.text, emotion: input.emotion || "neutral", narration: line.narration === true }, input.sessionId);
+                        if (current !== playing || !reply) return false;
+                        if (reply.skip) { if (reply.reason === "narration") continue; return false; }
                         const heard = await (reply.browser ? browser(reply, playing) : audio(reply, playing));
                         if (!heard || current !== playing) return false;
+                        heardAny = true;
                         playing.cancel = function () {};
                     }
-                    return true;
+                    return heardAny;
                 } catch (error) {
                     if (current === playing) tavernErrorHub.report("配音", error);
                     return false;
@@ -123,13 +127,27 @@
             doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
             return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
         }
-        function tavernBodySpeechText(source, mode) {
-            return parseBubbles(source, false).map(segment => {
+        function tavernBodySpeechParts(source) {
+            const parts = [];
+            function append(text, narration) {
+                text = text.trim();
+                if (!text) return;
+                const last = parts[parts.length - 1];
+                if (last?.narration === narration) last.text += " " + text;
+                else parts.push({ text, narration });
+            }
+            for (const segment of parseBubbles(source, false)) {
                 const text = tavernSpeechPlainText(segment.text);
-                if (mode !== "dialogue") return text;
-                if (segment.kind === "bubble") return segment.thought ? "" : text;
-                return findTavernQuoteRanges(text).map(([start, end]) => text.slice(start, end)).join(" ");
-            }).filter(Boolean).join(" ");
+                if (segment.kind === "bubble") { append(text, segment.thought === true); continue; }
+                let offset = 0;
+                for (const [start, end] of findTavernQuoteRanges(text)) {
+                    append(text.slice(offset, start), true);
+                    append(text.slice(start, end), false);
+                    offset = end;
+                }
+                append(text.slice(offset), true);
+            }
+            return parts;
         }
         function tavernBodySpeechChunks(text) {
             const chars = Array.from(text), chunks = [];
@@ -150,9 +168,10 @@
                 const node = (snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId);
                 return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
             });
-            const mode = settings?.readMode === "dialogue" ? "dialogue" : "full";
-            const text = React.useMemo(() => tavernBodySpeechText(source, mode), [source, mode]);
-            return settings?.enabled && source ? React.createElement(TavernSpeakButton, { key: props.sessionId + ":" + props.messageId + ":" + source + ":" + mode, sessionId: props.sessionId, text, body: true, readMode: mode, disabled: !text }) : null;
+            const provider = settings?.providers?.find(item => item.id === settings.provider);
+            const readNarration = Boolean(provider?.narratorVoice?.trim());
+            const parts = React.useMemo(() => tavernBodySpeechParts(source).filter(part => !part.narration || readNarration), [source, readNarration]);
+            return settings?.enabled && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source, settings.provider, provider?.voice, provider?.narratorVoice]), sessionId: props.sessionId, parts, body: true, readNarration, disabled: !parts.length }) : null;
         }
         /** A second press stops the current line/body, including synthesis still in flight. */
         function TavernSpeakButton(props) {
@@ -160,15 +179,15 @@
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const label = playing ? "停止朗读" : props.body ? props.readMode === "dialogue" ? "朗读对白" : "朗读正文" : "朗读这句";
-            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的" + (props.readMode === "dialogue" ? "对白" : "正文") : label,
+            const label = playing ? "停止朗读" : props.body ? props.readNarration ? "朗读正文" : "朗读对白" : "朗读这句";
+            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的" + (props.readNarration ? "正文" : "对白") : label,
                 onClick: function (event) {
                     event.stopPropagation();
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
                     const token = {};
                     run.current = token;
                     setPlaying(true);
-                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
+                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
                         if (run.current === token) { run.current = null; setPlaying(false); }
                     });
                 } }, playing ? "■" : "🔊");
@@ -185,12 +204,11 @@
 			return React.createElement("datalist", { id: props.id }, voices.map(function (voice) { return React.createElement("option", { key: voice, value: voice }); }));
 		}
 
-		// Settings → 配音: reading scope and channel settings (service ttsLineSpeechSettings).
+		// Settings → 配音: dialogue/narration voices and channel settings (service ttsLineSpeechSettings).
 		function TavernSpeechSettings() {
 			const h = React.createElement;
 			const settings = useTavernSpeechSettings();
 			const [chosen, setChosen] = React.useState("");
-			const [readMode, setReadMode] = React.useState("full");
 			const [draft, setDraft] = React.useState({});
 			const [apiKey, setApiKey] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
@@ -204,7 +222,6 @@
                 synth?.addEventListener?.("voiceschanged", refresh);
                 return () => synth?.removeEventListener?.("voiceschanged", refresh);
             }, []);
-            React.useEffect(() => { setReadMode(settings?.readMode === "dialogue" ? "dialogue" : "full"); }, [settings?.readMode]);
             // Reply reading supports the browser's system voices as well as online/plugin channels.
 			const providers = settings ? settings.providers : [];
 			const provider = providers.find(function (item) { return item.id === chosen; }) || null;
@@ -233,7 +250,7 @@
 			async function save(enabled) {
 				setBusy(true); setMessage("");
 				try {
-					const result = await rpc("updateSpeechSettings", { enabled: enabled, readMode, provider: chosen, config: draft, apiKey: apiKey || undefined });
+					const result = await rpc("updateSpeechSettings", { enabled: enabled, provider: chosen, config: draft, apiKey: apiKey || undefined });
 					tavernSpeechSettings.set(result);
 					setApiKey("");
 					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
@@ -251,20 +268,16 @@
 			}
 			function field(name, label, placeholder, list) {
 				return h("div", { key: name, className: "dsh-tavern-speech-field" }, h("span", null, label,
-                    name === "voice" ? h(HelpTip, { label: "默认声音说明" }, "每个人物的声音在酒馆状态 → 舞台 →「角色素材」里单独选，没选的用默认声音。") : null),
+                    name === "voice" ? h(HelpTip, { label: "对白声音说明" }, "正文里的对白使用这个声音。旁白声音留空时只朗读对白。") : null),
 					h(InlineField, { value: draft[name] || "", placeholder: placeholder || "", list, disabled: busy, label, hideLabel: true,
                         onCommit: value => setDraft(current => Object.assign({}, current, { [name]: value })) }));
 			}
 			// the shared switch / inline fields (ui-design §三.4–7) on upstream's own 配音 page.
 			const keyLabel = provider && provider.keyLabel || "API Key";
 			return h("section", { className: "dsh-tavern-settings-group dsh-tavern-speech-settings" },
-				h(TavernSettingRow, { title: "开启朗读", help: "回复下方的朗读按钮使用这里的渠道、默认声音和朗读内容；台词行按钮与插件朗读接口也使用这里的渠道。舞台自动配音用上面的「语音服务」。在线渠道按字数计费，试听也会产生少量费用。" },
+				h(TavernSettingRow, { title: "开启朗读", help: "对白和旁白分别使用下方的声音，旁白声音留空时只读对白。正文按对白标记或引号区分对白与旁白，并按原文顺序朗读。舞台自动配音用「语音服务」。在线渠道按字数计费，试听也会产生少量费用。" },
 					h(Switch, { label: "开启朗读", checked: settings.enabled, disabled: busy, onChange: value => save(value) })),
 				h("div", { className: "dsh-tavern-speech-form" },
-                    h("div", { className: "dsh-tavern-speech-field" }, h("span", null, "朗读内容",
-                        h(HelpTip, { label: "朗读内容说明" }, "对白模式只读对白标记或引号内的文字，跳过旁白、动作和标记的内心独白；全文模式朗读全部正文。保存后生效。")),
-                        h(InlineField, { kind: "menu", value: readMode, disabled: busy, label: "朗读内容", hideLabel: true, onCommit: setReadMode,
-                            options: [{ value: "dialogue", label: "朗读对白" }, { value: "full", label: "朗读正文全文" }] })),
 					h("div", { className: "dsh-tavern-speech-field" }, h("span", null, "配音渠道",
                         provider && provider.description ? h(HelpTip, { label: "配音渠道说明" }, provider.description) : null),
 						h(InlineField, { kind: "menu", value: chosen, disabled: busy, label: "配音渠道", hideLabel: true, onCommit: pick,
@@ -274,7 +287,7 @@
 					models.length ? h("p", { className: "dsh-tavern-settings-desc" }, "服务提供的模型：" + models.map(function (model) { return model.label; }).join("、")) : null,
 					provider && provider.key ? h("div", { className: "dsh-tavern-speech-field" }, h("span", null, keyLabel + (provider.hasKey ? "（已保存，留空沿用）" : provider.keyOptional ? "（选填）" : "")),
 						h(InlineField, { secret: true, value: apiKey, disabled: busy, label: keyLabel, hideLabel: true, onCommit: setApiKey })) : null,
-					field("voice", "默认声音", provider?.browser ? "留空使用系统默认中文声音" : "", "dsh-tavern-speech-voices"),
+					field("voice", "对白声音", provider?.browser ? "留空使用系统默认中文声音" : "", "dsh-tavern-speech-voices"),
 					field("narratorVoice", "旁白声音", "留空则旁白不念", "dsh-tavern-speech-voices"),
 					h(TavernVoiceOptions, { id: "dsh-tavern-speech-voices", provider: provider?.browser ? { ...provider, voices: browserVoices.map(voice => voice.name) } : provider }),
                     provider?.browser ? h("p", { className: "dsh-tavern-settings-desc" }, "使用浏览器和系统自带的语音，无需 API Key。可用音色取决于当前设备。") : null,

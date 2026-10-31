@@ -292,7 +292,7 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
   async function readConfig() {
     const value = await store.readJson(CONFIG_PATH).catch(() => null)
     const object = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    return { enabled: object.enabled === true, readMode: object.readMode === 'dialogue' ? 'dialogue' : 'full', provider: typeof object.provider === 'string' ? object.provider : 'browser',
+    return { enabled: object.enabled === true, provider: typeof object.provider === 'string' ? object.provider : 'browser',
       providers: object.providers && typeof object.providers === 'object' ? object.providers : {} }
   }
   function settingsOf(provider, stored) {
@@ -337,12 +337,11 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
         fields: provider.fields.map(field => ({ name: field.name, label: field.label, value: config[field.name], placeholder: field.default || '' })),
         voice: config.voice, narratorVoice: config.narratorVoice })
     }
-    return { enabled: stored.enabled, readMode: stored.readMode, provider: providers().some(item => item.id === stored.provider) ? stored.provider : 'browser', providers: list }
+    return { enabled: stored.enabled, provider: providers().some(item => item.id === stored.provider) ? stored.provider : 'browser', providers: list }
   }
 
-  /** Save the channel, reading scope, enabled state and channel settings (including its key). */
-  async function save({ enabled, readMode, provider: id, config = {}, apiKey } = {}) {
-    if (readMode !== undefined && !['dialogue', 'full'].includes(readMode)) throw invalid('请选择朗读对白或朗读正文全文')
+  /** Save the channel, enabled state and channel settings (including its key and both voices). */
+  async function save({ enabled, provider: id, config = {}, apiKey } = {}) {
     const stored = await readConfig()
     const target = id === undefined ? stored.provider : id
     const provider = providerOf(target)
@@ -376,7 +375,7 @@ export function createSpeech({ store, credentials, plugins = () => [], fetchImpl
       await vault.set(keyRef(provider.id), supplied)
     }
     const { voice, narratorVoice, ...fields } = next
-    await store.writeJson(CONFIG_PATH, { enabled: turnOn, readMode: readMode ?? stored.readMode, provider: provider.id,
+    await store.writeJson(CONFIG_PATH, { enabled: turnOn, provider: provider.id,
       providers: { ...stored.providers, [provider.id]: { ...fields, voice, narratorVoice, ...(keyUrl ? { keyUrl } : {}) } } })
     return present()
   }
