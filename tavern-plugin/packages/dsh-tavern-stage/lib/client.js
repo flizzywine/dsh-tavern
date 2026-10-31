@@ -445,7 +445,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
 
         'use strict';
 function createStagePosition({React, window, storage:localStorage, setTimeout, clearTimeout, sameAnchor, navigate}) {
-const writers = new Set();
+const writers = new Set(), bindings = new Set();
 let disposed = false;
 function ownWriter(sessionId, storage) {
     const writer = galPositionWriter(sessionId,storage,setTimeout,clearTimeout);
@@ -512,6 +512,7 @@ function useStagePosition(sessionId, runtime, parts, pages, {restored, onSelect}
         try { storage = localStorage; } catch (_) {}
         return ownWriter(sessionId,storage);
     },[sessionId]);
+    const lifetime = React.useMemo(() => ({active:false}), [writer]);
     const turn = runtime.source?.turn || 0;
     const page = Math.max(0,pages.findIndex(item => sameAnchor(item.anchor,runtime.cursor.anchor)));
     // the turn's text digest is hashed once per parts array, not on every render.
@@ -527,22 +528,36 @@ function useStagePosition(sessionId, runtime, parts, pages, {restored, onSelect}
     React.useEffect(() => {
         if (disposed) return;
         writers.add(writer);
+        lifetime.active = true;
         window.addEventListener('pagehide',writer.flush);
-        return () => {window.removeEventListener('pagehide',writer.flush);writer.flush();writers.delete(writer);};
+        const stop = () => {
+            lifetime.active = false; bindings.delete(stop); writers.delete(writer);
+            try { window.removeEventListener('pagehide',writer.flush); } finally { writer.flush(); }
+        };
+        bindings.add(stop);
+        return stop;
     },[writer]);
     // The shown page is read to its end: the runtime's in-page reading progress (one-shots placed after it).
     return [page,index => {
-        if (disposed) return;
+        if (disposed || !lifetime.active) return;
         onSelect();
         if (index !== page) navigate(sessionId,turn,index,index > page);
     },writer.saved,() => {
-        if (disposed) return;
+        if (disposed || !lifetime.active) return;
         const current = pages[page];
         runtime.store.dispatch({type:'READ_PROGRESS',source:runtime.source,anchor:current?.anchor,readThrough:(current?.anchor.offset || 0) + (current?.text.length || 0)});
     }];
 }
 
-return {usePosition:useStagePosition, digest:galTextDigest, anchors:galPositionAnchors, ready:galPositionReady, restore:galRestorePosition, writer:ownWriter, dispose() { if (disposed) return; disposed = true; for (const writer of writers) writer.dispose(); writers.clear(); }};
+return {usePosition:useStagePosition, digest:galTextDigest, anchors:galPositionAnchors, ready:galPositionReady, restore:galRestorePosition, writer:ownWriter, dispose() {
+    if (disposed) return;
+    disposed = true;
+    const errors = [], owned = [...writers];
+    for (const stop of [...bindings]) { try {stop();} catch (error) {errors.push(error);} }
+    for (const writer of owned) { try {writer.dispose();} catch (error) {errors.push(error);} }
+    bindings.clear(); writers.clear();
+    if (errors.length) throw new AggregateError(errors, 'Stage position cleanup failed');
+}};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStagePosition};
 
