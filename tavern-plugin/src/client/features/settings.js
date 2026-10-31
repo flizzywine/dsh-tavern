@@ -427,7 +427,6 @@
             const [manageOpen, setManageOpen] = React.useState(false);
             const h = React.createElement;
             const [data, setData] = React.useState(null);
-            const [legacy, setLegacy] = React.useState(null);
             const [updates, setUpdates] = React.useState(null);
             const [checking, setChecking] = React.useState(false);
             const [url, setUrl] = React.useState("");
@@ -475,11 +474,7 @@
                     else setUpdates({});
                 } catch (err) { setError(String(err && err.message || err)); }
             }
-            async function refreshLegacy() {
-                try { setLegacy(await rpc("listLegacyPlugins")); }
-                catch (_error) { setLegacy(null); }
-            }
-            React.useEffect(function () { void refresh(); void refreshLegacy(); }, []);
+            React.useEffect(function () { void refresh(); }, []);
             async function run(work, done) {
                 setBusy(true); setError(""); setNotice("");
                 try { const result = await work(); setNotice(done(result)); await refresh(); }
@@ -571,20 +566,6 @@
                             (managed || plugin.source.kind === "card" || plugin.source.kind === "builtin") ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
                 })) : null,
                 manageOpen ? h(packUi.mods.ModManager, {rpc, onClose:()=>setManageOpen(false)}) : null,
-                legacy && legacy.plugins && legacy.plugins.length ? h("div", { className: "dsh-tavern-legacy-plugins" },
-                    h("div", { className: "dsh-tavern-settings-row" },
-                        h("span", { className: "dsh-tavern-settings-copy" },
-                            h("strong", null, "已装的旧版插件"),
-                            h("p", { className: "dsh-tavern-settings-desc", title: legacy.profile }, "由 Profile 加载，此处只读；安装、更新请走各插件自己的入口。"))),
-                    h("ul", { className: "dsh-tavern-user-plugins-list" }, legacy.plugins.map(function (plugin) {
-                        const status = plugin.status === "bundle" ? "Profile bundle" : plugin.status === "dependency" ? "仅依赖" : "缺失";
-                        return h("li", { key: plugin.name, className: "dsh-tavern-user-plugin" },
-                            h("div", { className: "dsh-tavern-user-plugin-copy" },
-                                h("strong", null, plugin.name, plugin.version ? h("small", null, " " + plugin.version) : null,
-                                    h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.status === "bundle" ? "已登记在 dsh.profile.bundles 中，由 Profile 加载" : plugin.status === "dependency" ? "已安装，但不在 dsh.profile.bundles 中" : "Profile 里找不到这个已安装的包" }, status)),
-                                plugin.description ? h("span", null, plugin.description) : null,
-                                plugin.kind ? h("span", { className: "dsh-tavern-user-plugin-source" }, plugin.kind) : null));
-                    }))) : null,
                 h("div", { className: "dsh-tavern-user-plugins-folder" },
                     h("span", { className: "dsh-tavern-settings-desc", title: data ? data.dir : "" }, data ? "插件文件夹：" + data.dir : ""),
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void rpc("openUserPluginsFolder").catch(function (err) { setError(String(err && err.message || err)); }); } }, "打开插件文件夹")));

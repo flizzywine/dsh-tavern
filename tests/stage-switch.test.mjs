@@ -51,3 +51,13 @@ test('user activation returns while loading so the same UI can stop it',async()=
  assert.equal(f.counts().stops,1);assert.equal(control.read().enabled,false)
  finish()
 })
+
+test('built-in stage ignores legacy disable preference; emergency stop is session-only',async()=>{
+ const f=fixture({enabled:false})
+ const first=await createStageSwitch({...f,builtin:true})
+ await first.install(()=>{});assert.equal(first.read().enabled,true)
+ await first.setEnabled(false);await first.uninstall()
+ const second=await createStageSwitch({...f,builtin:true})
+ await second.install(()=>{});assert.equal(second.read().status,'ready')
+ assert.equal((await f.store.readJson()).enabled,false)
+})

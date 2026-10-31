@@ -128,22 +128,6 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
   assert.ok(calls.some(call=>call.method==='listUserPlugins'))
 })
 
- test('舞台设置保留真实状态与独立启停', async t => {
-  let enabled = true
-  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: stage settings section', respond(method,args) {
-    if (method === 'getAssetGenPrompts') return {data:{kinds:[],revision:'fixture'}}
-    if (method === 'setStageEnabled') enabled = args.enabled
-    if (method === 'getStageRuntimeStatus' || method === 'setStageEnabled') return {installed:true, enabled, status:enabled?'ready':'disabled'}
-  }})
-  await page.getByRole('button', {name:'停用', exact:true}).waitFor()
-  assert.equal(await page.getByRole('heading', {name:'内置舞台插件', exact:true}).count(), 0)
-  await page.getByRole('button', {name:'停用', exact:true}).click()
-  await page.getByRole('button', {name:'启用', exact:true}).waitFor()
-  assert.deepEqual(calls.find(c=>c.method==='setStageEnabled').args,{enabled:false})
-  await page.getByRole('button', {name:'启用', exact:true}).click()
-  await page.getByRole('button', {name:'停用', exact:true}).waitFor()
- })
-
 test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async t => {
   let settings = {defaultPlaySettings:{playerName:'你',backgroundTasks:{}},modModels:{'dsh.stage':{director:{provider:'p',model:'saved'}}}}
   const respond = (method,args) => {
@@ -162,6 +146,8 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   assert.equal(await general.page.locator('button[aria-label^="导演模型："]').count(),0)
   const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage settings section'})
   await stage.page.locator('button[aria-label^="导演模型："]').waitFor()
+  assert.equal(await stage.page.getByRole('button',{name:'停用',exact:true}).count(),0)
+  assert.equal(await stage.page.getByRole('heading',{name:'舞台插件',exact:true}).count(),0)
   const picker=stage.page.locator('button[aria-label^="导演模型："]')
   await picker.click()
   await stage.page.getByRole('menuitemradio',{name:/next/}).click()

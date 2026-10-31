@@ -3634,7 +3634,7 @@ export async function apply(ctx) {
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps))
-  const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData})
+  const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
