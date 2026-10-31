@@ -4,6 +4,7 @@
 // @include-protocol performance-timeline.cjs
 // @include mod-projection.cjs
 // @include phone-beat.cjs
+// @include-stage lifetime.cjs
 // @include stage-runtime.cjs
 // @include stage-runtime-store.cjs
 // @include stage-page-index.cjs
@@ -105,6 +106,7 @@ const stageSessions = {
         this.notifyMod(sessionId,'activity.changed',this.get(sessionId)?.getSnapshot());
     },
     start(ctx) {
+        return startStageClientLifetime(({own, active}) => {
         const preferences = {
             get: () => ({reading: stageReading.get(), film: stageFilm.get(), audio: forkStageAudio.get()}),
             subscribe(listener) {
@@ -114,6 +116,8 @@ const stageSessions = {
         };
         const resourceOwner = createStageResourceOwner({service:() => packTransport?.service,decode:stageDecodeImage});
         this.resourceOwner = resourceOwner;
+        own(() => { if (this.resourceOwner === resourceOwner) this.resourceOwner = null; });
+        own(() => resourceOwner.dispose());
         const resourceDebug = {readiness:() => {
             const sessionId = tavernMainSessionId(ctx.sessions) || null;
             return {sessionId,viewPhase:sessionId ? liveTavernView.getSnapshot(sessionId).phase : null};
@@ -148,6 +152,7 @@ const stageSessions = {
                     streaming:state.text.streaming, units:state.text.units?.length ?? 0, pages:state.text.pages.length}} : null;
         })()})};
         window.forkStageResourceDebug = resourceDebug;
+        own(() => { if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug; });
         const overlayModule=createSkinOverlayLoader();
         const resources = createStageResourceRunner({
             foreground:forkForeground,
@@ -175,6 +180,7 @@ const stageSessions = {
             progress: stageLoadProgress,
             owner: resourceOwner
         });
+        own(() => resources.dispose());
         const director = createStageDirectorSource({
             onEffect:resources.onEffect,
             read: args => rpc('getStageDirection', args, args.sessionId),
@@ -187,6 +193,7 @@ const stageSessions = {
                 return () => stops.forEach(stop => stop());
             }
         });
+        own(() => director.dispose());
         const owner = createStageSessionOwner({
             runEffect: director.runEffect,
             observe:(id,event,previous,state)=>{
@@ -233,11 +240,15 @@ const stageSessions = {
                 superseded: galIsSuperseded})
         });
         this.owner = owner;
+        own(() => { if (this.owner === owner) this.owner = null; });
+        own(() => owner.dispose());
         owner.start();
         // the session index survives transcript virtualization. Only the
         // selected chat's sealed latest lines and viewed/next turns are synthesized.
         let voiceStore = null, stopVoiceSource = null;
+        own(() => stopVoiceSource?.());
         const syncVoice = () => {
+            if (!active()) return;
             const id = tavernMainSessionId(ctx.sessions) || null;
             const store = id ? owner.get(id) : null;
             if (store !== voiceStore) {
@@ -275,33 +286,45 @@ const stageSessions = {
             voicePlayer.cancelPrefetch(handles);
             for (const handle of handles) void handle.prefetch();
         };
-        const stopVoiceSession = ctx.sessions.list.subscribe(syncVoice), stopVoiceEntry = stageEntryShown().subscribe(syncVoice);
-        const stopVoiceSettings = bubbleStore.subscribe(syncVoice);
-        if (typeof packListeners !== 'undefined') packListeners.add(syncVoice);
+        own(ctx.sessions.list.subscribe(syncVoice));
+        own(stageEntryShown().subscribe(syncVoice));
+        own(bubbleStore.subscribe(syncVoice));
+        if (typeof packListeners !== 'undefined') { packListeners.add(syncVoice); own(() => packListeners.delete(syncVoice)); }
         syncVoice();
         // the BGM player follows the selected session (after the owner made its store).
         // The manual background (bg-manual.js) follows the same session.
         // Ambience (stage-ambience.js) follows the same session as the BGM, in the stage and in chat.
         const bgmSelect = () => { bgmPlayer.activate(tavernMainSessionId(ctx.sessions) || null); bgManual.activate(tavernMainSessionId(ctx.sessions) || null); ambience.activate(tavernMainSessionId(ctx.sessions) || null); };
-        const stopBgmSelect = ctx.sessions.list.subscribe(bgmSelect), bgmKick = () => { bgmPlayer.kick(); ambience.resume(); };
-        document.addEventListener('pointerdown', bgmKick, true); document.addEventListener('keydown', bgmKick, true);
+        own(() => bgmPlayer.activate(null));
+        own(() => bgManual.activate(null));
+        own(() => ambience.activate(null));
+        own(ctx.sessions.list.subscribe(bgmSelect));
+        const bgmKick = () => { bgmPlayer.kick(); ambience.resume(); };
+        document.addEventListener('pointerdown', bgmKick, true);
+        own(() => document.removeEventListener('pointerdown', bgmKick, true));
+        document.addEventListener('keydown', bgmKick, true);
+        own(() => document.removeEventListener('keydown', bgmKick, true));
         bgmSelect();
         const prefetches = new Map(), avatarQueue = [];
         let avatarGeneration = 0, avatarSession = null, avatarStore = null, stopAvatarSource = null, avatarFlights = 0;
         // the card's whole face catalogue (118 for a large card) was acquired at once on
         // session selection; in the debug slot that burst kept ~124 lease/control requests in flight for 15-28 s each, ahead
         // of the stage's first page. Two in flight, as bubbleMediaPool's and the runner's idle face warm-ups.
+        own(() => { avatarGeneration++; avatarCache.select(null); });
+        own(() => stopAvatarSource?.());
         const pumpAvatars = () => {
             // Catalogue faces are speculative; leave the connection slots to the entry page.
             const entering = typeof galEntering !== 'undefined' && !!galEntering.get();
-            if ((entering || document.querySelector('.fork-gal-stage')) && stageEntryShown().get() !== avatarStore) return;
+            if (active() && (entering || document.querySelector('.fork-gal-stage')) && stageEntryShown().get() !== avatarStore) return;
             while (avatarFlights < 2 && avatarQueue.length) {
                 avatarFlights++;
                 avatarQueue.shift()().finally(() => { avatarFlights--; pumpAvatars(); });
             }
         };
+        own(() => pumpAvatars());
         const avatarRevisions = new Map();
         const syncAvatars = () => {
+            if (!active()) return;
             const id = tavernMainSessionId(ctx.sessions) || null;
             if (id !== avatarSession) { avatarSession = id; avatarGeneration++; prefetches.clear(); }
             avatarCache.select(id);
@@ -323,7 +346,7 @@ const stageSessions = {
                 avatarCache.revision(descriptor.ref.packId,descriptor.revision);
                 const avatar = {...descriptor,sessionId:id}, key = JSON.stringify(avatar), generation = avatarGeneration;
                 if (!source || prefetches.has(key) || avatarCache.get(avatar)) continue;
-                const job = new Promise(resolve => avatarQueue.push(() => (generation !== avatarGeneration ? Promise.resolve()
+                const job = new Promise(resolve => avatarQueue.push(() => (!active() || generation !== avatarGeneration ? Promise.resolve()
                     : resourceOwner.acquire(descriptor,JSON.stringify([source.sessionId,source.authorityEpoch])).then(async pin => {
                         try {
                             if (generation === avatarGeneration) await avatarCache.prepare(avatar,pin.handle.url);
@@ -333,8 +356,9 @@ const stageSessions = {
             }
             pumpAvatars();
         };
-        const stopAvatarEntry = stageEntryShown().subscribe(pumpAvatars);
-        const stopAvatarSession = ctx.sessions.list.subscribe(syncAvatars), stopAvatarSettings = bubbleStore.subscribe(syncAvatars);
+        own(stageEntryShown().subscribe(pumpAvatars));
+        own(ctx.sessions.list.subscribe(syncAvatars));
+        own(bubbleStore.subscribe(syncAvatars));
         syncAvatars();
         // deletion is authoritative even while observation timers sleep.
         // Other transport events only request validation; disconnect is not revoke: a lost
@@ -342,6 +366,7 @@ const stageSessions = {
         // ('available', then the feed's reset) re-reads them. Deleting, disabling or unbinding a pack still revokes below
         // (revision null) or through the projection's 'revoked' answer.
         const packChanged = event => {
+            if (!active()) return;
             if (event?.type === 'unavailable') { avatarGeneration++; prefetches.clear(); }
             else if (event?.type === 'available') syncAvatars();
             else if (event?.packId && event.revision !== undefined) {
@@ -359,34 +384,21 @@ const stageSessions = {
             }
             if (event) { bgmPlayer.invalidate(); bgManual.invalidate(); }
         };
-        if (typeof packListeners !== 'undefined') packListeners.add(packChanged);
+        if (typeof packListeners !== 'undefined') { packListeners.add(packChanged); own(() => packListeners.delete(packChanged)); }
         // installing the Cubism Core re-reads open stages, so figures shown as their
         // static sprite switch to Live2D in place (no reload, no state change). Importing the Spine runtime does the same.
         
         const stopSpineRuntime = typeof spineRuntimeState !== 'undefined' ? spineRuntimeState.subscribe(() => packChanged(null)) : () => {};
-        const stopCore = () => { stopSpineRuntime(); };
+        own(stopSpineRuntime);
         const visibility = () => {
+            if (!active()) return;
             const snapshot = ctx.sessions.list.getSnapshot();
             for (const id of Object.keys(snapshot.byId || {})) owner.get(id)?.dispatch({type: 'VISIBILITY', visible: !document.hidden});
         };
         // Visibility is observation/visual policy only. Never mute audio on hide.
         document.addEventListener('visibilitychange', visibility);
+        own(() => document.removeEventListener('visibilitychange', visibility));
         visibility();
-        return () => {
-            document.removeEventListener('visibilitychange', visibility);
-            stopAvatarEntry(); stopAvatarSession(); stopAvatarSettings(); stopAvatarSource?.(); avatarGeneration++; avatarCache.select(null);
-            stopVoiceSession(); stopVoiceEntry(); stopVoiceSettings(); stopVoiceSource?.();
-            if (typeof packListeners !== 'undefined') packListeners.delete(syncVoice);
-            if (typeof packListeners !== 'undefined') packListeners.delete(packChanged);
-            stopCore();
-            stopBgmSelect(); document.removeEventListener('pointerdown', bgmKick, true); document.removeEventListener('keydown', bgmKick, true);
-            bgmPlayer.activate(null); bgManual.activate(null); ambience.activate(null);
-            owner.dispose();
-            director.dispose();
-            resources.dispose();
-            if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug;
-            if (this.resourceOwner === resourceOwner) this.resourceOwner = null;
-            if (this.owner === owner) this.owner = null;
-        };
+        });
     }
 };
