@@ -911,37 +911,20 @@
 			const imageTurn = Number(live.view && live.view.latestAssistantTurn) || 0;
 			const h = React.createElement;
 			if (!sessionMode) return null;
-			// top-level play sessions render these inside the composer (input.left).
-			const inline = props.placement === "inline";
-			if (inline && (address || !isPlayMode(sessionMode))) return null;
 			const compacting = live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running";
 			const compactionStatus = live.view && live.view.contextCompaction && (compacting || live.view.contextCompaction.warning) ? h("span", { role: "status", className: "dsh-tavern-settings-desc fork-compaction-status" }, compacting ? "正在压缩前后台上下文…" : live.view.contextCompaction.warning,
 				// a warning can be dismissed; it otherwise stays until a later compaction succeeds.
 				!compacting && live.view.contextCompaction.warning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
 					rpc("dismissCompactionWarning", { sessionId: ownerSessionId }, ownerSessionId).then(function () { liveTavernView.invalidate(ownerSessionId); }, function (error) { tavernErrorHub.report("关闭压缩提示", error); });
 				} }, "×") : null) : null;
-			if (!inline && !address && isPlayMode(sessionMode)) return h(CompactionLine, { sessionId: ownerSessionId }); // compaction divider replaces the status text
 			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId })) : null;
-			return h("div", { className: "dsh-tavern-dock-actions" + (inline ? " dsh-fork-inline-actions" : ""),
+			return h("div", { className: "dsh-tavern-dock-actions",
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
-				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId }, inline ? { only: "choices" } : null)) : null,
+				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
 				isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
-				// per-round items moved under the latest reply; session-level ones stay here as icons.
-				inline && typeof props.openStatus === "function" ? h("button", { type: "button", className: "dsh-tavern-choice-trigger", "data-fork-action": "guide", "data-count": (live.view && live.view.guides || []).length || undefined,
-					title: (live.view && live.view.guides || []).length ? "Guide：" + live.view.guides.length + " 条生效中" : "添加 Guide（影响正文、候选与变量结算）",
-					onClick: function () { Promise.resolve(props.openStatus()).then(function () { window.setTimeout(function () { window.dispatchEvent(new CustomEvent("dsh-fork-focus-guide")); }, 250); }); } }, "Guide") : null, // the label shows in the phone ＋ menu; the icon toolbar hides button text
-				inline ? h("span", { className: "dsh-fork-icon-slot", "data-fork-icon": "compact", title: "压缩上下文" }, React.createElement(TavernCompactionAction, props)) : null,
-				inline ? h("span", { className: "dsh-fork-icon-slot", "data-fork-icon": "stop", title: "停止后台任务" }, React.createElement(TavernStopBackgroundAction, Object.assign({}, props, { sessionId: ownerSessionId }))) : null,
-				inline ? null : isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
-                inline ? null : compactionStatus
+				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
+                compactionStatus
 			);
-		}
-
-		// the composer's round actions; on a phone in play they sit in the ＋ menu.
-		function RoundActionsSeat(props) {
-			const phone = usePhonePlay(props.sessionId, props.sessions);
-			const actions = React.createElement(CandidateDockActions, props);
-			return phone ? React.createElement(PhoneComposerPlus, null, actions) : actions;
 		}
 
         function observeTurnErrorProjection(root, apply, host = window) {
@@ -1265,16 +1248,7 @@
 				{ name: "conversation.input.overlay", id: "dsh-fork-jump-latest", order: 10, label: "回到最新" },
 				function (props) { return React.createElement(ChatJumpLatest, { key: props.sessionId }); }
 			)), "dsh-tavern: chat jump-to-latest");
-			ctx.effect(() => slots.inject("conversation.input.left", () => slots.register(
-				{ name: "conversation.input.left", id: "dsh-fork-round-actions", order: 10, label: "本轮操作" },
-				function (props) { return typeof props.useChat === "function" && typeof props.useSession === "function" ? React.createElement(RoundActionsSeat, Object.assign({}, props, {
-					placement: "inline",
-					openStatus: function () { return openTavernSidebarTab(ctx, { type: "dsh-tavern:status" }, { sessionId: props.sessionId }); },
-					sessions: ctx.sessions,
-					refreshSessions: function () { return typeof ctx.sessions.refresh === "function" ? ctx.sessions.refresh() : Promise.resolve(); },
-					executeCompact: function (sessionId) { return ctx.remote.commands.execute(sessionId, "/compact", []); }
-				})) : null; }
-			)), "dsh-tavern: round actions in composer");
+
 			ctx.effect(() => slots.inject("conversation.session.header.utilities", () => slots.register(
 				{ name: "conversation.session.header.utilities", id: "dsh-card-stage-toggle", order: 84 },
 				function (props) { return tavernStageBoundary("舞台按钮", React.createElement(CardStageToggle, { key: props.sessionId, sessionId: props.sessionId })); }

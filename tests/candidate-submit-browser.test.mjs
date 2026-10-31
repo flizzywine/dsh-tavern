@@ -60,7 +60,7 @@ async function mount(t, outcome) {
       inject() { return { dispose() {} } },
       get() {}, provide() {},
       effect(run, label) {
-        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: round actions in composer'].includes(label)) return run()
+        if (['dsh-tavern: Tavern workspace browser', 'dsh-tavern: candidate dock actions'].includes(label)) return run()
         return () => {}
       },
       slots: { inject(_name, run) { return run() }, register(spec, component) { slots[spec.id || spec.name] = component; return () => {} } },
@@ -74,7 +74,7 @@ async function mount(t, outcome) {
       wide: true, useSessions: select => select(sessionState), useWorkspaces: select => select({ items: [] }), renderSlot: () => null,
     }))
     // A top-level play session shows its round actions in the composer (input.left).
-    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-fork-round-actions'], {
+    modules['react-dom/client'].createRoot(document.querySelector('#dock')).render(React.createElement(slots['dsh-tavern-candidate-actions'], {
       sessionId: 'game', useSession: select => select({ running: false }), useInput: select => select({ draft: '' }),
       useChat: select => select({ legacy: { nodes: [{ kind: 'assistant', messageId: 'reply-1' }] } }),
     }))
