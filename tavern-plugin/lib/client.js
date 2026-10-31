@@ -13788,10 +13788,11 @@ window.__ModuleLoader__.load({
 		    return {
 		      offered:path=>offered.has(path),
 		      offer(path){offered.add(path);},
-		      enter({service,path,stageOn,open}){
+		      enter({service,path,stageOn,open,current=()=>true}){
 		        if(!path||!stageOn||offered.has(path)||!stageSetupReady({service}))return null;
 		        offered.add(path);
 		        return service.getStageSetupStatus({path}).then(async status=>{
+		          if(!current()){offered.delete(path);return false;}
 		          if(!status?.shouldAutoOpen)return false;
 		          pending=path;for(const fn of [...listeners])fn();
 		          try{await open();return true;}catch(_){pending='';return false;}
@@ -27636,9 +27637,9 @@ function tavernModelRefusalNotice(text) {
 		// the first entry into 舞台模式 on a card that binds no
 		// 素材包 opens 舞台设置 straight on 设置向导 instead (once per card; packUi.stageSetup decides and holds the request until
 		// the page takes it). null: enter as usual; else a promise of whether the wizard opened.
-		function stageSetupGate(sessionId) {
+		function stageSetupGate(sessionId, current = () => true) {
 		    const data = bubbleStore.get(sessionId);
-		    return packUi.stageSetup.enter({ service: packClient(), path: data?.cardPath, stageOn: data?.config?.stage?.director === true,
+		    return packUi.stageSetup.enter({ current, service: packClient(), path: data?.cardPath, stageOn: data?.config?.stage?.director === true,
 		        open: () => openSidebarTab('dsh-tavern:bubbles', sessionId) });
 		}
 		function stageNav(sessionId) {
@@ -61594,6 +61595,28 @@ function galUiApplier() {
 		// galLeaveHold; clip-render.js sets galEntry.
 		// Revalidate on every visit; only the latest pending turn or an explicit generation polls.
 		// The stage is a full-screen mode of one session at a time; it is not remembered across reloads.
+		const galStageAvailable = (() => {
+		    let enabled = false;
+		    const listeners = new Set();
+		    return {get: () => enabled, subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn);},
+		        set(value) {if (enabled === value) return; enabled = value; for (const fn of listeners) fn();}};
+		})();
+		let galVisitGeneration = 0;
+		function galStageLifetime() {
+		    galStageAvailable.set(true);
+		    let live = true;
+		    return () => {
+		        if (!live) return;
+		        live = false;
+		        galVisitGeneration++;
+		        galEntry = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
+		        try { galStageAvailable.set(false); }
+		        finally {
+		            try { galLeaveNow(); }
+		            finally { galEscapeLock(false); if (typeof galUncover === 'function') galUncover(); }
+		        }
+		    };
+		}
 		const galActive = (function () {
 		    let session = "";
 		    const listeners = new Set();
@@ -61611,18 +61634,22 @@ function galUiApplier() {
 		})();
 		let galEntry = null;
 		function galEnter(sessionId, target) {
+		    if (!galStageAvailable.get()) return;
+		    const generation = ++galVisitGeneration;
+		    const current = () => galStageAvailable.get() && generation === galVisitGeneration;
 		    // the first entry on a card without 素材包 opens 舞台设置 › 设置向导 instead
 		    // (asset-launcher.js stageSetupGate; absent where the stage is loaded on its own). The host check is one
 		    // local read, well inside the click's activation window, so full screen is still granted afterwards.
-		    const setup = typeof stageSetupGate === "function" ? stageSetupGate(sessionId) : null;
+		    const setup = typeof stageSetupGate === "function" ? stageSetupGate(sessionId, current) : null;
 		    if (setup) {
 		        galEntering.set(sessionId);
-		        setup.then(opened => { galEntering.set(""); if (!opened) galOpen(sessionId, target); }, () => galEntering.set(""));
+		        setup.then(opened => { if (!current()) return; galEntering.set(""); if (!opened) galOpen(sessionId, target); }, () => {if (current()) galEntering.set("");});
 		        return;
 		    }
 		    galOpen(sessionId, target);
 		}
 		function galOpen(sessionId, target) {
+		    if (!galStageAvailable.get()) return;
 		    forkUiSfx.play("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
 		    galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
 		    galActive.set(sessionId);
@@ -61661,6 +61688,8 @@ function galUiApplier() {
 		    galLeaveNow();
 		}
 		function galLeaveNow() {
+		    galVisitGeneration++;
+		    galEntering.set("");
 		    galActive.set("");
 		    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 		}
@@ -61691,11 +61720,12 @@ function galUiApplier() {
 		        window.removeEventListener("keydown", onKey, true);
 		    };
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut };
 		function useGalOn(sessionId) {
+		    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
 		    const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-		    const data = useBubbles(sessionId, Boolean(sessionId));
-		    const available = Boolean(data && data.cardPath && data.config && data.config.enabled);
+		    const data = useBubbles(sessionId, enabled && Boolean(sessionId));
+		    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
 		    return { available, on: available && active === sessionId, data };
 		}
 		// galgame typewriter (theme.css "stage typewriter"). The whole page is laid out from the
@@ -79295,6 +79325,7 @@ const stageSessions = {
             // one input runtime per open native session, independent of React.
             stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
+            stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
             const stageClientEntry = createStageClientEntry({
                 startLifetime: startStageClientLifetime,
                 install: stageRegistrations,

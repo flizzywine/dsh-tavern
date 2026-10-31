@@ -29,9 +29,9 @@ function openSidebarTab(type, sessionId) {
 // the first entry into 舞台模式 on a card that binds no
 // 素材包 opens 舞台设置 straight on 设置向导 instead (once per card; packUi.stageSetup decides and holds the request until
 // the page takes it). null: enter as usual; else a promise of whether the wizard opened.
-function stageSetupGate(sessionId) {
+function stageSetupGate(sessionId, current = () => true) {
     const data = bubbleStore.get(sessionId);
-    return packUi.stageSetup.enter({ service: packClient(), path: data?.cardPath, stageOn: data?.config?.stage?.director === true,
+    return packUi.stageSetup.enter({ current, service: packClient(), path: data?.cardPath, stageOn: data?.config?.stage?.director === true,
         open: () => openSidebarTab('dsh-tavern:bubbles', sessionId) });
 }
 function stageNav(sessionId) {

@@ -1077,6 +1077,7 @@ window.__ModuleLoader__.load({
             // one input runtime per open native session, independent of React.
             stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
+            stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
             const stageClientEntry = createStageClientEntry({
                 startLifetime: startStageClientLifetime,
                 install: stageRegistrations,

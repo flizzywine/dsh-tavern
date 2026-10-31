@@ -3,6 +3,28 @@
 // galLeaveHold; clip-render.js sets galEntry.
 // Revalidate on every visit; only the latest pending turn or an explicit generation polls.
 // The stage is a full-screen mode of one session at a time; it is not remembered across reloads.
+const galStageAvailable = (() => {
+    let enabled = false;
+    const listeners = new Set();
+    return {get: () => enabled, subscribe(fn) {listeners.add(fn); return () => listeners.delete(fn);},
+        set(value) {if (enabled === value) return; enabled = value; for (const fn of listeners) fn();}};
+})();
+let galVisitGeneration = 0;
+function galStageLifetime() {
+    galStageAvailable.set(true);
+    let live = true;
+    return () => {
+        if (!live) return;
+        live = false;
+        galVisitGeneration++;
+        galEntry = null; galEntering.set(""); galLeaveHold = null; galLeavePending = false;
+        try { galStageAvailable.set(false); }
+        finally {
+            try { galLeaveNow(); }
+            finally { galEscapeLock(false); if (typeof galUncover === 'function') galUncover(); }
+        }
+    };
+}
 const galActive = (function () {
     let session = "";
     const listeners = new Set();
@@ -20,18 +42,22 @@ const galEntering = (function () {
 })();
 let galEntry = null;
 function galEnter(sessionId, target) {
+    if (!galStageAvailable.get()) return;
+    const generation = ++galVisitGeneration;
+    const current = () => galStageAvailable.get() && generation === galVisitGeneration;
     // the first entry on a card without 素材包 opens 舞台设置 › 设置向导 instead
     // (asset-launcher.js stageSetupGate; absent where the stage is loaded on its own). The host check is one
     // local read, well inside the click's activation window, so full screen is still granted afterwards.
-    const setup = typeof stageSetupGate === "function" ? stageSetupGate(sessionId) : null;
+    const setup = typeof stageSetupGate === "function" ? stageSetupGate(sessionId, current) : null;
     if (setup) {
         galEntering.set(sessionId);
-        setup.then(opened => { galEntering.set(""); if (!opened) galOpen(sessionId, target); }, () => galEntering.set(""));
+        setup.then(opened => { if (!current()) return; galEntering.set(""); if (!opened) galOpen(sessionId, target); }, () => {if (current()) galEntering.set("");});
         return;
     }
     galOpen(sessionId, target);
 }
 function galOpen(sessionId, target) {
+    if (!galStageAvailable.get()) return;
     forkUiSfx.play("open"); // ui-sfx.js (fetches only this cue; the rest follow the entry)
     galEntry = target && Number.isInteger(target.turn) ? { sessionId, turn: target.turn, para: Math.max(1, Number(target.para) || 1), token: Date.now() } : null;
     galActive.set(sessionId);
@@ -70,6 +96,8 @@ function galLeave() {
     galLeaveNow();
 }
 function galLeaveNow() {
+    galVisitGeneration++;
+    galEntering.set("");
     galActive.set("");
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
@@ -100,4 +128,4 @@ function galStageShortcut(ctx) {
         window.removeEventListener("keydown", onKey, true);
     };
 }
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut };
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut };

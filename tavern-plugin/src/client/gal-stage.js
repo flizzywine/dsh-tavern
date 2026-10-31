@@ -24,9 +24,10 @@
 // @include gal-stage-helpers.cjs
 // @include gal-stage-active.cjs
 function useGalOn(sessionId) {
+    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-    const data = useBubbles(sessionId, Boolean(sessionId));
-    const available = Boolean(data && data.cardPath && data.config && data.config.enabled);
+    const data = useBubbles(sessionId, enabled && Boolean(sessionId));
+    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
     return { available, on: available && active === sessionId, data };
 }
 // galgame typewriter (theme.css "stage typewriter"). The whole page is laid out from the

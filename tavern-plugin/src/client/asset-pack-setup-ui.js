@@ -34,10 +34,11 @@ const stageSetup=(()=>{
   return {
     offered:path=>offered.has(path),
     offer(path){offered.add(path);},
-    enter({service,path,stageOn,open}){
+    enter({service,path,stageOn,open,current=()=>true}){
       if(!path||!stageOn||offered.has(path)||!stageSetupReady({service}))return null;
       offered.add(path);
       return service.getStageSetupStatus({path}).then(async status=>{
+        if(!current()){offered.delete(path);return false;}
         if(!status?.shouldAutoOpen)return false;
         pending=path;for(const fn of [...listeners])fn();
         try{await open();return true;}catch(_){pending='';return false;}
