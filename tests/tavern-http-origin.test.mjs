@@ -1,15 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
+import {createTavernClientAssets} from '../tavern-plugin/lib/domain/tavern-client-assets.js'
+import {registerStageClientAssets} from '../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js'
 
 // 只为了拿到 handleTavernRequest：registerTavernHttpRoutes 在没有 webServer 时
 // 只做一次 exposeHandler 回调，不注册任何路由，也不读取其它依赖。
-function handle() {
+function handle(clientAssets) {
   let handler
   // every HTTP request passes the host Connection first (routes.js); this one admits all.
   const ctx = { get: name => name === 'connection' ? { requestRejection: () => undefined, trustedHosts: [] } : undefined, effect: () => {} }
   registerTavernHttpRoutes({
     ctx,
+    clientAssets,
     dispatch: async () => {},
     fileResources: {}, helperHistoryAccess: {}, mobileCardImport: {},
     performanceDiagnostics: {}, runtimeGeneration: 1, runtimeReadiness: {},
@@ -144,4 +147,18 @@ test('沙箱资源仍凭能力票据访问，不要求主页面登录 Cookie', a
     assert.equal((await call(routes.external, { host: PUBLIC, origin: 'null', url: `/api/dsh-tavern/session-resource?cap=${cap}` })).status, expected)
   }
   assert.equal(routes.calls(), 0)
+})
+
+
+test('舞台脚本 HTTP 资源仅在插件注册期间可用，保留旧 URL', async () => {
+  const registry = createTavernClientAssets(), handler = handle(registry)
+  const request = {host:'localhost:3081', origin:'http://localhost:3081', url:'/api/dsh-tavern/client-assets/skin-overlay.mjs'}
+  assert.equal((await call(handler, request)).status, 404)
+  const stop = registerStageClientAssets(registry)
+  const loaded = await call(handler, request)
+  assert.equal(loaded.status, 200)
+  assert.equal(loaded.headers['Content-Type'], 'text/javascript; charset=utf-8')
+  assert.match(loaded.body, /createSkinOverlayPlayer/)
+  stop()
+  assert.equal((await call(handler, request)).status, 404)
 })

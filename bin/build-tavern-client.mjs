@@ -87,7 +87,7 @@ export async function assembleTavernClient() {
 export async function buildTavernClient({ check = false } = {}) {
   await buildInterfaceSkinClient({check})
   // Optional skin overlays are a separate first-party chunk, never pack-provided code.
-  const overlayPath = path.join(root,'tavern-plugin/lib/client-assets/skin-overlay.mjs')
+  const overlayPath = path.join(root,'tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay.mjs')
   const overlayBody = (await Promise.all(['motion','phase','timing','script','player'].map(name => readFile(path.join(sourceRoot,'skin-overlay-'+name+'.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))))).join('\n')
   new vm.Script(overlayBody,{filename:overlayPath})
   const overlay = banner + overlayBody + '\nexport {createSkinOverlayPlayer,createDecorativeScript};\n'

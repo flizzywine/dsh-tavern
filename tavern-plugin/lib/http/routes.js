@@ -28,6 +28,7 @@ function waitForWritable(res) {
 
 export function registerTavernHttpRoutes({
   ctx,
+  clientAssets,
   widgetService,
   dispatch,
   fileResources,
@@ -159,7 +160,7 @@ export function registerTavernHttpRoutes({
             return
           }
           if (readsClientAsset) {
-            const asset = await readTavernClientAsset(pathname)
+            const asset = await (clientAssets ? clientAssets.read(pathname) : readTavernClientAsset(pathname))
             if (asset === undefined) {
               res.writeHead(404, { 'X-Content-Type-Options': 'nosniff' })
               res.end('not found')

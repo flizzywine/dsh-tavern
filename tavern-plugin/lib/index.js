@@ -20,6 +20,7 @@ import { createGameSaveSnapshot } from './domain/game-save-snapshot.js'
 import { createGameSaveResources } from './domain/game-save-resources.js'
 import { createCardEditor, CARD_PROJECTION_REVISIONS, cardProjectionRevisionOf, bumpCardProjectionState } from './domain/card-editor.js'
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
+import {createTavernClientAssets} from './domain/tavern-client-assets.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
 import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
 import { registerRequestHooks } from './hooks/request.js'
@@ -706,6 +707,8 @@ export async function apply(ctx) {
   // 舞台的素材与判断（stage-module.js）。
   const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
+  const clientAssets = createTavernClientAssets()
+  ctx.provide('tavernClientAssets', clientAssets)
   const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:false})
   const {dialogueBubbles} = stageRuntime.assets
 
@@ -3744,6 +3747,7 @@ export async function apply(ctx) {
 
   registerTavernHttpRoutes({
     ctx,
+    clientAssets,
     castAssets,
     speech,
     exportCardFile,

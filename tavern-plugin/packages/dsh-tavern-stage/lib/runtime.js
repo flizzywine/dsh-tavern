@@ -1,3 +1,4 @@
+import {registerStageClientAssets} from './client-assets.js'
 import {createForegroundCapabilities} from '../../../lib/domain/foreground-capabilities.js'
 import {createStageCardAssets} from './card-assets.js'
 import {createResourceScope} from '../../../lib/domain/resource-scope.js'
@@ -14,7 +15,11 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     if (!scope.active() || phase !== expected) throw Object.assign(Error('舞台生命周期状态不匹配: '+phase),{code:'STAGE_UNAVAILABLE'})
   }
   let assets
-  try {assets = factories.assets({...core,ctx:scope.ctx})} catch(error) {failed(error)}
+  try {
+    const clientAssets = core.ctx.get?.('tavernClientAssets')
+    if (clientAssets) scope.own(registerStageClientAssets(clientAssets))
+    assets = factories.assets({...core,ctx:scope.ctx})
+  } catch(error) {failed(error)}
   return Object.freeze({
     assets,
     foreground(bindings) {
