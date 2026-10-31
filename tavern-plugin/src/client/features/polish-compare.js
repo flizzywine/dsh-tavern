@@ -100,15 +100,16 @@
 			const edits = comparison ? comparison.segments.filter(function (segment) { return segment.kind === "edit"; }).sort(function (a, b) { return a.n - b.n; }) : [];
 			const prereview = current ? current.prereview === true : false;
 			return h("section", { className: "dsh-tavern-full-context dsh-tavern-polish-compare" },
+				h("div", { className: "dsh-polish-settings" },
 				h("label", { className: "dsh-tavern-background-task" },
 					h("span", null, "自动精修", h("span", { className: "dsh-tavern-settings-desc" }, prereview
 						? "每轮正文写完，后台按「正文精修原则」审稿，等本轮结算完成后直接改进正文，正文下方标「已自动精修」；改了什么在这里对比，可撤销。每轮多一次模型调用。"
 						: "开启后，每轮正文写完自动精修，不用再手动点「精修」；每轮多一次模型调用。关闭时点「精修」才开始审稿，要等半分钟到一分钟。")),
 					h(Switch, { bare: true, label: "自动精修", checked: prereview, disabled: !current || saving, onChange: function (on) { void togglePrereview(on); } })),
 				h(TavernDefaultModelSetting, { label: "精修模型", title: "精修模型", description: "审稿和改字用的模型，对所有游戏生效。推理强度越低越快，但容易漏掉前后矛盾这类问题。",
-					fallback: "跟随正文模型", selection: current ? current.polishModel : null, catalog: catalog, disabled: !current || saving, onChange: function (selection) { void savePolishModel(selection); } }),
+					fallback: "跟随正文模型", selection: current ? current.polishModel : null, catalog: catalog, disabled: !current || saving, onChange: function (selection) { void savePolishModel(selection); } })),
 				h("header", { className: "dsh-context-header" },
-					h("div", null, h("h3", null, "精修"),
+					h("div", null, h("h3", null, "精修结果"),
 						h("p", null, !current ? "读取中…" : comparison
 							? (comparison.auto ? "自动精修 · " : "") + "第 " + comparison.turn + " 轮 · 改了 " + comparison.count + " 处" + (comparison.seconds ? " · 用时 " + comparison.seconds + " 秒" : "") + " · " + new Date(comparison.at).toLocaleString()
 							: current.error ? "读取失败" : "最近一次精修")),

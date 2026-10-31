@@ -12619,3 +12619,73 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 .dsh-tavern-speech-actions > .dsh-tavern-speech-save { background: var(--fork-accent); color: var(--dsw-alias-label-on-brand, #fff); border-color: var(--fork-accent); }
 .dsh-tavern-speech-actions > .dsh-tavern-speech-save:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-accent) 88%, black); color: var(--dsw-alias-label-on-brand, #fff); }
 @media (max-width: 600px) { .dsh-tavern-speech-settings { padding: 14px; } }
+
+/* Local settings use one label column across inline editors and legacy fields. */
+.dsh-local-settings .dsh-local-section { border-color: color-mix(in srgb, var(--fork-ink) 23%, transparent); }
+.dsh-local-settings .fork-inline-field,
+.dsh-local-settings .dsh-local-profile { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px 16px; align-items: start; }
+.dsh-local-settings .fork-inline-label,
+.dsh-local-settings .dsh-local-label { padding-top: 8px; color: var(--fork-ink-2); }
+.dsh-local-settings .fork-inline-value,
+.dsh-local-settings .fork-inline-anchor,
+.dsh-local-settings .fork-inline-edit { width: 100%; min-width: 0; }
+.dsh-local-settings .fork-inline-value { display: block; }
+.dsh-local-settings .fork-inline-trigger,
+.dsh-local-settings select,
+.dsh-local-settings input.fork-edit { box-sizing: border-box; width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); border-radius: 6px; background: var(--dsw-alias-bg-base); box-shadow: none; }
+.dsh-local-settings .fork-inline-trigger { justify-content: space-between; }
+.dsh-local-settings .fork-inline-trigger:focus-visible,
+.dsh-local-settings select:focus-visible,
+.dsh-local-settings input.fork-edit:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
+.dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 2; }
+@container (max-width: 479px) {
+  .dsh-local-settings .fork-inline-field,
+  .dsh-local-settings .dsh-local-profile { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .dsh-local-settings .dsh-local-profile > .dsh-local-feedback { grid-column: 1; }
+}
+.dsh-local-settings .fork-inline-field button.fork-inline-trigger:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { min-height: 36px; height: auto; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); background: var(--dsw-alias-bg-base); justify-content: space-between; }
+.dsh-local-settings .dsh-local-profile .dsh-tavern-profile-game { min-width: 0; padding: 0; margin: 0; }
+.dsh-local-settings .dsh-local-profile select.dsh-tavern-settings-select { max-width: none; margin: 0; }
+.dsh-local-settings .fork-inline-field > .fork-inline-value { margin: 0; }
+
+/* Polish settings and results share a compact, clearly bounded layout. */
+.dsh-tavern-polish-compare { container-type: inline-size; padding: 24px; }
+.dsh-polish-settings { padding: 20px; margin-bottom: 24px; border: 1px solid color-mix(in srgb, var(--fork-ink) 23%, transparent); border-radius: 12px; background: var(--fork-surface); }
+.dsh-polish-settings > .dsh-tavern-background-task { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--fork-hairline); }
+.dsh-polish-settings > .dsh-tavern-background-task > span:first-child { flex: 1; font-size: 14px; font-weight: 600; }
+.dsh-polish-settings .dsh-tavern-settings-desc { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; line-height: 1.7; color: var(--fork-ink-2); }
+.dsh-polish-settings .dsh-tavern-model-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 18px 0 0; }
+.dsh-polish-settings .dsh-tavern-settings-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.dsh-polish-settings .dsh-tavern-settings-title button { width: 20px; height: 20px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: var(--fork-hover); font-size: 12px; }
+.dsh-polish-settings .dsh-tavern-settings-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, .35fr); gap: 10px; width: 100%; }
+.dsh-polish-settings .fork-inline-field { min-width: 0; }
+.dsh-polish-settings .fork-inline-value { margin: 0; width: 100%; }
+.dsh-polish-settings .fork-inline-anchor { width: 100%; }
+.dsh-polish-settings .fork-inline-field button.fork-inline-trigger:not([data-fi-a]):not([data-fi-b]):not([data-fi-c]):not([data-fi-d]) { width: 100%; height: auto; min-height: 38px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 30%, transparent); background: var(--dsw-alias-bg-base); justify-content: space-between; }
+.dsh-tavern-polish-compare .dsh-context-header { margin-bottom: 16px; }
+.dsh-tavern-polish-compare .dsh-context-header h3 { font-size: 16px; }
+.dsh-tavern-polish-compare .dsh-polish-col { border-color: color-mix(in srgb, var(--fork-ink) 23%, transparent); }
+@container (max-width: 420px) {
+  .dsh-polish-settings { padding: 14px; }
+  .dsh-polish-settings .dsh-tavern-settings-control { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Candidate actions should read as individual clickable choices. */
+.dsh-tavern-candidate-question { border-color: color-mix(in srgb, var(--fork-ink) 25%, transparent); }
+.dsh-tavern-candidate-question .dsh-tavern-question-head { margin-bottom: 8px; }
+.dsh-tavern-candidate-question .dsh-tavern-question-option { margin: 0 0 6px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--fork-ink) 28%, transparent); background: var(--dsw-alias-bg-base); }
+.dsh-tavern-candidate-question .dsh-tavern-question-option:hover { border-color: var(--fork-accent); background: var(--fork-hover); }
+.dsh-tavern-candidate-question .dsh-tavern-question-option.selected { border-color: var(--fork-accent); background: var(--fork-hover); color: var(--fork-ink); }
+.dsh-tavern-candidate-question .dsh-tavern-question-option:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 1px; }
+.dsh-tavern-candidate-question .dsh-tavern-question-option { height: auto; max-height: none; align-items: flex-start; white-space: normal; }
+.dsh-tavern-candidate-question .dsh-tavern-question-text { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; overflow: visible; text-overflow: clip; -webkit-line-clamp: unset; }
+.dsh-tavern-candidate-question .dsh-tavern-question-text > span:last-child { white-space: inherit; overflow-wrap: inherit; }
+.dsh-tavern-candidate-question .dsh-tavern-question-body { overflow-y: auto; overflow-x: hidden; }
+
+/* Sidebar tabs reserve a real close-button slot instead of fading short titles. */
+body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-strip] [role="tab"] { flex: 0 0 auto; width: auto; min-width: 0; max-width: 240px; gap: 6px; padding: 0 8px 0 10px; }
+body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-strip] [role="tab"][aria-selected="true"] { padding-right: 8px; }
+body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-strip] [role="tab"] [data-dockkit-tab-title] { flex: 1 1 auto; min-width: 0; mask-image: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-strip] [data-dockkit-tab-close] { position: static; flex: 0 0 20px; width: 20px; height: 20px; margin: 0; transform: none; }
+/* An unavailable optional status icon must not leave an empty title prefix. */
+body.dsh-tavern-shell-active [data-sidebar-right-panel] [data-dockkit-tab-title] [aria-hidden="true"]:has(> .fork-status-tab-icon:empty) { display: none; }
