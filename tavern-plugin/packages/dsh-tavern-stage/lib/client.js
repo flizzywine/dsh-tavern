@@ -6483,6 +6483,112 @@ function createStageLookUi({React}) {
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageLookUi};
 
+        function createStageSceneGraphics({window,document,paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette}) {
+// Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
+// disabled filters (filter.enabled = false) are skipped; no filters at all means no render pass.
+// order: slot names in render order (unlisted names go last, in insertion order).
+// singleSample: the chain's filters render without MSAA (a figure's: see the scene's tune()).
+function galFilterChain(container, area, order, singleSample) {
+    const slots = [];
+    let signature = "";
+    const rank = name => { const at = order ? order.indexOf(name) : -1; return at < 0 ? 1e6 : at; };
+    const chain = {
+        container,
+        set(name, filter, options) {
+            const at = slots.findIndex(slot => slot.name === name);
+            if (at >= 0) slots.splice(at, 1);
+            if (filter) {
+                if (singleSample) { filter.forkSingleSample = true; filter.multisample = window.PIXI.MSAA_QUALITY.NONE; }
+                const before = options && options.before ? slots.findIndex(slot => slot.name === options.before) : slots.findIndex(slot => rank(slot.name) > rank(name));
+                if (before >= 0) slots.splice(before, 0, { name, filter }); else slots.push({ name, filter });
+            }
+            chain.refresh(true);
+            return filter;
+        },
+        get(name) { const slot = slots.find(item => item.name === name); return slot ? slot.filter : null; },
+        all() { return slots.map(slot => slot.filter); },
+        refresh(force) {
+            const active = slots.filter(slot => slot.filter.enabled !== false);
+            const next = active.map(slot => slot.name).join(",");
+            if (!force && next === signature) return;
+            signature = next;
+            container.filters = active.length ? active.map(slot => slot.filter) : null;
+            if (area) container.filterArea = active.length ? area : null;
+        }
+    };
+    return chain;
+}
+// A filter created on first use (make), disabled while inactive and destroyed after 3 s idle, so effects
+// that are off cost nothing. store: { [key]: slot }; returns the live filter or null.
+function galUseFilter(store, chain, name, make, active, now, tune) {
+    let slot = store[name];
+    if (active) {
+        if (!slot) {
+            let filter = null;
+            try { filter = make(); } catch (error) { console.warn("[fork-gal-scene] filter", name, error); }
+            if (!filter) return null;
+            try { tune(filter); }
+            catch (error) { filter.destroy(); throw error; }
+            slot = store[name] = { chain, name, filter, idle: now };
+            chain.set(name, filter);
+        }
+        slot.idle = now;
+        if (slot.filter.enabled === false) { slot.filter.enabled = true; chain.refresh(); }
+        return slot.filter;
+    }
+    if (slot) {
+        if (slot.filter.enabled !== false) { slot.filter.enabled = false; chain.refresh(); }
+        if (now - slot.idle > 3000 || now < slot.idle) { chain.set(name, null); slot.filter.destroy(); delete store[name]; }
+    }
+    return null;
+}
+
+// Generated textures: vignette, the empty stage gradient and the transition mask shapes.
+function galCanvasTexture(PIXI, width, height, paint) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    paint(canvas.getContext("2d"), width, height);
+    return PIXI.Texture.from(canvas);
+}
+function galMakeTextures(PIXI, host) {
+    const made=[];
+    const create=(...args)=>{const texture=galCanvasTexture(...args);made.push(texture);return texture;};
+    try {return {
+        vignette: create(PIXI, 640, 360, function (ctx, w, h) {
+            ctx.save(); ctx.translate(w / 2, h * 0.4); ctx.scale(1.2, 1);
+            const radial = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.hypot(w / 2, h * 0.6) / 1.2);
+            radial.addColorStop(0, "rgba(0,0,0,0)"); radial.addColorStop(0.55, "rgba(0,0,0,0)"); radial.addColorStop(1, "rgba(0,0,0,.45)");
+            ctx.fillStyle = radial; ctx.fillRect(-w, -h, w * 2, h * 2); ctx.restore();
+            const floor = ctx.createLinearGradient(0, 0, 0, h);
+            floor.addColorStop(0.58, "rgba(8,5,14,0)"); floor.addColorStop(1, "rgba(8,5,14,.55)");
+            ctx.fillStyle = floor; ctx.fillRect(0, 0, w, h);
+        }),
+        empty: create(PIXI, 640, 360, function (ctx, w, h) {
+            stagePaintEmpty(ctx, w, h, stageEmptyPalette(host));
+        }),
+        wipe: create(PIXI, 1024, 4, function (ctx, w, h) {
+            const edge = ctx.createLinearGradient(0, 0, w, 0);
+            edge.addColorStop(0, "rgba(255,255,255,1)"); edge.addColorStop(1 / 1.25, "rgba(255,255,255,1)"); edge.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = edge; ctx.fillRect(0, 0, w, h);
+        }),
+        iris: create(PIXI, 512, 512, function (ctx, w, h) {
+            const disc = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+            disc.addColorStop(0, "rgba(255,255,255,1)"); disc.addColorStop(0.78, "rgba(255,255,255,1)"); disc.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = disc; ctx.fillRect(0, 0, w, h);
+        })
+    };}catch(error){
+        const errors=[error];for(const texture of made)try{texture.destroy(true);}catch(cleanup){errors.push(cleanup);}
+        if(errors.length>1)throw new AggregateError(errors,'Scene texture construction failed');throw error;
+    }
+}
+
+
+
+
+return {filters:galFilterChain,useFilter:galUseFilter,canvasTexture:galCanvasTexture,textures:galMakeTextures};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSceneGraphics};
+
         function createStageEffects({policy={},normalize:galLookNormalize,canvasTexture:galCanvasTexture,useFilter:galUseFilter,looks:looksModule,weather:weatherModule,emotes:emotesModule,thunder,window,loadScript,filtersUrl}) {
 let disposed=false;const instances=new Set();
 const {STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt}=policy;
@@ -15030,11 +15136,13 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter,createGate:createTextcardGate,peak:textcardPeak}));
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
                     const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
+                    const sceneGraphics=createStageSceneGraphics({window,document,...options.sceneGraphics});
+                    const visualEffects={...options.visualEffects,canvasTexture:sceneGraphics.canvasTexture};
                     const effectColors=own(createStageEffectColors({document}));
-                    const weather=own(createStageWeather(options.visualEffects||{}));
-                    const looks=own(createStageLooks({document,weather,colors:effectColors,...options.visualEffects,...options.looks,shaders:createStageLookShaders(),art:createStageLookArt(options.visualEffects||{})}));
-                    const emotes=own(createStageEmotes({document,...options.visualEffects,colors:effectColors}));
-                    const effects=own(createStageEffects({window,...options.visualEffects,...options.effects,useFilter:options.looks?.useFilter,normalize:options.looks?.math?.galLookNormalize,looks,weather,emotes}));
+                    const weather=own(createStageWeather(visualEffects));
+                    const looks=own(createStageLooks({document,weather,colors:effectColors,...visualEffects,...options.looks,useFilter:sceneGraphics.useFilter,shaders:createStageLookShaders(),art:createStageLookArt(visualEffects)}));
+                    const emotes=own(createStageEmotes({document,...visualEffects,colors:effectColors}));
+                    const effects=own(createStageEffects({window,...visualEffects,...options.effects,useFilter:sceneGraphics.useFilter,normalize:options.looks?.math?.galLookNormalize,looks,weather,emotes}));
                     const figureMotionMath=createStageFigureMotionMath(options.figureMotion||{});
                     const figureMotion=own(createStageFigureMotion({math:figureMotionMath,...options.figureMotion}));
                     const figureGeometry=createStageFigureGeometry();
@@ -15053,7 +15161,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entranceMedia=own(createStageEntranceMedia({...options.entranceMedia,files:entranceContract?.stageEntranceFiles}));
                     const entranceRendererScope=own(createStageEntranceRenderer({window,contractFactory:options.entranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop}));
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
-                    return {entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    return {sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

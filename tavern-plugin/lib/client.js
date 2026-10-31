@@ -47067,101 +47067,6 @@ function cardLibraryDisplayName(card) {
 		})();
 		function useStageQuality() { return React.useSyncExternalStore(stageQuality.subscribe, stageQuality.get); }
 
-		// Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
-		// disabled filters (filter.enabled = false) are skipped; no filters at all means no render pass.
-		// order: slot names in render order (unlisted names go last, in insertion order).
-		// singleSample: the chain's filters render without MSAA (a figure's: see the scene's tune()).
-		function galFilterChain(container, area, order, singleSample) {
-		    const slots = [];
-		    let signature = "";
-		    const rank = name => { const at = order ? order.indexOf(name) : -1; return at < 0 ? 1e6 : at; };
-		    const chain = {
-		        container,
-		        set(name, filter, options) {
-		            const at = slots.findIndex(slot => slot.name === name);
-		            if (at >= 0) slots.splice(at, 1);
-		            if (filter) {
-		                if (singleSample) { filter.forkSingleSample = true; filter.multisample = PIXI.MSAA_QUALITY.NONE; }
-		                const before = options && options.before ? slots.findIndex(slot => slot.name === options.before) : slots.findIndex(slot => rank(slot.name) > rank(name));
-		                if (before >= 0) slots.splice(before, 0, { name, filter }); else slots.push({ name, filter });
-		            }
-		            chain.refresh(true);
-		            return filter;
-		        },
-		        get(name) { const slot = slots.find(item => item.name === name); return slot ? slot.filter : null; },
-		        all() { return slots.map(slot => slot.filter); },
-		        refresh(force) {
-		            const active = slots.filter(slot => slot.filter.enabled !== false);
-		            const next = active.map(slot => slot.name).join(",");
-		            if (!force && next === signature) return;
-		            signature = next;
-		            container.filters = active.length ? active.map(slot => slot.filter) : null;
-		            if (area) container.filterArea = active.length ? area : null;
-		        }
-		    };
-		    return chain;
-		}
-		// A filter created on first use (make), disabled while inactive and destroyed after 3 s idle, so effects
-		// that are off cost nothing. store: { [key]: slot }; returns the live filter or null.
-		function galUseFilter(store, chain, name, make, active, now, tune) {
-		    let slot = store[name];
-		    if (active) {
-		        if (!slot) {
-		            let filter = null;
-		            try { filter = make(); } catch (error) { console.warn("[fork-gal-scene] filter", name, error); }
-		            if (!filter) return null;
-		            try { tune(filter); }
-		            catch (error) { filter.destroy(); throw error; }
-		            slot = store[name] = { chain, name, filter, idle: now };
-		            chain.set(name, filter);
-		        }
-		        slot.idle = now;
-		        if (slot.filter.enabled === false) { slot.filter.enabled = true; chain.refresh(); }
-		        return slot.filter;
-		    }
-		    if (slot) {
-		        if (slot.filter.enabled !== false) { slot.filter.enabled = false; chain.refresh(); }
-		        if (now - slot.idle > 3000 || now < slot.idle) { chain.set(name, null); slot.filter.destroy(); delete store[name]; }
-		    }
-		    return null;
-		}
-
-		// Generated textures: vignette, the empty stage gradient and the transition mask shapes.
-		function galCanvasTexture(PIXI, width, height, paint) {
-		    const canvas = document.createElement("canvas");
-		    canvas.width = width; canvas.height = height;
-		    paint(canvas.getContext("2d"), width, height);
-		    return PIXI.Texture.from(canvas);
-		}
-		function galMakeTextures(PIXI, host) {
-		    return {
-		        vignette: galCanvasTexture(PIXI, 640, 360, function (ctx, w, h) {
-		            ctx.save(); ctx.translate(w / 2, h * 0.4); ctx.scale(1.2, 1);
-		            const radial = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.hypot(w / 2, h * 0.6) / 1.2);
-		            radial.addColorStop(0, "rgba(0,0,0,0)"); radial.addColorStop(0.55, "rgba(0,0,0,0)"); radial.addColorStop(1, "rgba(0,0,0,.45)");
-		            ctx.fillStyle = radial; ctx.fillRect(-w, -h, w * 2, h * 2); ctx.restore();
-		            const floor = ctx.createLinearGradient(0, 0, 0, h);
-		            floor.addColorStop(0.58, "rgba(8,5,14,0)"); floor.addColorStop(1, "rgba(8,5,14,.55)");
-		            ctx.fillStyle = floor; ctx.fillRect(0, 0, w, h);
-		        }),
-		        empty: galCanvasTexture(PIXI, 640, 360, function (ctx, w, h) {
-		            stagePaintEmpty(ctx, w, h, stageEmptyPalette(host));
-		        }),
-		        wipe: galCanvasTexture(PIXI, 1024, 4, function (ctx, w, h) {
-		            const edge = ctx.createLinearGradient(0, 0, w, 0);
-		            edge.addColorStop(0, "rgba(255,255,255,1)"); edge.addColorStop(1 / 1.25, "rgba(255,255,255,1)"); edge.addColorStop(1, "rgba(255,255,255,0)");
-		            ctx.fillStyle = edge; ctx.fillRect(0, 0, w, h);
-		        }),
-		        iris: galCanvasTexture(PIXI, 512, 512, function (ctx, w, h) {
-		            const disc = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-		            disc.addColorStop(0, "rgba(255,255,255,1)"); disc.addColorStop(0.78, "rgba(255,255,255,1)"); disc.addColorStop(1, "rgba(255,255,255,0)");
-		            ctx.fillStyle = disc; ctx.fillRect(0, 0, w, h);
-		        })
-		    };
-		}
-
-
-
 		// The scene runtime: creates the pixi Application in host and follows set(description).
 		// follow rendered orientation, not a separate portrait-facing rule.
 		// Per-layer aliases keep outgoing speakers independent during face crossfades.
@@ -47194,7 +47099,7 @@ function cardLibraryDisplayName(card) {
 		    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap);
 		    const tickerUpdate = app.ticker.update;
 		    const pace = { last: 0, next: 0, fps: 0, vsync: 0 };
-		    const generated = galMakeTextures(PIXI, host);
+		    const generated = stageViews.sceneGraphics.textures(PIXI, host);
 		    const world = new PIXI.Container(), backdrop = new PIXI.Container(), layersBox = new PIXI.Container();
 		    const vignette = new PIXI.Sprite(generated.vignette);
 		    const backFx = new PIXI.Container(), figuresBox = new PIXI.Container(), frontFx = new PIXI.Container(), emotesBox = new PIXI.Container(), overlay = new PIXI.Container();
@@ -47232,8 +47137,8 @@ function cardLibraryDisplayName(card) {
 		    app.stage.addChild(world, bust.sprite, overlay, callBox);
 		    // Filter attachment points (render order within each chain).
 		    const filters = {
-		        world: galFilterChain(world, app.screen, ["timeGrade", "grade", "soften", "bloom", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: galFilterChain(backdrop, app.screen, ["blur"]),
-		        backFx: galFilterChain(backFx), figures: galFilterChain(figuresBox), frontFx: galFilterChain(frontFx), overlay: galFilterChain(overlay, app.screen)
+		        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "bloom", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur"]),
+		        backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
 		    };
 		    function tune(filter) {
 		        filter.resolution = filter.forkLowRes ? 1 : app.renderer.resolution;
@@ -47498,7 +47403,7 @@ function cardLibraryDisplayName(card) {
 		        container.visible = false;
 		        const entry = { key: figure.key, kind: figure.kind, identity:figure.identity, url: figure.url || "", src: "", pendingSrc: "", container, figure, leaving: false, leavingSince: 0,
 		            model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, actNonce: null, flatAct: null, started: false,
-		            filters: galFilterChain(container, null, ["shade", "rim", "dof"], true), shadeFilter: tune(new PIXI.filters.ColorMatrixFilter()),
+		            filters: stageViews.sceneGraphics.filters(container, null, ["shade", "rim", "dof"], true), shadeFilter: tune(new PIXI.filters.ColorMatrixFilter()),
 		            slots: {}, glow: galSpringValue(0), shadow: galSpringValue(0), blur: galSpringValue(0), idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null, armed: galSpringValue(0) };
 		        // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
 		        entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
@@ -47824,7 +47729,7 @@ function cardLibraryDisplayName(card) {
 		        const hasFilters = Boolean(PIXI.filters.GlowFilter);
 		        const rimDistance = quality === "low" ? 8 : 14;
 		        if (entry.slots.rim && entry.slots.rim.distance !== rimDistance) { entry.filters.set("rim", null); entry.slots.rim.filter.destroy(); delete entry.slots.rim; }
-		        const rim = galUseFilter(entry.slots, entry.filters, "rim", function () {
+		        const rim = stageViews.sceneGraphics.useFilter(entry.slots, entry.filters, "rim", function () {
 		            if (!hasFilters) return null;
 		            const filter = new PIXI.filters.GlowFilter({ distance: rimDistance, outerStrength: 0, innerStrength: 0, color: 0xffcf8a, quality: quality === "low" ? 0.1 : 0.18 });
 		            return filter;
@@ -47843,7 +47748,7 @@ function cardLibraryDisplayName(card) {
 		                rim.innerStrength = warm ? glow * 0.7 : shadow * 0.25;
 		            }
 		        }
-		        const blur = galUseFilter(entry.slots, entry.filters, "dof", () => hasFilters ? Object.assign(new PIXI.filters.KawaseBlurFilter(0, 3, false), { forkLowRes: true }) : null, entry.blur.v > 0.05, now, tune);
+		        const blur = stageViews.sceneGraphics.useFilter(entry.slots, entry.filters, "dof", () => hasFilters ? Object.assign(new PIXI.filters.KawaseBlurFilter(0, 3, false), { forkLowRes: true }) : null, entry.blur.v > 0.05, now, tune);
 		        if (blur) blur.blur = entry.blur.v;
 		        return { glow, shadow };
 		    }
@@ -54924,8 +54829,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
 		        skinCursor:{matchMedia, clock:forkForeground},
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
-		        looks:{math:stageLookMath,fade:stageLookFadeMs,useFilter:galUseFilter,Image},
-		        visualEffects:{matrix:galMatrix,ease:galEase,clamp:galClamp01,canvasTexture:galCanvasTexture},
+		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
+		        sceneGraphics:{paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette},
+		        visualEffects:{matrix:galMatrix,ease:galEase,clamp:galClamp01},
 		        figureMotion:{spring:galSpring,fade:galMotionFade,lipSyncIds:galLipSyncIds},
 		        figureIdle:{spring:galSpring,springValue:galSpringValue},
 		        danmaku:{renderers:MOD_STAGE_RENDERERS,Image,getComputedStyle,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,performance},

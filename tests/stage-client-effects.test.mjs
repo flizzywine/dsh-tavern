@@ -1,13 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {readFileSync} from 'node:fs'
-import vm from 'node:vm'
 const require=createRequire(import.meta.url)
 const {createStageEffects}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/effects.cjs')
 const policy=require('../tavern-plugin/src/client/stage-effects.cjs')
-const scene=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
-const useFilter=vm.runInNewContext(scene.slice(scene.indexOf('function galUseFilter('),scene.indexOf('// Generated textures:'))+'\ngalUseFilter',{console})
+const {createStageSceneGraphics}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene-graphics.cjs')
+const useFilter=createStageSceneGraphics({}).useFilter
 test('filter tuning failure releases the newly allocated filter before ownership transfer',()=>{
  let destroyed=0,attached=0;const store={}
  assert.throws(()=>useFilter(store,{set(){attached++}},'grade',()=>({destroy(){destroyed++}}),true,0,()=>{throw new Error('tune failed')}),/tune failed/)

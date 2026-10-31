@@ -1,8 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-import {readFileSync} from 'node:fs'
-import vm from 'node:vm'
 const require=createRequire(import.meta.url)
 const {createStageLooks}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/looks.cjs')
 const {createStageLookShaders}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/look-shaders.cjs')
@@ -11,8 +9,8 @@ const {galMatrix:matrix,galClamp01:clamp,galEase:ease}=require('../tavern-plugin
 const {stageLighting:lighting,stageLookLayer:layer}=require('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-light.cjs')
 const {stageLookFadeMs:fade}=require('../tavern-plugin/src/client/stage-effects.cjs')
 const math=createStageLookMath({matrix,clamp,lighting,layer})
-const scene=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
-const useFilter=vm.runInNewContext(scene.slice(scene.indexOf('function galUseFilter('),scene.indexOf('// Generated textures:'))+'\ngalUseFilter',{console})
+const {createStageSceneGraphics}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene-graphics.cjs')
+const useFilter=createStageSceneGraphics({}).useFilter
 function fixture(){
  const made=[],nodes=[],images=[],textures=[]
  class Filter{constructor(v,f,uniforms){this.uniforms=uniforms;this.destroyCount=0;made.push(this)}destroy(){this.destroyCount++;assert.equal(this.destroyCount,1)}}
