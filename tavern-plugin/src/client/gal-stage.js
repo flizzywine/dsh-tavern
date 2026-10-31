@@ -1425,6 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
         backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
         backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer},
         configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},

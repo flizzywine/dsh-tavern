@@ -3929,6 +3929,54 @@ function createAmbience({player, session, owner, authority}) {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};
 
+        // Stored performance history follows session invalidations; it never changes the session.
+function createStageBacklogHistory({React, read, subscribe}) {
+    let disposed = false;
+    const releases = new Set();
+    function watch(sessionId, publish) {
+        if (disposed) return () => {};
+        let active = true, reading = false, dirty = false;
+        async function refresh() {
+            if (!active || disposed) return;
+            if (reading) { dirty = true; return; }
+            reading = true;
+            try {
+                const value = await read(sessionId);
+                if (active && !disposed) publish({turns:value.turns, kinds:value.kinds});
+            } catch { /* Preserve the last successful history on read failure. */ }
+            finally {
+                reading = false;
+                if (active && !disposed && dirty) { dirty = false; void refresh(); }
+            }
+        }
+        let stop;
+        function release() {
+            if (!active) return;
+            active = false; releases.delete(release); stop?.();
+        }
+        releases.add(release);
+        try {
+            stop = subscribe(sessionId, refresh);
+            publish(null);
+            void refresh();
+        } catch (error) { release(); throw error; }
+        return release;
+    }
+    function useHistory(sessionId) {
+        const [history,setHistory] = React.useState(null);
+        React.useEffect(() => watch(sessionId,setHistory), [sessionId]);
+        return history;
+    }
+    return {watch, useHistory, dispose() {
+        if (disposed) return;
+        disposed = true;
+        const errors = [];
+        for (const release of [...releases]) { try { release(); } catch (error) { errors.push(error); } }
+        if (errors.length) throw new AggregateError(errors, 'Backlog history cleanup failed');
+    }};
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageBacklogHistory};
+
         // Backlog replay composes published host voice handles; the shared player remains host-owned.
 function createStageBacklogVoice({player, wake}) {
     let disposed = false, generation = 0;
@@ -6801,7 +6849,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const music = own(createStageMusic(options.music));
                     const skinShape=own(createStageSkinShape({React:options.React,window,document,...options.skinDecoration}));
                     const skinFrame=own(createStageSkinFrame({React:options.React,...options.skinDecoration,Shape:skinShape.Shape}));
-                    return {backlogVoice:own(createStageBacklogVoice(options.backlogVoice || {})), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows:createStageBacklogRows(options.backlogRows || {}), configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {backlogHistory:own(createStageBacklogHistory({React:options.React,...options.backlogHistory})), backlogVoice:own(createStageBacklogVoice(options.backlogVoice || {})), skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows:createStageBacklogRows(options.backlogRows || {}), configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),

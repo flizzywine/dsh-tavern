@@ -60048,6 +60048,7 @@ function galUiApplier() {
 		        phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
 		        skinCursor:{matchMedia, clock:forkForeground},
+		        backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
 		        backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
 		        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer},
 		        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
@@ -60830,7 +60831,7 @@ function galUiApplier() {
 		    const [, redraw] = React.useState(0);
 		    React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
 		    const inputs = useGalPlayerInputs(props.sessionId, props.useChat);
-		    const modHistory = typeof useStageModHistory === 'function' ? useStageModHistory(props.sessionId) : null;
+		    const modHistory = stageViews.backlogHistory.useHistory(props.sessionId);
 		    // Isolated text-only fixtures load the backlog without the kind registry (and so without performance rows).
 		    const registry = React.useMemo(() => typeof createStagePerformanceRegistry === 'function' ? stageViews.backlogRows.backlogPerformanceRegistry(modHistory?.kinds) : null, [modHistory?.kinds]);
 		    // each round's open checks, one line each (dice-roll.js); isolated fixtures run without it.
@@ -69578,24 +69579,6 @@ function useStageSelector(sessionId, select, equal = Object.is) {
     return React.useSyncExternalStore(selector.subscribe, selector.getSnapshot);
 }
 const stageUiEqual = (a, b) => Object.keys(a).every(key => Object.is(a[key], b[key]));
-function useStageModHistory(sessionId) {
-    const [history,setHistory]=React.useState(null);
-    React.useEffect(()=>{
-        let active=true,reading=false,dirty=false;
-        async function read() {
-            if(reading){dirty=true;return;}
-            reading=true;
-            // {turns, kinds}: the stored performances by turn and the managed mods' declared kinds.
-            try {const value=await rpc('getStageModHistory',{},sessionId);if(active)setHistory({turns:value.turns,kinds:value.kinds});}
-            catch (_) { /* A failed read never replaces a previously accepted history. */ }
-            finally {reading=false;if(active && dirty){dirty=false;void read();}}
-        }
-        setHistory(null);void read();
-        const stop=tavernSessionSignals.subscribe(sessionId,'stage-direction',read,read,read);
-        return()=>{active=false;stop();};
-    },[sessionId]);
-    return history;
-}
 // the session's performance kinds (stage-performance-kinds.cjs) - core and the installed
 // managed mods' declarations - read once per stage mount into the runtime (SESSION_INPUTS performanceKinds), where the page's
 // sequencing point reads which kinds hold the line; a settled history page replays the kinds

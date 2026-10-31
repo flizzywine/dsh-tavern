@@ -12,24 +12,6 @@ function useStageSelector(sessionId, select, equal = Object.is) {
     return React.useSyncExternalStore(selector.subscribe, selector.getSnapshot);
 }
 const stageUiEqual = (a, b) => Object.keys(a).every(key => Object.is(a[key], b[key]));
-function useStageModHistory(sessionId) {
-    const [history,setHistory]=React.useState(null);
-    React.useEffect(()=>{
-        let active=true,reading=false,dirty=false;
-        async function read() {
-            if(reading){dirty=true;return;}
-            reading=true;
-            // {turns, kinds}: the stored performances by turn and the managed mods' declared kinds.
-            try {const value=await rpc('getStageModHistory',{},sessionId);if(active)setHistory({turns:value.turns,kinds:value.kinds});}
-            catch (_) { /* A failed read never replaces a previously accepted history. */ }
-            finally {reading=false;if(active && dirty){dirty=false;void read();}}
-        }
-        setHistory(null);void read();
-        const stop=tavernSessionSignals.subscribe(sessionId,'stage-direction',read,read,read);
-        return()=>{active=false;stop();};
-    },[sessionId]);
-    return history;
-}
 // the session's performance kinds (stage-performance-kinds.cjs) - core and the installed
 // managed mods' declarations - read once per stage mount into the runtime (SESSION_INPUTS performanceKinds), where the page's
 // sequencing point reads which kinds hold the line; a settled history page replays the kinds

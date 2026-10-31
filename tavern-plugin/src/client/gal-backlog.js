@@ -32,7 +32,7 @@ function GalBacklog(props) {
     const [, redraw] = React.useState(0);
     React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
     const inputs = useGalPlayerInputs(props.sessionId, props.useChat);
-    const modHistory = typeof useStageModHistory === 'function' ? useStageModHistory(props.sessionId) : null;
+    const modHistory = stageViews.backlogHistory.useHistory(props.sessionId);
     // Isolated text-only fixtures load the backlog without the kind registry (and so without performance rows).
     const registry = React.useMemo(() => typeof createStagePerformanceRegistry === 'function' ? stageViews.backlogRows.backlogPerformanceRegistry(modHistory?.kinds) : null, [modHistory?.kinds]);
     // each round's open checks, one line each (dice-roll.js); isolated fixtures run without it.
