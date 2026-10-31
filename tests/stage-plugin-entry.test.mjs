@@ -143,7 +143,7 @@ test('browser stage entry removes its style when mounting fails', async () => {
     document:{querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
     window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
-  assert.throws(() => definition.factory().apply({get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}), /failed/)
+  assert.doesNotThrow(() => definition.factory().apply({get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}))
   assert.equal(styles.size,0)
 })
 
@@ -153,7 +153,7 @@ test('stage activation rolls back partial style insertion and retries without to
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this)}}),head:{insertBefore(style){styles.add(style)},appendChild(style){styles.add(style);if(fail)throw Error('style insertion failed')}}}
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document,window:{__ModuleLoader__:{load(value){definition=value}}}})
   const plugin=definition.factory(),context={get:()=>({mount(){mounted++;return ()=>stopped++}}),effect:run=>run()}
-  assert.throws(()=>plugin.apply(context),/style insertion failed/)
+  assert.doesNotThrow(()=>plugin.apply(context))
   assert.deepEqual([...styles],[original]);assert.equal(mounted,0)
   fail=false;let cleanup;plugin.apply({...context,effect:run=>cleanup=run()})
   assert.equal(styles.size,3);cleanup();cleanup();assert.equal(stopped,1);assert.deepEqual([...styles],[original])
@@ -169,9 +169,25 @@ test('stage shutdown removes every owned style even when mount cleanup and one r
   assert.equal(styles.size,0);assert.equal(removed.length,2);cleanup();assert.equal(removed.length,2)
 })
 
-test('missing stage host fails before adding styles',async()=>{
+test('missing stage host degrades without adding styles',async()=>{
   let definition,created=0
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document:{createElement(){created++;throw Error('must not allocate')}},window:{__ModuleLoader__:{load(value){definition=value}}}})
-  assert.throws(()=>definition.factory().apply({get:()=>null,effect:run=>run()}),/Stage host is unavailable/)
+  assert.doesNotThrow(()=>definition.factory().apply({get:()=>null,effect:run=>run()}))
   assert.equal(created,0)
+})
+
+test('activation and rollback errors stay diagnostic and do not reject host startup',async()=>{
+  let definition,cleanup
+  const styles=new Set(),failures=[]
+  const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this);throw Error('cleanup failed')}}),
+    head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
+  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{
+    document,console:{error:(...args)=>failures.push(args)},window:{__ModuleLoader__:{load(value){definition=value}}}})
+  assert.doesNotThrow(()=>definition.factory().apply({get:()=>({mount(){throw Error('mount failed')}}),effect:run=>cleanup=run()}))
+  assert.equal(styles.size,0)
+  assert.equal(failures.length,1)
+  assert.equal(failures[0][1].name,'AggregateError')
+  assert.equal(failures[0][1].errors[0].message,'mount failed')
+  assert.equal(failures[0][1].errors[1].errors.length,2)
+  assert.doesNotThrow(()=>cleanup())
 })

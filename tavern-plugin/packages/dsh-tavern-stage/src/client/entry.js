@@ -263,9 +263,12 @@ window.__ModuleLoader__.load({
                     }
                     return dispose;
                 }catch(error){
-                    console.error('[dsh-tavern-stage] activation failed',error,...(error.errors || []));
-                    try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage activation failed');}
-                    throw error;
+                    // An optional stage failure must not reject the host's web startup.
+                    // Roll back every acquired resource, retaining diagnostics for both failures.
+                    let failure=error;
+                    try{dispose();}catch(cleanup){failure=new AggregateError([error,cleanup],'Stage activation failed');}
+                    console.error('[dsh-tavern-stage] activation failed',failure,...(failure.errors || []));
+                    return dispose;
                 }
             }, 'dsh-tavern-stage: client lifetime');
         }

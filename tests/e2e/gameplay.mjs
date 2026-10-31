@@ -54,7 +54,9 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
-const stagePluginScenario = process.argv.includes('--stage-plugin')
+const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
+if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
+const stagePluginScenario = !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -166,7 +168,7 @@ try {
       'dsh-tavern-stage': join(source, 'tavern-plugin/packages/dsh-tavern-stage'),
       'dsh-tavern-remote': join(source, 'tavern-plugin/packages/dsh-tavern-remote'),
       'dsh-web-mobile': join(source, 'node_modules/dsh-web-mobile')
-    })) await symlink(target, join(profile, 'node_modules', name))
+    })) if (!(stageIsolation === 'absent' && name === 'dsh-tavern-stage')) await symlink(target, join(profile, 'node_modules', name))
     // This package resolves DSH imports relative to its directory, so give it
     // the isolated profile's runtime scope rather than the development scope.
     const sidebar = process.env.TAVERN_E2E_SIDEBAR || join(source, 'node_modules/dsh-better-sidebar')
@@ -181,7 +183,7 @@ try {
       await symlink(join(source, 'node_modules', name), join(profile, 'node_modules', name))
     }
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'tavern-e2e', private: true,
-      dsh: { profile: { bundles: JSON.parse(await readFile(join(source,'package.json'),'utf8')).dsh.profile.bundles } } }))
+      dsh: { profile: { bundles: JSON.parse(await readFile(join(source,'package.json'),'utf8')).dsh.profile.bundles.filter(name=>stageIsolation !== 'absent' || name !== 'dsh-tavern-stage') } } }))
     // The stage scenario runs with the sidebar a real install gets (no Tasks tab), as players see it.
     if (castScenario) await writeFile(join(root, 'settings.yaml'), stringifyYaml(applySidebarDefaults({})))
     await writeFile(join(profile, 'cordis.patch.yml'), `- id: agent-default-model\n  config:\n    provider: tavern-e2e\n    model: fixed\n- insert:\n    - id: tavern-e2e-model\n      name: ${JSON.stringify(join(source, 'tests/e2e/model.mjs'))}\n`)
@@ -288,6 +290,15 @@ try {
     context.setDefaultTimeout(timeout)
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
     page = await context.newPage()
+    if(stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
+      if(!route.request().url().includes('client.js')) return route.continue()
+      const response=await route.fetch(),body=await response.text()
+      const marker='activeViews.sessions.start(host.sessionInputs());'
+      if(body.includes(marker)) {
+        report.injectedActivationFailure=true
+        await route.fulfill({response,body:body.replace(marker,"throw new Error('E2E stage activation failure');")})
+      } else await route.fulfill({response})
+    })
     if(process.argv.includes('--history-demand')) {
       await page.addInitScript(()=>{
         const open=XMLHttpRequest.prototype.open;let captured=0;
@@ -301,6 +312,7 @@ try {
     page.on('pageerror', error => { errors.push(error.message); if (process.env.E2E_ERROR_STACK) console.log('[pageerror]', error.stack) })
     // Slot error boundaries catch React failures, so pageerror alone misses them.
     page.on('console', message => {
+      if(stageIsolation === 'activation' && message.text().includes('[dsh-tavern-stage] activation failed') && message.text().includes('E2E stage activation failure')) {report.activationFailureObserved=true;return}
       if (message.type() === 'error' && /slot entry crashed|Minified React error|activation failed|ReferenceError:/.test(message.text())) errors.push(message.text())
     })
     await page.goto(url, { waitUntil: 'domcontentloaded' })
@@ -535,7 +547,7 @@ try {
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })
-  if (castScenario) await step('开启对话头像', async () => {
+  if (castScenario && stageIsolation !== 'absent') await step('开启对话头像', async () => {
     const chatUrl = page.url()
     await setCardStage({ dialogue: true })
     await page.goto(chatUrl)
@@ -550,7 +562,12 @@ try {
     await page.screenshot({ path: join(output, 'before-reload.png'), fullPage: true })
   })
   if (stagePluginScenario) {
-    await step('真实舞台进入、退出，再回到普通聊天', async () => {
+    await step(stageIsolation ? '舞台不可用时普通聊天仍可生成、保存和刷新' : '真实舞台进入、退出，再回到普通聊天', async () => {
+      if(stageIsolation) {
+        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
+        assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
+        if(stageIsolation === 'activation') assert.ok(report.injectedActivationFailure && report.activationFailureObserved,'必须触发真实插件激活失败')
+      } else {
       await page.getByRole('button', { name: '舞台', exact: true }).click()
       await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
       await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
@@ -559,6 +576,7 @@ try {
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: /返回主页面/ }).filter({ visible: true }).last().click()
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
+      }
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
       await composer.fill('领取任务奖励')
       await composer.press('Enter')
@@ -575,6 +593,17 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
+      if(stageIsolation === 'activation') {
+        await page.unroute('**/plugins/**')
+        await page.reload({waitUntil:'domcontentloaded'})
+        await page.getByRole('button',{name:'舞台',exact:true}).click()
+        await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
+        await page.keyboard.press('Escape')
+        await page.getByRole('button',{name:/返回主页面/}).filter({visible:true}).last().click()
+        await composer.waitFor({state:'visible'})
+        assert.deepEqual(errors,[])
+        report.stageRecovered=true
+      }
     })
     report.status = 'passed'
     delete report.currentStep
