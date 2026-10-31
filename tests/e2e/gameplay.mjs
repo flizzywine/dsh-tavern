@@ -54,7 +54,8 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
-const castScenario = process.argv.includes('--cast')
+const stagePluginScenario = process.argv.includes('--stage-plugin')
+const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const runtime = resolve(process.env.TAVERN_E2E_RUNTIME || join(homedir(), '.dsh-tavern/runtime'))
@@ -145,6 +146,7 @@ async function inspectScreen() {
     .locator('#e2e-gold').filter({ hasText: /^金币：10$/ }).waitFor()
 }
 try {
+  scenario: {
   await step('准备独立运行环境', async () => {
     if (compactionScenario) {
       await mkdir(data, { recursive: true })
@@ -161,6 +163,7 @@ try {
     for (const [name, target] of Object.entries({
       // An older plugin build can produce a save its bugs damaged; the scenario then switches to this one.
       'dsh-tavern-plugin': process.env.TAVERN_E2E_PLUGIN_SOURCE || join(source, 'tavern-plugin'),
+      'dsh-tavern-stage': join(source, 'tavern-plugin/packages/dsh-tavern-stage'),
       'dsh-tavern-remote': join(source, 'tavern-plugin/packages/dsh-tavern-remote'),
       'dsh-web-mobile': join(source, 'node_modules/dsh-web-mobile')
     })) await symlink(target, join(profile, 'node_modules', name))
@@ -174,11 +177,11 @@ try {
     await cp(sidebar, join(profile, 'node_modules/dsh-better-sidebar'), { recursive: true, dereference: true })
     await symlink(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'))
     for (const name of await readdir(join(source, 'node_modules'))) {
-      if (name.startsWith('.') || ['@deepseek-ai', 'dsh-tavern-plugin', 'dsh-tavern-remote', 'dsh-web-mobile', 'dsh-better-sidebar'].includes(name)) continue
+      if (name.startsWith('.') || ['@deepseek-ai', 'dsh-tavern-plugin', 'dsh-tavern-stage', 'dsh-tavern-remote', 'dsh-web-mobile', 'dsh-better-sidebar'].includes(name)) continue
       await symlink(join(source, 'node_modules', name), join(profile, 'node_modules', name))
     }
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'tavern-e2e', private: true,
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-web-mobile', 'dsh-better-sidebar', 'dsh-tavern-plugin', 'dsh-tavern-remote'] } } }))
+      dsh: { profile: { bundles: JSON.parse(await readFile(join(source,'package.json'),'utf8')).dsh.profile.bundles } } }))
     // The stage scenario runs with the sidebar a real install gets (no Tasks tab), as players see it.
     if (castScenario) await writeFile(join(root, 'settings.yaml'), stringifyYaml(applySidebarDefaults({})))
     await writeFile(join(profile, 'cordis.patch.yml'), `- id: agent-default-model\n  config:\n    provider: tavern-e2e\n    model: fixed\n- insert:\n    - id: tavern-e2e-model\n      name: ${JSON.stringify(join(source, 'tests/e2e/model.mjs'))}\n`)
@@ -298,7 +301,7 @@ try {
     page.on('pageerror', error => { errors.push(error.message); if (process.env.E2E_ERROR_STACK) console.log('[pageerror]', error.stack) })
     // Slot error boundaries catch React failures, so pageerror alone misses them.
     page.on('console', message => {
-      if (message.type() === 'error' && /slot entry crashed|Minified React error/.test(message.text())) errors.push(message.text())
+      if (message.type() === 'error' && /slot entry crashed|Minified React error|activation failed|ReferenceError:/.test(message.text())) errors.push(message.text())
     })
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
@@ -546,6 +549,34 @@ try {
     report.beforeReload = inspectSaved(await savedChat())
     await page.screenshot({ path: join(output, 'before-reload.png'), fullPage: true })
   })
+  if (stagePluginScenario) {
+    await step('真实舞台进入、退出，再回到普通聊天', async () => {
+      await page.getByRole('button', { name: '舞台', exact: true }).click()
+      await page.locator('.fork-gal-stage').waitFor({ state: 'visible' })
+      await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
+      await page.getByRole('button', { name: '返回主页面', exact: true }).first().click()
+      await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
+      const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      await composer.fill('领取任务奖励')
+      await composer.press('Enter')
+      await page.waitForFunction(() => [...document.querySelectorAll('.dsh-tavern-user-bubble')].filter(el => el.textContent.includes('领取任务奖励')).length >= 2)
+      let replies = []
+      for (let attempt = 0; attempt < 100; attempt++) {
+        replies = (await savedChat()).messages.filter(row => row.role === 'assistant' && !row.greeting && row.text?.includes('你获得了十枚金币'))
+        if (replies.length >= 2) break
+        await page.waitForTimeout(200)
+      }
+      assert.ok(replies.length >= 2, '退出舞台后的第二轮正文必须真实生成并保存')
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await composer.waitFor({ state: 'visible' })
+      await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
+      assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
+      await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
+    })
+    report.status = 'passed'
+    delete report.currentStep
+    break scenario
+  }
   // 工具提交的正文一次性落地，长正文必须从第一行开始读，而不是停在最后一行。
   if (storyToolScenario) await step('工具提交的长正文从开头显示', async () => {
     const reveal = await page.evaluate(() => {
@@ -940,6 +971,7 @@ try {
   assert.doesNotMatch(log, /服务端模板进程异常|Unsupported or expired template RPC/, '验收期间模板子进程不得异常退出')
   report.status = 'passed'
   delete report.currentStep
+  }
 } catch (error) {
   report.status = 'failed'; report.error = error.stack; process.exitCode = 1
   if (page) {

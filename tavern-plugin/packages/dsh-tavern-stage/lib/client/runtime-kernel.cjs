@@ -1010,7 +1010,7 @@ function reduceStageRuntime(previous, event) {
     return {state, effects};
 }
 
-return {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRuntimeIndicators, stageHistoryModPlays, stageBeatHold, stageRuntimeErrorText, stageDiagnosticText, stageSkipShows, sourceKey, sameSource, STAGE_HISTORY_SETTLE_MS};
+return {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRuntimeIndicators, stageHistoryModPlays, stageBeatHold, stageRuntimeErrorText, stageDiagnosticText, stageSkipShows, sourceKey, sameSource, sameAnchor, STAGE_HISTORY_SETTLE_MS};
 }
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageRuntimeKernel};

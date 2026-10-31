@@ -45994,7 +45994,7 @@ function cardLibraryDisplayName(card) {
 		return {loadSpineRuntime,spineSources,forkSpineLocalSource,spineLoadData,spineFigure,spineBottomFade,spineFrame,spineMeasure,spineBody};
 		}
 		if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createSpineRig};
-		const spineRig=createSpineRig({window,loadPixi:loadPixiRuntime,loadScript:forkLoadScript,files:getStageBundleFiles,fetch,URL,Blob,location,
+		const spineRig=createSpineRig({window,loadPixi:loadPixiRuntime,loadScript:forkLoadScript,files:(...args)=>getStageBundleFiles(...args),fetch,URL,Blob,location,
 		    measure:{cache:figureCached,head:galEstimateHeadTop,alpha:measureFigureAlpha}});
 		const {loadSpineRuntime,spineSources,forkSpineLocalSource,spineLoadData,spineFigure,spineBottomFade,spineFrame,spineMeasure,spineBody}=spineRig;
 		// the 素材库 figure editor's Spine reader and live preview. The asset-pack
@@ -46068,7 +46068,7 @@ function cardLibraryDisplayName(card) {
 		        status === "loading" ? h(Spinner, { key: source && source.identity || "", fill: true }) : null,
 		        status === "error" ? h("span", { className: "ap-hint-chip fork-spine-preview-error", role: "alert" }, "⚠ 无法预览这个模型") : null);
 		}
-		function forkSpineKit() { return { Preview: SpinePreview, inspect: spineInspect, localSource: forkSpineLocalSource, leaseSource: spineSources }; }
+		function forkSpineKit() { return { Preview: SpinePreview, inspect: spineInspect, localSource: (...args) => forkSpineLocalSource(...args), leaseSource: (...args) => spineSources(...args) }; }
 
 
 		// ---------- Scene helpers (pure; gal-scene-helpers.cjs) ----------
@@ -49090,7 +49090,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        speaker:{character:bubbleCharacter,resolve:(...args) => figureResolution.resolveFigureName(...args),render:packFigureRenderInputs},
 		        chatEntry:{MutationObserver,markdown:TavernColoredMarkdown,enter:galEnter,plain:galPlain,blocks:galBlocks,paragraphs:galParagraphs,parse:parseBubbles,schedule:setTimeout,cancel:clearTimeout},
 		        menu:{sounds:forkUiSfx},
-		        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor},
+		        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout},
 		        subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
 		        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
 		        hints:{storage:forkFrameStorage,setTimeout,clearTimeout},

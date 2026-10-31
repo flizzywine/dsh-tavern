@@ -69,4 +69,4 @@ function SpinePreview(props) {
         status === "loading" ? h(Spinner, { key: source && source.identity || "", fill: true }) : null,
         status === "error" ? h("span", { className: "ap-hint-chip fork-spine-preview-error", role: "alert" }, "⚠ 无法预览这个模型") : null);
 }
-function forkSpineKit() { return { Preview: SpinePreview, inspect: spineInspect, localSource: forkSpineLocalSource, leaseSource: spineSources }; }
+function forkSpineKit() { return { Preview: SpinePreview, inspect: spineInspect, localSource: (...args) => forkSpineLocalSource(...args), leaseSource: (...args) => spineSources(...args) }; }
