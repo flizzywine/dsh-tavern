@@ -1421,6 +1421,7 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground, matches:stageResourceMatches},
         music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
         bgm:{session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
             read:id => rpc("getStageMusicTracks",{},id), storage:(() => {try {return localStorage;} catch (_) {return null;}})(), authority:source => stageResourceAuthority(source)},
