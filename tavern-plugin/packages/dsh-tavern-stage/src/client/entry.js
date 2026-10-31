@@ -56,6 +56,7 @@ window.__ModuleLoader__.load({
         __STAGE_SCENE_MATH__
         __STAGE_RUNTIME_KERNEL__
         __STAGE_SESSION_OBSERVATION__
+        __STAGE_PLAYBACK__
         __STAGE_RUNTIME_UI__
         __STAGE_SPEECH__
         __STAGE_SESSION_RUNTIME__
@@ -226,6 +227,7 @@ window.__ModuleLoader__.load({
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...textViews};
+                    views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
                     return views;

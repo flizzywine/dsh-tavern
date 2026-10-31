@@ -50820,7 +50820,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// frame, short enough for a 40-page round in about 6 s. It never waits for a performance: only a
 		// paragraph whose director prefix has not arrived holds it (data, not a performance). What it still shows is
 		// stageSkipShows (stage-runtime.cjs).
-		const GAL_SKIP_PAGE_MS = 150;
 		// The reader's auto wait on a page (stage-auto-timing.cjs stageAutoDelay) from a saved or partial reading preference.
 		function galAutoDelay(reading, voiced, text) {
 		    const wait = reading && Number.isFinite(reading.autoWait) ? reading.autoWait : STAGE_READING_DEFAULTS.autoWait;
@@ -51375,32 +51374,6 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    const textcard=useTextcardStage({sessionId,reducedMotion:reading.reducedMotion,blocked:backlog||configOpen||galleryOpen||menuOpen});
 		    // Auto and skip wait for each presentation's own clock; manual navigation still cancels immediately.
 		    const presentationBusy = textcard.busy || modPerformances.busy || !!title;
-		    // a history page the reader settles on plays its own
-		    // one-shots (the runtime's HISTORY_DWELL: projection only, no write, no consumption) - shortly after a jump or a single
-		    // page turn, and only 1 s after the last turn while paging continuously (the danmaku history rule, danmaku-streaming.md
-		    // 生命周期). A page left earlier plays nothing; what plays is cut with its page. Overlays (the text-only 履历 included),
-		    // skip and a restored page (still) never play.
-		    const replayableKinds = performanceKinds.replayable;
-		    const dwellPageKey = runtime.cursor.anchor ? JSON.stringify([runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '';
-		    const pageTurned = React.useRef({key: '', at: 0, rapid: false});
-		    React.useLayoutEffect(() => {
-		        if (!dwellPageKey || pageTurned.current.key === dwellPageKey) return;
-		        const now = Date.now();
-		        pageTurned.current = {key: dwellPageKey, at: now, rapid: now - pageTurned.current.at < STAGE_HISTORY_SETTLE_MS};
-		    }, [dwellPageKey]);
-		    const dwellBlocked = runtime.cursor.mode !== 'history' || runtime.cursor.still || !!runtime.cursor.dwell || !replayableKinds ||
-		        skipping || backlog || configOpen || galleryOpen || menuOpen || hidden;
-		    React.useEffect(() => {
-		        if (dwellBlocked) return;
-		        // A landing waits a moment for the closing overlay and the page's projection; continuous paging waits the full dwell.
-		        const {visitId, anchor} = runtime.cursor, turned = pageTurned.current;
-		        const delay = Math.max(0, turned.at + (turned.rapid ? STAGE_HISTORY_SETTLE_MS : 250) - Date.now());
-		        const timer = forkForeground.setTimeout(() => runtime.store.dispatch({type: 'HISTORY_DWELL', visitId, anchor, kinds: replayableKinds}), delay);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [dwellPageKey, dwellBlocked]);
-		    // The round's checks are thrown again when its first page is the settled history page (core.dice.roll replays).
-		    const historyRolls = runtime.cursor.dwell?.kinds.includes('core.dice.roll') && runtime.text.pages[0] && runtime.cursor.anchor &&
-		        runtime.text.pages[0].anchor.paragraphId === runtime.cursor.anchor.paragraphId && runtime.cursor.anchor.offset === 0 ? 'history:' + dwellPageKey : null;
 		    // The timer owns a stage-open wall clock. UI playback and the selected history floor do not hold the live budget.
 		    // A reply timeout may offer a fallback only while the choices' input lock still permits it.
 		    // skinKey: the drawn skin - its mod options and locks are the timer's look (mod-options.js).
@@ -51408,53 +51381,13 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        mode:replaying ? 'replay' : runtime.cursor.mode === 'history' || turn !== latestTurn ? 'history' : 'live', visit:runtime.cursor.visitId,
 		        at:Math.min(pages[page]?.para || 1, runtime.director.through || 0), offset:runtime.cursor.anchor?.offset || 0, sending:!!waiting, running,
 		        waiting:atEnd && (typed || openingOnly) && !hidden && !awaiting && !running && !sourceWidget.openKey && !!props.Choices});
-		    // auto and skip wait for this paragraph's director prefix and say so; manual paging stays immediate.
 		    const awaitingDirection = runtime.indicators.awaitingDirection;
-		    // Intermediate voiced cards follow the paragraph audio clock, not a new playback lease.
 		    const audioBusy = playingHere && (!player.audio || forkForeground.isPlaying(player.audio)) && !player.error;
-		    const autoDeadline=React.useRef(null);
-		    // auto waits while DSH Tavern is not in front - a voiced line is held by its paused
-		    // audio; a silent page keeps the rest of its wait for the return.
-		    const audible = React.useSyncExternalStore(forkForeground.subscribeAudio, forkForeground.isAudible);
-		    React.useEffect(function () {
-		        if (!auto || skipping || hidden || backlog || configOpen || galleryOpen || menuOpen || !typed || !current || current.pending) {autoDeadline.current=null;return;}
-		        if (atEnd || awaitingDirection) return;
-		        if (!audible) { if (autoDeadline.current && autoDeadline.current.left === undefined) autoDeadline.current.left = autoDeadline.current.at - Date.now(); return; }
-		        if (autoDeadline.current?.left !== undefined) { autoDeadline.current.at = Date.now() + autoDeadline.current.left; delete autoDeadline.current.left; }
-		        const holds=[...modPerformances.holds,{pending:textcard.busy || !!title || dialogueHeld}];
-		        if (!lastCard && voice && audioBusy) {
-		            if(stageAutoRemaining(0,holds)===Infinity)return;
-		            const timer = forkForeground.setInterval(function () {
-		                const now = voicePlayer.get();
-		                const audio = now && now.owner === voice.owner && now.id === voice.id && now.audio;
-		                const target = audio && stageViews.subtitles.voiceTime(subtitles.cards, card, audio.duration);
-		                if (audio && !audio.paused && target !== null && audio.currentTime >= target) go(1, true);
-		            }, 80);
-		            return () => forkForeground.clearInterval(timer);
-		        }
-		        if (audioBusy) {autoDeadline.current=null;return;}
-		        const key=JSON.stringify([sessionId,turn,page,card,inputCard,transitioning ? inputSubtitles.text : subtitles.text,Boolean(voice) && lastCard,reading.autoWait,reading.autoSpeed]);
-		        if(autoDeadline.current?.key!==key)autoDeadline.current={key,at:Date.now()+galHandoffAutoDelay(galAutoDelay(reading, Boolean(voice) && lastCard, !transitioning ? subtitles.text : inputSubtitles.text), handoff.heldMs)};
-		        const remaining=stageAutoRemaining(autoDeadline.current.at-Date.now(),holds);
-		        if(remaining===Infinity)return;
-		        const timer = forkForeground.setTimeout(() => go(1, true), remaining);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [auto, skipping, hidden, backlog, configOpen, galleryOpen, menuOpen, typed, turn, transitioning, page, card, inputCard, inputSubtitles.text, film, subtitles.text, lastCard, audioBusy, current && current.text, awaiting, reading.autoWait, reading.autoSpeed, atEnd, sceneHolding, presentationBusy, dialogueHeld, awaitingDirection, audible]);
-		    // skip turns a page every GAL_SKIP_PAGE_MS and never waits for a performance (a
-		    // text card, title or anything still sounding is cut by the next turn); staging snaps and nothing sounds. Only data
-		    // holds it: a streaming page's text and a paragraph's director prefix. Input, the round's end, its choices or
-		    // toggling skip off stop it.
-		    React.useEffect(function () {
-		        if (!skipping || awaiting || sceneHolding) return;
-		        if (atEnd) { setEndedAt(endKey); stopSkip(); return; }
-		        // like AUTO, skip does not turn pages while DSH Tavern is not in front; it resumes on return.
-		        if (!audible) return;
-		        if (backlog || configOpen || galleryOpen || menuOpen || (current && current.pending) || awaitingDirection) return;
-		        const timer = forkForeground.setTimeout(() => {
-		            go(1, true); setTyped(true);
-		        }, GAL_SKIP_PAGE_MS);
-		        return () => forkForeground.clearTimeout(timer);
-		    }, [skipping, turn, transitioning, page, card, inputCard, subtitles.text, pages.length, current && current.pending, backlog, configOpen, galleryOpen, menuOpen, awaiting, atEnd, sceneHolding, awaitingDirection, audible]);
+		    const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
+		        overlay:backlog||configOpen||galleryOpen||menuOpen,typed,current,atEnd,awaiting,sceneHolding,
+		        line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
+		        performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
+		        {advance:()=>go(1,true),finishSkip:()=>{setEndedAt(endKey);stopSkip();},finishTyping:()=>setTyped(true)});
 		    // a Space the stage took is not also a press of the focused control on keyup.
 		    const pressedSpace = React.useRef(false);
 		    React.useEffect(function () {
@@ -52137,6 +52070,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    if (stageViews) throw new Error('Stage views already mounted');
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+		        playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
 		        performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
 		        directorCommands,
 		        resourceDependencies:{stageResourceMatches,createPerformanceTimeline,performanceSustained},
