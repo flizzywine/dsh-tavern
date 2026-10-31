@@ -155,7 +155,7 @@ import { createCardOrganization } from './domain/card-organization.js'
 import { countGamesByCard, orderCardsForLibrary } from './domain/card-list-order.js'
 import { createCardPreparation,rawData } from './domain/card-preparation.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
-import { withoutPlayerChoices } from './card-bundle.js'
+import { withoutPlayerChoices } from './domain/card-export-settings.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
@@ -241,17 +241,12 @@ import { createTavernExtensionSettings } from './domain/tavern-extension-setting
 import { createDialogueBubblePresets, DEFAULT_BUBBLE_TEMPLATE } from './domain/dialogue-bubble-presets.js'
 import { bubbleCharacter } from '../src/client/bubble-line.cjs'
 import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resolveBubbleMood, bubbleInstructionPreview, bubbleInjection, readDialogueBubblePlacement } from './domain/dialogue-bubbles.js'
-import { watchFigureBubbleBooks } from './card-stage.js'
 import { createCardStorage } from './card-storage.js'
 import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import {createOptionalStage} from './optional-stage.js'
-import { STAGE_TIMER_FIELD } from '../mods/timer/stage-service.js'
-import {readAudienceCorpus} from './danmaku-corpus.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
-// derived card gallery; only production paint acknowledgements write it.
-import { describeOpeningScenes } from './domain/stage-opening-scene.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -926,14 +921,6 @@ export async function apply(ctx) {
       update: async function (cardPath, patch) { return await updateCard(cardPath, patch) }
     },
     removeStandalone: async function (path) { return await deleteLibraryResource(path, 'worldbook') }
-  })
-  // pack edits also update writer instructions, not just browser media leases.
-  ctx.inject(['assetLibrary'], child => {
-    const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
-      listCards:() => fileResources.list('card'), readWorkspace:readCardWorkspace,
-      sync:path => dialogueBubbles.sync(worldBooks, path),
-      onError:(error, path) => console.warn('dsh-tavern: figure writer sync failed', path || '', error.message)})
-    child.effect(() => () => books.dispose())
   })
   function emptyCardWorkspace() {
     return { mountedResources: [], sourcePaths: [], cursor: 0, prepared: null, done: false, player: '', draft: { name: '', description: '', personality: '', scenario: '', first_mes: '', mes_example: '', system_prompt: '', post_history_instructions: '', creator_notes: '', tags: [], alternate_greetings: [] } }
@@ -2428,7 +2415,7 @@ export async function apply(ctx) {
   await stageRuntime.start({dataRoot,
     presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
- containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
+ worldBooks, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
@@ -3562,7 +3549,6 @@ export async function apply(ctx) {
     get serverScripts() { return serverScripts } }
   Object.defineProperties(rpcDeps, {
     DEFAULT_BUBBLE_TEMPLATE: { get: () => DEFAULT_BUBBLE_TEMPLATE },
-    STAGE_TIMER_FIELD: { get: () => STAGE_TIMER_FIELD },
     activeRoundBodies: { get: () => activeRoundBodies },
     activeTurnOf: { get: () => activeTurnOf },
     agentRegistry: { get: () => agentRegistry },
@@ -3587,7 +3573,6 @@ export async function apply(ctx) {
     deletedChatIds: { get: () => deletedChatIds },
     deploymentActivity: { get: () => deploymentActivity },
     deploymentWork: { get: () => deploymentWork },
-    describeOpeningScenes: { get: () => describeOpeningScenes },
     dialogueBubblePresets: { get: () => dialogueBubblePresets },
     dialogueBubbles: { get: () => dialogueBubbles },
     duplicateCard: { get: () => duplicateCard },
@@ -3606,7 +3591,6 @@ export async function apply(ctx) {
     pluginApi: { get: () => pluginApi },
     pluginSettlementProgress: { get: () => pluginSettlementProgress },
     rawUpdateChat: { get: () => rawUpdateChat },
-    readAudienceCorpus: { get: () => readAudienceCorpus },
     readCardExtensions: { get: () => readCardExtensions },
     readCardWorkspace: { get: () => readCardWorkspace },
     readChatCard: { get: () => readChatCard },

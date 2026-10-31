@@ -1,4 +1,4 @@
-import {createCardStage} from '../../../lib/card-stage.js'
+import {createCardStage, watchFigureBubbleBooks} from '../../../lib/card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
 import {createStageRequests} from './requests.js'
@@ -36,6 +36,14 @@ import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
   const {ctx, dataRoot, containStage, cardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch} = core
+  // Pack-driven writer updates belong to the stage lifetime, including rollback.
+  ctx.inject(['assetLibrary'], child => {
+    const books = watchFigureBubbleBooks({service:child.get('assetLibrary'), packSettings:ctx.get('assetPackSettings'),
+      listCards:() => fileResources.list('card'), readWorkspace:cardStorage.readWorkspace,
+      sync:path => cardStage.bubbles.sync(core.worldBooks, path),
+      onError:(error, path) => console.warn('dsh-tavern: figure writer sync failed', path || '', error.message)})
+    child.effect(() => () => books.dispose())
+  })
   let modService
   // Enumerating the built-in library must never migrate legacy card files.
   const readModCard = async cardPath => {

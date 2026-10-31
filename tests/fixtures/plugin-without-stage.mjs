@@ -19,7 +19,7 @@ try {
   const overlay='/api/dsh-tavern/client-assets/skin-overlay.mjs'
   assert.equal(await clientAssets.read(overlay),undefined)
   const control=host.services.get('tavernStageControl')
-  for(let cycle=0;cycle<2;cycle++) {
+  for(let cycle=0;cycle<(process.env.DSH_TEST_STAGE_UNAVAILABLE ? 0 : 2);cycle++) {
     await control.enable(() => import('../../tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js'))
     assert.equal(control.status(),'ready')
     assert.ok((await clientAssets.read(overlay)).body.length)

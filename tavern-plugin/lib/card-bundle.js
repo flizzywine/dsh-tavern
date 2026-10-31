@@ -7,13 +7,8 @@ import { validateModCardBindings } from './domain/mods/card-bindings.js'
 import { cardAssetWorkspaceRevision } from './card-asset-bindings.js'
 import { check, cloneJson } from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
-// the player's own choices for a card (stage.skinChoice, CONFIG 「本卡皮肤」)
-// stay with this install: a card leaving it (card ZIP, card JSON) or arriving (import) carries only the author's settings.
-export function withoutPlayerChoices(raw) {
-  const stage = rawData(raw)?.extensions?.dsh_tavern?.stage
-  if (stage && Object.hasOwn(stage, 'skinChoice')) delete stage.skinChoice
-  return raw
-}
+import {withoutPlayerChoices} from './domain/card-export-settings.js'
+export {withoutPlayerChoices} from './domain/card-export-settings.js'
 
 // Binding-only commits must not reopen every linked chat to synchronize an unchanged name.
 export function createCardBundleWriter({readWorkspace,cardPreparation,publish,bumpCardProjectionRevision,syncCardName}) {
