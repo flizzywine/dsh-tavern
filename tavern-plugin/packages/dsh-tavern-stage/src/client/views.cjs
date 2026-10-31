@@ -1,6 +1,13 @@
 'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useGalOn, useGalEntryLoader, GalStage, Icon}) {
-const {galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
+const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+function useGalOn(sessionId) {
+    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+    const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+    const data = useBubbles(sessionId, enabled && Boolean(sessionId));
+    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
+    return { available, on: available && active === sessionId, data };
+}
 // Mounted in the session shell; the stage covers the whole window (and the screen, when the
 // browser grants full screen). Leaving full screen opens the stage menu (Esc exits full screen first).
 function GalStageHost(props) {

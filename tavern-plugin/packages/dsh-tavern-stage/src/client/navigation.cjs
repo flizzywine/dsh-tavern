@@ -135,10 +135,16 @@ function galLeaveNow() {
 }
 // One plugin-owned capture listener also works when an editor or modal has focus.
 function galStageShortcut() {
-    let composing = false;
+    let composing = false, keyAt = -Infinity;
+    const html = document.documentElement;
+    const onFocus = event => {
+        if (galActive.get() && event.timeStamp - keyAt < 400) html.setAttribute('data-fork-keynav', '');
+    };
+    const onPointer = () => {keyAt = -Infinity; html.removeAttribute('data-fork-keynav');};
     const compositionStart = () => { composing = true; };
     const compositionEnd = () => { composing = false; };
     function onKey(event) {
+        if (galActive.get()) keyAt = event.timeStamp;
         if (event.key !== "F12" || composing || event.isComposing || event.keyCode === 229) return;
         const sessionId = getSessionId();
         const data = sessionId && getSettings(sessionId);
@@ -149,18 +155,25 @@ function galStageShortcut() {
         if (galActive.get() === sessionId) galLeave();
         else galEnter(sessionId);
     }
+    const stopFocus = galActive.subscribe(() => {if (!galActive.get()) onPointer();});
+    document.addEventListener("focusin", onFocus, true);
+    window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("compositionstart", compositionStart, true);
     window.addEventListener("compositionend", compositionEnd, true);
     window.addEventListener("blur", compositionEnd);
     window.addEventListener("keydown", onKey, true);
     return function () {
+        stopFocus();
+        document.removeEventListener("focusin", onFocus, true);
+        window.removeEventListener("pointerdown", onPointer, true);
+        onPointer();
         window.removeEventListener("compositionstart", compositionStart, true);
         window.removeEventListener("compositionend", compositionEnd, true);
         window.removeEventListener("blur", compositionEnd);
         window.removeEventListener("keydown", onKey, true);
     };
 }
-return {galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
+return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }

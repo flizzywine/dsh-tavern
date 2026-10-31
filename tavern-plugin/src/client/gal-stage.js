@@ -23,13 +23,6 @@
 
 // @include gal-stage-helpers.cjs
 // @include gal-stage-active.cjs
-function useGalOn(sessionId) {
-    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
-    const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
-    const data = useBubbles(sessionId, enabled && Boolean(sessionId));
-    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
-    return { available, on: available && active === sessionId, data };
-}
 // galgame typewriter (theme.css "stage typewriter"). The whole page is laid out from the
 // first frame and glyphs are only revealed (opacity), so shown text never re-wraps: line breaks, kinsoku and
 // the box are fixed before the first character appears. While the text still streams in, the last glyphs (and
@@ -1181,8 +1174,6 @@ function GalStage(props) {
         window.addEventListener("keyup", onKeyUp, true);
         return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp, true); };
     });
-    // Focus rings and the Enter / Space guard above follow keyboard navigation (galInstallKeynav).
-    React.useEffect(galInstallKeynav, []);
     // Hold Ctrl to fast-forward (released = stop). A short arm delay and cancelling on any other
     // key, click or wheel keep Ctrl shortcuts (copy, Ctrl+wheel reading size) from skipping.
     const skipHoldBlocked = configOpen || galleryOpen || menuOpen || backlog || hidden;
@@ -1743,24 +1734,6 @@ function GalStage(props) {
         const root = rootRef.current;
         if ((always || event && event.detail > 0) && root && typeof root.focus === "function") root.focus({ preventScroll: true });
     }
-}
-
-// stage focus rings follow keyboard navigation only.
-// Chromium matches :focus-visible on a control a pointer focused as soon as any key is pressed - a volume or media key,
-// Space paging, Ctrl skipping - so the skin's ring appeared out of nowhere. Keyboard navigation is a key that moves focus
-// (Tab / Shift+Tab, arrows in a menu, Esc opening the menu): it sets data-fork-keynav on <html>, and the next pointer press
-// clears it. theme.css「stage focus modality」 hides stage focus outlines without it; the stage's Enter / Space guard
-// (a keyboard-focused control keeps its own press) reads the same flag.
-const GAL_KEYNAV_MS = 400; // a focus move this soon after a key press is that key's
-let galKeyAt = -Infinity, galKeynavInstalled = false;
-function galKeyboardFocus() { return typeof document !== "undefined" && document.documentElement.hasAttribute("data-fork-keynav"); }
-function galInstallKeynav() {
-    if (galKeynavInstalled || typeof window === "undefined") return;
-    galKeynavInstalled = true;
-    const html = document.documentElement;
-    window.addEventListener("keydown", event => { galKeyAt = event.timeStamp; }, true);
-    document.addEventListener("focusin", event => { if (event.timeStamp - galKeyAt < GAL_KEYNAV_MS) html.setAttribute("data-fork-keynav", ""); }, true);
-    window.addEventListener("pointerdown", () => { galKeyAt = -Infinity; html.removeAttribute("data-fork-keynav"); }, true);
 }
 
 // the text column (is-facing gutter) is decided once per page, when it opens, from what is known
@@ -2372,7 +2345,7 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
-        useGalOn, useGalEntryLoader, GalStage, Icon});
+        useBubbles, useGalEntryLoader, GalStage, Icon});
     stageViews = views;
     return () => {if (stageViews === views) stageViews = null;};
 }

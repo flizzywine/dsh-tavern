@@ -18,18 +18,19 @@ test('stage host owns fullscreen listeners, portal mount and transcript cleanup'
     removeEventListener:(name,fn) => {assert.equal(windowListeners.get(name),fn); windowListeners.delete(name)},
   }
   const navigation = {
-    galActive:{get:() => 's'}, galMenuRequest:{request:() => events.push('menu')},
+    galStageAvailable:{get:() => true}, galActive:{get:() => 's'}, galMenuRequest:{request:() => events.push('menu')},
     galEscapeLock:on => events.push(on ? 'lock' : 'unlock'),
     galCoverChat:() => events.push('cover'), galUncover:() => events.push('uncover'),
     galLeave:() => events.push('leave'),
   }
   const React = {
+    useSyncExternalStore:(_,get) => get(),
     useState:() => [null,()=>{}],
     useLayoutEffect:fn => effects.push(fn), useEffect:fn => effects.push(fn),
     createElement:()=>{},
   }
   const views = createStageViews({React,ReactDOM:{flushSync:fn => fn()},window,document,navigation,
-    useGalOn:() => ({on:true,data:{}}),useGalEntryLoader:() => 'ready'})
+    useBubbles:() => ({cardPath:'card',config:{enabled:true}}),useGalEntryLoader:() => 'ready'})
   views.Host({sessionId:'s'})
   for (const effect of effects) cleanups.push(effect())
   assert.deepEqual(events,['mount','cover','lock'])
@@ -46,9 +47,9 @@ test('stage host owns fullscreen listeners, portal mount and transcript cleanup'
 test('stage toggle is absent for ordinary cards and enters the selected session', () => {
   let available = false, entered
   const views = createStageViews({
-    React:{createElement:(type,props,...children) => ({type,props,children})},
-    navigation:{galEnter:id => {entered=id}},
-    useGalOn:() => ({available}),
+    React:{useSyncExternalStore:(_,get) => get(),createElement:(type,props,...children) => ({type,props,children})},
+    navigation:{galStageAvailable:{get:() => true},galActive:{get:() => ''},galEnter:id => {entered=id}},
+    useBubbles:() => ({cardPath:'card',config:{enabled:available}}),
   })
   assert.equal(views.Toggle({sessionId:'s'}),null)
   available = true

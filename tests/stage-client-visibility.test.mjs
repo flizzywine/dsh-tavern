@@ -129,3 +129,34 @@ test('stage owns transcript cover and restores inline layout on unload and reloa
     assert.equal(page.size,0)
   }
 })
+
+test('keyboard focus listeners belong to plugin lifetime and do not affect ordinary chat', () => {
+  const listeners = new Map(), attributes = new Set()
+  const surface = prefix => ({
+    addEventListener:(name,fn) => {assert.equal(listeners.has(prefix+name),false); listeners.set(prefix+name,fn)},
+    removeEventListener:(name,fn) => {assert.equal(listeners.get(prefix+name),fn); listeners.delete(prefix+name)},
+  })
+  const document = {...surface('document:'),documentElement:{
+    setAttribute:name => attributes.add(name),removeAttribute:name => attributes.delete(name),
+    hasAttribute:name => attributes.has(name),
+  }}
+  const api = createStageNavigation({window:surface('window:'),document})
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const stop = api.galStageShortcut()
+    listeners.get('window:keydown')({key:'Tab',timeStamp:100})
+    listeners.get('document:focusin')({timeStamp:110})
+    assert.equal(api.galKeyboardFocus(),false)
+    api.galActive.set('s')
+    listeners.get('window:keydown')({key:'Tab',timeStamp:200})
+    listeners.get('document:focusin')({timeStamp:210})
+    assert.equal(api.galKeyboardFocus(),true)
+    listeners.get('window:pointerdown')()
+    assert.equal(api.galKeyboardFocus(),false)
+    listeners.get('window:keydown')({key:'Tab',timeStamp:300})
+    listeners.get('document:focusin')({timeStamp:310})
+    stop()
+    assert.equal(listeners.size,0)
+    assert.equal(attributes.size,0)
+    api.galActive.set('')
+  }
+})

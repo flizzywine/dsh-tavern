@@ -139,10 +139,16 @@ function galLeaveNow() {
 }
 // One plugin-owned capture listener also works when an editor or modal has focus.
 function galStageShortcut() {
-    let composing = false;
+    let composing = false, keyAt = -Infinity;
+    const html = document.documentElement;
+    const onFocus = event => {
+        if (galActive.get() && event.timeStamp - keyAt < 400) html.setAttribute('data-fork-keynav', '');
+    };
+    const onPointer = () => {keyAt = -Infinity; html.removeAttribute('data-fork-keynav');};
     const compositionStart = () => { composing = true; };
     const compositionEnd = () => { composing = false; };
     function onKey(event) {
+        if (galActive.get()) keyAt = event.timeStamp;
         if (event.key !== "F12" || composing || event.isComposing || event.keyCode === 229) return;
         const sessionId = getSessionId();
         const data = sessionId && getSettings(sessionId);
@@ -153,26 +159,40 @@ function galStageShortcut() {
         if (galActive.get() === sessionId) galLeave();
         else galEnter(sessionId);
     }
+    const stopFocus = galActive.subscribe(() => {if (!galActive.get()) onPointer();});
+    document.addEventListener("focusin", onFocus, true);
+    window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("compositionstart", compositionStart, true);
     window.addEventListener("compositionend", compositionEnd, true);
     window.addEventListener("blur", compositionEnd);
     window.addEventListener("keydown", onKey, true);
     return function () {
+        stopFocus();
+        document.removeEventListener("focusin", onFocus, true);
+        window.removeEventListener("pointerdown", onPointer, true);
+        onPointer();
         window.removeEventListener("compositionstart", compositionStart, true);
         window.removeEventListener("compositionend", compositionEnd, true);
         window.removeEventListener("blur", compositionEnd);
         window.removeEventListener("keydown", onKey, true);
     };
 }
-return {galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
+return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-keynav"), galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageNavigation};
 
         'use strict';
-function createStageViews({React, ReactDOM, window, document, navigation, useGalOn, useGalEntryLoader, GalStage, Icon}) {
-const {galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
+const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
+function useGalOn(sessionId) {
+    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+    const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
+    const data = useBubbles(sessionId, enabled && Boolean(sessionId));
+    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
+    return { available, on: available && active === sessionId, data };
+}
 // Mounted in the session shell; the stage covers the whole window (and the screen, when the
 // browser grants full screen). Leaving full screen opens the stage menu (Esc exits full screen first).
 function GalStageHost(props) {
