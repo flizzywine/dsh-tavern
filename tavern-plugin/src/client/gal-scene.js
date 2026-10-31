@@ -184,63 +184,20 @@ function galCreateScene(host, options) {
         const desc = describe();
         const previous = state.layers[state.layers.length - 1];
         const plan = galBackgroundTransition(kind, desc, previous);
-        const sprite = new PIXI.Sprite(texture);
-        const layer = { identity:describe().background?.identity, url, scene: desc.background && desc.background.scene, time: url && desc.background ? desc.background.time || "" : "", texture, sprite, plan, start: now, mask: null, owned: url !== "", standIn: null, correction: null };
-        setStandIn(layer, grade, now, 0);
-        if (plan.kind === "wipe" || plan.kind === "iris") {
-            layer.mask = new PIXI.Sprite(plan.kind === "wipe" ? generated.wipe : generated.iris);
-            if (plan.kind === "iris") layer.mask.anchor.set(0.5);
-            layersBox.addChild(layer.mask);
-            sprite.mask = layer.mask;
-        }
-        layersBox.addChild(sprite);
+        const time=url&&desc.background?desc.background.time||'':'';
+        const layer=stageViews.backgroundLayers.create({PIXI,screen:app.screen,container:layersBox,generated,tune,url,texture,plan,
+            identity:desc.background?.identity,scene:desc.background?.scene,time,now,grade,version:registryOf().version,
+            correction:desc.packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,time)});
         state.layers.push(layer);
         // The figures' grade travels with the picture: it changes during the transition, not before it.
         const duration = desc.snap ? 0 : describe().timeFadeMs === 2500 ? 2500 : plan.kind === "black" || plan.kind === "white" ? 0 : Math.max(plan.duration, 360);
         const gradeStart = plan.split ? now + plan.duration * plan.split[0] : plan.kind === "black" ? now + plan.duration * 0.42 : plan.kind === "white" ? now + plan.duration * 0.36 : now;
         setGrade(grade, gradeStart, state.layers.length === 1 ? 0 : duration);
-        paintLayer(layer, now);
+        layer.paint(now);
     }
-    // Per-picture correction (galLayerCorrection); eases when the time of day changes on the same picture.
-    function setStandIn(layer, grade, now, duration) {
-        const to = describe().packLayers?.backgroundGrade || galLayerCorrection(registryOf(), grade, layer.time), from = layer.standIn ? layer.standIn.current : to;
-        layer.standIn = { grade, from, to, start: now, duration, current: from, settled: false, version: registryOf().version };
+    function setStandIn(layer,grade,now,duration) {
+        layer.setCorrection(describe().packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,layer.time),grade,registryOf().version,now,duration);
     }
-    function paintStandIn(layer, now) {
-        const s = layer.standIn;
-        if (s.settled) return;
-        const t = s.duration > 0 ? galClamp01((now - s.start) / s.duration) : 1;
-        s.current = galMatrix.mix(s.from, s.to, galEase.inOutSine(t));
-        s.settled = t >= 1;
-        if (galMatrix.isIdentity(s.current)) { if (layer.correction) { layer.sprite.filters = null; layer.correction.destroy(); layer.correction = null; } return; }
-        if (!layer.correction) { layer.correction = tune(new PIXI.filters.ColorMatrixFilter()); layer.sprite.filters = [layer.correction]; }
-        layer.correction.matrix = s.current.slice();
-    }
-    function paintLayer(layer, now) {
-        const W = app.screen.width, H = app.screen.height;
-        paintStandIn(layer, now);
-        const texture = layer.sprite.texture;
-        const settle = 1 + 0.03 * (1 - galEase.outCubic(galClamp01((now - layer.start) / 8000)));
-        const fit = galCover(texture.width, texture.height, W, H, 1.04 * settle);
-        layer.sprite.scale.set(fit.scale); layer.sprite.position.set(fit.x, fit.y);
-        let frame = null;
-        if (layer.plan) {
-            frame = galTransitionFrame(layer.plan, layer.plan.duration ? (now - layer.start) / layer.plan.duration : 1);
-            layer.sprite.alpha = frame.incoming;
-            if (layer.mask && frame.mask >= 0) {
-                if (layer.plan.kind === "wipe") {
-                    const rect = galWipeRect(frame.mask, W, 0.25, layer.plan.direction);
-                    layer.mask.position.set(rect.x, -H * 0.1);
-                    layer.mask.scale.set(rect.flip * rect.width / generated.wipe.width, H * 1.2 / generated.wipe.height);
-                } else {
-                    const cx = W / 2, cy = H * 0.42, size = Math.max(1, galIrisSize(frame.mask, W, H, cx, cy, 0.78));
-                    layer.mask.position.set(cx, cy); layer.mask.width = size; layer.mask.height = size;
-                }
-            }
-        } else layer.sprite.alpha = 1;
-        return frame;
-    }
-    function destroyLayer(layer) { if (layer.mask) layer.mask.destroy(); if (layer.correction) layer.correction.destroy(); layer.sprite.destroy(); }
     function tickBackdrop(now) {
         const desc = describe();
         const gradeMs = desc.snap ? 0 : desc.timeFadeMs === 2500 ? 2500 : GAL_ZOOM_MS;
@@ -295,16 +252,15 @@ function galCreateScene(host, options) {
         let coverAlpha = 0, coverColor = 0, lidsShut = 0, barsIn = 0, barsOut = false;
         for (let i = 0; i < state.layers.length; i++) {
             const layer = state.layers[i];
-            const frame = paintLayer(layer, now);
+            const frame = layer.paint(now);
             if (!frame) continue;
             if (frame.cover > coverAlpha) { coverAlpha = frame.cover; coverColor = frame.color; }
             if (frame.lids > lidsShut) lidsShut = frame.lids;
             if (frame.bars > barsIn) { barsIn = frame.bars; barsOut = frame.out; }
             if (frame.done) {
-                layer.plan = null;
-                if (layer.mask) { layer.sprite.mask = null; layer.mask.destroy(); layer.mask = null; }
+                layer.finish();
                 // Everything under a finished layer is hidden: release it.
-                state.layers.splice(0, i).forEach(destroyLayer);
+                state.layers.splice(0, i).forEach(layer=>layer.destroy());
                 i = 0;
                 state.lastPrune = 0;
             }
@@ -1634,7 +1590,7 @@ function galCreateScene(host, options) {
             call.glass.source?.destroy();
             stopCallFrames?.();
             offstageBox.destroy();
-            state.layers.forEach(layer => { if (layer.correction) layer.correction.destroy(); });
+            state.layers.forEach(layer=>layer.destroy());
             textures.dispose();
             if (bust.texture) bust.texture.destroy(true);
             if (thinking.texture) thinking.texture.destroy(true);
