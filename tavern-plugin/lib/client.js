@@ -39344,10 +39344,10 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     onCommit: value => props.onChange({ ...selection, reasoningEffort: value || null }) }));
         }
 
-        function TavernModelSlotGroups({slots = [], values = {}, catalog = [], scoringCatalog = [], disabled, local = false, onChange}) {
+        function TavernModelSlotGroups({slots = [], values = {}, catalog = [], scoringCatalog = [], disabled, local = false, rowsOnly = false, onChange}) {
             const h = React.createElement;
             const groups = Map.groupBy(slots, slot => slot.modId);
-            return Array.from(groups, ([modId, rows]) => h(packUi.StageSection, {key:modId,title:rows[0].modName,foldKey:"model-slots/"+(local?"chat":"global")+"/"+modId,className:"dsh-local-section"},
+            return Array.from(groups, ([modId, rows]) => h(rowsOnly ? React.Fragment : packUi.StageSection, rowsOnly ? {key:modId} : {key:modId,title:rows[0].modName,foldKey:"model-slots/"+(local?"chat":"global")+"/"+modId,className:"dsh-local-section"},
                 rows.map(slot => h(TavernDefaultModelSetting, {key:slot.id,label:slot.label,title:slot.label,description:slot.purpose,kind:slot.kind,initialEffort:slot.reasoning,
                     fallback:local ? "跟随全局" : slot.kind === "scoring" ? "使用判断接口默认模型" : slot.fallback === "background" ? "跟随后台" : "跟随前台",
                     selection:values[modId]?.[slot.id] || null,disabled,
@@ -39955,12 +39955,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 }
                 return h(React.Fragment, null,
                     state.error ? h('p', {role:'alert'}, state.error) : null,
-                    h(TavernModelSlotGroups, {slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
+                    h(TavernModelSlotGroups, {rowsOnly:true, slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
             }
             function TavernStageSettingsSection() {
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-                    h(StageModelSettings),
+                    h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
                     h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
                     h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
                     h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));

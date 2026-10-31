@@ -157,10 +157,10 @@
                     onCommit: value => props.onChange({ ...selection, reasoningEffort: value || null }) }));
         }
 
-        function TavernModelSlotGroups({slots = [], values = {}, catalog = [], scoringCatalog = [], disabled, local = false, onChange}) {
+        function TavernModelSlotGroups({slots = [], values = {}, catalog = [], scoringCatalog = [], disabled, local = false, rowsOnly = false, onChange}) {
             const h = React.createElement;
             const groups = Map.groupBy(slots, slot => slot.modId);
-            return Array.from(groups, ([modId, rows]) => h(packUi.StageSection, {key:modId,title:rows[0].modName,foldKey:"model-slots/"+(local?"chat":"global")+"/"+modId,className:"dsh-local-section"},
+            return Array.from(groups, ([modId, rows]) => h(rowsOnly ? React.Fragment : packUi.StageSection, rowsOnly ? {key:modId} : {key:modId,title:rows[0].modName,foldKey:"model-slots/"+(local?"chat":"global")+"/"+modId,className:"dsh-local-section"},
                 rows.map(slot => h(TavernDefaultModelSetting, {key:slot.id,label:slot.label,title:slot.label,description:slot.purpose,kind:slot.kind,initialEffort:slot.reasoning,
                     fallback:local ? "跟随全局" : slot.kind === "scoring" ? "使用判断接口默认模型" : slot.fallback === "background" ? "跟随后台" : "跟随前台",
                     selection:values[modId]?.[slot.id] || null,disabled,
