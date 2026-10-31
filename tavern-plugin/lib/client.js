@@ -42563,6 +42563,7 @@ function TavernWorldbookInspector(props) {
 		function createWorldBookLibraryFeatureModule() {
 		// 触发词输入框：本地保留原文，否则每次按键都 parse→join 会吞掉末尾的逗号（#425）。
 		function WorldBookKeyInput(props) {
+			const h = React.createElement;
 			const joined = (props.value || []).join(", ");
 			const [text, setText] = React.useState(joined);
 			const parse = function (value) { return String(value || "").split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(Boolean); };
