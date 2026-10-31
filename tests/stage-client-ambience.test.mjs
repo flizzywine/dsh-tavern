@@ -27,3 +27,49 @@ test('ambience unload releases late pins and cannot restart its player', async (
   assert.equal(released,1)
   assert.equal(selectorDisposed,1)
 })
+
+test('soundscape disposal continues across a failed mixer release and settles fades', async () => {
+  const {createSoundscapePlayer} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/soundscape.cjs')
+  const released = [], frames = new Set()
+  let id = 0
+  class Audio {
+    constructor() {this.id=++id}
+    addEventListener() {}
+    removeEventListener() {}
+    pause() {}
+    removeAttribute() {}
+    load() {}
+    play() {return Promise.resolve()}
+  }
+  const player = createSoundscapePlayer({
+    Audio,now:() => 0,
+    requestFrame:fn => {frames.add(fn);return fn},cancelFrame:fn => frames.delete(fn),
+    mixer:{bind(){},level:() => 0,release:node => {released.push(node.id);if(node.id===1)throw new Error('mixer failure')}},
+  })
+  player.apply({version:1,layers:['place','weather'].map(slot => ({slot,identity:slot,url:'blob:'+slot,gain:1}))})
+  const settled = player.whenSettled()
+  assert.throws(() => player.dispose(),/cleanup failed/)
+  await settled
+  assert.deepEqual(released,[1,2])
+  assert.equal(frames.size,0)
+  assert.equal(player.snapshot().disposed,true)
+  player.dispose()
+  player.apply({version:1,layers:[{slot:'place',identity:'new',url:'blob:new',gain:1}]})
+  assert.equal(id,2)
+})
+test('ambience disposal releases all pins even if subscription and audio cleanup fail', () => {
+  const released = []
+  const state = {accepted:{ambience:{layers:['a','b'].map(identity => ({identity,url:'blob:'+identity}))}},source:{},cursor:{}}
+  const ambience = createAmbience({
+    player:() => ({apply(){},whenSettled:() => Promise.resolve(),stop(){throw new Error('stop')},dispose:() => released.push('player')}),
+    session:() => ({select:select => ({getSnapshot:() => select(state),subscribe(){},dispose(){throw new Error('subscription')}})}),
+    owner:() => ({retain:identity => ({handle:{url:'blob:'+identity},release:() => {
+      released.push(identity);if(identity==='a')throw new Error('pin')
+    }})}),
+    authority:source => source,
+  })
+  ambience.activate('s')
+  assert.throws(() => ambience.dispose(),/cleanup failed/)
+  assert.deepEqual(released,['a','b','player'])
+  ambience.dispose()
+})

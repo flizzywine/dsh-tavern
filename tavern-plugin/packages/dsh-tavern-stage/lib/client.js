@@ -1659,16 +1659,22 @@ function createSoundscapePlayer(deps) {
         }
         return { layers };
     }
+    function cleanupAll(tasks) {
+        const errors = [];
+        for (const task of tasks) {try {task();} catch (error) {errors.push(error);}}
+        if (errors.length) throw new AggregateError(errors, 'Soundscape cleanup failed');
+    }
     function clearMedia(node) {
-        node.pause(); node.removeAttribute('src'); node.load();
+        cleanupAll([() => node.pause(), () => node.removeAttribute('src'), () => node.load()]);
     }
     function release(track) {
         if (!track || !track.alive) return;
         track.alive = false; track.ticket++;
-        track.node.removeEventListener('error', track.onError);
-        mixer.level(track.node, 0);
-        clearMedia(track.node);
-        if (typeof mixer.release === 'function') mixer.release(track.node);
+        cleanupAll([
+            () => track.node.removeEventListener('error', track.onError),
+            () => mixer.level(track.node, 0), () => clearMedia(track.node),
+            () => {if (typeof mixer.release === 'function') mixer.release(track.node);}
+        ]);
     }
     function play(track) {
         if (!track.alive || track.status === 'pending' || track.status === 'playing') return;
@@ -1772,9 +1778,14 @@ function createSoundscapePlayer(deps) {
         schedule(); return snapshot();
     }
     function stop() {
-        if (frame !== null) { cancelFrame(frame); frame = null; }
-        for (const slot of Object.values(slots)) { release(slot.current); release(slot.outgoing); slot.current = slot.outgoing = null; }
-        acknowledge();
+        const pendingFrame = frame; frame = null;
+        const tracks = Object.values(slots).flatMap(slot => {
+            const owned = [slot.current, slot.outgoing]; slot.current = slot.outgoing = null; return owned;
+        });
+        cleanupAll([
+            () => {if (pendingFrame !== null) cancelFrame(pendingFrame);},
+            ...tracks.map(track => () => release(track)), acknowledge
+        ]);
     }
     function snapshot() {
         const describe = track => track && Object.freeze({ slot: track.slot, id: track.id, url: track.url,
@@ -1786,7 +1797,7 @@ function createSoundscapePlayer(deps) {
     return {
         apply, stop, snapshot,
         whenSettled() { return frame === null ? Promise.resolve() : new Promise(resolve => settled.add(resolve)); },
-        dispose() { if (!disposed) { stop(); disposed = true; } },
+        dispose() { if (!disposed) { disposed = true; stop(); } },
         resume() {
             if (!disposed) {
                 if (typeof mixer.wake === 'function') mixer.wake();
@@ -1857,11 +1868,15 @@ function createAmbience({player, session, owner, authority}) {
         done.then(() => stale.forEach(([, pin]) => pin?.release()));
         return done;
     }
+    function cleanupAll(tasks) {
+        const errors = [];
+        for (const task of tasks) {try {task();} catch (error) {errors.push(error);}}
+        if (errors.length) throw new AggregateError(errors, 'Ambience cleanup failed');
+    }
     function stop() {
         epoch++; leasing.clear();
-        instance?.stop();
-        for (const pin of pins.values()) pin?.release();
-        pins.clear();
+        const owned = [...pins.values()]; pins.clear();
+        cleanupAll([() => instance?.stop(), ...owned.map(pin => () => pin?.release())]);
     }
     function changed() {
         if (disposed || !selector) return;
@@ -1898,7 +1913,14 @@ function createAmbience({player, session, owner, authority}) {
         // A user gesture retries playback the autoplay policy refused.
         resume() { return instance?.resume(); },
         snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
-        dispose() { if (disposed) return; disposed = true; selector?.dispose(); selector = null; store = null; active = null; input = null; performance = null; try {stop();} finally {instance?.dispose(); instance = null;} }
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            const subscription = selector, player = instance;
+            selector = null; store = null; active = null; input = null; performance = null;
+            try {cleanupAll([() => subscription?.dispose(), stop, () => player?.dispose()]);}
+            finally {instance = null;}
+        }
     };
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};

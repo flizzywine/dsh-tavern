@@ -57,11 +57,15 @@ function createAmbience({player, session, owner, authority}) {
         done.then(() => stale.forEach(([, pin]) => pin?.release()));
         return done;
     }
+    function cleanupAll(tasks) {
+        const errors = [];
+        for (const task of tasks) {try {task();} catch (error) {errors.push(error);}}
+        if (errors.length) throw new AggregateError(errors, 'Ambience cleanup failed');
+    }
     function stop() {
         epoch++; leasing.clear();
-        instance?.stop();
-        for (const pin of pins.values()) pin?.release();
-        pins.clear();
+        const owned = [...pins.values()]; pins.clear();
+        cleanupAll([() => instance?.stop(), ...owned.map(pin => () => pin?.release())]);
     }
     function changed() {
         if (disposed || !selector) return;
@@ -98,7 +102,14 @@ function createAmbience({player, session, owner, authority}) {
         // A user gesture retries playback the autoplay policy refused.
         resume() { return instance?.resume(); },
         snapshot: () => ({plan:input?.plan || null, performance, player:instance?.snapshot() || null}),
-        dispose() { if (disposed) return; disposed = true; selector?.dispose(); selector = null; store = null; active = null; input = null; performance = null; try {stop();} finally {instance?.dispose(); instance = null;} }
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            const subscription = selector, player = instance;
+            selector = null; store = null; active = null; input = null; performance = null;
+            try {cleanupAll([() => subscription?.dispose(), stop, () => player?.dispose()]);}
+            finally {instance = null;}
+        }
     };
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};
