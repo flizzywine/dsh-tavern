@@ -1,3 +1,5 @@
+'use strict';
+function createStageSkinButtons({React, foreground:forkForeground, ResizeObserver, MutationObserver}) {
 // a skin's on-stage quick buttons, drawn
 // from its own bundle images (stageSkinArt in stage-skin-adapter.cjs). They are the existing quick actions, not new ones:
 // backlog (履历), auto (its lit image while on), skip (跳过: fast page turns to the latest page) and menu - the stage menu (Esc), the one
@@ -25,14 +27,19 @@ function useTimerDock(docked) {
     React.useLayoutEffect(() => {
         const layer = ref.current, stage = layer?.parentElement;
         if (!docked || !layer || !stage) return;
-        let frame = 0, timer = null;
+        let frame = 0, timer = null, observedPlate = null, active = true;
         const size = new ResizeObserver(() => schedule()), moves = new MutationObserver(() => schedule());
         const measure = () => {
             frame = 0;
+            if (!active) return;
             const next = [...stage.children].find(node => node.classList.contains("fork-timer")) || null;
             if (next !== timer) { moves.disconnect(); moves.observe(stage, { childList: true }); if (next) moves.observe(next, { attributes: true }); timer = next; }
             const plate = timer?.querySelector(".fork-timer-plate, .fork-timer-pill");
-            if (plate) size.observe(plate);
+            if (plate !== observedPlate) {
+                if (observedPlate) size.unobserve(observedPlate);
+                if (plate) size.observe(plate);
+                observedPlate = plate;
+            }
             const box = plate?.getBoundingClientRect();
             if (!box?.width) { layer.removeAttribute("data-timer-dock"); return; }
             const own = layer.getBoundingClientRect();
@@ -40,11 +47,11 @@ function useTimerDock(docked) {
             layer.style.setProperty("--dock-y", Math.round(box.top + box.height / 2 - own.top) + "px");
             layer.setAttribute("data-timer-dock", "");
         };
-        const schedule = () => { if (!frame) frame = forkForeground.requestAnimationFrame(measure); };
+        const schedule = () => { if (active && !frame) frame = forkForeground.requestAnimationFrame(measure); };
         size.observe(stage);
         moves.observe(stage, { childList: true });
         measure();
-        return () => { size.disconnect(); moves.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); layer.removeAttribute("data-timer-dock"); };
+        return () => { active = false; size.disconnect(); moves.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); layer.removeAttribute("data-timer-dock"); layer.style.removeProperty("--dock-x"); layer.style.removeProperty("--dock-y"); };
     }, [docked]);
     return ref;
 }
@@ -75,3 +82,7 @@ function StageSkinButtons({buttons, decor = [], keyCaps, auto, skipping, atEnd, 
                 ...(phone ? [h("img", { key: "phone", className: "fork-stage-skin-phone", src: lit && phone.on ? phone.on : phone.url, alt: "", draggable: false })] : []));
         }));
 }
+
+return {SkinButtons:StageSkinButtons};
+}
+if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSkinButtons};

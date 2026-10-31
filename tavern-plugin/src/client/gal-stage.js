@@ -1210,7 +1210,7 @@ function GalStage(props) {
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
         // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.
-        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(StageSkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
+        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(stageViews.SkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
             onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
 
         awaiting ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },

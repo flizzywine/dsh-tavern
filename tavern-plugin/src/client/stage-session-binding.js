@@ -19,7 +19,6 @@
 // @include stage-skin-adapter.cjs
 // @include stage-skin-ui.js
 // @include stage-skin-decoration.js
-// @include stage-skin-buttons.js
 // @include stage-rects.cjs
 // @include skin-overlay-loader.cjs
 // @include performance-keyframe-layer.js
