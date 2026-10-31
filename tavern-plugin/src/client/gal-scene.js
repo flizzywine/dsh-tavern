@@ -130,9 +130,6 @@ function galCreateScene(host, options) {
     let closeHead=null;
     const state = {
         desc: null, override: null, debugEffects: [], destroyed: false,
-        layers: [],                    // backdrop layers, bottom → top: { url, time, texture, sprite, plan, start, mask, owned, standIn, correction }
-        bg: { target: null, pending: "" },
-        grade: { name: null, start: 0, duration: 0, current: null, version: 0 },
         figures: new Map(),            // key → entry
         seen: new Set(),
         camera: cameraMotion.snapshot(),
@@ -173,72 +170,25 @@ function galCreateScene(host, options) {
     const loadTexture=textures.load;
     function pruneTextures() {
         const keep = new Set(describe().preload || []);
-        state.layers.forEach(layer => keep.add(layer.url));
-        if (state.bg.pending) keep.add(state.bg.pending);
+        backgrounds.layers.forEach(layer => keep.add(layer.url));
+        if (backgrounds.pending) keep.add(backgrounds.pending);
         [...state.figures.values(), ...state.offstage.values(), ...[...state.offstage.values()].map(entry => entry.next).filter(Boolean)].forEach(function (entry) { if (entry.src) keep.add(entry.src); if (entry.pendingSrc) keep.add(entry.pendingSrc); layeredSpriteUrls(entry.figure.spriteBundle).forEach(url => keep.add(url)); blinkUrls(entry.figure.blinkBundle).forEach(url => keep.add(url)); (entry.fading || []).forEach(item => keep.add(item.url)); });
         textures.prune(keep,describe().visit);
     }
 
-    // ---- backdrop
-    function startLayer(url, texture, kind, grade, now) {
-        const desc = describe();
-        const previous = state.layers[state.layers.length - 1];
-        const plan = galBackgroundTransition(kind, desc, previous);
-        const time=url&&desc.background?desc.background.time||'':'';
-        const layer=stageViews.backgroundLayers.create({PIXI,screen:app.screen,container:layersBox,generated,tune,url,texture,plan,
-            identity:desc.background?.identity,scene:desc.background?.scene,time,now,grade,version:registryOf().version,
-            correction:desc.packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,time)});
-        state.layers.push(layer);
-        // The figures' grade travels with the picture: it changes during the transition, not before it.
-        const duration = desc.snap ? 0 : describe().timeFadeMs === 2500 ? 2500 : plan.kind === "black" || plan.kind === "white" ? 0 : Math.max(plan.duration, 360);
-        const gradeStart = plan.split ? now + plan.duration * plan.split[0] : plan.kind === "black" ? now + plan.duration * 0.42 : plan.kind === "white" ? now + plan.duration * 0.36 : now;
-        setGrade(grade, gradeStart, state.layers.length === 1 ? 0 : duration);
-        layer.paint(now);
-    }
-    function setStandIn(layer,grade,now,duration) {
-        layer.setCorrection(describe().packLayers?.backgroundGrade||galLayerCorrection(registryOf(),grade,layer.time),grade,registryOf().version,now,duration);
-    }
+    const backgrounds=stageViews.backgrounds.create({PIXI,screen:app.screen,container:layersBox,generated,tune,loadTexture,warn:recordAssetWarning});
     function tickBackdrop(now) {
-        const desc = describe();
-        const gradeMs = desc.snap ? 0 : desc.timeFadeMs === 2500 ? 2500 : GAL_ZOOM_MS;
-        const background = desc.background || null;
-        const url = background && background.url || "", identity = background?.identity;
-        // an initial scene.clear still needs the empty backdrop that releases figure entry.
-        if (state.bg.target === null || background?.identity !== state.bg.identity || !background && state.bg.target) {
-            state.bg.identity = background?.identity; state.bg.failed = false;
-            state.bg.target = url;
-            const kind = background && background.transition || "fade", grade = desc.grade || "";
-            const top = state.layers[state.layers.length - 1];
-            if (top && top.url && top.identity === background?.identity) { state.bg.pending = ""; top.time = background && background.time || ""; setGrade(grade, now, gradeMs); setStandIn(top, grade, now, gradeMs); }
-            else if (!url) { state.bg.pending = ""; startLayer("", generated.empty, kind, grade, now); }
-            else {
-                state.bg.pending = url;
-                loadTexture(url).then(function (texture) {
-                    if (state.destroyed || state.bg.identity !== identity) return;
-                    state.bg.pending = "";
-                    startLayer(url, texture, kind, describe().grade || "", state.clock);
-                }, function (error) {
-                    if (state.destroyed || String(error && error.message) === "cancelled") return;
-                    if (state.bg.identity !== identity) return;
-                    state.bg.pending = ""; state.bg.failed = true;
-                    if (typeof recordAssetWarning === "function") recordAssetWarning({ code: "missing-asset", module: "backgrounds", url });
-                    // a failed candidate never removes the last-good background.
-                });
-            }
-        } else if (!state.bg.pending && ((desc.grade || "") !== state.grade.name || registryOf().version !== state.grade.version0)) {
-            setGrade(desc.grade || "", now, gradeMs);
-            const top = state.layers[state.layers.length - 1];
-            if (top) { top.time = background && background.time || ""; setStandIn(top, desc.grade || "", now, gradeMs); }
-        }
+        const desc=describe(),background=desc.background;
+        backgrounds.update(desc,registryOf(),now);
         // wait for the incoming texture, then share its transition clock. A director
         // cut on the same background still gets the selected transition rather than a visible size jump.
-        if (state.figureCut && !state.bg.pending) {
+        if (state.figureCut && !backgrounds.pending) {
             const cut = state.figureCut;
             if (!cut.layer) {
-                let top = state.layers[state.layers.length - 1];
+                let top = backgrounds.layers[backgrounds.layers.length - 1];
                 if (top && top.start < cut.since) {
-                    startLayer(top.url, top.texture, background?.transition || "fade", desc.grade || "", now);
-                    top = state.layers[state.layers.length - 1];
+                    backgrounds.restart(top, background?.transition || "fade", desc.grade || "", now);
+                    top = backgrounds.layers[backgrounds.layers.length - 1];
                 }
                 cut.layer = top;
             }
@@ -249,22 +199,8 @@ function galCreateScene(host, options) {
             if (frame.swap) state.figureScale = figureSceneUpdate(state.figureScale, cut.snapshot, now, true);
             if (progress >= 1) { state.figureCut = null; state.figureCutAlpha = 1; }
         }
-        let coverAlpha = 0, coverColor = 0, lidsShut = 0, barsIn = 0, barsOut = false;
-        for (let i = 0; i < state.layers.length; i++) {
-            const layer = state.layers[i];
-            const frame = layer.paint(now);
-            if (!frame) continue;
-            if (frame.cover > coverAlpha) { coverAlpha = frame.cover; coverColor = frame.color; }
-            if (frame.lids > lidsShut) lidsShut = frame.lids;
-            if (frame.bars > barsIn) { barsIn = frame.bars; barsOut = frame.out; }
-            if (frame.done) {
-                layer.finish();
-                // Everything under a finished layer is hidden: release it.
-                state.layers.splice(0, i).forEach(layer=>layer.destroy());
-                i = 0;
-                state.lastPrune = 0;
-            }
-        }
+        const {coverAlpha,coverColor,lidsShut,barsIn,barsOut,pruned}=backgrounds.paint(now);
+        if(pruned)state.lastPrune=0;
         cover.tint = coverColor; cover.alpha = coverAlpha; cover.visible = coverAlpha > 0.002;
         lids.clear(); lids.visible = lidsShut > 0.002 || barsIn > 0.002;
         const shapes = lidsShut > 0.002 ? galBlinkLids(lidsShut, app.screen.width, app.screen.height) : barsIn > 0.002 ? galSlashBars(barsIn, app.screen.width, app.screen.height, barsOut) : [];
@@ -272,21 +208,6 @@ function galCreateScene(host, options) {
         vignette.width = app.screen.width * 1.04; vignette.height = app.screen.height * 1.04;
         vignette.position.set(-app.screen.width * 0.02, -app.screen.height * 0.02);
     }
-    // The figures' time grade blends from whatever is on screen now (also mid-blend) to the new one.
-    // The looks arriving (or reloading) re-grade to the same name with the new matrices.
-    function setGrade(name, start, duration) {
-        const grade = state.grade, version = registryOf().version;
-        if (grade.name === name && grade.version0 === version) return;
-        grade.from = grade.current || galMatrix.identity(); grade.to = describe().packLayers?.figureGrade || galTimeGrade(registryOf(), name).grade; grade.start = start; grade.duration = duration; grade.name = name; grade.version0 = version;
-    }
-    function tickGrade(now) {
-        const grade = state.grade;
-        if (!grade.to) return;
-        const t = grade.duration > 0 ? galClamp01((now - grade.start) / grade.duration) : now >= grade.start ? 1 : 0;
-        const next = galMatrix.mix(grade.from, grade.to, galEase.inOutSine(t));
-        if (!grade.current || next.some((value, i) => Math.abs(value - grade.current[i]) > 1e-4)) { grade.current = next; grade.version++; }
-    }
-
     // ---- figures
     function entryList() { return Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, url: entry.url, identity:entry.identity, leaving: entry.leaving })); }
     function addFigure(figure, attach = true) {
@@ -790,7 +711,7 @@ function galCreateScene(host, options) {
             if (entry.kind === "spine") loadSpine(entry);
             ;
             // Figures arrive with the first picture (and its grade), never over an empty, ungraded stage.
-            if (!entry.started && !state.layers.length) return;
+            if (!entry.started && !backgrounds.layers.length) return;
             // a figure still loading when the entry revealed fades in where it stands, even on a
             // reopened page that otherwise restores without entrances. Outfit swaps keep their in-place replacement.
             if (!entry.started && desc.lateFade && !entry.swap && figure.enter === "none") galFigureInit(entry, { ...figure, enter: "soft" });
@@ -806,10 +727,10 @@ function galCreateScene(host, options) {
             entry.container.visible = alpha > 0.003;
             entry.container.zIndex = entry.leaving ? 0 : figure.close ? 3 : figure.speaking ? 2 : 1;
             const look = tickFigureLook(entry, desc, now, dt, dofTarget);
-            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + state.grade.version;
+            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + backgrounds.grade.version;
             if (entry.shadeKey !== key) {
                 entry.shadeKey = key;
-                entry.shadeFilter.matrix = galFigureMatrix(shade, alpha, look.glow, look.shadow, state.grade.current);
+                entry.shadeFilter.matrix = galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current);
             }
             ;
             if (entry.kind === "spine") tickSpine(entry, figure, desc);
@@ -1084,7 +1005,7 @@ function galCreateScene(host, options) {
         if (!spec) state.callCovers = false;
         callBox.visible = true;
         if (!spec) return;
-        const resolution = app.renderer.resolution, layer = state.layers[state.layers.length - 1], backTexture = layer && layer.texture && layer.texture !== PIXI.Texture.EMPTY ? layer.texture : null;
+        const resolution = app.renderer.resolution, layer = backgrounds.layers[backgrounds.layers.length - 1], backTexture = layer && layer.texture && layer.texture !== PIXI.Texture.EMPTY ? layer.texture : null;
         const shown = new Set(), remoteSpec = spec.views.find(view => view.role === "remote"), remoteRect = remoteSpec && callRect(spec, remoteSpec);
         // One iOS point of the call screen (it is 393 pt wide) in screen px: the background blur is 14 pt.
         const point = (remoteRect ? remoteRect.width : W) / 393;
@@ -1325,7 +1246,7 @@ function galCreateScene(host, options) {
         if (app.renderer.resolution !== resolution) { app.renderer.resolution = resolution; app.resize(); }
         const all = [].concat(...Object.values(filters).map(chain => chain.all()));
         state.figures.forEach(entry => all.push(...entry.filters.all()));
-        state.layers.forEach(layer => { if (layer.correction) all.push(layer.correction); });
+        backgrounds.layers.forEach(layer => { if (layer.correction) all.push(layer.correction); });
         all.forEach(tune);
     }
     function tick() {
@@ -1365,7 +1286,6 @@ function galCreateScene(host, options) {
             else galFigureInit(entry, { ...entry.figure, enter: "none" });
         });
         tickBackdrop(now);
-        tickGrade(now);
         tickEffects(desc, now);
         const wantedFilm = desc.film ? 1 : 0;
         if (!state.frameBlend) state.frameBlend = { from: wantedFilm, to: wantedFilm, start: real, value: wantedFilm };
@@ -1395,10 +1315,10 @@ function galCreateScene(host, options) {
         // accepted groups reveal independently, including historical entry.
         // The resource runner already gates each element; a slow model must not hide the backdrop.
         world.visible = overlay.visible = !state.callCovers;
-        if (options.onUi) options.onUi(effects.ui(state.grade.current));
+        if (options.onUi) options.onUi(effects.ui(backgrounds.grade.current));
         // the entry gate may reveal the backdrop and text box before slow figures are built.
-        if (options.onBackdrop && !state.bg.pending && state.layers.length <= 1) options.onBackdrop(desc.presentationRevision);
-        if (options.onPresented && !state.bg.pending && state.layers.length <= 1 &&
+        if (options.onBackdrop && !backgrounds.pending && backgrounds.layers.length <= 1) options.onBackdrop(desc.presentationRevision);
+        if (options.onPresented && !backgrounds.pending && backgrounds.layers.length <= 1 &&
             Array.from(state.figures.values()).every(entry => !entry.leaving && !entry.replacement && !entry.pendingSrc &&
                 !entry.fading.length && (entry.model || entry.sprite))) options.onPresented(desc.presentationRevision);
         cover.width = W; cover.height = H;
@@ -1413,7 +1333,7 @@ function galCreateScene(host, options) {
     function frameRate() {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
-        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && state.layers.length <= 1 && !state.bg.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
+        const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
         return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap);
     }
     // The wrapper restores the requested cap after Pixi dispatches its listeners.
@@ -1476,15 +1396,15 @@ function galCreateScene(host, options) {
         },
         blinks() { return Array.from(state.figures.values()).filter(entry => entry.blinkKey).map(entry => ({ key: entry.key, phase: entry.blink ? entry.blink.phase() : "open", rect: entry.figure.blinkBundle && entry.figure.blinkBundle.rect, half: Boolean(entry.blinkHalf), allowed: blinkAllowed(entry) })); },
         textures() {
-            return { gpu: app.renderer.texture.managedTextures.length, cached: textures.size, layers: state.layers.length,
+            return { gpu: app.renderer.texture.managedTextures.length, cached: textures.size, layers: backgrounds.layers.length,
                 cachedUrls: Array.from(textures.keys()), baseTextureCache: Object.keys(PIXI.utils.BaseTextureCache).length };
         },
         stats() {
             const safe = state.camera.safe || { zoom: 1, fx: 0.5, fy: 0.42, rotation: 0 };
             const shake = { x: round(world.position.x - (safe.ax || 0.5) * app.screen.width, 1), y: round(world.position.y - (safe.ay || 0.42) * app.screen.height, 1) };
-            return { quality, grade: state.grade.name, look: effects.looks.stats(), camera: { shot: state.camera.key, zoom: round(safe.zoom, 3), fx: round(safe.fx, 3), fy: round(safe.fy, 3), rotation: round(safe.rotation * 180 / Math.PI, 2) },
+            return { quality, grade: backgrounds.grade.name, look: effects.looks.stats(), camera: { shot: state.camera.key, zoom: round(safe.zoom, 3), fx: round(safe.fx, 3), fy: round(safe.fy, 3), rotation: round(safe.rotation * 180 / Math.PI, 2) },
                 scale: round(world.scale.x, 3), shake, frame: state.visibleFrame, figureLayer: { visible: figuresBox.visible, alpha: round(figuresBox.alpha, 3) }, phoneShade: round(phoneShade.alpha, 3), call: { alpha: round(call.alpha, 3), views: [...call.views.keys()], framed: [...call.views.values()].map(view => view.framed || null), offstage: [...state.offstage.values()].map(entry => ({ key: entry.key, identity: entry.identity, ready: Boolean(entry.model || entry.sprite) })), glass: call.glass.pieces.filter(piece => piece.sprite.visible).length, covers: Boolean(state.callCovers), world: world.visible }, thinking: round(thinking.sprite.visible ? thinking.alpha : 0, 3), dof: round(state.dof.v, 2), effects: effects.stats(),
-                layers: state.layers.map(layer => ({ url: layer.url, time: layer.time, transition: layer.plan ? layer.plan.kind : "", corrected: Boolean(layer.correction) })),
+                layers: backgrounds.layers.map(layer => ({ url: layer.url, time: layer.time, transition: layer.plan ? layer.plan.kind : "", corrected: Boolean(layer.correction) })),
                 figures: Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, leaving: entry.leaving, parked: Boolean(entry.figure.parked), ready: Boolean(entry.model || entry.sprite),
                     x: entry.started ? round(entry.cx.v, 3) : null, alpha: entry.started ? round(entry.alpha.v, 3) : null, shade: entry.started ? round(entry.shade.v, 2) : null,
                     glow: round(entry.glow.v, 2), shadow: round(entry.shadow.v, 2), blur: round(entry.blur.v, 2), filters: entry.filters.all().length,
@@ -1590,7 +1510,7 @@ function galCreateScene(host, options) {
             call.glass.source?.destroy();
             stopCallFrames?.();
             offstageBox.destroy();
-            state.layers.forEach(layer=>layer.destroy());
+            backgrounds.dispose();
             textures.dispose();
             if (bust.texture) bust.texture.destroy(true);
             if (thinking.texture) thinking.texture.destroy(true);
