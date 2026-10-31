@@ -27,6 +27,9 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const {startStageClientLifetime} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/lifetime.cjs')
   const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
   let definition
+  const controllerSource=await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs',import.meta.url),'utf8')
+  const controllerCalls=[...new Set([...controllerSource.matchAll(/stageViews\.([A-Za-z0-9_.]+)\(/g)].map(match=>match[1]))]
+  const controllerComponents=[...new Set([...controllerSource.matchAll(/React\.createElement\(stageViews\.([A-Za-z0-9_.]+),/g)].map(match=>match[1]))]
   const styles = new Set()
   const document = {addEventListener(){},removeEventListener(){},querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
@@ -43,9 +46,14 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
         createElement:(type,props,...children) => ({type,props,children}),
       }
-      const views = input.createViews({React,skinResources:{getSession:forbidden,getResourceOwner:forbidden},backlogPaging:{hydrateText:forbidden,hasOlder:forbidden,loadOlder:forbidden},sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
+      const views = input.createViews({React,GalStage:forbidden,skinResources:{getSession:forbidden,getResourceOwner:forbidden},backlogPaging:{hydrateText:forbidden,hasOlder:forbidden,loadOlder:forbidden},sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
       assembled.push(views)
+      assert.notEqual(views.controller.Stage,forbidden,'the plugin composes its own controller')
+      for(const path of [...controllerCalls,...controllerComponents]) {
+        const value=path.split('.').reduce((value,key)=>value?.[key],views)
+        assert.equal(typeof value,'function','controller dependency '+path+' must exist on the compiled plugin')
+      }
       assert.equal(views.sceneMath.galSpringValue(3).v,3)
       assert.equal(views.sceneMath.galClamp01(2),1)
       const state=views.runtimeKernel.createStageRuntimeState()

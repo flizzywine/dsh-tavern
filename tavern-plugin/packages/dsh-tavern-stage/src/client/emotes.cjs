@@ -266,6 +266,6 @@ const runtime={add:addEmote,tick:tickEmotes,stats:()=>({emotes:emotes.map(emote=
 }};runtimes.add(runtime);return runtime;
 }
 
-return {parts:galEmoteParts,anchor:galEmoteAnchor,frame:galEmoteAt,placement:galEmotePlacement,color:galEmoteColor,dataUrl:galEmoteDataUrl,create,dispose(){if(disposed)return;disposed=true;galEmoteUrls.clear();const errors=[];for(const runtime of [...runtimes])try{runtime.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Emote module cleanup failed');}};
+return {kinds:Object.freeze([...GAL_EMOTES]),parts:galEmoteParts,anchor:galEmoteAnchor,frame:galEmoteAt,placement:galEmotePlacement,color:galEmoteColor,dataUrl:galEmoteDataUrl,create,dispose(){if(disposed)return;disposed=true;galEmoteUrls.clear();const errors=[];for(const runtime of [...runtimes])try{runtime.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Emote module cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageEmotes};
