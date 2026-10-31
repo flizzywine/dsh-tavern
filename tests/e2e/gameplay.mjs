@@ -591,13 +591,13 @@ try {
   if (storyToolScenario) await step('开启输入与输出走工具调用', async () => {
     const chatUrl = page.url()
     await setTavernSettings({ storyInputToolCall: true, storyOutputToolCall: true })
-    await setCardStage({ dialogue: true, stage: true })
+    await setCardStage({ enabled: true })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })
   if (castScenario && stageIsolation !== 'absent') await step('开启对话头像', async () => {
     const chatUrl = page.url()
-    await setCardStage({ dialogue: true,...((stageAudioLifecycle||stageDirectorFault)?{stage:true}:{}) })
+    await setCardStage((stageAudioLifecycle||stageDirectorFault)?{enabled:true}:{dialogue:true})
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })

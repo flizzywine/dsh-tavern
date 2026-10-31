@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cardExtension } from './fixtures/asset-packs/pack.mjs'
-import { effectiveCardStage } from '../tavern-plugin/lib/domain/card-stage-settings.js'
+import {validateCardStage, effectiveCardStage } from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import { defaultAssetEngineSettings, validateAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import { cardBubbleConfig } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 
@@ -21,4 +21,18 @@ test('对话气泡 and 舞台模式 are the card\'s: an ordinary card has no sta
   assert.equal(effectiveCardStage(ext, legacy).stage, false)
   assert.equal(cardBubbleConfig({extensions:{dsh_tavern:ext}}, engine).enabled, false)
   assert.equal(cardBubbleConfig({extensions:{dsh_tavern:declared}}, engine).enabled, true)
+})
+
+
+test('single stage declaration owns both modes and takes precedence over legacy flags',()=>{
+ for(const enabled of [true,false]){
+  const stage={enabled,dialogue:!enabled,stage:!enabled}
+  validateCardStage(stage)
+  const effective=effectiveCardStage({stage})
+  assert.equal(effective.dialogue,enabled);assert.equal(effective.stage,enabled)
+ }
+ assert.throws(()=>validateCardStage({enabled:'true'}))
+ assert.equal(effectiveCardStage({stage:{dialogue:true}}).dialogue,true)
+ assert.equal(effectiveCardStage({stage:{dialogue:true}}).stage,false)
+ assert.equal(cardBubbleConfig({extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[]},stage:{enabled:true}}}},defaultAssetEngineSettings()).stage.enabled,true)
 })

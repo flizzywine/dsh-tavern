@@ -1,3 +1,4 @@
+// @include-protocol card-stage-mode.cjs
 // 舞台设置 — the per-card page of the 「Tavern 舞台」 tab.
 // The page starts from the card: switches (基础设置, sounds included), the packs it uses, its characters; at the end, folded
 // by default, the opening (skin, 主角, greetings) and the prompts of every stage. Every control saves at once through one serial queue (card CAS and pack
@@ -17,23 +18,23 @@ const STAGE_RETURN_KEY='dsh:settings-return', STAGE_TAB='dsh-tavern:bubbles', VO
 // second line automatically (cardBubbleConfig / bubbleInstructionPreview).
 const STAGE_CORE=['dialogue','voice','stage'];
 const STAGE_REQUIRES={dialogue:[],voice:['dialogue'],stage:['dialogue']};
-const STAGE_NAMES={dialogue:'对话气泡',voice:'配音',stage:'舞台模式'};
+const STAGE_NAMES={dialogue:'舞台',voice:'配音',stage:'舞台'};
 const STAGE_ICONS={dialogue:'bubble',voice:'voice',stage:'stage'};
 const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // the director command toggles live only on 舞台模式 › 可用演出
 // (asset-pack-engine-ui.js); a card has no command chips and its stored stage.dimensions is never read or written.
 
 // ---------- Pure helpers (tests/card-centric-stage-ui.test.mjs) ----------
-// 对话气泡 and 舞台模式 are the card's own (stage.dialogue / stage.stage): a card that declares them has a stage, an ordinary
-// card never does. Every other switch is global and shares the backend defaults.
-const CARD_SWITCHES=['dialogue','stage'];
+// A card declares stage.enabled; legacy dialogue/stage fields are read only for compatibility.
+// Other switches remain global and share backend defaults.
+const CARD_SWITCHES=['enabled','dialogue','stage'];
 function stagePrefs(ext,engine) {
   const {dialogue:_dialogue,stage:_stage,...global}=engine?.values?.stageToggles||{};
   return {widgets:false,...(ext?.stage||{}),
     voice:true,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,...global,
-    dialogue:ext?.stage?.dialogue===true,stage:ext?.stage?.stage===true};
+    ...cardStageMode(ext?.stage)};
 }
-// Writes switches where each lives: the card's two into this card, the rest into the global settings.
+// The single stage choice is card-owned; other switches go to global settings.
 function stageWrite(writer,changes) {
   const card={},global={};
   for(const [key,value] of Object.entries(changes))(CARD_SWITCHES.includes(key)?card:global)[key]=value;
@@ -47,12 +48,17 @@ function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dia
 // A stage patch replaces only card preferences; `undefined` removes an override.
 function stagePatch(ext,changes) {
   const next={...(ext?.stage||{})};
+  if (Object.hasOwn(changes,'enabled') || Object.hasOwn(changes,'stage') || Object.hasOwn(changes,'dialogue')) {
+    next.enabled = changes.enabled ?? changes.stage ?? changes.dialogue;
+    delete next.dialogue; delete next.stage;
+    changes = Object.fromEntries(Object.entries(changes).filter(([key])=>!['enabled','dialogue','stage'].includes(key)));
+  }
   Object.assign(next,changes);
   for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
   return {stage:next};
 }
 function stageEnable(key) { return Object.fromEntries([...STAGE_REQUIRES[key],key].map(k=>[k,true])); }
-function stageMissing(key,active) { return [...STAGE_REQUIRES[key],key].filter(k=>!active[k]); }
+function stageMissing(key,active) { return [...new Set([...STAGE_REQUIRES[key],key].filter(k=>!active[k]).map(k=>k==='dialogue'?'stage':k))]; }
 // cards select packs; figure policy is authored in the library.
 function emptyExtension() { return {schemaVersion:1,assetBindings:{boundPackIds:[]}}; }
 // the packs whose entries 舞台设置 reads in full — lit for this card (全局 / 本卡:
@@ -324,10 +330,10 @@ function StageGlobalSkin({ctx}) {
 // 5.2: the only solid button on the page.
 function StageFirstRun({writer,cardName}) {
   const [busy,setBusy]=React.useState(false),[error,setError]=React.useState('');
-  async function start(){setBusy(true);setError('');try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{dialogue:true,stage:true}}));}catch(e){setError(errorText(e));}finally{setBusy(false);}}
+  async function start(){setBusy(true);setError('');try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{enabled:true}}));}catch(e){setError(errorText(e));}finally{setBusy(false);}}
   return h('div',{className:'ap-first-run'},
     h('p',{className:'ap-first-title'},'这张卡还没有舞台设置'),
-    h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'启用舞台（对话气泡）'),
+    h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'使用舞台'),
       // this is the stage's prerequisite, so the button names the stage, not only the bubbles.
       h(Help,{text:'开启后聊天顶栏出现「舞台」入口，正文按带头像的对话气泡显示；之后可以给角色配形象和声音。'})),
     error&&h('p',{className:'ap-alert',role:'alert'},error));
@@ -425,7 +431,7 @@ const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!
 // 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
 // follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
 // dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
-const STAGE_BASIC_HELP='对话气泡和舞台模式只对这张卡生效，带舞台的人物卡导入时会自己打开；其余开关对所有卡生效。某张卡没有对应素材时，导演不会收到相关说明。';
+const STAGE_BASIC_HELP='“使用舞台”只对这张卡生效，开启时自动提供对话气泡和完整舞台；其余开关对所有卡生效。某张卡没有对应素材时，导演不会收到相关说明。';
 const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
 function StageSwitches({ctx}) {
   const {prefs,active,writer}=ctx,set=(key,value)=>stageWrite(writer,{[key]:value});
@@ -436,10 +442,9 @@ function StageSwitches({ctx}) {
     return h(SwitchRow,{key,label,icon,checked:prefs[key]!==false,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
       onChange:v=>set(key,v),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
   return h('div',{ref:ctx.basicRef},h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,action:ctx.headTools,reveal:ctx.setupComplete},
-    row('dialogue'),
     active.voice?h(StageVoiceRow,{key:'voice',ctx,row}):row('voice'),
     h(StageNarratorRow,{key:'narrator',ctx}),
-    row('stage',h(StageModeJump,{ctx}),ctx.onEngine?()=>ctx.onEngine():undefined),
+    h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,checked:active.stage,onChange:value=>stageWrite(writer,{enabled:value}),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
     h(StageAutoChoicesRow,{key:'auto-choices'}),
     h(StageGlobalSkin,{key:'skin',ctx}),
     AUDIO_ROWS.map(sound),

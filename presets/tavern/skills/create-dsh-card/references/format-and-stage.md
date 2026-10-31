@@ -29,8 +29,7 @@
     "boundPackIds": ["0f5613a4-ae7a-40e2-ba4a-17b4e7e9ce42"]
   },
   "stage": {
-    "dialogue": true,
-    "stage": true
+    "enabled": true
   }
 }
 ```
@@ -39,14 +38,15 @@
 
 | 声明 | 有效模式 |
 | --- | --- |
-| 两个开关缺省或 false | 普通对话 |
-| dialogue: true，stage 缺省或 false | 气泡对话 |
-| dialogue: true，stage: true | 完整舞台 |
-| dialogue 缺省或 false，stage: true | 不满足前置条件，实际舞台关闭；修正声明 |
+| stage.enabled: true | 舞台，自动开启气泡前置能力 |
+| stage.enabled: false | 普通游玩，覆盖残留的旧开关 |
+| enabled 缺省且没有旧字段 | 普通游玩 |
 
-布尔值必须是 true/false。仅有素材包、皮肤、openings、widgets、@bubble 或名称含 galgame 的插件，不等于声明完整舞台。
+**新卡只使用 `stage.enabled` 一个开关。** 它必须是布尔值。有素材、皮肤、openings、widgets、@bubble 或 galgame 插件，均不能替代此声明。
 
-现有 `.dshcard` 导入器还接受 `dsh.json.defaults.stage: true`，将它转换为卡片的 dialogue/stage 声明并补入包 ID。规范化后的卡片字段才是后续判定依据。新增卡优先显式填写卡片字段，避免作者意图依赖导入时的副作用。
+旧卡未写 enabled 时保留原语义：dialogue:true 开气泡，dialogue:true 与 stage:true 同时存在才开完整舞台。旧的气泡专用卡仍能运行；新 enabled 字段一旦存在就优先于旧字段。新界面保存开关时写 enabled 并移除两个旧字段。
+
+`.dshcard` 导入器仍接受 `dsh.json.defaults.stage: true` 快捷声明，将其转换为 enabled:true。新增卡优先显式填写卡片字段。新字段需要包含单开关实现的新版酒馆；早期 v3.2 标签不支持此字段，不能只看发行版本就保证兼容。遇到旧运行时应要求更新，或按用户明确要求另做旧格式兼容副本。
 
 stage.defaultSkin 是作者默认皮肤；stage.skinChoice 属于玩家本地选择，不作为作者默认导出。widgets 与 modSystem 另管模组配置，不替代舞台声明。玩家密钥、静音和权限不能由卡包覆盖。
 
@@ -57,6 +57,16 @@ stage.defaultSkin 是作者默认皮肤；stage.skinChoice 属于玩家本地选
 内容文件、manifest.files 与 contentHash 必须由同一份最终内容生成。修改人物、清单或媒体后重新经素材库导出。哈希失败时保留原包并报告，不跳过检查或手改指纹来宣称兼容。
 
 旧插件的 registerStageView 已停用。将展示数据迁入卡片声明、开场配置与素材包，独立剧情逻辑再按公开插件接口处理；只删除旧调用、重命名插件或降低格式版本都不构成完整迁移。
+
+## 封面封装与卡包版本
+
+- `.dshcard`：无封面时保留的 DSH 卡包。
+- `.dshcard.png`：有封面的 DSH 卡包，将 PNG 封面与卡包一起封装；普通图片软件可以显示封面，酒馆读取其中的完整卡包。
+- 有封面时优先导出 `.dshcard.png`，无封面时导出 `.dshcard`。用户明确要求其他交付形式时遵从其要求。
+- 两种封装使用相同的内部 `dsh.json.formatVersion`；后缀不是另一套格式版本，也不改变素材清单和校验规则。
+- 普通 `.png` 人物卡只携带卡片数据，不能据此声称已包含 DSH 素材和插件。`.charx.png` 是另一个卡包封装，不与 `.dshcard.png` 混用。
+- 使用宿主支持的导出流程；把 ZIP 改名成 PNG 不会生成可显示的封面，把封面图片改名也不会生成卡包。
+- 传输和验证时保留原始字节；图片编辑、重新编码或某些平台的图片压缩可能丢失附带卡包，分享时优先作为原文件发送。验收时重新导入完整文件，不能只检查封面能否显示。
 
 ## 卡包与验收
 

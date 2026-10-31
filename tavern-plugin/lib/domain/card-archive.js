@@ -135,7 +135,8 @@ function declareStage(card, packIds) {
   data.extensions = data.extensions && typeof data.extensions === 'object' ? data.extensions : {}
   const own = data.extensions.dsh_tavern && typeof data.extensions.dsh_tavern === 'object'
     ? data.extensions.dsh_tavern : { schemaVersion: 1, assetBindings: { boundPackIds: packIds } }
-  own.stage = { ...(own.stage && typeof own.stage === 'object' ? own.stage : {}), dialogue: true, stage: true }
+  own.stage = { ...(own.stage && typeof own.stage === 'object' ? own.stage : {}), enabled: true }
+  delete own.stage.dialogue; delete own.stage.stage
   data.extensions.dsh_tavern = own
   return next
 }

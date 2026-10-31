@@ -1,3 +1,5 @@
+import cardStageModeProtocol from '../../packages/dsh-presentation-protocol/src/card-stage-mode.cjs'
+const {cardStageMode} = cardStageModeProtocol
 // Global stage toggles and card-owned visual/module preferences.
 import { DIRECTOR_DIMENSIONS, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
 import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
@@ -11,9 +13,8 @@ export function validateStageSkinSelection(skin, path) {
 }
 
 export function validateCardStage(value, path = '$.stage') {
-  // no 双语配音 switch; a figure's voice language decides. dialogue (对话气泡) and stage (舞台模式) are the card's:
-  // a card that declares them has a stage, an ordinary card never does.
-  const switches = ['widgets', 'dialogue', 'stage']
+  // enabled is the single card declaration; dialogue/stage remain accepted for old cards.
+  const switches = ['enabled', 'widgets', 'dialogue', 'stage']
   shape(value, [...switches, 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
@@ -81,8 +82,7 @@ export function effectiveCardStage(extension, engine) {
   // 对话气泡 and 舞台模式 come from the card alone; the global switches cover the rest (配音, music, sounds, …).
   const { dialogue: _dialogue, stage: _stage, ...global } = engine?.stageToggles || defaultAssetEngineSettings().stageToggles
   const value = {widgets:false, ...stored, ...global}
-  value.dialogue = stored.dialogue === true
-  value.stage = stored.stage === true && value.dialogue
+  Object.assign(value, cardStageMode(stored))
   return value
 }
 
