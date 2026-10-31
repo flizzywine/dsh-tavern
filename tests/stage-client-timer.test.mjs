@@ -106,3 +106,38 @@ test('reaction startup failure and plugin disposal both release layer, layout an
     assert.equal(timers.size,0)
   }
 })
+test('timer slot releases visibility subscription and pending fallback notice on unload', async () => {
+  const effects = [], notices = [], noticeTimers = new Map(), intervals = new Set()
+  let resolveOpen, unsubscribed = 0
+  const timer = createStageTimer({
+    React:{
+      useState:value => [value,next => notices.push(next)],useRef:current => ({current}),
+      useMemo:fn => fn(),useEffect:fn => effects.push(fn),createElement:() => null,
+    },
+    rpc:(_,args) => args.action === 'open' ? new Promise(resolve => {resolveOpen=resolve}) : Promise.resolve({}),
+    window:{addEventListener(){},removeEventListener(){}},
+    crypto:{randomUUID:() => 'lease'},performance:{now:() => 0},
+    setInterval:fn => {intervals.add(fn);return fn},clearInterval:fn => intervals.delete(fn),
+    foreground:{
+      subscribe:() => () => unsubscribed++,
+      setTimeout:fn => {noticeTimers.set(1,fn);return 1},clearTimeout:id => noticeTimers.delete(id),
+    },
+    useModOptions:() => null,
+  })
+  const slot = timer.useSlot({sessionId:'s',rootRef:{current:null},reading:{},mode:'live',turn:1,token:'tok',waiting:true})
+  slot.fallbackRef.current = () => true
+  const stops = effects.map(fn => fn()).filter(Boolean)
+  resolveOpen({now:0,event:{id:'e',turn:1,source:'tok'},fallbackAction:'回答'})
+  await Promise.resolve();await Promise.resolve()
+  assert.equal(noticeTimers.size,1)
+  assert.ok(notices.includes('时间到，已替你回应：回答'))
+  const late = noticeTimers.get(1)
+  timer.dispose()
+  stops.forEach(stop => stop())
+  assert.equal(unsubscribed,1)
+  assert.equal(intervals.size,0)
+  assert.equal(noticeTimers.size,0)
+  const count = notices.length
+  late()
+  assert.equal(notices.length,count)
+})

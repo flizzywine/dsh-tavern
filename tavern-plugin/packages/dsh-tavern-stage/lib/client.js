@@ -1225,9 +1225,82 @@ return {player:stageVideoPlayer, dispose() {
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageVideo};
 
         'use strict';
-function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer}) {
+function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer, useModOptions, performanceSafety}) {
 let disposed = false;
 const cleanups = new Set(), timerSeenEvents = new Set();
+function ownCleanup(release) {
+    let live = true;
+    const stop = () => {if (!live) return; live = false; cleanups.delete(stop); release();};
+    if (disposed) stop(); else cleanups.add(stop);
+    return stop;
+}
+function timerLook(answer, builtin) {
+    if (!answer || !builtin) return null;
+    const v = answer.values, media = name => name && answer.media?.[name] || null;
+    return {kind:v.look === 'plate' ? 'plate' : 'pill', format:v.format, plate:media(v.plate), digits:media(v.digits),
+        glyphs:v.digits && media(v.digits) ? v.glyphs : null, placement:v.placement, icon:builtin.default,
+        pause:v.pauseButton === true, urgent:v.urgentPulse === true, hideExpired:v.hideWhenExpired === true};
+}
+// The input lock's last word on a fallback offer (contract「Reply fallback UX」): the same live round, still waiting, no
+// draft or submission, the window shown, and this event not offered before. Anything else suppresses it (at most once).
+function timerFallbackAllowed(offer, now) {
+    if (!offer || !offer.action || now.consumed.has(offer.eventId)) return false;
+    return now.live === true && now.visible === true && now.waiting === true && now.inputStarted !== true && now.sending !== true &&
+        now.running !== true && now.turn === offer.turn && JSON.stringify(now.source) === JSON.stringify(offer.source);
+}
+
+// The mod's own built-in art (the pill's icon).
+let timerBuiltinRead = null;
+function timerBuiltin(sessionId) {
+    return timerBuiltinRead ||= rpc('getStageTimerLooks', {}, sessionId).catch(error => { timerBuiltinRead = null; throw error; });
+}
+// Live events already handed to consumers / fallback offers already given to the input lock, by event id (this page only:
+// a refresh never recovers an offer from the saved checkpoint).
+const timerConsumedOffers = new Set();
+
+// Input and visibility guard the optional fallback action, not the clock.
+function useStageTimerSlot({sessionId, rootRef, reading, source, token, turn, mode, visit, at, offset, waiting, sending, running, skinKey = ''}) {
+    const reaction = React.useMemo(() => createReactionScope(), [sessionId,token,turn,at,offset,mode,visit]);
+    React.useEffect(() => () => reaction.dispose(), [reaction]);
+    const [visible, setVisible] = React.useState(true);
+    React.useEffect(() => ownCleanup(forkForeground.subscribe(value => {if (!disposed) setVisible(value);})), []);
+    const [inputStarted, setInputStarted] = React.useState(false);
+    const fallbackRef = React.useRef(null), gate = React.useRef(null);
+    const [notice, setNotice] = React.useState(null);
+    const noticeTimer = React.useRef(null);
+    React.useEffect(() => ownCleanup(() => {
+        if (noticeTimer.current !== null) forkForeground.clearTimeout(noticeTimer.current);
+        noticeTimer.current = null;
+    }), []);
+    gate.current = {consumed:timerConsumedOffers, live:mode === 'live', visible, waiting, inputStarted, sending, running, turn, source:token};
+    const state = useStageTimer({sessionId, mode, visit, turn, at, offset, token,
+        view:{waitingForInput:waiting, inputStarted},
+        onEvent:event => {
+            // The one stage event (skin / performance consumers): a DOM event on the stage, then the entry's own onTimeup.
+            rootRef.current?.dispatchEvent(new CustomEvent('fork-stage-event', {detail:event}));
+            if (event.onTimeup) reaction.play({root:rootRef.current, sessionId, source, turn:event.turn, at:event.at, token:event.source, event,
+                safety:() => performanceSafety(reading, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)}).catch(error => console.warn('Timer reaction unavailable', error));
+        },
+        onFallback:offer => {
+            if (!timerFallbackAllowed(offer, gate.current)) return;
+            timerConsumedOffers.add(offer.eventId);
+            if (!fallbackRef.current?.(offer.action)) return;
+            setNotice('时间到，已替你回应：' + offer.action);
+            if (noticeTimer.current !== null) forkForeground.clearTimeout(noticeTimer.current);
+            noticeTimer.current = forkForeground.setTimeout(() => {noticeTimer.current = null; if (!disposed) setNotice(null);}, 5000);
+        }});
+    const [builtin, setBuiltin] = React.useState(null);
+    React.useEffect(() => {
+        let live = true;
+        if (!disposed && state.timer && !builtin) timerBuiltin(sessionId).then(value => {if (live && !disposed) setBuiltin(value);}, () => {});
+        return () => {live = false;};
+    }, [sessionId,!!state.timer]);
+    const look = timerLook(useModOptions(sessionId, 'dsh.timer', {enabled:!!state.timer, skinKey}), builtin);
+    // shown: the timer is on the stage (StageTimer draws it) - the skin's hud.timer arrangement follows it.
+    return {element:React.createElement(StageTimer, {state, look, reducedMotion:reading.reducedMotion === true, notice}),
+        shown:Boolean(state.timer && look), onInputActivity:setInputStarted, fallbackRef};
+}
+
 // mode: 'live' (writer) | 'history' (saved frame) | 'replay' (private clock); view: the stage's holds right now.
 function useStageTimer({sessionId, mode, visit, turn, at, offset = 0, token, view, onEvent, onFallback}) {
     const [data,setData] = React.useState(null), [,tick] = React.useState(0);
@@ -1488,12 +1561,12 @@ function createReactionScope() {
         }
     }};
 }
-return {createReactionScope, useTimer:useStageTimer, Component:StageTimer, dispose() {
+return {useSlot:useStageTimerSlot, createReactionScope, useTimer:useStageTimer, Component:StageTimer, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
     for (const stop of [...cleanups]) {try {stop();} catch (error) {errors.push(error);}}
-    timerSeenEvents.clear();
+    timerSeenEvents.clear(); timerConsumedOffers.clear(); timerBuiltinRead = null;
     if (errors.length) throw new AggregateError(errors, 'Stage timer cleanup failed');
 }};
 }

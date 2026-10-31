@@ -59752,63 +59752,6 @@ function galUiApplier() {
 		        clock:checkpoint.clock ? {...checkpoint.clock,atMs,remainingMs,open:false} : undefined};
 		}
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerClockRemaining,timerClockSample,timerClockFrozen};
-		'use strict';
-
-		// Explicit timer suspension and stage lifetime are the only holds, never presentation activity.
-		function timerActivityRuns(timer, activity) {
-		    return !!timer && timer.status === 'running' && !timer.suspended && activity.live === true &&
-		        activity.stageOpen !== false && !activity.playerPaused;
-		}
-
-		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerIsActive:timerActivityRuns};
-		const timerOwner = typeof module !== 'undefined' && typeof window === 'undefined'
-		    ? require('../../mods/timer/activity.cjs') : {timerIsActive:(timer, activity) => timerActivityRuns(timer, activity)};
-		// the stage timer's pure client rules - which interval is charged,
-		// what the plate reads and when the reply fallback may be offered to the input lock. The host owns the remaining time.
-
-		// The activity sent with one measured interval (the host re-checks it: tavern-plugin/mods/timer/stage-service.js timerIsActive).
-		function timerActivity(view) {
-		    return {live:view.stageOpen !== false && view.mode !== 'history' && view.mode !== 'replay', visible:view.visible === true, waitingForInput:view.waitingForInput === true, inputStarted:view.inputStarted === true,
-		        menuOpen:view.menuOpen === true, backlogOpen:view.backlogOpen === true, caption:view.caption === true, playerPaused:false,
-		        ...(view.presentation?{presentation:view.presentation,countdownReady:view.presentation.phase==='rest'}:{})};
-		}
-		function timerPresentation(control, playback) {
-		    if (!control) return null;
-		    const value = playback?.value;
-		    const matches = value && ['packId','assetId'].every(key => value.ref?.[key] === control.performanceRef[key]) &&
-		        value.topic === control.topic && (control.exiting || JSON.stringify(value.startedAt) === JSON.stringify(control.startedAt));
-		    const phase = matches ? control.exiting && playback.phase === 'rest' ? 'exit' : playback.phase : control.exiting && !playback ? 'released' : 'pending';
-		    return {epoch:control.epoch, phase};
-		}
-		// Projection visibility is separate from the stage-open clock; UI holds do not pause a live timer.
-		function timerRuns(timer, checkpoint, view) {
-		    return !!timer && !!checkpoint && timerOwner.timerIsActive({...timer, status:checkpoint.status},
-		        {...timerActivity(view), playerPaused:checkpoint.playerPaused === true});
-		}
-		// The plate's digits in the resolved `format` option: 'mm:ss:mmm' (milliseconds floored; 15:00:000 → 14:59:999), or
-		// 'm:ss' (h:mm:ss from an hour), seconds rounded up so 0:00 is shown only at expiry.
-		function timerLook(answer, builtin) {
-		    if (!answer || !builtin) return null;
-		    const v = answer.values, media = name => name && answer.media?.[name] || null;
-		    return {kind:v.look === 'plate' ? 'plate' : 'pill', format:v.format, plate:media(v.plate), digits:media(v.digits),
-		        glyphs:v.digits && media(v.digits) ? v.glyphs : null, placement:v.placement, icon:builtin.default,
-		        pause:v.pauseButton === true, urgent:v.urgentPulse === true, hideExpired:v.hideWhenExpired === true};
-		}
-		// The input lock's last word on a fallback offer (contract「Reply fallback UX」): the same live round, still waiting, no
-		// draft or submission, the window shown, and this event not offered before. Anything else suppresses it (at most once).
-		function timerFallbackAllowed(offer, now) {
-		    if (!offer || !offer.action || now.consumed.has(offer.eventId)) return false;
-		    return now.live === true && now.visible === true && now.waiting === true && now.inputStarted !== true && now.sending !== true &&
-		        now.running !== true && now.turn === offer.turn && JSON.stringify(now.source) === JSON.stringify(offer.source);
-		}
-
-		// The plate's clearance from the skin's drawn art (a skin's menu gear covered the clock's last digits).
-		// plate / boxes / bounds are {l, t, r, b} screen rects: the plate where its look puts it, every art box the skin declares on
-		// the stage (art.buttons, art.decor) and the stage. Returns the smallest shift {dx, dy} that keeps the plate `gap` px clear
-		// of every box and inside the stage: past the box's left or right edge, or under it; the first box that still touches the
-		// shifted plate decides the next step. Should the steps run out (boxes on both sides), the plate goes under every box above
-		// or beside it in its own column.
-		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerActivity, timerPresentation, timerRuns, timerLook, timerFallbackAllowed};
 		// the one
 		// client adapter to a mod's resolved options on the stage. A mod is a pure capability with a built-in preset; the active
 		// skin may set option values, turn features on or off and lock options; the player adjusts the user-adjustable ones in two
@@ -59842,56 +59785,7 @@ function galUiApplier() {
 		    }, [sessionId, modId, enabled, skinKey, epoch]);
 		    return answer;
 		}
-		// the dsh.timer countdown on the stage.
-		// Every request names the page on screen (turn/at/offset): a page behind the live frontier whose own countdown has since
-		// stopped shows it frozen at that page's floor (host tavern-plugin/mods/timer/stage-clock.js behind), not the live clock's later state.
-		// The host timestamps director events and stage-open/close boundaries. Display is arithmetic on that clock;
-		// playback, page responses and window visibility cannot pause it. History projects the first floor snapshot.
-		// Periodic durable samples recover an unclean host exit; they never establish display anchors.
-		// The look is the mod's resolved options (timerLook): the active skin's values, art and locks over the mod's preset.
-
-		// The mod's own built-in art (the pill's icon).
-		let timerBuiltinRead = null;
-		function timerBuiltin(sessionId) {
-		    return timerBuiltinRead ||= rpc('getStageTimerLooks', {}, sessionId).catch(error => { timerBuiltinRead = null; throw error; });
-		}
-		// Live events already handed to consumers / fallback offers already given to the input lock, by event id (this page only:
-		// a refresh never recovers an offer from the saved checkpoint).
-		const timerConsumedOffers = new Set();
-
-		function useStageTimer(...args) { return stageViews.timer.useTimer(...args); }
-		// Input and visibility guard the optional fallback action, not the clock.
-		function useStageTimerSlot({sessionId, rootRef, reading, source, token, turn, mode, visit, at, offset, waiting, sending, running, skinKey = ''}) {
-		    const reaction = React.useMemo(() => stageViews.timer.createReactionScope(), [sessionId,token,turn,at,offset,mode,visit]);
-		    React.useEffect(() => () => reaction.dispose(), [reaction]);
-		    const [visible, setVisible] = React.useState(true);
-		    React.useEffect(() => forkForeground.subscribe(setVisible), []);
-		    const [inputStarted, setInputStarted] = React.useState(false);
-		    const fallbackRef = React.useRef(null), gate = React.useRef(null);
-		    const [notice, setNotice] = React.useState(null);
-		    gate.current = {consumed:timerConsumedOffers, live:mode === 'live', visible, waiting, inputStarted, sending, running, turn, source:token};
-		    const state = useStageTimer({sessionId, mode, visit, turn, at, offset, token,
-		        view:{waitingForInput:waiting, inputStarted},
-		        onEvent:event => {
-		            // The one stage event (skin / performance consumers): a DOM event on the stage, then the entry's own onTimeup.
-		            rootRef.current?.dispatchEvent(new CustomEvent('fork-stage-event', {detail:event}));
-		            if (event.onTimeup) reaction.play({root:rootRef.current, sessionId, source, turn:event.turn, at:event.at, token:event.source, event,
-		                safety:() => performanceSafety(reading, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)}).catch(error => console.warn('Timer reaction unavailable', error));
-		        },
-		        onFallback:offer => {
-		            if (!timerFallbackAllowed(offer, gate.current)) return;
-		            timerConsumedOffers.add(offer.eventId);
-		            if (!fallbackRef.current?.(offer.action)) return;
-		            setNotice('时间到，已替你回应：' + offer.action);
-		            forkForeground.setTimeout(() => setNotice(null), 5000);
-		        }});
-		    const [builtin, setBuiltin] = React.useState(null);
-		    React.useEffect(() => { if (state.timer && !builtin) timerBuiltin(sessionId).then(setBuiltin, () => {}); }, [!!state.timer]);
-		    const look = timerLook(useModOptions(sessionId, 'dsh.timer', {enabled:!!state.timer, skinKey}), builtin);
-		    // shown: the timer is on the stage (StageTimer draws it) - the skin's hud.timer arrangement follows it.
-		    return {element:React.createElement(stageViews.timer.Component, {state, look, reducedMotion:reading.reducedMotion === true, notice}),
-		        shown:Boolean(state.timer && look), onInputActivity:setInputStarted, fallbackRef};
-		}
+		function useStageTimerSlot(...args) { return stageViews.timer.useSlot(...args); }
 
 		// Stage helpers: the galgame stage's top-level pure functions and hooks (gal-stage.js includes this source inside its
 		// module factory; Node tests require it or evaluate it beside their stubs). Runtime neighbours (typewriter pages, bubble
@@ -62924,7 +62818,7 @@ function galUiApplier() {
 		        useBubbles, GalStage, Icon,
 		        admission:{performance, setTimeout, clearTimeout, Spinner},
 		        timer:{rpc, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
-		            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer},
+		            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
 		        video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
 		        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
 		        labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
