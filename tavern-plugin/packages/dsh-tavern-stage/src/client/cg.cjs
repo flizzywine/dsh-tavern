@@ -15,41 +15,59 @@ function clean(actions) {
 function useCgStage(sessionId, store, options) {
     const root = React.useRef(null), latest = React.useRef(options); latest.current=options;
     const [visible,setVisible]=React.useState(false), [notice,setNotice]=React.useState('');
-    const lifetime=React.useMemo(()=>({live:true}),[sessionId,store]);
-    const consumer=React.useMemo(()=>createCgConsumer({clock:forkForeground,onVisible:value=>{if(lifetime.live&&!disposed)setVisible(value);},
-        onFrame(frame) {
-            if (disposed || !lifetime.live) return false;
-            const element=root.current;
-            return cgPaintFrame(element,frame);
-        },
-        onPlayed(value,provenance) {
-            if (disposed || !lifetime.live) return;
-            const state=store.getSnapshot(), token=state.accepted.provenanceByChannel.cg?.token;
-            if (!provenance || token !== provenance || JSON.stringify(provenance.source) !== JSON.stringify(state.source) || provenance.visitId !== state.cursor.visitId || JSON.stringify(provenance.anchor) !== JSON.stringify(state.cursor.anchor) || latest.current.paused) return;
-            if (value.receipt) void rpc('ackCgPlayed',{turn:provenance.source.turn,receipt:value.receipt,ref:value.ref,variant:value.variant},sessionId)
-                .then(()=>{if(!disposed&&lifetime.live)setNotice('');},error=>{if(!disposed&&lifetime.live&&error.code !== 'REVISION_CONFLICT') setNotice('回想进度未保存');});
-            latest.current.onPlayed?.(value,provenance,state);
+    const slot=React.useMemo(()=>({current:null}),[sessionId,store]);
+    React.useLayoutEffect(()=>{
+        if (disposed) return;
+        const lease={live:true,consumer:null};
+        slot.current=lease;
+        const current=provenance=>{
+            if (disposed || !lease.live || slot.current !== lease) return false;
+            const state=store.getSnapshot();
+            return provenance && state.accepted.provenanceByChannel.cg?.token === provenance
+                && JSON.stringify(provenance.source) === JSON.stringify(state.source)
+                && provenance.visitId === state.cursor.visitId
+                && JSON.stringify(provenance.anchor) === JSON.stringify(state.cursor.anchor);
+        };
+        let observer=null;
+        const release=own(()=>{
+            lease.live=false;
+            if(slot.current===lease)slot.current=null;
+            clean([()=>observer?.disconnect(),()=>lease.consumer?.dispose()]);
+        });
+        try {
+            lease.consumer=createCgConsumer({clock:forkForeground,
+                onVisible:value=>{if(lease.live&&!disposed)setVisible(value);},
+                onFrame:frame=>lease.live&&!disposed ? cgPaintFrame(root.current,frame) : false,
+                onPlayed(value,provenance) {
+                    if(!current(provenance)||latest.current.paused)return;
+                    if(value.receipt)void rpc('ackCgPlayed',{turn:provenance.source.turn,receipt:value.receipt,ref:value.ref,variant:value.variant},sessionId)
+                        .then(()=>{if(current(provenance))setNotice('');},error=>{if(current(provenance)&&error.code!=='REVISION_CONFLICT')setNotice('回想进度未保存');});
+                    latest.current.onPlayed?.(value,provenance,store.getSnapshot());
+                }
+            });
+            observer=new ResizeObserver(()=>{if(lease.live&&!disposed)lease.consumer.redraw();});
+            if(root.current)observer.observe(root.current);
+            return release;
+        } catch(error) {
+            try {release();} catch(cleanupError) {throw new AggregateError([error,cleanupError],'Stage CG mount failed');}
+            throw error;
         }
-    }),[sessionId,store]);
+    },[slot]);
     React.useLayoutEffect(()=>{
         if (disposed) return;
-        let active = true;
+        let active=true;
         const media=window.matchMedia?.('(prefers-reduced-motion: reduce)');
-        const update=()=>{if(active&&!disposed&&lifetime.live)consumer.policy({pause:options.paused,snap:!options.forward,...cgMotionPolicy(options,media?.matches)});};
-        update();media?.addEventListener?.('change',update);
-        return own(()=>{active=false;media?.removeEventListener?.('change',update);});
-    },[consumer,options.paused,options.reducedMotion,options.photosensitive,options.forward]);
-    React.useLayoutEffect(()=>{
-        if (disposed) return;
-        const observer=new ResizeObserver(()=>{if(lifetime.live&&!disposed)consumer.redraw();});
-        if (root.current) observer.observe(root.current);
-        return own(()=>{lifetime.live=false;clean([()=>observer.disconnect(),()=>consumer.dispose()]);});
-    },[consumer]);
+        const update=()=>{if(active&&!disposed)slot.current?.consumer.policy({pause:options.paused,snap:!options.forward,...cgMotionPolicy(options,media?.matches)});};
+        const release=own(()=>{active=false;media?.removeEventListener?.('change',update);});
+        try {update();media?.addEventListener?.('change',update);return release;}
+        catch(error) {try {release();} catch(cleanupError) {throw new AggregateError([error,cleanupError],'Stage CG policy mount failed');}throw error;}
+    },[slot,options.paused,options.reducedMotion,options.photosensitive,options.forward]);
     const accept=React.useCallback(intent=>{
-        if (disposed || !lifetime.live) return Promise.resolve();
-        if (intent.type === 'release-presentation' || intent.type === 'revoke-presentation') return consumer.present(null,{snap:true});
-        return consumer.present(intent.accepted.cg,{snap:intent.transition === 'snap' || !latest.current.forward,provenance:intent.accepted.provenanceByChannel.cg?.token});
-    },[consumer]);
+        const consumer=slot.current?.consumer;
+        if(disposed||!consumer)return Promise.resolve();
+        if(intent.type==='release-presentation'||intent.type==='revoke-presentation')return consumer.present(null,{snap:true});
+        return consumer.present(intent.accepted.cg,{snap:intent.transition==='snap'||!latest.current.forward,provenance:intent.accepted.provenanceByChannel.cg?.token});
+    },[slot]);
     return {visible,accept,notice,node:React.createElement('div',{ref:root,className:'fork-cg-stage','aria-hidden':true},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false}),React.createElement('div',{className:'fork-cg-white'}))};
 }
 return {useStage:useCgStage, dispose() { if(disposed)return;disposed=true;clean([...cleanups]); }};
