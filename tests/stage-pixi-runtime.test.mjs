@@ -18,7 +18,7 @@ test('static stage loads shared Pixi and filters without a model SDK', async () 
     vm.runInContext(await readFile(new URL('../tavern-plugin/src/client/' + file, import.meta.url), 'utf8'), context)
   }
   vm.runInContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/effects.cjs', import.meta.url), 'utf8'), context)
-  vm.runInContext('const effects = createStageEffects({window,loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+'pixi-filters.js'})', context)
+  vm.runInContext('const effects = createStageEffects({window,loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js"})', context)
   const [first, second] = await Promise.all([
     vm.runInContext('loadPixiRuntime()', context), vm.runInContext('loadPixiRuntime()', context)
   ])
