@@ -7666,7 +7666,45 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         sessionModule ||= createSessionModule(createStoreModule(kernel));
         return own(sessionModule.createStageSessionOwner(inputs));
     }
-    return {createSessionOwner,createDirector,createResources,projectDirection,dispose(){
+    function createConnection({resources:resourceInputs,direction,session:sessionInputs,waitForEntry=async()=>{}}){
+        if(disposed)throw new Error('Stage session runtime disposed');
+        const acquired=[];let closed=false,owner,resources;
+        function dispose(){
+            if(closed)return;closed=true;
+            const errors=[];
+            for(const item of acquired.reverse())try{item.dispose();}catch(error){errors.push(error);}
+            if(errors.length)throw new AggregateError(errors,'Stage connection cleanup failed');
+        }
+        try{
+            resources=createResources(resourceInputs);acquired.push(resources);
+            const source=createDirector({...direction,onEffect:resources.onEffect});acquired.push(source);
+            owner=createSessionOwner({...sessionInputs,
+                runEffect:source.runEffect,
+                readHistory:(args,origin,text)=>closed?null:source.cached(origin,text)||direction.read(args),
+                primeHistory:source.prime,
+                async prefetchHistory(origin,envelope){
+                    if(closed)return;
+                    await waitForEntry(owner.get(origin.sessionId),origin);
+                    if(!closed)return resources.prefetch(origin,envelope);
+                },
+                invalidateHistory(id){if(!closed){source.invalidate(id);resources.invalidate(id);}},
+                invalidatePresentation:resources.invalidate
+            });acquired.push(owner);
+            // The connection now owns the chain as a unit, in reverse acquisition order.
+            for(const item of acquired)owners.delete(item);
+            return own({owner,resources,start(){
+                if(closed)throw new Error('Stage connection disposed');
+                try{owner.start();}catch(error){
+                    try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage connection startup failed');}
+                    throw error;
+                }
+            },dispose});
+        }catch(error){
+            try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage connection startup failed');}
+            throw error;
+        }
+    }
+    return {createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;

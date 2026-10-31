@@ -59,3 +59,23 @@ test('plugin resource disposal cancels all sessions despite progress cleanup fai
  resources.dispose();assert.equal(reads,2);assert.equal(released,1);assert.deepEqual(events,[])
  assert.throws(()=>runtime.createResources({}),/disposed/)
 })
+
+
+test('connection owns effect routing, history caching and reverse teardown with late entry fencing',async()=>{
+ const calls=[];let input,releaseEntry,reads=0,prefetch=0
+ const effect=()=>{},prime=()=>{},resources={onEffect:effect,invalidate:id=>calls.push('resources:'+id),prefetch:()=>prefetch++,dispose:()=>calls.push('resources')}
+ const source={runEffect:effect,cached:()=>null,prime,invalidate:id=>calls.push('director:'+id),dispose:()=>calls.push('director')}
+ const owner={get:()=>({id:'store'}),start:()=>calls.push('start'),dispose:()=>{calls.push('session');throw Error('session cleanup')}}
+ const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:options=>(input=options,owner)}),
+  createResourceModule:()=>({createStageResourceRunner:()=>resources}),createDirectorModule:()=>({createStageDirectorSource:options=>{assert.equal(options.onEffect,effect);return source}})})
+ const connection=runtime.createConnection({resources:{},direction:{read:()=>++reads},session:{},waitForEntry:store=>{assert.equal(store.id,'store');return new Promise(resolve=>releaseEntry=resolve)}})
+ connection.start();assert.equal(input.runEffect,effect);assert.equal(input.primeHistory,prime)
+ assert.equal(input.readHistory({}, {}, {}),1)
+ input.invalidateHistory('a');assert.deepEqual(calls,['start','director:a','resources:a'])
+ const pending=input.prefetchHistory({sessionId:'a'},{});
+ assert.throws(()=>runtime.dispose(),/cleanup failed/)
+ releaseEntry();await pending;assert.equal(prefetch,0)
+ assert.deepEqual(calls.slice(-3),['session','director','resources'])
+ assert.equal(input.readHistory({}, {}, {}),null);assert.equal(reads,1)
+ connection.dispose();assert.throws(()=>connection.start(),/disposed/)
+})

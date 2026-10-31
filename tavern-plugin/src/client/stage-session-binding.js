@@ -151,7 +151,7 @@ const stageSessions = {
         window.forkStageResourceDebug = resourceDebug;
         own(() => { if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug; });
         const overlayModule=createSkinOverlayLoader();
-        const resources = stageViews.sessionRuntime.createResources({
+        const connection = stageViews.sessionRuntime.createConnection({resources:{
             foreground:forkForeground,
             resolveSpeaker:(state,page) => bubbleCharacter(state.settings?.config,page)?.alias,
             async idle(id,current) {
@@ -176,10 +176,7 @@ const stageSessions = {
             cancelPlayback:(id,intent) => stageConsumers.get(id)?.cancel(intent),
             progress: stageViews.progress.store,
             owner: resourceOwner
-        });
-        own(() => resources.dispose());
-        const director = stageViews.sessionRuntime.createDirector({
-            onEffect:resources.onEffect,
+        },direction:{
             read: args => rpc('getStageDirection', args, args.sessionId),
             // an arrow keeps `this` = stageSessions. The director source calls `watch` bare, and the
             // real signal service runs onConnect synchronously when already connected (履历 jump, re-entry, remount) and on
@@ -189,10 +186,7 @@ const stageSessions = {
                     tavernSessionSignals.subscribe(source.sessionId, kind, wake, wake, () => {wake();this.reannounceMod(source.sessionId);}));
                 return () => stops.forEach(stop => stop());
             }
-        });
-        own(() => director.dispose());
-        const owner = stageViews.sessionRuntime.createSessionOwner({
-            runEffect: director.runEffect,
+        },session:{
             observe:(id,event,previous,state)=>{
                 if(event.type==='DISPOSE'){this.notifyMod(id,'session.disposed',state);return;}
                 if(!state.source){if(previous.source)this.notifyMod(id,'stage.left',{...previous,opened:false});return;}
@@ -211,15 +205,6 @@ const stageSessions = {
                     this.notifyMod(id,'text.revealed',state,{anchor:{paragraph:anchor.para,charOffset:page.anchor.offset},revealed:{id:JSON.stringify([state.source.sourceKey,anchor.paragraphId,page.anchor.offset,end]),text:page.text}});
             },
             readBody: args => rpc('getRoundBody',args,args.sessionId),
-            readHistory: (args,source,text) => director.cached(source,text) || rpc('getStageDirection', args, args.sessionId),
-            primeHistory: director.prime,
-            // adjacent-turn presentation reads (~0.5 MB each) start after the entry reveal.
-            prefetchHistory: async (source, envelope) => {
-                await stageEntryShown().wait(owner.get(source.sessionId), () => window.__dshTavernSelectedSessionId === source.sessionId && !!document.querySelector('.fork-gal-stage'));
-                return resources.prefetch(source, envelope);
-            },
-            invalidateHistory(id) {director.invalidate(id); resources.invalidate(id);},
-            invalidatePresentation: resources.invalidate,
             opened:false,
             sessions: ctx.sessions,
             selectedSessionId: () => tavernMainSessionId(ctx.sessions),
@@ -235,11 +220,12 @@ const stageSessions = {
             createIndex: () => createStageTextIndex({paginate: stageBlockPages, projectionForTurn: tavernProjectionForTurn,
                 storyTurn: tavernStoryTurnForDshTurn,
                 superseded: galIsSuperseded})
-        });
+        },waitForEntry:(store,source)=>stageEntryShown().wait(store, () => window.__dshTavernSelectedSessionId === source.sessionId && !!document.querySelector('.fork-gal-stage'))});
+        const {owner,resources}=connection;
+        own(() => connection.dispose());
         this.owner = owner;
         own(() => { if (this.owner === owner) this.owner = null; });
-        own(() => owner.dispose());
-        owner.start();
+        connection.start();
         // the session index survives transcript virtualization. Only the
         // selected chat's sealed latest lines and viewed/next turns are synthesized.
         let voiceStore = null, stopVoiceSource = null;

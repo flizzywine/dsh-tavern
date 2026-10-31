@@ -31,7 +31,11 @@ for (const phase of ['director','session']) test(`real stage binding rolls back 
   const calls = [], window = {}
   const environment = {
     stageDecodeImage() {}, window, STAGE_HISTORY_SETTLE_MS:1000, startStageClientLifetime,
-    forkForeground:{}, stageViews:{progress:{store:{}},sessionRuntime:{createResources:()=>({dispose:()=>calls.push('runner')}),createDirector:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}},createSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
+    forkForeground:{}, stageViews:{progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
+      createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}),
+      createResourceModule:()=>({createStageResourceRunner:()=>({dispose:()=>calls.push('runner')})}),
+      createDirectorModule:()=>({createStageDirectorSource:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}}})
+    })}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
     createSkinOverlayLoader: () => () => {},
     createStageResourceOwner: () => ({dispose: () => calls.push('assets')}),
 
