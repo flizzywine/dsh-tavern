@@ -15,6 +15,7 @@ test('stage overlay builds and imports with only its own package files', async t
   await mkdir(path.join(root,'lib/client'),{recursive:true})
   await copyFile(new URL('lib/client/skin-overlay-timing.cjs',pkg),path.join(root,'lib/client/skin-overlay-timing.cjs'))
   await copyFile(new URL('lib/client/timer-clock.cjs',pkg),path.join(root,'lib/client/timer-clock.cjs'))
+  for(const name of ['runtime-store.cjs','session.cjs'])await copyFile(new URL('lib/client/'+name,pkg),path.join(root,'lib/client',name))
   const run = args => spawnSync(process.execPath,[path.join(root,'build.mjs'),...args],{encoding:'utf8'})
   const built = run([])
   assert.equal(built.status,0,built.stderr)

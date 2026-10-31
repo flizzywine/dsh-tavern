@@ -7,8 +7,11 @@ import vm from 'node:vm'
 const require = createRequire(import.meta.url)
 const kernel = require('../tavern-plugin/src/client/stage-runtime.cjs')
 const factory = (file, name) => vm.runInNewContext(readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/' + file, import.meta.url), 'utf8') + '\n' + name, {})
-const storeModule = factory('runtime-store.cjs', 'createStageRuntimeStoreModule')(kernel)
-const {createStageSessionOwner} = factory('session.cjs', 'createStageSessionModule')(storeModule)
+const {createStageSessionRuntime}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs')
+const runtime=createStageSessionRuntime({kernel,createStoreModule:factory('runtime-store.cjs','createStageRuntimeStoreModule'),createSessionModule:factory('session.cjs','createStageSessionModule')})
+const storeModule=factory('runtime-store.cjs','createStageRuntimeStoreModule')(kernel)
+const createStageSessionOwner=runtime.createSessionOwner
+test.after(()=>runtime.dispose())
 
 function source(snapshot) {
   const listeners = new Set()

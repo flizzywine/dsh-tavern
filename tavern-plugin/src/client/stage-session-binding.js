@@ -7,10 +7,8 @@
 // @include-stage lifetime.cjs
 // @include-stage entry.cjs
 // @include stage-runtime.cjs
-// @include stage-runtime-store.cjs
 // @include stage-page-index.cjs
 // @include stage-text-index.cjs
-// @include stage-session.cjs
 // @include stage-director-source.cjs
 // @include stage-resources.cjs
 // @include stage-resource-runner.cjs
@@ -194,7 +192,7 @@ const stageSessions = {
             }
         });
         own(() => director.dispose());
-        const owner = createStageSessionOwner({
+        const owner = stageViews.sessionRuntime.createSessionOwner({
             runEffect: director.runEffect,
             observe:(id,event,previous,state)=>{
                 if(event.type==='DISPOSE'){this.notifyMod(id,'session.disposed',state);return;}
