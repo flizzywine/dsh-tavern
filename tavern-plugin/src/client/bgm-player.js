@@ -3,14 +3,17 @@
 // volume: CONFIG › 声音 only (PROPOSAL §八: no second slider here). Styles: .fork-bgm-* on --bgm-* tokens,
 // mapped from the stage theme (--gal-ui-*) or the chat theme (--fork-*) in theme.css.
 // @include bgm-player.cjs
-const bgmPlayer = createBgmPlayer({
-    music: stageMusic,
-    session: id => stageSessions.get(id),
-    owner: () => stageSessions.resourceOwner,
-    read: id => rpc("getStageMusicTracks", {}, id),
-    storage: (() => { try { return localStorage; } catch (_) { return null; } })(),
-    authority: source => stageResourceAuthority(source)
-});
+const bgmListeners = new Set();
+const bgmChanged = () => {for (const listener of bgmListeners) listener();};
+const bgmAbsent = Object.freeze({sessionId:null,available:false,enabled:false,follow:true,paused:false,error:false,loading:false,tracks:[],cue:null,current:null});
+const bgmPlayer = {
+    get:() => stageViews?.bgm.get() || bgmAbsent,
+    subscribe(fn) {bgmListeners.add(fn); return () => bgmListeners.delete(fn);},
+    subscribePerformance:fn => stageViews?.bgm.subscribePerformance(fn) || (() => {}),
+    acquirePerformance:options => stageViews?.bgm.acquirePerformance(options) || {status:'stale'},
+    ...Object.fromEntries(['activate','invalidate','pick','step','follow','pause','kick'].map(name =>
+        [name,(...args) => stageViews?.bgm[name](...args)]))
+};
 function useBgm() { return React.useSyncExternalStore(bgmPlayer.subscribe, bgmPlayer.get); }
 // As the stage mixer: focus moves in on open; Esc or a click outside closes (on the bare stage that click
 // only dismisses, it does not also turn the page).

@@ -2041,6 +2041,8 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        bgm:{music:stageMusic,session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
+            read:id => rpc("getStageMusicTracks",{},id), storage:(() => {try {return localStorage;} catch (_) {return null;}})(), authority:source => stageResourceAuthority(source)},
         ambience:{session:id => stageSessions.get(id), owner:() => stageSessions.resourceOwner, authority:source => stageResourceAuthority(source)},
         soundscape:{Audio, mixer:forkStageAudio},
         timer:{rpc, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
@@ -2051,10 +2053,14 @@ function bindStageViews(createViews) {
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
+    const stopBgm = views.bgm.subscribe(bgmChanged);
+    bgmChanged();
     return () => {
+        stopBgm();
         if (stageViews === views) stageViews = null;
+        bgmChanged();
         const errors = [];
-        for (const owner of [views.admission, views.progress.store, views.ambience, views.timer, views.video, views.loader]) {
+        for (const owner of [views.admission, views.progress.store, views.bgm, views.ambience, views.timer, views.video, views.loader]) {
             try {owner.dispose();} catch (error) {errors.push(error);}
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');
