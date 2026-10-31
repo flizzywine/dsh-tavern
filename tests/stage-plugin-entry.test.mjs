@@ -34,7 +34,22 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   })
   assert.equal(definition.id, 'dsh-tavern-stage')
   const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
-    input => {assert.equal(typeof input.createNavigation,'function'); seen.push('tab'); return () => seen.push('remove-tab')},
+    input => {
+      assert.equal(typeof input.createNavigation,'function')
+      const React = {
+        useState:value => [typeof value === 'function' ? value() : value,()=>{}],
+        useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
+        createElement:(type,props,...children) => ({type,props,children}),
+      }
+      const views = input.createViews({React,navigation:{},loader:{},admission:{performance:{now:() => 0}},
+        text:{defaultTextSpeed:28}})
+      for (const name of ['Host','Toggle','Typewriter','NarrationLines','HudLabels','NamePlate']) assert.equal(typeof views[name],'function')
+      assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0].children[0],'完整文字')
+      views.progress.store.begin('s',1)
+      assert.equal(views.progress.store.get('s').id,1)
+      seen.push('tab')
+      return () => {views.admission.dispose(); views.progress.store.dispose(); views.loader.dispose(); seen.push('remove-tab')}
+    },
     () => {seen.push('sessions'); return () => seen.push('stop-sessions')},
   ]})
   const ctx = new Context()

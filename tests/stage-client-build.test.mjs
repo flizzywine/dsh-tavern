@@ -22,6 +22,11 @@ test('stage overlay builds and imports with only its own package files', async t
   assert.equal(typeof module.createSkinOverlayPlayer,'function')
   assert.equal(typeof module.createDecorativeScript,'function')
   assert.equal(run(['--check']).status,0)
+  for (const name of ['entry.js','navigation.cjs','text.cjs','themes.css','phone.css']) {
+    const file = path.join(root,'src/client',name)
+    await writeFile(file,(await readFile(file,'utf8')).replace(/\r?\n/g,'\r\n'))
+  }
+  assert.equal(run(['--check']).status,0,'Windows source line endings produce identical client bytes')
   const old = await readFile(output,'utf8')
   await writeFile(path.join(root,'src/client/skin-overlay-motion.cjs'),'const = invalid;')
   assert.notEqual(run([]).status,0)

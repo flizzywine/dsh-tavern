@@ -136,6 +136,11 @@ for (const [name, paths] of [
     const files = await listTarFiles(archive)
     for (const file of required) assert.ok(files.includes(file), `运行包遗漏：${file}`)
     assert.ok(!files.some(file => /^(docs|tests|references)\//.test(file)))
+    if (name === 'Unix') {
+      const plugin = 'tavern-plugin/packages/dsh-tavern-stage'
+      execFileSync('tar', ['-xf', archive, '-C', directory, plugin])
+      execFileSync(process.execPath, [path.join(directory, plugin, 'build.mjs'), '--check'], {encoding:'utf8'})
+    }
   })
 }
 
