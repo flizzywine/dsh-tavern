@@ -18,9 +18,9 @@ let textcardFamily = null, textcardFamilyValue;
 function textcardFonts() {
     if(disposed)return Promise.resolve(null);
     if (textcardFamily) return textcardFamily;
-    const library = () => typeof tavernFonts === 'object' && tavernFonts && tavernFonts.ensure
-        ? Promise.resolve(tavernFonts.ensure(TEXTCARD_FACE.library)).then(font => font && font.family || null, () => null) : Promise.resolve(null);
-    textcardFamily = textcardLocalFace(TEXTCARD_FACE).then(local => local || library());
+    const library = () => !disposed && typeof tavernFonts === 'object' && tavernFonts && tavernFonts.ensure
+        ? Promise.resolve(tavernFonts.ensure(TEXTCARD_FACE.library)).then(font => !disposed && font && font.family || null, () => null) : Promise.resolve(null);
+    textcardFamily = textcardLocalFace(TEXTCARD_FACE).then(local => disposed ? null : local || library());
     textcardFamily.then(value => { if(!disposed)textcardFamilyValue = value; });
     return textcardFamily;
 }

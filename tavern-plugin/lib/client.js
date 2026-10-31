@@ -47110,7 +47110,8 @@ function cardLibraryDisplayName(card) {
 		            let filter = null;
 		            try { filter = make(); } catch (error) { console.warn("[fork-gal-scene] filter", name, error); }
 		            if (!filter) return null;
-		            tune(filter);
+		            try { tune(filter); }
+		            catch (error) { filter.destroy(); throw error; }
 		            slot = store[name] = { chain, name, filter, idle: now };
 		            chain.set(name, filter);
 		        }

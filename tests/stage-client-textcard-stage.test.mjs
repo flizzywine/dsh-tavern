@@ -27,6 +27,12 @@ test('font preparation uses the skin font service and fences late completion',as
  const fonts=createStageTextcardFonts({document:{},fonts:{ensure(){calls++;return new Promise(done=>resolve=done)}}})
  const first=fonts.ensure(),second=fonts.ensure();assert.equal(first,second)
  await Promise.resolve();assert.equal(calls,1)
- fonts.dispose();resolve({family:'Noto Serif SC'});await first
+ fonts.dispose();resolve({family:'Noto Serif SC'});assert.equal(await first,null)
  assert.equal(fonts.loaded({}),false);assert.equal(await fonts.ensure(),null)
+})
+test('disposal before queued font preparation does not start a skin font request',async()=>{
+ let calls=0
+ const fonts=createStageTextcardFonts({document:{},fonts:{ensure(){calls++;return Promise.resolve({family:'Noto Serif SC'})}}})
+ const pending=fonts.ensure();fonts.dispose()
+ assert.equal(await pending,null);assert.equal(calls,0)
 })

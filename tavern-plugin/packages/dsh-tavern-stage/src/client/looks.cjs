@@ -27,6 +27,7 @@ function galCreateLookRenderer(env) {
             ...Array.from(ownedFilters,filter=>()=>filter.destroy()),...Array.from(ownedNodes,node=>()=>node.destroy({children:true}))];
         for(const fn of cleanup)try{fn();}catch(error){errors.push(error);}
         state.textures.clear();state.lutFits.clear();ownedFilters.clear();ownedNodes.clear();
+        for(const chain of Object.keys(slots))delete slots[chain];
         if(errors.length)throw new AggregateError(errors,'Look renderer cleanup failed');
     };
     try {

@@ -6778,6 +6778,7 @@ function galCreateLookRenderer(env) {
             ...Array.from(ownedFilters,filter=>()=>filter.destroy()),...Array.from(ownedNodes,node=>()=>node.destroy({children:true}))];
         for(const fn of cleanup)try{fn();}catch(error){errors.push(error);}
         state.textures.clear();state.lutFits.clear();ownedFilters.clear();ownedNodes.clear();
+        for(const chain of Object.keys(slots))delete slots[chain];
         if(errors.length)throw new AggregateError(errors,'Look renderer cleanup failed');
     };
     try {
@@ -7909,9 +7910,9 @@ let textcardFamily = null, textcardFamilyValue;
 function textcardFonts() {
     if(disposed)return Promise.resolve(null);
     if (textcardFamily) return textcardFamily;
-    const library = () => typeof tavernFonts === 'object' && tavernFonts && tavernFonts.ensure
-        ? Promise.resolve(tavernFonts.ensure(TEXTCARD_FACE.library)).then(font => font && font.family || null, () => null) : Promise.resolve(null);
-    textcardFamily = textcardLocalFace(TEXTCARD_FACE).then(local => local || library());
+    const library = () => !disposed && typeof tavernFonts === 'object' && tavernFonts && tavernFonts.ensure
+        ? Promise.resolve(tavernFonts.ensure(TEXTCARD_FACE.library)).then(font => !disposed && font && font.family || null, () => null) : Promise.resolve(null);
+    textcardFamily = textcardLocalFace(TEXTCARD_FACE).then(local => disposed ? null : local || library());
     textcardFamily.then(value => { if(!disposed)textcardFamilyValue = value; });
     return textcardFamily;
 }

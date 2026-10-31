@@ -8,6 +8,11 @@ const {createStageEffects}=require('../tavern-plugin/packages/dsh-tavern-stage/s
 const policy=require('../tavern-plugin/src/client/stage-effects.cjs')
 const scene=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
 const useFilter=vm.runInNewContext(scene.slice(scene.indexOf('function galUseFilter('),scene.indexOf('// Generated textures:'))+'\ngalUseFilter',{console})
+test('filter tuning failure releases the newly allocated filter before ownership transfer',()=>{
+ let destroyed=0,attached=0;const store={}
+ assert.throws(()=>useFilter(store,{set(){attached++}},'grade',()=>({destroy(){destroyed++}}),true,0,()=>{throw new Error('tune failed')}),/tune failed/)
+ assert.equal(destroyed,1);assert.equal(attached,0);assert.deepEqual(store,{})
+})
 function fixture(){
  const made=[],textures=[],disposed=[]
  class Container{constructor(){this.children=[]}addChild(n){n.parent=this;this.children.push(n)}destroy(options){if(options?.children)for(const child of [...this.children])child.destroy();if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);this.children=[]}}
