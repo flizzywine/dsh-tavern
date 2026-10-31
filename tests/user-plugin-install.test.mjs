@@ -245,3 +245,16 @@ test('删除插件时，插件数据随文件夹一起进备份；更新不动�
   assert.equal(await store.read('dsh-tavern-hello'), null)
   assert.deepEqual(JSON.parse(await readFile(path.join(removed.backup, '.plugin-data.json'), 'utf8')), { style: 'anime' })
 })
+
+test('舞台管理标记与普通人物卡插件分开识别', async t => {
+  const {installer,plugins}=await setup(t)
+  for (const [folder,marker] of [['stage',{managed:true,modId:'dsh.dice'}],['card',{cards:['a']}],['custom',{managed:true,modId:'custom.mod'}]]) {
+    await mkdir(path.join(plugins,folder),{recursive:true})
+    await writeFile(path.join(plugins,folder,'package.json'),JSON.stringify({name:folder,version:'1.0.0'}))
+    await writeFile(path.join(plugins,folder,'.dsh-card.json'),JSON.stringify(marker))
+  }
+  const rows=await installer.list()
+  assert.deepEqual(rows.find(x=>x.folder==='stage').source,{kind:'managed',modId:'dsh.dice',builtin:true})
+  assert.deepEqual(rows.find(x=>x.folder==='card').source,{kind:'card'})
+  assert.equal(rows.find(x=>x.folder==='custom').source.builtin,false)
+})

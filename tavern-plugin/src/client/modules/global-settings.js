@@ -18,13 +18,13 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             catch(cause){setError(String(cause.message||cause))}
             finally{setBusy(false)}
         }
-        const label=!state ? "读取中…" : state.enabled ? "停用舞台" : "启用舞台";
+        const label=!state ? "读取中…" : state.enabled ? "停用" : "启用";
         const note=error || (!state ? "" : !state.installed ? "未安装" : state.status==="ready" ? "已启用" : state.status==="failed" ? "启动失败，可停用后重试" : state.enabled ? "正在启动" : "已停用");
         if (listEntry) return h("li", {className:"dsh-tavern-user-plugin is-" + (state?.status === "ready" ? "loaded" : state?.enabled === false ? "disabled" : "loading")},
             h("div", {className:"dsh-tavern-user-plugin-copy"},
                 h("strong", null, "dsh-tavern-stage", h("span", {className:"dsh-tavern-user-plugin-state"}, note || "读取中…")),
                 h("span", null, "舞台：对话演出、素材与舞台模组。详细配置见「舞台」设置。"),
-                h("span", {className:"dsh-tavern-user-plugin-source"}, "内置插件 · 随酒馆更新")),
+                h("span", {className:"dsh-tavern-user-plugin-source"}, "内置插件 · 随酒馆更新，不可删除")),
             h("div", {className:"dsh-tavern-user-plugin-actions"}, h("button", {type:"button",className:"dsh-tavern-btn",disabled:busy||!state||(!state.installed&&!state.enabled),onClick:change}, busy?"处理中…":label)));
         return h(TavernSettingRow,{title:"舞台插件",help:"停用后返回普通聊天，并停止舞台资源。此选择会保留到下次启动；剧情和存档不受影响。",note,noteTone:error?"warn":undefined},
             h("button",{type:"button",className:"dsh-tavern-btn",disabled:busy||!state||(!state.installed&&!state.enabled),onClick:change},busy?"处理中…":label));

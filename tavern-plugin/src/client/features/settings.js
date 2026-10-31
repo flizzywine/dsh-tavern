@@ -424,6 +424,7 @@
 
         // 设置 → DSH Tavern → 插件：粘贴 GitHub 地址或上传 ZIP 安装，列出已装插件与加载情况。
         function TavernUserPluginsSettings(props = {}) {
+            const [manageOpen, setManageOpen] = React.useState(false);
             const h = React.createElement;
             const [data, setData] = React.useState(null);
             const [legacy, setLegacy] = React.useState(null);
@@ -533,8 +534,8 @@
                             : info && info.status === "unknown" ? "无法比较版本号（最新 Release：" + (info.latest || "未标注") + "），仍可手动更新" : undefined;
                 return h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, title: title, onClick: function () { void run(function () { return rpc("updateUserPlugin", { folder: plugin.folder }); }, installed); } }, latest ? "更新到 " + latest : "更新");
             }
-            const stateLabel = { loaded: "已加载", pending: "刷新后生效", restart: "重启 DSH 后生效", failed: "加载失败", skipped: "未加载", disabled: "已停用" };
-            const sourceLabel = function (source) { return source.kind === "github" ? "GitHub · " + source.repo + (source.resolved ? " · " + source.resolved : "") : source.kind === "zip" ? "ZIP 上传" : source.kind === "card" ? "人物卡自带" : "手动放入"; };
+            const stateLabel = { loaded: "已启用", pending: "刷新后生效", restart: "重启 DSH 后生效", failed: "加载失败", skipped: "未加载", disabled: "已停用" };
+            const sourceLabel = function (source) { return source.kind === "github" ? "GitHub · " + source.repo + (source.resolved ? " · " + source.resolved : "") : source.kind === "zip" ? "ZIP 上传" : source.kind === "managed" ? (source.builtin ? "内置舞台模组 · 随酒馆提供" : "舞台模组 · 由模组管理器维护") : source.kind === "card" ? "人物卡附带 · 由人物卡管理，不可在此删除" : "手动放入"; };
             const plugins = data ? data.plugins || [] : [];
             return h("div", { className: "dsh-tavern-settings-group dsh-tavern-user-plugins" },
                 h("div", { className: "dsh-tavern-user-plugins-install" },
@@ -554,20 +555,22 @@
                         : null) : null,
                 data && plugins.length === 0 && !props.builtinEntry ? h(EmptyState, { compact: true, noun: "插件" }) : null,
                 plugins.length || props.builtinEntry ? h("ul", { className: "dsh-tavern-user-plugins-list" }, props.builtinEntry, plugins.map(function (plugin) {
-                    const canToggle = plugin.source.kind !== "card" || plugin.enabled === false;
+                    const managed = plugin.source.kind === "managed";
+                    const canToggle = !managed && (plugin.source.kind !== "card" || plugin.enabled === false);
                     return h("li", { key: plugin.folder, className: "dsh-tavern-user-plugin is-" + plugin.state },
                         h("div", { className: "dsh-tavern-user-plugin-copy" },
                             h("strong", null, plugin.name, plugin.version ? h("small", null, " " + plugin.version) : null,
-                                h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.state === "restart" ? "插件文件已更新，重启 DSH 后会加载新版本，这里自动变回「已加载」" : undefined }, stateLabel[plugin.state] || plugin.state),
+                                h("span", { className: "dsh-tavern-user-plugin-state", title: plugin.state === "restart" ? "插件文件已更新，重启 DSH 后会加载新版本，这里自动变回「已启用」" : undefined }, stateLabel[plugin.state] || plugin.state),
                                 plugin.source.kind === "github" ? updateBadge(plugin) : null),
                             plugin.description ? h("span", null, plugin.description) : null,
                             h("span", { className: "dsh-tavern-user-plugin-source" }, sourceLabel(plugin.source)),
                             plugin.reason ? h("span", { className: "dsh-tavern-settings-error" }, plugin.reason) : null),
                         h("div", { className: "dsh-tavern-user-plugin-actions" },
-                            canToggle ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { toggle(plugin); } }, plugin.enabled === false ? "启用" : "停用") : null,
+                            managed ? h("button", {type:"button", className:"dsh-tavern-btn", onClick:()=>setManageOpen(true)}, "管理模组") : h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || !canToggle, title: canToggle ? undefined : "此模组由人物卡管理", onClick: function () { toggle(plugin); } }, canToggle ? (plugin.enabled === false ? "启用" : "停用") : "人物卡管理"),
                             plugin.source.kind === "github" ? updateAction(plugin) : null,
-                            plugin.source.kind === "card" ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
+                            (managed || plugin.source.kind === "card") ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
                 })) : null,
+                manageOpen ? h(packUi.mods.ModManager, {rpc, onClose:()=>setManageOpen(false)}) : null,
                 legacy && legacy.plugins && legacy.plugins.length ? h("div", { className: "dsh-tavern-legacy-plugins" },
                     h("div", { className: "dsh-tavern-settings-row" },
                         h("span", { className: "dsh-tavern-settings-copy" },

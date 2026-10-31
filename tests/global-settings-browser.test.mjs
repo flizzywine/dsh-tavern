@@ -136,11 +136,11 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
   }})
   await page.locator('.dsh-tavern-user-plugins-list .dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-stage'}).waitFor()
   assert.equal(await page.getByRole('heading', {name:'内置舞台插件', exact:true}).count(), 0)
-  await page.getByRole('button', {name:'停用舞台', exact:true}).click()
-  await page.getByRole('button', {name:'启用舞台', exact:true}).waitFor()
+  await page.getByRole('button', {name:'停用', exact:true}).click()
+  await page.getByRole('button', {name:'启用', exact:true}).waitFor()
   assert.deepEqual(calls.find(c=>c.method==='setStageEnabled').args,{enabled:false})
-  await page.getByRole('button', {name:'启用舞台', exact:true}).click()
-  await page.getByRole('button', {name:'停用舞台', exact:true}).waitFor()
+  await page.getByRole('button', {name:'启用', exact:true}).click()
+  await page.getByRole('button', {name:'停用', exact:true}).waitFor()
  })
 
 test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async t => {
@@ -166,4 +166,16 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   await stage.page.getByRole('menuitemradio',{name:/next/}).click()
   assert.equal(stage.calls.filter(c=>c.method==='updateTavernSettings').at(-1).args.patch.modModelSelection.modId,'dsh.stage')
   assert.equal(settings.modModels['dsh.stage'].director.model,'next')
+})
+
+test('内置舞台模组提供可用管理入口而非人物卡灰按钮', async t => {
+  const {page}=await openTavernSettings(t,{section:'dsh-tavern: plugins settings section',respond(method){
+    if(method==='getStageRuntimeStatus')return {enabled:true,status:'ready',installed:true}
+    if(method==='listUserPlugins')return {plugins:[{folder:'dice',name:'dsh-tavern-mod-dice',state:'loaded',enabled:true,source:{kind:'managed',builtin:true,modId:'dsh.dice'}}]}
+  }})
+  const row=page.locator('.dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-mod-dice'})
+  await row.getByText('内置舞台模组 · 随酒馆提供',{exact:true}).waitFor()
+  assert.equal(await row.getByRole('button',{name:'删除',exact:true}).count(),0)
+  await row.getByRole('button',{name:'管理模组',exact:true}).click()
+  await page.getByRole('dialog').waitFor()
 })

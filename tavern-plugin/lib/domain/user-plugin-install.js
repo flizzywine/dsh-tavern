@@ -227,7 +227,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const restart = problem || disabled.includes(folder) ? null : await readJson(path.join(dir, RESTART_FILE))
         const card = await readJson(path.join(dir, CARD_MARKER))
         const isDisabled = disabled.includes(folder)
-        const source = card ? { kind: 'card' } : await readJson(path.join(dir, SOURCE_FILE)) || { kind: 'folder' }
+        const source = card ? (card.managed === true ? { kind: 'managed', modId: card.modId, builtin: ['dsh.danmaku','dsh.dice','dsh.phone','dsh.textcard','dsh.timer'].includes(card.modId) } : { kind: 'card' }) : await readJson(path.join(dir, SOURCE_FILE)) || { kind: 'folder' }
         // Install sources from before the replaced flag: infer a past replacement from the backup's load record.
         const replacedBefore = !isDisabled && !problem && source.replaced === undefined && !status && !restart && (source.kind === 'github' || source.kind === 'zip')
           ? await replacedLoadedPlugin(folder)
