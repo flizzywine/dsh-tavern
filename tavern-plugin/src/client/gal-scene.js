@@ -211,7 +211,7 @@ function galCreateScene(host, options) {
         const container = new PIXI.Container();
         container.visible = false;
         const entry = { key: figure.key, kind: figure.kind, identity:figure.identity, url: figure.url || "", src: "", pendingSrc: "", container, figure, leaving: false, leavingSince: 0,
-            model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, actNonce: null, flatAct: null, started: false,
+            model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, started: false,
             idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null };
         entry.appearance=stageViews.figureAppearance.create({PIXI,container,tune});
         entry.filters=entry.appearance.filters;
@@ -219,6 +219,7 @@ function galCreateScene(host, options) {
         Object.defineProperty(entry,'spriteBlink',{get:()=>entry.blink.phase()});
         // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
         entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
+        entry.pose=stageViews.figurePose.create({kind:entry.kind,phase:entry.breath,period:entry.breathMs});
         figuresBox.addChild(container);
         if (!attach) entry.swap = true;
         return entry;
@@ -240,6 +241,7 @@ function galCreateScene(host, options) {
         release(()=>entry.blink.dispose());
         release(()=>layeredSpriteClearScene(entry));
         release(()=>entry.appearance.dispose());
+        release(()=>entry.pose.dispose());
         release(()=>entry.figureAsset?.destroy());
         entry.figureAsset=null;entry.spineFigure=null;
         for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -610,57 +612,14 @@ function galCreateScene(host, options) {
                 tickBlink(entry);
                 tapTextureStatic(entry, now);
             }
-            // Static portrait: bottom-anchored sprite, gentle breathing, mirrored when looking left.
-            if (figure.act && figure.act.nonce !== entry.actNonce) { entry.actNonce = figure.act.nonce; entry.flatAct = { name: figure.act.name, start: now }; }
-            const act = entry.flatAct ? galFlatActAt(entry.flatAct.name, now - entry.flatAct.start, reducedHop) : galFlatActAt("", 0);
-            if (act.done) entry.flatAct = null;
-            // A Spine rig breathes in its own idle animation.
-            let breath = entry.kind === "spine" ? 1 : 1 + 0.008 * (1 - Math.cos(2 * Math.PI * now / entry.breathMs + entry.breath)) / 2;
-            const idle = staticIdle(entry, desc, dt, now);
-            if (idle.on) breath = idle.scaleY;
-            entry.restHead = null;
-            entry.restBody = null;
-            const place = function (sprite) {
-                // metrics are in base-image pixels; talk frames and mouth children reuse the pivot.
-                const input = sprite.figureInput;
-                if (input) {
-                    const rest = resolveFigureSizing({ ...input, ...framing, W, H, stageX: W * entry.cx.v, canvas: [sprite.texture.width, sprite.texture.height], flip: entry.flip.v });
-                    if (sprite === entry.sprite) entry.figureResolved = rest;
-                    if (rest.mode === "physical") {
-                        const body = { x: Math.min(rest.x, rest.x + sprite.texture.width * rest.scale * entry.flip.v), y: rest.y, width: sprite.texture.width * rest.scale, height: sprite.texture.height * rest.scale };
-                        if (!entry.restBody) entry.restBody = body;
-                        else { const old = entry.restBody, x = Math.min(old.x, body.x), y = Math.min(old.y, body.y); entry.restBody = { x, y, width: Math.max(old.x + old.width, body.x + body.width) - x, height: Math.max(old.y + old.height, body.y + body.height) - y }; }
-                        const head = rest.restHead || { x: rest.support.x, top: rest.y + (sprite.forkHeadTop || 0) * sprite.texture.height * rest.scale, chin: rest.y + ((sprite.forkHeadTop || 0) + 0.17) * sprite.texture.height * rest.scale, width: rest.poseSpan * 0.16 };
-                        if (!entry.restHead || head.top < entry.restHead.top) entry.restHead = head;
-                        sprite.position.set(rest.support.x + (act.dx + idle.dx) * rest.poseSpan + act.px, rest.support.y + act.dy * rest.poseSpan);
-                        sprite.scale.set(rest.scale * act.zoom * entry.flip.v * act.flip * act.scaleX * idle.scaleX, rest.scale * act.zoom * breath * act.scaleY * idle.tapY);
-                        sprite.rotation = idle.rotation;
-                        return;
-                    }
-                }
-                const rest = galFlatLayout(sprite.texture.width, sprite.texture.height, W, H, entry.cx.v, 1, 0, entry.figure.size, entry.figure.ground);
-                const body = { x: rest.x - rest.width / 2, y: rest.y - rest.height * 1.008, width: rest.width, height: rest.height * 1.008 };
-                if (!entry.restBody) entry.restBody = body;
-                else {
-                    const old = entry.restBody, x = Math.min(old.x, body.x), y = Math.min(old.y, body.y);
-                    entry.restBody = { x, y, width: Math.max(old.x + old.width, body.x + body.width) - x, height: Math.max(old.y + old.height, body.y + body.height) - y };
-                }
-                const top = rest.y - rest.height * 1.008 * (1 - (sprite.forkHeadTop || 0));
-                if (!entry.restHead || top < entry.restHead.top) entry.restHead = { x: rest.x, top, chin: top + rest.height * 0.17, width: rest.height * 0.16 };
-                const L = galFlatLayout(sprite.texture.width, sprite.texture.height, W, H, entry.cx.v, act.zoom, entry.lift.v, entry.figure.size, entry.figure.ground);
-                sprite.position.set(L.x + (act.dx + idle.dx) * L.width + act.px, L.y + act.dy * L.height);
-                sprite.scale.set(L.scale * entry.flip.v * act.flip * act.scaleX * idle.scaleX, L.scale * breath * act.scaleY * idle.tapY);
-                sprite.rotation = idle.rotation;
-            };
-            place(entry.sprite);
-            entry.localHead = entry.restHead;
-            entry.fading = entry.fading.filter(function (item) {
-                const t = (now - item.start) / 260;
-                if (t >= 1) { item.asset.destroy(); state.lastPrune = 0; return false; }
-                item.sprite.alpha = 1 - galEase.inOutSine(t);
-                place(item.sprite);
-                return true;
-            });
+            const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
+                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
+            if(pose){
+                entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
+                if(pose.resolved)entry.figureResolved=pose.resolved;
+                entry.fading=pose.remaining;
+                for(const item of pose.retired){item.asset.destroy();state.lastPrune=0;}
+            }
         };
         state.figures.forEach(tickEntry);
         if (!desc.callView?.frozen) state.offstage.forEach(tickEntry);

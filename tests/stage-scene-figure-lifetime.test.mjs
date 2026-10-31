@@ -13,14 +13,14 @@ function fixture(){
  const api=vm.runInNewContext(source.slice(start,end)+';({destroyFigure,commitFigureReplacement})',{state,cast:bridge,AggregateError,console:{warn:(...args)=>warnings.push(args)},releaseTapStills:e=>calls.push(e.key+':tap'),layeredSpriteClearScene:e=>calls.push(e.key+':layers')})
  const entry=(key,fail=false)=>{
   const resource=name=>({destroy(){calls.push(key+':'+name);if(fail&&name==='warp')throw Error('GPU cleanup failed')}})
-  return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},appearance:{dispose(){calls.push(key+':appearance')}},figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
+  return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},pose:{dispose(){calls.push(key+':pose')}},appearance:{dispose(){calls.push(key+':appearance')}},figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
  }
  return {calls,warnings,state,entry,...api,bindCast(){cast=createStageCast().create({build:f=>Object.assign(entry(f.key),{figure:f,kind:f.kind,identity:f.identity}),release:api.destroyFigure});state.figures=cast.entries;return cast;}}
 }
 test('figure cleanup continues after a GPU release failure and is idempotent',()=>{
  const e=fixture(),figure=e.entry('a',true);e.state.figures.set('a',figure)
  e.destroyFigure(figure);e.destroyFigure(figure)
- assert.deepEqual(e.calls,['a:tap','a:warp','a:blink','a:layers','a:appearance','a:asset','a:fading','a:container'])
+ assert.deepEqual(e.calls,['a:tap','a:warp','a:blink','a:layers','a:appearance','a:pose','a:asset','a:fading','a:container'])
  assert.equal(e.warnings.length,1);assert.equal(e.state.figures.size,0);assert.equal(e.state.lastPrune,0);assert.equal(figure.dead,true)
 })
 test('replacement survives old figure cleanup failure',()=>{
