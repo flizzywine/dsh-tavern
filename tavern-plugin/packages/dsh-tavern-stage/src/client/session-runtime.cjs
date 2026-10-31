@@ -1,5 +1,5 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
@@ -41,7 +41,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 notifications=createModNotifications({...notificationInputs,getSnapshot:id=>owner?.get(id)?.getSnapshot()});
                 acquired.push(notifications);
             }
-            resources=createResources(resourceInputs);acquired.push(resources);
+            resources=createResources({...resourceInputs,...(displays?{present:displays.present,play:displays.play,performance:displays.performance,cancelPlayback:displays.cancel}:{})});acquired.push(resources);
             const source=createDirector({...direction,watch:(origin,wake)=>direction.watch(origin,wake,()=>notifications?.reannounce(origin.sessionId)),onEffect:resources.onEffect});acquired.push(source);
             owner=createSessionOwner({...sessionInputs,
                 runEffect:source.runEffect,

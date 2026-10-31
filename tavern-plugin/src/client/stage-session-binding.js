@@ -94,11 +94,7 @@ const stageSessions = {
             },
             preparePerformance:value => Promise.all([...value.dependencies.filter(item=>item.document?.overlay).map(item=>overlayModule(item.document)),keyframeFonts(value)]),
             music:() => bgmPlayer,
-            performance:(id,intent) => stageConsumers.get(id)?.performance?.(intent),
             read: args => rpc('getAssetPackPresentation',args,args.sessionId),
-            present:(id,intent) => stageConsumers.get(id)?.present(intent),
-            play:(id,value,token) => stageConsumers.get(id)?.play(value,token),
-            cancelPlayback:(id,intent) => stageConsumers.get(id)?.cancel(intent),
             progress: stageViews.progress.store,
             owner: resourceOwner
         },direction:{

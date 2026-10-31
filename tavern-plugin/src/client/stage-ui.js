@@ -1,5 +1,4 @@
 // React consumes the session runtime; it never owns an observation loop.
-const stageConsumers = new Map();
 const stageEmptySnapshot = createStageRuntimeState();
 const stageEmptyStore = {select(fn) {
     const value = fn(stageEmptySnapshot);
@@ -106,10 +105,8 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
     const performanceSink=React.useRef(performanceAdapter);performanceSink.current=performanceAdapter;
     const cgSink=React.useRef(cgAdapter);cgSink.current=cgAdapter;
     const modSink=React.useRef(modAdapter);modSink.current=modAdapter;
-    const pending = React.useRef(new Map());
-    const onPresented = React.useCallback(revision => {
-        for (const [key, resolve] of pending.current) if (key <= revision) { pending.current.delete(key); resolve(); }
-    }, []);
+    const display = React.useMemo(() => ({current:null}), [sessionId,store]);
+    const onPresented = React.useCallback(revision => display.current?.confirm(revision), [display]);
     React.useLayoutEffect(() => {
         // ambience is the page-wide owner's (stage-ambience.cjs), in the stage and in chat
         // alike, as music is the BGM player's; the stage hands it what it presents and its performance layer.
@@ -129,10 +126,7 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
                 }
                 if (intent.groups.includes('cg')) waits.push(cgSink.current?.(intent));
                 if (intent.groups.includes('ambience')) waits.push(ambience.present(value.ambience, snap));
-                if (intent.groups.some(group => ['visual','background','avatars'].includes(group) || group.startsWith('figure:'))) waits.push(new Promise(resolve => {
-                    const previous = pending.current.get(value.presentationRevision);
-                    pending.current.set(value.presentationRevision, () => {previous?.(); resolve();});
-                }));
+                if (intent.groups.some(group => ['visual','background','avatars'].includes(group) || group.startsWith('figure:'))) waits.push(display.current.waitPresented(value.presentationRevision));
                 return Promise.all(waits);
             },
             performance(intent) {
@@ -166,15 +160,17 @@ function useStageConsumers(sessionId, store, onEvent, performanceAdapter, cgAdap
                 else { stageSfx.stop(); voicePlayer.stopPlayback(); }
             }
         };
-        stageConsumers.set(sessionId, consume);
+        const connection=stageViews.displays.attach(sessionId,consume);
+        display.current=connection;
         // The stage opens behind its loading veil / 入场演出; it reveals itself (STAGE_REVEAL) when that ends.
-        store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false});
+        try{store.dispatch({type:'STAGE_OPEN', opened:true, revealed:false});}
+        catch(error){connection.detach('open-failed');display.current=null;throw error;}
         return () => {
+            connection.detach();
+            if(display.current===connection)display.current=null;
             store.dispatch({type:'STAGE_OPEN', opened:false});
-            stageConsumers.delete(sessionId);
             // Leaving the stage keeps the scene's ambience (as the BGM); only the performance's own layer ends with it.
             ambience.performance(null, true); stageSfx.stop(); voicePlayer.stop();
-            onPresented(Infinity);
         };
     }, [sessionId, store]);
     return onPresented;

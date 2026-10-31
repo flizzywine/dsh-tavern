@@ -7637,6 +7637,56 @@ return {createStageDirectorSource, projectStageDirection};
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageDirectorModule};
 
+        // Display instances and presentation waits have a shorter lifetime than sessions.
+function createStageDisplays(){
+    let disposed=false;const displays=new Map();
+    const cancelled=reason=>({status:'cancelled',reason});
+    function attach(id,sink){
+        if(disposed)throw new Error('Stage displays disposed');
+        displays.get(id)?.detach('replaced');
+        let closed=false;const waits=new Set(),frames=new Map();
+        function settle(wait,result){waits.delete(wait);wait(result);}
+        function cancelWaits(reason){
+            for(const resolve of waits)resolve(cancelled(reason));waits.clear();
+            for(const list of frames.values())for(const resolve of list)resolve(cancelled(reason));frames.clear();
+        }
+        const connection={
+            waitPresented(revision){
+                if(closed)return Promise.resolve(cancelled('detached'));
+                return new Promise(resolve=>{const list=frames.get(revision)||[];list.push(resolve);frames.set(revision,list);});
+            },
+            confirm(revision){
+                if(closed)return;
+                for(const [key,list] of frames)if(key<=revision){frames.delete(key);for(const resolve of list)resolve({status:'presented',revision:key});}
+            },
+            present(intent){
+                if(closed)return Promise.resolve(cancelled('detached'));
+                if(['release-presentation','revoke-presentation'].includes(intent.type))cancelWaits(intent.type);
+                return new Promise(resolve=>{
+                    waits.add(resolve);
+                    try{Promise.resolve(sink.present(intent)).then(()=>settle(resolve,{status:'presented'}),error=>settle(resolve,{status:'failed',error}));}
+                    catch(error){settle(resolve,{status:'failed',error});}
+                });
+            },
+            invoke(method,...args){if(!closed)return sink[method]?.(...args);},
+            detach(reason='detached'){
+                if(closed)return;closed=true;
+                if(displays.get(id)===connection)displays.delete(id);
+                cancelWaits(reason);
+            }
+        };
+        displays.set(id,connection);return connection;
+    }
+    return {attach,
+        present:(id,intent)=>displays.get(id)?.present(intent)||Promise.resolve(cancelled('absent')),
+        play:(id,...args)=>displays.get(id)?.invoke('play',...args),
+        performance:(id,...args)=>displays.get(id)?.invoke('performance',...args),
+        cancel:(id,...args)=>displays.get(id)?.invoke('cancel',...args),
+        dispose(){if(disposed)return;disposed=true;for(const connection of displays.values())connection.detach('disabled');displays.clear();}
+    };
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageDisplays};
+
         // Presentation policy belongs to the session runtime, not the host transport.
 function createStageModNotifications({getSnapshot,send,browseMs,now=Date.now,report=()=>{}}){
     let closed=false;
@@ -7739,7 +7789,7 @@ function createStageModNotifications({getSnapshot,send,browseMs,now=Date.now,rep
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageModNotifications};
 
         // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
@@ -7781,7 +7831,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 notifications=createModNotifications({...notificationInputs,getSnapshot:id=>owner?.get(id)?.getSnapshot()});
                 acquired.push(notifications);
             }
-            resources=createResources(resourceInputs);acquired.push(resources);
+            resources=createResources({...resourceInputs,...(displays?{present:displays.present,play:displays.play,performance:displays.performance,cancelPlayback:displays.cancel}:{})});acquired.push(resources);
             const source=createDirector({...direction,watch:(origin,wake)=>direction.watch(origin,wake,()=>notifications?.reannounce(origin.sessionId)),onEffect:resources.onEffect});acquired.push(source);
             owner=createSessionOwner({...sessionInputs,
                 runEffect:source.runEffect,
@@ -17931,7 +17981,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
                     const backgroundLayers=own(createStageBackgroundLayers({...options.visualEffects,...options.backgroundLayers}));
                     const backgrounds=own(createStageBackgrounds({...options.visualEffects,...options.backgrounds,layers:backgroundLayers}));
-                    return {sessionRuntime:own(createStageSessionRuntime({kernel:options.runtimeKernel,createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:options.resourceDependencies,createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({...options.figurePose,ease:options.visualEffects?.ease})),castLayout:own(createStageCastLayout(options.castLayout||{})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    const displays=own(createStageDisplays());
+                    return {displays,sessionRuntime:own(createStageSessionRuntime({kernel:options.runtimeKernel,displays,createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:options.resourceDependencies,createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({...options.figurePose,ease:options.visualEffects?.ease})),castLayout:own(createStageCastLayout(options.castLayout||{})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
