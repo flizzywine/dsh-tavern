@@ -122,8 +122,22 @@ test('恢复剧情自动候选开关，只保存对应配置', async t => {
 })
 
 test('酒馆插件恢复为独立设置页，加载原有插件列表', async t => {
-  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: plugins settings section'})
+  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: plugins settings section', respond: method => method === 'getStageRuntimeStatus' ? {installed:true,enabled:true,status:'ready'} : undefined})
   await page.getByRole('heading', {name:'酒馆插件', exact:true}).waitFor()
   await page.getByRole('button', {name:'打开插件文件夹', exact:true}).waitFor()
   assert.ok(calls.some(call=>call.method==='listUserPlugins'))
 })
+
+ test('插件管理页展示舞台真实状态，并可独立启停', async t => {
+  let enabled = true
+  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: plugins settings section', respond(method,args) {
+    if (method === 'setStageEnabled') enabled = args.enabled
+    if (method === 'getStageRuntimeStatus' || method === 'setStageEnabled') return {installed:true, enabled, status:enabled?'ready':'disabled'}
+  }})
+  await page.getByRole('heading', {name:'内置舞台插件', exact:true}).waitFor()
+  await page.getByRole('button', {name:'停用舞台', exact:true}).click()
+  await page.getByRole('button', {name:'启用舞台', exact:true}).waitFor()
+  assert.deepEqual(calls.find(c=>c.method==='setStageEnabled').args,{enabled:false})
+  await page.getByRole('button', {name:'启用舞台', exact:true}).click()
+  await page.getByRole('button', {name:'停用舞台', exact:true}).waitFor()
+ })

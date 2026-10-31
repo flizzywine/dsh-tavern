@@ -159,6 +159,9 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
     function TavernPluginsSettingsSection() {
         const h = React.createElement;
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+            h(SettingsGroup, {title:"内置舞台插件"},
+                h("p", null, "dsh-tavern-stage · 随酒馆安装。舞台的素材、运行库和模组配置位于「舞台」设置页。"),
+                h(StageSwitchSettings)),
             h(SettingsGroup, {title:"酒馆插件"},
                 h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
                 h(TavernUserPluginsSettings)));
