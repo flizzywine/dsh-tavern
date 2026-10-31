@@ -119,18 +119,19 @@ export function createWorkflow({ events, tasks = [], logger = console, now = Dat
     // with it off the run is kept as skipped, so the 后台任务 page shows it was not done.
     function attempt(payload, event) {
       const proceed = (ok, at) => {
-        if (!ok) return
+        if (!ok || jobs.get(id) !== entry) return
         const end = record(entry, payload, event, at)
         let value
         try { value = run(payload, event) } catch (error) { end('failed', error); throw error }
-        const done = result => { end('completed'); finished(id, payload.gameId, payload.turn, result) }
+        const done = result => { end('completed'); if (jobs.get(id) === entry) finished(id, payload.gameId, payload.turn, result) }
         if (typeof value?.then !== 'function') return done(value)
         return value.then(done, error => { end('failed', error); throw error })
       }
       const switched = ok => {
+        if (jobs.get(id) !== entry) return
         if (!ok || !enabled) return proceed(ok)
         const at = now()
-        return Promise.resolve(enabled(payload, event)).then(on => on ? proceed(true, at) : void record(entry, payload, event, at, 'skipped'))
+        return Promise.resolve(enabled(payload, event)).then(on => jobs.get(id) !== entry ? undefined : on ? proceed(true, at) : void record(entry, payload, event, at, 'skipped'))
       }
       const ok = when ? when(payload, event) : true
       return typeof ok?.then === 'function' ? ok.then(switched) : switched(ok)

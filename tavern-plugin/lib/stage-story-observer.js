@@ -1,9 +1,11 @@
 import {roundBody, streamTailClosed} from './domain/round-body.js'
 
 // Stage-owned adapter. Core saves and streams know only optional observers.
-export function createStageStoryObserver({modService, stageDirector, chatPersistence,
+export function createStageStoryObserver({settlementQueued, modService, stageDirector, chatPersistence,
   chatHeaderForSession, dialogueBubbles, readStageChat, readReplyPrefix, activeRoundBodies}) {
   return {
+    cancelled:sessionId => stageDirector.cancel({sessionId:String(sessionId)}),
+    settlementQueued,
     saved(chat, metadata) {
       // The director already forwards this observation to its mod runtime.
       if (chat) return stageDirector.observe(chat, metadata)

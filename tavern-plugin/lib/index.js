@@ -2463,7 +2463,7 @@ export async function apply(ctx) {
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
   const stageModule = await stageRuntime.start({dataRoot,
-    presentationObservers, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
+    presentationObservers, workflow, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   modService = stageModule.modService
@@ -3195,29 +3195,8 @@ export async function apply(ctx) {
     mvuSettlementEngine, plainSettlementEngine, pluginApi, pluginSettlementProgress, agentRegistry, storyEvents
   })
   const { startPluginTask } = settlementRun
-  // 舞台导演 (任务表 stage-director): a story or script game whose card has 对话气泡 on.
-  async function stageOn(sessionId) {
-    const header = await chatHeaderForSession(str(sessionId), ['cardPath', 'mode', 'regenInProgress'])
-    return Boolean(header?.cardPath && ['story', 'script'].includes(header.mode) && !header.regenInProgress && (await dialogueBubbles.read(header.cardPath))?.enabled)
-  }
-  // Direct the game's latest round: finish its streaming windows, or run the director once.
-  async function directRound(sessionId) {
-    const chat = await chatForSession(str(sessionId))
-    if (!chat || !['story', 'script'].includes(chat.mode) || chat.regenInProgress) return
-    const config = await dialogueBubbles.read(chat.cardPath)
-    if (config?.enabled) await stageDirector.get(chat, 0, config)
-  }
-  // An opening has no reply and so no 正文写完: its settlement starts the director, which never
-  // calls a model for a greeting and only saves a pooled opening picture once.
-  async function directOpening(chatId) {
-    // Every queued settlement asks this: only whether the latest reply is the opening, from the latest floors'
-    // summaries and the session id, never the whole save (storage without floor reads falls back to it).
-    const recent = await chatPersistence.readRecentSummaries(chatId, 4)
-    const chat = recent ? { ...(await chatPersistence.readSlice(chatId, [], ['sessionId']))?.chat, messages: recent.messages } : await readChat(chatId)
-    if (chat?.messages?.findLast(message => message?.role === 'assistant')?.greeting === true) await directRound(chat.sessionId)
-  }
   function queueSettlement(chatId) {
-    void directOpening(chatId).catch(error => console.warn('dsh-tavern: 舞台导演任务失败', str(error?.message || error)))
+    void presentationObservers.settlementQueued(chatId)
     return settlementJobs.start(chatId)
   }
   function cancelSettlement(chatId, options) { return settlementJobs.cancel(chatId, options) }
@@ -3351,14 +3330,9 @@ export async function apply(ctx) {
     agentRegistry, sessionStore, chatForSession, chatSliceForSession, updateChat, turns: turnOrchestrator
   })
   const { reconcileStory, reconcileWhenIdle, repairNativeStory } = storyReconciliation
-  // One turn's director, or (no turn: the next one starts) every director of the game.
-  // Stopping is silent: the round keeps what was saved and records no failure.
-  function cancelDirector(sessionId, turn) {
-    containStage('停止舞台导演', () => stageDirector.cancel({ sessionId: str(sessionId) }, turn))
-  }
   // 任务表 (domain/background-tasks.js): every background task is declared there once; this
   // hands it the services its tasks run on.
-  registerBackgroundTasks(workflow, { readTavernSettings, stageOn, directRound, cancelDirector, polishPrereview, announceCast,
+  registerBackgroundTasks(workflow, { readTavernSettings, polishPrereview, announceCast,
     gameTitles, saveMaintenance, pluginApi, candidateWorldbookPreparation, backgroundTasks, queueSettlement, settlementJobs, settlementRun })
   const foregroundHandoff = createForegroundHandoff({
     turns: turnOrchestrator,
@@ -3367,7 +3341,7 @@ export async function apply(ctx) {
     queueBackground: queueSettlement,
     replyCommitted: sessionId => storyEvents.emit('reply-committed', { sessionId }),
     turnDiscarded: (sessionId, turn) => storyEvents.emit('turn-discarded', { sessionId, turn }),
-    cancelDirector,
+    cancelPresentation: sessionId => {void presentationObservers.cancelled(sessionId)},
     beforeNextTurn: chat => workflow.beforeNextTurn(chat),
     waitReconcile: storyReconciliation.waitReconcile,
     syncWorldBook: async function (chat) {

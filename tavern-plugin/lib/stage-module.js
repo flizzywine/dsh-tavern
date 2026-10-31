@@ -1,3 +1,4 @@
+import {createStageWorkflow} from './stage-workflow.js'
 import {createStageRequests} from './stage-requests.js'
 import {createStageStoryObserver} from './stage-story-observer.js'
 // 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
@@ -197,8 +198,11 @@ export async function createStageModule(core) {
       else backgroundTaskPolicies.set('stage-director', previous)
     }
   }, 'dsh-tavern: director task policy')
+  const stageWorkflow = createStageWorkflow({workflow:core.workflow, chatHeaderForSession:core.chatHeaderForSession,
+    dialogueBubbles:core.dialogueBubbles,chatForSession,chatPersistence,stageDirector})
+  ctx.effect(() => () => stageWorkflow.dispose(), 'dsh-tavern: stage workflow')
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage', createStageStoryObserver({
-    modService, stageDirector, chatPersistence, readStageChat,
+    settlementQueued:stageWorkflow.settlementQueued, modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
     readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
   })), 'dsh-tavern: stage story observations')

@@ -42,8 +42,7 @@ function definitions(deps) {
       does: '舞台模式下为正文安排演出：立绘、表情、BGM、音效、环境音、物品。每轮最多两次：边写边导开头，写完再导剩下的。',
       reads: '本轮正文（边写边读）、卡里的演出素材', writes: '本轮舞台记录（按回合）',
       on: 'reply-committed', condition: '开启对话气泡与舞台模式时',
-      enabled: ({ gameId }) => deps.stageOn(gameId), run: ({ gameId }) => deps.directRound(gameId),
-      cancelOn: 'turn-discarded', cancel: ({ gameId, turn }) => deps.cancelDirector(gameId, turn),
+      external: true,
       manual: ['正文生成过程中，先导开头几行', '开场结算时（流程启动）', '在舞台里重新生成舞台指导'], note: '不等结算；下一轮开始时也会取消' },
     // The review reads the reply as written; settlement never waits for it. One start: a
     // regenerated reply is 正文写完 again, and starting twice for the same text is a no-op.
@@ -102,6 +101,7 @@ export function taskMember(task) {
 export function registerBackgroundTasks(workflow, deps) {
   const stops = []
   for (const entry of definitions(deps)) {
+    if (entry.external) continue
     if (entry.on) {
       const { key, name, on, flow, condition, enabled, run, cancelOn, cancel } = entry
       stops.push(workflow.job({ id: key, name, task: entry.agent === false ? '' : key, on, flow, condition, enabled, run, cancelOn, cancel }))
