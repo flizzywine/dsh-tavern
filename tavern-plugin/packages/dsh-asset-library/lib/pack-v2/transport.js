@@ -154,9 +154,11 @@ export function createAssetPackTransport({settings, ...options}) {
     pool.set(ticket,{bytes,expiresAt,...extra}); storedBytes += bytes.length
     return {ticket,expiresAt}
   }
+  const changeStreams = new Set()
   function changed(event) {
     changes.push({sequence:++sequence,...event})
     if (changes.length > 256) changes.shift()
+    for (const stream of changeStreams) stream.send()
   }
   const stopChanges = core.subscribe(event => {
     for (const [ticket,lease] of leases) if (lease.packId === event.packId && (event.revision === null || lease.kind === 'widget')) release(ticket)
@@ -270,6 +272,27 @@ export function createAssetPackTransport({settings, ...options}) {
     {path:PACK_CHANGES_PATH,methods:['GET'],requestBody:'buffered',fetch:request => guarded(request,async () => {
       const since = Number(new URL(request.url).searchParams.get('since'))
       check(Number.isSafeInteger(since) && since >= 0, '$.since')
+      if (new URL(request.url).searchParams.get('stream') === '1') {
+        let cursor = since, stop
+        const body = new ReadableStream({
+          start(controller) {
+            const lifetime = carrierLife?.signal
+            let closed = false
+            const stream = {send() {
+              if (closed) return
+              const feed = {sequence,reset:cursor > sequence || cursor < (changes[0]?.sequence || 1)-1,changes:changes.filter(event => event.sequence > cursor)}
+              controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(feed) + '\n\n'))
+              cursor = sequence
+            }}
+            stop = () => { if (closed) return; closed = true; changeStreams.delete(stream); request.signal.removeEventListener('abort',stop); lifetime?.removeEventListener('abort',stop); try { controller.close() } catch {} }
+            changeStreams.add(stream)
+            request.signal.addEventListener('abort',stop,{once:true}); lifetime?.addEventListener('abort',stop,{once:true})
+            if (request.signal.aborted || lifetime?.aborted) stop(); else stream.send()
+          },
+          cancel() { stop?.() }
+        })
+        return new Response(body,{headers:{'content-type':'text/event-stream','cache-control':'no-cache','x-accel-buffering':'no'}})
+      }
       return json({sequence,reset:since > sequence || since < (changes[0]?.sequence || 1) - 1,changes:changes.filter(event => event.sequence > since)})
     })}
   ]

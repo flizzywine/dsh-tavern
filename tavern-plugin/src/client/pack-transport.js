@@ -1,7 +1,7 @@
 // browser port for the authenticated v2 package transport.
 function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
     const root = '/api/dsh-asset-library/v2/', listeners = new Set(), unavailable = new Set(), jobs = new Set();
-    let active = true, ready = false, sequence = 0, timer;
+    let active = true, ready = false, sequence = 0, timer, events;
     const failure = code => Object.assign(new Error(code), {code});
     async function send(path, options = {}, binary = false, timeoutMs = 30000) {
         if (!active) throw failure('ASSET_UNAVAILABLE');
@@ -96,21 +96,27 @@ function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
         // The pack's full document at `revision` (a summary's): the kept copy when it is that revision, else one read.
         async packDetail({packId, revision}) { const known = details.get(packId); if (known && known.revision === revision) { remember(known); return known; } return call('getPackSnapshot',{packId}); }};
     for (const method of methods) service[method] = args => call(method,args);
-    async function poll() {
+    function acceptFeed(feed) {
+        sequence = feed.sequence;
+        if (feed.reset) { forget({type:'reset'}); for (const fn of listeners) fn({type:'reset'}); }
+        for (const event of feed.changes) { forget(event); for (const fn of listeners) fn(event); }
+    }
+    async function connect() {
         try {
-            if (!ready) {
-                const caps = await control('capabilities');
-                if (caps.apiVersion !== 2 || !caps.capabilities.includes('packs')) throw failure('ASSET_UNAVAILABLE');
-                service.capabilities = [...caps.capabilities]; // optional features (catalogue) follow the host.
-                ready = true; for (const fn of listeners) fn({type:'available'});
-            }
-            const feed = await send('changes?since=' + sequence);
-            sequence = feed.sequence;
-            if (feed.reset) { forget({type:'reset'}); for (const fn of listeners) fn({type:'reset'}); }
-            for (const event of feed.changes) { forget(event); for (const fn of listeners) fn(event); }
+            const caps = await control('capabilities');
+            if (!active) return;
+            if (caps.apiVersion !== 2 || !caps.capabilities.includes('packs')) throw failure('ASSET_UNAVAILABLE');
+            service.capabilities = [...caps.capabilities];
+            ready = true; for (const fn of listeners) fn({type:'available'});
+            events = new EventSource(root + 'changes?stream=1&since=' + sequence);
+            events.onmessage = event => { if (active) acceptFeed(JSON.parse(event.data)); };
+            // Reconnect from the last accepted sequence; no recurring requests while idle.
+            events.onerror = () => { events?.close(); events = undefined; if (active) timer = setTimeout(connect, Math.max(interval,5000)); };
         } catch (error) {
-            if (ready && ['ASSET_UNAVAILABLE','FORBIDDEN','UNAUTHORIZED','NOT_FOUND'].includes(error.code)) { ready = false; sequence = 0; details.clear(); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); }
-        } finally { if (active) timer = setTimeout(poll,interval); }
+            if (!active) return;
+            if (ready) { ready = false; details.clear(); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); }
+            timer = setTimeout(connect, Math.max(interval,5000));
+        }
     }
     return {service, available:() => active && ready,
         settings:{read:() => control('settings'),save:args => control('saveSettings',args)},
@@ -124,7 +130,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
                 if (!archive.download) setTimeout(() => URL.revokeObjectURL(url), 1000);
             }
         },
-        start() { void poll(); },
-        dispose() { if (!active) return; active = false; ready = false; details.clear(); clearTimeout(timer); for (const job of jobs) job.abort(failure('ASSET_UNAVAILABLE')); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); listeners.clear(); unavailable.clear(); }
+        start() { void connect(); },
+        dispose() { if (!active) return; active = false; ready = false; details.clear(); clearTimeout(timer); events?.close(); for (const job of jobs) job.abort(failure('ASSET_UNAVAILABLE')); for (const fn of unavailable) fn(); for (const fn of listeners) fn({type:'unavailable'}); listeners.clear(); unavailable.clear(); }
     };
 }
