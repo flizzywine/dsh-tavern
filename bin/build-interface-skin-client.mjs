@@ -3,9 +3,11 @@ import {readFile, writeFile} from 'node:fs/promises'
 import vm from 'node:vm'
 const root = new URL('../tavern-plugin/packages/dsh-dream-skin/', import.meta.url)
 const start = '// BEGIN TAVERN INTERFACE SKIN\n', end = '// END TAVERN INTERFACE SKIN\n'
+const lf = value => value.replace(/\r\n?/g, '\n')
 export async function integrateInterfaceSkin(client) {
-  const source = (await Promise.all(['interface-skin.js', 'font-library.js', 'font-picker.js'].map(name => readFile(new URL('src/' + name, root), 'utf8')))).join('\n')
-  const css = await readFile(new URL('src/font-picker.css', root), 'utf8')
+  client = lf(client)
+  const source = (await Promise.all(['interface-skin.js', 'font-library.js', 'font-picker.js'].map(async name => lf(await readFile(new URL('src/' + name, root), 'utf8'))))).join('\n')
+  const css = lf(await readFile(new URL('src/font-picker.css', root), 'utf8'))
   checkCssSyntax(css, 'dsh-dream-skin/src/font-picker.css')
   const block = start + 'const SKIN_FONT_PICKER_CSS = ' + JSON.stringify(css) + ';\n' + source + '\n' + end
   if (client.includes(start)) {
@@ -27,7 +29,7 @@ export async function integrateInterfaceSkin(client) {
   return client
 }
 export async function buildInterfaceSkinClient({check = false} = {}) {
-  const file = new URL('lib/client.js', root), current = await readFile(file,'utf8')
+  const file = new URL('lib/client.js', root), current = lf(await readFile(file,'utf8'))
   const next = await integrateInterfaceSkin(current)
   if (next === current) return
   if (check) throw Error('Skin client is stale; run node bin/build-tavern-client.mjs')

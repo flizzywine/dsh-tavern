@@ -70,6 +70,8 @@ jobs:
           '
       - name: Check Tavern client bundle
         run: pnpm check:client
+      - name: Check interface skin line ending normalization
+        run: node --test tests/interface-skin-line-endings.test.mjs
       - name: Run bundled image and installer tests
         shell: bash
         run: node --test --test-concurrency=2 --test-timeout=30000 tests/bundled-image-*.test.mjs tests/bundled-scene-image-plugin.test.mjs
