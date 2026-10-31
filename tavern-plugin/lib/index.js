@@ -1,5 +1,4 @@
 import {createPresentationObservers} from './domain/presentation-observers.js'
-import { createStageHandlers } from './rpc/stage.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
@@ -253,10 +252,7 @@ import { readWidgetWindowProjection } from './domain/widget-window-projection.js
 import { STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement } from './domain/stage-playback.js'
 import { createStageAssets, createStageModule, createStageServices } from './stage-module.js'
 import { STAGE_TIMER_FIELD } from '../mods/timer/stage-service.js'
-import {MOD_MANAGEMENT_METHODS} from './mod-service.js'
-import {MANAGED_MOD_METHODS} from './mod-system-production.js'
 import {readAudienceCorpus} from './danmaku-corpus.js'
-import {MOD_CONFIG_METHODS} from './mod-config.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
 import {ASSET_PACK_RECORD_FIELD} from './domain/stage-asset-pack-director.js'
 import { stageModHistoryTurns } from './domain/stage-items.js'
@@ -3735,30 +3731,13 @@ export async function apply(ctx) {
     createPluginHandlers(rpcDeps),
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
-    createTransferHandlers(rpcDeps),
-    createStageHandlers(rpcDeps))
-  rpcHandlers.getStageTimer = rpcHandlers.updateStageTimer
+    createTransferHandlers(rpcDeps))
+  const stageRequests = stageModule.requests(rpcDeps)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
-  for (const method of ['getJudgeConfig', 'saveJudgeConfig', 'getJudgeCredentialStatus', 'setJudgeKey']) rpcHandlers[method] = rpcHandlers.testJudgeConnection
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
-    if(MANAGED_MOD_METHODS.includes(method)) {
-      const {_performance,_traceId,...input}=args || {}
-      return managedModManagement.call(method,input,authority,{serverTemplate})
-    }
-    if(MOD_CONFIG_METHODS.includes(method)) {
-      const {_performance,_traceId,...input}=args || {}
-      return modConfigHost.call(method,input,authority)
-    }
-    if(MOD_MANAGEMENT_METHODS.includes(method)) {
-      const {_performance,_traceId,...input}=args || {}
-      return modService.call(method,input,authority)
-    }
+    if (stageRequests.handles(method)) return stageRequests.call(method,args,authority,serverTemplate)
     if (method.startsWith('gameplay.')) return await gameplayApi.call(method.slice(9), args || {})
-    if (['readWidgetVariables','proposeWidgetVariables','widgetVariableStatus','invalidateWidgetVariables'].includes(method)) {
-      const {_performance, _traceId, ...input} = args || {}
-      args = input
-    }
     const handler = rpcHandlers[method]
     if (!handler) throw new Error('未知方法: ' + method)
     return await handler(args, method, serverTemplate, authority)
@@ -3802,7 +3781,7 @@ export async function apply(ctx) {
 
   ctx.provide('tavernSessionSignals', Object.freeze({
     async control(method, args, signal) {
-      const stageRead = ['getStageDirection', 'getStageModHistory', 'getDialogueBubbles'].includes(method)
+      const stageRead = stageRequests.remoteRead(method)
       if (!stageRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
         'heartbeatTavernScriptRuntime', 'completeTavernHelperEvent', 'releaseTavernHelperRuntime'].includes(method)) {
         throw new Error('不支持的运行时控制请求')

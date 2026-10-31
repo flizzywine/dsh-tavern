@@ -1,3 +1,4 @@
+import {createStageRequests} from './stage-requests.js'
 import {createStageStoryObserver} from './stage-story-observer.js'
 // 舞台、导演与 mod 的组装。index.js 只用这里导出的三个工厂和它们的返回值。
 //
@@ -188,7 +189,13 @@ export async function createStageModule(core) {
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
     readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
   })), 'dsh-tavern: stage story observations')
-  return {modService, managedModManagement, modConfigHost, stageDirector}
+  return {modService, managedModManagement, modConfigHost, stageDirector,
+    requests(deps) {
+      const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService})
+      ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
+      return requests
+    }
+  }
 }
 
 // 舞台的素材与判断：素材引擎设置、概率判断、导演探针、人物语音、素材运行时。核心在很早就要用到它们
