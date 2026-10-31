@@ -53,7 +53,8 @@ function createStepFoldControls(root, options) {
         // While a round is streaming, its live work-step row stays: that is the only
         // one carrying progress. Settled rounds leave nothing to watch.
         const flow = Array.from(root.querySelectorAll('[data-chat-flow-kind="turn-process"]'));
-        const live = root.querySelector('[data-chat-following-tail]') !== null;
+        // Scroll-following remains enabled after completion; only session state means running.
+        const live = options.running === true;
         const running = live ? flow[flow.length - 1] || null : null;
         const targets = new Set(rows.filter(row => !row.hidden && row !== running));
         for (const row of Array.from(owned.keys())) if (!targets.has(row)) release(row);

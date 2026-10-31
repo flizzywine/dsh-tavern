@@ -1043,12 +1043,12 @@
                 });
 				// Settled rounds fold their work-step rows away; the live round keeps its
 				// progress, and the error row below owns the one control that brings them back.
-				const stepFold = createStepFoldControls(root);
+				const stepFold = createStepFoldControls(root, { running: running === true });
 				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); rail.apply({ accept: railAccept }); };
 				apply();
 				const observer = observeTurnErrorProjection(root, apply);
 				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); rail.dispose(); };
-			}, [props.sessionId, revision]);
+			}, [props.sessionId, revision, running]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
 		// @include background-suppression.js

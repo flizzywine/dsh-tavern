@@ -44830,7 +44830,8 @@ function cardLibraryDisplayName(card) {
 		        // While a round is streaming, its live work-step row stays: that is the only
 		        // one carrying progress. Settled rounds leave nothing to watch.
 		        const flow = Array.from(root.querySelectorAll('[data-chat-flow-kind="turn-process"]'));
-		        const live = root.querySelector('[data-chat-following-tail]') !== null;
+		        // Scroll-following remains enabled after completion; only session state means running.
+		        const live = options.running === true;
 		        const running = live ? flow[flow.length - 1] || null : null;
 		        const targets = new Set(rows.filter(row => !row.hidden && row !== running));
 		        for (const row of Array.from(owned.keys())) if (!targets.has(row)) release(row);
@@ -53544,12 +53545,12 @@ function createTurnRailFilter(root, options) {
                 });
 				// Settled rounds fold their work-step rows away; the live round keeps its
 				// progress, and the error row below owns the one control that brings them back.
-				const stepFold = createStepFoldControls(root);
+				const stepFold = createStepFoldControls(root, { running: running === true });
 				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); rail.apply({ accept: railAccept }); };
 				apply();
 				const observer = observeTurnErrorProjection(root, apply);
 				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); rail.dispose(); };
-			}, [props.sessionId, revision]);
+			}, [props.sessionId, revision, running]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
 		// Share in-flight reads across effect restarts and duplicate mounts.

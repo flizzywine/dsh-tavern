@@ -44,7 +44,7 @@ function conversation(options = {}) {
     panel.textContent = '隐藏此错误'
     root.append(panel)
   }
-  const controls = createStepFoldControls(root)
+  const controls = createStepFoldControls(root, { running: options.running === true })
   controls.apply()
   const hidden = () => [...root.querySelectorAll('[data-chat-flow-kind="turn-process"]')]
     .filter(step => step.hasAttribute('data-tavern-step-fold'))
@@ -79,3 +79,15 @@ test('行被宿主重挂载后重新收起，dispose 全部还原', () => {
   assert.equal(rebuilt.hasAttribute('data-tavern-step-fold'), false)
   assert.equal(root.querySelectorAll('.dsh-tavern-step-fold-toggle').length, 0)
 })
+
+ test('停留在最新消息不代表仍在生成；完成后收起，运行时保留最后一轮', () => {
+  const { root, document, steps, controls } = conversation({ turns: [1, 2], running: true });
+  assert.equal(steps[1].style.display, 'none');
+  assert.equal(steps[2].style.display, '');
+  controls.dispose();
+  assert.ok(root.querySelector('[data-chat-following-tail]'));
+  const settled = createStepFoldControls(root, { running: false });
+  settled.apply();
+  assert.equal(steps[2].style.display, 'none');
+  settled.dispose();
+ });
