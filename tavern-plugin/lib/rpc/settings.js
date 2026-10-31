@@ -67,18 +67,18 @@ export function createSettingsHandlers(deps) {
     },
 
     async getTavernSettings(args) {
-      const { assetEngineSettings, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
-return { settings: await readTavernSettings(), modModelSlots: await slotDeclarations(), scoringCatalog: [assetEngineSettings.read().values.judge].filter(config=>config.provider!=='unset').map(({provider,model})=>({provider,model})), modelCatalog: await tavernModelCatalog() }
+      const { scoringCatalog, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
+return { settings: await readTavernSettings(), modModelSlots: await slotDeclarations(), scoringCatalog: scoringCatalog(), modelCatalog: await tavernModelCatalog() }
     },
     async updateTavernSettings(args) {
-      const { checkSlotSelection, autoChoices, modService, updateTavernSettings } = deps
+      const { checkSlotSelection, autoChoices, modelSelectionChanged, updateTavernSettings } = deps
 
         if(args?.patch?.modModelSelection) {
           const {modId,slotId,selection}=args.patch.modModelSelection
           await checkSlotSelection({modId,slotId,selection})
         }
         const settings = await updateTavernSettings(args && args.patch)
-        if(args?.patch?.modModelSelection)modService.invalidate()
+        if(args?.patch?.modModelSelection)modelSelectionChanged()
         if (!settings.candidateAutoGenerate) autoChoices.cancelAll()
         return { settings }
 

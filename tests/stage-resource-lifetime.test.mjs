@@ -65,3 +65,18 @@ test('real Cordis injection and event effects end with the module scope',async()
   assert.equal(starts,1);assert.equal(stops,1)
   await root.fiber.dispose()
 })
+
+test('stage runtime assembles private RPC dependencies without exposing them through core',async()=>{
+  const root=host(),privateAsset={},privateService={},registry={}
+  let coreReads=0
+  const runtime=createStageRuntime({ctx:root},{assets:()=>({privateAsset}),
+    start:async()=>({requests(deps,providedRegistry){
+      assert.equal(coreReads,0)
+      assert.equal(deps.privateAsset,privateAsset);assert.equal(deps.privateService,privateService)
+      assert.equal(deps.coreValue,42);assert.equal(providedRegistry,registry)
+    }}),services:()=>({privateService})})
+  await runtime.start({cardsActive:()=>true});runtime.services({})
+  runtime.requests({get coreValue(){coreReads++;return 42}},registry)
+  assert.equal(coreReads,1)
+  await runtime.dispose();assert.throws(()=>runtime.requests({},registry),{code:'STAGE_UNAVAILABLE'})
+})

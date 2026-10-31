@@ -710,8 +710,7 @@ export async function apply(ctx) {
   const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
   const stageRuntime = createStageRuntime({ctx, modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents})
-  const {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime} = stageRuntime.assets
-  let modService
+  const {assetEngineSettings} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
   const helperGenerationTasks = createHelperGenerationTasks()
@@ -719,6 +718,7 @@ export async function apply(ctx) {
   const { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel } = createModelCalls({
     llm, agentDefaultModel, agents: () => ctx.get('agents'), sessionProjections: () => ctx.get('sessionProjections'), backgroundConfigForSession
   })
+  function scoringCatalog() {return [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model}))}
   async function slotDeclarations() {
     return modelSlots.rows()
   }
@@ -775,7 +775,7 @@ export async function apply(ctx) {
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
   const {cardAssetBindings,cardZipTargets} = stageRuntime.cards({
-    modManifests:() => modService.manifests(),fileResources,readCardWorkspace,updateCard,
+    fileResources,readCardWorkspace,updateCard,
     syncBubbles:path => dialogueBubbles.sync(worldBooks,path),readCharacterBook:path => worldBooks.characterBookForCard(path),
     readSessionMap, persistence:() => chatPersistence,cardId:() => uid('card'),cardPreparation,cardStorage,bumpCardProjectionRevision,syncCardName
   })
@@ -2436,9 +2436,8 @@ export async function apply(ctx) {
   const stageModule = await stageRuntime.start({dataRoot,
     presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
- containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
-  modService = stageModule.modService
-  const {managedModManagement, modConfigHost, stageDirector} = stageModule
+ containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
+  const {managedModManagement, stageDirector} = stageModule
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
@@ -3449,7 +3448,7 @@ export async function apply(ctx) {
   })
 
   // 小组件变量、CG 图鉴、舞台计时器（stage-module.js）。
-  const {widgetVariables, cgGallery, stageTimer} = stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, stageDirector, modService, managedModManagement})
+  stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage})
 
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args, authority) {
@@ -3517,7 +3516,7 @@ export async function apply(ctx) {
     modelCatalog: tavernModelCatalog, modelReasoning: selection => readBackgroundModelReasoning(llm, selection),
     isPlayMode: mode => groupOfMode(mode) === 'play',
     presentExtras: chat => ({ modModels: chat.modModels || {} }),
-    readExtras: async () => ({ modModelSlots: await slotDeclarations(), scoringCatalog: [modelSlots.scoring()].filter(config => config && config.provider !== 'unset').map(({provider,model}) => ({provider,model})) }),
+    readExtras: async () => ({ modModelSlots: await slotDeclarations(), scoringCatalog: scoringCatalog() }),
     validatePatch: async args => { if (args.modModelSelection) await checkSlotSelection(args.modModelSelection) },
     extraTools: async sessionId => {
       const cached = foregroundExtraTools.get(String(sessionId))
@@ -3578,10 +3577,8 @@ export async function apply(ctx) {
     activeTurnOf: { get: () => activeTurnOf },
     addStageMeasurement: { get: () => addStageMeasurement },
     agentRegistry: { get: () => agentRegistry },
-    assetEngineSettings: { get: () => assetEngineSettings },
     assetGeneration: { get: () => assetGeneration },
     assetGenerationResult: { get: () => assetGenerationResult },
-    assetRuntime: { get: () => assetRuntime },
     autoCompaction: { get: () => autoCompaction },
     backgroundAgentRunner: { get: () => backgroundAgentRunner },
     backgroundTasks: { get: () => backgroundTasks },
@@ -3594,7 +3591,6 @@ export async function apply(ctx) {
     cardScripts: { get: () => cardScripts },
     resolveCardId: { get: () => cardStorage.resolve },
     cardZipTargets: { get: () => cardZipTargets },
-    cgGallery: { get: () => cgGallery },
     chatForSession: { get: () => chatForSession },
     chatPersistence: { get: () => chatPersistence },
     checkSlotSelection: { get: () => checkSlotSelection },
@@ -3606,9 +3602,7 @@ export async function apply(ctx) {
     describeOpeningScenes: { get: () => describeOpeningScenes },
     dialogueBubblePresets: { get: () => dialogueBubblePresets },
     dialogueBubbles: { get: () => dialogueBubbles },
-    directorProbeRpc: { get: () => directorProbeRpc },
     duplicateCard: { get: () => duplicateCard },
-    figureVoiceAuthoring: { get: () => figureVoiceAuthoring },
     fileResources: { get: () => fileResources },
     foregroundCapabilities: { get: () => foregroundCapabilities },
     autoChoices: { get: () => autoChoices },
@@ -3616,9 +3610,7 @@ export async function apply(ctx) {
     importPreset: { get: () => importPreset },
     importSpineRuntime: { get: () => importSpineRuntime },
     interruptTurn: { get: () => interruptTurn },
-    judgeRpc: { get: () => judgeRpc },
     listTavernSessions: { get: () => listTavernSessions },
-    modService: { get: () => modService },
     modelSelection: { get: () => modelSelection },
     normalizeBubbleConfig: { get: () => normalizeBubbleConfig },
     normalizeResourcePath: { get: () => normalizeResourcePath },
@@ -3647,19 +3639,18 @@ export async function apply(ctx) {
     rollbackTurn: { get: () => rollbackTurn },
     saveStagePlayback: { get: () => saveStagePlayback },
     slotDeclarations: { get: () => slotDeclarations },
+    scoringCatalog: { get: () => scoringCatalog },
+    modelSelectionChanged: { get: () => () => presentationObservers.modelChanged() },
     speech: { get: () => speech },
     spineRuntimeAvailable: { get: () => spineRuntimeAvailable },
     spineRuntimeStatus: { get: () => spineRuntimeStatus },
-    stageDirector: { get: () => stageDirector },
     stageModHistoryTurns: { get: () => stageModHistoryTurns },
-    stageTimer: { get: () => stageTimer },
     str: { get: () => str },
     taskStateReader: { get: () => taskStateReader },
     tavernModelCatalog: { get: () => tavernModelCatalog },
     updateCard: { get: () => updateCard },
     updateTavernSettings: { get: () => updateTavernSettings },
     view: { get: () => view },
-    widgetVariables: { get: () => widgetVariables },
     withCompactionSession: { get: () => withCompactionSession },
     withoutPlayerChoices: { get: () => withoutPlayerChoices },
     worldBooks: { get: () => worldBooks }
@@ -3680,7 +3671,7 @@ export async function apply(ctx) {
     createTransferHandlers(rpcDeps))
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
-  stageModule.requests(rpcDeps, extensionRequests)
+  stageRuntime.requests(rpcDeps, extensionRequests)
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
     if (extensionRequests.handles(method)) return extensionRequests.call(method,args,authority,serverTemplate)

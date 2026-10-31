@@ -48,6 +48,7 @@ export function createPresentationObservers({warn = () => {}} = {}) {
     }
   }
   return Object.freeze({register, openReply,
+    modelChanged:(...args) => notify('modelChanged', ...args),
     cardChanged:(...args) => notify('cardChanged', ...args),
     cancelled:(...args) => notify('cancelled', ...args),
     settlementQueued:(...args) => notify('settlementQueued', ...args),

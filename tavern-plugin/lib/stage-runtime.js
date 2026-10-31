@@ -18,7 +18,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     assets,
     cards(bindings) {
       assert('assets')
-      try {return createStageCardAssets({...bindings,...assets,ctx:scope.ctx,active:scope.active})}
+      try {return createStageCardAssets({...bindings,...assets,modManifests:() => module?.modService.manifests() || [],ctx:scope.ctx,active:scope.active})}
       catch(error) {return failed(error)}
     },
     async start(bindings) {
@@ -35,6 +35,11 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
         services = factories.services({...bindings,...assets,...module,ctx:scope.ctx})
         phase = 'ready';return services
       } catch(error) {return failed(error)}
+    },
+    requests(bindings, registry) {
+      assert('ready')
+      const owned = Object.fromEntries(Object.entries({...assets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
+      return module.requests(Object.create(bindings,owned),registry)
     },
     async dispose() {phase = 'disposed';await scope.dispose()},
     status:() => scope.active() ? phase : phase === 'failed' ? 'failed' : 'disposed'
