@@ -1303,7 +1303,7 @@ function GalStage(props) {
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
         const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
-            openConfig: (tab, opener) => { galConfigLastTab = tab; openConfig(opener); } };
+            openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };
         const list = stageEntries.list(group), node = entry => h("span", { key: entry.id, className: "fork-stage-entry", "data-stage-entry": entry.id,
             "data-attention": entryStates[entry.id]?.badge ? "" : undefined }, entry.render(ctx));
         // HUD-line entries (the place / background and track / BGM labels) share one line: phones truncate it as a unit.
@@ -1423,6 +1423,7 @@ function bindStageViews(createViews) {
         admission:{performance, setTimeout, clearTimeout, Spinner},
         widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
+        configScreen:{matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, Sound:GalConfigSound, Text:GalConfigText, Appearance:GalConfigScreenTab},
         configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSkinSelect?"select":type===GalConfigSwitch?"toggle":null},
         phoneLayout:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), width:()=>innerWidth, ResetButton, sections:STAGE_CONFIG_SECTIONS},
         cg:{ResizeObserver, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, policy:cgMotionPolicy, rpc},
