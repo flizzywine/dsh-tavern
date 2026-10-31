@@ -1,3 +1,4 @@
+import {createStageCardAssets} from './stage-card-assets.js'
 import {createResourceScope} from './domain/resource-scope.js'
 import {createStageAssets, createStageModule, createStageServices} from './stage-module.js'
 
@@ -15,6 +16,11 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
   try {assets = factories.assets({...core,ctx:scope.ctx})} catch(error) {failed(error)}
   return Object.freeze({
     assets,
+    cards(bindings) {
+      assert('assets')
+      try {return createStageCardAssets({...bindings,...assets,ctx:scope.ctx,active:scope.active})}
+      catch(error) {return failed(error)}
+    },
     async start(bindings) {
       assert('assets');phase = 'starting'
       try {

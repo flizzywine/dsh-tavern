@@ -32,6 +32,10 @@ export function createResourceScope(host, {onError = () => {}} = {}) {
           return own(install())
         }, label)
       }
+      if (key === 'provide') return (...args) => {
+        if (!active) throw Object.assign(Error('Module scope disposed'), {code:'MODULE_UNAVAILABLE'})
+        return own(target.provide(...args))
+      }
       if (key === 'on') return (...args) => active ? own(target.on(...args)) : () => {}
       if (key === 'inject') return (names, install, ...rest) => {
         if (!active) return () => {}

@@ -3,7 +3,6 @@ import {createPresentationObservers} from './domain/presentation-observers.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
-import { readCardVariableSources } from './domain/card-variable-bindings.js'
 import { createForegroundCapabilities } from './domain/foreground-capabilities.js'
 import { isWorldBookTemplateEntry, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import { createSkillTextContext } from './domain/skill-text-context.js'
@@ -154,9 +153,8 @@ import { createCardDeletion } from './domain/card-deletion.js'
 import { createCardOrganization } from './domain/card-organization.js'
 import { countGamesByCard, orderCardsForLibrary } from './domain/card-list-order.js'
 import { createCardPreparation,rawData } from './domain/card-preparation.js'
-import { createCardAssetBoundary, cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
-import { createCardBundleAdapter, createCardBundleWriter, withoutPlayerChoices } from './card-bundle.js'
-import { createCardZipTargets } from './card-zip-target.js'
+import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
+import { withoutPlayerChoices } from './card-bundle.js'
 import { withGlobalRegexScripts, composeTavernRegexScripts } from './domain/card-extension-reading.js'
 import { projectCardOpeningPreviews } from './domain/card-opening-previews.js'
 import { createConversationInitialization } from './domain/conversation-initialization.js'
@@ -773,42 +771,13 @@ export async function apply(ctx) {
       return cardPreparation.migrate({ working, payload })
     })
   }
-  const cardAssetBindings = createCardAssetBoundary({ctx, modConfig:true, getEngine:() => assetEngineSettings.read().values, modManifests:()=>modService.manifests(), listCards:async () => (await fileResources.list('card')).map(path => ({path})), readWorkspace:readCardWorkspace, updateCard, syncBubbles:path => dialogueBubbles.sync(worldBooks, path), readCharacterBook:path => worldBooks.characterBookForCard(path),
-    readVariableSources:async ({path,sessionId}) => {
-      const chatId = (await readSessionMap())[sessionId]
-      const indexed = chatId ? await chatPersistence.readSessionState(chatId) : null
-      return readCardVariableSources({path,indexed,readWindow:chatPersistence.readWindow,readRevision:chatPersistence.readRevision})
-    }})
-  ctx.provide('tavernAssetDependencies', Object.freeze({apiVersion:2, get:request => cardAssetBindings.dependencies(request)}))
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
-  const cardZipTargets = createCardZipTargets({id:() => uid('card'), listCards:() => fileResources.list('card'), readWorkspace:readCardWorkspace, importCard:fileResources.importCard})
-  const assetCards = createCardBundleAdapter({
-    cardPreparation, dependencies:request => cardAssetBindings.dependencies(request), getEngine:() => assetEngineSettings.read().values,
-    async authorizeTarget(path) {
-      if (!assetCardsActive) throw Object.assign(new Error('Card owner unavailable'), {code:'ASSET_UNAVAILABLE'})
-      const normalized = normalizeResourcePath(path, 'card')
-      const workspace = await readCardWorkspace(normalized)
-      const reserved = cardZipTargets.get(normalized)
-      if (reserved) return reserved
-      if (!workspace) throw Object.assign(new Error('Card target unavailable'), {code:'NOT_FOUND'})
-      return {cardId:workspace.meta.id}
-    },
-    readWorkspace:readCardWorkspace,
-    readCover:fileResources.readCardImage,
-    withCardLock:cardStorage.withCardLock,
-    writeWorkspace:createCardBundleWriter({readWorkspace:readCardWorkspace,cardPreparation,bumpCardProjectionRevision,syncCardName,
-    async publish(path, workspace, cover) {
-      if (!assetCardsActive) throw Object.assign(new Error('Card owner unavailable'), {code:'ASSET_UNAVAILABLE'})
-      const normalized = normalizeResourcePath(path, 'card')
-      // The package publication gate and existing card queue are already held.
-      // Commit the complete prepared workspace once, never call updateCard here.
-      if (cardZipTargets.get(normalized)) await cardZipTargets.commit(normalized, workspace, cover)
-      else if (cover) await fileResources.writeCardImage(normalized, cover, workspace)
-      else await fileResources.writeWorking(normalized, JSON.stringify(workspace, null, 2))
-    }})
+  const {cardAssetBindings,cardZipTargets} = stageRuntime.cards({
+    modManifests:() => modService.manifests(),fileResources,readCardWorkspace,updateCard,
+    syncBubbles:path => dialogueBubbles.sync(worldBooks,path),readCharacterBook:path => worldBooks.characterBookForCard(path),
+    readSessionMap, persistence:() => chatPersistence,cardId:() => uid('card'),cardPreparation,cardStorage,bumpCardProjectionRevision,syncCardName
   })
-  ctx.provide('tavernAssetCards', Object.freeze({apiVersion:2, ...assetCards}))
   async function readCard(cardPath) {
     const normalized = str(cardPath) === '' ? '' : normalizeResourcePath(cardPath, 'card')
     const workspace = await readCardWorkspace(normalized)
