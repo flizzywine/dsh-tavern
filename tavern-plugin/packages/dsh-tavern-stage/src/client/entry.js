@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
         __STAGE_TIMER__
         __STAGE_SOUNDSCAPE__
         __STAGE_AMBIENCE__
+        __STAGE_TEXTCARD_PRESETS__
         __STAGE_TEXTCARD_STAGE__
         __STAGE_TEXTCARD_FONTS__
         __STAGE_TEXTCARD_PLAYER__
@@ -98,15 +99,15 @@ window.__ModuleLoader__.load({
                     const backlogPaging=own(createStageBacklogPaging({React:options.React,...options.backlogPaging}));
                     const backlogHistory=own(createStageBacklogHistory({React:options.React,...options.backlogHistory}));
                     const backlogVoice=own(createStageBacklogVoice(options.backlogVoice || {}));
-                    const backlogRows=createStageBacklogRows(options.backlogRows || {});
+                    const backlogRows=createStageBacklogRows({...options.backlogRows,textcard:textcardHistory});
                     const backlogView=own(createStageBacklogView({React:options.React,window,document,...options.backlogView,stageViews:{backlogPaging,backlogHistory,backlogVoice,backlogRows}}));
                     const choiceLayout=createStageChoiceLayout({React:options.React,...options.choiceLayout});
                     const choices=own(createStageChoices({React:options.React,window,document,...options.choices,layout:choiceLayout}));
                     const textcardCenter=own(createStageTextcardCenter({metrics:TEXTCARD_VERT_INK}));
                     const textcardLayout=createStageTextcardLayout(options.textcardLayout||{});
-                    const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter}));
+                    const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter,createGate:createTextcardGate,peak:textcardPeak}));
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
-                    const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts}));
+                    const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
                     return {textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
