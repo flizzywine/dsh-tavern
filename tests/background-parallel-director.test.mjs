@@ -16,7 +16,7 @@ test('a running stage director shows beside settlement and never occupies the ba
   const p=createChatPersistence({store:createChatJournalStore({dataRoot:root,newConversations:true})})
   const chat=await p.write({id:'chat-parallel',mode:'story',messages:[{role:'assistant',text:'A quiet room.'}],settleStatus:'idle'})
   const c=createBackgroundTaskCoordinator({timeline:createStoryTimeline(),
-    directorActivity:()=>({phase:'running'}),store:{readChat:p.read,writeChat:p.write,updateChat:p.update}})
+    presentationActivity:()=>({busy:true,role:'presentation',director:{phase:'running'}}),store:{readChat:p.read,writeChat:p.write,updateChat:p.update}})
   const idle=c.activity(await p.read(chat.id))
   assert.equal(idle.busy,false)
   assert.deepEqual(idle.director,{phase:'running'})

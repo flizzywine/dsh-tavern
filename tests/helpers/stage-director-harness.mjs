@@ -45,7 +45,7 @@ export async function fixture(model, {bound = true, tts, getBinding, greeting = 
     chat = timeline.complete({chat:begun.chat, operationId:begun.value.operationId,basedOn:begun.value.basedOn,outcome:{status:'success'},apply(draft) {draft.messages.push({role:'assistant',turn:1,text:'Synthetic fixture.\n\nSynthetic dusk.'})}}).chat
   }
   const store = {readChat:async () => clone(chat),writeChat:async value => {chat = clone(value); director?.observe(chat)},updateChat:async (_id, fn) => {chat = fn(clone(chat)) ?? chat; director?.observe(chat); return clone(chat)}}
-  const tasks = createBackgroundTaskCoordinator({store,timeline,directorActivity:chat => director?.activity(chat)}) // production deploy-gate projection
+  const tasks = createBackgroundTaskCoordinator({store,timeline,presentationActivity:chat => ({director:director?.activity(chat)})}) // production deploy-gate projection
   const calls = []
   director = createStageDirector({assets, judge, mods, paragraphParts, bodyForTurn, log, // fake judge injection
     updateChat:store.updateChat, readChat:store.readChat,

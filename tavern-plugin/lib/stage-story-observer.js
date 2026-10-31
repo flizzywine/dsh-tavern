@@ -4,6 +4,7 @@ import {roundBody, streamTailClosed} from './domain/round-body.js'
 export function createStageStoryObserver({settlementQueued, modService, stageDirector, chatPersistence,
   chatHeaderForSession, dialogueBubbles, readStageChat, readReplyPrefix, activeRoundBodies}) {
   return {
+    activity:chat => ({director:stageDirector.activity(chat)}),
     modelChanged:() => modService.invalidate(),
     cardChanged:() => modService.invalidate(),
     cancelled:sessionId => stageDirector.cancel({sessionId:String(sessionId)}),

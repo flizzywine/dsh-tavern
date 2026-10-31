@@ -80,12 +80,10 @@ export function createBackgroundTaskCoordinator(options = {}) {
     })
   }
 
-  // `slot` (background-members.js): only that member's tasks; without it, the whole game.
-  // A running stage director shows beside it (`director`); it writes outside these tasks and
-  // never makes the game busy.
+  // Presentation status supplements the task view without changing admission or busy state.
   function activity(chat, slot) {
-    const current = coreActivity(chat, slot), director = slot === undefined ? options.directorActivity?.(chat) : undefined
-    return director ? {...current, director} : current
+    const current = coreActivity(chat, slot)
+    return slot === undefined ? {...options.presentationActivity?.(chat),...current} : current
   }
   function coreActivity(chat, slot) {
     const inspected = timeline.inspect({ chat })

@@ -63,3 +63,12 @@ test('card cache invalidation is immediate, optional and removed with its owner'
   await notification;off();await host.cardChanged('cards/b.json')
   assert.deepEqual(seen,['cards/a.json']);host.dispose()
 })
+
+test('presentation activity is optional and revoked with its provider',()=>{
+  const host=createPresentationObservers()
+  assert.deepEqual(host.activity({}),{})
+  host.register('broken',{activity(){throw Error('failed')}})
+  const off=host.register('stage',{activity:()=>({director:{phase:'running'}})})
+  assert.deepEqual(host.activity({}),{director:{phase:'running'}})
+  off();assert.deepEqual(host.activity({}),{});host.dispose()
+})

@@ -1,3 +1,4 @@
+import {createCardStage} from './card-stage.js'
 import {modelSlotRows} from './domain/model-slots.js'
 import {createStageWorkflow} from './stage-workflow.js'
 import {createStageRequests} from './stage-requests.js'
@@ -240,6 +241,9 @@ export async function createStageModule(core) {
 export function createStageAssets(core) {
   const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
   const assetEngineSettings = createAssetEngineSettings(ctx)
+  const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
+    getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
+    getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
   const manifests = [{id:'dsh.stage',name:'舞台',modelSlots:[
     {id:'director',label:'导演模型',purpose:'安排舞台演出',fallback:'foreground'},
     {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
@@ -261,7 +265,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

@@ -48,6 +48,18 @@ export function createPresentationObservers({warn = () => {}} = {}) {
     }
   }
   return Object.freeze({register, openReply,
+    activity(chat) {
+      let result={}
+      for(const entry of entries.values()) {
+        try {
+          const value=entry.hooks.activity?.(chat)
+          if(typeof value?.then === 'function')void Promise.resolve(value).catch(error=>report(entry.owner,'activity',error))
+          else if(value && typeof value === 'object')result={...result,...value}
+        }
+        catch(error) {report(entry.owner,'activity',error)}
+      }
+      return result
+    },
     modelChanged:(...args) => notify('modelChanged', ...args),
     cardChanged:(...args) => notify('cardChanged', ...args),
     cancelled:(...args) => notify('cancelled', ...args),
