@@ -1,6 +1,40 @@
 'use strict';
 
-function createStageNavigation({window, document, navigator, playCue, checkSetup, getSessionId, getSettings, uncover}) {
+function createStageNavigation({window, document, navigator, playCue, checkSetup, getSessionId, getSettings}) {
+// The covered transcript stays mounted, but must not be forced back into layout by
+// fullscreen, focus or host scroll sampling. content-visibility:hidden (theme.css,
+// [data-fork-gal-covered]) skips its style/layout/paint and keeps it out of focus, find
+// and the accessibility tree, while keeping the rendering state (styles, boxes, scroll
+// offsets): leaving the stage repaints it instead of restyling ~20k nodes. Only the
+// session roots are touched, so no document-wide style invalidation. Each root's box is
+// pinned at its covered size, so a fullscreen resize cannot dirty the skipped layout and
+// a forced host read inside it stays a cache hit.
+const GAL_COVER_BOX = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex'];
+let releaseCover = null;
+function galUncover() { releaseCover?.(); }
+function galCoverChat() {
+    if (releaseCover) return;
+    const roots = [...document.querySelectorAll('[data-dsh-fork-session="play"] > *')];
+    // One layout read for all roots before any write.
+    const boxes = roots.map(node => node.getBoundingClientRect());
+    const saved = roots.map((node, i) => {
+        const style = node.style, inline = GAL_COVER_BOX.map(name => [name, style.getPropertyValue(name), style.getPropertyPriority(name)]);
+        const pin = {width:boxes[i].width + 'px', height:boxes[i].height + 'px', 'min-width':'0', 'min-height':'0', 'max-width':'none', 'max-height':'none', flex:'none'};
+        if (boxes[i].width || boxes[i].height) GAL_COVER_BOX.forEach(name => style.setProperty(name, pin[name], 'important'));
+        node.setAttribute('data-fork-gal-covered', '');
+        return [node, inline];
+    });
+    document.documentElement.setAttribute('data-fork-gal-stage', '');
+    releaseCover = () => {
+        document.documentElement.removeAttribute('data-fork-gal-stage');
+        saved.forEach(([node, inline]) => {
+            node.removeAttribute('data-fork-gal-covered');
+            inline.forEach(([name, value, priority]) => { if (value) node.style.setProperty(name, value, priority); else node.style.removeProperty(name); });
+        });
+        releaseCover = null;
+    };
+}
+
 const galStageAvailable = (() => {
     let enabled = false;
     const listeners = new Set();
@@ -19,7 +53,7 @@ function galStageLifetime() {
         try { galStageAvailable.set(false); }
         finally {
             try { galLeaveNow(); }
-            finally { galEscapeLock(false); uncover(); }
+            finally { galEscapeLock(false); galUncover(); }
         }
     };
 }
@@ -126,7 +160,7 @@ function galStageShortcut() {
         window.removeEventListener("keydown", onKey, true);
     };
 }
-return {galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
+return {galCoverChat, galUncover, galStageAvailable, galStageLifetime, galActive, galEntering, galEnter, galOpen, galMenuRequest, galEscapeLock, galLeave, galLeaveNow, galStageShortcut,
     getEntry: () => galEntry,
     holdLeave(hold) {galLeaveHold = hold; return () => {if (galLeaveHold === hold) galLeaveHold = null;};}};
 }

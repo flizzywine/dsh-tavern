@@ -9,7 +9,7 @@ function setup() {
   const document = {fullscreenElement:null, documentElement:{requestFullscreen:async () => events.push('fullscreen')}, exitFullscreen:async () => events.push('exit')}
   const api = createStageNavigation({
     document, playCue:cue => events.push(cue),
-    uncover:() => events.push('uncover'), checkSetup:() => new Promise(resolve => gates.push(resolve)),
+    checkSetup:() => new Promise(resolve => gates.push(resolve)),
   })
   return {api, gates, events, document}
 }
@@ -29,7 +29,6 @@ test('disabled stage cannot enter; disposal closes it and invalidates pending ad
   assert.equal(api.galEntering.get(),'')
   assert.equal(api.galStageAvailable.get(),false)
   assert.equal(events.filter(x => x === 'exit').length,1)
-  assert.equal(events.filter(x => x === 'uncover').length,1)
   const stopNext = api.galStageLifetime()
   gates[1](false); await Promise.resolve()
   assert.equal(api.galActive.get(),'','old admission cannot reopen the new instance')
@@ -92,4 +91,41 @@ test('core navigation readers survive optional provider removal and replacement'
   }
   assert.equal(snapshots.filter(value => value==='s').length,2)
   unsubscribe()
+})
+
+test('stage owns transcript cover and restores inline layout on unload and reload', () => {
+  const attrs = new Set()
+  const values = new Map([['width', ['72%', '']], ['flex', ['1 1 auto', 'important']]])
+  const original = [...values]
+  const root = {
+    style: {
+      getPropertyValue:name => values.get(name)?.[0] || '',
+      getPropertyPriority:name => values.get(name)?.[1] || '',
+      setProperty:(name,value,priority) => values.set(name,[value,priority]),
+      removeProperty:name => values.delete(name),
+    },
+    getBoundingClientRect:() => ({width:720,height:480}),
+    setAttribute:name => attrs.add(name),
+    removeAttribute:name => attrs.delete(name),
+  }
+  const page = new Set()
+  const document = {
+    querySelectorAll:() => [root],
+    documentElement:{
+      setAttribute:name => page.add(name),
+      removeAttribute:name => page.delete(name),
+    },
+  }
+  const api = createStageNavigation({document})
+  for (let cycle = 0; cycle < 2; cycle++) {
+    const stop = api.galStageLifetime()
+    api.galCoverChat(); api.galCoverChat()
+    assert.deepEqual(values.get('width'), ['720px','important'])
+    assert.equal(attrs.has('data-fork-gal-covered'),true)
+    assert.equal(page.has('data-fork-gal-stage'),true)
+    stop(); stop(); api.galUncover()
+    assert.deepEqual([...values],original)
+    assert.equal(attrs.size,0)
+    assert.equal(page.size,0)
+  }
 })

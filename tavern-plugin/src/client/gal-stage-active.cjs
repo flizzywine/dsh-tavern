@@ -15,6 +15,8 @@ const galMenuSignal = stageNavigationSignal('galMenuRequest', 0);
 const galMenuRequest = {...galMenuSignal, request: () => stageNavigation?.galMenuRequest.request()};
 const galEntering = {get: () => stageNavigation?.galEntering.get() || ''};
 const galEnter = (...args) => stageNavigation?.galEnter(...args);
+const galCoverChat = () => stageNavigation?.galCoverChat();
+const galUncover = () => stageNavigation?.galUncover();
 const galLeave = () => stageNavigation?.galLeave();
 const galEscapeLock = on => stageNavigation?.galEscapeLock(on);
 const galStageShortcut = () => stageNavigation.galStageShortcut();
@@ -25,8 +27,7 @@ function bindStageNavigation(createNavigation, ctx) {
     if (stageNavigation) throw new Error('Stage navigation already mounted');
     const navigation = createNavigation({window, document, navigator:window.navigator,
         playCue:cue => forkUiSfx.play(cue), checkSetup:stageSetupGate,
-        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id),
-        uncover:() => galUncover?.()});
+        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id)});
     const stops = [];
     stageNavigation = navigation;
     for (const [name, signal] of stageNavigationSignals) stops.push(navigation[name].subscribe(signal.emit));

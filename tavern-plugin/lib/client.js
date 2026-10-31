@@ -58486,39 +58486,6 @@ function galUiApplier() {
 		        h('span', {className: 'fork-tc-sr', 'aria-live': 'polite'}, up ? state.sr : ''));
 		    return {accepts: textcardAccepts, play, skip: player.skip, cancel: player.cancel, up, busy, node};
 		}
-		// The covered transcript stays mounted, but must not be forced back into layout by
-		// fullscreen, focus or host scroll sampling. content-visibility:hidden (theme.css,
-		// [data-fork-gal-covered]) skips its style/layout/paint and keeps it out of focus, find
-		// and the accessibility tree, while keeping the rendering state (styles, boxes, scroll
-		// offsets): leaving the stage repaints it instead of restyling ~20k nodes. Only the
-		// session roots are touched, so no document-wide style invalidation. Each root's box is
-		// pinned at its covered size, so a fullscreen resize cannot dirty the skipped layout and
-		// a forced host read inside it stays a cache hit.
-		const GAL_COVER_BOX = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'flex'];
-		let galUncover = null;
-		function galCoverChat() {
-		    if (galUncover) return;
-		    const roots = [...document.querySelectorAll('[data-dsh-fork-session="play"] > *')];
-		    // One layout read for all roots before any write.
-		    const boxes = roots.map(node => node.getBoundingClientRect());
-		    const saved = roots.map((node, i) => {
-		        const style = node.style, inline = GAL_COVER_BOX.map(name => [name, style.getPropertyValue(name), style.getPropertyPriority(name)]);
-		        const pin = {width:boxes[i].width + 'px', height:boxes[i].height + 'px', 'min-width':'0', 'min-height':'0', 'max-width':'none', 'max-height':'none', flex:'none'};
-		        if (boxes[i].width || boxes[i].height) GAL_COVER_BOX.forEach(name => style.setProperty(name, pin[name], 'important'));
-		        node.setAttribute('data-fork-gal-covered', '');
-		        return [node, inline];
-		    });
-		    document.documentElement.setAttribute('data-fork-gal-stage', '');
-		    galUncover = () => {
-		        document.documentElement.removeAttribute('data-fork-gal-stage');
-		        saved.forEach(([node, inline]) => {
-		            node.removeAttribute('data-fork-gal-covered');
-		            inline.forEach(([name, value, priority]) => { if (value) node.style.setProperty(name, value, priority); else node.style.removeProperty(name); });
-		        });
-		        galUncover = null;
-		    };
-		}
-
 		// The stage's one readiness state: pending / loading / slow cover the
 		// stage with the veil (slow only says 「仍在载入…」 after 10 s), revealing cross-fades a ready scene in, ready shows it with no
 		// loader. Nothing shows the scene and the loader together: a load that never settles keeps the veil (the Esc menu stays
@@ -61611,6 +61578,8 @@ function galUiApplier() {
 		const galMenuRequest = {...galMenuSignal, request: () => stageNavigation?.galMenuRequest.request()};
 		const galEntering = {get: () => stageNavigation?.galEntering.get() || ''};
 		const galEnter = (...args) => stageNavigation?.galEnter(...args);
+		const galCoverChat = () => stageNavigation?.galCoverChat();
+		const galUncover = () => stageNavigation?.galUncover();
 		const galLeave = () => stageNavigation?.galLeave();
 		const galEscapeLock = on => stageNavigation?.galEscapeLock(on);
 		const galStageShortcut = () => stageNavigation.galStageShortcut();
@@ -61621,8 +61590,7 @@ function galUiApplier() {
 		    if (stageNavigation) throw new Error('Stage navigation already mounted');
 		    const navigation = createNavigation({window, document, navigator:window.navigator,
 		        playCue:cue => forkUiSfx.play(cue), checkSetup:stageSetupGate,
-		        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id),
-		        uncover:() => galUncover?.()});
+		        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id)});
 		    const stops = [];
 		    stageNavigation = navigation;
 		    for (const [name, signal] of stageNavigationSignals) stops.push(navigation[name].subscribe(signal.emit));
