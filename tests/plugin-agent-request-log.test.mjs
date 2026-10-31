@@ -17,7 +17,7 @@ function memoryLog() {
   })
 }
 
-function install(log, headers, pluginSettlementProgress, beginStageStream, emitted) {
+function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted) {
   let stream
   const game = { id: 'chat-game', mode: 'story', requestMode: 'sillytavern' }
   const ctx = { on(name, fn) { if (name === 'llm/stream') stream = fn }, llm: {}, get() {}, logger: () => ({ warn() {} }) }
@@ -28,7 +28,7 @@ function install(log, headers, pluginSettlementProgress, beginStageStream, emitt
     chatForSession: async () => undefined,
     chatHeaderForSession: async id => id === 'session-game' ? game : undefined,
     foregroundStrategies: { projectRequest: () => null, completeRequest() {} },
-    fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, beginStageStream, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
+    fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, beginReplyObserver, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
     sessionStateForSession: async () => null, updateChat: async () => {}, worldbookRecallLog: { requested: async () => {} }, runtimePrompt: () => '', storyRetention: async () => ({})
   })
   return async sessionId => {
@@ -56,7 +56,7 @@ test('a plugin agent created under a game is logged as that game\'s background r
 
 test('the real model-stream hook feeds only foreground story text to the stage stream and cancels a failed stream', async () => {
   const beginnings = []; let shown = '', cancelled = 0
-  const begin = (...args) => { beginnings.push(args); return { update: text => { shown = text }, cancel: () => cancelled++, discard() {} } }
+  const begin = (...args) => { beginnings.push(args.slice(0,2)); return { update: text => { shown = text }, cancel: () => cancelled++, discard() {} } }
   const send = install(memoryLog(), {}, null, begin, async function * () {
     yield { type: 'reasoning-delta', text: 'Reasoning is not story.' }
     yield { type: 'text-delta', text: 'Story.\n' }
@@ -85,4 +85,15 @@ test('a plugin settlement reports which plugin is settling and whether its agent
   assert.equal(progress.snapshot('session-game').phase, 'tool')
   finish()
   assert.equal(progress.snapshot('session-game'), null)
+})
+
+test('a hung presentation initializer cannot hold up the real foreground stream', async () => {
+  let resolve, cancelled = 0
+  const pending = new Promise(done => { resolve = done })
+  const send = install(memoryLog(), {}, null, () => pending)
+  const chunks = await send('session-game')
+  assert.equal(chunks.map(chunk => chunk.text || '').join(''), '好')
+  resolve({update() { assert.fail('finished request must not be revived') }, cancel() { cancelled++ }})
+  await new Promise(done => setImmediate(done))
+  assert.equal(cancelled, 1)
 })

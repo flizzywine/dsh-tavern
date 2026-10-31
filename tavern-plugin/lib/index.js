@@ -4054,16 +4054,17 @@ export async function apply(ctx) {
     str,
     updateChat,
     worldbookRecallLog,
-    beginStageStream:async (sessionId,turn) => {
+    beginReplyObserver:async (sessionId,turn,signal) => {
       if (!Number.isSafeInteger(turn)) return null
       // The streaming round body (getRoundBody) is the stage's alone: a card without one reads no stage view and
-      // re-splits no reply on every delta, and its first token waits for nothing but this header read.
+      // re-splits no reply on every delta. Admission runs independently of the first token.
       const header = await chatHeaderForSession(sessionId, ['cardPath'])
       const config = header?.cardPath ? await dialogueBubbles.read(header.cardPath) : null
-      if (!config?.enabled) return null
+      if (signal?.aborted || !config?.enabled) return null
       const chat = await readStageChat(sessionId)
-      if (!chat) return null
+      if (signal?.aborted || !chat) return null
       const director = config?.enabled && config.stage?.director === true ? await stageDirector.beginStream(chat,turn) : null
+      if (signal?.aborted) { await director?.cancel(); return null }
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
       const prefix = assistantResultForTurn(session,turn)?.text || ''
       const active = {turn, branchId:chat.timeline?.branchId, body:roundBody([{kind:'markdown',text:prefix}], {chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})}
@@ -4071,8 +4072,8 @@ export async function apply(ctx) {
       return {update(text) {
         const full = [prefix,text].filter(Boolean).join('\n\n')
         active.body = roundBody([{kind:'markdown',text:full}],{chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})
-        director?.update(active.body.displayUnits,streamTailClosed(full,active.body.displayUnits))
-      }, cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);director?.cancel()}}
+        return director?.update(active.body.displayUnits,streamTailClosed(full,active.body.displayUnits))
+      }, cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);return director?.cancel()}}
     },
     storyRetention,
   })
