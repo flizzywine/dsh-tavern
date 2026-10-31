@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises'
 
 const HEADER_BYTES = 24
 
-function imageMediaTypeFromHeader(bytes) {
+export function imageMediaTypeFromBytes(bytes) {
   if (!bytes || bytes.length < 4) return ''
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png'
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
@@ -29,7 +29,7 @@ export async function readImageFileMetadata(file, { openFile = open } = {}) {
       height = bytes.readUInt32BE(20)
     }
     return {
-      mediaType: imageMediaTypeFromHeader(bytes),
+      mediaType: imageMediaTypeFromBytes(bytes),
       width,
       height,
       byteLength: stat.size,

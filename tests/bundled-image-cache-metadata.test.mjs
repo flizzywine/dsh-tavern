@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readImageFileMetadata } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-file-metadata.js'
+import { imagePluginFixture, IMAGE_PNG } from './fixtures/image-plugin-runtime.mjs'
 
 async function withTempDir(run) {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-image-metadata-'))
@@ -99,4 +100,52 @@ test('大图片文件只请求读取最多 24 字节，并关闭文件句柄', a
     assert.equal(result.width, 1920)
     assert.equal(result.height, 1080)
   })
+})
+
+test('runtime 从 orphan PNG 恢复图库状态，并恢复无 MIME 旧作业与去重 key', async t => {
+  const fixture = await imagePluginFixture(t)
+  const cacheDir = join(fixture.pluginRoot, 'cache')
+  await mkdir(cacheDir, { recursive: true })
+  const orphanId = '00000000-0000-4000-8000-000000000101'
+  const legacyId = '00000000-0000-4000-8000-000000000102'
+  const repairedId = '00000000-0000-4000-8000-000000000103'
+  const orphanFile = join(cacheDir, orphanId + '.png')
+  const legacyFile = join(cacheDir, legacyId + '.img')
+  const repairedFile = join(cacheDir, repairedId + '.img')
+  await writeFile(orphanFile, IMAGE_PNG)
+  await writeFile(legacyFile, IMAGE_PNG)
+  await writeFile(repairedFile, IMAGE_PNG)
+  await writeFile(join(fixture.pluginRoot, 'jobs-store.json'), JSON.stringify({
+    [legacyId]: {
+      id: legacyId, state: 'done', createdAt: 1, key: 'restored-cache-key',
+      positive: 'a saved image', file: legacyFile, params: {},
+    },
+    [repairedId]: {
+      id: repairedId, state: 'running', createdAt: 2, mediaType: 'image/png',
+      byteLength: 0, file: repairedFile, size: { width: 2, height: 2 }, params: {},
+    },
+  }))
+
+  const runtime = await fixture.start()
+  const state = await runtime.request('state')
+  const orphan = state.body.jobs.find(job => job.id === orphanId)
+  assert.ok(orphan)
+  assert.equal(orphan.state, 'done')
+  assert.equal(orphan.size, '2x2')
+  assert.equal(orphan.mediaType, 'image/png')
+  assert.equal(orphan.byteLength, IMAGE_PNG.length)
+  assert.equal(orphan.hasImage, true)
+  const repaired = state.body.jobs.find(job => job.id === repairedId)
+  assert.ok(repaired)
+  assert.equal(repaired.state, 'done')
+  assert.equal(repaired.percent, 100)
+  assert.equal(repaired.byteLength, IMAGE_PNG.length)
+  assert.equal(repaired.mediaType, 'image/png')
+
+  const legacy = await runtime.request('jobs?key=restored-cache-key')
+  assert.equal(legacy.body.job.id, legacyId)
+  assert.equal(legacy.body.job.state, 'done')
+  assert.equal(legacy.body.job.mediaType, 'image/png')
+  const reused = await runtime.request('jobs', { tag: 'a saved image', key: 'restored-cache-key' })
+  assert.equal(reused.body.id, legacyId)
 })

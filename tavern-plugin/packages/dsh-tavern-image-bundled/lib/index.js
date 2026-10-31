@@ -29,6 +29,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildAutoImageGenPrompt } from './prompts.js'
 import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
+import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit } from './image-provider-capabilities.js'
@@ -1267,7 +1268,7 @@ function createRuntime(ctx, overrides, logger, deps) {
                 } catch { /* 文件真的不在就保持原样 */ }
               }
               if (!job.mediaType) {
-                try { job.mediaType = imageMediaTypeFromBytes(await readFile(job.file)) || 'image/png' }
+                try { job.mediaType = (await readImageFileMetadata(job.file)).mediaType || 'image/png' }
                 catch { job.mediaType = 'image/png' }
               }
               if (job.backend && job.backend !== 'comfyui' && ['pending', 'running'].includes(job.state)) {
@@ -1297,17 +1298,16 @@ function createRuntime(ctx, overrides, logger, deps) {
             // byteLength 必须填成文件的真实字节数：取图路由的门槛是 `if (!job.file || !job.byteLength)`，
             // 填 0 会让这个作业永远被判成「图片还没生成好」而返回 404 —— 列表里明明有图却打不开。
             let bytes = 0
-            let cached = Buffer.alloc(0)
+            let imageMetadata = null
             // 用文件修改时间当作生成时间：图库按 createdAt 排序，写 Date.now() 会让所有历史图每次重启都跑到最前面
             let createdAt = Date.now()
             try {
-              const buf = await readFile(join(dir, name))
-              cached = buf
-              bytes = buf.length
-              if (buf.length > 24 && buf[1] === 0x50 && buf[2] === 0x4e) size = { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
-              createdAt = (await stat(join(dir, name))).mtimeMs || createdAt
+              imageMetadata = await readImageFileMetadata(join(dir, name))
+              bytes = imageMetadata.byteLength
+              if (imageMetadata.width !== null && imageMetadata.height !== null) size = { width: imageMetadata.width, height: imageMetadata.height }
+              createdAt = imageMetadata.mtimeMs || createdAt
             } catch { /* 读不到尺寸就算了 */ }
-            jobs.set(id, { id, state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMediaTypeFromBytes(cached) || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
+            jobs.set(id, { id, state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
             added++
           }
           if (added) logger.info?.('dsh-tavern-image: 从 cache 补回 ' + added + ' 张历史图片')
@@ -5072,15 +5072,6 @@ async function writeJsonAtomic(path, value) {
 }
 
 function cacheRoot(config) { return join(ROOT, String(config.cacheDir || DEFAULTS.cacheDir)) }
-
-function imageMediaTypeFromBytes(bytes) {
-  if (!bytes || bytes.length < 4) return ''
-  if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png'
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
-  if (bytes.length >= 6 && /^GIF8[79]a$/.test(bytes.toString('ascii', 0, 6))) return 'image/gif'
-  return ''
-}
 
 /** 按配置生成 ComfyUI 的鉴权头。 */
 function comfyHeaders(config) {
