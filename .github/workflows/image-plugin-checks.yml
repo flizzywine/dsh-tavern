@@ -8,8 +8,12 @@ on:
       - 'tests/bundled-image-*.test.mjs'
       - 'tests/bundled-scene-image-plugin.test.mjs'
       - 'tests/browser/bundled-image-reference-settings-browser-smoke.mjs'
+      - 'tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs'
       - 'tests/fixtures/browser-react.mjs'
       - 'tavern-plugin/packages/dsh-tavern-image-bundled/**'
+      - 'tavern-plugin/src/client/features/assistant-renderer.js'
+      - 'tavern-plugin/src/client/features/plugin-extensions.js'
+      - 'tavern-plugin/lib/client.js'
       - 'bin/build-tavern-client.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -75,3 +79,6 @@ jobs:
       - name: Run reference settings browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/bundled-image-reference-settings-browser-smoke.mjs
+      - name: Run manual illustration direction browser check
+        if: matrix.os == 'ubuntu-22.04'
+        run: node tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs

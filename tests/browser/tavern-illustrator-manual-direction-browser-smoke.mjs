@@ -1,12 +1,14 @@
 // Run explicitly: node tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs
 // Mounts the real host action with React in Chrome, plus the real illustrator request wrapper.
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { parse } from 'acorn'
 import { chromium } from 'playwright'
 import { browserReactScript } from '../fixtures/browser-react.mjs'
 
-const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
 const hostSource = await readFile(new URL('../../tavern-plugin/src/client/features/assistant-renderer.js', import.meta.url), 'utf8')
 const extensionsSource = await readFile(new URL('../../tavern-plugin/src/client/features/plugin-extensions.js', import.meta.url), 'utf8')
 const imageClientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/client.js', import.meta.url), 'utf8')
@@ -31,6 +33,10 @@ const action = declaration(hostSource, 'TavernPluginIllustrateAction')
 const icon = declaration(hostSource, 'TavernIllustrateIcon')
 const run = declaration(extensionsSource, 'runTavernIllustrator')
 const drawRunner = declaration(imageClientSource, 'createMessageDrawRunner')
+const chromeCandidates = [process.env.CHROME_PATH]
+if (process.platform === 'win32') chromeCandidates.push('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
+const chromePath = chromeCandidates.find(candidate => candidate && existsSync(candidate)) || chromium.executablePath()
+if (!existsSync(chromePath)) throw new Error('Chrome/Chromium not found; install Playwright Chromium or set CHROME_PATH')
 const browser = await chromium.launch({ headless: true, executablePath: chromePath })
 try {
   const page = await browser.newPage()
@@ -89,8 +95,9 @@ try {
   await page.waitForTimeout(40)
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'release click after long press does not draw')
   await page.getByRole('textbox', { name: '本次配图要求（最多 2000 字）' }).fill('示例：从门外侧拍摄，镜头略低；角色正在推开窗户。')
-  await page.screenshot({ path: `${process.env.TEMP}\\dsh-tavern-manual-direction-dialog.png` })
-  console.log(`SCREENSHOT ${process.env.TEMP}\\dsh-tavern-manual-direction-dialog.png`)
+  const screenshotPath = join(tmpdir(), 'dsh-tavern-manual-direction-dialog.png')
+  await page.screenshot({ path: screenshotPath })
+  console.log(`SCREENSHOT ${screenshotPath}`)
   await page.getByRole('button', { name: '取消' }).click()
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'cancel does not submit a request')
 
