@@ -35,6 +35,7 @@ for (const check of [false, true]) {
     const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
     await mkdir(stage, {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))
+    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/timer-clock.cjs', import.meta.url), path.join(stage, 'timer-clock.cjs'))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
     await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), path.join(stage, 'runtime-kernel.cjs'))

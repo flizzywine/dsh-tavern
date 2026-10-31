@@ -8,6 +8,10 @@ window.__ModuleLoader__.load({
         __STAGE_ADMISSION__
         __STAGE_PROGRESS__
         __STAGE_VIDEO__
+        const timerClock = (() => {
+            __TIMER_CLOCK__
+            return {timerClockRemaining};
+        })();
         __STAGE_TIMER__
         __STAGE_VIEWS__
         return ({

@@ -1,5 +1,8 @@
 'use strict';
-function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer, useModOptions, performanceSafety}) {
+const stageTimerClock = typeof window === 'undefined' && typeof module !== 'undefined'
+    ? require('../../lib/client/timer-clock.cjs') : timerClock;
+function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer, useModOptions, performanceSafety}) {
+const {timerClockRemaining} = stageTimerClock;
 let disposed = false;
 const cleanups = new Set(), timerSeenEvents = new Set();
 function ownCleanup(release) {
