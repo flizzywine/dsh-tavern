@@ -417,17 +417,12 @@ function galCreateScene(host, options) {
         if (entry.loading || entry.sprite || entry.failed || !entry.url) return;
         entry.loading = true;
         const identity = entry.figure.identity, config = entry.figure.spine || {};
-        spineLoadData(entry.url).then(function (loaded) {
-            const figure = spineFigure(PIXI, loaded, config);
+        const input = entry.figure.figureSizing, anatomy = input?.pack && input.anatomy;
+        stageViews.spineFigures.prepare({PIXI,url:entry.url,config,identity,renderer:app.renderer,anatomy}).then(function (figure) {
+            if (!figure) {entry.loading=false;return;}
             if (entry.dead || state.destroyed) { figure.destroy(); return; }
             entry.loading = false; entry.spineFigure = figure;
-            const frame = spineFrame(figure.spine, config.frame), canvas = [frame[2], frame[3]];
-            const input = entry.figure.figureSizing, anatomy = input?.pack && input.anatomy;
-            const measured = anatomy ? null : spineMeasure(figure.spine, frame, identity, app.renderer, PIXI);
-            const fade = packSpineBottomFade(config.bottomFade, anatomy, measured && measured.candidate.auto, frame[3]);
-            if (fade) spineBottomFade(PIXI, figure, frame, fade);
-            const body = spineBody(PIXI, figure.spine, frame);
-            body.forkHeadTop = anatomy ? anatomy.headTop : measured.headTop;
+            const {frame,measured,body}=figure,canvas=[frame[2],frame[3]];
             body.figureInput = null;
             if (input?.pack && input.source) {
                 entry.figureCandidate = measured ? measured.candidate : null;

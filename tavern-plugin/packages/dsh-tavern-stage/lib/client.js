@@ -6483,6 +6483,37 @@ function createStageLookUi({React}) {
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageLookUi};
 
+        // Own stage figure preparation and lifetime; the shared rig also serves independent material previews.
+function createStageSpineFigures({rig,bottomFade}) {
+    let disposed=false;const figures=new Set();
+    async function prepare({PIXI,url,config,identity,renderer,anatomy}) {
+        if(disposed)return null;
+        const loaded=await rig.spineLoadData(url);
+        if(disposed){for(const texture of loaded.textures)texture.destroy();return null;}
+        let figure,body,closed=false,owned;
+        const destroy=()=>{
+            if(closed)return;closed=true;figures.delete(owned);const errors=[];
+            for(const release of [()=>{if(body&&!body.destroyed)body.destroy({children:true});},()=>{if(figure)figure.destroy();else for(const texture of loaded.textures)texture.destroy();}])try{release();}catch(error){errors.push(error);}
+            if(errors.length)throw new AggregateError(errors,'Spine figure cleanup failed');
+        };
+        try {
+            figure=rig.spineFigure(PIXI,loaded,config);
+            const frame=rig.spineFrame(figure.spine,config.frame);
+            const measured=anatomy?null:rig.spineMeasure(figure.spine,frame,identity,renderer,PIXI);
+            const fade=bottomFade(config.bottomFade,anatomy,measured?.candidate.auto,frame[3]);
+            if(fade)rig.spineBottomFade(PIXI,figure,frame,fade);
+            body=rig.spineBody(PIXI,figure.spine,frame);
+            body.forkHeadTop=anatomy?anatomy.headTop:measured.headTop;
+            owned={spine:figure.spine,body,frame,measured,
+                mood(...args){if(!closed)figure.mood(...args);},voice(...args){if(!closed)figure.voice(...args);},update(...args){if(!closed)figure.update(...args);},
+                debug:()=>figure.debug(),destroy};
+            figures.add(owned);return owned;
+        }catch(error){try{destroy();}catch(cleanup){throw new AggregateError([error,cleanup],'Spine figure preparation failed');}throw error;}
+    }
+    return {prepare,dispose(){if(disposed)return;disposed=true;const errors=[];for(const figure of [...figures])try{figure.destroy();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage Spine cleanup failed');}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSpineFigures};
+
         function createStageSceneGraphics({window,document,paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette}) {
 // Ordered, named filter slots on one container: set(name, filter) adds or replaces (null removes);
 // disabled filters (filter.enabled = false) are skipped; no filters at all means no render pass.
@@ -15161,7 +15192,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entranceMedia=own(createStageEntranceMedia({...options.entranceMedia,files:entranceContract?.stageEntranceFiles}));
                     const entranceRendererScope=own(createStageEntranceRenderer({window,contractFactory:options.entranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop}));
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
-                    return {sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    return {spineFigures:own(createStageSpineFigures(options.spineFigures||{})),sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
