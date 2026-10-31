@@ -24,5 +24,5 @@ if [ -f "$PROFILE_MANIFEST" ] && ! grep -q "\"dsh-tavern-plugin\": \"link:$APP/t
   echo "命令行版的插件链接指向了别处，正在改回 $APP/tavern-plugin……"
   node "$APP/bin/dsh-tavern.mjs" install
 fi
-echo "已同步到 $APP，正在重启……"
+echo "已同步到 ${APP}，正在重启……"
 DSH_TAVERN_NO_OPEN=1 node "$APP/bin/dsh-tavern.mjs" restart
