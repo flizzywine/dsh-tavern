@@ -54,7 +54,8 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
-const stageLifecycle = process.argv.includes('--stage-lifecycle')
+const stageServerLifecycle = process.argv.includes('--stage-server-lifecycle')
+const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
 const stagePluginScenario = stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
@@ -188,6 +189,13 @@ try {
     // The stage scenario runs with the sidebar a real install gets (no Tasks tab), as players see it.
     if (castScenario) await writeFile(join(root, 'settings.yaml'), stringifyYaml(applySidebarDefaults({})))
     await writeFile(join(profile, 'cordis.patch.yml'), `- id: agent-default-model\n  config:\n    provider: tavern-e2e\n    model: fixed\n- insert:\n    - id: tavern-e2e-model\n      name: ${JSON.stringify(join(source, 'tests/e2e/model.mjs'))}\n`)
+    if(stageServerLifecycle) {
+      const patch=join(profile,'cordis.patch.yml')
+      await writeFile(patch,(await readFile(patch,'utf8'))+`- insert:
+    - id: stage-lifecycle-test
+      name: ${JSON.stringify(join(source,'tests/e2e/stage-lifecycle-host.mjs'))}
+`)
+    }
     await mkdir(join(data, 'resources/presets'), { recursive: true })
     for (const key of ['A', 'B']) await writeFile(join(data, `resources/presets/E2E-${key}.json`), JSON.stringify({
       prompts: [{ identifier: 'main', name: `E2E ${key}`, role: 'system', content: `E2E_PRESET_${key}_ACTIVE`, enabled: true }],
@@ -225,6 +233,7 @@ try {
       const env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SYSTEMROOT'].filter(key => process.env[key]).map(key => [key, process.env[key]]))
       child = spawn(process.execPath, [...(process.argv.includes('--settlement-performance') ? ['--import', join(source, 'tests/e2e/settlement-perf-register.mjs')] : []), cli, '--profile', 'tavern', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
         cwd: source, env: { ...env, DSH_HOME: root, DSH_CWD: root,
+          TAVERN_E2E_STAGE_CONTROL: stageServerLifecycle ? output : '',
           TAVERN_E2E_COMPACTION_DIR: compactionScenario ? output : '',
           TAVERN_E2E_RECOVERY_DIR: recoveryScenario ? output : '',
           TAVERN_E2E_PERFORMANCE_DIR: process.argv.includes('--settlement-performance') || process.argv.includes('--storage-audit') ? output : '',
@@ -584,6 +593,41 @@ try {
         assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
         const input=page.getByRole('textbox',{name:/发消息|Message/})
         await input.fill('热停用期间保留的草稿')
+        if(stageServerLifecycle) {
+          async function command(action) {
+            const id=cycle+'-'+action
+            await writeFile(join(output,'stage-command.json'),JSON.stringify({id,action}))
+            for(let attempt=0;attempt<150;attempt++) {
+              const result=await readFile(join(output,'stage-result.json'),'utf8').then(JSON.parse).catch(()=>null)
+              if(result?.id===id){assert.equal(result.error,undefined);assert.equal(result.status,action==='disable'?'disabled':'ready');return}
+              await page.waitForTimeout(100)
+            }
+            throw Error('Stage server lifecycle did not settle: '+action)
+          }
+          const readKinds=()=>page.evaluate(async()=> (await fetch('/api/dsh-tavern/getStagePerformanceKinds',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).json())
+          assert.ok(Array.isArray((await readKinds()).kinds),'停用前 RPC 应可用')
+          await command('disable')
+          const unavailable=await readKinds()
+          assert.equal(unavailable.ok,false,'舞台服务停用后 RPC 应撤销')
+          assert.match(unavailable.error || unavailable.message || '',/未知方法|未启用/)
+          if(cycle===0) {
+            const before=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).length
+            await input.fill('领取任务奖励')
+            await input.press('Enter')
+            let generated=false
+            for(let attempt=0;attempt<100;attempt++) {
+              generated=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting&&row.text?.includes('你获得了十枚金币')).length>before
+              if(generated)break
+              await page.waitForTimeout(200)
+            }
+            assert.ok(generated,'前后端均停用时普通聊天必须生成并保存')
+            report.generatedWithStageDisabled=true
+            await input.fill('热停用期间保留的草稿')
+          }
+          await command('enable')
+          assert.ok(Array.isArray((await readKinds()).kinds),'重启后 RPC 应恢复')
+        }
+
         await page.evaluate(()=>window.__stageLifecycleTest.enable())
         await page.getByRole('button',{name:'舞台',exact:true}).click()
         await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
@@ -596,16 +640,17 @@ try {
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
       }
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
+      const priorReplies=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).length
       await composer.fill('领取任务奖励')
       await composer.press('Enter')
       await page.waitForFunction(() => [...document.querySelectorAll('.dsh-tavern-user-bubble')].filter(el => el.textContent.includes('领取任务奖励')).length >= 2)
       let replies = []
       for (let attempt = 0; attempt < 100; attempt++) {
         replies = (await savedChat()).messages.filter(row => row.role === 'assistant' && !row.greeting && row.text?.includes('你获得了十枚金币'))
-        if (replies.length >= 2) break
+        if (replies.length > priorReplies) break
         await page.waitForTimeout(200)
       }
-      assert.ok(replies.length >= 2, '退出舞台后的第二轮正文必须真实生成并保存')
+      assert.ok(replies.length > priorReplies, '舞台操作后的新一轮正文必须真实生成并保存')
       await page.reload({ waitUntil: 'domcontentloaded' })
       await composer.waitFor({ state: 'visible' })
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
