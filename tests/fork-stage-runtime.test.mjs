@@ -2,6 +2,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
+import {readFileSync} from 'node:fs'
+import vm from 'node:vm'
 import {createStageRuntimeHarness, runtimeSource as source, runtimePage as page,
   runtimeText as text, runtimeDirection as direction, runtimeGroups as groups} from './helpers/stage-runtime-harness.mjs'
 const require = createRequire(import.meta.url)
@@ -359,4 +361,30 @@ test('stale resource diagnostics and closed-stage one-shot completions cannot af
   h.dispatch({type: 'ONE_SHOT_FAILED', token: nextShot})
   h.readyOneShot(nextShot)
   assert.equal(h.effects('play-one-shot').length, 0)
+})
+
+// No application globals, CommonJS loader, DOM, or shared browser closure.
+test('runtime kernel runs in an isolated browser realm with explicit collaborators', () => {
+  const factory = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/stage-runtime-kernel.cjs', import.meta.url), 'utf8') + '\ncreateStageRuntimeKernel', {})
+  const isolated = factory({
+    performanceStateKernel: require('../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'),
+    modProjectionKernel: require('../tavern-plugin/src/client/mod-projection.cjs'),
+    phoneBeatKernel: require('../tavern-plugin/src/client/phone-beat.cjs'),
+    performanceKindsKernel: require('../tavern-plugin/src/client/stage-performance-kinds.cjs'),
+  })
+  let local = createStageRuntimeState(), remote = isolated.createStageRuntimeState()
+  const s = source()
+  for (const event of [
+    {type: 'SEND_ACK', source: s},
+    {type: 'TEXT_APPEND', source: s, text: text(1, pages(), true)},
+    {type: 'DISPOSE'},
+    {type: 'TEXT_APPEND', source: s, text: text(2, pages(), false)},
+  ]) {
+    const expected = reduceStageRuntime(local, event)
+    const actual = isolated.reduceStageRuntime(remote, event)
+    assert.deepEqual(JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(expected)))
+    local = expected.state
+    remote = actual.state
+  }
+  assert.equal(remote.disposed, true)
 })
