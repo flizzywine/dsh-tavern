@@ -1,3 +1,13 @@
+'use strict';
+function createStageMenu({React, window, document, sounds:forkUiSfx, getSession}) {
+let disposed = false;
+const cleanups = new Set();
+function own(cleanup) {
+    let active = true;
+    const stop = () => { if (!active) return; active = false; cleanups.delete(stop); cleanup(); };
+    if (disposed) stop(); else cleanups.add(stop);
+    return stop;
+}
 // the stage's system menu, galgame style. Esc on the stage
 // (after any inner overlay has taken its own Esc) opens it: a centred opaque panel over the dimmed stage with
 // 回到舞台 / 履历 / 回想 (the CG gallery) / 重新生成 (latest only; 跳到最新一轮 in its place while reading an earlier turn) / 设置 / 快捷键 / 返回主页面. The stage owns the open state and
@@ -41,10 +51,10 @@ function galMenuStep(index, count, key, shift) {
 
 // Read only the existing runtime's activity; presentation remains owned by the Phase F cutover.
 function useGalMenuDirectorBusy(sessionId, turn) {
-    const store = stageSessions.get(sessionId);
+    const store = getSession(sessionId);
     const selection = React.useMemo(() => store ? store.select(state => state.source?.turn === turn && ["running", "partial"].includes(state.director.phase))
         : { subscribe: () => () => {}, getSnapshot: () => false, dispose() {} }, [store, turn]);
-    React.useEffect(() => () => selection.dispose(), [selection]);
+    React.useEffect(() => own(() => selection.dispose()), [selection]);
     return React.useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }
 
@@ -81,6 +91,7 @@ function GalMenu(props) {
         focusItem(index);
     }
     function activate(index) {
+        if (disposed) return;
         const current = live.current, item = current.items[index];
         if (!item || item.disabled) return;
         const p = current.props;
@@ -107,7 +118,7 @@ function GalMenu(props) {
         if (!live.current.regenerateOpen) focusItem(0);
         forkUiSfx.play("open");
         function onKey(event) {
-            if (event.isComposing || live.current.regenerateOpen || live.current.props.leaving) return;
+            if (disposed || event.isComposing || live.current.regenerateOpen || live.current.props.leaving) return;
             const key = event.key;
             // the top bar (the stage entries) stands over the open menu in every skin: its
             // own keys stay its own, Tab leaves the list into it and comes back the native way.
@@ -128,10 +139,10 @@ function GalMenu(props) {
             }
         }
         window.addEventListener("keydown", onKey, true);
-        return function () {
+        return own(function () {
             window.removeEventListener("keydown", onKey, true);
             if (!leaving.current && opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
-        };
+        });
     }, []);
     // The opener is hidden during the dialog's cleanup; restore it after the menu is visible again.
     React.useLayoutEffect(function () { if (!regenerateOpen) focusItem(active); }, [regenerateOpen]);
@@ -140,7 +151,7 @@ function GalMenu(props) {
     // A click on the dimmed stage or a right click: back out of the dialog first, else close the menu. (owner
     // 2026-10): not while a regeneration runs - only its 停止 (the wait, Esc, a right click on the dialog) ends it.
     function dismiss() {
-        if (regenerateBusy) return;
+        if (disposed || regenerateBusy) return;
         if (regenerateOpen) { forkUiSfx.play("cancel"); closeRegenerate(); } else { forkUiSfx.play("close"); props.onClose(); }
     }
     const children = [];
@@ -175,3 +186,13 @@ function GalMenu(props) {
             h("div", { className: "fork-gal-menu-strip", "data-show": "info", "aria-hidden": true }, items[active] ? items[active].title || items[active].label : ""),
             h("div", { className: "fork-gal-menu-strip", "data-show": "keys", "aria-hidden": true }, "Esc：返回　Enter：决定")));
 }
+
+return {Menu:GalMenu, items:galMenuItems, step:galMenuStep, dispose() {
+    if (disposed) return;
+    disposed = true;
+    const errors = [];
+    for (const stop of [...cleanups]) { try {stop();} catch (error) {errors.push(error);} }
+    if (errors.length) throw new AggregateError(errors, 'Stage menu cleanup failed');
+}};
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageMenu};

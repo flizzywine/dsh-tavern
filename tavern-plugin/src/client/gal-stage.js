@@ -11,7 +11,6 @@
 // @include-protocol stage-pacing.cjs
 // @include-protocol stage-soundscape.cjs
 // @include gal-history.js
-// @include gal-menu.js
 // @include mod-performance.js
 // @include textcard-stage.js
 // @include gal-entry.js
@@ -1294,7 +1293,7 @@ function GalStage(props) {
         galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:()=>{setGallery(false);backlogClosedAt.current=Date.now();}}) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
-        menuOpen ? h(GalMenu, menuProps(false)) : menuLeaving ? h(GalMenu, menuProps(true)) : null,
+        menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,
         // a running / finished clip export, while the reader keeps playing.
         null,
         backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, direction:receivedDirection, readDirection:args=>rpc('getStageDirection',args,sessionId), textIndex:runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: jumpBack, onClose: closeBacklog,
@@ -1434,6 +1433,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+        menu:{sounds:forkUiSfx,getSession:id => stageSessions.get(id)},
         position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor, navigate:(...args) => stageSessions.owner.navigate(...args)},
         subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
         notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
