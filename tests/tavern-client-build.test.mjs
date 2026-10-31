@@ -11,6 +11,8 @@ import { assembleTavernClient } from '../bin/build-tavern-client.mjs'
 test('完整客户端必须可解析，局部源码测试不能代替入口语法检查', async () => {
   const source = await assembleTavernClient()
   assert.doesNotThrow(() => new vm.Script(source, { filename: 'tavern-plugin/lib/client.js' }))
+  assert.equal(source.includes('.fork-tc-layer {'), false, 'stage text-card CSS is not embedded in core')
+  assert.equal(source.includes('.fork-widget-source-controls{position:absolute;'), false, 'stage widget layout CSS is not embedded in core')
 })
 
 for (const check of [false, true]) {
@@ -41,7 +43,7 @@ for (const check of [false, true]) {
     for (const name of ['surfaces.cjs']) {
       await copyFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), path.join(root, 'tavern-plugin/src/client', name))
     }
-    for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'phone.css', 'mod-config.css', 'textcard.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')
+    for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'mod-config.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')
     await mkdir(path.join(root, 'tavern-plugin/shared'), { recursive: true })
     await writeFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'module.exports = {};')
     // The copied builder imports its dependencies (acorn) by package name. Windows needs a privilege to make

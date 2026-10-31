@@ -27,8 +27,10 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const {startStageClientLifetime} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/lifetime.cjs')
   const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
   let definition
+  const styles = new Set()
+  const document = {head:{appendChild:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
-    window:{__ModuleLoader__:{load(value) {definition = value}}}
+    document, window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
   assert.equal(definition.id, 'dsh-tavern-stage')
   const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
@@ -38,15 +40,21 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const ctx = new Context()
   ctx.provide('tavernStageFrontend', {mount:host.mount})
   assert.deepEqual(seen, [], 'core setup does not start the stage')
+  assert.equal(styles.size,0)
   const plugin = definition.factory()
   const first = ctx.plugin(plugin); await first.await()
   assert.deepEqual(seen,['tab','sessions'])
+  assert.equal(styles.size,1)
+  assert.match([...styles][0].textContent, /fork-tc-layer/)
+  assert.match([...styles][0].textContent, /fork-widget-source-controls/)
   assert.throws(() => host.mount(), /already mounted/)
   await first.dispose()
   assert.deepEqual(seen,['tab','sessions','stop-sessions','remove-tab'])
+  assert.equal(styles.size,0)
   const second = ctx.plugin(plugin); await second.await()
   assert.deepEqual(seen.slice(-2),['tab','sessions'])
   await second.dispose()
+  assert.equal(styles.size,0)
   host.dispose()
   assert.throws(() => host.mount(), /disposed/)
   await ctx.fiber.dispose()
@@ -69,4 +77,16 @@ test('failed browser stage mount rolls back registrations and can be retried', (
   stop(); stop()
   assert.equal(count,0)
   host.dispose()
+})
+
+
+test('browser stage entry removes its style when mounting fails', async () => {
+  const styles = new Set()
+  let definition
+  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
+    document:{head:{appendChild:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
+    window:{__ModuleLoader__:{load(value) {definition = value}}}
+  })
+  assert.throws(() => definition.factory().apply({get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}), /failed/)
+  assert.equal(styles.size,0)
 })

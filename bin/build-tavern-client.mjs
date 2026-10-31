@@ -69,10 +69,7 @@ export async function assembleTavernClient() {
   const css = await readCss('tavern.css')
   const featureCss = await readCss('theme.css')
     + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/layered-sprite.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n')).then(value => '\n' + value)
-    // Source-linked phone presentation shares the stage theme tokens; no runtime style injection.
-    + '\n' + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/phone.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
     + '\n' + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/mod-config.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
-    + '\n' + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/textcard.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
   const keywordCatalogue = await readFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
   const expanded = (await expand(template, new Set())).replace('__TAVERN_KEYWORD_CATALOGUE__', () => '(function () { const window = undefined, module = { exports: {} }; ' + keywordCatalogue + '; return module.exports; })()')
   const moods = expanded.includes('__TAVERN_BUBBLE_MOODS__')
