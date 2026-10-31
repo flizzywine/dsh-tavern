@@ -49746,6 +49746,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    };
 		    React.useEffect(()=>{
 		        let live=true,reading=false,dirty=false,version=0;
+		        const sessionRuntime=stageViews.sessionRuntime;
 		        const root=marker.current.closest('.fork-gal-stage');
 		        host.current=createModUiLayerHost({root,renderers:MOD_STAGE_RENDERERS});
 		        // Streaming lines can arrive faster than reads: show each result, then read the latest once.
@@ -49755,7 +49756,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            try {while(live&&dirty){dirty=false;const anchor=page(),own=version;try{const result=await rpc('getModStageViews',{sessionId},sessionId);if(live&&own===version&&anchor===page()){rows.current=result.views;sync();}else if(live&&own===version&&anchor!==page())dirty=true;}catch(error){if(live&&own===version&&anchor===page()){rows.current=[];sync();console.warn('Mod display read failed',error);}}}}
 		            finally{reading=false;}
 		        };
-		        const activity=()=>{stageSessions.reannounceMod(sessionId);void read();};
+		        const activity=()=>{if(!live)return;sessionRuntime.reannounce(sessionId);void read();};
 		        refresh.current=read;
 		        const visibility=()=>{if(!document.hidden)activity();else sync();};
 		        // A mod switched off or reconfigured: its held layer goes with the next read instead of waiting out the hold.
@@ -59663,10 +59664,11 @@ function usePerformanceLayer(rootRef,sessionId,reading) {
     const accept=React.useCallback(intent=>{if(intent.cue)cue.current=intent.cue;return ref.current?.apply(intent);},[]);
     React.useLayoutEffect(()=>{
         const root=rootRef.current;if(!root)return;
+        const sessionRuntime=stageViews.sessionRuntime;
         setPerformance(null);setPlayback(null);
         const rects=createStageRects({root,schedule:fn=>forkForeground.requestAnimationFrame(fn),cancel:id=>forkForeground.cancelAnimationFrame(id)});
         ref.current=createPerformanceSkinLayer({root,rects,owner:stageSessions.resourceOwner,foreground:forkForeground,onChange:setValue,onPresentation:setPerformance,onPlayback:setPlayback,onCue:event=>cue.current?.(event),
-            onPresented:intent=>stageSessions.notifyMod(sessionId,'performance.presented',stageSessions.get(sessionId)?.getSnapshot(),{performanceId:JSON.stringify(intent.value.instanceKey),phase:intent.value.phase || 'idle'}),
+            onPresented:intent=>sessionRuntime.presented(sessionId,{performanceId:JSON.stringify(intent.value.instanceKey),phase:intent.value.phase || 'idle'}),
             // only the explicit CONFIG choice freezes; the OS preference (e.g. Windows
             // "show animations" off) is calm: rituals and idle stepping stay, softened.
             safety:()=>performanceSafety(policy.current,window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)});

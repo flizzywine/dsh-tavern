@@ -108,10 +108,11 @@ function usePerformanceLayer(rootRef,sessionId,reading) {
     const accept=React.useCallback(intent=>{if(intent.cue)cue.current=intent.cue;return ref.current?.apply(intent);},[]);
     React.useLayoutEffect(()=>{
         const root=rootRef.current;if(!root)return;
+        const sessionRuntime=stageViews.sessionRuntime;
         setPerformance(null);setPlayback(null);
         const rects=createStageRects({root,schedule:fn=>forkForeground.requestAnimationFrame(fn),cancel:id=>forkForeground.cancelAnimationFrame(id)});
         ref.current=createPerformanceSkinLayer({root,rects,owner:stageSessions.resourceOwner,foreground:forkForeground,onChange:setValue,onPresentation:setPerformance,onPlayback:setPlayback,onCue:event=>cue.current?.(event),
-            onPresented:intent=>stageSessions.notifyMod(sessionId,'performance.presented',stageSessions.get(sessionId)?.getSnapshot(),{performanceId:JSON.stringify(intent.value.instanceKey),phase:intent.value.phase || 'idle'}),
+            onPresented:intent=>sessionRuntime.presented(sessionId,{performanceId:JSON.stringify(intent.value.instanceKey),phase:intent.value.phase || 'idle'}),
             // only the explicit CONFIG choice freezes; the OS preference (e.g. Windows
             // "show animations" off) is calm: rituals and idle stepping stay, softened.
             safety:()=>performanceSafety(policy.current,window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)});

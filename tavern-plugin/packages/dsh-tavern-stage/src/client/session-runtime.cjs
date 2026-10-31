@@ -1,6 +1,6 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
 function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
-    let disposed=false;const owners=new Set(),connections=new Set();
+    let disposed=false;const owners=new Set(),connections=new Map();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
     function own(owner){
@@ -63,7 +63,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 if(started)return;started=true;
                 try{
                     owner.start();
-                    connections.add(owner);
+                    connections.set(owner,notifications);
                     if(observationInputs){
                         const observation=createObservation({...observationInputs,owner,resources});
                         acquired.push(observation);
@@ -79,7 +79,13 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             throw error;
         }
     }
-    return {get(id){if(disposed)return null;for(const owner of connections){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
+    function notify(id,method,detail){
+        if(disposed)return;
+        for(const [owner,notifications] of connections){
+            if(owner.get(id)){notifications?.[method](id,detail);return;}
+        }
+    }
+    return {presented:(id,detail)=>notify(id,'presented',detail),reannounce:id=>notify(id,'reannounce'),get(id){if(disposed)return null;for(const owner of connections.keys()){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;

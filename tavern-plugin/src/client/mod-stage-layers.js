@@ -60,6 +60,7 @@ function ModStageLayers({sessionId,sourceKey,stage:facts,config}) {
     };
     React.useEffect(()=>{
         let live=true,reading=false,dirty=false,version=0;
+        const sessionRuntime=stageViews.sessionRuntime;
         const root=marker.current.closest('.fork-gal-stage');
         host.current=createModUiLayerHost({root,renderers:MOD_STAGE_RENDERERS});
         // Streaming lines can arrive faster than reads: show each result, then read the latest once.
@@ -69,7 +70,7 @@ function ModStageLayers({sessionId,sourceKey,stage:facts,config}) {
             try {while(live&&dirty){dirty=false;const anchor=page(),own=version;try{const result=await rpc('getModStageViews',{sessionId},sessionId);if(live&&own===version&&anchor===page()){rows.current=result.views;sync();}else if(live&&own===version&&anchor!==page())dirty=true;}catch(error){if(live&&own===version&&anchor===page()){rows.current=[];sync();console.warn('Mod display read failed',error);}}}}
             finally{reading=false;}
         };
-        const activity=()=>{stageSessions.reannounceMod(sessionId);void read();};
+        const activity=()=>{if(!live)return;sessionRuntime.reannounce(sessionId);void read();};
         refresh.current=read;
         const visibility=()=>{if(!document.hidden)activity();else sync();};
         // A mod switched off or reconfigured: its held layer goes with the next read instead of waiting out the hold.

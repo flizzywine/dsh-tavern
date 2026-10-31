@@ -102,3 +102,14 @@ test('runtime UI lookup resolves only started connections and drops disposed own
  assert.equal(runtime.get('a'),null);connection.start();assert.equal(runtime.get('a'),store)
  connection.dispose();assert.equal(runtime.get('a'),null);runtime.dispose()
 })
+
+test('presentation and mod refresh route through the active plugin connection only',()=>{
+ const calls=[],owner={get:id=>id==='a'?{}:null,start(){},dispose(){}}
+ const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),createResourceModule:()=>({createStageResourceRunner:()=>({dispose(){}})}),createDirectorModule:()=>({createStageDirectorSource:()=>({dispose(){}})}),
+ createModNotifications:()=>({observe(){},dispose(){},presented:(...args)=>calls.push(['presented',...args]),reannounce:id=>calls.push(['reannounce',id])})})
+ const connection=runtime.createConnection({resources:{},direction:{},session:{},notifications:{}})
+ runtime.reannounce('a');assert.equal(calls.length,0)
+ connection.start();runtime.presented('a',{performanceId:'p',phase:'entry'});runtime.reannounce('a');runtime.reannounce('missing')
+ assert.deepEqual(calls,[['presented','a',{performanceId:'p',phase:'entry'}],['reannounce','a']])
+ connection.dispose();runtime.reannounce('a');runtime.presented('a',{});runtime.dispose();assert.equal(calls.length,2)
+})

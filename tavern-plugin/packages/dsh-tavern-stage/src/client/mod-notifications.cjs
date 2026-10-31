@@ -95,6 +95,10 @@ function createStageModNotifications({getSnapshot,send,browseMs,now=Date.now,rep
             },
     dispose(){closed=true;this.modPlans.clear();this.modBrowse.clear();this.modNotifications.clear();}
     };
-    return {observe:notifications.observe.bind(notifications),reannounce:notifications.reannounceMod.bind(notifications),dispose:notifications.dispose.bind(notifications)};
+    return {presented(sessionId,detail){
+        const state=getSnapshot(sessionId);
+        if(closed||!state?.source||!state.opened||!state.visible||state.disposed)return;
+        notifications.notifyMod(sessionId,'performance.presented',state,{performanceId:detail.performanceId,phase:detail.phase});
+    },observe:notifications.observe.bind(notifications),reannounce:notifications.reannounceMod.bind(notifications),dispose:notifications.dispose.bind(notifications)};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageModNotifications};

@@ -42,3 +42,14 @@ test('transport and reporter failures do not break the next notification',async(
  const mod=createStageModNotifications({getSnapshot:()=>state,send:()=>{if(++attempts===1)throw Error('transport')},report:()=>{throw Error('report')},browseMs:1000})
  mod.reannounce('s');await flush();mod.reannounce('s');await flush();assert.equal(attempts,2);mod.dispose()
 })
+
+test('presented receipts use the session notification queue and suppress inactive or superseded pages',async()=>{
+ let state=snapshot();const sent=[]
+ const mod=createStageModNotifications({getSnapshot:()=>state,send:input=>sent.push(input),browseMs:1000})
+ mod.presented('s',{performanceId:'scene:1',phase:'entry'});await flush()
+ assert.equal(sent[0].event,'performance.presented');assert.equal(sent[0].performanceId,'scene:1');assert.equal(sent[0].phase,'entry')
+ mod.presented('s',{performanceId:'old',phase:'exit'})
+ state={...state,source:{...state.source,generation:2}};await flush();assert.equal(sent.length,1)
+ state={...state,opened:false};mod.presented('s',{performanceId:'hidden',phase:'entry'});await flush();assert.equal(sent.length,1)
+ mod.dispose();mod.presented('s',{performanceId:'disposed',phase:'entry'});await flush();assert.equal(sent.length,1)
+})
