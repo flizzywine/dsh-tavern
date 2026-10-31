@@ -11553,6 +11553,212 @@ return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSpeech};
 
+        // Plugin activation owns session assembly, resources and debug registrations.
+function createStageSessions({views,navigation,clock,window,document,startLifetime,textIndex}) {
+let closed=false,stop=null;
+const sessions = {
+    owner: null,
+    resourceOwner: null,
+    get(sessionId) { return this.owner?.get(sessionId) || null; },
+    start(inputs) {
+        if(closed)throw new Error('Stage sessions disposed');
+        if(stop)throw new Error('Stage sessions already started');
+        const {native,io,assets,dialogue,preferences,text,performance,observation}=inputs;
+        stop=startLifetime(({own}) => {
+        const resourceOwner = assets.createOwner({service:assets.service,decode:assets.decode});
+        this.resourceOwner = resourceOwner;
+        own(() => { if (this.resourceOwner === resourceOwner) this.resourceOwner = null; });
+        own(() => resourceOwner.dispose());
+        const resourceDebug = {readiness:() => {
+            const sessionId = native.selectedSessionId() || null;
+            return {sessionId,viewPhase:sessionId ? native.views.getSnapshot(sessionId).phase : null};
+        }, read:(method,args,signal) => {
+            if (!['getStageDirection','getDialogueBubbles','getAssetPackPresentation'].includes(method)) throw new Error('Unsupported read-only probe method');
+            return io.probe(method,{...args,readOnly:true},signal);
+        }, firstPage:(config,body) => {
+            const paragraph = body?.paragraphs.find(row => text.pageCards(row).length);
+            if (!paragraph) return null;
+            const character = dialogue.character(config,paragraph);
+            return {page:{index:0,para:paragraph.para,offset:text.pageCards(paragraph)[0].offset,
+                kind:paragraph.kind,speaker:character?.alias || null},
+                portrait:dialogue.media(character,paragraph.mood,dialogue.moods(config,character?.alias))};
+        }, bubbleResources:config => {
+            const state = this.get(native.selectedSessionId())?.getSnapshot();
+            return (state?.text.pages || []).filter(page => page.kind === 'line').map(page => {
+                const character = dialogue.character(config,page);
+                return dialogue.media(character,page.mood,dialogue.moods(config,character?.alias));
+            }).filter(Boolean);
+        }, snapshot:() => ({...resourceOwner.debug(), runtime: (() => {
+            const state = this.get(native.selectedSessionId())?.getSnapshot();
+            const pageIndex = state?.text.pages.findIndex(page => page.anchor?.para === state.cursor.anchor?.para && page.anchor?.offset === state.cursor.anchor?.offset);
+            const page = pageIndex >= 0 ? state.text.pages[pageIndex] : null;
+            return state ? {source:state.source, visible:state.visible, opened:state.opened, cursor:state.cursor,
+                page:page ? {index:pageIndex,para:page.anchor.para,offset:page.anchor.offset,kind:page.kind,speaker:dialogue.character(state.settings?.config,page)?.alias || null,
+                    portrait:dialogue.media(dialogue.character(state.settings?.config,page),page.mood,dialogue.moods(state.settings?.config,dialogue.character(state.settings?.config,page)?.alias))} : null,
+                pending:state.pending, projection:state.projection, director:state.director, lookahead:resources.lookahead(state.source?.sessionId),
+                // what the stage shows, for stage capture; a figure is drawn from local bytes.
+                accepted:{background:!!state.accepted.scene?.background, skin:!!state.accepted.scene?.skin,
+                    figures:(state.accepted.figures || []).map(figure => ({alias:figure.alias, form:figure.form, drawn:/"(?:blob|data):/.test(JSON.stringify(figure))}))},
+                observation:state.observation, text:{revision:state.text.revision,
+                    streaming:state.text.streaming, units:state.text.units?.length ?? 0, pages:state.text.pages.length}} : null;
+        })()})};
+        window.forkStageResourceDebug = resourceDebug;
+        own(() => { if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug; });
+        const connection = views.sessionRuntime.createConnection({resources:{
+            foreground:clock,
+            resolveSpeaker:(state,page) => dialogue.character(state.settings?.config,page)?.alias,
+            async idle(id,current) {
+                // Speculation must not compete with model upload or the atomic entry reveal.
+                while (current()) {
+                    const root = document.querySelector('.fork-gal-stage');
+                    if (!root || native.selectedSessionId() !== id) return false;
+                    if (root.dataset.entry === 'ready') {
+                        await new Promise(resolve => typeof requestIdleCallback === 'function' ? requestIdleCallback(resolve) : setTimeout(resolve,0));
+                        return current();
+                    }
+                    await new Promise(resolve => setTimeout(resolve,100));
+                }
+                return false;
+            },
+            preparePerformance:performance.prepare,
+            music:() => views.bgm,
+            read:io.presentation,
+            progress: views.progress.store,
+            owner: resourceOwner
+        },direction:{read:io.direction,watch:io.watch},notifications:io.notifications,session:{
+            ...native, readBody:io.body, opened:false, visible:()=>!document.hidden, preferences,
+            createIndex:()=>textIndex.createIndex({paginate:text.paginate,projectionForTurn:native.projectionForTurn,storyTurn:native.storyTurn,superseded:native.superseded})
+        },observation:{...observation,document,resourceOwner,
+            selection:{current:native.selectedSessionId,list:native.sessions.list},settings:native.settings,
+            entry:{shown:views.admission.shown,hasDisplay:()=>!!document.querySelector('.fork-gal-stage'),entering:()=>!!navigation.galEntering.get()}
+        },waitForEntry:(store,source)=>views.admission.shown.wait(store,()=>native.selectedSessionId()===source.sessionId&&!!document.querySelector('.fork-gal-stage'))});
+        const {owner,resources}=connection;
+        own(() => connection.dispose());
+        this.owner = owner;
+        own(() => { if (this.owner === owner) this.owner = null; });
+        connection.start();
+
+        });
+    },
+    dispose(){if(closed)return;closed=true;const release=stop;stop=null;release?.();}
+};
+return sessions;
+}
+
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSessions};
+
+        function createStageTextIndexModule({pageCards,character}) {
+
+// Host paragraphs are the only text input. The client only lays out reading cards.
+function createStageTextIndex({paginate, storyTurn, superseded, projectionForTurn}) {
+    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, revision = 0;
+    function rowFor(turn, nativeTurn, body, old, unloaded) {
+        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded) return old;
+        const units = [], pages = [];
+        for (const paragraph of body?.paragraphs || []) {
+            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1]};
+            units.push(unit);
+            const before = old?.units[units.length - 1];
+            const same = before && JSON.stringify(paragraph) === JSON.stringify(old.body.paragraphs[units.length - 1]);
+            unit.cards = same ? before.cards : pageCards(unit,paginate).map(({text,offset},n,all) => ({
+                kind:unit.kind,text,alias:unit.alias,name:unit.name,mood:unit.mood,thought:unit.thought,
+                pending:unit.pending && n === all.length - 1,voice:stageVoiceDescriptor(unit,undefined,{text,offset}),
+                anchor:{paragraphId:unit.paragraphId,para:unit.para,offset}}));
+            pages.push(...unit.cards);
+        }
+        const parts = [{scope:JSON.stringify([activeBranch,turn]),turn,nativeTurn,index:0,order:0,projected:true,streaming:!!body?.streaming,
+            units,segments:units.map(unit => unit.segment),localPages:pages}];
+        return {turn,nativeTurn,body,unloaded,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
+            hasReadableText:pages.some(page => page.text.length > 0),
+            units:units.map(unit => ({...unit.source,para:unit.para,paragraphId:unit.paragraphId}))}};
+    }
+    function reconcile({chat,view,branchId}) {
+        const history = JSON.stringify(view?.regeneratedDshTurns || null);
+        if (activeBranch !== branchId || activeHistory !== history) {
+            bodies.clear(); snapshot = new Map(); activeBranch = branchId; activeHistory = history;
+        }
+        const represented = new Map(), running = new Set();
+        for (const node of chat?.nodes?.values() || []) {
+            if (node.kind !== 'assistant-step' || /^tavern-seed-trajectory:v1:.+:2$/.test(String(node.data.finalNode?.messageId || ''))) continue;
+            const nativeTurn = Number(node.location?.turn?.turn) || 0, turn = storyTurn(view,nativeTurn);
+            if (!superseded(view,nativeTurn,turn)) {
+                represented.set(turn,nativeTurn);
+                if (node.data.status === 'running') running.add(turn);
+            }
+        }
+        for (const projection of view?.replyProjections || []) {
+            const turn = Number(projection.turn), nativeTurn = Number(view?.regeneratedDshTurns?.[turn]) || turn;
+            if (!superseded(view,nativeTurn,turn)) represented.set(turn,nativeTurn);
+        }
+        const next = new Map();
+        for (const [turn,nativeTurn] of represented) {
+            const projected = projectionForTurn(view,turn)?.body;
+            const body = running.has(turn) ? (bodies.get(turn) || (projected?.streaming ? projected : null)) : projected || bodies.get(turn);
+            next.set(turn,rowFor(turn,nativeTurn,body,snapshot.get(turn),!body));
+        }
+        if (next.size !== snapshot.size || [...next].some(([turn,row]) => snapshot.get(turn) !== row)) snapshot = next;
+        return snapshot;
+    }
+    function ingest(turn,body) {
+        const row = snapshot.get(turn);
+        if (!row || !body) return null;
+        bodies.delete(turn); bodies.set(turn,body);
+        while (bodies.size > 200) bodies.delete(bodies.keys().next().value);
+        const value = rowFor(turn,row.nativeTurn,body,row,false);
+        snapshot = new Map(snapshot).set(turn,value);
+        return value;
+    }
+    return {reconcile,ingest,touch(turn) {const body=bodies.get(turn);if(body){bodies.delete(turn);bodies.set(turn,body);}},
+        getSnapshot:()=>snapshot,clear() {bodies.clear();snapshot=new Map();activeBranch=undefined;}};
+}
+
+// 旁白配音: every host narration unit (not a bubble, so never a thought) reads card by card - the text the
+// reader sees on that page, Markdown already stripped by the host. Whether it speaks is the handle's (config.narrator).
+function stageVoiceDescriptor(unit, settings, card) {
+    if (unit.kind === 'narration') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
+        ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text} : null;
+    if (unit.kind !== 'line' || unit.pending || !unit.segment) return null;
+    const segment = unit.segment;
+    return {paragraphId: unit.paragraphId, lineIdentity:unit.voiceLine, alias: segment.alias, name: segment.name, mood: segment.mood,
+        text: segment.text, speech: segment.speech, singleVoiceText: segment.singleVoiceText, thought: !!segment.thought,
+        cardPath: settings?.cardPath || '', character: character(settings?.config,segment) || null};
+}
+
+return {createIndex:createStageTextIndex,voiceDescriptor:stageVoiceDescriptor};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextIndexModule};
+
+        'use strict';
+
+// Register each resource immediately, so a later startup failure can unwind it.
+function startStageClientLifetime(start) {
+    const cleanups = [];
+    let active = true;
+    const dispose = () => {
+        if (!active) return;
+        active = false;
+        const errors = [];
+        for (const cleanup of cleanups.splice(0).reverse()) {
+            try { cleanup(); } catch (error) { errors.push(error); }
+        }
+        if (errors.length) throw new AggregateError(errors, 'Stage client cleanup failed');
+    };
+    const own = cleanup => {
+        if (typeof cleanup !== 'function') throw new TypeError('Stage cleanup must be a function');
+        if (active) cleanups.push(cleanup);
+        else cleanup();
+        return cleanup;
+    };
+    try { start({own, active: () => active}); }
+    catch (error) {
+        try { dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage client startup failed'); }
+        throw error;
+    }
+    return dispose;
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {startStageClientLifetime};
+
         // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
 function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
     let disposed=false;const owners=new Set(),connections=new Set();
@@ -21696,6 +21902,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     style.dataset.pluginCss='dsh-tavern-stage/presentation.css';
                     style.textContent="/* Generic source-widget reading controls. The phone appearance belongs to its pack. */\n.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}\n.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}\n.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}\n.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}\n@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (phone-layout.js usePhoneAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n\n/* 「文字演出」 full-screen text cards (textcard-stage.js).\n   Flat palette cards with hard cuts — no fades in any mode. Colours come only from --tc-bg / --tc-fg, which the\n   renderer sets from the --gal-tc-* palette tokens (theme.css stage UI tokens) or the speaker's 形象色. */\n.fork-tc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; container-type: size; }\n.fork-tc-layer.is-up { pointer-events: auto; cursor: pointer; }\n.fork-tc-host { position: absolute; inset: 0; }\n/* The live region repeats the card text. In the card face (already loaded for the card), its first Han or kana text\n   does not make the browser load a system fallback font on the main thread as the card appears. */\n.fork-tc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font-family: var(--tc-mincho, var(--gal-tc-mincho)); }\n/* Follow mounted cards synchronously, not the React commit that mirrors the player state. */\n.fork-gal-stage:has(.fork-tc-host > .fork-tc) :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }\n\n.fork-tc { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;\n  background: var(--tc-bg); color: var(--tc-fg); font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-weight: 500; line-height: 1.2; text-align: center;\n  user-select: none; -webkit-user-select: none; font-kerning: normal; }\n.fork-tc[data-face=\"mono\"] .fork-tc-code-main { font-family: var(--gal-tc-mono); }\n.fork-tc [data-tc-center] { will-change: translate; }\n.fork-tc-ln { display: block; }\n.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: 1.05cqw; font-weight: 400; letter-spacing: .8em; opacity: .85; }\n.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: 1.3cqw; font-weight: 400; letter-spacing: .5em; }\n.fork-tc-reading.is-under { position: absolute; left: 0; right: 0; bottom: 18cqh; margin: 0; }\n.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: 1.4cqw; letter-spacing: .3em; font-variant-numeric: tabular-nums; }\n.fork-tc-mark { margin-top: 3.4cqh; font-size: 1.1cqw; line-height: 1; }\n.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: 2cqw; letter-spacing: .3em; }\n.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: 1.4cqw; font-weight: 400; letter-spacing: .62em; }\n\n/* #01 齣: a tiny vertical label in a sea of colour. */\n.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: 2.6cqw; letter-spacing: .5em; }\n.fork-tc[data-layout=\"punct\"] .fork-tc-reading { font-size: 1cqw; }\n\n/* #02 章节 */\n.fork-tc-title-main { font-size: 4.8cqw; letter-spacing: .12em; }\n.fork-tc-title-k { margin-right: .9em; letter-spacing: .2em; }\n.fork-tc-title-main.is-single { font-size: 16cqw; font-weight: 700; letter-spacing: 0; }\n.fork-tc-frame { position: absolute; inset: 22cqh 18cqw; border: .12cqw solid currentColor; opacity: .7; pointer-events: none; }\n\n/* #03 人名 */\n.fork-tc-name { padding-left: .32em; font-size: 6cqw; font-weight: 700; letter-spacing: .32em; }\n.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; font-weight: 400; letter-spacing: .55em; }\n.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: 1.3cqw; letter-spacing: .5em; }\n.fork-tc-rule { position: absolute; left: 12cqw; right: 12cqw; height: 0; border-top: .18cqw solid currentColor; opacity: .75; }\n.fork-tc-rule.is-top { top: 9cqh; } .fork-tc-rule.is-bottom { bottom: 9cqh; }\n\n/* #04 单字 / #05 字卡 / #06 竖排 / #23 巨字 */\n.fork-tc-text { font-weight: 700; line-height: 1.3; letter-spacing: .12em; }\n.fork-tc[data-size=\"xl\"] .fork-tc-text { font-size: 24cqw; line-height: 1; letter-spacing: 0; }\n.fork-tc[data-size=\"l\"] .fork-tc-text { font-size: 9cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 4.4cqw; font-weight: 500; letter-spacing: .2em; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text { writing-mode: vertical-rl; text-orientation: upright; line-height: 1.9; text-align: start; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text .fork-tc-ln + .fork-tc-ln { padding-top: 3.5em; }\n.fork-tc[data-size=\"crop\"] { align-items: flex-start; }\n.fork-tc[data-size=\"crop\"] .fork-tc-text { position: absolute; top: 50%; left: -4cqw; font-size: 48cqh; line-height: 1; letter-spacing: -.02em; white-space: nowrap; transform: translateY(-50%); }\n.fork-tc[data-size=\"crop\"][data-anchor=\"right\"] .fork-tc-text { left: auto; right: -4cqw; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"top\"] .fork-tc-text { top: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"bottom\"] .fork-tc-text { top: auto; bottom: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"center\"] .fork-tc-text { left: 50%; transform: translate(-50%, -50%); }\n\n/* #07 长文: dense vertical columns filling the page. */\n.fork-tc-page-text { position: absolute; inset: 8cqh 8cqw 12cqh; writing-mode: vertical-rl; text-orientation: upright; overflow: hidden;\n  font-size: 1.9cqw; font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }\n.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: 1cqw; letter-spacing: .4em; opacity: .8; }\n\n/* #08 字海: a big word over a dense repeat of a related word, slowly drifting. */\n.fork-tc-wall-fill { position: absolute; inset: -4cqh -2cqw; overflow: hidden; color: color-mix(in srgb, var(--tc-fg) 26%, var(--tc-bg)); font-size: 2.1cqw; line-height: 1.32; letter-spacing: .1em; word-break: break-all; text-align: start; }\n.fork-tc:not([data-reduced]) .fork-tc-wall-fill { animation: fork-tc-drift 1.2s linear both; }\n@keyframes fork-tc-drift { to { translate: -1.5cqw -3cqh; } }\n.fork-tc-wall-word { position: relative; padding: .2em .45em; background: var(--tc-bg); font-size: 12cqw; font-weight: 700; line-height: 1; letter-spacing: .06em; }\n\n/* #09 分屏: thin rules, words larger than their cells. */\n.fork-tc-split { position: absolute; inset: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }\n.fork-tc-cell { position: relative; display: grid; place-items: center; overflow: hidden; border: 0 solid color-mix(in srgb, var(--tc-fg) 30%, var(--tc-bg)); }\n.fork-tc-cell + .fork-tc-cell { border-left-width: .15cqw; }\n.fork-tc-cell-text { font-size: 30cqh; font-weight: 700; line-height: 1; white-space: nowrap; }\n\n/* #10 形变: components gather into one glyph. */\n.fork-tc-morph { position: absolute; inset: 0; }\n.fork-tc-part { position: absolute; left: 50%; top: 50%; font-size: 14cqw; font-weight: 700; line-height: 1; translate: -50% -50%; transition: translate var(--tc-converge, 1s) cubic-bezier(.6, 0, .3, 1), scale var(--tc-converge, 1s) ease-in; }\n.fork-tc-part[data-slot=\"0\"] { translate: -175% -110%; } .fork-tc-part[data-slot=\"1\"] { translate: 75% -110%; }\n.fork-tc-part[data-slot=\"2\"] { translate: -175% 10%; } .fork-tc-part[data-slot=\"3\"] { translate: 75% 10%; }\n.fork-tc.is-converging .fork-tc-part { translate: -50% -50%; scale: .55; }\n.fork-tc-morph-final { font-size: 24cqw; font-weight: 700; line-height: 1; }\n.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; letter-spacing: .4em; }\n\n/* #11/#13/#22 sequences and 快闪: one word per state, the layout varies by state. */\n.fork-tc-fl { position: absolute; font-weight: 700; line-height: 1; white-space: nowrap; }\n.fork-tc-fl { inset: 0; display: grid; place-items: center; font-size: 13cqw; }\n.fork-tc[data-size=\"xl\"] .fork-tc-fl { font-size: 26cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-fl { font-size: 6cqw; font-weight: 500; letter-spacing: .1em; }\n\n/* #12 输入: growing line, uncommitted text underlined, a thin caret. */\n.fork-tc-ime { position: relative; display: grid; font-size: 5cqw; text-align: start; }\n.fork-tc-ime > * { grid-area: 1 / 1; white-space: nowrap; }\n.fork-tc-ime-ghost { visibility: hidden; }\n.fork-tc-ime-typing { text-decoration: underline .12em; text-underline-offset: .18em; }\n.fork-tc-caret { display: inline-block; width: .06em; height: 1em; margin-left: .04em; vertical-align: -.12em; background: currentColor; }\n\n/* #14 符号 */\n.fork-tc-code-main { padding-left: .25em; font-size: 9cqw; letter-spacing: .25em; }\n.fork-tc-bars { display: flex; align-items: flex-end; gap: .6cqw; height: 3cqh; margin-top: 3cqh; }\n.fork-tc-bars i { width: .5cqw; height: 25%; background: currentColor; }\n.fork-tc-bars i[data-h=\"1\"] { height: 50%; } .fork-tc-bars i[data-h=\"2\"] { height: 75%; } .fork-tc-bars i[data-h=\"3\"] { height: 100%; width: 1.2cqw; }\n.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: 1.8cqw; font-weight: 400; letter-spacing: .3em; }\n\n/* #15 图解: tree, calendar or grid laid out from a few values. */\n.fork-tc-diagram { display: flex; flex-direction: column; align-items: center; gap: 5cqh; }\n.fork-tc-dg-root { padding: .4em 1em; border: .2cqw solid currentColor; font-size: 3.4cqw; }\n.fork-tc-dg-items { position: relative; display: flex; gap: 3cqw; padding-top: 4cqh; border-top: .2cqw solid currentColor; }\n.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: 2.2cqw; }\n.fork-tc-dg-item::before { content: \"\"; position: absolute; left: 50%; bottom: 100%; height: 4cqh; border-left: .2cqw solid currentColor; pointer-events: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-root { border: 0; font-size: 18cqw; line-height: 1; font-variant-numeric: tabular-nums; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-items, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { padding-top: 0; border-top: 0; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item::before, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item::before { content: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item { border: 0; border-bottom: .15cqw solid currentColor; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item:first-child { background: var(--tc-fg); color: var(--tc-bg); }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item { margin: -.075cqw; padding: 1.4em 1em; }\n\n/* #16 场景标记 */\n.fork-tc-marker { font-size: 8cqw; font-weight: 700; letter-spacing: .1em; }\n.fork-tc-marker[data-tc-center=\"xy\"] { writing-mode: vertical-rl; text-orientation: upright; font-size: 6.4cqw; letter-spacing: .2em; }\n\n@media (max-width: 720px) {\n  .fork-tc-foot, .fork-tc-roman, .fork-tc-reading { letter-spacing: .4em; }\n  .fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 5.6cqw; }\n  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: 2.6cqw; }\n}\n\n/* Compound templates keep their complete semantic text; only repeat's short final word deliberately crops. */\n.fork-tc[data-compound] .fork-tc-text { max-width: 84cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-text { max-width: none; }\n.fork-tc[data-compound] .fork-tc-fl-word { max-width: 88cqw; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-main { max-width: 60cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-k { display: block; margin: 0 0 2cqh; font-size: max(var(--fork-fs-meta), 1.6cqw); }\n.fork-tc[data-compound] .fork-tc-reading { max-width: 90cqw; overflow-wrap: anywhere; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n.fork-tc[data-compound] .fork-tc-reading.is-under,\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-reading { position: absolute; left: 5cqw; right: 5cqw; bottom: 8cqh; margin: 0; }\n.fork-tc[data-compound] .fork-tc-wall-word { max-width: 80cqw; font-size: 7cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-cell-text { max-width: 85%; font-size: 4cqw; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc-cell-name { position: absolute; top: 15cqh; left: 8%; right: 8%; font-size: max(var(--fork-fs-heading), 2cqw); letter-spacing: .2em; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-ime { width: 80cqw; font-size: 3.4cqw; }\n.fork-tc[data-compound] .fork-tc-ime > * { white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-code-main { max-width: 82cqw; font-size: 4cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-page-text { font-size: max(var(--fork-fs-body), 1.9cqw); }\n.fork-tc[data-compound] .fork-tc-margin { font-size: max(var(--fork-fs-meta), 1cqw); }\n.fork-tc-relate { position: absolute; inset: 8cqh 5cqw 22cqh; }\n.fork-tc-relate svg { width: 100%; height: 100%; overflow: visible; }\n.fork-tc-relate-person, .fork-tc-relate-label { position: absolute; translate: -50% -50%; background: var(--tc-bg); overflow-wrap: anywhere; }\n.fork-tc-relate-person { max-width: 23%; padding: .3em .4em; border: .1em solid currentColor; font-size: max(var(--fork-fs-heading), 2.2cqw); letter-spacing: .12em; }\n.fork-tc-relate-label { max-width: 25%; padding: .2em .4em; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n@media (max-width: 720px) {\n  .fork-tc[data-compound] .fork-tc-page-text { inset: 10cqh 5cqw; writing-mode: horizontal-tb; font-size: var(--fork-fs-body); line-height: 1.4; }\n  .fork-tc[data-compound] .fork-tc-margin { top: 5cqh; left: 5cqw; right: 5cqw; writing-mode: horizontal-tb; text-align: start; }\n  .fork-tc[data-compound] .fork-tc-ime { font-size: max(var(--fork-fs-heading), 3.4cqw); }\n}\n";
                     document.head.appendChild(style);
+                    let activeViews=null;
                     const stop=host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
                     const skinResources = own(createStageSkinResources({React:options.React,...options.skinResources}));
                     const skin = own(createStageSkinAdapter({contract:options.skinContract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()}));
@@ -21717,7 +21924,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const backlogPaging=own(createStageBacklogPaging({React:options.React,...options.backlogPaging}));
                     const backlogHistory=own(createStageBacklogHistory({React:options.React,...options.backlogHistory}));
                     const backlogVoice=own(createStageBacklogVoice(options.backlogVoice || {}));
-                    const backlogRows=createStageBacklogRows({...options.backlogRows,textcard:textcardHistory});
+                    const textIndex=createStageTextIndexModule({pageCards:options.textIndex?.pageCards,character:options.speaker?.character});
+                    const backlogRows=createStageBacklogRows({...options.backlogRows,voiceDescriptor:textIndex.voiceDescriptor,textcard:textcardHistory});
                     const backlogView=own(createStageBacklogView({React:options.React,window,document,...options.backlogView,stageSkinBacklogPlate:skin.stageSkinBacklogPlate,stageSkinBacklogPlateStyle:skin.stageSkinBacklogPlateStyle,stageViews:{backlogPaging,backlogHistory,backlogVoice,backlogRows}}));
                     const choiceLayout=createStageChoiceLayout({React:options.React,...options.choiceLayout});
                     const choices=own(createStageChoices({React:options.React,window,document,...options.choices,layout:choiceLayout}));
@@ -21773,9 +21981,15 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    views.sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
+                    activeViews=views;
                     return views;
                 })});
                     cleanups.push(stop);
+                    if(activeViews){
+                        if(typeof host.sessionInputs!=='function')throw new Error('Stage session host is unavailable');
+                        activeViews.sessions.start(host.sessionInputs());
+                    }
                     return dispose;
                 }catch(error){
                     try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage activation failed');}

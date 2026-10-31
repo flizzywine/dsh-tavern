@@ -51984,6 +51984,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    if (stageViews) throw new Error('Stage views already mounted');
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+		        textIndex:{pageCards:stagePageCards},
 		        playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
 		        performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
 		        directorCommands,
@@ -52029,7 +52030,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        backlogPaging:{hydrateText:(sessionId,turn)=>stageSessions.owner?.hydrateText?.(sessionId,turn), hasOlder:sessionId=>stageSessions.owner?.hasOlder?.(sessionId), loadOlder:sessionId=>stageSessions.owner?.loadOlder?.(sessionId)},
 		        backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
 		        backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
-		        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
+		        backlogRows:{registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
 		        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
 		        configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
 		        configScreen:{matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, },
@@ -57442,85 +57443,6 @@ function stagePageAtAnchor(index, {para, offset}) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_PAGE_CHARS, stagePagePlain, stageBlockPages, stagePageMovableTail, stagePageHeldTail, stagePageCards, stagePageIndex, stagePageAtAnchor};
 'use strict';
 
-// Host paragraphs are the only text input. The client only lays out reading cards.
-function createStageTextIndex({paginate, storyTurn, superseded, projectionForTurn}) {
-    const pageCards = typeof stagePageCards === 'function' ? stagePageCards : require('./stage-page-index.cjs').stagePageCards;
-    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, revision = 0;
-    function rowFor(turn, nativeTurn, body, old, unloaded) {
-        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded) return old;
-        const units = [], pages = [];
-        for (const paragraph of body?.paragraphs || []) {
-            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1]};
-            units.push(unit);
-            const before = old?.units[units.length - 1];
-            const same = before && JSON.stringify(paragraph) === JSON.stringify(old.body.paragraphs[units.length - 1]);
-            unit.cards = same ? before.cards : pageCards(unit,paginate).map(({text,offset},n,all) => ({
-                kind:unit.kind,text,alias:unit.alias,name:unit.name,mood:unit.mood,thought:unit.thought,
-                pending:unit.pending && n === all.length - 1,voice:stageVoiceDescriptor(unit,undefined,{text,offset}),
-                anchor:{paragraphId:unit.paragraphId,para:unit.para,offset}}));
-            pages.push(...unit.cards);
-        }
-        const parts = [{scope:JSON.stringify([activeBranch,turn]),turn,nativeTurn,index:0,order:0,projected:true,streaming:!!body?.streaming,
-            units,segments:units.map(unit => unit.segment),localPages:pages}];
-        return {turn,nativeTurn,body,unloaded,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
-            hasReadableText:pages.some(page => page.text.length > 0),
-            units:units.map(unit => ({...unit.source,para:unit.para,paragraphId:unit.paragraphId}))}};
-    }
-    function reconcile({chat,view,branchId}) {
-        const history = JSON.stringify(view?.regeneratedDshTurns || null);
-        if (activeBranch !== branchId || activeHistory !== history) {
-            bodies.clear(); snapshot = new Map(); activeBranch = branchId; activeHistory = history;
-        }
-        const represented = new Map(), running = new Set();
-        for (const node of chat?.nodes?.values() || []) {
-            if (node.kind !== 'assistant-step' || /^tavern-seed-trajectory:v1:.+:2$/.test(String(node.data.finalNode?.messageId || ''))) continue;
-            const nativeTurn = Number(node.location?.turn?.turn) || 0, turn = storyTurn(view,nativeTurn);
-            if (!superseded(view,nativeTurn,turn)) {
-                represented.set(turn,nativeTurn);
-                if (node.data.status === 'running') running.add(turn);
-            }
-        }
-        for (const projection of view?.replyProjections || []) {
-            const turn = Number(projection.turn), nativeTurn = Number(view?.regeneratedDshTurns?.[turn]) || turn;
-            if (!superseded(view,nativeTurn,turn)) represented.set(turn,nativeTurn);
-        }
-        const next = new Map();
-        for (const [turn,nativeTurn] of represented) {
-            const projected = projectionForTurn(view,turn)?.body;
-            const body = running.has(turn) ? (bodies.get(turn) || (projected?.streaming ? projected : null)) : projected || bodies.get(turn);
-            next.set(turn,rowFor(turn,nativeTurn,body,snapshot.get(turn),!body));
-        }
-        if (next.size !== snapshot.size || [...next].some(([turn,row]) => snapshot.get(turn) !== row)) snapshot = next;
-        return snapshot;
-    }
-    function ingest(turn,body) {
-        const row = snapshot.get(turn);
-        if (!row || !body) return null;
-        bodies.delete(turn); bodies.set(turn,body);
-        while (bodies.size > 200) bodies.delete(bodies.keys().next().value);
-        const value = rowFor(turn,row.nativeTurn,body,row,false);
-        snapshot = new Map(snapshot).set(turn,value);
-        return value;
-    }
-    return {reconcile,ingest,touch(turn) {const body=bodies.get(turn);if(body){bodies.delete(turn);bodies.set(turn,body);}},
-        getSnapshot:()=>snapshot,clear() {bodies.clear();snapshot=new Map();activeBranch=undefined;}};
-}
-
-// 旁白配音: every host narration unit (not a bubble, so never a thought) reads card by card - the text the
-// reader sees on that page, Markdown already stripped by the host. Whether it speaks is the handle's (config.narrator).
-function stageVoiceDescriptor(unit, settings, card) {
-    if (unit.kind === 'narration') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
-        ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text} : null;
-    if (unit.kind !== 'line' || unit.pending || !unit.segment) return null;
-    const segment = unit.segment;
-    return {paragraphId: unit.paragraphId, lineIdentity:unit.voiceLine, alias: segment.alias, name: segment.name, mood: segment.mood,
-        text: segment.text, speech: segment.speech, singleVoiceText: segment.singleVoiceText, thought: !!segment.thought,
-        cardPath: settings?.cardPath || '', character: (typeof bubbleCharacter === 'function' ? bubbleCharacter : require('./bubble-line.cjs').bubbleCharacter)(settings?.config,segment) || null};
-}
-
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageTextIndex, stageVoiceDescriptor};
-'use strict';
-
 'use strict';
 
 function createStageResourcesModule() {
@@ -59756,127 +59678,37 @@ function usePerformanceLayer(rootRef,sessionId,reading) {
     return {...value,performance,playback,accept,cue:event=>cue.current?.(event)};
 }
 
-// gal-entry.js (stage bundle) owns the entry signal; harnesses that load this file alone treat every stage as shown.
+// Temporary read delegates for controls that have not yet moved into the plugin.
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
-const stageEntryShown = () => typeof galEntryShown === 'undefined' ? {get: () => undefined, subscribe: () => () => {}, wait: () => Promise.resolve()} : galEntryShown;
 const stageSessions = {
-    owner: null,
-    resourceOwner: null,
-    get(sessionId) { return this.owner?.get(sessionId) || null; },
-    start(ctx) {
-        return startStageClientLifetime(({own}) => {
-        const preferences = {
-            get: () => ({reading: stageReading.get(), film: stageFilm.get(), audio: forkStageAudio.get()}),
-            subscribe(listener) {
-                const stops = [stageReading, stageFilm, forkStageAudio].map(source => source.subscribe(listener));
-                return () => stops.forEach(stop => stop());
-            }
-        };
-        const resourceOwner = createStageResourceOwner({service:() => packTransport?.service,decode:stageDecodeImage});
-        this.resourceOwner = resourceOwner;
-        own(() => { if (this.resourceOwner === resourceOwner) this.resourceOwner = null; });
-        own(() => resourceOwner.dispose());
-        const resourceDebug = {readiness:() => {
-            const sessionId = tavernMainSessionId(ctx.sessions) || null;
-            return {sessionId,viewPhase:sessionId ? liveTavernView.getSnapshot(sessionId).phase : null};
-        }, read:(method,args,signal) => {
-            if (!['getStageDirection','getDialogueBubbles','getAssetPackPresentation'].includes(method)) throw new Error('Unsupported read-only probe method');
-            return rpc(method,{...args,readOnly:true},args.sessionId,{signal});
-        }, firstPage:(config,body) => {
-            const paragraph = body?.paragraphs.find(row => stagePageCards(row).length);
-            if (!paragraph) return null;
-            const character = bubbleCharacter(config,paragraph);
-            return {page:{index:0,para:paragraph.para,offset:stagePageCards(paragraph)[0].offset,
-                kind:paragraph.kind,speaker:character?.alias || null},
-                portrait:bubbleMediaDescriptor(character,paragraph.mood,bubbleMoodList(config,character?.alias))};
-        }, bubbleResources:config => {
-            const state = this.get(window.__dshTavernSelectedSessionId)?.getSnapshot();
-            return (state?.text.pages || []).filter(page => page.kind === 'line').map(page => {
-                const character = bubbleCharacter(config,page);
-                return bubbleMediaDescriptor(character,page.mood,bubbleMoodList(config,character?.alias));
-            }).filter(Boolean);
-        }, snapshot:() => ({...resourceOwner.debug(), runtime: (() => {
-            const state = this.get(window.__dshTavernSelectedSessionId)?.getSnapshot();
-            const pageIndex = state?.text.pages.findIndex(page => page.anchor?.para === state.cursor.anchor?.para && page.anchor?.offset === state.cursor.anchor?.offset);
-            const page = pageIndex >= 0 ? state.text.pages[pageIndex] : null;
-            return state ? {source:state.source, visible:state.visible, opened:state.opened, cursor:state.cursor,
-                page:page ? {index:pageIndex,para:page.anchor.para,offset:page.anchor.offset,kind:page.kind,speaker:bubbleCharacter(state.settings?.config,page)?.alias || null,
-                    portrait:bubbleMediaDescriptor(bubbleCharacter(state.settings?.config,page),page.mood,bubbleMoodList(state.settings?.config,bubbleCharacter(state.settings?.config,page)?.alias))} : null,
-                pending:state.pending, projection:state.projection, director:state.director, lookahead:resources.lookahead(state.source?.sessionId),
-                // what the stage shows, for stage capture; a figure is drawn from local bytes.
-                accepted:{background:!!state.accepted.scene?.background, skin:!!state.accepted.scene?.skin,
-                    figures:(state.accepted.figures || []).map(figure => ({alias:figure.alias, form:figure.form, drawn:/"(?:blob|data):/.test(JSON.stringify(figure))}))},
-                observation:state.observation, text:{revision:state.text.revision,
-                    streaming:state.text.streaming, units:state.text.units?.length ?? 0, pages:state.text.pages.length}} : null;
-        })()})};
-        window.forkStageResourceDebug = resourceDebug;
-        own(() => { if (window.forkStageResourceDebug === resourceDebug) delete window.forkStageResourceDebug; });
-        const overlayModule=createSkinOverlayLoader();
-        const connection = stageViews.sessionRuntime.createConnection({resources:{
-            foreground:forkForeground,
-            resolveSpeaker:(state,page) => bubbleCharacter(state.settings?.config,page)?.alias,
-            async idle(id,current) {
-                // Speculation must not compete with model upload or the atomic entry reveal.
-                while (current()) {
-                    const root = document.querySelector('.fork-gal-stage');
-                    if (!root || window.__dshTavernSelectedSessionId !== id) return false;
-                    if (root.dataset.entry === 'ready') {
-                        await new Promise(resolve => typeof requestIdleCallback === 'function' ? requestIdleCallback(resolve) : setTimeout(resolve,0));
-                        return current();
-                    }
-                    await new Promise(resolve => setTimeout(resolve,100));
-                }
-                return false;
-            },
-            preparePerformance:value => Promise.all([...value.dependencies.filter(item=>item.document?.overlay).map(item=>overlayModule(item.document)),keyframeFonts(value)]),
-            music:() => bgmPlayer,
-            read: args => rpc('getAssetPackPresentation',args,args.sessionId),
-            progress: stageViews.progress.store,
-            owner: resourceOwner
-        },direction:{
-            read: args => rpc('getStageDirection', args, args.sessionId),
-            // an arrow keeps `this` = stageSessions. The director source calls `watch` bare, and the
-            // real signal service runs onConnect synchronously when already connected (履历 jump, re-entry, remount) and on
-            // every reconnect snapshot; a method shorthand there threw `this.get is not a function` and failed the stream.
-            watch: (source, wake, reannounce) => {
-                const stops = ['stage-direction','tavern-state'].map(kind =>
-                    tavernSessionSignals.subscribe(source.sessionId, kind, wake, wake, () => {wake();reannounce();}));
-                return () => stops.forEach(stop => stop());
-            }
-        },notifications:{send:input=>rpc('notifyModPresentation',input,input.sessionId),browseMs:STAGE_HISTORY_SETTLE_MS,report:error=>console.warn('Mod presentation notification failed',error)},session:{
-            readBody: args => rpc('getRoundBody',args,args.sessionId),
-            opened:false,
-            sessions: ctx.sessions,
-            selectedSessionId: () => tavernMainSessionId(ctx.sessions),
-            visible: () => !document.hidden,
-            resolveChat: binding => resolveConversationChatBinding(ctx.get('uiConversation') || ctx.get('conversation'), binding),
-            views: liveTavernView,
-            viewPaths: ['chatId', 'mode', 'card', 'replyProjections', 'regeneratedDshTurns', 'suppressedDshTurns',
-                'latestAssistantTurn', 'historyWindow'].map(key => [key]).concat([['tavernHelper', 'lifecycleRevision']]),
-            coordination: tavernCoordination,
-            settings: bubbleStore,
-            preferences,
-            storyTurn: tavernStoryTurnForDshTurn,
-            createIndex: () => createStageTextIndex({paginate: stageBlockPages, projectionForTurn: tavernProjectionForTurn,
-                storyTurn: tavernStoryTurnForDshTurn,
-                superseded: galIsSuperseded})
-        },observation:{
-            document, resourceOwner,
-            selection:{current:()=>tavernMainSessionId(ctx.sessions),list:ctx.sessions.list},
-            settings:bubbleStore,
-            packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>spineRuntimeState.subscribe(listener)},
-            entry:{shown:stageEntryShown(),hasDisplay:()=>!!document.querySelector('.fork-gal-stage'),entering:()=>!!galEntering.get()},
-            portraits:avatarCache,media:{background:bgManual}
-        },waitForEntry:(store,source)=>stageEntryShown().wait(store, () => window.__dshTavernSelectedSessionId === source.sessionId && !!document.querySelector('.fork-gal-stage'))});
-        const {owner,resources}=connection;
-        own(() => connection.dispose());
-        this.owner = owner;
-        own(() => { if (this.owner === owner) this.owner = null; });
-        connection.start();
-
-        });
-    }
+    get owner(){return stageViews?.sessions.owner || null;},
+    get resourceOwner(){return stageViews?.sessions.resourceOwner || null;},
+    get:id=>stageViews?.sessions.get(id) || null
 };
+function stageSessionInputs(ctx){
+    const overlayModule=createSkinOverlayLoader();
+    return {
+        native:{sessions:ctx.sessions,selectedSessionId:()=>tavernMainSessionId(ctx.sessions),
+            resolveChat:binding=>resolveConversationChatBinding(ctx.get('uiConversation')||ctx.get('conversation'),binding),
+            views:liveTavernView,viewPaths:['chatId','mode','card','replyProjections','regeneratedDshTurns','suppressedDshTurns','latestAssistantTurn','historyWindow'].map(key=>[key]).concat([['tavernHelper','lifecycleRevision']]),
+            coordination:tavernCoordination,settings:bubbleStore,storyTurn:tavernStoryTurnForDshTurn,projectionForTurn:tavernProjectionForTurn,superseded:galIsSuperseded},
+        io:{presentation:args=>rpc('getAssetPackPresentation',args,args.sessionId),direction:args=>rpc('getStageDirection',args,args.sessionId),body:args=>rpc('getRoundBody',args,args.sessionId),
+            probe:(method,args,signal)=>rpc(method,args,args.sessionId,{signal}),
+            watch:(source,wake,reannounce)=>{
+                const stops=[];
+                try{for(const kind of ['stage-direction','tavern-state'])stops.push(tavernSessionSignals.subscribe(source.sessionId,kind,wake,wake,()=>{wake();reannounce();}));}
+                catch(error){for(const stop of stops)try{stop();}catch(_){}throw error;}
+                return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage signals cleanup failed');};
+            },notifications:{send:input=>rpc('notifyModPresentation',input,input.sessionId),browseMs:STAGE_HISTORY_SETTLE_MS,report:error=>console.warn('Mod presentation notification failed',error)}},
+        assets:{createOwner:createStageResourceOwner,service:()=>packTransport?.service,decode:stageDecodeImage},
+        dialogue:{character:bubbleCharacter,media:bubbleMediaDescriptor,moods:bubbleMoodList},
+        preferences:{get:()=>({reading:stageReading.get(),film:stageFilm.get(),audio:forkStageAudio.get()}),
+            subscribe(listener){const stops=[stageReading,stageFilm,forkStageAudio].map(source=>source.subscribe(listener));return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage preferences cleanup failed');};}},
+        text:{pageCards:stagePageCards,paginate:stageBlockPages},
+        performance:{prepare:value=>Promise.all([...value.dependencies.filter(item=>item.document?.overlay).map(item=>overlayModule(item.document)),keyframeFonts(value)])},
+        observation:{packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>spineRuntimeState.subscribe(listener)},portraits:avatarCache,media:{background:bgManual}}
+    };
+}
 
 
 
@@ -60016,8 +59848,7 @@ const stageSessions = {
 			tavernSessionSignals = signals;
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
-            // one input runtime per open native session, independent of React.
-            stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
+            // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
             const stageClientEntry = createStageClientEntry({
@@ -60026,7 +59857,7 @@ const stageSessions = {
                 report: error => tavernErrorHub.report("舞台", error)
             });
             ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
-            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount}));
+            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();

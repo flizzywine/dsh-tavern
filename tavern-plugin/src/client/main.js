@@ -1076,8 +1076,7 @@ window.__ModuleLoader__.load({
 			tavernSessionSignals = signals;
 			ctx.effect(function () { return function () { if (tavernSessionSignals === signals) tavernSessionSignals = undefined; }; }, "dsh-tavern: remote session signals");
 			ctx.effect(function () { return tavernRuntimeGenerationMonitor.start(); }, "dsh-tavern: runtime generation monitor");
-            // one input runtime per open native session, independent of React.
-            stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
+            // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
             const stageClientEntry = createStageClientEntry({
@@ -1086,7 +1085,7 @@ window.__ModuleLoader__.load({
                 report: error => tavernErrorHub.report("舞台", error)
             });
             ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
-            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount}));
+            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();

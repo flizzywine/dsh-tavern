@@ -1266,6 +1266,7 @@ function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+        textIndex:{pageCards:stagePageCards},
         playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
         performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
         directorCommands,
@@ -1311,7 +1312,7 @@ function bindStageViews(createViews) {
         backlogPaging:{hydrateText:(sessionId,turn)=>stageSessions.owner?.hydrateText?.(sessionId,turn), hasOlder:sessionId=>stageSessions.owner?.hasOlder?.(sessionId), loadOlder:sessionId=>stageSessions.owner?.loadOlder?.(sessionId)},
         backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
         backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
-        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
+        backlogRows:{registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
         configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
         configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
         configScreen:{matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, },

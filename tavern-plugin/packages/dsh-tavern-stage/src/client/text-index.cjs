@@ -1,8 +1,7 @@
-'use strict';
+function createStageTextIndexModule({pageCards,character}) {
 
 // Host paragraphs are the only text input. The client only lays out reading cards.
 function createStageTextIndex({paginate, storyTurn, superseded, projectionForTurn}) {
-    const pageCards = typeof stagePageCards === 'function' ? stagePageCards : require('./stage-page-index.cjs').stagePageCards;
     let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, revision = 0;
     function rowFor(turn, nativeTurn, body, old, unloaded) {
         if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded) return old;
@@ -73,7 +72,9 @@ function stageVoiceDescriptor(unit, settings, card) {
     const segment = unit.segment;
     return {paragraphId: unit.paragraphId, lineIdentity:unit.voiceLine, alias: segment.alias, name: segment.name, mood: segment.mood,
         text: segment.text, speech: segment.speech, singleVoiceText: segment.singleVoiceText, thought: !!segment.thought,
-        cardPath: settings?.cardPath || '', character: (typeof bubbleCharacter === 'function' ? bubbleCharacter : require('./bubble-line.cjs').bubbleCharacter)(settings?.config,segment) || null};
+        cardPath: settings?.cardPath || '', character: character(settings?.config,segment) || null};
 }
 
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageTextIndex, stageVoiceDescriptor};
+return {createIndex:createStageTextIndex,voiceDescriptor:stageVoiceDescriptor};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextIndexModule};

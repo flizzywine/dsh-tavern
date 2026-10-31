@@ -60,6 +60,9 @@ window.__ModuleLoader__.load({
         __STAGE_PLAYBACK__
         __STAGE_RUNTIME_UI__
         __STAGE_SPEECH__
+        __STAGE_SESSIONS__
+        __STAGE_TEXT_INDEX__
+        __STAGE_CLIENT_LIFETIME__
         __STAGE_SESSION_RUNTIME__
         __STAGE_RUNTIME_STORE__
         __STAGE_SESSION_OWNER__
@@ -155,6 +158,7 @@ window.__ModuleLoader__.load({
                     style.dataset.pluginCss='dsh-tavern-stage/presentation.css';
                     style.textContent=__STAGE_PRESENTATION_CSS__;
                     document.head.appendChild(style);
+                    let activeViews=null;
                     const stop=host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
                     const skinResources = own(createStageSkinResources({React:options.React,...options.skinResources}));
                     const skin = own(createStageSkinAdapter({contract:options.skinContract,motion:createStageSkinMotion(),backlog:createStageSkinBacklog()}));
@@ -176,7 +180,8 @@ window.__ModuleLoader__.load({
                     const backlogPaging=own(createStageBacklogPaging({React:options.React,...options.backlogPaging}));
                     const backlogHistory=own(createStageBacklogHistory({React:options.React,...options.backlogHistory}));
                     const backlogVoice=own(createStageBacklogVoice(options.backlogVoice || {}));
-                    const backlogRows=createStageBacklogRows({...options.backlogRows,textcard:textcardHistory});
+                    const textIndex=createStageTextIndexModule({pageCards:options.textIndex?.pageCards,character:options.speaker?.character});
+                    const backlogRows=createStageBacklogRows({...options.backlogRows,voiceDescriptor:textIndex.voiceDescriptor,textcard:textcardHistory});
                     const backlogView=own(createStageBacklogView({React:options.React,window,document,...options.backlogView,stageSkinBacklogPlate:skin.stageSkinBacklogPlate,stageSkinBacklogPlateStyle:skin.stageSkinBacklogPlateStyle,stageViews:{backlogPaging,backlogHistory,backlogVoice,backlogRows}}));
                     const choiceLayout=createStageChoiceLayout({React:options.React,...options.choiceLayout});
                     const choices=own(createStageChoices({React:options.React,window,document,...options.choices,layout:choiceLayout}));
@@ -232,9 +237,15 @@ window.__ModuleLoader__.load({
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    views.sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
+                    activeViews=views;
                     return views;
                 })});
                     cleanups.push(stop);
+                    if(activeViews){
+                        if(typeof host.sessionInputs!=='function')throw new Error('Stage session host is unavailable');
+                        activeViews.sessions.start(host.sessionInputs());
+                    }
                     return dispose;
                 }catch(error){
                     try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage activation failed');}

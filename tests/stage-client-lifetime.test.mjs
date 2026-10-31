@@ -27,25 +27,19 @@ test('client lifetime disposes once and immediately releases late resources', ()
   assert.equal(count, 2)
 })
 
-for (const phase of ['director','session']) test(`real stage binding rolls back failure during ${phase} startup`, () => {
-  const calls = [], window = {}
-  const environment = {
-    stageDecodeImage() {}, window, document:{}, stageVoiceAvailable(){},stageVoiceHandle(){},avatarCache:{},bgManual:{}, STAGE_HISTORY_SETTLE_MS:1000, startStageClientLifetime,
-    forkForeground:{}, stageViews:{progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
-      createModNotifications:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/mod-notifications.cjs').createStageModNotifications,
-      createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}),
-      createResourceModule:()=>({createStageResourceRunner:()=>({dispose:()=>calls.push('runner')})}),
-      createDirectorModule:()=>({createStageDirectorSource:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}}})
-    })}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
-    createSkinOverlayLoader: () => () => {},
-    createStageResourceOwner: () => ({dispose: () => calls.push('assets')}),
-
-  }
-  const source = readFileSync(new URL('../tavern-plugin/src/client/stage-session-binding.js', import.meta.url), 'utf8')
-  const sessions = vm.runInNewContext(source + '\nstageSessions', environment)
-  assert.throws(() => sessions.start({sessions:{}}), new RegExp(phase + ' failed'))
-  assert.deepEqual(calls, phase === 'director' ? ['runner','assets'] : ['session','director','runner','assets'])
-  assert.equal(sessions.owner, null)
-  assert.equal(sessions.resourceOwner, null)
-  assert.equal(window.forkStageResourceDebug, undefined)
-})
+for (const phase of ['director','session']) test(`plugin session assembly rolls back failure during ${phase} startup`, () => {
+  const calls = [], window = {};
+  const views={admission:{shown:{}},progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
+    createModNotifications:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/mod-notifications.cjs').createStageModNotifications,
+    createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}),
+    createResourceModule:()=>({createStageResourceRunner:()=>({dispose:()=>calls.push('runner')})}),
+    createDirectorModule:()=>({createStageDirectorSource:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}}})
+  })};
+  const sessions=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/sessions.cjs').createStageSessions({views,window,document:{},startLifetime:startStageClientLifetime,
+    textIndex:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/text-index.cjs').createStageTextIndexModule({})});
+  const inputs={native:{sessions:{}},io:{},assets:{createOwner:()=>({dispose:()=>calls.push('assets')})},dialogue:{},text:{},performance:{},observation:{}};
+  assert.throws(()=>sessions.start(inputs),new RegExp(phase+' failed'));
+  assert.deepEqual(calls,phase==='director'?['runner','assets']:['session','director','runner','assets']);
+  assert.equal(sessions.owner,null);assert.equal(sessions.resourceOwner,null);assert.equal(window.forkStageResourceDebug,undefined);
+  sessions.dispose();
+});

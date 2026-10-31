@@ -28,7 +28,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
   let definition
   const styles = new Set()
-  const document = {querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
+  const document = {addEventListener(){},removeEventListener(){},querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
     document, window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
@@ -41,7 +41,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
         createElement:(type,props,...children) => ({type,props,children}),
       }
-      const views = input.createViews({React,sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
+      const views = input.createViews({React,sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
       assert.equal(views.sceneMath.galSpringValue(3).v,3)
       assert.equal(views.sceneMath.galClamp01(2),1)
@@ -57,10 +57,13 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       seen.push('tab')
       return () => {views.dispose(); seen.push('remove-tab')}
     },
-    () => {seen.push('sessions'); return () => seen.push('stop-sessions')},
   ]})
   const ctx = new Context()
-  ctx.provide('tavernStageFrontend', {mount:host.mount})
+  ctx.provide('tavernStageFrontend', {mount:host.mount,sessionInputs:()=>({
+    native:{sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>{}}},selectedSessionId:()=>null,settings:{subscribe:()=>()=>{}}},
+    io:{},assets:{createOwner:()=>{seen.push('sessions');let closed=false;return {dispose:()=>{if(!closed){closed=true;seen.push('stop-sessions')}}}}},dialogue:{},text:{},performance:{},
+    observation:{packs:{subscribe:()=>()=>{},runtimeChanged:()=>()=>{}},portraits:{select(){}},media:{background:{activate(){}}}}
+  })})
   assert.deepEqual(seen, [], 'core setup does not start the stage')
   assert.equal(styles.size,0)
   const plugin = definition.factory()
