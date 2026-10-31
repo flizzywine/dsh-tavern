@@ -58,3 +58,38 @@ test('配音页可以选择朗读对白或全文，保存后重新打开仍显�
   await page.waitForFunction(() => document.querySelector('[role="status"]')?.textContent.includes('已保存'))
   assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.readMode, 'full')
 })
+
+test('浏览器朗读保留在配音渠道，系统音色加载后可选，开启保存无需 Key 且不切换到在线渠道', async t => {
+  let state = { enabled: false, readMode: 'dialogue', provider: 'browser', providers: providers() }
+  const {page,calls} = await openTavernSettings(t, {
+    section: 'dsh-tavern: speech settings',
+    beforeRender() {
+      const synth = new EventTarget()
+      synth.voices = []
+      synth.getVoices = () => synth.voices
+      Object.defineProperty(window, 'speechSynthesis', {value:synth})
+    },
+    respond(method,args) {
+      if (method === 'getSpeechSettings') return state
+      if (method === 'updateSpeechSettings') { state = {...state,...args}; return state }
+    }
+  })
+  await page.locator('button[aria-label="配音渠道：浏览器朗读"]').waitFor()
+  await page.evaluate(() => {
+    speechSynthesis.voices = [{name:'系统中文音色',lang:'zh-CN'}]
+    speechSynthesis.dispatchEvent(new Event('voiceschanged'))
+  })
+  await page.waitForFunction(() => document.querySelector('#dsh-tavern-speech-voices option')?.value === '系统中文音色')
+  assert.equal(await page.getByText('API Key', {exact:true}).count(), 0)
+  await page.getByRole('switch', {name:'开启朗读',exact:true}).locator('..').click()
+  await page.getByRole('status').getByText('已保存，使用「浏览器朗读」配音', {exact:true}).waitFor()
+  const saved = calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args
+  assert.equal(saved.provider, 'browser')
+  assert.equal(saved.enabled, true)
+  assert.equal(saved.readMode, 'dialogue')
+  await page.locator('button[aria-label^="配音渠道："]').click()
+  await page.getByRole('menuitemradio', {name:'OpenAI 兼容接口',exact:true}).click()
+  await page.locator('button[aria-label^="配音渠道："]').click()
+  await page.getByRole('menuitemradio', {name:'浏览器朗读',exact:true}).click()
+  await page.locator('button[aria-label="配音渠道：浏览器朗读"]').waitFor()
+})

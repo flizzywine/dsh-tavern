@@ -35131,10 +35131,17 @@ function bindTavernFontZoom(node, win) {
 			const [busy, setBusy] = React.useState(false);
 			const [message, setMessage] = React.useState("");
 			const [listed, setModels] = React.useState([]);
+            const [browserVoices, setBrowserVoices] = React.useState(tavernBrowserVoices);
+            React.useEffect(() => {
+                const synth = window.speechSynthesis;
+                const refresh = () => setBrowserVoices(tavernBrowserVoices());
+                refresh();
+                synth?.addEventListener?.("voiceschanged", refresh);
+                return () => synth?.removeEventListener?.("voiceschanged", refresh);
+            }, []);
             React.useEffect(() => { setReadMode(settings?.readMode === "dialogue" ? "dialogue" : "full"); }, [settings?.readMode]);
-			// browser speech is one provider of the page's 「语音服务」,
-			// not a second channel here; this section lists the online and plugin channels only.
-			const providers = settings ? settings.providers.filter(function (item) { return !item.browser; }) : [];
+            // Reply reading supports the browser's system voices as well as online/plugin channels.
+			const providers = settings ? settings.providers : [];
 			const provider = providers.find(function (item) { return item.id === chosen; }) || null;
 			// The saved channel whose service lists its models (Fish /v1/info) offers them under 模型, for the address as saved;
 			// a channel only picked asks nothing until it is saved.
@@ -35202,9 +35209,10 @@ function bindTavernFontZoom(node, win) {
 					models.length ? h("p", { className: "dsh-tavern-settings-desc" }, "服务提供的模型：" + models.map(function (model) { return model.label; }).join("、")) : null,
 					provider && provider.key ? h("div", { className: "dsh-tavern-speech-field" }, h("span", null, keyLabel + (provider.hasKey ? "（已保存，留空沿用）" : provider.keyOptional ? "（选填）" : "")),
 						h(InlineField, { secret: true, value: apiKey, disabled: busy, label: keyLabel, hideLabel: true, onCommit: setApiKey })) : null,
-					field("voice", "默认声音", "", "dsh-tavern-speech-voices"),
+					field("voice", "默认声音", provider?.browser ? "留空使用系统默认中文声音" : "", "dsh-tavern-speech-voices"),
 					field("narratorVoice", "旁白声音", "留空则旁白不念", "dsh-tavern-speech-voices"),
-					h(TavernVoiceOptions, { id: "dsh-tavern-speech-voices", provider: provider }),
+					h(TavernVoiceOptions, { id: "dsh-tavern-speech-voices", provider: provider?.browser ? { ...provider, voices: browserVoices.map(voice => voice.name) } : provider }),
+                    provider?.browser ? h("p", { className: "dsh-tavern-settings-desc" }, "使用浏览器和系统自带的语音，无需 API Key。可用音色取决于当前设备。") : null,
 					h("div", { className: "dsh-tavern-speech-actions" },
 						h("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-speech-save", disabled: busy, onClick: function () { void save(settings.enabled); } }, "保存"),
 						h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void listen(); } }, "试听"))),
