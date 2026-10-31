@@ -137,13 +137,13 @@ function GalStage(props) {
     const config = props.data && props.data.config || { characters: [] };
     const [, redraw] = React.useState(0);
     React.useEffect(() => voicePlayer.subscribe(() => redraw(n => n + 1)), []);
-    const grouped = React.useMemo(() => galTurnIndex(partsMap ? Array.from(partsMap.values()) : []), [partsMap]);
+    const grouped = React.useMemo(() => stageViews.position.turnIndex(partsMap ? Array.from(partsMap.values()) : []), [partsMap]);
     const turns = Array.from(runtime.textIndex.keys()).sort((a, b) => a - b);
     const latestTurn = runtime.latestSource?.turn || turns[turns.length - 1] || 0;
     if (latestTurn && !turns.includes(latestTurn)) turns.push(latestTurn);
     // The active session string does not change when an entry targets an already mounted stage.
     const entry = React.useSyncExternalStore(galActive.subscribe, () => {const entry = galCurrentEntry(); return entry?.sessionId === sessionId ? entry : null;});
-    const initial = React.useMemo(() => ({ saved: galReadBookmark(sessionId), entry }), [sessionId]);
+    const initial = React.useMemo(() => ({ saved: stageViews.position.readBookmark(sessionId), entry }), [sessionId]);
     const turn = runtime.source?.turn || latestTurn;
     const target = entry;
     const viewed = runtime.source;
@@ -161,7 +161,7 @@ function GalStage(props) {
         if (restored === sessionId) return;
         const saved = initial.saved;
         if (!initial.entry && saved && latestTurn < (saved.latestSeenTurn || saved.turn)) return;
-        const selected = galResumeTurn(saved,turns,initial.entry), row = runtime.textIndex.get(selected);
+        const selected = stageViews.position.resumeTurn(saved,turns,initial.entry), row = runtime.textIndex.get(selected);
         if (row?.unloaded) {
             const key = sessionId + ':' + selected;
             if (restoreLoading.current !== key) {
@@ -585,7 +585,7 @@ function GalStage(props) {
         if (delta > 0 && atLastLine && !atEnd) { voicePlayer.stopPlayback(); setEndedAt(endKey); return true; }
         if (transitioning && (delta > 0 ? !inputLast : inputCard > 0)) { inputSubtitles.select(0, inputCard + delta); setTyped(false); return true; }
         if (transitioning || delta > 0 && lastCard && page >= pages.length - 1 || delta < 0 && card === 0 && page === 0) {
-            const nextTurn = galTurnStep(turns, turn, page, pages.length, delta, transitioning);
+            const nextTurn = stageViews.position.turnStep(turns, turn, page, pages.length, delta, transitioning);
             if (!nextTurn) return false;
             if (nextTurn.transition) { inputSubtitles.select(0, 0); setTransition(turn); setTyped(false); }
             else if (nextTurn.turn !== turn) selectTurn(nextTurn.turn, nextTurn.page, undefined, delta > 0);

@@ -7,6 +7,32 @@ function ownWriter(sessionId, storage) {
     if (disposed) writer.dispose(); else writers.add(writer);
     return writer;
 }
+function galPartOrder(a, b) {
+    return (Number(a.order) || 0) - (Number(b.order) || 0) || a.index - b.index || String(a.scope || '').localeCompare(String(b.scope || ''));
+}
+function galTurnIndex(parts) {
+    const grouped = new Map();
+    (parts || []).forEach(part => { if (!grouped.has(part.turn)) grouped.set(part.turn, []); grouped.get(part.turn).push(part); });
+    grouped.forEach(parts => parts.sort(galPartOrder));
+    return grouped;
+}
+function galResumeTurn(saved, turns, entry) {
+    const latest = turns[turns.length - 1] || 0;
+    if (entry && turns.includes(entry.turn)) return entry.turn;
+    if (saved && turns.includes(saved.turn) && latest <= (saved.latestSeenTurn || saved.turn)) return saved.turn;
+    return latest;
+}
+function galReadBookmark(sessionId) {
+    try { return JSON.parse(localStorage.getItem('fork-stage-position:' + sessionId) || 'null'); } catch (_) { return null; }
+}
+// A transition belongs to the outgoing turn, so Back from page zero always reaches its last page.
+function galTurnStep(turns, turn, page, count, delta, transition) {
+    const index = turns.indexOf(turn);
+    if (transition) return delta > 0 ? { turn: turns[index + 1] || turn, page: 0 } : { turn, page: Math.max(0, count - 1) };
+    if (delta > 0 && page >= count - 1) return index < turns.length - 1 ? { turn, page, transition: true } : null;
+    if (delta < 0 && page <= 0) return index > 0 ? { turn: turns[index - 1], page: -1 } : null;
+    return { turn, page: page + delta };
+}
 // Hash text only: voice readiness and other render metadata must not invalidate a bookmark.
 function galTextDigest(parts) {
     const text = parts.map(part => typeof part.text === "string" ? part.text : (part.segments || []).map(segment => segment.text || "").join("\n")).join("\n");
@@ -104,7 +130,7 @@ function useStagePosition(sessionId, runtime, parts, pages, {restored, onSelect}
     }];
 }
 
-return {usePosition:useStagePosition, digest:galTextDigest, anchors:galPositionAnchors, ready:galPositionReady, restore:galRestorePosition, writer:ownWriter, dispose() {
+return {partOrder:galPartOrder, turnIndex:galTurnIndex, resumeTurn:galResumeTurn, readBookmark:galReadBookmark, turnStep:galTurnStep, usePosition:useStagePosition, digest:galTextDigest, anchors:galPositionAnchors, ready:galPositionReady, restore:galRestorePosition, writer:ownWriter, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [], owned = [...writers];

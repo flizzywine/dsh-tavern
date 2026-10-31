@@ -45,3 +45,17 @@ test('position hook releases pagehide on plugin disposal and rejects callbacks f
   stops.forEach(fn=>fn?.());position.dispose()
  }
 })
+test('history navigation keeps transition pages on the outgoing turn and resumes compatible bookmarks',()=>{
+ const position=createStagePosition({storage:{getItem:()=>JSON.stringify({turn:2,latestSeenTurn:3})}})
+ const turns=[1,2,3],saved=position.readBookmark('s')
+ assert.equal(position.resumeTurn(saved,turns,null),2)
+ assert.equal(position.resumeTurn(saved,[1,2,3,4],null),4)
+ assert.equal(position.resumeTurn(saved,turns,{turn:1}),1)
+ assert.deepEqual(position.turnStep(turns,2,2,3,1,false),{turn:2,page:2,transition:true})
+ assert.deepEqual(position.turnStep(turns,2,2,3,1,true),{turn:3,page:0})
+ assert.deepEqual(position.turnStep(turns,2,0,3,-1,false),{turn:1,page:-1})
+ assert.deepEqual(position.turnStep(turns,2,0,3,-1,true),{turn:2,page:2})
+ assert.equal(position.turnStep(turns,3,2,3,1,false),null)
+ const rows=position.turnIndex([{turn:2,order:2,index:0},{turn:1,order:1,index:0},{turn:2,order:1,index:1}])
+ assert.deepEqual(rows.get(2).map(row=>row.order),[1,2])
+})

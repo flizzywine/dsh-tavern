@@ -15,7 +15,7 @@ function galBacklogTurns(parts, turn) {
         byTurn.get(part.turn).push(part);
     });
     return Array.from(byTurn.keys()).sort((a, b) => a - b)
-        .map(t => ({ turn: t, pages: galPages(byTurn.get(t).slice().sort(galPartOrder)) }));
+        .map(t => ({ turn: t, pages: galPages(byTurn.get(t).slice().sort(stageViews.position.partOrder)) }));
 }
 // The rows of the panel: a separator per turn, the player's input of that turn (when known), then its
 // pages. The current turn stops at the current page (never shows pages the reader has not reached).
