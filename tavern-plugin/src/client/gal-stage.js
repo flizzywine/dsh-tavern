@@ -186,7 +186,7 @@ function GalStage(props) {
     const playerInputs = useGalPlayerInputs(sessionId, props.choiceProps && props.choiceProps.useChat);
     const film = useStageFilm();
     const textScales = useStageReading().textScale;
-    const subtitles = useGalSubtitles(film, pages, page, sessionId + ":" + turn, config.stage && config.stage.theme, textScales, !transitioning);
+    const subtitles = stageViews.subtitles.useSubtitles(film, pages, page, sessionId + ":" + turn, config.stage && config.stage.theme, textScales, !transitioning);
     const card = subtitles.card;
     const lastCard = card >= subtitles.cards.length - 1;
     const [typed, setTyped] = React.useState(false);
@@ -194,8 +194,8 @@ function GalStage(props) {
     const readingPage = transitioning ? { kind: "transition", para: pages[page]?.para || 1, text: playerInputs[turns[turnIndex + 1]] || "（这一轮没有可显示的玩家输入）" } : pages[page] || null;
     // the player's input page (「你 · 第 N 轮」) is paginated by the same pager into cards that fit the
     // box (kinsoku, balanced last card); paging forward and back walks its cards like any page's (go). The input shows
-    // at most GAL_INPUT_CARDS cards, the last one ending in 「……」 when the input needs more; the backlog keeps it whole.
-    const inputSubtitles = useGalSubtitles(film, transitioning ? [readingPage] : [], 0, sessionId + ":" + turn + ":input", config.stage && config.stage.theme, textScales, transitioning, GAL_INPUT_CARDS);
+    // at most stageViews.subtitles.inputCards cards, the last one ending in 「……」 when the input needs more; the backlog keeps it whole.
+    const inputSubtitles = stageViews.subtitles.useSubtitles(film, transitioning ? [readingPage] : [], 0, sessionId + ":" + turn + ":input", config.stage && config.stage.theme, textScales, transitioning, stageViews.subtitles.inputCards);
     const inputCard = transitioning ? inputSubtitles.card : 0, inputLast = inputCard >= inputSubtitles.cards.length - 1;
     const textRef = React.useCallback(node => { subtitles.textRef(node); inputSubtitles.textRef(node); }, [subtitles.textRef, inputSubtitles.textRef]);
     const streaming = parts.some(part => part.streaming);
@@ -593,7 +593,7 @@ function GalStage(props) {
             else { setTransition(null); setTyped(false); }
             return true;
         }
-        const next = galSubtitleStep(page, card, delta, subtitles.counts);
+        const next = stageViews.subtitles.step(page, card, delta, subtitles.counts);
         if (next.page === page && next.card === card) return false;
         showCard(next.page, next.card, delta > 0);
         return true;
@@ -713,7 +713,7 @@ function GalStage(props) {
             const timer = forkForeground.setInterval(function () {
                 const now = voicePlayer.get();
                 const audio = now && now.owner === voice.owner && now.id === voice.id && now.audio;
-                const target = audio && galSubtitleVoiceTime(subtitles.cards, card, audio.duration);
+                const target = audio && stageViews.subtitles.voiceTime(subtitles.cards, card, audio.duration);
                 if (audio && !audio.paused && target !== null && audio.currentTime >= target) go(1, true);
             }, 80);
             return () => forkForeground.clearInterval(timer);
@@ -1434,6 +1434,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+        subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
         notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
