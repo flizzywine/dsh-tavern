@@ -4,6 +4,7 @@ window.__ModuleLoader__.load({
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
         __STAGE_LABELS__
+        __STAGE_LOADER__
         __STAGE_VIEWS__
         return ({
         name: 'dsh-tavern-stage',
@@ -23,7 +24,7 @@ window.__ModuleLoader__.load({
                 style.textContent = __STAGE_PRESENTATION_CSS__;
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => ({...createStageViews(options), ...createStageLabels({React:options.React, Icon:options.Icon, document:options.document, ...options.labels}), ...createStageText({React:options.React, document:options.document, ...options.text})})});}
+                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => ({...createStageViews(options), loader:createStageLoader(options.loader), ...createStageLabels({React:options.React, Icon:options.Icon, document:options.document, ...options.labels}), ...createStageText({React:options.React, document:options.document, ...options.text})})});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');

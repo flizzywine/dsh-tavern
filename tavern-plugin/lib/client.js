@@ -58596,49 +58596,21 @@ function galUiApplier() {
 		// skin document and its bundle key, so the veil leases that one image itself at once - before and independent of the scene's
 		// skin bundle, the background and the figures. One read per image for the page's lifetime; a failed read falls back to the
 		// shared wheel.
-		const galEntryLoaderReads = new Map(), galEntryLoaderDone = new Map();
-		function galEntryLoaderKey(skin) {
-		    const art = !skin?.builtin && skin?.ref && skin.bundleKey ? skin.document?.art : null;
-		    return art?.spinner ? JSON.stringify([skin.ref.packId, skin.bundleKey, skin.entry || '', art.spinner, art.screen, art.screenWidth]) : '';
-		}
-		function galEntryLoaderRead(key, skin) {
-		    let read = galEntryLoaderReads.get(key);
-		    if (read) return read;
-		    read = (async () => {
-		        const {spinner, screen, screenWidth} = skin.document.art, entry = skin.entry || '', service = packTransport.service;
-		        const dir = entry.includes('/') ? entry.replace(/[^/]*$/, '') : '', names = spinner.parts ? spinner.parts.map(part => part.image) : [spinner.image];
-		        const lease = await service.leaseBundle({packId:skin.ref.packId, bundleKey:skin.bundleKey});
-		        try {
-		            const marker = '/lease/' + encodeURIComponent(lease.ticket) + '/', base = lease.url.slice(0, lease.url.indexOf(marker) + marker.length);
-		            const images = Object.fromEntries(await Promise.all([...new Set(names)].map(async name => {
-		                const response = await fetch(base + (dir + name).split('/').map(encodeURIComponent).join('/'), {credentials:'same-origin', priority:'high'});
-		                if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
-		                const blob = await response.blob(), url = URL.createObjectURL(blob), image = await stageDecodeImage(blob, url);
-		                return [name, {url, width:image.naturalWidth || image.width, height:image.naturalHeight || image.height}];
-		            })));
-		            const art = stageSkinSpinner(spinner, images, {height:screen, width:screenWidth});
-		            galEntryLoaderDone.set(key, art);
-		            return art;
-		        } finally { void service.releaseLease(lease.ticket); }
-		    })();
-		    galEntryLoaderReads.set(key, read);
-		    read.catch(() => { galEntryLoaderReads.delete(key); galEntryLoaderDone.set(key, null); });
-		    return read;
-		}
 		// null: the shared wheel (no skin loader); 'pending': an empty slot; else the overlay's marks, tokens and keyframes.
 		function useGalEntryLoader(skin) {
-		    const key = galEntryLoaderKey(skin);
-		    const [read, setRead] = React.useState(() => ({key, art:galEntryLoaderDone.get(key)}));
+		    const loader = stageViews.loader;
+		    const key = loader.key(skin);
+		    const [read, setRead] = React.useState(() => ({key, art:loader.get(key)}));
 		    React.useEffect(() => {
-		        if (!key || galEntryLoaderDone.has(key)) { setRead({key, art:galEntryLoaderDone.get(key)}); return; }
+		        if (!key || loader.has(key)) { setRead({key, art:loader.get(key)}); return; }
 		        let live = true;
-		        galEntryLoaderRead(key, skin).then(art => { if (live) setRead({key, art}); },
+		        loader.read(key, skin).then(art => { if (live) setRead({key, art}); },
 		            error => { console.warn('Stage skin loader art unavailable', error); if (live) setRead({key, art:null}); });
 		        return () => { live = false; };
-		    }, [key]);
+		    }, [key, loader]);
 		    if (!key) return null;
 		    if (read.key === key && read.art !== undefined) return read.art;
-		    return galEntryLoaderDone.get(key) || 'pending';
+		    return loader.get(key) || 'pending';
 		}
 
 		// while a 入场演出 plays (stage-entrance.js, `entrance` = {loadPhase, bright}) the veil is only
@@ -63700,12 +63672,13 @@ function galUiApplier() {
 		    if (stageViews) throw new Error('Stage views already mounted');
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        useBubbles, useGalEntryLoader, GalStage, Icon,
+		        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
 		        labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
 		        text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
 		            fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed,
 		            stageGlyphs, stageGlyphDelay, STAGE_GLYPH_FADE_MS, stageSkinReveal, stageSkinRevealCount, stageSkinGlyphJitter}});
 		    stageViews = views;
-		    return () => {if (stageViews === views) stageViews = null;};
+		    return () => {if (stageViews === views) stageViews = null; views.loader.dispose();};
 		}
 		// the stage's CONFIG screen, visual-novel
 		// style - the one home of the stage's lasting preferences. The system menu's 设置 (and the top bar's 声音) open a full-screen
