@@ -97,8 +97,7 @@ function galCreateScene(host, options) {
     // model or picture, in its current outfit, mood and mouth) drawn once more into a texture the size of the skin's crop,
     // framed by its rest head box (tickBust). No second model and no camera; above the world and under the overlay (phone
     // shade, cover), so the DOM text box covers it as the original's box covers its bust.
-    const bust = { sprite: new PIXI.Sprite(PIXI.Texture.EMPTY), texture: null, key: "", matrix: new PIXI.Matrix(), inverse: new PIXI.Matrix() };
-    bust.sprite.visible = false;
+    const bust = stageViews.bust.create({PIXI,renderer:app.renderer});
     // the call view - each party framed by its rest head into a
     // texture the size of the phone page's box, over everything (the phone shade, transitions), under the page's own glass.
     // Figures loaded for it alone stay off stage: their containers live in a holder the stage never draws (`offstageBox`).
@@ -1121,38 +1120,12 @@ function galCreateScene(host, options) {
         return Promise.resolve(canvas.toDataURL("image/jpeg", 0.9));
     }
     function tickBust(desc, now, W, H) {
-        const spec = desc.bust && W > 640 && !desc.hideFigures && !desc.shot ? desc.bust : null, entry = spec && entryOf(spec.alias), head = entry && entry.localHead;
-        const frame = head && entry.container.visible ? galBustFrame(spec, W, H) : null, clip = frame && frame.clip;
-        if (!clip || clip.width < 1 || clip.height < 1) { state.bust = null; bust.sprite.visible = false; return; }
-        if (state.bust?.alias !== spec.alias) state.bust = { alias: spec.alias, since: desc.snap || desc.skipping || desc.reducedMotion ? -Infinity : now };
-        const pose = galBustEnter(spec.enter, now - state.bust.since, frame.u), resolution = app.renderer.resolution;
-        const width = Math.ceil(clip.width), height = Math.ceil(clip.height), key = width + "x" + height + "@" + resolution;
-        if (bust.key !== key) {
-            if (bust.texture) bust.texture.destroy(true);
-            bust.texture = PIXI.RenderTexture.create({ width, height, resolution });
-            bust.sprite.texture = bust.texture; bust.key = key;
-        }
-        // Projection = the bust framing after undoing the stage's own placement of the container.
-        const container = entry.container, s = frame.head.height / galFramedHead(Math.max(1, head.chin - head.top), state.figureLayout?.head);
-        container.transform.updateLocalTransform();
-        container.transform.localTransform.copyTo(bust.inverse).invert();
-        bust.matrix.set(s, 0, 0, s, frame.head.x - head.x * s + pose.dx - clip.x, frame.head.top - head.top * s - clip.y).append(bust.inverse);
-        // Without the figure's stage filters (scene grade, listener shade, entrance alpha, depth blur): the bust is the skin's
-        // portrait, not part of the lit scene, and a filter pass would render it at stage size before the framing scales it.
-        const filters = container.filters;
-        container.filters = null;
-        app.renderer.render(container, { renderTexture: bust.texture, clear: true, transform: bust.matrix, skipUpdateTransform: false });
-        container.filters = filters;
-        // The render used a temporary parent: the stage pass must recompute this container's world transform.
-        container.transform._parentID = -1;
-        bust.sprite.position.set(clip.x, clip.y);
-        bust.sprite.alpha = pose.alpha;
-        bust.sprite.visible = true;
+        const spec=desc.bust && W>640 && !desc.hideFigures && !desc.shot ? desc.bust : null;
+        const entry=spec && entryOf(spec.alias);
+        bust.tick({spec,subject:entry ? {container:entry.container,head:entry.localHead} : null,
+            now,W,H,instant:desc.snap || desc.skipping || desc.reducedMotion,rulerHead:state.figureLayout?.head});
     }
 
-    // the inner-monologue backdrop while the line is inner monologue. Linear
-    // fades (the original: in .1 s, out .2 s); stretched to `over` x the screen (1.1) and held still against the camera and
-    // shake, as the original's node sits outside the background's pan. Skip and history show the end state at once.
     // ---- one-shot effects (screen.play beats, emotes) and the camera
     function tickEffects(desc, now) {
         const list = (desc.effects || []).concat(state.debugEffects);
@@ -1468,7 +1441,7 @@ function galCreateScene(host, options) {
             offstageBox.destroy();
             backgrounds.dispose();
             textures.dispose();
-            if (bust.texture) bust.texture.destroy(true);
+            bust.dispose();
             thinking.dispose();
             app.destroy(true, { children: true });
             Object.values(generated).forEach(texture => texture.destroy(true));

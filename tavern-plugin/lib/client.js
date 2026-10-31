@@ -46803,17 +46803,6 @@ function cardLibraryDisplayName(card) {
 		    visible.forEach((id, i) => { x[id] = slots[i]; });
 		    return { count: visible.length, fit: fit * zoom, drop, top, framed: framing?.scale != null || framing?.top != null || ruler != null, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
 		}
-		// where a skin's bust portrait stands on a W x H stage.
-		// The design screen (bust.screen tall, bust.width wide) is centred and stands on the stage's bottom edge, one design px
-		// u = min(H / screen, W / fit) as the art's --art-u. head = the head box's centre x, top and height (stage px); clip = the
-		// crop (head heights above the crown, to each side, below the chin), cut to the design screen and the stage.
-		function galBustFrame(bust, W, H) {
-		    const u = Math.min(H / bust.screen, W / bust.fit), left = W / 2 - bust.width * u / 2, top = H - bust.screen * u;
-		    const [x, y, height] = bust.head, [above, side, below] = bust.crop, head = { x: left + x * u, top: top + y * u, height: height * u };
-		    const x0 = Math.max(0, left, head.x - side * head.height), x1 = Math.min(W, left + bust.width * u, head.x + side * head.height);
-		    const y0 = Math.max(0, top, head.top - above * head.height), y1 = Math.min(H, head.top + head.height * (1 + below));
-		    return { u, head, clip: { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) } };
-		}
 		// a performance's speaker shot on a W x H
 		// stage. shot = {head: [centre x, top, height] (stage fractions), roll (degrees, counter-clockwise)} for the subject's side.
 		// The whole world (background and figure) turns by roll about the stage centre and zooms just enough to stay covering;
@@ -46825,13 +46814,6 @@ function cardLibraryDisplayName(card) {
 		    const px = (narrow ? 0.5 : hx) * W - W / 2, py = top * H - H / 2, size = narrow ? Math.min(height * H, 0.45 * W) : height * H;
 		    // Screen = centre + R(r) zoom (local - centre); the inverse turn puts the screen target back into the world.
 		    return { zoom, rotation: r, head: { x: W / 2 + (cos * px + sin * py) / zoom, top: H / 2 + (-sin * px + cos * py) / zoom, height: size / zoom } };
-		}
-		// A new bust subject's pose t ms after it arrived: the skin's first pose (enter.dx design px, enter.alpha), held until ms
-		// (hold, the default) or eased out to rest over ms (out); at rest afterwards and without an entrance.
-		function galBustEnter(enter, t, u) {
-		    if (!enter || t >= enter.ms) return { dx: 0, alpha: 1 };
-		    const k = enter.curve === "out" ? galEase.outCubic(galClamp01(t / enter.ms)) : 0, alpha = enter.alpha ?? 1;
-		    return { dx: (enter.dx || 0) * u * (1 - k), alpha: alpha + (1 - alpha) * k };
 		}
 		// Visibility only: film bars and the normal topbar never change figure size or the ground line.
 		function galVisibleFrame(W, H, film, uiTop) {
@@ -47061,7 +47043,7 @@ function cardLibraryDisplayName(card) {
 		    ["background", "camera", "figureLight"].forEach(function (key) { if (patch[key] && base[key] && typeof patch[key] === "object") out[key] = Object.assign({}, base[key], patch[key]); });
 		    return out;
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigurePlan, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galBustFrame, galShotFrame, galBustEnter, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigurePlan, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
 		// ---------- Scene runtime (pixi) ----------
 
 		// Machine preference: stage effects quality, "high" (default) or "low".
@@ -47132,8 +47114,7 @@ function cardLibraryDisplayName(card) {
 		    // model or picture, in its current outfit, mood and mouth) drawn once more into a texture the size of the skin's crop,
 		    // framed by its rest head box (tickBust). No second model and no camera; above the world and under the overlay (phone
 		    // shade, cover), so the DOM text box covers it as the original's box covers its bust.
-		    const bust = { sprite: new PIXI.Sprite(PIXI.Texture.EMPTY), texture: null, key: "", matrix: new PIXI.Matrix(), inverse: new PIXI.Matrix() };
-		    bust.sprite.visible = false;
+		    const bust = stageViews.bust.create({PIXI,renderer:app.renderer});
 		    // the call view - each party framed by its rest head into a
 		    // texture the size of the phone page's box, over everything (the phone shade, transitions), under the page's own glass.
 		    // Figures loaded for it alone stay off stage: their containers live in a holder the stage never draws (`offstageBox`).
@@ -48156,38 +48137,12 @@ function cardLibraryDisplayName(card) {
 		        return Promise.resolve(canvas.toDataURL("image/jpeg", 0.9));
 		    }
 		    function tickBust(desc, now, W, H) {
-		        const spec = desc.bust && W > 640 && !desc.hideFigures && !desc.shot ? desc.bust : null, entry = spec && entryOf(spec.alias), head = entry && entry.localHead;
-		        const frame = head && entry.container.visible ? galBustFrame(spec, W, H) : null, clip = frame && frame.clip;
-		        if (!clip || clip.width < 1 || clip.height < 1) { state.bust = null; bust.sprite.visible = false; return; }
-		        if (state.bust?.alias !== spec.alias) state.bust = { alias: spec.alias, since: desc.snap || desc.skipping || desc.reducedMotion ? -Infinity : now };
-		        const pose = galBustEnter(spec.enter, now - state.bust.since, frame.u), resolution = app.renderer.resolution;
-		        const width = Math.ceil(clip.width), height = Math.ceil(clip.height), key = width + "x" + height + "@" + resolution;
-		        if (bust.key !== key) {
-		            if (bust.texture) bust.texture.destroy(true);
-		            bust.texture = PIXI.RenderTexture.create({ width, height, resolution });
-		            bust.sprite.texture = bust.texture; bust.key = key;
-		        }
-		        // Projection = the bust framing after undoing the stage's own placement of the container.
-		        const container = entry.container, s = frame.head.height / galFramedHead(Math.max(1, head.chin - head.top), state.figureLayout?.head);
-		        container.transform.updateLocalTransform();
-		        container.transform.localTransform.copyTo(bust.inverse).invert();
-		        bust.matrix.set(s, 0, 0, s, frame.head.x - head.x * s + pose.dx - clip.x, frame.head.top - head.top * s - clip.y).append(bust.inverse);
-		        // Without the figure's stage filters (scene grade, listener shade, entrance alpha, depth blur): the bust is the skin's
-		        // portrait, not part of the lit scene, and a filter pass would render it at stage size before the framing scales it.
-		        const filters = container.filters;
-		        container.filters = null;
-		        app.renderer.render(container, { renderTexture: bust.texture, clear: true, transform: bust.matrix, skipUpdateTransform: false });
-		        container.filters = filters;
-		        // The render used a temporary parent: the stage pass must recompute this container's world transform.
-		        container.transform._parentID = -1;
-		        bust.sprite.position.set(clip.x, clip.y);
-		        bust.sprite.alpha = pose.alpha;
-		        bust.sprite.visible = true;
+		        const spec=desc.bust && W>640 && !desc.hideFigures && !desc.shot ? desc.bust : null;
+		        const entry=spec && entryOf(spec.alias);
+		        bust.tick({spec,subject:entry ? {container:entry.container,head:entry.localHead} : null,
+		            now,W,H,instant:desc.snap || desc.skipping || desc.reducedMotion,rulerHead:state.figureLayout?.head});
 		    }
 
-		    // the inner-monologue backdrop while the line is inner monologue. Linear
-		    // fades (the original: in .1 s, out .2 s); stretched to `over` x the screen (1.1) and held still against the camera and
-		    // shake, as the original's node sits outside the background's pan. Skip and history show the end state at once.
 		    // ---- one-shot effects (screen.play beats, emotes) and the camera
 		    function tickEffects(desc, now) {
 		        const list = (desc.effects || []).concat(state.debugEffects);
@@ -48503,7 +48458,7 @@ function cardLibraryDisplayName(card) {
 		            offstageBox.destroy();
 		            backgrounds.dispose();
 		            textures.dispose();
-		            if (bust.texture) bust.texture.destroy(true);
+		            bust.dispose();
 		            thinking.dispose();
 		            app.destroy(true, { children: true });
 		            Object.values(generated).forEach(texture => texture.destroy(true));
@@ -54560,6 +54515,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        bust:{framedHead:galFramedHead},
 		        backgrounds:{transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade},
 		        backgroundLayers:{cover:galCover,transitionFrame:galTransitionFrame,wipeRect:galWipeRect,irisSize:galIrisSize},
 		        sceneGraphics:{paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette},

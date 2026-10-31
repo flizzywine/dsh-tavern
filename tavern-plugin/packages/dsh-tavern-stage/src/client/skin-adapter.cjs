@@ -857,7 +857,7 @@ function stageSkinArt(document, files, entry = '') {
             }
         }
     }
-    // A bust portrait (stage-skin-adv.md「portrait source」) is drawn by the scene (gal-scene.js galBustFrame): the
+    // A bust portrait (stage-skin-adv.md「portrait source」) is drawn by the scene (the plugin bust renderer): the
     // design screen (centred, standing on the stage's bottom edge; `fit` = the width bounding one art px, as --art-u) and the
     // framing words, in its px.
     const bust=art.portrait?.bust ? {screen:art.screen,width:art.screenWidth,fit:Math.max(wide,box ? size(box.images.plain,box.scale)[0] / (box.fit || .96) : 0),

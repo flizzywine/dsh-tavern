@@ -618,17 +618,6 @@ function galFigureLayout(input) {
     visible.forEach((id, i) => { x[id] = slots[i]; });
     return { count: visible.length, fit: fit * zoom, drop, top, framed: framing?.scale != null || framing?.top != null || ruler != null, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
 }
-// where a skin's bust portrait stands on a W x H stage.
-// The design screen (bust.screen tall, bust.width wide) is centred and stands on the stage's bottom edge, one design px
-// u = min(H / screen, W / fit) as the art's --art-u. head = the head box's centre x, top and height (stage px); clip = the
-// crop (head heights above the crown, to each side, below the chin), cut to the design screen and the stage.
-function galBustFrame(bust, W, H) {
-    const u = Math.min(H / bust.screen, W / bust.fit), left = W / 2 - bust.width * u / 2, top = H - bust.screen * u;
-    const [x, y, height] = bust.head, [above, side, below] = bust.crop, head = { x: left + x * u, top: top + y * u, height: height * u };
-    const x0 = Math.max(0, left, head.x - side * head.height), x1 = Math.min(W, left + bust.width * u, head.x + side * head.height);
-    const y0 = Math.max(0, top, head.top - above * head.height), y1 = Math.min(H, head.top + head.height * (1 + below));
-    return { u, head, clip: { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) } };
-}
 // a performance's speaker shot on a W x H
 // stage. shot = {head: [centre x, top, height] (stage fractions), roll (degrees, counter-clockwise)} for the subject's side.
 // The whole world (background and figure) turns by roll about the stage centre and zooms just enough to stay covering;
@@ -640,13 +629,6 @@ function galShotFrame(shot, W, H) {
     const px = (narrow ? 0.5 : hx) * W - W / 2, py = top * H - H / 2, size = narrow ? Math.min(height * H, 0.45 * W) : height * H;
     // Screen = centre + R(r) zoom (local - centre); the inverse turn puts the screen target back into the world.
     return { zoom, rotation: r, head: { x: W / 2 + (cos * px + sin * py) / zoom, top: H / 2 + (-sin * px + cos * py) / zoom, height: size / zoom } };
-}
-// A new bust subject's pose t ms after it arrived: the skin's first pose (enter.dx design px, enter.alpha), held until ms
-// (hold, the default) or eased out to rest over ms (out); at rest afterwards and without an entrance.
-function galBustEnter(enter, t, u) {
-    if (!enter || t >= enter.ms) return { dx: 0, alpha: 1 };
-    const k = enter.curve === "out" ? galEase.outCubic(galClamp01(t / enter.ms)) : 0, alpha = enter.alpha ?? 1;
-    return { dx: (enter.dx || 0) * u * (1 - k), alpha: alpha + (1 - alpha) * k };
 }
 // Visibility only: film bars and the normal topbar never change figure size or the ground line.
 function galVisibleFrame(W, H, film, uiTop) {
@@ -876,4 +858,4 @@ function galSceneMerge(base, patch) {
     ["background", "camera", "figureLight"].forEach(function (key) { if (patch[key] && base[key] && typeof patch[key] === "object") out[key] = Object.assign({}, base[key], patch[key]); });
     return out;
 }
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigurePlan, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galBustFrame, galShotFrame, galBustEnter, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigurePlan, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
