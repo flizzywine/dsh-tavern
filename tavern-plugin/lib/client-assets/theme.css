@@ -4950,20 +4950,6 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 /* A bare text box in a row's control (本地语音引擎's paths): the inline-edit look (fork-edit) at a fixed column width. */
 .dsh-tavern-global-settings .dsh-tavern-settings-control > input.fork-edit { box-sizing: border-box; width: min(26em, 100%); min-width: 0; height: 30px; margin: 0; padding-left: 6px; color: var(--fork-ink); font: inherit; font-size: var(--fork-fs-body); }
 
-/* ==== fork model image input ==== */
-/* 设置 › 模型 › a pi-ai provider card — 「能看图 (?)」 over one row per listed
-   model (name left, Switch right, one hairline between rows), the same row grammar as 设置 › DSH Tavern
-   (modules/model-image-input.js). Sits inside the upstream card, so it draws no card or border of its own. */
-.fork-model-image { display: flex; flex-direction: column; margin: 8px 0 0; color: var(--fork-ink); font-size: var(--fork-fs-body); }
-.fork-model-image.is-loading { min-height: 28px; justify-content: center; }
-.fork-model-image-head { display: flex; align-items: center; gap: 4px; min-height: 28px; color: var(--fork-ink-2); font-weight: 500; line-height: 1.5; }
-.fork-model-image-row { display: flex; align-items: center; justify-content: space-between; gap: 4px 24px; min-height: 36px; border-top: 1px solid var(--fork-hairline); }
-.fork-model-image-head + .fork-model-image-row { border-top: 0; }
-.fork-model-image-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fork-model-image-alert { margin: 4px 0 0; color: var(--fork-warn); font-size: var(--fork-fs-meta); overflow-wrap: anywhere; }
-.fork-model-image-retry { appearance: none; min-height: 30px; margin-left: 8px; padding: 0 4px; border: 0; background: none; color: var(--fork-accent); font: inherit; cursor: pointer; }
-.fork-model-image-retry:focus-visible { outline: var(--fork-focus); outline-offset: 2px; }
-@media (max-width: 720px) { .fork-model-image-row { min-height: 44px; } .fork-model-image-retry { min-height: 36px; } }
 .dsh-tavern-global-settings .dsh-tavern-settings-control > input.fork-edit[type=number] { appearance: textfield; }
 .dsh-tavern-global-settings .dsh-tavern-settings-control > input.fork-edit[type=number]::-webkit-inner-spin-button,
 .dsh-tavern-global-settings .dsh-tavern-settings-control > input.fork-edit[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

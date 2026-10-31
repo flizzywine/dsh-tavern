@@ -936,7 +936,6 @@ window.__ModuleLoader__.load({
 // @include features/scene-images.js
 // @include modules/view-tabs.js
 // @include features/settings.js
-// @include modules/model-image-input.js
 
 // @include features/prose-layout.js
 // @include features/text-layout.js
@@ -1226,11 +1225,6 @@ window.__ModuleLoader__.load({
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
-			// 「能看图」 inside each pi-ai card of the upstream Models page (modules/model-image-input.js).
-			ctx.effect(function () {
-				return slots.inject("settings.models.provider-card", function () { return slots.register({ name: "settings.models.provider-card", key: MODEL_IMAGE_NS },
-					function (props) { return React.createElement(ModelImageInput, Object.assign({}, props, { remote: ctx.remote })); }); });
-			}, "dsh-tavern: model image input");
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
                     () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });
