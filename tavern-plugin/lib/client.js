@@ -47161,6 +47161,8 @@ function cardLibraryDisplayName(card) {
 		    // pixi-filters (post effects) load in the background; until then grading and particles still work.
 		    stageViews.effects.loadFilters().catch(error => console.warn("[fork-gal-scene] pixi-filters", error));
 
+		    const cameraMotion=stageViews.sceneCamera.create();
+		    let closeHead=null;
 		    const state = {
 		        desc: null, override: null, debugEffects: [], destroyed: false,
 		        layers: [],                    // backdrop layers, bottom → top: { url, time, texture, sprite, plan, start, mask, owned, standIn, correction }
@@ -47168,7 +47170,7 @@ function cardLibraryDisplayName(card) {
 		        grade: { name: null, start: 0, duration: 0, current: null, version: 0 },
 		        figures: new Map(),            // key → entry
 		        seen: new Set(),
-		        camera: { key: null, from: null, current: null, start: 0, ms: 0, ease: "inOutCubic" },
+		        camera: cameraMotion.snapshot(),
 		        dof: galSpringValue(0),
 		        
 		        frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0,
@@ -48373,45 +48375,20 @@ function cardLibraryDisplayName(card) {
 		        const entry = entryOf(alias), rest = entry && headOf(entry, true);
 		        if (!rest) return null;
 		        const key = alias + ":" + W + ":" + H;
-		        if (state.camera.closeHead?.key !== key) {
+		        if (closeHead?.key !== key) {
 		            const exact = headOf(entry, false, true), shift = (entry.headroom || 0) - (entry.faceClamp?.lift || 0);
 		            if (!exact) return rest;
-		            state.camera.closeHead = { key, below: Math.max(0, exact.chin - shift - rest.chin) };
+		            closeHead = { key, below: Math.max(0, exact.chin - shift - rest.chin) };
 		        }
-		        return { ...rest, chin: rest.chin + state.camera.closeHead.below };
+		        return { ...rest, chin: rest.chin + closeHead.below };
 		    }
 		    function tickCamera(desc, now, W, H, frame) {
-		        const camera = state.camera, spec = desc.camera || {};
-		        let target, key, ms, ease, zoomMax = Infinity;
-		        if (!spec.shot && typeof spec.zoom === "number") {
-		            // Plain numbers (debug override): zoom / pan / rotation around the default focus.
-		            const t = galCameraTarget(spec);
-		            target = { zoom: t.zoom, fx: 0.5 + t.panX, fy: 0.42 + t.panY, ax: 0.5, ay: 0.42, rotation: t.rotation };
-		            key = "manual:" + [t.zoom, t.panX, t.panY, t.rotation].join(","); ms = GAL_ZOOM_MS; ease = "inOutCubic";
-		        } else {
-		            const shot = spec.shot || "", head = shot === "close" ? closeHeadOf(spec.target, W, H) : null;
-		            const framing = head ? galCloseFrame(head, frame, state.faceEnvironment.closeBottom, W, H, state.figureLayout?.head) : null;
-		            const plan = galShotTarget(shot, framing);
-		            target = plan.target; key = shot + ":" + (head ? spec.target : ""); ms = plan.ms; ease = plan.ease;
-		            zoomMax = framing ? framing.zoomMax : Infinity;
-		        }
-		        target = galFrameCameraTarget(target, frame, H);
-		        // Where the shot settles, for close-up crop fades (read by the next figure tick).
-		        camera.closeOn = spec.shot === "close" && key !== "close:" ? spec.target : "";
-		        camera.goal = galCameraClamp(target, W, H, 0.018);
-		        const reported = key + "|" + W + "|" + H, r3 = v => Math.round(v * 1000) / 1000;
-		        if (reported !== state.cameraReported) { state.cameraReported = reported; state.cameraReport = { zoom: r3(camera.goal.zoom), fx: r3(camera.goal.fx), ax: r3(camera.goal.ax) }; reportLayout(); }
-		        if (desc.skipping) ms = Math.min(ms, 200);
-		        if (desc.snap) ms = 0;
-		        if (camera.key !== key) { camera.from = camera.current || target; camera.key = key; camera.start = now; camera.ms = camera.current ? ms : 0; camera.ease = ease; }
-		        const k = camera.ms > 0 ? galEase[camera.ease](galClamp01((now - camera.start) / camera.ms)) : 1;
-		        const current = {};
-		        ["zoom", "fx", "fy", "ax", "ay", "rotation"].forEach(name => { current[name] = camera.from[name] + (target[name] - camera.from[name]) * k; });
-		        camera.current = current;
-		        const kick = effects.zoomKick(now), shake = effects.shakeOffset(now);
-		        // A beat's zoom kick never pushes a close-up's chin past the safe line.
-		        const safe = galCameraClamp(Object.assign({}, current, { zoom: Math.min(current.zoom * (1 + kick), Math.max(current.zoom, zoomMax)) }), W, H, 0.018);
-		        camera.safe = safe;
+		        const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
+		        const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,state.figureLayout?.head):null;
+		        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
+		        const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
+		        if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
+		        const safe=camera.safe,shake=effects.shakeOffset(now);
 		        world.pivot.set(safe.fx * W, safe.fy * H);
 		        world.position.set(safe.ax * W + shake.x, safe.ay * H + shake.y);
 		        // a skin shake of the background alone (screen px).
@@ -48441,7 +48418,7 @@ function cardLibraryDisplayName(card) {
 		        const desc = describe();
 		        if (desc.holding) { world.visible = overlay.visible = bust.sprite.visible = false; return; }
 		        const newVisit = desc.snap && desc.visit !== state.visit;
-		        if (newVisit) { state.visit = desc.visit; state.camera.key = null; state.camera.current = null; }
+		        if (newVisit) { state.visit = desc.visit; state.camera = cameraMotion.reset(); }
 		        const W = app.screen.width, H = app.screen.height;
 		        if ((desc.quality === "low" ? "low" : "high") !== quality) applyQuality(desc.quality);
 		        ;
@@ -48934,47 +48911,6 @@ function stageLookFadeMs(look, entering, policy, skipping) {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = { STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageEffectRgb, stageEffectHex,
     stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt, stageLookFadeMs };
-
-// Camera shots (persistent). The world point (fx, fy) (fractions of the stage) sits at the screen point
-// (ax, ay); zoom and rotation turn around it. head: { x, y } of the close-up target, fractions.
-const GAL_SHOTS = {
-    "": { zoom: 1, ms: 900, ease: "inOutCubic" },
-    push: { zoom: 1.12, ms: 8000, ease: "inOutSine" },
-    close: { zoom: 1.35, ms: 700, ease: "inOutCubic" },
-    "pan-left": { zoom: 1.1, panX: -0.06, ms: 4000, ease: "inOutSine" },
-    "pan-right": { zoom: 1.1, panX: 0.06, ms: 4000, ease: "inOutSine" },
-    dutch: { zoom: 1.08, rotation: 3.5 * Math.PI / 180, ms: 1000, ease: "inOutCubic" }
-};
-function galShotTarget(shot, head) {
-    let spec = GAL_SHOTS[shot] || GAL_SHOTS[""];
-    if (shot === "close" && !head) spec = GAL_SHOTS[""];
-    const target = { zoom: spec.zoom, fx: 0.5 + (spec.panX || 0), fy: 0.42, ax: 0.5, ay: 0.42, rotation: spec.rotation || 0 };
-    if (shot === "close" && head) {
-        target.fx = head.x; target.fy = head.y; target.ax = 0.5;
-        target.zoom = head.zoom ?? spec.zoom; target.ay = head.ay ?? 0.36;
-    }
-    return { target, ms: spec.ms, ease: spec.ease };
-}
-// Keeps the camera inside the backdrop (which overscans the stage by margin on each side): zooms in just
-// enough for rotations, then slides the focus so no corner of the screen shows past the picture.
-function galCameraClamp(cam, W, H, margin) {
-    const m = margin == null ? 0.018 : margin;
-    const cos = Math.cos(cam.rotation || 0), sin = Math.sin(cam.rotation || 0);
-    let zoom = Math.max(0.2, cam.zoom || 1);
-    const corners = z => [[0, 0], [W, 0], [0, H], [W, H]].map(function ([sx, sy]) {
-        const dx = (sx - cam.ax * W) / z, dy = (sy - cam.ay * H) / z;
-        return [dx * cos + dy * sin, -dx * sin + dy * cos];
-    });
-    const span = list => [Math.min(...list), Math.max(...list)];
-    let c = corners(zoom);
-    let [x0, x1] = span(c.map(p => p[0])), [y0, y1] = span(c.map(p => p[1]));
-    const need = Math.max(1, (x1 - x0) / (W * (1 + 2 * m)), (y1 - y0) / (H * (1 + 2 * m)));
-    if (need > 1) { zoom *= need * 1.0001; c = corners(zoom); [x0, x1] = span(c.map(p => p[0])); [y0, y1] = span(c.map(p => p[1])); }
-    let fx = cam.fx * W, fy = cam.fy * H;
-    if (fx + x0 < -m * W) fx = -m * W - x0; else if (fx + x1 > (1 + m) * W) fx = (1 + m) * W - x1;
-    if (fy + y0 < -m * H) fy = -m * H - y0; else if (fy + y1 > (1 + m) * H) fy = (1 + m) * H - y1;
-    return Object.assign({}, cam, { zoom, fx: fx / W, fy: fy / H });
-}
 
 // Shared look math also serves asset-library previews while the stage plugin is disabled.
 // Shared presentation state for the director and client. Never rewrites stored records.

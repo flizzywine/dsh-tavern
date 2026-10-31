@@ -126,6 +126,8 @@ function galCreateScene(host, options) {
     // pixi-filters (post effects) load in the background; until then grading and particles still work.
     stageViews.effects.loadFilters().catch(error => console.warn("[fork-gal-scene] pixi-filters", error));
 
+    const cameraMotion=stageViews.sceneCamera.create();
+    let closeHead=null;
     const state = {
         desc: null, override: null, debugEffects: [], destroyed: false,
         layers: [],                    // backdrop layers, bottom → top: { url, time, texture, sprite, plan, start, mask, owned, standIn, correction }
@@ -133,7 +135,7 @@ function galCreateScene(host, options) {
         grade: { name: null, start: 0, duration: 0, current: null, version: 0 },
         figures: new Map(),            // key → entry
         seen: new Set(),
-        camera: { key: null, from: null, current: null, start: 0, ms: 0, ease: "inOutCubic" },
+        camera: cameraMotion.snapshot(),
         dof: galSpringValue(0),
         
         frames: [], lastPrune: 0, clock: performance.now(), timeScale: 1, preview: null, previewCount: 0,
@@ -1338,45 +1340,20 @@ function galCreateScene(host, options) {
         const entry = entryOf(alias), rest = entry && headOf(entry, true);
         if (!rest) return null;
         const key = alias + ":" + W + ":" + H;
-        if (state.camera.closeHead?.key !== key) {
+        if (closeHead?.key !== key) {
             const exact = headOf(entry, false, true), shift = (entry.headroom || 0) - (entry.faceClamp?.lift || 0);
             if (!exact) return rest;
-            state.camera.closeHead = { key, below: Math.max(0, exact.chin - shift - rest.chin) };
+            closeHead = { key, below: Math.max(0, exact.chin - shift - rest.chin) };
         }
-        return { ...rest, chin: rest.chin + state.camera.closeHead.below };
+        return { ...rest, chin: rest.chin + closeHead.below };
     }
     function tickCamera(desc, now, W, H, frame) {
-        const camera = state.camera, spec = desc.camera || {};
-        let target, key, ms, ease, zoomMax = Infinity;
-        if (!spec.shot && typeof spec.zoom === "number") {
-            // Plain numbers (debug override): zoom / pan / rotation around the default focus.
-            const t = galCameraTarget(spec);
-            target = { zoom: t.zoom, fx: 0.5 + t.panX, fy: 0.42 + t.panY, ax: 0.5, ay: 0.42, rotation: t.rotation };
-            key = "manual:" + [t.zoom, t.panX, t.panY, t.rotation].join(","); ms = GAL_ZOOM_MS; ease = "inOutCubic";
-        } else {
-            const shot = spec.shot || "", head = shot === "close" ? closeHeadOf(spec.target, W, H) : null;
-            const framing = head ? galCloseFrame(head, frame, state.faceEnvironment.closeBottom, W, H, state.figureLayout?.head) : null;
-            const plan = galShotTarget(shot, framing);
-            target = plan.target; key = shot + ":" + (head ? spec.target : ""); ms = plan.ms; ease = plan.ease;
-            zoomMax = framing ? framing.zoomMax : Infinity;
-        }
-        target = galFrameCameraTarget(target, frame, H);
-        // Where the shot settles, for close-up crop fades (read by the next figure tick).
-        camera.closeOn = spec.shot === "close" && key !== "close:" ? spec.target : "";
-        camera.goal = galCameraClamp(target, W, H, 0.018);
-        const reported = key + "|" + W + "|" + H, r3 = v => Math.round(v * 1000) / 1000;
-        if (reported !== state.cameraReported) { state.cameraReported = reported; state.cameraReport = { zoom: r3(camera.goal.zoom), fx: r3(camera.goal.fx), ax: r3(camera.goal.ax) }; reportLayout(); }
-        if (desc.skipping) ms = Math.min(ms, 200);
-        if (desc.snap) ms = 0;
-        if (camera.key !== key) { camera.from = camera.current || target; camera.key = key; camera.start = now; camera.ms = camera.current ? ms : 0; camera.ease = ease; }
-        const k = camera.ms > 0 ? galEase[camera.ease](galClamp01((now - camera.start) / camera.ms)) : 1;
-        const current = {};
-        ["zoom", "fx", "fy", "ax", "ay", "rotation"].forEach(name => { current[name] = camera.from[name] + (target[name] - camera.from[name]) * k; });
-        camera.current = current;
-        const kick = effects.zoomKick(now), shake = effects.shakeOffset(now);
-        // A beat's zoom kick never pushes a close-up's chin past the safe line.
-        const safe = galCameraClamp(Object.assign({}, current, { zoom: Math.min(current.zoom * (1 + kick), Math.max(current.zoom, zoomMax)) }), W, H, 0.018);
-        camera.safe = safe;
+        const spec=desc.camera||{},head=spec.shot==='close'?closeHeadOf(spec.target,W,H):null;
+        const framing=head?galCloseFrame(head,frame,state.faceEnvironment.closeBottom,W,H,state.figureLayout?.head):null;
+        const camera=state.camera=cameraMotion.step({spec,framing,hasTarget:!!head,frame,W,H,now,skipping:desc.skipping,snap:desc.snap,kick:effects.zoomKick(now)});
+        const reported=camera.key+'|'+W+'|'+H,r3=v=>Math.round(v*1000)/1000;
+        if(reported!==state.cameraReported){state.cameraReported=reported;state.cameraReport={zoom:r3(camera.goal.zoom),fx:r3(camera.goal.fx),ax:r3(camera.goal.ax)};reportLayout();}
+        const safe=camera.safe,shake=effects.shakeOffset(now);
         world.pivot.set(safe.fx * W, safe.fy * H);
         world.position.set(safe.ax * W + shake.x, safe.ay * H + shake.y);
         // a skin shake of the background alone (screen px).
@@ -1406,7 +1383,7 @@ function galCreateScene(host, options) {
         const desc = describe();
         if (desc.holding) { world.visible = overlay.visible = bust.sprite.visible = false; return; }
         const newVisit = desc.snap && desc.visit !== state.visit;
-        if (newVisit) { state.visit = desc.visit; state.camera.key = null; state.camera.current = null; }
+        if (newVisit) { state.visit = desc.visit; state.camera = cameraMotion.reset(); }
         const W = app.screen.width, H = app.screen.height;
         if ((desc.quality === "low" ? "low" : "high") !== quality) applyQuality(desc.quality);
         ;
