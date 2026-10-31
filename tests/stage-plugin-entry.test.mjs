@@ -48,7 +48,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       views.progress.store.begin('s',1)
       assert.equal(views.progress.store.get('s').id,1)
       seen.push('tab')
-      return () => {views.admission.dispose(); views.progress.store.dispose(); views.loader.dispose(); views.video.dispose(); seen.push('remove-tab')}
+      return () => {views.admission.dispose(); views.progress.store.dispose(); views.loader.dispose(); views.video.dispose(); views.timer.dispose(); seen.push('remove-tab')}
     },
     () => {seen.push('sessions'); return () => seen.push('stop-sessions')},
   ]})

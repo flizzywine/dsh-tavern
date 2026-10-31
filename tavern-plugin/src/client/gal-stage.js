@@ -2042,11 +2042,12 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        timer:{rpc, crypto, performance, setInterval, clearInterval, timerClockRemaining},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
         labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
-    return () => {if (stageViews === views) stageViews = null; try {views.admission.dispose();} finally {views.progress.store.dispose(); try {views.video.dispose();} finally {views.loader.dispose();}}};
+    return () => {if (stageViews === views) stageViews = null; try {views.admission.dispose();} finally {views.progress.store.dispose(); try {views.timer.dispose();} finally {try {views.video.dispose();} finally {views.loader.dispose();}}}};
 }
