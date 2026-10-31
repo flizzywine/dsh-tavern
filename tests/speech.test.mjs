@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createMediaHandlers } from '../tavern-plugin/lib/rpc/media.js'
 import { createSpeech, minimaxEmotion, speechText, volcengineEmotion, volcengineResource } from '../tavern-plugin/lib/domain/speech.js'
 
 function harness({ responses = [] } = {}) {
@@ -295,4 +296,22 @@ test('配音来源：人物在配好的渠道里选一个，台词就走那个�
   const keyless = await speech.channelFor({ character: { name: '林曦', voiceSource: { provider: 'openai' } }, current })
   await assert.rejects(speech.synthesize({ provider: keyless.provider.id, text: '你好', voice: 'alloy' }), /配音设置不完整：请填写 API Key/, '选的渠道没配好：报错，不改用别的')
   await assert.rejects(speech.channelFor({ character: { name: '林曦', voiceSource: { provider: 'edge-tts/edge' } }, current }), /没有这个配音渠道/)
+})
+
+
+test('朗读内容经 RPC 保存，省略时保留，重建服务后仍能读回；旧设置默认全文', async () => {
+  const {speech,files,keys} = harness()
+  files.set('speech/config.json', JSON.stringify({enabled:true,provider:'browser',providers:{}}))
+  assert.equal((await speech.present()).readMode, 'full')
+  const handlers = createMediaHandlers({speech})
+  assert.equal((await handlers.updateSpeechSettings({readMode:'dialogue'})).readMode, 'dialogue')
+  assert.equal((await speech.save({enabled:false})).readMode, 'dialogue')
+  const restored = createSpeech({
+    store: { readJson: async path => JSON.parse(files.get(path)) },
+    credentials: () => ({ resolve: async ref => ({ value: keys.get(ref) }) })
+  })
+  assert.equal((await restored.present()).readMode, 'dialogue')
+  await assert.rejects(handlers.updateSpeechSettings({readMode:'invalid'}), /请选择朗读/)
+  assert.equal((await speech.present()).readMode, 'dialogue')
+  assert.equal((await handlers.updateSpeechSettings({readMode:'full'})).readMode, 'full')
 })

@@ -35,3 +35,26 @@ test('配音设置：Fish 协议的 Key 标成选填，模型从服务读出的�
   assert.equal(await form.locator('#dsh-tavern-speech-models').count(), 0)
   assert.equal(calls.filter(call => call.method === 'speechServiceInfo').length, asked)
 })
+
+
+test('配音页可以选择朗读对白或全文，保存后重新打开仍显示所选模式', async t => {
+  let state = { enabled: false, readMode: 'full', provider: 'openai', providers: providers() }
+  const respond = (method, args) => {
+    if (method === 'getSpeechSettings') return state
+    if (method === 'updateSpeechSettings') { state = {...state,readMode:args.readMode}; return state }
+  }
+  const {page,calls} = await openTavernSettings(t, {section:'dsh-tavern: speech settings',respond})
+  const mode = page.locator('button[aria-label^="朗读内容："]')
+  await mode.click()
+  await page.getByRole('menuitemradio', {name:'朗读对白',exact:true}).click()
+  await page.getByRole('button', {name:'保存',exact:true}).click()
+  await page.getByRole('status').getByText('已保存，朗读已关闭', {exact:true}).waitFor()
+  assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.readMode, 'dialogue')
+  const reopened = await openTavernSettings(t, {section:'dsh-tavern: speech settings',respond})
+  await reopened.page.locator('button[aria-label="朗读内容：朗读对白"]').waitFor()
+  await mode.click()
+  await page.getByRole('menuitemradio', {name:'朗读正文全文',exact:true}).click()
+  await page.getByRole('button', {name:'保存',exact:true}).click()
+  await page.waitForFunction(() => document.querySelector('[role="status"]')?.textContent.includes('已保存'))
+  assert.equal(calls.filter(c=>c.method==='updateSpeechSettings').at(-1).args.readMode, 'full')
+})

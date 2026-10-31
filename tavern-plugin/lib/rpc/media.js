@@ -30,7 +30,7 @@ export function createMediaHandlers(deps) {
       return await speech.present()
     },
     async updateSpeechSettings(args) {
-      return await speech.save({ enabled: args && args.enabled, provider: args && args.provider, config: args && args.config || {}, apiKey: args && args.apiKey })
+      return await speech.save({ enabled: args && args.enabled, readMode: args && args.readMode, provider: args && args.provider, config: args && args.config || {}, apiKey: args && args.apiKey })
     },
     async speechTest(args) {
       return speechReply(await speech.synthesize({ provider: args && args.provider, text: str(args && args.text) || '你好，这是配音试听。', voice: args && args.voice, emotion: args && args.emotion }))

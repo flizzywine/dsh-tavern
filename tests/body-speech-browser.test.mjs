@@ -4,8 +4,8 @@ import { readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-const sources = await Promise.all(['bubble-line.cjs', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')))
-async function mount(t, text, enabled = true) {
+const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')))
+async function mount(t, text, enabled = true, readMode = 'full') {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -27,9 +27,9 @@ async function mount(t, text, enabled = true) {
     const props={sessionId:'game',messageId:'older',useChat:select=>select({legacy:{nodes:[{kind:'assistant',messageId:'older',blocks:[{kind:'reasoning',text:'不能念的思考'},{kind:'text',text:${JSON.stringify(text)}}]}]}})};
     ${sources.join('\n')}
     ReceiptButton=()=>null;
-    tavernSpeechSettings.set({enabled:${enabled},provider:'browser',providers:[]});
+    tavernSpeechSettings.set({enabled:${enabled},readMode:${JSON.stringify(readMode)},provider:'browser',providers:[]});
     modules["react-dom/client"].createRoot(document.getElementById('root')).render(React.createElement(TurnActions,props));
-    window.fixture={calls,utterances,errors,end(){utterances.at(-1).onend();},stop:()=>tavernSpeech.stop(),release:()=>pending.shift()()};
+    window.fixture={setMode:readMode=>tavernSpeechSettings.set({...tavernSpeechSettings.get(),readMode}),calls,utterances,errors,end(){utterances.at(-1).onend();},stop:()=>tavernSpeech.stop(),release:()=>pending.shift()()};
   ` })
   return page
 }
@@ -81,4 +81,29 @@ test('准备语音时也能停止，合成返回后不会继续播放', async t 
   await page.evaluate(() => fixture.release())
   await page.getByRole('button', {name:'朗读正文',exact:true}).waitFor()
   assert.deepEqual(await page.evaluate(() => [fixture.calls.length,fixture.utterances.length,fixture.errors.length]),[1,0,0])
+})
+
+
+test('对白模式跳过旁白和内心独白，普通引号对白与气泡对白都能朗读，切换模式更新按钮', async t => {
+  const source = '窗外下着雨。她说：“早上好。”\n@bubble:lin|林月|喜悦|[你好。]\n@bubble:lin|林月||[*别念出内心独白*]\n雨停了。'
+  const page = await mount(t, source, true, 'dialogue')
+  await page.getByRole('button', {name:'朗读对白',exact:true}).click()
+  await page.waitForFunction(() => fixture.utterances.length === 1)
+  assert.equal(await page.evaluate(() => fixture.calls[0].args.text), '“早上好。” 你好。')
+  await page.evaluate(() => fixture.setMode('full'))
+  await page.getByRole('button', {name:'朗读正文',exact:true}).click()
+  await page.waitForFunction(() => fixture.utterances.length === 2)
+  const full = await page.evaluate(() => fixture.calls[1].args.text)
+  assert.match(full, /窗外下着雨/)
+  assert.match(full, /别念出内心独白/)
+  assert.match(full, /雨停了/)
+})
+
+test('对白模式遇到纯旁白时禁用按钮，不误读整段正文', async t => {
+  const page = await mount(t, '只有窗外的雨声。', true, 'dialogue')
+  const button = page.getByRole('button', {name:'朗读对白',exact:true})
+  await button.waitFor()
+  assert.equal(await button.isDisabled(), true)
+  assert.equal(await button.getAttribute('title'), '本轮没有可朗读的对白')
+  assert.equal(await page.evaluate(() => fixture.calls.length), 0)
 })

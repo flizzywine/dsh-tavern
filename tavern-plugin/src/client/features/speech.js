@@ -114,14 +114,22 @@
 		})();
 
         // Read the prose and bubble captions, with no speaker IDs, voice directions or executable HTML.
-        function tavernBodySpeechText(source) {
-            const text = parseBubbles(source, false).map(segment => segment.text || "").join("\n")
+        function tavernSpeechPlainText(source) {
+            const text = String(source || "")
                 .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
                 .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
             const doc = new DOMParser().parseFromString(text, "text/html");
             doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
             doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
             return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
+        }
+        function tavernBodySpeechText(source, mode) {
+            return parseBubbles(source, false).map(segment => {
+                const text = tavernSpeechPlainText(segment.text);
+                if (mode !== "dialogue") return text;
+                if (segment.kind === "bubble") return segment.thought ? "" : text;
+                return findTavernQuoteRanges(text).map(([start, end]) => text.slice(start, end)).join(" ");
+            }).filter(Boolean).join(" ");
         }
         function tavernBodySpeechChunks(text) {
             const chars = Array.from(text), chunks = [];
@@ -142,8 +150,9 @@
                 const node = (snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId);
                 return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
             });
-            const text = React.useMemo(() => tavernBodySpeechText(source), [source]);
-            return settings?.enabled && text ? React.createElement(TavernSpeakButton, { key: props.sessionId + ":" + props.messageId + ":" + source, sessionId: props.sessionId, text, body: true }) : null;
+            const mode = settings?.readMode === "dialogue" ? "dialogue" : "full";
+            const text = React.useMemo(() => tavernBodySpeechText(source, mode), [source, mode]);
+            return settings?.enabled && source ? React.createElement(TavernSpeakButton, { key: props.sessionId + ":" + props.messageId + ":" + source + ":" + mode, sessionId: props.sessionId, text, body: true, readMode: mode, disabled: !text }) : null;
         }
         /** A second press stops the current line/body, including synthesis still in flight. */
         function TavernSpeakButton(props) {
@@ -151,8 +160,8 @@
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const label = playing ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
-            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, title: label,
+            const label = playing ? "停止朗读" : props.body ? props.readMode === "dialogue" ? "朗读对白" : "朗读正文" : "朗读这句";
+            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的" + (props.readMode === "dialogue" ? "对白" : "正文") : label,
                 onClick: function (event) {
                     event.stopPropagation();
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
@@ -176,16 +185,18 @@
 			return React.createElement("datalist", { id: props.id }, voices.map(function (voice) { return React.createElement("option", { key: voice, value: voice }); }));
 		}
 
-		// Settings → 配音 › 台词朗读:, a section of the dsh-tts 配音 page (service ttsLineSpeechSettings).
+		// Settings → 配音: reading scope and channel settings (service ttsLineSpeechSettings).
 		function TavernSpeechSettings() {
 			const h = React.createElement;
 			const settings = useTavernSpeechSettings();
 			const [chosen, setChosen] = React.useState("");
+			const [readMode, setReadMode] = React.useState("full");
 			const [draft, setDraft] = React.useState({});
 			const [apiKey, setApiKey] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [message, setMessage] = React.useState("");
 			const [listed, setModels] = React.useState([]);
+            React.useEffect(() => { setReadMode(settings?.readMode === "dialogue" ? "dialogue" : "full"); }, [settings?.readMode]);
 			// browser speech is one provider of the page's 「语音服务」,
 			// not a second channel here; this section lists the online and plugin channels only.
 			const providers = settings ? settings.providers.filter(function (item) { return !item.browser; }) : [];
@@ -207,7 +218,7 @@
 				const active = providers.find(function (item) { return item.id === settings.provider; }) || providers[0];
 				if (active) { setChosen(active.id); setDraft(tavernSpeechDraft(active)); }
 			}, [settings]);
-			if (!settings) return h("section", { className: "dsh-tavern-settings-group" }, h("p", { className: "dsh-tavern-settings-desc" }, "正在读取台词朗读设置…"));
+			if (!settings) return h("section", { className: "dsh-tavern-settings-group" }, h("p", { className: "dsh-tavern-settings-desc" }, "正在读取朗读设置…"));
 			function pick(id) {
 				const next = providers.find(function (item) { return item.id === id; });
 				setChosen(id); setDraft(tavernSpeechDraft(next)); setApiKey(""); setMessage("");
@@ -215,11 +226,11 @@
 			async function save(enabled) {
 				setBusy(true); setMessage("");
 				try {
-					const result = await rpc("updateSpeechSettings", { enabled: enabled, provider: chosen, config: draft, apiKey: apiKey || undefined });
+					const result = await rpc("updateSpeechSettings", { enabled: enabled, readMode, provider: chosen, config: draft, apiKey: apiKey || undefined });
 					tavernSpeechSettings.set(result);
 					setApiKey("");
 					window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed"));
-					setMessage(result.enabled ? "已保存，使用「" + (provider ? provider.label : chosen) + "」配音" : "已保存，台词朗读已关闭");
+					setMessage(result.enabled ? "已保存，使用「" + (provider ? provider.label : chosen) + "」配音" : "已保存，朗读已关闭");
 					return true;
 				} catch (error) { setMessage("保存失败：" + String(error.message || error)); return false; }
 				finally { setBusy(false); }
@@ -240,9 +251,13 @@
 			// the shared switch / inline fields (ui-design §三.4–7) on upstream's own 配音 page.
 			const keyLabel = provider && provider.keyLabel || "API Key";
 			return h("section", { className: "dsh-tavern-settings-group dsh-tavern-speech-settings" },
-				h(TavernSettingRow, { title: "开启台词朗读", help: "正文、台词行旁的 🔊 按钮和插件的朗读接口用这里的渠道与声音；舞台自动配音用上面的「语音服务」（免费的浏览器朗读也在那里）。在线渠道按字数计费，试听也会产生少量费用。" },
-					h(Switch, { label: "开启台词朗读", checked: settings.enabled, disabled: busy, onChange: value => save(value) })),
+				h(TavernSettingRow, { title: "开启朗读", help: "回复下方的朗读按钮使用这里的渠道、默认声音和朗读内容；台词行按钮与插件朗读接口也使用这里的渠道。舞台自动配音用上面的「语音服务」。在线渠道按字数计费，试听也会产生少量费用。" },
+					h(Switch, { label: "开启朗读", checked: settings.enabled, disabled: busy, onChange: value => save(value) })),
 				h("div", { className: "dsh-tavern-speech-form" },
+                    h("div", { className: "dsh-tavern-speech-field" }, h("span", null, "朗读内容",
+                        h(HelpTip, { label: "朗读内容说明" }, "对白模式只读对白标记或引号内的文字，跳过旁白、动作和标记的内心独白；全文模式朗读全部正文。保存后生效。")),
+                        h(InlineField, { kind: "menu", value: readMode, disabled: busy, label: "朗读内容", hideLabel: true, onCommit: setReadMode,
+                            options: [{ value: "dialogue", label: "朗读对白" }, { value: "full", label: "朗读正文全文" }] })),
 					h("div", { className: "dsh-tavern-speech-field" }, h("span", null, "配音渠道",
                         provider && provider.description ? h(HelpTip, { label: "配音渠道说明" }, provider.description) : null),
 						h(InlineField, { kind: "menu", value: chosen, disabled: busy, label: "配音渠道", hideLabel: true, onCommit: pick,
