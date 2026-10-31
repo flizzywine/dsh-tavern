@@ -999,6 +999,7 @@ window.__ModuleLoader__.load({
             const stageRegistrations = [];
             const stageEffect = run => stageRegistrations.push(run);
             stageEffect(({createNavigation}) => bindStageNavigation(createNavigation, ctx));
+            stageEffect(({createViews}) => bindStageViews(createViews));
             // Local debug capture delegates to the same session and stage routes as the UI.
             // No endpoint, cursor writer or replay protocol: live never installs this adapter.
             stageEffect(() => {
