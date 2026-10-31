@@ -71730,6 +71730,42 @@ function startStageClientLifetime(start) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {startStageClientLifetime};
 'use strict';
 
+function createStageClientEntry({startLifetime, install, report}) {
+    let mounted = null, disposed = false;
+    return Object.freeze({
+        mount() {
+            if (disposed) throw new Error('Stage client host is disposed');
+            if (mounted) throw new Error('Stage client is already mounted');
+            const token = {};
+            mounted = token;
+            try {
+                const stop = startLifetime(({own}) => {
+                    for (const run of install) {
+                        if (disposed) throw new Error('Stage client host is disposed');
+                        const cleanup = run();
+                        if (cleanup) own(cleanup);
+                        if (disposed) throw new Error('Stage client host is disposed');
+                    }
+                });
+                token.stop = () => {
+                    if (mounted !== token) return;
+                    mounted = null;
+                    stop();
+                };
+                return token.stop;
+            } catch (error) {
+                mounted = null;
+                report?.(error);
+                throw error;
+            }
+        },
+        dispose() {disposed = true; mounted?.stop();}
+    });
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientEntry};
+'use strict';
+
 'use strict';
 
 // All collaborators are explicit: this kernel can run outside the application closure.
@@ -79177,11 +79213,9 @@ const stageSessions = {
 			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
 			window.__dshTavernLoaded = true;
             installTavernPresentation(ctx);
-            // The stage's registrations ride on this boot, where one throw fails the whole web boot (DSH treats a
-            // throwing apply as a plugin load failure). A stage that cannot start is reported; the chat still starts.
-            const stageEffect = (run, label) => ctx.effect(() => {
-                try { return run(); } catch (error) { tavernErrorHub.report("舞台", error); }
-            }, label);
+            // Stage registration is deferred until its optional client plugin mounts.
+            const stageRegistrations = [];
+            const stageEffect = run => stageRegistrations.push(run);
             // Local debug capture delegates to the same session and stage routes as the UI.
             // No endpoint, cursor writer or replay protocol: live never installs this adapter.
             stageEffect(() => {
@@ -79261,6 +79295,13 @@ const stageSessions = {
             // one input runtime per open native session, independent of React.
             stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
+            const stageClientEntry = createStageClientEntry({
+                startLifetime: startStageClientLifetime,
+                install: stageRegistrations,
+                report: error => tavernErrorHub.report("舞台", error)
+            });
+            ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
+            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount}));
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();

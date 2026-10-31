@@ -995,11 +995,9 @@ window.__ModuleLoader__.load({
 			// The profile switch page (dsh-profile-bridge) names itself by side from this flag.
 			window.__dshTavernLoaded = true;
             installTavernPresentation(ctx);
-            // The stage's registrations ride on this boot, where one throw fails the whole web boot (DSH treats a
-            // throwing apply as a plugin load failure). A stage that cannot start is reported; the chat still starts.
-            const stageEffect = (run, label) => ctx.effect(() => {
-                try { return run(); } catch (error) { tavernErrorHub.report("舞台", error); }
-            }, label);
+            // Stage registration is deferred until its optional client plugin mounts.
+            const stageRegistrations = [];
+            const stageEffect = run => stageRegistrations.push(run);
             // Local debug capture delegates to the same session and stage routes as the UI.
             // No endpoint, cursor writer or replay protocol: live never installs this adapter.
             stageEffect(() => {
@@ -1079,6 +1077,13 @@ window.__ModuleLoader__.load({
             // one input runtime per open native session, independent of React.
             stageEffect(() => stageSessions.start(ctx), "dsh-tavern: stage session inputs");
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
+            const stageClientEntry = createStageClientEntry({
+                startLifetime: startStageClientLifetime,
+                install: stageRegistrations,
+                report: error => tavernErrorHub.report("舞台", error)
+            });
+            ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
+            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount}));
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();

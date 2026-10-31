@@ -7,7 +7,8 @@
   "exports": {
     ".": "./lib/index.js",
     "./package.json": "./package.json",
-    "./build": "./build.mjs"
+    "./build": "./build.mjs",
+    "./client": "./lib/client.js"
   },
   "files": [
     "lib",
@@ -18,6 +19,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-tavern-plugin"
+      ]
     }
   },
   "scripts": {
