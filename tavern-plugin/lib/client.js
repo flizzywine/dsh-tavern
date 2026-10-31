@@ -34462,18 +34462,29 @@ function bindTavernFontZoom(node, win) {
 			};
 		})();
 		const TAVERN_ILLUSTRATION_NOTICE_MS = 8000;
-		async function runTavernIllustrator(illustrator, sessionId, turn) {
+		async function runTavernIllustrator(illustrator, sessionId, turn, instruction) {
+			let normalizedInstruction;
+			if (instruction !== undefined) {
+				if (typeof instruction !== "string") throw new TypeError("配图要求必须是文本");
+				normalizedInstruction = instruction.trim();
+				if (normalizedInstruction.length > 2000) throw new RangeError("配图要求不能超过 2000 字");
+			}
 			const planning = { planning: true };
 			tavernIllustrationDrafts.set(sessionId, turn, planning);
 			let draft = null;
+			let failure = null;
 			try {
-				const result = await illustrator.draw({ gameId: sessionId, turn: turn });
+				const request = { gameId: sessionId, turn: turn };
+				if (normalizedInstruction) request.instruction = normalizedInstruction;
+				const result = await illustrator.draw(request);
 				const notice = result && typeof result.notice === "string" ? result.notice.trim() : "";
 				if (notice) draft = { text: notice.slice(0, 200) };
-			} catch (error) { draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
-			if (tavernIllustrationDrafts.get(sessionId, turn) !== planning) return;
-			tavernIllustrationDrafts.set(sessionId, turn, draft);
-			if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);
+			} catch (error) { failure = error; draft = { text: String(error && error.message || error).slice(0, 200), failed: true }; }
+			if (tavernIllustrationDrafts.get(sessionId, turn) === planning) {
+				tavernIllustrationDrafts.set(sessionId, turn, draft);
+				if (draft) setTimeout(function () { if (tavernIllustrationDrafts.get(sessionId, turn) === draft) tavernIllustrationDrafts.set(sessionId, turn, null); }, TAVERN_ILLUSTRATION_NOTICE_MS);
+			}
+			if (failure && instruction !== undefined) throw failure;
 		}
 		// `items` are the turn's plugin media: once the illustrator attaches a new one, planning is
 		// over and that item's own card shows the drawing, so the placeholder goes.
@@ -36800,6 +36811,30 @@ function bindTavernFontZoom(node, win) {
 			}
 			function TavernPluginIllustrateAction(props) {
 				const [busy, setBusy] = React.useState(false);
+				const [manualOpen, setManualOpen] = React.useState(false);
+				const [instruction, setInstruction] = React.useState("");
+				const [manualError, setManualError] = React.useState("");
+				const [manualBusy, setManualBusy] = React.useState(false);
+				const dialogRef = React.useRef(null);
+				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
+				const instructionTitleId = React.useId();
+				function clearPress() {
+					if (pressRef.current) clearTimeout(pressRef.current.timer);
+					pressRef.current = null;
+				}
+				function openManual() {
+					suppressClickRef.current = true;
+					if (manualOpenRef.current) return;
+					manualOpenRef.current = true;
+					clearPress();
+					setManualError("");
+					setInstruction("");
+					setManualOpen(true);
+				}
+				function closeManual() {
+					manualOpenRef.current = false;
+					setManualOpen(false);
+				}
 				// Progress and outcome show in the turn's text (TavernIllustrationDraft), not here.
 				async function draw() {
 					if (busy) return;
@@ -36807,10 +36842,74 @@ function bindTavernFontZoom(node, win) {
 					try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn); }
 					finally { setBusy(false); }
 				}
+				async function submitManual(event) {
+					event.preventDefault();
+					if (submitLockRef.current || manualBusy) return;
+					if (instruction.length > 2000) { setManualError("配图要求不能超过 2000 字"); return; }
+					submitLockRef.current = true;
+					setManualBusy(true);
+					setManualError("");
+					try {
+						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction);
+						closeManual();
+						setInstruction("");
+					} catch (error) {
+						setManualError(String(error && error.message || error));
+					} finally {
+						submitLockRef.current = false;
+						setManualBusy(false);
+					}
+				}
+				React.useEffect(function () {
+					const dialog = dialogRef.current;
+					if (!dialog) return;
+					if (manualOpen && !dialog.open && typeof dialog.showModal === "function") dialog.showModal();
+					else if (!manualOpen && dialog.open) dialog.close();
+					manualOpenRef.current = manualOpen;
+				}, [manualOpen]);
+				React.useEffect(function () { return function () { clearPress(); }; }, []);
 				const label = busy ? "正在整理画面…" : "为这一轮配图";
-				return React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
-					React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, disabled: busy, onClick: draw },
-						React.createElement(TavernIllustrateIcon, null)));
+				return React.createElement(React.Fragment, null,
+					React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
+						React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: "点击直接配图；长按或右键填写本次画面要求", disabled: busy, onClick: function (event) {
+							if (suppressClickRef.current) { suppressClickRef.current = false; event.preventDefault(); return; }
+							return draw();
+						},
+						onPointerDown: function (event) {
+							if (busy || event.button !== 0 || event.isPrimary === false) return;
+							suppressClickRef.current = false;
+							clearPress();
+						const press = { id: event.pointerId, x: event.clientX, y: event.clientY, timer: null };
+						press.timer = setTimeout(function () {
+							if (pressRef.current !== press) return;
+							pressRef.current = null;
+							suppressClickRef.current = true;
+							openManual();
+						}, 550);
+						pressRef.current = press;
+						},
+						onPointerMove: function (event) {
+							const press = pressRef.current;
+							if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) { clearPress(); suppressClickRef.current = true; }
+						},
+						onPointerUp: function (event) { if (pressRef.current && pressRef.current.id === event.pointerId) clearPress(); },
+						onPointerCancel: function () { if (pressRef.current) suppressClickRef.current = true; clearPress(); },
+						onPointerLeave: function () { if (pressRef.current) { clearPress(); suppressClickRef.current = true; } },
+						onContextMenu: function (event) { event.preventDefault(); openManual(); },
+						onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); openManual(); } }
+						}, React.createElement(TavernIllustrateIcon, null))),
+					React.createElement("dialog", { ref: dialogRef, "aria-labelledby": instructionTitleId, onCancel: function (event) { event.preventDefault(); if (!manualBusy) closeManual(); }, onClose: function () { if (manualOpen && !manualBusy) closeManual(); },
+						style: { colorScheme: "light dark", width: "min(420px, calc(100vw - 32px))", maxWidth: "calc(100vw - 32px)", padding: "18px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", borderRadius: "12px", background: "var(--dsw-specific-sidebar-fill, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", boxShadow: "0 18px 60px rgba(0,0,0,.35)" } },
+						React.createElement("form", { onSubmit: submitManual },
+							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),
+							React.createElement("p", { style: { margin: "0 0 12px", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "12px", lineHeight: 1.5 } }, "仅本次生图使用，不会保存到设置。可写视角、镜头、动作或想画的内容。"),
+							React.createElement("textarea", { autoFocus: true, rows: 5, maxLength: 2000, value: instruction, disabled: manualBusy, "aria-label": "本次配图要求（最多 2000 字）", placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: function (event) { setInstruction(event.target.value); },
+								style: { boxSizing: "border-box", width: "100%", resize: "vertical", padding: "9px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", background: "var(--dsw-specific-input-major, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", font: "inherit" } }),
+							React.createElement("div", { style: { marginTop: "5px", textAlign: "right", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "11px" } }, instruction.length + " / 2000"),
+							manualError ? React.createElement("div", { role: "alert", style: { marginTop: "8px", color: "var(--dsh-tavern-accent-error, #c54f4f)", fontSize: "12px" } }, manualError) : null,
+							React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "14px" } },
+								React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: manualBusy, onClick: closeManual }, "取消"),
+								React.createElement("button", { type: "submit", className: "dsh-tavern-btn", disabled: manualBusy }, manualBusy ? "正在提交…" : "按要求配图")))))
 			}
 			function register(input) {
 				// uiWorkspace 由 dsh-client-ui-workspace 提供；缺失时（老宿主/未加载）退化为 sessions.retain。
