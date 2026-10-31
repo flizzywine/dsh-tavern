@@ -283,7 +283,7 @@ try {
       await openStatus()
       return {bootMs,openStarted,openSessionStarted}
     }
-    browser = await chromium.launch({ headless: true })
+    browser = await chromium.launch({ headless: true, ...(stagePluginScenario ? {args:['--use-angle=swiftshader', '--enable-unsafe-swiftshader']} : {}) })
     context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: process.env.TAVERN_E2E_LOCALE || 'en-US', ...(recoveryScenario ? { hasTouch: true } : {}) })
     context.setDefaultTimeout(timeout)
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
@@ -552,9 +552,12 @@ try {
   if (stagePluginScenario) {
     await step('真实舞台进入、退出，再回到普通聊天', async () => {
       await page.getByRole('button', { name: '舞台', exact: true }).click()
-      await page.locator('.fork-gal-stage').waitFor({ state: 'visible' })
+      await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
+      await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
+      assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
-      await page.getByRole('button', { name: '返回主页面', exact: true }).first().click()
+      await page.keyboard.press('Escape')
+      await page.getByRole('button', { name: /返回主页面/ }).filter({ visible: true }).last().click()
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
       await composer.fill('领取任务奖励')

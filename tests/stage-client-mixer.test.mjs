@@ -46,7 +46,7 @@ test('sound tab edits the shared voice-rate preference and ducking without ownin
   const fields={group:()=>null,row:()=>null,Switch:'Switch',slider:(_,props)=>{controls.push(props);return null}}
   const reading={get:()=>({voiceRate:1.2}),set:patch=>changes.push(patch)}
   const view=createStageMixer({React:{useSyncExternalStore:(_,get)=>get(),createElement:(type,props)=>{if(type==='Switch')controls.push(props);return null}},fields,reading,voiceRateLimits:[.8,2,.1],
-    audio:{get:()=>({duck:true}),setDucking:value=>changes.push(value)},
+    audio:{getSnapshot:()=>({duck:true}),setDucking:value=>changes.push(value)},
   })
   view.Sound({})
   assert.equal(controls[1].value,1.2)
@@ -57,4 +57,22 @@ test('sound tab edits the shared voice-rate preference and ducking without ownin
   controls[0].onChange(true);controls[1].onChange(2)
   assert.equal(changes.length,2)
   assert.equal(reading.get().voiceRate,1.2)
+})
+
+test('shared audio snapshot remains stable between writes and publishes before listeners run',()=>{
+  const sandbox={localStorage:{getItem:()=>null,setItem(){}}}
+  const base=new URL('../tavern-plugin/src/client/',import.meta.url)
+  vm.runInNewContext(readFileSync(new URL('stage-audio-math.js',base),'utf8')+'\n'+readFileSync(new URL('stage-audio.js',base),'utf8')+'\nthis.audio=forkStageAudio;',sandbox)
+  const audio=sandbox.audio,first=audio.getSnapshot()
+  assert.equal(audio.getSnapshot(),first)
+  let observed
+  const stop=audio.subscribe(()=>{observed=audio.getSnapshot()})
+  audio.toggleMute('music')
+  assert.notEqual(observed,first)
+  assert.equal(observed,audio.getSnapshot())
+  assert.equal(first.muted.music,undefined)
+  assert.equal(observed.muted.music,true)
+  audio.get().muted.music=false
+  assert.equal(audio.getSnapshot().muted.music,true)
+  stop()
 })

@@ -25124,7 +25124,7 @@ let disposed = false;
 const lowIcon = "M4 9.5v5h3.5l4.5 3.5v-12L7.5 9.5H4zM15.5 9a4.2 4.2 0 0 1 0 6";
 const ownsIcon = ICON_PATHS && !ICON_PATHS['speaker-low'];
 if (ownsIcon) ICON_PATHS['speaker-low'] = lowIcon;
-function useStageAudioState() { return React.useSyncExternalStore(forkStageAudio.subscribe, forkStageAudio.get); }
+function useStageAudioState() { return React.useSyncExternalStore(forkStageAudio.subscribe, forkStageAudio.getSnapshot); }
 // the stage's audio layers. CONFIG › 声音 lists every layer
 // (GalMixerRows); the top bar's 「声音」 entry opens it. State: forkStageAudio (stage-audio.js). Styled only through the
 // stage UI tokens (--gal-ui-*).

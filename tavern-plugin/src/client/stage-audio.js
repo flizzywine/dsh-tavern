@@ -54,6 +54,8 @@ const forkStageAudio = (function () {
     // Even reading the getter (including typeof) throws on opaque origins.
     try { storage = localStorage; } catch (_) {}
     const prefs = audioPreferences(storage);
+    const snapshotOf = () => Object.freeze({ ...prefs, muted: Object.freeze({ ...prefs.muted }) });
+    let snapshot = snapshotOf();
     const listeners = new Set(), nodes = new WeakMap(), active = new Set(), catalogue = new Map();
     const voiceGains = new WeakMap();
     function remember(item) {
@@ -187,6 +189,7 @@ const forkStageAudio = (function () {
         return record;
     }
     function save() {
+        snapshot = snapshotOf();
         try { localStorage.setItem("dsh-tavern-stage-audio", JSON.stringify(prefs)); } catch (_) {}
         retarget();
         if (context) { master.gain.setTargetAtTime(volume("master"), context.currentTime, 0.015); for (const layer of Object.keys(buses)) buses[layer].gain.gain.setTargetAtTime(volume(layer), context.currentTime, 0.015); }
@@ -258,6 +261,7 @@ const forkStageAudio = (function () {
         call(on) { trigger("call", Boolean(on)); },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         get() { return { ...prefs, muted: { ...prefs.muted } }; },
+        getSnapshot() { return snapshot; },
         // Read-only evidence for read-only diagnostics, which evaluates under V8's side-effect check: plain closure reads
         // only (no AudioParam/AudioContext getters, no cache touch, no storage). Gains are the mixer's settled targets.
         diagnostics() {
