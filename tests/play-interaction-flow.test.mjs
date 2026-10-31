@@ -24,7 +24,7 @@ test('candidate admission retries share one request id and overlapping submits s
 test('body regeneration owns busy state and guidance, ignores double submit and preserves a newer panel', async () => {
   const wait = deferred(), calls = [], h = harness(async (...args) => { calls.push(args); return wait.promise })
   const panel = h.flow.regeneration.set({ sessionId: 'a', phase: 'input', tail: 'tail' })
-  const pending = h.flow.regenerateBody(panel, ' 改写 ', { restyle: true, styleGuidance: ' 文风 ' })
+  const pending = h.flow.regenerateBody(panel, ' 改写 ', { restyle: true })
   await h.flow.regenerateBody(panel, 'second')
   assert.equal(h.flow.guidance('a'), '改写')
   assert.equal(h.flow.guidance('b'), '')
@@ -32,7 +32,7 @@ test('body regeneration owns busy state and guidance, ignores double submit and 
   const candidates = h.flow.candidates.set({ sessionId: 'b', choices: ['new'] })
   wait.resolve({ view: { chatId: 'a' } }); await pending
   assert.equal(calls.length, 1)
-  assert.deepEqual(calls[0], ['regenBody', { guidance: '改写', restyle: true, styleGuidance: '文风' }, 'a'])
+  assert.deepEqual(calls[0], ['regenBody', { guidance: '改写', restyle: true, styleGuidance: '改写' }, 'a'])
   assert.equal(h.flow.regeneration.getSnapshot(), next)
   assert.equal(h.flow.candidates.getSnapshot(), candidates)
   assert.deepEqual(h.bodies, [['a', { chatId: 'a' }, 'tail']])

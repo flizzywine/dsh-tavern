@@ -78,7 +78,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         guide.set(null);
         if (panel.previous) candidates.set(panel.previous);
     }
-    async function regenerateBody(panel, guidance, { restyle = false, styleGuidance = "" } = {}) {
+    async function regenerateBody(panel, guidance, { restyle = false } = {}) {
         if (!panel || regeneration.getSnapshot() !== panel || pendingBodies.has(panel.sessionId)) return;
         const text = String(guidance || "").trim();
         if (text) guidanceBySession.set(panel.sessionId, text); else guidanceBySession.delete(panel.sessionId);
@@ -86,7 +86,7 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
         const candidate = candidates.getSnapshot();
         return once(pendingBodies, panel.sessionId, async () => {
             try {
-                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: String(styleGuidance || "").trim() } : {}), panel.sessionId);
+                const result = await rpc("regenBody", Object.assign({ guidance: text }, restyle ? { restyle: true, styleGuidance: text } : {}), panel.sessionId);
                 applyBodyResult(panel.sessionId, result.view, panel.tail);
                 // A truncated attempt keeps the text it did write; say so instead of
                 // letting the shortened body pass for a finished reply.
