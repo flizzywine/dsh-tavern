@@ -1421,6 +1421,7 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
         sfx:{Audio, audio:forkStageAudio, foreground:forkForeground, matches:stageResourceMatches},
         music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
         bgm:{session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,

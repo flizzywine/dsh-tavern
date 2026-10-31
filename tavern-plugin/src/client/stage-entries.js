@@ -10,7 +10,11 @@
 const stageEntries = (function () {
     const entries = new Map();
     return Object.freeze({
-        register(entry) { entries.set(entry.id, Object.freeze({ ...entry })); },
+        register(entry) {
+            const value = Object.freeze({ ...entry });
+            entries.set(entry.id, value);
+            return () => { if (entries.get(entry.id) === value) entries.delete(entry.id); };
+        },
         list(group) { return [...entries.values()].filter(entry => !group || entry.group === group).sort(stageEntryOrder); }
     });
 })();
