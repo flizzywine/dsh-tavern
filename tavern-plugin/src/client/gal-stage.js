@@ -560,11 +560,11 @@ function GalStage(props) {
         const next = Math.max(0, Math.min(pages.length - 1, target));
         subtitles.select(next, 0); stageSessions.owner.navigate(sessionId,turn,next,false); setTyped(true); setEndedAt(null);
     }
-    // The danmaku of the exported round flies again (danmaku-stage.cjs danmakuReplay).
+    // The stage plugin owns the exported round's danmaku replay state.
     React.useEffect(() => {
         if (!replaying) return;
-        danmakuReplay(sessionId, true, String(runtime.cursor.visitId));
-        return () => danmakuReplay(sessionId, false);
+        stageViews.danmaku.replay(sessionId, true, String(runtime.cursor.visitId));
+        return () => stageViews.danmaku.replay(sessionId, false);
     }, [replaying, replaying && runtime.cursor.visitId, sessionId]);
     // 「跳到最新一轮」: the latest available page (where skip also stops), through the same navigation as a backlog jump.
     function jumpLatest() {
@@ -1425,7 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
-        liveroom:{spark:danmakuSparkPaths,count:danmakuCount,price:danmakuPrice,setTimeout,clearTimeout},
+        danmaku:{renderers:MOD_STAGE_RENDERERS,Image,getComputedStyle,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,performance},
         danmakuUi:{sections:STAGE_CONFIG_SECTIONS,entries:stageEntries,report:useStageEntryState,confirm:useTavernConfirm,sounds:forkUiSfx,setTimeout,clearTimeout},
         textcard:{clock:forkForeground},
         textcardFonts:{FontFace:globalThis.FontFace,fonts:tavernFonts},

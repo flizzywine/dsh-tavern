@@ -1,7 +1,5 @@
 // @include mod-stage-surface.cjs
 // @include mod-stage-layers.js
-// @include danmaku-stage.cjs
-// @include danmaku-liveroom.cjs
 // @include item-showcase.cjs
 // @include core-item-presentation.cjs
 
