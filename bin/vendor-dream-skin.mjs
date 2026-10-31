@@ -1,3 +1,4 @@
+import {integrateInterfaceSkin} from './build-interface-skin-client.mjs'
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs'
 import path from 'node:path'
 const source = process.argv[2]
@@ -72,7 +73,8 @@ replace(/function writeSavedSkin\(id\) \{\n(\t*)writeStorage\(STORAGE_KEY, id ==
 replace(/\[WALLPAPER_KEY\]: "data:image[^\n]+/, '[WALLPAPER_KEY]: null,')
 replace(/\[WALLPAPER_URL_KEY\]: "https:[^\n]+/, '[WALLPAPER_URL_KEY]: null,')
 replace(/\[WALLPAPER_GRADIENT_KEY\]: "radial-gradient[^\n]+/, '[WALLPAPER_GRADIENT_KEY]: null,')
-for (const file of ['lib/index.js', 'package.json', 'cordis.patch.yml', 'LICENSE']) copyFileSync(path.join(source, file), new URL(file, root))
+// Host routes, package metadata and profile wiring are maintained locally.
+for (const file of ['LICENSE']) copyFileSync(path.join(source, file), new URL(file, root))
 
 replace(/function wallpapersSuggestionsFor\(activeId\) \{/, "function wallpapersSuggestionsFor(activeId) {\n            if (activeId === \"tavern-terracotta\") return \"radial-gradient(ellipse at top right, rgba(204,120,92,.16), transparent 65%), linear-gradient(160deg, #faf9f5, #f5f0e8)\";\n            if (activeId === \"tavern-terracotta-dark\") return \"radial-gradient(ellipse at top right, rgba(212,137,108,.14), transparent 65%), linear-gradient(160deg, #181715, #252320)\";")
 // No 主题包 row: packs only held colors, and Tavern's 界面皮肤 row takes custom looks.
@@ -97,4 +99,4 @@ replace(/\t*ctx\.slots\.inject\("settings\.dreamSkin\.item", \(\) => ctx\.slots\
 replace(/\t\t\tconst raw = readStorage\(ACCENT_KEY\);\n/, () => `			// Tavern: the 强调色 row is gone, so an accent saved earlier no longer applies.
 			const raw = null;
 `)
-writeFileSync(new URL('lib/client.js', root), client)
+writeFileSync(new URL('lib/client.js', root), await integrateInterfaceSkin(client))

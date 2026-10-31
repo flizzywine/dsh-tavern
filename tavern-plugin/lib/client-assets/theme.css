@@ -1,8 +1,8 @@
 /* ==========================================================================
    visual layer
    Cascades after tavern.css. Follows the DSH host design language: neutral
-   greys from --dsw-* tokens, one DeepSeek-blue accent, system sans, hairlines.
-   Upstream tavern.css stays untouched so upstream merges do not conflict.
+   colours and typography from the public --dsh-tavern-* skin contract.
+   Structural styles remain with their owning UI; the skin plugin supplies appearance.
    ========================================================================== */
 
 /* The visual layer's tokens. Colours, radii and the UI font come from the public --dsh-tavern-* tokens (tavern.css,

@@ -1198,8 +1198,6 @@ window.__ModuleLoader__.load({
 				const taskText = "【卡片任务：" + label + "】" + targetSection + "\n\n" + String(result && result.text || "").trim() + resourceSection;
 				input.setDraft(taskText + supplement);
 			}
-			// 界面皮肤 (modules/interface-skin.js): apply the imported skin once Tavern's routes answer.
-			void applyActiveInterfaceSkin().catch(function () {});
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);
 			playControlsFeature.register({ ctx: ctx, slots: slots });
@@ -1221,15 +1219,6 @@ window.__ModuleLoader__.load({
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
-			// 界面皮肤 sits in 「Theme / 外观」 (the bundled dream-skin's item list), next to its
-			// 皮肤 and 强调色 rows, where players look for the app's look.
-			ctx.effect(function () {
-				return slots.inject("settings.dreamSkin.item", function () { return slots.register({
-					name: "settings.dreamSkin.item",
-					id: "dsh-tavern-interface-skin",
-					order: 26
-				}, InterfaceSkinSettings); });
-			}, "dsh-tavern: interface skin settings");
 			// 「能看图」 inside each pi-ai card of the upstream Models page (modules/model-image-input.js).
 			ctx.effect(function () {
 				return slots.inject("settings.models.provider-card", function () { return slots.register({ name: "settings.models.provider-card", key: MODEL_IMAGE_NS },

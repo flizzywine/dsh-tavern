@@ -1,3 +1,5 @@
+import {createInterfaceSkins} from './interface-skins.js';
+import {createSkinStore} from './skin-store.js';
 /**
  * dsh-dream-skin — host half.
  *
@@ -215,7 +217,7 @@ function writeJson(res, status, value) {
 }
 
 /** Handle one fenced API request. */
-async function handleApi(req, res) {
+async function handleApi(req, res, skins) {
 	if (req.method !== "POST") {
 		writeJson(res, 405, { ok: false, error: { code: "method-error", message: "method not allowed" } });
 		return;
@@ -238,6 +240,22 @@ async function handleApi(req, res) {
 		writeJson(res, 400, { ok: false, error: { code: "bad-request", message: "bad request" } });
 		return;
 	}
+	const skinMethods = {
+        listInterfaceSkins: () => skins.list(),
+        getActiveInterfaceSkin: () => skins.active(),
+        importInterfaceSkin: () => skins.importSkin(payload.args),
+        selectInterfaceSkin: () => skins.select(payload.args?.id ?? null),
+        deleteInterfaceSkin: () => skins.remove(payload.args?.id)
+    };
+    if (Object.hasOwn(skinMethods, payload.method)) {
+        try { writeJson(res, 200, {ok:true, value:await skinMethods[payload.method]()}); }
+        catch (error) {
+            // Validation errors are useful to the player; filesystem details stay in logs.
+            console.warn('[dsh-dream-skin] CSS skin request failed:', error);
+            writeJson(res, 400, {ok:false, error:{code:'skin-error', message:error.code ? '皮肤文件读写失败' : error.message}});
+        }
+        return;
+    }
 	if (payload.method === "get") {
 		writeJson(res, 200, { ok: true, value: readState() });
 		return;
@@ -291,6 +309,7 @@ function trustedHosts(ctx) {
  * @param ctx - host cordis context (webServer).
  */
 export function apply(ctx) {
+    const skins = createInterfaceSkins({store:createSkinStore()});
 	ctx.effect(() => ctx.webServer.register({
 		kind: "prefix",
 		path: API_PREFIX,
@@ -307,7 +326,7 @@ export function apply(ctx) {
 				return;
 			}
 			try {
-				await handleApi(req, res);
+				await handleApi(req, res, skins);
 			} catch (error) {
 				// Do not echo the internal error back to the browser — the
 				// trusted-origin page does not need filesystem paths etc.

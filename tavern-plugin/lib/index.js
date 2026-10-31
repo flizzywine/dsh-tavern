@@ -225,7 +225,6 @@ import { createSaveMaintenance } from './domain/save-maintenance.js'
 import { createServerScriptExecutor } from './domain/server-script-executor.js'
 import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/display-runtime-store.js'
 import { createPresetLibrary } from './domain/preset-library.js'
-import { createInterfaceSkins } from './domain/interface-skins.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns } from './domain/rollback-surface.js'
 import { roundBody, replyBody, streamTailClosed } from './domain/round-body.js'
@@ -916,7 +915,6 @@ export async function apply(ctx) {
     return { path: sourcePath, title: record.title, sourceChars: record.sourceChars, chunkCount: record.chunks.length, importedAt: Date.now() }
   }
   const presetLibrary = createPresetLibrary({ resources: fileResources, state: profileData, prepareImport: prepareTextImport })
-  const interfaceSkins = createInterfaceSkins({ store: profileData })
   const { read: readPreset, readDocument: readPresetDocument, preview: previewPreset,
     import: importPreset, editor: presetEditor, runtime: runtimePresets } = presetLibrary
   const { exportSettingsBundle, importSettingsBundle } = createSettingsTransfer({
@@ -3604,7 +3602,7 @@ export async function apply(ctx) {
   const fontLibrary = createFontLibrary({ dataRoot })
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
-  const rpcDeps = { interfaceSkins, frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds,
+  const rpcDeps = { frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
     backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload,
     cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,

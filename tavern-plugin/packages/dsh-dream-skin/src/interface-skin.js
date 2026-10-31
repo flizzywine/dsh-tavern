@@ -1,14 +1,14 @@
 // 界面皮肤: the active imported skin is one <style> appended after Tavern's own
 // stylesheet, so its rules win at equal specificity. Every browser of this profile
 // reads it on load; a change in settings re-applies it here at once.
-const TAVERN_INTERFACE_SKIN_ID = "dsh-tavern-plugin/interface-skin";
+const TAVERN_INTERFACE_SKIN_ID = "dsh-dream-skin/interface-skin";
 const TAVERN_INTERFACE_SKIN_EVENT = "dsh-tavern-interface-skin-changed";
 function installTavernInterfaceSkin(doc, css) {
     let style = doc.querySelector('style[data-plugin-css="' + TAVERN_INTERFACE_SKIN_ID + '"]');
     if (!css) { if (style) style.remove(); return; }
     if (!style) {
         style = doc.createElement("style");
-        style.dataset.plugin = "dsh-tavern-plugin";
+        style.dataset.plugin = "dsh-dream-skin";
         style.dataset.pluginCss = TAVERN_INTERFACE_SKIN_ID;
     }
     if (style.textContent !== css) style.textContent = css;
@@ -16,13 +16,28 @@ function installTavernInterfaceSkin(doc, css) {
     if (style !== doc.head.lastElementChild) doc.head.appendChild(style);
 }
 
-function createInterfaceSkinModule({ React, rpc }) {
-    function applyActiveInterfaceSkin() {
-        return rpc("getActiveInterfaceSkin").then(function (result) { installTavernInterfaceSkin(document, result && result.css || ""); });
+function createInterfaceSkinModule({ React, rpc, dream, doc = document, target = window }) {
+    let disposed = false, generation = 0;
+    const order = new MutationObserver(() => {
+        const style = doc.querySelector('style[data-plugin-css="' + TAVERN_INTERFACE_SKIN_ID + '"]');
+        if (!disposed && style && style !== doc.head.lastElementChild) doc.head.appendChild(style);
+    });
+    order.observe(doc.head, {childList:true});
+    async function applyActiveInterfaceSkin() {
+        const current = ++generation;
+        const result = await rpc("getActiveInterfaceSkin");
+        if (disposed || current !== generation) return;
+        if (result?.css && dream && !String(dream.current()).startsWith("tavern-terracotta")) dream.setSkin("tavern-terracotta");
+        installTavernInterfaceSkin(doc, result?.css || "");
     }
     function changed() {
-        void applyActiveInterfaceSkin().catch(function () {});
-        window.dispatchEvent(new CustomEvent(TAVERN_INTERFACE_SKIN_EVENT));
+        void applyActiveInterfaceSkin().catch(report);
+        target.dispatchEvent(new CustomEvent(TAVERN_INTERFACE_SKIN_EVENT));
+    }
+    function report(error) { console.warn("dsh-dream-skin: CSS skin unavailable", error); }
+    function dispose() {
+        disposed = true; generation++; order.disconnect();
+        installTavernInterfaceSkin(doc, "");
     }
 
     // An imported skin has no colors to preview; draw it in the current theme's own colors.
@@ -36,7 +51,7 @@ function createInterfaceSkinModule({ React, rpc }) {
     // Exactly one is chosen; picking a color skin turns the CSS skin off.
     function InterfaceSkinSettings() {
         const h = React.createElement;
-        const dream = window.dshDreamSkin || null;
+
         const [index, setIndex] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
         const [themeSkin, setThemeSkin] = React.useState(dream ? dream.current() : null);
         const fileInput = React.useRef(null);
@@ -64,7 +79,7 @@ function createInterfaceSkinModule({ React, rpc }) {
         }
         async function importFile(file) {
             if (!file) return;
-            try { await run("importInterfaceSkin", { name: file.name, css: decodeTextResource(await file.arrayBuffer()) }, "已导入并启用"); }
+            try { await run("importInterfaceSkin", { name: file.name, css: new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()) }, "已导入并启用"); }
             catch (err) { setMessage("导入失败：" + String(err && err.message || err)); }
         }
         const cssSkins = index ? index.skins : [];
@@ -97,5 +112,38 @@ function createInterfaceSkinModule({ React, rpc }) {
             h("div", { role: "status", style: styles.hint }, message || "选一套皮肤，立即生效；导入别人分享的 .css 皮肤文件后也会出现在这里。皮肤只改外观，不影响正文和存档。"));
     }
 
-    return { applyActiveInterfaceSkin, InterfaceSkinSettings };
+    return { applyActiveInterfaceSkin, InterfaceSkinSettings, dispose };
+}
+
+function installInterfaceSkinSettings(ctx, React, dream) {
+    const controller = new AbortController();
+    async function rpc(method, args) {
+        const response = await fetch('/dream-skin/api', {
+            method:'POST', credentials:'same-origin', signal:controller.signal,
+            headers:{'content-type':'application/json'}, body:JSON.stringify({method, args})
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error?.message || '皮肤请求失败');
+        return result.value;
+    }
+    ctx.effect(() => {
+        let skin, off;
+        function dispose() {
+            controller.abort();skin?.dispose();
+            if (typeof off === 'function') off();else off?.dispose?.();
+        }
+        try {
+            skin = createInterfaceSkinModule({React, rpc, dream});
+            off = ctx.slots.inject('settings.dreamSkin.item', () => ctx.slots.register({
+                name:'settings.dreamSkin.item', id:'dsh-tavern-interface-skin', order:26
+            }, skin.InterfaceSkinSettings));
+            void skin.applyActiveInterfaceSkin().catch(error => {
+                if (!controller.signal.aborted) console.warn('dsh-dream-skin: CSS skin unavailable', error);
+            });
+        } catch (error) {
+            dispose();
+            console.warn('dsh-dream-skin: CSS skin registration failed', error);
+        }
+        return dispose;
+    }, 'dsh-dream-skin: interface skin settings');
 }

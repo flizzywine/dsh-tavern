@@ -4,7 +4,7 @@ import { SYSTEM_PROMPT_NAMES } from '../prompt-catalog.js'
 // Tavern settings, system prompts, user profile and background model requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
 export function createSettingsHandlers(deps) {
-  const { agentRegistry, autoChoices, interfaceSkins, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
+  const { agentRegistry, autoChoices, chatForSession, chatHeaderForSession, conversationBackgroundSettings, groupOfMode,
     llm, playCardSnapshots, presentSystemPrompts, presentUserPreferenceProfile, readTavernSettings,
     sessionActivity, str, tavernModelCatalog, updateChat, updateTavernSettings, userPreferenceProfile } = deps
   const handlers = {
@@ -65,12 +65,7 @@ export function createSettingsHandlers(deps) {
         return { candidateDismissMode: settings.candidateDismissMode, candidateAutoGenerate: settings.candidateAutoGenerate }
 
     },
-    // 界面皮肤: imported CSS appended after Tavern's stylesheet (interface-skins.js).
-    async listInterfaceSkins() { return await interfaceSkins.list() },
-    async importInterfaceSkin(args) { return await interfaceSkins.importSkin({ name: args?.name, css: args?.css }) },
-    async selectInterfaceSkin(args) { return await interfaceSkins.select(args?.id ?? null) },
-    async deleteInterfaceSkin(args) { return await interfaceSkins.remove(args?.id) },
-    async getActiveInterfaceSkin() { return await interfaceSkins.active() },
+
     async getTavernSettings(args) {
       const { assetEngineSettings, readTavernSettings, slotDeclarations, tavernModelCatalog } = deps
 return { settings: await readTavernSettings(), modModelSlots: await slotDeclarations(), scoringCatalog: [assetEngineSettings.read().values.judge].filter(config=>config.provider!=='unset').map(({provider,model})=>({provider,model})), modelCatalog: await tavernModelCatalog() }

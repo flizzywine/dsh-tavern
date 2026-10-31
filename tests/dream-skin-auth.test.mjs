@@ -41,3 +41,34 @@ test('dream-skin API: 401 without session, 403 wrong origin, works when authenti
     fs.rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('CSS skins use the authenticated plugin route and keep legacy profile files', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'skin-profile-'))
+  const saved = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const dir = path.join(home,'profile-data/tavern/data/interface-skins')
+  fs.mkdirSync(dir,{recursive:true})
+  fs.writeFileSync(path.join(dir,'index.json'),JSON.stringify({active:'0123456789ab',skins:[{id:'0123456789ab',name:'旧皮肤'}]}))
+  fs.writeFileSync(path.join(dir,'0123456789ab.css'),'body {color:red}')
+  try {
+    const handler = mount(() => undefined)
+    const old = await call(handler,{}, {method:'getActiveInterfaceSkin'})
+    assert.deepEqual(old.json.value,{id:'0123456789ab',css:'body {color:red}'})
+    assert.equal((await call(mount(()=>401),{}, {method:'importInterfaceSkin',args:{name:'拒绝',css:'body{}'}})).status,401)
+    assert.equal((await call(handler,{origin:'https://evil.test'}, {method:'deleteInterfaceSkin',args:{id:'0123456789ab'}})).status,403)
+    const imports = await Promise.all(['A','B'].map(name=>call(handler,{}, {method:'importInterfaceSkin',args:{name,css:'body {color:blue}'}})))
+    for (const result of imports) assert.equal(result.status,200)
+    const list = (await call(handler,{}, {method:'listInterfaceSkins'})).json.value
+    assert.deepEqual(list.skins.map(row=>row.name).sort(),['A','B','旧皮肤','纸感'].sort())
+    assert.equal((await call(handler,{}, {method:'selectInterfaceSkin',args:{id:'../../outside'}})).status,400)
+    await call(handler,{}, {method:'selectInterfaceSkin',args:{id:'builtin:paper'}})
+    assert.match((await call(handler,{}, {method:'getActiveInterfaceSkin'})).json.value.css,/@font-face/)
+    // Re-mounting the plugin retains selection without loading Tavern.
+    assert.equal((await call(mount(()=>undefined),{}, {method:'listInterfaceSkins'})).json.value.active,'builtin:paper')
+    await call(handler,{}, {method:'deleteInterfaceSkin',args:{id:'0123456789ab'}})
+    assert.equal(fs.existsSync(path.join(dir,'0123456789ab.css')),false)
+  } finally {
+    if(saved===undefined)delete process.env.DSH_HOME;else process.env.DSH_HOME=saved
+    fs.rmSync(home,{recursive:true,force:true})
+  }
+})

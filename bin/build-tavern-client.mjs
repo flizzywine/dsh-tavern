@@ -1,3 +1,4 @@
+import {buildInterfaceSkinClient} from './build-interface-skin-client.mjs'
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import vm from 'node:vm'
@@ -83,6 +84,7 @@ export async function assembleTavernClient() {
 }
 
 export async function buildTavernClient({ check = false } = {}) {
+  await buildInterfaceSkinClient({check})
   // Optional skin overlays are a separate first-party chunk, never pack-provided code.
   const overlayPath = path.join(root,'tavern-plugin/lib/client-assets/skin-overlay.mjs')
   const overlayBody = (await Promise.all(['motion','phase','timing','script','player'].map(name => readFile(path.join(sourceRoot,'skin-overlay-'+name+'.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))))).join('\n')

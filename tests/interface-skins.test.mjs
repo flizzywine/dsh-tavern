@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
-import { createInterfaceSkins } from '../tavern-plugin/lib/domain/interface-skins.js'
+import { createInterfaceSkins } from '../tavern-plugin/packages/dsh-dream-skin/lib/interface-skins.js'
 
 async function withSkins(run) {
   const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'tavern-skins-'))

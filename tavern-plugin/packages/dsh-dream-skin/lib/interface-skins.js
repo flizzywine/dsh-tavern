@@ -17,7 +17,7 @@ const BUILTIN = Object.freeze([
     '--dsw-alias-bg-layer-1': '#fffdf8', '--dsw-alias-border-l2': '#e6dfd8', '--dsw-alias-label-primary': '#2e2921',
     '--dsw-alias-brand-primary': '#cc785c', '--dsw-alias-label-secondary': '#6f6759' }) })
 ])
-const BUILTIN_DIR = new URL('../client-assets/skins/', import.meta.url)
+const BUILTIN_DIR = new URL('./skins/', import.meta.url)
 const builtinOf = id => BUILTIN.find(skin => skin.id === id)
 
 function readIndex(value) {

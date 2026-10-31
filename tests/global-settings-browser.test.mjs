@@ -1,3 +1,5 @@
+import {readFile} from 'node:fs/promises'
+import {openInterfaceSkins} from './fixtures/interface-skin-browser.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openTavernSettings } from './fixtures/tavern-settings-browser.mjs'
@@ -39,7 +41,7 @@ test('状态栏位置是全局显示偏好，保存后通知现有对局刷新',
 
 test('皮肤：配色与 CSS 皮肤在同一排，一次只选一套', async t => {
   let index = { active: null, skins: [{ id: 'builtin:paper', name: '纸感', builtin: true }] }, css = ''
-  const { page, calls } = await openTavernSettings(t, { section: 'dsh-tavern: interface skin settings',
+  const { page, calls } = await openInterfaceSkins(t, {
     // The bundled dream-skin's API, as its patched client exposes it.
     beforeRender: () => {
       let current = 'tavern-terracotta'
@@ -65,11 +67,43 @@ test('皮肤：配色与 CSS 皮肤在同一排，一次只选一套', async t =
   await page.waitForFunction(() => getComputedStyle(document.body).color === 'rgb(1, 2, 3)')
   await page.getByRole('button', { name: '沉静蓝', exact: true }).click()
   await page.waitForFunction(() => window.__dreamSet === 'abyss')
-  await page.waitForFunction(() => !document.querySelector('style[data-plugin-css="dsh-tavern-plugin/interface-skin"]'))
+  await page.waitForFunction(() => !document.querySelector('style[data-plugin-css="dsh-dream-skin/interface-skin"]'))
   assert.equal(calls.filter(call => call.method === 'selectInterfaceSkin').at(-1).args.id, null)
   assert.deepEqual(await pressed(), ['沉静蓝'])
   await page.getByRole('button', { name: '纸感', exact: true }).click()
   await page.waitForFunction(() => window.__dreamSet === 'tavern-terracotta')
   assert.deepEqual(await pressed(), ['纸感'])
-  await page.waitForFunction(() => document.querySelector('style[data-plugin-css="dsh-tavern-plugin/interface-skin"]')?.textContent === 'paper-css')
+  await page.waitForFunction(() => document.querySelector('style[data-plugin-css="dsh-dream-skin/interface-skin"]')?.textContent === 'paper-css')
+  await page.evaluate(() => {const style=document.createElement('style');style.textContent='body {color: blue}';document.head.appendChild(style)})
+  await page.waitForFunction(() => document.head.lastElementChild?.dataset.pluginCss === 'dsh-dream-skin/interface-skin')
+  await page.evaluate(() => {window.skinRoot.unmount();window.disposeSkin()})
+  assert.equal(await page.locator('style[data-plugin-css="dsh-dream-skin/interface-skin"]').count(),0)
+})
+
+test('皮肤接口失败不影响页面，卸载后迟到响应不能恢复样式',async t=>{
+  let resolveActive
+  const pending = new Promise(resolve=>{resolveActive=resolve})
+  const {page} = await openInterfaceSkins(t,{respond(method) {
+    if(method==='getActiveInterfaceSkin')return pending
+    if(method==='listInterfaceSkins')throw Error('皮肤服务暂时不可用')
+  }})
+  await page.getByRole('status').filter({hasText:'皮肤服务暂时不可用'}).waitFor()
+  await page.evaluate(()=>{window.disposeSkin();document.querySelector('main').dataset.core='alive'})
+  resolveActive({id:'old',css:'body {color:red}'})
+  assert.equal(await page.locator('main').getAttribute('data-core'),'alive')
+  assert.equal(await page.locator('style[data-plugin-css="dsh-dream-skin/interface-skin"]').count(),0)
+})
+
+test('全局皮肤覆盖大 PR 视觉变量，移除插件后回到基础样式',async t=>{
+  const css = 'body {--dsh-tavern-accent: rgb(12, 34, 56); --dsh-tavern-radius-md: 23px; --dsh-tavern-font-sans: monospace;}'
+  const {page}=await openInterfaceSkins(t,{respond:method=>method==='getActiveInterfaceSkin'?{id:'custom',css}:{active:'custom',skins:[]}})
+  // Core styles can arrive after the independently loaded skin plugin.
+  for(const name of ['tavern.css','theme.css']) await page.addStyleTag({content:await readFile(new URL('../tavern-plugin/lib/client-assets/'+name,import.meta.url),'utf8')})
+  await page.waitForFunction(()=>getComputedStyle(document.body).getPropertyValue('--fork-accent').trim()==='rgb(12, 34, 56)')
+  assert.deepEqual(await page.evaluate(()=>{
+    const style=getComputedStyle(document.body)
+    return ['--fork-accent','--fork-radius','--fork-font-ui','--dsh-theme-accent'].map(key=>style.getPropertyValue(key).trim())
+  }),['rgb(12, 34, 56)','23px','monospace','rgb(12, 34, 56)'])
+  await page.evaluate(()=>{window.skinRoot.unmount();window.disposeSkin()})
+  assert.notEqual(await page.evaluate(()=>getComputedStyle(document.body).getPropertyValue('--fork-radius').trim()),'23px')
 })
