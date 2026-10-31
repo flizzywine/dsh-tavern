@@ -2013,9 +2013,14 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     }
     function publish() { snapshot = view(); listeners.forEach(fn => fn()); }
     // Keep the pin of `keep` and everything newer (a crossfade still sounds the previous one).
+    function cleanupAll(actions) {
+        const errors = [];
+        for (const action of actions) { try { action(); } catch (error) { errors.push(error); } }
+        if (errors.length) throw new AggregateError(errors, 'BGM cleanup failed');
+    }
     function release(keep) {
         const at = keep ? held.findLastIndex(item => item.identity === keep) : held.length;
-        if (at > 0) held.splice(0, at).forEach(item => item.release());
+        if (at > 0) cleanupAll(held.splice(0, at).map(item => () => item.release()));
     }
     async function apply() {
         if (disposed) return;
@@ -2097,8 +2102,8 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     }
     function set(next) { if (disposed) return; mine = {...mine, ...next}; remember(); void apply(); }
     return {
-        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-        subscribePerformance(fn) { performanceListeners.add(fn); return () => performanceListeners.delete(fn); },
+        subscribe(fn) { if (disposed) return () => {}; listeners.add(fn); return () => listeners.delete(fn); },
+        subscribePerformance(fn) { if (disposed) return () => {}; performanceListeners.add(fn); return () => performanceListeners.delete(fn); },
         acquirePerformance(options) {
             if (disposed) return {status:"stale"};
             const {sessionId, authority:auth, instanceKey, phaseKey, token, track, lock = true, restore = 'previous', restoreTarget, snap = false} = options;
@@ -2118,7 +2123,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
             const value = {instanceKey, phaseKey, token, track, lock, restore, previous, snap, fadeMs:track?.fadeMs,
                 directorRequest:restoreTarget?.directorRequest || outgoing?.directorRequest || null,
                 yielded:!!restoreTarget?.directorRequest?.force};
-            const current = supplied => performance === value && input?.authority === auth && (!supplied || tokenKey(supplied) === tokenKey(value.token));
+            const current = supplied => !disposed && performance === value && input?.authority === auth && (!supplied || tokenKey(supplied) === tokenKey(value.token));
             value.handle = {
                 update(next) {
                     if (!current() || next.token?.playbackEpoch < value.token?.playbackEpoch || next.token?.instanceKey && tokenKey(next.token.instanceKey) !== tokenKey(instanceKey)) return false;
@@ -2184,10 +2189,19 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         kick() { const playing = music.get(); if (active && !mine.paused && playing.current && playing.paused) music.resume(); },
         dispose() {
             if (disposed) return; disposed = true; playback++;
-            generation++; clock.clearTimeout(reloadTimer); selector?.dispose(); selector = null; store = null; active = null;
-            if (performance) notifyPerformance('released', performance, 'dispose');
+            generation++;
+            const previousSelector = selector, previousPerformance = performance;
+            const callbacks = [...performanceListeners];
+            selector = null; store = null; active = null; input = null; snapshot = null;
             performance = null; restored = undefined;
-            music.stop(); release(null); listeners.clear(); performanceListeners.clear();
+            lists.clear(); listeners.clear(); performanceListeners.clear();
+            cleanupAll([
+                () => clock.clearTimeout(reloadTimer),
+                () => previousSelector?.dispose(),
+                ...(previousPerformance ? callbacks.map(fn => () => fn({type:'released', instanceKey:previousPerformance.instanceKey, reason:'dispose'})) : []),
+                () => music.stop(),
+                () => release(null)
+            ]);
         }
     };
 }
