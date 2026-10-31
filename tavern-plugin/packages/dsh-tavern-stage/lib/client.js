@@ -3929,6 +3929,93 @@ function createAmbience({player, session, owner, authority}) {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createAmbience};
 
+        function createStageTextcard({React,window,players,fonts,clock,plan:planTextcard}) {
+let disposed=false;const releases=new Set();
+const TEXTCARD_KIND = /^dsh\.textcard(?:\.|$)/;
+function textcardAccepts(performance) {
+    return !!performance && TEXTCARD_KIND.test(String(performance.kind || '')) && !!performance.payload &&
+        (typeof performance.payload.style === 'string' || performance.kind === 'dsh.textcard.compound' && performance.payload.version === 1);
+}
+
+
+function plan(payload,reduced,accent){const value=planTextcard(payload,{reduced});return value?{...value,accent:typeof accent==='string'?accent:''}:null;}
+function useStage({sessionId,reducedMotion,blocked}) {
+    const ctx=React.useRef({});ctx.current={reducedMotion:reducedMotion===true};
+    const [family,setFamily]=React.useState(null),[state,setState]=React.useState({phase:'idle',sr:''});
+    const slot=React.useMemo(()=>({player:null,node:null}),[sessionId]);
+    React.useLayoutEffect(()=>{
+        if(disposed)return;
+        let live=true;
+        const player=players.create({now:clock.now,raf:clock.requestAnimationFrame,caf:clock.cancelAnimationFrame,setInterval:clock.setInterval,clearInterval:clock.clearInterval,
+            context:()=>ctx.current,onChange:value=>{if(live&&!disposed)setState(value);},fontsLoaded:fonts.loaded,
+            fontsReady:value=>fonts.ensure().then(family=>{if(!live||disposed)return;if(family)setFamily(family);return fonts.ready(value,family);})});
+        slot.player=player;player.attach(slot.node);setState(player.snapshot());
+        const debug={play:(payload,accent)=>live&&!disposed?player.play(plan(payload,ctx.current.reducedMotion,accent)):Promise.resolve(false),skip:()=>live&&!disposed&&player.skip(),cancel:()=>{if(live&&!disposed)player.cancel();},state:player.snapshot,log:player.log,plan:payload=>planTextcard(payload,{reduced:ctx.current.reducedMotion})};
+        window.forkTextcardDebug=debug;
+        void fonts.ensure().then(value=>{if(live&&!disposed&&value)setFamily(value);});
+        const release=()=>{if(!live)return;live=false;releases.delete(release);if(slot.player===player)slot.player=null;if(window.forkTextcardDebug===debug)delete window.forkTextcardDebug;player.dispose();};
+        releases.add(release);return release;
+    },[slot]);
+    React.useEffect(()=>{if(blocked)slot.player?.cancel();},[blocked,slot]);
+    const play=React.useCallback((effect,options={})=>{
+        const performance=effect?.performance;
+        if(disposed||!textcardAccepts(performance)||!slot.player)return Promise.resolve(false);
+        return slot.player.play(plan(performance.payload,ctx.current.reducedMotion,options.accent));
+    },[slot]);
+    const attach=React.useCallback(node=>{slot.node=node;slot.player?.attach(node);},[slot]);
+    const up=state.phase==='up',busy=state.phase!=='idle';
+    const node=React.createElement('div',{className:'fork-tc-layer'+(up?' is-up':''),style:family?{'--tc-mincho':family}:undefined},
+        React.createElement('div',{ref:attach,className:'fork-tc-host','aria-hidden':true}),
+        React.createElement('span',{className:'fork-tc-sr','aria-live':'polite'},up?state.sr:''));
+    return {accepts:textcardAccepts,play,skip:()=>!disposed&&!!slot.player?.skip(),cancel:()=>slot.player?.cancel(),up,busy,node};
+}
+return {useStage,dispose(){if(disposed)return;disposed=true;const errors=[];for(const release of [...releases]){try{release();}catch(error){errors.push(error);}}if(errors.length)throw new AggregateError(errors,'Textcard stage cleanup failed');}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcard};
+
+        function createStageTextcardFonts({document,FontFace,fonts:tavernFonts}) {
+let disposed=false;const localFonts=new Set();
+// ---------- fonts ----------
+// TEXTCARD_FACE is the one place that picks the card face. `library`: a font-library id, registered on demand, full font (no per-sample subset).
+// `local`: installed full / PostScript names tried first through local(), for trying faces that are not in the library
+// (never shipped); one installed face serves every card weight, like the single-weight HGP明朝B of the 物語 cards.
+// If none is installed the library face is used. The tategaki punctuation table (textcard-vert-ink.cjs) was
+// generated from the library's Noto Serif SC and applies only while that face renders.
+const TEXTCARD_FACE = Object.freeze({library: 'noto-serif-sc', local: Object.freeze([])});
+const TEXTCARD_LOCAL_FAMILY = 'DSH Textcard Local';
+function textcardLocalFace(face) {
+    if (!face.local.length || typeof document === 'undefined' || !document.fonts || typeof FontFace !== 'function') return Promise.resolve(null);
+    const src = face.local.map(name => 'local(' + JSON.stringify(name) + ')').join(', ');
+    const font = new FontFace(TEXTCARD_LOCAL_FAMILY, src, {weight: '100 900', display: 'block'});
+    return font.load().then(() => { if(disposed)return null;document.fonts.add(font);localFonts.add(font); return JSON.stringify(TEXTCARD_LOCAL_FAMILY); }, () => null);
+}
+let textcardFamily = null, textcardFamilyValue;
+function textcardFonts() {
+    if(disposed)return Promise.resolve(null);
+    if (textcardFamily) return textcardFamily;
+    const library = () => typeof tavernFonts === 'object' && tavernFonts && tavernFonts.ensure
+        ? Promise.resolve(tavernFonts.ensure(TEXTCARD_FACE.library)).then(font => font && font.family || null, () => null) : Promise.resolve(null);
+    textcardFamily = textcardLocalFace(TEXTCARD_FACE).then(local => local || library());
+    textcardFamily.then(value => { if(!disposed)textcardFamilyValue = value; });
+    return textcardFamily;
+}
+const textcardGlyphs = plan => [...new Set(plan.frames.flatMap(frame => [...JSON.stringify(frame.state)]))].join('').slice(0, 400) || '文';
+const textcardFaces = family => [400, 500, 700].map(weight => weight + ' 40px ' + family.split(',')[0]);
+async function textcardFontsReady(plan, family) {
+    if (disposed || !family || typeof document === 'undefined' || !document.fonts) return;
+    await Promise.all(textcardFaces(family).map(face => document.fonts.load(face, textcardGlyphs(plan))));
+}
+// Synchronous: the family is known and every face the plan needs is loaded (or there is no library to wait for).
+function textcardFontsLoaded(plan) {
+    if (disposed || textcardFamilyValue === undefined) return false;
+    if (!textcardFamilyValue || typeof document === 'undefined' || !document.fonts) return true;
+    try { return textcardFaces(textcardFamilyValue).every(face => document.fonts.check(face, textcardGlyphs(plan))); } catch (_) { return false; }
+}
+
+return {ensure:textcardFonts,ready:textcardFontsReady,loaded:textcardFontsLoaded,dispose(){if(disposed)return;disposed=true;textcardFamily=null;textcardFamilyValue=undefined;for(const font of localFonts)document.fonts.delete(font);localFonts.clear();}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageTextcardFonts};
+
         function createStageTextcardPlayers({document,performance,requestAnimationFrame,cancelAnimationFrame,setInterval,clearInterval,setTimeout,clearTimeout,createGate:createTextcardGate,peak:textcardPeak,layout,center}) {
 let closed=false;const players=new Set();
 // ---------- player ----------
@@ -8325,7 +8412,9 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const textcardCenter=own(createStageTextcardCenter({metrics:TEXTCARD_VERT_INK}));
                     const textcardLayout=createStageTextcardLayout(options.textcardLayout||{});
                     const textcardPlayers=own(createStageTextcardPlayers({document,...options.textcardPlayer,layout:textcardLayout,center:textcardCenter}));
-                    return {textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
+                    const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts}));
+                    return {textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
