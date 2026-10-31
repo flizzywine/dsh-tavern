@@ -242,6 +242,7 @@ export function createStageAssets(core) {
   const assetRuntime = createAssetRuntime({ctx, readWorkspace:readCardWorkspace, engineSettings:assetEngineSettings,
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
+  ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
   return {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 

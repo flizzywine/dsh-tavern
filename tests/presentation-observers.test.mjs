@@ -52,3 +52,14 @@ test('stage patch projection finishing after unregister cannot observe the old g
   const off=host.register('stage',createStageStoryObserver({chatPersistence:{readSceneImageState:()=>gate.promise},stageDirector:{observe(){assert.fail('disposed observer')}}}))
   host.patched({id:'old'},[{path:['messages',0,'text']}]);off();gate.resolve({messages:[]});await tick();host.dispose()
 })
+
+test('card cache invalidation is immediate, optional and removed with its owner',async()=>{
+  const host=createPresentationObservers(),seen=[]
+  await host.cardChanged('ordinary')
+  host.register('broken',{cardChanged(){throw Error('cache failed')}})
+  const off=host.register('stage',{cardChanged:path=>seen.push(path)})
+  const notification=host.cardChanged('cards/a.json')
+  assert.deepEqual(seen,['cards/a.json'],'synchronous caches invalidate before persistence begins')
+  await notification;off();await host.cardChanged('cards/b.json')
+  assert.deepEqual(seen,['cards/a.json']);host.dispose()
+})

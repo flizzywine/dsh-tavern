@@ -672,12 +672,13 @@ export async function apply(ctx) {
   }
   // Told after a card's working copy changed (plugins' onCardChanged).
   const cardRevisionListeners = new Set()
+  const presentationObservers = createPresentationObservers({warn:({owner,phase,error}) => console.warn('dsh-tavern: presentation observer failed', owner, phase, error?.message || error)})
+  ctx.effect(() => () => presentationObservers.dispose())
   async function cardProjectionRevision(cardPath) {
     return cardProjectionRevisionOf(await readJson(CARD_PROJECTION_REVISIONS), cardPath)
   }
   async function bumpCardProjectionRevision(cardPath) {
-    assetRuntime.invalidate(cardPath)
-    modService?.invalidate()
+    void presentationObservers.cardChanged(cardPath)
     const normalized = normalizeResourcePath(cardPath, 'card')
     const saved = await profileData.updateJson(CARD_PROJECTION_REVISIONS, value => bumpCardProjectionState(value, normalized))
     void coordinationEvents?.publishAll()
@@ -709,7 +710,7 @@ export async function apply(ctx) {
   // 舞台的素材与判断（stage-module.js）。
   const modelSlots = createModelSlotRegistry({warn:error => console.warn('dsh-tavern: 模型槽读取失败',error?.message)})
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
-  const stageRuntime = createStageRuntime({ctx, modelSlots, resolveSlot, readCardWorkspace, coordinationEvents})
+  const stageRuntime = createStageRuntime({ctx, modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents})
   const {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime} = stageRuntime.assets
   let modService
 
@@ -1011,8 +1012,6 @@ export async function apply(ctx) {
       return typeof value?.then === 'function' ? value.catch(skip) : value
     } catch (error) { return skip(error) }
   }
-  const presentationObservers = createPresentationObservers({warn:({owner,phase,error}) => console.warn('dsh-tavern: presentation observer failed', owner, phase, error?.message || error)})
-  ctx.effect(() => () => presentationObservers.dispose())
   let conversationRegistry
   async function syncChatSummary(chat, metadata) {
     if (chat) presentationObservers.saved(chat, metadata)
