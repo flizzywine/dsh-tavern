@@ -962,7 +962,7 @@ function galCreateScene(host, options) {
     }
     function callGradient() {
         // §2.2: a light darkening at the top (25 %) and bottom (30 %) keeps the status bar, pill and keys readable.
-        call.gradient ||= galCanvasTexture(PIXI, 4, 256, function (ctx, w, h) {
+        call.gradient ||= stageViews.sceneGraphics.canvasTexture(PIXI, 4, 256, function (ctx, w, h) {
             const image = ctx.createImageData(w, h), data = image.data;
             for (let y = 0; y < h; y++) {
                 const t = y / (h - 1), a = t < 0.22 ? 0.25 * (1 - t / 0.22) : t > 0.7 ? 0.3 * (t - 0.7) / 0.3 : 0;
@@ -1162,7 +1162,7 @@ function galCreateScene(host, options) {
         if (thinking.dimKey !== key) {
             if (thinking.dimTexture) thinking.dimTexture.destroy(true);
             thinking.dimKey = key;
-            thinking.dimTexture = galCanvasTexture(PIXI, 960, 540, function (ctx, w, h) {
+            thinking.dimTexture = stageViews.sceneGraphics.canvasTexture(PIXI, 960, 540, function (ctx, w, h) {
                 const image = ctx.createImageData(w, h), data = image.data;
                 for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
                     const dx = (x - w / 2) / (w / 2), dy = (y - h / 2) / (h / 2), r = Math.min(1, Math.hypot(dx * 0.82, dy));
