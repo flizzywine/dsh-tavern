@@ -212,7 +212,7 @@
 					field("narratorVoice", "旁白声音", "留空则旁白不念", "dsh-tavern-speech-voices"),
 					h(TavernVoiceOptions, { id: "dsh-tavern-speech-voices", provider: provider }),
 					h("div", { className: "dsh-tavern-speech-actions" },
-						h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void save(settings.enabled); } }, "保存"),
+						h("button", { type: "button", className: "dsh-tavern-btn dsh-tavern-speech-save", disabled: busy, onClick: function () { void save(settings.enabled); } }, "保存"),
 						h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void listen(); } }, "试听"))),
 				message ? h("div", { className: "dsh-tavern-settings-row", role: "status" }, h("span", { className: "dsh-tavern-settings-desc" }, message)) : null);
 		}

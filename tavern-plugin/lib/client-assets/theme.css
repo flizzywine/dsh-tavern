@@ -12603,3 +12603,25 @@ html.dsh-fork-phone-play [data-dsh-fork-session="play"] .fork-bubble .fork-bubbl
 [data-chat-flow-kind="manual-compaction"]:has([data-fork-compaction="failed"]):has(~ [data-chat-flow-kind] [data-fork-compaction="succeeded"]) { display: none; }
 .fork-compaction-result > summary { cursor: pointer; color: var(--fork-ink-2); }
 .fork-compaction-summary { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 0; }
+
+/* Speech settings are a form: keep editable values distinct from their labels. */
+.dsh-tavern-speech-settings { padding: 20px; }
+.dsh-tavern-speech-settings > .dsh-tavern-settings-row { padding: 0 0 18px; margin-bottom: 20px; border-bottom: 1px solid var(--fork-hairline); }
+.dsh-tavern-speech-form { display: grid; gap: 14px; }
+.dsh-tavern-speech-field { display: grid; gap: 7px; min-width: 0; }
+.dsh-tavern-speech-field > span { display: flex; align-items: center; gap: 5px; color: var(--fork-ink-2); font-size: 12px; font-weight: 600; }
+.dsh-tavern-speech-field > .fork-inline-field {
+  box-sizing: border-box; width: 100%; min-height: 38px; padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--fork-ink) 22%, transparent); border-radius: 8px;
+  background: var(--dsw-alias-bg-base); color: var(--fork-ink); font-size: 14px;
+}
+.dsh-tavern-speech-field > .fork-inline-field:hover { border-color: var(--fork-ink-3); }
+.dsh-tavern-speech-field > .fork-inline-field:focus-within { border-color: var(--fork-accent); outline: 2px solid color-mix(in srgb, var(--fork-accent) 18%, transparent); outline-offset: 1px; }
+.dsh-tavern-speech-field .fork-inline-value { width: 100%; min-width: 0; }
+.dsh-tavern-speech-field .fork-inline-anchor { width: 100%; }
+.dsh-tavern-speech-field .fork-inline-trigger { width: 100%; justify-content: space-between; }
+.dsh-tavern-speech-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 18px; margin-top: 2px; border-top: 1px solid var(--fork-hairline); }
+.dsh-tavern-speech-actions > .dsh-tavern-btn { min-height: 36px; min-width: 76px; }
+.dsh-tavern-speech-actions > .dsh-tavern-speech-save { background: var(--fork-accent); color: var(--dsw-alias-label-on-brand, #fff); border-color: var(--fork-accent); }
+.dsh-tavern-speech-actions > .dsh-tavern-speech-save:hover:not(:disabled) { background: color-mix(in srgb, var(--fork-accent) 88%, black); color: var(--dsw-alias-label-on-brand, #fff); }
+@media (max-width: 600px) { .dsh-tavern-speech-settings { padding: 14px; } }
