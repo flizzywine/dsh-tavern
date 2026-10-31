@@ -5,63 +5,6 @@
 // the Chat snapshot's user messages; it never writes story, variables or prompts.
 // The kind registry (stage-performance-kinds.cjs) is included once, by core-item-presentation.cjs.
 
-// ---------- Backlog helpers (pure; tests/fork-gal-stage.test.mjs) ----------
-// Earlier rendered turns (below `turn`), oldest first, each paged like the stage pages them.
-function galBacklogTurns(parts, turn) {
-    const byTurn = new Map();
-    (parts || []).forEach(function (part) {
-        if (!part || !(part.turn < turn)) return;
-        if (!byTurn.has(part.turn)) byTurn.set(part.turn, []);
-        byTurn.get(part.turn).push(part);
-    });
-    return Array.from(byTurn.keys()).sort((a, b) => a - b)
-        .map(t => ({ turn: t, pages: galPages(byTurn.get(t).slice().sort(stageViews.position.partOrder)) }));
-}
-// The rows of the panel: a separator per turn, the player's input of that turn (when known), then its
-// pages. The current turn stops at the current page (never shows pages the reader has not reached).
-// inputs: { [storyTurn]: text }.
-function galBacklogEntries(earlier, turn, pages, page, inputs) {
-    const out = [];
-    const at = Math.min(Math.max(0, page), Math.max(0, (pages || []).length - 1));
-    const turns = (earlier || []).map(item => ({ turn: item.turn, pages: item.pages, current: false }));
-    if (turn) turns.push({ turn, pages: (pages || []).slice(0, at + 1), current: true });
-    turns.forEach(function (item) {
-        const input = String(inputs && inputs[item.turn] || "").trim();
-        if (!item.pages.length && !input) return;
-        out.push({ type: "turn", key: "t" + item.turn, turn: item.turn, current: item.current });
-        if (input) out.push({ type: "input", key: "i" + item.turn, turn: item.turn, text: input });
-        item.pages.forEach(function (p, index) {
-            out.push({ type: "page", key: "p" + item.turn + ":" + index, turn: item.turn, page: index, current: item.current, here: item.current && index === at,
-                kind: p.kind, alias: p.alias || "", name: p.name || "", mood: p.mood || "", text: p.text, thought: Boolean(p.thought), pending: Boolean(p.pending), voice: p.voice || null });
-        });
-    });
-    return out;
-}
-function galUserText(content) {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map(block => block && block.type === "text" ? String(block.text || "") : "").join("");
-}
-// The player's message of each turn from the Chat snapshot's nodes (legacy.nodes): a user node belongs
-// to the next assistant reply (which carries the DSH turn). storyTurnOf maps a DSH turn to the story
-// turn the stage uses; sourceOf(dshTurn) gives the host's edited / template source when there is one.
-function galPlayerInputs(nodes, storyTurnOf, sourceOf) {
-    const out = {};
-    let pending = null;
-    (Array.isArray(nodes) ? nodes : []).forEach(function (node) {
-        if (!node) return;
-        if (node.kind === "user") { pending = galUserText(node.content); return; }
-        if (node.kind !== "assistant" || pending === null) return;
-        const dsh = Number(node.turn) || 0;
-        const text = pending;
-        pending = null;
-        if (!dsh || /^tavern-seed-trajectory:/.test(String(node.messageId || ""))) return;
-        const source = sourceOf ? sourceOf(dsh) : null;
-        const shown = String(source == null ? text : source).trim();
-        if (shown) out[storyTurnOf ? storyTurnOf(dsh) : dsh] = shown;
-    });
-    return out;
-}
 // A row's voice for the chat bubble's voice control (voice.js VoiceButton): the published voice handle
 // with the live player state; a click wakes lip sync and plays / pauses the line without jumping to its page.
 function galBacklogVoice(voice, player) {
@@ -98,149 +41,6 @@ function galBacklogNarration(handles) {
     } });
 }
 
-// Prefix offsets include estimated heights for unvisited rows; measured rows replace them.
-function galBacklogWindow(offsets, scrollTop, height, overscan) {
-    const count = offsets.length - 1;
-    if (count <= 0) return { start: 0, end: 0 };
-    const top = Math.max(0, Math.min(scrollTop, Math.max(0, offsets[count] - height)));
-    function at(value) {
-        let lo = 0, hi = count;
-        while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= value) lo = mid + 1; else hi = mid; }
-        return lo;
-    }
-    return { start: Math.max(0, at(top) - overscan), end: Math.min(count, at(Math.max(top, top + height - 0.001)) + 1 + overscan) };
-}
-
-// immutable session paragraphs, with voice handles built only for visible rows.
-function stageHistoryEntries(index,turn,pages,page,inputs) {
-    const entries = [], turns = [...(index?.keys() || [])].filter(value => value <= turn);
-    if (!turns.includes(turn)) turns.push(turn);
-    for (const number of turns.sort((a,b) => a-b)) {
-        const current = number === turn;
-        entries.push({type:'turn',key:'t'+number,turn:number,current});
-        if (inputs[number]) entries.push({type:'input',key:'i'+number,turn:number,text:inputs[number]});
-        const rows = current ? pages.slice(0,page+1) : index.get(number).units || index.get(number).text.pages;
-        rows.forEach((row,i) => entries.push({...row,type:'page',key:'p'+number+':'+i,turn:number,page:i,current,
-            targetPara:current ? undefined : row.para || row.anchor.para, here:current && i === page,
-            descriptor:current ? null : row.segment ? stageVoiceDescriptor(row) : row.voice,
-            // a narration unit's pages each carry their own narrator voice (stageVoiceDescriptor)
-            descriptors:!current && row.kind === 'narration' && row.cards ? row.cards.map(card => card.voice).filter(Boolean) : undefined,
-            voice:current ? row.voice : null}));
-    }
-    return entries;
-}
-
-// ---------- Performance rows ----------
-// Every stage performance kind is registered with its 履历 projection and replay declaration (stage-performance-kinds.cjs);
-// one path turns a stored record into a row. kinds: the managed mods' declarations ({owner, performances}) from the host.
-function backlogPerformanceRegistry(kinds) {
-    return createStagePerformanceRegistry([{owner:'core',performances:STAGE_PERFORMANCE_CORE},...(kinds || [])]);
-}
-// The host-shipped projections a declaration names ({renderer}): record -> {tag, text | parts | roll, place}.
-// place: 'before' its paragraph's first page, 'after' its first page, 'end' after its last page, 'lead' ahead of the round's text.
-const BACKLOG_RENDERERS = {
-    item(performance) {
-        const item = performance.payload;
-        // 获得 / 失去 as on the stage card; a plain show needs no word there, the row says 展示.
-        return {tag:{gain:'获得',lose:'失去'}[item.action] || '展示', place:'after',
-            text:item.name + (item.variantName ? ' · ' + item.variantName : '') + (item.action !== 'show' && item.count != null ? ' ×' + item.count : '')};
-    },
-    textcard(performance) {
-        const card = textcardHistory(performance.payload);
-        // Explicit placement survives pagination; unmarked historical cards still precede their paragraph.
-        return card && {tag:card.tag, parts:card.parts, place:performance.payload.placement === 'after' ? 'end' : 'before'};
-    },
-    title: event => ({tag:'报幕', text:String(event.value), place:'before'}),
-    dice: roll => ({roll, place:'lead'}),
-};
-// declaration: the registry entry; record: what the stage played; target: {turn, id} - the row's identity in its round.
-function backlogPerformanceEntry(declaration, record, target) {
-    if (!declaration || declaration.backlog.none || declaration.backlog.line) return null;
-    const backlog = declaration.backlog;
-    let row;
-    if (backlog.renderer) row = BACKLOG_RENDERERS[backlog.renderer](record);
-    else {
-        const text = stagePerformancePointer(record.payload, backlog.row.text);
-        row = typeof text === 'string' && text.trim() ? {tag:backlog.row.label, text, place:'after'} : null;
-    }
-    if (!row) return null;
-    return {...row, type:'performance', role:backlog.role, kind:declaration.kind, key:'perf:' + target.turn + ':' + JSON.stringify(target.id), turn:target.turn};
-}
-// Mod performances (and core items) of each turn, plus the director's titles of the visible turns (directions: turn -> projected
-// direction), placed by their paragraph; removed performances never reach this list.
-function stageModHistoryEntries(entries,history,registry,directions) {
-    const records = [];
-    for (const {turn,performances} of history || []) for (const performance of performances)
-        records.push({turn,at:performance.at,row:backlogPerformanceEntry(registry.get(performance.kind),performance,{turn,id:{performance:performance.id}})});
-    for (const [turn,direction] of directions || []) for (const entry of direction?.entries || []) {
-        if (!(entry.at <= direction.through)) continue;
-        for (const event of entry.events || []) if (event.kind === 'title')
-            records.push({turn,at:entry.at,row:backlogPerformanceEntry(registry.get('core.event.title'),event,{turn,id:{event:[entry.ordinal,event.ordinal]}})});
-    }
-    if (!records.some(record => record.row)) return entries;
-    const after=new Map(),before=new Map();
-    for (const {turn,at,row} of records) {
-        if (!row) continue;
-        const matches=item=>item.type==='page' && item.turn===turn && (item.para || item.anchor?.para || item.targetPara || item.page+1)===at;
-        const index=row.place==='end' ? entries.findLastIndex(matches) : entries.findIndex(matches);
-        if(index<0)continue;
-        const target=row.place==='before' ? before : after;
-        if(!target.has(index))target.set(index,[]);
-        target.get(index).push(row);
-    }
-    return entries.flatMap((row,index)=>[...(before.get(index) || []),row,...(after.get(index) || [])]);
-}
-
-// the line kinds a mod declares with a
-// mark command ({line:{label, command, voice?, icon?}}, stage-performance-kinds.cjs) - [{kind, label, icon, modId, command, voice}].
-function backlogLineKinds(registry) {
-    return registry ? registry.list().filter(row => row.backlog.line?.command).map(row => ({kind:row.kind, label:row.backlog.line.label, icon:row.backlog.line.icon, modId:row.owner, command:row.backlog.line.command, voice:row.backlog.line.voice})) : [];
-}
-// The line kind a director entry's accepted mark gives its paragraph (admission validated the mark; it is not read again here).
-function backlogLineMark(direction, para, kinds) {
-    if (!kinds.length || !direction || !['partial','done'].includes(direction.phase) || !(para <= direction.through)) return null;
-    for (const entry of direction.entries || []) {
-        if (entry.at !== para) continue;
-        for (const op of entry.ops || []) {
-            const kind = op.op === 'mod.command' && kinds.find(row => row.modId === op.modId && row.command === op.commandId);
-            if (kind) return {kind, params:op.params || {}};
-        }
-    }
-    return null;
-}
-// A marked story line is one 履历 row (its pages joined), tagged with its kind; it keeps its voice button only as the kind says.
-function backlogLineKindEntries(entries,directions,kinds) {
-    if (!kinds.length) return entries;
-    const out=[],seen=new Map();
-    for (const entry of entries) {
-        const para=entry.para || entry.anchor?.para || entry.targetPara || entry.page+1;
-        const mark=entry.type==='page' && entry.kind==='line' ? backlogLineMark(directions.get(entry.turn),para,kinds) : null;
-        if (!mark) {out.push(entry);continue;}
-        const key=JSON.stringify([entry.turn,para]),previous=seen.get(key);
-        if (previous) {
-            previous.text=previous.text.slice(0,entry.anchor?.offset ?? previous.text.length)+entry.text;
-            previous.here=previous.here || entry.here;
-            continue;
-        }
-        const voiced=!mark.kind.voice || stagePerformancePointer(mark.params,mark.kind.voice.when)===mark.kind.voice.is;
-        const row={...entry,lineKind:{kind:mark.kind.kind,label:mark.kind.label,icon:mark.kind.icon},...(voiced?{}:{voice:null,descriptor:null})};
-        seen.set(key,row);out.push(row);
-    }
-    return out;
-}
-
-// ---------- Entry roles ----------
-// Every 履历 entry has one role from a fixed set; skins style roles, never kinds (stageSkinBacklog in stage-skin-adapter.cjs):
-// divider (the round separator), player (the player's input), speech (a story line: spoken, inner monologue, a phone
-// message), narration (a narration paragraph), notice (a registered performance's row - item, check, text card, title, a
-// mod's row - by the role its kind declares, stage-performance-kinds.cjs).
-function backlogRole(entry) {
-    if (entry.type === 'turn') return 'divider';
-    if (entry.type === 'input') return 'player';
-    if (entry.type === 'performance') return entry.role;
-    return entry.kind === 'line' ? 'speech' : 'narration';
-}
-// Without a skin (built-in themes, film mode, isolated fixtures): the list with today's rows.
 const BACKLOG_LIST = {layout:'list', close:'head', roles:{speech:{look:'row'}, player:{look:'row'}, narration:{look:'row'}, notice:{look:'row'}, divider:{look:'rule'}}, style:{}};
 
 // ---------- Backlog view ----------
@@ -252,7 +52,7 @@ function useGalPlayerInputs(sessionId, useChat) {
     const view = live && live.view;
     return React.useMemo(function () {
         const sources = view && view.inputSources;
-        return galPlayerInputs(nodes, dsh => tavernStoryTurnForDshTurn(view, dsh),
+        return stageViews.backlogRows.galPlayerInputs(nodes, dsh => tavernStoryTurnForDshTurn(view, dsh),
             dsh => sources && Object.prototype.hasOwnProperty.call(sources, String(dsh)) && sources[dsh] != null ? String(sources[dsh]) : null);
     }, [nodes, view]);
 }
@@ -270,13 +70,13 @@ function GalBacklog(props) {
     const inputs = useGalPlayerInputs(props.sessionId, props.useChat);
     const modHistory = typeof useStageModHistory === 'function' ? useStageModHistory(props.sessionId) : null;
     // Isolated text-only fixtures load the backlog without the kind registry (and so without performance rows).
-    const registry = React.useMemo(() => typeof createStagePerformanceRegistry === 'function' ? backlogPerformanceRegistry(modHistory?.kinds) : null, [modHistory?.kinds]);
+    const registry = React.useMemo(() => typeof createStagePerformanceRegistry === 'function' ? stageViews.backlogRows.backlogPerformanceRegistry(modHistory?.kinds) : null, [modHistory?.kinds]);
     // each round's open checks, one line each (dice-roll.js); isolated fixtures run without it.
     const rolls = typeof useDiceBacklog === 'function' ? useDiceBacklog(props.useChat) : null;
     const [markDirections,setMarkDirections]=React.useState(()=>new Map());
-    const lineKinds = React.useMemo(() => backlogLineKinds(registry), [registry]);
+    const lineKinds = React.useMemo(() => stageViews.backlogRows.backlogLineKinds(registry), [registry]);
     const looks = props.looks || BACKLOG_LIST;
-    const lookOf = entry => looks.roles[backlogRole(entry)]?.look || 'row';
+    const lookOf = entry => looks.roles[stageViews.backlogRows.backlogRole(entry)]?.look || 'row';
     // A bubble's plate per side and outer-line colour (tint by speaker: the speaker's image colour, colorOf), drawn once each.
     const plates = React.useRef({looks:null, map:new Map()});
     if (plates.current.looks !== looks) plates.current = {looks, map:new Map()};
@@ -290,11 +90,11 @@ function GalBacklog(props) {
     }
     const entries = React.useMemo(() => {
         const directions=new Map(markDirections);directions.set(props.turn,props.direction);
-        const text = stageHistoryEntries(props.textIndex, props.turn, props.pages || [], props.page, inputs);
-        const rows = backlogLineKindEntries(registry ? stageModHistoryEntries(text,modHistory?.turns,registry,directions) : text,directions,lineKinds);
+        const text = stageViews.backlogRows.stageHistoryEntries(props.textIndex, props.turn, props.pages || [], props.page, inputs);
+        const rows = stageViews.backlogRows.backlogLineKindEntries(registry ? stageViews.backlogRows.stageModHistoryEntries(text,modHistory?.turns,registry,directions) : text,directions,lineKinds);
         const roll = registry?.get('core.dice.roll');
         const all = rolls && roll ? diceBacklogEntries(rows, rolls, turn => props.textIndex?.get(turn)?.nativeTurn,
-            (value, turn) => backlogPerformanceEntry(roll, value, {turn, id:{roll:value.callId}})) : rows;
+            (value, turn) => stageViews.backlogRows.backlogPerformanceEntry(roll, value, {turn, id:{roll:value.callId}})) : rows;
         // A role the skin draws as none leaves no row (the overlay's round separators).
         return looks.roles.divider?.look === 'none' ? all.filter(entry => entry.type !== 'turn') : all;
     }, [props.textIndex, props.turn, props.pages, props.page, props.direction, inputs,modHistory,registry,lineKinds,markDirections,rolls,looks]);
@@ -319,7 +119,7 @@ function GalBacklog(props) {
     const listRef = React.useCallback(node => { scroller.current = node; setListBox(node); }, []);
     const offsets = [0];
     entries.forEach(entry => offsets.push(offsets[offsets.length - 1] + (heights.current.get(entry.key) || (entry.type === "turn" ? 54 : 100))));
-    const range = galBacklogWindow(offsets, viewport.top, viewport.height, 20);
+    const range = stageViews.backlogRows.galBacklogWindow(offsets, viewport.top, viewport.height, 20);
     // names in an image colour too dark/light for this panel get the nearest readable lightness.
     useFigureTextContrast(React, scroller, true, range.start, range.end, entries.length, props.page);
     const visibleTurns=JSON.stringify([...new Set(entries.slice(range.start,range.end).map(row=>row.turn))].filter(turn=>turn!==props.turn));
@@ -397,7 +197,7 @@ function GalBacklog(props) {
             const shift = index >= 0 ? offsets[index] - previous.offset : 0;
             if (Math.abs(shift) > 0.5) { box.scrollTop += shift; readViewport(); }
         }
-        const first = galBacklogWindow(offsets, box.scrollTop, box.clientHeight, 0).start;
+        const first = stageViews.backlogRows.galBacklogWindow(offsets, box.scrollTop, box.clientHeight, 0).start;
         anchorRow.current = { entries, key: entries[first]?.key, offset: offsets[first] || 0 };
     });
     React.useLayoutEffect(function () {
@@ -410,7 +210,7 @@ function GalBacklog(props) {
             readViewport();
         }
         const atEnd = viewport.top === Infinity || box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
-        const anchor = galBacklogWindow(offsets, viewport.top, viewport.height, 0).start;
+        const anchor = stageViews.backlogRows.galBacklogWindow(offsets, viewport.top, viewport.height, 0).start;
         let changed = false, shift = 0;
         for (let i = range.start; i < range.end; i++) {
             const node = nodes.current.get(i), next = nodes.current.get(i + 1);
