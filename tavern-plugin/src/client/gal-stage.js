@@ -1418,6 +1418,7 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
+        skinContract:{stageSkinImageOf,stageSkinSliceEdges,stageSkinScreenFiles,skinContrast},
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
         widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
@@ -1438,7 +1439,7 @@ function bindStageViews(createViews) {
         choices:{ReactDOM,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
         choiceLayout:{getComputedStyle},
         regenerate:{report:(...args)=>tavernErrorHub.report(...args),sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,HelpTip,Segmented,TextArea,StageWaitStop,StageWaitLines},
-        backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useClipBacklog:typeof useClipBacklog==='function'?useClipBacklog:undefined,useJumpLatest,JumpLatest,useFigureTextContrast,stageSkinBacklogPlateStyle,stageSkinBacklogPlate,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
+        backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useClipBacklog:typeof useClipBacklog==='function'?useClipBacklog:undefined,useJumpLatest,JumpLatest,useFigureTextContrast,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
         backlogPaging:{hydrateText:(sessionId,turn)=>stageSessions.owner?.hydrateText?.(sessionId,turn), hasOlder:sessionId=>stageSessions.owner?.hasOlder?.(sessionId), loadOlder:sessionId=>stageSessions.owner?.loadOlder?.(sessionId)},
         backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
         backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
@@ -1461,8 +1462,8 @@ function bindStageViews(createViews) {
         timer:{rpc, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
-        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
-        transitions:{getComputedStyle, DOMMatrixReadOnly, ease:stageSkinTxEase, setTimeout, clearTimeout},
+        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage},
+        transitions:{getComputedStyle, DOMMatrixReadOnly, setTimeout, clearTimeout},
         speaker:{character:bubbleCharacter,resolve:(...args) => figureResolution.resolveFigureName(...args),render:packFigureRenderInputs},
         chatEntry:{MutationObserver,markdown:TavernColoredMarkdown,enter:galEnter,plain:galPlain,blocks:galBlocks,paragraphs:galParagraphs,parse:parseBubbles,schedule:setTimeout,cancel:clearTimeout},
         menu:{sounds:forkUiSfx,getSession:id => stageSessions.get(id)},
