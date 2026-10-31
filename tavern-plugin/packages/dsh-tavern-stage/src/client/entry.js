@@ -61,6 +61,7 @@ window.__ModuleLoader__.load({
         __STAGE_RUNTIME_UI__
         __STAGE_SPEECH__
         __STAGE_PERFORMANCE_SURFACE__
+        __STAGE_MOD_SURFACE__
         __STAGE_SESSIONS__
         __STAGE_TEXT_INDEX__
         __STAGE_CLIENT_LIFETIME__
@@ -212,11 +213,12 @@ window.__ModuleLoader__.load({
                     const figureIdle=own(createStageFigureIdle({spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue}));
                     const figureWarp=own(createStageFigureWarp());
                     const figureTap=own(createStageFigureTap({document,geometry:figureGeometry}));
+                    const modRenderers={};
                     const danmakuDisplay=createStageDanmakuDisplay();
                     const danmakuScheduler=createStageDanmakuScheduler(danmakuDisplay);
                     const danmakuSession=own(createStageDanmakuSession(danmakuDisplay));
-                    const liveroom=own(createStageLiveroom({spark:danmakuDisplay.danmakuSparkPaths,count:danmakuDisplay.danmakuCount,price:danmakuDisplay.danmakuPrice,...options.danmaku}));
-                    const danmaku=own(createStageDanmaku({display:danmakuDisplay,scheduler:danmakuScheduler,session:danmakuSession,liveroom,createAvatar:createStageDanmakuAvatar,window,...options.danmaku}));
+                    const liveroom=own(createStageLiveroom({spark:danmakuDisplay.danmakuSparkPaths,count:danmakuDisplay.danmakuCount,price:danmakuDisplay.danmakuPrice,...options.danmaku,renderers:modRenderers}));
+                    const danmaku=own(createStageDanmaku({display:danmakuDisplay,scheduler:danmakuScheduler,session:danmakuSession,liveroom,createAvatar:createStageDanmakuAvatar,window,...options.danmaku,renderers:modRenderers}));
                     const danmakuSettings=own(createStageDanmakuSettings({window,CustomEvent:window.CustomEvent}));
                     const danmakuUi=own(createStageDanmakuUi({React:options.React,window,document,CustomEvent:window.CustomEvent,...options.danmakuUi,settings:danmakuSettings,fields:configFields}));
                     const entranceContract=options.entranceContract?.();
@@ -244,6 +246,7 @@ window.__ModuleLoader__.load({
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core}));
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
                     activeViews=views;
                     return views;
