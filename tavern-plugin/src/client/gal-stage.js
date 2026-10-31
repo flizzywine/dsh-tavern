@@ -1433,6 +1433,7 @@ function bindStageViews(createViews) {
         effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
         looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
         spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+        figureMetrics:{headTop:galTextureHeadTop,source:figureSource,measure:figureMeasureTexture,anatomy:packFigureAnatomy,record:packFigureRecord,resolve:resolveFigureSizing,bodyX:galBodyX,bodyCentre:figureBodyCentre},
         figureBlink:{clock:forkForeground},
         callViews:{cover:galCover,subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
         bust:{framedHead:galFramedHead},

@@ -47125,6 +47125,7 @@ function cardLibraryDisplayName(card) {
 		    const effects = stageViews.effects.create({ PIXI, app, world, backdrop, backFx, frontFx, emotes: emotesBox, overlay, filters, tune, quality: () => quality, headOf });
 
 		    const textures=stageViews.sceneTextures.create({PIXI,upload:texture=>app.renderer.plugins.prepare?.upload(texture)});
+		    const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures});
 		    const loadTexture=textures.load;
 		    function pruneTextures() {
 		        const keep = new Set(describe().preload || []);
@@ -47205,7 +47206,8 @@ function cardLibraryDisplayName(card) {
 		        Object.values(entry.slots).forEach(slot => slot.filter.destroy());
 		        ;
 		        entry.container.destroy({ children: true });
-		        if (entry.spineFigure) { entry.spineFigure.destroy(); entry.spineFigure = null; }
+		        entry.figureAsset?.destroy();entry.figureAsset=null;entry.spineFigure=null;
+		        for(const item of entry.fading)item.asset?.destroy();entry.fading=[];
 		        state.lastPrune = 0;
 		    }
 		    // the runtime loads with the first Spine figure; the figure then becomes a
@@ -47214,27 +47216,20 @@ function cardLibraryDisplayName(card) {
 		        if (entry.loading || entry.sprite || entry.failed || !entry.url) return;
 		        entry.loading = true;
 		        const identity = entry.figure.identity, config = entry.figure.spine || {};
-		        const input = entry.figure.figureSizing, anatomy = input?.pack && input.anatomy;
-		        stageViews.spineFigures.prepare({PIXI,url:entry.url,config,identity,renderer:app.renderer,anatomy}).then(function (figure) {
-		            if (!figure) {entry.loading=false;return;}
-		            if (entry.dead || state.destroyed) { figure.destroy(); return; }
-		            entry.loading = false; entry.spineFigure = figure;
-		            const {frame,measured,body}=figure,canvas=[frame[2],frame[3]];
-		            body.figureInput = null;
-		            if (input?.pack && input.source) {
-		                entry.figureCandidate = measured ? measured.candidate : null;
-		                body.figureInput = {...input,metrics:packFigureRecord(input,canvas,entry.figureCandidate)};
-		                const sizing = resolveFigureSizing({ ...body.figureInput, W: app.screen.width, H: app.screen.height, canvas });
-		                if (sizing.mode === "physical") body.anchor.set(sizing.supportX / canvas[0], sizing.feet / canvas[1]);
-		            }
-		            body.forkBodyX = galBodyX(body.figureInput?.metrics, measured?.candidate) ?? canvas[0] / 2;
-		            figure.mood(entry.figure.animation);
-		            entry.container.addChildAt(body, 0);
-		            entry.sprite = body; entry.loadedIdentity = identity;
-		            commitFigureReplacement(entry);
-		        }, function (error) {
-		            entry.loading = false; entry.failed = true;
-		            if (!entry.dead) onError("Spine 模型加载失败：" + String(error && error.message || error));
+		        const input=entry.figure.figureSizing;
+		        figureAssets.spine({url:entry.url,identity,config,input,animation:entry.figure.animation}).then(function(asset){
+		            entry.loading=false;
+		            if(!asset)return;
+		            if(entry.dead || state.destroyed){asset.destroy();return;}
+		            try {
+		                entry.container.addChildAt(asset.sprite,0);
+		                entry.figureAsset=asset;entry.figureCandidate=asset.candidate;entry.spineFigure=asset.spine;
+		                entry.sprite=asset.sprite;entry.loadedIdentity=identity;
+		                commitFigureReplacement(entry);
+		            }catch(error){asset.destroy();throw error;}
+		        }).catch(function(error){
+		            entry.loading=false;entry.failed=true;
+		            if(!entry.dead)onError("Spine 模型加载失败："+String(error&&error.message||error));
 		        });
 		    }
 		    // Emotion → track 0, audible voice → track 1; the skeleton only advances while visible.
@@ -47252,33 +47247,22 @@ function cardLibraryDisplayName(card) {
 		        if (entry.sprite && identity === entry.loadedIdentity) { entry.pendingSrc = ""; return; }
 		        if (entry.pendingSrc && identity === entry.pendingIdentity) return;
 		        entry.pendingSrc = src; entry.pendingIdentity = identity;
-		        loadTexture(src).then(function (texture) {
-		            if (entry.dead || state.destroyed || entry.pendingIdentity !== identity || entry.figure.identity !== identity) return;
-		            entry.pendingSrc = "";
-		            const sprite = new PIXI.Sprite(texture);
-		            sprite.anchor.set(0.5, 1);
-		            sprite.forkHeadTop = galTextureHeadTop(src, texture);
-		            // the old fading sprite keeps its own metric snapshot and pivot.
-		            sprite.figureInput = entry.figure.figureSizing;
-		            if (sprite.figureInput?.source && (sprite.figureInput.sourceUrl ? sprite.figureInput.sourceUrl === src : sprite.figureInput.source === figureSource(src))) {
-		                entry.figureCandidate = sprite.figureInput.pack && sprite.figureInput.anatomy ? null : figureMeasureTexture(sprite.figureInput.source, texture);
-		                if (sprite.figureInput.pack) {
-		                    // Sized by the picture's head (its crop) unless its anatomy really knows head and feet (packFigureAnatomy).
-		                    const canvas = [texture.width, texture.height], anatomy = packFigureAnatomy(sprite.figureInput, canvas, entry.figureCandidate);
-		                    sprite.figureInput = { ...sprite.figureInput, anatomy, metrics: packFigureRecord({ ...sprite.figureInput, anatomy }, canvas, entry.figureCandidate) };
-		                }
-		                const sizing = resolveFigureSizing({ ...sprite.figureInput, W: app.screen.width, H: app.screen.height, canvas: [texture.width, texture.height] });
-		                if (sizing.mode === "physical") sprite.anchor.set(sizing.supportX / texture.width, sizing.feet / texture.height);
-		            } else sprite.figureInput = null;
-		            // The body's centre across the picture (canvases are often off-centre), for the speaker anchor.
-		            sprite.forkBodyX = galBodyX(sprite.figureInput?.metrics, sprite.figureInput ? entry.figureCandidate : null) ?? figureBodyCentre(src, texture) ?? texture.width / 2;
-		            // Mood change: the new picture goes underneath at full strength and the old one fades out
-		            // on top of it, so the figure never turns see-through.
-		            if (entry.sprite) { entry.sprite.texture = entry.baseTexture; layeredSpriteClearScene(entry); clearBlink(entry); entry.fading.push({ sprite: entry.sprite, url: entry.src, start: state.clock }); }
-		            entry.container.addChildAt(sprite, 0);
-		            entry.sprite = sprite; entry.src = src; entry.loadedIdentity = identity; entry.baseTexture = texture;
-		            commitFigureReplacement(entry);
-		        }, function (error) { if (String(error && error.message) !== "cancelled") console.warn("[fork-gal-scene] portrait failed", src, error); if (entry.pendingIdentity === identity) entry.pendingSrc = ""; });
+		        const request=(entry.pictureRequest||0)+1;entry.pictureRequest=request;
+		        figureAssets.picture({src,input:entry.figure.figureSizing}).then(function(asset){
+		            if(!asset)return;
+		            if(entry.dead || state.destroyed || entry.pictureRequest!==request || entry.pendingIdentity!==identity || entry.figure.identity!==identity){asset.destroy();return;}
+		            try {
+		                const sprite=asset.sprite,texture=sprite.texture;
+		                entry.container.addChildAt(sprite,0);
+		                if(entry.sprite){entry.sprite.texture=entry.baseTexture;layeredSpriteClearScene(entry);clearBlink(entry);entry.fading.push({sprite:entry.sprite,asset:entry.figureAsset,url:entry.src,start:state.clock});}
+		                entry.figureAsset=asset;entry.figureCandidate=asset.candidate;
+		                entry.sprite=sprite;entry.src=src;entry.loadedIdentity=identity;entry.baseTexture=texture;entry.pendingSrc='';
+		                commitFigureReplacement(entry);
+		            }catch(error){asset.destroy();throw error;}
+		        }).catch(function(error){
+		            if(String(error&&error.message)!=='cancelled')console.warn('[fork-gal-scene] portrait failed',src,error);
+		            if(entry.pictureRequest===request)entry.pendingSrc='';
+		        });
 		    }
 		    // authored blink overlay. Steady state is two comparisons per frame; the
 		    // scheduler runs on (foreground-paused) timers and only flips child visibility.
@@ -47720,7 +47704,7 @@ function cardLibraryDisplayName(card) {
 		            entry.localHead = entry.restHead;
 		            entry.fading = entry.fading.filter(function (item) {
 		                const t = (now - item.start) / 260;
-		                if (t >= 1) { item.sprite.destroy(); state.lastPrune = 0; return false; }
+		                if (t >= 1) { item.asset.destroy(); state.lastPrune = 0; return false; }
 		                item.sprite.alpha = 1 - galEase.inOutSine(t);
 		                place(item.sprite);
 		                return true;
@@ -48209,6 +48193,7 @@ function cardLibraryDisplayName(card) {
 		            call.dispose();
 		            offstageBox.destroy();
 		            backgrounds.dispose();
+		            figureAssets.dispose();
 		            textures.dispose();
 		            bust.dispose();
 		            thinking.dispose();
@@ -54267,6 +54252,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        figureMetrics:{headTop:galTextureHeadTop,source:figureSource,measure:figureMeasureTexture,anatomy:packFigureAnatomy,record:packFigureRecord,resolve:resolveFigureSizing,bodyX:galBodyX,bodyCentre:figureBodyCentre},
 		        figureBlink:{clock:forkForeground},
 		        callViews:{cover:galCover,subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
 		        bust:{framedHead:galFramedHead},
