@@ -29,7 +29,7 @@ test('client lifetime disposes once and immediately releases late resources', ()
 
 for (const phase of ['director','session']) test(`plugin session assembly rolls back failure during ${phase} startup`, () => {
   const calls = [], window = {};
-  const views={admission:{shown:{}},progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
+  const views={performanceSurface:{prepare(){}},admission:{shown:{}},progress:{store:{}},sessionRuntime:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/session-runtime.cjs').createStageSessionRuntime({
     createModNotifications:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/mod-notifications.cjs').createStageModNotifications,
     createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}),
     createResourceModule:()=>({createStageResourceRunner:()=>({dispose:()=>calls.push('runner')})}),

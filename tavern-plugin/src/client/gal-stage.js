@@ -1266,6 +1266,7 @@ function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
+        performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
         textIndex:{pageCards:stagePageCards},
         playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
         performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
@@ -1329,7 +1330,7 @@ function bindStageViews(createViews) {
         ambience:{session:id => stageSessions.get(id), owner:() => stageSessions.resourceOwner, authority:source => stageResourceAuthority(source)},
         soundscape:{Audio, mixer:forkStageAudio},
         timer:{rpc, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
-            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
+            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, useModOptions},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage},
         transitions:{getComputedStyle, DOMMatrixReadOnly, setTimeout, clearTimeout},

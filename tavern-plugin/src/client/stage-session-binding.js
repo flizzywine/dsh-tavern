@@ -14,9 +14,6 @@
 // @include stage-skin-adapter.cjs
 // @include stage-skin-ui.js
 // @include stage-skin-decoration.js
-// @include stage-rects.cjs
-// @include skin-overlay-loader.cjs
-// @include performance-keyframe-layer.js
 // @include performance-layer.js
 
 // Temporary read delegates for controls that have not yet moved into the plugin.
@@ -27,7 +24,6 @@ const stageSessions = {
     get:id=>stageViews?.sessions.get(id) || null
 };
 function stageSessionInputs(ctx){
-    const overlayModule=createSkinOverlayLoader();
     return {
         native:{sessions:ctx.sessions,selectedSessionId:()=>tavernMainSessionId(ctx.sessions),
             resolveChat:binding=>resolveConversationChatBinding(ctx.get('uiConversation')||ctx.get('conversation'),binding),
@@ -46,7 +42,6 @@ function stageSessionInputs(ctx){
         preferences:{get:()=>({reading:stageReading.get(),film:stageFilm.get(),audio:forkStageAudio.get()}),
             subscribe(listener){const stops=[stageReading,stageFilm,forkStageAudio].map(source=>source.subscribe(listener));return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage preferences cleanup failed');};}},
         text:{pageCards:stagePageCards,paginate:stageBlockPages},
-        performance:{prepare:value=>Promise.all([...value.dependencies.filter(item=>item.document?.overlay).map(item=>overlayModule(item.document)),keyframeFonts(value)])},
         observation:{packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>spineRuntimeState.subscribe(listener)},portraits:avatarCache,media:{background:bgManual}}
     };
 }

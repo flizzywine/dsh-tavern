@@ -8,7 +8,7 @@ const sessions = {
     start(inputs) {
         if(closed)throw new Error('Stage sessions disposed');
         if(stop)throw new Error('Stage sessions already started');
-        const {native,io,assets,dialogue,preferences,text,performance,observation}=inputs;
+        const {native,io,assets,dialogue,preferences,text,observation}=inputs;
         stop=startLifetime(({own}) => {
         const resourceOwner = assets.createOwner({service:assets.service,decode:assets.decode});
         this.resourceOwner = resourceOwner;
@@ -65,7 +65,7 @@ const sessions = {
                 }
                 return false;
             },
-            preparePerformance:performance.prepare,
+            preparePerformance:views.performanceSurface.prepare,
             music:() => views.bgm,
             read:io.presentation,
             progress: views.progress.store,
