@@ -9,14 +9,14 @@ function fixture(){
  const api=vm.runInNewContext(source.slice(start,end)+';({destroyFigure,commitFigureReplacement})',{state,AggregateError,console:{warn:(...args)=>warnings.push(args)},releaseTapStills:e=>calls.push(e.key+':tap'),layeredSpriteClearScene:e=>calls.push(e.key+':layers')})
  const entry=(key,fail=false)=>{
   const resource=name=>({destroy(){calls.push(key+':'+name);if(fail&&name==='warp')throw Error('GPU cleanup failed')}})
-  return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},slots:{rim:{filter:resource('rim')}},shadeFilter:resource('shade'),figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
+  return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},appearance:{dispose(){calls.push(key+':appearance')}},figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
  }
  return {calls,warnings,state,entry,...api}
 }
 test('figure cleanup continues after a GPU release failure and is idempotent',()=>{
  const e=fixture(),figure=e.entry('a',true);e.state.figures.set('a',figure)
  e.destroyFigure(figure);e.destroyFigure(figure)
- assert.deepEqual(e.calls,['a:tap','a:warp','a:blink','a:layers','a:rim','a:shade','a:asset','a:fading','a:container'])
+ assert.deepEqual(e.calls,['a:tap','a:warp','a:blink','a:layers','a:appearance','a:asset','a:fading','a:container'])
  assert.equal(e.warnings.length,1);assert.equal(e.state.figures.size,0);assert.equal(e.state.lastPrune,0);assert.equal(figure.dead,true)
 })
 test('replacement survives old figure cleanup failure',()=>{
@@ -29,5 +29,5 @@ test('retiring a figure also retires its pending replacement without removing a 
  const e=fixture(),old=e.entry('a'),pending=e.entry('pending'),current=e.entry('a');old.replacement=pending;e.state.figures.set('a',current)
  e.destroyFigure(old)
  assert.equal(pending.dead,true);assert.equal(e.state.figures.get('a'),current);assert.equal(current.dead,undefined)
- assert.equal(e.calls.filter(call=>call.endsWith(':shade')).length,2)
+ assert.equal(e.calls.filter(call=>call.endsWith(':appearance')).length,2)
 })

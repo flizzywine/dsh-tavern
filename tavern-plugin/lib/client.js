@@ -47174,13 +47174,13 @@ function cardLibraryDisplayName(card) {
 		        container.visible = false;
 		        const entry = { key: figure.key, kind: figure.kind, identity:figure.identity, url: figure.url || "", src: "", pendingSrc: "", container, figure, leaving: false, leavingSince: 0,
 		            model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, actNonce: null, flatAct: null, started: false,
-		            filters: stageViews.sceneGraphics.filters(container, null, ["shade", "rim", "dof"], true), shadeFilter: tune(new PIXI.filters.ColorMatrixFilter()),
-		            slots: {}, glow: galSpringValue(0), shadow: galSpringValue(0), blur: galSpringValue(0), idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null, armed: galSpringValue(0) };
+		            idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null };
+		        entry.appearance=stageViews.figureAppearance.create({PIXI,container,tune});
+		        entry.filters=entry.appearance.filters;
 		        entry.blink=stageViews.figureBlink.create({PIXI,textures,allowed:()=>blinkAllowed(entry)});
 		        Object.defineProperty(entry,'spriteBlink',{get:()=>entry.blink.phase()});
 		        // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
 		        entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
-		        entry.filters.set("shade", entry.shadeFilter);
 		        figuresBox.addChild(container);
 		        if (attach) state.figures.set(figure.key, entry); else entry.swap = true;
 		        return entry;
@@ -47206,9 +47206,7 @@ function cardLibraryDisplayName(card) {
 		        if(entry.warp){const warp=entry.warp;entry.warp=null;release(()=>warp.destroy());}
 		        release(()=>entry.blink.dispose());
 		        release(()=>layeredSpriteClearScene(entry));
-		        for(const slot of Object.values(entry.slots))release(()=>slot.filter.destroy());
-		        entry.slots={};
-		        release(()=>entry.shadeFilter.destroy());
+		        release(()=>entry.appearance.dispose());
 		        release(()=>entry.figureAsset?.destroy());
 		        entry.figureAsset=null;entry.spineFigure=null;
 		        for(const item of entry.fading)release(()=>item.asset?.destroy());
@@ -47449,42 +47447,12 @@ function cardLibraryDisplayName(card) {
 		        return null;
 		    }
 		    // Figure light (glow / shadow) and depth of field: filters on the figure's own container.
-		    function tickFigureLook(entry, desc, now, dt, dofTarget) {
-		        const figure = entry.figure;
-		        const mode = (desc.figureLight && figure.alias && desc.figureLight[figure.alias]) || figure.light || "";
-		        galSpring(entry.glow, mode === "glow" ? 1 : 0, 6, dt);
-		        galSpring(entry.shadow, mode === "shadow" ? 1 : 0, 6, dt);
-		        galSpring(entry.blur, dofTarget && dofTarget !== entry && quality === "high" ? 2 : 0, 6, dt);
-		        // figure-life armed cue (stageViews.figureTap.galTapArm): a soft steady outline in the figure's colour while taps on it react; it
-		        // fades out when the period ends (reduced motion: on and off without a fade).
-		        const armedOn = stageViews.figureTap.galTapArmed(tapArm, entry.key, performance.now()) ? 1 : 0;
-		        if (galBlinkCalm()) { entry.armed.v = armedOn; entry.armed.d = 0; } else galSpring(entry.armed, armedOn, 5, dt);
-		        const glow = entry.glow.v, shadow = entry.shadow.v, armed = entry.armed.v;
-		        const hasFilters = Boolean(PIXI.filters.GlowFilter);
-		        const rimDistance = quality === "low" ? 8 : 14;
-		        if (entry.slots.rim && entry.slots.rim.distance !== rimDistance) { entry.filters.set("rim", null); entry.slots.rim.filter.destroy(); delete entry.slots.rim; }
-		        const rim = stageViews.sceneGraphics.useFilter(entry.slots, entry.filters, "rim", function () {
-		            if (!hasFilters) return null;
-		            const filter = new PIXI.filters.GlowFilter({ distance: rimDistance, outerStrength: 0, innerStrength: 0, color: 0xffcf8a, quality: quality === "low" ? 0.1 : 0.18 });
-		            return filter;
-		        }, glow + shadow + armed > 0.01, now, tune);
-		        if (rim) {
-		            if (entry.slots.rim) entry.slots.rim.distance = rimDistance;
-		            const warm = glow >= shadow;
-		            if (armed > glow && armed > shadow) {
-		                // The figure's colour lifted halfway to white, so the outline reads as light on any background.
-		                const hex = /^#[0-9a-f]{6}$/i.test(figure.color || "") ? parseInt(figure.color.slice(1), 16) : 0xfff3e0;
-		                rim.color = ((((hex >> 16) & 255) + 255) >> 1 << 16) | ((((hex >> 8) & 255) + 255) >> 1 << 8) | (((hex & 255) + 255) >> 1);
-		                rim.outerStrength = armed * 2; rim.innerStrength = armed * 0.2;
-		            } else {
-		                rim.color = warm ? 0xffcf8a : 0x9ab6ff;
-		                rim.outerStrength = warm ? glow * (2.4 + 0.35 * Math.sin(2 * Math.PI * now / 2400)) : shadow * 1.5;
-		                rim.innerStrength = warm ? glow * 0.7 : shadow * 0.25;
-		            }
-		        }
-		        const blur = stageViews.sceneGraphics.useFilter(entry.slots, entry.filters, "dof", () => hasFilters ? Object.assign(new PIXI.filters.KawaseBlurFilter(0, 3, false), { forkLowRes: true }) : null, entry.blur.v > 0.05, now, tune);
-		        if (blur) blur.blur = entry.blur.v;
-		        return { glow, shadow };
+		    function tickFigureLook(entry,desc,now,dt,dofTarget) {
+		        const figure=entry.figure;
+		        return entry.appearance.tick({mode:(desc.figureLight&&figure.alias&&desc.figureLight[figure.alias])||figure.light||'',
+		            defocused:Boolean(dofTarget&&dofTarget!==entry),quality,
+		            armedOn:stageViews.figureTap.galTapArmed(tapArm,entry.key,performance.now())?1:0,
+		            reduced:galBlinkCalm(),color:figure.color,now,dt});
 		    }
 		    // ---- idle and tap feedback, core stage behaviour (no switch).
 		    // Hidden figures (container off, CG / phone / leave) do no idle work; reduced motion keeps today's idle.
@@ -47657,7 +47625,7 @@ function cardLibraryDisplayName(card) {
 		            const key = shade.toFixed(3) + ":" + alpha.toFixed(3) + ":" + look.glow.toFixed(3) + ":" + look.shadow.toFixed(3) + ":" + backgrounds.grade.version;
 		            if (entry.shadeKey !== key) {
 		                entry.shadeKey = key;
-		                entry.shadeFilter.matrix = galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current);
+		                entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
 		            }
 		            ;
 		            if (entry.kind === "spine") tickSpine(entry, figure, desc);
@@ -48102,10 +48070,10 @@ function cardLibraryDisplayName(card) {
 		                layers: backgrounds.layers.map(layer => ({ url: layer.url, time: layer.time, transition: layer.plan ? layer.plan.kind : "", corrected: Boolean(layer.correction) })),
 		                figures: Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, leaving: entry.leaving, parked: Boolean(entry.figure.parked), ready: Boolean(entry.model || entry.sprite),
 		                    x: entry.started ? round(entry.cx.v, 3) : null, alpha: entry.started ? round(entry.alpha.v, 3) : null, shade: entry.started ? round(entry.shade.v, 2) : null,
-		                    glow: round(entry.glow.v, 2), shadow: round(entry.shadow.v, 2), blur: round(entry.blur.v, 2), filters: entry.filters.all().length,
+		                    glow: round(entry.appearance.snapshot().glow, 2), shadow: round(entry.appearance.snapshot().shadow, 2), blur: round(entry.appearance.snapshot().blur, 2), filters: entry.filters.all().length,
 		                    ...(entry.spineFigure ? { spine: entry.spineFigure.debug() } : {}),
 		                    // figure-life: warp on, the last tap reaction, the reaction still (size, on screen) and the emotions a tap can borrow.
-		                    life: { armed: round(entry.armed.v, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),
+		                    life: { armed: round(entry.appearance.snapshot().armed, 2), warp: Boolean(entry.warp), tap: entry.tapReaction ? entry.tapReaction.kind : null, still: entry.tapTexture ? { size: [entry.tapTexture.texture.width, entry.tapTexture.texture.height], shown: Boolean(entry.sprite && entry.sprite.texture === entry.tapTexture.texture) } : entry.tapStills ? entry.tapStills.size : null, stillError: entry.tapStillError || null, reactions: Object.keys(entry.figure.reactions || {}) } })),
 		                lastTap: state.lastTap || null,
 		                filters: Object.fromEntries(Object.entries(filters).map(([name, chain]) => [name, chain.container.filters ? chain.container.filters.length : 0])) };
 		        },
@@ -54260,6 +54228,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        figureAppearance:{spring:galSpring,springValue:galSpringValue},
 		        figureMetrics:{headTop:galTextureHeadTop,source:figureSource,measure:figureMeasureTexture,anatomy:packFigureAnatomy,record:packFigureRecord,resolve:resolveFigureSizing,bodyX:galBodyX,bodyCentre:figureBodyCentre},
 		        figureBlink:{clock:forkForeground},
 		        callViews:{cover:galCover,subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
