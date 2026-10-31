@@ -29,30 +29,7 @@ function entranceRun(entrance) {
         options: {reduced: safety.reducedMotion || safety.calm, photosensitive: safety.photosensitive, cap: coarse ? 1100000 : 8294400}};
 }
 
-// The entrance's media (its plate's frames): read once per page and bundle digest through a lease on the pack's entrance
-// bundle, as Blobs that the renderer decodes itself. A failed read leaves the entrance without them.
-const entranceMediaReads = new Map();
-function entranceMedia(run) {
-    const {packId, bundleKey, hash} = run.media, key = JSON.stringify([packId, bundleKey, hash]);
-    let read = entranceMediaReads.get(key);
-    if (read) return read;
-    read = (async () => {
-        const service = packTransport.service, lease = await service.leaseBundle({packId, bundleKey});
-        try {
-            const marker = '/lease/' + encodeURIComponent(lease.ticket) + '/', base = lease.url.slice(0, lease.url.indexOf(marker) + marker.length);
-            const blobs = await Promise.all(stageEntrance.stageEntranceFiles(run.doc).map(async name => {
-                const response = await fetch(base + name.split('/').map(encodeURIComponent).join('/'), {credentials: 'same-origin', priority: 'high'});
-                if (!response.ok) throw new Error('RESOURCE_READ_FAILED ' + response.status);
-                return response.blob();
-            }));
-            const plate = run.doc.layers.plate;
-            return {color: blobs.slice(0, plate.frames), shift: plate.shift !== undefined ? blobs.slice(plate.frames) : null};
-        } finally { void service.releaseLease(lease.ticket); }
-    })();
-    entranceMediaReads.set(key, read);
-    read.catch(() => entranceMediaReads.delete(key));
-    return read;
-}
+function entranceMedia(run) {return stageViews.entranceMedia.read(run);}
 
 // The stage's one entrance hook. `loadGate` is useGalEntry's gate (the only readiness authority). Returns the gate the stage
 // shows (held on loading until the cover), the entrance element, the overlay's props and the stage root's attribute.

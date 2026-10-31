@@ -9822,6 +9822,40 @@ return {Frame:StageSkinFrame, Readout:StageSkinReadout, band:stageSkinBand, disp
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageSkinFrame};
 
+        // One optional-plugin cache per entrance bundle revision. A lease spans all frame reads.
+function createStageEntranceMedia({getService,fetch,AbortController,files}) {
+    let disposed=false;const reads=new Map(),pending=new Set();
+    const cancelled=()=>Object.assign(new Error('Entrance media disposed'),{name:'AbortError'});
+    function read(run) {
+        if(disposed)return Promise.reject(cancelled());
+        const {packId,bundleKey,hash}=run.media,key=JSON.stringify([packId,bundleKey,hash]);
+        if(reads.has(key))return reads.get(key);
+        const controller=new AbortController();pending.add(controller);
+        const promise=(async()=>{
+            const service=getService(),lease=await service.leaseBundle({packId,bundleKey});
+            try {
+                if(disposed)throw cancelled();
+                const marker='/lease/'+encodeURIComponent(lease.ticket)+'/',base=lease.url.slice(0,lease.url.indexOf(marker)+marker.length);
+                // Settle every sibling before releasing the shared lease, including when one read fails.
+                const results=await Promise.allSettled(files(run.doc).map(async name=>{
+                    const response=await fetch(base+name.split('/').map(encodeURIComponent).join('/'),{credentials:'same-origin',priority:'high',signal:controller.signal});
+                    if(!response.ok)throw new Error('RESOURCE_READ_FAILED '+response.status);
+                    return response.blob();
+                }));
+                if(disposed)throw cancelled();
+                const failure=results.find(result=>result.status==='rejected');if(failure)throw failure.reason;
+                const blobs=results.map(result=>result.value),plate=run.doc.layers.plate;
+                return {color:blobs.slice(0,plate.frames),shift:plate.shift!==undefined?blobs.slice(plate.frames):null};
+            }finally{await service.releaseLease(lease.ticket);}
+        })();
+        reads.set(key,promise);
+        promise.then(()=>pending.delete(controller),()=>{pending.delete(controller);if(reads.get(key)===promise)reads.delete(key);});
+        return promise;
+    }
+    return {read,dispose(){if(disposed)return;disposed=true;reads.clear();for(const controller of pending)controller.abort();pending.clear();}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageEntranceMedia};
+
         function entranceRenderer(canvas, doc, options) {
     let disposed = false;
     const gl = canvas.getContext('webgl2', {alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false,
@@ -14832,7 +14866,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const danmaku=own(createStageDanmaku({display:danmakuDisplay,scheduler:danmakuScheduler,session:danmakuSession,liveroom,createAvatar:createStageDanmakuAvatar,window,...options.danmaku}));
                     const danmakuSettings=own(createStageDanmakuSettings({window,CustomEvent:window.CustomEvent}));
                     const danmakuUi=own(createStageDanmakuUi({React:options.React,window,document,CustomEvent:window.CustomEvent,...options.danmakuUi,settings:danmakuSettings,fields:configFields}));
-                    return {entranceRenderer:own(createStageEntranceRenderer({window,contractFactory:options.entranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop})),skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {entranceMedia:own(createStageEntranceMedia(options.entranceMedia||{})),entranceRenderer:own(createStageEntranceRenderer({window,contractFactory:options.entranceContract,renderer:entranceRenderer,frames:entrancePlateFrames,loop:entranceLoop})),skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
