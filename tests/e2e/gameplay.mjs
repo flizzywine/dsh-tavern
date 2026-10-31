@@ -54,6 +54,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageRpcFault = process.argv.includes('--stage-rpc-fault')
 const stageSwitchOnly = process.argv.includes('--stage-session-switch')
 const stageRenderFault = stageSwitchOnly || process.argv.includes('--stage-render-fault')
 const stageAutomaticLifecycle = process.argv.includes('--stage-auto-lifecycle')
@@ -61,7 +62,7 @@ const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('-
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -595,6 +596,15 @@ try {
       await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
       await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
+      if(stageRpcFault) {
+        report.stageReadyBeforeRpcFault=true
+        await page.route('**/api/dsh-tavern/getStageDirection',route=>{
+          report.directionFailures=(report.directionFailures || 0)+1
+          return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:false,error:'E2E stage direction unavailable'})})
+        })
+        for(let attempt=0;attempt<100 && !report.directionFailures;attempt++)await page.waitForTimeout(100)
+        assert.ok(report.directionFailures,'必须在舞台正常显示后实际触发演出 RPC 失败')
+      }
       await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
       if(stageLifecycle) for(let cycle=0;cycle<2;cycle++) {
           async function command(action) {
@@ -697,8 +707,9 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageRenderFault || stageIsolation === 'activation') {
+      if(stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
         await page.unroute('**/plugins/**')
+        if(stageRpcFault)await page.unroute('**/api/dsh-tavern/getStageDirection')
         await page.reload({waitUntil:'domcontentloaded'})
         await page.getByRole('button',{name:'舞台',exact:true}).click()
         await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
