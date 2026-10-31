@@ -211,8 +211,6 @@ function GalStage(props) {
     const offstage = stageOffstage(config);
     const [sceneVisit, setSceneVisit] = React.useState(0);
     const [forwardReading, setForwardReading] = React.useState(false);
-    const turnState = React.useRef(null);
-    turnState.current = galTurnState(turnState.current, sessionId, turn);
     // After a choice is sent, the old turn stays on screen until the reply starts streaming;
     // show a "writing" state so the stage never looks stuck.
     const useSession = props.choiceProps && props.choiceProps.useSession;
