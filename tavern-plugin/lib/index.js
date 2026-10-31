@@ -250,7 +250,7 @@ import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import { readWidgetWindowProjection } from './domain/widget-window-projection.js'
 import { STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement } from './domain/stage-playback.js'
-import { createStageAssets, createStageModule, createStageServices } from './stage-module.js'
+import {createStageRuntime} from './stage-runtime.js'
 import { STAGE_TIMER_FIELD } from '../mods/timer/stage-service.js'
 import {readAudienceCorpus} from './danmaku-corpus.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
@@ -706,7 +706,8 @@ export async function apply(ctx) {
   const cardPreparation = createCardPreparation({ id: function () { return uid('card') }, now: Date.now })
   installPluginSettingsMigration(ctx)
   // 舞台的素材与判断（stage-module.js）。
-  const {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime} = createStageAssets({ctx, resolveSlot, readCardWorkspace, coordinationEvents})
+  const stageRuntime = createStageRuntime({ctx, resolveSlot, readCardWorkspace, coordinationEvents})
+  const {assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime} = stageRuntime.assets
   let modService
 
   // ---------- 模型调用 ----------
@@ -2461,7 +2462,7 @@ export async function apply(ctx) {
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  const stageModule = await createStageModule({ctx, dataRoot,
+  const stageModule = await stageRuntime.start({dataRoot,
     presentationObservers, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
@@ -3503,7 +3504,7 @@ export async function apply(ctx) {
   })
 
   // 小组件变量、CG 图鉴、舞台计时器（stage-module.js）。
-  const {widgetVariables, cgGallery, stageTimer} = createStageServices({ctx, profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, stageDirector, modService, managedModManagement})
+  const {widgetVariables, cgGallery, stageTimer} = stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, stageDirector, modService, managedModManagement})
 
   // ---------- HTTP RPC（客户端同源 fetch） ----------
   async function dispatch(method, args, authority) {

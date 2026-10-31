@@ -181,9 +181,22 @@ export async function createStageModule(core) {
     stageDirector.cancel({sessionId}, turn)
     backgroundAgentRunner.cancel(sessionId, {task:'stage-director'})
   }), 'dsh-tavern: stop the director with its turn')
-  deploymentWork.push(() => ({director:{busy:stageDirector.pendingCount() > 0}}))
+  ctx.effect(() => {
+    const work = () => ({director:{busy:stageDirector.pendingCount() > 0}})
+    deploymentWork.push(work)
+    return () => {const index = deploymentWork.indexOf(work);if (index >= 0) deploymentWork.splice(index,1)}
+  }, 'dsh-tavern: director deployment activity')
   // The director brings its own model, never searches the web, and reads the context frozen for it, never the card's.
-  backgroundTaskPolicies.set('stage-director', {ownModel:true, webSearch:false, cardContext:false, frozenContext:frozenStageBackground})
+  ctx.effect(() => {
+    const policy = {ownModel:true, webSearch:false, cardContext:false, frozenContext:frozenStageBackground}
+    const previous = backgroundTaskPolicies.get('stage-director')
+    backgroundTaskPolicies.set('stage-director', policy)
+    return () => {
+      if (backgroundTaskPolicies.get('stage-director') !== policy) return
+      if (previous === undefined) backgroundTaskPolicies.delete('stage-director')
+      else backgroundTaskPolicies.set('stage-director', previous)
+    }
+  }, 'dsh-tavern: director task policy')
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage', createStageStoryObserver({
     modService, stageDirector, chatPersistence, readStageChat,
     chatHeaderForSession:core.chatHeaderForSession, dialogueBubbles:core.dialogueBubbles,
