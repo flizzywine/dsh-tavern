@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8d58cab1b4e461cab6d5272fdd38363b8208a8cc",
-  "releaseSequence": 1007,
+  "revision": "ac423d93a6a112b1fedea76493a53850af96ecd9",
+  "releaseSequence": 1008,
   "version": "3.2.0",
   "files": [
     {
@@ -706,13 +706,13 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "a6177b61de4dc917f79d9901fece28100442effac90884a23a4229261285f71c",
-      "size": 1496487
+      "sha256": "60378ee186c2627b5c939276c84be0beae720f83e6c158a234cce65878383bfb",
+      "size": 1497091
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "f63a113b6c87fa969cde14d5eeacf35f92f63507e7506ac7f92739723a1874f8",
-      "size": 6448686
+      "sha256": "7823c0dba281f025b5130c24f865d7104acf15c595334d7adcaf3b05f6d376ab",
+      "size": 6455251
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2716,8 +2716,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/speech.js",
-      "sha256": "5733119925e5c3ff1ad1fb1fae670c3e212fe594c1ec939a107eb23bdf14bb81",
-      "size": 34088
+      "sha256": "d68213f7603b63d999a5fcfb50e1b857c1c02824eccda977f456ccbe35e3b4cb",
+      "size": 34089
     },
     {
       "path": "tavern-plugin/lib/domain/sprite-blink-patch.js",
@@ -8591,9 +8591,9 @@
     }
   ],
   "archive": {
-    "commit": "3f0aba9e35d469186a95a8b31807b6e895e88944",
+    "commit": "ee010c810de8223f6ec7699ede2ae1655f4b1da1",
     "path": "runtime.zip",
-    "sha256": "620fdea536c9e2e811babc476307334cf066a968531ff5776773f0e8e1aa218b",
-    "size": 15174729
+    "sha256": "c85106bd84d6912f12847b5e7d51358130dacc1bccfbd5ad5c21afb344f7ceac",
+    "size": 15176550
   }
 }
