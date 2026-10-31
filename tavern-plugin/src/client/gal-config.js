@@ -28,8 +28,6 @@ function galConfigSaveSkin(sessionId, choice) {
 
 // Application-owned slots; imported mods cannot register executable client code.
 const STAGE_CONFIG_SECTIONS = {};
-const GAL_CONFIG_SAMPLE = "夕阳把走廊染成了橘色。她停下脚步，回头看了你一眼。";
-const GAL_CONFIG_FILM_SAMPLE = "今天……可以一起回去吗？";
 function GalConfigScreen(props) { return stageViews ? React.createElement(stageViews.configScreen.Screen, props) : null; }
 
 function galConfigGroup(...args) { return stageViews.configFields.group(...args); }
@@ -38,17 +36,7 @@ function galConfigSegmented(...args) { return stageViews.configFields.segmented(
 function galConfigSlider(...args) { return stageViews.configFields.slider(...args); }
 // 文字大小 - the stage text of the skin on screen (props.textSkin from the stage) as a percent of
 // that skin's own size; each skin keeps its own value on this machine (stageReading textScale), 100% = as designed.
-function stageTextScaleSet(skin, percent) { stageReading.set({ textScale: { ...stageReading.get().textScale, [skin]: percent } }); }
-function GalConfigTextScale(props) {
-    const h = React.createElement, skin = props.skin, [min, max, step] = STAGE_TEXT_SCALE;
-    const percent = stageTextScaleOf(props.reading, skin.id), label = skin.label || (STAGE_THEMES.find(([value]) => value === skin.id) || [skin.id, skin.id])[1];
-    return galConfigRow("文字大小", galConfigSlider(["小", "大"], { min, max, step, value: percent, reset: 100, label: "文字大小",
-            valueText: percent + "%", output: percent + "%", onChange: value => stageTextScaleSet(skin.id, value) },
-            percent === 100 ? null : { label: "恢复为 100%", onClick: () => stageTextScaleSet(skin.id, 100) }),
-        h(React.Fragment, null, h("span", null, "只调整当前皮肤「" + label + "」的文本框文字和选项，每个皮肤各自记住；100% 是皮肤原本的字号。"),
-            h("span", null, "字越小，一页放得下越多。")));
-}
-
+function stageTextScaleSet(...args) { return stageViews.configText.setScale(...args); }
 // 音量: the mixer rows, larger, with ▶ previews where cheap (a built-in one-shot, the current voice line).
 // an on / off switch drawn in the stage tokens (track + knob), the same geometry as the stage
 // settings' switches; a button with role="switch", never a native checkbox. No state word beside it (UI standard §三.7,
@@ -57,39 +45,6 @@ function GalConfigSwitch(props) { return stageViews ? React.createElement(stageV
 
 // 文字: text speed and auto-mode pace, the stage / subtitle fonts (font-picker.js, applied at once), the current skin's
 // text size, and a live preview that types and waits like the stage, in the stage font, with a subtitle line in the film font.
-function GalConfigText(props) {
-    const h = React.createElement;
-    const stage = props.data && props.data.config && props.data.config.stage || {};
-    const reading = useStageReading();
-    const theme = stage.theme || "classic";
-    const [speedMin, speedMax, speedStep] = STAGE_READING_LIMITS.textSpeed, [waitMin, waitMax, waitStep] = STAGE_READING_LIMITS.autoWait;
-    // Speed reads left = slow, right = fast (instant at the far right); stored as milliseconds per character.
-    const speedValue = speedMax - reading.textSpeed;
-    const fonts = typeof tavernFonts !== "undefined" && typeof FontPicker === "function";
-    const preview = h(GalConfigPreview, { reading, film: fonts });
-    return h(React.Fragment, null,
-        galConfigGroup("阅读", null,
-            galConfigRow("文字速度", galConfigSlider(["慢", "快"], { min: 0, max: speedMax - speedMin, step: speedStep, value: speedValue, label: "文字速度",
-                    valueText: reading.textSpeed === 0 ? "瞬间显示" : reading.textSpeed + " 毫秒每字", output: reading.textSpeed === 0 ? "瞬间" : reading.textSpeed + " ms/字", onChange: value => stageReading.set({ textSpeed: speedMax - value }) }),
-                "打字机效果每个字的间隔；拉到最右边整句直接出现。默认 " + STAGE_READING_DEFAULTS.textSpeed + " 毫秒。"),
-            galConfigRow("自动阅读速度", galConfigSlider(["慢", "快"], { min: 0.5, max: 3, step: 0.1, value: reading.autoSpeed, label: "自动阅读速度",
-                    valueText: reading.autoSpeed.toFixed(1) + " 倍", output: reading.autoSpeed.toFixed(1) + "×", onChange: value => stageReading.set({ autoSpeed: value }) }),
-                "按倍率缩放无配音页的阅读时间（含最短停留）和配音结束后的等待；不会截断正在播放的配音。默认 1.3 倍，比原来的节奏稍快。立即生效。"),
-            galConfigRow("自动模式等待", galConfigSlider(["短", "长"], { min: waitMin, max: waitMax, step: waitStep, value: reading.autoWait, label: "自动模式等待",
-                    valueText: (reading.autoWait / 1000).toFixed(1) + " 秒", output: (reading.autoWait / 1000).toFixed(1) + " 秒", onChange: value => stageReading.set({ autoWait: value }) }),
-                h(React.Fragment, null, h("span", null, "配音结束后的基础停顿，再除以自动阅读速度；不会截断配音。"), h("span", null, "无配音页按字数阅读，再加入相对 0.7 秒的等待增减，最后按速度缩放。等待控制停顿，速度控制整体阅读节奏。"))),
-            fonts ? null : preview),
-        fonts ? galConfigGroup("字体", null,
-            // no context, so 「跟随样式」 follows the active stage's skin declaration
-            // (fonts.js) and updates when the skin switches. 千禧晴空 (aero) declares no stage font: system 微软雅黑.
-            galConfigRow("舞台字体", h(FontPicker, { role: "stage", label: "舞台字体", follow: "跟随样式", builtin: theme === "aero" ? "微软雅黑" : undefined, theme, variant: "stage" }),
-                h(React.Fragment, null, h("span", null, "文本框、姓名牌、候选项和这个设置画面用的字体，选中立刻生效。"),
-                    h("span", null, "跟随样式：用当前舞台皮肤指定的字体；皮肤没有指定就用内置字体（千禧晴空是系统的微软雅黑）。"))),
-            props.textSkin ? h(GalConfigTextScale, { skin: props.textSkin, reading }) : null,
-            galConfigRow("字幕字体", h(FontPicker, { role: "film", label: "字幕字体", follow: "跟随样式", theme, variant: "stage" }),
-                h(React.Fragment, null, h("span", null, "电影模式下字幕用的字体。"), h("span", null, "跟随样式：用皮肤指定的字幕字体，没有就用皮肤的舞台字体。"))),
-            preview) : null);
-}
 // 本卡皮肤 as a compact select instead of a grid of preview cards. The trigger shows a
 // small preview of the chosen skin and its name; the list (portaled like the font picker's, in the stage tokens) shows
 // every skin with its preview, the chosen one marked. Keys: ↓ / ↑ on the trigger open it; ↑ ↓ Home End move,
@@ -203,24 +158,6 @@ function GalConfigSkinSelect(props) {
 }
 
 // A sample line typed at the chosen speed, then held for the auto wait (as a silent page would be), then again.
-function GalConfigPreview(props) {
-    const h = React.createElement;
-    const reading = props.reading;
-    const [round, setRound] = React.useState(0);
-    const [done, setDone] = React.useState(false);
-    React.useEffect(function () { setDone(false); setRound(n => n + 1); }, [reading.textSpeed, reading.autoWait, reading.autoSpeed]);
-    React.useEffect(function () {
-        if (!done) return undefined;
-        const timer = forkForeground.setTimeout(() => { setDone(false); setRound(n => n + 1); }, Math.min(6000, galAutoDelay(reading, false, GAL_CONFIG_SAMPLE)));
-        return () => forkForeground.clearTimeout(timer);
-    }, [done]);
-    return h("div", { className: "fork-gal-config-preview", "aria-hidden": true },
-        h("span", { className: "fork-gal-config-preview-name" }, "预览"),
-        h("div", { className: "fork-gal-config-preview-text" }, h(GalTypewriter, { key: round, text: GAL_CONFIG_SAMPLE, speed: reading.textSpeed, onDone: () => setDone(true) }), done ? h("i", { className: "fork-gal-config-preview-next" }) : null),
-        // Film subtitles use their own font (--gal-film-font); a still line on a letterbox strip.
-        props.film ? h("div", { className: "fork-gal-config-preview-film" }, h("span", { className: "fork-gal-config-preview-name" }, "字幕"), h("p", null, GAL_CONFIG_FILM_SAMPLE)) : null);
-}
-
 // 画面 (PROPOSAL §五): 外观 - 本卡皮肤 (the player's choice for this card, ↺ back to the card's / global default) and 顶栏按钮 (the
 // player's choice over the skin's hud.reveal, ↺ back to the skin's); 效果 - quality, frame cap, motion, flashes.
 function GalConfigScreenTab(props) {

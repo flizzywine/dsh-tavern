@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
         __STAGE_TIMER__
         __STAGE_SOUNDSCAPE__
         __STAGE_AMBIENCE__
+        __STAGE_CONFIG_TEXT__
         __STAGE_CONFIG_SCREEN__
         __STAGE_CONFIG_FIELDS__
         __STAGE_WIDGETS__
@@ -66,16 +67,18 @@ window.__ModuleLoader__.load({
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
+                    const textViews = createStageText({React:options.React, document, ...options.text});
+                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
                     const phoneLayout = own(createStagePhoneLayout({React:options.React, group:configFields.group, row:configFields.row, slider:configFields.slider, Switch:configFields.Switch, ...options.phoneLayout}));
                     const phoneAdjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:phoneLayout.sizes, ...options.phoneAdjust}));
                     const music = own(createStageMusic(options.music));
-                    return {configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
-                        ...createStageText({React:options.React, document, ...options.text})};
+                        ...textViews};
                 })});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
