@@ -47120,11 +47120,9 @@ function cardLibraryDisplayName(card) {
 		    // Figures loaded for it alone stay off stage: their containers live in a holder the stage never draws (`offstageBox`).
 		    // The page's Liquid Glass (pill, bubbles, glass keys) cannot blur the stage's picture through the sandboxed iframe, so the
 		    // scene draws the blur: a blurred copy of her video under each glass shape the page reports, the page's tint and rim on top.
-		    const callBox = new PIXI.Container(), callViews = new PIXI.Container(), callGlass = new PIXI.Container(), offstageBox = new PIXI.Container();
-		    callBox.addChild(callViews, callGlass);
-		    const call = { views: new Map(), alpha: 0, matrix: new PIXI.Matrix(), inverse: new PIXI.Matrix(), gradient: null, seen: false,
-		        glass: { texture: null, key: "", drawn: "", source: null, blur: null, saturate: null, pieces: [] } };
-		    app.stage.addChild(world, bust.sprite, overlay, callBox);
+		    const offstageBox = new PIXI.Container();
+		    const call=stageViews.callViews.create({PIXI,renderer:app.renderer,screen:app.screen,canvas:app.view,tune});
+		    app.stage.addChild(world, bust.sprite, overlay, call.container);
 		    // Filter attachment points (render order within each chain).
 		    const filters = {
 		        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "bloom", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur"]),
@@ -47966,175 +47964,14 @@ function cardLibraryDisplayName(card) {
 		            entry.figure = figure; load(entry);
 		        });
 		    }
-		    // The screen box of a page view: the phone frame's place on the canvas (read every frame - the phone moves and zooms).
-		    function callRect(spec, view) {
-		        const frame = spec.frame;
-		        if (!frame || !frame.isConnected) return null;
-		        const f = frame.getBoundingClientRect(), c = app.view.getBoundingClientRect(), k = c.width ? app.screen.width / c.width : 1;
-		        if (!f.width || !f.height) return null;
-		        return { x: (f.left - c.left + view.rect.x * f.width) * k, y: (f.top - c.top + view.rect.y * f.height) * k,
-		            width: view.rect.width * f.width * k, height: view.rect.height * f.height * k, radius: view.radius * f.width * k };
-		    }
-		    function callGradient() {
-		        // §2.2: a light darkening at the top (25 %) and bottom (30 %) keeps the status bar, pill and keys readable.
-		        call.gradient ||= stageViews.sceneGraphics.canvasTexture(PIXI, 4, 256, function (ctx, w, h) {
-		            const image = ctx.createImageData(w, h), data = image.data;
-		            for (let y = 0; y < h; y++) {
-		                const t = y / (h - 1), a = t < 0.22 ? 0.25 * (1 - t / 0.22) : t > 0.7 ? 0.3 * (t - 0.7) / 0.3 : 0;
-		                for (let x = 0; x < w; x++) data[(y * w + x) * 4 + 3] = Math.round(a * 255);
-		            }
-		            ctx.putImageData(image, 0, 0);
-		        });
-		        return call.gradient;
-		    }
-		    function callViewOf(role) {
-		        let view = call.views.get(role);
-		        if (view) return view;
-		        const sprite = new PIXI.Sprite(PIXI.Texture.EMPTY), mask = new PIXI.Graphics(), back = new PIXI.Sprite(PIXI.Texture.EMPTY), shade = new PIXI.Sprite(callGradient());
-		        // Drawn once per picture and box size: enough passes that a 14 pt blur at 2-3x leaves no banding.
-		        const blur = new PIXI.filters.BlurFilter(8, 10), saturate = new PIXI.filters.ColorMatrixFilter();
-		        blur.repeatEdgePixels = true;
-		        saturate.saturate(0.1);
-		        back.filters = [blur, saturate].map(tune);
-		        sprite.mask = mask;
-		        callViews.addChild(sprite, mask);
-		        view = { role, sprite, mask, back, shade, blur, texture: null, backTexture: null, key: "", backKey: "", version: 0 };
-		        call.views.set(role, view);
-		        return view;
-		    }
-		    function dropCallView(view) {
-		        call.views.delete(view.role);
-		        view.sprite.destroy(); view.mask.destroy(); view.back.destroy();
-		        if (view.texture) view.texture.destroy(true);
-		        if (view.backTexture) view.backTexture.destroy(true);
-		    }
-		    // §2.1-2.2: each box gets the stage's current background, cover-fitted and blurred (14 pt), then the party framed by the
-		    // rest head the mod declares (head = [centre x, top, height] of the box). Not graded, shaded or blurred with the scene. A frozen
-		    // call (hung up) keeps its last frame, dimmed.
-		    function tickCallView(desc, dt, W, H) {
-		        const spec = desc.callView || null;
+		    function tickCallView(desc,dt,W,H) {
+		        const spec=desc.callView || null;
 		        syncOffstage(spec ? spec.views : []);
-		        call.alpha = spec ? Math.min(1, call.alpha + dt * 1000 / (desc.reducedMotion ? 120 : 180)) : Math.max(0, call.alpha - dt * 1000 / 120);
-		        callBox.alpha = call.alpha;
-		        if (!spec && call.alpha <= 0) { call.views.forEach(dropCallView); tickCallGlass(null); callBox.visible = false; state.callCovers = false; return; }
-		        if (!spec) state.callCovers = false;
-		        callBox.visible = true;
-		        if (!spec) return;
-		        const resolution = app.renderer.resolution, layer = backgrounds.layers[backgrounds.layers.length - 1], backTexture = layer && layer.texture && layer.texture !== PIXI.Texture.EMPTY ? layer.texture : null;
-		        const shown = new Set(), remoteSpec = spec.views.find(view => view.role === "remote"), remoteRect = remoteSpec && callRect(spec, remoteSpec);
-		        // One iOS point of the call screen (it is 393 pt wide) in screen px: the background blur is 14 pt.
-		        const point = (remoteRect ? remoteRect.width : W) / 393;
-		        spec.views.forEach(function (viewSpec) {
-		            const rect = callRect(spec, viewSpec), entry = viewSpec.figure ? state.offstage.get(viewSpec.figure.key) : null;
-		            if (!rect || rect.width < 2 || rect.height < 2 || !entry && viewSpec.role === "self") return;
-		            const view = callViewOf(viewSpec.role);
-		            shown.add(view.role);
-		            const width = Math.ceil(rect.width), height = Math.ceil(rect.height), key = width + "x" + height + "@" + resolution;
-		            view.sprite.position.set(rect.x, rect.y);
-		            view.mask.clear().beginFill(0xffffff).drawRoundedRect(rect.x, rect.y, rect.width, rect.height, rect.radius).endFill();
-		            view.sprite.tint = spec.frozen ? 0x8a8a8a : 0xffffff;
-		            if (spec.frozen && view.texture && view.key === key) return;
-		            if (view.key !== key) {
-		                if (view.texture) view.texture.destroy(true);
-		                view.texture = PIXI.RenderTexture.create({ width, height, resolution });
-		                view.sprite.texture = view.texture; view.key = key;
-		            }
-		            // The blurred background is drawn once per picture and box size, then reused every frame.
-		            const backKey = key + ":" + (spec.backdrop === "stage" && backTexture ? backTexture.baseTexture.uid + ":" + backTexture.frame.width : "none");
-		            if (view.backKey !== backKey) {
-		                view.backKey = backKey;
-		                if (!view.backTexture || view.backTexture.width !== width || view.backTexture.height !== height) { if (view.backTexture) view.backTexture.destroy(true); view.backTexture = PIXI.RenderTexture.create({ width, height, resolution }); }
-		                const holder = new PIXI.Container(), fill = new PIXI.Graphics().beginFill(0x0b0812).drawRect(0, 0, width, height).endFill();
-		                holder.addChild(fill);
-		                if (spec.backdrop === "stage" && backTexture) {
-		                    const cover = galCover(backTexture.width, backTexture.height, width, height, 1.06);
-		                    view.back.texture = backTexture; view.back.anchor.set(0.5);
-		                    view.back.scale.set(cover.scale); view.back.position.set(width / 2, height / 2);
-		                    view.blur.blur = 14 * point;
-		                    holder.addChild(view.back);
-		                }
-		                app.renderer.render(holder, { renderTexture: view.backTexture, clear: true });
-		                holder.removeChildren(); fill.destroy(); holder.destroy();
-		            }
-		            const base = new PIXI.Sprite(view.backTexture);
-		            app.renderer.render(base, { renderTexture: view.texture, clear: true });
-		            base.destroy();
-		            const head = entry && entry.localHead;
-		            if (head && entry.container.visible !== false) {
-		                const [hx, htop, hheight] = viewSpec.head, container = entry.container;
-		                const s = hheight * height / Math.max(1, head.chin - head.top);
-		                view.framed = { s, span: head.chin - head.top, hheight, height };
-		                container.transform.updateLocalTransform();
-		                container.transform.localTransform.copyTo(call.inverse).invert();
-		                call.matrix.set(s, 0, 0, s, hx * width - head.x * s, htop * height - head.top * s).append(call.inverse);
-		                const filters = container.filters;
-		                container.filters = null;
-		                app.renderer.render(container, { renderTexture: view.texture, clear: false, transform: call.matrix, skipUpdateTransform: false });
-		                container.filters = filters;
-		                container.transform._parentID = -1;
-		            }
-		            if (viewSpec.role === "remote") {
-		                view.shade.width = width; view.shade.height = height;
-		                app.renderer.render(view.shade, { renderTexture: view.texture, clear: false });
-		            }
-		            view.version++;
-		        });
-		        call.views.forEach(view => { if (!shown.has(view.role)) dropCallView(view); });
-		        tickCallGlass(spec, remoteRect);
-		        // §2.8: a call view over the whole stage (the phone full screen) leaves nothing of the world to draw.
-		        const rect = remoteRect;
-		        state.callCovers = Boolean(call.alpha >= 1 && rect && rect.x <= 0.5 && rect.y <= 0.5 && rect.x + rect.width >= W - 0.5 && rect.y + rect.height >= H - 0.5);
-		        if (state.callCovers) bust.sprite.visible = false;
-		    }
-		    // The glass (iOS 26 Liquid Glass): her video, blurred and saturated as the page asks (`glass.blur` a fraction of the page
-		    // width, `glass.saturate`), drawn at half size once per new video frame and shown inside each shape the page reports
-		    // (rounded rects in page fractions, each with its opacity). The page draws the tint and rim over it; the page's layout
-		    // is the one authority for where glass is.
-		    function tickCallGlass(spec, rect) {
-		        const glass = call.glass, view = call.views.get("remote");
-		        const shapes = spec && spec.glass && view && view.texture && rect ? spec.glass.rects : [];
-		        while (glass.pieces.length < shapes.length) {
-		            const sprite = new PIXI.Sprite(PIXI.Texture.EMPTY), mask = new PIXI.Graphics();
-		            sprite.mask = mask; callGlass.addChild(sprite, mask); glass.pieces.push({ sprite, mask });
-		        }
-		        glass.pieces.forEach((piece, index) => { piece.sprite.visible = index < shapes.length; });
-		        if (!shapes.length) return;
-		        const scale = 0.5, width = Math.max(1, Math.ceil(rect.width * scale)), height = Math.max(1, Math.ceil(rect.height * scale)), key = width + "x" + height + "@" + app.renderer.resolution;
-		        if (glass.key !== key) {
-		            if (glass.texture) glass.texture.destroy(true);
-		            glass.texture = PIXI.RenderTexture.create({ width, height, resolution: app.renderer.resolution }); glass.key = key; glass.drawn = "";
-		        }
-		        if (!glass.source) {
-		            glass.source = new PIXI.Sprite(PIXI.Texture.EMPTY);
-		            glass.blur = new PIXI.filters.BlurFilter(8, 4); glass.blur.repeatEdgePixels = true;
-		            glass.saturate = new PIXI.filters.ColorMatrixFilter();
-		            glass.source.filters = [glass.blur, glass.saturate].map(tune);
-		        }
-		        const pageWidth = rect.width / Math.max(1e-6, spec.views.find(row => row.role === "remote").rect.width);
-		        const drawn = view.version + ":" + view.key + ":" + spec.glass.blur + ":" + spec.glass.saturate;
-		        if (glass.drawn !== drawn) {
-		            glass.drawn = drawn;
-		            glass.source.texture = view.texture; glass.source.scale.set(scale);
-		            glass.blur.blur = spec.glass.blur * pageWidth * scale;
-		            glass.saturate.saturate(spec.glass.saturate - 1);
-		            app.renderer.render(glass.source, { renderTexture: glass.texture, clear: true });
-		        }
-		        shapes.forEach((shape, index) => {
-		            const piece = glass.pieces[index], box = callRect(spec, { rect: shape, radius: shape.radius });
-		            if (!box) { piece.sprite.visible = false; return; }
-		            piece.sprite.texture = glass.texture; piece.sprite.position.set(rect.x, rect.y);
-		            piece.sprite.width = rect.width; piece.sprite.height = rect.height;
-		            piece.sprite.alpha = shape.alpha; piece.sprite.tint = spec.frozen ? 0x8a8a8a : 0xffffff;
-		            piece.mask.clear().beginFill(0xffffff).drawRoundedRect(box.x, box.y, box.width, box.height, box.radius).endFill();
-		        });
-		    }
-		    // The shutter (§2.5): the remote picture as it stands (background and her), as iOS keeps the other party's video.
-		    const stopCallFrames = typeof phoneModCall === "object" && phoneModCall?.frames ? phoneModCall.frames(captureCallFrame) : null;
-		    function captureCallFrame() {
-		        const view = call.views.get("remote");
-		        if (!view || !view.texture) return Promise.reject(Object.assign(new Error("没能拍下这一帧"), { code: "NO_FRAME" }));
-		        const canvas = app.renderer.plugins.extract.canvas(view.texture);
-		        return Promise.resolve(canvas.toDataURL("image/jpeg", 0.9));
+		        const subjects=new Map([...state.offstage].map(([key,entry])=>[key,{container:entry.container,head:entry.localHead}]));
+		        const layers=backgrounds.layers;
+		        call.tick({spec,dt,W,H,reducedMotion:desc.reducedMotion,background:layers[layers.length-1]?.texture,subjects});
+		        state.callCovers=call.covers;
+		        if(call.covers)bust.sprite.visible=false;
 		    }
 		    function tickBust(desc, now, W, H) {
 		        const spec=desc.bust && W>640 && !desc.hideFigures && !desc.shot ? desc.bust : null;
@@ -48349,7 +48186,7 @@ function cardLibraryDisplayName(card) {
 		            const safe = state.camera.safe || { zoom: 1, fx: 0.5, fy: 0.42, rotation: 0 };
 		            const shake = { x: round(world.position.x - (safe.ax || 0.5) * app.screen.width, 1), y: round(world.position.y - (safe.ay || 0.42) * app.screen.height, 1) };
 		            return { quality, grade: backgrounds.grade.name, look: effects.looks.stats(), camera: { shot: state.camera.key, zoom: round(safe.zoom, 3), fx: round(safe.fx, 3), fy: round(safe.fy, 3), rotation: round(safe.rotation * 180 / Math.PI, 2) },
-		                scale: round(world.scale.x, 3), shake, frame: state.visibleFrame, figureLayer: { visible: figuresBox.visible, alpha: round(figuresBox.alpha, 3) }, phoneShade: round(phoneShade.alpha, 3), call: { alpha: round(call.alpha, 3), views: [...call.views.keys()], framed: [...call.views.values()].map(view => view.framed || null), offstage: [...state.offstage.values()].map(entry => ({ key: entry.key, identity: entry.identity, ready: Boolean(entry.model || entry.sprite) })), glass: call.glass.pieces.filter(piece => piece.sprite.visible).length, covers: Boolean(state.callCovers), world: world.visible }, thinking: round(thinking.sprite.visible ? thinking.alpha : 0, 3), dof: round(state.dof.v, 2), effects: effects.stats(),
+		                scale: round(world.scale.x, 3), shake, frame: state.visibleFrame, figureLayer: { visible: figuresBox.visible, alpha: round(figuresBox.alpha, 3) }, phoneShade: round(phoneShade.alpha, 3), call: { ...call.snapshot(), offstage: [...state.offstage.values()].map(entry => ({ key: entry.key, identity: entry.identity, ready: Boolean(entry.model || entry.sprite) })), covers: Boolean(state.callCovers), world: world.visible }, thinking: round(thinking.sprite.visible ? thinking.alpha : 0, 3), dof: round(state.dof.v, 2), effects: effects.stats(),
 		                layers: backgrounds.layers.map(layer => ({ url: layer.url, time: layer.time, transition: layer.plan ? layer.plan.kind : "", corrected: Boolean(layer.correction) })),
 		                figures: Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, leaving: entry.leaving, parked: Boolean(entry.figure.parked), ready: Boolean(entry.model || entry.sprite),
 		                    x: entry.started ? round(entry.cx.v, 3) : null, alpha: entry.started ? round(entry.alpha.v, 3) : null, shade: entry.started ? round(entry.shade.v, 2) : null,
@@ -48450,11 +48287,7 @@ function cardLibraryDisplayName(card) {
 		            effects.destroy();
 		            state.figures.forEach(destroyFigure);
 		            state.offstage.forEach(entry => { if (entry.next) destroyFigure(entry.next); destroyFigure(entry); });
-		            call.views.forEach(dropCallView);
-		            if (call.gradient) call.gradient.destroy(true);
-		            if (call.glass.texture) call.glass.texture.destroy(true);
-		            call.glass.source?.destroy();
-		            stopCallFrames?.();
+		            call.dispose();
 		            offstageBox.destroy();
 		            backgrounds.dispose();
 		            textures.dispose();
@@ -54515,6 +54348,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        callViews:{cover:galCover,subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
 		        bust:{framedHead:galFramedHead},
 		        backgrounds:{transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade},
 		        backgroundLayers:{cover:galCover,transitionFrame:galTransitionFrame,wipeRect:galWipeRect,irisSize:galIrisSize},

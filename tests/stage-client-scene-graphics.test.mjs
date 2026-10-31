@@ -1,5 +1,3 @@
-import {readFileSync} from 'node:fs'
-import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
@@ -22,16 +20,4 @@ test('scene texture batch releases earlier allocations when a later canvas uploa
  const graphics=createStageSceneGraphics({document:{createElement:()=>({getContext:()=>context})},paintEmpty(){},emptyPalette:()=>({})})
  const PIXI={Texture:{from(){if(++allocations===3)throw Error('upload failed');const id=allocations;return {destroy(deep){destroyed.push([id,deep])}}}}}
  assert.throws(()=>graphics.textures(PIXI,{}),/upload failed/);assert.deepEqual(destroyed,[[1,true],[2,true]])
-})
-
-test('scene call gradient branch use the plugin texture factory',()=>{
- const source=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
- for(const [name,arguments_,width,height] of [['callGradient','',4,256]]){
-  const start=source.indexOf('    function '+name+'('),end=source.indexOf('\n    function ',start+1)
-  assert.ok(start>=0&&end>start)
-  const calls=[],texture={},state={}
-  const scope={PIXI:{},call:state,thinking:state,stageViews:{sceneGraphics:{canvasTexture(...args){calls.push(args);return texture}}}}
-  const result=vm.runInNewContext(source.slice(start,end)+'\n'+name+'('+arguments_+');',scope)
-  assert.equal(result,texture);assert.equal(calls.length,1);assert.equal(calls[0][1],width);assert.equal(calls[0][2],height)
- }
 })
