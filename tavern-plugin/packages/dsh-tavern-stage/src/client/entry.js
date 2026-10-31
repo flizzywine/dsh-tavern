@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
         __STAGE_MENU__
         __STAGE_POSITION__
         __STAGE_SUBTITLES__
+        __STAGE_TRANSITIONS__
         __STAGE_SKIN_BUTTONS__
         __STAGE_CONTROLS__
         __STAGE_NOTICES__
@@ -55,7 +56,7 @@ window.__ModuleLoader__.load({
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const music = own(createStageMusic(options.music));
-                    return {...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
