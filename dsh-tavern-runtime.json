@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "baf74b9d60d55404bd2553113c1e8f585afa5c5a",
-  "releaseSequence": 1002,
+  "revision": "0e18be9b2eade399ada8b660248857cd6803f601",
+  "releaseSequence": 1003,
   "version": "3.2.0",
   "files": [
     {
@@ -1578,6 +1578,11 @@
       "path": "tavern-plugin/lib/domain/http-performance-diagnostics.js",
       "sha256": "2936b59d6d13bb8fffb54f1b46527e79602c3cc10e343dfd6e3624c90a85e006",
       "size": 2737
+    },
+    {
+      "path": "tavern-plugin/lib/domain/http-stream-patch.js",
+      "sha256": "7e4b9f1d2533a89042c154541cc40cb40c38e8a2a15b737e5236e1f176b14e56",
+      "size": 1954
     },
     {
       "path": "tavern-plugin/lib/domain/image-billing-confirmation.js",
@@ -3401,8 +3406,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "6996f540f8d1643d2cc3add765fe4635d8f8e24ca0cf2c39ab8e2fdf0a0ce7a4",
-      "size": 258709
+      "sha256": "045977dd21512e9324f43c13ec541fb6d978ec1d012e8e862039cbf1f7f4f67b",
+      "size": 258871
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8566,9 +8571,9 @@
     }
   ],
   "archive": {
-    "commit": "3c43fa002da2e31938a6b63b7e8c3e7c2753351f",
+    "commit": "f75230b3398df4b7844a37ec576ec63687d61068",
     "path": "runtime.zip",
-    "sha256": "fddd222c38251836e2e05e79abc0d301e0f40f19efe461f215cc83620313b78e",
-    "size": 15165525
+    "sha256": "a33f003d02ca1bba1950ca3c93c24605e85a0b493a85553ba7d6fe0d9fcde312",
+    "size": 15166482
   }
 }
