@@ -11,10 +11,10 @@ if (!Number.isSafeInteger(releaseSequence) || releaseSequence <= 0) throw new Er
 
 const entries = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh', 'android', 'bin', 'config', 'presets', 'patches', 'tavern-plugin']
 const files = []
-// Kept in the repository (license-required upstream sources, the client source) but never read by an
-// installed copy: lib/client.js is the built client, and only these upstream files are loaded at runtime.
+// Exclude build-only sources from installed copies; preserve runtime contracts and required upstream assets.
 const developmentOnly = [
-  { prefix: 'tavern-plugin/src/' },
+  // These pure contracts are also imported by the server and must survive CDN packaging.
+  { prefix: 'tavern-plugin/src/', keep: ['client/bubble-line.cjs', 'client/widget-contracts.cjs', 'client/stage-page-index.cjs', 'client/mod-projection.cjs', 'client/stage-performance-kinds.cjs', 'client/stage-auto-timing.cjs', 'client/stage-widgets.cjs', 'client/widget-definitions.cjs', 'client/widgets/countdown.cjs', 'client/widgets/notification.cjs', 'client/widgets/note.cjs', 'client/widgets/chat-thread.cjs'] },
   { prefix: 'tavern-plugin/lib/vendor/st-prompt-template/upstream/', keep: ['LICENSE', 'settings.html'] },
   { prefix: 'tavern-plugin/lib/vendor/magvarupdate/upstream/', keep: ['LICENSE'] },
 ]

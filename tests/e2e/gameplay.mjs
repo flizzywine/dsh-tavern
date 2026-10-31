@@ -39,7 +39,7 @@ import { compactionChecks } from './compaction.mjs'
 import assert from 'node:assert/strict'
 import { presetSwitch } from './preset-switch.mjs'
 import { playControls } from './play-controls.mjs'
-import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, readdir, cp, access } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, readdir, cp, access, realpath } from 'node:fs/promises'
 import { join, resolve, dirname } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -71,6 +71,7 @@ const stagePluginScenario = stageAudioLifecycle || stageMediaFault || stageUserS
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const applicationSource = resolve(process.env.TAVERN_E2E_APPLICATION_SOURCE || source)
 const runtime = resolve(process.env.TAVERN_E2E_RUNTIME || join(homedir(), '.dsh-tavern/runtime'))
 const modules = join(runtime, 'lib/node_modules')
 const cli = join(modules, '@deepseek-ai/dsh/lib/bin.js')
@@ -173,30 +174,43 @@ try {
     }
     if(stageMediaFault||stageAudioLifecycle)report.stageMedia=await setupStageMedia(root,{audio:stageAudioLifecycle})
     await access(cli).catch(() => { throw Error('找不到 DSH runtime；先安装酒馆，或设置 TAVERN_E2E_RUNTIME。') })
+    report.applicationSource=applicationSource
     report.runtimeVersion = JSON.parse(await readFile(join(modules, '@deepseek-ai/dsh/package.json'), 'utf8')).version
     await mkdir(join(profile, 'node_modules'), { recursive: true })
     for (const [name, target] of Object.entries({
       // An older plugin build can produce a save its bugs damaged; the scenario then switches to this one.
-      'dsh-tavern-plugin': process.env.TAVERN_E2E_PLUGIN_SOURCE || join(source, 'tavern-plugin'),
-      'dsh-tavern-stage': join(source, 'tavern-plugin/packages/dsh-tavern-stage'),
-      'dsh-tavern-remote': join(source, 'tavern-plugin/packages/dsh-tavern-remote'),
+      'dsh-tavern-plugin': process.env.TAVERN_E2E_PLUGIN_SOURCE || join(applicationSource, 'tavern-plugin'),
+      'dsh-tavern-stage': join(applicationSource, 'tavern-plugin/packages/dsh-tavern-stage'),
+      'dsh-tavern-remote': join(applicationSource, 'tavern-plugin/packages/dsh-tavern-remote'),
       'dsh-web-mobile': join(source, 'node_modules/dsh-web-mobile')
     })) if (!(stageIsolation === 'absent' && name === 'dsh-tavern-stage')) await symlink(target, join(profile, 'node_modules', name))
     // This package resolves DSH imports relative to its directory, so give it
     // the isolated profile's runtime scope rather than the development scope.
     const sidebar = process.env.TAVERN_E2E_SIDEBAR || join(source, 'node_modules/dsh-better-sidebar')
     const sidebarVersion = JSON.parse(await readFile(join(sidebar, 'package.json'), 'utf8')).version
-    const expectedSidebar = JSON.parse(await readFile(join(source, 'package.json'), 'utf8')).devDependencies['dsh-better-sidebar']
+    const expectedSidebar = JSON.parse(await readFile(join(applicationSource, 'package.json'), 'utf8')).devDependencies['dsh-better-sidebar']
     if (!process.env.TAVERN_E2E_SIDEBAR) assert.equal(sidebarVersion, expectedSidebar, '侧栏依赖与仓库锁定版本不一致；安装锁定依赖或用 TAVERN_E2E_SIDEBAR 指向独立测试包')
     report.sidebarVersion = sidebarVersion
     await cp(sidebar, join(profile, 'node_modules/dsh-better-sidebar'), { recursive: true, dereference: true })
     await symlink(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'))
+    const applicationPackage=JSON.parse(await readFile(join(applicationSource,'package.json'),'utf8'))
     for (const name of await readdir(join(source, 'node_modules'))) {
       if (name.startsWith('.') || ['@deepseek-ai', 'dsh-tavern-plugin', 'dsh-tavern-stage', 'dsh-tavern-remote', 'dsh-web-mobile', 'dsh-better-sidebar'].includes(name)) continue
-      await symlink(join(source, 'node_modules', name), join(profile, 'node_modules', name))
+      const local=applicationPackage.devDependencies?.[name]
+      const target=typeof local==='string'&&local.startsWith('link:') ? resolve(applicationSource,local.slice(5)) : join(source,'node_modules',name)
+      await symlink(target, join(profile, 'node_modules', name))
+    }
+    if(applicationSource!==source) {
+      report.packagedBundles={}
+      for(const [name,value] of Object.entries(applicationPackage.devDependencies||{})) {
+        if(typeof value!=='string'||!value.startsWith('link:')||(stageIsolation==='absent'&&name==='dsh-tavern-stage'))continue
+        const actual=await realpath(join(profile,'node_modules',name))
+        assert.equal(actual,await realpath(resolve(applicationSource,value.slice(5))),name+' must load from the delivery directory')
+        report.packagedBundles[name]=actual
+      }
     }
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'tavern-e2e', private: true,
-      dsh: { profile: { bundles: JSON.parse(await readFile(join(source,'package.json'),'utf8')).dsh.profile.bundles.filter(name=>stageIsolation !== 'absent' || name !== 'dsh-tavern-stage') } } }))
+      dsh: { profile: { bundles: applicationPackage.dsh.profile.bundles.filter(name=>stageIsolation !== 'absent' || name !== 'dsh-tavern-stage') } } }))
     // The stage scenario runs with the sidebar a real install gets (no Tasks tab), as players see it.
     if (castScenario) await writeFile(join(root, 'settings.yaml'), stringifyYaml(applySidebarDefaults({})))
     await writeFile(join(profile, 'cordis.patch.yml'), `- id: agent-default-model\n  config:\n    provider: tavern-e2e\n    model: fixed\n- insert:\n    - id: tavern-e2e-model\n      name: ${JSON.stringify(join(source, 'tests/e2e/model.mjs'))}\n`)
