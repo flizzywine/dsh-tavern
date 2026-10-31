@@ -107,3 +107,23 @@ test('全局皮肤覆盖大 PR 视觉变量，移除插件后回到基础样式'
   await page.evaluate(()=>{window.skinRoot.unmount();window.disposeSkin()})
   assert.notEqual(await page.evaluate(()=>getComputedStyle(document.body).getPropertyValue('--fork-radius').trim()),'23px')
 })
+
+
+test('恢复剧情自动候选开关，只保存对应配置', async t => {
+  const backend = fixture()
+  const {page, calls} = await openTavernSettings(t, {respond:backend.respond})
+  const toggle = page.getByRole('switch', {name:'自动生成候选项', exact:true})
+  await toggle.waitFor()
+  await toggle.press('Space')
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="自动生成候选项"]')?.checked === true)
+  assert.deepEqual(calls.filter(call=>call.method==='updateTavernSettings').at(-1).args.patch, {candidateAutoGenerate:true})
+  assert.equal(await page.getByRole('heading', {name:'插件', exact:true}).count(),0)
+  assert.equal(await page.getByRole('heading', {name:'运行库', exact:true}).count(),0)
+})
+
+test('酒馆插件恢复为独立设置页，加载原有插件列表', async t => {
+  const {page, calls} = await openTavernSettings(t, {section:'dsh-tavern: plugins settings section'})
+  await page.getByRole('heading', {name:'酒馆插件', exact:true}).waitFor()
+  await page.getByRole('button', {name:'打开插件文件夹', exact:true}).waitFor()
+  assert.ok(calls.some(call=>call.method==='listUserPlugins'))
+})

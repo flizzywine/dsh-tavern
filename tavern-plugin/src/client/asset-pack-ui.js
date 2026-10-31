@@ -1376,7 +1376,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter}));
   }
   return {App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,ModManagerEntry,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,StagePanel,StagePage,EnginePage,ReadingsEditor,ConflictDialog,CardImportSheet,CardUrlSheet,
-    // 设置 → 生图 (asset-launcher.js registers the section).
+    // 设置 → 舞台 → 素材生图 (asset-launcher.js registers the section).
     GenPromptSettings,
     // the manager and the card's mod section, for tests and the offline screenshot harness.
     mods:{ModManager,ManagedModSection,modSwitchWord},

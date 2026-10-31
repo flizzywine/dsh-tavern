@@ -1,5 +1,5 @@
 // Settings owns its initial snapshot; each editor saves only its own resource.
-function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
     function StageSwitchSettings() {
@@ -130,28 +130,46 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
             React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
             null),
                 h(TavernModelSlotGroups,{slots:state.modModelSlots,values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
-            group("新游戏默认", "开局时继承，开局后可在本局设置中单独修改。",
+            group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
                 state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                 h(TavernConversationWritingSkills, { globalDefaults: true })),
+            group("剧情", "所有游戏都按这些设置，下一轮生效。",
+                card(sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
             // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
             group("显示与交互", "",
                 card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                     h(DisplayPreferencesSettings),
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,
-                    h(CandidatePreferencesSettings))),
-            group("插件", "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件，仅支持 DSH 插件和 DSH Tavern 插件。", card(h(StageSwitchSettings),h(TavernUserPluginsSettings))),
-            // the optional runtimes, the same entries as the model previews: official page, then import.
-            group("运行库", "", card(h("div", { className: "fork-runtime-list" }, SpineRuntimeEntry ? h(SpineRuntimeEntry, { request: rpc }) : null))),
+                    h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
             group("高级", "",
                 card(sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                     sw("storyOutputToolCall", "输出走工具调用", "让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                     h(PromptTemplateSettingsEntry),
-                    // 模组管理 — install, uninstall, versions, dependencies.
-                    ForkModManagerEntry ? h(ForkModManagerEntry) : null,
-                    h(ContextCompactionSettings), h(HeaderItemsSettings)))
+                    h(ContextCompactionSettings)))
         );
     }
 
-    return { TavernSettingsSection };
+    function SettingsGroup({title, children}) {
+        const h = React.createElement;
+        return h("section", {className:"dsh-tavern-gs-group", "aria-label":title},
+            h("header", {className:"dsh-tavern-gs-head"}, h("h2", null, title)),
+            h("div", {className:"dsh-tavern-gs-card"}, children));
+    }
+    function TavernPluginsSettingsSection() {
+        const h = React.createElement;
+        return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+            h(SettingsGroup, {title:"酒馆插件"},
+                h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
+                h(TavernUserPluginsSettings)));
+    }
+    function TavernStageSettingsSection() {
+        const h = React.createElement;
+        return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+            h(SettingsGroup, {title:"舞台插件"}, h(StageSwitchSettings)),
+            h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
+            h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
+            h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
+    }
+    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection };
 }

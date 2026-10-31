@@ -42,7 +42,7 @@
   // 服装描述), else nothing yet — then 生成 waits for one (the tile menu offers the ways to make it).
   function genBasis(figure,outfit){return outfit?.settei||figure?.identitySettei?'image':genSaid(figure?.identityAppearance)||genSaid(outfit?.outfitAppearance)?'text':'';}
   // The prompt a 差分 starts from: its name and 使用情景; a cell's 「存为默认」 (outfit.genPrompts, owner U4) replaces it for
-  // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 生图 (GenPromptSettings).
+  // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 舞台 → 素材生图 (GenPromptSettings).
   const genBuiltPrompt=row=>row?row.label+'的表情'+(genSaid(row.guidance)?'，'+row.guidance.trim():'')+'。':'';
   const genPromptFor=(outfit,kind,row)=>outfit?.genPrompts?.[kind]?.[row?.id]||genBuiltPrompt(row);
   // The latest group of a target left an unconfirmed request: the next one goes through the gate.
@@ -389,7 +389,7 @@
   }
   const genCheck=(on,set,text)=>h('button',{type:'button',role:'checkbox','aria-checked':on,className:'ap-check-row ap-gd-check',onClick:()=>set(v=>!v)},
     h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})),h('span',null,text));
-  // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 生图 marked), read on
+  // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 舞台 → 素材生图 marked), read on
   // demand before the popover opens so it places itself once with its real height.
   function GenPeek({load}) {
     const [shown,setShown]=React.useState(null);
@@ -398,7 +398,7 @@
         onClick:()=>{if(open){toggle();return;}setShown({busy:true});load().then(p=>{setShown({text:p.prompt,parts:p.parts});toggle();},e=>{setShown({error:errorText(e)});toggle();});}}),
       content:()=>h('div',{className:'ap-gd-peek-body'},!shown||shown.busy?h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在读取…'):
         shown.error?h('p',{className:'ap-field-error',role:'alert'},h(Glyph,{name:'warning'}),shown.error):
-        h(React.Fragment,null,shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 生图」里改过的'),
+        h(React.Fragment,null,shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 舞台 → 素材生图」里改过的'),
           h('pre',{className:'ap-gen-prompt-text ap-gd-peek-text',tabIndex:0,'aria-label':'将发送的提示词'},shown.parts?shown.parts.map((p,i)=>p.edited?h('mark',{key:i,className:'ap-gen-prompt-edited'},p.text):p.text):shown.text)))});
   }
   function GenDialog({gen,binding,pack,commitFigure,importSettei,saveStyle}) {
@@ -809,7 +809,7 @@
         coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
     return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs);
   }
-  // ---------- 设置 → 生图: the shared layer of every whole-image request, for all characters ----------
+  // ---------- 设置 → 舞台 → 素材生图: the shared layer of every whole-image request, for all characters ----------
   // One folded section per kind with its template text (asset-generation.js prompts / setPrompt; the default stays in the
   // template file). The {{slots}} carry the character, the outfit, the 差分 and the cell's own prompt, so an edit keeps
   // them (checked here as the field's own validation and again on write). Enter or leaving the field saves (Shift+Enter: a

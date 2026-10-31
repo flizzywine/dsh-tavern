@@ -1231,14 +1231,16 @@ window.__ModuleLoader__.load({
 				return slots.inject("settings.models.provider-card", function () { return slots.register({ name: "settings.models.provider-card", key: MODEL_IMAGE_NS },
 					function (props) { return React.createElement(ModelImageInput, Object.assign({}, props, { remote: ctx.remote })); }); });
 			}, "dsh-tavern: model image input");
-			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-asset-gen", order: 112, label: function () { return "生图"; } },
-					function () { return React.createElement("div", { className: "dsh-tavern-settings-section" }, React.createElement(packUi.GenPromptSettings, { call: engineRpc })); }); });
-			}, "dsh-tavern: asset generation prompt settings section");
-			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-speech", order: 113, label: function () { return "台词朗读"; } },
-					function () { return React.createElement("div", { className: "dsh-tavern-global-settings" }, React.createElement(TavernSpeechSettings, null)); }); });
-			}, "dsh-tavern: speech settings");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
+                    () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });
+            }, "dsh-tavern: speech settings");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
+            }, "dsh-tavern: plugins settings section");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-stage-settings", order:114, label:() => "舞台" }, TavernStageSettingsSection); });
+            }, "dsh-tavern: stage settings section");
 			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });

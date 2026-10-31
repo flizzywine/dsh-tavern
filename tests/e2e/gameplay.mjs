@@ -786,7 +786,7 @@ try {
       if(stageUserSwitch) {
         await page.getByRole('button',{name:'设置',exact:true}).click()
         await page.getByText('Settings',{exact:true}).click()
-        await page.getByText('DSH Tavern',{exact:true}).click()
+        await page.getByRole('button',{name:'舞台',exact:true}).last().click()
         await page.getByRole('button',{name:'停用舞台',exact:true}).click()
         await page.getByRole('button',{name:'启用舞台',exact:true}).waitFor()
         await page.waitForFunction(()=>!document.querySelector('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount'))
@@ -838,7 +838,7 @@ try {
         if(stageUserSwitch) {
           await page.getByRole('button',{name:'设置',exact:true}).click()
           await page.getByText('Settings',{exact:true}).click()
-          await page.getByText('DSH Tavern',{exact:true}).click()
+          await page.getByRole('button',{name:'舞台',exact:true}).last().click()
           await page.getByRole('button',{name:'启用舞台',exact:true}).click()
           await page.getByRole('button',{name:'停用舞台',exact:true}).waitFor()
           await restartServer()

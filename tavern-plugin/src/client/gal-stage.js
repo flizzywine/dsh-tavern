@@ -137,7 +137,7 @@ function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFal
 function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
 // an on-stage Live2D figure is showing its static sprite (or nothing) because
 // this machine has no Cubism Core (the user imports it: official page, then the file). One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry
-// (CubismCoreEntry, as in 设置 › DSH Tavern › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
+// (CubismCoreEntry, as in 设置 › 舞台 › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
 // so the figures switch to Live2D without a reload; the notice goes as soon as the Core is in.
 
 // first-run hints, shown in the stage's notice stack (not a modal) once the entry

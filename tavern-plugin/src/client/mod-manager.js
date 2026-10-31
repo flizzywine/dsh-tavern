@@ -1,4 +1,4 @@
-// 设置 › 高级 › 模组管理
+// 设置 › 舞台 › 舞台模组
 // and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
 // managedModPlan / managedModSwitchPlan / managedModApply.
 // Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
@@ -170,7 +170,7 @@ function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
   const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
   const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
   return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 高级 › 模组管理。' },
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
     h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
     plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
     !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
@@ -194,7 +194,7 @@ function useManagedModControls({ rpc, cardId, modId, name }) {
   return { toggle, notices, dialog: plans.dialog };
 }
 
-// 设置 › 高级 › 模组管理: a row with the installed count and ›; it opens the manager.
+// 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
 function ModManagerEntry({ rpc, Row }) {
   const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
   return h(React.Fragment, null,

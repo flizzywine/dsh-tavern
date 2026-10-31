@@ -6677,7 +6677,7 @@ window.__ModuleLoader__.load({
 		    // 服装描述), else nothing yet — then 生成 waits for one (the tile menu offers the ways to make it).
 		    function genBasis(figure,outfit){return outfit?.settei||figure?.identitySettei?'image':genSaid(figure?.identityAppearance)||genSaid(outfit?.outfitAppearance)?'text':'';}
 		    // The prompt a 差分 starts from: its name and 使用情景; a cell's 「存为默认」 (outfit.genPrompts, owner U4) replaces it for
-		    // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 生图 (GenPromptSettings).
+		    // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 舞台 → 素材生图 (GenPromptSettings).
 		    const genBuiltPrompt=row=>row?row.label+'的表情'+(genSaid(row.guidance)?'，'+row.guidance.trim():'')+'。':'';
 		    const genPromptFor=(outfit,kind,row)=>outfit?.genPrompts?.[kind]?.[row?.id]||genBuiltPrompt(row);
 		    // The latest group of a target left an unconfirmed request: the next one goes through the gate.
@@ -7024,7 +7024,7 @@ window.__ModuleLoader__.load({
 		    }
 		    const genCheck=(on,set,text)=>h('button',{type:'button',role:'checkbox','aria-checked':on,className:'ap-check-row ap-gd-check',onClick:()=>set(v=>!v)},
 		      h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})),h('span',null,text));
-		    // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 生图 marked), read on
+		    // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 舞台 → 素材生图 marked), read on
 		    // demand before the popover opens so it places itself once with its real height.
 		    function GenPeek({load}) {
 		      const [shown,setShown]=React.useState(null);
@@ -7033,7 +7033,7 @@ window.__ModuleLoader__.load({
 		          onClick:()=>{if(open){toggle();return;}setShown({busy:true});load().then(p=>{setShown({text:p.prompt,parts:p.parts});toggle();},e=>{setShown({error:errorText(e)});toggle();});}}),
 		        content:()=>h('div',{className:'ap-gd-peek-body'},!shown||shown.busy?h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在读取…'):
 		          shown.error?h('p',{className:'ap-field-error',role:'alert'},h(Glyph,{name:'warning'}),shown.error):
-		          h(React.Fragment,null,shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 生图」里改过的'),
+		          h(React.Fragment,null,shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 舞台 → 素材生图」里改过的'),
 		            h('pre',{className:'ap-gen-prompt-text ap-gd-peek-text',tabIndex:0,'aria-label':'将发送的提示词'},shown.parts?shown.parts.map((p,i)=>p.edited?h('mark',{key:i,className:'ap-gen-prompt-edited'},p.text):p.text):shown.text)))});
 		    }
 		    function GenDialog({gen,binding,pack,commitFigure,importSettei,saveStyle}) {
@@ -7444,7 +7444,7 @@ window.__ModuleLoader__.load({
 		          coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
 		      return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs);
 		    }
-		    // ---------- 设置 → 生图: the shared layer of every whole-image request, for all characters ----------
+		    // ---------- 设置 → 舞台 → 素材生图: the shared layer of every whole-image request, for all characters ----------
 		    // One folded section per kind with its template text (asset-generation.js prompts / setPrompt; the default stays in the
 		    // template file). The {{slots}} carry the character, the outfit, the 差分 and the cell's own prompt, so an edit keeps
 		    // them (checked here as the field's own validation and again on write). Enter or leaving the field saves (Shift+Enter: a
@@ -14579,7 +14579,7 @@ window.__ModuleLoader__.load({
 		  function StageModSection({ctx,cardId}) {
 		    return ctx.openMod&&ctx.binding.engineRpc?h(ManagedModSection,{rpc:ctx.binding.engineRpc,cardId,onOpen:ctx.openMod,takeFocus:ctx.takeModFocus}):null;
 		  }
-		  // 设置 › 高级 › 模组管理
+		  // 设置 › 舞台 › 舞台模组
 		  // and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
 		  // managedModPlan / managedModSwitchPlan / managedModApply.
 		  // Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
@@ -14751,7 +14751,7 @@ window.__ModuleLoader__.load({
 		    const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
 		    const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
 		    return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
-		        help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 高级 › 模组管理。' },
+		        help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
 		      h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
 		      plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
 		      !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
@@ -14775,7 +14775,7 @@ window.__ModuleLoader__.load({
 		    return { toggle, notices, dialog: plans.dialog };
 		  }
 
-		  // 设置 › 高级 › 模组管理: a row with the installed count and ›; it opens the manager.
+		  // 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
 		  function ModManagerEntry({ rpc, Row }) {
 		    const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
 		    return h(React.Fragment, null,
@@ -16185,7 +16185,7 @@ window.__ModuleLoader__.load({
 		      h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter}));
 		  }
 		  return {App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,ModManagerEntry,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,StagePanel,StagePage,EnginePage,ReadingsEditor,ConflictDialog,CardImportSheet,CardUrlSheet,
-		    // 设置 → 生图 (asset-launcher.js registers the section).
+		    // 设置 → 舞台 → 素材生图 (asset-launcher.js registers the section).
 		    GenPromptSettings,
 		    // the manager and the card's mod section, for tests and the offline screenshot harness.
 		    mods:{ModManager,ManagedModSection,modSwitchWord},
@@ -39799,7 +39799,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         }
 
         // Settings owns its initial snapshot; each editor saves only its own resource.
-        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
+        function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
             function StageSwitchSettings() {
@@ -39930,37 +39930,56 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
                     null),
                         h(TavernModelSlotGroups,{slots:state.modModelSlots,values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
-                    group("新游戏默认", "开局时继承，开局后可在本局设置中单独修改。",
+                    group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
+                    group("剧情", "所有游戏都按这些设置，下一轮生效。",
+                        card(sw("candidateAutoGenerate", "自动生成候选项", "正文写完后自动生成候选项；关闭后仍可手动生成。只对之后的新回复生效。", false))),
                     // one card per group; each entry (incl. the UI plugin's 界面大小 slot) is a row of it.
                     group("显示与交互", "",
                         card(sw("autoOpenStatusPanel", "进入游戏时打开酒馆状态", "进入或切换到一局游戏时，右侧面板自动展开并显示本局设置和酒馆状态。关闭后右侧面板保持你上次的样子。", true),
                             h(DisplayPreferencesSettings),
                             renderSlot("settings.tavern.appearance", {}),
                             DebugSetting ? h(DebugSetting) : null,
-                            h(CandidatePreferencesSettings))),
-                    group("插件", "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件，仅支持 DSH 插件和 DSH Tavern 插件。", card(h(StageSwitchSettings),h(TavernUserPluginsSettings))),
-                    // the optional runtimes, the same entries as the model previews: official page, then import.
-                    group("运行库", "", card(h("div", { className: "fork-runtime-list" }, SpineRuntimeEntry ? h(SpineRuntimeEntry, { request: rpc }) : null))),
+                            h(CandidatePreferencesSettings), h(HeaderItemsSettings))),
                     group("高级", "",
                         card(sw("storyInputToolCall", "输入走工具调用", "把发给模型的历史（此前的玩家消息和正文）以 submit_story 工具参数的形式回放，而不是普通对话文字；可降低续写被拒答。只影响请求，本轮输入、存档和界面保持不变。需要模型支持工具调用。", false),
                             sw("storyOutputToolCall", "输出走工具调用", "让模型通过 submit_story 提交本轮正文，可缓解 Gemini 等模型在正文中途截断或拒答。需要模型支持工具调用；正文生成完成后一次性显示。", false),
                             h(PromptTemplateSettingsEntry),
-                            // 模组管理 — install, uninstall, versions, dependencies.
-                            ForkModManagerEntry ? h(ForkModManagerEntry) : null,
-                            h(ContextCompactionSettings), h(HeaderItemsSettings)))
+                            h(ContextCompactionSettings)))
                 );
             }
 
-            return { TavernSettingsSection };
+            function SettingsGroup({title, children}) {
+                const h = React.createElement;
+                return h("section", {className:"dsh-tavern-gs-group", "aria-label":title},
+                    h("header", {className:"dsh-tavern-gs-head"}, h("h2", null, title)),
+                    h("div", {className:"dsh-tavern-gs-card"}, children));
+            }
+            function TavernPluginsSettingsSection() {
+                const h = React.createElement;
+                return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                    h(SettingsGroup, {title:"酒馆插件"},
+                        h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
+                        h(TavernUserPluginsSettings)));
+            }
+            function TavernStageSettingsSection() {
+                const h = React.createElement;
+                return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                    h(SettingsGroup, {title:"舞台插件"}, h(StageSwitchSettings)),
+                    h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
+                    h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
+                    h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
+            }
+            return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection };
         }
-        const { TavernSettingsSection } = createGlobalSettingsModule({
+        const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
             // 隐藏上下文 is the 调试视图 row (DebugSetting); 配音 has its own settings page (main.js).
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings: () => null, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
-            // 设置 › 高级 › 模组管理 (mod-manager.js, in the asset-pack UI factory).
+            StageGenerationSettings: () => React.createElement(packUi.GenPromptSettings, { call: engineRpc }),
+            // 设置 › 舞台 › 模组管理 (mod-manager.js, in the asset-pack UI factory).
             ForkModManagerEntry: () => React.createElement(packUi.ModManagerEntry, { rpc, Row: TavernSettingRow }),
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
@@ -49003,7 +49022,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
 		// an on-stage Live2D figure is showing its static sprite (or nothing) because
 		// this machine has no Cubism Core (the user imports it: official page, then the file). One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry
-		// (CubismCoreEntry, as in 设置 › DSH Tavern › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
+		// (CubismCoreEntry, as in 设置 › 舞台 › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
 		// so the figures switch to Live2D without a reload; the notice goes as soon as the Core is in.
 
 		// first-run hints, shown in the stage's notice stack (not a modal) once the entry
@@ -56287,14 +56306,16 @@ function stageSessionInputs(ctx){
 				return slots.inject("settings.models.provider-card", function () { return slots.register({ name: "settings.models.provider-card", key: MODEL_IMAGE_NS },
 					function (props) { return React.createElement(ModelImageInput, Object.assign({}, props, { remote: ctx.remote })); }); });
 			}, "dsh-tavern: model image input");
-			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-asset-gen", order: 112, label: function () { return "生图"; } },
-					function () { return React.createElement("div", { className: "dsh-tavern-settings-section" }, React.createElement(packUi.GenPromptSettings, { call: engineRpc })); }); });
-			}, "dsh-tavern: asset generation prompt settings section");
-			ctx.effect(function () {
-				return slots.inject("settings.section", function () { return slots.register({ name: "settings.section", id: "dsh-tavern-speech", order: 113, label: function () { return "台词朗读"; } },
-					function () { return React.createElement("div", { className: "dsh-tavern-global-settings" }, React.createElement(TavernSpeechSettings, null)); }); });
-			}, "dsh-tavern: speech settings");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
+                    () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });
+            }, "dsh-tavern: speech settings");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
+            }, "dsh-tavern: plugins settings section");
+            ctx.effect(function () {
+                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-stage-settings", order:114, label:() => "舞台" }, TavernStageSettingsSection); });
+            }, "dsh-tavern: stage settings section");
 			// 系统提示词与长期偏好在「预设」标签页（preset-hub.js）。
 
 			presetLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
