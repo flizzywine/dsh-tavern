@@ -155,7 +155,7 @@ function stageWidgetStageGeometry(root,previous) {
     const width=Math.max(0,Math.min(frame.width,(visual?.offsetLeft || 0)+(visual?.width || innerWidth)-frame.left)),height=Math.max(0,Math.min(frame.height,(visual?.offsetTop || 0)+(visual?.height || innerHeight)-frame.top));
     if (x) blocked.push({x:0,y:0,width:x,height});if (y) blocked.push({x:0,y:0,width,height:y});
     blocked.push({x:0,y:height-64,width,height:64});
-    const figures=typeof galFigureSources!=='undefined' ? galFigureSources.get(root)?.() || [] : [];
+    const figures=stageViews?.scene?.rects(root) || [];
     // Stage units: a docked stage is only scaled (createModStageDock); rounded so its move settles at once.
     const k=frame.width>0 && Math.abs(frame.width-root.offsetWidth)>=1 ? root.offsetWidth/frame.width : 1,u=v=>k===1 ? v : Math.round(v*k*100)/100;
     const local=r=>({x:u(r.x),y:u(r.y),width:u(r.width),height:u(r.height)});

@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
 import {createRequire} from 'node:module'
 const {createStageCast}=createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/cast.cjs')
-const source=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
+const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
 function fixture(){
  const calls=[],warnings=[],state={figures:new Map(),lastPrune:5}
  let cast;

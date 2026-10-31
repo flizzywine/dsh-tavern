@@ -42,7 +42,7 @@ test('prepared Spine assets preserve animation and release the rig exactly once'
 })
 
 test('scene accepts only the newest picture request even when identity returns to A',async()=>{
- const source=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8'),start=source.indexOf('    function showStatic('),end=source.indexOf('    // authored blink',start)
+ const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8'),start=source.indexOf('    function showStatic('),end=source.indexOf('    // authored blink',start)
  const pending=[],attached=[],committed=[],state={clock:0},entry={figure:{identity:'A'},container:{addChildAt(sprite){attached.push(sprite)}},fading:[]}
  const show=vm.runInNewContext(source.slice(start,end)+';showStatic',{figureAssets:{picture:()=>new Promise(resolve=>pending.push(resolve))},state,console,commitFigureReplacement:e=>committed.push(e),layeredSpriteClearScene(){},clearBlink(){}})
  show(entry,'a');entry.figure={identity:'B'};show(entry,'b');entry.figure={identity:'A'};show(entry,'a')

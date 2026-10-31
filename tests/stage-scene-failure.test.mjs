@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-const source=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
+const source=readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/scene.cjs',import.meta.url),'utf8')
 test('scene frame failure stops ticker, foreground and pump once even when one stop fails',()=>{
  const calls=[],state={pump:{off(){calls.push('pump')}}}
  const start=source.indexOf('    let releaseForeground ='),end=source.indexOf('    // Be deliberately conservative:',start)

@@ -15,7 +15,7 @@ function itemStageGeometry(node) {
     const frame=root.getBoundingClientRect(),k=frame.width>0 && Math.abs(frame.width-root.offsetWidth)>=1 ? root.offsetWidth/frame.width : 1,rel=el=>{const r=el.getBoundingClientRect();return {x:(r.left-frame.left)*k,y:(r.top-frame.top)*k,width:r.width*k,height:r.height*k};};
     const blocked=[...root.querySelectorAll('.fork-gal-topbar,.fork-gal-side,.fork-gal-controls,.fork-gal-name,.fork-gal-letterbox i,.fork-widget-source-controls')].map(rel);
     const boxes=[...root.querySelectorAll('.fork-gal-box')].map(rel).filter(r=>r.width>0 && r.height>0);
-    const figures=typeof galFigureSources!=='undefined' ? galFigureSources.get(root)?.() || [] : [];
+    const figures=stageViews?.scene?.rects(root) || [];
     return {width:frame.width*k,height:frame.height*k,scale:k,blocked,boxTop:boxes.length ? Math.min(...boxes.map(r=>r.y)) : undefined,figures};
 }
 // Reads the decoded icon once: an opaque light border means a baked white background (shown on a paper tile), and a
