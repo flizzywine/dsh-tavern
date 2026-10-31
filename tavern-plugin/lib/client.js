@@ -60048,6 +60048,7 @@ function galUiApplier() {
 		        phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
 		        skinCursor:{matchMedia, clock:forkForeground},
+		        backlogPaging:{hydrateText:(sessionId,turn)=>stageSessions.owner?.hydrateText?.(sessionId,turn), hasOlder:sessionId=>stageSessions.owner?.hasOlder?.(sessionId), loadOlder:sessionId=>stageSessions.owner?.loadOlder?.(sessionId)},
 		        backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
 		        backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
 		        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer},
@@ -60886,41 +60887,9 @@ function galUiApplier() {
 		    // names in an image colour too dark/light for this panel get the nearest readable lightness.
 		    useFigureTextContrast(React, scroller, true, range.start, range.end, entries.length, props.page);
 		    const visibleTurns=JSON.stringify([...new Set(entries.slice(range.start,range.end).map(row=>row.turn))].filter(turn=>turn!==props.turn));
-		    // turns outside the loaded history window are index rows without text (a separator and the
-		    // player's input only); reading toward them loads their paragraphs, read-only, a few turns at a time.
-		    // Each unloaded row object is read once: a failed read leaves it as it was (no retry loop), while a history
-		    // cache revision that rebuilds the index (and drops loaded rows) yields new row objects that are read again.
-		    const hydrating = React.useRef(new WeakSet());
-		    React.useEffect(()=>{
-		        const owner = typeof stageSessions === 'object' ? stageSessions.owner : null;
-		        if(!owner || typeof owner.hydrateText!=='function' || !props.textIndex)return;
-		        for(const turn of JSON.parse(visibleTurns)) {
-		            const row = props.textIndex.get(turn);
-		            if(!row?.unloaded || hydrating.current.has(row))continue;
-		            hydrating.current.add(row);
-		            void Promise.resolve(owner.hydrateText(props.sessionId,turn)).catch(()=>false);
-		        }
-		    },[props.sessionId,visibleTurns,props.textIndex]);
-		    // at the top of the list, turns before the native conversation window are paged in
-		    // (owner.loadOlder), read-only; anchorRow keeps the reader's row in place as they arrive. A page that brings no
-		    // earlier turn is not retried for the same oldest turn; a failure shows ⚠ with a retry.
-		    const [older, setOlder] = React.useState("idle");
-		    const olderTried = React.useRef(null), mounted = React.useRef(true);
-		    React.useEffect(() => () => { mounted.current = false; }, []);
 		    const firstTurn = entries.length ? entries[0].turn : null;
 		    const atTop = viewport.top !== Infinity && range.start === 0;
-		    function loadOlder() {
-		        const owner = typeof stageSessions === 'object' ? stageSessions.owner : null;
-		        if (!owner || typeof owner.loadOlder !== 'function' || !owner.hasOlder(props.sessionId)) return;
-		        olderTried.current = firstTurn;
-		        setOlder("loading");
-		        Promise.resolve(owner.loadOlder(props.sessionId)).then(
-		            () => { if (mounted.current) setOlder("idle"); },
-		            () => { if (mounted.current) setOlder("failed"); });
-		    }
-		    React.useEffect(() => {
-		        if (atTop && older === "idle" && olderTried.current !== firstTurn) loadOlder();
-		    }, [atTop, older, firstTurn, props.sessionId]);
+		    const {older,loadOlder}=stageViews.backlogPaging.usePaging({sessionId:props.sessionId,textIndex:props.textIndex,visibleTurns,firstTurn,atTop});
 		    React.useEffect(()=>{
 		        if(!props.readDirection)return;
 		        let active=true;
