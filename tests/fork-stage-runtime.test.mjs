@@ -365,7 +365,7 @@ test('stale resource diagnostics and closed-stage one-shot completions cannot af
 
 // No application globals, CommonJS loader, DOM, or shared browser closure.
 test('runtime kernel runs in an isolated browser realm with explicit collaborators', () => {
-  const factory = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/src/client/stage-runtime-kernel.cjs', import.meta.url), 'utf8') + '\ncreateStageRuntimeKernel', {})
+  const factory = vm.runInNewContext(readFileSync(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), 'utf8') + '\ncreateStageRuntimeKernel', {})
   const isolated = factory({
     performanceStateKernel: require('../tavern-plugin/packages/dsh-presentation-protocol/src/performance-state.cjs'),
     modProjectionKernel: require('../tavern-plugin/src/client/mod-projection.cjs'),

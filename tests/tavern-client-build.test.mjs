@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -24,6 +24,14 @@ for (const check of [false, true]) {
       await mkdir(path.join(root, directory), { recursive: true })
     }
     await copyFile(new URL('../bin/build-tavern-client.mjs', import.meta.url), builder)
+    await copyFile(new URL('../bin/build-interface-skin-client.mjs', import.meta.url), path.join(root, 'bin/build-interface-skin-client.mjs'))
+    const skin = path.join(root, 'tavern-plugin/packages/dsh-dream-skin')
+    await cp(new URL('../tavern-plugin/packages/dsh-dream-skin/src/', import.meta.url), path.join(skin, 'src'), {recursive:true})
+    await mkdir(path.join(skin, 'lib'), {recursive:true})
+    await copyFile(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/client.js', import.meta.url), path.join(skin, 'lib/client.js'))
+    const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
+    await mkdir(stage, {recursive:true})
+    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), path.join(stage, 'runtime-kernel.cjs'))
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
     await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(root, 'bin/lib/css-syntax-guard.mjs'))
     // The fixture includes every required inert builder input.
@@ -37,7 +45,7 @@ for (const check of [false, true]) {
     // symlinks; there the test runner's resolve hook finds the packages instead.
     if (process.platform !== 'win32') await symlink(new URL('../node_modules', import.meta.url).pathname, path.join(root, 'node_modules'), 'dir')
     for (const name of ['logo', 'lockup', 'lockup-dark']) await writeFile(path.join(root, `tavern-plugin/lib/client-assets/${name}.svg`), '<svg/>')
-    const valid = 'const fixture = 1;\n'
+    const valid = '// @include-stage runtime-kernel.cjs\nconst fixture = 1;\n'
     const invalid = 'const = 1;\n'
     await writeFile(template, valid)
     const build = args => spawnSync(process.execPath, [builder, ...args], { encoding: 'utf8', timeout: 10000 })
@@ -45,11 +53,12 @@ for (const check of [false, true]) {
     assert.ifError(initial.error)
     assert.equal(initial.status, 0, initial.stderr)
     let previous = await readFile(output, 'utf8')
-    assert.ok(previous.includes(valid))
+    assert.ok(previous.includes('function createStageRuntimeKernel('))
+    assert.ok(previous.includes('const fixture = 1;'))
     await writeFile(template, invalid)
     if (check) {
       // Keep source and output in sync so an outdated-output error cannot pass this test.
-      previous = previous.replace(valid, invalid)
+      previous = previous.replace('const fixture = 1;', invalid)
       await writeFile(output, previous)
     }
     const result = build(check ? ['--check'] : [])

@@ -1,8 +1,8 @@
 'use strict';
 
-// @include stage-runtime-kernel.cjs
+// @include-stage runtime-kernel.cjs
 const stageRuntimeFactory = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./stage-runtime-kernel.cjs').createStageRuntimeKernel : createStageRuntimeKernel;
+    ? require('../../packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs').createStageRuntimeKernel : createStageRuntimeKernel;
 const performanceStateKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('../../packages/dsh-presentation-protocol/src/performance-state.cjs') : {performanceSustained:plan => performanceSustained(plan), reducePerformanceEvent:(layer,event) => reducePerformanceEvent(layer,event)};
 const modProjectionKernel = typeof module !== 'undefined' && typeof window === 'undefined'

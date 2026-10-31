@@ -72717,7 +72717,7 @@ return {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRu
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageRuntimeKernel};
 const stageRuntimeFactory = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./stage-runtime-kernel.cjs').createStageRuntimeKernel : createStageRuntimeKernel;
+    ? require('../../packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs').createStageRuntimeKernel : createStageRuntimeKernel;
 const performanceStateKernel = typeof module !== 'undefined' && typeof window === 'undefined'
     ? require('../../packages/dsh-presentation-protocol/src/performance-state.cjs') : {performanceSustained:plan => performanceSustained(plan), reducePerformanceEvent:(layer,event) => reducePerformanceEvent(layer,event)};
 const modProjectionKernel = typeof module !== 'undefined' && typeof window === 'undefined'
@@ -72733,9 +72733,9 @@ const {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRun
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageRuntimeState, reduceStageRuntime, stageRuntimeStatus, stageRuntimeIndicators, stageHistoryModPlays, stageBeatHold, stageRuntimeErrorText, stageDiagnosticText, stageSkipShows, sourceKey, sameSource, STAGE_HISTORY_SETTLE_MS};
 'use strict';
 
-const stageRuntimeKernel = typeof window === 'undefined' && typeof require === 'function'
-    ? require('./stage-runtime.cjs') : {createStageRuntimeState, reduceStageRuntime};
+'use strict';
 
+function createStageRuntimeStoreModule(stageRuntimeKernel) {
 // Effects run after selector publication. Reentrant dispatch is queued, never reduced
 // against a half-published snapshot. A runner may synchronously complete an intent.
 function createStageRuntimeStore({initialState = stageRuntimeKernel.createStageRuntimeState(), runEffect = () => {}, observe = () => {}} = {}) {
@@ -72804,6 +72804,18 @@ function stageRuntimeShallowEqual(a, b) {
     const keys = Object.keys(a);
     return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && Object.is(a[key], b[key]));
 }
+
+return {createStageRuntimeStore, stageRuntimeShallowEqual};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageRuntimeStoreModule};
+const createStageRuntimeStoreModuleAdapter = typeof window === 'undefined' && typeof require === 'function'
+    ? require('../../packages/dsh-tavern-stage/lib/client/runtime-store.cjs').createStageRuntimeStoreModule : createStageRuntimeStoreModule;
+
+const stageRuntimeKernel = typeof window === 'undefined' && typeof require === 'function'
+    ? require('./stage-runtime.cjs') : {createStageRuntimeState, reduceStageRuntime};
+
+const {createStageRuntimeStore, stageRuntimeShallowEqual} = createStageRuntimeStoreModuleAdapter(stageRuntimeKernel);
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageRuntimeStore, stageRuntimeShallowEqual};
 'use strict';
@@ -72975,9 +72987,9 @@ function stageVoiceDescriptor(unit, settings, card) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageTextIndex, stageVoiceDescriptor};
 'use strict';
 
-const stageSessionStore = typeof window === 'undefined' && typeof require === 'function'
-    ? require('./stage-runtime-store.cjs') : {createStageRuntimeStore};
+'use strict';
 
+function createStageSessionModule(stageSessionStore) {
 // the stage's failure notice belongs to one attempt, the latest native turn.
 // Its own end says so (the chat's turn-error node for a turn that ended in error, an interrupted reply for a stopped one);
 // a retry or regeneration is a newer turn and replaces it, a cleared failure (withdrawn) is a suppressed turn. The host
@@ -73386,6 +73398,18 @@ function createStageSessionOwner(options) {
         dispose() {if (disposed) return; disposed = true; stopList?.(); for (const record of [...records.values()]) release(record);}
     };
 }
+
+return {createStageSessionOwner};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageSessionModule};
+const createStageSessionModuleAdapter = typeof window === 'undefined' && typeof require === 'function'
+    ? require('../../packages/dsh-tavern-stage/lib/client/session.cjs').createStageSessionModule : createStageSessionModule;
+
+const stageSessionStore = typeof window === 'undefined' && typeof require === 'function'
+    ? require('./stage-runtime-store.cjs') : {createStageRuntimeStore};
+
+const {createStageSessionOwner} = createStageSessionModuleAdapter(stageSessionStore);
 
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageSessionOwner};
 'use strict';
