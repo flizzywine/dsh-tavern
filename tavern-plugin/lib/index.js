@@ -1,3 +1,4 @@
+import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
 import { installPluginSettingsMigration } from './settings-config.js'
@@ -3677,11 +3678,12 @@ export async function apply(ctx) {
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps))
-  const stageRequests = stageModule.requests(rpcDeps)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
+  const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
+  stageModule.requests(rpcDeps, extensionRequests)
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
-    if (stageRequests.handles(method)) return stageRequests.call(method,args,authority,serverTemplate)
+    if (extensionRequests.handles(method)) return extensionRequests.call(method,args,authority,serverTemplate)
     if (method.startsWith('gameplay.')) return await gameplayApi.call(method.slice(9), args || {})
     const handler = rpcHandlers[method]
     if (!handler) throw new Error('未知方法: ' + method)
@@ -3726,8 +3728,8 @@ export async function apply(ctx) {
 
   ctx.provide('tavernSessionSignals', Object.freeze({
     async control(method, args, signal) {
-      const stageRead = stageRequests.remoteRead(method)
-      if (!stageRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
+      const extensionRead = extensionRequests.remoteRead(method)
+      if (!extensionRead && !['claimTavernScriptWork', 'startTavernScriptWork', 'getTavernScriptWorkState',
         'heartbeatTavernScriptRuntime', 'completeTavernHelperEvent', 'releaseTavernHelperRuntime'].includes(method)) {
         throw new Error('不支持的运行时控制请求')
       }
@@ -3738,7 +3740,7 @@ export async function apply(ctx) {
         const result = await dispatch(method, args)
         return requestPerformance.serialize(method, args?.sessionId, { ok: true, ...result, runtimeGeneration })
       } catch (error) {
-        if (!stageRead) throw error
+        if (!extensionRead) throw error
         return JSON.stringify({ok:false,error:str(error?.message || error),errorCode:typeof error?.code === 'string' ? error.code : undefined})
       }
     },

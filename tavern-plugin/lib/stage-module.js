@@ -214,9 +214,10 @@ export async function createStageModule(core) {
     readReplyPrefix:core.readReplyPrefix, activeRoundBodies:core.activeRoundBodies
   })), 'dsh-tavern: stage story observations')
   return {modService, managedModManagement, modConfigHost, stageDirector,
-    requests(deps) {
+    requests(deps, registry) {
       const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
+      ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       return requests
     }
   }

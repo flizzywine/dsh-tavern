@@ -21,6 +21,7 @@ export function createStageRequests(deps, modules = deps) {
   ])
   let active = true
   return Object.freeze({
+    methods:Object.freeze([...new Set([...delegated.keys(),...Object.keys(handlers)])]),
     handles:method => delegated.has(method) || Object.hasOwn(handlers,method),
     remoteRead:method => remoteReads.has(method),
     async call(method, args, authority, serverTemplate = false) {
