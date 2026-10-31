@@ -4,7 +4,6 @@
 // 画面 (本卡皮肤, 顶栏按钮, effects) and 模组 (each enabled mod's stage preferences; no tab without one). The stage owns the open
 // state (auto / skip pause while it is open, like the backlog). Styled only through the stage UI tokens (--gal-ui-*).
 
-// @include gal-mixer.js
 // The font picker (舞台字体 / 字幕字体 here, 正文字体 on the 外观 settings page — appearance.js, same closure).
 // @include font-picker.js
 
@@ -51,23 +50,6 @@ function GalConfigTextScale(props) {
 }
 
 // 音量: the mixer rows, larger, with ▶ previews where cheap (a built-in one-shot, the current voice line).
-function GalConfigSound(props) {
-    const h = React.createElement;
-    const state = useStageAudioState();
-    const reading = useStageReading();
-    const [rateMin, rateMax, rateStep] = STAGE_READING_LIMITS.voiceRate;
-    return h(React.Fragment, null,
-        galConfigGroup("音量",
-            h(React.Fragment, null, h("span", null, "每层各自静音，静音时滑块保留原值。"), h("span", null, "▶ 试听：配音播放当前这一句，音效播放一个短提示音。")),
-            h(GalMixerRows, { state, tests: props.tests }),
-            // Upstream stage core 37: off = no ducking (stage-audio.js); sliders and 总音量 are unchanged.
-            galConfigRow("自动混音", h(GalConfigSwitch, { label: "自动混音", checked: state.duck !== false, onChange: on => forkStageAudio.setDucking(on) }))),
-        galConfigGroup("配音", null,
-            galConfigRow("配音倍速", galConfigSlider(["慢", "快"], { min: rateMin, max: rateMax, step: rateStep, value: reading.voiceRate, label: "配音倍速",
-                    valueText: reading.voiceRate.toFixed(1) + " 倍", output: reading.voiceRate.toFixed(1) + "×", onChange: value => stageReading.set({ voiceRate: value }) }),
-                "所有配音按这个倍率播放，音调不变；舞台和聊天气泡都生效，正在播放的这一句也立即变速。默认 1.0 倍。")));
-}
-
 // an on / off switch drawn in the stage tokens (track + knob), the same geometry as the stage
 // settings' switches; a button with role="switch", never a native checkbox. No state word beside it (UI standard §三.7,
 // phase 2 batch 4).

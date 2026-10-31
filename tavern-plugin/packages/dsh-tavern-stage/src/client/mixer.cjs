@@ -1,4 +1,4 @@
-function createStageMixer({React, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS}) {
+function createStageMixer({React, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS, fields, reading:readingStore, voiceRateLimits}) {
 let disposed = false;
 const lowIcon = "M4 9.5v5h3.5l4.5 3.5v-12L7.5 9.5H4zM15.5 9a4.2 4.2 0 0 1 0 6";
 const ownsIcon = ICON_PATHS && !ICON_PATHS['speaker-low'];
@@ -60,7 +60,24 @@ function GalSoundEntry({ openConfig }) {
 }
 const unregister = stageEntries?.register({ id: "sound", priority: 70, group: "scene", icon: "speaker", label: "声音",
     render: ctx => React.createElement(GalSoundEntry, { openConfig: ctx.openConfig }) });
-return {Rows:GalMixerRows, level:galMixLevel, icon:galMixIcon, dispose() {
+function GalConfigSound(props) {
+    const h = React.createElement;
+    const state = useStageAudioState();
+    const reading = React.useSyncExternalStore(readingStore.subscribe, readingStore.get);
+    const [rateMin, rateMax, rateStep] = voiceRateLimits;
+    return h(React.Fragment, null,
+        fields.group("音量",
+            h(React.Fragment, null, h("span", null, "每层各自静音，静音时滑块保留原值。"), h("span", null, "▶ 试听：配音播放当前这一句，音效播放一个短提示音。")),
+            h(GalMixerRows, { state, tests: props.tests }),
+            // Upstream stage core 37: off = no ducking (stage-audio.js); sliders and 总音量 are unchanged.
+            fields.row("自动混音", h(fields.Switch, { label: "自动混音", checked: state.duck !== false, onChange: on => {if(!disposed)forkStageAudio.setDucking(on);} }))),
+        fields.group("配音", null,
+            fields.row("配音倍速", fields.slider(["慢", "快"], { min: rateMin, max: rateMax, step: rateStep, value: reading.voiceRate, label: "配音倍速",
+                    valueText: reading.voiceRate.toFixed(1) + " 倍", output: reading.voiceRate.toFixed(1) + "×", onChange: value => {if(!disposed)readingStore.set({ voiceRate: value });} }),
+                "所有配音按这个倍率播放，音调不变；舞台和聊天气泡都生效，正在播放的这一句也立即变速。默认 1.0 倍。")));
+}
+
+return {Sound:GalConfigSound, Rows:GalMixerRows, level:galMixLevel, icon:galMixIcon, dispose() {
     if (disposed) return;
     disposed = true;
     try { unregister?.(); } finally { if (ownsIcon && ICON_PATHS['speaker-low'] === lowIcon) delete ICON_PATHS['speaker-low']; }
