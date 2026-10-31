@@ -39789,6 +39789,41 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void rpc("openUserPluginsFolder").catch(function (err) { setError(String(err && err.message || err)); }); } }, "打开插件文件夹")));
         }
 
+        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry}) {
+            function StageModelSettings() {
+                const h = React.createElement;
+                const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
+                React.useEffect(() => {
+                    let active = true;
+                    const refresh = () => rpc('getTavernSettings').then(result => {
+                        if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.modId === 'dsh.stage'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
+                    }, error => { if (active) setState(current=>({...current, loading:false, error:String(error.message || error)})); });
+                    refresh();
+                    window.addEventListener('dsh-tavern-mods-changed', refresh);
+                    return () => { active = false; window.removeEventListener('dsh-tavern-mods-changed', refresh); };
+                }, []);
+                async function save(modModelSelection) {
+                    setState(current=>({...current,busy:true,error:""}));
+                    try {
+                        const result = await rpc('updateTavernSettings', {patch:{modModelSelection}});
+                        notifySettingsChanged();
+                        setState(current=>({...current,busy:false,settings:result.settings}));
+                    } catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
+                }
+                return h(React.Fragment, null,
+                    state.error ? h('p', {role:'alert'}, state.error) : null,
+                    h(TavernModelSlotGroups, {rowsOnly:true, slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
+            }
+            function TavernStageSettingsSection() {
+                const h = React.createElement;
+                return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                    h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
+                    h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
+                    h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
+                    h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
+            }
+            return {TavernStageSettingsSection};
+        }
         // Settings owns its initial snapshot; each editor saves only its own resource.
         function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
@@ -39933,38 +39968,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
                         h(TavernUserPluginsSettings)));
             }
-            function StageModelSettings() {
-                const h = React.createElement;
-                const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
-                React.useEffect(() => {
-                    let active = true;
-                    const refresh = () => rpc('getTavernSettings').then(result => {
-                        if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.modId === 'dsh.stage'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
-                    }, error => { if (active) setState(current=>({...current, loading:false, error:String(error.message || error)})); });
-                    refresh();
-                    window.addEventListener('dsh-tavern-mods-changed', refresh);
-                    return () => { active = false; window.removeEventListener('dsh-tavern-mods-changed', refresh); };
-                }, []);
-                async function save(modModelSelection) {
-                    setState(current=>({...current,busy:true,error:""}));
-                    try {
-                        const result = await rpc('updateTavernSettings', {patch:{modModelSelection}});
-                        notifySettingsChanged();
-                        setState(current=>({...current,busy:false,settings:result.settings}));
-                    } catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
-                }
-                return h(React.Fragment, null,
-                    state.error ? h('p', {role:'alert'}, state.error) : null,
-                    h(TavernModelSlotGroups, {rowsOnly:true, slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
-            }
-            function TavernStageSettingsSection() {
-                const h = React.createElement;
-                return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-                    h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
-                    h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
-                    h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
-                    h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
-            }
+            const { TavernStageSettingsSection } = createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry});
             return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection };
         }
         const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection } = createGlobalSettingsModule({

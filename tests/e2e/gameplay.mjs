@@ -151,7 +151,7 @@ async function inspectRound(name, gold, text, rounds = 2) {
   await page.screenshot({ path: join(output, name + '.png'), fullPage: true })
 }
 async function openStatus() {
-  await page.getByText('酒馆状态', { exact: true }).filter({ visible: true }).first().click()
+  await page.getByRole('tab', { name: /酒馆状态/ }).filter({ visible: true }).first().click()
 }
 async function inspectScreen() {
   await page.locator('.dsh-tavern-user-bubble').filter({ hasText: '领取任务奖励' }).first().waitFor({ state: 'visible' })

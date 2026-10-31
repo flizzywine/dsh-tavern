@@ -492,7 +492,7 @@ test('人物卡绑定了独立世界书时写进绑定的那本', async () => {
 })
 
 test('客户端解析：旁白保留为 Markdown，气泡行与心里话、流式半行', async () => {
-  const source = (await readFile(new URL('../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8')).split('// @include bubble-line.cjs').join(await readFile(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8')).replace('__TAVERN_BUBBLE_MOODS__', JSON.stringify(moods))
+  const source = (await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')).split('// @include bubble-line.cjs').join(await readFile(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8')).replace('__TAVERN_BUBBLE_MOODS__', JSON.stringify(moods))
   const context = {}
   vm.runInNewContext(source.slice(0, source.indexOf('// Per-session bubble settings')) + ';this.parse = parseBubbles; this.mood = bubbleMood;', context)
   const segments = context.parse('她抬起头。\n@bubble:madoka|鹿目圆|害羞|[你好]\n@bubble:kyubey|丘比|平静|[*签订契约吧*]\n旁白', false)
@@ -506,7 +506,7 @@ test('客户端解析：旁白保留为 Markdown，气泡行与心里话、流�
 // The full-screen stage hides its own session's transcript; a text with no session (the opening
 // preview) must still render while no stage is active, the store's idle value being "" too.
 test('气泡正文只在本局全屏舞台打开时隐藏，没有会话的开场预览照常显示', async () => {
-  const source = await readFile(new URL('../tavern-plugin/src/client/bubbles.js', import.meta.url), 'utf8')
+  const source = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')
   const start = source.indexOf('function BubblePublication(props)'), end = source.indexOf('// thoughts are set', start)
   const context = { stage: '', BubbleContent() {}, galActive: { subscribe: () => () => {}, get: () => context.stage },
     React: { useSyncExternalStore: (_subscribe, get) => get(), useRef: value => ({ current: value }), createElement: (type, props) => ({ type, props }) } }

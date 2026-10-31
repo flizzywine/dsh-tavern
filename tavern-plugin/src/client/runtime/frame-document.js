@@ -162,15 +162,15 @@
 		// @include stage-audio.js
 		// @include ui-sfx.js
 		// @include voice.js
-		// @include bubble-presets.js
-		// @include bubbles.js
+		// @include-stage-source bubble-presets.js
+		// @include-stage-source bubbles.js
 
 
 
 		// @include stage-sfx.js
 		// @include asset-catalogue.js
-		// @include bubble-modes.js
-		// @include bubble-modals.js
+		// @include-stage-source bubble-modes.js
+		// @include-stage-source bubble-modals.js
 		// @include asset-launcher.js
 		// @include card-zip-entry.js
 		// @include card-scripts.js

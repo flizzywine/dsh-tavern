@@ -1347,19 +1347,19 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[['cg','props'].includes(kind)?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
   // @include widget-settings-ui.js
   // @include asset-pack-entry-ui.js
-  // @include asset-pack-gen-ui.js
+  // @include-stage-source asset-pack-gen-ui.js
   // @include asset-pack-cg-ui.js
   // @include asset-pack-figure-ui.js
   // @include asset-pack-spine-ui.js
   // @include asset-pack-import-ui.js
   // @include asset-pack-voice-ui.js
-  // @include asset-pack-card-ui.js
+  // @include-stage-source asset-pack-card-ui.js
   // @include asset-pack-opening-ui.js
   // @include asset-pack-catalogue-ui.js
   // @include asset-pack-setup-ui.js
   // @include asset-pack-character-ui.js
   const prepareImage = prepareImageOverride || browserPrepareImage;
-  // @include asset-pack-engine-ui.js
+  // @include-stage-source asset-pack-engine-ui.js
   // @include mod-library.js
   // 素材库 manages packs only; the per-card page lives in the Tavern 舞台 tab (StagePanel).
   // packs-v3: the tab is only the pack list; a pack opens the shared modal. A deep link from 舞台设置 or the character

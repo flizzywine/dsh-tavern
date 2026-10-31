@@ -53,7 +53,7 @@ function StageModPage({ctx,cardId,modId,onBack}) {
 function StageModSection({ctx,cardId}) {
   return ctx.openMod&&ctx.binding.engineRpc?h(ManagedModSection,{rpc:ctx.binding.engineRpc,cardId,onOpen:ctx.openMod,takeFocus:ctx.takeModFocus}):null;
 }
-// @include mod-manager.js
+// @include-stage-source mod-manager.js
 // @include mod-page.js
 // @include mod-config-pages.js
 // @include danmaku-pages.js
