@@ -45859,61 +45859,6 @@ function cardLibraryDisplayName(card) {
 		}
 
 		if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {galResolution, galResolutionSubscribe, galFollowResolution};
-		// automatic blinking for static sprites that carry an authored blink patch.
-		// Timers only: nothing runs per display frame. The caller owns the overlay; the scheduler only
-		// reports 'open' | 'half' | 'closed'. No patch, no blink (there is no procedural fallback).
-		const BLINK_TIMING = Object.freeze({ minGap: 2500, maxGap: 6000, minClosed: 100, maxClosed: 140, half: 40, doubleChance: 0.15, minDoubleGap: 90, maxDoubleGap: 150 });
-		function blinkPlan(random, hasHalf, timing = BLINK_TIMING) {
-		    const between = (lo, hi) => Math.round(lo + (hi - lo) * random());
-		    const one = () => hasHalf ? [['half', timing.half], ['closed', between(timing.minClosed, timing.maxClosed)], ['half', timing.half]] : [['closed', between(timing.minClosed, timing.maxClosed)]];
-		    const steps = one();
-		    if (random() < timing.doubleChance) steps.push(['open', between(timing.minDoubleGap, timing.maxDoubleGap)], ...one());
-		    return steps;
-		}
-		// Per-figure blink rhythm (galIdleJitter): the gap between blinks scaled by the figure's own factor
-		// (about 0.8–1.2), so figures on one stage do not share an interval distribution; blink length is unchanged.
-		function blinkTimingFor(scale, timing = BLINK_TIMING) {
-		    const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
-		    return k === 1 ? timing : Object.freeze({ ...timing, minGap: Math.round(timing.minGap * k), maxGap: Math.round(timing.maxGap * k) });
-		}
-		function blinkGap(random, timing = BLINK_TIMING) { return Math.round(timing.minGap + (timing.maxGap - timing.minGap) * random()); }
-		// allowed() is consulted at every wake: reduced motion, hidden figure or stage keep the eyes open.
-		function createBlinkScheduler({ setTimeout: arm, clearTimeout: disarm, random = Math.random, apply, allowed = () => true, hasHalf = false, timing = BLINK_TIMING }) {
-		    let timer = null, phase = 'open', running = false;
-		    const set = next => { if (next !== phase) { phase = next; apply(next); } };
-		    const wait = () => { timer = arm(fire, blinkGap(random, timing)); };
-		    function step(steps, index) {
-		        timer = null;
-		        if (!running) return;
-		        if (index >= steps.length || !allowed()) { set('open'); wait(); return; }
-		        set(steps[index][0]);
-		        timer = arm(() => step(steps, index + 1), steps[index][1]);
-		    }
-		    function fire() {
-		        timer = null;
-		        if (!running) return;
-		        if (!allowed()) { set('open'); wait(); return; }
-		        step(blinkPlan(random, hasHalf, timing), 0);
-		    }
-		    function halt() { if (timer !== null) disarm(timer); timer = null; set('open'); }
-		    return {
-		        start() { if (running) return; running = true; set('open'); wait(); },
-		        // Realign: a new state/emotion starts a fresh interval with the eyes open.
-		        restart() { halt(); if (running) wait(); },
-		        stop() { running = false; halt(); },
-		        phase: () => phase,
-		        running: () => running
-		    };
-		}
-		// Base-canvas rect → child position under a sprite with the given anchor (same rule as mouth covers).
-		function blinkPlacement(bundle, width, height, anchor) {
-		    const [x, y, w, h] = bundle.rect;
-		    if (!(w > 0 && h > 0 && x >= 0 && y >= 0 && x + w <= width && y + h <= height)) return null;
-		    if (bundle.canvas && (bundle.canvas[0] !== width || bundle.canvas[1] !== height)) return null;
-		    return { x: x - width * anchor.x, y: y - height * anchor.y, w, h };
-		}
-		function blinkUrls(bundle) { return bundle ? [bundle.closed, bundle.half].filter(Boolean) : []; }
-		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = { BLINK_TIMING, blinkTimingFor, blinkPlan, blinkGap, createBlinkScheduler, blinkPlacement, blinkUrls };
 		// Shared with the asset-library preview; stage instances are owned by the stage plugin.
 		function createSpineRig({window,loadPixi:loadPixiRuntime,loadScript:forkLoadScript,files:getStageBundleFiles,fetch,URL,Blob,location,measure}) {
 		const {cache:figureCached,head:galEstimateHeadTop,alpha:measureFigureAlpha}=measure;
@@ -47185,7 +47130,7 @@ function cardLibraryDisplayName(card) {
 		        const keep = new Set(describe().preload || []);
 		        backgrounds.layers.forEach(layer => keep.add(layer.url));
 		        if (backgrounds.pending) keep.add(backgrounds.pending);
-		        [...state.figures.values(), ...state.offstage.values(), ...[...state.offstage.values()].map(entry => entry.next).filter(Boolean)].forEach(function (entry) { if (entry.src) keep.add(entry.src); if (entry.pendingSrc) keep.add(entry.pendingSrc); layeredSpriteUrls(entry.figure.spriteBundle).forEach(url => keep.add(url)); blinkUrls(entry.figure.blinkBundle).forEach(url => keep.add(url)); (entry.fading || []).forEach(item => keep.add(item.url)); });
+		        [...state.figures.values(), ...state.offstage.values(), ...[...state.offstage.values()].map(entry => entry.next).filter(Boolean)].forEach(function (entry) { if (entry.src) keep.add(entry.src); if (entry.pendingSrc) keep.add(entry.pendingSrc); layeredSpriteUrls(entry.figure.spriteBundle).forEach(url => keep.add(url)); stageViews.figureBlink.urls(entry.figure.blinkBundle).forEach(url => keep.add(url)); (entry.fading || []).forEach(item => keep.add(item.url)); });
 		        textures.prune(keep,describe().visit);
 		    }
 
@@ -47230,6 +47175,8 @@ function cardLibraryDisplayName(card) {
 		            model: null, loading: false, sprite: null, fading: [], mood: null, mouth: 0, param: null, act: null, actNonce: null, flatAct: null, started: false,
 		            filters: stageViews.sceneGraphics.filters(container, null, ["shade", "rim", "dof"], true), shadeFilter: tune(new PIXI.filters.ColorMatrixFilter()),
 		            slots: {}, glow: galSpringValue(0), shadow: galSpringValue(0), blur: galSpringValue(0), idle: stageViews.figureIdle.galIdleState(stageViews.figureIdle.galIdleSeed(figure.key)), tapReaction: null, armed: galSpringValue(0) };
+		        entry.blink=stageViews.figureBlink.create({PIXI,textures,allowed:()=>blinkAllowed(entry)});
+		        Object.defineProperty(entry,'spriteBlink',{get:()=>entry.blink.phase()});
 		        // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
 		        entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
 		        entry.filters.set("shade", entry.shadeFilter);
@@ -47253,7 +47200,7 @@ function cardLibraryDisplayName(card) {
 		        entry.dead = true;
 		        releaseTapStills(entry);
 		        if (entry.warp) { entry.warp.destroy(); entry.warp = null; }
-		        clearBlink(entry);
+		        entry.blink.dispose();
 		        layeredSpriteClearScene(entry);
 		        Object.values(entry.slots).forEach(slot => slot.filter.destroy());
 		        ;
@@ -47335,40 +47282,15 @@ function cardLibraryDisplayName(card) {
 		    }
 		    // authored blink overlay. Steady state is two comparisons per frame; the
 		    // scheduler runs on (foreground-paused) timers and only flips child visibility.
-		    function clearBlink(entry) {
-		        if (entry.blink) entry.blink.stop();
-		        for (const name of ["blinkClosed", "blinkHalf"]) if (entry[name]) { entry[name].destroy(); entry[name] = null; }
-		        entry.blink = null; entry.blinkKey = ""; entry.spriteBlink = "open";
-		    }
+		    function clearBlink(entry) { entry.blink.reset(); }
 		    function blinkAllowed(entry) {
 		        return !state.destroyed && !entry.dead && !entry.leaving && entry.container.visible && world.visible && !document.hidden && !galBlinkCalm();
 		    }
 		    // A replace blink only sets the phase: layeredSpriteTickScene repaints the eyes on the layered canvas. An over-blend
 		    // blink is two child sprites whose visibility the scheduler flips.
 		    function tickBlink(entry) {
-		        const bundle = entry.figure.blinkBundle, sprite = entry.sprite;
-		        if (!bundle || !sprite || entry.loadedIdentity !== entry.figure.identity) { if (entry.blinkKey) clearBlink(entry); return; }
-		        if (entry.blinkKey === bundle.key && (bundle.blend === 'replace' || entry.blinkClosed && entry.blinkClosed.parent === sprite)) return;
-		        const records = blinkUrls(bundle).map(url => textures.get(url));
-		        if (!records.every(record => record && record.ready && record.texture)) { if (entry.blinkKey) clearBlink(entry); return; }
-		        const [closed, half] = records.map(record => record.texture);
-		        const at = blinkPlacement(bundle, entry.baseTexture.width, entry.baseTexture.height, sprite.anchor);
-		        if (!at || closed.width !== at.w || closed.height !== at.h || half && (half.width !== at.w || half.height !== at.h)) {
-		            if (entry.blinkFault !== bundle.key) console.warn("[fork-gal-scene] blink patch ignored", bundle.rect);
-		            entry.blinkFault = bundle.key; if (entry.blinkKey) clearBlink(entry); return;
-		        }
-		        clearBlink(entry); entry.blinkKey = bundle.key;
-		        const timing = { setTimeout: forkForeground.setTimeout, clearTimeout: forkForeground.clearTimeout, timing: blinkTimingFor(entry.idle.jitter.blink), hasHalf: Boolean(half), allowed: () => blinkAllowed(entry) };
-		        if (bundle.blend === 'replace') {
-		            entry.blink = createBlinkScheduler({ ...timing, apply: phase => { entry.spriteBlink = phase; } });
-		            entry.blink.start();
-		            return;
-		        }
-		        const overlay = texture => { const child = new PIXI.Sprite(texture); child.position.set(at.x, at.y); child.visible = false; sprite.addChild(child); return child; };
-		        entry.blinkClosed = overlay(closed); entry.blinkHalf = half ? overlay(half) : null;
-		        entry.blink = createBlinkScheduler({ ...timing,
-		            apply: phase => { if (entry.blinkClosed) entry.blinkClosed.visible = phase === "closed"; if (entry.blinkHalf) entry.blinkHalf.visible = phase === "half"; } });
-		        entry.blink.start();
+		        entry.blink.update({bundle:entry.figure.blinkBundle,sprite:entry.sprite,baseTexture:entry.baseTexture,
+		            ready:entry.loadedIdentity===entry.figure.identity,rhythm:entry.idle.jitter.blink});
 		    }
 		    const GAL_NO_FIGURES = [];
 		    // the viewport layout of the directed cast (galFigureLayout), recomputed only
@@ -47501,7 +47423,7 @@ function cardLibraryDisplayName(card) {
 		                }
 		                if (entry.preloadBlink !== (figure.blinkBundle?.key || "")) {
 		                    entry.preloadBlink = figure.blinkBundle?.key || "";
-		                    blinkUrls(figure.blinkBundle).forEach(url => loadTexture(url).catch(error => console.warn("[fork-gal-scene] blink layer failed", url, error)));
+		                    stageViews.figureBlink.urls(figure.blinkBundle).forEach(url => loadTexture(url).catch(error => console.warn("[fork-gal-scene] blink layer failed", url, error)));
 		                }
 
 		            }
@@ -47945,7 +47867,7 @@ function cardLibraryDisplayName(card) {
 		            const key = (entry.figure.spriteBundle?.revision || "") + "|" + (entry.figure.blinkBundle?.key || "");
 		            if (entry.preloadCall === key) return;
 		            entry.preloadCall = key;
-		            layeredSpriteUrls(entry.figure.spriteBundle).concat(blinkUrls(entry.figure.blinkBundle)).forEach(url => loadTexture(url).catch(error => console.warn("[fork-gal-scene] call figure layer failed", url, error)));
+		            layeredSpriteUrls(entry.figure.spriteBundle).concat(stageViews.figureBlink.urls(entry.figure.blinkBundle)).forEach(url => loadTexture(url).catch(error => console.warn("[fork-gal-scene] call figure layer failed", url, error)));
 		        };
 		        const create = figure => { const entry = addFigure(figure, false); entry.swap = false; offstageBox.addChild(entry.container); galFigureInit(entry, figure); return entry; };
 		        wanted.forEach((figure, key) => {
@@ -48129,8 +48051,6 @@ function cardLibraryDisplayName(card) {
 		    };
 		    app.ticker.add(frame);
 		    const releaseForeground = forkForeground.application(app);
-		    // A backgrounded stage never freezes mid-blink: eyes open now, a fresh interval on return.
-		    const releaseBlinkForeground = forkForeground.subscribe(active => { if (!active) state.figures.forEach(entry => { if (entry.blink) entry.blink.restart(); }); });
 		    // A new pixel ratio (another monitor, the zoom) re-renders at it, with the filters retuned, without a reload.
 		    const releaseResolution = galResolutionSubscribe(() => applyQuality(quality));
 
@@ -48173,11 +48093,11 @@ function cardLibraryDisplayName(card) {
 		                const core = entry.model && entry.model.internalModel && entry.model.internalModel.coreModel;
 		                const param = id => { const index = core.getParameterIndex(id); return index >= 0 && index < core.getParameterCount() ? round(core.getParameterValueByIndex(index), 3) : null; };
 		                return { key: entry.key, kind: entry.kind, jitter: entry.idle.jitter, breath: entry.idleBreath == null ? null : round(entry.idleBreath, 4),
-		                    scaleY: entry.sprite ? round(entry.sprite.scale.y, 5) : null, rotation: entry.sprite ? round(entry.sprite.rotation * 180 / Math.PI, 4) : null, blink: entry.blink ? entry.blink.phase() : null,
+		                    scaleY: entry.sprite ? round(entry.sprite.scale.y, 5) : null, rotation: entry.sprite ? round(entry.sprite.rotation * 180 / Math.PI, 4) : null, blink: entry.blink.active ? entry.blink.phase() : null,
 		                    live2d: core ? { breath: param("ParamBreath"), angleX: param("ParamAngleX"), angleZ: param("ParamAngleZ"), bodyX: param("ParamBodyAngleX"), eyeL: param("ParamEyeLOpen") } : null };
 		            });
 		        },
-		        blinks() { return Array.from(state.figures.values()).filter(entry => entry.blinkKey).map(entry => ({ key: entry.key, phase: entry.blink ? entry.blink.phase() : "open", rect: entry.figure.blinkBundle && entry.figure.blinkBundle.rect, half: Boolean(entry.blinkHalf), allowed: blinkAllowed(entry) })); },
+		        blinks() { return Array.from(state.figures.values()).filter(entry => entry.blink.active).map(entry => ({ key: entry.key, phase: entry.blink ? entry.blink.phase() : "open", rect: entry.figure.blinkBundle && entry.figure.blinkBundle.rect, half: entry.blink.hasHalf, allowed: blinkAllowed(entry) })); },
 		        textures() {
 		            return { gpu: app.renderer.texture.managedTextures.length, cached: textures.size, layers: backgrounds.layers.length,
 		                cachedUrls: Array.from(textures.keys()), baseTextureCache: Object.keys(PIXI.utils.BaseTextureCache).length };
@@ -48276,7 +48196,6 @@ function cardLibraryDisplayName(card) {
 		        destroy() {
 		            state.destroyed = true;
 		            releaseForeground();
-		            releaseBlinkForeground();
 		            releaseResolution();
 		            faceBoxObserver?.disconnect();
 		            emptyThemeObserver.disconnect();
@@ -54348,6 +54267,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
 		        looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
 		        spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+		        figureBlink:{clock:forkForeground},
 		        callViews:{cover:galCover,subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
 		        bust:{framedHead:galFramedHead},
 		        backgrounds:{transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade},

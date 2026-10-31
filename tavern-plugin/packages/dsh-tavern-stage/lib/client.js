@@ -6692,6 +6692,113 @@ return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(co
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageBackgroundLayers};
 
+        // automatic blinking for static sprites that carry an authored blink patch.
+// Timers only: nothing runs per display frame. The caller owns the overlay; the scheduler only
+// reports 'open' | 'half' | 'closed'. No patch, no blink (there is no procedural fallback).
+const BLINK_TIMING = Object.freeze({ minGap: 2500, maxGap: 6000, minClosed: 100, maxClosed: 140, half: 40, doubleChance: 0.15, minDoubleGap: 90, maxDoubleGap: 150 });
+function blinkPlan(random, hasHalf, timing = BLINK_TIMING) {
+    const between = (lo, hi) => Math.round(lo + (hi - lo) * random());
+    const one = () => hasHalf ? [['half', timing.half], ['closed', between(timing.minClosed, timing.maxClosed)], ['half', timing.half]] : [['closed', between(timing.minClosed, timing.maxClosed)]];
+    const steps = one();
+    if (random() < timing.doubleChance) steps.push(['open', between(timing.minDoubleGap, timing.maxDoubleGap)], ...one());
+    return steps;
+}
+// Per-figure blink rhythm (galIdleJitter): the gap between blinks scaled by the figure's own factor
+// (about 0.8–1.2), so figures on one stage do not share an interval distribution; blink length is unchanged.
+function blinkTimingFor(scale, timing = BLINK_TIMING) {
+    const k = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    return k === 1 ? timing : Object.freeze({ ...timing, minGap: Math.round(timing.minGap * k), maxGap: Math.round(timing.maxGap * k) });
+}
+function blinkGap(random, timing = BLINK_TIMING) { return Math.round(timing.minGap + (timing.maxGap - timing.minGap) * random()); }
+// allowed() is consulted at every wake: reduced motion, hidden figure or stage keep the eyes open.
+function createBlinkScheduler({ setTimeout: arm, clearTimeout: disarm, random = Math.random, apply, allowed = () => true, hasHalf = false, timing = BLINK_TIMING }) {
+    let timer = null, phase = 'open', running = false, epoch = 0;
+    const schedule = (fn, ms) => { const token=epoch; return arm(()=>{if(token===epoch && running)fn();},ms); };
+    const set = next => { if (next !== phase) { phase = next; apply(next); } };
+    const wait = () => { timer = schedule(fire, blinkGap(random, timing)); };
+    function step(steps, index) {
+        timer = null;
+        if (!running) return;
+        if (index >= steps.length || !allowed()) { set('open'); wait(); return; }
+        set(steps[index][0]);
+        timer = schedule(() => step(steps, index + 1), steps[index][1]);
+    }
+    function fire() {
+        timer = null;
+        if (!running) return;
+        if (!allowed()) { set('open'); wait(); return; }
+        step(blinkPlan(random, hasHalf, timing), 0);
+    }
+    function halt() { epoch++; if (timer !== null) disarm(timer); timer = null; set('open'); }
+    return {
+        start() { if (running) return; running = true; set('open'); wait(); },
+        // Realign: a new state/emotion starts a fresh interval with the eyes open.
+        restart() { halt(); if (running) wait(); },
+        stop() { running = false; halt(); },
+        phase: () => phase,
+        running: () => running
+    };
+}
+// Base-canvas rect → child position under a sprite with the given anchor (same rule as mouth covers).
+function blinkPlacement(bundle, width, height, anchor) {
+    const [x, y, w, h] = bundle.rect;
+    if (!(w > 0 && h > 0 && x >= 0 && y >= 0 && x + w <= width && y + h <= height)) return null;
+    if (bundle.canvas && (bundle.canvas[0] !== width || bundle.canvas[1] !== height)) return null;
+    return { x: x - width * anchor.x, y: y - height * anchor.y, w, h };
+}
+function blinkUrls(bundle) { return bundle ? [bundle.closed, bundle.half].filter(Boolean) : []; }
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler};
+
+        // Authored blink overlays borrow cached textures and own only their sprites and scheduler.
+function createStageFigureBlink({clock,clockwork,warn=(...args)=>console.warn(...args)}) {
+    let disposed=false,unsubscribe=null;const instances=new Set();
+    const {blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}=clockwork;
+    function create({PIXI,textures,allowed}) {
+        if(disposed)throw new Error('Figure blink owner disposed');
+        let closed=false,scheduler=null,key='',fault='',phase='open',closedSprite=null,halfSprite=null;
+        function reset(){
+            const old=scheduler;scheduler=null;key='';phase='open';const errors=[];
+            try{old?.stop();}catch(error){errors.push(error);}
+            for(const sprite of [closedSprite,halfSprite])try{if(sprite&&!sprite.destroyed)sprite.destroy();}catch(error){errors.push(error);}
+            closedSprite=null;halfSprite=null;
+            if(errors.length)throw new AggregateError(errors,'Blink cleanup failed');
+        }
+        function update({bundle,sprite,baseTexture,ready,rhythm}) {
+            if(closed)return;
+            if(!bundle||!sprite||!ready){if(key)reset();return;}
+            if(key===bundle.key&&(bundle.blend==='replace'||closedSprite?.parent===sprite))return;
+            const records=blinkUrls(bundle).map(url=>textures.get(url));
+            if(!records.every(record=>record&&record.ready&&record.texture)){if(key)reset();return;}
+            const [shut,half]=records.map(record=>record.texture);
+            const at=blinkPlacement(bundle,baseTexture.width,baseTexture.height,sprite.anchor);
+            if(!at||!shut||shut.width!==at.w||shut.height!==at.h||half&&(half.width!==at.w||half.height!==at.h)){
+                if(fault!==bundle.key)warn('[fork-gal-scene] blink patch ignored',bundle.rect);
+                fault=bundle.key;if(key)reset();return;
+            }
+            reset();
+            try {
+                const overlay=texture=>{const child=new PIXI.Sprite(texture);try{child.position.set(at.x,at.y);child.visible=false;sprite.addChild(child);return child;}catch(error){child.destroy();throw error;}};
+                if(bundle.blend!=='replace'){closedSprite=overlay(shut);halfSprite=half?overlay(half):null;}
+                scheduler=createBlinkScheduler({setTimeout:clock.setTimeout,clearTimeout:clock.clearTimeout,
+                    timing:blinkTimingFor(rhythm),hasHalf:Boolean(half),allowed:()=>!closed&&allowed(),
+                    apply:next=>{if(closed)return;phase=next;if(closedSprite)closedSprite.visible=next==='closed';if(halfSprite)halfSprite.visible=next==='half';}});
+                scheduler.start();key=bundle.key;
+            } catch(error){try{reset();}catch(cleanup){throw new AggregateError([error,cleanup],'Blink setup failed');}throw error;}
+        }
+        const view={update,reset,phase:()=>phase,get active(){return Boolean(key);},get hasHalf(){return Boolean(halfSprite);},
+            restart(){if(!closed)scheduler?.restart();},dispose(){if(closed)return;closed=true;instances.delete(view);reset();}};
+        if(!unsubscribe)unsubscribe=clock.subscribe(active=>{if(!active)for(const instance of instances)instance.restart();});
+        instances.add(view);return view;
+    }
+    return {create,urls:blinkUrls,dispose(){
+        if(disposed)return;disposed=true;const errors=[];
+        try{unsubscribe?.();}catch(error){errors.push(error);}unsubscribe=null;
+        for(const view of [...instances])try{view.dispose();}catch(error){errors.push(error);}
+        if(errors.length)throw new AggregateError(errors,'Figure blinks cleanup failed');
+    }};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureBlink};
+
         // Phone call composition owns its output textures; figures and background textures are borrowed.
 function createStageCallViews({canvasTexture,cover:fitCover,subscribeFrames}) {
     let disposed=false;const instances=new Set();
@@ -15874,7 +15981,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
                     const backgroundLayers=own(createStageBackgroundLayers({...options.visualEffects,...options.backgroundLayers}));
                     const backgrounds=own(createStageBackgrounds({...options.visualEffects,...options.backgrounds,layers:backgroundLayers}));
-                    return {callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures:own(createStageSpineFigures(options.spineFigures||{})),sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    return {figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures:own(createStageSpineFigures(options.spineFigures||{})),sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
