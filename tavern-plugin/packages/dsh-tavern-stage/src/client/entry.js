@@ -22,6 +22,7 @@ window.__ModuleLoader__.load({
         __STAGE_MUSIC__
         __STAGE_BGM__
         __STAGE_VIEWS__
+        __STAGE_VIEW_SCOPE__
         return ({
         name: 'dsh-tavern-stage',
         inject: ['tavernStageFrontend'],
@@ -40,17 +41,18 @@ window.__ModuleLoader__.load({
                 style.textContent = __STAGE_PRESENTATION_CSS__;
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => {
-                    const loader = createStageLoader(options.loader);
+                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
+                    const loader = own(createStageLoader(options.loader));
                     const progress = createStageProgress({React:options.React, ...options.admission});
-                    const admission = createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission});
-                    const music = createStageMusic(options.music);
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, notices:createStageNotices({React:options.React, document, ...options.notices}), hints:createStageHints({React:options.React, window, document, music, ...options.hints}), music, bgm:createBgmPlayer({...options.bgm, music}), ambience:createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}), timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
+                    own(progress.store);
+                    const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
+                    const music = own(createStageMusic(options.music));
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...createStageText({React:options.React, document, ...options.text})};
-                }});}
+                })});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');

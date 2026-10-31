@@ -1564,16 +1564,23 @@ function bindStageViews(createViews) {
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
-    const stopBgm = views.bgm.subscribe(bgmChanged);
-    bgmChanged();
-    return () => {
-        stopBgm();
+    let stopBgm = null, disposed = false;
+    const dispose = () => {
+        if (disposed) return;
+        disposed = true;
         if (stageViews === views) stageViews = null;
-        bgmChanged();
         const errors = [];
-        for (const owner of [views.notices, views.hints, views.admission, views.progress.store, views.bgm, views.music, views.ambience, views.timer, views.video, views.loader]) {
-            try {owner.dispose();} catch (error) {errors.push(error);}
+        for (const cleanup of [() => stopBgm?.(), bgmChanged, () => views.dispose()]) {
+            try { cleanup(); } catch (error) { errors.push(error); }
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');
     };
+    try {
+        stopBgm = views.bgm.subscribe(bgmChanged);
+        bgmChanged();
+        return dispose;
+    } catch (error) {
+        try { dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage view binding failed'); }
+        throw error;
+    }
 }
