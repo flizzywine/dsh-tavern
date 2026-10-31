@@ -917,11 +917,11 @@ function GalStage(props) {
     const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
     const shotHere = !awaiting && shot.key === turn + ':' + page;
     // reserve the full directed cast's slots while individual resources arrive.
-    const members = state ? packStageMembers(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
+    const members = state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
     const items = members.map(member => {
         const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
-        return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:packFigureShade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
+        return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
             // reopening/restoring is not a new entrance (same policy as the background cut).
             visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:galGaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
@@ -1015,10 +1015,10 @@ function GalStage(props) {
     const boxFace = phoneLine ? (!film && boxSpeaker ? portraits.get(boxSpeaker) || null : null) : portraitFace;
     // a cast figure is never dropped silently. A sprite outfit
     // without any image stands in as its avatar (its slot), and every display fallback is listed in the stage notice.
-    const castMembers = state ? packStageMembers(state) : [];
-    const standIns = castMembers.filter(member => !renderInputs.get(member.id)?.stage && portraits.get(member.id)?.src && packSpriteStandIn(pack.characters.find(figure => figure.alias === member.id)))
+    const castMembers = state ? stageViews.speaker.members(state) : [];
+    const standIns = castMembers.filter(member => !renderInputs.get(member.id)?.stage && portraits.get(member.id)?.src && stageViews.speaker.standIn(pack.characters.find(figure => figure.alias === member.id)))
         .flatMap(member => !figureLayout ? [member] : member.id in figureLayout.x ? [{...member, x:figureLayout.x[member.id]}] : []);
-    const spriteFallbacks = useGalSpriteFallbacks(sessionId, packSpriteFallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
+    const spriteFallbacks = useGalSpriteFallbacks(sessionId, stageViews.speaker.fallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
     // the host projected an on-stage Live2D figure down to its sprite (no Core).
     
     

@@ -25079,19 +25079,6 @@ function tavernModelRefusalNotice(text) {
 		        cache.set(projection,value); return value;
 		    };
 		}
-		// The reducer has already consumed entry slots. Missing figures do not reserve invisible anchors.
-		function packStageMembers(state, stageable = () => true) {
-		    const cast = state.cast.filter(id => stageable(id));
-		    return cast.map((id, index) => ({id, x:(index + 1) / (cast.length + 1), gaze:state.actors[id].gaze, light:state.actors[id].figureLight}));
-		}
-		// preserve the live stage's listener/close-up dimming, independently of figure-light cues.
-		// A skin with dimListeners: false (stage-skin-adv.md: listeners keep full light) keeps only the close-up dimming.
-		function packFigureShade(alias, speaker, members, camera, dimListeners = true) {
-		    const speaking = alias === speaker;
-		    let shade = speaking || !dimListeners ? 1 : members.some(member => member.id === speaker) ? 0.8 : 0.94;
-		    if (camera?.mode === 'close' && camera.actor !== alias && !speaking) shade *= 0.82;
-		    return shade;
-		}
 		const packSpriteViewCache = new WeakMap();
 		function packSpriteViews(figure, contract) {
 		    if (packSpriteViewCache.has(figure)) return packSpriteViewCache.get(figure);
@@ -25201,28 +25188,6 @@ function tavernModelRefusalNotice(text) {
 		        if (value) result[word] = value;
 		    }
 		    return Object.keys(result).length ? result : null;
-		}
-		// a sprite figure whose outfit has no sprite image at all
-		// (not even calm) stands on the stage as the outfit's avatar, a small portrait (gal-stage.js), never vanishes.
-		function packSpriteStandIn(figure) {
-		    const resolution = figure?.spriteResolution;
-		    return figure?.form === 'sprite' && figure.views?.stage !== false && Boolean(resolution?.missing) && !resolution.state;
-		}
-		// One report row per on-stage sprite figure whose requested 差分 has no image of its own (selectPackFigure →
-		// resolveSpriteDisplay). Display-only: the data slot stays missing. `shown` is the emotion displayed instead, '@avatar'
-		// (the avatar stand-in) or null (nothing at all to show). `key` dedupes per figure · outfit · 差分.
-		function packSpriteFallbacks(characters, onStage = () => true, hasPortrait = () => false) {
-		    const rows = [];
-		    for (const figure of characters || []) {
-		        const resolution = figure?.spriteResolution;
-		        if (figure?.form !== 'sprite' || figure.views?.stage === false || !resolution?.missing || resolution.intentionalFallback || !onStage(figure.alias)) continue;
-		        const requested = resolution.requestedEmotion || 'calm', labels = resolution.labels || {};
-		        const shown = resolution.state ? resolution.resolvedEmotion || resolution.state.id : hasPortrait(figure.alias) ? '@avatar' : null;
-		        rows.push({key:JSON.stringify([figure.ref?.packId || '', figure.ref?.figureId || figure.alias, figure.outfitKey || '', requested]),
-		            alias:figure.alias, figure:labels.figure || '', outfit:figure.outfit?.label || figure.outfitKey || '', requested, shown,
-		            requestedLabel:labels[requested] || '', shownLabel:shown && shown !== '@avatar' ? labels[shown] || '' : ''});
-		    }
-		    return rows;
 		}
 		// image identity belongs to the pinned content, never its transport.
 		function packCropStyle(crop, width, height, cropOverflow = false) {
@@ -25507,7 +25472,7 @@ function tavernModelRefusalNotice(text) {
 		        title:state?.error || descriptor?.diagnostics?.join(', ') || 'Speech',
 		        onClick:() => state?.audio && !state.audio.paused ? player.stop() : void player.play(descriptor,{text,mood})}, state?.loading ? 'Loading speech' : state?.audio && !state.audio.paused ? 'Stop speech' : 'Play speech');
 		}
-		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {packPerformanceScene, createPackCalibration, createPackFigureCalibration, createPackSceneLayers, packStageMembers, packFigureShade, packSpriteViews, packBlinkBundle, packSpineInputs, packSpineBottomFade, packFigureRenderInputs, packFigureReactions, packSpriteStandIn, packSpriteFallbacks, createPackVoicePlayer};
+		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {packPerformanceScene, createPackCalibration, createPackFigureCalibration, createPackSceneLayers, packSpriteViews, packBlinkBundle, packSpineInputs, packSpineBottomFade, packFigureRenderInputs, packFigureReactions, createPackVoicePlayer};
 		// the browser's own speech
 		// synthesis (Web Speech) as a voice provider. It yields no audio data — a line is an utterance spoken by the system — so it
 		// never reaches the WebAudio mixer: no loudness levelling, no ducking of the voice itself, no low-pass, no analyser. Its
@@ -60443,11 +60408,11 @@ function galUiApplier() {
 		    const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
 		    const shotHere = !awaiting && shot.key === turn + ':' + page;
 		    // reserve the full directed cast's slots while individual resources arrive.
-		    const members = state ? packStageMembers(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
+		    const members = state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
 		    const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
 		    const items = members.map(member => {
 		        const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
-		        return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:packFigureShade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
+		        return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
 		            // reopening/restoring is not a new entrance (same policy as the background cut).
 		            visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:galGaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
 		            figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
@@ -60541,10 +60506,10 @@ function galUiApplier() {
 		    const boxFace = phoneLine ? (!film && boxSpeaker ? portraits.get(boxSpeaker) || null : null) : portraitFace;
 		    // a cast figure is never dropped silently. A sprite outfit
 		    // without any image stands in as its avatar (its slot), and every display fallback is listed in the stage notice.
-		    const castMembers = state ? packStageMembers(state) : [];
-		    const standIns = castMembers.filter(member => !renderInputs.get(member.id)?.stage && portraits.get(member.id)?.src && packSpriteStandIn(pack.characters.find(figure => figure.alias === member.id)))
+		    const castMembers = state ? stageViews.speaker.members(state) : [];
+		    const standIns = castMembers.filter(member => !renderInputs.get(member.id)?.stage && portraits.get(member.id)?.src && stageViews.speaker.standIn(pack.characters.find(figure => figure.alias === member.id)))
 		        .flatMap(member => !figureLayout ? [member] : member.id in figureLayout.x ? [{...member, x:figureLayout.x[member.id]}] : []);
-		    const spriteFallbacks = useGalSpriteFallbacks(sessionId, packSpriteFallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
+		    const spriteFallbacks = useGalSpriteFallbacks(sessionId, stageViews.speaker.fallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
 		    // the host projected an on-stage Live2D figure down to its sprite (no Core).
 		    
 		    
