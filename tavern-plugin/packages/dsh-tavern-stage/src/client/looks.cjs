@@ -289,7 +289,7 @@ function galCreateLookRenderer(env) {
                 lightning: beats.lightning, vignette: vig, haze: [look.haze.color, look.haze.amount], shake: beats.shake });
         },
         stats() {
-            return { look: state.resolved ? state.resolved.id : "", lighting: state.resolved ? state.resolved.lighting : null, fades: state.layers.map(layer => layer.duration), grade: state.resolved ? state.resolved.grade : "", textures: Array.from(state.textures.keys()),
+            return { filters:Object.entries(slots).flatMap(([chain,store])=>Object.values(store).map(slot=>chain+":"+slot.name+(slot.filter.enabled===false?"(idle)":""))), look: state.resolved ? state.resolved.id : "", lighting: state.resolved ? state.resolved.lighting : null, fades: state.layers.map(layer => layer.duration), grade: state.resolved ? state.resolved.grade : "", textures: Array.from(state.textures.keys()),
                 frame: Math.round((framePicture.visible ? framePicture.alpha : 0) * 100) / 100, vignette: Math.round(vignette.alpha * 100) / 100, haze: Math.round(haze.alpha * 100) / 100, leaks: leaks.filter(item => item.visible).length, flare: flare.visible };
         },
         destroy

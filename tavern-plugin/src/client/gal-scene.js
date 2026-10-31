@@ -218,7 +218,7 @@ function galCreateScene(host, options) {
         return filter;
     }
     // pixi-filters (post effects) load in the background; until then grading and particles still work.
-    loadPixiFilters().catch(error => console.warn("[fork-gal-scene] pixi-filters", error));
+    stageViews.effects.loadFilters().catch(error => console.warn("[fork-gal-scene] pixi-filters", error));
 
     const state = {
         desc: null, override: null, debugEffects: [], destroyed: false,
@@ -260,7 +260,7 @@ function galCreateScene(host, options) {
         }
         return state.preview.registry;
     }
-    const effects = galCreateEffects({ PIXI, app, world, backdrop, backFx, frontFx, emotes: emotesBox, overlay, filters, tune, quality: () => quality, headOf });
+    const effects = stageViews.effects.create({ PIXI, app, world, backdrop, backFx, frontFx, emotes: emotesBox, overlay, filters, tune, quality: () => quality, headOf });
 
     // ---- textures (backgrounds and static portraits): decoded off the main thread, uploaded before use.
     function loadTexture(url) {
