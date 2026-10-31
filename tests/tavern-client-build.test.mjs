@@ -14,6 +14,13 @@ test('完整客户端必须可解析，局部源码测试不能代替入口语�
   const shipped = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
   assert.equal(shipped, source, 'committed core client must match current sources; run node bin/build-tavern-client.mjs')
   assert.equal(source.includes('function createStageNavigation('), false, 'navigation implementation belongs to the optional client')
+  // These moved features must stay in the optional payload, even when a future include is edited.
+  const stage = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8')
+  for (const name of ['createStageWidgets', 'createStagePhoneAdjust', 'createStagePhoneLayout', 'createStageGallery', 'createStageCg', 'createStageDevice', 'createStageMixer', 'createStageSfx', 'createStageTransitions', 'WidgetPanel', 'WidgetContextMenu', 'CgGalleryImage']) {
+    const declaration = new RegExp('function\\s+' + name + '\\s*\\(')
+    assert.equal(declaration.test(source), false, name + ' must not ship in the core payload')
+    assert.equal(declaration.test(stage), true, name + ' must ship in the optional stage payload')
+  }
   assert.equal(source.includes('.fork-tc-layer {'), false, 'stage text-card CSS is not embedded in core')
   assert.equal(source.includes('.fork-widget-source-controls{position:absolute;'), false, 'stage widget layout CSS is not embedded in core')
 })
