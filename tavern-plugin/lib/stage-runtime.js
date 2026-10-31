@@ -1,3 +1,4 @@
+import {createForegroundCapabilities} from './domain/foreground-capabilities.js'
 import {createStageCardAssets} from './stage-card-assets.js'
 import {createResourceScope} from './domain/resource-scope.js'
 import {createStageAssets, createStageModule, createStageServices} from './stage-module.js'
@@ -16,6 +17,14 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
   try {assets = factories.assets({...core,ctx:scope.ctx})} catch(error) {failed(error)}
   return Object.freeze({
     assets,
+    foreground(bindings) {
+      assert('assets')
+      const capabilities=createForegroundCapabilities({...bindings,
+        modPrompts:(chat,options)=>module?.managedModManagement.foreground(chat,options),
+        judge:()=>assets.assetEngineSettings.read().values.judge})
+      scope.own(capabilities)
+      return capabilities
+    },
     cards(bindings) {
       assert('assets')
       try {return createStageCardAssets({...bindings,...assets,modManifests:() => module?.modService.manifests() || [],ctx:scope.ctx,active:scope.active})}

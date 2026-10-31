@@ -56,17 +56,22 @@ export function foregroundVoiceConfigurationKey(config) {
 
 // Persist only capability text and its authored configuration identity; never rewrite history.
 export function createForegroundCapabilities({session,readConfig,render,save,modPrompts,judge=()=>undefined}) {
+  let active=true
+  const assertCurrent=()=>{if(!active)throw Object.assign(new Error('Stage presentation unavailable'),{code:'STAGE_UNAVAILABLE'})}
   const pending=new Map(),accepted=new Map()
   const roundKey = (chat,epoch,native) => JSON.stringify([chat.id,chat.sessionId,epoch,
     sessionEvents(native).findLast(event=>event.type==='turn/start')?.data?.turn ?? chat.messages?.at(-1)?.turn ?? 0])
   async function capture(chat,epoch,userText,config,configurationKey) {
+    assertCurrent()
     config ||= await readConfig(chat.cardPath)
+    assertCurrent()
     const aliases=foregroundRecalledFigures(config,chat,{userText,judge:judge()})
     const builtin=foregroundCapabilityEntries(config,chat,{aliases})
     const previous=chat.foregroundCapabilities?.modPrompts
     // Core voice corrections may refresh the roster, never the managed text in the same native epoch.
     const contributions=modPrompts ? previous?.sessionId===chat.sessionId && previous.epoch===epoch ? previous :
       await modPrompts(chat,{previous,nativeSession:session(chat.sessionId),sessionId:chat.sessionId}) : undefined
+    assertCurrent()
     const parts=contributions ? managedForegroundEntries(contributions) : []
     const extras=parts.map((entry,index)=>({...entry,
       position:0,...config.injection?.placement,order:Number(config.injection?.placement?.order ?? 100)+2+index}))
@@ -74,6 +79,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     // Author macros resolve once; managed Markdown is literal even on its first projection.
     const rendered=await render(chat,replace(null,entries.map(entry=>entry.capabilityPart?.modId ? entry :
       (({foregroundCapability,...value})=>value)(entry))))
+    assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
     return {version:1,sessionId:chat.sessionId,epoch,configurationKey:configurationKey || foregroundVoiceConfigurationKey(config),
       figures:config.enabled ? [...aliases] : [],...(contributions?{modPrompts:structuredClone(contributions)}:{}),entries:entries.flatMap(entry=>{
@@ -82,7 +88,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     })}
   }
   async function preview(chat,{userText='',nextRound=false,readConfig:previewConfig=readConfig}={}) {
-    if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return []
+    if(!active || !chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return []
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
     const key=roundKey(chat,epoch,native)
@@ -93,6 +99,7 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const snapshot=saved ?? await capture(chat,epoch,userText,config ?? await previewConfig(chat.cardPath),configurationKey)
     // Preview never accepts/persists a new epoch. Frozen entries render in the actual body order.
     const rendered=await render(chat,replace(null,snapshot.entries))
+    assertCurrent()
     if(rendered.diagnostics?.length)throw new Error('Foreground capability template projection failed')
     const entries=new Map(snapshot.entries.map(entry=>[entry.ref,entry]))
     const parts=rendered.renderedEntries.filter(row=>entries.has(row.ref)).map(row=>({
@@ -100,9 +107,10 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     }))
     // A freshly captured roster already holds every figure recalled for this text, so only a saved snapshot can lag.
     const late=saved ? await rosterAddendum(chat,{userText,snapshot,read:previewConfig}) : ''
+    assertCurrent()
     return late ? [...parts,{key:'roster-addendum',name:'说话人名单补录',owners:'全局',text:late,tokens:estimateDirectorTokens(late)}] : parts
   }
-  async function project(chat,book,{persist=true,userText=''}={}) {
+  async function projectActive(chat,book,{persist=true,userText=''}={}) {
     if(!chat.sessionId || !['story','script'].includes(chat.mode || 'story'))return book
     const native=session(chat.sessionId),old=chat.foregroundCapabilities
     const epoch=native ? foregroundCapabilityEpoch(native) : old?.epoch || ''
@@ -110,20 +118,30 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     if(accepted.has(key)) {chat.foregroundCapabilities=structuredClone(accepted.get(key));return replace(book,accepted.get(key).entries)}
     if(!pending.has(key))pending.set(key,(async()=>{
       const config=await readConfig(chat.cardPath)
+      assertCurrent()
       const configurationKey=foregroundVoiceConfigurationKey(config)
       const unchanged=old?.sessionId===chat.sessionId && old.epoch===epoch && old.configurationKey===configurationKey && !!old.figures
       const snapshot=unchanged ? old : await capture(chat,epoch,userText,config,configurationKey)
-      if(persist && !unchanged)await save(chat,snapshot)
+      assertCurrent()
+      if(persist && !unchanged)await save(chat,snapshot,{assertCurrent})
+      assertCurrent()
       accepted.set(key,snapshot)
       while(accepted.size>128)accepted.delete(accepted.keys().next().value)
       return snapshot
     })())
     try {
-      chat.foregroundCapabilities=structuredClone(await pending.get(key))
+      const snapshot=await pending.get(key)
+      assertCurrent()
+      chat.foregroundCapabilities=structuredClone(snapshot)
       return replace(book,chat.foregroundCapabilities.entries)
     } finally {pending.delete(key)}
   }
+  async function project(chat,book,options) {
+    if(!active)return replace(book,[])
+    try {return await projectActive(chat,book,options)} catch(error) {if(!active)return replace(book,[]);throw error}
+  }
   async function refresh(chat, expectedInjection) {
+    assertCurrent()
     const before=structuredClone(chat.foregroundCapabilities)
     if(!before || JSON.stringify(await preview(chat))!==JSON.stringify(expectedInjection))
       throw Object.assign(new Error('Foreground prompt changed; read it again before refreshing'),{code:'REVISION_CONFLICT'})
@@ -131,7 +149,8 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
     const snapshot=await capture(chat,epoch,'')
     if(JSON.stringify(snapshot)===JSON.stringify(before))return preview(chat)
     // Explicit author correction only: ordinary turns still retain their frozen prefix.
-    await save(chat,snapshot,{expected:before})
+    await save(chat,snapshot,{expected:before,assertCurrent})
+    assertCurrent()
     chat.foregroundCapabilities=structuredClone(snapshot)
     accepted.set(roundKey(chat,epoch,native),snapshot)
     return preview(chat)
@@ -139,12 +158,12 @@ export function createForegroundCapabilities({session,readConfig,render,save,mod
   // A figure recalled after the roster froze goes to this turn's tail instead of rewriting the cached prefix;
   // the next recompute (session start, compaction, configuration change, or a snapshot saved without figures) moves it into the roster.
   async function rosterAddendum(chat,{userText='',snapshot=chat.foregroundCapabilities,read=readConfig}={}) {
-    if(!snapshot?.figures || snapshot.sessionId!==chat.sessionId)return ''
+    if(!active || !snapshot?.figures || snapshot.sessionId!==chat.sessionId)return ''
     const config=await read(chat.cardPath)
-    if(foregroundVoiceConfigurationKey(config)!==snapshot.configurationKey)return ''
+    if(!active || foregroundVoiceConfigurationKey(config)!==snapshot.configurationKey)return ''
     const frozenAliases=new Set(snapshot.figures)
     const aliases=new Set([...foregroundRecalledFigures(config,chat,{userText,judge:judge()})].filter(alias=>!frozenAliases.has(alias)))
     return aliases.size ? bubbleRosterAddendum(config,{speakerRows:config.characters,aliases,frozenAliases}) : ''
   }
-  return {project,preview,refresh,rosterAddendum}
+  return {project,preview:async(...args)=>{try{return await preview(...args)}catch(error){if(!active)return [];throw error}},refresh,rosterAddendum,dispose(){active=false;accepted.clear()}}
 }

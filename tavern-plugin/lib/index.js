@@ -4,7 +4,6 @@ import {createPresentationObservers} from './domain/presentation-observers.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
-import { createForegroundCapabilities } from './domain/foreground-capabilities.js'
 import { isWorldBookTemplateEntry, projectWorldBookTemplates } from './domain/worldbook-recall.js'
 import { createSkillTextContext } from './domain/skill-text-context.js'
 import { resolveWorldbookSkillChat } from './domain/worldbook-skill-scope.js'
@@ -2027,21 +2026,19 @@ export async function apply(ctx) {
     return await conversationInitialization.ensureOpening(sessionId)
   }
   const contextPlanner = createContextPlanner({ prompt: runtimePrompt, callModel: callModel, now: Date.now, logger: console })
-  const foregroundCapabilities = createForegroundCapabilities({
-    modPrompts: (chat,options)=>managedModManagement.foreground(chat,options),
+  const foregroundCapabilities = stageRuntime.foreground({
     session: id => sessionStore.get(id) || agentRegistry.get(id)?.session,
     readConfig: cardPath => dialogueBubbles.read(cardPath, {requireAvailable:true}),
-    judge: () => assetEngineSettings.read().values.judge,
     render: async (chat, worldBook) => {
       if (stageReadScope(chat) && worldBook.view.entries.some(isWorldBookTemplateEntry)) chat = await readStageChat(chat.sessionId)
       return projectWorldBookTemplates({worldBook,includeConstants:true,
         runtime:await promptTemplateRuntime(chat.sessionId),globalVariables:await readPromptTemplateGlobalVariables(),chat,card:{name:chat.cardName}})
     },
     save: (chat, snapshot, options) => updateChat(chat.id, draft => {
-      if(options && JSON.stringify(draft.foregroundCapabilities)!==JSON.stringify(options.expected))
+      if(options && Object.hasOwn(options,'expected') && JSON.stringify(draft.foregroundCapabilities)!==JSON.stringify(options.expected))
         throw Object.assign(new Error('Foreground prompt changed'),{code:'REVISION_CONFLICT'})
       draft.foregroundCapabilities=snapshot;return draft
-    }, {source:'foreground.capabilities',touchUpdatedAt:false})
+    }, {source:'foreground.capabilities',touchUpdatedAt:false,assertCurrent:options?.assertCurrent})
   })
   const playCardSnapshots = createPlayCardSnapshots({ worldBooks, planner: contextPlanner, readCard: readChatCard, readLatestCard, writeChat, updateChat, userPreferenceProfile })
   const ensurePlayCardSnapshot = playCardSnapshots.ensure
@@ -2437,7 +2434,7 @@ export async function apply(ctx) {
     presentationObservers, workflow, modelSlots, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
     readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
  containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
-  const {managedModManagement, stageDirector} = stageModule
+  const {stageDirector} = stageModule
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
