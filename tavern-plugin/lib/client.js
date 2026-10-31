@@ -60048,6 +60048,7 @@ function galUiApplier() {
 		        phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
 		        skinCursor:{matchMedia, clock:forkForeground},
+		        backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
 		        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer},
 		        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
 		        configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
@@ -60802,42 +60803,6 @@ function galUiApplier() {
 		// the Chat snapshot's user messages; it never writes story, variables or prompts.
 		// The kind registry (stage-performance-kinds.cjs) is included once, by core-item-presentation.cjs.
 
-		// A row's voice for the chat bubble's voice control (voice.js VoiceButton): the published voice handle
-		// with the live player state; a click wakes lip sync and plays / pauses the line without jumping to its page.
-		function galBacklogVoice(voice, player) {
-		    if (!voice) return null;
-		    return Object.assign({}, voice, { player: player || null, click(event) {
-		        if (event && event.stopPropagation) event.stopPropagation();
-		        if (typeof forkLipSync === "object" && forkLipSync.wake) forkLipSync.wake();
-		        voice.click();
-		    } });
-		}
-		// 旁白配音: an earlier round's narration row is its whole paragraph, read page by page on the
-		// stage; its replay plays those pages' narrator voices one after another under one id (one button state), and stops
-		// when the reader pauses for good, stops or plays something else.
-		function galBacklogNarration(handles) {
-		    if (handles.length < 2) return handles[0] || null;
-		    const id = JSON.stringify(handles.map(handle => handle.id));
-		    return Object.assign({}, handles[0], { id, click() {
-		        let index = 0;
-		        const next = () => {
-		            const handle = handles[index++];
-		            if (!handle) return;
-		            void handle.click({ id }).then(played => {
-		                const audio = played && voicePlayer.get()?.audio;
-		                if (!audio) return;
-		                const off = voicePlayer.subscribe(() => {
-		                    const current = voicePlayer.get();
-		                    if (current?.id === id && current.audio === audio) return;
-		                    off();
-		                    if (!current && audio.ended) next();
-		                });
-		            });
-		        };
-		        next();
-		    } });
-		}
-
 		const BACKLOG_LIST = {layout:'list', close:'head', roles:{speech:{look:'row'}, player:{look:'row'}, narration:{look:'row'}, notice:{look:'row'}, divider:{look:'rule'}}, style:{}};
 
 		// ---------- Backlog view ----------
@@ -61158,9 +61123,9 @@ function galUiApplier() {
 		        const jump = true;
 		        // A narration page's handle is the narrator's (null while it is silent on this card).
 		        const handle = line ? entry.voice || (entry.descriptor ? props.voiceOf?.(entry.descriptor) : null)
-		            : entry.voice?.narration ? entry.voice : galBacklogNarration((entry.descriptors || []).map(descriptor => props.voiceOf?.(descriptor)).filter(Boolean));
+		            : entry.voice?.narration ? entry.voice : stageViews.backlogVoice.narration((entry.descriptors || []).map(descriptor => props.voiceOf?.(descriptor)).filter(Boolean));
 		        // A skin whose original log has no replay control (art.voice.backlog false, stageSkinBacklog) shows none; R still replays.
-		        const voice = looks.voice !== false ? galBacklogVoice(handle, player) : null;
+		        const voice = looks.voice !== false ? stageViews.backlogVoice.voice(handle, player) : null;
 		        const pos = clip.posOf(entry), mark = band[index];
 		        // A mod-declared line kind's badge (「手机」), drawn as the skin's backlog.badge says (look, place, paint; stageSkinBacklog):
 		        // the kind's icon (its label the accessible name) or its label. It only marks where the line was read (
