@@ -1,4 +1,4 @@
-import { createStageHandlers } from '../tavern-plugin/lib/rpc/stage.js'
+import { createStageHandlers } from '../tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js'
 // tagged English defaults; retain protocol, payload, cache and budget assertions.
 // historical vocabulary is fixture data, not a runtime default.
 // include source literally, without String.replace replacement-token expansion.

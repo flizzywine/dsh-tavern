@@ -1,4 +1,4 @@
-import {roundBody, streamTailClosed} from './domain/round-body.js'
+import {roundBody, streamTailClosed} from '../../../lib/domain/round-body.js'
 
 // Stage-owned adapter. Core saves and streams know only optional observers.
 export function createStageStoryObserver({settlementQueued, modService, stageDirector, chatPersistence,

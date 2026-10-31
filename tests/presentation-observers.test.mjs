@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createPresentationObservers} from '../tavern-plugin/lib/domain/presentation-observers.js'
-import {createStageStoryObserver} from '../tavern-plugin/lib/stage-story-observer.js'
+import {createStageStoryObserver} from '../tavern-plugin/packages/dsh-tavern-stage/lib/story-observer.js'
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => {let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}
 

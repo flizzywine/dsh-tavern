@@ -1,7 +1,7 @@
-import {createForegroundCapabilities} from './domain/foreground-capabilities.js'
-import {createStageCardAssets} from './stage-card-assets.js'
-import {createResourceScope} from './domain/resource-scope.js'
-import {createStageAssets, createStageModule, createStageServices} from './stage-module.js'
+import {createForegroundCapabilities} from '../../../lib/domain/foreground-capabilities.js'
+import {createStageCardAssets} from './card-assets.js'
+import {createResourceScope} from '../../../lib/domain/resource-scope.js'
+import {createStageAssets, createStageModule, createStageServices} from './module.js'
 
 // Private migration composition: one owner for the existing staged construction.
 // These bindings are not the public interface of the future optional plugin.

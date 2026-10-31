@@ -1,7 +1,7 @@
-import {createStageHandlers} from './rpc/stage.js'
-import {MOD_MANAGEMENT_METHODS} from './mod-service.js'
-import {MANAGED_MOD_METHODS} from './mod-system-production.js'
-import {MOD_CONFIG_METHODS} from './mod-config.js'
+import {createStageHandlers} from './rpc.js'
+import {MOD_MANAGEMENT_METHODS} from '../../../lib/mod-service.js'
+import {MANAGED_MOD_METHODS} from '../../../lib/mod-system-production.js'
+import {MOD_CONFIG_METHODS} from '../../../lib/mod-config.js'
 
 const remoteReads = new Set(['getStageDirection', 'getStageModHistory', 'getDialogueBubbles'])
 const widgetMethods = new Set(['readWidgetVariables', 'proposeWidgetVariables', 'widgetVariableStatus', 'invalidateWidgetVariables'])

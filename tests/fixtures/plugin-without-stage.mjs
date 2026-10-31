@@ -17,7 +17,7 @@ try {
   await assert.rejects(host.rpc('getStageDirection',{sessionId:'ordinary'}),/未知方法/)
   const control=host.services.get('tavernStageControl')
   for(let cycle=0;cycle<2;cycle++) {
-    await control.enable()
+    await control.enable(() => import('../../tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js'))
     assert.equal(control.status(),'ready')
     assert.ok(host.services.get('tavernAssetCards'))
     assert.ok(host.services.get('tavernManagedModules'))

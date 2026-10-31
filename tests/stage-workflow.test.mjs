@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createStageWorkflow} from '../tavern-plugin/lib/stage-workflow.js'
+import {createStageWorkflow} from '../tavern-plugin/packages/dsh-tavern-stage/lib/workflow.js'
 import {createWorkflow} from '../tavern-plugin/lib/domain/workflow.js'
 import {createStoryEvents} from '../tavern-plugin/lib/domain/story-events.js'
 const tick=()=>new Promise(resolve=>setImmediate(resolve))

@@ -1,10 +1,10 @@
 export const name = 'dsh-tavern-stage'
 export const inject = ['tavernStageControl']
 
-// The independent Cordis lifetime owns activation. Runtime implementation migration
-// follows this entry; no private core objects are exposed through the control service.
+// The package owns implementation loading and its Cordis lifetime.
+// The host retains only the private migration adapters until interface extraction finishes.
 export async function apply(ctx) {
   const control = ctx.get('tavernStageControl')
   ctx.effect(() => () => control.disable(), 'dsh-tavern-stage: disable runtime')
-  await control.enable()
+  await control.enable(() => import('./runtime.js'))
 }

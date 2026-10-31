@@ -5,8 +5,9 @@ const ordinaryBook=book=>book ? {...book,view:{...book.view,entries:(book.view?.
 
 // Migration boundary: stable consumers survive an absent or failed runtime.
 // The implementation is loaded only when enabled; this is not the final public plugin API.
-export async function createOptionalStage(core,{enabled=true,load=()=>import('./stage-runtime.js'),warn=error=>console.warn('dsh-tavern: 舞台不可用',error?.message)}={}) {
+export async function createOptionalStage(core,{enabled=true,load,warn=error=>console.warn('dsh-tavern: 舞台不可用',error?.message)}={}) {
   let runtime=null,foreground=null,cards=null,state=enabled?'loading':'disabled'
+  let loadImplementation=load
   const phases=new Map()
   let generation=0,prepared=false,disposed=false,enabling=null,draining=Promise.resolve()
   const report=error=>{try{warn(error)}catch{}}
@@ -26,7 +27,11 @@ export async function createOptionalStage(core,{enabled=true,load=()=>import('./
     const old=runtime;runtime=null;foreground=null;cards=null;state='disabled';enabling=null
     return release(old)
   }
-  async function enable() {
+  async function enable(loader) {
+    if(loader !== undefined) {
+      if(typeof loader !== 'function')throw new TypeError('Stage loader must be a function')
+      loadImplementation=loader
+    }
     if(disposed)throw Object.assign(new Error('Stage controller disposed'),{code:'STAGE_UNAVAILABLE'})
     if(!prepared)throw new Error('Stage host is not ready')
     if(enabling)return enabling
@@ -35,7 +40,7 @@ export async function createOptionalStage(core,{enabled=true,load=()=>import('./
     state='loading'
     const work=(async()=>{
       await draining
-      const implementation=await load()
+      const implementation=await loadImplementation()
       if(disposed || version!==generation)return
       runtime=implementation.createStageRuntime(core)
       const installed=runtime
@@ -50,7 +55,7 @@ export async function createOptionalStage(core,{enabled=true,load=()=>import('./
     enabling=work
     try {await work} finally {if(enabling===work)enabling=null}
   }
-  if(enabled)try {runtime=(await load()).createStageRuntime(core);state='loaded'}catch(error){failed(error)}
+  if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);state='loaded'}catch(error){failed(error)}
   const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
   const dialogueBubbles={
     read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),

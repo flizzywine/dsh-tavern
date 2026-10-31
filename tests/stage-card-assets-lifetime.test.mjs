@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createStageCardAssets} from '../tavern-plugin/lib/stage-card-assets.js'
+import {createStageCardAssets} from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-assets.js'
 
 test('card import authorization rejects a card read completed after stage disposal',async()=>{
   let active=true,resolve;const pending=new Promise(done=>resolve=done),services=new Map()

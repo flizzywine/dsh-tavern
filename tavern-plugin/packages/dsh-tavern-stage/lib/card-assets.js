@@ -1,8 +1,8 @@
-import {createCardAssetBoundary} from './card-asset-bindings.js'
-import {createCardBundleAdapter,createCardBundleWriter} from './card-bundle.js'
-import {createCardZipTargets} from './card-zip-target.js'
-import {normalizeResourcePath} from './domain/file-resources.js'
-import {readCardVariableSources} from './domain/card-variable-bindings.js'
+import {createCardAssetBoundary} from '../../../lib/card-asset-bindings.js'
+import {createCardBundleAdapter,createCardBundleWriter} from '../../../lib/card-bundle.js'
+import {createCardZipTargets} from '../../../lib/card-zip-target.js'
+import {normalizeResourcePath} from '../../../lib/domain/file-resources.js'
+import {readCardVariableSources} from '../../../lib/domain/card-variable-bindings.js'
 
 // Private composition of the stage-owned asset/card bridge.
 export function createStageCardAssets({ctx,active,assetEngineSettings,modManifests,fileResources,readCardWorkspace,updateCard,

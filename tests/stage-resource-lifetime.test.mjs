@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 import {createResourceScope} from '../tavern-plugin/lib/domain/resource-scope.js'
-import {createStageRuntime} from '../tavern-plugin/lib/stage-runtime.js'
+import {createStageRuntime} from '../tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js'
 
 function host() {
   const stops=[], listeners=new Set()

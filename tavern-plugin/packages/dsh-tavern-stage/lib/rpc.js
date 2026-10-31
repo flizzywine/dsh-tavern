@@ -1,6 +1,6 @@
-import { widgetSourceRounds } from '../domain/widget-window-projection.js'
-import { NARRATOR_VOICE } from '../domain/asset-pack-speech.js'
-import { phoneMark, phoneMarkRounds as phoneRounds } from '../../mods/phone/call-context.js'
+import { widgetSourceRounds } from '../../../lib/domain/widget-window-projection.js'
+import { NARRATOR_VOICE } from '../../../lib/domain/asset-pack-speech.js'
+import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
 // A dsh.phone message mark: the phone reads in full only the earlier rounds whose record binds a phone view and marks one.

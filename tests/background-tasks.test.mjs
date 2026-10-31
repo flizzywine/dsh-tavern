@@ -4,7 +4,7 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { BACKGROUND_TASK_CATALOG, describeTasks, registerBackgroundTasks } from '../tavern-plugin/lib/domain/background-tasks.js'
-import { STAGE_DIRECTOR_TASK } from '../tavern-plugin/lib/stage-workflow.js'
+import { STAGE_DIRECTOR_TASK } from '../tavern-plugin/packages/dsh-tavern-stage/lib/workflow.js'
 import { createStoryEvents } from '../tavern-plugin/lib/domain/story-events.js'
 import { createWorkflow } from '../tavern-plugin/lib/domain/workflow.js'
 

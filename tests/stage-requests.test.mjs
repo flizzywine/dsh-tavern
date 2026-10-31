@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createStageRequests} from '../tavern-plugin/lib/stage-requests.js'
+import {createStageRequests} from '../tavern-plugin/packages/dsh-tavern-stage/lib/requests.js'
 
 test('stage owns aliases, widget input normalization and original authority',async()=>{
   const authority={origin:'http://game.test'},seen=[]
