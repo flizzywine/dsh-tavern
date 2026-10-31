@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
     factory: () => {
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
+        __STAGE_CONTROLS__
         __STAGE_NOTICES__
         __STAGE_HINTS__
         __STAGE_PRESENTATION__
@@ -42,12 +43,13 @@ window.__ModuleLoader__.load({
                 document.head.appendChild(style);
                 let stop;
                 try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
+                    const controls = createStageControls();
                     const loader = own(createStageLoader(options.loader));
                     const progress = createStageProgress({React:options.React, ...options.admission});
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const music = own(createStageMusic(options.music));
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),

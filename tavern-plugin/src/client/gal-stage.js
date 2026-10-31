@@ -404,7 +404,7 @@ function GalStage(props) {
         onLatest() { closeMenu(); jumpLatest(); },
         onKeys() { closeMenu(); firstRun.showKeys(); },
         onLeave() { menuFullscreen.current = false; setMenu(false); props.onExit(); },
-        // 自动 / 跳过 rows where the screen shows no such control (galActionHomes).
+        // 自动 / 跳过 rows where the screen shows no such control (stageViews.controls.actionHomes).
         onAuto() { closeMenu(); setSkipping(false); setAuto(value => !value); },
         onSkip() { closeMenu(); toggleSkip(); }
     };
@@ -478,9 +478,9 @@ function GalStage(props) {
     const ransom = activeSkin?.nameplate?.shape === 'ransom';
     // art.nameplate.initials sets the name by part (galNameParts).
     const nameInitials = Boolean(activeSkin?.art?.nameplate?.initials);
-    // where each reading action lives on this stage (galActionHomes) - the control row or the
+    // where each reading action lives on this stage (stageViews.controls.actionHomes) - the control row or the
     // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
-    const homes = galActionHomes(activeSkin, narrow), menuFold = homes.fold;
+    const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
     // the entries' reports - a badge keeps its entry on screen while the top
     // bar hides; the first-run key list names D only while 弹幕 is usable.
     const entryStore = React.useMemo(createStageEntryStore, []);
@@ -626,7 +626,7 @@ function GalStage(props) {
     // is followed as its pages arrive; skip ends at the round's end. A held Ctrl ends there like the SKIP control.
     function stopSkip() { setSkipping(false); setSkipHeld(false); }
     // The one SKIP toggle every home calls (control row, a mode widget's row, a skin's drawn button, the Esc menu row): skip
-    // on ends auto. Every home's control carries GAL_SKIP_CONTROL, which the stop-on-any-press rule below leaves alone.
+    // on ends auto. Every home's control carries stageViews.controls.skipSelector, which the stop-on-any-press rule below leaves alone.
     function toggleSkip() { setAuto(false); setSkipping(value => !value); }
     // the SKIP control behaves like a held Ctrl — any key, click or
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
@@ -788,7 +788,7 @@ function GalStage(props) {
             else if (letter === "r") replay();
             // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
             // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
-            else if (letter === "g") { if (galPressRegenerate(rootRef.current)) event.preventDefault(); }
+            else if (letter === "g") { if (stageViews.controls.pressRegenerate(rootRef.current)) event.preventDefault(); }
             // Like the AUTO control: turning auto on also ends a SKIP.
             else if (letter === "a") { if (!auto) setSkipping(false); setAuto(!auto); }
         }
@@ -807,7 +807,7 @@ function GalStage(props) {
         // any other key, click or wheel also stops a SKIP-control fast-forward, and
         // input() / wheel() drop that input instead of turning a page. The SKIP control's own press toggles it instead.
         function interrupt(event) {
-            const own = event && event.type === "pointerdown" && event.target && typeof event.target.closest === "function" && event.target.closest(GAL_SKIP_CONTROL);
+            const own = event && event.type === "pointerdown" && event.target && typeof event.target.closest === "function" && event.target.closest(stageViews.controls.skipSelector);
             const running = skippingRef.current && !own;
             skipStopped.current = running;
             cancel();
@@ -1210,7 +1210,7 @@ function GalStage(props) {
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
         // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.
-        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(StageSkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: GAL_KEY_CAPS, auto, skipping: skipLatch, atEnd, menuOpen,
+        skinButtons.length || activeSkin?.resolvedArt?.decor?.length ? h(StageSkinButtons, { buttons: skinButtons, decor: activeSkin.resolvedArt.decor || [], keyCaps: stageViews.controls.keyCaps, auto, skipping: skipLatch, atEnd, menuOpen,
             onBacklog: openBacklog, onAuto: () => { setSkipping(false); setAuto(!auto); }, onSkip: toggleSkip, onMenu: () => openMenu(false) }) : null,
 
         awaiting ? h("div", { className: "fork-gal-box is-awaiting", role: "status", "aria-label": awaitingText },
@@ -1256,9 +1256,9 @@ function GalStage(props) {
             // (the keyed node restarts its CSS fade); hover still shows it in full.
             h("div", { key: film ? "flash:" + pageKey : "meta", className: "fork-gal-meta" + (film ? " is-flash" : "") },
                 h("span", null, pages.length ? (page + 1) + " / " + pages.length + (streaming ? "+" : "") : "")),
-            // phones show only galControlIds(true); the rest is in the menu.
+            // phones show only stageViews.controls.ids(true); the rest is in the menu.
             menuFold ? null : h("div", { className: "fork-gal-controls", role: "toolbar", "aria-label": "舞台控制", "data-compact": narrow || undefined },
-                galControlIds(narrow).filter(id => galControlDrawn(id, activeSkin)).map(id =>
+                stageViews.controls.ids(narrow).filter(id => stageViews.controls.drawn(id, activeSkin)).map(id =>
                     id === "auto" ? control("auto", auto ? "停止自动（A）" : "自动翻页（A）", () => { setSkipping(false); setAuto(!auto); }, auto) :
                     id === "skip" ? control("skip", skipLatch ? "停止跳过" : "跳过（按住 Ctrl 快进）", toggleSkip, skipping, atEnd) :
                     id === "eye-off" ? control("eye-off", "隐藏文本框（H / 右键）", () => setHidden(true)) :
@@ -1327,11 +1327,11 @@ function GalStage(props) {
             onClick: event => { event.stopPropagation(); openMenu(false); } }, controlIcon("menu", menuOpen));
     }
     function control(icon, label, action, active, disabled) {
-        return h("button", { key: icon, type: "button", className: "fork-gal-control" + (active ? " is-active" : ""), "data-action": GAL_CONTROL_ACTIONS[icon] || icon, title: label, "aria-label": label, "aria-pressed": active === undefined ? undefined : Boolean(active), disabled: Boolean(disabled),
+        return h("button", { key: icon, type: "button", className: "fork-gal-control" + (active ? " is-active" : ""), "data-action": stageViews.controls.actionFor(icon), title: label, "aria-label": label, "aria-pressed": active === undefined ? undefined : Boolean(active), disabled: Boolean(disabled),
             onClick: event => { event.stopPropagation(); action(); refocusStage(event, icon === "eye-off"); } }, controlIcon(icon, active, disabled));
     }
     function controlIcon(icon, active, disabled) {
-        const art = activeSkin?.resolvedControlIcons?.[GAL_CONTROL_ACTIONS[icon] || icon];
+        const art = activeSkin?.resolvedControlIcons?.[stageViews.controls.actionFor(icon)];
         if (!art) return h(Icon, { name: icon, size: 17 });
         const glyph = h("img", { key: "icon", className: "fork-gal-control-icon", src: active && art.on || art.image, alt: "", "aria-hidden": true, draggable: false });
         // the icon on the skin's drawn body - its
@@ -1380,21 +1380,6 @@ function GalStandIns(props) { return stageViews ? React.createElement(stageViews
 // (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
 const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
 function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
-// The stage's real key bindings (the window keydown handler in GalStage, the held Ctrl and galStageShortcut's F12):
-// [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
-// stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
-// R replays the line's voice; D (danmaku-ui.js) is listed only while 弹幕 is usable (galShortcuts).
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'R', 'replay'], ['弹幕', 'D', 'danmaku'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
-function galShortcuts(danmaku) { return GAL_SHORTCUTS.filter(([, , action]) => action !== 'danmaku' || danmaku); }
-// G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
-// the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
-function galPressRegenerate(root) {
-    const control = root?.querySelector?.('.fork-gal-choices [data-action="regenerate"]');
-    if (!control || control.disabled || !control.getClientRects().length) return false;
-    control.click();
-    return true;
-}
-const GAL_KEY_CAPS = Object.fromEntries(GAL_SHORTCUTS.map(([, key, action, cap]) => [action, cap || key]));
 // The text box's wait names it (its aria-label); the default one shows the rotating wait lines (wait-lines.js).
 const GAL_AWAITING_WRITING = '正在书写下一幕';
 function galAwaitingText(activity) {
@@ -1405,12 +1390,6 @@ function galAwaitingText(activity) {
 }
 function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
 function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
-// the classic control row is 自动 / 跳过 / 隐藏 / 上一页 / 履历 / ≡
-// (设置 and 返回主页面 are menu items, ✕ is in the top bar). Phones (the one stage breakpoint, 640px - the skin art, the
-// CONFIG compact layout and this row share it) keep four 44 px targets: 自动 / 跳过 / 履历 / ≡; hiding the box is right click /
-// long press or H, the previous page ← or the backlog.
-const GAL_CONTROLS_FULL = ["auto", "skip", "eye-off", "chevron-left", "backlog", "menu"];
-const GAL_CONTROLS_NARROW = ["auto", "skip", "backlog", "menu"];
 // a stage moment's skin cue, or (cue "") the shown skin's palette (returns its
 // cleanup). Pages without the UI sound module (tests, previews) stay silent.
 function galSkinSfx(cue, palette) {
@@ -1418,34 +1397,6 @@ function galSkinSfx(cue, palette) {
     if (cue) return void sfx?.play?.(cue);
     sfx?.useSkin?.(palette || null);
     return () => sfx?.useSkin?.(null);
-}
-function galControlIds(narrow) { return narrow ? GAL_CONTROLS_NARROW : GAL_CONTROLS_FULL; }
-// a row drawn from the skin's icons (quickMenu.icons) shows hide and back only with an
-// icon of their own (their keys - H / right click, ← / PageUp - stay); every other control keeps the engine's icon if unset.
-function galControlDrawn(id, skin) {
-    const icons = skin?.resolvedControlIcons;
-    return !icons || !(id === "eye-off" || id === "chevron-left") || Boolean(icons[GAL_CONTROL_ACTIONS[id]]);
-}
-// The action each control-row icon performs (data-action on every on-stage control: the row, the folded menu control, a skin's
-// drawn buttons), read by the mechanical skin check (bin/lib/stage-action-homes.mjs).
-const GAL_CONTROL_ACTIONS = { "eye-off": "hide", "chevron-left": "back" };
-// Every on-stage SKIP control - the control row's and a skin's drawn button (stage-skin-buttons.js) - is
-// [data-action="skip"]: its own press toggles skip instead of only stopping it (SKIP stayed on).
-const GAL_SKIP_CONTROL = '[data-action="skip"]';
-// one place decides where 自动 / 跳过 / 履历 live. A skin with a folded quick menu
-// (quickMenu.layout capsule / orb) has no control row; its drawn buttons (art.buttons) stand at every width, on phones in a
-// touch-sized unit (theme.css「stage skin: art」 手机版 SKIP / LOG 不是 fallback). The Esc menu lists exactly the actions with no home on screen;
-// 履历 is not one of them - it is always a menu row (gal-menu.js), also beside a drawn LOG button.
-const GAL_MENU_ACTIONS = ["auto", "skip"];
-function galActionHomes(skin, narrow) {
-    const fold = skin && (skin.quickMenu?.layout === "capsule" || skin.quickMenu?.layout === "orb") ? skin.quickMenu.layout : null;
-    const row = fold ? [] : galControlIds(narrow).map(id => GAL_CONTROL_ACTIONS[id] || id);
-    const drawn = skin?.resolvedArt?.buttons.map(button => button.action) || [];
-    const onStage = new Set([...row, ...drawn, ...(fold ? ["menu"] : [])]);
-    // declared: the skin's own art.buttons, resolved or not - the stage root carries them (data-skin-buttons) so the real-stage
-    // check (stage screenshots) catches drawn buttons that silently failed to resolve and left their actions to the menu.
-    // A mode's skin without buttons of its own keeps the stage skin's controls (useStageSkin `controls`): those are declared.
-    return { fold, row, drawn, declared: skin?.resolvedArt?.controls?.declared || Object.keys(skin?.art?.buttons || {}), menu: GAL_MENU_ACTIONS.filter(id => !onStage.has(id)) };
 }
 function useGalNarrow() { return stageViews.useNarrow(); }
 function useGalTopbarGroup(...args) { return stageViews.useTopbarGroup(...args); }
@@ -1483,7 +1434,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
-        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts},
+        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
         portraits:{foreground:forkForeground, SpriteImage, PackImage, emoteDataUrl:galEmoteDataUrl, cssColor:galCssColor, MutationObserver, getComputedStyle, matchMedia},
