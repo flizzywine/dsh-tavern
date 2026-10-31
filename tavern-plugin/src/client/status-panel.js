@@ -52,7 +52,6 @@ function StatusPanelView(p) {
         h("div", { className: "dsh-tavern-status-body fork-status-body" },
             // Alerts: one line each, action on the right.
             h(TavernBackgroundWait, { sessionId: p.props.sessionId, activity: view.activity }),
-            h(TavernBackgroundRunsLink, { sessionId: p.props.sessionId, open: () => p.props.openStyleTab("dsh-tavern:background-tasks") }),
             h(TavernSaveUpgrade, { key: p.props.sessionId, sessionId: p.props.sessionId, busy: running || view.activity?.busy || settle === "running" }),
             h("nav", { className: "dsh-tavern-status-resource-links", "aria-label": "本局资料" },
                 h("button", { type: "button", disabled: !view.card.path, onClick: () => p.props.openStyleTab("dsh-tavern:cards", { cardPath: view.card.path }) }, "打开人物卡 ↗"),

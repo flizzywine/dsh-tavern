@@ -51784,7 +51784,6 @@ function createTurnRailFilter(root, options) {
 		        h("div", { className: "dsh-tavern-status-body fork-status-body" },
 		            // Alerts: one line each, action on the right.
 		            h(TavernBackgroundWait, { sessionId: p.props.sessionId, activity: view.activity }),
-		            h(TavernBackgroundRunsLink, { sessionId: p.props.sessionId, open: () => p.props.openStyleTab("dsh-tavern:background-tasks") }),
 		            h(TavernSaveUpgrade, { key: p.props.sessionId, sessionId: p.props.sessionId, busy: running || view.activity?.busy || settle === "running" }),
 		            h("nav", { className: "dsh-tavern-status-resource-links", "aria-label": "本局资料" },
 		                h("button", { type: "button", disabled: !view.card.path, onClick: () => p.props.openStyleTab("dsh-tavern:cards", { cardPath: view.card.path }) }, "打开人物卡 ↗"),
@@ -52660,16 +52659,6 @@ function createTurnRailFilter(root, options) {
                         catalog.map(item => h(TavernBackgroundTaskSpec, { key: item.task, item, members })),
                         h("p", { className: "dsh-tavern-settings-desc" }, "成员：书记、润色师等是每局常驻的后台 Agent，保留历史；临时 Agent 每次新开，可同时运行。")) : null));
         }
-        // One line in 酒馆状态 that opens the page.
-        function TavernBackgroundRunsLink(props) {
-            const h = React.createElement;
-            const { runs } = useTavernBackgroundRuns(props.sessionId);
-            return h("section", { className: "dsh-tavern-status-section dsh-tavern-background-runs-link" },
-                h("button", { type: "button", onClick: props.open },
-                    h("span", { className: "dsh-tavern-status-label" }, "后台任务"),
-                    h("span", null, (runs && backgroundRunsSummary(runs)) || "空闲"),
-                    h("span", null, "打开 ↗")));
-        }
 
 		function TavernStopBackgroundAction(props) {
 			const [busy, setBusy] = React.useState(false);
@@ -52733,21 +52722,9 @@ function createTurnRailFilter(root, options) {
 
 		function TavernMoreActions(props) {
 			const [open, setOpen] = React.useState(false);
-            const [restoring, setRestoring] = React.useState(false);
 			const [placement, setPlacement] = React.useState(null);
 			const root = React.useRef(null);
 			const trigger = React.useRef(null);
-            // Removing cleared notices is a one-way quiet; this puts them back after
-            // the player changed their mind (or hid the tail the hard way).
-            async function restoreErrorNotices() {
-                if (restoring) return;
-                setRestoring(true);
-                try {
-                    const result = await rpc("setAllFailedErrorVisibility", { sessionId: props.sessionId, hidden: false });
-                    liveTavernView.setView(props.sessionId, result.view);
-                } catch (error) { tavernErrorHub.report("恢复错误提示", error); }
-                finally { setRestoring(false); }
-            }
 			// The mobile composer seat scrolls (overflow-y: auto), which clipped an absolutely
 			// positioned menu to a thin strip. Anchor it to the viewport above the trigger instead.
 			React.useLayoutEffect(function () {
@@ -52778,7 +52755,6 @@ function createTurnRailFilter(root, options) {
 					React.createElement(TavernEditBodyAction, props),
 					React.createElement(TavernRollbackAction, props),
                     React.createElement(TavernUndoRollbackAction, props),
-                    React.createElement("button", { type: "button", role: "menuitem", disabled: restoring, title: "把已移除或已隐藏的失败提示显示回来，正文和历史不受影响", onClick: restoreErrorNotices }, "恢复全部错误提示"),
 					React.createElement(TavernDebugButton, { sessionId: props.sessionId, role: "menuitem", label: "遇到问题？交给调试 Agent" }),
 					React.createElement(TavernCompactionAction, Object.assign({}, props, { inMenu: true })))
 			);
@@ -53031,7 +53007,7 @@ function createTurnRailFilter(root, options) {
 		// the action row under each reply.
 		//   [编辑] [变量] [重roll] [⋯]  time
 		// Edit / regenerate / delete / undo only apply to the latest round; the variable
-		// icon and the ⋯ menu (fork from here) appear under every reply. Included inside
+		// icon appears under every reply; the ⋯ menu holds latest-round rollback actions. Included inside
 		// the play-controls module so it reuses the upstream actions, which keep their own
 		// rules (hidden or disabled when unavailable).
 
@@ -53110,25 +53086,16 @@ function createTurnRailFilter(root, options) {
 		    const [open, setOpen] = React.useState(false);
 		    const [position, setPosition] = React.useState(null);
 		    const anchor = React.useRef(null), layer = React.useRef(null);
-		    const live = useLiveTavernView(props.sessionId, "menu:" + String(props.messageId || ""));
-		    const view = live.view;
-		    const forkTurn = dshTurnOf(view, props.messageId, useChatTurn(props));
 		    usePopover(open, setOpen, anchor, layer);
 		    function toggle() {
 		        if (!open && anchor.current) { const rect = anchor.current.getBoundingClientRect(); setPosition({ left: rect.left, top: rect.bottom + 4 }); }
 		        setOpen(!open);
 		    }
-		    async function fork() {
-		        setOpen(false);
-		        try { await tavernConversationForkRequests.request({ sessionId: props.sessionId, turn: forkTurn }); }
-		        catch (error) { tavernErrorHub.report("分叉对话", error); }
-		    }
-		    if (!forkTurn && !props.latest) return null;
+		    if (!props.latest) return null;
 		    return h(React.Fragment, null,
 		        h("button", { ref: anchor, type: "button", className: "fork-turn-more", title: "更多", "aria-label": "更多", "aria-haspopup": "menu", "aria-expanded": open, onClick: toggle }),
 		        open && position ? bodyPortal(h("div", { ref: layer, className: "fork-turn-menu", role: "menu", style: { left: position.left + "px", top: position.top + "px" },
 		            onClick: function (event) { if (event.target.closest("button:not(:disabled)")) window.setTimeout(function () { setOpen(false); }, 0); } },
-		            forkTurn ? h("button", { type: "button", role: "menuitem", onClick: fork }, "从这里分支") : null,
 		            props.latest ? h(TavernUndoRollbackAction, props) : null,
 		            props.latest ? h(TavernRollbackAction, props) : null)) : null);
 		}

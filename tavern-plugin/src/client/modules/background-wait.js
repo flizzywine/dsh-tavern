@@ -275,13 +275,3 @@ function TavernBackgroundTasksTab(props) {
                 catalog.map(item => h(TavernBackgroundTaskSpec, { key: item.task, item, members })),
                 h("p", { className: "dsh-tavern-settings-desc" }, "成员：书记、润色师等是每局常驻的后台 Agent，保留历史；临时 Agent 每次新开，可同时运行。")) : null));
 }
-// One line in 酒馆状态 that opens the page.
-function TavernBackgroundRunsLink(props) {
-    const h = React.createElement;
-    const { runs } = useTavernBackgroundRuns(props.sessionId);
-    return h("section", { className: "dsh-tavern-status-section dsh-tavern-background-runs-link" },
-        h("button", { type: "button", onClick: props.open },
-            h("span", { className: "dsh-tavern-status-label" }, "后台任务"),
-            h("span", null, (runs && backgroundRunsSummary(runs)) || "空闲"),
-            h("span", null, "打开 ↗")));
-}

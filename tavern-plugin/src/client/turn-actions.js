@@ -1,7 +1,7 @@
 // the action row under each reply.
 //   [编辑] [变量] [重roll] [⋯]  time
 // Edit / regenerate / delete / undo only apply to the latest round; the variable
-// icon and the ⋯ menu (fork from here) appear under every reply. Included inside
+// icon appears under every reply; the ⋯ menu holds latest-round rollback actions. Included inside
 // the play-controls module so it reuses the upstream actions, which keep their own
 // rules (hidden or disabled when unavailable).
 
@@ -80,25 +80,16 @@ function TurnMenu(props) {
     const [open, setOpen] = React.useState(false);
     const [position, setPosition] = React.useState(null);
     const anchor = React.useRef(null), layer = React.useRef(null);
-    const live = useLiveTavernView(props.sessionId, "menu:" + String(props.messageId || ""));
-    const view = live.view;
-    const forkTurn = dshTurnOf(view, props.messageId, useChatTurn(props));
     usePopover(open, setOpen, anchor, layer);
     function toggle() {
         if (!open && anchor.current) { const rect = anchor.current.getBoundingClientRect(); setPosition({ left: rect.left, top: rect.bottom + 4 }); }
         setOpen(!open);
     }
-    async function fork() {
-        setOpen(false);
-        try { await tavernConversationForkRequests.request({ sessionId: props.sessionId, turn: forkTurn }); }
-        catch (error) { tavernErrorHub.report("分叉对话", error); }
-    }
-    if (!forkTurn && !props.latest) return null;
+    if (!props.latest) return null;
     return h(React.Fragment, null,
         h("button", { ref: anchor, type: "button", className: "fork-turn-more", title: "更多", "aria-label": "更多", "aria-haspopup": "menu", "aria-expanded": open, onClick: toggle }),
         open && position ? bodyPortal(h("div", { ref: layer, className: "fork-turn-menu", role: "menu", style: { left: position.left + "px", top: position.top + "px" },
             onClick: function (event) { if (event.target.closest("button:not(:disabled)")) window.setTimeout(function () { setOpen(false); }, 0); } },
-            forkTurn ? h("button", { type: "button", role: "menuitem", onClick: fork }, "从这里分支") : null,
             props.latest ? h(TavernUndoRollbackAction, props) : null,
             props.latest ? h(TavernRollbackAction, props) : null)) : null);
 }
