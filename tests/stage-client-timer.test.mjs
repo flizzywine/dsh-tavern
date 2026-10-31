@@ -26,3 +26,46 @@ test('timer disposal closes its lease once and ignores pending events and fallba
   assert.deepEqual(events,[])
   assert.deepEqual(updates,[])
 })
+test('timer view preserves countdown labels and player pause control', () => {
+  let paused = 0, stopped = 0
+  const timer = createStageTimer({
+    React:{useRef:current => ({current}),useLayoutEffect(){},createElement:(type,props,...children) => ({type,props,children})},
+  })
+  const result = timer.Component({
+    state:{timer:{mode:'reply'},remaining:65000,status:'running',live:true,ticking:true,togglePause:() => paused++},
+    look:{kind:'pill',format:'mm:ss',pause:true,icon:'icon.png'},
+  })
+  const plate = result.children[0]
+  assert.equal(plate.props.role,'timer')
+  assert.match(plate.props['aria-label'],/回应时限/)
+  assert.match(plate.props['aria-label'],/1:05/)
+  const button = plate.children.at(-1)
+  assert.equal(button.props['aria-label'],'暂停计时')
+  button.props.onClick({stopPropagation:() => stopped++})
+  assert.equal(paused,1)
+  assert.equal(stopped,1)
+})
+test('timer layout observers and queued frame are removed immediately on plugin disposal', () => {
+  const effects = [], frames = new Map(), observers = []
+  const stage = {querySelectorAll:() => []}
+  const root = {closest:() => stage,querySelector:() => null}
+  const observer = class {
+    constructor(fn) {this.fn=fn;observers.push(this)}
+    observe() {}
+    disconnect() {this.stopped=true}
+  }
+  const timer = createStageTimer({
+    React:{useRef:() => ({current:root}),useLayoutEffect:fn => effects.push(fn),createElement:()=>{}},
+    ResizeObserver:observer,MutationObserver:observer,
+    foreground:{requestAnimationFrame:fn => {frames.set(1,fn);return 1},cancelAnimationFrame:id => frames.delete(id)},
+  })
+  timer.Component({state:{timer:null},look:null})
+  const stop = effects[0]()
+  observers[0].fn()
+  assert.equal(frames.size,1)
+  timer.dispose();stop()
+  assert.equal(frames.size,0)
+  assert.equal(observers.every(item => item.stopped),true)
+  observers[0].fn()
+  assert.equal(frames.size,0)
+})

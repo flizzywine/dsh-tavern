@@ -59787,32 +59787,6 @@ function galUiApplier() {
 		}
 		// The plate's digits in the resolved `format` option: 'mm:ss:mmm' (milliseconds floored; 15:00:000 → 14:59:999), or
 		// 'm:ss' (h:mm:ss from an hour), seconds rounded up so 0:00 is shown only at expiry.
-		function timerFormat(ms, format) {
-		    const left = Math.max(0, Math.floor(ms));
-		    const pad = (value, size = 2) => String(value).padStart(size, '0');
-		    if (format === 'mm:ss:mmm') return pad(Math.floor(left / 60000)) + ':' + pad(Math.floor(left / 1000) % 60) + ':' + pad(left % 1000, 3);
-		    const seconds = Math.ceil(left / 1000), h = Math.floor(seconds / 3600), m = Math.floor(seconds / 60) % 60, s = seconds % 60;
-		    return h ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
-		}
-		// A sprite-font label laid out like a TMP line (the `glyphs` option a skin carries with its digit sheet): every char is
-		// [cell, advance, bearing] in font units, `scale` turns font units into px of the placement canvas, `spacing` is the extra
-		// px per advance, `top` the quad's top above the baseline (font units). The line is centred in the `label` box
-		// [dx, dy, w, h] (offset from the plate centre), top-aligned at `ascent` px. x / y: each quad's top-left from the plate's.
-		function timerGlyphs(text, glyphs, [pw, ph]) {
-		    const k = glyphs.scale, [lx, ly, lw, lh] = glyphs.label, gap = glyphs.spacing;
-		    const chars = Array.from(text).filter(char => Object.hasOwn(glyphs.chars, char));
-		    const width = chars.reduce((sum, char) => sum + glyphs.chars[char][1] * k + gap, 0);
-		    const baseline = ph / 2 + ly - lh / 2 + glyphs.ascent;
-		    let pen = pw / 2 + lx - width / 2;
-		    return chars.map(char => {
-		        const [cell, advance, bearing] = glyphs.chars[char], glyph = {char, cell, x:pen + bearing * k, y:baseline - glyphs.top * k};
-		        pen += advance * k + gap;
-		        return glyph;
-		    });
-		}
-		// The timer's look from its resolved options (mod-options.js: skin lock > 本卡 > 全局 > skin > the mod's preset) and
-		// the mod's own built-in icon. x-skin-asset options name the active skin's media (`media` maps a name to its URL; the
-		// resolver already put an unavailable one back to its preset ''). Without an answer there is nothing to draw yet. Pure.
 		function timerLook(answer, builtin) {
 		    if (!answer || !builtin) return null;
 		    const v = answer.values, media = name => name && answer.media?.[name] || null;
@@ -59834,25 +59808,7 @@ function galUiApplier() {
 		// of every box and inside the stage: past the box's left or right edge, or under it; the first box that still touches the
 		// shifted plate decides the next step. Should the steps run out (boxes on both sides), the plate goes under every box above
 		// or beside it in its own column.
-		function timerClearance(plate, boxes, bounds, gap = 8) {
-		    const solid = boxes.filter(box => box.r > box.l && box.b > box.t);
-		    const at = (dx, dy) => ({l:plate.l + dx, t:plate.t + dy, r:plate.r + dx, b:plate.b + dy});
-		    const inside = p => p.l >= bounds.l && p.r <= bounds.r && p.t >= bounds.t && p.b <= bounds.b;
-		    const touching = p => solid.find(box => p.l < box.r + gap && p.r > box.l - gap && p.t < box.b + gap && p.b > box.t - gap);
-		    let dx = 0, dy = 0;
-		    for (let step = 0; step <= solid.length; step++) {
-		        const p = at(dx, dy), box = touching(p);
-		        if (!box) return {dx, dy};
-		        const moves = [[dx + box.l - gap - p.r, dy], [dx + box.r + gap - p.l, dy], [dx, dy + box.b + gap - p.t]];
-		        const fit = moves.filter(([x, y]) => inside(at(x, y))).sort((a, b) => Math.abs(a[0] - dx) + Math.abs(a[1] - dy) - Math.abs(b[0] - dx) - Math.abs(b[1] - dy));
-		        [dx, dy] = fit[0] || moves[2];
-		    }
-		    if (!touching(at(dx, dy))) return {dx, dy};
-		    const above = solid.filter(box => box.l < plate.r + gap && box.r > plate.l - gap && box.t < plate.b + gap);
-		    return {dx:0, dy:Math.max(0, ...above.map(box => box.b + gap - plate.t))};
-		}
-
-		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerActivity, timerPresentation, timerRuns, timerFormat, timerGlyphs, timerLook, timerFallbackAllowed, timerClearance};
+		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {timerActivity, timerPresentation, timerRuns, timerLook, timerFallbackAllowed};
 		// the one
 		// client adapter to a mod's resolved options on the stage. A mod is a pure capability with a built-in preset; the active
 		// skin may set option values, turn features on or off and lock options; the player adjusts the user-adjustable ones in two
@@ -59945,89 +59901,8 @@ function galUiApplier() {
 		    React.useEffect(() => { if (state.timer && !builtin) timerBuiltin(sessionId).then(setBuiltin, () => {}); }, [!!state.timer]);
 		    const look = timerLook(useModOptions(sessionId, 'dsh.timer', {enabled:!!state.timer, skinKey}), builtin);
 		    // shown: the timer is on the stage (StageTimer draws it) - the skin's hud.timer arrangement follows it.
-		    return {element:React.createElement(StageTimer, {state, look, reducedMotion:reading.reducedMotion === true, notice}),
+		    return {element:React.createElement(stageViews.timer.Component, {state, look, reducedMotion:reading.reducedMotion === true, notice}),
 		        shown:Boolean(state.timer && look), onInputActivity:setInputStarted, fallbackRef};
-		}
-		// The skin's drawn art on the stage (art.buttons, art.decor: stage-skin-buttons.js) the plate keeps clear of.
-		// A skin mode's own buttons are drawn beside the plate as one HUD group (the debate's fast-forward): not avoided.
-		// The shared top bar's controls too (the scene chips stand at the top centre, where the pill is): hidden by a
-		// clip, never removed, so the boxes - and the timer's place - stay put while the bar reveals and hides.
-		const TIMER_SKIN_ART = '.fork-stage-skin-button:not([data-fk-mode-button]), .fork-stage-skin-decor, .fork-gal-topbar button';
-		// Keeps the plate clear of the skin's art and the top bar at every window shape: measured when the stage's size, skin tokens
-		// (its style and marks), layers or the bar's groups (an entry added) change, never per frame; the shift is the layer's
-		// --tm-dx / --tm-dy (timerClearance).
-		function useTimerClearance(look) {
-		    const ref = React.useRef(null);
-		    React.useLayoutEffect(() => {
-		        const root = ref.current, stage = root?.closest('.fork-gal-stage') || root?.parentElement;
-		        if (!root || !stage) return;
-		        let frame = 0;
-		        const rect = node => { const r = node.getBoundingClientRect(); return {l:r.left, t:r.top, r:r.right, b:r.bottom}; };
-		        const measure = () => {
-		            frame = 0;
-		            const plate = root.querySelector('.fork-timer-plate, .fork-timer-pill');
-		            if (!plate) return;
-		            const ox = parseFloat(root.style.getPropertyValue('--tm-dx')) || 0, oy = parseFloat(root.style.getPropertyValue('--tm-dy')) || 0, p = rect(plate);
-		            const boxes = [...stage.querySelectorAll(TIMER_SKIN_ART)].filter(node => !root.contains(node)).map(rect);
-		            // Bounds: the layer itself (the game area under the title strip) where it stands unshifted.
-		            const area = rect(root);
-		            const shift = timerClearance({l:p.l - ox, t:p.t - oy, r:p.r - ox, b:p.b - oy}, boxes, {l:area.l - ox, t:area.t - oy, r:area.r - ox, b:area.b - oy});
-		            root.style.setProperty('--tm-dx', Math.round(shift.dx) + 'px');
-		            root.style.setProperty('--tm-dy', Math.round(shift.dy) + 'px');
-		        };
-		        const schedule = () => { if (!frame) frame = forkForeground.requestAnimationFrame(measure); };
-		        measure();
-		        const size = new ResizeObserver(schedule), marks = new MutationObserver(schedule);
-		        size.observe(stage);
-		        for (const node of stage.querySelectorAll(TIMER_SKIN_ART + ', .fork-gal-topbar > *')) size.observe(node);
-		        marks.observe(stage, {attributes:true, childList:true});
-		        return () => { size.disconnect(); marks.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); };
-		    }, [look]);
-		    return ref;
-		}
-		// look: timerLook - kind 'pill' (the mod's preset: a HUD capsule in the skin's colours) or 'plate' (an image plate at
-		// `placement` {canvas:[w, h], box:[x, y, w, h]}, letterboxed like the game area, with sprite digits when `glyphs` come
-		// with a digit sheet, else text); `pause` / `urgent` / `hideExpired` are the features the options turn on.
-		function StageTimer({state, look, reducedMotion, notice}) {
-		    const h = React.createElement, timer = state.timer;
-		    const clearance = useTimerClearance(timer && look ? JSON.stringify([look.kind, look.placement]) : null);
-		    if (!timer || !look) return null;
-		    const text = timerFormat(state.remaining, look.format);
-		    const expired = state.status === 'expired', held = state.playerPaused ? 'player' : state.status === 'paused' ? 'director' : null;
-		    const urgent = look.urgent && !expired && !held && state.ticking && timer.mode === 'reply' && state.remaining <= 10000;
-		    const name = (timer.label || (timer.mode === 'reply' ? '回应时限' : '倒计时'));
-		    const pause = look.pause && state.live && !expired && state.status === 'running' ? h('button', {type:'button', className:'fork-timer-pause', 'data-action':'timer-pause', 'aria-pressed':state.playerPaused,
-		        title:state.playerPaused ? '继续计时' : '暂停计时', 'aria-label':state.playerPaused ? '继续计时' : '暂停计时',
-		        onClick:event => { event.stopPropagation(); state.togglePause(); }, onKeyDown:event => event.stopPropagation()},
-		        h(Icon, {name:state.playerPaused ? 'play' : 'pause', size:14})) : null;
-		    const status = expired ? '时间到' : held === 'player' ? '已暂停' : held === 'director' ? '暂停中' : '';
-		    const label = name + ' ' + text + (status ? '，' + status : '');
-		    const url = value => 'url("' + value + '")', style = {'--tm-icon':url(look.icon)};
-		    if (look.kind === 'plate') {
-		        const {canvas:[cw, ch], box:[x, y, w, hgt]} = look.placement;
-		        Object.assign(style, {'--tm-cw':cw, '--tm-ch':ch, '--tm-x':x, '--tm-y':y, '--tm-w':w, '--tm-h':hgt}, look.plate ? {'--tm-plate':url(look.plate)} : null,
-		            look.glyphs ? {'--tm-digits':url(look.digits), '--tm-cell':look.glyphs.cell, '--tm-cols':look.glyphs.columns, '--tm-rows':look.glyphs.rows} : null);
-		    }
-		    const root = {ref:clearance, className:'fork-timer', 'data-look':look.kind, 'data-mode':timer.mode, 'data-status':expired ? 'expired' : held ? 'paused' : 'running', 'data-held':held || undefined,
-		        'data-urgent':urgent || undefined, 'data-ticking':state.ticking || undefined, 'data-calm':reducedMotion || undefined,
-		        'data-art':look.kind === 'plate' && !look.plate ? 'none' : undefined, 'data-hide-expired':look.hideExpired || undefined, style};
-		    const said = notice ? h('div', {className:'fork-timer-notice', role:'status'}, notice) : null;
-		    if (look.kind === 'plate') {
-		        const {box:[, , w, hgt]} = look.placement, columns = look.glyphs?.columns;
-		        return h('div', root,
-		            h('div', {className:'fork-timer-plate', role:'timer', 'aria-label':label},
-		                look.glyphs ? timerGlyphs(text, look.glyphs, [w, hgt]).map((glyph, index) => h('i', {key:index, className:'fork-timer-glyph', 'aria-hidden':true,
-		                    style:{'--gx':glyph.x, '--gy':glyph.y, '--gc':glyph.cell % columns, '--gr':Math.floor(glyph.cell / columns)}}))
-		                    : h('span', {className:'fork-timer-digits', 'aria-hidden':true}, text)),
-		            pause, said);
-		    }
-		    return h('div', root,
-		        h('div', {className:'fork-timer-pill', role:'timer', 'aria-label':label},
-		            h('i', {className:'fork-timer-icon', 'aria-hidden':true}),
-		            timer.label ? h('span', {className:'fork-timer-label'}, timer.label) : null,
-		            h('span', {className:'fork-timer-digits', 'aria-hidden':true}, text),
-		            status ? h('span', {className:'fork-timer-state'}, status) : null, pause),
-		        said);
 		}
 
 		// Stage helpers: the galgame stage's top-level pure functions and hooks (gal-stage.js includes this source inside its
@@ -63060,7 +62935,7 @@ function galUiApplier() {
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        useBubbles, GalStage, Icon,
 		        admission:{performance, setTimeout, clearTimeout, Spinner},
-		        timer:{rpc, crypto, performance, setInterval, clearInterval, timerClockRemaining},
+		        timer:{rpc, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver},
 		        video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
 		        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
 		        labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
