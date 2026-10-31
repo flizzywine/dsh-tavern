@@ -9,11 +9,21 @@ import { verifiedWidgetSnapshot, widgetSettlementState, widgetWriteReason } from
 const size = value => Buffer.byteLength(JSON.stringify(value))
 const failure = (status,reason,operationId) => ({status,reason,...(operationId ? {operationId} : {})})
 const refKey = ref => JSON.stringify([ref?.packId,ref?.kind,ref?.assetId])
-export function createWidgetVariableService({ index, readWindow, authorize, timeline, patch, execute, availability = () => ({ready:false}), now = Date.now, prepareCommit }) {
+export function createWidgetVariableService({ index, readWindow, authorize, timeline, patch: writePatch, execute, availability = () => ({ready:false}), now = Date.now, prepareCommit }) {
+  let active = true
+  const assertActive = () => {if (!active) throw Object.assign(new Error('Stage unavailable'), {code:'STAGE_UNAVAILABLE'})}
+  const patch = (id, revision, changes, metadata = {}) => {
+    assertActive()
+    return writePatch(id, revision, changes, {...metadata, assertCurrent() {
+      assertActive()
+      metadata.assertCurrent?.()
+    }})
+  }
   const owner = randomUUID(), contexts = new Map(), views = new Map(), running = new Map(), rates = new Map(), projections = new Map(), paths = new Map(), windows = new Map()
   const bounded = (map,key,value,limit=128) => {map.delete(key);map.set(key,value);while(map.size>limit)map.delete(map.keys().next().value);return value}
   function viewKey(input) { return input.sessionId+':'+input.viewId }
   function invalidate(input) {
+    if (!active) return false
     const key=viewKey(input), old=views.get(key)
     if (!Number.isSafeInteger(input.viewEpoch) || input.viewEpoch < (old?.epoch || 0)
       || input.viewEpoch === old?.epoch && old.active === false && input.active !== false) return false
@@ -23,7 +33,7 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
   }
   function current(context) {
     const view=views.get(context.viewKey)
-    return contexts.get(context.key)===context && view?.active && view.epoch===context.epoch
+    return active && contexts.get(context.key)===context && view?.active && view.epoch===context.epoch
   }
   async function window(input) {
     const indexed=await index(input.sessionId)
@@ -52,8 +62,9 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
   }
   const runtimeReason = sessionId => {const state=availability(sessionId);return state.initializationError || !state.ready ? 'runtime-unavailable' : state.busy ? 'runtime-busy' : ''}
   async function recover(sessionId) {
+    if (!active) return
     const chat=await index(sessionId)
-    if (!chat) return
+    if (!active || !chat) return
     const changes=Object.values(chat.timeline?.operations || {}).filter(op=>op.kind==='variables.edit' && op.status==='running' && op.owner!==owner)
       .map(op=>({op:'set',path:['timeline','operations',op.id,'status'],value:'cancelled'}))
     if (changes.length) return patch(chat.id,chat._storageRevision,changes,{source:'variables.edit.recover'})
@@ -91,6 +102,7 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
     return {contextKey:key,revision,sequence:0,position:{turn:input.turn,swipeId:message.swipeId || 0},snapshot:{kind:snapshot.kind,turn:snapshot.turn},settlement,writable:{allowed:!reason,reason},values,...(settings ? {settings:settings.settings,settingsDiagnostics:settings.diagnostics,settingsFeedback} : {})}
   }
   async function status(input) {
+    if (!active) return failure('unavailable','runtime-unavailable')
     if (size(input)>16384) return failure('rejected','invalid-request')
     const chat=await index(input.sessionId), operation=chat?.timeline?.operations?.[input.operationId]
     const context=contexts.get(input.contextKey)
@@ -103,6 +115,7 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
     if (!operation || operation.kind!=='variables.edit' || refKey(operation.widget?.ref)!==refKey(input.ref)
       || operation.widget?.identity!==input.identity) return failure('unknown','operation-not-found',input.operationId)
     const page=await readWindow(chat.id,{limit:1,before:operation.messageId+1,revision:chat._storageRevision})
+    if (!active) return failure('unavailable','runtime-unavailable')
     const receipt=page?.chat.messages[0]?.variableEdits?.[operation.swipeId]?.receipts?.find(row=>row.operationId===operation.id)
     if (receipt) return {status:'committed',operationId:operation.id,normalized:receipt.normalized,revision:String(receipt.afterRevision)}
     if (running.has(operation.id)) return failure('running','executing',operation.id)
@@ -146,7 +159,7 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
       const afterCommit=await prepareCommit?.({before:chat,after:committed.chat,messageId:id})
       committing=true
       const final=await patch(chat.id,before._storageRevision,diffMvuChanges(before,committed.chat,[id]),{source:'variables.edit.commit',assertCurrent(){if(controller.signal.aborted||!current(context)||!authorized.current()||!renewed.current())throw new Error('position-changed')}})
-      if(final && afterCommit)queueMicrotask(()=>afterCommit(final._storageRevision))
+      if(final && afterCommit)queueMicrotask(()=>{if(active)afterCommit(final._storageRevision)})
       return final ? committed.value : failure('conflict','baseline-changed',operationId)
     } catch(error) {
       if (committing) {
@@ -158,11 +171,11 @@ export function createWidgetVariableService({ index, readWindow, authorize, time
     } finally {
       running.delete(operationId)
       // Failed/unchanged drafts must release admission, without overwriting any intervening writer.
-      for (let attempt=0;attempt<3;attempt++) {
+      for (let attempt=0;active && attempt<3;attempt++) {
         const latest=(await readWindow(chat.id,{limit:1}).catch(()=>null))?.chat, operation=latest?.timeline?.operations?.[operationId]
-        if (operation?.status!=='running' || await patch(latest.id,latest._storageRevision,[{op:'set',path:['timeline','operations',operationId,'status'],value:'cancelled'}],{source:'variables.edit.cancel'}).catch(()=>null)) break
+        if (!active || operation?.status!=='running' || await patch(latest.id,latest._storageRevision,[{op:'set',path:['timeline','operations',operationId,'status'],value:'cancelled'}],{source:'variables.edit.cancel'}).catch(()=>null)) break
       }
     }
   }
-  return Object.freeze({read,propose,status,invalidate,recover,dispose(){for(const work of running.values())work.controller.abort();contexts.clear();views.clear()}})
+  return Object.freeze({read,propose,status,invalidate,recover,dispose(){active=false;for(const work of running.values())work.controller.abort();contexts.clear();views.clear()}})
 }
