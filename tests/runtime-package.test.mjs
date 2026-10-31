@@ -15,6 +15,7 @@ const workspace = parse(await readFile(new URL('../pnpm-workspace.yaml', import.
 const patches = Object.values(workspace.patchedDependencies || {}).map(value => typeof value === 'string' ? value : value.path)
 
 const required = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'bin/dsh-compatibility.mjs', 'bin/dsh-tavern.mjs', 'bin/launcher-environment.mjs', 'bin/launcher-settings.mjs', 'bin/profile-installation.mjs', 'bin/service-lifecycle.mjs', 'bin/application-update.mjs', 'config/dsh-compatibility.json', ...patches]
+required.push(...['sprite','avatar','avatar-sheet','settei','identity-settei','background','redraw-note'].map(kind=>'tavern-plugin/presets/asset-gen/templates/'+kind+'.md'))
 required.push('bin/dsh-tavern-update-helper.mjs', 'bin/windows-update-launch.mjs', 'bin/update-diagnostics.mjs')
 const bundledWorldbooks = ['tavern-plugin/packages/dsh-tavern-image-bundled/世界书-通用生图规则.json', 'tavern-plugin/packages/dsh-tavern-image-bundled/世界书-角色与服装库.json']
 required.push('bin/bundled-scene-image-plugin.mjs', 'tavern-plugin/packages/dsh-tavern-image-bundled/package.json', 'tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json', 'tavern-plugin/packages/dsh-tavern-image-bundled/cordis.patch.yml', 'tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js', 'tavern-plugin/packages/dsh-tavern-image-bundled/client.js', ...bundledWorldbooks)
