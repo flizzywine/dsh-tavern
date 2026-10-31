@@ -70,6 +70,8 @@ export async function assembleTavernClient() {
   const featureCss = await readCss('theme.css')
     + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/layered-sprite.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n')).then(value => '\n' + value)
     + '\n' + await readFile(path.join(root, 'tavern-plugin/lib/client-assets/mod-config.css'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
+  // Keep the plugin theme at its original cascade position between shared rules.
+  const featureParts = featureCss.split('/* @stage-theme-slot */')
   const keywordCatalogue = await readFile(path.join(root, 'tavern-plugin/shared/keyword-catalogue.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
   const expanded = (await expand(template, new Set())).replace('__TAVERN_KEYWORD_CATALOGUE__', () => '(function () { const window = undefined, module = { exports: {} }; ' + keywordCatalogue + '; return module.exports; })()')
   const moods = expanded.includes('__TAVERN_BUBBLE_MOODS__')
@@ -79,7 +81,7 @@ export async function assembleTavernClient() {
     const svg = await readFile(path.join(root, `tavern-plugin/lib/client-assets/${name}.svg`), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))
     brand[name] = 'data:image/svg+xml,' + encodeURIComponent(svg.replace(/\s*\n\s*/g, ''))
   }
-  return banner + normalized(expanded.replace('__TAVERN_BUNDLED_CSS__', () => JSON.stringify(css)).replace('__TAVERN_FEATURE_CSS__', () => JSON.stringify(featureCss)).replace('__TAVERN_BUBBLE_MOODS__', () => JSON.stringify(moods)).replace('__TAVERN_BRAND_URLS__', () => JSON.stringify(brand)))
+  return banner + normalized(expanded.replace('__TAVERN_BUNDLED_CSS__', () => JSON.stringify(css)).replace('__TAVERN_FEATURE_CSS__', () => JSON.stringify(featureParts)).replace('__TAVERN_BUBBLE_MOODS__', () => JSON.stringify(moods)).replace('__TAVERN_BRAND_URLS__', () => JSON.stringify(brand)))
 }
 
 export async function buildTavernClient({ check = false } = {}) {

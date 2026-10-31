@@ -28,7 +28,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
   let definition
   const styles = new Set()
-  const document = {head:{appendChild:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
+  const document = {querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
     document, window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
@@ -44,9 +44,9 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const plugin = definition.factory()
   const first = ctx.plugin(plugin); await first.await()
   assert.deepEqual(seen,['tab','sessions'])
-  assert.equal(styles.size,1)
-  assert.match([...styles][0].textContent, /fork-tc-layer/)
-  assert.match([...styles][0].textContent, /fork-widget-source-controls/)
+  assert.equal(styles.size,2)
+  assert.match([...styles][1].textContent, /fork-tc-layer/)
+  assert.match([...styles][1].textContent, /fork-widget-source-controls/)
   assert.throws(() => host.mount(), /already mounted/)
   await first.dispose()
   assert.deepEqual(seen,['tab','sessions','stop-sessions','remove-tab'])
@@ -84,7 +84,7 @@ test('browser stage entry removes its style when mounting fails', async () => {
   const styles = new Set()
   let definition
   vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
-    document:{head:{appendChild:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
+    document:{querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
     window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
   assert.throws(() => definition.factory().apply({get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}), /failed/)

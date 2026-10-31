@@ -8,14 +8,19 @@ window.__ModuleLoader__.load({
             // UI implementation is being extracted from the core client closure.
             const host = ctx.get('tavernStageFrontend');
             ctx.effect(() => {
+                const theme = document.createElement('style');
+                theme.dataset.pluginCss = 'dsh-tavern-stage/themes.css';
+                theme.textContent = __STAGE_THEME_CSS__;
+                const anchor = document.querySelector('[data-plugin-css="dsh-tavern-plugin/features-after-stage.css"]');
+                document.head.insertBefore(theme, anchor);
                 const style = document.createElement('style');
                 style.dataset.pluginCss = 'dsh-tavern-stage/presentation.css';
                 style.textContent = __STAGE_PRESENTATION_CSS__;
                 document.head.appendChild(style);
                 let stop;
                 try {stop = host.mount();}
-                catch (error) {style.remove(); throw error;}
-                return () => {try {stop();} finally {style.remove();}};
+                catch (error) {style.remove(); theme.remove(); throw error;}
+                return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');
         }
     })
