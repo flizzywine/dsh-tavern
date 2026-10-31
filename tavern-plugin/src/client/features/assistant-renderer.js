@@ -731,17 +731,24 @@
 				const [manualError, setManualError] = React.useState("");
 				const [manualBusy, setManualBusy] = React.useState(false);
 				const dialogRef = React.useRef(null);
-				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false);
+				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
 				const instructionTitleId = React.useId();
 				function clearPress() {
 					if (pressRef.current) clearTimeout(pressRef.current.timer);
 					pressRef.current = null;
 				}
 				function openManual() {
+					suppressClickRef.current = true;
+					if (manualOpenRef.current) return;
+					manualOpenRef.current = true;
 					clearPress();
 					setManualError("");
 					setInstruction("");
 					setManualOpen(true);
+				}
+				function closeManual() {
+					manualOpenRef.current = false;
+					setManualOpen(false);
 				}
 				// Progress and outcome show in the turn's text (TavernIllustrationDraft), not here.
 				async function draw() {
@@ -759,7 +766,7 @@
 					setManualError("");
 					try {
 						await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, instruction);
-						setManualOpen(false);
+						closeManual();
 						setInstruction("");
 					} catch (error) {
 						setManualError(String(error && error.message || error));
@@ -773,6 +780,7 @@
 					if (!dialog) return;
 					if (manualOpen && !dialog.open && typeof dialog.showModal === "function") dialog.showModal();
 					else if (!manualOpen && dialog.open) dialog.close();
+					manualOpenRef.current = manualOpen;
 				}, [manualOpen]);
 				React.useEffect(function () { return function () { clearPress(); }; }, []);
 				const label = busy ? "正在整理画面…" : "为这一轮配图";
@@ -805,7 +813,7 @@
 						onContextMenu: function (event) { event.preventDefault(); openManual(); },
 						onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); openManual(); } }
 						}, React.createElement(TavernIllustrateIcon, null))),
-					React.createElement("dialog", { ref: dialogRef, "aria-labelledby": instructionTitleId, onCancel: function (event) { event.preventDefault(); if (!manualBusy) setManualOpen(false); }, onClose: function () { if (manualOpen && !manualBusy) setManualOpen(false); },
+					React.createElement("dialog", { ref: dialogRef, "aria-labelledby": instructionTitleId, onCancel: function (event) { event.preventDefault(); if (!manualBusy) closeManual(); }, onClose: function () { if (manualOpen && !manualBusy) closeManual(); },
 						style: { colorScheme: "light dark", width: "min(420px, calc(100vw - 32px))", maxWidth: "calc(100vw - 32px)", padding: "18px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", borderRadius: "12px", background: "var(--dsw-specific-sidebar-fill, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", boxShadow: "0 18px 60px rgba(0,0,0,.35)" } },
 						React.createElement("form", { onSubmit: submitManual },
 							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),
@@ -815,7 +823,7 @@
 							React.createElement("div", { style: { marginTop: "5px", textAlign: "right", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "11px" } }, instruction.length + " / 2000"),
 							manualError ? React.createElement("div", { role: "alert", style: { marginTop: "8px", color: "var(--dsh-tavern-accent-error, #c54f4f)", fontSize: "12px" } }, manualError) : null,
 							React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "14px" } },
-								React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: manualBusy, onClick: function () { setManualOpen(false); } }, "取消"),
+								React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: manualBusy, onClick: closeManual }, "取消"),
 								React.createElement("button", { type: "submit", className: "dsh-tavern-btn", disabled: manualBusy }, manualBusy ? "正在提交…" : "按要求配图")))))
 			}
 			function register(input) {
