@@ -184,6 +184,204 @@ return {galKeyboardFocus:() => document.documentElement.hasAttribute("data-fork-
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageNavigation};
 
         'use strict';
+function createStageText({React, document, performance, ResizeObserver, getComputedStyle,
+    clock:forkForeground, fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed,
+    stageGlyphs, stageGlyphDelay, STAGE_GLYPH_FADE_MS, stageSkinReveal, stageSkinRevealCount, stageSkinGlyphJitter}) {
+// galgame typewriter (theme.css "stage typewriter"). The whole page is laid out from the
+// first frame and glyphs are only revealed (opacity), so shown text never re-wraps: line breaks, kinsoku and
+// the box are fixed before the first character appears. While the text still streams in, the last glyphs (and
+// an unfinished Latin word) stay hidden so later text cannot move them. Each glyph fades in with a slight rise;
+// the rhythm pauses briefly after punctuation. Fonts settle before the first glyph.
+// props.speed: milliseconds per character (the reading preference; 0 shows the whole line at once).
+// Measure visual lines only when text/fonts/width change. The line clock never queries layout.
+function GalNarrationLines(props) {
+    const h = React.createElement, ref = React.useRef(null), clock = React.useRef(null);
+    const fontsReady = useGalFontsReady();
+    const fontRevision = React.useSyncExternalStore(tavernFonts.subscribe, tavernFonts.getSnapshot);
+    const glyphs = React.useMemo(() => stageGlyphs(props.text), [props.text]);
+    const limit = Math.max(0, Math.min(galRevealLimit(glyphs, props.pending), glyphs.length - (props.pending && props.movable ? stageGlyphs(props.movable).length : 0)));
+    const text = glyphs.slice(0, limit).join('');
+    const [lines, setLines] = React.useState([]), [visible, setVisible] = React.useState(0);
+    const instant = props.instant || props.reducedMotion || props.speed === 0;
+    const callbacks = React.useRef(props); callbacks.current = props;
+    React.useLayoutEffect(() => {
+        if (!fontsReady || !ref.current) return;
+        const parent = ref.current.parentElement;
+        const measure = () => {
+            const probe = document.createElement('span'), style = getComputedStyle(parent);
+            Object.assign(probe.style, { display:'block', position:'absolute', visibility:'hidden', pointerEvents:'none', whiteSpace:'pre-wrap',
+                width:(parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))+'px' });
+            probe.textContent = text; parent.appendChild(probe);
+            const node = probe.firstChild, range = document.createRange(), result = [];
+            let offset = 0, top = null;
+            for (const glyph of stageGlyphs(text)) {
+                range.setStart(node, offset); range.setEnd(node, offset + glyph.length); offset += glyph.length;
+                const y = Math.round(range.getBoundingClientRect().top);
+                if (top !== y || !result.length) { result.push(''); top = y; }
+                result[result.length - 1] += glyph;
+            }
+            probe.remove();
+            setLines(old => old.join('\u0000') === result.join('\u0000') ? old : result);
+        };
+        measure();
+        const observer = new ResizeObserver(measure); observer.observe(parent);
+        document.fonts?.addEventListener('loadingdone', measure);
+        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
+    }, [text, fontsReady, fontRevision, props.skin]);
+    React.useEffect(() => {
+        if (!lines.length || props.hold || !fontsReady) return;
+        if (clock.current === null) clock.current = forkForeground.now();
+        const timers = [], {fade, stagger} = props.lines;
+        const show = count => {
+            setVisible(count);
+            callbacks.current.onVisible?.(lines.slice(0, count).join(''));
+            if (count === lines.length && !callbacks.current.pending) callbacks.current.onDone?.();
+        };
+        if (instant) show(lines.length);
+        else lines.forEach((_, i) => timers.push(forkForeground.setTimeout(() => show(i + 1), Math.max(0, clock.current + (i * stagger + fade) * 1000 - forkForeground.now()))));
+        return () => timers.forEach(timer => forkForeground.clearTimeout(timer));
+    }, [lines, instant, fontsReady, props.hold, props.pending, props.lines.fade, props.lines.stagger]);
+    return h('span', {ref, className:'fork-gal-narration-lines', 'data-instant':instant || undefined, 'data-held':props.hold || !fontsReady || undefined},
+        lines.map((line, i) => h('span', {key:i, className:'fork-gal-narration-line', style:{'--nar-fade':props.lines.fade+'s', '--nar-delay':(i * props.lines.stagger)+'s', '--nar-rise':'calc('+(props.lines.rise || 0)+' * var(--nar-u))'}, 'data-visible':i < visible || undefined}, line.replace(/\r?\n$/, '') || '\u200b')));
+}
+function GalTypewriter(props) {
+    const speed = props.speed == null ? defaultTextSpeed : props.speed;
+    const instant = Boolean(props.instant) || !(speed > 0);
+    const pending = Boolean(props.pending);
+    const reveal = props.skin ? stageSkinReveal(props.skin,speed,{reducedMotion:props.reducedMotion === true,photosensitive:props.photosensitive !== false}) : null;
+    const stepped = reveal && reveal.kind !== 'type' && !instant;
+    const fadeMs = STAGE_GLYPH_FADE_MS;
+    // Skin hop clock (stepped reveals only): the current hop step and the step each glyph appeared on.
+    const [skinStep,setSkinStep] = React.useState(0);
+    const hop = React.useRef({step:0,t0:null,base:0,born:[]});
+    const glyphs = React.useMemo(() => stageGlyphs(props.text), [props.text]);
+    // props.movable: the tail a streaming page may still hand to the next page (stagePageMovableTail); held too.
+    const limit = Math.max(0, Math.min(galRevealLimit(glyphs, pending), glyphs.length - (pending && props.movable ? stageGlyphs(props.movable).length : 0)));
+    const fontsReady = useGalFontsReady();
+    const [shown, setShown] = React.useState(instant ? limit : 0);
+    const visible = instant ? limit : Math.min(shown, limit);
+    // Only the glyphs still fading in are separate elements (one per glyph); shown text is one run and the
+    // hidden rest another, so the text paints exactly as plain text (no per-glyph shadow overlap) once settled.
+    const [settled, setSettled] = React.useState(-1);
+    const onDone = React.useRef(props.onDone), onReveal=React.useRef(props.onReveal), onVisible=React.useRef(props.onVisible);
+    onVisible.current=props.onVisible;
+    React.useLayoutEffect(()=>{onVisible.current?.(glyphs.slice(0,visible).join(""));},[visible,glyphs,props.visibleKey]);
+    onDone.current = props.onDone;onReveal.current=props.onReveal;
+    // When the next glyph is due. A streaming chunk re-renders the page (new text after the shown glyphs); the glyph
+    // keeps its time instead of restarting the wait, which stalled typing at every pause while chunks kept arriving.
+    const due = React.useRef(null);
+    React.useEffect(function () {
+        if (stepped) return; // the hop clock below drives stepped skin reveals
+        if (!pending && visible >= glyphs.length) onDone.current && onDone.current();
+        if (instant || !fontsReady || visible >= limit) {
+            due.current = null;
+            const timer = forkForeground.setTimeout(() => setSettled(visible), fadeMs + 40);
+            return () => forkForeground.clearTimeout(timer);
+        }
+        // the page is laid out but its first glyph waits while the previous face clears (useGalFaceHandoff).
+        if (props.hold) { due.current = null; return; }
+        const delay = stageGlyphDelay(glyphs, visible - 1, reveal?.stepMs || speed);
+        const now = forkForeground.now();
+        if (!due.current || due.current.visible !== visible) due.current = { visible, at: now + delay };
+        const timer = forkForeground.setTimeout(() => {
+            setShown(Math.min(limit,visible + 1));
+            onReveal.current?.(visible);
+        },Math.max(0, due.current.at - now));
+        return () => forkForeground.clearTimeout(timer);
+    }, [visible, limit, glyphs, pending, instant, fontsReady, speed, stepped, reveal?.kind, reveal?.stepMs, reveal?.chars, Boolean(props.hold)]);
+    // stepped skin reveals are cut-out animation on twos. One frame-quantized clock
+    // (absolute from its start, read at the frame's own time) drives both the reveal steps and every glyph's pose,
+    // so poses never drift off the steps and each is held the same number of display frames. A glyph enters in
+    // one clean step (hop 0), lands on the next (hop 1) and then holds at rest; there are no CSS animation timers.
+    // A long task skips poses rather than slowing the reading speed. The page reports done once its last glyphs
+    // have landed, so the final hop is not cut short by the typed state.
+    React.useEffect(function () {
+        if (!stepped || !fontsReady) return;
+        // The face handoff hold (props.hold) stops the hop clock too; it restarts with a fresh step when released.
+        if (props.hold) { hop.current.t0 = null; return; }
+        const state = hop.current, settledAt = visible > 0 ? (state.born[visible - 1] ?? 0) + reveal.poses * reveal.hold : 0;
+        if (visible >= limit && state.step >= settledAt) {
+            state.t0 = null;
+            if (!pending && visible >= glyphs.length) onDone.current && onDone.current();
+            return;
+        }
+        let frame = null;
+        const tick = function () {
+            const now = galFrameNow();
+            if (state.t0 === null) { state.t0 = now; state.base = state.step + 1; }
+            // 2 ms absorbs frame timestamp jitter without moving a step across a frame boundary (a 144 Hz frame is 6.9 ms).
+            const step = state.base + Math.floor((now - state.t0 + 2) / reveal.stepMs);
+            if (step <= state.step) { frame = forkForeground.requestAnimationFrame(tick); return; }
+            let next = visible;
+            for (let k = state.step + 1; k <= step; k++) {
+                const count = next < limit ? Math.min(limit - next, stageSkinRevealCount(reveal, next, k)) : 0;
+                // §18 E5: the skin's type cue (silent unless its sound palette has one; every n-th step).
+                if (count > 0) { onReveal.current?.(next); if (k === step && typeof forkUiSfx === "object" && forkUiSfx) forkUiSfx.play("type"); }
+                for (let i = next; i < next + count; i++) state.born[i] = k;
+                next += count;
+            }
+            state.step = step;
+            frame = null;
+            setShown(next); setSkinStep(step);
+        };
+        frame = forkForeground.requestAnimationFrame(tick);
+        return () => { if (frame !== null) forkForeground.cancelAnimationFrame(frame); };
+    }, [stepped, fontsReady, visible, limit, glyphs, pending, skinStep, reveal?.kind, reveal?.stepMs, reveal?.chunk, reveal?.speed, reveal?.poses, reveal?.hold, Boolean(props.hold)]);
+    // Glyphs before `settled` finished fading earlier (a held streaming tail), so they never fade again.
+    const tail = Math.ceil(fadeMs/Math.max(1,speed))+1;
+    // A glyph holds each of its `poses` entrance poses `hold` steps (stageSkinReveal), then joins the shown run.
+    const span = stepped ? reveal.poses * reveal.hold : 0;
+    const landed = stepped ? hop.current.born.findIndex((born, i) => i < visible && born + span > skinStep) : -1;
+    const done = instant ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
+    const h = React.createElement;
+    const fx = stepped ? props.skin.textFx : null;
+    return h("span", { className: "fork-gal-type" + (instant ? " is-instant" : ""), 'data-skin-reveal':stepped ? reveal.kind : undefined,
+            'data-skin-poses':fx?.poses ? fx.poses.length : undefined, 'data-skin-emphasis':fx?.emphasis || undefined },
+        done > 0 ? h("span", { key: "shown", className: "fork-gal-type-shown" }, glyphs.slice(0, done).join("")) : null,
+        glyphs.slice(done, visible).map((glyph, index) => {
+            const at = done + index, jitter = reveal?.jitter ? stageSkinGlyphJitter(at, reveal.jitter) : null;
+            return h("span", { key: at, className: "fork-gal-glyph" }, glyph,
+                stepped ? h('span',{className:'fork-skin-glyph-paint','data-glyph':glyph,'data-hop':Math.min(reveal.poses,Math.floor((skinStep-(hop.current.born[at] ?? skinStep))/reveal.hold)),'aria-hidden':true,
+                    style:jitter ? {'--gj-x':jitter[0] + 'em','--gj-y':jitter[1] + 'em'} : undefined}) : null);
+        }),
+        visible < glyphs.length ? h("span", { key: "rest", className: "fork-gal-type-rest" }, glyphs.slice(visible).join("")) : null);
+}
+// The presentation clock (forkForeground: stops while the window is in the background) at the current frame's start.
+// Inside a frame callback document.timeline.currentTime is the frame time shared by every callback of that frame, so
+// a Live2D or Pixi callback that ran first cannot push a hop step across a frame boundary.
+function galFrameNow() {
+    const now = forkForeground.now(), frame = typeof document !== "undefined" ? document.timeline?.currentTime : null;
+    return typeof frame === "number" && typeof performance !== "undefined" ? now - Math.max(0, performance.now() - frame) : now;
+}
+// A streaming page keeps its last two glyphs (and a Latin word still being written) hidden: a following 。 or 」
+// may pull the glyph before it onto the next line (kinsoku), and a growing word may wrap as a whole.
+function galRevealLimit(glyphs, pending) {
+    if (!pending) return glyphs.length;
+    const word = glyph => /^[\p{L}\p{N}'\u2019-]$/u.test(glyph || "") && !/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Hangul}]/u.test(glyph || "");
+    let end = Math.max(0, glyphs.length - 2);
+    while (end > 0 && word(glyphs[end - 1]) && word(glyphs[end])) end--;
+    return end;
+}
+function useGalFontsReady() {
+    const fonts = typeof document !== "undefined" ? document.fonts : null;
+    const [ready, setReady] = React.useState(() => !fonts || fonts.status === "loaded");
+    React.useEffect(function () {
+        if (ready) return;
+        let live = true;
+        const done = () => { if (live) setReady(true); };
+        fonts.ready.then(done, done);
+        const timer = forkForeground.setTimeout(done, 800);
+        return () => { live = false; forkForeground.clearTimeout(timer); };
+    }, []);
+    return ready;
+}
+
+
+return {Typewriter:GalTypewriter, NarrationLines:GalNarrationLines};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageText};
+
+        'use strict';
 function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
 const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
 function useGalOn(sessionId) {
@@ -273,7 +471,7 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
                 style.textContent = "/* Generic source-widget reading controls. The phone appearance belongs to its pack. */\n.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}\n.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}\n.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}\n.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}\n@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (phone-layout.js usePhoneAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n\n/* 「文字演出」 full-screen text cards (textcard-stage.js).\n   Flat palette cards with hard cuts — no fades in any mode. Colours come only from --tc-bg / --tc-fg, which the\n   renderer sets from the --gal-tc-* palette tokens (theme.css stage UI tokens) or the speaker's 形象色. */\n.fork-tc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; container-type: size; }\n.fork-tc-layer.is-up { pointer-events: auto; cursor: pointer; }\n.fork-tc-host { position: absolute; inset: 0; }\n/* The live region repeats the card text. In the card face (already loaded for the card), its first Han or kana text\n   does not make the browser load a system fallback font on the main thread as the card appears. */\n.fork-tc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font-family: var(--tc-mincho, var(--gal-tc-mincho)); }\n/* Follow mounted cards synchronously, not the React commit that mirrors the player state. */\n.fork-gal-stage:has(.fork-tc-host > .fork-tc) :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }\n\n.fork-tc { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;\n  background: var(--tc-bg); color: var(--tc-fg); font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-weight: 500; line-height: 1.2; text-align: center;\n  user-select: none; -webkit-user-select: none; font-kerning: normal; }\n.fork-tc[data-face=\"mono\"] .fork-tc-code-main { font-family: var(--gal-tc-mono); }\n.fork-tc [data-tc-center] { will-change: translate; }\n.fork-tc-ln { display: block; }\n.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: 1.05cqw; font-weight: 400; letter-spacing: .8em; opacity: .85; }\n.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: 1.3cqw; font-weight: 400; letter-spacing: .5em; }\n.fork-tc-reading.is-under { position: absolute; left: 0; right: 0; bottom: 18cqh; margin: 0; }\n.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: 1.4cqw; letter-spacing: .3em; font-variant-numeric: tabular-nums; }\n.fork-tc-mark { margin-top: 3.4cqh; font-size: 1.1cqw; line-height: 1; }\n.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: 2cqw; letter-spacing: .3em; }\n.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: 1.4cqw; font-weight: 400; letter-spacing: .62em; }\n\n/* #01 齣: a tiny vertical label in a sea of colour. */\n.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: 2.6cqw; letter-spacing: .5em; }\n.fork-tc[data-layout=\"punct\"] .fork-tc-reading { font-size: 1cqw; }\n\n/* #02 章节 */\n.fork-tc-title-main { font-size: 4.8cqw; letter-spacing: .12em; }\n.fork-tc-title-k { margin-right: .9em; letter-spacing: .2em; }\n.fork-tc-title-main.is-single { font-size: 16cqw; font-weight: 700; letter-spacing: 0; }\n.fork-tc-frame { position: absolute; inset: 22cqh 18cqw; border: .12cqw solid currentColor; opacity: .7; pointer-events: none; }\n\n/* #03 人名 */\n.fork-tc-name { padding-left: .32em; font-size: 6cqw; font-weight: 700; letter-spacing: .32em; }\n.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; font-weight: 400; letter-spacing: .55em; }\n.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: 1.3cqw; letter-spacing: .5em; }\n.fork-tc-rule { position: absolute; left: 12cqw; right: 12cqw; height: 0; border-top: .18cqw solid currentColor; opacity: .75; }\n.fork-tc-rule.is-top { top: 9cqh; } .fork-tc-rule.is-bottom { bottom: 9cqh; }\n\n/* #04 单字 / #05 字卡 / #06 竖排 / #23 巨字 */\n.fork-tc-text { font-weight: 700; line-height: 1.3; letter-spacing: .12em; }\n.fork-tc[data-size=\"xl\"] .fork-tc-text { font-size: 24cqw; line-height: 1; letter-spacing: 0; }\n.fork-tc[data-size=\"l\"] .fork-tc-text { font-size: 9cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 4.4cqw; font-weight: 500; letter-spacing: .2em; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text { writing-mode: vertical-rl; text-orientation: upright; line-height: 1.9; text-align: start; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text .fork-tc-ln + .fork-tc-ln { padding-top: 3.5em; }\n.fork-tc[data-size=\"crop\"] { align-items: flex-start; }\n.fork-tc[data-size=\"crop\"] .fork-tc-text { position: absolute; top: 50%; left: -4cqw; font-size: 48cqh; line-height: 1; letter-spacing: -.02em; white-space: nowrap; transform: translateY(-50%); }\n.fork-tc[data-size=\"crop\"][data-anchor=\"right\"] .fork-tc-text { left: auto; right: -4cqw; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"top\"] .fork-tc-text { top: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"bottom\"] .fork-tc-text { top: auto; bottom: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"center\"] .fork-tc-text { left: 50%; transform: translate(-50%, -50%); }\n\n/* #07 长文: dense vertical columns filling the page. */\n.fork-tc-page-text { position: absolute; inset: 8cqh 8cqw 12cqh; writing-mode: vertical-rl; text-orientation: upright; overflow: hidden;\n  font-size: 1.9cqw; font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }\n.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: 1cqw; letter-spacing: .4em; opacity: .8; }\n\n/* #08 字海: a big word over a dense repeat of a related word, slowly drifting. */\n.fork-tc-wall-fill { position: absolute; inset: -4cqh -2cqw; overflow: hidden; color: color-mix(in srgb, var(--tc-fg) 26%, var(--tc-bg)); font-size: 2.1cqw; line-height: 1.32; letter-spacing: .1em; word-break: break-all; text-align: start; }\n.fork-tc:not([data-reduced]) .fork-tc-wall-fill { animation: fork-tc-drift 1.2s linear both; }\n@keyframes fork-tc-drift { to { translate: -1.5cqw -3cqh; } }\n.fork-tc-wall-word { position: relative; padding: .2em .45em; background: var(--tc-bg); font-size: 12cqw; font-weight: 700; line-height: 1; letter-spacing: .06em; }\n\n/* #09 分屏: thin rules, words larger than their cells. */\n.fork-tc-split { position: absolute; inset: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }\n.fork-tc-cell { position: relative; display: grid; place-items: center; overflow: hidden; border: 0 solid color-mix(in srgb, var(--tc-fg) 30%, var(--tc-bg)); }\n.fork-tc-cell + .fork-tc-cell { border-left-width: .15cqw; }\n.fork-tc-cell-text { font-size: 30cqh; font-weight: 700; line-height: 1; white-space: nowrap; }\n\n/* #10 形变: components gather into one glyph. */\n.fork-tc-morph { position: absolute; inset: 0; }\n.fork-tc-part { position: absolute; left: 50%; top: 50%; font-size: 14cqw; font-weight: 700; line-height: 1; translate: -50% -50%; transition: translate var(--tc-converge, 1s) cubic-bezier(.6, 0, .3, 1), scale var(--tc-converge, 1s) ease-in; }\n.fork-tc-part[data-slot=\"0\"] { translate: -175% -110%; } .fork-tc-part[data-slot=\"1\"] { translate: 75% -110%; }\n.fork-tc-part[data-slot=\"2\"] { translate: -175% 10%; } .fork-tc-part[data-slot=\"3\"] { translate: 75% 10%; }\n.fork-tc.is-converging .fork-tc-part { translate: -50% -50%; scale: .55; }\n.fork-tc-morph-final { font-size: 24cqw; font-weight: 700; line-height: 1; }\n.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; letter-spacing: .4em; }\n\n/* #11/#13/#22 sequences and 快闪: one word per state, the layout varies by state. */\n.fork-tc-fl { position: absolute; font-weight: 700; line-height: 1; white-space: nowrap; }\n.fork-tc-fl { inset: 0; display: grid; place-items: center; font-size: 13cqw; }\n.fork-tc[data-size=\"xl\"] .fork-tc-fl { font-size: 26cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-fl { font-size: 6cqw; font-weight: 500; letter-spacing: .1em; }\n\n/* #12 输入: growing line, uncommitted text underlined, a thin caret. */\n.fork-tc-ime { position: relative; display: grid; font-size: 5cqw; text-align: start; }\n.fork-tc-ime > * { grid-area: 1 / 1; white-space: nowrap; }\n.fork-tc-ime-ghost { visibility: hidden; }\n.fork-tc-ime-typing { text-decoration: underline .12em; text-underline-offset: .18em; }\n.fork-tc-caret { display: inline-block; width: .06em; height: 1em; margin-left: .04em; vertical-align: -.12em; background: currentColor; }\n\n/* #14 符号 */\n.fork-tc-code-main { padding-left: .25em; font-size: 9cqw; letter-spacing: .25em; }\n.fork-tc-bars { display: flex; align-items: flex-end; gap: .6cqw; height: 3cqh; margin-top: 3cqh; }\n.fork-tc-bars i { width: .5cqw; height: 25%; background: currentColor; }\n.fork-tc-bars i[data-h=\"1\"] { height: 50%; } .fork-tc-bars i[data-h=\"2\"] { height: 75%; } .fork-tc-bars i[data-h=\"3\"] { height: 100%; width: 1.2cqw; }\n.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: 1.8cqw; font-weight: 400; letter-spacing: .3em; }\n\n/* #15 图解: tree, calendar or grid laid out from a few values. */\n.fork-tc-diagram { display: flex; flex-direction: column; align-items: center; gap: 5cqh; }\n.fork-tc-dg-root { padding: .4em 1em; border: .2cqw solid currentColor; font-size: 3.4cqw; }\n.fork-tc-dg-items { position: relative; display: flex; gap: 3cqw; padding-top: 4cqh; border-top: .2cqw solid currentColor; }\n.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: 2.2cqw; }\n.fork-tc-dg-item::before { content: \"\"; position: absolute; left: 50%; bottom: 100%; height: 4cqh; border-left: .2cqw solid currentColor; pointer-events: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-root { border: 0; font-size: 18cqw; line-height: 1; font-variant-numeric: tabular-nums; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-items, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { padding-top: 0; border-top: 0; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item::before, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item::before { content: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item { border: 0; border-bottom: .15cqw solid currentColor; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item:first-child { background: var(--tc-fg); color: var(--tc-bg); }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item { margin: -.075cqw; padding: 1.4em 1em; }\n\n/* #16 场景标记 */\n.fork-tc-marker { font-size: 8cqw; font-weight: 700; letter-spacing: .1em; }\n.fork-tc-marker[data-tc-center=\"xy\"] { writing-mode: vertical-rl; text-orientation: upright; font-size: 6.4cqw; letter-spacing: .2em; }\n\n@media (max-width: 720px) {\n  .fork-tc-foot, .fork-tc-roman, .fork-tc-reading { letter-spacing: .4em; }\n  .fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 5.6cqw; }\n  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: 2.6cqw; }\n}\n\n/* Compound templates keep their complete semantic text; only repeat's short final word deliberately crops. */\n.fork-tc[data-compound] .fork-tc-text { max-width: 84cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-text { max-width: none; }\n.fork-tc[data-compound] .fork-tc-fl-word { max-width: 88cqw; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-main { max-width: 60cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-k { display: block; margin: 0 0 2cqh; font-size: max(var(--fork-fs-meta), 1.6cqw); }\n.fork-tc[data-compound] .fork-tc-reading { max-width: 90cqw; overflow-wrap: anywhere; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n.fork-tc[data-compound] .fork-tc-reading.is-under,\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-reading { position: absolute; left: 5cqw; right: 5cqw; bottom: 8cqh; margin: 0; }\n.fork-tc[data-compound] .fork-tc-wall-word { max-width: 80cqw; font-size: 7cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-cell-text { max-width: 85%; font-size: 4cqw; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc-cell-name { position: absolute; top: 15cqh; left: 8%; right: 8%; font-size: max(var(--fork-fs-heading), 2cqw); letter-spacing: .2em; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-ime { width: 80cqw; font-size: 3.4cqw; }\n.fork-tc[data-compound] .fork-tc-ime > * { white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-code-main { max-width: 82cqw; font-size: 4cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-page-text { font-size: max(var(--fork-fs-body), 1.9cqw); }\n.fork-tc[data-compound] .fork-tc-margin { font-size: max(var(--fork-fs-meta), 1cqw); }\n.fork-tc-relate { position: absolute; inset: 8cqh 5cqw 22cqh; }\n.fork-tc-relate svg { width: 100%; height: 100%; overflow: visible; }\n.fork-tc-relate-person, .fork-tc-relate-label { position: absolute; translate: -50% -50%; background: var(--tc-bg); overflow-wrap: anywhere; }\n.fork-tc-relate-person { max-width: 23%; padding: .3em .4em; border: .1em solid currentColor; font-size: max(var(--fork-fs-heading), 2.2cqw); letter-spacing: .12em; }\n.fork-tc-relate-label { max-width: 25%; padding: .2em .4em; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n@media (max-width: 720px) {\n  .fork-tc[data-compound] .fork-tc-page-text { inset: 10cqh 5cqw; writing-mode: horizontal-tb; font-size: var(--fork-fs-body); line-height: 1.4; }\n  .fork-tc[data-compound] .fork-tc-margin { top: 5cqh; left: 5cqw; right: 5cqw; writing-mode: horizontal-tb; text-align: start; }\n  .fork-tc[data-compound] .fork-tc-ime { font-size: max(var(--fork-fs-heading), 3.4cqw); }\n}\n";
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:createStageViews});}
+                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => ({...createStageViews(options), ...createStageText({React:options.React, document:options.document, ...options.text})})});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');

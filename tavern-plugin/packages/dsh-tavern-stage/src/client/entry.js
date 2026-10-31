@@ -2,6 +2,7 @@ window.__ModuleLoader__.load({
     id: 'dsh-tavern-stage',
     factory: () => {
         __STAGE_NAVIGATION__
+        __STAGE_TEXT__
         __STAGE_VIEWS__
         return ({
         name: 'dsh-tavern-stage',
@@ -21,7 +22,7 @@ window.__ModuleLoader__.load({
                 style.textContent = __STAGE_PRESENTATION_CSS__;
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:createStageViews});}
+                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => ({...createStageViews(options), ...createStageText({React:options.React, document:options.document, ...options.text})})});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');
