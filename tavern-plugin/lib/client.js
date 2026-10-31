@@ -46630,19 +46630,6 @@ function cardLibraryDisplayName(card) {
 		// figures fade at their slot; horizontal travel would cross the stage axis.
 		// Reflow still eases; "none" (skipping) reveals instantly.
 		const GAL_SCENE_DIP_MS = 480;
-		// Add / replace / retire decisions for the figures on stage. current: [{ key, kind, url, leaving }].
-		function galFigurePlan(current, figures) {
-		    const plan = { add: [], replace: [], retire: [], revive: [] };
-		    const wanted = new Map(figures.map(figure => [figure.key, figure]));
-		    current.forEach(function (entry) {
-		        const figure = wanted.get(entry.key);
-		        if (!figure) { if (!entry.leaving) plan.retire.push(entry.key); return; }
-		        if (figure.kind !== entry.kind || ((figure.kind === "live2d" || figure.kind === "spine") && figure.identity !== entry.identity)) plan.replace.push(entry.key);
-		        else if (entry.leaving) plan.revive.push(entry.key);
-		    });
-		    figures.forEach(function (figure) { if (!current.some(entry => entry.key === figure.key)) plan.add.push(figure); });
-		    return plan;
-		}
 		// First frame of a figure whose picture has just become ready.
 		function galFigureInit(entry, figure) {
 		    const base = figure.x != null ? figure.x : 0.5;
@@ -46988,7 +46975,7 @@ function cardLibraryDisplayName(card) {
 		    ["background", "camera", "figureLight"].forEach(function (key) { if (patch[key] && base[key] && typeof patch[key] === "object") out[key] = Object.assign({}, base[key], patch[key]); });
 		    return out;
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigurePlan, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
 		// ---------- Scene runtime (pixi) ----------
 
 		// Machine preference: stage effects quality, "high" (default) or "low".
@@ -47086,9 +47073,10 @@ function cardLibraryDisplayName(card) {
 
 		    const cameraMotion=stageViews.sceneCamera.create();
 		    let closeHead=null;
+		    const cast=stageViews.cast.create({build:(figure,pending)=>addFigure(figure,!pending),release:destroyFigure});
 		    const state = {
 		        desc: null, override: null, debugEffects: [], destroyed: false,
-		        figures: new Map(),            // key → entry
+		        figures: cast.entries,            // read-only membership; entries hold rendering state
 		        seen: new Set(),
 		        camera: cameraMotion.snapshot(),
 		        dof: galSpringValue(0),
@@ -47168,7 +47156,6 @@ function cardLibraryDisplayName(card) {
 		        vignette.position.set(-app.screen.width * 0.02, -app.screen.height * 0.02);
 		    }
 		    // ---- figures
-		    function entryList() { return Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, url: entry.url, identity:entry.identity, leaving: entry.leaving })); }
 		    function addFigure(figure, attach = true) {
 		        const container = new PIXI.Container();
 		        container.visible = false;
@@ -47182,23 +47169,18 @@ function cardLibraryDisplayName(card) {
 		        // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
 		        entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
 		        figuresBox.addChild(container);
-		        if (attach) state.figures.set(figure.key, entry); else entry.swap = true;
+		        if (!attach) entry.swap = true;
 		        return entry;
 		    }
 		    function commitFigureReplacement(entry) {
 		        // A loaded picture / model brings its own (head-normalised) anatomy: the cast layout reads it (figureLayout).
 		        state.figureLoads = (state.figureLoads || 0) + 1;
-		        const previous = entry.previous;
-		        if (!previous) return;
-		        if (state.figures.get(entry.key) !== previous || previous.replacement !== entry) { destroyFigure(entry); return; }
-		        previous.replacement = null; entry.previous = null;
-		        destroyFigure(previous);
-		        state.figures.set(entry.key, entry);
+		        cast.commit(entry);
 		    }
 		    function destroyFigure(entry) {
 		        if(entry.dead)return;
 		        entry.dead=true;
-		        if(state.figures.get(entry.key)===entry)state.figures.delete(entry.key);
+		        cast.forget(entry);
 		        const errors=[];
 		        const release=action=>{try{action();}catch(error){errors.push(error);}};
 		        if(entry.replacement){const replacement=entry.replacement;entry.replacement=null;release(()=>destroyFigure(replacement));}
@@ -47375,35 +47357,12 @@ function cardLibraryDisplayName(card) {
 		        }
 		        const layout = figureLayout(desc, W, H, now);
 		        const figures = laidOut(desc.figures || GAL_NO_FIGURES, layout);
-		        const plan = galFigurePlan(entryList(), figures);
-		        plan.retire.forEach(function (key) {
-		            const entry = state.figures.get(key), last = entry.figure;
-		            if (entry.replacement) { destroyFigure(entry.replacement); entry.replacement = null; }
-		            entry.leaving = true; entry.leavingSince = now;
-		            entry.figure = Object.assign({}, last, { visible: false, exit: last.visible === false ? last.exit : "soft", speaking: false, talking: false, audio: null, act: null });
-		        });
-		        plan.revive.forEach(key => { state.figures.get(key).leaving = false; });
-		        figures.forEach(function (figure) {
-		            let entry = state.figures.get(figure.key);
-		            // retain the last-good GPU object until its replacement loads.
-		            if (entry && plan.replace.includes(figure.key)) {
-		                if (entry.replacement && entry.replacement.identity !== figure.identity) { destroyFigure(entry.replacement); entry.replacement = null; }
-		                if (!entry.replacement) { entry.replacement = addFigure(figure, false); entry.replacement.previous = entry; }
-		                const candidate = entry.replacement;
-		                candidate.figure = figure;
-		                if (figure.kind === 'spine') { candidate.url = figure.url || ""; loadSpine(candidate); }
-		                else showStatic(candidate, figure.src);
+		        cast.update(figures,now).forEach(function({entry,replacement}) {
+		            const figure=entry.figure;
+		            if(replacement){
+		                if(figure.kind==='spine')loadSpine(entry);else showStatic(entry,figure.src);
 		                return;
 		            }
-		            if (!entry) entry = addFigure(figure);
-		            if (entry.replacement) { destroyFigure(entry.replacement); entry.replacement = null; }
-		            // renewing a lease keeps all loaded sprite resources in place.
-		            if (entry.sprite && entry.figure.identity === figure.identity) {
-		                const old = entry.figure;
-		                figure = {...figure,src:old.src,spriteBundle:old.spriteBundle,blinkBundle:old.blinkBundle};
-		            }
-		            entry.figure = figure;
-		            if (!entry.model && !entry.loading) entry.url = figure.url || "";
 		            if (figure.kind === "static") {
 		                showStatic(entry, figure.src);
 		                const mouthKey = figure.spriteBundle?.revision || "";
@@ -48164,7 +48123,7 @@ function cardLibraryDisplayName(card) {
 		            if (state.pump) { state.pump.stop = true; state.pump.off(); }
 		            app.ticker.remove(frame);
 		            effects.destroy();
-		            state.figures.forEach(destroyFigure);
+		            cast.dispose();
 		            state.offstage.forEach(entry => { if (entry.next) destroyFigure(entry.next); destroyFigure(entry); });
 		            call.dispose();
 		            offstageBox.destroy();

@@ -123,9 +123,10 @@ function galCreateScene(host, options) {
 
     const cameraMotion=stageViews.sceneCamera.create();
     let closeHead=null;
+    const cast=stageViews.cast.create({build:(figure,pending)=>addFigure(figure,!pending),release:destroyFigure});
     const state = {
         desc: null, override: null, debugEffects: [], destroyed: false,
-        figures: new Map(),            // key → entry
+        figures: cast.entries,            // read-only membership; entries hold rendering state
         seen: new Set(),
         camera: cameraMotion.snapshot(),
         dof: galSpringValue(0),
@@ -205,7 +206,6 @@ function galCreateScene(host, options) {
         vignette.position.set(-app.screen.width * 0.02, -app.screen.height * 0.02);
     }
     // ---- figures
-    function entryList() { return Array.from(state.figures.values()).map(entry => ({ key: entry.key, kind: entry.kind, url: entry.url, identity:entry.identity, leaving: entry.leaving })); }
     function addFigure(figure, attach = true) {
         const container = new PIXI.Container();
         container.visible = false;
@@ -219,23 +219,18 @@ function galCreateScene(host, options) {
         // Per-figure idle rhythm (stageViews.figureIdle.galIdleJitter): the plain breath below keeps the same phase and period factor.
         entry.breath = entry.idle.jitter.phase * Math.PI * 2; entry.breathMs = 4500 * entry.idle.jitter.period;
         figuresBox.addChild(container);
-        if (attach) state.figures.set(figure.key, entry); else entry.swap = true;
+        if (!attach) entry.swap = true;
         return entry;
     }
     function commitFigureReplacement(entry) {
         // A loaded picture / model brings its own (head-normalised) anatomy: the cast layout reads it (figureLayout).
         state.figureLoads = (state.figureLoads || 0) + 1;
-        const previous = entry.previous;
-        if (!previous) return;
-        if (state.figures.get(entry.key) !== previous || previous.replacement !== entry) { destroyFigure(entry); return; }
-        previous.replacement = null; entry.previous = null;
-        destroyFigure(previous);
-        state.figures.set(entry.key, entry);
+        cast.commit(entry);
     }
     function destroyFigure(entry) {
         if(entry.dead)return;
         entry.dead=true;
-        if(state.figures.get(entry.key)===entry)state.figures.delete(entry.key);
+        cast.forget(entry);
         const errors=[];
         const release=action=>{try{action();}catch(error){errors.push(error);}};
         if(entry.replacement){const replacement=entry.replacement;entry.replacement=null;release(()=>destroyFigure(replacement));}
@@ -412,35 +407,12 @@ function galCreateScene(host, options) {
         }
         const layout = figureLayout(desc, W, H, now);
         const figures = laidOut(desc.figures || GAL_NO_FIGURES, layout);
-        const plan = galFigurePlan(entryList(), figures);
-        plan.retire.forEach(function (key) {
-            const entry = state.figures.get(key), last = entry.figure;
-            if (entry.replacement) { destroyFigure(entry.replacement); entry.replacement = null; }
-            entry.leaving = true; entry.leavingSince = now;
-            entry.figure = Object.assign({}, last, { visible: false, exit: last.visible === false ? last.exit : "soft", speaking: false, talking: false, audio: null, act: null });
-        });
-        plan.revive.forEach(key => { state.figures.get(key).leaving = false; });
-        figures.forEach(function (figure) {
-            let entry = state.figures.get(figure.key);
-            // retain the last-good GPU object until its replacement loads.
-            if (entry && plan.replace.includes(figure.key)) {
-                if (entry.replacement && entry.replacement.identity !== figure.identity) { destroyFigure(entry.replacement); entry.replacement = null; }
-                if (!entry.replacement) { entry.replacement = addFigure(figure, false); entry.replacement.previous = entry; }
-                const candidate = entry.replacement;
-                candidate.figure = figure;
-                if (figure.kind === 'spine') { candidate.url = figure.url || ""; loadSpine(candidate); }
-                else showStatic(candidate, figure.src);
+        cast.update(figures,now).forEach(function({entry,replacement}) {
+            const figure=entry.figure;
+            if(replacement){
+                if(figure.kind==='spine')loadSpine(entry);else showStatic(entry,figure.src);
                 return;
             }
-            if (!entry) entry = addFigure(figure);
-            if (entry.replacement) { destroyFigure(entry.replacement); entry.replacement = null; }
-            // renewing a lease keeps all loaded sprite resources in place.
-            if (entry.sprite && entry.figure.identity === figure.identity) {
-                const old = entry.figure;
-                figure = {...figure,src:old.src,spriteBundle:old.spriteBundle,blinkBundle:old.blinkBundle};
-            }
-            entry.figure = figure;
-            if (!entry.model && !entry.loading) entry.url = figure.url || "";
             if (figure.kind === "static") {
                 showStatic(entry, figure.src);
                 const mouthKey = figure.spriteBundle?.revision || "";
@@ -1201,7 +1173,7 @@ function galCreateScene(host, options) {
             if (state.pump) { state.pump.stop = true; state.pump.off(); }
             app.ticker.remove(frame);
             effects.destroy();
-            state.figures.forEach(destroyFigure);
+            cast.dispose();
             state.offstage.forEach(entry => { if (entry.next) destroyFigure(entry.next); destroyFigure(entry); });
             call.dispose();
             offstageBox.destroy();
