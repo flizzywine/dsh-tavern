@@ -56,8 +56,8 @@ function createStageRuntimeStore({initialState = stageRuntimeKernel.createStageR
             return selector;
         },
         dispose() {
-            store.dispatch({type: 'DISPOSE'});
-            for (const selector of selectors) selector.dispose();
+            try { store.dispatch({type: 'DISPOSE'}); }
+            finally { for (const selector of selectors) selector.dispose(); }
         }
     };
     return store;

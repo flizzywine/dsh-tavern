@@ -1,6 +1,11 @@
 'use strict';
 
 function createStageSessionModule(stageSessionStore) {
+function cleanupStageSessionResources(actions) {
+    const errors = [];
+    for (const action of actions) try { action(); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, 'Stage session cleanup failed');
+}
 // the stage's failure notice belongs to one attempt, the latest native turn.
 // Its own end says so (the chat's turn-error node for a turn that ended in error, an interrupted reply for a stopped one);
 // a retry or regeneration is a newer turn and replaces it, a cleared failure (withdrawn) is a suppressed turn. The host
@@ -78,13 +83,14 @@ function createStageSessionOwner(options) {
         if (valid()) dispatch({type:'CARRY_RESULT',token,carry});
     }
     function release(record) {
+        if (!record.active) return;
         record.active = false;
-        record.stopBinding();
-        for (const stop of record.stops) stop();
-        record.store.dispose();
-        record.index.clear();
-        options.invalidateHistory?.(record.id);
         records.delete(record.id);
+        cleanupStageSessionResources([
+            record.stopBinding, ...record.stops.splice(0),
+            () => record.store.dispose(), () => record.index.clear(),
+            () => options.invalidateHistory?.(record.id)
+        ]);
     }
     function create(id) {
         const store = stageSessionStore.createStageRuntimeStore({observe:(event,previous,state)=>options.observe?.(id,event,previous,state),runEffect: (intent, dispatch, getSnapshot) => {
@@ -240,7 +246,11 @@ function createStageSessionOwner(options) {
                     if (source) nodeStops.set(nodeId, {source, stop: source.subscribe(nativeChanged)});
                 }
             };
-            record.stopBinding = () => {for (const stop of stops) stop(); for (const entry of nodeStops.values()) entry.stop(); nodeStops.clear();};
+            record.stopBinding = () => {
+                const actions = [...stops.splice(0), ...Array.from(nodeStops.values(), entry => entry.stop)];
+                nodeStops.clear();
+                cleanupStageSessionResources(actions);
+            };
             stops.push(binding.session.subscribe(nativeChanged), record.chat.subscribe(nativeChanged));
             nativeChanged();
         };
@@ -406,7 +416,12 @@ function createStageSessionOwner(options) {
             return first() < before;
         },
         reconcile(id) {records.get(id)?.reconcile();},
-        dispose() {if (disposed) return; disposed = true; stopList?.(); for (const record of [...records.values()]) release(record);}
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            const stop = stopList; stopList = null;
+            cleanupStageSessionResources([() => stop?.(), ...Array.from(records.values(), record => () => release(record))]);
+        }
     };
 }
 

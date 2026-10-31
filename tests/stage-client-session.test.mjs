@@ -53,3 +53,50 @@ test('isolated session module owns subscriptions and rejects a body read after d
   owner.start()
   assert.equal(list.count, 0, 'disposed owners cannot restart')
 })
+
+test('store clears selectors even when a disposal effect throws', () => {
+  const store = storeModule.createStageRuntimeStore({observe(event) {
+    if (event.type === 'DISPOSE') throw new Error('observer failed')
+  }})
+  const selection = store.select(state => state.disposed)
+  let cleared = 0
+  const dispose = selection.dispose
+  selection.dispose = () => {cleared++; dispose()}
+  assert.throws(() => store.dispose(), /observer failed/)
+  assert.equal(store.getSnapshot().disposed, true)
+  assert.equal(cleared, 1)
+  store.dispose()
+  assert.equal(cleared, 1)
+})
+
+test('one failed unsubscribe cannot retain other subscriptions or sessions', () => {
+  const list = source({current:'a', byId:{a:{},b:{}}})
+  const signal = source({view:{}})
+  const chat = source({nodes:new Map()})
+  const session = source({running:false})
+  const binding = {session:{...session, subscribe(fn) {
+    const stop = session.subscribe(fn)
+    return () => {stop(); throw new Error('host unsubscribe failed')}
+  }}}
+  let cleared = 0
+  const owner = createStageSessionOwner({
+    sessions:{list, binding: () => binding}, resolveChat: () => chat,
+    views:{select: () => signal, invalidate() {}}, coordination:signal,
+    settings:{get: () => ({}), load() {}, subscribe:signal.subscribe},
+    preferences:{get: () => ({}), subscribe:signal.subscribe},
+    createIndex: () => ({getSnapshot: () => new Map(), reconcile: () => new Map(), clear() {cleared++}}),
+  })
+  owner.start()
+  const first = owner.get('a')
+  list.publish({current:'b', byId:{a:{},b:{}}})
+  const second = owner.get('b')
+  assert.ok(first && second && first !== second)
+  assert.throws(() => owner.dispose(), /Stage session cleanup failed/)
+  assert.equal(cleared, 2)
+  assert.equal(first.getSnapshot().disposed, true)
+  assert.equal(second.getSnapshot().disposed, true)
+  for (const event of [list, signal, chat, session]) assert.equal(event.count, 0)
+  assert.equal(owner.get('a'), null)
+  assert.equal(owner.get('b'), null)
+  assert.doesNotThrow(() => owner.dispose())
+})
