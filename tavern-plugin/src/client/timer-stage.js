@@ -19,22 +19,10 @@ function timerBuiltin(sessionId) {
 const timerConsumedOffers = new Set();
 
 function useStageTimer(...args) { return stageViews.timer.useTimer(...args); }
-// The timeup's performance (asset onTimeup) through the ordinary performance admission and resource owner, drawn by the
-// shared keyframe player on the stage root; nothing is played when the host says it is unavailable.
-async function timerPlayReaction({root, sessionId, source, turn, at, token, event, safety}) {
-    const answer = await rpc('getStageTimerReaction', {turn, at, expectedDirectionToken:token, eventId:event.id}, sessionId).catch(() => null);
-    if (answer?.status !== 'ready' || !root?.isConnected) return;
-    const owner = stageSessions.resourceOwner, value = answer.performance;
-    const prepared = await owner.prepare(value, stageResourceAuthority(source), {usage:'timer-reaction'});
-    const rects = createStageRects({root, schedule:fn => forkForeground.requestAnimationFrame(fn), cancel:id => forkForeground.cancelAnimationFrame(id)});
-    const layer = createPerformanceKeyframeLayer({root, owner, foreground:forkForeground, rects, safety});
-    const keyframes = prepared.value.dependencies.find(item => item.ref?.kind === 'performances')?.document?.keyframes;
-    layer.apply({type:'layer', value:{...prepared.value, phase:'entry'}, token:{id:'timer:' + event.id}, descriptor:null, snap:false, handles:prepared.pins.map(pin => pin.handle)});
-    forkForeground.setTimeout(() => { layer.dispose(); rects.dispose(); prepared.release(); }, (keyframes?.entry?.durationMs || 6000) + 600);
-}
-
 // Input and visibility guard the optional fallback action, not the clock.
 function useStageTimerSlot({sessionId, rootRef, reading, source, token, turn, mode, visit, at, offset, waiting, sending, running, skinKey = ''}) {
+    const reaction = React.useMemo(() => stageViews.timer.createReactionScope(), [sessionId,token,turn,at,offset,mode,visit]);
+    React.useEffect(() => () => reaction.dispose(), [reaction]);
     const [visible, setVisible] = React.useState(true);
     React.useEffect(() => forkForeground.subscribe(setVisible), []);
     const [inputStarted, setInputStarted] = React.useState(false);
@@ -46,7 +34,7 @@ function useStageTimerSlot({sessionId, rootRef, reading, source, token, turn, mo
         onEvent:event => {
             // The one stage event (skin / performance consumers): a DOM event on the stage, then the entry's own onTimeup.
             rootRef.current?.dispatchEvent(new CustomEvent('fork-stage-event', {detail:event}));
-            if (event.onTimeup) timerPlayReaction({root:rootRef.current, sessionId, source, turn:event.turn, at:event.at, token:event.source, event,
+            if (event.onTimeup) reaction.play({root:rootRef.current, sessionId, source, turn:event.turn, at:event.at, token:event.source, event,
                 safety:() => performanceSafety(reading, window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)}).catch(error => console.warn('Timer reaction unavailable', error));
         },
         onFallback:offer => {

@@ -1,5 +1,5 @@
 'use strict';
-function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver}) {
+function createStageTimer({React, rpc, window, crypto, performance, setInterval, clearInterval, timerClockRemaining, Icon, foreground:forkForeground, ResizeObserver, MutationObserver, getResourceOwner, resourceAuthority, createRects, createKeyframeLayer}) {
 let disposed = false;
 const cleanups = new Set(), timerSeenEvents = new Set();
 // mode: 'live' (writer) | 'history' (saved frame) | 'replay' (private clock); view: the stage's holds right now.
@@ -218,7 +218,51 @@ function StageTimer({state, look, reducedMotion, notice}) {
         said);
 }
 
-return {useTimer:useStageTimer, Component:StageTimer, dispose() {
+// Each displayed page owns its asynchronous reaction and all acquired resources.
+function createReactionScope() {
+    let closed = false;
+    const releases = new Set();
+    const stop = () => {
+        if (closed) return;
+        closed = true; cleanups.delete(stop);
+        const errors = [];
+        for (const release of [...releases]) {try {release();} catch (error) {errors.push(error);}}
+        if (errors.length) throw new AggregateError(errors, 'Timer reaction cleanup failed');
+    };
+    if (disposed) closed = true; else cleanups.add(stop);
+    return {dispose:stop, async play({root, sessionId, source, turn, at, token, event, safety}) {
+        const active = () => !closed && !disposed && root?.isConnected;
+        if (!active()) return;
+        const owner = getResourceOwner();
+        const answer = await rpc('getStageTimerReaction', {turn, at, expectedDirectionToken:token, eventId:event.id}, sessionId).catch(() => null);
+        if (!active() || answer?.status !== 'ready') return;
+        const prepared = await owner.prepare(answer.performance, resourceAuthority(source), {usage:'timer-reaction'});
+        if (!active()) {prepared.release(); return;}
+        let rects, layer, timer = null, released = false;
+        const release = () => {
+            if (released) return;
+            released = true; releases.delete(release);
+            const errors = [];
+            for (const cleanup of [
+                () => {if (timer !== null) forkForeground.clearTimeout(timer);},
+                () => layer?.dispose(), () => rects?.dispose(), () => prepared.release()
+            ]) {try {cleanup();} catch (error) {errors.push(error);}}
+            if (errors.length) throw new AggregateError(errors, 'Timer reaction resources cleanup failed');
+        };
+        releases.add(release);
+        try {
+            rects = createRects({root, schedule:fn => forkForeground.requestAnimationFrame(fn), cancel:id => forkForeground.cancelAnimationFrame(id)});
+            layer = createKeyframeLayer({root, owner, foreground:forkForeground, rects, safety});
+            const keyframes = prepared.value.dependencies.find(item => item.ref?.kind === 'performances')?.document?.keyframes;
+            layer.apply({type:'layer', value:{...prepared.value, phase:'entry'}, token:{id:'timer:' + event.id}, descriptor:null, snap:false, handles:prepared.pins.map(pin => pin.handle)});
+            timer = forkForeground.setTimeout(release, (keyframes?.entry?.durationMs || 6000) + 600);
+        } catch (error) {
+            try {release();} catch (cleanup) {throw new AggregateError([error,cleanup], 'Timer reaction failed');}
+            throw error;
+        }
+    }};
+}
+return {createReactionScope, useTimer:useStageTimer, Component:StageTimer, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

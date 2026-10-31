@@ -69,3 +69,40 @@ test('timer layout observers and queued frame are removed immediately on plugin 
   observers[0].fn()
   assert.equal(frames.size,0)
 })
+test('page disposal during reaction preparation releases late resources without creating a layer', async () => {
+  let finish, preparing, released = 0, layers = 0
+  const started = new Promise(resolve => {preparing=resolve})
+  const timer = createStageTimer({
+    rpc:async () => ({status:'ready',performance:{}}),
+    getResourceOwner:() => ({prepare:() => {preparing();return new Promise(resolve => {finish=resolve})}}),
+    resourceAuthority:value => value,createKeyframeLayer:() => {layers++},
+  })
+  const page = timer.createReactionScope()
+  const pending = page.play({root:{isConnected:true},event:{id:'e'}})
+  await started
+  page.dispose()
+  finish({release:() => released++})
+  await pending
+  assert.equal(released,1)
+  assert.equal(layers,0)
+  timer.dispose()
+})
+test('reaction startup failure and plugin disposal both release layer, layout and pins', async () => {
+  for (const fail of [false,true]) {
+    const released = [], timers = new Set()
+    const timer = createStageTimer({
+      rpc:async () => ({status:'ready',performance:{}}),
+      getResourceOwner:() => ({prepare:async () => ({value:{dependencies:[]},pins:[],release:() => released.push('pins')})}),
+      resourceAuthority:value => value,
+      createRects:() => ({dispose:() => released.push('rects')}),
+      createKeyframeLayer:() => ({apply:() => {if(fail) throw new Error('apply failed')},dispose:() => released.push('layer')}),
+      foreground:{setTimeout:fn => {timers.add(fn);return fn},clearTimeout:fn => timers.delete(fn)},
+    })
+    const pending = timer.createReactionScope().play({root:{isConnected:true},event:{id:'e'}})
+    if (fail) await assert.rejects(pending,/apply failed/)
+    else {await pending;assert.equal(timers.size,1)}
+    timer.dispose();timer.dispose()
+    assert.deepEqual(released,['layer','rects','pins'])
+    assert.equal(timers.size,0)
+  }
+})
