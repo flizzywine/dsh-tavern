@@ -1418,6 +1418,7 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
+        skinResources:{getSession:id=>stageSessions.get(id),getResourceOwner:()=>stageSessions.resourceOwner,setTimeout,clearTimeout},
         skinContract:{stageSkinImageOf,stageSkinSliceEdges,stageSkinScreenFiles,skinContrast},
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
@@ -1444,7 +1445,7 @@ function bindStageViews(createViews) {
         backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
         backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
         backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
-        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
+        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
         configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
         configScreen:{matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, },
         configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSwitch?"toggle":null},
