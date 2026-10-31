@@ -2691,7 +2691,7 @@ export async function apply(ctx) {
       onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments) })
   }
   const pluginApi = createTavernPluginApi({
-    ctx,modHost:managedModManagement.modHost,
+    ctx,get modHost() {return ctx.get('tavernManagedModules')},
     logger: console,
     storyEvents,
     workflow,
@@ -3241,7 +3241,7 @@ export async function apply(ctx) {
     // input because the replayed history calls name that tool.
     storyToolCall: async () => (await readTavernSettings()).storyOutputToolCall,
     storyInputToolCall: async () => (await readTavernSettings()).storyInputToolCall,
-    modEnabled: (modId, cardPath) => cardPath ? managedModManagement.enabled({ modId, cardPath }) : false,
+    modEnabled: (modId, cardPath) => cardPath ? ctx.get('tavernManagedModules')?.enabled({modId,cardPath}) ?? false : false,
     store: {
       chatForSession,
       storyContextForSession: sessionId => storyContext({ sessionId }),
@@ -4008,7 +4008,7 @@ export async function apply(ctx) {
       save: (chat, reference, turn) => updateChatHeader(chat.id, ['styleReferences'], current => ({ ...current, styleReferences: rememberStyleReference(current.styleReferences, reference, turn) }), { source: 'foreground.style-reference' })
     })))
     registerGameplayTools({
-      authorizeMod: (modId,chat)=>managedModManagement.enabled({modId,cardPath:chat.cardPath}),
+      authorizeMod: (modId,chat)=>ctx.get('tavernManagedModules')?.enabled({modId,cardPath:chat.cardPath}) ?? false,
       markModToolUsed: chat => updateChatHeader(chat.id, ['usedModTools'], current => ({ ...current, usedModTools: [...new Set([...(current.usedModTools || []), 'tavern_roll'])] })),
       activeTurnOf,
       chatForSession,

@@ -115,6 +115,18 @@ export async function createStageModule(core) {
     }})
   const offModAssets=assetRuntime.subscribe(()=>modService.assetsChanged())
   ctx.effect(()=>()=>{offModAssets();modService.dispose()})
+  ctx.provide('tavernManagedModules', Object.freeze({
+    apiVersion:managedModManagement.modHost.apiVersion,
+    register(owner,manifest,implementation) {
+      if(!cardsActive())throw Object.assign(new Error('Managed module host unavailable'),{code:'MOD_UNAVAILABLE'})
+      return managedModManagement.modHost.register(owner,manifest,implementation)
+    },
+    async enabled(input) {
+      if(!cardsActive())return false
+      const enabled=await managedModManagement.enabled(input)
+      return cardsActive() && enabled
+    }
+  }))
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage-mods',{rows:() => modService.modelSlots()}), 'dsh-tavern: mod model slots')
   const configCards=async()=>Promise.all((await fileResources.list('card')).map(async path=>({path,workspace:await readModCard(path)})))
   modConfigHost=createModConfigHost({workbenchAuthority,store:({cardPacks})=>managedConfigStore({management:managedModManagement,readCard:readModCard,listCards:configCards,files:createModConfigFiles({root:dataRoot+'/mod-library/config',cardPacks})}),manifests:await modService.manifests(),managedManifests:(await managedModManagement.selection()).manifests,listCards:configCards,readCard:readModCard,

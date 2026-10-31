@@ -118,3 +118,22 @@ test('generic danmaku subscription uses the real runtime; disposal does not call
   await h.host.event(h.snapshot,'dsh.danmaku',{event:'session.disposed',context:{sessionId:'isolated'},payload:{}},facade)
   assert.equal(modelCalls,0)
 })
+
+test('public plugin API follows optional managed host removal and reinstallation',()=>{
+  let host
+  const api=createTavernPluginApi({get modHost(){return host}})
+  assert.equal(api.service.modHostApi,null)
+  assert.throws(()=>api.service.registerMod({},{}),/not enabled/)
+  const stops=[]
+  const ctx={fiber:{name:timer.name},effect(fn){const stop=fn();stops.push(stop);return stop}}
+  ctx.tavern=Object.assign(Object.create(api.service),{ctx})
+  host=createManagedModHost();timer.apply(ctx)
+  assert.equal(host.manifests().length,1);assert.equal(api.service.modHostApi,host.apiVersion)
+  host.dispose();host=undefined
+  assert.equal(api.service.modHostApi,null)
+  assert.throws(()=>timer.apply(ctx),/not enabled/)
+  host=createManagedModHost();timer.apply(ctx)
+  assert.equal(host.manifests().length,1)
+  for(const stop of stops)stop()
+  assert.equal(host.manifests().length,0);host.dispose()
+})

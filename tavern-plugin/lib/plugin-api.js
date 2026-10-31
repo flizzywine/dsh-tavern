@@ -301,11 +301,12 @@ export function createTavernPluginApi(deps) {
     ctx: deps.ctx,
     apiVersion: TAVERN_PLUGIN_API_VERSION,
     // Managed modules opt in; ordinary plugins keep their existing API and card scope.
-    modHostApi: deps.modHost?.apiVersion ?? null,
+    get modHostApi() {return deps.modHost?.apiVersion ?? null},
     registerMod(manifest, implementation) {
-      if (!deps.modHost) throw new Error('Managed module host is not enabled')
+      const host=deps.modHost
+      if (!host) throw new Error('Managed module host is not enabled')
       const owner = ownerOf(this)
-      return owned(this, () => deps.modHost.register(owner, manifest, implementation), 'tavern.registerMod()')
+      return owned(this, () => host.register(owner, manifest, implementation), 'tavern.registerMod()')
     },
     capabilities,
 
