@@ -1080,7 +1080,26 @@ function galActionHomes(skin, narrow) {
     // A mode's skin without buttons of its own keeps the stage skin's controls (useStageSkin `controls`): those are declared.
     return { fold, row, drawn, declared: skin?.resolvedArt?.controls?.declared || Object.keys(skin?.art?.buttons || {}), menu: GAL_MENU_ACTIONS.filter(id => !onStage.has(id)) };
 }
-return {actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate};
+// Consume wheel notches, never queue a burst for later. A gesture is quiet for 300ms; its first downward
+// action (finish the line, else the next page) locks the rest of that gesture, even if typing completes.
+function galWheelDecision(previous, event) {
+    const now = event.now, dy = Number(event.deltaY);
+    if (!Number.isFinite(dy) || !dy) return { state: previous, action: 'none' };
+    const direction = Math.sign(dy);
+    const fresh = !previous || previous.direction !== direction || now - previous.lastEvent >= 300 || now < previous.lastEvent;
+    const state = fresh ? { direction, lastEvent: now, delta: 0, used: false } : { ...previous, lastEvent: now };
+    const pixels = Math.abs(dy) * (event.deltaMode === 1 ? 100 / 3 : event.deltaMode === 2 ? 100 : 1);
+    state.delta += pixels;
+    if (state.delta < 100) return { state, action: 'none' };
+    state.delta %= 100;
+    // upward wheel opens the log; keys and the Back control still page back.
+    if (direction < 0) return { state, action: 'backlog' };
+    if (state.used) return { state, action: 'none' };
+    state.used = true;
+    return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
+}
+
+return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, shortcuts:galShortcuts, keyCaps:GAL_KEY_CAPS, skipSelector:GAL_SKIP_CONTROL, actionHomes:galActionHomes, ids:galControlIds, drawn:galControlDrawn, pressRegenerate:galPressRegenerate};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageControls};
 

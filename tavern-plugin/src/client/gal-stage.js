@@ -1123,7 +1123,7 @@ function GalStage(props) {
         if (backlog || configOpen || galleryOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
         if (skipStopped.current) { skipStopped.current = false; return; } // this notch only stopped a fast-forward
         if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
-        const decision = galWheelDecision(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
+        const decision = stageViews.controls.wheel(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
         wheelGesture.current = decision.state;
         if (decision.action === 'backlog') openBacklog();
         else if (decision.action !== 'none') input(1);

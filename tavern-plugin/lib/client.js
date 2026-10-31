@@ -59519,36 +59519,6 @@ function galUiApplier() {
 		    if (previous && previous.sessionId === sessionId && previous.turn === turn) return previous;
 		    return { sessionId, turn, start: previous && previous.sessionId === sessionId && turn === previous.turn + 1 ? previous.end : null, end: null };
 		}
-		// Consume wheel notches, never queue a burst for later. A gesture is quiet for 300ms; its first downward
-		// action (finish the line, else the next page) locks the rest of that gesture, even if typing completes.
-		function galWheelDecision(previous, event) {
-		    const now = event.now, dy = Number(event.deltaY);
-		    if (!Number.isFinite(dy) || !dy) return { state: previous, action: 'none' };
-		    const direction = Math.sign(dy);
-		    const fresh = !previous || previous.direction !== direction || now - previous.lastEvent >= 300 || now < previous.lastEvent;
-		    const state = fresh ? { direction, lastEvent: now, delta: 0, used: false } : { ...previous, lastEvent: now };
-		    const pixels = Math.abs(dy) * (event.deltaMode === 1 ? 100 / 3 : event.deltaMode === 2 ? 100 : 1);
-		    state.delta += pixels;
-		    if (state.delta < 100) return { state, action: 'none' };
-		    state.delta %= 100;
-		    // upward wheel opens the log; keys and the Back control still page back.
-		    if (direction < 0) return { state, action: 'backlog' };
-		    if (state.used) return { state, action: 'none' };
-		    state.used = true;
-		    return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
-		}
-		function galNewEffects(memory, key, effects) {
-		    if (memory.key !== key) { memory.key = key; memory.played = new Set(); }
-		    const counts = new Map();
-		    return effects.filter(function (effect) {
-		        const value = JSON.stringify(effect), index = counts.get(value) || 0;
-		        counts.set(value, index + 1);
-		        const id = value + ":" + index;
-		        if (memory.played.has(id)) return false;
-		        memory.played.add(id);
-		        return true;
-		    });
-		}
 		// Missing appearance media is a display fallback only. Keep the requested outfit
 		// in the canonical cue so restoring the asset restores the same appearance.
 		function galPortraitOf(alias, characters, models, outfits, protocol) {
@@ -59749,26 +59719,6 @@ function galUiApplier() {
 		    Object.assign(out, { order, light, lighting: layers.lighting, timeFadeMs: layers.timeFadeMs, weather, camera: camera.id && !cast.includes(camera.id) ? { value: "" } : camera, dof: dof && !cast.includes(dof) ? "" : dof, figureLight, transition });
 		    return out;
 		}
-		// Keeps figures that just left the stage for a moment (visible: false) so every departure can
-		// fade out instead of vanishing. Items: [{ key, ... }].
-		function useGalPresence(items, ms) {
-		    const memory = React.useRef(new Map());
-		    const [, tick] = React.useState(0);
-		    const now = forkForeground.now(), keys = new Set(items.map(item => item.key)), leaving = [];
-		    items.forEach(item => memory.current.set(item.key, { item, until: 0 }));
-		    memory.current.forEach(function (record, key) {
-		        if (keys.has(key)) return;
-		        if (!record.until) record.until = now + ms;
-		        if (record.until <= now) { memory.current.delete(key); return; }
-		        leaving.push(Object.assign({}, record.item, { visible: false, speaking: false, talking: false, audio: null, act: null, enter: "", exit: record.item.visible === false ? record.item.exit : "soft" }));
-		    });
-		    React.useEffect(function () {
-		        if (!leaving.length) return;
-		        const timer = forkForeground.setTimeout(() => tick(n => n + 1), ms + 40);
-		        return () => forkForeground.clearTimeout(timer);
-		    });
-		    return items.concat(leaving);
-		}
 		// Gaze direction on screen for a member: -1 left, 0 viewer, 1 right; null when not directed.
 		function galGaze(look, x, others) {
 		    if (!look) return null;
@@ -59849,7 +59799,7 @@ function galUiApplier() {
 		    for (let i = Math.min(at, pages.length - 1); i >= 0; i--) if (pages[i].kind === "line" && bubbleCharacter(config, pages[i])?.alias === alias) return pages[i].mood || "";
 		    return "";
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galWheelDecision, galNewEffects, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, useGalPresence, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };
 		// Stable readers keep core React subscribers alive while the optional provider comes and goes.
 		let stageNavigation = null;
 		const stageNavigationSignals = new Map();
@@ -61058,7 +61008,7 @@ function galUiApplier() {
 		        if (backlog || configOpen || galleryOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
 		        if (skipStopped.current) { skipStopped.current = false; return; } // this notch only stopped a fast-forward
 		        if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
-		        const decision = galWheelDecision(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
+		        const decision = stageViews.controls.wheel(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
 		        wheelGesture.current = decision.state;
 		        if (decision.action === 'backlog') openBacklog();
 		        else if (decision.action !== 'none') input(1);
