@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
 		// @include hscroll.js
 		if (typeof document !== "undefined") { installTavernStylesheet(document, __TAVERN_BUNDLED_CSS__, __TAVERN_FEATURE_CSS__);  }
 		// @include spinner.js
-		// @include stage-load-progress.cjs
+		// @include panel-loading.cjs
 		// @include wait-lines.js
 		// @include jump-latest.js
 		// @include inline-field.js

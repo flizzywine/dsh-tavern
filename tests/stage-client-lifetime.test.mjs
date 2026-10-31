@@ -31,7 +31,7 @@ for (const phase of ['director','session']) test(`real stage binding rolls back 
   const calls = [], window = {}
   const environment = {
     stageDecodeImage() {}, window, STAGE_HISTORY_SETTLE_MS:1000, startStageClientLifetime,
-    forkForeground:{}, stageLoadProgress:{}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
+    forkForeground:{}, stageViews:{progress:{store:{}}}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
     createSkinOverlayLoader: () => () => {},
     createStageResourceOwner: () => ({dispose: () => calls.push('assets')}),
     createStageResourceRunner: () => ({dispose: () => calls.push('runner')}),

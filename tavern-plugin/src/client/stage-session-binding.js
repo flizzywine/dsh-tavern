@@ -178,7 +178,7 @@ const stageSessions = {
             present:(id,intent) => stageConsumers.get(id)?.present(intent),
             play:(id,value,token) => stageConsumers.get(id)?.play(value,token),
             cancelPlayback:(id,intent) => stageConsumers.get(id)?.cancel(intent),
-            progress: stageLoadProgress,
+            progress: stageViews.progress.store,
             owner: resourceOwner
         });
         own(() => resources.dispose());

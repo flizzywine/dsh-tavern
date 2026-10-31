@@ -10,3 +10,5 @@ function useGalEntryLoader(...args) { return stageViews.admission.useLoader(...a
 function GalEntryOverlay(props) {
     return stageViews ? React.createElement(stageViews.admission.Overlay, props) : null;
 }
+
+function useStageLoadProgress(...args) { return stageViews.progress.useProgress(...args); }

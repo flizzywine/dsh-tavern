@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
         __STAGE_LABELS__
         __STAGE_LOADER__
         __STAGE_ADMISSION__
+        __STAGE_PROGRESS__
         __STAGE_VIEWS__
         return ({
         name: 'dsh-tavern-stage',
@@ -27,8 +28,9 @@ window.__ModuleLoader__.load({
                 let stop;
                 try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => {
                     const loader = createStageLoader(options.loader);
-                    const admission = createStageAdmission({React:options.React, window, document, loader, ...options.admission});
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission,
+                    const progress = createStageProgress({React:options.React, ...options.admission});
+                    const admission = createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission});
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress,
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...createStageText({React:options.React, document, ...options.text})};
                 }});}
