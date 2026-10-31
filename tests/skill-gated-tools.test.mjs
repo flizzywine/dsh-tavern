@@ -15,3 +15,10 @@ test('任务专用工具在加载对应 Skill 后才出现，其余工具不受�
   assert.deepEqual(visible(names, session), ['bash', 'tavern_update_card', 'cordis_run', 'tavern_save_skill', 'tavern_read_play_chat'])
   assert.deepEqual(visible(names, undefined), ['bash', 'tavern_update_card'])
 })
+
+
+test('DSH 建卡独立加载即可读取长期偏好，无需传统建卡 Skill', () => {
+  const visible = createSkillGatedTools()
+  const session = {id:'dsh-card',events:[{type:'tool/result',data:{output:[{type:'text',text:'<skill_content name="create-dsh-card">'}]}}]}
+  assert.deepEqual(visible(['tavern_update_card','tavern_user_profile_read','cordis_run'],session),['tavern_update_card','tavern_user_profile_read'])
+})
