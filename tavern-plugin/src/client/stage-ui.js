@@ -1,7 +1,6 @@
 // React consumes the session runtime; it never owns an observation loop.
-const stageEmptySnapshot = createStageRuntimeState();
 const stageEmptyStore = {select(fn) {
-    const value = fn(stageEmptySnapshot);
+    const value = fn(createStageRuntimeState());
     return {getSnapshot:() => value,subscribe:() => () => {},dispose() {}};
 }};
 function useStageSelector(sessionId, select, equal = Object.is) {

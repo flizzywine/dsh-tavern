@@ -43,6 +43,11 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       }
       const views = input.createViews({React,navigation:{},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
+      const state=views.runtimeKernel.createStageRuntimeState()
+      assert.equal(views.runtimeKernel.stageRuntimeStatus(state),'idle')
+      let stopped=0
+      const session=views.sessionRuntime.createSessionOwner({sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>stopped++}}})
+      session.start();session.dispose();assert.equal(stopped,1)
       for (const name of ['Host','Toggle','Typewriter','NarrationLines','HudLabels','NamePlate']) assert.equal(typeof views[name],'function')
       assert.equal(views.Typewriter({text:'完整文字',instant:true}).children[0].children[0],'完整文字')
       views.progress.store.begin('s',1)
