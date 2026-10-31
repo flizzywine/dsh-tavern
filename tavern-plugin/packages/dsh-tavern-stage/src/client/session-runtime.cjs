@@ -1,6 +1,6 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
 function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
-    let disposed=false;const owners=new Set();
+    let disposed=false;const owners=new Set(),connections=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
     function own(owner){
@@ -31,7 +31,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         if(disposed)throw new Error('Stage session runtime disposed');
         const acquired=[];let closed=false,started=false,owner,resources,notifications;
         function dispose(){
-            if(closed)return;closed=true;
+            if(closed)return;closed=true;connections.delete(owner);
             const errors=[];
             for(const item of acquired.reverse())try{item.dispose();}catch(error){errors.push(error);}
             if(errors.length)throw new AggregateError(errors,'Stage connection cleanup failed');
@@ -63,6 +63,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 if(started)return;started=true;
                 try{
                     owner.start();
+                    connections.add(owner);
                     if(observationInputs){
                         const observation=createObservation({...observationInputs,owner,resources});
                         acquired.push(observation);
@@ -78,7 +79,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             throw error;
         }
     }
-    return {createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
+    return {get(id){if(disposed)return null;for(const owner of connections){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;

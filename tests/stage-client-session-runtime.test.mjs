@@ -94,3 +94,11 @@ test('connection owns observation startup and rolls it back before session and e
  assert.deepEqual(calls,['start','observation','session','director','resources'])
  runtime.dispose();connection.dispose();assert.equal(calls.length,5)
 })
+
+test('runtime UI lookup resolves only started connections and drops disposed owners',()=>{
+ const store={},owner={get:id=>id==='a'?store:null,start(){},dispose(){}}
+ const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),createResourceModule:()=>({createStageResourceRunner:()=>({dispose(){}})}),createDirectorModule:()=>({createStageDirectorSource:()=>({dispose(){}})})})
+ const connection=runtime.createConnection({resources:{},direction:{},session:{}})
+ assert.equal(runtime.get('a'),null);connection.start();assert.equal(runtime.get('a'),store)
+ connection.dispose();assert.equal(runtime.get('a'),null);runtime.dispose()
+})

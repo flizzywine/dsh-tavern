@@ -11188,9 +11188,140 @@ function createStageSessionObservation({owner,resources,resourceOwner,selection,
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSessionObservation};
 
+        // Reads the plugin's existing session state; no duplicate observation or player state.
+function createStageRuntimeUi({React,sessions,kernel,performances,report=error=>console.warn('Stage performance kinds unavailable:',error)}) {
+let closed=false;
+const selectors=new Set();
+function track(selector){
+    const dispose=selector.dispose.bind(selector);let released=false;
+    const release=()=>{if(released)return;released=true;selectors.delete(release);dispose();};
+    if(closed)release();else selectors.add(release);
+    return {...selector,dispose:release};
+}
+// React consumes the session runtime; it never owns an observation loop.
+const stageEmptyStore = {select(fn) {
+    const value = fn(kernel.createStageRuntimeState());
+    return {getSnapshot:() => value,subscribe:() => () => {},dispose() {}};
+}};
+function useStageSelector(sessionId, select, equal = Object.is) {
+    const store = (!closed && sessions.get(sessionId)) || stageEmptyStore;
+    const selector = React.useMemo(() => track(store.select(select, equal)), [store]);
+    React.useEffect(() => () => selector.dispose(), [selector]);
+    return React.useSyncExternalStore(selector.subscribe, selector.getSnapshot);
+}
+const stageUiEqual = (a, b) => Object.keys(a).every(key => Object.is(a[key], b[key]));
+// the session's performance kinds (stage-performance-kinds.cjs) - core and the installed
+// managed mods' declarations - read once per stage mount into the runtime (SESSION_INPUTS performanceKinds), where the page's
+// sequencing point reads which kinds hold the line; a settled history page replays the kinds
+// with replay {stage:true}. Returns {settled (read, or failed and core kinds kept),
+// replayable (null until read; isolated stage fixtures without the registry play nothing on history)}.
+function useStagePerformanceKinds(sessionId,store) {
+    const registry=typeof performances?.registry==='function';
+    const [read,setRead]=React.useState({sessionId:null,replayable:null});
+    React.useEffect(()=>{
+        if(closed)return;
+        if(!registry){setRead({sessionId,replayable:null});return;}
+        let active=true;
+        performances.read(sessionId).then(value=>{
+            if(!active || closed)return;
+            const kinds=performances.registry([{owner:'core',performances:performances.core},...value.kinds]).list();
+            store.dispatch({type:'SESSION_INPUTS',performanceKinds:kinds});
+            setRead({sessionId,replayable:kinds.filter(row=>row.replay.stage).map(row=>row.kind)});
+        }).catch(error=>{
+            if(active && !closed)report(error);
+            if(active && !closed)setRead({sessionId,replayable:null});
+        });
+        return()=>{active=false;};
+    },[sessionId,store]);
+    return read.sessionId===sessionId ? {settled:true,replayable:read.replayable} : {settled:false,replayable:null};
+}
+function useStageRuntime(sessionId) {
+    const store = sessions.get(sessionId);
+    const inputs = useStageSelector(sessionId, state => ({source:state.source, latestSource:state.latestSource,
+        text:state.text, textIndex:state.textIndex, cursor:state.cursor, replay:state.replay}), stageUiEqual);
+    const accepted = useStageSelector(sessionId, state => state.accepted);
+    const director = useStageSelector(sessionId, state => state.director);
+    const ledger = useStageSelector(sessionId, state => state.ledger);
+    const indicators = useStageSelector(sessionId, kernel.stageRuntimeIndicators, stageUiEqual);
+    return {...inputs, accepted, director, ledger, indicators, store};
+}
+
+return {useSelector:useStageSelector,useRuntime:useStageRuntime,usePerformanceKinds:useStagePerformanceKinds,dispose(){
+    if(closed)return;closed=true;const errors=[];
+    for(const release of [...selectors])try{release();}catch(error){errors.push(error);}
+    if(errors.length)throw new AggregateError(errors,'Stage runtime UI cleanup failed');
+}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageRuntimeUi};
+
+        // Stage speech identity and lookahead policy; the shared player owns synthesis and playback.
+function createStageSpeech({player,available=()=>false,speechInput,character:characterOf,language,open,allowed}={}) {
+let closed=false;
+function readVoice(sessionId,input){
+    if(closed)return Promise.reject(Object.assign(new Error('Stage speech disposed'),{name:'AbortError'}));
+    return open(sessionId,input);
+}
+function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availability) {
+    if (closed) return null;
+    if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability);
+    if (!descriptor || config?.voice?.enabled === false || !(availability ?? available())) return null;
+    const input = speechInput({...descriptor, kind:'bubble'}, config);
+    if (!input) return null;
+    const character = characterOf(config,descriptor);
+    const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.alias, input.text, input.mood,
+        character.voiceKey, language(character)]);
+    // Match transcript identity after authored/legacy names resolve to the same figure.
+    const cacheKey = JSON.stringify([sessionId,character.alias,character.voiceKey,language(character),input.text,input.mood]);
+    const selectionKey=descriptor.lineIdentity ? JSON.stringify([sessionId,...descriptor.lineIdentity]) : undefined;
+    const request = {...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, resource = () => readVoice(sessionId,{alias:character.alias});
+    return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+        click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
+}
+
+// 旁白配音: the same player, queue, mixer bus and cache as a line; config.narrator exists only while it speaks on this card.
+function stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability) {
+    if (closed) return null;
+    const narrator = config?.narrator;
+    if (!narrator || !(availability ?? available())) return null;
+    const owner = sessionId + ':stage', text = descriptor.text, id = JSON.stringify([paragraphId, descriptor.lineIdentity, 'narrator', text, narrator.voiceKey]);
+    const selectionKey = JSON.stringify([sessionId, ...descriptor.lineIdentity]);
+    const request = {text, mood:null, owner, id, selectionKey, cacheKey:JSON.stringify([[sessionId, 'narrator', narrator.voiceKey, 'zh', text], selectionKey])};
+    const resource = () => readVoice(sessionId,{narrator:true});
+    // options.id: a 履历 narration row plays its pages under the row's one id (galBacklogNarration).
+    return {...request, narration:true, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
+        click:options => closed ? Promise.resolve() : player.play(resource, {...request, id:options?.id || id, handoff:options?.handoff === true, automatic:options?.automatic === true})};
+}
+
+function stageVoiceWindowFromIndex(sessionId,index,turn,pages,page,config,limit = Infinity) {
+    if (closed) return [];
+    const handles = [], seen = new Set(), availability = available();
+    const next = [...index.keys()].filter(number => number > turn).sort((a,b) => a-b)[0];
+    for (const number of [turn,next]) {
+        const row = index.get(number);
+        if (!row) continue;
+        // current/next first on jumps, then finish the whole viewed turn.
+        for (const item of number === turn ? [...pages.slice(page),...pages.slice(0,page)] : row.text.pages) {
+            if (item.pending || !item.voice) continue;
+            const handle = number === turn ? item.voice : stageVoiceHandle(sessionId,item.voice,config,item.anchor.paragraphId,availability);
+            // subtitle cards share one speech clip.
+            const key = handle && JSON.stringify([handle.owner,handle.id]);
+            if (handle && !seen.has(key)) {seen.add(key); handles.push(handle);}
+            if (handles.length >= limit) return handles;
+        }
+    }
+    return handles;
+}
+
+function stop(sessionId){if(!closed && player?.get()?.owner===sessionId+':stage')player.stopPlayback();}
+return {handle:stageVoiceHandle,window:stageVoiceWindowFromIndex,available:()=>!closed&&available(),allowed,
+    retain:handles=>{if(!closed)player.cancelPrefetch(handles);},stop,stopPlayback:stop,
+    dispose(){closed=true;}};
+}
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSpeech};
+
         // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
 function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
-    let disposed=false;const owners=new Set();
+    let disposed=false;const owners=new Set(),connections=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
     function own(owner){
@@ -11221,7 +11352,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         if(disposed)throw new Error('Stage session runtime disposed');
         const acquired=[];let closed=false,started=false,owner,resources,notifications;
         function dispose(){
-            if(closed)return;closed=true;
+            if(closed)return;closed=true;connections.delete(owner);
             const errors=[];
             for(const item of acquired.reverse())try{item.dispose();}catch(error){errors.push(error);}
             if(errors.length)throw new AggregateError(errors,'Stage connection cleanup failed');
@@ -11253,6 +11384,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
                 if(started)return;started=true;
                 try{
                     owner.start();
+                    connections.add(owner);
                     if(observationInputs){
                         const observation=createObservation({...observationInputs,owner,resources});
                         acquired.push(observation);
@@ -11268,7 +11400,7 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             throw error;
         }
     }
-    return {createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
+    return {get(id){if(disposed)return null;for(const owner of connections){const store=owner.get(id);if(store)return store;}return null;},createSessionOwner,createDirector,createResources,projectDirection,createConnection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
         for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
         sessionModule=directorModule=null;
@@ -21395,13 +21527,15 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const displays=own(createStageDisplays());
                     const sfx=own(createStageSfx(options.sfx || {}));
                     const ambience=own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}));
-                    const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:options.displayVoice}));
-                    const views = {sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience, timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
+                    const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
+                    const views = {speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience, timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...textViews};
+                    views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
                     return views;
                 })});

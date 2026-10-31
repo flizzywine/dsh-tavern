@@ -130,7 +130,6 @@ const stageSessions = {
             settings:bubbleStore,
             packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>spineRuntimeState.subscribe(listener)},
             entry:{shown:stageEntryShown(),hasDisplay:()=>!!document.querySelector('.fork-gal-stage'),entering:()=>!!galEntering.get()},
-            voice:{available:stageVoiceAvailable,handle:stageVoiceHandle,retain:handles=>voicePlayer.cancelPrefetch(handles)},
             portraits:avatarCache,media:{background:bgManual}
         },waitForEntry:(store,source)=>stageEntryShown().wait(store, () => window.__dshTavernSelectedSessionId === source.sessionId && !!document.querySelector('.fork-gal-stage'))});
         const {owner,resources}=connection;
