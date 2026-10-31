@@ -921,7 +921,7 @@ function GalStage(props) {
         const selected = pack.characters.find(figure => figure.alias === member.id), input = renderInputs.get(member.id).stage;
         return {...input,alias:member.id,x:member.x,speaking:member.id===speaker,light:member.light,color:colorOf(member.id),shade:stageViews.speaker.shade(member.id,speaker,members,state?.camera,skinFigures.dimListeners),
             // reopening/restoring is not a new entrance (same policy as the background cut).
-            visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:galGaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
+            visible:true,enter:forwardReading&&!skipping?'soft':'none',exit:'soft',gaze:stageViews.speaker.gaze(member.gaze,member.x,xs),act:shotHere&&shot.acts[member.id]?{name:shot.acts[member.id],nonce:shot.n}:null,
             figureSizing:{pack:true,heightCm:selected.heightCm,version:1,source:selected.geometry.stage,sourceUrl:input.src,heightBasis:selected.heightBasis,outfitKey:selected.outfitKey,anatomy:selected.anatomy,head:selected.head,assetScale:selected.anatomy?.assetScale ?? 1,elevationCm:selected.elevationCm}};
     });
     const quality = useStageQuality();
@@ -947,10 +947,10 @@ function GalStage(props) {
     const castIds = state ? state.cast : [];
     // a skin may draw no figures (mode none) - presentation only.
     const figuresShown = skinFigures.shown;
-    const recentSpeakers = React.useMemo(() => galRecentSpeakers(runtime.text.pages, page,
+    const recentSpeakers = React.useMemo(() => stageViews.speaker.recent(runtime.text.pages, page,
         [turns[turnIndex - 1], turns[turnIndex - 2]].map(value => runtime.textIndex.get(value)?.text?.pages),
         stageSpeaker), [runtime.text.pages, runtime.textIndex, page, turnIndex, stageSpeaker]);
-    const figurePriority = galFigurePriority(castIds, [speaker, state?.camera.mode === 'close' ? state.camera.actor : '', ...recentSpeakers]);
+    const figurePriority = stageViews.speaker.priority(castIds, [speaker, state?.camera.mode === 'close' ? state.camera.actor : '', ...recentSpeakers]);
     const [figureLayout, setFigureLayout] = React.useState(null);
     // the holding performance's speaker shot. From its entry's end (or its
     // start, from: start) only the subject is drawn, framed by its rest head box on its side; through the exit the last shot
@@ -962,8 +962,8 @@ function GalStage(props) {
     if (shotHolds && performancePlayback.phase !== 'exit' && performancePlayback.value.phase !== 'exit') {
         const started = performancePlayback.value.startedAt, first = started?.turn === turn ? Math.max(0, started.page) : 0;
         const ids = pages.slice(first, page + 1).map(row => { const alias = stageSpeaker(row); return onStage(alias) ? alias : ''; });
-        const subject = galShotSubject(ids, shotSpec.side, id => figureLayout?.x?.[id] ?? 0.5);
-        stageShot = subject ? { ...subject, ...galShotSide(shotSpec, subject.side) } : null;
+        const subject = stageViews.speaker.shotSubject(ids, shotSpec.side, id => figureLayout?.x?.[id] ?? 0.5);
+        stageShot = subject ? { ...subject, ...stageViews.speaker.shotSide(shotSpec, subject.side) } : null;
         heldShot.current = stageShot;
     } else if (shotHolds) stageShot = heldShot.current;
     else heldShot.current = null;
@@ -1076,7 +1076,7 @@ function GalStage(props) {
     const shotWide = stageShot && figureLayout?.width > 640;
     const speakerAnchor = stageShot ? ((boxLine?.kind === 'line' && boxSpeaker === stageShot.alias || boxLine?.kind === 'narration') && figureLayout?.width > 0 && !film && !accepted.cg && !cg.visible
         ? { x: Math.round((shotWide ? stageShot.head[0] : 0.5) * figureLayout.width), width: Math.round(figureLayout.width), u: shotWide ? stageShot.head[0] : 0.5, side: stageShot.side } : null)
-        : galSpeakerAnchor({ line: boxLine, speaker: boxSpeaker, layout: figureLayout, covered: film || !!accepted.cg || cg.visible || sourceWidget.phoneOpen,
+        : stageViews.speaker.anchor({ line: boxLine, speaker: boxSpeaker, layout: figureLayout, covered: film || !!accepted.cg || cg.visible || sourceWidget.phoneOpen,
         drawn: speakerDrawn });
     const color = speaker ? colorOf(speaker) : "";
     const boxColor = boxSpeaker ? colorOf(boxSpeaker) : "";

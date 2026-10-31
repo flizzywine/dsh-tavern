@@ -57,40 +57,6 @@ function galQuoted(text, pending) {
     if (!value || /^[「『（(【〈《“"‘'［\[]/.test(value)) return value;
     return "「" + value + (pending || /」$/.test(value) ? "" : "」");
 }
-// Gaze direction on screen for a member: -1 left, 0 viewer, 1 right; null when not directed.
-function galGaze(look, x, others) {
-    if (!look) return null;
-    if (look === "away") return x > 0.5 ? 1 : -1;
-    const target = others[look];
-    if (target == null || Math.abs(target - x) < 0.01) return 0;
-    return target > x ? 1 : -1;
-}
-// where the current line's speaker stands, for skins that point at
-// them (a bubble tail). The speaker is the alias the single resolver gave the line (bubbleCharacter); its place is
-// where the scene reports the figure's body is drawn (layout.body: the picture's body centre through the figure's own
-// transform and the settled camera, sampled once the figure stands still), else - a DOM stand-in, or before the first
-// settled sample - the reported layout slot (galFigureLayout x) moved by the settled camera; times the reported stage
-// width, so nothing is measured here. Spoken lines and inner monologue (both kind "line") anchor; narration, a speaker
-// that is not drawn on stage (parked, no sprite or stand-in), a CG or the open phone does not -> null.
-function galSpeakerAnchor({ line, speaker, layout, drawn, covered }) {
-    if (covered || !line || line.kind !== "line" || !speaker || !layout || !(layout.width > 0) || !layout.x || !(speaker in layout.x) || !drawn(speaker)) return null;
-    // Under a close-up (or any framed shot) the camera's settled goal moves the figure on screen: (x - fx) * zoom + ax.
-    const c = layout.camera, slot = Number(layout.x[speaker]), body = layout.body?.[speaker];
-    const x = Number.isFinite(body) ? body : c && c.zoom > 0 ? (slot - c.fx) * c.zoom + c.ax : slot;
-    // A speaker framed out (or left as a sliver at the edge) has no anchor.
-    if (!Number.isFinite(x) || x < 0.04 || x > 0.96) return null;
-    // Three sides, like the original's three balloons (textLeft / textCenter / textRight): the middle fifth is the centre.
-    return { x: Math.round(x * layout.width), width: Math.round(layout.width), u: Math.round(x * 1000) / 1000, side: x < 0.4 ? "left" : x > 0.6 ? "right" : "center" };
-}
-// who stays visible when the viewport or the skin's maxFigures cannot show the whole
-// cast (gal-scene.js galFigureLayout). Deterministic for a page: the speaker, the close-up actor, the most recent
-// other speakers, then stage order. Display only. Nothing persistent outranks recency: with two speakers
-// alternating, each page shows the same pair (a gaze target ranked here swapped in on every other page).
-function galFigurePriority(cast, first) {
-    const out = [];
-    for (const id of first.concat(cast)) if (id && cast.includes(id) && !out.includes(id)) out.push(id);
-    return out;
-}
 // the skin's stage projection - where figures
 // stand, how many are drawn, the framing, whether listeners dim, whether figures draw at all. The one reader for every
 // display mode (skin, film, classic, phone): a display mode changes chrome, never who stands where. A skin that leaves
@@ -99,37 +65,4 @@ function galFigurePriority(cast, first) {
 function stageSkinFigures(skin) {
     return { slots: skin?.figureSlots, max: skin?.maxFigures ?? 3, framing: skin?.figures, dimListeners: skin?.dimListeners !== false, shown: skin?.figures?.mode !== "none" };
 }
-// Speakers before the page, most recent first: this turn's earlier pages, then the earlier turns' pages (newest first).
-function galRecentSpeakers(pages, page, earlier, aliasOf, limit = 6) {
-    const out = [];
-    const scan = (list, from) => {
-        for (let i = from; list && i >= 0 && out.length < limit; i--) {
-            const alias = list[i]?.kind === "line" ? aliasOf(list[i]) : "";
-            if (alias && !out.includes(alias)) out.push(alias);
-        }
-    };
-    scan(pages, page - 1);
-    for (const list of earlier) scan(list, list ? list.length - 1 : -1);
-    return out;
-}
-// whom a performance's speaker shot frames on
-// this page and on which side. speakers: the on-stage speaker of every page from the shot's first page in this round to
-// this one ('' for narration or a speaker not on stage, which keeps the shot). alternate: the first subject stands left, a
-// new subject takes the other side, the same one keeps it; anchor: the side of the subject's ordinary stage slot (slotOf).
-// Only the names in page order decide, so history, skip and refresh frame the same page the same way. Nobody yet: null.
-function galShotSubject(speakers, rule, slotOf) {
-    let alias = "", side = "";
-    for (const id of speakers) {
-        if (!id || id === alias) continue;
-        side = rule === "anchor" ? (slotOf(id) > 0.5 ? "right" : "left") : !alias ? "left" : side === "left" ? "right" : "left";
-        alias = id;
-    }
-    return alias ? { alias, side } : null;
-}
-// The shot's framing for a side: the declared side, else the other side mirrored (x, roll); roll omitted = 0.
-function galShotSide(shot, side) {
-    const other = side === "left" ? "right" : "left", own = shot.head[side], mirror = shot.head[other];
-    const roll = shot.roll?.[side] ?? (shot.roll?.[other] !== undefined ? -shot.roll[other] : 0);
-    return { head: own || [1 - mirror[0], mirror[1], mirror[2]], roll };
-}
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galParagraphs, galPages, galQuoted, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide };
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galParagraphs, galPages, galQuoted, stageSkinFigures };
