@@ -1700,7 +1700,7 @@ let galSoundHintShown = false;
 function useGalFirstRunHints(visible, rootRef, position) {
     const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
     const [keys, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
-    const music = typeof stageMusic === 'object' && stageMusic && typeof stageMusic.subscribeBlocked === 'function' ? stageMusic : GAL_NO_MUSIC;
+    const music = stageViews?.music || GAL_NO_MUSIC;
     const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
     React.useEffect(function () {
         if (!visible || !store) return undefined;
@@ -2041,7 +2041,8 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
-        bgm:{music:stageMusic,session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
+        music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
+        bgm:{session:id => stageSessions.get(id),owner:() => stageSessions.resourceOwner,
             read:id => rpc("getStageMusicTracks",{},id), storage:(() => {try {return localStorage;} catch (_) {return null;}})(), authority:source => stageResourceAuthority(source)},
         ambience:{session:id => stageSessions.get(id), owner:() => stageSessions.resourceOwner, authority:source => stageResourceAuthority(source)},
         soundscape:{Audio, mixer:forkStageAudio},
@@ -2060,7 +2061,7 @@ function bindStageViews(createViews) {
         if (stageViews === views) stageViews = null;
         bgmChanged();
         const errors = [];
-        for (const owner of [views.admission, views.progress.store, views.bgm, views.ambience, views.timer, views.video, views.loader]) {
+        for (const owner of [views.admission, views.progress.store, views.bgm, views.music, views.ambience, views.timer, views.video, views.loader]) {
             try {owner.dispose();} catch (error) {errors.push(error);}
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');

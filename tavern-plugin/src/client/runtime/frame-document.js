@@ -168,7 +168,6 @@
 
 
 		// @include stage-backgrounds.js
-		// @include stage-music.js
 		// @include stage-sfx.js
 		// @include asset-catalogue.js
 		// @include bubble-modes.js

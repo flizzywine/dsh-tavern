@@ -42,7 +42,9 @@ async function musicBytes(response) {
     for (const chunk of chunks) { bytes.set(chunk,at); at += chunk.length; }
     return bytes.buffer;
 }
-const stageMusic = (function () {
+function createStageMusic({audio:forkStageAudio, foreground:forkForeground, fetch, AbortController} = {}) {
+    let disposed = false;
+    const subscriptions = new Set();
     let a = null, b = null, current = '', currentIdentity = null, fade = 0, handoff = null, stopping = null, blocked = false, failure = null;
     const listeners = new Set();
     let decoding = Promise.resolve();
@@ -106,14 +108,15 @@ const stageMusic = (function () {
         if (!wasPaused) start(track);
     }
     return {
-        subscribe(fn) { listeners.add(fn); const off = forkStageAudio.subscribe(fn); return () => { listeners.delete(fn); off(); }; },
-        subscribeBlocked(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+        subscribe(fn) { if (disposed) return () => {}; listeners.add(fn); const off = forkStageAudio.subscribe(fn); const stop = () => { listeners.delete(fn); subscriptions.delete(stop); off(); }; subscriptions.add(stop); return stop; },
+        subscribeBlocked(fn) { if (disposed) return () => {}; listeners.add(fn); return () => listeners.delete(fn); },
         blocked: () => blocked,
         ready: () => !!a?.buffer,
         get() { const prefs = forkStageAudio.get(); return {current,identity:currentIdentity,paused:!a || a.paused,volume:prefs.music,muted:!!prefs.muted.music,error:failure,position:position(a),loopStart:a?.loop?.start,loopEnd:a?.loop?.end}; },
         analyser: () => a?.voice?.analyser() || null,
         // trace: the source for the audio trace (audio-trace.cjs: reason, ref, label).
         play(url, snap = false, identity, {fadeMs = 1200, volume, loopStart, loopEnd, loudness, trace} = {}) {
+            if (disposed) return;
             if (!url) return this.stop();
             identity ??= url;
             if (identity === currentIdentity && current && !failure) { this.trim(volume, {loopStart,loopEnd}); this.resume(); return; }
@@ -146,6 +149,7 @@ const stageMusic = (function () {
                     if (snap || fadeMs === 0 || track.paused) { level(track,1); settle(); emit(); return; }
                     const at = forkForeground.now();
                     function step() {
+                        if (disposed || track !== a) return;
                         const t = Math.min(1,(forkForeground.now() - at) / Math.max(1,fadeMs));
                         level(previous,from * (1 - t)); level(track,t);
                         if (t < 1) fade = forkForeground.setTimeout(step,16);
@@ -160,7 +164,7 @@ const stageMusic = (function () {
             emit(); return complete;
         },
         pause() { if (!current) return; settle(); level(a,1); if (a && !a.paused) a.voice?.mark('pause'); pause(a); emit(); },
-        resume() { if (!a) return; if (a.paused) a.voice?.mark('resume'); a.paused = false; start(a); if (a.context?.state === 'suspended') void a.context.resume().then(() => { if (a) setBlocked(false); }, () => setBlocked(true)); emit(); },
+        resume() { if (!a) return; if (a.paused) a.voice?.mark('resume'); a.paused = false; start(a); if (a.context?.state === 'suspended') { const track = a; void track.context.resume().then(() => { if (track === a) setBlocked(false); }, () => { if (track === a) setBlocked(true); }); } emit(); },
         trim(volume, points) { a?.voice?.trim(volume); if (points) configure(a,points); },
         stop(snap = true) {
             if (!snap && stopping) return stopping;
@@ -173,13 +177,41 @@ const stageMusic = (function () {
             stopping = new Promise(resolve => { handoff = resolve; });
             const at = forkForeground.now();
             function step() {
+                if (disposed) return;
                 const t = Math.min(1,(forkForeground.now() - at) / 1200);
                 tracks.forEach((track,i) => level(track,levels[i] * (1 - t)));
                 if (t < 1) fade = forkForeground.setTimeout(step,16); else finish();
             }
             fade = forkForeground.setTimeout(step,16); emit(); return stopping;
         },
-        setVolume(value) { forkStageAudio.setVolume('music',value); },
-        toggleMute() { forkStageAudio.toggleMute('music'); }
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            const errors = [];
+            const clean = fn => { try { fn(); } catch (error) { errors.push(error); } };
+            clean(() => forkForeground?.clearTimeout(fade));
+            const tracks = [a,b]; a = b = null;
+            current = ''; currentIdentity = null; failure = null; blocked = false;
+            clean(() => policy?.()); policy = null;
+            for (const stop of subscriptions) clean(stop);
+            subscriptions.clear(); listeners.clear();
+            for (const track of tracks) if (track) {
+                clean(() => track.cancel.abort());
+                const source = track.source;
+                if (source) {
+                    clean(() => source.stop());
+                    clean(() => source.disconnect());
+                    clean(() => { source.buffer = null; });
+                }
+                clean(() => track.voice?.release());
+                clean(() => track.context?.removeEventListener('statechange', track.statechange));
+                track.source = track.voice = track.buffer = track.loop = null;
+            }
+            clean(() => handoff?.()); handoff = null; stopping = null;
+            if (errors.length) throw new AggregateError(errors, 'Music cleanup failed');
+        },
+        setVolume(value) { if (disposed) return; forkStageAudio.setVolume('music',value); },
+        toggleMute() { if (disposed) return; forkStageAudio.toggleMute('music'); }
     };
-})();
+}
+if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageMusic, musicLoop, musicBytes};
