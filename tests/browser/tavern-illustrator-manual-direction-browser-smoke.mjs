@@ -41,6 +41,11 @@ const browser = await chromium.launch({ headless: true, executablePath: chromePa
 try {
   const page = await browser.newPage()
   page.setDefaultTimeout(5000)
+  async function assertDialogCount(expected, message) {
+    const dialog = page.getByRole('dialog')
+    await dialog.waitFor({ state: expected === 1 ? 'visible' : 'hidden' })
+    assert.equal(await dialog.count(), expected, message)
+  }
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.setContent('<!doctype html><meta charset="utf-8"><main id="app"></main>')
@@ -90,7 +95,7 @@ try {
   await longPressButton.hover()
   await page.mouse.down()
   await page.waitForTimeout(620)
-  assert.equal(await page.getByRole('dialog').count(), 1, 'long press opens the instruction dialog')
+  await assertDialogCount(1, 'long press opens the instruction dialog')
   await page.mouse.up()
   await page.waitForTimeout(40)
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'release click after long press does not draw')
@@ -99,12 +104,13 @@ try {
   await page.screenshot({ path: screenshotPath })
   console.log(`SCREENSHOT ${screenshotPath}`)
   await page.getByRole('button', { name: '取消' }).click()
+  await assertDialogCount(0, 'cancel closes the instruction dialog')
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'cancel does not submit a request')
 
   await page.evaluate(() => window.__render('game-A', 9))
   const contextButton = page.getByRole('button', { name: '为这一轮配图' })
   await contextButton.click({ button: 'right' })
-  assert.equal(await page.getByRole('dialog').count(), 1, 'right click opens the same dialog')
+  await assertDialogCount(1, 'right click opens the same dialog')
   const contextTextarea = page.getByRole('textbox', { name: '本次配图要求（最多 2000 字）' })
   await contextTextarea.fill('右键草稿保留')
   await contextButton.dispatchEvent('contextmenu')
@@ -112,10 +118,12 @@ try {
   await contextButton.dispatchEvent('click')
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'contextmenu followed by click does not submit a normal draw')
   await page.keyboard.press('Escape')
+  await assertDialogCount(0, 'Escape closes the instruction dialog before focus moves')
   await page.getByRole('button', { name: '为这一轮配图' }).focus()
   await page.keyboard.press('Shift+F10')
-  assert.equal(await page.getByRole('dialog').count(), 1, 'Shift+F10 opens the dialog')
+  await assertDialogCount(1, 'Shift+F10 opens the dialog')
   await page.getByRole('button', { name: '取消' }).click()
+  await assertDialogCount(0, 'cancel after Shift+F10 closes the dialog')
 
   await page.evaluate(() => window.__render('game-A', 10))
   const moveButton = page.getByRole('button', { name: '为这一轮配图' })
@@ -125,7 +133,7 @@ try {
   await page.mouse.up()
   await page.waitForTimeout(40)
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'movement cancels the pending gesture without drawing')
-  assert.equal(await page.getByRole('dialog').count(), 0)
+  await assertDialogCount(0, 'movement cancels the pending gesture without opening the dialog')
 
   const cancelButton = page.getByRole('button', { name: '为这一轮配图' })
   await cancelButton.dispatchEvent('pointerdown', { pointerId: 12, pointerType: 'touch', isPrimary: true, button: 0, clientX: 20, clientY: 20 })
@@ -133,7 +141,7 @@ try {
   await cancelButton.dispatchEvent('click')
   await page.waitForTimeout(600)
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'pointercancel clears the hold and suppresses its synthetic click')
-  assert.equal(await page.getByRole('dialog').count(), 0)
+  await assertDialogCount(0, 'pointercancel does not open the dialog')
 
   await page.evaluate(() => { window.__render('game-A', 11); window.__fail() })
   await page.getByRole('button', { name: '为这一轮配图' }).click({ button: 'right' })
@@ -141,7 +149,7 @@ try {
   await textarea.fill('镜头从窗外向内，角色正推开窗户')
   await page.getByRole('button', { name: '按要求配图' }).click()
   await page.getByRole('alert').waitFor()
-  assert.equal(await page.getByRole('dialog').count(), 1, 'failed submit leaves the dialog open')
+  await assertDialogCount(1, 'failed submit leaves the dialog open')
   assert.equal(await textarea.inputValue(), '镜头从窗外向内，角色正推开窗户', 'failed submit preserves the draft')
   await page.evaluate(() => window.__delay())
   await page.getByRole('button', { name: '按要求配图' }).click()
@@ -153,22 +161,23 @@ try {
   assert.deepEqual(await page.evaluate(() => window.__calls.at(-1)), {
     gameId: 'game-A', turn: 11, instruction: '镜头从窗外向内，角色正推开窗户'
   }, 'instruction is passed exactly once with the captured game and turn')
-  assert.equal(await page.getByRole('dialog').count(), 0, 'successful submit closes the dialog')
+  await assertDialogCount(0, 'successful submit closes the dialog')
 
   await page.evaluate(() => window.__render('game-A', 12))
   await page.evaluate(() => window.__fail())
   await page.getByRole('button', { name: '为这一轮配图' }).click({ button: 'right' })
   await page.getByRole('button', { name: '按要求配图' }).click()
   await page.getByRole('alert').waitFor()
-  assert.equal(await page.getByRole('dialog').count(), 1, 'a failed blank manual request also stays open')
+  await assertDialogCount(1, 'a failed blank manual request also stays open')
   assert.deepEqual(await page.evaluate(() => window.__calls.at(-1)), { gameId: 'game-A', turn: 12 }, 'blank manual instruction keeps the ordinary two-field request')
   await page.getByRole('button', { name: '取消' }).click()
+  await assertDialogCount(0, 'cancel closes the blank manual request dialog')
 
   await page.evaluate(() => window.__render('game-A', 13))
   await page.getByRole('button', { name: '为这一轮配图' }).click({ button: 'right' })
   await page.getByRole('textbox', { name: '本次配图要求（最多 2000 字）' }).fill('不要把这条草稿发到新轮次')
   await page.evaluate(() => window.__render('game-B', 1))
-  assert.equal(await page.getByRole('dialog').count(), 0, 'changing session/turn discards the old draft dialog')
+  await assertDialogCount(0, 'changing session/turn discards the old draft dialog')
   await page.getByRole('button', { name: '为这一轮配图' }).click()
   await page.waitForFunction(() => window.__calls.length === 5)
   assert.deepEqual(await page.evaluate(() => window.__calls.at(-1)), { gameId: 'game-B', turn: 1 }, 'old draft is not sent to the new turn')
