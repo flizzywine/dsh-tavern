@@ -54462,40 +54462,6 @@ function galUiApplier() {
 		}
 		// The client includes this source inside its module factory, without exporting it.
 		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { stageOffstage };
-		// Stage speaker and lip-sync routing: voice resolves authored names; stage figures use canonical actor keys.
-		// The client includes this source inside its module factory (dependencies are its neighbours); Node requires them.
-		function stageSpeakerCharacter(config, entry) {
-		    return (typeof bubbleCharacter === 'function' ? bubbleCharacter : require('./bubble-line.cjs').bubbleCharacter)(config, entry);
-		}
-		function stageSpeakerResolve(rows, name) {
-		    return (typeof figureResolution !== 'undefined' ? figureResolution : require('../../packages/dsh-presentation-protocol/src/figure-resolution.cjs')).resolveFigureName(rows, name);
-		}
-		function stageSpeakerRender(figure, options) {
-		    return (typeof packFigureRenderInputs === 'function' ? packFigureRenderInputs : require('./pack-playback.cjs').packFigureRenderInputs)(figure, options);
-		}
-		function stageSpeakerRows(characters) {
-		    return characters.map(figure => ({...figure,actorKey:figure.alias}));
-		}
-		function stageSpeakerKey(config, rows, row) {
-		    const figure = row?.kind === 'line' ? stageSpeakerCharacter(config,row) : null;
-		    return figure ? (figure.ref && stageSpeakerResolve(rows,figure.ref).actorKey) || figure.alias : '';
-		}
-		// Only the speaking figure (or the phone contact on a call) receives audio; everyone else stays silent.
-		function stageVoiceInputs(characters, {audio, speaker, skipping, turn, page, sessionId, phoneVoice, callAudio, phoneCallKey}) {
-		    return new Map(characters.map(figure => [figure.alias,stageSpeakerRender(figure,callAudio
-		        ? {audio:figure.alias === phoneVoice.alias ? callAudio : null,speaking:figure.alias === phoneVoice.alias,skipping,voiceKey:'phone-call:'+phoneCallKey,sessionId}
-		        : {audio,speaking:figure.alias === speaker,skipping,voiceKey:turn+':'+page,sessionId})]));
-		}
-		// Faces by canonical actor key; a line's avatar resolves its authored name to that key, never a raw alias.
-		function stagePortraits(avatars, sessionId) {
-		    return new Map(avatars.map(figure => [figure.alias,stageSpeakerRender(figure,{sessionId}).face]));
-		}
-		function stageAvatarOf(config, avatars, portraits, entry) {
-		    const character = stageSpeakerCharacter(config,entry);
-		    if (!character) return null;
-		    return portraits.get(stageSpeakerResolve(stageSpeakerRows(avatars),character.ref || character.alias).actorKey) || null;
-		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { stageSpeakerRows, stageSpeakerKey, stageVoiceInputs, stagePortraits, stageAvatarOf };
 		// Pure replay filter. Positions count paragraphs, not pages or wall-clock time.
 		function stagePacing(start, entries, looks, units) {
 		    const light = typeof window === "undefined" && typeof require === "function" ? require("./stage-light.cjs") : { stageLighting, stageApplyLight };
@@ -60051,7 +60017,7 @@ function galUiApplier() {
 		    // the phone's own Settings app saves its settings to this card or globally.
 		    const phoneSettings = usePhoneSettings({ sessionId });
 		    // Source widgets read faces synchronously; initialize their map before invoking the hook.
-		    const portraits = stagePortraits(pack.avatars, sessionId);
+		    const portraits = stageViews.speaker.portraits(pack.avatars, sessionId);
 		    const sourceWidget = useWidgetStage({ sessionId, chatId:props.data?.chatId, config, actors:pack.state?.actors, placeKey:props.data && props.data.cardPath, source:runtime.source, turn, pages, page, card, record:receivedDirection, phoneSettings, phoneCall:typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null,
 		        widgets:[...(pack.widgets || []),...performanceLayer.widgets.map(widget=>({...widget,performance:true}))], assetRevision:accepted.presentationRevision,
 		        mode:presenting, skipping, rootRef, avatarOf, enabled:true, film, revealed:typed && lastCard && !current?.pending,
@@ -60452,8 +60418,8 @@ function galUiApplier() {
 		    const onUi = React.useCallback(frame => applyUi(rootRef.current, frame), [applyUi]);
 		    const track = accepted.music;
 		    // Every dialogue consumer resolves the same current figure ref; off-stage speakers keep their card identity.
-		    const speakerRows = React.useMemo(() => stageSpeakerRows(pack.characters), [pack.characters]);
-		    const stageSpeaker = React.useCallback(row => stageSpeakerKey(config,speakerRows,row), [config,speakerRows]);
+		    const speakerRows = React.useMemo(() => stageViews.speaker.rows(pack.characters), [pack.characters]);
+		    const stageSpeaker = React.useCallback(row => stageViews.speaker.key(config,speakerRows,row), [config,speakerRows]);
 		    const speaker = stageSpeaker(current);
 		    const skinSweep = useSkinSweep(activeSkin, { loading: entryGate.phase === "loading" || entryGate.phase === "slow", stage: revealed && !stageLeaving, menu: menuOpen, config: configOpen, backlog,
 		        // page: every page the reader turns to, a box card of a long page included (its text is replaced just as a page's);
@@ -60474,7 +60440,7 @@ function galUiApplier() {
 		    React.useSyncExternalStore(phoneCall?.videoSubscribe || GAL_NO_PHONE_CALL.subscribe, phoneCall?.videoKey || GAL_NO_PHONE_CALL.stage);
 		    const callVideo = phoneCall?.video ? phoneCall.video() : null;
 		    const callView = callVideo ? galCallView(callVideo, packFigureRenderInputs, {skipping, sessionId}) : null;
-		    const renderInputs = stageVoiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
+		    const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
 		    const shotHere = !awaiting && shot.key === turn + ':' + page;
 		    // reserve the full directed cast's slots while individual resources arrive.
 		    const members = state ? packStageMembers(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
@@ -60630,7 +60596,7 @@ function galUiApplier() {
 		    const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 		    const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
 		    // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
-		    function avatarOf(entry) { return stageAvatarOf(config, pack.avatars, portraits, entry); }
+		    function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
 		    function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
 		    // Generic skin hook: the box carries --speaker-x / --stage-w (stage px) only while the line's speaker stands on stage.
 		    // Under a shot the subject's side is known exactly (no body sampling lag): the statement stands opposite at once.
@@ -60992,6 +60958,7 @@ function galUiApplier() {
 		            getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
 		        video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
 		        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+		        speaker:{character:bubbleCharacter,resolve:(...args) => figureResolution.resolveFigureName(...args),render:packFigureRenderInputs},
 		        chatEntry:{MutationObserver,markdown:TavernColoredMarkdown,enter:galEnter,plain:galPlain,blocks:galBlocks,paragraphs:galParagraphs,parse:parseBubbles,schedule:setTimeout,cancel:clearTimeout},
 		        menu:{sounds:forkUiSfx,getSession:id => stageSessions.get(id)},
 		        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor, navigate:(...args) => stageSessions.owner.navigate(...args)},

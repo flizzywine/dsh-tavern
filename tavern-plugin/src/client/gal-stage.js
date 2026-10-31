@@ -7,7 +7,6 @@
 // @include widget-source.js
 // @include phone-settings.js
 // @include stage-offstage.cjs
-// @include stage-speaker.cjs
 // @include-protocol stage-pacing.cjs
 // @include-protocol stage-soundscape.cjs
 // @include gal-history.js
@@ -492,7 +491,7 @@ function GalStage(props) {
     // the phone's own Settings app saves its settings to this card or globally.
     const phoneSettings = usePhoneSettings({ sessionId });
     // Source widgets read faces synchronously; initialize their map before invoking the hook.
-    const portraits = stagePortraits(pack.avatars, sessionId);
+    const portraits = stageViews.speaker.portraits(pack.avatars, sessionId);
     const sourceWidget = useWidgetStage({ sessionId, chatId:props.data?.chatId, config, actors:pack.state?.actors, placeKey:props.data && props.data.cardPath, source:runtime.source, turn, pages, page, card, record:receivedDirection, phoneSettings, phoneCall:typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null,
         widgets:[...(pack.widgets || []),...performanceLayer.widgets.map(widget=>({...widget,performance:true}))], assetRevision:accepted.presentationRevision,
         mode:presenting, skipping, rootRef, avatarOf, enabled:true, film, revealed:typed && lastCard && !current?.pending,
@@ -893,8 +892,8 @@ function GalStage(props) {
     const onUi = React.useCallback(frame => applyUi(rootRef.current, frame), [applyUi]);
     const track = accepted.music;
     // Every dialogue consumer resolves the same current figure ref; off-stage speakers keep their card identity.
-    const speakerRows = React.useMemo(() => stageSpeakerRows(pack.characters), [pack.characters]);
-    const stageSpeaker = React.useCallback(row => stageSpeakerKey(config,speakerRows,row), [config,speakerRows]);
+    const speakerRows = React.useMemo(() => stageViews.speaker.rows(pack.characters), [pack.characters]);
+    const stageSpeaker = React.useCallback(row => stageViews.speaker.key(config,speakerRows,row), [config,speakerRows]);
     const speaker = stageSpeaker(current);
     const skinSweep = useSkinSweep(activeSkin, { loading: entryGate.phase === "loading" || entryGate.phase === "slow", stage: revealed && !stageLeaving, menu: menuOpen, config: configOpen, backlog,
         // page: every page the reader turns to, a box card of a long page included (its text is replaced just as a page's);
@@ -915,7 +914,7 @@ function GalStage(props) {
     React.useSyncExternalStore(phoneCall?.videoSubscribe || GAL_NO_PHONE_CALL.subscribe, phoneCall?.videoKey || GAL_NO_PHONE_CALL.stage);
     const callVideo = phoneCall?.video ? phoneCall.video() : null;
     const callView = callVideo ? galCallView(callVideo, packFigureRenderInputs, {skipping, sessionId}) : null;
-    const renderInputs = stageVoiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
+    const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
     const shotHere = !awaiting && shot.key === turn + ':' + page;
     // reserve the full directed cast's slots while individual resources arrive.
     const members = state ? packStageMembers(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
@@ -1071,7 +1070,7 @@ function GalStage(props) {
     const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
-    function avatarOf(entry) { return stageAvatarOf(config, pack.avatars, portraits, entry); }
+    function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
     // Generic skin hook: the box carries --speaker-x / --stage-w (stage px) only while the line's speaker stands on stage.
     // Under a shot the subject's side is known exactly (no body sampling lag): the statement stands opposite at once.
@@ -1433,6 +1432,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+        speaker:{character:bubbleCharacter,resolve:(...args) => figureResolution.resolveFigureName(...args),render:packFigureRenderInputs},
         chatEntry:{MutationObserver,markdown:TavernColoredMarkdown,enter:galEnter,plain:galPlain,blocks:galBlocks,paragraphs:galParagraphs,parse:parseBubbles,schedule:setTimeout,cancel:clearTimeout},
         menu:{sounds:forkUiSfx,getSession:id => stageSessions.get(id)},
         position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor, navigate:(...args) => stageSessions.owner.navigate(...args)},

@@ -444,6 +444,34 @@ return {Typewriter:GalTypewriter, NarrationLines:GalNarrationLines};
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageText};
 
         'use strict';
+function createStageSpeaker({character:findCharacter, resolve, render}) {
+function stageSpeakerRows(characters) {
+    return characters.map(figure => ({...figure,actorKey:figure.alias}));
+}
+function stageSpeakerKey(config, rows, row) {
+    const figure = row?.kind === 'line' ? findCharacter(config,row) : null;
+    return figure ? (figure.ref && resolve(rows,figure.ref).actorKey) || figure.alias : '';
+}
+// Only the speaking figure (or the phone contact on a call) receives audio; everyone else stays silent.
+function stageVoiceInputs(characters, {audio, speaker, skipping, turn, page, sessionId, phoneVoice, callAudio, phoneCallKey}) {
+    return new Map(characters.map(figure => [figure.alias,render(figure,callAudio
+        ? {audio:figure.alias === phoneVoice.alias ? callAudio : null,speaking:figure.alias === phoneVoice.alias,skipping,voiceKey:'phone-call:'+phoneCallKey,sessionId}
+        : {audio,speaking:figure.alias === speaker,skipping,voiceKey:turn+':'+page,sessionId})]));
+}
+// Faces by canonical actor key; a line's avatar resolves its authored name to that key, never a raw alias.
+function stagePortraits(avatars, sessionId) {
+    return new Map(avatars.map(figure => [figure.alias,render(figure,{sessionId}).face]));
+}
+function stageAvatarOf(config, avatars, portraits, entry) {
+    const character = findCharacter(config,entry);
+    if (!character) return null;
+    return portraits.get(resolve(stageSpeakerRows(avatars),character.ref || character.alias).actorKey) || null;
+}
+return {rows:stageSpeakerRows, key:stageSpeakerKey, voiceInputs:stageVoiceInputs, portraits:stagePortraits, avatarOf:stageAvatarOf};
+}
+if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSpeaker};
+
+        'use strict';
 function createStageChatEntry({React, MutationObserver, markdown:TavernColoredMarkdown, enter:navigate, plain:galPlain, blocks:galBlocks, paragraphs:galParagraphs, parse:parseBubbles, schedule, cancel:cancelTimer}) {
 let disposed = false;
 const galEnter = (...args) => { if (!disposed) return navigate(...args); };
@@ -4228,7 +4256,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const music = own(createStageMusic(options.music));
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
