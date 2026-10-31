@@ -33,6 +33,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
     document, window:{__ModuleLoader__:{load(value) {definition = value}}}
   })
   assert.equal(definition.id, 'dsh-tavern-stage')
+  const assembled = []
+  const forbidden = () => {throw new Error('host must not supply stage session access')}
   const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
     input => {
       assert.equal(typeof input.createNavigation,'function')
@@ -41,8 +43,9 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         useRef:current => ({current}),useMemo:fn => fn(),useLayoutEffect:()=>{},useEffect:()=>{},
         createElement:(type,props,...children) => ({type,props,children}),
       }
-      const views = input.createViews({React,sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
+      const views = input.createViews({React,skinResources:{getSession:forbidden,getResourceOwner:forbidden},backlogPaging:{hydrateText:forbidden,hasOlder:forbidden,loadOlder:forbidden},sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
+      assembled.push(views)
       assert.equal(views.sceneMath.galSpringValue(3).v,3)
       assert.equal(views.sceneMath.galClamp01(2),1)
       const state=views.runtimeKernel.createStageRuntimeState()
@@ -69,6 +72,26 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const plugin = definition.factory()
   const first = ctx.plugin(plugin); await first.await()
   assert.deepEqual(seen,['tab','sessions'])
+  // Exercise the compiled composition: private consumers resolve this activation's owner,
+  // even when a legacy host tries to supply its own session callbacks.
+  const views = assembled[0], calls = []
+  const originalGet = views.sessions.get, originalOwner = views.sessions.owner
+  const resourceOwner = views.sessions.resourceOwner
+  views.sessions.get = id => ({getSnapshot:()=>({source:{sessionId:id,authorityEpoch:7}})})
+  resourceOwner.acquire = async (resource,authority) => {calls.push(['acquire',authority]);return {release:()=>calls.push(['release'])}}
+  views.sessions.owner = {hydrateText:(...args)=>calls.push(['hydrate',...args]),hasOlder:()=>true,loadOlder:(...args)=>calls.push(['older',...args])}
+  try {
+    views.skinResources.prefetch('s',{kind:'bundle'})
+    const paging = views.backlogPaging.create('s',()=>{})
+    paging.hydrate(new Map([[4,{unloaded:true}]]),[4])
+    await paging.load(4)
+    await Promise.resolve()
+    assert.deepEqual(calls,[['acquire','["s",7]'],['older','s'],['release'],['hydrate','s',4]])
+    paging.dispose()
+  } finally {
+    views.sessions.get = originalGet
+    views.sessions.owner = originalOwner
+  }
   assert.equal(styles.size,2)
   assert.match([...styles][1].textContent, /fork-tc-layer/)
   assert.match([...styles][1].textContent, /fork-widget-source-controls/)
