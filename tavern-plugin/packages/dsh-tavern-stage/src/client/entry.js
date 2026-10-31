@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
     factory: () => {
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
+        __STAGE_PORTRAITS__
         __STAGE_LABELS__
         __STAGE_LOADER__
         __STAGE_ADMISSION__
@@ -42,6 +43,7 @@ window.__ModuleLoader__.load({
                     const admission = createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission});
                     const music = createStageMusic(options.music);
                     return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, music, bgm:createBgmPlayer({...options.bgm, music}), ambience:createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}), timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
+                        ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...createStageText({React:options.React, document, ...options.text})};
                 }});}
