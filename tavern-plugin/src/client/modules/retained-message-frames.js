@@ -212,24 +212,40 @@ function createRetainedTavernFrames(options) {
             return { result: result, cancel: function () { job.cancelled = true; } };
         },
         mount: function (props, home) {
-            const record = get(props);
-            move(record.node, home);
-            const unmount = retention.mount(props.sessionId);
-            record.unmount = unmount;
-            const movable = !props.persistent && /<(?:script|iframe|object|embed)\b/i.test(String(props.content || ""));
-            if (movable && options.panels) {
-                record.panel = Object.assign(record.panel || {}, { id: "retained:" + record.key,
-                    sessionId: props.sessionId, title: "第 " + props.turn + " 轮 · 面板 " + (Number(props.partIndex) + 1),
-                    node: record.node, home: home, pinned: Boolean(record.panel && record.panel.pinned) });
-                record.unpin = options.panels.register(record.panel);
+            let record = get(props), unmount;
+            function attach(props) {
+                move(record.node, home);
+                unmount = retention.mount(props.sessionId);
+                record.unmount = unmount;
+                const movable = !props.persistent && /<(?:script|iframe|object|embed)\b/i.test(String(props.content || ""));
+                if (movable && options.panels) {
+                    record.panel = Object.assign(record.panel || {}, { id: "retained:" + record.key,
+                        sessionId: props.sessionId, title: "第 " + props.turn + " 轮 · 面板 " + (Number(props.partIndex) + 1),
+                        node: record.node, home: home, pinned: Boolean(record.panel && record.panel.pinned) });
+                    record.unpin = options.panels.register(record.panel);
+                }
             }
+            attach(props);
             let attached = true;
+            let latest = props;
+            function update(next) {
+                latest = next;
+                if (!attached) return;
+                // The host can retain React panels across navigation while onLeave
+                // releases their iframe. Renew that lease only for the selected session.
+                if (records.get(record.key) !== record) {
+                    if (records.has(record.key) || !home.isConnected || retention.isSelected && !retention.isSelected(next.sessionId)) return;
+                    record = get(next); attach(next);
+                } else record.lifecycle.update(next);
+            }
+            const stopSelection = retention.onSelect?.(id => { if (id === latest.sessionId) update(latest); });
             return {
                 expand: function () { return expandTavernFrame(record.node); },
-                update: function (next) { if (attached && records.get(record.key) === record) record.lifecycle.update(next); },
+                update,
                 detach: function () {
                     if (!attached) return;
                     attached = false;
+                    stopSelection?.();
                     if (records.get(record.key) !== record) return;
                     // Another React root may attach the new placement before
                     // the previous root cleans up. Its stale lease must not move it.

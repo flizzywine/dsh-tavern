@@ -31927,7 +31927,7 @@ function bindTavernFontZoom(node, win) {
 		    const host = options.window;
 		    const now = options.now || Date.now;
 		    const duration = options.durationMs === undefined ? 10 * 60 * 1000 : options.durationMs;
-		    const records = new Map(), leaveListeners = new Set();
+		    const records = new Map(), leaveListeners = new Set(), selectListeners = new Set();
 		    let selected = "", managed = false;
 		    function record(id) {
 		        if (!records.has(id)) records.set(id, { id: id, resources: new Map(), mounts: 0, busy: false, leftAt: now(), timer: null });
@@ -31958,6 +31958,7 @@ function bindTavernFontZoom(node, win) {
 		        }, remaining);
 		    }
 		    return {
+		        isSelected: id => !managed || selected === id,
 		        hold: function (id, key, dispose) {
 		            const item = record(id);
 		            item.resources.set(key, dispose); schedule(item);
@@ -31986,7 +31987,9 @@ function bindTavernFontZoom(node, win) {
 		                schedule(item);
 		            }
 		            if (previous) for (const listener of Array.from(leaveListeners)) listener(previous);
+		            for (const listener of Array.from(selectListeners)) listener(id);
 		        },
+		        onSelect: function (listener) { selectListeners.add(listener); return () => selectListeners.delete(listener); },
 		        onLeave: function (listener) { leaveListeners.add(listener); return function () { leaveListeners.delete(listener); }; },
 		        busy: function (id, value) { const item = records.get(id); if (item) { item.busy = value; schedule(item); } },
 		        release: release,
@@ -33139,24 +33142,40 @@ function bindTavernFontZoom(node, win) {
 		            return { result: result, cancel: function () { job.cancelled = true; } };
 		        },
 		        mount: function (props, home) {
-		            const record = get(props);
-		            move(record.node, home);
-		            const unmount = retention.mount(props.sessionId);
-		            record.unmount = unmount;
-		            const movable = !props.persistent && /<(?:script|iframe|object|embed)\b/i.test(String(props.content || ""));
-		            if (movable && options.panels) {
-		                record.panel = Object.assign(record.panel || {}, { id: "retained:" + record.key,
-		                    sessionId: props.sessionId, title: "第 " + props.turn + " 轮 · 面板 " + (Number(props.partIndex) + 1),
-		                    node: record.node, home: home, pinned: Boolean(record.panel && record.panel.pinned) });
-		                record.unpin = options.panels.register(record.panel);
+		            let record = get(props), unmount;
+		            function attach(props) {
+		                move(record.node, home);
+		                unmount = retention.mount(props.sessionId);
+		                record.unmount = unmount;
+		                const movable = !props.persistent && /<(?:script|iframe|object|embed)\b/i.test(String(props.content || ""));
+		                if (movable && options.panels) {
+		                    record.panel = Object.assign(record.panel || {}, { id: "retained:" + record.key,
+		                        sessionId: props.sessionId, title: "第 " + props.turn + " 轮 · 面板 " + (Number(props.partIndex) + 1),
+		                        node: record.node, home: home, pinned: Boolean(record.panel && record.panel.pinned) });
+		                    record.unpin = options.panels.register(record.panel);
+		                }
 		            }
+		            attach(props);
 		            let attached = true;
+		            let latest = props;
+		            function update(next) {
+		                latest = next;
+		                if (!attached) return;
+		                // The host can retain React panels across navigation while onLeave
+		                // releases their iframe. Renew that lease only for the selected session.
+		                if (records.get(record.key) !== record) {
+		                    if (records.has(record.key) || !home.isConnected || retention.isSelected && !retention.isSelected(next.sessionId)) return;
+		                    record = get(next); attach(next);
+		                } else record.lifecycle.update(next);
+		            }
+		            const stopSelection = retention.onSelect?.(id => { if (id === latest.sessionId) update(latest); });
 		            return {
 		                expand: function () { return expandTavernFrame(record.node); },
-		                update: function (next) { if (attached && records.get(record.key) === record) record.lifecycle.update(next); },
+		                update,
 		                detach: function () {
 		                    if (!attached) return;
 		                    attached = false;
+		                    stopSelection?.();
 		                    if (records.get(record.key) !== record) return;
 		                    // Another React root may attach the new placement before
 		                    // the previous root cleans up. Its stale lease must not move it.

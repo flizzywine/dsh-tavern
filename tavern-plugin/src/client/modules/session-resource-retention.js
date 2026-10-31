@@ -4,7 +4,7 @@ function createTavernSessionRetention(options) {
     const host = options.window;
     const now = options.now || Date.now;
     const duration = options.durationMs === undefined ? 10 * 60 * 1000 : options.durationMs;
-    const records = new Map(), leaveListeners = new Set();
+    const records = new Map(), leaveListeners = new Set(), selectListeners = new Set();
     let selected = "", managed = false;
     function record(id) {
         if (!records.has(id)) records.set(id, { id: id, resources: new Map(), mounts: 0, busy: false, leftAt: now(), timer: null });
@@ -35,6 +35,7 @@ function createTavernSessionRetention(options) {
         }, remaining);
     }
     return {
+        isSelected: id => !managed || selected === id,
         hold: function (id, key, dispose) {
             const item = record(id);
             item.resources.set(key, dispose); schedule(item);
@@ -63,7 +64,9 @@ function createTavernSessionRetention(options) {
                 schedule(item);
             }
             if (previous) for (const listener of Array.from(leaveListeners)) listener(previous);
+            for (const listener of Array.from(selectListeners)) listener(id);
         },
+        onSelect: function (listener) { selectListeners.add(listener); return () => selectListeners.delete(listener); },
         onLeave: function (listener) { leaveListeners.add(listener); return function () { leaveListeners.delete(listener); }; },
         busy: function (id, value) { const item = records.get(id); if (item) { item.busy = value; schedule(item); } },
         release: release,

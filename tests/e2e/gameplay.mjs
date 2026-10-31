@@ -54,12 +54,14 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageSwitchOnly = process.argv.includes('--stage-session-switch')
+const stageRenderFault = stageSwitchOnly || process.argv.includes('--stage-render-fault')
 const stageAutomaticLifecycle = process.argv.includes('--stage-auto-lifecycle')
 const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('--stage-server-lifecycle')
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -93,6 +95,7 @@ async function savedChat() {
   const store = createChatJournalStore({ dataRoot: data })
   const chats = await Promise.all(ids.map(id => store.read(id)))
   const games = chats.filter(chat => chat.mode !== 'card')
+  if(stageRenderFault && report.beforeReload) return games.find(chat=>chat.id===report.beforeReload.chatId)
   assert.equal(games.length, 1, '本次只应创建一局游戏')
   return games[0]
 }
@@ -301,11 +304,16 @@ try {
     context.setDefaultTimeout(timeout)
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
     page = await context.newPage()
-    if(stageLifecycle || stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
+    if(stageRenderFault || stageLifecycle || stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
       if(!route.request().url().includes('client.js')) return route.continue()
       const response=await route.fetch(),body=await response.text()
       if(stageLifecycle && body.includes("const host = ctx.get('tavernStageFrontend');")) {
         return route.fulfill({response,body:body.replace("return ({\n        name: 'dsh-tavern-stage'","return (window.__stageLifecyclePlugin={\n        name: 'dsh-tavern-stage'").replace("const host = ctx.get('tavernStageFrontend');",`window.__stageLifecycleTest={disable:()=>ctx.fiber.dispose(),enable:async()=>{const fiber=ctx.fiber.parent.plugin(window.__stageLifecyclePlugin);await fiber.await();}}; const host = ctx.get('tavernStageFrontend');`)})
+      }
+      if(stageRenderFault) {
+        const marker='function GalStage(props) {'
+        if(body.includes(marker))report.renderFaultInstalled=true
+        return route.fulfill({response,body:body.replace(marker,marker+"if(window.__stageRenderFault)throw new Error('E2E stage render failure');")})
       }
       const marker='activeViews.sessions.start(host.sessionInputs());'
       if(body.includes(marker)) {
@@ -323,9 +331,10 @@ try {
       });
       page.on('console',message=>{if(message.text().startsWith('[history-read-stack]'))log+=message.text()+'\n'});
     }
-    page.on('pageerror', error => { errors.push(error.message); if (process.env.E2E_ERROR_STACK) console.log('[pageerror]', error.stack) })
+    page.on('pageerror', error => { if(stageRenderFault && error.message==='E2E stage render failure'){report.renderFaultObserved=true;return} errors.push(error.message); if (process.env.E2E_ERROR_STACK) console.log('[pageerror]', error.stack) })
     // Slot error boundaries catch React failures, so pageerror alone misses them.
     page.on('console', message => {
+      if(stageRenderFault && message.type()==='error' && message.text().includes('E2E stage render failure')){report.renderFaultObserved=true;return}
       if(stageIsolation === 'activation' && message.text().includes('[dsh-tavern-stage] activation failed') && message.text().includes('E2E stage activation failure')) {report.activationFailureObserved=true;return}
       if (message.type() === 'error' && /slot entry crashed|Minified React error|activation failed|ReferenceError:/.test(message.text())) errors.push(message.text())
     })
@@ -636,8 +645,39 @@ try {
         assert.equal(await input.evaluate(node=>node.isContentEditable ? node.textContent : node.value),'热停用期间保留的草稿')
       }
 
+      if(stageRenderFault) {
+        const preserved=(await savedChat()).messages.map(({role,text,turn,variables})=>({role,text,turn,variables}))
+        if(!stageSwitchOnly) {
+        assert.ok(report.renderFaultInstalled)
+        await page.evaluate(()=>{window.__stageRenderFault=true})
+        await page.keyboard.press('h')
+        await page.locator('[data-stage-failure]').waitFor({state:'visible'})
+        assert.ok(report.renderFaultObserved,'必须观测到注入的渲染故障')
+        await page.screenshot({path:join(output,'stage-render-failure.png'),fullPage:true})
+        await page.getByRole('button',{name:'返回普通聊天',exact:true}).click()
+        } else {
+          await page.keyboard.press('Escape')
+          await page.getByRole('button',{name:/返回主页面/}).filter({visible:true}).last().click()
+        }
+        assert.equal(await page.locator('.fork-gal-mount').count(),0)
+        assert.deepEqual((await savedChat()).messages.map(({role,text,turn,variables})=>({role,text,turn,variables})),preserved,'舞台故障不能修改剧情和变量')
+        await page.getByRole('button',{name:/选择人物卡.*新开游玩/}).click()
+        await page.locator('.dsh-tavern-picker-overlay').getByText('E2E 奖励验收',{exact:true}).click()
+        await page.getByRole('button',{name:'开始新游戏',exact:true}).click()
+        await page.getByRole('textbox',{name:/发消息|Message/}).waitFor()
+        await page.waitForFunction(()=>document.querySelectorAll('.dsh-tavern-side-row').length===2)
+        assert.equal(await page.locator('[data-stage-failure]').count(),0)
+        await openStatus()
+        await page.frameLocator('.dsh-tavern-status-runtime iframe.dsh-tavern-message-frame:not([aria-hidden="true"])').locator('#e2e-gold').filter({hasText:/^金币：0$/}).waitFor()
+        await page.locator('.dsh-tavern-side-row:not(.active) .dsh-tavern-side-row-main').click()
+        await inspectScreen()
+        assert.deepEqual((await savedChat()).messages.map(({role,text,turn,variables})=>({role,text,turn,variables})),preserved,'切换会话不能污染原存档')
+        report.sessionSwitchAfterFault=true
+
+      } else {
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: /返回主页面/ }).filter({ visible: true }).last().click()
+      }
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
       }
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
@@ -657,7 +697,7 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageIsolation === 'activation') {
+      if(stageRenderFault || stageIsolation === 'activation') {
         await page.unroute('**/plugins/**')
         await page.reload({waitUntil:'domcontentloaded'})
         await page.getByRole('button',{name:'舞台',exact:true}).click()
