@@ -486,8 +486,10 @@ function bubblePublicationEqual(a, b) {
 // Every story paragraph renders through the bubble/stage publication. A failure there must not take the text with it:
 // the plain transcript stands in, and the error goes to the error panel.
 function BubbleSafePublication(props) {
+    const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     const plain = Object.assign({}, props);
     for (const key of ["sessionId", "voiceScope", "stageParaBase", "stageParaOffset", "stageSource", "stageOrder", "stageSuperseded", "interrupted"]) delete plain[key];
+    if (!enabled || !stageViews) return React.createElement(TavernColoredMarkdown, plain);
     return tavernStageBoundary("对白气泡", React.createElement(BubblePublication, props), React.createElement(TavernColoredMarkdown, plain));
 }
 let bubblePublicationMemo;

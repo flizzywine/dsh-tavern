@@ -791,6 +791,7 @@ try {
         await page.getByRole('button',{name:'启用舞台',exact:true}).waitFor()
         await page.waitForFunction(()=>!document.querySelector('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount'))
         await page.screenshot({path:join(output,'stage-disabled-settings.png'),fullPage:true})
+        assert.equal(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('dsh-tavern:error-history:v1')||'[]').some(row=>row.source==='对白气泡')),false,'停用舞台不能触发对白气泡错误')
         report.userDisabledStage=true
         await restartServer()
         assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
@@ -831,6 +832,7 @@ try {
       if(stageAudioLifecycle)assert.equal(await page.evaluate(()=>window.__stageAudioProbe().looping),0,'普通聊天刷新后不能恢复舞台音乐')
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
+      assert.equal(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('dsh-tavern:error-history:v1')||'[]').some(row=>row.source==='对白气泡')),false,'普通正文不能依赖舞台视图就绪')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
       if(stageAudioFault || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
         if(stageUserSwitch) {

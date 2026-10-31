@@ -20,8 +20,10 @@ test('气泡渲染抛错时退回普通 Markdown，正文不消失', async t => 
     dom.window.close()
     for (const [key, descriptor] of Object.entries(previous)) descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key]
   })
-  const reports = []
-  const context = vm.createContext({ React, Object,
+  const reports = [], listeners = new Set()
+  let enabled = false
+  const context = vm.createContext({ React, Object, stageViews:null,
+    galStageAvailable:{subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},get:()=>enabled},
     tavernErrorHub: { report: (label, error) => reports.push([label, error.message]) },
     BubblePublication() { throw new Error('bubble failed') },
     TavernColoredMarkdown: props => React.createElement('p', { id: 'story' }, props.text) })
@@ -30,5 +32,13 @@ test('气泡渲染抛错时退回普通 Markdown，正文不消失', async t => 
   root = createRoot(document.getElementById('root'), { onCaughtError() {} })
   await act(() => root.render(React.createElement(Safe, { text: '她走进客舱。', sessionId: 's', voiceScope: '2:0' })))
   assert.equal(document.getElementById('story').textContent, '她走进客舱。')
+  assert.deepEqual(reports, [], '插件尚未挂载时应直接显示正文，不触发错误边界')
+  await act(() => { enabled=true; for(const fn of listeners)fn() })
+  assert.deepEqual(reports, [], '状态已启用但视图缺失时仍显示正文')
+  context.stageViews={}
+  await act(() => root.render(React.createElement(Safe, { text: '她走进客舱。', sessionId: 's', voiceScope: '2:0' })))
   assert.deepEqual(reports, [['对白气泡', 'bubble failed']])
+  await act(() => { enabled=false; context.stageViews=null; for(const fn of listeners)fn() })
+  assert.equal(document.getElementById('story').textContent, '她走进客舱。')
+  assert.equal(reports.length,1,'停用后不应再调用舞台气泡')
 })
