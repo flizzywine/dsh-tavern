@@ -31,11 +31,14 @@ for (const check of [false, true]) {
     await copyFile(new URL('../tavern-plugin/packages/dsh-dream-skin/lib/client.js', import.meta.url), path.join(skin, 'lib/client.js'))
     const stage = path.join(root, 'tavern-plugin/packages/dsh-tavern-stage/lib/client')
     await mkdir(stage, {recursive:true})
+    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))
+    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
+    await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), path.join(stage, 'runtime-kernel.cjs'))
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))
     await copyFile(new URL('../bin/lib/css-syntax-guard.mjs', import.meta.url), path.join(root, 'bin/lib/css-syntax-guard.mjs'))
     // The fixture includes every required inert builder input.
-    for (const name of ['surfaces.cjs', ...['motion', 'phase', 'timing', 'script', 'player'].map(part => 'skin-overlay-' + part + '.cjs')]) {
+    for (const name of ['surfaces.cjs']) {
       await copyFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), path.join(root, 'tavern-plugin/src/client', name))
     }
     for (const name of ['tavern.css', 'theme.css', 'layered-sprite.css', 'phone.css', 'mod-config.css', 'textcard.css']) await writeFile(path.join(root, 'tavern-plugin/lib/client-assets', name), '')

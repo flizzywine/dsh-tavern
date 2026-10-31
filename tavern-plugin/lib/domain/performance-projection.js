@@ -4,7 +4,7 @@ import {compilePerformance, performancePlan, performanceSustained, performanceBo
 import {performanceReferences} from '../../packages/dsh-presentation-protocol/src/performance-contract.cjs'
 import {assetEntryEnabled} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import {stageWidgetSchemaValue} from '../../packages/dsh-asset-library/lib/index.js'
-import {skinOverlayTiming} from '../../src/client/skin-overlay-timing.cjs'
+import {skinOverlayTiming} from '../../packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs'
 
 export function performanceWidgetDefaults(document) {
   const command=document?.commands?.find(item=>item.effect === 'state.set')

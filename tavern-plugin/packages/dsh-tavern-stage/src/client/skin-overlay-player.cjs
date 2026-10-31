@@ -1,7 +1,7 @@
 'use strict';
 const skinOverlayPlayerMotion = typeof module !== 'undefined' && typeof window === 'undefined' ? require('./skin-overlay-phase.cjs') : null;
 const skinOverlayPlayerGeometry = typeof module !== 'undefined' && typeof window === 'undefined' ? require('./skin-overlay-motion.cjs') : null;
-const skinOverlayPlayerTiming = typeof module !== 'undefined' && typeof window === 'undefined' ? require('./skin-overlay-timing.cjs') : null;
+const skinOverlayPlayerTiming = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../lib/client/skin-overlay-timing.cjs') : null;
 // the skin resource owner supplies decoded content handles, not network/lease URLs.
 function createSkinOverlayPlayer({definition, intensity = 2, textures, script, rects, foreground, owner, under, over, reducedMotion = false, calm = false, snap = false, changed = () => {}, onCue = () => {}, onSkinSwap = () => {}, onError = () => {}}) {
     const make = skinOverlayPlayerMotion?.createPhasedSkinOverlayMotion || createPhasedSkinOverlayMotion;

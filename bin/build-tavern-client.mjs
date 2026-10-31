@@ -1,3 +1,4 @@
+import {prepareStageClientBuild} from '../tavern-plugin/packages/dsh-tavern-stage/build.mjs'
 import {buildInterfaceSkinClient} from './build-interface-skin-client.mjs'
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -86,20 +87,15 @@ export async function assembleTavernClient() {
 
 export async function buildTavernClient({ check = false } = {}) {
   await buildInterfaceSkinClient({check})
-  // Optional skin overlays are a separate first-party chunk, never pack-provided code.
-  const overlayPath = path.join(root,'tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay.mjs')
-  const overlayBody = (await Promise.all(['motion','phase','timing','script','player'].map(name => readFile(path.join(sourceRoot,'skin-overlay-'+name+'.cjs'), 'utf8').then(value => value.replace(/\r\n?/g, '\n'))))).join('\n')
-  new vm.Script(overlayBody,{filename:overlayPath})
-  const overlay = banner + overlayBody + '\nexport {createSkinOverlayPlayer,createDecorativeScript};\n'
+  const stageBuild = await prepareStageClientBuild()
   const output = await assembleTavernClient()
   // Validate both sources before replacing either generated artifact.
   new vm.Script(output, { filename: outputPath })
-  const overlayChanged = await readFile(overlayPath, 'utf8').then(value => value.replace(/\r\n?/g, '\n')).catch(() => '') !== overlay
   const current = await readFile(outputPath, 'utf8').then(value => value.replace(/\r\n?/g, '\n')).catch(() => '')
-  if (check && overlayChanged) throw new Error('Stale skin-overlay.mjs; run build-tavern-client.mjs')
+  if (check && stageBuild.changed) throw new Error('Stage client is stale; run build-tavern-client.mjs')
   if (check && current !== output) throw new Error('tavern-plugin/lib/client.js 已过期，请运行 pnpm build:client')
-  if (overlayChanged) await writeFile(overlayPath,overlay)
-  if (current === output) return Object.freeze({ changed: overlayChanged, path: outputPath })
+  await stageBuild.write()
+  if (current === output) return Object.freeze({ changed: stageBuild.changed, path: outputPath })
   const temporary = outputPath + `.tmp-${process.pid}`
   try {
     await writeFile(temporary, output)
