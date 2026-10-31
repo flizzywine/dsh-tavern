@@ -33,19 +33,30 @@ export function createModConfigStageReader({readChat,readRevision}) {
 }
 
 export function createModConfigHost({workbenchAuthority,root,store:managedStore,manifests,managedManifests,listCards,readCard,getAssetLibrary,readSession,readWindow,readRevision,getEngine,readStage=async()=>null,invalidate,getGlobalEnabledPackIds=()=>[],resolveOptionValues=async(_modId,_card,_chat,values)=>values,projectOptions=async value=>value}) {
-  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests):builtinConfigSchemas(manifests)),'dsh.state':stateSourceSchema},registered=new WeakSet(),cache=new Map()
+  const schemas={...(managedManifests?managedConfigSchemas(managedManifests,manifests):builtinConfigSchemas(manifests)),'dsh.state':stateSourceSchema},registered=new Map(),cache=new Map()
+  let active=true
+  function unregister(packs) {
+    const stops=registered.get(packs) || []
+    registered.delete(packs)
+    for(const stop of stops.reverse())stop?.()
+  }
   function register(packs) {
+    if(!active)fail('SOURCE_UNAVAILABLE','Mod config owner disposed')
     if(!packs || packs.apiVersion!==2 || typeof packs.registerModPrivate!=='function')fail('SOURCE_UNAVAILABLE','Native mod config pack owner unavailable')
     if(registered.has(packs))return packs
-    for(const [modId,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))packs.registerModPrivate({modId,validate:config=>{
+    const stops=[]
+    registered.set(packs,stops)
+    try {
+    for(const [modId,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))stops.push(packs.registerModPrivate({modId,validate:config=>{
       if(!config || config.version!==1 || Object.keys(config).some(key=>!['version','values'].includes(key)) || !config.values || typeof config.values!=='object' || Array.isArray(config.values))fail('CONFIG_TYPE','Invalid mod config document')
       for(const [key,value] of Object.entries(config.values)) {
         const field=schema.fields.find(row=>row.key===key)
         if(!field)fail('UNKNOWN_FIELD','Unknown config key: '+modId+':'+key)
         validateConfigValue(value,field)
       }
-    }})
-    registered.add(packs);return packs
+    }}))
+    } catch(error) {unregister(packs);throw error}
+    return packs
   }
   const getPacks=async()=>register(getAssetLibrary())
   const cardPacks=createModConfigCardPacks({listCards,readCard,getPacks}),store=typeof managedStore==='function'?managedStore({cardPacks}):managedStore || createModConfigStore({root,cardPacks}),sources=createConfigSourceRegistry()
@@ -123,7 +134,7 @@ export function createModConfigHost({workbenchAuthority,root,store:managedStore,
     return {assets}
   }
   const rpc=createModConfigRpc({schemas,store,sources,context,listAssets,authorize:({context})=>typeof context?.origin==='string' || !!workbenchAuthority && context===workbenchAuthority})
-  return Object.freeze({schemas,store,service,sources,cardPacks,context,register,async call(method,args,authority) {
+  return Object.freeze({schemas,store,service,sources,cardPacks,context,register,unregister,dispose(){active=false;for(const packs of registered.keys())unregister(packs);cache.clear()},async call(method,args,authority) {
     const value=await rpc[method](args,authority)
     if(['setModConfig','clearModConfig','uploadModConfigFile'].includes(method)){cache.clear();invalidate()}
     return value?.resolved?projectOptions(value,args,authority):value

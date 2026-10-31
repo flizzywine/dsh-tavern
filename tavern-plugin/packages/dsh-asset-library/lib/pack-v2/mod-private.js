@@ -46,7 +46,9 @@ export function createModPrivateMethods({validators,run,metadata,storage,cas,edi
   return {
     registerModPrivate({modId,validate}) {
       check(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(modId) && modId.length<=128 && typeof validate==='function','$.modId')
-      validators.set(modId,validate)
+      const owned = value => validate(value)
+      validators.set(modId,owned)
+      return () => {if(validators.get(modId) === owned) validators.delete(modId)}
     },
     readModPrivate({packId,modId,path='config.json'}) {
       const name=prefix(modId)+path;check(MOD_PRIVATE_PATH.test(name),'$.path','Invalid private path','UNKNOWN_FIELD')

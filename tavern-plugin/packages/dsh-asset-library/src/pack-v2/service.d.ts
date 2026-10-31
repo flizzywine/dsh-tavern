@@ -96,7 +96,7 @@ export interface AssetPackService extends CatalogueService {
   readonly apiVersion: 2;
   readonly capabilities: readonly string[];
   /** Host-only config namespace; not exposed by the asset editor control RPC. */
-  registerModPrivate(input: {modId: string; validate: (config: {version: 1; values: Record<string, unknown>}) => void}): void;
+  registerModPrivate(input: {modId: string; validate: (config: {version: 1; values: Record<string, unknown>}) => void}): () => void;
   readModPrivate(input: {packId: string; modId: string; path?: string}): Promise<{revision: string; config?: {version: 1; values: Record<string, unknown>} | null; bytes?: Uint8Array | null}>;
   writeModPrivate(input: PackWrite & {modId: string; config?: {version: 1; values: Record<string, unknown>} | null; file?: {path: string}; bytes?: Uint8Array}): Promise<PackMutation>;
   writeCardModPrivate(input: {path: string; packId: string | null; modId: string; expectedCardRevision: string; expectedRevision: string | null; copyOnWrite?: boolean; config?: {version: 1; values: Record<string, unknown>} | null; file?: {path: string}; bytes?: Uint8Array}): Promise<{packId: string; revision: string}>;

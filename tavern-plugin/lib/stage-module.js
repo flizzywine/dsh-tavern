@@ -130,7 +130,12 @@ export async function createStageModule(core) {
       return {...value,skin:answer.skin?{name:answer.skin.document.label}:null,resolved:Object.fromEntries(Object.entries(value.resolved).map(([key,row])=>[key,{...row,...mod.options[key]}]))}
     },
     invalidate:()=>modService.invalidate()})
-  ctx.inject(['assetLibrary'],()=>{const owner=ctx.get('assetLibrary');modConfigHost.register(owner);void modService.installBuiltinAssets(owner).catch(error=>ctx.logger.warn('MOD_BUILTIN_ASSETS %s',error.message))})
+  ctx.effect(() => () => modConfigHost.dispose(), 'dsh-tavern: mod config registrations')
+  ctx.inject(['assetLibrary'],child => {
+    const owner=child.get('assetLibrary')
+    child.effect(() => {modConfigHost.register(owner);return () => modConfigHost.unregister(owner)})
+    void modService.installBuiltinAssets(owner).catch(error=>ctx.logger.warn('MOD_BUILTIN_ASSETS %s',error.message))
+  })
   // galgame stage director
   const stageDirector = createStageDirector({
     readChat:readStageChat,
