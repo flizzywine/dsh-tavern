@@ -43,6 +43,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       }
       const views = input.createViews({React,navigation:{},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
         text:{defaultTextSpeed:28}})
+      assert.equal(views.sceneMath.galSpringValue(3).v,3)
+      assert.equal(views.sceneMath.galClamp01(2),1)
       const state=views.runtimeKernel.createStageRuntimeState()
       assert.equal(views.runtimeKernel.stageRuntimeStatus(state),'idle')
       let stopped=0
