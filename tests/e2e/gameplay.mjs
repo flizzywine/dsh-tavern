@@ -54,9 +54,10 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageLifecycle = process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -290,9 +291,12 @@ try {
     context.setDefaultTimeout(timeout)
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
     page = await context.newPage()
-    if(stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
+    if(stageLifecycle || stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
       if(!route.request().url().includes('client.js')) return route.continue()
       const response=await route.fetch(),body=await response.text()
+      if(stageLifecycle && body.includes("const host = ctx.get('tavernStageFrontend');")) {
+        return route.fulfill({response,body:body.replace("return ({\n        name: 'dsh-tavern-stage'","return (window.__stageLifecyclePlugin={\n        name: 'dsh-tavern-stage'").replace("const host = ctx.get('tavernStageFrontend');",`window.__stageLifecycleTest={disable:()=>ctx.fiber.dispose(),enable:async()=>{const fiber=ctx.fiber.parent.plugin(window.__stageLifecyclePlugin);await fiber.await();}}; const host = ctx.get('tavernStageFrontend');`)})
+      }
       const marker='activeViews.sessions.start(host.sessionInputs());'
       if(body.includes(marker)) {
         report.injectedActivationFailure=true
@@ -573,6 +577,20 @@ try {
       await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
+      if(stageLifecycle) for(let cycle=0;cycle<2;cycle++) {
+        await page.evaluate(()=>window.__stageLifecycleTest.disable())
+        await page.locator('.fork-gal-stage').waitFor({state:'detached'})
+        assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
+        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
+        const input=page.getByRole('textbox',{name:/发消息|Message/})
+        await input.fill('热停用期间保留的草稿')
+        await page.evaluate(()=>window.__stageLifecycleTest.enable())
+        await page.getByRole('button',{name:'舞台',exact:true}).click()
+        await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
+        assert.equal(await page.locator('.fork-gal-stage').count(),1)
+        assert.equal(await input.evaluate(node=>node.isContentEditable ? node.textContent : node.value),'热停用期间保留的草稿')
+      }
+
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: /返回主页面/ }).filter({ visible: true }).last().click()
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
