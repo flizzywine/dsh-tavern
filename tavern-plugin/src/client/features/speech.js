@@ -27,7 +27,7 @@
 		// One line at a time: a new line stops the one being said. speak resolves true when it was heard to the end.
 		const tavernSpeech = (function () {
 			let current = null;
-			function stop() { const playing = current; current = null; if (playing) playing.cancel(); }
+			function stop(owner) { if (owner && current?.owner !== owner) return; const playing = current; current = null; if (playing) playing.cancel(); }
 			function browser(reply, playing) {
 				return new Promise(function (resolve) {
 					const synth = window.speechSynthesis;
@@ -86,40 +86,84 @@
 				return done.finally(function () { if (current === playing) current = null; });
 			}
 			async function speak(input) {
-				stop();
-				const text = String(input.text || "").trim();
-				if (!text) return false;
-				const playing = { cancel: function () { playing.stopped = true; } };
-				current = playing;
-				let reply;
-				try {
-					reply = await rpc("speechForLine", { speaker: input.speaker || "", text: text, emotion: input.emotion || "neutral", narration: input.narration === true }, input.sessionId);
-				} catch (error) {
-					if (current === playing) current = null;
-					if (!playing.stopped) tavernErrorHub.report("配音", error);
-					return false;
-				}
-				if (playing.stopped || current !== playing) return false;
-				return play(reply);
-			}
+                stop();
+                const text = String(input.text || "").trim();
+                if (!text) return false;
+                // The host accepts at most 1000 code points per request. Keep a body in one
+                // playback lease so stop/new playback also cancels its remaining requests.
+                const chunks = input.body ? tavernBodySpeechChunks(text) : [text];
+                const playing = { owner: input.owner, cancel: function () {} };
+                current = playing;
+                try {
+                    for (const chunk of chunks) {
+                        const reply = await rpc("speechForLine", { speaker: input.speaker || "", text: chunk, emotion: input.emotion || "neutral", narration: input.narration === true }, input.sessionId);
+                        if (current !== playing || !reply || reply.skip) return false;
+                        const heard = await (reply.browser ? browser(reply, playing) : audio(reply, playing));
+                        if (!heard || current !== playing) return false;
+                        playing.cancel = function () {};
+                    }
+                    return true;
+                } catch (error) {
+                    if (current === playing) tavernErrorHub.report("配音", error);
+                    return false;
+                } finally {
+                    if (current === playing) current = null;
+                }
+            }
 			return { speak: speak, play: play, stop: stop };
 		})();
 
-		/** A small speaker button that says one line; a second press stops it. */
-		function TavernSpeakButton(props) {
-			const h = React.createElement;
-			const [playing, setPlaying] = React.useState(false);
-			const live = React.useRef(false);
-			live.current = playing;
-			React.useEffect(function () { return function () { if (live.current) tavernSpeech.stop(); }; }, []);
-			return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": playing ? "停止朗读" : "朗读这句", title: playing ? "停止朗读" : "朗读这句",
-				onClick: function (event) {
-					event.stopPropagation();
-					if (playing) { tavernSpeech.stop(); setPlaying(false); return; }
-					setPlaying(true);
-					tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, emotion: props.emotion }).finally(function () { setPlaying(false); });
-				} }, playing ? "■" : "🔊");
-		}
+        // Read the prose and bubble captions, with no speaker IDs, voice directions or executable HTML.
+        function tavernBodySpeechText(source) {
+            const text = parseBubbles(source, false).map(segment => segment.text || "").join("\n")
+                .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+                .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+            const doc = new DOMParser().parseFromString(text, "text/html");
+            doc.querySelectorAll("script,style,template,iframe").forEach(node => node.remove());
+            doc.querySelectorAll("br,p,div,li,h1,h2,h3,h4,h5,h6,blockquote").forEach(node => node.append(" "));
+            return (doc.body.textContent || "").replace(/[*_~`#>|]/g, "").replace(/\s+/g, " ").trim();
+        }
+        function tavernBodySpeechChunks(text) {
+            const chars = Array.from(text), chunks = [];
+            while (chars.length) {
+                let end = Math.min(1000, chars.length);
+                if (end < chars.length) {
+                    for (let i = end - 1; i >= end / 2; i--) {
+                        if (/[。！？.!?；;\s]/u.test(chars[i])) { end = i + 1; break; }
+                    }
+                }
+                chunks.push(chars.splice(0, end).join(""));
+            }
+            return chunks;
+        }
+        function TavernBodySpeechAction(props) {
+            const settings = useTavernSpeechSettings();
+            const source = props.useChat(function (snapshot) {
+                const node = (snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId);
+                return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
+            });
+            const text = React.useMemo(() => tavernBodySpeechText(source), [source]);
+            return settings?.enabled && text ? React.createElement(TavernSpeakButton, { key: props.sessionId + ":" + props.messageId + ":" + source, sessionId: props.sessionId, text, body: true }) : null;
+        }
+        /** A second press stops the current line/body, including synthesis still in flight. */
+        function TavernSpeakButton(props) {
+            const h = React.createElement;
+            const [playing, setPlaying] = React.useState(false);
+            const run = React.useRef(null);
+            React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
+            const label = playing ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
+            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, title: label,
+                onClick: function (event) {
+                    event.stopPropagation();
+                    if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
+                    const token = {};
+                    run.current = token;
+                    setPlaying(true);
+                    tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
+                        if (run.current === token) { run.current = null; setPlaying(false); }
+                    });
+                } }, playing ? "■" : "🔊");
+        }
 
 		function tavernSpeechDraft(provider) {
 			const draft = { voice: provider ? provider.voice || "" : "", narratorVoice: provider ? provider.narratorVoice || "" : "" };
@@ -196,7 +240,7 @@
 			// the shared switch / inline fields (ui-design §三.4–7) on upstream's own 配音 page.
 			const keyLabel = provider && provider.keyLabel || "API Key";
 			return h("section", { className: "dsh-tavern-settings-group dsh-tavern-speech-settings" },
-				h(TavernSettingRow, { title: "开启台词朗读", help: "台词行旁的 🔊 按钮和插件的朗读接口用这里的渠道与声音；舞台自动配音用上面的「语音服务」（免费的浏览器朗读也在那里）。在线渠道按字数计费，试听也会产生少量费用。" },
+				h(TavernSettingRow, { title: "开启台词朗读", help: "正文、台词行旁的 🔊 按钮和插件的朗读接口用这里的渠道与声音；舞台自动配音用上面的「语音服务」（免费的浏览器朗读也在那里）。在线渠道按字数计费，试听也会产生少量费用。" },
 					h(Switch, { label: "开启台词朗读", checked: settings.enabled, disabled: busy, onChange: value => save(value) })),
 				h("div", { className: "dsh-tavern-speech-form" },
 					h("div", { className: "dsh-tavern-speech-field" }, h("span", null, "配音渠道",

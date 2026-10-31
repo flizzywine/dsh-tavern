@@ -102,6 +102,7 @@ function TurnActions(props) {
     const h = React.createElement;
     return h("span", { className: "dsh-fork-turn-actions" },
         latest ? h("span", { "data-fork-turn": "edit", title: "编辑正文" }, h(TavernEditBodyAction, props)) : null,
+        h("span", { "data-fork-turn": "speech" }, h(TavernBodySpeechAction, props)),
         h("span", { "data-fork-turn": "receipt" }, h(ReceiptButton, props)),
         latest ? h("span", { "data-fork-turn": "regen" }, h(CandidateAction, Object.assign({}, props, { only: "regen" }))) : null,
         h("span", { "data-fork-turn": "more" }, h(TurnMenu, Object.assign({}, props, { latest: latest }))));
