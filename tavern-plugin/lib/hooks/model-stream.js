@@ -1,5 +1,4 @@
 import { promptSection } from '../domain/prompt-section.js'
-import { createReplyStreamObserver } from '../domain/reply-stream-observer.js'
 import { createModelStreamProgress } from '../domain/model-stream-progress.js'
 import { assertFrozenStageRequest } from '../domain/stage-shared-context.js'
 import { createImportContextPreparation, needsImportContextPreparation } from '../domain/import-context-preparation.js'
@@ -37,7 +36,7 @@ export function registerModelStreamHooks({
   str,
   updateChat,
   worldbookRecallLog,
-  beginReplyObserver,
+  openReplyObservers,
 }) {
   const importContextPreparation = createImportContextPreparation({
     readChat: chatForSession, readHeader: chatHeaderForSession, updateChat,
@@ -175,10 +174,9 @@ export function registerModelStreamHooks({
       if (!backgroundContext && !child && options.purpose === undefined && ['story', 'script'].includes(chat?.mode)) replyStarted?.(sessionId, requestCoordinates.get(sessionId)?.turn)
       let responseText = ''
       // Optional observers initialize independently; they never hold up model tokens.
-      const replyObserver = createReplyStreamObserver({signal:options.signal,
-        begin:signal => !backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)
-          ? beginReplyObserver?.(ownerSessionId,requestCoordinates.get(sessionId)?.turn,signal) : null,
-        warn:error => console.warn('dsh-tavern: STREAMING_DIRECTOR_FAILED',String(error.message))})
+      const replyObserver = openReplyObservers?.({signal:options.signal, sessionId:ownerSessionId,
+        turn:requestCoordinates.get(sessionId)?.turn,
+        enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
       let finish = null, usage = null
       let failure = null, interrupted = false
       const liveness = createModelStreamProgress({signal:options.signal,
@@ -194,7 +192,7 @@ export function registerModelStreamHooks({
           liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
             responseText += str(chunk.text)
-            replyObserver.append(str(chunk.text))
+            replyObserver?.append(str(chunk.text))
           }
           if (chunk && chunk.type === 'finish') {
             finish = chunk.reason === undefined ? chunk : chunk.reason
@@ -220,7 +218,7 @@ export function registerModelStreamHooks({
         if (!exhausted && iterator?.return) void Promise.resolve().then(() => iterator.return()).catch(() => {})
         progress('end')
         const completed = !failure && !options.signal?.aborted && finish && finish.kind !== 'error' && finish.kind !== 'aborted'
-        replyObserver.finish(completed)
+        replyObserver?.finish(completed)
         foregroundStrategies.completeRequest(options, completed)
         const owner = child ? child.chat : chat
         if (owner && requestRecord) {

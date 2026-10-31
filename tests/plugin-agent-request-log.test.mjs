@@ -1,3 +1,4 @@
+import {createPresentationObservers} from '../tavern-plugin/lib/domain/presentation-observers.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -21,6 +22,8 @@ function install(log, headers, pluginSettlementProgress, beginReplyObserver, emi
   let stream
   const game = { id: 'chat-game', mode: 'story', requestMode: 'sillytavern' }
   const ctx = { on(name, fn) { if (name === 'llm/stream') stream = fn }, llm: {}, get() {}, logger: () => ({ warn() {} }) }
+  const observers = createPresentationObservers()
+  if (beginReplyObserver) observers.register("test", {beginReply:beginReplyObserver})
   registerModelStreamHooks({
     ctx, agentRegistry: { get: () => undefined },
     sessionStore: { get: id => headers[id] && { id, header: headers[id] }, flush() {} },
@@ -28,7 +31,7 @@ function install(log, headers, pluginSettlementProgress, beginReplyObserver, emi
     chatForSession: async () => undefined,
     chatHeaderForSession: async id => id === 'session-game' ? game : undefined,
     foregroundStrategies: { projectRequest: () => null, completeRequest() {} },
-    fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, beginReplyObserver, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
+    fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, openReplyObservers:observers.openReply, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
     sessionStateForSession: async () => null, updateChat: async () => {}, worldbookRecallLog: { requested: async () => {} }, runtimePrompt: () => '', storyRetention: async () => ({})
   })
   return async sessionId => {

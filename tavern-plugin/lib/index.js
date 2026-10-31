@@ -1,3 +1,4 @@
+import {createPresentationObservers} from './domain/presentation-observers.js'
 import { createStageHandlers } from './rpc/stage.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
@@ -226,7 +227,7 @@ import { createDisplayRuntimeStore, displayRuntimeReceipt } from './domain/displ
 import { createPresetLibrary } from './domain/preset-library.js'
 import { createForegroundOrchestrationStrategies } from './domain/foreground-orchestration-strategies.js'
 import { clearFailedTurnSurface, rollbackAvailability, reshadowRolledBackRounds, interruptedSurfaceTurns } from './domain/rollback-surface.js'
-import { roundBody, replyBody, streamTailClosed } from './domain/round-body.js'
+import { replyBody } from './domain/round-body.js'
 import { createDisplayRuntimeCapture } from './domain/display-runtime-capture.js'
 import { createStorySubmissionTool, foldStorySubmission, STORY_SUBMIT_TOOL_NAME } from './domain/story-tool-submission.js'
 import { readHistoryLayoutFile } from './domain/history-tool-call.js'
@@ -1011,11 +1012,11 @@ export async function apply(ctx) {
       return typeof value?.then === 'function' ? value.catch(skip) : value
     } catch (error) { return skip(error) }
   }
-  let observeStageChat = () => {} // director branch invalidation before publishing chat updates
+  const presentationObservers = createPresentationObservers({warn:({owner,phase,error}) => console.warn('dsh-tavern: presentation observer failed', owner, phase, error?.message || error)})
+  ctx.effect(() => () => presentationObservers.dispose())
   let conversationRegistry
-  async function syncChatSummary(chat, stageObservation) {
-    if (chat) containStage('mod 观察存档', () => modService?.observe(chat, stageObservation))
-    if (chat) containStage('舞台导演观察存档', () => observeStageChat(chat, stageObservation)) // rollback, regenerate and card changes revoke director work
+  async function syncChatSummary(chat, metadata) {
+    if (chat) presentationObservers.saved(chat, metadata)
     if (!conversationRegistry || chat === undefined) return
     try { await conversationRegistry.sync(chat) }
     catch (error) { console.warn('dsh-tavern: 会话摘要索引同步失败，将在下次启动修复:', str(error && error.message || error)) }
@@ -1029,15 +1030,7 @@ export async function apply(ctx) {
     publish: sessionId => coordinationEvents?.publish(sessionId),
     syncTemplates: scheduleTemplateSync,
     queueCompaction: queueAutoCompaction,
-    observePatch: (saved, changes) => containStage('舞台导演观察正文改动', async () => {
-      // Metadata-only patches must not erase the director's story projection.
-      const sourceChanged = changes.some(change => change.path?.length === 0 || change.path?.[0] === 'messages'
-        && (change.path.length < 3 || ['role', 'turn', 'greeting', 'text', 'sourceText', 'swipes', 'swipeId'].includes(change.path[2])))
-      if (sourceChanged) {
-        const projection = await chatPersistence.readSceneImageState(saved.id)
-        if (projection) observeStageChat({ ...saved, messages: projection.messages })
-      }
-    })
+    observePatch: presentationObservers.patched
   })
   // Header fields only: `mutate` gets and returns those fields; the difference is patched,
   // never the history. A concurrent write retries; storage without slices, a write outside
@@ -2472,10 +2465,12 @@ export async function apply(ctx) {
   // 舞台、导演与 mod（stage-module.js）。
   // Work other modules report as busy to the deployment gate (getDeploymentActivity).
   const deploymentWork = []
-  const stageModule = await createStageModule({ctx, dataRoot, containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
+  const stageModule = await createStageModule({ctx, dataRoot,
+    presentationObservers, chatHeaderForSession, dialogueBubbles, activeRoundBodies,
+    readReplyPrefix:(sessionId,turn) => assistantResultForTurn(sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session,turn)?.text || '',
+ containStage, cardsActive: () => assetCardsActive, llm, requestPerformance, sessionSignals, coordinationEvents, fileResources, cardPreparation, cardStorage, cardStage, cardPlugins, bumpCardProjectionRevision, syncCardName, readChat, readChatCard, readStageChat, stageReads, readRoundView, storyEvents, deploymentWork, backgroundTaskPolicies, chatForSession, chatPersistence, chatJournalStore, rawUpdateChat, updateChat, updateChatMessage, patchChat, storyTimeline, replyDisplayForChat, sessionActivity, assetRuntime, assetEngineSettings, engineJudge, modelSelection, resolveSlot, readTavernSettings, callModel, modelRequestLog, backgroundAgentRunner, tavernScriptHostAdapter, tavernScriptDispatch})
   modService = stageModule.modService
   const {managedModManagement, modConfigHost, stageDirector} = stageModule
-  observeStageChat = stageDirector.observe // own director tasks with plugin/chat lifetimes
   const mvuSettlement = createMvuSettlementModule({
     model: backgroundAgentRunner,
     runtime: tavernScriptHostAdapter,
@@ -3830,7 +3825,7 @@ export async function apply(ctx) {
         yield * sessionSignals.follow(signal, ids)
       } finally {
         stops.forEach(function (stop) { stop() })
-        containStage('mod 断开会话', () => modService?.disconnected(ids))
+        presentationObservers.disconnected(ids)
       }
     }
   }))
@@ -4048,27 +4043,7 @@ export async function apply(ctx) {
     str,
     updateChat,
     worldbookRecallLog,
-    beginReplyObserver:async (sessionId,turn,signal) => {
-      if (!Number.isSafeInteger(turn)) return null
-      // The streaming round body (getRoundBody) is the stage's alone: a card without one reads no stage view and
-      // re-splits no reply on every delta. Admission runs independently of the first token.
-      const header = await chatHeaderForSession(sessionId, ['cardPath'])
-      const config = header?.cardPath ? await dialogueBubbles.read(header.cardPath) : null
-      if (signal?.aborted || !config?.enabled) return null
-      const chat = await readStageChat(sessionId)
-      if (signal?.aborted || !chat) return null
-      const director = config?.enabled && config.stage?.director === true ? await stageDirector.beginStream(chat,turn) : null
-      if (signal?.aborted) { await director?.cancel(); return null }
-      const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
-      const prefix = assistantResultForTurn(session,turn)?.text || ''
-      const active = {turn, branchId:chat.timeline?.branchId, body:roundBody([{kind:'markdown',text:prefix}], {chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})}
-      activeRoundBodies.set(sessionId,active)
-      return {update(text) {
-        const full = [prefix,text].filter(Boolean).join('\n\n')
-        active.body = roundBody([{kind:'markdown',text:full}],{chatId:chat.id,branchId:chat.timeline?.branchId,turn,streaming:true})
-        return director?.update(active.body.displayUnits,streamTailClosed(full,active.body.displayUnits))
-      }, cancel() {if (activeRoundBodies.get(sessionId) === active) activeRoundBodies.delete(sessionId);return director?.cancel()}}
-    },
+    openReplyObservers: presentationObservers.openReply,
     storyRetention,
   })
   registerTurnLifecycleHooks({
