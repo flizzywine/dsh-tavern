@@ -39942,7 +39942,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     React.createElement(TavernDefaultModelSetting, { label: "默认后台模型", title: "后台模型", description: "变量结算、世界书筛选、候选回复、手机消息等幕后任务", fallback: "跟随前台", selection: state.defaultBackgroundModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultBackgroundModel", selection) }),
                     React.createElement(TavernDefaultModelSetting, { label: "卡片工作台默认模型", title: "工作台模型", description: "卡片工作台里创建和修改人物卡", fallback: "跟随前台", selection: state.defaultWorkbenchModel, catalog: state.modelCatalog, disabled: state.loading || state.busy, onChange: selection => saveDefault("defaultWorkbenchModel", selection) }),
                     null),
-                        h(TavernModelSlotGroups,{slots:state.modModelSlots,values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
+                        h(TavernModelSlotGroups,{slots:state.modModelSlots.filter(slot=>slot.modId !== 'dsh.stage'),values:state.settings?.modModels,catalog:state.modelCatalog,scoringCatalog:state.scoringCatalog,disabled:state.loading || state.busy,onChange:saveSlot})),
                     group("开局默认", "开局时继承，开局后可在本局设置中单独修改。",
                         state.settings ? h(GlobalPlayDefaults, { settings: state.settings }) : null,
                         h(TavernConversationWritingSkills, { globalDefaults: true })),
@@ -39976,10 +39976,35 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
                         h(TavernUserPluginsSettings, {builtinEntry:h(StageSwitchSettings, {listEntry:true})})));
             }
+            function StageModelSettings() {
+                const h = React.createElement;
+                const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
+                React.useEffect(() => {
+                    let active = true;
+                    const refresh = () => rpc('getTavernSettings').then(result => {
+                        if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.modId === 'dsh.stage'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
+                    }, error => { if (active) setState(current=>({...current, loading:false, error:String(error.message || error)})); });
+                    refresh();
+                    window.addEventListener('dsh-tavern-mods-changed', refresh);
+                    return () => { active = false; window.removeEventListener('dsh-tavern-mods-changed', refresh); };
+                }, []);
+                async function save(modModelSelection) {
+                    setState(current=>({...current,busy:true,error:""}));
+                    try {
+                        const result = await rpc('updateTavernSettings', {patch:{modModelSelection}});
+                        notifySettingsChanged();
+                        setState(current=>({...current,busy:false,settings:result.settings}));
+                    } catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
+                }
+                return h(React.Fragment, null,
+                    state.error ? h('p', {role:'alert'}, state.error) : null,
+                    h(TavernModelSlotGroups, {slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
+            }
             function TavernStageSettingsSection() {
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
                     h(SettingsGroup, {title:"舞台插件"}, h(StageSwitchSettings)),
+                    h(StageModelSettings),
                     h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
                     h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
                     h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));

@@ -1,7 +1,5 @@
-// Core components use the same declaration protocol as installed mods.
-export const CORE_MODEL_MANIFESTS = [{ id: 'dsh.scene-image', name: '场景图片', modelSlots: [
-  { id: 'prompt', label: '画面提示词', purpose: '为场景图片整理画面与提示词', fallback: 'foreground' },
-] }]
+// Built-in model slots are registered by their owning plugins.
+export const CORE_MODEL_MANIFESTS = []
 
 // Model choices are configuration, never capability or prompt-cache switches.
 export function modelSlotRows(manifests, enabledIds) {

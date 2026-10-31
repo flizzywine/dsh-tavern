@@ -7,6 +7,7 @@ test('core model catalog works without stage and optional slots follow their own
   const registry=createModelSlotRegistry()
   registry.register('core',{rows:()=>modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))})
   assert.equal((await registry.rows()).some(row=>row.modId==='dsh.stage'),false)
+  assert.equal((await registry.rows()).some(row=>row.modId==='dsh.scene-image'),false)
   assert.equal(registry.scoring(),null)
   const off=registry.register('stage',{rows:()=>[{modId:'dsh.stage',id:'director',fallback:'foreground'}],scoring:()=>({provider:'p',model:'m'})})
   const slot=(await registry.rows()).find(row=>row.modId==='dsh.stage')
