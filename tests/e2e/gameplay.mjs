@@ -1,3 +1,4 @@
+import {setupStageMedia} from './stage-media-fault.mjs'
 import { setupRealGameplay, realGameplayChecks } from './real-gameplay.mjs'
 import { refactorLifecycleChecks } from './refactor-lifecycle.mjs'
 import { installV3SaveFixture } from './session-upgrade-fixture.mjs'
@@ -54,6 +55,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageMediaFault = process.argv.includes('--stage-media-fault')
 const stageUserSwitch = process.argv.includes('--stage-user-switch')
 const stageRpcFault = process.argv.includes('--stage-rpc-fault')
 const stageSwitchOnly = process.argv.includes('--stage-session-switch')
@@ -63,7 +65,7 @@ const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('-
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -167,6 +169,7 @@ try {
       await mkdir(data,{recursive:true})
       await writeFile(join(data,'tavern-extension-settings.json'),JSON.stringify({EjsTemplate:{enabled:true,render_enabled:true,raw_message_evaluation_enabled:false,preload_worldinfo_enabled:false,code_blocks_enabled:true}}))
     }
+    if(stageMediaFault)report.stageMedia=await setupStageMedia(root)
     await access(cli).catch(() => { throw Error('找不到 DSH runtime；先安装酒馆，或设置 TAVERN_E2E_RUNTIME。') })
     report.runtimeVersion = JSON.parse(await readFile(join(modules, '@deepseek-ai/dsh/package.json'), 'utf8')).version
     await mkdir(join(profile, 'node_modules'), { recursive: true })
@@ -557,14 +560,14 @@ try {
   }
   // 对话气泡 / 舞台模式 are the card's own (stage.dialogue / stage.stage): turn them on for the fixture card the way
   // 舞台设置 › 基础设置 does.
-  const setCardStage = async stage => page.evaluate(async stage => {
+  const setCardStage = async stage => page.evaluate(async ({stage,packId}) => {
     const rpc = async (method, args) => (await fetch('/api/dsh-tavern/' + method, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args) })).json()
     const card = await rpc('getCardAssetBindings', { path: 'cards/e2e.json' })
     const extension = card.extension || { assetBindings: { boundPackIds: [] } }
     const saved = await rpc('saveCardAssetBindings', { path: 'cards/e2e.json', expectedRevision: card.revision,
-      patch: { assetBindings: extension.assetBindings, stage: { ...(extension.stage || {}), ...stage } } })
+      patch: { assetBindings: packId ? {...extension.assetBindings,boundPackIds:[packId]} : extension.assetBindings, stage: { ...(extension.stage || {}), ...stage } } })
     if (saved.ok === false) throw new Error(saved.error)
-  }, stage)
+  }, {stage,packId:report.stageMedia?.packId})
   if (storyToolScenario) await step('开启输入与输出走工具调用', async () => {
     const chatUrl = page.url()
     await setTavernSettings({ storyInputToolCall: true, storyOutputToolCall: true })
@@ -595,7 +598,8 @@ try {
       } else {
       await page.getByRole('button', { name: '舞台', exact: true }).click()
       await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
-      await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
+      if(stageMediaFault)await page.waitForFunction(()=>{const text=document.querySelector('[aria-label="舞台文本"]')?.textContent||'';return text.includes('店主笑着迎上来。')||text.includes('店主笑着说：“欢迎回来，这是你的奖励。”')})
+      else await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       if(stageRpcFault) {
         report.stageReadyBeforeRpcFault=true
@@ -605,6 +609,26 @@ try {
         })
         for(let attempt=0;attempt<100 && !report.directionFailures;attempt++)await page.waitForTimeout(100)
         assert.ok(report.directionFailures,'必须在舞台正常显示后实际触发演出 RPC 失败')
+      }
+      if(stageMediaFault) {
+        await page.keyboard.press('Escape')
+        await page.getByRole('button',{name:/^背景(?:：.*)?$/}).filter({visible:true}).last().click()
+        await page.getByRole('button',{name:'正常背景',exact:true}).click()
+        await page.waitForFunction(()=>window.forkGalDebug?.stats().layers.some(layer=>!!layer.url))
+        const healthyBackgroundUrl=await page.evaluate(()=>window.forkGalDebug.stats().layers.find(layer=>layer.url).url)
+        report.healthyBackgroundShown=true
+        await page.screenshot({path:join(output,'stage-healthy-background.png'),fullPage:true})
+        await page.route('**/api/dsh-asset-library/v2/lease/*/media',route=>{
+          report.mediaFailures=(report.mediaFailures||0)+1
+          return route.fulfill({status:404,contentType:'text/plain',body:'E2E missing stage image'})
+        })
+        await page.getByRole('button',{name:'故障背景',exact:true}).click()
+        for(let attempt=0;attempt<100&&!report.mediaFailures;attempt++)await page.waitForTimeout(100)
+        assert.ok(report.mediaFailures,'必须实际触发绑定素材的文件加载失败')
+        await page.getByRole('alert').filter({hasText:'载入失败'}).waitFor()
+        assert.ok(await page.evaluate(url=>window.forkGalDebug.stats().layers.some(layer=>layer.url===url),healthyBackgroundUrl),'新背景失败后必须保留上一张已显示的背景')
+        report.failedBackgroundReported=true
+        await page.keyboard.press('Escape')
       }
       await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
       if(stageLifecycle) for(let cycle=0;cycle<2;cycle++) {
@@ -721,7 +745,7 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
+      if(stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
         if(stageUserSwitch) {
           await page.getByRole('button',{name:'设置',exact:true}).click()
           await page.getByText('Settings',{exact:true}).click()
@@ -731,10 +755,21 @@ try {
           await restartServer()
         }
         await page.unroute('**/plugins/**')
+        if(stageMediaFault)await page.unroute('**/api/dsh-asset-library/v2/lease/*/media')
         if(stageRpcFault)await page.unroute('**/api/dsh-tavern/getStageDirection')
         await page.reload({waitUntil:'domcontentloaded'})
         await page.getByRole('button',{name:'舞台',exact:true}).click()
         await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
+        if(stageMediaFault){
+          await page.waitForFunction(()=>window.forkGalDebug?.stats().layers.some(layer=>!!layer.url))
+          await page.keyboard.press('Escape')
+          await page.getByRole('button',{name:/^背景(?:：.*)?$/}).filter({visible:true}).last().click()
+          assert.equal(await page.getByRole('button',{name:'故障背景',exact:true}).getAttribute('aria-current'),'true')
+          assert.equal(await page.getByRole('alert').filter({hasText:'载入失败'}).count(),0)
+          await page.screenshot({path:join(output,'stage-background-recovered.png'),fullPage:true})
+          await page.keyboard.press('Escape')
+          report.backgroundRecovered=true
+        }
         await page.keyboard.press('Escape')
         await page.getByRole('button',{name:/返回主页面/}).filter({visible:true}).last().click()
         await composer.waitFor({state:'visible'})

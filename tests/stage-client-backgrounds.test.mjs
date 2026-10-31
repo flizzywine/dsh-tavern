@@ -36,3 +36,12 @@ test('same-picture cut restarts its transition and grade is stepped on the commo
  const copy=f.scene.layers;copy.length=0;assert.equal(f.scene.layers.length,2)
  f.owner.dispose()
 })
+test('manual background remains available before the director supplies a scene',()=>{
+ const {bgManualScene}=require('../tavern-plugin/src/client/bg-manual.cjs')
+ const shown={ref:{packId:'fixture',kind:'backgrounds',id:'room'},name:'Room',url:'blob:room',identity:'room'}
+ const scene=bgManualScene(null,shown,null,false)
+ assert.equal(scene.backgroundUrl,'blob:room')
+ assert.deepEqual(scene.backgroundMedia,{identity:'room',url:'blob:room'})
+ assert.equal(scene.manual,true)
+ assert.equal(bgManualScene(null,null,'previous',false),null)
+})

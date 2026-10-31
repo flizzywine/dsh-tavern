@@ -12,10 +12,9 @@ const {bgmStep:bgStep, bgmSearch:bgSearch, bgmKey:bgKey} = typeof bgmStep === 'f
 // mood and grade stay the director's. Never written back. A picture the player switched to (a pick, or the director's
 // when 导演布景 went back on: userIdentity) carries userTransition: a cross-fade, a cut under 「减少动态」 (calm).
 function bgManualScene(scene, shown, userIdentity, calm) {
-    if (!scene) return scene;
     const userTransition = calm ? 'cut' : 'fade';
-    if (!shown) return userIdentity && scene.backgroundMedia?.identity === userIdentity ? {...scene, userTransition} : scene;
-    const {stageTheme, ...rest} = scene;
+    if (!shown) return userIdentity && scene?.backgroundMedia?.identity === userIdentity ? {...scene, userTransition} : scene;
+    const {stageTheme, ...rest} = scene || {};
     return {...rest, background:shown.ref, backgroundName:shown.name, backgroundUrl:shown.url, backgroundMedia:{identity:shown.identity, url:shown.url},
         compensateBackground:shown.compensate === true, timeMatched:shown.timeMatched === true, ...(shown.stageTheme ? {stageTheme:shown.stageTheme} : {}), manual:true, userTransition};
 }
