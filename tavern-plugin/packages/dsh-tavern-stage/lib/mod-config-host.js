@@ -13,7 +13,7 @@ import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
 import {figureCatalogue,effectiveFigurePackIds,resolution} from '../../../lib/domain/figure-catalogue.js'
 import {selectFigureAvatar} from '../../../lib/domain/pack-avatar.cjs'
 import {stateSourceSchema,ledgerSource,ledgerConfigExports,resolveStateSource,ledgerInventoryBinding} from '../../../lib/domain/mods/state-source.js'
-import {ASSET_PACK_RECORD_FIELD,readAssetPackRecord} from '../../../lib/domain/stage-asset-pack-director.js'
+import {ASSET_PACK_RECORD_FIELD,readAssetPackRecord} from './domain/stage-asset-pack-director.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 
 export function createModConfigStageReader({readChat,readRevision}) {

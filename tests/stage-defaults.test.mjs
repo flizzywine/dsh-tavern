@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { cardExtension } from './fixtures/asset-packs/pack.mjs'
 import { effectiveCardStage } from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import { defaultAssetEngineSettings, validateAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
-import { cardBubbleConfig } from '../tavern-plugin/lib/card-stage.js'
+import { cardBubbleConfig } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 
 test('对话气泡 and 舞台模式 are the card\'s: an ordinary card has no stage, a declaring card does; stage cores stay on', () => {
   const ext = cardExtension()

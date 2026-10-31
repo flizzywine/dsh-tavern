@@ -1,4 +1,4 @@
-import {createCardStage, watchFigureBubbleBooks} from '../../../lib/card-stage.js'
+import {createCardStage, watchFigureBubbleBooks} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
 import {createStageRequests} from './requests.js'

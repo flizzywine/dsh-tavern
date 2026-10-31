@@ -1,4 +1,4 @@
-import {recallAssetPacks} from './domain/stage-asset-pack-catalogue.js'
+import {recallAssetPacks} from '../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-catalogue.js'
 import {readCardAssetExtension} from './domain/card-asset-bindings.js'
 import {modAssetCatalogue} from './domain/mods/catalogue.js'
 import {isDeepStrictEqual as equal} from 'node:util'

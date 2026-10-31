@@ -1,8 +1,8 @@
 // judge candidates use the same eligibility/trigger decisions as the catalogue.
-import {assetRefKey} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {figureRefKey} from './figure-catalogue.js'
-import {normalizeCatalogueText,triggerEvidence} from './asset-pack-lexical.js'
-import {judgeItemText} from './judge-item-text.js'
+import {assetRefKey} from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import {figureRefKey} from '../../../../lib/domain/figure-catalogue.js'
+import {normalizeCatalogueText,triggerEvidence} from '../../../../lib/domain/asset-pack-lexical.js'
+import {judgeItemText} from '../../../../lib/domain/judge-item-text.js'
 const names = {backgrounds:'background',music:'music',sfx:'sound effect',ambience:'ambience',cg:'CG',looks:'lighting',outfits:'outfit',figures:'character',performances:'performance',widgets:'widget'}
 export const outfitJudgeId = (actor,key) => JSON.stringify(['outfit',actor,key])
 export const figureJudgeId = ref => 'figure:' + figureRefKey(ref)

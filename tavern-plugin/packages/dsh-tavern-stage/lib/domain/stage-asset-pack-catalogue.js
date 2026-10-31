@@ -1,16 +1,16 @@
 // opt-in pack recall; legacy catalogue policy is deliberately not consulted.
-import {listEffectiveAssets} from './effective-assets.js'
+import {listEffectiveAssets} from '../../../../lib/domain/effective-assets.js'
 import {filterGenericSfx} from './stage-sfx-categories.js'
-import {assetContent} from '../../packages/dsh-presentation-protocol/src/asset-variant-content.js'
+import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 import {outfitJudgeId} from './stage-judge-recall.js'
-import { ASSET_KINDS, assetEntryEnabled, assetRefKey, validateAssetRef, validateUuid } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { ASSET_KINDS, assetEntryEnabled, assetRefKey, validateAssetRef, validateUuid } from '../../../dsh-presentation-protocol/src/asset-packs.js'
 import { createHash } from 'node:crypto'
-import { check, canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-import { triggerEvidence, normalizeCatalogueText, codepointCompare, deepFreeze } from './asset-pack-lexical.js'
-import widgetContract from '../../src/client/widget-contracts.cjs'
-import { isItemWidget } from './item-widget.js'
-import { activeWidgetKeys, widgetIsActive } from './widget-availability.js'
-import performanceContract from '../../packages/dsh-presentation-protocol/src/performance-contract.cjs'
+import { check, canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import { triggerEvidence, normalizeCatalogueText, codepointCompare, deepFreeze } from '../../../../lib/domain/asset-pack-lexical.js'
+import widgetContract from '../../../../src/client/widget-contracts.cjs'
+import { isItemWidget } from '../../../../lib/domain/item-widget.js'
+import { activeWidgetKeys, widgetIsActive } from '../../../../lib/domain/widget-availability.js'
+import performanceContract from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
 
 export const assetPackDigest = (value, options) => createHash('sha256').update(canonicalJson(value, options)).digest('hex')
 const jsonHash = assetPackDigest

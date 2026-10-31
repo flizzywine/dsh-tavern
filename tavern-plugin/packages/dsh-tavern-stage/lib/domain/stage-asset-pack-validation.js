@@ -1,10 +1,10 @@
 // a correction window is durable but unpublished until its anchors are sealed.
-import { assertJson, check, canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import { assertJson, check, canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 import { recordedAssetPackOperation, validateAssetPackToolValue, reduceAssetPackOperation, deriveAssetPackFigureScale, assetPackCommandDefinition } from './stage-asset-pack-tools.js'
 import { paceAssetPackOperation } from './stage-asset-pack-pacing.js'
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
-import resolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
-import {assetContent} from '../../packages/dsh-presentation-protocol/src/asset-variant-content.js'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
+import resolution from '../../../dsh-presentation-protocol/src/figure-resolution.cjs'
+import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
 // deep equality compares canonical JSON directly; hashing both sides first adds nothing.
 const same = (a, b) => canonicalJson(a) === canonicalJson(b)
 

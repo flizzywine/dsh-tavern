@@ -1,6 +1,6 @@
 // pacing compares complete refs; time-only changes never spend mood quota.
-import { assetRefKey } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import { check } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import { assetRefKey } from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import { check } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 const same = (a, b) => (a ? assetRefKey(a) : null) === (b ? assetRefKey(b) : null)
 export function initialAssetPackPacing(state) {
   return { paragraph: 0, moodSetAt: state.lighting.mood ? 0 : null, musicSetAt: null,

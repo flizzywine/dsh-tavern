@@ -1,5 +1,5 @@
 import { selectStateImage, STATE_IMAGE_FIELDS } from './state-image-selection.js'
-import { initialAssetPackStage, deriveAssetPackFigureScale } from './stage-asset-pack-tools.js'
+import { initialAssetPackStage, deriveAssetPackFigureScale } from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-tools.js'
 import { parseBubbles } from '../../src/client/bubble-line.cjs'
 import identity from '../../packages/dsh-asset-library/lib/shared/emotion-identity.cjs'
 import resolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'

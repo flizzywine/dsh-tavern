@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto'
-import {foldAssetPackEntries} from '../../lib/domain/stage-asset-pack-director.js'
+import {foldAssetPackEntries} from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
 import {stageReadScope,markStageRead} from '../../lib/domain/stage-read-projection.js'
 import {timerTimeupFact} from './state.cjs'
 import {timerClockSample,timerClockRemaining,timerClockFrozen} from './clock.cjs'

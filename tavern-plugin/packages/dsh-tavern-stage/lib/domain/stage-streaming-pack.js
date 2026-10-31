@@ -1,15 +1,15 @@
-import { promptSection } from './prompt-section.js'
+import { promptSection } from '../../../../lib/domain/prompt-section.js'
 // streaming windows use the production registry/transaction, not a second validator.
 import {prepareAssetPackDirector, buildAssetPackRequest, createAssetPackTransaction, readAssetPackRecord, PROMPT_PROSE as DIRECTOR_PROSE} from './stage-asset-pack-director.js'
 import {expireAssetPackWidgets, stampAssetPackMusicRequests} from './stage-asset-pack-tools.js'
 import {assetPackDigest} from './stage-asset-pack-catalogue.js'
-import {stagePageIndex} from '../../src/client/stage-page-index.cjs'
+import {stagePageIndex} from '../../../../src/client/stage-page-index.cjs'
 import {cleanDirectorUnits} from './stage-director-text.js'
-import {estimateDirectorTokens} from './stage-director-tokens.js'
+import {estimateDirectorTokens} from '../../../../lib/domain/stage-director-tokens.js'
 import {initialAssetPackPacing} from './stage-asset-pack-pacing.js'
 import {createStreamingDirector} from './stage-streaming-director.js'
-import {hasStateImagePools} from './state-image-admission.js'
-import {canonicalJson} from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import {hasStateImagePools} from '../../../../lib/domain/state-image-admission.js'
+import {canonicalJson} from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 
 const FIRST_WINDOW = 5
 

@@ -1,8 +1,8 @@
 // disposable read-only index; journal revisions, never record claims, authorize reuse.
 import { createHash } from 'node:crypto'
-import { captureStageTarget, stageTargetPrefixBytes } from './stage-incremental.js'
+import { captureStageTarget, stageTargetPrefixBytes } from '../../../../lib/domain/stage-incremental.js'
 import { readAssetPackRecord, ASSET_PACK_RECORD_FIELD } from './stage-asset-pack-director.js'
-import { stageReadIdentityOnly } from './stage-read-projection.js'
+import { stageReadIdentityOnly } from '../../../../lib/domain/stage-read-projection.js'
 
 // The performance fold resets at a record that starts without a performance or with one exiting
 //: the chain a page needs starts at the last such record.

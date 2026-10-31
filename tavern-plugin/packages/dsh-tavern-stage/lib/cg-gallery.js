@@ -3,8 +3,8 @@ import {randomBytes} from 'node:crypto'
 import {CARD_ID} from '../../../lib/card-storage.js'
 import {assetRefKey,validateAssetRef} from '../../dsh-presentation-protocol/src/asset-packs.js'
 import {assetContent} from '../../dsh-presentation-protocol/src/asset-variant-content.js'
-import {assetPackDigest as digest} from '../../../lib/domain/stage-asset-pack-catalogue.js'
-import {verifyCgPlayedReceipt} from '../../../lib/domain/cg-played-receipt.js'
+import {assetPackDigest as digest} from './domain/stage-asset-pack-catalogue.js'
+import {verifyCgPlayedReceipt} from './domain/cg-played-receipt.js'
 const conflict = () => {throw Object.assign(new Error('CG gallery changed; reload'),{code:'REVISION_CONFLICT'})}
 const file = id => {
   if (!CARD_ID.test(id || '')) throw new Error('Invalid card identity')

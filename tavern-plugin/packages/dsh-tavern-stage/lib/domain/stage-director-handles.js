@@ -1,14 +1,14 @@
 // Stable display identities, admitted through a request-local table. Records remain canonical.
 import {createHash} from 'node:crypto'
-import {assetRefKey} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {check} from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
-import {codepointCompare} from './asset-pack-lexical.js'
-import {parseModDsl} from './mods/dsl.js'
-import {assertModCommandAdmission} from './mods/commands.js'
-import {modStageContribution} from './mods/stage-contributions.js'
+import {assetRefKey} from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import {check} from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
+import {codepointCompare} from '../../../../lib/domain/asset-pack-lexical.js'
+import {parseModDsl} from '../../../../lib/domain/mods/dsl.js'
+import {assertModCommandAdmission} from '../../../../lib/domain/mods/commands.js'
+import {modStageContribution} from '../../../../lib/domain/mods/stage-contributions.js'
 import {frozenDirectorTool} from './stage-director-schema.js'
-import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
+import figureResolution from '../../../dsh-presentation-protocol/src/figure-resolution.cjs'
 
 const coreItemDsl={op:'item.play',paramsStyle:'flat',dsl:{verb:'item',positional:'action'},params:{properties:{action:{enum:['show','gain','lose']}}}};
 const prefixes = {props:'item',backgrounds:'bg',music:'m',sfx:'sfx',ambience:'amb',looks:'l',widgets:'w',performances:'p',cg:'cg'}

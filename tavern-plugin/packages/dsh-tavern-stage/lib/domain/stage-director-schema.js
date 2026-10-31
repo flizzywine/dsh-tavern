@@ -1,5 +1,5 @@
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
-import {codepointCompare} from './asset-pack-lexical.js'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
+import {codepointCompare} from '../../../../lib/domain/asset-pack-lexical.js'
 
 // Managed grammar describes installed capabilities; core performance is present only with recalled assets.
 export function directorSchemaContext(context) {

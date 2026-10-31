@@ -1,14 +1,14 @@
-import { defaultAssetEngineSettings } from './domain/asset-engine-settings.js'
+import { defaultAssetEngineSettings } from '../../../lib/domain/asset-engine-settings.js'
 import { syncPreparedCardBubbles } from './card-stage.js'
-import { rawData } from './domain/card-preparation.js'
-import { readCardAssetExtension,cardAssetRawOperations } from './domain/card-asset-bindings.js'
-import { validateVariableSlots } from './domain/card-variable-bindings.js'
-import { validateModCardBindings } from './domain/mods/card-bindings.js'
-import { cardAssetWorkspaceRevision } from './card-asset-bindings.js'
-import { check, cloneJson } from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import { rawData } from '../../../lib/domain/card-preparation.js'
+import { readCardAssetExtension,cardAssetRawOperations } from '../../../lib/domain/card-asset-bindings.js'
+import { validateVariableSlots } from '../../../lib/domain/card-variable-bindings.js'
+import { validateModCardBindings } from '../../../lib/domain/mods/card-bindings.js'
+import { cardAssetWorkspaceRevision } from '../../../lib/card-asset-bindings.js'
+import { check, cloneJson } from '../../dsh-presentation-protocol/src/asset-pack-json.js'
 
-import {withoutPlayerChoices} from './domain/card-export-settings.js'
-export {withoutPlayerChoices} from './domain/card-export-settings.js'
+import {withoutPlayerChoices} from '../../../lib/domain/card-export-settings.js'
+export {withoutPlayerChoices} from '../../../lib/domain/card-export-settings.js'
 
 // Binding-only commits must not reopen every linked chat to synchronize an unchanged name.
 export function createCardBundleWriter({readWorkspace,cardPreparation,publish,bumpCardProjectionRevision,syncCardName}) {

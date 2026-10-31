@@ -1,5 +1,5 @@
 // selected candidates grant operations, but only accepted operations create roster state.
-import {figureJudgeId} from './stage-judge-recall.js'
+import {figureJudgeId} from '../../packages/dsh-tavern-stage/lib/domain/stage-judge-recall.js'
 import {normalizeCatalogueText, triggerEvidence} from './asset-pack-lexical.js'
 import {figureRefKey, resolution} from './figure-catalogue.js'
 export function recallFigures({rows, units = [], roster = {}, judgeRecall}) {

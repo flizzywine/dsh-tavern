@@ -1,7 +1,7 @@
 // operation-local protocol kernel. The existing director owner supplies
 // validated window results; this module neither authorizes sources nor writes Chat.
 import { assetPackDigest } from './stage-asset-pack-catalogue.js'
-import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import { canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
 
 const clone = value => structuredClone(value)
 // deep equality compares canonical JSON directly; hashing both sides first adds nothing.

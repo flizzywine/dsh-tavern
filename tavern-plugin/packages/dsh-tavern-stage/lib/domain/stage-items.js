@@ -1,10 +1,10 @@
 // item facts are pinned in the director binding and published only by commit seams.
-import {analyzeVariableSchema,resolveSlot} from './variable-bindings/index.js'
-import {itemVariableProvider} from './item-variable-provider.js'
-import {projectItems} from './item-binding.js'
-import {selectCoreItem} from './item-catalogue.js'
-import {reconcileItems} from './item-settlement.js'
-import {verifiedWidgetSnapshot} from './widget-variable-transaction.js'
+import {analyzeVariableSchema,resolveSlot} from '../../../../lib/domain/variable-bindings/index.js'
+import {itemVariableProvider} from '../../../../lib/domain/item-variable-provider.js'
+import {projectItems} from '../../../../lib/domain/item-binding.js'
+import {selectCoreItem} from '../../../../lib/domain/item-catalogue.js'
+import {reconcileItems} from '../../../../lib/domain/item-settlement.js'
+import {verifiedWidgetSnapshot} from '../../../../lib/domain/widget-variable-transaction.js'
 
 const extension = raw => (raw?.data || raw)?.extensions?.dsh_tavern
 export function prepareStageItems(raw,chat,index = chat.messages.length) {

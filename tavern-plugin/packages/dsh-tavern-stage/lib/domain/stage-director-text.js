@@ -1,5 +1,5 @@
-import { parseBubbles, stripBubbleCodeQuote } from '../../src/client/bubble-line.cjs'
-import { projectDisplayParts } from './reply-presentation.js'
+import { parseBubbles, stripBubbleCodeQuote } from '../../../../src/client/bubble-line.cjs'
+import { projectDisplayParts } from '../../../../lib/domain/reply-presentation.js'
 
 // Clean after numbering: even an empty result must retain its original paragraph slot.
 export function cleanDirectorText(value) {

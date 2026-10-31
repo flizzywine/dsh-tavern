@@ -1,4 +1,4 @@
-import { createAssetPackPresentation } from '../../../lib/domain/asset-pack-presentation.js'
+import { createAssetPackPresentation } from './domain/asset-pack-presentation.js'
 import { createAssetPackSpeech } from '../../../lib/domain/asset-pack-speech.js'
 import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
 import { cardAssetWorkspaceRevision, hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'

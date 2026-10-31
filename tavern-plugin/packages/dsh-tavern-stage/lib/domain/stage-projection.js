@@ -2,8 +2,8 @@ import directorCommands from '../../../dsh-presentation-protocol/src/director-co
 import {resolution} from '../../../../lib/domain/figure-catalogue.js'
 import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js'
 import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
-import { stageAssetRefs } from '../../../../lib/domain/stage-asset-pack-catalogue.js'
-import { foldAssetPackEntries } from '../../../../lib/domain/stage-asset-pack-director.js'
+import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
+import { foldAssetPackEntries } from './stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
 import { createStagePlayback, validateStagePlayback, stagePlaybackKey, stagePlaybackIdentity, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter, STAGE_PLAYBACK_VERSION } from './stage-playback.js'
 

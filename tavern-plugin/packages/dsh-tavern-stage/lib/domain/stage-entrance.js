@@ -3,7 +3,7 @@
 // pack's manifest order; the first entry that is on (蓝灯 - an entrance has no 绿灯). A global pack never plays it for every
 // card. The global switch (舞台设置 › 基础设置「入场演出」, engine stageToggles.entrance) off, or no such entry: null - the stage
 // keeps the skin loader or the engine's own veil. Never part of a prompt or the director catalogue.
-import { cardContentPackIds } from './card-stage-settings.js'
+import { cardContentPackIds } from '../../../../lib/domain/card-stage-settings.js'
 import { projectStageVideo } from './stage-video.js'
 
 export function selectStageEntrance(extension, packSnapshots, engine) {

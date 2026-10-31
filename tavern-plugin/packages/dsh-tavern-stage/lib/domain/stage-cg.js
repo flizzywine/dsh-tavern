@@ -1,8 +1,8 @@
 // CG semantics share the stage snapshot and turn accounting, not a second store.
-import { assetRefKey, validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import { check, shape, text } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-import {assetContent} from '../../packages/dsh-presentation-protocol/src/asset-variant-content.js'
-import {selectAssetVariant,assetVariantCandidate,variantTarget} from '../../packages/dsh-presentation-protocol/src/asset-variants.js'
+import { assetRefKey, validateAssetRef } from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import { check, shape, text } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import {assetContent} from '../../../dsh-presentation-protocol/src/asset-variant-content.js'
+import {selectAssetVariant,assetVariantCandidate,variantTarget} from '../../../dsh-presentation-protocol/src/asset-variants.js'
 
 export function validateStageCg(cg, actors) {
   shape(cg, ['ref','variant','focus','resumeCast'], ['ref','variant','focus','resumeCast'], '$.cg')
