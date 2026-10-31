@@ -39635,7 +39635,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         }
 
         // 设置 → DSH Tavern → 插件：粘贴 GitHub 地址或上传 ZIP 安装，列出已装插件与加载情况。
-        function TavernUserPluginsSettings() {
+        function TavernUserPluginsSettings(props = {}) {
             const h = React.createElement;
             const [data, setData] = React.useState(null);
             const [legacy, setLegacy] = React.useState(null);
@@ -39759,13 +39759,13 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 h("p", { className: "dsh-tavern-settings-desc" }, "插件会运行在你的电脑上，只装信任的作者发布的插件。有 Release 时安装最新 Release，否则安装默认分支；连不上 GitHub 时，可以在仓库页面下载 ZIP 后上传。"),
                 notice ? h("p", { className: "dsh-tavern-user-plugins-notice", role: "status" }, notice) : null,
                 error ? h("p", { className: "dsh-tavern-settings-error", role: "alert" }, error) : null,
-                plugins.length ? h("div", { className: "dsh-tavern-user-plugins-head" },
+                plugins.length || props.builtinEntry ? h("div", { className: "dsh-tavern-user-plugins-head" },
                     h("span", { className: "dsh-tavern-user-plugins-head-title" }, "已装的插件"),
                     plugins.some(function (plugin) { return plugin.source.kind === "github"; })
                         ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || checking, onClick: function () { void checkUpdates(true); } }, checking ? "检查中…" : "检查更新")
                         : null) : null,
-                data && plugins.length === 0 ? h(EmptyState, { compact: true, noun: "插件" }) : null,
-                plugins.length ? h("ul", { className: "dsh-tavern-user-plugins-list" }, plugins.map(function (plugin) {
+                data && plugins.length === 0 && !props.builtinEntry ? h(EmptyState, { compact: true, noun: "插件" }) : null,
+                plugins.length || props.builtinEntry ? h("ul", { className: "dsh-tavern-user-plugins-list" }, props.builtinEntry, plugins.map(function (plugin) {
                     const canToggle = plugin.source.kind !== "card" || plugin.enabled === false;
                     return h("li", { key: plugin.folder, className: "dsh-tavern-user-plugin is-" + plugin.state },
                         h("div", { className: "dsh-tavern-user-plugin-copy" },
@@ -39803,7 +39803,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
             const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
-            function StageSwitchSettings() {
+            function StageSwitchSettings({ listEntry = false } = {}) {
                 const h=React.createElement;
                 const [state,setState]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
                 React.useEffect(()=>{let active=true;rpc("getStageRuntimeStatus").then(value=>{if(active)setState(value)},cause=>{if(active)setError(String(cause.message||cause))});return()=>{active=false}},[]);
@@ -39821,6 +39821,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                 }
                 const label=!state ? "读取中…" : state.enabled ? "停用舞台" : "启用舞台";
                 const note=error || (!state ? "" : !state.installed ? "未安装" : state.status==="ready" ? "已启用" : state.status==="failed" ? "启动失败，可停用后重试" : state.enabled ? "正在启动" : "已停用");
+                if (listEntry) return h("li", {className:"dsh-tavern-user-plugin is-" + (state?.status === "ready" ? "loaded" : state?.enabled === false ? "disabled" : "loading")},
+                    h("div", {className:"dsh-tavern-user-plugin-copy"},
+                        h("strong", null, "dsh-tavern-stage", h("span", {className:"dsh-tavern-user-plugin-state"}, note || "读取中…")),
+                        h("span", null, "舞台：对话演出、素材与舞台模组。详细配置见「舞台」设置。"),
+                        h("span", {className:"dsh-tavern-user-plugin-source"}, "内置插件 · 随酒馆更新")),
+                    h("div", {className:"dsh-tavern-user-plugin-actions"}, h("button", {type:"button",className:"dsh-tavern-btn",disabled:busy||!state||(!state.installed&&!state.enabled),onClick:change}, busy?"处理中…":label)));
                 return h(TavernSettingRow,{title:"舞台插件",help:"停用后返回普通聊天，并停止舞台资源。此选择会保留到下次启动；剧情和存档不受影响。",note,noteTone:error?"warn":undefined},
                     h("button",{type:"button",className:"dsh-tavern-btn",disabled:busy||!state||(!state.installed&&!state.enabled),onClick:change},busy?"处理中…":label));
             }
@@ -39960,12 +39966,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
             function TavernPluginsSettingsSection() {
                 const h = React.createElement;
                 return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-                    h(SettingsGroup, {title:"内置舞台插件"},
-                        h("p", null, "dsh-tavern-stage · 随酒馆安装。舞台的素材、运行库和模组配置位于「舞台」设置页。"),
-                        h(StageSwitchSettings)),
                     h(SettingsGroup, {title:"酒馆插件"},
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
-                        h(TavernUserPluginsSettings)));
+                        h(TavernUserPluginsSettings, {builtinEntry:h(StageSwitchSettings, {listEntry:true})})));
             }
             function TavernStageSettingsSection() {
                 const h = React.createElement;

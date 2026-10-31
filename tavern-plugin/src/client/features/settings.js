@@ -423,7 +423,7 @@
         }
 
         // 设置 → DSH Tavern → 插件：粘贴 GitHub 地址或上传 ZIP 安装，列出已装插件与加载情况。
-        function TavernUserPluginsSettings() {
+        function TavernUserPluginsSettings(props = {}) {
             const h = React.createElement;
             const [data, setData] = React.useState(null);
             const [legacy, setLegacy] = React.useState(null);
@@ -547,13 +547,13 @@
                 h("p", { className: "dsh-tavern-settings-desc" }, "插件会运行在你的电脑上，只装信任的作者发布的插件。有 Release 时安装最新 Release，否则安装默认分支；连不上 GitHub 时，可以在仓库页面下载 ZIP 后上传。"),
                 notice ? h("p", { className: "dsh-tavern-user-plugins-notice", role: "status" }, notice) : null,
                 error ? h("p", { className: "dsh-tavern-settings-error", role: "alert" }, error) : null,
-                plugins.length ? h("div", { className: "dsh-tavern-user-plugins-head" },
+                plugins.length || props.builtinEntry ? h("div", { className: "dsh-tavern-user-plugins-head" },
                     h("span", { className: "dsh-tavern-user-plugins-head-title" }, "已装的插件"),
                     plugins.some(function (plugin) { return plugin.source.kind === "github"; })
                         ? h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy || checking, onClick: function () { void checkUpdates(true); } }, checking ? "检查中…" : "检查更新")
                         : null) : null,
-                data && plugins.length === 0 ? h(EmptyState, { compact: true, noun: "插件" }) : null,
-                plugins.length ? h("ul", { className: "dsh-tavern-user-plugins-list" }, plugins.map(function (plugin) {
+                data && plugins.length === 0 && !props.builtinEntry ? h(EmptyState, { compact: true, noun: "插件" }) : null,
+                plugins.length || props.builtinEntry ? h("ul", { className: "dsh-tavern-user-plugins-list" }, props.builtinEntry, plugins.map(function (plugin) {
                     const canToggle = plugin.source.kind !== "card" || plugin.enabled === false;
                     return h("li", { key: plugin.folder, className: "dsh-tavern-user-plugin is-" + plugin.state },
                         h("div", { className: "dsh-tavern-user-plugin-copy" },

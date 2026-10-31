@@ -134,7 +134,8 @@ test('酒馆插件恢复为独立设置页，加载原有插件列表', async t 
     if (method === 'setStageEnabled') enabled = args.enabled
     if (method === 'getStageRuntimeStatus' || method === 'setStageEnabled') return {installed:true, enabled, status:enabled?'ready':'disabled'}
   }})
-  await page.getByRole('heading', {name:'内置舞台插件', exact:true}).waitFor()
+  await page.locator('.dsh-tavern-user-plugins-list .dsh-tavern-user-plugin').filter({hasText:'dsh-tavern-stage'}).waitFor()
+  assert.equal(await page.getByRole('heading', {name:'内置舞台插件', exact:true}).count(), 0)
   await page.getByRole('button', {name:'停用舞台', exact:true}).click()
   await page.getByRole('button', {name:'启用舞台', exact:true}).waitFor()
   assert.deepEqual(calls.find(c=>c.method==='setStageEnabled').args,{enabled:false})
