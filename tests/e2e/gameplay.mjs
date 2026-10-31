@@ -54,6 +54,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageUserSwitch = process.argv.includes('--stage-user-switch')
 const stageRpcFault = process.argv.includes('--stage-rpc-fault')
 const stageSwitchOnly = process.argv.includes('--stage-session-switch')
 const stageRenderFault = stageSwitchOnly || process.argv.includes('--stage-render-fault')
@@ -62,7 +63,7 @@ const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('-
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -690,6 +691,19 @@ try {
       }
       await page.locator('.fork-gal-stage').waitFor({ state: 'hidden' })
       }
+      if(stageUserSwitch) {
+        await page.getByRole('button',{name:'设置',exact:true}).click()
+        await page.getByText('Settings',{exact:true}).click()
+        await page.getByText('DSH Tavern',{exact:true}).click()
+        await page.getByRole('button',{name:'停用舞台',exact:true}).click()
+        await page.getByRole('button',{name:'启用舞台',exact:true}).waitFor()
+        await page.waitForFunction(()=>!document.querySelector('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount'))
+        await page.screenshot({path:join(output,'stage-disabled-settings.png'),fullPage:true})
+        report.userDisabledStage=true
+        await restartServer()
+        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
+        report.userDisableSurvivedRestart=true
+      }
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
       const priorReplies=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).length
       await composer.fill('领取任务奖励')
@@ -707,7 +721,15 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
+      if(stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
+        if(stageUserSwitch) {
+          await page.getByRole('button',{name:'设置',exact:true}).click()
+          await page.getByText('Settings',{exact:true}).click()
+          await page.getByText('DSH Tavern',{exact:true}).click()
+          await page.getByRole('button',{name:'启用舞台',exact:true}).click()
+          await page.getByRole('button',{name:'停用舞台',exact:true}).waitFor()
+          await restartServer()
+        }
         await page.unroute('**/plugins/**')
         if(stageRpcFault)await page.unroute('**/api/dsh-tavern/getStageDirection')
         await page.reload({waitUntil:'domcontentloaded'})

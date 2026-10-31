@@ -2,6 +2,27 @@
 function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, TavernSettingRow, InlineField, Switch, HelpTip }) {
     // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
     const help = (label, text) => HelpTip && text ? React.createElement(HelpTip, { label: label + "说明" }, text) : null;
+    function StageSwitchSettings() {
+        const h=React.createElement;
+        const [state,setState]=React.useState(null),[busy,setBusy]=React.useState(false),[error,setError]=React.useState("");
+        React.useEffect(()=>{let active=true;rpc("getStageRuntimeStatus").then(value=>{if(active)setState(value)},cause=>{if(active)setError(String(cause.message||cause))});return()=>{active=false}},[]);
+        React.useEffect(()=>{
+            if(!state || !["loading","loaded"].includes(state.status))return;
+            let active=true;
+            const timer=setTimeout(()=>rpc("getStageRuntimeStatus").then(value=>{if(active)setState(value)},cause=>{if(active)setError(String(cause.message||cause))}),500);
+            return()=>{active=false;clearTimeout(timer)};
+        },[state]);
+        async function change() {
+            setBusy(true);setError("");
+            try {setState(await rpc("setStageEnabled",{enabled:!state.enabled}))}
+            catch(cause){setError(String(cause.message||cause))}
+            finally{setBusy(false)}
+        }
+        const label=!state ? "读取中…" : state.enabled ? "停用舞台" : "启用舞台";
+        const note=error || (!state ? "" : !state.installed ? "未安装" : state.status==="ready" ? "已启用" : state.status==="failed" ? "启动失败，可停用后重试" : state.enabled ? "正在启动" : "已停用");
+        return h(TavernSettingRow,{title:"舞台插件",help:"停用后返回普通聊天，并停止舞台资源。此选择会保留到下次启动；剧情和存档不受影响。",note,noteTone:error?"warn":undefined},
+            h("button",{type:"button",className:"dsh-tavern-btn",disabled:busy||!state||(!state.installed&&!state.enabled),onClick:change},busy?"处理中…":label));
+    }
     function GlobalPlayDefaults({ settings }) {
         const h = React.createElement;
         const [data, setData] = React.useState(null), [busy, setBusy] = React.useState(false), [message, setMessage] = React.useState("");
@@ -119,7 +140,7 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                     renderSlot("settings.tavern.appearance", {}),
                     DebugSetting ? h(DebugSetting) : null,
                     h(CandidatePreferencesSettings))),
-            group("插件", "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件，仅支持 DSH 插件和 DSH Tavern 插件。", card(h(TavernUserPluginsSettings))),
+            group("插件", "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件，仅支持 DSH 插件和 DSH Tavern 插件。", card(h(StageSwitchSettings),h(TavernUserPluginsSettings))),
             // the optional runtimes, the same entries as the model previews: official page, then import.
             group("运行库", "", card(h("div", { className: "fork-runtime-list" }, SpineRuntimeEntry ? h(SpineRuntimeEntry, { request: rpc }) : null))),
             group("高级", "",

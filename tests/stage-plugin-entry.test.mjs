@@ -10,7 +10,7 @@ test('independent stage plugin follows real Cordis load, unload and reload',asyn
   const require=createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
   const {Context}=await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
   const ctx=new Context(),seen=[]
-  ctx.provide('tavernStageControl',{enable:async()=>seen.push('enable'),disable:async()=>seen.push('disable')})
+  ctx.provide('tavernStageControl',{install:async()=>seen.push('enable'),uninstall:async()=>seen.push('disable')})
   const first=ctx.plugin(stage);await first.await()
   assert.deepEqual(seen,['enable'])
   await first.dispose();assert.deepEqual(seen,['enable','disable'])

@@ -246,6 +246,7 @@ import { isAbsolute, join as joinPath } from 'node:path'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import {createOptionalStage} from './optional-stage.js'
+import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
@@ -3633,11 +3634,13 @@ export async function apply(ctx) {
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps))
-  rpcHandlers.getStageRuntimeStatus = async () => ({status:stageRuntime.status()})
+  const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData})
+  rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
+  rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
   stageRuntime.requests(rpcDeps, extensionRequests)
-  ctx.provide('tavernStageControl',Object.freeze({enable:stageRuntime.enable,disable:stageRuntime.disable,status:stageRuntime.status}))
+  ctx.provide('tavernStageControl',Object.freeze({enable:stageRuntime.enable,disable:stageRuntime.disable,status:stageRuntime.status,install:stageSwitch.install,uninstall:stageSwitch.uninstall}))
   ctx.effect(() => () => stageRuntime.dispose(), 'dsh-tavern: optional stage controller')
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
