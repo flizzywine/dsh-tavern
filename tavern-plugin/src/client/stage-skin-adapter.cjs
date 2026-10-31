@@ -1185,22 +1185,6 @@ function applyStageSkin(root, document, fonts, theme, lead = false, art = null, 
         for (const [name,value] of before) {if (value === null) root.removeAttribute(name); else root.setAttribute(name,value);}
     };
 }
-// textbox glyph hops are cut-out animation shot "on twos" - one even 12/s clock for
-// the reveal steps and the glyph poses. 83.3 ms is exactly 5 frames at
-// 60 Hz (10 at 120, 12 at 144), so every pose is held the same number of frames. The authored textFx.stepFps (6-14)
-// was read literally before; 8/s glyph hops over a 60 Hz display alternated 7/8-frame holds and read as lag. The
-// collage pieces keep their own slower authored clock (skin-overlay-motion.cjs).
-const STAGE_SKIN_TEXT_FPS = 12;
-function stageSkinReveal(skin, speed, {reducedMotion = false, photosensitive = true} = {}) {
-    const fx = !skin || reducedMotion || photosensitive && skin.photosensitive ? {reveal:'type'} : skin.textFx;
-    const interval = 1000/STAGE_SKIN_TEXT_FPS;
-    const stepMs = fx.reveal === 'type' ? Math.min(speed * 1.2,Math.max(speed,fx.cps ? 1000/fx.cps : speed)) : interval;
-    // The glyph track (skin-interface.md §18 E1): `poses` entrance poses (the reveal's own two, or textFx.poses), each held
-    // `hold` whole steps (textFx.stepFps on the 12/s grid: round(12 / stepFps)); a glyph is at rest after poses x hold steps.
-    return {kind:fx.reveal,stepMs,chars:fx.reveal === 'type' ? 1 : Math.max(fx.charsPerStep || 1,Math.ceil(interval/Math.max(1,speed))),
-        chunk:fx.reveal === 'type' ? 1 : fx.charsPerStep || 1,maxDurationScale:1.2,speed,
-        poses:fx.poses?.length || 2,hold:fx.stepFps ? Math.max(1,Math.round(STAGE_SKIN_TEXT_FPS/fx.stepFps)) : 1,jitter:fx.emphasis === 'jitter' ? fx.jitter ?? 1 : 0};
-}
 // The motion vocabulary's eases (skin-interface.md §18 E3 / E4).
 const STAGE_SKIN_EASE = Object.freeze({linear:'linear',out:'cubic-bezier(.2,.7,.3,1)','in-out':'cubic-bezier(.65,0,.35,1)',back:'cubic-bezier(.34,1.56,.64,1)'});
 // A pose's scale for CSS scale(): one value, or x, y when it has its own sx / sy.
@@ -1249,21 +1233,4 @@ function stageSkinGlyphPoses(fx) {
     });
     return tokens;
 }
-// A glyph's seeded entrance offset for emphasis jitter: [x, y] em within ± jitter x 0.05em.
-function stageSkinGlyphJitter(index, jitter) {
-    const r=k => ((Math.imul(index * 2 + k + 1,2654435761) >>> 0) % 1000) / 999 * 2 - 1;
-    return [r(0),r(1)].map(v => Math.round(v * jitter * 50) / 1000);
-}
-// Glyphs revealed on hop step `step` (1-based) when `shown` are already out. The reading speed stays the budget:
-// step k may show floor(k*stepMs/speed) glyphs, in authored chunks (charsPerStep) - a slow reader gets held steps
-// on the same 12/s grid instead of a slower clock.
-function stageSkinRevealCount(reveal, shown, step) {
-    if (reveal.kind !== 'stutter') {
-        const due = Math.floor(step*reveal.stepMs/Math.max(1,reveal.speed));
-        return shown < due ? Math.max(reveal.chunk || 1,due-shown) : 0;
-    }
-    // Deterministic hesitation, but never an unbounded zero-character stall.
-    const random = (Math.imul(step + 1,1103515245) + 12345) >>> 0;
-    return Math.max(random % (2*reveal.chars + 1),Math.floor(step*reveal.stepMs/Math.max(1,reveal.speed*reveal.maxDurationScale))-shown,0);
-}
-if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_TEXT_FPS,STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinGlyphJitter,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinReveal,stageSkinRevealCount,stageSkinMode,applyStageSkinMode};
+if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = {STAGE_SKIN_EASE,STAGE_SKIN_TX_EASE,stageSkinTxEase,stageSkinWipeClip,stageSkinTransitionList,STAGE_BACKLOG_DEFAULTS,stageSkinBacklog,stageSkinBacklogPlate,stageSkinBacklogPlateStyle,stageSkinBacklogOutline,stageSkinInset,stageSkinSfx,stageSkinMotionKeyframes,stageSkinGlyphPoses,stageSkinEffects,stageSkinTokens,stageSkinPanelTokens,stageSkinQuickMenu,stageSkinMarks,stageSkinConfigSurface,stageSkinConfigArt,STAGE_CONFIG_DEFAULT_LOOKS,stageSkinControlIcons,stageSkinArt,stageSkinSpinner,stageSkinTint,stageSkinMenuTint,stageSkinFontFaces,applyStageSkin,stageSkinMode,applyStageSkinMode};

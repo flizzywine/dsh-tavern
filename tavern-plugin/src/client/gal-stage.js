@@ -3,7 +3,6 @@
 // or prompts. The session runtime owns text, observation and accepted presentation.
 // The chat view can stay frozen or unmounted; backlog reads the same session index.
 
-// @include modules/stage-typewriter.js
 // @include-domain stage-narration.cjs
 // @include widget-source.js
 // @include phone-settings.js
@@ -2046,8 +2045,7 @@ function bindStageViews(createViews) {
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
         labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
-            fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed,
-            stageGlyphs, stageGlyphDelay, STAGE_GLYPH_FADE_MS, stageSkinReveal, stageSkinRevealCount, stageSkinGlyphJitter}});
+            fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
     return () => {if (stageViews === views) stageViews = null; try {views.admission.dispose();} finally {views.progress.store.dispose(); views.loader.dispose();}};
 }

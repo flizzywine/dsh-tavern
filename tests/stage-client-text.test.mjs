@@ -14,7 +14,6 @@ function fixture(fonts) {
   const text = createStageText({
     React,document:{fonts},defaultTextSpeed:28,
     clock:{now:() => 0,setTimeout:fn => {timers.set(++id,fn);return id},clearTimeout:id => timers.delete(id)},
-    stageGlyphs:value => Array.from(value),stageGlyphDelay:() => 28,STAGE_GLYPH_FADE_MS:100,
   })
   return {text,effects,timers,updates}
 }
@@ -39,4 +38,17 @@ test('font readiness resolving after text unmount cannot update its state', asyn
   ready()
   await Promise.resolve()
   assert.deepEqual(updates,[])
+})
+test('streaming reveal preserves combining characters and family emoji as whole glyphs', () => {
+  const {text} = fixture()
+  const result = text.Typewriter({text:'a\u0301👨‍👩‍👧‍👦好呀',pending:true,instant:true})
+  assert.equal(result.children[0].children[0],'a\u0301👨‍👩‍👧‍👦')
+  assert.equal(result.children[2].children[0],'好呀')
+})
+test('skin stepped text obeys reduced motion and photosensitive settings', () => {
+  const {text} = fixture()
+  const skin = {textFx:{reveal:'hop',charsPerStep:1},photosensitive:true}
+  assert.equal(text.Typewriter({text:'你好',skin,photosensitive:false}).props['data-skin-reveal'],'hop')
+  assert.equal(text.Typewriter({text:'你好',skin,photosensitive:false,reducedMotion:true}).props['data-skin-reveal'],undefined)
+  assert.equal(text.Typewriter({text:'你好',skin,photosensitive:true}).props['data-skin-reveal'],undefined)
 })
