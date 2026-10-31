@@ -26891,19 +26891,6 @@ function tavernModelRefusalNotice(text) {
 
 
 
-		// presentation settings only.
-		// Dialogue box style cards (shared by both settings modes and the in-stage Config panel).
-		// "crt" is the built-in 显像管 phosphor screen, "aero" the 千禧晴空 Frutiger Aero
-		// sky glass. Kept literal: tests read this list from the source.
-		const STAGE_THEMES = [["classic", "经典"], ["gothic", "哥特金边"], ["magical", "魔法少女"], ["crt", "显像管"], ["aero", "千禧晴空"]];
-		function StageThemePicker(props) {
-		    const h = React.createElement;
-		    const value = props.value || "classic";
-		    return h("div", { className: "fork-stage-themes", role: "radiogroup", "aria-label": "对话框样式" },
-		        STAGE_THEMES.map(([id, label]) =>
-		            h("button", { key: id, type: "button", role: "radio", "aria-checked": value === id, className: "fork-stage-theme", "data-theme": id, onClick: () => { if (id !== value) props.onChange(id); } },
-		                h("span", { className: "fork-stage-theme-swatch", "aria-hidden": true }, h("i")), h("b", null, label))));
-		}
 		// Temporary callers delegate to the optional stage-owned sound player.
 		const stageSfx = {
 		    play:(...args) => stageViews?.sfx.play(...args) || Promise.resolve(),
@@ -60056,8 +60043,8 @@ function galUiApplier() {
 		        widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        backlogRows:{voiceDescriptor:stageVoiceDescriptor, registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, textcard:textcardHistory, pointer:stagePerformancePointer},
-		        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
-		        configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, themes:STAGE_THEMES, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
+		        configAppearance:{getComputedStyle, rpc, cards:bubbleStore, reading:stageReading, quality:stageQuality, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton},
+		        configText:{reading:stageReading, limits:STAGE_READING_LIMITS, defaults:STAGE_READING_DEFAULTS, scale:STAGE_TEXT_SCALE, scaleOf:stageTextScaleOf, fonts:tavernFonts, FontPicker, clock:forkForeground, autoDelay:galAutoDelay},
 		        configScreen:{matchMedia, rpc, sections:STAGE_CONFIG_SECTIONS, useSounds:useForkUiSfxControls, sounds:forkUiSfx, Icon, },
 		        configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSwitch?"toggle":null},
 		        phoneLayout:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), width:()=>innerWidth, ResetButton, sections:STAGE_CONFIG_SECTIONS},

@@ -4102,6 +4102,13 @@ return {galPlayerInputs,galBacklogWindow,stageHistoryEntries,backlogPerformanceR
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageBacklogRows};
 
+        // Built-in stage dialogue themes, shared by the plugin's appearance and text settings.
+const STAGE_THEMES = Object.freeze([
+    ["classic", "经典"], ["gothic", "哥特金边"], ["magical", "魔法少女"],
+    ["crt", "显像管"], ["aero", "千禧晴空"]
+].map(row => Object.freeze(row)));
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_THEMES};
+
         function createStageConfigAppearance({React:react, window, document, getComputedStyle, fields, rpc, cards:bubbleStore, reading:sharedReading, quality:sharedQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton}) {
 let disposed=false;
 const cleanups=new Set();
@@ -6412,8 +6419,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
-                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText}));
-                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance}));
+                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
+                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, themes:STAGE_THEMES}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
                     const phoneLayout = own(createStagePhoneLayout({React:options.React, group:configFields.group, row:configFields.row, slider:configFields.slider, Switch:configFields.Switch, ...options.phoneLayout}));
                     const phoneAdjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:phoneLayout.sizes, ...options.phoneAdjust}));

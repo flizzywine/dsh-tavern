@@ -28,6 +28,7 @@ window.__ModuleLoader__.load({
         __STAGE_SOUNDSCAPE__
         __STAGE_AMBIENCE__
         __STAGE_BACKLOG_ROWS__
+        __STAGE_THEMES__
         __STAGE_CONFIG_APPEARANCE__
         __STAGE_CONFIG_TEXT__
         __STAGE_CONFIG_SCREEN__
@@ -70,8 +71,8 @@ window.__ModuleLoader__.load({
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
-                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText}));
-                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance}));
+                    const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
+                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, themes:STAGE_THEMES}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
                     const phoneLayout = own(createStagePhoneLayout({React:options.React, group:configFields.group, row:configFields.row, slider:configFields.slider, Switch:configFields.Switch, ...options.phoneLayout}));
                     const phoneAdjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:phoneLayout.sizes, ...options.phoneAdjust}));
