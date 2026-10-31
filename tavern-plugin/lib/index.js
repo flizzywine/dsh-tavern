@@ -1,3 +1,4 @@
+import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
@@ -324,6 +325,8 @@ function historyLayoutFile() {
 }
 
 export async function apply(ctx) {
+  const restoreHttpStreams = installHttpStreamPatch()
+  ctx.effect(() => restoreHttpStreams)
   // 插件侧的联网请求（更新检查、插件市场、内置搜索）都走 fetch，
   // 而 Node 的 fetch 不认系统代理：启动时先应用一次，进程内所有请求生效。
   try {
