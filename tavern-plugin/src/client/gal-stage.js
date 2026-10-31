@@ -2041,12 +2041,13 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
-        useBubbles, useGalEntryLoader, GalStage, Icon,
+        useBubbles, GalStage, Icon,
+        admission:{performance, setTimeout, clearTimeout, Spinner, StageLoadLine},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
         labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed,
             stageGlyphs, stageGlyphDelay, STAGE_GLYPH_FADE_MS, stageSkinReveal, stageSkinRevealCount, stageSkinGlyphJitter}});
     stageViews = views;
-    return () => {if (stageViews === views) stageViews = null; views.loader.dispose();};
+    return () => {if (stageViews === views) stageViews = null; try {views.admission.dispose();} finally {views.loader.dispose();}};
 }

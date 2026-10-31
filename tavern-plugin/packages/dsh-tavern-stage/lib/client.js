@@ -584,6 +584,172 @@ return {
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageLoader};
 
         'use strict';
+function createStageAdmission({React, window, document, performance, setTimeout, clearTimeout, Spinner, StageLoadLine, loader}) {
+let disposed = false;
+const cleanups = new Set();
+// The stage's one readiness state: pending / loading / slow cover the
+// stage with the veil (slow only says 「仍在载入…」 after 10 s), revealing cross-fades a ready scene in, ready shows it with no
+// loader. Nothing shows the scene and the loader together: a load that never settles keeps the veil (the Esc menu stays
+// reachable over it), never a half-restored scene under a loading notice. Every consumer reads `visible` (ready only).
+// held: the stage's configured skin is still on its way (useStageConfigSkin loading): the veil stays up rather than show
+// the unskinned stage (the engine's quick menu and box) until the bundle lands.
+// veilFading: the veil's own fade (its CSS transition or a skin's loading-leave) has not finished. Ready follows that fade,
+// never a parallel timer: a loaded page starts the 250 ms fade late, and a timed ready left the veil at 6-10 % over the scene.
+function galEntryPhase(elapsed, ready, revealedAt, shown, held = false, veilFading = false) {
+    if (revealedAt !== null) return elapsed - revealedAt >= 250 && !veilFading ? 'ready' : 'revealing';
+    if (held) return elapsed >= 300 ? 'loading' : 'pending';
+    if (ready) return shown ? 'revealing' : 'ready';
+    return elapsed >= 10000 ? 'slow' : elapsed >= 300 ? 'loading' : 'pending';
+}
+
+// the runtime store whose stage has finished its entry (ready, or still loading after 10 s).
+// Speculative work for a stage that is still loading (voice beyond the first page and its status polling,
+// adjacent-turn presentation reads) waits for it, so it does not compete with the reveal for the browser's
+// six connections or for the main thread while the figures are built. Not a visual state: the veil follows `visible`.
+const galEntryShown = (() => {
+    let shown = null;
+    const listeners = new Set();
+    return {
+        get: () => shown,
+        set(store) { if (shown === store) return; shown = store; listeners.forEach(listener => listener()); },
+        // The stage unmounted (closed, possibly before it was shown): waiters re-check.
+        release(store) { if (shown === store) shown = null; listeners.forEach(listener => listener()); },
+        subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+        // Resolves once `store`'s stage is shown, or right away when no stage of it is opening.
+        wait(store, opening) {
+            if (disposed || shown === store || !opening()) return Promise.resolve();
+            return new Promise(resolve => { const stop = this.subscribe(() => { if (disposed || shown === store || !opening()) { stop(); resolve(); } }); });
+        },
+        // Resolves once no stage is entering (one is shown, or none is mounted): for stage work that is not session-bound.
+        settled() { return this.wait(undefined, () => !shown && !!document.querySelector('.fork-gal-stage')); }
+    };
+})();
+
+// Reveal decoded background, text and static stand-ins first; models fade in later without a load notice.
+function galEntryBackdropSettled(state) {
+    if (!state.pending.projection && !state.pending.resources) return true;
+    const projection = state.projection;
+    return !!projection?.figureKeys && projection.outstanding.every(key => key.startsWith('figure:') || key === 'music' || key === 'ambience');
+}
+
+// a round with nothing to present has no backdrop to accept, so
+// its veil went loading -> slow and stayed through the whole first reply. Two shapes: no round at all (runtime `empty`), and
+// a new chat's text-less opening (「跳过设定，直接开始」: turn 1 loaded with no page, its direction done or off with no scene,
+// so no projection is ever requested). An unloaded history row (its text still to hydrate) is not this: it waits as before.
+function galEntryNothingToShow(state) {
+    if (!state.source) return state.empty === true;
+    const row = state.textIndex?.get(state.source.turn), pending = state.pending;
+    return !!row && !row.unloaded && !state.text.streaming && state.text.pages.length === 0 && !pending.text && !pending.director &&
+        !pending.projection && !pending.resources && !state.carryRequest && ['done', 'off'].includes(state.director.phase);
+}
+
+function galEntryBackdropAccepted(state) {
+    // Legacy projections admit the backdrop in the combined visual group, including an explicit clear.
+    const provenance = state.accepted.provenanceByChannel;
+    if (provenance?.background || provenance?.visual) return true;
+    // Undirected/failed rounds may have no backdrop; finish their carry read before revealing.
+    if (['off','error'].includes(state.director?.phase)) return !state.pending?.director && !state.carryRequest;
+    // A read turn with no direction record (host `missing`: unknown, unbound) whose carry found no earlier direction has
+    // nothing left to arrive: it is text-only. Since slow keeps the veil (cbdc59b87) it would otherwise never reveal.
+    const director = state.director;
+    return director?.phase === 'unknown' && director.revision >= 0 && !director.bindingKey && !state.pending?.director && !state.carryRequest && !state.carry;
+}
+
+// One entry gate, not a new persistent stage state. Later turns keep the existing
+// incremental group presentation and one-shot ledger; only the first reveal waits.
+function useGalEntry(store, rootRef, heldRef = null) {
+    const [phase, setPhase] = React.useState('pending');
+    const presented = React.useRef(-1), backdrop = React.useRef(-1);
+    React.useEffect(() => {
+        if (disposed) return;
+        const start = performance.now();
+        window.__dshRoundLoadTrace?.mark('stage.mount');
+        let timer, shown = false, revealedAt = null, stopped = false;
+        function poll() {
+            if (stopped) return;
+            const state = store.getSnapshot(), root = rootRef.current, elapsed = performance.now() - start;
+            const images = root ? [...root.querySelectorAll('.fork-gal-box img, .fork-gal-standins img')] : [];
+            const revision = state.accepted.presentationRevision;
+            // Audio may wait indefinitely for an autoplay gesture; only visual resources gate entry.
+            const drawn = !!root?.querySelector('.fork-gal-box') && document.fonts.status !== 'loading' && images.every(image => image.complete && image.naturalWidth > 0);
+            const base = !!state.source && galEntryBackdropAccepted(state) && galEntryBackdropSettled(state) && drawn;
+            const ready = base && (presented.current === revision || backdrop.current === revision) || galEntryNothingToShow(state) && drawn;
+            // The revealing veil counts as faded once it is committed (data-entry) and has no running animation or transition
+            // (getAnimations flushes style, so a fade that has not started yet is still seen).
+            const veil = revealedAt === null ? null : root?.querySelector(':scope > .fork-gal-entry-overlay');
+            const veilFading = !!veil && (root.dataset.entry !== 'revealing' || veil.getAnimations().some(animation => animation.playState !== 'finished'));
+            const next = galEntryPhase(elapsed, ready, revealedAt, shown, heldRef?.current === true, veilFading);
+            if (next === 'revealing' && revealedAt === null) revealedAt = elapsed;
+            shown ||= next === 'loading' || next === 'slow';
+            setPhase(next);
+            if (next === 'ready' || next === 'slow') galEntryShown.set(store);
+            if (next === 'ready') window.__dshRoundLoadTrace?.mark('stage.render-ready', {durationMs:Math.round(elapsed)});
+            if (next !== 'ready') timer = setTimeout(poll, 32);
+        }
+        const stop = () => { stopped = true; clearTimeout(timer); cleanups.delete(stop); galEntryShown.release(store); };
+        cleanups.add(stop);
+        poll();
+        return stop;
+    }, [store]);
+    const onPresented = React.useCallback(revision => { presented.current = revision; }, []);
+    const onBackdrop = React.useCallback(revision => { backdrop.current = revision; }, []);
+    return {phase, onPresented, onBackdrop, visible:phase === 'ready'};
+}
+
+// the active skin's loader art (art.spinner) is part of the veil. The stage config carries the
+// skin document and its bundle key, so the veil leases that one image itself at once - before and independent of the scene's
+// skin bundle, the background and the figures. One read per image for the page's lifetime; a failed read falls back to the
+// shared wheel.
+// null: the shared wheel (no skin loader); 'pending': an empty slot; else the overlay's marks, tokens and keyframes.
+function useGalEntryLoader(skin) {
+    const key = loader.key(skin);
+    const [read, setRead] = React.useState(() => ({key, art:loader.get(key)}));
+    React.useEffect(() => {
+        if (!key || loader.has(key)) { setRead({key, art:loader.get(key)}); return; }
+        let live = true;
+        loader.read(key, skin).then(art => { if (live && !disposed) setRead({key, art}); },
+            error => { console.warn('Stage skin loader art unavailable', error); if (live && !disposed) setRead({key, art:null}); });
+        return () => { live = false; };
+    }, [key, loader]);
+    if (!key) return null;
+    if (read.key === key && read.art !== undefined) return read.art;
+    return loader.get(key) || 'pending';
+}
+
+// while a 入场演出 plays (stage-entrance.js, `entrance` = {loadPhase, bright}) the veil is only
+// its progress line, at the bottom over the entrance: no hold colour, no wheel or skin loader art, no generic words; the line
+// shows while the real load runs (loadPhase) and brightens for a moment when the player clicks before it is done.
+function GalEntryOverlay(props) {
+    const h = React.createElement, text = props.phase === 'slow' ? '\u4ecd\u5728\u8f7d\u5165\u2026' : '\u6b63\u5728\u8f7d\u5165\u2026';
+    const entrance = props.entrance, loader = entrance ? null : props.loader, art = loader && loader !== 'pending' ? loader : null;
+    return h('div', {className:'fork-gal-entry-overlay', role:props.phase === 'loading' || props.phase === 'slow' ? 'status' : undefined,
+        'aria-hidden':props.phase === 'pending' || props.phase === 'ready' || undefined, 'data-fk-loader':loader === 'pending' ? 'pending' : undefined,
+        'data-entrance':entrance ? '' : undefined, 'data-load':entrance ? entrance.loadPhase : undefined, 'data-bright':entrance?.bright || undefined,
+        ...art?.marks, style:art?.tokens,
+        onClick:event => event.stopPropagation(), onWheel:event => event.stopPropagation()},
+        art?.loadingKeyframes ? h('style', null, art.loadingKeyframes) : null,
+        // A row of parts (art.spinner.parts) is one unit: each part its own image and motion inside the spinner's box.
+        art?.parts ? h('span', {className:'fork-spinner fork-gal-entry-spinner', 'aria-hidden':true},
+            art.parts.map((part, index) => h('span', {key:index, className:'fork-gal-entry-part', 'data-fk-part':part.motion, style:part.tokens})))
+            : h(Spinner, {delay:0, className:'fork-gal-entry-spinner'}),
+        // the load's real steps and weighted progress while it runs (stage-load-progress.cjs).
+        props.progress ? h(StageLoadLine, {progress:props.progress, fallback:text, nameOf:props.nameOf,
+            revealed:props.phase === 'revealing' || props.phase === 'ready'}) : h('span', null, text));
+}
+
+return {
+    shown:galEntryShown, useEntry:useGalEntry, useLoader:useGalEntryLoader, Overlay:GalEntryOverlay,
+    dispose() {
+        if (disposed) return;
+        disposed = true;
+        for (const stop of [...cleanups]) stop();
+        galEntryShown.release(galEntryShown.get());
+    }
+};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageAdmission};
+
+        'use strict';
 function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
 const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
 function useGalOn(sessionId) {
@@ -673,7 +839,13 @@ if (typeof window === 'undefined' && typeof module !== 'undefined') module.expor
                 style.textContent = "/* Generic source-widget reading controls. The phone appearance belongs to its pack. */\n.fork-gal-box.is-source-widget-line,.fork-gal-box.is-source-widget-line *{visibility:hidden!important;pointer-events:none}\n.fork-widget-source-controls{position:absolute;z-index:19;bottom:16px;right:24px;display:flex;align-items:center;gap:8px;background:var(--gal-ui-surface-2);border:1px solid var(--gal-ui-line);border-radius:var(--gal-ui-radius);padding:4px 8px;color:var(--gal-ui-ink)}\n.fork-widget-source-controls .fork-gal-control{position:static;min-width:34px;height:34px;border:0;background:transparent;color:var(--gal-ui-accent);font:13px var(--gal-ui-font);cursor:pointer}\n.fork-widget-source-controls button:focus-visible{outline:var(--gal-ui-focus);outline-offset:3px}\n@media(max-width:700px){.fork-widget-source-controls{bottom:12px;right:12px;gap:3px;padding:4px}.fork-widget-source-controls .fork-gal-control{min-width:30px}}\n/* the incoming banner is a real phone's notification card — exactly as wide as the phone's\n   screen, rounded and frosted (the stage blurs through the view's translucent paint), with a soft shadow. It slides down\n   from the top edge with a light spring, stays ~3.5 s and slides back up; CONFIG 「减少动态」 fades it instead. */\n.fork-widget-panel.is-custom.is-banner{overflow:hidden;border-radius:calc(var(--phone-zoom,1) * 18px);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);box-shadow:var(--gal-ui-shadow);animation:fork-phone-banner-in .42s cubic-bezier(.22,1.22,.36,1) both}\n.fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-out .3s cubic-bezier(.55,0,.75,.2) both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner{animation:fork-phone-banner-fade .14s linear both}\n.fork-gal-stage[data-reduced-motion] .fork-widget-panel.is-custom.is-banner[data-banner=leaving]{animation:fork-phone-banner-fade .14s linear reverse both}\n@keyframes fork-phone-banner-in{from{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-out{to{transform:translateY(calc(-100% - 24px))}}\n@keyframes fork-phone-banner-fade{from{opacity:0}}\n/* while the phone is open the scene stays and dims behind it (the Pixi\n   layer eases a shade in over 280 ms, CONFIG 「减少动态」 120 ms); stand-ins dim the same way. Nothing moves or leaves. */\n.fork-gal-standins{transition:filter .28s cubic-bezier(.4,0,.2,1)}\n.fork-gal-stage[data-phone-open] .fork-gal-standins{filter:brightness(.58)}\n.fork-gal-stage[data-reduced-motion] .fork-gal-standins{transition-duration:.12s}\n/* The phone is not movable: its bottom hit ring stays outside the device, so the home indicator (and a swipe up from the\n   screen's bottom edge) belongs to the phone. A long press on the ring or the status bar strip (over the view's status bar,\n   7.2% of the device height: no controls) enters adjust mode (phone-layout.js usePhoneAdjust); in it a cover takes\n   the whole phone and 24px round it, a corner handle resizes, and a quiet accent outline says so, fading out on lock. */\n.fork-widget-panel.is-phone{outline:2px dashed transparent;outline-offset:6px;border-radius:calc(var(--phone-zoom,1) * 44px);transition:outline-color .45s ease}\n.fork-widget-panel.is-phone .fork-widget-grip:is(.is-ring,.is-status){cursor:default}\n.fork-widget-panel.is-phone .fork-widget-grip.is-ring.is-bottom{bottom:-14px;height:12px}\n.fork-widget-panel.is-phone .fork-widget-grip.is-status{left:0;right:0;top:0;height:7.2%}\n.fork-widget-panel.is-phone[data-unlocked]{outline-color:var(--gal-ui-accent);transition-duration:.12s}\n.fork-gal-stage > .fork-widget-layer.is-adjusting{z-index:7}\n/* The framed phone sheet (no band above the box) has a fixed size: its ring, cover and corner handle reach past its edge. */\n.fork-widget-panel.is-phone.is-sheet:not(.is-fill){overflow:visible}\n.fork-widget-panel.is-phone .fork-widget-grip.is-adjust{inset:-24px;z-index:2;cursor:grab}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner{right:-30px;bottom:-30px;width:40px;height:40px;z-index:3;cursor:nwse-resize}\n.fork-widget-panel.is-phone .fork-widget-grip.is-corner::after{content:\"\";position:absolute;right:12px;bottom:12px;width:14px;height:14px;border:solid var(--gal-ui-accent);border-width:0 3px 3px 0;border-bottom-right-radius:7px}\n/* on a narrow stage the open phone fills the screen (PHONE_FULL_WIDTH) and the dialogue\n   box is hidden under it - out of sight and out of the screen reader's reach - until the phone is put away. */\n.fork-gal-stage:has(.fork-widget-panel.is-phone.is-sheet.is-fill[data-presentation=open]) :is(.fork-gal-box,.fork-gal-box *){visibility:hidden!important}\n.fork-widget-panel.is-phone.is-fill{border-radius:0}\n/* The phone line still types (driving the phone reveal, AUTO and the next cue) in an invisible reader inside the box. */\n.fork-gal-phone-reader{position:absolute;left:0;top:0;width:100%;height:0;overflow:hidden;visibility:hidden;pointer-events:none}\n\n/* 「文字演出」 full-screen text cards (textcard-stage.js).\n   Flat palette cards with hard cuts — no fades in any mode. Colours come only from --tc-bg / --tc-fg, which the\n   renderer sets from the --gal-tc-* palette tokens (theme.css stage UI tokens) or the speaker's 形象色. */\n.fork-tc-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; container-type: size; }\n.fork-tc-layer.is-up { pointer-events: auto; cursor: pointer; }\n.fork-tc-host { position: absolute; inset: 0; }\n/* The live region repeats the card text. In the card face (already loaded for the card), its first Han or kana text\n   does not make the browser load a system fallback font on the main thread as the card appears. */\n.fork-tc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; font-family: var(--tc-mincho, var(--gal-tc-mincho)); }\n/* Follow mounted cards synchronously, not the React commit that mirrors the player state. */\n.fork-gal-stage:has(.fork-tc-host > .fork-tc) :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }\n\n.fork-tc { position: absolute; inset: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;\n  background: var(--tc-bg); color: var(--tc-fg); font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-weight: 500; line-height: 1.2; text-align: center;\n  user-select: none; -webkit-user-select: none; font-kerning: normal; }\n.fork-tc[data-face=\"mono\"] .fork-tc-code-main { font-family: var(--gal-tc-mono); }\n.fork-tc [data-tc-center] { will-change: translate; }\n.fork-tc-ln { display: block; }\n.fork-tc-foot { position: absolute; left: 0; right: 0; bottom: 4.5cqh; padding-left: .8em; font-size: 1.05cqw; font-weight: 400; letter-spacing: .8em; opacity: .85; }\n.fork-tc-reading { margin-top: 2.2cqh; padding-left: .5em; font-size: 1.3cqw; font-weight: 400; letter-spacing: .5em; }\n.fork-tc-reading.is-under { position: absolute; left: 0; right: 0; bottom: 18cqh; margin: 0; }\n.fork-tc-corner { position: absolute; top: 5cqh; right: 5cqw; font-size: 1.4cqw; letter-spacing: .3em; font-variant-numeric: tabular-nums; }\n.fork-tc-mark { margin-top: 3.4cqh; font-size: 1.1cqw; line-height: 1; }\n.fork-tc-code { margin-top: 2.4cqh; padding-left: .3em; font-size: 2cqw; letter-spacing: .3em; }\n.fork-tc-roman { margin-top: 2.2cqh; padding-left: .62em; font-size: 1.4cqw; font-weight: 400; letter-spacing: .62em; }\n\n/* #01 齣: a tiny vertical label in a sea of colour. */\n.fork-tc-punct-label { writing-mode: vertical-rl; text-orientation: upright; font-size: 2.6cqw; letter-spacing: .5em; }\n.fork-tc[data-layout=\"punct\"] .fork-tc-reading { font-size: 1cqw; }\n\n/* #02 章节 */\n.fork-tc-title-main { font-size: 4.8cqw; letter-spacing: .12em; }\n.fork-tc-title-k { margin-right: .9em; letter-spacing: .2em; }\n.fork-tc-title-main.is-single { font-size: 16cqw; font-weight: 700; letter-spacing: 0; }\n.fork-tc-frame { position: absolute; inset: 22cqh 18cqw; border: .12cqw solid currentColor; opacity: .7; pointer-events: none; }\n\n/* #03 人名 */\n.fork-tc-name { padding-left: .32em; font-size: 6cqw; font-weight: 700; letter-spacing: .32em; }\n.fork-tc-name-roman { margin-top: 3cqh; padding-left: .55em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; font-weight: 400; letter-spacing: .55em; }\n.fork-tc-name-sub { margin-top: 2.8cqh; padding-left: .5em; font-size: 1.3cqw; letter-spacing: .5em; }\n.fork-tc-rule { position: absolute; left: 12cqw; right: 12cqw; height: 0; border-top: .18cqw solid currentColor; opacity: .75; }\n.fork-tc-rule.is-top { top: 9cqh; } .fork-tc-rule.is-bottom { bottom: 9cqh; }\n\n/* #04 单字 / #05 字卡 / #06 竖排 / #23 巨字 */\n.fork-tc-text { font-weight: 700; line-height: 1.3; letter-spacing: .12em; }\n.fork-tc[data-size=\"xl\"] .fork-tc-text { font-size: 24cqw; line-height: 1; letter-spacing: 0; }\n.fork-tc[data-size=\"l\"] .fork-tc-text { font-size: 9cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 4.4cqw; font-weight: 500; letter-spacing: .2em; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text { writing-mode: vertical-rl; text-orientation: upright; line-height: 1.9; text-align: start; }\n.fork-tc[data-dir=\"v\"] .fork-tc-text .fork-tc-ln + .fork-tc-ln { padding-top: 3.5em; }\n.fork-tc[data-size=\"crop\"] { align-items: flex-start; }\n.fork-tc[data-size=\"crop\"] .fork-tc-text { position: absolute; top: 50%; left: -4cqw; font-size: 48cqh; line-height: 1; letter-spacing: -.02em; white-space: nowrap; transform: translateY(-50%); }\n.fork-tc[data-size=\"crop\"][data-anchor=\"right\"] .fork-tc-text { left: auto; right: -4cqw; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"top\"] .fork-tc-text { top: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"bottom\"] .fork-tc-text { top: auto; bottom: -10cqh; transform: none; }\n.fork-tc[data-size=\"crop\"][data-anchor=\"center\"] .fork-tc-text { left: 50%; transform: translate(-50%, -50%); }\n\n/* #07 长文: dense vertical columns filling the page. */\n.fork-tc-page-text { position: absolute; inset: 8cqh 8cqw 12cqh; writing-mode: vertical-rl; text-orientation: upright; overflow: hidden;\n  font-size: 1.9cqw; font-weight: 400; line-height: 1.75; letter-spacing: .08em; text-align: start; }\n.fork-tc-margin { position: absolute; top: 8cqh; left: 3cqw; writing-mode: vertical-rl; font-size: 1cqw; letter-spacing: .4em; opacity: .8; }\n\n/* #08 字海: a big word over a dense repeat of a related word, slowly drifting. */\n.fork-tc-wall-fill { position: absolute; inset: -4cqh -2cqw; overflow: hidden; color: color-mix(in srgb, var(--tc-fg) 26%, var(--tc-bg)); font-size: 2.1cqw; line-height: 1.32; letter-spacing: .1em; word-break: break-all; text-align: start; }\n.fork-tc:not([data-reduced]) .fork-tc-wall-fill { animation: fork-tc-drift 1.2s linear both; }\n@keyframes fork-tc-drift { to { translate: -1.5cqw -3cqh; } }\n.fork-tc-wall-word { position: relative; padding: .2em .45em; background: var(--tc-bg); font-size: 12cqw; font-weight: 700; line-height: 1; letter-spacing: .06em; }\n\n/* #09 分屏: thin rules, words larger than their cells. */\n.fork-tc-split { position: absolute; inset: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }\n.fork-tc-cell { position: relative; display: grid; place-items: center; overflow: hidden; border: 0 solid color-mix(in srgb, var(--tc-fg) 30%, var(--tc-bg)); }\n.fork-tc-cell + .fork-tc-cell { border-left-width: .15cqw; }\n.fork-tc-cell-text { font-size: 30cqh; font-weight: 700; line-height: 1; white-space: nowrap; }\n\n/* #10 形变: components gather into one glyph. */\n.fork-tc-morph { position: absolute; inset: 0; }\n.fork-tc-part { position: absolute; left: 50%; top: 50%; font-size: 14cqw; font-weight: 700; line-height: 1; translate: -50% -50%; transition: translate var(--tc-converge, 1s) cubic-bezier(.6, 0, .3, 1), scale var(--tc-converge, 1s) ease-in; }\n.fork-tc-part[data-slot=\"0\"] { translate: -175% -110%; } .fork-tc-part[data-slot=\"1\"] { translate: 75% -110%; }\n.fork-tc-part[data-slot=\"2\"] { translate: -175% 10%; } .fork-tc-part[data-slot=\"3\"] { translate: 75% 10%; }\n.fork-tc.is-converging .fork-tc-part { translate: -50% -50%; scale: .55; }\n.fork-tc-morph-final { font-size: 24cqw; font-weight: 700; line-height: 1; }\n.fork-tc-gloss { margin-top: 3cqh; padding-left: .4em; font-family: var(--gal-tc-italic); font-size: 2cqw; font-style: italic; letter-spacing: .4em; }\n\n/* #11/#13/#22 sequences and 快闪: one word per state, the layout varies by state. */\n.fork-tc-fl { position: absolute; font-weight: 700; line-height: 1; white-space: nowrap; }\n.fork-tc-fl { inset: 0; display: grid; place-items: center; font-size: 13cqw; }\n.fork-tc[data-size=\"xl\"] .fork-tc-fl { font-size: 26cqw; }\n.fork-tc[data-size=\"m\"] .fork-tc-fl { font-size: 6cqw; font-weight: 500; letter-spacing: .1em; }\n\n/* #12 输入: growing line, uncommitted text underlined, a thin caret. */\n.fork-tc-ime { position: relative; display: grid; font-size: 5cqw; text-align: start; }\n.fork-tc-ime > * { grid-area: 1 / 1; white-space: nowrap; }\n.fork-tc-ime-ghost { visibility: hidden; }\n.fork-tc-ime-typing { text-decoration: underline .12em; text-underline-offset: .18em; }\n.fork-tc-caret { display: inline-block; width: .06em; height: 1em; margin-left: .04em; vertical-align: -.12em; background: currentColor; }\n\n/* #14 符号 */\n.fork-tc-code-main { padding-left: .25em; font-size: 9cqw; letter-spacing: .25em; }\n.fork-tc-bars { display: flex; align-items: flex-end; gap: .6cqw; height: 3cqh; margin-top: 3cqh; }\n.fork-tc-bars i { width: .5cqw; height: 25%; background: currentColor; }\n.fork-tc-bars i[data-h=\"1\"] { height: 50%; } .fork-tc-bars i[data-h=\"2\"] { height: 75%; } .fork-tc-bars i[data-h=\"3\"] { height: 100%; width: 1.2cqw; }\n.fork-tc-code-sub { margin-top: 3cqh; padding-left: .3em; font-family: var(--tc-mincho, var(--gal-tc-mincho)); font-size: 1.8cqw; font-weight: 400; letter-spacing: .3em; }\n\n/* #15 图解: tree, calendar or grid laid out from a few values. */\n.fork-tc-diagram { display: flex; flex-direction: column; align-items: center; gap: 5cqh; }\n.fork-tc-dg-root { padding: .4em 1em; border: .2cqw solid currentColor; font-size: 3.4cqw; }\n.fork-tc-dg-items { position: relative; display: flex; gap: 3cqw; padding-top: 4cqh; border-top: .2cqw solid currentColor; }\n.fork-tc-dg-item { position: relative; padding: .3em .7em; border: .15cqw solid currentColor; font-size: 2.2cqw; }\n.fork-tc-dg-item::before { content: \"\"; position: absolute; left: 50%; bottom: 100%; height: 4cqh; border-left: .2cqw solid currentColor; pointer-events: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-root { border: 0; font-size: 18cqw; line-height: 1; font-variant-numeric: tabular-nums; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-items, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { padding-top: 0; border-top: 0; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item::before, .fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item::before { content: none; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item { border: 0; border-bottom: .15cqw solid currentColor; }\n.fork-tc-diagram[data-kind=\"calendar\"] .fork-tc-dg-item:first-child { background: var(--tc-fg); color: var(--tc-bg); }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }\n.fork-tc-diagram[data-kind=\"grid\"] .fork-tc-dg-item { margin: -.075cqw; padding: 1.4em 1em; }\n\n/* #16 场景标记 */\n.fork-tc-marker { font-size: 8cqw; font-weight: 700; letter-spacing: .1em; }\n.fork-tc-marker[data-tc-center=\"xy\"] { writing-mode: vertical-rl; text-orientation: upright; font-size: 6.4cqw; letter-spacing: .2em; }\n\n@media (max-width: 720px) {\n  .fork-tc-foot, .fork-tc-roman, .fork-tc-reading { letter-spacing: .4em; }\n  .fork-tc[data-size=\"m\"] .fork-tc-text { font-size: 5.6cqw; }\n  .fork-tc-page-text { inset: 6cqh 5cqw 10cqh; font-size: 2.6cqw; }\n}\n\n/* Compound templates keep their complete semantic text; only repeat's short final word deliberately crops. */\n.fork-tc[data-compound] .fork-tc-text { max-width: 84cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-text { max-width: none; }\n.fork-tc[data-compound] .fork-tc-fl-word { max-width: 88cqw; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-main { max-width: 60cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-title-k { display: block; margin: 0 0 2cqh; font-size: max(var(--fork-fs-meta), 1.6cqw); }\n.fork-tc[data-compound] .fork-tc-reading { max-width: 90cqw; overflow-wrap: anywhere; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n.fork-tc[data-compound] .fork-tc-reading.is-under,\n.fork-tc[data-compound][data-size=\"crop\"] .fork-tc-reading { position: absolute; left: 5cqw; right: 5cqw; bottom: 8cqh; margin: 0; }\n.fork-tc[data-compound] .fork-tc-wall-word { max-width: 80cqw; font-size: 7cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-cell-text { max-width: 85%; font-size: 4cqw; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc-cell-name { position: absolute; top: 15cqh; left: 8%; right: 8%; font-size: max(var(--fork-fs-heading), 2cqw); letter-spacing: .2em; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-ime { width: 80cqw; font-size: 3.4cqw; }\n.fork-tc[data-compound] .fork-tc-ime > * { white-space: pre-wrap; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-code-main { max-width: 82cqw; font-size: 4cqw; overflow-wrap: anywhere; }\n.fork-tc[data-compound] .fork-tc-page-text { font-size: max(var(--fork-fs-body), 1.9cqw); }\n.fork-tc[data-compound] .fork-tc-margin { font-size: max(var(--fork-fs-meta), 1cqw); }\n.fork-tc-relate { position: absolute; inset: 8cqh 5cqw 22cqh; }\n.fork-tc-relate svg { width: 100%; height: 100%; overflow: visible; }\n.fork-tc-relate-person, .fork-tc-relate-label { position: absolute; translate: -50% -50%; background: var(--tc-bg); overflow-wrap: anywhere; }\n.fork-tc-relate-person { max-width: 23%; padding: .3em .4em; border: .1em solid currentColor; font-size: max(var(--fork-fs-heading), 2.2cqw); letter-spacing: .12em; }\n.fork-tc-relate-label { max-width: 25%; padding: .2em .4em; font-size: max(var(--fork-fs-meta), 1.3cqw); }\n@media (max-width: 720px) {\n  .fork-tc[data-compound] .fork-tc-page-text { inset: 10cqh 5cqw; writing-mode: horizontal-tb; font-size: var(--fork-fs-body); line-height: 1.4; }\n  .fork-tc[data-compound] .fork-tc-margin { top: 5cqh; left: 5cqw; right: 5cqw; writing-mode: horizontal-tb; text-align: start; }\n  .fork-tc[data-compound] .fork-tc-ime { font-size: max(var(--fork-fs-heading), 3.4cqw); }\n}\n";
                 document.head.appendChild(style);
                 let stop;
-                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => ({...createStageViews(options), loader:createStageLoader(options.loader), ...createStageLabels({React:options.React, Icon:options.Icon, document:options.document, ...options.labels}), ...createStageText({React:options.React, document:options.document, ...options.text})})});}
+                try {stop = host.mount({createNavigation:createStageNavigation, createViews:options => {
+                    const loader = createStageLoader(options.loader);
+                    const admission = createStageAdmission({React:options.React, window, document, loader, ...options.admission});
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission,
+                        ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
+                        ...createStageText({React:options.React, document, ...options.text})};
+                }});}
                 catch (error) {style.remove(); theme.remove(); throw error;}
                 return () => {try {stop();} finally {style.remove(); theme.remove();}};
             }, 'dsh-tavern-stage: client lifetime');
