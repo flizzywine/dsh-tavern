@@ -1,7 +1,7 @@
-import contract from '../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
-import {assetRefKey} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {reduceTimerCommand,TIMER_MOD_ID} from './state.cjs'
-import {reduceCountdown,countdownBudget} from './countdown.cjs'
+import contract from '../../../../dsh-presentation-protocol/src/mod-contract.cjs'
+import {assetRefKey} from '../../../../dsh-presentation-protocol/src/asset-packs.js'
+import {reduceTimerCommand,TIMER_MOD_ID} from '../../../../../mods/timer/state.cjs'
+import {reduceCountdown,countdownBudget} from '../../../../../mods/timer/countdown.cjs'
 import {stageTimerFacts,stageTimerProgress} from './stage-service.js'
 const {modCheck:check}=contract
 

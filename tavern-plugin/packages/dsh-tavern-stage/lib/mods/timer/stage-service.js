@@ -1,6 +1,6 @@
 import {createStageTimerClock} from './stage-clock.js'
-import {TIMER_MOD_ID,timerCheckpoint} from './state.cjs'
-import {foldAssetPackEntries} from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
+import {TIMER_MOD_ID,timerCheckpoint} from '../../../../../mods/timer/state.cjs'
+import {foldAssetPackEntries} from '../../domain/stage-asset-pack-director.js'
 
 export const STAGE_TIMER_FIELD='stageTimerV1'
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b)

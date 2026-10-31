@@ -1,8 +1,8 @@
 import {randomUUID} from 'node:crypto'
-import {foldAssetPackEntries} from '../../packages/dsh-tavern-stage/lib/domain/stage-asset-pack-director.js'
-import {stageReadScope,markStageRead} from '../../lib/domain/stage-read-projection.js'
-import {timerTimeupFact} from './state.cjs'
-import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../../packages/dsh-tavern-stage/lib/client/timer-clock.cjs'
+import {foldAssetPackEntries} from '../../domain/stage-asset-pack-director.js'
+import {stageReadScope,markStageRead} from '../../../../../lib/domain/stage-read-projection.js'
+import {timerTimeupFact} from '../../../../../mods/timer/state.cjs'
+import {timerClockSample,timerClockRemaining,timerClockFrozen} from '../../client/timer-clock.cjs'
 
 // One host lifetime owns stage-open leases. A saved clock from a dead host resumes
 // from its last durable sample, never from a timestamp spanning an application exit.

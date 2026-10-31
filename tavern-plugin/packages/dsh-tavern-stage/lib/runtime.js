@@ -1,4 +1,4 @@
-import {STAGE_TIMER_FIELD} from '../../../mods/timer/stage-service.js'
+import {STAGE_TIMER_FIELD} from './mods/timer/stage-service.js'
 import {readAudienceCorpus} from '../../../lib/danmaku-corpus.js'
 import {describeOpeningScenes} from './domain/stage-opening-scene.js'
 import {readStageProjection} from './domain/stage-projection.js'

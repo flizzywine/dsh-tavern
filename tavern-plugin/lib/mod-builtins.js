@@ -11,7 +11,7 @@ import {CORPUS_EXTENSION} from '../mods/danmaku/corpus.js'
 import {emptyPresentation,appendPresentation,readPresentation} from '../mods/danmaku/presentation.js'
 import {createManagedModHost} from './domain/mod-system-host.js'
 import {registerModStageContribution} from './domain/mods/stage-contributions.js'
-import timerStage from '../mods/timer/stage.js'
+import timerStage from '../packages/dsh-tavern-stage/lib/mods/timer/stage.js'
 import phoneStage from '../mods/phone/stage.js'
 import danmakuStage from '../mods/danmaku/stage.js'
 const sources = Object.freeze([
