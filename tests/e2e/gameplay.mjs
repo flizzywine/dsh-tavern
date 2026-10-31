@@ -1,4 +1,4 @@
-import {setupStageMedia} from './stage-media-fault.mjs'
+import {setupStageMedia,installStageAudioProbe} from './stage-media-fault.mjs'
 import { setupRealGameplay, realGameplayChecks } from './real-gameplay.mjs'
 import { refactorLifecycleChecks } from './refactor-lifecycle.mjs'
 import { installV3SaveFixture } from './session-upgrade-fixture.mjs'
@@ -55,6 +55,7 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
+const stageAudioLifecycle = process.argv.includes('--stage-audio-lifecycle')
 const stageMediaFault = process.argv.includes('--stage-media-fault')
 const stageUserSwitch = process.argv.includes('--stage-user-switch')
 const stageRpcFault = process.argv.includes('--stage-rpc-fault')
@@ -65,7 +66,7 @@ const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('-
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
-const stagePluginScenario = stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
+const stagePluginScenario = stageAudioLifecycle || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageLifecycle || !!stageIsolation || process.argv.includes('--stage-plugin')
 const castScenario = stagePluginScenario || process.argv.includes('--cast')
 const compactionScenario = process.argv.find(arg => arg.startsWith('--compaction='))?.split('=')[1]
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -169,7 +170,7 @@ try {
       await mkdir(data,{recursive:true})
       await writeFile(join(data,'tavern-extension-settings.json'),JSON.stringify({EjsTemplate:{enabled:true,render_enabled:true,raw_message_evaluation_enabled:false,preload_worldinfo_enabled:false,code_blocks_enabled:true}}))
     }
-    if(stageMediaFault)report.stageMedia=await setupStageMedia(root)
+    if(stageMediaFault||stageAudioLifecycle)report.stageMedia=await setupStageMedia(root,{audio:stageAudioLifecycle})
     await access(cli).catch(() => { throw Error('找不到 DSH runtime；先安装酒馆，或设置 TAVERN_E2E_RUNTIME。') })
     report.runtimeVersion = JSON.parse(await readFile(join(modules, '@deepseek-ai/dsh/package.json'), 'utf8')).version
     await mkdir(join(profile, 'node_modules'), { recursive: true })
@@ -308,6 +309,7 @@ try {
     context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: process.env.TAVERN_E2E_LOCALE || 'en-US', ...(recoveryScenario ? { hasTouch: true } : {}) })
     context.setDefaultTimeout(timeout)
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
+    if(stageAudioLifecycle)await context.addInitScript(installStageAudioProbe)
     page = await context.newPage()
     if(stageRenderFault || stageLifecycle || stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
       if(!route.request().url().includes('client.js')) return route.continue()
@@ -577,7 +579,7 @@ try {
   })
   if (castScenario && stageIsolation !== 'absent') await step('开启对话头像', async () => {
     const chatUrl = page.url()
-    await setCardStage({ dialogue: true })
+    await setCardStage({ dialogue: true,...(stageAudioLifecycle?{stage:true}:{}) })
     await page.goto(chatUrl)
     await page.getByRole('textbox', { name: /发消息|Message/ }).waitFor()
   })
@@ -598,7 +600,7 @@ try {
       } else {
       await page.getByRole('button', { name: '舞台', exact: true }).click()
       await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor({ state: 'visible' })
-      if(stageMediaFault)await page.waitForFunction(()=>{const text=document.querySelector('[aria-label="舞台文本"]')?.textContent||'';return text.includes('店主笑着迎上来。')||text.includes('店主笑着说：“欢迎回来，这是你的奖励。”')})
+      if(stageMediaFault||stageAudioLifecycle)await page.waitForFunction(()=>{const text=document.querySelector('[aria-label="舞台文本"]')?.textContent||'';return text.includes('店主笑着迎上来。')||text.includes('店主笑着说：“欢迎回来，这是你的奖励。”')})
       else await page.getByRole('region', { name: '舞台文本' }).getByText('店主笑着迎上来。', { exact: false }).waitFor()
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       if(stageRpcFault) {
@@ -609,6 +611,14 @@ try {
         })
         for(let attempt=0;attempt<100 && !report.directionFailures;attempt++)await page.waitForTimeout(100)
         assert.ok(report.directionFailures,'必须在舞台正常显示后实际触发演出 RPC 失败')
+      }
+      if(stageAudioLifecycle) {
+        await page.keyboard.press('Escape')
+        await page.getByRole('button',{name:/^BGM(?:：.*)?$/}).filter({visible:true}).last().click()
+        await page.locator('.fork-bgm-track').filter({hasText:'正常音乐'}).click()
+        await page.waitForFunction(()=>window.__stageAudioProbe().looping===1)
+        report.realAudioPlaying=true
+        await page.keyboard.press('Escape')
       }
       if(stageMediaFault) {
         await page.keyboard.press('Escape')
@@ -728,6 +738,10 @@ try {
         assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
         report.userDisableSurvivedRestart=true
       }
+      if(stageAudioLifecycle){
+        await page.waitForFunction(()=>window.__stageAudioProbe().looping===0)
+        report.audioStoppedOnExit=true
+      }
       const composer = page.getByRole('textbox', { name: /发消息|Message/ })
       const priorReplies=(await savedChat()).messages.filter(row=>row.role==='assistant'&&!row.greeting).length
       await composer.fill('领取任务奖励')
@@ -742,6 +756,7 @@ try {
       assert.ok(replies.length > priorReplies, '舞台操作后的新一轮正文必须真实生成并保存')
       await page.reload({ waitUntil: 'domcontentloaded' })
       await composer.waitFor({ state: 'visible' })
+      if(stageAudioLifecycle)assert.equal(await page.evaluate(()=>window.__stageAudioProbe().looping),0,'普通聊天刷新后不能恢复舞台音乐')
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })

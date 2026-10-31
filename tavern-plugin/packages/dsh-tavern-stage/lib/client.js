@@ -14493,6 +14493,10 @@ function GalStage(props) {
     const phoneModCall=readPhoneCall?.() || null;
     const h = React.createElement;
     const sessionId = props.sessionId;
+    // Leaving or failing the stage must not leave its music playing over ordinary chat.
+    React.useEffect(() => () => {
+        if (stageViews.bgm.get().sessionId === sessionId) stageViews.bgm.pause(true);
+    }, [sessionId]);
     const runtime = useStageRuntime(sessionId);
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
     const config = props.data && props.data.config || { characters: [] };
