@@ -28,3 +28,29 @@ test('side portrait unmount cancels observers and cannot schedule a late decoded
   assert.equal(listeners.size,0)
   assert.equal(disconnected,1)
 })
+test('face column stays fixed during a page and forgets learned faces across sessions', () => {
+  const refs=[],React={useRef:value=>{const index=React.at++;return refs[index] ||= {current:value}}}
+  const views=createStagePortraits({React})
+  const read=(session,page,portraits)=>{React.at=0;return views.useFaceColumn(session,page,'alice',portraits,[],true,false)}
+  assert.equal(read('one',1,new Map()),false)
+  assert.equal(read('one',1,new Map([['alice',{}]])),false)
+  assert.equal(read('one',2,new Map()),true)
+  assert.equal(read('two',1,new Map()),false)
+})
+test('face handoff timer cannot release a superseded page or update after unmount', () => {
+  let effect,callback,updates=0
+  const ref={current:null}
+  const views=createStagePortraits({React:{useRef:()=>ref,useState:()=>[0,()=>updates++],useEffect:fn=>{effect=fn}},
+    foreground:{setTimeout:fn=>{callback=fn;return 1},clearTimeout(){}}})
+  views.useFaceHandoff('spoken',{facing:true,shown:true,moves:true})
+  const held=views.useFaceHandoff('narration',{facing:false,shown:false,moves:true})
+  assert.equal(held.holding,true)
+  assert.equal(held.heldMs,152)
+  const cleanup=effect(),late=callback
+  views.useFaceHandoff('next',{facing:true,shown:true,moves:true})
+  late()
+  assert.equal(updates,0)
+  cleanup();late()
+  assert.equal(updates,0)
+  assert.equal(views.handoffAutoDelay(100,152),0)
+})

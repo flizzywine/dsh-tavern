@@ -1359,69 +1359,12 @@ function GalStage(props) {
     }
 }
 
-// the text column (is-facing gutter) is decided once per page, when it opens, from what is known
-// synchronously: the face window is on, the page is a spoken line, and the speaker has a face (the accepted
-// portraits, else what this session already learned, else "is a configured character"). Portrait loading never
-// moves it mid-page: a face that arrives later fades into the reserved window; one that turns out missing leaves
-// the gutter empty until the page ends. Narration stays full width.
-// stand: the page shows a face whatever the speaker has (a skin's art.portrait.placeholder stands in for a missing one).
-function useGalFaceColumn(sessionId, pageKey, speaker, portraits, characters, enabled, stand) {
-    const memory = React.useRef(null), latch = React.useRef(null);
-    if (!memory.current || memory.current.sessionId !== sessionId) memory.current = { sessionId, faces: new Map() };
-    for (const [alias, face] of portraits) memory.current.faces.set(alias, Boolean(face));
-    const key = JSON.stringify([sessionId, pageKey, speaker, Boolean(enabled), Boolean(stand)]);
-    if (!latch.current || latch.current.key !== key) {
-        const known = memory.current.faces.get(speaker);
-        latch.current = { key, facing: Boolean(enabled && (stand || speaker && (known ?? (characters || []).some(character => character && character.alias === speaker)))) };
-    }
-    return latch.current.facing;
-}
-// face handoff between pages. The classic text column follows
-// the face gutter, so a page that drops the gutter (a faced line followed by narration, a faceless line or a
-// close-up) would start writing where the previous face still stands. The new page is laid out at once (no reflow),
-// the face clears in clearMs and only then does the first glyph appear: text never shares the screen with a face it
-// would run under. A page that gains the gutter does not wait (the face slides into reserved space beside the text).
-// Skip, page back / jumps and reopening snap (no hold, no animation); a click during the hold shows the page and
-// cuts the face at once. Reduced motion keeps the order with a shorter, plain fade.
-// The clear animation (theme.css fork-gal-side-clear) and the text hold: the hold adds two frames so the face
-// is gone even when its animation started a frame after the page committed.
-const GAL_FACE_CLEAR_MS = 120, GAL_FACE_CLEAR_CALM_MS = 90, GAL_FACE_HOLD_MARGIN_MS = 32;
-function galFaceClearMs(calm) { return calm ? GAL_FACE_CLEAR_CALM_MS : GAL_FACE_CLEAR_MS; }
-// previous: the page shown before ({ facing, shown }), next: { facing, moves (the column follows the gutter), snap, calm }.
-function galFaceHold(previous, next) {
-    if (!previous || !next || next.snap || !next.moves) return 0;
-    return previous.facing && previous.shown && !next.facing ? galFaceClearMs(next.calm) + GAL_FACE_HOLD_MARGIN_MS : 0;
-}
-// Auto mode: a held page's wait is shortened by the hold, so auto pacing per page stays as without the handoff.
-function galHandoffAutoDelay(delay, heldMs) { return Math.max(0, delay - (heldMs || 0)); }
-// Returns { holding (typewriter waits), cut (the outgoing face must go now), heldMs (for auto pacing) }.
-function useGalFaceHandoff(pageKey, { facing, shown, moves, snap, calm, typed }) {
-    const ref = React.useRef(null), [, setReleased] = React.useState(0);
-    if (!ref.current || ref.current.key !== pageKey) {
-        const hold = galFaceHold(ref.current, { facing, moves, snap, calm });
-        ref.current = { key: pageKey, facing, shown, hold, released: !hold };
-    }
-    const current = ref.current;
-    // What this page shows last is what the next page hands off from (a late face counts, a lost one does not).
-    current.shown = Boolean(shown);
-    React.useEffect(function () {
-        if (current.released) return;
-        const timer = forkForeground.setTimeout(() => { current.released = true; setReleased(n => n + 1); }, current.hold);
-        return () => forkForeground.clearTimeout(timer);
-    }, [current]);
-    return { holding: !current.released && !typed && !snap, cut: current.hold > 0 && Boolean(typed || snap), heldMs: current.hold };
-}
+function useGalFaceColumn(...args) { return stageViews.useFaceColumn(...args); }
+function useGalFaceHandoff(...args) { return stageViews.useFaceHandoff(...args); }
+function galFaceClearMs(...args) { return stageViews.faceClearMs(...args); }
+function galHandoffAutoDelay(...args) { return stageViews.handoffAutoDelay(...args); }
 function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFallbacks(...args); }
-// A sprite outfit without any image (not even calm) stands in as its avatar: a small framed portrait in the figure's
-// stage slot, under CG and the text box. Display only.
-function GalStandIns({ members, portraits, colorOf }) {
-    const h = React.createElement;
-    return h('div', { className: 'fork-gal-standins', 'aria-hidden': true }, members.map(member => {
-        const face = portraits.get(member.id);
-        return h('div', { key: member.id, className: 'fork-gal-standin', 'data-alias': member.id, style: { left: 100 * member.x + '%', '--figure-color': colorOf(member.id) || 'var(--fork-accent)' } },
-            h(PackImage, { identity: face.identity, src: face.src, crop: face.crop, avatar: face.avatar, className: 'fork-gal-standin-img', alt: '' }));
-    }));
-}
+function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
 // an on-stage Live2D figure is showing its static sprite (or nothing) because
 // this machine has no Cubism Core (the user imports it: official page, then the file). One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry
 // (CubismCoreEntry, as in 设置 › DSH Tavern › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
