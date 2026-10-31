@@ -1502,48 +1502,8 @@ function GalDebugLine() {
 // gesture resumes the audio (the BGM kick and the mixer resume listen to it). A click on the bare stage only dismisses
 // (it does not also turn the page); keys pass through (A still starts auto). the first page turn
 // (auto, skip or a click) also retires the key list, and the system menu's 「快捷键」 shows it again (showKeys).
-const GAL_KEYS_HINT = 'stage-shortcuts', GAL_NO_MUSIC = { subscribeBlocked: () => () => {}, blocked: () => false },
-    GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
-let galSoundHintShown = false;
-function useGalFirstRunHints(visible, rootRef, position) {
-    const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
-    const [keys, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
-    const music = stageViews?.music || GAL_NO_MUSIC;
-    const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
-    React.useEffect(function () {
-        if (!visible || !store) return undefined;
-        let live = true;
-        Promise.resolve(store.load()).then(() => { if (live && store.loaded() && !store.seen(GAL_KEYS_HINT)) setKeys(true); }, () => {});
-        return () => { live = false; };
-    }, [visible]);
-    const sound = Boolean(visible && blocked && !soundGone);
-    if (sound) galSoundHintShown = true;
-    React.useEffect(function () {
-        if (!keys && !sound) return undefined;
-        let timer = 0;
-        const swallow = event => { event.stopPropagation(); event.preventDefault(); };
-        function dismiss(event) {
-            if (keys) store.markSeen(GAL_KEYS_HINT);
-            setKeys(false); setSoundGone(true);
-            const target = event.target, root = rootRef.current;
-            if (event.type === 'pointerdown' && root && target && root.contains(target) && !(target.closest && target.closest('button, input, select, textarea, a'))) {
-                document.addEventListener('click', swallow, { capture: true, once: true });
-                timer = setTimeout(() => document.removeEventListener('click', swallow, true), 600);
-            }
-        }
-        window.addEventListener('keydown', dismiss, true);
-        window.addEventListener('pointerdown', dismiss, true);
-        return () => { window.removeEventListener('keydown', dismiss, true); window.removeEventListener('pointerdown', dismiss, true); };
-    }, [keys, sound]);
-    const shownAt = React.useRef(null);
-    React.useEffect(function () {
-        if (!keys) { shownAt.current = null; return; }
-        if (shownAt.current === null) { shownAt.current = position; return; }
-        if (shownAt.current !== position) { if (store) store.markSeen(GAL_KEYS_HINT); setKeys(false); }
-    }, [keys, position]);
-    const showKeys = React.useCallback(() => setKeys(true), []);
-    return React.useMemo(() => ({ keys, sound, showKeys }), [keys, sound, showKeys]);
-}
+const GAL_NO_PHONE_CALL = Object.freeze({ subscribe: () => () => {}, stage: () => '' });
+function useGalFirstRunHints(...args) { return stageViews.hints.useHints(...args); }
 // The stage's real key bindings (the window keydown handler in GalStage, the held Ctrl and galStageShortcut's F12):
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
@@ -1761,6 +1721,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+        hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
         portraits:{foreground:forkForeground, SpriteImage, PackImage, emoteDataUrl:galEmoteDataUrl, cssColor:galCssColor, MutationObserver, getComputedStyle, matchMedia},
         labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
@@ -1774,7 +1735,7 @@ function bindStageViews(createViews) {
         if (stageViews === views) stageViews = null;
         bgmChanged();
         const errors = [];
-        for (const owner of [views.admission, views.progress.store, views.bgm, views.music, views.ambience, views.timer, views.video, views.loader]) {
+        for (const owner of [views.hints, views.admission, views.progress.store, views.bgm, views.music, views.ambience, views.timer, views.video, views.loader]) {
             try {owner.dispose();} catch (error) {errors.push(error);}
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');
