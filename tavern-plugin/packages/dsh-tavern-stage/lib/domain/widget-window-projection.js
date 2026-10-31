@@ -1,4 +1,4 @@
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
 import {stageProjectionPage} from './stage-projection.js'
 const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b)
 const refKey=ref=>JSON.stringify([ref.packId,ref.kind,ref.assetId])

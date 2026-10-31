@@ -2,7 +2,7 @@
 import {assetPackDigest as digest} from './stage-asset-pack-catalogue.js'
 import {canonicalJson} from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 import {foldAssetPackEntries} from './stage-asset-pack-director.js'
-import {stageProjectionPage} from './stage-projection.js'
+import {stageProjectionPage} from '../../packages/dsh-tavern-stage/lib/domain/stage-projection.js'
 import {stagePageIndex} from '../../src/client/stage-page-index.cjs'
 // deep equality compares canonical JSON directly; hashing both sides first adds nothing.
 const same = (a,b) => canonicalJson(a) === canonicalJson(b)

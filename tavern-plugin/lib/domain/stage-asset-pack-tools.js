@@ -21,7 +21,7 @@ import {performanceBoundary} from '../../packages/dsh-presentation-protocol/src/
 import {assetContent} from '../../packages/dsh-presentation-protocol/src/asset-variant-content.js'
 import {selectAssetVariant,variantTarget} from '../../packages/dsh-presentation-protocol/src/asset-variants.js'
 import {reducePerformanceCommand} from '../../packages/dsh-presentation-protocol/src/performance-commands.cjs'
-import {opKey} from './performance-projection.js'
+import {opKey} from '../../packages/dsh-tavern-stage/lib/domain/performance-projection.js'
 import { figureDirection } from '../../packages/dsh-presentation-protocol/src/figure-scale.cjs'
 
 const clone = value => structuredClone(value)

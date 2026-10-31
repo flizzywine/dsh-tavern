@@ -1,4 +1,4 @@
-import { widgetSourceRounds } from '../../../lib/domain/widget-window-projection.js'
+import { widgetSourceRounds } from './domain/widget-window-projection.js'
 import { NARRATOR_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.

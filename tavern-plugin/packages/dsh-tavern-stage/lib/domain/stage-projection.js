@@ -1,14 +1,14 @@
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
-import {resolution} from './figure-catalogue.js'
-import { effectiveBubbleMoods } from './dialogue-bubbles.js'
-import { matchBubbleMood } from '../../src/client/bubble-line.cjs'
-import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
-import { foldAssetPackEntries } from './stage-asset-pack-director.js'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
+import {resolution} from '../../../../lib/domain/figure-catalogue.js'
+import { effectiveBubbleMoods } from '../../../../lib/domain/dialogue-bubbles.js'
+import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
+import { stageAssetRefs } from '../../../../lib/domain/stage-asset-pack-catalogue.js'
+import { foldAssetPackEntries } from '../../../../lib/domain/stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
 import { createStagePlayback, validateStagePlayback, stagePlaybackKey, stagePlaybackIdentity, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter, STAGE_PLAYBACK_VERSION } from './stage-playback.js'
 
-import {isImmutableJson} from './freeze-json.js'
-import {stageNarrationLayout} from './stage-narration.cjs'
+import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
+import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
 
 const same = (a,b) => JSON.stringify(a) === JSON.stringify(b)
 // Only completed sidecar checks are cached, never current media or authority.

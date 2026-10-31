@@ -244,18 +244,12 @@ import { normalizeBubbleConfig, bubbleVoiceSwitches, effectiveBubbleMoods, resol
 import { watchFigureBubbleBooks } from './card-stage.js'
 import { createCardStorage } from './card-storage.js'
 import { isAbsolute, join as joinPath } from 'node:path'
-import { readStageProjection } from './domain/stage-projection.js'
-import { spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime } from './domain/tavern-runtime-assets.js'
 import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
-import { readWidgetWindowProjection } from './domain/widget-window-projection.js'
-import { STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement } from './domain/stage-playback.js'
 import {createOptionalStage} from './optional-stage.js'
 import { STAGE_TIMER_FIELD } from '../mods/timer/stage-service.js'
 import {readAudienceCorpus} from './danmaku-corpus.js'
 import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
-import {ASSET_PACK_RECORD_FIELD} from './domain/stage-asset-pack-director.js'
-import { stageModHistoryTurns } from './domain/stage-items.js'
 // derived card gallery; only production paint acknowledgements write it.
 import { describeOpeningScenes } from './domain/stage-opening-scene.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
@@ -3568,11 +3562,9 @@ export async function apply(ctx) {
     get serverScripts() { return serverScripts } }
   Object.defineProperties(rpcDeps, {
     DEFAULT_BUBBLE_TEMPLATE: { get: () => DEFAULT_BUBBLE_TEMPLATE },
-    STAGE_PLAYBACK_FIELD: { get: () => STAGE_PLAYBACK_FIELD },
     STAGE_TIMER_FIELD: { get: () => STAGE_TIMER_FIELD },
     activeRoundBodies: { get: () => activeRoundBodies },
     activeTurnOf: { get: () => activeTurnOf },
-    addStageMeasurement: { get: () => addStageMeasurement },
     agentRegistry: { get: () => agentRegistry },
     assetGeneration: { get: () => assetGeneration },
     assetGenerationResult: { get: () => assetGenerationResult },
@@ -3604,14 +3596,12 @@ export async function apply(ctx) {
     autoChoices: { get: () => autoChoices },
     hasCardAssetBindings: { get: () => hasCardAssetBindings },
     importPreset: { get: () => importPreset },
-    importSpineRuntime: { get: () => importSpineRuntime },
     interruptTurn: { get: () => interruptTurn },
     listTavernSessions: { get: () => listTavernSessions },
     modelSelection: { get: () => modelSelection },
     normalizeBubbleConfig: { get: () => normalizeBubbleConfig },
     normalizeResourcePath: { get: () => normalizeResourcePath },
     notifyPluginTimeline: { get: () => notifyPluginTimeline },
-    patchStagePlayback: { get: () => patchStagePlayback },
     path: { get: () => path },
     pluginApi: { get: () => pluginApi },
     pluginSettlementProgress: { get: () => pluginSettlementProgress },
@@ -3624,23 +3614,17 @@ export async function apply(ctx) {
     readStageChat: { get: () => readStageChat },
     readRoundView: { get: () => readRoundView },
     readRoundOps: { get: () => readRoundOps },
-    readStageProjection: { get: () => readStageProjection },
     readTavernSettings: { get: () => readTavernSettings },
-    readWidgetWindowProjection: { get: () => readWidgetWindowProjection },
     reconcileStory: { get: () => reconcileStory },
     regenBody: { get: () => regenBody },
     replyDisplayForChat: { get: () => replyDisplayForChat },
     requestPerformance: { get: () => requestPerformance },
     retryStyleReference: { get: () => retryStyleReference },
     rollbackTurn: { get: () => rollbackTurn },
-    saveStagePlayback: { get: () => saveStagePlayback },
     slotDeclarations: { get: () => slotDeclarations },
     scoringCatalog: { get: () => scoringCatalog },
     modelSelectionChanged: { get: () => () => presentationObservers.modelChanged() },
     speech: { get: () => speech },
-    spineRuntimeAvailable: { get: () => spineRuntimeAvailable },
-    spineRuntimeStatus: { get: () => spineRuntimeStatus },
-    stageModHistoryTurns: { get: () => stageModHistoryTurns },
     str: { get: () => str },
     taskStateReader: { get: () => taskStateReader },
     tavernModelCatalog: { get: () => tavernModelCatalog },

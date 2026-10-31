@@ -1,12 +1,12 @@
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
 // message-adjacent presentation data, never part of the strict director record.
-import { assetPackDigest } from './stage-asset-pack-catalogue.js'
-import { foldAssetPackEntries } from './stage-asset-pack-director.js'
-import { deriveAssetPackFigureScale } from './stage-asset-pack-tools.js'
-import { captureStageTarget } from './stage-incremental.js'
-import { stripBubbleCodeQuote } from '../../src/client/bubble-line.cjs'
-import { assertJson, canonicalJson } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-import { figureMetrics, FIGURE_ALGORITHM, FIGURE_DISPLAY } from '../../packages/dsh-presentation-protocol/src/figure-scale.cjs'
+import { assetPackDigest } from '../../../../lib/domain/stage-asset-pack-catalogue.js'
+import { foldAssetPackEntries } from '../../../../lib/domain/stage-asset-pack-director.js'
+import { deriveAssetPackFigureScale } from '../../../../lib/domain/stage-asset-pack-tools.js'
+import { captureStageTarget } from '../../../../lib/domain/stage-incremental.js'
+import { stripBubbleCodeQuote } from '../../../../src/client/bubble-line.cjs'
+import { assertJson, canonicalJson } from '../../../dsh-presentation-protocol/src/asset-pack-json.js'
+import { figureMetrics, FIGURE_ALGORITHM, FIGURE_DISPLAY } from '../../../dsh-presentation-protocol/src/figure-scale.cjs'
 
 export const STAGE_PLAYBACK_FIELD = 'stagePlaybackV1'
 export const STAGE_PLAYBACK_VERSION = 2

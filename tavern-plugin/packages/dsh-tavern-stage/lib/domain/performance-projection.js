@@ -1,10 +1,10 @@
-import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
+import directorCommands from '../../../dsh-presentation-protocol/src/director-commands.cjs'
 // verified semantic chain only; no leases, playback clock or canonical writes.
-import {compilePerformance, performancePlan, performanceSustained, performanceBoundary} from '../../packages/dsh-presentation-protocol/src/performance-state.cjs'
-import {performanceReferences} from '../../packages/dsh-presentation-protocol/src/performance-contract.cjs'
-import {assetEntryEnabled} from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {stageWidgetSchemaValue} from '../../packages/dsh-asset-library/lib/index.js'
-import {skinOverlayTiming} from '../../packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs'
+import {compilePerformance, performancePlan, performanceSustained, performanceBoundary} from '../../../dsh-presentation-protocol/src/performance-state.cjs'
+import {performanceReferences} from '../../../dsh-presentation-protocol/src/performance-contract.cjs'
+import {assetEntryEnabled} from '../../../dsh-presentation-protocol/src/asset-packs.js'
+import {stageWidgetSchemaValue} from '../../../dsh-asset-library/lib/index.js'
+import {skinOverlayTiming} from '../client/skin-overlay-timing.cjs'
 
 export function performanceWidgetDefaults(document) {
   const command=document?.commands?.find(item=>item.effect === 'state.set')

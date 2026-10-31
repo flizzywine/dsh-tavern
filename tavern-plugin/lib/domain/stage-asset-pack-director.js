@@ -20,7 +20,7 @@ import { initialAssetPackPacing } from './stage-asset-pack-pacing.js'
 import { assetPackDrop, assetPackToolResult, assetPackToolFeedback, assetPackFieldConstraint, foldAssetPackWindow } from './stage-asset-pack-validation.js'
 import { estimateDirectorTokens } from './stage-director-tokens.js'
 import {releaseStageControls} from './mods/interop.js'
-import {foldPerformanceAt, performanceProjectionSummary} from './performance-projection.js'
+import {foldPerformanceAt, performanceProjectionSummary} from '../../packages/dsh-tavern-stage/lib/domain/performance-projection.js'
 import {assetVariantCandidate} from '../../packages/dsh-presentation-protocol/src/asset-variants.js'
 import directorCommands from '../../packages/dsh-presentation-protocol/src/director-commands.cjs'
 import packAvatar from './pack-avatar.cjs' // shared cast appearance projection

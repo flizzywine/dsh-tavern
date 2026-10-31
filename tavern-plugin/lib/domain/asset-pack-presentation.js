@@ -8,7 +8,7 @@ import performanceContract from '../../packages/dsh-presentation-protocol/src/pe
 import { effectiveCardStage, cardStageSkin, cardStageSkinPackIds } from './card-stage-settings.js'
 import { readCardAssetExtension } from './card-asset-bindings.js'
 import { rawData } from './card-preparation.js'
-import {expandPerformanceDependencies, performanceWidgetDefaults} from './performance-projection.js'
+import {expandPerformanceDependencies, performanceWidgetDefaults} from '../../packages/dsh-tavern-stage/lib/domain/performance-projection.js'
 import {stagePerformanceImageShown} from './stage-narration.cjs'
 import { assetPackDigest as jsonHash } from './stage-asset-pack-catalogue.js'
 import { assetEntryEnabled, resolveAssetSnapshot, resolveFigureSnapshot } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
