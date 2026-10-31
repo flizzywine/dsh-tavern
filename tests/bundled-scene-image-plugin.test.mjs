@@ -650,13 +650,13 @@ test('真实发行副本：完整安装、入口可加载且默认不创建私�
   assert.equal(readFileSync(configPath, 'utf8'), userConfig)
 })
 
-test('真实 3.4.0 发行副本升级 3.1.x、3.2.1 与 3.3.0：保留用户数据和删除状态，重复安装跳过', t => {
+test('真实 3.4.1 发行副本升级旧版本：保留用户数据和删除状态，重复安装跳过', t => {
   const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const source = path.join(sourceRoot, 'tavern-plugin', 'packages', 'dsh-tavern-image-bundled')
   const info = readBundledSceneImage(sourceRoot)
   assert.equal(info.ok, true, info.reason)
-  assert.equal(info.version, '3.4.0')
-  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0']) {
+  assert.equal(info.version, '3.4.1')
+  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0', '3.3.1', '3.4.0']) {
     const dataRoot = makeData(t)
     const target = path.join(dataRoot, 'plugins', BUNDLED_SCENE_IMAGE_FOLDER)
     mkdirSync(path.join(target, 'lib'), { recursive: true })
@@ -681,8 +681,8 @@ test('真实 3.4.0 发行副本升级 3.1.x、3.2.1 与 3.3.0：保留用户数�
     const result = installBundledSceneImagePlugin(options)
     assert.equal(result.action, 'upgraded', installedVersion)
     assert.equal(result.installedVersion, installedVersion)
-    assert.equal(result.version, '3.4.0')
-    assert.equal(JSON.parse(readFileSync(path.join(target, 'package.json'), 'utf8')).version, '3.4.0')
+    assert.equal(result.version, '3.4.1')
+    assert.equal(JSON.parse(readFileSync(path.join(target, 'package.json'), 'utf8')).version, '3.4.1')
     for (const file of [
       'lib/index.js', 'lib/reference-images.js', 'lib/format-worldbooks.js',
       'lib/image-channels.js', 'lib/image-provider-capabilities.js', 'lib/image-providers.js',
@@ -695,7 +695,7 @@ test('真实 3.4.0 发行副本升级 3.1.x、3.2.1 与 3.3.0：保留用户数�
     assert.equal(existsSync(path.join(target, 'BUNDLED-VERSION.json')), false)
     const repeated = installBundledSceneImagePlugin(options)
     assert.equal(repeated.action, 'skipped')
-    assert.equal(repeated.installedVersion, '3.4.0')
+    assert.equal(repeated.installedVersion, '3.4.1')
     for (const [file, text] of preserved) assert.equal(readFileSync(path.join(target, file), 'utf8'), text, 'private data changed on repeat: ' + file)
     assert.deepEqual(readdirSync(path.join(dataRoot, 'plugins')), [BUNDLED_SCENE_IMAGE_FOLDER])
   }
