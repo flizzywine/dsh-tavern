@@ -321,7 +321,6 @@ function GalStage(props) {
     // Skip is either latched (the SKIP control) or held (Ctrl down, like most galgames).
     const [skipLatch, setSkipping] = React.useState(false);
     const [skipHeld, setSkipHeld] = React.useState(false);
-    const skipPossibleRef = React.useRef(false);
     const skipping = skipLatch || skipHeld;
     // the round is read to its end - the end panel (choices, their 生成选项 wait, 自由输入) is up,
     // and auto / skip have nothing left. One rule for every skin: the last line stays on screen with its voice until the player
@@ -607,7 +606,7 @@ function GalStage(props) {
     // playing; the next input ends the card. The input that stopped a fast-forward does only that (skipStopped).
     function input(delta) {
         if (hidden) { setHidden(false); return; }
-        if (skipStopped.current) { skipStopped.current = false; return; }
+        if (controlsInput.consumeInterrupted()) return;
         if (textcard.skip()) return; // input during a 文字演出 card ends the card (textcard-stage.js)
         // while the line waits for this page's blocking performances, an input skips
         // them (a title ends, a combination's phase lands on its sustained state) and the line starts at once; it does not turn
@@ -627,8 +626,6 @@ function GalStage(props) {
     // wheel stops it (the Ctrl hold effect below owns that for both), and that input is not also a page turn.
     const skippingRef = React.useRef(false);
     skippingRef.current = skipping;
-    const skipStopped = React.useRef(false);
-    skipPossibleRef.current = !atEnd;
     React.useEffect(() => () => voicePlayer.stop(),[sessionId]);
     // Warm a small spoken opening even when its first page is narration; keep the existing two workers.
     const voiceWindow = skipping || backlog || awaiting ? [] : stageVoiceWindowFromIndex(sessionId,runtime.textIndex,turn,pages,page,config,entryGate.visible ? Infinity : 1);
@@ -670,103 +667,20 @@ function GalStage(props) {
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{setEndedAt(endKey);stopSkip();},finishTyping:()=>setTyped(true)});
-    // a Space the stage took is not also a press of the focused control on keyup.
-    const pressedSpace = React.useRef(false);
-    React.useEffect(function () {
-        function onKey(event) {
-            // The Config screen and the system menu keep the keyboard (each closes itself on Esc).
-            if (configOpen || galleryOpen || menuOpen) return;
-            // no stage key while an input method is composing.
-            if (event.isComposing || event.keyCode === 229) return;
-            // A held Esc (auto-repeat) is not a new press: it would toggle the menu on every repeat while the browser
-            // waits for the hold that leaves full screen.
-            if (event.key === "Escape" && event.repeat) { event.preventDefault(); return; }
-            // An inner overlay (the choice editor, a widget reader, a popover) already took this Esc.
-            if (event.key === "Escape" && event.defaultPrevented) return;
-            const target = event.target;
-            // The chat composer can retain/retake focus behind this portal. Only stage editors
-            // own editing keys; an invisible composer must not disable Back or Escape.
-            if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && rootRef.current && rootRef.current.contains(target)) return;
-            const key = event.key, letter = key.length === 1 && /[a-z]/i.test(key) ? key.toLowerCase() : "";
-            const advance = key === " " || key === "Enter" || key === "ArrowRight" || key === "PageDown", back = key === "ArrowLeft" || key === "PageUp" || key === "Backspace";
-            // letter shortcuts leave Ctrl / Alt / Meta combinations to the browser
-            // (Ctrl+A, Ctrl+R, Ctrl+L); a held key turns one page and toggles once (auto-repeat is ignored).
-            if (letter && (event.ctrlKey || event.altKey || event.metaKey)) return;
-            if (event.repeat && (advance || back || letter)) { if (advance || back) event.preventDefault(); return; }
-            // A control the keyboard focused (Tab, galKeyboardFocus) keeps its own Enter / Space; after a pointer click
-            // they belong to the stage again - it pages, and its preventDefault keeps the focused control from being pressed.
-            if ((key === " " || key === "Enter") && target && target !== rootRef.current && typeof target.closest === "function" && target.closest("button, a[href], [role='button']") && rootRef.current && rootRef.current.contains(target) && galKeyboardFocus()) return;
-            // The backlog keeps the keyboard (arrows / Page keys scroll it; Enter on a row jumps).
-            if (backlog) {
-                if (key === "Escape" || letter === "l") { event.preventDefault(); closeBacklog(); }
-                return;
-            }
-            if (letter === "l") { event.preventDefault(); openBacklog(); return; }
-            if (advance) { event.preventDefault(); if (key === " ") pressedSpace.current = true; input(1); }
-            else if (back) { event.preventDefault(); input(-1); }
-            else if (event.key === "Escape") {
-                event.preventDefault();
-                if (hidden) { setHidden(false); return; }
-                if (sourceWidget.openKey) {sourceWidget.action(sourceWidget.openKey,'collapse');return;}
-                // A modal dialog inside the stage (a widget's reader) closes itself first, even without focus.
-                const root = rootRef.current;
-                if (root && typeof root.querySelector === "function" && root.querySelector("[aria-modal='true']")) return;
-                openMenu(false);
-            }
-            else if (letter === "h") setHidden(!hidden);
-            else if (letter === "r") replay();
-            // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
-            // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
-            else if (letter === "g") { if (stageViews.controls.pressRegenerate(rootRef.current)) event.preventDefault(); }
-            // Like the AUTO control: turning auto on also ends a SKIP.
-            else if (letter === "a") { if (!auto) setSkipping(false); setAuto(!auto); }
+    const controlsInput=stageViews.input.useInput({sessionId,rootRef,
+        modal:configOpen||galleryOpen||menuOpen,backlog,hidden,auto,skipping,atEnd,widgetOpen:!!sourceWidget.openKey},action=>{
+        switch(action.type){
+            case 'page':input(action.delta);break;
+            case 'backlog':action.open?openBacklog():closeBacklog();break;
+            case 'hidden':setHidden(action.value);break;
+            case 'collapse-widget':sourceWidget.action(sourceWidget.openKey,'collapse');break;
+            case 'menu':openMenu(false);break;
+            case 'replay':replay();break;
+            case 'auto':setAuto(action.value);break;
+            case 'skip':setSkipping(action.value);break;
+            case 'held':setSkipHeld(action.value);break;
         }
-        function onKeyUp(event) { if (event.key === " " && pressedSpace.current) { pressedSpace.current = false; event.preventDefault(); } }
-        window.addEventListener("keydown", onKey);
-        window.addEventListener("keyup", onKeyUp, true);
-        return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keyup", onKeyUp, true); };
     });
-    // Hold Ctrl to fast-forward (released = stop). A short arm delay and cancelling on any other
-    // key, click or wheel keep Ctrl shortcuts (copy, Ctrl+wheel reading size) from skipping.
-    const skipHoldBlocked = configOpen || galleryOpen || menuOpen || backlog || hidden;
-    React.useEffect(function () {
-        if (skipHoldBlocked) { setSkipHeld(false); return; }
-        let timer = 0;
-        function cancel() { forkForeground.clearTimeout(timer); timer = 0; setSkipHeld(false); }
-        // any other key, click or wheel also stops a SKIP-control fast-forward, and
-        // input() / wheel() drop that input instead of turning a page. The SKIP control's own press toggles it instead.
-        function interrupt(event) {
-            const own = event && event.type === "pointerdown" && event.target && typeof event.target.closest === "function" && event.target.closest(stageViews.controls.skipSelector);
-            const running = skippingRef.current && !own;
-            skipStopped.current = running;
-            cancel();
-            if (running) setSkipping(false);
-        }
-        function onDown(event) {
-            if (event.key !== "Control") { interrupt(event); return; }
-            if (event.repeat || timer || event.altKey || event.shiftKey || event.metaKey) return;
-            const target = event.target;
-            if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-            timer = forkForeground.setTimeout(() => { timer = 0; if (!skipPossibleRef.current) return; setAuto(false); setSkipHeld(true); }, 160);
-        }
-        function onUp(event) { if (event.key === "Control") cancel(); }
-        function onHidden() { if (document.hidden) cancel(); }
-        window.addEventListener("keydown", onDown, true);
-        window.addEventListener("keyup", onUp, true);
-        window.addEventListener("wheel", interrupt, true);
-        window.addEventListener("pointerdown", interrupt, true);
-        window.addEventListener("blur", cancel);
-        document.addEventListener("visibilitychange", onHidden);
-        return () => {
-            forkForeground.clearTimeout(timer); setSkipHeld(false); skipStopped.current = false;
-            window.removeEventListener("keydown", onDown, true);
-            window.removeEventListener("keyup", onUp, true);
-            window.removeEventListener("wheel", interrupt, true);
-            window.removeEventListener("pointerdown", interrupt, true);
-            window.removeEventListener("blur", cancel);
-            document.removeEventListener("visibilitychange", onHidden);
-        };
-    }, [skipHoldBlocked]);
     const para = current && current.para || 1;
     // A stage actor key (speaker, member ids) may be a carried key: its card character comes through the figure ref.
     function characterOf(alias) { return stageActorCharacter(config, pack.characters, alias); }
@@ -863,7 +777,7 @@ function GalStage(props) {
     // the box is hidden (the click brings it back), a click just stopped SKIP, a text card plays, or a menu, the backlog,
     // CONFIG, the gallery or a widget reader is open. Read at click time (gal-scene.js onStageTap).
     const tapGateRef = React.useRef(() => false);
-    tapGateRef.current = () => !hidden && !skipStopped.current && !textcard.up && !backlog && !configOpen && !galleryOpen && !menuOpen && !sourceWidget.openKey;
+    tapGateRef.current = () => !hidden && !controlsInput.wasInterrupted() && !textcard.up && !backlog && !configOpen && !galleryOpen && !menuOpen && !sourceWidget.openKey;
     const tapGate = React.useCallback(() => tapGateRef.current(), []);
     // A reaction still is acquired under this session's stage authority on the first tap only (gal-scene.js).
     const tapMedia = React.useCallback(descriptor => {
@@ -1049,7 +963,7 @@ function GalStage(props) {
     function wheel(event) {
         if (sourceWidget.scrollOwner) { if (!event.fromView) sourceWidget.scroll(event); return; }
         if (backlog || configOpen || galleryOpen || menuOpen || Date.now() - backlogClosedAt.current < 450) return;
-        if (skipStopped.current) { skipStopped.current = false; return; } // this notch only stopped a fast-forward
+        if (controlsInput.consumeInterrupted()) return; // this notch only stopped a fast-forward
         if (event.deltaY > 0 && !hidden && textcard.skip()) return; // hidden → the box comes back first
         const decision = stageViews.controls.wheel(wheelGesture.current, { now: Date.now(), deltaY: event.deltaY, deltaMode: event.deltaMode, typed, hidden });
         wheelGesture.current = decision.state;
