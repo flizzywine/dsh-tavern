@@ -5,8 +5,9 @@ const ordinaryBook=book=>book ? {...book,view:{...book.view,entries:(book.view?.
 
 // Migration boundary: stable consumers survive an absent or failed runtime.
 // The implementation is loaded only when enabled; this is not the final public plugin API.
-export async function createOptionalStage(core,{enabled=true,load,warn=error=>console.warn('dsh-tavern: 舞台不可用',error?.message)}={}) {
+export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{},warn=error=>console.warn('dsh-tavern: 舞台不可用',error?.message)}={}) {
   let runtime=null,foreground=null,cards=null,state=enabled?'loading':'disabled'
+  function setState(next){if(state===next)return;state=next;try{onStatus(next)}catch(error){report(error)}}
   let loadImplementation=load
   const phases=new Map()
   let generation=0,prepared=false,disposed=false,enabling=null,draining=Promise.resolve()
@@ -19,12 +20,12 @@ export async function createOptionalStage(core,{enabled=true,load,warn=error=>co
   }
   function failed(error,expected=runtime) {
     if(runtime !== expected)return
-    const old=runtime;runtime=null;foreground=null;cards=null;state='failed'
+    const old=runtime;runtime=null;foreground=null;cards=null;setState('failed')
     void release(old);report(error)
   }
   function disable() {
     generation++
-    const old=runtime;runtime=null;foreground=null;cards=null;state='disabled';enabling=null
+    const old=runtime;runtime=null;foreground=null;cards=null;setState('disabled');enabling=null
     return release(old)
   }
   async function enable(loader) {
@@ -37,14 +38,14 @@ export async function createOptionalStage(core,{enabled=true,load,warn=error=>co
     if(enabling)return enabling
     if(runtime)return
     const version=++generation
-    state='loading'
+    setState('loading')
     const work=(async()=>{
       await draining
       const implementation=await loadImplementation()
       if(disposed || version!==generation)return
       runtime=implementation.createStageRuntime(core)
       const installed=runtime
-      state='loaded'
+      setState('loaded')
       try {
         for(const [phase,args] of phases) {
           if(disposed || version!==generation || runtime!==installed)return
@@ -55,7 +56,7 @@ export async function createOptionalStage(core,{enabled=true,load,warn=error=>co
     enabling=work
     try {await work} finally {if(enabling===work)enabling=null}
   }
-  if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);state='loaded'}catch(error){failed(error)}
+  if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
   const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
   const dialogueBubbles={
     read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),
@@ -83,7 +84,7 @@ export async function createOptionalStage(core,{enabled=true,load,warn=error=>co
     },
     async start(bindings) {phases.set('start',[bindings]);const installed=runtime;if(installed)try{await installed.start(bindings)}catch(error){failed(error,installed)}},
     services(bindings) {phases.set('services',[bindings]);if(runtime)try{runtime.services(bindings)}catch(error){failed(error)}},
-    requests(bindings,registry) {phases.set('requests',[bindings,registry]);prepared=true;if(runtime)try{runtime.requests(bindings,registry);state='ready'}catch(error){failed(error)}},
+    requests(bindings,registry) {phases.set('requests',[bindings,registry]);prepared=true;if(runtime)try{runtime.requests(bindings,registry);setState('ready')}catch(error){failed(error)}},
     async dispose() {disposed=true;await disable();phases.clear()},
     status:()=>state
   })

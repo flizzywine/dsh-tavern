@@ -1085,7 +1085,7 @@ window.__ModuleLoader__.load({
                 report: error => tavernErrorHub.report("舞台", error)
             });
             ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
-            ctx.provide("tavernStageFrontend", Object.freeze({mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
+            ctx.provide("tavernStageFrontend", Object.freeze({availability:{read:()=>rpc('getStageRuntimeStatus',{}),subscribe:listener=>signals.subscribe('plugin:dsh-tavern-stage','plugin-lifecycle',listener,listener,listener)},mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();

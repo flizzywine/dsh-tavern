@@ -132,6 +132,7 @@ window.__ModuleLoader__.load({
         __STAGE_SFX__
         __STAGE_MUSIC__
         __STAGE_BGM__
+        __STAGE_AVAILABILITY__
         __STAGE_VIEWS__
         __STAGE_VIEW_SCOPE__
         return ({
@@ -141,7 +142,7 @@ window.__ModuleLoader__.load({
             // Private migration bridge: the stage package owns mounting/unmounting.
             // UI implementation is being extracted from the core client closure.
             const host = ctx.get('tavernStageFrontend');
-            ctx.effect(() => {
+            const activate=() => {
                 const cleanups=[];
                 let disposed=false;
                 const dispose=()=>{
@@ -270,7 +271,8 @@ window.__ModuleLoader__.load({
                     console.error('[dsh-tavern-stage] activation failed',failure,...(failure.errors || []));
                     return dispose;
                 }
-            }, 'dsh-tavern-stage: client lifetime');
+            };
+            ctx.effect(() => host?.availability ? watchStageAvailability({source:host.availability,activate}) : activate(), 'dsh-tavern-stage: client lifetime');
         }
     });}
 });

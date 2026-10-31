@@ -54,7 +54,8 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
-const stageServerLifecycle = process.argv.includes('--stage-server-lifecycle')
+const stageAutomaticLifecycle = process.argv.includes('--stage-auto-lifecycle')
+const stageServerLifecycle = stageAutomaticLifecycle || process.argv.includes('--stage-server-lifecycle')
 const stageLifecycle = stageServerLifecycle || process.argv.includes('--stage-lifecycle')
 const stageIsolation = process.argv.find(arg=>arg.startsWith('--stage-isolation='))?.split('=')[1]
 if(stageIsolation && !['absent','activation'].includes(stageIsolation)) throw Error('Unknown stage isolation scenario')
@@ -587,13 +588,6 @@ try {
       assert.equal(await page.getByText('画面载入失败', { exact: true }).count(), 0)
       await page.screenshot({ path: join(output, 'stage-open.png'), fullPage: true })
       if(stageLifecycle) for(let cycle=0;cycle<2;cycle++) {
-        await page.evaluate(()=>window.__stageLifecycleTest.disable())
-        await page.locator('.fork-gal-stage').waitFor({state:'detached'})
-        assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
-        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
-        const input=page.getByRole('textbox',{name:/发消息|Message/})
-        await input.fill('热停用期间保留的草稿')
-        if(stageServerLifecycle) {
           async function command(action) {
             const id=cycle+'-'+action
             await writeFile(join(output,'stage-command.json'),JSON.stringify({id,action}))
@@ -604,9 +598,16 @@ try {
             }
             throw Error('Stage server lifecycle did not settle: '+action)
           }
+        if(stageAutomaticLifecycle) await command('disable')
+        else await page.evaluate(()=>window.__stageLifecycleTest.disable())
+        await page.locator('.fork-gal-stage').waitFor({state:'detached'})
+        assert.equal(await page.locator('[data-plugin-css^="dsh-tavern-stage/"], .fork-gal-mount').count(),0)
+        assert.equal(await page.getByRole('button',{name:'舞台',exact:true}).count(),0)
+        const input=page.getByRole('textbox',{name:/发消息|Message/})
+        await input.fill('热停用期间保留的草稿')
+        if(stageServerLifecycle) {
           const readKinds=()=>page.evaluate(async()=> (await fetch('/api/dsh-tavern/getStagePerformanceKinds',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).json())
-          assert.ok(Array.isArray((await readKinds()).kinds),'停用前 RPC 应可用')
-          await command('disable')
+          if(!stageAutomaticLifecycle) {assert.ok(Array.isArray((await readKinds()).kinds),'停用前 RPC 应可用');await command('disable')}
           const unavailable=await readKinds()
           assert.equal(unavailable.ok,false,'舞台服务停用后 RPC 应撤销')
           assert.match(unavailable.error || unavailable.message || '',/未知方法|未启用/)
@@ -628,7 +629,7 @@ try {
           assert.ok(Array.isArray((await readKinds()).kinds),'重启后 RPC 应恢复')
         }
 
-        await page.evaluate(()=>window.__stageLifecycleTest.enable())
+        if(!stageAutomaticLifecycle) await page.evaluate(()=>window.__stageLifecycleTest.enable())
         await page.getByRole('button',{name:'舞台',exact:true}).click()
         await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
         assert.equal(await page.locator('.fork-gal-stage').count(),1)

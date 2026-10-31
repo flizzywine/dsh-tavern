@@ -698,7 +698,7 @@ export async function apply(ctx) {
   ctx.effect(() => modelSlots.register('core',{rows:() => modelSlotRows(CORE_MODEL_MANIFESTS,CORE_MODEL_MANIFESTS.map(row=>row.id))}))
   const clientAssets = createTavernClientAssets()
   ctx.provide('tavernClientAssets', clientAssets)
-  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:false})
+  const stageRuntime = await createOptionalStage({ctx, cardStorage, measure:(name,run)=>requestPerformance.stage(name,run), modelSlots, presentationObservers, resolveSlot, readCardWorkspace, coordinationEvents}, {enabled:false,onStatus:status=>sessionSignals.publish('plugin:dsh-tavern-stage',{kind:'plugin-lifecycle',version:status+':'+Date.now()+':'+Math.random()})})
   const {dialogueBubbles} = stageRuntime.assets
 
   // ---------- 模型调用 ----------
@@ -3633,6 +3633,7 @@ export async function apply(ctx) {
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
     createTransferHandlers(rpcDeps))
+  rpcHandlers.getStageRuntimeStatus = async () => ({status:stageRuntime.status()})
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
   stageRuntime.requests(rpcDeps, extensionRequests)

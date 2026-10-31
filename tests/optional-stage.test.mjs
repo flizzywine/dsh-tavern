@@ -53,3 +53,13 @@ test('disabling during asynchronous start fences the old instance while allowing
   await stage.dispose();assert.equal(stops,2)
   await assert.rejects(stage.enable(),{code:'STAGE_UNAVAILABLE'})
 })
+
+test('availability notifications reflect authoritative state through disable and reactivation',async()=>{
+ const seen=[]
+ const stage=await createOptionalStage({}, {enabled:false,onStatus:status=>seen.push([status,stage.status()]),load:async()=>({createStageRuntime:()=>({assets:{},start(){},services(){},requests(){},dispose(){}})})})
+ await stage.start({});stage.services({});stage.requests({},{})
+ await stage.enable();await stage.disable();await stage.enable()
+ assert.deepEqual(seen.map(([state])=>state),['loading','loaded','ready','disabled','loading','loaded','ready'])
+ assert.ok(seen.every(([event,current])=>event===current))
+ await stage.dispose()
+})
