@@ -1462,3 +1462,21 @@ test('tavern.job 的 needs：等别的插件任务这一轮做完再跑，读到
   assert.throws(() => phone.job({ name: 'x', run() {} }), /需要 on 或 needs/)
   assert.throws(() => phone.job({ name: 'x', needs: 'Bad', run() {} }), /插件名:任务名/)
 })
+
+test('managed mods wait for their optional host and rebind after stage restart', {skip:!cordis}, async t => {
+  const h = await harness(t)
+  let active=0, registrations=0
+  const mod=await h.root.plugin({name:'optional-mod',inject:['tavern'],apply(ctx){
+    ctx.get('tavern').registerMod({id:'test.mod'}, {})
+  }})
+  await tick()
+  const install=()=>h.root.plugin({name:'optional-mod-host',apply(ctx){
+    ctx.provide('tavernManagedModules',{apiVersion:1,register(){active++;registrations++;return()=>{active--}}})
+  }})
+  const first=await install();await tick()
+  assert.equal(active,1)
+  await first.dispose();await tick();assert.equal(active,0)
+  const second=await install();await tick();assert.equal(active,1);assert.equal(registrations,2)
+  await mod.dispose();await tick();assert.equal(active,0)
+  await second.dispose()
+})

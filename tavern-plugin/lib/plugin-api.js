@@ -303,9 +303,18 @@ export function createTavernPluginApi(deps) {
     // Managed modules opt in; ordinary plugins keep their existing API and card scope.
     get modHostApi() {return deps.modHost?.apiVersion ?? null},
     registerMod(manifest, implementation) {
+      const owner = ownerOf(this)
+      const ctx = this.ctx
+      // Stage can arrive after card plugins and can be stopped independently.
+      // Bind to each service lifetime, owned by the calling plugin's fiber.
+      if (typeof ctx?.inject === 'function') return owned(this, () => {
+        const binding = ctx.inject(['tavernManagedModules'], child => {
+          child.effect(() => child.get('tavernManagedModules').register(owner, manifest, implementation), 'tavern managed mod binding')
+        })
+        return () => binding.dispose()
+      }, 'tavern.registerMod()')
       const host=deps.modHost
       if (!host) throw new Error('Managed module host is not enabled')
-      const owner = ownerOf(this)
       return owned(this, () => host.register(owner, manifest, implementation), 'tavern.registerMod()')
     },
     capabilities,
