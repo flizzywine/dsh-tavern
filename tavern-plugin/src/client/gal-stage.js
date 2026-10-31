@@ -1403,23 +1403,7 @@ function galAwaitingText(activity) {
     }
     return GAL_AWAITING_WRITING;
 }
-// @include-domain mods/notices.cjs
-const capabilityNotices = createCapabilityNotices();
-function useCapabilityNotice(sessionId, live, rows) {
-    const [notice, setNotice] = React.useState(null);
-    React.useEffect(() => {
-        if (!live || !rows?.length) return;
-        const messages = capabilityNotices.take(sessionId, 'presented', {presented:rows.map(row => ({...row,available:false,onMissing:'notify'}))});
-        if (!messages.length) return;
-        setNotice(messages[0]);
-    }, [sessionId, live, rows]);
-    React.useEffect(() => {
-        if (!notice) return;
-        const timer = forkForeground.setTimeout(() => setNotice(null), 6000);
-        return () => forkForeground.clearTimeout(timer);
-    }, [notice]);
-    return live ? notice : null;
-}
+function useCapabilityNotice(...args) { return stageViews.notices.useCapabilityNotice(...args); }
 function GalRuntimeStatus(props) { return stageViews ? React.createElement(stageViews.notices.Status, props) : null; }
 // the classic control row is 自动 / 跳过 / 隐藏 / 上一页 / 履历 / ≡
 // (设置 and 返回主页面 are menu items, ✕ is in the top bar). Phones (the one stage breakpoint, 640px - the skin art, the
@@ -1499,7 +1483,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
-        notices:{displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts},
+        notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
         portraits:{foreground:forkForeground, SpriteImage, PackImage, emoteDataUrl:galEmoteDataUrl, cssColor:galCssColor, MutationObserver, getComputedStyle, matchMedia},

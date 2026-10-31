@@ -30,3 +30,24 @@ test('stage errors hide technical details by default and retain their reload act
   walk(tree)
   assert.ok(functions.some(node=>node.props?.onReload))
 })
+test('capability notices isolate sessions and cancel all pending expiry work on disposal',()=>{
+  let state=null, effects=[], updates=0
+  const timers=new Set(),callbacks=[]
+  const React={useState:()=>[state,next=>{updates++;state=typeof next==='function'?next(state):next}],useEffect:fn=>effects.push(fn)}
+  const views=createStageNotices({React,foreground:{setTimeout:fn=>{callbacks.push(fn);timers.add(fn);return fn},clearTimeout:fn=>timers.delete(fn)}})
+  const render=(id,rows)=>{effects=[];const value=views.useCapabilityNotice(id,true,rows);effects.forEach(fn=>fn());return value}
+  assert.equal(render('a',[{message:'A missing'}]),null)
+  assert.equal(render('a',[]),'A missing')
+  const expireA=callbacks[0]
+  assert.equal(render('b',[{message:'B missing'}]),null)
+  assert.equal(render('b',[]),'B missing')
+  timers.delete(expireA);expireA()
+  assert.equal(state.message,'B missing')
+  views.dispose()
+  const before=updates
+  callbacks.forEach(fn=>fn())
+  assert.equal(updates,before)
+  assert.equal(timers.size,0)
+  render('c',[{message:'C missing'}])
+  assert.equal(updates,before)
+})

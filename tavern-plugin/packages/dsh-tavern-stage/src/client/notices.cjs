@@ -1,6 +1,29 @@
 'use strict';
-function createStageNotices({React, document, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts}) {
+function createStageNotices({React, document, foreground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts}) {
 let disposed = false;
+const notifiedSessions = new Set(), pendingNotices = new Set();
+function useCapabilityNotice(sessionId, live, rows) {
+    const [notice, setNotice] = React.useState(null);
+    React.useEffect(() => {
+        if (disposed || !live || notifiedSessions.has(sessionId)) return;
+        const missing = rows?.find(row => row.message);
+        if (!missing) return;
+        notifiedSessions.add(sessionId);
+        setNotice({sessionId, message:missing.message});
+    }, [sessionId, live, rows]);
+    React.useEffect(() => {
+        if (disposed || !notice || notice.sessionId !== sessionId) return;
+        let active = true;
+        const timer = foreground.setTimeout(() => {
+            if (!disposed && active) setNotice(current => current === notice ? null : current);
+            pendingNotices.delete(stop);
+        }, 6000);
+        const stop = () => { active = false; foreground.clearTimeout(timer); pendingNotices.delete(stop); };
+        pendingNotices.add(stop);
+        return stop;
+    }, [sessionId, notice]);
+    return live && notice?.sessionId === sessionId ? notice.message : null;
+}
 function useAlive() {
     const ref = React.useRef(null);
     React.useEffect(() => { const token = {}; ref.current = token; return () => { if (ref.current === token) ref.current = null; }; }, []);
@@ -181,6 +204,13 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
             onReloadScene ? h(GalSceneReload, { onReload: onReloadScene }) : null) : null);
 }
 
-return {Status:GalRuntimeStatus, Retry:GalRetryBody, useSpriteFallbacks:useGalSpriteFallbacks, dispose() { disposed = true; galNoticeFolds.open.clear(); }};
+return {useCapabilityNotice, Status:GalRuntimeStatus, Retry:GalRetryBody, useSpriteFallbacks:useGalSpriteFallbacks, dispose() {
+    if (disposed) return;
+    disposed = true; galNoticeFolds.open.clear(); notifiedSessions.clear();
+    const errors = [];
+    for (const stop of [...pendingNotices]) { try {stop();} catch (error) {errors.push(error);} }
+    pendingNotices.clear();
+    if (errors.length) throw new AggregateError(errors, "Stage notice cleanup failed");
+}};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageNotices};
