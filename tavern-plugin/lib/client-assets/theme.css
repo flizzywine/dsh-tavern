@@ -209,6 +209,7 @@ body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assi
   flex-wrap: nowrap;
 }
 .dsh-fork-inline-actions [data-fork-action] {
+  display: inline-flex; align-items: center; justify-content: center;
   --icon: none;
   position: relative;
   width: 32px;
