@@ -450,7 +450,7 @@ const galEnter = (...args) => { if (!disposed) return navigate(...args); };
 const cleanups = new Set(), timers = new Set();
 function setTimeout(fn, delay) {
     if (disposed) return null;
-    const timer = schedule(() => { timers.delete(timer); if (!disposed) fn(); }, delay);
+    const timer = schedule(() => { const active = timers.delete(timer); if (active && !disposed) fn(); }, delay);
     timers.add(timer); return timer;
 }
 function clearTimeout(timer) { timers.delete(timer); cancelTimer(timer); }
@@ -522,8 +522,17 @@ function StageMarkdown(props) {
     React.useLayoutEffect(function () {
         const parent = root.current;
         if (!parent) return;
+        let active = true;
+        const marked = new Map();
+        function restore(node, before) {
+            for (const [key, value] of Object.entries(before.attributes)) {
+                if (value === null) node.removeAttribute(key); else node.setAttribute(key, value);
+            }
+            node.classList.toggle('fork-stage-paragraph', before.paragraph);
+            node.classList.toggle('is-long-pressed', before.pressed);
+        }
         function collect() {
-            if (disposed) return;
+            if (disposed || !active) return;
             const blocks = galBlocks(props.text);
             const nodes = Array.from(parent.querySelectorAll('p, h1, h2, h3, h4, h5, h6, pre, li, table, blockquote')).filter(node =>
                 !node.closest('button') && !node.querySelector('p, pre, li, table, blockquote'));
@@ -531,7 +540,12 @@ function StageMarkdown(props) {
             const paras = galParagraphTargets(blocks, nodes.map(node => node.textContent), props.base);
             const targets = new Set(blocks.length ? nodes : []);
             parent.querySelectorAll('.fork-stage-enter-here').forEach(button => { if (!targets.has(button.parentNode)) button.remove(); });
+            for (const [node, before] of marked) if (!targets.has(node)) { restore(node, before); marked.delete(node); }
             if (blocks.length) nodes.forEach((node, i) => {
+                if (!marked.has(node)) marked.set(node, {
+                    attributes:Object.fromEntries(['data-fork-stage-turn','data-fork-stage-para'].map(key => [key,node.getAttribute(key)])),
+                    paragraph:node.classList.contains('fork-stage-paragraph'), pressed:node.classList.contains('is-long-pressed')
+                });
                 const para = paras[i];
                 node.classList.add('fork-stage-paragraph'); node.setAttribute('data-fork-stage-turn', props.turn); node.setAttribute('data-fork-stage-para', para);
                 const last = node.lastChild;
@@ -547,7 +561,12 @@ function StageMarkdown(props) {
             collect();
         });
         observer.observe(parent, { childList: true, subtree: true, characterData: true });
-        return own(() => { observer.disconnect(); parent.querySelectorAll(".fork-stage-enter-here").forEach(button => button.remove()); });
+        return own(() => {
+            active = false; observer.disconnect();
+            parent.querySelectorAll('.fork-stage-enter-here').forEach(button => button.remove());
+            for (const [node, before] of marked) restore(node, before);
+            marked.clear();
+        });
     }, [props.text, props.turn, props.base]);
     function cancel() { clearTimeout(timer.current); }
     React.useEffect(() => own(cancel), []);
