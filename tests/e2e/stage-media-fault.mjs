@@ -29,11 +29,12 @@ function tone(hz) {
   return bytes
 }
 export function installStageAudioProbe() {
+  let loopStarts=0
   const sources=new Set(),start=AudioBufferSourceNode.prototype.start
   AudioBufferSourceNode.prototype.start=function(...args){
-    const result=Reflect.apply(start,this,args);sources.add(this)
+    const result=Reflect.apply(start,this,args);sources.add(this);if(this.loop)loopStarts++
     this.addEventListener('ended',()=>sources.delete(this),{once:true})
     return result
   }
-  window.__stageAudioProbe=()=>({looping:[...sources].filter(node=>node.loop&&node.context.state==='running').length})
+  window.__stageAudioProbe=()=>({loopStarts,looping:[...sources].filter(node=>node.loop).length,audibleLooping:[...sources].filter(node=>node.loop&&node.context.state==='running').length})
 }

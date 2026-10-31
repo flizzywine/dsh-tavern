@@ -55,7 +55,8 @@ const helperApiScenario = process.argv.includes('--helper-api')
 // Story body submitted through the submit_story tool (global input/output switches, off by default).
 const storyToolScenario = process.argv.includes('--story-tool')
 // Dialogue avatars: settlement annotates speakers, quoted lines show as speaker rows.
-const stageAudioLifecycle = process.argv.includes('--stage-audio-lifecycle')
+const stageAudioFault = process.argv.includes('--stage-audio-fault')
+const stageAudioLifecycle = stageAudioFault || process.argv.includes('--stage-audio-lifecycle')
 const stageMediaFault = process.argv.includes('--stage-media-fault')
 const stageUserSwitch = process.argv.includes('--stage-user-switch')
 const stageRpcFault = process.argv.includes('--stage-rpc-fault')
@@ -616,8 +617,23 @@ try {
         await page.keyboard.press('Escape')
         await page.getByRole('button',{name:/^BGM(?:：.*)?$/}).filter({visible:true}).last().click()
         await page.locator('.fork-bgm-track').filter({hasText:'正常音乐'}).click()
-        await page.waitForFunction(()=>window.__stageAudioProbe().looping===1)
+        await page.waitForFunction(()=>window.__stageAudioProbe().looping===1&&window.__stageAudioProbe().audibleLooping===1)
         report.realAudioPlaying=true
+        if(stageAudioFault) {
+          const initialLoopStarts=await page.evaluate(()=>window.__stageAudioProbe().loopStarts)
+          await page.route('**/api/dsh-asset-library/v2/lease/*/media',route=>{
+            report.audioFailures=(report.audioFailures||0)+1
+            return route.fulfill({status:404,contentType:'text/plain',body:'E2E missing stage audio'})
+          })
+          await page.locator('.fork-bgm-track').filter({hasText:'故障音乐'}).click()
+          await page.getByRole('dialog',{name:'BGM',exact:true}).getByRole('alert').filter({hasText:'载入失败'}).waitFor()
+          assert.ok(report.audioFailures,'必须实际触发音频文件加载失败')
+          assert.ok(await page.evaluate(()=>window.__stageAudioProbe().looping<=1),'音频失败不能产生重复循环音源')
+          await page.unroute('**/api/dsh-asset-library/v2/lease/*/media')
+          await page.locator('.fork-bgm-track').filter({hasText:'故障音乐'}).click()
+          await page.waitForFunction(started=>window.__stageAudioProbe().loopStarts>started&&window.__stageAudioProbe().looping===1&&window.__stageAudioProbe().audibleLooping===1&&!document.querySelector('.fork-bgm-panel [role=alert]'),initialLoopStarts)
+          report.audioRecovered=true
+        }
         await page.keyboard.press('Escape')
       }
       if(stageMediaFault) {
@@ -760,7 +776,7 @@ try {
       await page.getByText('你获得了十枚金币。', { exact: false }).filter({ visible: true }).first().waitFor()
       assert.deepEqual(errors, [], '舞台切换不得产生未捕获异常')
       await page.screenshot({ path: join(output, 'chat-after-stage.png'), fullPage: true })
-      if(stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
+      if(stageAudioFault || stageMediaFault || stageUserSwitch || stageRpcFault || stageRenderFault || stageIsolation === 'activation') {
         if(stageUserSwitch) {
           await page.getByRole('button',{name:'设置',exact:true}).click()
           await page.getByText('Settings',{exact:true}).click()
@@ -775,6 +791,21 @@ try {
         await page.reload({waitUntil:'domcontentloaded'})
         await page.getByRole('button',{name:'舞台',exact:true}).click()
         await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
+        if(stageAudioFault) {
+          await page.keyboard.press('Escape')
+          await page.getByRole('button',{name:/^BGM(?:：.*)?$/}).filter({visible:true}).last().click()
+          await page.locator('.fork-bgm-track').filter({hasText:'正常音乐'}).click()
+          await page.waitForFunction(()=>window.__stageAudioProbe().looping===1&&window.__stageAudioProbe().audibleLooping===1)
+          const disable=await page.evaluate(async()=>(await fetch('/api/dsh-tavern/setStageEnabled',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:false})})).json())
+          assert.equal(disable.status,'disabled')
+          await page.locator('.fork-gal-stage').waitFor({state:'hidden'})
+          await page.waitForFunction(()=>window.__stageAudioProbe().looping===0)
+          report.audioStoppedOnDisable=true
+          const enable=await page.evaluate(async()=>(await fetch('/api/dsh-tavern/setStageEnabled',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:true})})).json())
+          assert.notEqual(enable.ok,false)
+          await page.getByRole('button',{name:'舞台',exact:true}).click()
+          await page.locator('.fork-gal-stage[data-entry="ready"]').waitFor()
+        }
         if(stageMediaFault){
           await page.waitForFunction(()=>window.forkGalDebug?.stats().layers.some(layer=>!!layer.url))
           await page.keyboard.press('Escape')
@@ -788,6 +819,7 @@ try {
         await page.keyboard.press('Escape')
         await page.getByRole('button',{name:/返回主页面/}).filter({visible:true}).last().click()
         await composer.waitFor({state:'visible'})
+        if(stageAudioFault)await page.waitForFunction(()=>window.__stageAudioProbe().looping===0)
         assert.deepEqual(errors,[])
         report.stageRecovered=true
       }
