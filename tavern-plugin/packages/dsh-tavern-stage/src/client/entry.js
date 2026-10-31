@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
     factory: () => {
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
+        __STAGE_NOTICES__
         __STAGE_HINTS__
         __STAGE_PRESENTATION__
         __STAGE_PORTRAITS__
@@ -44,7 +45,7 @@ window.__ModuleLoader__.load({
                     const progress = createStageProgress({React:options.React, ...options.admission});
                     const admission = createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission});
                     const music = createStageMusic(options.music);
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, hints:createStageHints({React:options.React, window, document, music, ...options.hints}), music, bgm:createBgmPlayer({...options.bgm, music}), ambience:createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}), timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), loader, admission, progress, notices:createStageNotices({React:options.React, document, ...options.notices}), hints:createStageHints({React:options.React, window, document, music, ...options.hints}), music, bgm:createBgmPlayer({...options.bgm, music}), ambience:createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)}), timer:createStageTimer({React:options.React, window, ...options.timer}), video:createStageVideo(options.video),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
