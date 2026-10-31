@@ -47876,8 +47876,18 @@ function cardLibraryDisplayName(card) {
 		        const preload = desc.preload || [];
 		        if (preload.join("\n") !== state.preloadKey) { state.preloadKey = preload.join("\n"); preload.slice(0, 8).forEach(url => loadTexture(url)); }
 		    }
-		    // A failing frame is reported once and the next frame tries again (the stage never freezes silently).
-		    function frame() { try { tick(); } catch (error) { if (!state.tickError) { state.tickError = String(error && error.stack || error); console.error("[fork-gal-scene] frame failed", error); } } }
+		    // A broken renderer stops until explicitly reloaded; it never retries every frame.
+		    let releaseForeground = () => {};
+		    function failFrame(error) {
+		        if(state.destroyed || state.tickError)return;
+		        state.tickError=String(error && error.stack || error);
+		        for(const stop of [()=>app.ticker.stop(),()=>releaseForeground(),()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}}]){
+		            try{stop();}catch(cleanup){console.warn('[fork-gal-scene] frame stop failed',cleanup);}
+		        }
+		        try{onError(String(error && error.message || error));}catch(report){console.warn('[fork-gal-scene] error report failed',report);}
+		        console.error('[fork-gal-scene] frame failed',error);
+		    }
+		    function frame() { if(state.destroyed || state.tickError)return;try { tick(); } catch (error) { failFrame(error); } }
 		    // Be deliberately conservative: even flat figures can breathe, blink or gesture. Only a
 		    // settled, empty, neutral stage without DOM animations qualifies for the idle rate.
 		    function frameRate() {
@@ -47888,14 +47898,17 @@ function cardLibraryDisplayName(card) {
 		    }
 		    // The wrapper restores the requested cap after Pixi dispatches its listeners.
 		    app.ticker.update = function (now) {
-		        now = now == null ? performance.now() : now;
-		        const fps = frameRate();
-		        if (!galFrameDue(pace, now, fps)) return;
-		        this.maxFPS = 0;
-		        try { tickerUpdate.call(this, now); } finally { this.maxFPS = fps; }
+		        if(state.destroyed || state.tickError)return;
+		        try{
+		            now = now == null ? performance.now() : now;
+		            const fps = frameRate();
+		            if (!galFrameDue(pace, now, fps)) return;
+		            this.maxFPS = 0;
+		            try { tickerUpdate.call(this, now); } finally { this.maxFPS = fps; }
+		        }catch(error){failFrame(error);}
 		    };
 		    app.ticker.add(frame);
-		    const releaseForeground = forkForeground.application(app);
+		    releaseForeground = forkForeground.application(app);
 		    // A new pixel ratio (another monitor, the zoom) re-renders at it, with the filters retuned, without a reload.
 		    const releaseResolution = galResolutionSubscribe(() => applyQuality(quality));
 
@@ -48039,29 +48052,25 @@ function cardLibraryDisplayName(card) {
 		            state.changedAt = performance.now();
 		        },
 		        destroy() {
+		            if(state.destroyed)return;
 		            state.destroyed = true;
-		            releaseForeground();
-		            releaseResolution();
-		            faceBoxObserver?.disconnect();
-		            emptyThemeObserver.disconnect();
-		            if (stageHost) { for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) stageHost.removeEventListener(type, onStagePointer, { capture: true }); stageHost.removeEventListener("click", onStageTap, true); }
-		            if (stageHost && galFigureSources.get(stageHost) === figureRects) galFigureSources.delete(stageHost);
-		            if (state.pump) { state.pump.stop = true; state.pump.off(); }
-		            app.ticker.remove(frame);
-		            effects.destroy();
-		            cast.dispose();
-		            sceneLayout.dispose();
-		            state.offstage.forEach(entry => { if (entry.next) destroyFigure(entry.next); destroyFigure(entry); });
-		            call.dispose();
-		            offstageBox.destroy();
-		            backgrounds.dispose();
-		            figureAssets.dispose();
-		            textures.dispose();
-		            bust.dispose();
-		            thinking.dispose();
-		            app.destroy(true, { children: true });
-		            Object.values(generated).forEach(texture => texture.destroy(true));
-		            
+		            const errors=[];
+		            const clean=fn=>{try{fn();}catch(error){errors.push(error);}};
+		            clean(()=>app.ticker.stop());
+		            clean(releaseForeground);clean(releaseResolution);
+		            clean(()=>faceBoxObserver?.disconnect());clean(()=>emptyThemeObserver.disconnect());
+		            if(stageHost){
+		                for(const type of ['pointerdown','pointermove','pointerup','pointercancel'])clean(()=>stageHost.removeEventListener(type,onStagePointer,{capture:true}));
+		                clean(()=>stageHost.removeEventListener('click',onStageTap,true));
+		                if(galFigureSources.get(stageHost)===figureRects)galFigureSources.delete(stageHost);
+		            }
+		            clean(()=>{if(state.pump){state.pump.stop=true;state.pump.off();state.pump=null;}});
+		            clean(()=>app.ticker.remove(frame));
+		            for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
+		            for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
+		            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),()=>app.destroy(true,{children:true})])clean(dispose);
+		            for(const texture of Object.values(generated))clean(()=>texture.destroy(true));
+		            if(errors.length)throw new AggregateError(errors,'Stage scene cleanup failed');
 		        }
 		    };
 		}
@@ -48114,7 +48123,7 @@ function cardLibraryDisplayName(card) {
 		        if ((props.reload || 0) === reloads.current) return;
 		        reloads.current = props.reload || 0;
 		        setError('');
-		        if (scene.current) scene.current.reload(); else setAttempt(n => n + 1);
+		        if (scene.current && !error) scene.current.reload(); else setAttempt(n => n + 1);
 		    }, [props.reload]);
 		    React.useEffect(function () {
 		        if (!startRenderer) return;
@@ -48141,7 +48150,8 @@ function cardLibraryDisplayName(card) {
 		            live = false;
 		            if (scene.current) {
 		                if (window.forkGalDebug === scene.current.debug) delete window.forkGalDebug;
-		                scene.current.destroy(); scene.current = null;
+		                const previous=scene.current;scene.current=null;
+		                try{previous.destroy();}catch(error){console.warn('[fork-gal-scene] cleanup failed',error);}
 		            }
 		        };
 		    }, [startRenderer, attempt]);
