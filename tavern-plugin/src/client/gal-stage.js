@@ -1425,6 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        regenerate:{report:(...args)=>tavernErrorHub.report(...args),sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,HelpTip,Segmented,TextArea,StageWaitStop,StageWaitLines},
         backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useClipBacklog:typeof useClipBacklog==='function'?useClipBacklog:undefined,useJumpLatest,JumpLatest,useFigureTextContrast,stageSkinBacklogPlateStyle,stageSkinBacklogPlate,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
         backlogPaging:{hydrateText:(sessionId,turn)=>stageSessions.owner?.hydrateText?.(sessionId,turn), hasOlder:sessionId=>stageSessions.owner?.hasOlder?.(sessionId), loadOlder:sessionId=>stageSessions.owner?.loadOlder?.(sessionId)},
         backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
