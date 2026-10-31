@@ -684,10 +684,10 @@ function galCreateLookRenderer(env) {
             const moodMs = layer.to.fade ? 1000 * layer.to.fade[0] : layer.from && layer.from.fade ? 1000 * layer.from.fade[1] : 4000;
             layer.duration = first || desc.snap ? 0 : index ? moodMs : desc.timeFadeMs === 2500 ? 2500 : desc.skipping ? 150 : GAL_LOOK_MS;
         });
-        const weather = typeof GAL_WEATHERS !== "undefined" && GAL_WEATHERS.includes(desc.weather) ? desc.weather : "";
+        const weather = stageViews.weather.kinds.includes(desc.weather) ? desc.weather : "";
         if (weather !== state.weatherKey) {
             const first = state.weatherKey == null;
-            state.weatherKey = weather; state.weatherFrom = state.weather; state.weatherTo = galWeatherMatrix(weather); state.weatherStart = first ? now - GAL_LOOK_MS : now;
+            state.weatherKey = weather; state.weatherFrom = state.weather; state.weatherTo = stageViews.weather.matrix(weather); state.weatherStart = first ? now - GAL_LOOK_MS : now;
         }
     }
     function tick(desc, now, W, H, quality) {
@@ -787,13 +787,13 @@ function galCreateLookRenderer(env) {
             const art = texture("flare:" + item.art, now);
             item.texture = art || PIXI.Texture.EMPTY;
             if (item.art === "glow") { item.position.set(sx, sy); item.width = item.height = H * 1.1; item.tint = color; item.alpha = 0.75 * a; }
-            else if (item.art === "core") { item.position.set(sx, sy); item.width = item.height = H * 0.22; item.tint = galColorMix(color, 0xffffff, 0.6); item.alpha = 0.9 * a; }
-            else if (item.art === "streak") { item.position.set(sx, sy); item.width = W * 1.5; item.height = H * 0.035; item.tint = galColorMix(color, 0xbfd4ff, 0.35); item.alpha = 0.55 * a; }
+            else if (item.art === "core") { item.position.set(sx, sy); item.width = item.height = H * 0.22; item.tint = stageViews.effectColors.mix(color, 0xffffff, 0.6); item.alpha = 0.9 * a; }
+            else if (item.art === "streak") { item.position.set(sx, sy); item.width = W * 1.5; item.height = H * 0.035; item.tint = stageViews.effectColors.mix(color, 0xbfd4ff, 0.35); item.alpha = 0.55 * a; }
             else if (item.art === "ring") { item.position.set(sx, sy); item.width = item.height = H * 0.75; item.tint = color; item.alpha = 0.22 * a; }
             else {
                 const [k, size, alpha, tint] = ghosts[ghost++];
                 item.position.set(cx + (cx - sx) * k, cy + (cy - sy) * k);
-                item.width = item.height = H * size * 2.2; item.tint = galColorMix(color, galLookHex(tint), 0.5); item.alpha = alpha * a * 1.6;
+                item.width = item.height = H * size * 2.2; item.tint = stageViews.effectColors.mix(color, galLookHex(tint), 0.5); item.alpha = alpha * a * 1.6;
             }
         });
     }

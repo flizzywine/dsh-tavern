@@ -1425,6 +1425,7 @@ function bindStageViews(createViews) {
         phoneAdjust:{navigator, pad:STAGE_WIDGET_PLACE_PAD, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         skinDecoration:{clock:forkForeground, MutationObserver:globalThis.MutationObserver, ResizeObserver:globalThis.ResizeObserver},
         skinCursor:{matchMedia, clock:forkForeground},
+        visualEffects:{matrix:galMatrix,ease:galEase,clamp:galClamp01,canvasTexture:galCanvasTexture},
         figureMotion:{spring:galSpring,fade:galMotionFade,lipSyncIds:galLipSyncIds},
         figureIdle:{spring:galSpring,springValue:galSpringValue},
         danmaku:{renderers:MOD_STAGE_RENDERERS,Image,getComputedStyle,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,performance},
@@ -1469,7 +1470,7 @@ function bindStageViews(createViews) {
         notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
         presentation:{foreground:forkForeground, titleTiming:STAGE_EFFECTS.title, matchMedia, getComputedStyle, ResizeObserver, MutationObserver},
-        portraits:{foreground:forkForeground, SpriteImage, PackImage, emoteDataUrl:galEmoteDataUrl, cssColor:galCssColor, MutationObserver, getComputedStyle, matchMedia},
+        portraits:{foreground:forkForeground, SpriteImage, PackImage, MutationObserver, getComputedStyle, matchMedia},
         labels:{getComputedStyle, ResizeObserver, requestAnimationFrame, cancelAnimationFrame},
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
