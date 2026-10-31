@@ -81,9 +81,8 @@ function galCreateScene(host, options) {
     figuresBox.sortableChildren = true;
     backdrop.addChild(layersBox, vignette);
     // the skin's inner-monologue backdrop (art.thinking; an original's
-    // StoryEffectUnit::setThinking, layout order 2: over the background, under the figures at 4). Screen-fixed (tickThinking).
-    const thinking = { sprite: new PIXI.Sprite(PIXI.Texture.EMPTY), image: null, texture: null, alpha: 0, at: 0 };
-    thinking.sprite.anchor.set(0.5); thinking.sprite.visible = false;
+    // StoryEffectUnit::setThinking, layout order 2: over the background, under the figures at 4). Screen-fixed (plugin monologue layer).
+    const thinking = stageViews.monologue.create({PIXI,world});
     world.addChild(backdrop, thinking.sprite, backFx, figuresBox, frontFx, emotesBox);
     const cover = new PIXI.Sprite(PIXI.Texture.WHITE);
     cover.alpha = 0; cover.visible = false;
@@ -1154,49 +1153,6 @@ function galCreateScene(host, options) {
     // the inner-monologue backdrop while the line is inner monologue. Linear
     // fades (the original: in .1 s, out .2 s); stretched to `over` x the screen (1.1) and held still against the camera and
     // shake, as the original's node sits outside the background's pan. Skip and history show the end state at once.
-    // desc.thinking: the resolved `thinking` effect (stage-effects.cjs) while the line on screen is inner monologue.
-    // Without an image (the engine default) the backdrop is our own procedural dim: the scene darkened by `dim` with a
-    // light vignette (dithered, no banding at 4K); a skin's image replaces it. 减少动态: 120 ms fades.
-    function thinkingDim(spec) {
-        const key = spec.dim + ":" + spec.vignette;
-        if (thinking.dimKey !== key) {
-            if (thinking.dimTexture) thinking.dimTexture.destroy(true);
-            thinking.dimKey = key;
-            thinking.dimTexture = stageViews.sceneGraphics.canvasTexture(PIXI, 960, 540, function (ctx, w, h) {
-                const image = ctx.createImageData(w, h), data = image.data;
-                for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-                    const dx = (x - w / 2) / (w / 2), dy = (y - h / 2) / (h / 2), r = Math.min(1, Math.hypot(dx * 0.82, dy));
-                    const a = Math.min(1, spec.dim + spec.vignette * Math.pow(Math.max(0, (r - 0.45) / 0.55), 1.6)), at = (y * w + x) * 4;
-                    data[at] = data[at + 1] = data[at + 2] = 0; data[at + 3] = Math.max(0, Math.min(255, Math.round(a * 255 + Math.random() - 0.5)));
-                }
-                ctx.putImageData(image, 0, 0);
-            });
-        }
-        return thinking.dimTexture;
-    }
-    function tickThinking(desc, now, dt, W, H) {
-        const spec = desc.thinking || null;
-        if (spec && spec.image && spec.image !== thinking.image) {
-            if (thinking.texture) thinking.texture.destroy(true);
-            thinking.image = spec.image; thinking.texture = PIXI.Texture.from(spec.image);
-        }
-        if (spec) thinking.source = spec.image ? thinking.texture : thinkingDim(spec);
-        if (thinking.source && thinking.sprite.texture !== thinking.source) thinking.sprite.texture = thinking.source;
-        const target = spec && thinking.source ? 1 : 0, fade = spec?.fade || thinking.fade || [0.15, 0.25];
-        if (spec) thinking.fade = fade;
-        const ms = desc.reducedMotion ? 120 : 1000 * (target > thinking.alpha ? fade[0] : fade[1]);
-        thinking.alpha = desc.snap || desc.skipping || ms <= 0 ? target : target > thinking.alpha ? Math.min(target, thinking.alpha + dt * 1000 / ms) : Math.max(target, thinking.alpha - dt * 1000 / ms);
-        const sprite = thinking.sprite;
-        sprite.visible = thinking.alpha > 0.001 && Boolean(thinking.source);
-        if (!sprite.visible) return;
-        const over = spec?.over || thinking.over || 1;
-        if (spec) thinking.over = over;
-        const center = world.toLocal(new PIXI.Point(W / 2, H / 2)), zoom = world.scale.x || 1, texture = sprite.texture;
-        sprite.position.set(center.x, center.y); sprite.rotation = -world.rotation;
-        sprite.scale.set(W / (texture.width || 1) * over / zoom, H / (texture.height || 1) * over / zoom);
-        sprite.alpha = thinking.alpha;
-    }
-
     // ---- one-shot effects (screen.play beats, emotes) and the camera
     function tickEffects(desc, now) {
         const list = (desc.effects || []).concat(state.debugEffects);
@@ -1308,7 +1264,7 @@ function galCreateScene(host, options) {
         tickShot(desc, W, H);
         if (desc.figureMode !== "none" && !desc.shot) sampleBodies(W, H);
         tickBust(desc, now, W, H);
-        tickThinking(desc, now, dt, W, H);
+        thinking.tick(desc, dt, W, H);
         tickCallView(desc, dt, W, H);
         galSpring(state.dof, dofTarget && quality === "high" ? 1 : 0, 6, dt);
         effects.tick(desc, now, dt, state.dof.v);
@@ -1513,8 +1469,7 @@ function galCreateScene(host, options) {
             backgrounds.dispose();
             textures.dispose();
             if (bust.texture) bust.texture.destroy(true);
-            if (thinking.texture) thinking.texture.destroy(true);
-            if (thinking.dimTexture) thinking.dimTexture.destroy(true);
+            thinking.dispose();
             app.destroy(true, { children: true });
             Object.values(generated).forEach(texture => texture.destroy(true));
             
