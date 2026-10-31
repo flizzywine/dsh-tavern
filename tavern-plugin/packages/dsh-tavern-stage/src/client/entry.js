@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
     factory: () => {
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
+        __STAGE_POSITION__
         __STAGE_SUBTITLES__
         __STAGE_SKIN_BUTTONS__
         __STAGE_CONTROLS__
@@ -51,7 +52,7 @@ window.__ModuleLoader__.load({
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const music = own(createStageMusic(options.music));
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),

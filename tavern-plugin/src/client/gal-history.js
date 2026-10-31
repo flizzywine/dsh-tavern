@@ -16,7 +16,7 @@ function galTurnIndex(parts) {
     return grouped;
 }
 function galPageAtPara(pages, para, offset = 0) {
-    const anchors = galPositionAnchors(pages);
+    const anchors = stageViews.position.anchors(pages);
     const exact = anchors.findIndex(item => item.para === para && item.offset <= offset && offset < item.offset + item.length);
     return exact >= 0 ? exact : Math.max(0, pages.findIndex(page => page.para >= para));
 }

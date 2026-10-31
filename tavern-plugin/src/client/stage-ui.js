@@ -65,37 +65,7 @@ function useStageRuntime(sessionId) {
     return {...inputs, accepted, director, ledger, indicators, store};
 }
 
-function useStagePosition(sessionId, runtime, parts, pages, {restored, onSelect}) {
-    const writer = React.useMemo(() => {
-        let storage = null;
-        try { storage = localStorage; } catch (_) {}
-        return galPositionWriter(sessionId,storage,setTimeout,clearTimeout);
-    },[sessionId]);
-    const turn = runtime.source?.turn || 0;
-    const page = Math.max(0,pages.findIndex(item => sameAnchor(item.anchor,runtime.cursor.anchor)));
-    // the turn's text digest is hashed once per parts array, not on every render.
-    const textDigest = React.useMemo(() => galTextDigest(parts), [parts]);
-    const anchor = pages[page]?.anchor;
-    const active = {turn,page,textDigest,pageCount:pages.length,anchor:anchor ? {para:anchor.para,offset:anchor.offset} : null,latestSeenTurn:runtime.latestSource?.turn || turn};
-    // A replay (clip export, a 履历 row's single replay) is not a reading position: the bookmark stays where the reader was.
-    const ready = restored && runtime.cursor.mode !== 'replay' && !runtime.text.streaming && galPositionReady(null,turn,parts,pages);
-    React.useEffect(() => {
-        if (ready) writer.write(active);
-        else writer.discard();
-    },[writer,turn,page,textDigest,ready,pages.length,active.latestSeenTurn]);
-    React.useEffect(() => {
-        window.addEventListener('pagehide',writer.flush);
-        return () => {window.removeEventListener('pagehide',writer.flush);writer.flush();};
-    },[writer]);
-    // The shown page is read to its end: the runtime's in-page reading progress (one-shots placed after it).
-    return [page,index => {
-        onSelect();
-        if (index !== page) stageSessions.owner.navigate(sessionId,turn,index,index > page);
-    },writer.saved,() => {
-        const current = pages[page];
-        runtime.store.dispatch({type:'READ_PROGRESS',source:runtime.source,anchor:current?.anchor,readThrough:(current?.anchor.offset || 0) + (current?.text.length || 0)});
-    }];
-}
+function useStagePosition(...args) { return stageViews.position.usePosition(...args); }
 
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, available) {
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, available);

@@ -133,44 +133,6 @@ function galTurnState(previous, sessionId, turn) {
     if (previous && previous.sessionId === sessionId && previous.turn === turn) return previous;
     return { sessionId, turn, start: previous && previous.sessionId === sessionId && turn === previous.turn + 1 ? previous.end : null, end: null };
 }
-// Hash text only: voice readiness and other render metadata must not invalidate a bookmark.
-function galTextDigest(parts) {
-    const text = parts.map(part => typeof part.text === "string" ? part.text : (part.segments || []).map(segment => segment.text || "").join("\n")).join("\n");
-    let hash = 2166136261;
-    for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
-    return (hash >>> 0).toString(16).padStart(8, "0");
-}
-// Offsets ignore pagination whitespace (page splitting trims its edges).
-function galPositionAnchors(pages) {
-    const offsets = new Map();
-    return pages.map(function (page) {
-        if (page.anchor) return { para: page.anchor.para, offset: page.anchor.offset, length: String(page.text || "").length };
-        const offset = offsets.get(page.para) || 0;
-        const length = String(page.text || "").replace(/\s/g, "").length;
-        offsets.set(page.para, offset + length);
-        return { para: page.para, offset, length };
-    });
-}
-function galRestorePosition(saved, turn, pageCount, textDigest, pages = []) {
-    const valid = saved && saved.turn === turn && saved.textDigest === textDigest && Number.isInteger(saved.page);
-    let page = valid ? Math.max(0, Math.min(saved.page, Math.max(0, pageCount - 1))) : 0;
-    const anchors = galPositionAnchors(pages), anchor = valid && saved.anchor;
-    const anchored = anchor && Number.isInteger(anchor.para) && Number.isInteger(anchor.offset) && anchor.offset >= 0
-        ? anchors.findIndex(item => item.para === anchor.para && item.offset <= anchor.offset && anchor.offset < item.offset + item.length) : -1;
-    if (anchored >= 0) page = anchored;
-    const target = anchored >= 0 ? anchor : anchors[page];
-    return { turn, page, pageCount, textDigest, ...(Number.isInteger(saved && saved.latestSeenTurn) ? { latestSeenTurn: saved.latestSeenTurn } : {}), ...(target ? { anchor: { para: target.para, offset: target.offset } } : {}) };
-}
-// a cold runtime can publish an empty/unloaded row or a temporary
-// text prefix. None of those is permission to consume a durable reading bookmark.
-// callers that also restore pass `digestOf` so the turn text is hashed at most once.
-function galPositionReady(saved, turn, parts, pages, digestOf = () => galTextDigest(parts)) {
-    if (!turn || !parts.length || !pages.length || parts.some(part => part.streaming || part.unloaded) || pages.some(page => page.pending)) return false;
-    if (!saved || saved.turn !== turn) return true;
-    if (saved.textDigest !== digestOf()) return false;
-    if (saved.anchor) return galPositionAnchors(pages).some(item => item.para === saved.anchor.para && item.offset <= saved.anchor.offset && saved.anchor.offset < item.offset + item.length);
-    return pages.length >= (saved.pageCount || saved.page + 1);
-}
 // Consume wheel notches, never queue a burst for later. A gesture is quiet for 300ms; its first downward
 // action (finish the line, else the next page) locks the rest of that gesture, even if typing completes.
 function galWheelDecision(previous, event) {
@@ -188,21 +150,6 @@ function galWheelDecision(previous, event) {
     if (state.used) return { state, action: 'none' };
     state.used = true;
     return { state, action: event.typed && !event.hidden ? 'advance' : 'finish' };
-}
-function galPositionWriter(sessionId, storage, schedule, cancel) {
-    const key = "fork-stage-position:" + sessionId;
-    let saved = null, pending = null, timer = null;
-    try { saved = JSON.parse(storage && storage.getItem(key) || "null"); } catch (_) {}
-    function flush() {
-        if (timer !== null) cancel(timer);
-        timer = null;
-        if (!pending) return;
-        try { if (storage && sessionId) storage.setItem(key, JSON.stringify(pending)); } catch (_) {}
-        pending = null;
-    }
-    function discard() { if (timer !== null) cancel(timer); timer = null; pending = null; }
-    return { saved, flush, discard,
-        write(value) { pending = value; if (timer === null) timer = schedule(flush, 250); } };
 }
 function galNewEffects(memory, key, effects) {
     if (memory.key !== key) { memory.key = key; memory.played = new Set(); }
@@ -516,4 +463,4 @@ function galMoodOf(pages, at, alias, config) {
     for (let i = Math.min(at, pages.length - 1); i >= 0; i--) if (pages[i].kind === "line" && bubbleCharacter(config, pages[i])?.alias === alias) return pages[i].mood || "";
     return "";
 }
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galTextDigest, galPositionAnchors, galRestorePosition, galPositionReady, galWheelDecision, galPositionWriter, galNewEffects, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, useGalPresence, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galNarrationPages, galBlockPages, galParagraphs, galPages, galQuoted, galCast, galHasDirection, galDirectionCovers, galCarriedDirection, galEndState, galTurnState, galWheelDecision, galNewEffects, galPortraitOf, galCue, GAL_FOCUS, galOrder, galSlotMap, GAL_STAGE_LIGHT, GAL_STAGE_WEATHERS, GAL_STAGE_SHOTS, GAL_STAGE_TRANSITIONS, GAL_STAGE_ACTS, galCommand, GAL_CLOSE_PARAS, galStartCamera, galStaging, useGalPresence, galGaze, galSpeakerAnchor, galFigurePriority, stageSkinFigures, galRecentSpeakers, galShotSubject, galShotSide, galMoodOf };

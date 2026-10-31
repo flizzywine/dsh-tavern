@@ -173,10 +173,10 @@ function GalStage(props) {
         }
         if (!row) return;
         let textDigest = null;
-        const digestOf = () => textDigest === null ? (textDigest = galTextDigest(row.parts)) : textDigest;
-        if (!galPositionReady(initial.entry ? null : saved,selected,row.parts,row.text.pages,digestOf)) return;
+        const digestOf = () => textDigest === null ? (textDigest = stageViews.position.digest(row.parts)) : textDigest;
+        if (!stageViews.position.ready(initial.entry ? null : saved,selected,row.parts,row.text.pages,digestOf)) return;
         const index = initial.entry?.para ? row.text.pages.findIndex(page => page.anchor.para >= initial.entry.para) :
-            galRestorePosition(saved,selected,row.text.pages.length,digestOf(),row.text.pages).page;
+            stageViews.position.restore(saved,selected,row.text.pages.length,digestOf(),row.text.pages).page;
         // A restored position (reload) shows its history page still (it never auto-plays); an explicit entry is a jump.
         stageSessions.owner.navigate(sessionId,selected,Math.max(0,index || 0),selected === latestTurn && !initial.entry,initial.entry?.para,!initial.entry);
         setRestored(sessionId);
@@ -1434,6 +1434,7 @@ function bindStageViews(createViews) {
             getResourceOwner:() => stageSessions.resourceOwner, resourceAuthority:stageResourceAuthority, createRects:createStageRects, createKeyframeLayer:createPerformanceKeyframeLayer, useModOptions, performanceSafety},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
         loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage, spinnerArt:stageSkinSpinner},
+        position:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), setTimeout, clearTimeout, sameAnchor, navigate:(...args) => stageSessions.owner.navigate(...args)},
         subtitles:{foreground:forkForeground, fonts:tavernFonts, getComputedStyle, ResizeObserver, heldTail:stagePageHeldTail, quote:galQuoted},
         notices:{foreground:forkForeground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText},
         hints:{storage:forkFrameStorage,setTimeout,clearTimeout},
