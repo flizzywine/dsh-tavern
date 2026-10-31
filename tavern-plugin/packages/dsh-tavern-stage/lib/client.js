@@ -6692,23 +6692,196 @@ return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(co
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageBackgroundLayers};
 
+        'use strict';
+
+function createStageDirectorModule({directorCommands}) {
+// the kernel owns scheduling/single-flight; this adapter only executes
+// read-only IO and projects already admitted direction into runtime events.
+const stageDirectorSourceKey = source => JSON.stringify(source);
+const stageDirectorCanonical = value => Array.isArray(value) ? '[' + value.map(stageDirectorCanonical).join(',') + ']'
+    : value && typeof value === 'object' ? '{' + Object.keys(value).sort((a,b) => {
+        // compare Unicode scalars without allocating arrays per key comparison.
+        let i = 0, j = 0;
+        while (i < a.length && j < b.length) {
+            const x = a.codePointAt(i), y = b.codePointAt(j);
+            if (x !== y) return x - y;
+            i += x > 65535 ? 2 : 1; j += y > 65535 ? 2 : 1;
+        }
+        return (a.length - i) - (b.length - j);
+    }).map(key => JSON.stringify(key) + ':' + stageDirectorCanonical(value[key])).join(',') + '}' : JSON.stringify(value);
+// The submission tool admits direction data. This is projection, not a second
+// validation boundary; source switches remain stale responses, not model errors.
+async function projectStageDirection(value, source) {
+    if (value.unchanged) return null;
+    if (!value.token) return {phase:value.phase, revision:value.revision, generation:value.generation, assetRevision:value.assetRevision, error:value.error};
+    if (value.target.sessionId !== source.sessionId || value.target.turn !== source.turn) return null;
+    const commands = directorCommands;
+    const entries = value.entries.map((entry,ordinal) => {
+        const ops = entry.ops.map(op => commands.recordOperation(op,value.binding)).filter(Boolean);
+        return {...entry, ops, ordinal, events:ops.flatMap((op,ordinal) => op.op === 'event' ? [{...op.value, kind:op.value.op, ordinal}] : [])};
+    });
+    return {...value, entries};
+}
+
+function createStageDirectorSource({read, watch, clock = globalThis, onEffect = () => {}}) {
+    let disposed=false;
+    const watches = new Map(), timers = new Map(), reads = new Map();
+    // admitted completed turns are reusable across back/forward visits.
+    // Polls still read the host. A latest-turn wake must not evict old sealed turns.
+    const completed = new Map(), signalVersions = new Map();
+    function cache(sessionId) {
+        if (!completed.has(sessionId)) completed.set(sessionId,new Map());
+        return completed.get(sessionId);
+    }
+    function remember(source, text, envelope) {
+        if(disposed)return null;
+        const entries = cache(source.sessionId), key = stageDirectorSourceKey(source);
+        entries.delete(key);
+        if (!text.streaming && (envelope?.complete && envelope.phase === 'done' || ['off','error','unknown'].includes(envelope?.phase))) {
+            entries.set(key,{textKey:stageDirectorCanonical(text.units),envelope});
+            while (entries.size > 200) entries.delete(entries.keys().next().value);
+        }
+        return envelope;
+    }
+    function runEffect(sessionId, intent, dispatch, getSnapshot) {
+        if(disposed)return;
+        const id = token => JSON.stringify([sessionId,token.id]);
+        switch (intent.type) {
+        case 'watch-director': {
+            const source = intent.source, key = stageDirectorSourceKey(source);
+            watches.get(key)?.();
+            let subscribing = true;
+            watches.set(key,watch(source,signal => {
+                if(disposed)return;
+                if (signal?.kind && signal.version !== undefined) {
+                    // Per watched source: the working round stays watched beside an earlier round being read (indicator v2),
+                    // and one signal wakes both.
+                    const signalKey = JSON.stringify([key,signal.kind]);
+                    if (signalVersions.get(signalKey) === signal.version) return;
+                    signalVersions.set(signalKey,signal.version);
+                }
+                // Subscription replay is not a mutation. Poll/wake validates only its source.
+                if (!subscribing) {
+                    cache(source.sessionId).delete(key);
+                    dispatch({type:'DIRECTOR_WAKE',source});
+                }
+            }));
+            subscribing = false;
+            break;
+        }
+        case 'unwatch-director': {
+            const key = stageDirectorSourceKey(intent.source);
+            watches.get(key)?.(); watches.delete(key); break;
+        }
+        case 'read-director': {
+            const token = intent.token, key = id(token), controller = new AbortController();
+            const cacheKey = stageDirectorSourceKey(token.source), text = getSnapshot().text;
+            const textKey = stageDirectorCanonical(text.units);
+            const entries = cache(sessionId), cached = entries.get(cacheKey);
+            if (intent.sinceRevision < 0 && cached && !text.streaming && cached.textKey === textKey) {
+                entries.delete(cacheKey); entries.set(cacheKey,cached);
+                dispatch({type:'DIRECTOR_READ_RESULT',token,envelope:cached.envelope});
+                break;
+            }
+            reads.set(key,controller);
+            Promise.resolve().then(() => controller.signal.aborted ? null : read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
+                .then(async value => {
+                    if (controller.signal.aborted) return;
+                    const envelope = await projectStageDirection(value,token.source,getSnapshot().text);
+                    if (!controller.signal.aborted) {
+                        const before = getSnapshot().director;
+                        if (envelope) remember(token.source,text,envelope);
+                        else remember(token.source,text,before); // An unchanged wake revalidates the cached snapshot.
+                        dispatch({type:'DIRECTOR_READ_RESULT',token,envelope});
+                        if (envelope && before.assetRevision !== undefined && envelope.assetRevision !== before.assetRevision &&
+                            envelope.token?.digest === before.token?.digest) dispatch({type:'REFRESH_BEGIN',source:token.source});
+                    }
+                }).catch(error => {
+                    if (!controller.signal.aborted) dispatch({type:'DIRECTOR_READ_FAILED',token,error:String(error.message)});
+                }).finally(() => {if (reads.get(key) === controller) reads.delete(key);});
+            break;
+        }
+        // the working round's phase while an earlier round is read - the same
+        // read-only host read, projected only for its phase; it never touches the page cache or the read round's text.
+        case 'read-round': {
+            const token = intent.token, key = id(token), controller = new AbortController();
+            reads.set(key,controller);
+            Promise.resolve().then(() => controller.signal.aborted ? null : read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
+                .then(value => controller.signal.aborted ? null : projectStageDirection(value,token.source))
+                .then(envelope => {if (!controller.signal.aborted) dispatch({type:'ROUND_READ_RESULT',token,envelope});})
+                .catch(error => {if (!controller.signal.aborted) dispatch({type:'ROUND_READ_FAILED',token,error:String(error.message)});})
+                .finally(() => {if (reads.get(key) === controller) reads.delete(key);});
+            break;
+        }
+        case 'cancel-read': reads.get(id(intent.token))?.abort(); reads.delete(id(intent.token)); break;
+        case 'schedule-read': {
+            const key = id(intent.token);
+            const timer=clock.setTimeout(() => {if(disposed||timers.get(key)!==timer)return;timers.delete(key);dispatch({type:'READ_TIMER',token:intent.token});},intent.delay);
+            timers.set(key,timer);
+            break;
+        }
+        case 'cancel-timer': clock.clearTimeout(timers.get(id(intent.token))); timers.delete(id(intent.token)); break;
+        default: onEffect(sessionId,intent,dispatch,getSnapshot);
+        }
+    }
+    return {runEffect,
+        cached(source, text) {
+            if(disposed)return null;
+            const entries = cache(source.sessionId), key = stageDirectorSourceKey(source), entry = entries.get(key);
+            if (!entry || text.streaming || entry.textKey !== stageDirectorCanonical(text.units)) return null;
+            entries.delete(key); entries.set(key,entry);
+            return entry.envelope;
+        },
+        async prime(source, text, value) {
+            if(disposed)return null;
+            const entry = cache(source.sessionId).get(stageDirectorSourceKey(source));
+            if (entry?.envelope === value && entry.textKey === stageDirectorCanonical(text.units)) return value;
+            return remember(source,text,await projectStageDirection(value,source,text));
+        },
+        invalidate(sessionId) {completed.delete(sessionId);},
+        dispose() {
+        if(disposed)return;disposed=true;const errors=[];
+        for(const cleanup of [...watches.values(),...[...timers.values()].map(timer=>()=>clock.clearTimeout(timer)),...[...reads.values()].map(controller=>()=>controller.abort())]){
+            try{cleanup();}catch(error){errors.push(error);}
+        }
+        watches.clear();timers.clear();reads.clear();completed.clear();signalVersions.clear();
+        if(errors.length)throw new AggregateError(errors,'Director cleanup failed');
+    }};
+}
+return {createStageDirectorSource, projectStageDirection};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageDirectorModule};
+
         // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
-    let sessionModule=null;
-    function createSessionOwner(inputs){
-        if(disposed)throw new Error('Stage session runtime disposed');
-        sessionModule ||= createSessionModule(createStoreModule(kernel));
-        const owner=sessionModule.createStageSessionOwner(inputs),dispose=owner.dispose.bind(owner);
-        let closed=false;
+    let sessionModule=null,directorModule=null;
+    function own(owner){
+        const dispose=owner.dispose.bind(owner);let closed=false;
         owner.dispose=()=>{if(closed)return;closed=true;owners.delete(owner);dispose();};
         owners.add(owner);return owner;
     }
-    return {createSessionOwner,dispose(){
+    function director(){return directorModule ||= createDirectorModule({directorCommands});}
+    function createDirector(inputs){
+        if(disposed)throw new Error('Stage session runtime disposed');
+        return own(director().createStageDirectorSource(inputs));
+    }
+    async function projectDirection(...args){
+        if(disposed)return null;
+        const value=await director().projectStageDirection(...args);
+        return disposed?null:value;
+    }
+    function createSessionOwner(inputs){
+        if(disposed)throw new Error('Stage session runtime disposed');
+        sessionModule ||= createSessionModule(createStoreModule(kernel));
+        return own(sessionModule.createStageSessionOwner(inputs));
+    }
+    return {createSessionOwner,createDirector,projectDirection,dispose(){
         if(disposed)return;disposed=true;const errors=[];
-        for(const owner of [...owners])try{owner.dispose();}catch(error){errors.push(error);}
-        sessionModule=null;
+        for(const owner of [...owners].reverse())try{owner.dispose();}catch(error){errors.push(error);}
+        sessionModule=directorModule=null;
         if(errors.length)throw new AggregateError(errors,'Stage session runtime cleanup failed');
     }};
 }
@@ -16826,7 +16999,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     const entrance=own(createStageEntrancePresentation({React:options.React,window,renderer:entranceRendererScope,media:entranceMedia,video,contract:entranceContract,...options.entrance}));
                     const backgroundLayers=own(createStageBackgroundLayers({...options.visualEffects,...options.backgroundLayers}));
                     const backgrounds=own(createStageBackgrounds({...options.visualEffects,...options.backgrounds,layers:backgroundLayers}));
-                    return {sessionRuntime:own(createStageSessionRuntime({kernel:options.runtimeKernel,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({...options.figurePose,ease:options.visualEffects?.ease})),castLayout:own(createStageCastLayout(options.castLayout||{})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
+                    return {sessionRuntime:own(createStageSessionRuntime({kernel:options.runtimeKernel,createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({...options.figurePose,ease:options.visualEffects?.ease})),castLayout:own(createStageCastLayout(options.castLayout||{})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,...options.figureAppearance})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...options.visualEffects,...options.bust})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(options.visualEffects||{}),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,danmaku,liveroom,danmakuUi,danmakuSettings,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, ...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx:own(createStageSfx(options.sfx || {})), transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),

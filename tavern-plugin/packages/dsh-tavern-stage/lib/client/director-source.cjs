@@ -30,6 +30,7 @@ async function projectStageDirection(value, source) {
 }
 
 function createStageDirectorSource({read, watch, clock = globalThis, onEffect = () => {}}) {
+    let disposed=false;
     const watches = new Map(), timers = new Map(), reads = new Map();
     // admitted completed turns are reusable across back/forward visits.
     // Polls still read the host. A latest-turn wake must not evict old sealed turns.
@@ -39,6 +40,7 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
         return completed.get(sessionId);
     }
     function remember(source, text, envelope) {
+        if(disposed)return null;
         const entries = cache(source.sessionId), key = stageDirectorSourceKey(source);
         entries.delete(key);
         if (!text.streaming && (envelope?.complete && envelope.phase === 'done' || ['off','error','unknown'].includes(envelope?.phase))) {
@@ -48,6 +50,7 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
         return envelope;
     }
     function runEffect(sessionId, intent, dispatch, getSnapshot) {
+        if(disposed)return;
         const id = token => JSON.stringify([sessionId,token.id]);
         switch (intent.type) {
         case 'watch-director': {
@@ -55,6 +58,7 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
             watches.get(key)?.();
             let subscribing = true;
             watches.set(key,watch(source,signal => {
+                if(disposed)return;
                 if (signal?.kind && signal.version !== undefined) {
                     // Per watched source: the working round stays watched beside an earlier round being read (indicator v2),
                     // and one signal wakes both.
@@ -86,7 +90,7 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
                 break;
             }
             reads.set(key,controller);
-            Promise.resolve().then(() => read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
+            Promise.resolve().then(() => controller.signal.aborted ? null : read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
                 .then(async value => {
                     if (controller.signal.aborted) return;
                     const envelope = await projectStageDirection(value,token.source,getSnapshot().text);
@@ -108,8 +112,8 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
         case 'read-round': {
             const token = intent.token, key = id(token), controller = new AbortController();
             reads.set(key,controller);
-            Promise.resolve().then(() => read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
-                .then(value => projectStageDirection(value,token.source))
+            Promise.resolve().then(() => controller.signal.aborted ? null : read({sessionId,turn:token.source.turn,readOnly:true,sinceRevision:intent.sinceRevision},controller.signal))
+                .then(value => controller.signal.aborted ? null : projectStageDirection(value,token.source))
                 .then(envelope => {if (!controller.signal.aborted) dispatch({type:'ROUND_READ_RESULT',token,envelope});})
                 .catch(error => {if (!controller.signal.aborted) dispatch({type:'ROUND_READ_FAILED',token,error:String(error.message)});})
                 .finally(() => {if (reads.get(key) === controller) reads.delete(key);});
@@ -118,7 +122,8 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
         case 'cancel-read': reads.get(id(intent.token))?.abort(); reads.delete(id(intent.token)); break;
         case 'schedule-read': {
             const key = id(intent.token);
-            timers.set(key,clock.setTimeout(() => {timers.delete(key); dispatch({type:'READ_TIMER',token:intent.token});},intent.delay));
+            const timer=clock.setTimeout(() => {if(disposed||timers.get(key)!==timer)return;timers.delete(key);dispatch({type:'READ_TIMER',token:intent.token});},intent.delay);
+            timers.set(key,timer);
             break;
         }
         case 'cancel-timer': clock.clearTimeout(timers.get(id(intent.token))); timers.delete(id(intent.token)); break;
@@ -127,22 +132,26 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
     }
     return {runEffect,
         cached(source, text) {
+            if(disposed)return null;
             const entries = cache(source.sessionId), key = stageDirectorSourceKey(source), entry = entries.get(key);
             if (!entry || text.streaming || entry.textKey !== stageDirectorCanonical(text.units)) return null;
             entries.delete(key); entries.set(key,entry);
             return entry.envelope;
         },
         async prime(source, text, value) {
+            if(disposed)return null;
             const entry = cache(source.sessionId).get(stageDirectorSourceKey(source));
             if (entry?.envelope === value && entry.textKey === stageDirectorCanonical(text.units)) return value;
             return remember(source,text,await projectStageDirection(value,source,text));
         },
         invalidate(sessionId) {completed.delete(sessionId);},
         dispose() {
-        for (const stop of watches.values()) stop();
-        for (const timer of timers.values()) clock.clearTimeout(timer);
-        for (const controller of reads.values()) controller.abort();
-        watches.clear(); timers.clear(); reads.clear(); completed.clear(); signalVersions.clear();
+        if(disposed)return;disposed=true;const errors=[];
+        for(const cleanup of [...watches.values(),...[...timers.values()].map(timer=>()=>clock.clearTimeout(timer)),...[...reads.values()].map(controller=>()=>controller.abort())]){
+            try{cleanup();}catch(error){errors.push(error);}
+        }
+        watches.clear();timers.clear();reads.clear();completed.clear();signalVersions.clear();
+        if(errors.length)throw new AggregateError(errors,'Director cleanup failed');
     }};
 }
 return {createStageDirectorSource, projectStageDirection};

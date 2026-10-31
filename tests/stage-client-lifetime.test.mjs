@@ -31,14 +31,11 @@ for (const phase of ['director','session']) test(`real stage binding rolls back 
   const calls = [], window = {}
   const environment = {
     stageDecodeImage() {}, window, STAGE_HISTORY_SETTLE_MS:1000, startStageClientLifetime,
-    forkForeground:{}, stageViews:{progress:{store:{}},sessionRuntime:{createSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
+    forkForeground:{}, stageViews:{progress:{store:{}},sessionRuntime:{createDirector:()=>{if(phase==='director')throw new Error('director failed');return {dispose:()=>calls.push('director')}},createSessionOwner:()=>({start(){throw new Error('session failed')},dispose:()=>calls.push('session')})}}, liveTavernView:{}, tavernCoordination:{}, bubbleStore:{}, tavernStoryTurnForDshTurn() {},
     createSkinOverlayLoader: () => () => {},
     createStageResourceOwner: () => ({dispose: () => calls.push('assets')}),
     createStageResourceRunner: () => ({dispose: () => calls.push('runner')}),
-    createStageDirectorSource: () => {
-      if (phase === 'director') throw new Error('director failed')
-      return {dispose: () => calls.push('director')}
-    },
+
   }
   const source = readFileSync(new URL('../tavern-plugin/src/client/stage-session-binding.js', import.meta.url), 'utf8')
   const sessions = vm.runInNewContext(source + '\nstageSessions', environment)

@@ -12,10 +12,11 @@ function useGalPlayerInputs(sessionId, useChat) {
 function GalBacklog(props) {
     const inputs=useGalPlayerInputs(props.sessionId,props.useChat);
     const chatId=useLiveTavernView(props.sessionId,"gal-backlog")?.view?.chatId || "";
+    const sessionRuntime=stageViews?.sessionRuntime;
     const readDirection=React.useMemo(()=>props.readDirection ? async request=>{
         const value=await props.readDirection(request);
-        const projected=value.token ? await projectStageDirection(value,{sessionId:props.sessionId,turn:request.turn}) : null;
+        const projected=value.token ? await sessionRuntime?.projectDirection(value,{sessionId:props.sessionId,turn:request.turn}) : null;
         return projected ? {...value,entries:projected.entries} : value;
-    } : null,[props.sessionId,props.readDirection]);
+    } : null,[props.sessionId,props.readDirection,sessionRuntime]);
     return stageViews ? React.createElement(stageViews.backlogView.Backlog,{...props,inputs,chatId,readDirection}) : null;
 }

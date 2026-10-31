@@ -9,7 +9,6 @@
 // @include stage-runtime.cjs
 // @include stage-page-index.cjs
 // @include stage-text-index.cjs
-// @include stage-director-source.cjs
 // @include stage-resources.cjs
 // @include stage-resource-runner.cjs
 // @include stage-ui.js
@@ -179,7 +178,7 @@ const stageSessions = {
             owner: resourceOwner
         });
         own(() => resources.dispose());
-        const director = createStageDirectorSource({
+        const director = stageViews.sessionRuntime.createDirector({
             onEffect:resources.onEffect,
             read: args => rpc('getStageDirection', args, args.sessionId),
             // an arrow keeps `this` = stageSessions. The director source calls `watch` bare, and the
