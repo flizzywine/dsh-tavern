@@ -1,12 +1,12 @@
-import { createAssetPackPresentation } from './domain/asset-pack-presentation.js'
-import { createAssetPackSpeech } from './domain/asset-pack-speech.js'
-import { readCardAssetExtension } from './domain/card-asset-bindings.js'
-import { cardAssetWorkspaceRevision, hasCardAssetBindings } from './card-asset-bindings.js'
-import { cardEngineSettings, effectiveCardStage } from './domain/card-stage-settings.js'
-import { assetRefKey, resolveAssetSnapshot } from '../packages/dsh-presentation-protocol/src/asset-packs.js'
+import { createAssetPackPresentation } from '../../../lib/domain/asset-pack-presentation.js'
+import { createAssetPackSpeech } from '../../../lib/domain/asset-pack-speech.js'
+import { readCardAssetExtension } from '../../../lib/domain/card-asset-bindings.js'
+import { cardAssetWorkspaceRevision, hasCardAssetBindings } from '../../../lib/card-asset-bindings.js'
+import { cardEngineSettings, effectiveCardStage } from '../../../lib/domain/card-stage-settings.js'
+import { assetRefKey, resolveAssetSnapshot } from '../../dsh-presentation-protocol/src/asset-packs.js'
 
-import { assetVoiceBinding } from './domain/figure-voice.js'
-export { assetVoiceBinding } from './domain/figure-voice.js'
+import { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
+export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
 export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvalidate = () => {},

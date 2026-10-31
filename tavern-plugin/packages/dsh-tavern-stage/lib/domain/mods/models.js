@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto'
-import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
+import contract from '../../../../dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check,modShape:shape,modJson}=contract
 
 export function createModelStreamTiming(now=Date.now) {

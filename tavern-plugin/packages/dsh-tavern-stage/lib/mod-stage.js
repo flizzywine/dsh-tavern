@@ -1,6 +1,6 @@
 import {isDeepStrictEqual as equal} from 'node:util'
-import {captureStageTarget} from './domain/stage-incremental.js'
-import {MOD_CORRECTIONS_FIELD} from './domain/mods/stage-corrections.js'
+import {captureStageTarget} from '../../../lib/domain/stage-incremental.js'
+import {MOD_CORRECTIONS_FIELD} from '../../../lib/domain/mods/stage-corrections.js'
 
 // Only the existing serialized Chat Persistence writer may publish the derived layer.
 // readChat reads the whole chat (presentation history spans every floor); readTurn(sessionId, turn) the round view through

@@ -1,5 +1,5 @@
-import {check, shape} from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
-import {validateJudgeConfig, JUDGE_KEY_REFS} from './domain/engine-judge.js'
+import {check, shape} from '../../dsh-presentation-protocol/src/asset-pack-json.js'
+import {validateJudgeConfig, JUDGE_KEY_REFS} from '../../../lib/domain/engine-judge.js'
 
 // RPC admission is the sole config write boundary; the settings owner keeps CAS.
 export function createJudgeRpc(settings,judge) {

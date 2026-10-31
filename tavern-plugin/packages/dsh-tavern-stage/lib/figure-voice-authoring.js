@@ -1,10 +1,10 @@
 // figure authoring owns pack publication and scoped, billing-confirmed previews.
-import {migrateVoice} from '../packages/dsh-asset-library/lib/asset-packs/voice-migration.js'
+import {migrateVoice} from '../../dsh-asset-library/lib/asset-packs/voice-migration.js'
 import {randomUUID,createHash} from 'node:crypto'
-import {canonicalJson} from '../packages/dsh-asset-library/lib/asset-packs/common.js'
-import {validateVoiceSpec,validateVoiceBinding} from '../packages/dsh-asset-library/lib/shared/voice-schema.js'
-import {figureTtsVoice, assetVoiceBinding, browserSpeechSource} from './domain/figure-voice.js'
-import {effectiveVoiceLanguage} from '../src/client/bubble-line.cjs'
+import {canonicalJson} from '../../dsh-asset-library/lib/asset-packs/common.js'
+import {validateVoiceSpec,validateVoiceBinding} from '../../dsh-asset-library/lib/shared/voice-schema.js'
+import {figureTtsVoice, assetVoiceBinding, browserSpeechSource} from '../../../lib/domain/figure-voice.js'
+import {effectiveVoiceLanguage} from '../../../src/client/bubble-line.cjs'
 const canonical = value => canonicalJson(JSON.parse(JSON.stringify(value)))
 const hash = value => createHash('sha256').update(canonical(value)).digest('hex')
 // deep equality compares canonical JSON directly; hashing both sides first adds nothing.

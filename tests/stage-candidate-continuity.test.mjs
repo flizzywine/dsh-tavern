@@ -4,7 +4,7 @@ import {fixture, answer, deferred} from './helpers/stage-director-harness.mjs'
 import {modelCall} from './helpers/director-model-call.mjs'
 import {directorPromptData} from './fixtures/asset-packs/prompt.mjs'
 import {createCandidateGenerator} from '../tavern-plugin/lib/domain/candidate-generation.js'
-import {createStageDirector} from '../tavern-plugin/lib/domain/stage-director.js'
+import {createStageDirector} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
 import {createStoryTimeline} from '../tavern-plugin/lib/domain/story-timeline.js'
 
 const text = Array.from({length:7}, (_, i) => `Synthetic paragraph ${i + 1}.`).join('\n\n')

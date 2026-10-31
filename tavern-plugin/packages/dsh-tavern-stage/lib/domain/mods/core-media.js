@@ -1,8 +1,8 @@
-import {assetRefKey} from '../../../packages/dsh-presentation-protocol/src/asset-packs.js'
-import {assetContent} from '../../../packages/dsh-presentation-protocol/src/asset-variant-content.js'
-import {readCardAssetExtension} from '../card-asset-bindings.js'
-import {listEffectiveAssets} from '../effective-assets.js'
-import contract from '../../../packages/dsh-presentation-protocol/src/mod-contract.cjs'
+import {assetRefKey} from '../../../../dsh-presentation-protocol/src/asset-packs.js'
+import {assetContent} from '../../../../dsh-presentation-protocol/src/asset-variant-content.js'
+import {readCardAssetExtension} from '../../../../../lib/domain/card-asset-bindings.js'
+import {listEffectiveAssets} from '../../../../../lib/domain/effective-assets.js'
+import contract from '../../../../dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check}=contract
 
 // Presentation payload ownership is checked by performance-media before entering this host-only reader.

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {createWidgetVariableService} from '../tavern-plugin/lib/domain/widget-variable-service.js'
+import {createWidgetVariableService} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/widget-variable-service.js'
 
 const abandoned = () => ({id:'chat',_storageRevision:1,timeline:{operations:{edit:{id:'edit',kind:'variables.edit',status:'running',owner:'previous'}}}})
 const deferred = () => {let resolve;const promise=new Promise(done=>resolve=done);return {promise,resolve}}

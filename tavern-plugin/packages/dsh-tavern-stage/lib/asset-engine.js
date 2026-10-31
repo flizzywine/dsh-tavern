@@ -1,7 +1,7 @@
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsSectionProvider } from './native-settings.js'
-import { ENGINE_SECTION, defaultAssetEngineSettings, validateAssetEngineSettings, patchAssetEngineSettings, engineSettingsRevision, parseEnginePreset, validateEnginePreset } from './domain/asset-engine-settings.js'
-import { check, canonicalJson } from '../packages/dsh-presentation-protocol/src/asset-pack-json.js'
+import { installSettingsSection, settingsSectionProvider } from '../../../lib/native-settings.js'
+import { ENGINE_SECTION, defaultAssetEngineSettings, validateAssetEngineSettings, patchAssetEngineSettings, engineSettingsRevision, parseEnginePreset, validateEnginePreset } from '../../../lib/domain/asset-engine-settings.js'
+import { check, canonicalJson } from '../../dsh-presentation-protocol/src/asset-pack-json.js'
 
 // DSH owns persistence; this module never writes a second settings file.
 export function createAssetEngineSettings(ctx) {

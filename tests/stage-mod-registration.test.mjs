@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createModPrivateMethods} from '../tavern-plugin/packages/dsh-asset-library/lib/pack-v2/mod-private.js'
-import {createModConfigHost} from '../tavern-plugin/lib/mod-config-host.js'
+import {createModConfigHost} from '../tavern-plugin/packages/dsh-tavern-stage/lib/mod-config-host.js'
 const manifest=id=>({id,name:id,settingsSchema:{fields:[]}})
 function host(manifests) {return createModConfigHost({manifests,store:{},listCards:async()=>[],readCard:async()=>null})}
 

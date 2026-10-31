@@ -1,10 +1,10 @@
 // bounded committed reads and CAS transactions on the existing Chat owner.
 import { randomUUID } from 'node:crypto'
-import { createScopedMessages } from './scoped-messages.js'
-import { diffMvuChanges } from './mvu-settlement-effect.js'
-import { widgetVariableDigest, widgetVariableJson, resolveWidgetVariableSnapshot, projectWidgetVariableValues, projectWidgetSettingBindings, prepareWidgetVariableOperations } from './widget-variables.js'
-import widgetContract from '../../src/client/widget-contracts.cjs'
-import { verifiedWidgetSnapshot, widgetSettlementState, widgetWriteReason } from './widget-variable-transaction.js'
+import { createScopedMessages } from '../../../../lib/domain/scoped-messages.js'
+import { diffMvuChanges } from '../../../../lib/domain/mvu-settlement-effect.js'
+import { widgetVariableDigest, widgetVariableJson, resolveWidgetVariableSnapshot, projectWidgetVariableValues, projectWidgetSettingBindings, prepareWidgetVariableOperations } from '../../../../lib/domain/widget-variables.js'
+import widgetContract from '../../../../src/client/widget-contracts.cjs'
+import { verifiedWidgetSnapshot, widgetSettlementState, widgetWriteReason } from '../../../../lib/domain/widget-variable-transaction.js'
 
 const size = value => Buffer.byteLength(JSON.stringify(value))
 const failure = (status,reason,operationId) => ({status,reason,...(operationId ? {operationId} : {})})

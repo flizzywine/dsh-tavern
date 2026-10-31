@@ -1,6 +1,6 @@
 import {modelRequest} from './director-model-call.mjs' // fake models use the request DTO.
-import { createStageDirector } from '../../tavern-plugin/lib/domain/stage-director.js'
-import { createAssetRuntime } from '../../tavern-plugin/lib/asset-runtime.js'
+import { createStageDirector } from '../../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
+import { createAssetRuntime } from '../../tavern-plugin/packages/dsh-tavern-stage/lib/asset-runtime.js'
 import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
 import { createBackgroundTaskCoordinator } from '../../tavern-plugin/lib/domain/background-task-coordinator.js'
 import { stageEnabledExtension } from './stage-enabled-settings.mjs'

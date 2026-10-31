@@ -1,9 +1,9 @@
 import path from 'node:path'
 import {readFile,mkdir,open,rename,unlink,stat,readdir} from 'node:fs/promises'
 import {randomUUID} from 'node:crypto'
-import {checkedAssetPath} from './card-storage.js'
-import {decodeModMedia,MOD_MEDIA_MIME,MOD_MEDIA_LIMIT} from './mod-media.js'
-import {createModConfigService,CONFIG_FILE_PATH} from './domain/mods/config.js'
+import {checkedAssetPath} from '../../../lib/card-storage.js'
+import {decodeModMedia,MOD_MEDIA_MIME,MOD_MEDIA_LIMIT} from '../../../lib/mod-media.js'
+import {createModConfigService,CONFIG_FILE_PATH} from '../../../lib/domain/mods/config.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 const absent=error=>{if(error.code==='ENOENT')return null;throw error}
 const queues=new Map()

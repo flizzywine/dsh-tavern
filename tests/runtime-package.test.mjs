@@ -22,6 +22,7 @@ required.push('tavern-plugin/lib/domain/server-template-runtime.js', 'tavern-plu
 required.push('tavern-plugin/lib/domain/tavern-client-assets.js', 'tavern-plugin/lib/client-assets/tavern.css')
 required.push('bin/build-tavern-client.mjs')
 required.push(...['package.json','cordis.patch.yml','lib/index.js','lib/runtime.js','lib/module.js','lib/requests.js','lib/rpc.js','lib/workflow.js','lib/story-observer.js','lib/card-assets.js'].map(file=>'tavern-plugin/packages/dsh-tavern-stage/'+file))
+required.push(...['asset-engine.js', 'asset-runtime.js', 'card-zip-target.js', 'cg-gallery.js', 'domain/mods/core-media.js', 'domain/mods/models.js', 'domain/stage-director.js', 'domain/widget-variable-service.js', 'engine-judge.js', 'figure-voice-authoring.js', 'mod-config-host.js', 'mod-config.js', 'mod-service.js', 'mod-stage.js', 'mod-system-execution.js', 'mod-system-production.js'].map(file=>'tavern-plugin/packages/dsh-tavern-stage/lib/'+file))
 // In the repository and the Git package, but never read by an installed copy (lib/client.js is the
 // built client; only settings.html and the licenses of the vendored upstream sources are loaded).
 const developmentOnly = ['tavern-plugin/src/client/main.js', 'tavern-plugin/lib/vendor/st-prompt-template/upstream/package.json', 'tavern-plugin/lib/vendor/magvarupdate/upstream/package.json']

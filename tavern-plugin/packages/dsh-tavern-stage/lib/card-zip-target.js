@@ -1,5 +1,5 @@
-import { withCardCover } from './domain/card-cover.js'
-import { CARD_ID } from './card-storage.js'
+import { withCardCover } from '../../../lib/domain/card-cover.js'
+import { CARD_ID } from '../../../lib/card-storage.js'
 
 // Reservations contain identities only; the existing bundle publication writes all data.
 export function createCardZipTargets({id, listCards, readWorkspace, importCard}) {
