@@ -79,3 +79,18 @@ test('connection owns effect routing, history caching and reverse teardown with 
  assert.equal(input.readHistory({}, {}, {}),null);assert.equal(reads,1)
  connection.dispose();assert.throws(()=>connection.start(),/disposed/)
 })
+
+test('connection owns observation startup and rolls it back before session and effect chain',()=>{
+ const calls=[];let observed
+ const owner={start:()=>calls.push('start'),dispose:()=>calls.push('session')}
+ const resources={dispose:()=>calls.push('resources')}
+ const runtime=createStageSessionRuntime({createStoreModule:()=>({}),createSessionModule:()=>({createStageSessionOwner:()=>owner}),
+ createDirectorModule:()=>({createStageDirectorSource:()=>({dispose:()=>calls.push('director')})}),
+ createResourceModule:()=>({createStageResourceRunner:()=>resources}),
+ createObservation:inputs=>{observed=inputs;return {start(){throw Error('observation failed')},dispose:()=>calls.push('observation')}}})
+ const connection=runtime.createConnection({resources:{},direction:{},session:{},observation:{marker:1}})
+ assert.throws(()=>connection.start(),/observation failed/)
+ assert.equal(observed.owner,owner);assert.equal(observed.resources,resources);assert.equal(observed.marker,1)
+ assert.deepEqual(calls,['start','observation','session','director','resources'])
+ runtime.dispose();connection.dispose();assert.equal(calls.length,5)
+})

@@ -1,5 +1,5 @@
 // Plugin-owned session/store assembly. Native session inputs remain supplied by the host adapter.
-function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays}) {
+function createStageSessionRuntime({kernel,createStoreModule,createSessionModule,createDirectorModule,directorCommands,createResourceModule,resourceDependencies,createModNotifications,displays,createObservation}) {
     let disposed=false;const owners=new Set();
     // Construction is lazy: package activation does not create any session or subscribe to host inputs.
     let sessionModule=null,directorModule=null;
@@ -27,9 +27,9 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
         sessionModule ||= createSessionModule(createStoreModule(kernel));
         return own(sessionModule.createStageSessionOwner(inputs));
     }
-    function createConnection({resources:resourceInputs,direction,session:sessionInputs,notifications:notificationInputs,waitForEntry=async()=>{}}){
+    function createConnection({resources:resourceInputs,direction,session:sessionInputs,notifications:notificationInputs,observation:observationInputs,waitForEntry=async()=>{}}){
         if(disposed)throw new Error('Stage session runtime disposed');
-        const acquired=[];let closed=false,owner,resources,notifications;
+        const acquired=[];let closed=false,started=false,owner,resources,notifications;
         function dispose(){
             if(closed)return;closed=true;
             const errors=[];
@@ -60,7 +60,15 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
             for(const item of acquired)owners.delete(item);
             return own({owner,resources,start(){
                 if(closed)throw new Error('Stage connection disposed');
-                try{owner.start();}catch(error){
+                if(started)return;started=true;
+                try{
+                    owner.start();
+                    if(observationInputs){
+                        const observation=createObservation({...observationInputs,owner,resources});
+                        acquired.push(observation);
+                        observation.start();
+                    }
+                }catch(error){
                     try{dispose();}catch(cleanup){throw new AggregateError([error,cleanup],'Stage connection startup failed');}
                     throw error;
                 }
