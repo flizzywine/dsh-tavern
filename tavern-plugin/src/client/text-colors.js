@@ -254,19 +254,20 @@ function TavernColoredMarkdown(props) {
     const suspend = props.streaming === true || props.suspendTextColors || stageHidden;
     const root = React.useRef(null), colors = React.useRef(null), mounted = React.useRef(false);
     React.useLayoutEffect(function () {
-        colors.current = installTavernTextColors(root.current, { enabled: !suspend }, findTavernQuoteRanges);
+        if (suspend) return undefined;
+        colors.current = installTavernTextColors(root.current, { enabled: true }, findTavernQuoteRanges);
         return () => { colors.current.dispose(); colors.current = null; mounted.current = false; };
-    }, []);
+    }, [suspend]);
     // the full-screen stage occludes chat, but live Highlight Ranges still cost
     // Chromium style/GC work. Release them while hidden; resume through the shared read/write batch.
     React.useLayoutEffect(function () {
-        colors.current.setEnabled(!suspend);
+        colors.current?.setEnabled(!suspend);
     }, [suspend]);
     React.useLayoutEffect(function () {
         // on mount the installer's batched timer does the first pass. A synchronous
         // pass per message made opening a long chat recalc document style once per message.
         if (!mounted.current) { mounted.current = true; return; }
-        colors.current.refresh();
+        colors.current?.refresh();
     }, [props.text, props.streaming]);
     const { suspendTextColors, stageTranscript, ...markdownProps } = props;
     return React.createElement('div', { ref: root, className: 'dsh-tavern-colored-markdown' }, React.createElement(DshUi.MarkdownText, markdownProps));

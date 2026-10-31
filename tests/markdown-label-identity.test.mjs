@@ -50,16 +50,16 @@ test('正文渲染点不再传 labels 字面量', () => {
   assert.equal((source.match(/labels: \{ code:/g) || []).length, 0, '源码里仍有每帧新建的 labels 字面量')
   const sites = (bundle.match(/labels: tavernMarkdownLabels\(/g) || []).length
   assert.ok(sites >= 3, `正文渲染点应统一走 tavernMarkdownLabels，实际 ${sites} 处`)
-  assert.ok(/const codeLabels = tavernCodeLabels\(translate\)/.test(bundle), 'codeLabels 未走缓存')
+  assert.ok(/const codeLabels = (?:input\.codeLabels \|\| )?tavernCodeLabels\(translate\)/.test(bundle), 'codeLabels 未走缓存')
 })
 
 test('流式中的正文不挂着色观察器', () => {
   const start = textColors.indexOf('function TavernColoredMarkdown(props)')
   assert.ok(start >= 0, '缺少 TavernColoredMarkdown')
   const body = textColors.slice(start, textColors.indexOf('\n}', start) + 2)
-  assert.ok(/const streaming = props\.streaming === true/.test(body), '未读取 streaming 状态')
-  assert.ok(/if \(streaming\) return undefined/.test(body), '流式中仍会安装整块着色观察器')
-  assert.ok(/\}, \[streaming\]\)/.test(body), 'effect 需要在 streaming 变化时重跑，结算后再上色')
+  assert.ok(/const suspend = props\.streaming === true/.test(body), '未读取 streaming 状态')
+  assert.ok(/if \(suspend\) return undefined/.test(body), '流式中仍会安装整块着色观察器')
+  assert.ok(/\}, \[suspend\]\)/.test(body), 'effect 需要在 streaming 变化时重跑，结算后再上色')
 })
 
 // Behaviour: the component must not attach the per-block MutationObserver while the
@@ -76,7 +76,8 @@ test('流式结束后才安装着色观察器', async () => {
   const cleanups = []
   const React = {
     useRef: initial => ({ current: initial }),
-    useEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
+    useSyncExternalStore: (_, snapshot) => snapshot(),
+    useLayoutEffect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup) },
     createElement: () => null
   }
   const context = vm.createContext({
@@ -92,7 +93,8 @@ test('流式结束后才安装着色观察器', async () => {
   const render = streaming => context.TavernColoredMarkdown({ text: '“你好”', streaming, labels: {} })
   const run = streaming => {
     const previous = React.useRef
-    React.useRef = value => ({ current: root })
+    let refs = 0
+    React.useRef = value => ({ current: refs++ === 0 ? root : value })
     try { render(streaming) } finally { React.useRef = previous }
   }
   observers = 0

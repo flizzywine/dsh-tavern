@@ -80,6 +80,8 @@ function StatusPanelView(p) {
 
             view.styleReferenceEnabled && view.styleReference ? h(packUi.StageSection, { title: "最近一次文风联想", foldKey: "style-reference" },
                 h("div", { className: "dsh-tavern-style-head" },
+                    // The writer skipped the call on the latest reply: say so, with the turn the passage is from.
+                    Number(view.latestAssistantTurn) > Number(view.styleReference.afterTurn) ? h("span", { className: "dsh-tavern-style-missed", title: "最新一轮正文写作时没有调用文风联想" }, "本轮未联想 · 第 " + view.styleReference.afterTurn + " 轮") : null,
                     view.styleReference.book ? h("span", { className: "dsh-tavern-style-source", title: "《" + view.styleReference.book + "》" + (view.styleReference.author || "") }, "《" + view.styleReference.book + "》" + (view.styleReference.author || "")) : null,
                     p.styleEditing ? null : h("button", { type: "button", disabled: p.styleBusy || running || view.regenInProgress, onClick: () => p.setStyleEditing(true) }, p.styleBusy ? "保存中…" : "设置下轮偏好")),
                 h("blockquote", { className: "dsh-tavern-style-reference" + (p.styleExpanded ? " is-expanded" : ""), role: "button", tabIndex: 0,
@@ -109,10 +111,10 @@ function StatusPanelView(p) {
                     p.guideError ? h("div", { className: "fork-status-alert", "data-kind": "error" }, h("span", null, p.guideError)) : null)),
 
             section("people", "人物档案",
-                h("button", { type: "button", className: "fork-status-link", disabled: running || view.activity?.busy || designTask.status === "running",
+                h("button", { type: "button", className: "fork-status-link", disabled: running || ["running", "queued"].includes(designTask.status),
                     title: "根据当前剧情设计或补充人物档案，可附加要求",
                     onClick: function () { p.designCharacter(designTask.status === "failed" ? designTask.guidance : ""); } },
-                    designTask.status === "running" ? "设计中…" : designTask.status === "failed" ? "重试" : "＋ 设计"),
+                    designTask.status === "queued" ? "排队中…" : designTask.status === "running" ? "设计中…" : designTask.status === "failed" ? "重试" : "＋ 设计"),
                 h(React.Fragment, null,
                     designTask.status === "failed" ? h("div", { className: "fork-status-alert", "data-kind": "error", role: "alert" }, h("span", null, designTask.error)) : null,
                     designTask.status === "done" && designTask.published?.length ? h("p", { role: "status" }, "已写入世界书并同步到本局：" + designTask.published.join("、")) : null,
@@ -125,12 +127,12 @@ function StatusPanelView(p) {
                             render: () => h("div", { className: "fork-status-person" },
                                 aliases ? h("p", null, h("em", null, "别名"), aliases) : null,
                                 (character.sections || []).map(function (s) { return h("p", { key: s.key }, h("em", null, s.label), s.text); }),
-                                h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(p.designRemoving) || running || designTask.status === "running", onClick: function () { void p.removeCharacterDesign(character.name); } }, p.designRemoving === character.name ? "删除中…" : "删除这个人物档案")) });
+                                h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: Boolean(p.designRemoving) || running || ["running", "queued"].includes(designTask.status), onClick: function () { void p.removeCharacterDesign(character.name); } }, p.designRemoving === character.name ? "删除中…" : "删除这个人物档案")) });
                     })) : h(EmptyState, { compact: true, noun: "人物档案" }))),
 
             h(TavernPluginTasks, { sessionId: p.props.sessionId, activity: view.activity, busy: running || view.activity?.busy || view.activity?.phase === "pending" }),
             h(TavernPluginStatusSections, { sessionId: p.props.sessionId }),
-            h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy }),
+            h(TavernLedger, { sessionId: p.props.sessionId, ledger: view.ledger, ledgerTask: view.ledgerTask, busy: running || view.activity?.busy, foregroundRunning: running }),
             h(TavernMvuVariables, { sessionId: p.props.sessionId, view: view }),
 
             h("footer", { className: "fork-status-foot" },
