@@ -1418,6 +1418,7 @@ function GalStageToggle(props) {
 function bindStageViews(createViews) {
     if (stageViews) throw new Error('Stage views already mounted');
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
+        entranceContract:stageEntranceContract,
         skinPresentation:{fonts:tavernFonts,files:getStageBundleFiles,appearance:stageSkinAppearance},
         skinResources:{getSession:id=>stageSessions.get(id),getResourceOwner:()=>stageSessions.resourceOwner,setTimeout,clearTimeout},
         skinContract:{stageSkinImageOf,stageSkinSliceEdges,stageSkinScreenFiles,skinContrast},
