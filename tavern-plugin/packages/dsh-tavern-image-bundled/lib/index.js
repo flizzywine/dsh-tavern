@@ -1100,6 +1100,7 @@ route(`${BASE}/generate-characters-minor`, (request, response, url, engine) => e
   route(`${BASE}/jobs`, (request, response, url, engine) => handleJobs(request, response, url, engine))
   // 手动配图：浏览器侧「🎨 生图」按钮走这条，链路和自动配图完全一致
   route(`${BASE}/attach-turn`, handleAttachTurn)
+  route(`${BASE}/draw-turn`, handleAttachTurn)
 
   // 已停用（改用 Tavern 官方 promptSection + attach 链路）：installAutoImagePrompt(ctx, ready)
   logger.info?.('dsh-tavern-image: 已加载（控制台 ' + BASE + '/console）')
@@ -1126,11 +1127,20 @@ async function handleAttachTurn(request, response, _url, engine) {
     const gameId = String(body?.gameId ?? '')
     const turn = Number(body?.turn ?? 0)
     if (!gameId || !Number.isFinite(turn) || turn < 1) { sendJson(response, 400, { ok: false, error: '需要 gameId 与 turn' }); return }
-    const result = await engine.attachTurn({ gameId, turn })
+    const instruction = validateDrawInstruction(body)
+    const result = await engine.attachTurn({ gameId, turn, instruction })
     sendJson(response, 200, { ok: true, ...result })
   } catch (error) {
-    sendJson(response, 400, { ok: false, error: String(error?.message ?? error) })
+    sendJson(response, Number(error?.statusCode) || 400, { ok: false, error: String(error?.message ?? error) })
   }
+}
+
+function validateDrawInstruction(body) {
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'instruction')) return ''
+  if (typeof body.instruction !== 'string') throw new Error('instruction 必须是字符串')
+  const instruction = body.instruction.trim()
+  if (instruction.length > 2000) throw new Error('instruction 不能超过 2000 个字符')
+  return instruction
 }
 
 async function handleJobs(request, response, url, engine) {
@@ -2460,8 +2470,18 @@ function createRuntime(ctx, overrides, logger, deps) {
       }))
     }
 
-    async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan }) {
+    async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan, instruction = '' }) {
       signal?.throwIfAborted()
+      if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
+      instruction = instruction.trim()
+      if (instruction.length > 2000) throw new Error('instruction 不能超过 2000 个字符')
+      if (instruction) {
+        manual = true
+        force = true
+        smartSelection = false
+        characterUpdates = false
+        reusePlan = false
+      }
       if (config.plannerEnabled === false && !manual && !characterUpdates) throw new Error('生图规划没打开（控制台 → 高级设置）')
       if (!deps.llm) throw new Error('当前 DSH 没有 llm 服务，无法做生图规划')
       const fallback = await backgroundModel(sessionId)
@@ -2531,9 +2551,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       const system = buildPlannerSystem({
         rules: plannerContext.staticRules, dynamicRules: plannerContext.dynamicRules,
         roster, rosterIndex: plannerContext.rosterIndex, count: want,
-        extra: [config.plannerExtra, guidance, imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : ''].filter(Boolean).join('\n\n'),
+        extra: [config.plannerExtra, guidance, imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode,
       })
+      const plannerInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
       const contextBoundary = system.indexOf('\n\n<本轮上下文>\n')
       lastPlannerContext = {
         ...plannerContext.diagnostics, at: Date.now(), turn: Number(turn) || null,
@@ -2548,7 +2569,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         const T = diag.text
         diag.record(traceId, 'planner-input', { body: T(body), card: card?.name ?? null, historySnapshotTurn: historySnapshot?.turn ?? null, config: { promptMode: config.promptMode, traitMode: config.traitMode, negativeMode: config.negativeMode, injectWeight: config.injectWeight, weightMode: config.weightMode, imageBackend: config.imageBackend, defaultWorkflow: config.defaultWorkflow, imageSize: config.imageSize, sizes: config.sizes, activePromptPreset: config.activePromptPreset, artistPosition: config.artistPosition } })
         diag.record(traceId, 'planner-context', { diagnostics: plannerContext.diagnostics, scopedCharacterIds: scoped.characters.map(c => String(c.id ?? '')), roster: T(roster), rosterIndex: T(plannerContext.rosterIndex) })
-        diag.record(traceId, 'planner-request', { layer: 'llm.stream arguments (not provider HTTP body)', provider, model, reasoningEffort: plannerEffort ?? null, temperature: Number(config.plannerTemperature) || 1, maxTokens: 12000, system: T(system), user: T(body) })
+        diag.record(traceId, 'planner-request', { layer: 'llm.stream arguments (not provider HTTP body)', provider, model, reasoningEffort: plannerEffort ?? null, temperature: Number(config.plannerTemperature) || 1, maxTokens: 12000, system: T(system), user: T(plannerInput) })
       }
 
       const task = beginTask('规划', imageGeneration ? '正文配图 · 最多 ' + want + ' 张' : '角色视觉历史更新')
@@ -2678,7 +2699,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           model,
           reasoningEffort: plannerEffort,
           system,
-          text: body,
+          text: plannerInput,
           temperature: Number(config.plannerTemperature) || 1,
           signal: task.controller.signal,
           onDelta: delta => {
@@ -4954,7 +4975,10 @@ function createRuntime(ctx, overrides, logger, deps) {
       planMessage,
       currentConfig: () => config,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
-      attachTurn: async ({ gameId, turn }) => {
+      attachTurn: async ({ gameId, turn, instruction = '' }) => {
+        if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
+        instruction = instruction.trim()
+        if (instruction.length > 2000) throw new Error('instruction 不能超过 2000 个字符')
         // 桥是异步装配的（要等 runtime 起来），用户手快时它可能还没就绪 —— 最多等 20 秒
         for (let waited = 0; !deps.bridge?.attachTurn && waited < 20000; waited += 200) {
           await new Promise(resolve => setTimeout(resolve, 200))
@@ -5011,7 +5035,8 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (!settled) return { attached: 0, error: '读不到这一轮（可能还没结算完，或轮次号不对）' }
         // 手动这条路也把「哪张卡」记下来（和自动那条共用一个缓存）
         rememberTurn(gameId, turn, settled.card)
-        return deps.bridge.attachTurn({ gameId, turn, textVersion: settled.textVersion, text: settled.text, manual: !waited || config.plannerEnabled === false })
+        return deps.bridge.attachTurn({ gameId, turn, textVersion: settled.textVersion, text: settled.text,
+          manual: Boolean(instruction) || !waited || config.plannerEnabled === false, instruction })
       },
     }
   })()

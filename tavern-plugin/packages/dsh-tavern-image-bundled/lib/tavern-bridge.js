@@ -158,11 +158,16 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
    * 给某一轮配图：规划 → 每张挂 pending 占位 → 出图 → update 成真图。
    * 自动（onTurnSettled）和手动（/attach-turn 路由）共用这一份实现。
    */
-  function attachTurn({ gameId, turn, textVersion, text, messageId, manual = false, count }) {
+  function attachTurn({ gameId, turn, textVersion, text, messageId, manual = false, count, instruction = '' }) {
     const body = String(text ?? '').trim()
     if (!body) return Promise.reject(new Error('这一轮没有正文'))
     if (!textVersion) return Promise.reject(new Error('拿不到这一轮的版本号（textVersion）'))
     if (disposed) return Promise.reject(new Error('插件已卸载'))
+    if (typeof instruction !== 'string') return Promise.reject(new Error('instruction 必须是字符串'))
+    instruction = instruction.trim()
+    if (instruction.length > 2000) return Promise.reject(new Error('instruction 不能超过 2000 个字符'))
+    const instructed = instruction.length > 0
+    manual = Boolean(manual || instructed)
     const config = getConfig() ?? {}
     const settings = {
       smartImageSelection: config.smartImageSelection !== false,
@@ -174,9 +179,21 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       ]),
     }
     const key = versionKey({ gameId, turn, textVersion, manual, count, settings })
-    // Keep this marker even after failure: a late host event must not silently
-    // submit a second billable plan after the user already requested this version.
-    if (manual) rememberManualTurn({ gameId, turn, textVersion })
+    // A manual request must not cancel and replace another in-flight request:
+    // the caller needs an explicit busy result so its one-off instruction is retained.
+    for (const task of running.values()) {
+      if (task.gameId === gameId && task.turn === turn && task.textVersion === textVersion
+        && (instructed || task.instruction)) {
+        const error = new Error('这一轮的生图任务正在进行，请稍后重试')
+        error.statusCode = 409
+        return Promise.reject(error)
+      }
+    }
+    if (manual) {
+      // Keep this marker even after failure: a late host event must not silently
+      // submit a second billable plan after the user already requested this version.
+      rememberManualTurn({ gameId, turn, textVersion })
+    }
     if (!manual && running.has(key)) return running.get(key).promise
     if (manual) {
       for (const cachedKey of completed.keys()) {
@@ -191,7 +208,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       }
     }
     const runKey = manual ? key + '|manual|' + (++manualRequestId) : key
-    const task = { gameId, turn, textVersion, controller: new AbortController(), mounted: new Set(), jobIds: new Set(), manual, count, settings }
+    const task = { gameId, turn, textVersion, controller: new AbortController(), mounted: new Set(), jobIds: new Set(), manual, count, settings, instruction }
     // 先登记，再开始异步规划；同类自动请求复用任务，手动请求保留强制重画语义。
     task.promise = Promise.resolve().then(() => runTurn(task, body, messageId)).finally(() => {
       if (running.get(runKey) === task) running.delete(runKey)
@@ -231,6 +248,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       const config = getConfig() ?? {}
       const api2 = Number(tavern.apiVersion) >= 2
       const historyEnabled = api2 && config.characterAutoUpdate !== false
+      const saveHistory = historyEnabled && !task.instruction
       const shouldGenerate = config.imageEnabled !== false && (task.manual || config.plannerEnabled !== false)
       const planAndSave = async () => {
         let historySnapshot = null
@@ -245,11 +263,12 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           messageId: (messageId || ('turn-' + gameId + '-' + turn)) + '|' + textVersion,
           turn, textVersion, sessionId: gameId, manual: task.manual, force: task.manual, count: task.count,
           smartSelection: !task.manual && config.smartImageSelection !== false,
-          imageGeneration: shouldGenerate, characterUpdates: historyEnabled, historySnapshot,
+          imageGeneration: shouldGenerate, characterUpdates: historyEnabled && !task.instruction, historySnapshot,
           reusePlan: shouldGenerate && !task.manual && config.smartImageSelection === false,
+          instruction: task.instruction,
           signal: task.controller.signal, onPlan: beginImage,
         })
-        if (historyEnabled && value?.characterSnapshot && typeof tavern.saveTurnData === 'function') {
+        if (saveHistory && value?.characterSnapshot && typeof tavern.saveTurnData === 'function') {
           try {
             await assertCurrent(task)
             await tavern.saveTurnData({ gameId, turn, textVersion, data: value.characterSnapshot })
