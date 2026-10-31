@@ -47196,19 +47196,27 @@ function cardLibraryDisplayName(card) {
 		        state.figures.set(entry.key, entry);
 		    }
 		    function destroyFigure(entry) {
-		        if (state.figures.get(entry.key) === entry) state.figures.delete(entry.key);
-		        if (entry.replacement) { destroyFigure(entry.replacement); entry.replacement = null; }
-		        entry.dead = true;
-		        releaseTapStills(entry);
-		        if (entry.warp) { entry.warp.destroy(); entry.warp = null; }
-		        entry.blink.dispose();
-		        layeredSpriteClearScene(entry);
-		        Object.values(entry.slots).forEach(slot => slot.filter.destroy());
-		        ;
-		        entry.container.destroy({ children: true });
-		        entry.figureAsset?.destroy();entry.figureAsset=null;entry.spineFigure=null;
-		        for(const item of entry.fading)item.asset?.destroy();entry.fading=[];
-		        state.lastPrune = 0;
+		        if(entry.dead)return;
+		        entry.dead=true;
+		        if(state.figures.get(entry.key)===entry)state.figures.delete(entry.key);
+		        const errors=[];
+		        const release=action=>{try{action();}catch(error){errors.push(error);}};
+		        if(entry.replacement){const replacement=entry.replacement;entry.replacement=null;release(()=>destroyFigure(replacement));}
+		        release(()=>releaseTapStills(entry));
+		        if(entry.warp){const warp=entry.warp;entry.warp=null;release(()=>warp.destroy());}
+		        release(()=>entry.blink.dispose());
+		        release(()=>layeredSpriteClearScene(entry));
+		        for(const slot of Object.values(entry.slots))release(()=>slot.filter.destroy());
+		        entry.slots={};
+		        release(()=>entry.shadeFilter.destroy());
+		        release(()=>entry.figureAsset?.destroy());
+		        entry.figureAsset=null;entry.spineFigure=null;
+		        for(const item of entry.fading)release(()=>item.asset?.destroy());
+		        entry.fading=[];
+		        release(()=>entry.container.destroy({children:true}));
+		        state.lastPrune=0;
+		        // A failed release must not invalidate the replacement or prevent the remaining figures from retiring.
+		        if(errors.length)console.warn('[fork-gal-scene] figure cleanup failed',new AggregateError(errors,'Figure cleanup failed'));
 		    }
 		    // the runtime loads with the first Spine figure; the figure then becomes a
 		    // sprite-like body (entry.sprite) placed and sized by the static path, from its rest-pose frame and pack anatomy.

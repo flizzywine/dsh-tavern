@@ -1,0 +1,33 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+import vm from 'node:vm'
+const source=readFileSync(new URL('../tavern-plugin/src/client/gal-scene.js',import.meta.url),'utf8')
+function fixture(){
+ const calls=[],warnings=[],state={figures:new Map(),lastPrune:5}
+ const start=source.indexOf('    function commitFigureReplacement('),end=source.indexOf('    // the runtime loads',start)
+ const api=vm.runInNewContext(source.slice(start,end)+';({destroyFigure,commitFigureReplacement})',{state,AggregateError,console:{warn:(...args)=>warnings.push(args)},releaseTapStills:e=>calls.push(e.key+':tap'),layeredSpriteClearScene:e=>calls.push(e.key+':layers')})
+ const entry=(key,fail=false)=>{
+  const resource=name=>({destroy(){calls.push(key+':'+name);if(fail&&name==='warp')throw Error('GPU cleanup failed')}})
+  return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},slots:{rim:{filter:resource('rim')}},shadeFilter:resource('shade'),figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
+ }
+ return {calls,warnings,state,entry,...api}
+}
+test('figure cleanup continues after a GPU release failure and is idempotent',()=>{
+ const e=fixture(),figure=e.entry('a',true);e.state.figures.set('a',figure)
+ e.destroyFigure(figure);e.destroyFigure(figure)
+ assert.deepEqual(e.calls,['a:tap','a:warp','a:blink','a:layers','a:rim','a:shade','a:asset','a:fading','a:container'])
+ assert.equal(e.warnings.length,1);assert.equal(e.state.figures.size,0);assert.equal(e.state.lastPrune,0);assert.equal(figure.dead,true)
+})
+test('replacement survives old figure cleanup failure',()=>{
+ const e=fixture(),old=e.entry('a',true),next=e.entry('a');e.state.figures.set('a',old);old.replacement=next;next.previous=old
+ e.commitFigureReplacement(next)
+ assert.equal(e.state.figures.get('a'),next);assert.equal(next.dead,undefined);assert.equal(old.dead,true);assert.equal(next.previous,null);assert.equal(old.replacement,null);assert.equal(e.state.figureLoads,1)
+ e.destroyFigure(next);assert.equal(e.state.figures.size,0)
+})
+test('retiring a figure also retires its pending replacement without removing a newer entry',()=>{
+ const e=fixture(),old=e.entry('a'),pending=e.entry('pending'),current=e.entry('a');old.replacement=pending;e.state.figures.set('a',current)
+ e.destroyFigure(old)
+ assert.equal(pending.dead,true);assert.equal(e.state.figures.get('a'),current);assert.equal(current.dead,undefined)
+ assert.equal(e.calls.filter(call=>call.endsWith(':shade')).length,2)
+})
