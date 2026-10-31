@@ -88,6 +88,9 @@ try {
   await page.mouse.up()
   await page.waitForTimeout(40)
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'release click after long press does not draw')
+  await page.getByRole('textbox', { name: '本次配图要求（最多 2000 字）' }).fill('示例：从门外侧拍摄，镜头略低；角色正在推开窗户。')
+  await page.screenshot({ path: `${process.env.TEMP}\\dsh-tavern-manual-direction-dialog.png` })
+  console.log(`SCREENSHOT ${process.env.TEMP}\\dsh-tavern-manual-direction-dialog.png`)
   await page.getByRole('button', { name: '取消' }).click()
   assert.equal(await page.evaluate(() => window.__calls.length), 1, 'cancel does not submit a request')
 
