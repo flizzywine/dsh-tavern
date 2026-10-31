@@ -15,5 +15,21 @@ try {
   const background=await host.rpc('getBackgroundRuns',{sessionId:'ordinary'})
   assert.equal(background.catalog.some(row=>row.task==='stage-director'),false)
   await assert.rejects(host.rpc('getStageDirection',{sessionId:'ordinary'}),/未知方法/)
+  const control=host.services.get('tavernStageControl')
+  for(let cycle=0;cycle<2;cycle++) {
+    await control.enable()
+    assert.equal(control.status(),'ready')
+    assert.ok(host.services.get('tavernAssetCards'))
+    assert.ok(host.services.get('tavernManagedModules'))
+    assert.equal((await host.rpc('getTavernSettings',{})).modModelSlots.some(row=>row.modId==='dsh.stage'),true)
+    assert.ok((await host.rpc('managedModsList',{}, {origin:'http://localhost:3081'})).mods.length)
+    await control.disable()
+    assert.equal(control.status(),'disabled')
+    assert.equal(host.services.has('tavernAssetCards'),false)
+    assert.equal(host.services.has('tavernManagedModules'),false)
+    assert.equal((await host.rpc('getTavernSettings',{})).modModelSlots.some(row=>row.modId==='dsh.stage'),false)
+    await assert.rejects(host.rpc('getStageDirection',{sessionId:'ordinary'}),/未知方法/)
+    assert.ok(await host.rpc('listCards',{}))
+  }
   console.log('core without stage completed')
 } finally {await host.dispose()}

@@ -771,7 +771,7 @@ export async function apply(ctx, config = {}) {
   }
   let assetCardsActive = true
   ctx.effect(() => () => { assetCardsActive = false })
-  const {cardAssetBindings,cardZipTargets} = stageRuntime.cards({
+  const {cardZipTargets} = stageRuntime.cards({
     fileResources,readCardWorkspace,updateCard,
     syncBubbles:path => dialogueBubbles.sync(worldBooks,path),readCharacterBook:path => worldBooks.characterBookForCard(path),
     readSessionMap, persistence:() => chatPersistence,cardId:() => uid('card'),cardPreparation,cardStorage,bumpCardProjectionRevision,syncCardName
@@ -3580,7 +3580,6 @@ export async function apply(ctx, config = {}) {
     bubbleInjection: { get: () => bubbleInjection },
     bubbleInstructionPreview: { get: () => bubbleInstructionPreview },
     candidateTasks: { get: () => candidateTasks },
-    cardAssetBindings: { get: () => cardAssetBindings },
     cardPreparation: { get: () => cardPreparation },
     cardScripts: { get: () => cardScripts },
     resolveCardId: { get: () => cardStorage.resolve },
@@ -3666,6 +3665,8 @@ export async function apply(ctx, config = {}) {
   rpcHandlers.getCardScripts = rpcHandlers.setCardScriptMuted
   const extensionRequests = createExtensionRequests({reserved:Object.keys(rpcHandlers)})
   stageRuntime.requests(rpcDeps, extensionRequests)
+  ctx.provide('tavernStageControl',Object.freeze({enable:stageRuntime.enable,disable:stageRuntime.disable,status:stageRuntime.status}))
+  ctx.effect(() => () => stageRuntime.dispose(), 'dsh-tavern: optional stage controller')
 
   async function dispatchMethod(method, args, authority, serverTemplate = false) {
     if (extensionRequests.handles(method)) return extensionRequests.call(method,args,authority,serverTemplate)

@@ -7,7 +7,7 @@ import {createStageAssets, createStageModule, createStageServices} from './stage
 // These bindings are not the public interface of the future optional plugin.
 export function createStageRuntime(core, factories = {assets:createStageAssets, start:createStageModule, services:createStageServices}) {
   const scope = createResourceScope(core.ctx, {onError:error => console.warn('dsh-tavern: stage cleanup failed',error?.message || error)})
-  let phase = 'assets', module, services
+  let phase = 'assets', module, services, cardAssets
   core.ctx.effect(() => () => scope.dispose(), 'dsh-tavern: stage lifetime')
   const failed = error => {phase = 'failed';void scope.dispose();throw error}
   const assert = expected => {
@@ -27,7 +27,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     cards(bindings) {
       assert('assets')
-      try {return createStageCardAssets({...bindings,...assets,modManifests:() => module?.modService.manifests() || [],ctx:scope.ctx,active:scope.active})}
+      try {return cardAssets = createStageCardAssets({...bindings,...assets,modManifests:() => module?.modService.manifests() || [],ctx:scope.ctx,active:scope.active})}
       catch(error) {return failed(error)}
     },
     async start(bindings) {
@@ -47,7 +47,7 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     requests(bindings, registry) {
       assert('ready')
-      const owned = Object.fromEntries(Object.entries({...assets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
+      const owned = Object.fromEntries(Object.entries({...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
       return module.requests(Object.create(bindings,owned),registry)
     },
     async dispose() {phase = 'disposed';await scope.dispose()},

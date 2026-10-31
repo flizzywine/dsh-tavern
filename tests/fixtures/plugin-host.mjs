@@ -89,7 +89,7 @@ export async function createPluginHost({ withTools = false, composition, config 
         tools: services.get('tools') || { get: () => undefined, register: () => () => {} },
         effect(callback) { const stop = callback(); if (typeof stop === 'function') disposers.push(stop) },
         on: name => events.add(name),
-        provide: (name, value) => services.set(name, value)
+        provide(name,value) {services.set(name,value);return () => {if(services.get(name)===value)services.delete(name)}}
       }
       await apply(ctx, config)
       await new Promise(resolve => setImmediate(resolve))
