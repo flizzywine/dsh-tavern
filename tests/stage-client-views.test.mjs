@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const {createStageViews} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/views.cjs')
 
-test('stage host owns fullscreen listeners, portal mount and transcript cleanup', () => {
+for (const disposal of ['react', 'plugin', 'plugin-with-error']) test(`stage host cleans portal and listeners via ${disposal}`, () => {
+  let failUnlock = false
   const effects = [], cleanups = [], events = [], documentListeners = new Map(), windowListeners = new Map()
   const document = {
     fullscreenElement:{},
@@ -19,7 +20,7 @@ test('stage host owns fullscreen listeners, portal mount and transcript cleanup'
   }
   const navigation = {
     galStageAvailable:{get:() => true}, galActive:{get:() => 's'}, galMenuRequest:{request:() => events.push('menu')},
-    galEscapeLock:on => events.push(on ? 'lock' : 'unlock'),
+    galEscapeLock:on => { events.push(on ? 'lock' : 'unlock'); if (!on && failUnlock) throw new Error('unlock failed') },
     galCoverChat:() => events.push('cover'), galUncover:() => events.push('uncover'),
     galLeave:() => events.push('leave'),
   }
@@ -34,11 +35,20 @@ test('stage host owns fullscreen listeners, portal mount and transcript cleanup'
   views.Host({sessionId:'s'})
   for (const effect of effects) cleanups.push(effect())
   assert.deepEqual(events,['mount','cover','lock'])
-  windowListeners.get('resize')()
+  const lateResize = windowListeners.get('resize'), lateFullscreen = documentListeners.get('fullscreenchange')
+  lateResize()
   document.fullscreenElement = null
   documentListeners.get('fullscreenchange')()
   assert.equal(events.filter(value => value === 'menu').length,1)
+  failUnlock = disposal === 'plugin-with-error'
+  if (disposal === 'plugin-with-error') assert.throws(() => views.dispose(), /Stage host cleanup failed/)
+  else if (disposal === 'plugin') views.dispose()
   for (const cleanup of cleanups) cleanup()
+  const settled = [...events]
+  views.dispose()
+  lateResize()
+  lateFullscreen()
+  assert.deepEqual(events, settled)
   assert.equal(documentListeners.size,0)
   assert.equal(windowListeners.size,0)
   assert.deepEqual(events.slice(-4),['unlock','remove','uncover','leave'])
@@ -57,4 +67,9 @@ test('stage toggle is absent for ordinary cards and enters the selected session'
   assert.equal(button.type,'button')
   button.props.onClick()
   assert.equal(entered,'s')
+  entered = null
+  views.dispose()
+  button.props.onClick()
+  assert.equal(entered,null)
+  assert.equal(views.Toggle({sessionId:'s'}),null)
 })

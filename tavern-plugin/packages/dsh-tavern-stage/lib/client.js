@@ -4241,12 +4241,34 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
 
         'use strict';
 function createStageViews({React, ReactDOM, window, document, navigation, useBubbles, useGalEntryLoader, GalStage, Icon}) {
+const cleanups = new Set();
+let disposed = false;
+function own(cleanup) {
+    let active = true;
+    const release = () => {
+        if (!active) return;
+        active = false;
+        cleanups.delete(release);
+        cleanup();
+    };
+    cleanups.add(release);
+    return release;
+}
+function dispose() {
+    if (disposed) return;
+    disposed = true;
+    const errors = [];
+    for (const cleanup of [...cleanups]) {
+        try { cleanup(); } catch (error) { errors.push(error); }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Stage host cleanup failed');
+}
 const {galStageAvailable, galCoverChat, galUncover, galActive, galMenuRequest, galEscapeLock, galLeave, galEnter} = navigation;
 function useGalOn(sessionId) {
     const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
     const active = React.useSyncExternalStore(galActive.subscribe, galActive.get);
     const data = useBubbles(sessionId, enabled && Boolean(sessionId));
-    const available = enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
+    const available = !disposed && enabled && Boolean(data && data.cardPath && data.config && data.config.enabled);
     return { available, on: available && active === sessionId, data };
 }
 // Mounted in the session shell; the stage covers the whole window (and the screen, when the
@@ -4260,16 +4282,16 @@ function GalStageHost(props) {
     const [target, setTarget] = React.useState(null);
     const admitted = state.on && (!!target || loader !== 'pending');
     React.useLayoutEffect(function () {
+        if (disposed) return;
         if (!admitted) { setTarget(null); return; }
         const mount = document.createElement("div");
         mount.className = "fork-gal-mount";
-        document.body.appendChild(mount);
-        galCoverChat();
+        let active = true;
         let wasFull = Boolean(document.fullscreenElement), lostSent = false;
         // Leaving system full screen (Esc, which the browser takes first) opens the stage menu instead of leaving.
         // Commit it before the first windowed frame paints (flushSync): one transition, not resize then menu.
         function fullscreenLost() {
-            if (lostSent || galActive.get() !== props.sessionId) return;
+            if (!active || disposed || lostSent || galActive.get() !== props.sessionId) return;
             lostSent = true;
             if (ReactDOM && typeof ReactDOM.flushSync === "function") ReactDOM.flushSync(galMenuRequest.request); else galMenuRequest.request();
         }
@@ -4279,22 +4301,41 @@ function GalStageHost(props) {
             if (wasFull && document.fullscreenElement && (window.outerWidth !== window.screen.width || window.outerHeight !== window.screen.height)) fullscreenLost();
         }
         function onFullscreen() {
+            if (!active || disposed) return;
             if (wasFull && !document.fullscreenElement) fullscreenLost();
             wasFull = Boolean(document.fullscreenElement); lostSent = false;
             galEscapeLock(wasFull);
         }
-        document.addEventListener("fullscreenchange", onFullscreen);
-        window.addEventListener("resize", onResize);
-        galEscapeLock(wasFull);
-        setTarget(mount);
-        return function () {
-            galEscapeLock(false);
-            document.removeEventListener("fullscreenchange", onFullscreen);
-            window.removeEventListener("resize", onResize);
-            mount.remove(); galUncover?.(); setTarget(null);
-        };
+        const release = own(() => {
+            active = false;
+            const errors = [];
+            for (const cleanup of [
+                () => galEscapeLock(false),
+                () => document.removeEventListener("fullscreenchange", onFullscreen),
+                () => window.removeEventListener("resize", onResize),
+                () => mount.remove(),
+                () => galUncover?.(),
+                () => { if (!disposed) setTarget(null); },
+            ]) { try { cleanup(); } catch (error) { errors.push(error); } }
+            if (errors.length) throw new AggregateError(errors, 'Stage portal cleanup failed');
+        });
+        try {
+            document.body.appendChild(mount);
+            galCoverChat();
+            document.addEventListener("fullscreenchange", onFullscreen);
+            window.addEventListener("resize", onResize);
+            galEscapeLock(wasFull);
+            setTarget(mount);
+            return release;
+        } catch (error) {
+            try { release(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage portal mount failed'); }
+            throw error;
+        }
     }, [props.sessionId, admitted]);
-    React.useEffect(() => () => { if (galActive.get() === props.sessionId) galLeave(); }, [props.sessionId]);
+    React.useEffect(() => {
+        if (disposed) return;
+        return own(() => { if (galActive.get() === props.sessionId) galLeave(); });
+    }, [props.sessionId]);
     const h = React.createElement;
     return admitted && target && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(h(GalStage, { sessionId: props.sessionId, data: state.data, Regenerate: props.Regenerate, replayFailed: props.replayFailed, Choices: props.Choices, choiceProps: props.choiceProps, onExit: galLeave }), target) : null;
 }
@@ -4303,11 +4344,11 @@ function GalStageHost(props) {
 function GalStageToggle(props) {
     const state = useGalOn(props.sessionId);
     if (!state.available) return null;
-    return React.createElement("button", { type: "button", className: "dsh-tavern-btn fork-gal-toggle", title: "进入舞台模式（F12 切换，Esc 打开菜单）", "aria-keyshortcuts": "F12", onClick: () => galEnter(props.sessionId) },
+    return React.createElement("button", { type: "button", className: "dsh-tavern-btn fork-gal-toggle", title: "进入舞台模式（F12 切换，Esc 打开菜单）", "aria-keyshortcuts": "F12", onClick: () => { if (!disposed) galEnter(props.sessionId); } },
         React.createElement(Icon, { name: "stage", size: 16 }), React.createElement("span", null, "舞台"));
 }
 
-return {Host:GalStageHost, Toggle:GalStageToggle};
+return {Host:GalStageHost, Toggle:GalStageToggle, dispose};
 }
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {createStageViews};
 
@@ -4361,7 +4402,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     own(progress.store);
                     const admission = own(createStageAdmission({React:options.React, window, document, loader, StageLoadLine:progress.Line, ...options.admission}));
                     const music = own(createStageMusic(options.music));
-                    return {...createStageViews({...options, useGalEntryLoader:admission.useLoader}), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
+                    return {...own(createStageViews({...options, useGalEntryLoader:admission.useLoader})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu})), position:own(createStagePosition({React:options.React, window, ...options.position})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music})), ambience:own(createAmbience({...options.ambience, player:() => createSoundscapePlayer(options.soundscape)})), timer:own(createStageTimer({React:options.React, window, ...options.timer})), video:own(createStageVideo(options.video)),
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits}),
