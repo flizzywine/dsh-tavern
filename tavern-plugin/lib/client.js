@@ -73459,6 +73459,9 @@ const {createStageSessionOwner} = createStageSessionModuleAdapter(stageSessionSt
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageSessionOwner};
 'use strict';
 
+'use strict';
+
+function createStageDirectorModule({directorCommands}) {
 // the kernel owns scheduling/single-flight; this adapter only executes
 // read-only IO and projects already admitted direction into runtime events.
 const stageDirectorSourceKey = source => JSON.stringify(source);
@@ -73479,7 +73482,7 @@ async function projectStageDirection(value, source) {
     if (value.unchanged) return null;
     if (!value.token) return {phase:value.phase, revision:value.revision, generation:value.generation, assetRevision:value.assetRevision, error:value.error};
     if (value.target.sessionId !== source.sessionId || value.target.turn !== source.turn) return null;
-    const commands = typeof directorCommands !== 'undefined' ? directorCommands : require('../../packages/dsh-presentation-protocol/src/director-commands.cjs');
+    const commands = directorCommands;
     const entries = value.entries.map((entry,ordinal) => {
         const ops = entry.ops.map(op => commands.recordOperation(op,value.binding)).filter(Boolean);
         return {...entry, ops, ordinal, events:ops.flatMap((op,ordinal) => op.op === 'event' ? [{...op.value, kind:op.value.op, ordinal}] : [])};
@@ -73603,8 +73606,20 @@ function createStageDirectorSource({read, watch, clock = globalThis, onEffect = 
         watches.clear(); timers.clear(); reads.clear(); completed.clear(); signalVersions.clear();
     }};
 }
+return {createStageDirectorSource, projectStageDirection};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageDirectorModule};
+const createStageDirectorModuleAdapter = typeof module !== 'undefined' && typeof window === 'undefined'
+    ? require('../../packages/dsh-tavern-stage/lib/client/director-source.cjs').createStageDirectorModule : createStageDirectorModule;
+const {createStageDirectorSource, projectStageDirection} = createStageDirectorModuleAdapter({directorCommands: typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-presentation-protocol/src/director-commands.cjs') : directorCommands});
+
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageDirectorSource, projectStageDirection};
 'use strict';
+
+'use strict';
+
+function createStageResourcesModule() {
 let stageResourceMeasureCount = 0;
 const STAGE_SKIN_INLINE_SVG_BYTES = 2048;
 
@@ -74110,13 +74125,22 @@ function createStageResourceOwner({service, fetch: request = globalThis.fetch, u
         dispose() { disposed = true; for (const entry of [...entries.values()]) destroy(entry); for (const allocation of [...allocations]) allocation.release(); }
     };
 }
+return {stageDecodeImage, createStageResourceOwner, stageResourceMatches, stageAvatarBitmap, stageAvatarCap, stageMediaTier, stagePreviewBitmap, getStageAvatarCrop, getStageBundleFiles};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourcesModule};
+const createStageResourcesModuleAdapter = typeof module !== 'undefined' && typeof window === 'undefined'
+    ? require('../../packages/dsh-tavern-stage/lib/client/resources.cjs').createStageResourcesModule : createStageResourcesModule;
+const {stageDecodeImage, createStageResourceOwner, stageResourceMatches, stageAvatarBitmap, stageAvatarCap, stageMediaTier, stagePreviewBitmap, getStageAvatarCrop, getStageBundleFiles} = createStageResourcesModuleAdapter();
+
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {stageDecodeImage, createStageResourceOwner, stageResourceMatches, stageAvatarBitmap, stageAvatarCap, stageMediaTier, stagePreviewBitmap, getStageAvatarCrop, getStageBundleFiles};
 'use strict';
-const stageResourceDeps = typeof module !== 'undefined' && typeof window === 'undefined' ? require('./stage-resources.cjs') : null;
-const stageMatchesResource = (item, scope) => (stageResourceDeps?.stageResourceMatches || stageResourceMatches)(item,scope);
+
+'use strict';
+
+function createStageResourceRunnerModule({stageResourceMatches, stageRuntimeErrorText, createPerformanceTimeline, performanceSustained}) {
 const stageResourceAuthority = source => JSON.stringify([source.sessionId,source.authorityEpoch]);
-const stageResourceErrorText = typeof module !== 'undefined' && typeof window === 'undefined'
-    ? require('./stage-runtime.cjs').stageRuntimeErrorText : stageRuntimeErrorText;
+const stageResourceErrorText = stageRuntimeErrorText;
 // conflicts that resolve on a re-read (the stage moved on, a lease went stale).
 const STAGE_TRANSIENT_CODES = ['REVISION_CONFLICT','ASSET_STALE'], STAGE_TRANSIENT_RETRIES = 6;
 const stageErrorCode = error => typeof error === 'string' ? (error.match(/^([A-Z][A-Z0-9_]+)(?::|$)/) || [])[1] || '' : typeof error?.code === 'string' ? error.code : typeof error?.message === 'string' ? (error.message.match(/^([A-Z][A-Z0-9_]+)$/) || [])[1] || '' : '';
@@ -74247,8 +74271,8 @@ function stagePlaybackVisual(value, requestToken, directionToken) {
 // `progress` receives each foreground load's real items (stage-load-progress.cjs).
 const STAGE_NO_PROGRESS = {begin() {}, plan() {}, resource() {}, settle() {}, end() {}};
 function createStageResourceRunner({read, owner, clock = globalThis, foreground = clock, idle = async () => true, resolveSpeaker = (_snapshot,page) => page.voice?.character?.alias, music, preparePerformance = async () => {}, performance = () => {}, present = () => {}, play = () => {}, cancelPlayback = () => {}, visual, progress = STAGE_NO_PROGRESS}) {
-    const timelineFactory = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-presentation-protocol/src/performance-timeline.cjs').createPerformanceTimeline : createPerformanceTimeline;
-    const sustained = typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-presentation-protocol/src/performance-state.cjs').performanceSustained : performanceSustained;
+    const timelineFactory = createPerformanceTimeline;
+    const sustained = performanceSustained;
     const now = () => typeof foreground.now === 'function' ? foreground.now() : foreground.now ?? globalThis.performance.now();
     const sameToken = (a,b) => a && b && JSON.stringify(a) === JSON.stringify(b);
     const refKey = ref => JSON.stringify([ref?.packId,ref?.kind,ref?.assetId]);
@@ -74493,12 +74517,12 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         // match the descriptor tree, not shared Blob URLs. Revoking
         // one alias must not erase another alias using the same content handle.
         function scrub(item, descriptor) {
-            if (stageMatchesResource(descriptor,scope)) return null;
+            if (stageResourceMatches(descriptor,scope)) return null;
             if (!item || typeof item !== 'object') return item;
             if (Array.isArray(item)) return item.map((v,i) => scrub(v,descriptor?.[i])).filter(v => v !== null);
             return Object.fromEntries(Object.entries(item).map(([k,v]) => [k,scrub(v,descriptor?.[k])]));
         }
-        const matchesTree = item => item && typeof item === 'object' && (stageMatchesResource(item,scope) || Object.values(item).some(matchesTree));
+        const matchesTree = item => item && typeof item === 'object' && (stageResourceMatches(item,scope) || Object.values(item).some(matchesTree));
         for (const [group,prepared] of state.accepted) {
             const next = (group === 'cg' && matchesTree(prepared.descriptors) || group === 'performance' && matchesTree([prepared.descriptors?.ref,prepared.descriptors?.dependencies,prepared.descriptors?.executionDependencies]))
                 ? null : scrub(prepared.value,prepared.descriptors);
@@ -74506,12 +74530,12 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
             const retained = new Set();
             function collect(item) {if (typeof item === 'string') retained.add(item); else if (item && typeof item === 'object') Object.values(item).forEach(collect);}
             collect(next);
-            prepared.pins = prepared.pins.filter(pin => {if (retained.has(pin.handle.url) && !stageMatchesResource(pin.descriptor,scope)) return true; pin.release(); return false;});
+            prepared.pins = prepared.pins.filter(pin => {if (retained.has(pin.handle.url) && !stageResourceMatches(pin.descriptor,scope)) return true; pin.release(); return false;});
             prepared.value = next;
             prepared.descriptors = scrub(prepared.descriptors,prepared.descriptors);
             groups[group] = next === null ? {kind:'clear',reason:'revoked'} : {kind:'set',value:next};
         }
-        for (const [id,shot] of state.shots) if (stageMatchesResource(shot.ref,scope) || shot.prepared?.pins.some(pin => stageMatchesResource(pin.descriptor,scope))) {
+        for (const [id,shot] of state.shots) if (stageResourceMatches(shot.ref,scope) || shot.prepared?.pins.some(pin => stageResourceMatches(pin.descriptor,scope))) {
             cancel(shot); state.shots.delete(id);
             dispatch({type:'ONE_SHOT_FAILED',token:shot.token,error:'revoked'});
             cancelPlayback(source.sessionId,{token:shot.token,reason:'revoked'});
@@ -74802,7 +74826,7 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
                         dispatch({type:'ONE_SHOT_FAILED',token,error:'revoked'}); return;
                     }
                     if (result.status !== 'ready' || JSON.stringify(result.directionToken) !== JSON.stringify(expectedDirectionToken)) throw new Error('SFX pending');
-                    const track = result.value.audio.sfx.find(track => stageMatchesResource(track.ref,{refs:[shot.ref]}));
+                    const track = result.value.audio.sfx.find(track => stageResourceMatches(track.ref,{refs:[shot.ref]}));
                     if (!track) {dispatch({type:'ONE_SHOT_FAILED',token,error:'SFX unavailable'}); state.shots.delete(token.id); return;}
                     const prepared = await owner.prepare(track,stageResourceAuthority(token.source));
                     if (!eligible()) {prepared.release(); return;}
@@ -74871,6 +74895,14 @@ function createStageResourceRunner({read, owner, clock = globalThis, foreground 
         sessions.clear(); owner.dispose();
     }};
 }
+return {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
+}
+
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourceRunnerModule};
+const createStageResourceRunnerModuleAdapter = typeof module !== 'undefined' && typeof window === 'undefined'
+    ? require('../../packages/dsh-tavern-stage/lib/client/resource-runner.cjs').createStageResourceRunnerModule : createStageResourceRunnerModule;
+const {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars} = createStageResourceRunnerModuleAdapter({stageResourceMatches: typeof module !== 'undefined' && typeof window === 'undefined' ? require('./stage-resources.cjs').stageResourceMatches : stageResourceMatches, stageRuntimeErrorText: typeof module !== 'undefined' && typeof window === 'undefined' ? require('./stage-runtime.cjs').stageRuntimeErrorText : stageRuntimeErrorText, createPerformanceTimeline: typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-presentation-protocol/src/performance-timeline.cjs').createPerformanceTimeline : createPerformanceTimeline, performanceSustained: typeof module !== 'undefined' && typeof window === 'undefined' ? require('../../packages/dsh-presentation-protocol/src/performance-state.cjs').performanceSustained : performanceSustained});
+
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageResourceRunner, stageResourceAuthority, stagePlaybackVisual, stageAvatarResources, stageVisibleAvatars, stageBoundedAvatars, stagePrepareIdleAvatars};
 // React consumes the session runtime; it never owns an observation loop.
 const stageConsumers = new Map();
