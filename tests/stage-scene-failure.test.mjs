@@ -20,9 +20,9 @@ test('scene destruction attempts every owner and is idempotent after cleanup err
   releaseForeground(){calls.push('foreground');throw Error('foreground')},releaseResolution(){calls.push('resolution')},
   faceBoxObserver:{disconnect(){calls.push('face')}},emptyThemeObserver:{disconnect(){calls.push('theme')}},stageHost:null,
   frame(){},effects:{destroy(){calls.push('effects');throw Error('effects')}},cast:owner('cast'),sceneLayout:owner('layout'),destroyFigure:entry=>calls.push(entry.id),
-  call:owner('call'),offstageBox:owner('offstage'),backgrounds:owner('backgrounds'),figureAssets:owner('assets'),textures:owner('textures'),bust:owner('bust'),thinking:owner('thinking'),generated:{a:{destroy(){calls.push('generated')}}}
+  call:owner('call'),offstageBox:owner('offstage'),backgrounds:owner('backgrounds'),figureAssets:owner('assets'),textures:owner('textures'),layered:owner('layered'),bust:owner('bust'),thinking:owner('thinking'),generated:{a:{destroy(){calls.push('generated')}}}
  })
  assert.throws(destroy,error=>error.errors.length===2)
- assert.deepEqual(calls,['ticker','foreground','resolution','face','theme','remove','effects','cast','layout','next','current','call','offstage','backgrounds','assets','textures','bust','thinking','app','generated'])
- destroy();assert.equal(calls.length,20)
+ assert.deepEqual(calls,['ticker','foreground','resolution','face','theme','remove','effects','cast','layout','next','current','call','offstage','backgrounds','assets','layered','textures','bust','thinking','app','generated'])
+ destroy();assert.equal(calls.length,21)
 })

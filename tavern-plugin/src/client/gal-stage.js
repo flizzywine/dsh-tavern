@@ -1439,7 +1439,7 @@ function bindStageViews(createViews) {
         looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
         spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
         sceneServices:{foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe,
-            layered:{urls:layeredSpriteUrls,clear:layeredSpriteClearScene,tick:layeredSpriteTickScene},canvas:{paint:stagePaintEmpty,palette:stageEmptyPalette}},
+            layered:{urls:layeredSpriteUrls,paint:layeredSpritePaint,voice:layeredSpriteVoice},canvas:{paint:stagePaintEmpty,palette:stageEmptyPalette}},
         sceneFigureProtocol:{FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,resolveFigureSizing},
         sceneLighting:{stageLighting,stageApplyLight},
         sceneColorMath:{galMatrix,galClamp01},

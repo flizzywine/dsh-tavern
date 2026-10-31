@@ -1,3 +1,52 @@
+function createStageLayeredFigures({document,compositor}) {
+const {urls:layeredSpriteUrls,paint:layeredSpritePaint,voice:layeredSpriteVoice}=compositor;
+const entries=new Set();let disposed=false;
+function layeredSpriteClearScene(entry) {
+    entries.delete(entry);const texture=entry.spriteTexture;
+    entry.spriteTexture=null;entry.spriteCanvas=null;entry.spriteEvent='';entry.spriteBundleKey='';
+    texture?.destroy(true);
+}
+function layeredSpriteTickScene(entry, textures, PIXI, enabled) {
+    if(disposed)return false;
+    entries.add(entry);
+    const bundle = entry.figure.spriteBundle;
+    if (!bundle) { if (entry.spriteTexture) layeredSpriteClearScene(entry); return false; }
+    const sprite = entry.sprite;
+    if (!sprite || entry.loadedIdentity !== entry.figure.identity) return true;
+    if (entry.spriteBundleKey !== bundle.revision) { layeredSpriteClearScene(entry); entry.spriteBundleKey = bundle.revision; }
+    entries.add(entry);
+    const images = new Map();
+    for (const url of layeredSpriteUrls(bundle)) {
+        const record = textures.get(url), source = record?.ready && record.texture?.baseTexture?.resource?.source;
+        if (!source) { sprite.texture = entry.baseTexture; return true; }
+        images.set(url, source);
+    }
+    // A replace blink repaints the shared canvas when its phase changes.
+    const voice = layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
+    const event = bundle.view.blink?.blend === 'replace' ? voice + '|' + (entry.spriteBlink || 'open') : voice;
+    if (entry.spriteEvent !== event) {
+        try {
+            entry.spriteCanvas ||= document.createElement('canvas');
+            layeredSpritePaint(entry.spriteCanvas, bundle, images, voice, entry.spriteBlink);
+            if (!entry.spriteTexture) entry.spriteTexture = PIXI.Texture.from(entry.spriteCanvas);
+            else entry.spriteTexture.baseTexture.update();
+            entry.spriteEvent = event;
+        } catch (error) {
+            sprite.texture = entry.baseTexture;
+            if (entry.spriteFault !== bundle.key) console.warn('[layered-sprite] stage retained base', error);
+            entry.spriteFault = bundle.key; return true;
+        }
+    }
+    sprite.texture = entry.spriteTexture || entry.baseTexture;
+    return true;
+}
+
+return {tick:layeredSpriteTickScene,clear:layeredSpriteClearScene,dispose(){
+    if(disposed)return;disposed=true;const errors=[];
+    for(const entry of [...entries])try{layeredSpriteClearScene(entry);}catch(error){errors.push(error);}
+    if(errors.length)throw new AggregateError(errors,'Layered figure cleanup failed');
+}};
+}
 // Plugin-owned scene composition; only shared execution services cross the host seam.
 function createStageScene({React,window,document,math,modules:stageViews,services={},figureScale={},lighting={},lookMath={},reading:stageReading,quality:stageQuality}){
 const {galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge}=math;
@@ -5,7 +54,7 @@ const {FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,reso
 const {stageLighting,stageApplyLight}=lighting;
 const {GAL_LOOKS_EMPTY,galLookRegistry,galLookResolve}=lookMath;
 const {foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe}=services;
-const {urls:layeredSpriteUrls,clear:layeredSpriteClearScene,tick:layeredSpriteTickScene}=services.layered || {};
+const {urls:layeredSpriteUrls}=services.layered || {};
 const {paint:stagePaintEmpty,palette:stageEmptyPalette}=services.canvas || {};
 const {Image,MessageChannel,MutationObserver,ResizeObserver,performance}=window;
 const getComputedStyle=(...args)=>window.getComputedStyle(...args),setTimeout=(...args)=>window.setTimeout(...args);
@@ -37,6 +86,8 @@ function galSyncFaceOrientation(root, figures) {
     });
 }
 function galCreateScene(host, options, own) {
+    const layered=own(createStageLayeredFigures({document,compositor:services.layered || {}}),value=>value.dispose());
+    const {clear:layeredSpriteClearScene,tick:layeredSpriteTickScene}=layered;
     const warnings=new Map();
     const recordAssetWarning=warning=>{warnings.set(JSON.stringify(warning),warning);if(warnings.size>50)warnings.delete(warnings.keys().next().value);};
     const assetDiagnostics=()=>[...warnings.values()];
@@ -1118,7 +1169,7 @@ function galCreateScene(host, options, own) {
             clean(()=>app.ticker.remove(frame));
             for(const dispose of [()=>effects.destroy(),()=>cast.dispose(),()=>sceneLayout.dispose()])clean(dispose);
             for(const entry of state.offstage.values()){if(entry.next)clean(()=>destroyFigure(entry.next));clean(()=>destroyFigure(entry));}
-            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),()=>app.destroy(true,{children:true})])clean(dispose);
+            for(const dispose of [()=>call.dispose(),()=>offstageBox.destroy(),()=>backgrounds.dispose(),()=>figureAssets.dispose(),()=>layered.dispose(),()=>textures.dispose(),()=>bust.dispose(),()=>thinking.dispose(),()=>app.destroy(true,{children:true})])clean(dispose);
             for(const texture of Object.values(generated))clean(()=>texture.destroy(true));
             if(errors.length)throw new AggregateError(errors,'Stage scene cleanup failed');
         }
@@ -1220,4 +1271,4 @@ return {Scene:GalScene,create,rects:root=>galFigureSources.get(root)?.() || [],d
     if(errors.length)throw new AggregateError(errors,'Stage scene scope cleanup failed');
 }};
 }
-if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageScene};
+if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageScene,createStageLayeredFigures};

@@ -119,38 +119,3 @@ function SpriteImage(props) {
         h(PackImage, { identity, src: props.bundle.view.src, alt: '', draggable: false, style: { visibility: ready === identity ? 'hidden' : 'visible' } }),
         h('canvas', { ref, width: bundle.view.width, height: bundle.view.height, 'aria-hidden': true, style: { visibility: ready === identity ? 'visible' : 'hidden' } }));
 }
-function layeredSpriteClearScene(entry) {
-    if (entry.spriteTexture) entry.spriteTexture.destroy(true);
-    entry.spriteTexture = null; entry.spriteCanvas = null; entry.spriteEvent = ''; entry.spriteBundleKey = '';
-}
-function layeredSpriteTickScene(entry, textures, PIXI, enabled) {
-    const bundle = entry.figure.spriteBundle;
-    if (!bundle) { if (entry.spriteTexture) layeredSpriteClearScene(entry); return false; }
-    const sprite = entry.sprite;
-    if (!sprite || entry.loadedIdentity !== entry.figure.identity) return true;
-    if (entry.spriteBundleKey !== bundle.revision) { layeredSpriteClearScene(entry); entry.spriteBundleKey = bundle.revision; }
-    const images = new Map();
-    for (const url of layeredSpriteUrls(bundle)) {
-        const record = textures.get(url), source = record?.ready && record.texture?.baseTexture?.resource?.source;
-        if (!source) { sprite.texture = entry.baseTexture; return true; }
-        images.set(url, source);
-    }
-    // A replace blink repaints the shared canvas when its phase changes.
-    const voice = layeredSpriteVoice(entry.figure.spriteVoiceKey, entry.figure.audio, enabled);
-    const event = bundle.view.blink?.blend === 'replace' ? voice + '|' + (entry.spriteBlink || 'open') : voice;
-    if (entry.spriteEvent !== event) {
-        try {
-            entry.spriteCanvas ||= document.createElement('canvas');
-            layeredSpritePaint(entry.spriteCanvas, bundle, images, voice, entry.spriteBlink);
-            if (!entry.spriteTexture) entry.spriteTexture = PIXI.Texture.from(entry.spriteCanvas);
-            else entry.spriteTexture.baseTexture.update();
-            entry.spriteEvent = event;
-        } catch (error) {
-            sprite.texture = entry.baseTexture;
-            if (entry.spriteFault !== bundle.key) console.warn('[layered-sprite] stage retained base', error);
-            entry.spriteFault = bundle.key; return true;
-        }
-    }
-    sprite.texture = entry.spriteTexture || entry.baseTexture;
-    return true;
-}
