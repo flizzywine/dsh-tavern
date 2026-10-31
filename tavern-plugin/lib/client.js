@@ -47163,7 +47163,6 @@ function cardLibraryDisplayName(card) {
 
 		    const state = {
 		        desc: null, override: null, debugEffects: [], destroyed: false,
-		        textures: new Map(),           // url → { promise, texture, dead }
 		        layers: [],                    // backdrop layers, bottom → top: { url, time, texture, sprite, plan, start, mask, owned, standIn, correction }
 		        bg: { target: null, pending: "" },
 		        grade: { name: null, start: 0, duration: 0, current: null, version: 0 },
@@ -47203,55 +47202,14 @@ function cardLibraryDisplayName(card) {
 		    }
 		    const effects = stageViews.effects.create({ PIXI, app, world, backdrop, backFx, frontFx, emotes: emotesBox, overlay, filters, tune, quality: () => quality, headOf });
 
-		    // ---- textures (backgrounds and static portraits): decoded off the main thread, uploaded before use.
-		    function loadTexture(url) {
-		        let record = state.textures.get(url);
-		        if (record) return record.promise;
-		        record = { url, texture: null, promise: null, dead: false };
-		        state.textures.set(url, record);
-		        record.promise = new Promise(function (resolve, reject) {
-		            const image = new Image();
-		            image.decoding = "async";
-		            image.src = url;
-		            (image.decode ? image.decode() : new Promise((ok, fail) => { image.onload = ok; image.onerror = fail; })).then(function () {
-		                if (record.dead || state.destroyed) throw new Error("cancelled");
-		                record.texture = new PIXI.Texture(new PIXI.BaseTexture(image));
-		                const prepare = app.renderer.plugins.prepare;
-		                return prepare ? prepare.upload(record.texture) : null;
-		            }).then(function () {
-		                if (record.dead || state.destroyed) throw new Error("cancelled");
-		                record.ready = true;
-		                resolve(record.texture);
-		            }).catch(function (error) {
-		                if (state.textures.get(url) === record && !record.texture) state.textures.delete(url);
-		                reject(error);
-		            });
-		        });
-		        record.promise.catch(() => {});
-		        return record.promise;
-		    }
+		    const textures=stageViews.sceneTextures.create({PIXI,upload:texture=>app.renderer.plugins.prepare?.upload(texture)});
+		    const loadTexture=textures.load;
 		    function pruneTextures() {
 		        const keep = new Set(describe().preload || []);
 		        state.layers.forEach(layer => keep.add(layer.url));
 		        if (state.bg.pending) keep.add(state.bg.pending);
 		        [...state.figures.values(), ...state.offstage.values(), ...[...state.offstage.values()].map(entry => entry.next).filter(Boolean)].forEach(function (entry) { if (entry.src) keep.add(entry.src); if (entry.pendingSrc) keep.add(entry.pendingSrc); layeredSpriteUrls(entry.figure.spriteBundle).forEach(url => keep.add(url)); blinkUrls(entry.figure.blinkBundle).forEach(url => keep.add(url)); (entry.fading || []).forEach(item => keep.add(item.url)); });
-		        // a figure/emotion texture that leaves stays decoded for the rest of this
-		        // reading visit (the round) and the page just left, most recently used first, within GAL_TEXTURE_KEEP_BYTES;
-		        // a returning emotion is not decoded and uploaded again. Older rounds' textures go.
-		        const visit = describe().visit, now = performance.now();
-		        if (state.keepNow && (state.keepNow.size !== keep.size || [...keep].some(url => !state.keepNow.has(url)))) state.keepBefore = state.keepNow;
-		        state.keepNow = keep;
-		        const retired = [];
-		        state.textures.forEach(function (record, url) {
-		            if (!record.texture) return;
-		            if (keep.has(url)) { record.used = now; record.visit = visit; } else retired.push(record);
-		        });
-		        let room = GAL_TEXTURE_KEEP_BYTES;
-		        retired.sort((a, b) => (b.used || 0) - (a.used || 0)).forEach(function (record) {
-		            const base = record.texture.baseTexture, bytes = (base ? base.realWidth * base.realHeight : 0) * 4;
-		            if ((record.visit === visit || state.keepBefore?.has(record.url)) && bytes <= room) { room -= bytes; return; }
-		            record.dead = true; record.texture.destroy(true); state.textures.delete(record.url);
-		        });
+		        textures.prune(keep,describe().visit);
 		    }
 
 		    // ---- backdrop
@@ -47534,7 +47492,7 @@ function cardLibraryDisplayName(card) {
 		        const bundle = entry.figure.blinkBundle, sprite = entry.sprite;
 		        if (!bundle || !sprite || entry.loadedIdentity !== entry.figure.identity) { if (entry.blinkKey) clearBlink(entry); return; }
 		        if (entry.blinkKey === bundle.key && (bundle.blend === 'replace' || entry.blinkClosed && entry.blinkClosed.parent === sprite)) return;
-		        const records = blinkUrls(bundle).map(url => state.textures.get(url));
+		        const records = blinkUrls(bundle).map(url => textures.get(url));
 		        if (!records.every(record => record && record.ready && record.texture)) { if (entry.blinkKey) clearBlink(entry); return; }
 		        const [closed, half] = records.map(record => record.texture);
 		        const at = blinkPlacement(bundle, entry.baseTexture.width, entry.baseTexture.height, sprite.anchor);
@@ -47933,7 +47891,7 @@ function cardLibraryDisplayName(card) {
 		            ;
 		            if (entry.kind === "spine") tickSpine(entry, figure, desc);
 		            else {
-		                if (!layeredSpriteTickScene(entry, state.textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
+		                if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
 		                tickBlink(entry);
 		                tapTextureStatic(entry, now);
 		            }
@@ -48620,8 +48578,8 @@ function cardLibraryDisplayName(card) {
 		        },
 		        blinks() { return Array.from(state.figures.values()).filter(entry => entry.blinkKey).map(entry => ({ key: entry.key, phase: entry.blink ? entry.blink.phase() : "open", rect: entry.figure.blinkBundle && entry.figure.blinkBundle.rect, half: Boolean(entry.blinkHalf), allowed: blinkAllowed(entry) })); },
 		        textures() {
-		            return { gpu: app.renderer.texture.managedTextures.length, cached: state.textures.size, layers: state.layers.length,
-		                cachedUrls: Array.from(state.textures.keys()), baseTextureCache: Object.keys(PIXI.utils.BaseTextureCache).length };
+		            return { gpu: app.renderer.texture.managedTextures.length, cached: textures.size, layers: state.layers.length,
+		                cachedUrls: Array.from(textures.keys()), baseTextureCache: Object.keys(PIXI.utils.BaseTextureCache).length };
 		        },
 		        stats() {
 		            const safe = state.camera.safe || { zoom: 1, fx: 0.5, fy: 0.42, rotation: 0 };
@@ -48735,8 +48693,7 @@ function cardLibraryDisplayName(card) {
 		            stopCallFrames?.();
 		            offstageBox.destroy();
 		            state.layers.forEach(layer => { if (layer.correction) layer.correction.destroy(); });
-		            state.textures.forEach(record => { record.dead = true; if (record.texture) record.texture.destroy(true); });
-		            state.textures.clear();
+		            textures.dispose();
 		            if (bust.texture) bust.texture.destroy(true);
 		            if (thinking.texture) thinking.texture.destroy(true);
 		            if (thinking.dimTexture) thinking.dimTexture.destroy(true);
