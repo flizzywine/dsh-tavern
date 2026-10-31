@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { stripTypeScriptTypes } from 'node:module'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 const remoteSource = stripTypeScriptTypes(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-remote/src/client.ts', import.meta.url), 'utf8'))
   .replace(/^import .*$/gm, '').replace(/^export /gm, '')

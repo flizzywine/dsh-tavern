@@ -49,7 +49,7 @@ test('failed filter setup rolls back partial call view and can retry',()=>{
 
 test('host call capture bridge permits an absent phone module',()=>{
  const source=readFileSync(new URL('../tavern-plugin/src/client/gal-stage.js',import.meta.url),'utf8')
- const expression=source.match(/callViews:\{cover:galCover,subscribeFrames:(.*)\},/)[1]
+ const expression=source.match(/callViews:\{subscribeFrames:(.*)\},/)[1]
  const subscribe=vm.runInNewContext('('+expression+')',{})
  assert.equal(subscribe(()=>{}),null)
  let captured;const stop=()=>{},callback=()=>{}

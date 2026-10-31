@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { stubFrameDependencyImports } from './fixtures/frame-dependency-imports.mjs'
 import { readFile } from 'node:fs/promises'
 const lodash = await readFile(new URL('../tavern-plugin/lib/vendor/runtime-assets/lodash/lodash.min.js', import.meta.url), 'utf8')

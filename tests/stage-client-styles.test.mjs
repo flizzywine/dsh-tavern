@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import {checkCssSyntax} from '../bin/lib/css-syntax-guard.mjs'
 
 test('stage theme retains its cascade position and all stage styles leave on unload', async () => {

@@ -58,7 +58,7 @@ test('actual Cordis unload aborts event lifetime and rejects retained facade wri
   const root=new Context(),host=createManagedModHost({authorized:[id]}),gate=deferred(),started=deferred()
   let writes=0,signal,retained,hostFiber,fiber
   try {
-    hostFiber=await root.plugin({name:'request-test-host',apply(ctx){ctx.provide('tavern',createTavernPluginApi({ctx,modHost:host}).service)}})
+    hostFiber=await root.plugin({name:'request-test-host',apply(ctx){ctx.provide('tavernManagedModules',host);ctx.provide('tavern',createTavernPluginApi({ctx,modHost:host}).service)}})
     fiber=await root.plugin({name:packageName,inject:['tavern'],apply(ctx){ctx.tavern.registerMod(manifest(),{...implementation,
       async event(message,facade){signal=facade.signal;retained=facade.state.write;started.resolve();await gate.promise;await retained(message)}})}})
     const snapshot=host.beginRequest(host.beginSession(),{choices:choices({fixed:1})})

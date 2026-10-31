@@ -10,6 +10,9 @@ export function runInNewContext(source, sandbox = {}, options) {
       createElement: () => ({ dataset: {}, style: {}, remove() {} }),
       head: { appendChild() {} }
     }
+    sandbox.fetch ??= fetch
+    sandbox.Blob ??= Blob
+    sandbox.location ??= {origin:"http://tavern.test",href:"http://tavern.test/"}
     sandbox.URL ??= URL
     const host = sandbox.window
     host.performance ??= performance

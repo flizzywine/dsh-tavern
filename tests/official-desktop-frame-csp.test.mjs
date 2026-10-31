@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import test from 'node:test'
 
 let descriptor

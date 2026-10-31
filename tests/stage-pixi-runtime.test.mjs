@@ -14,15 +14,17 @@ test('static stage loads shared Pixi and filters without a model SDK', async () 
       queueMicrotask(node.onload)
     } }
   } })
-  for (const file of ['pixi-runtime.js', 'gal-effects.js']) {
+  for (const file of ['pixi-runtime.js']) {
     vm.runInContext(await readFile(new URL('../tavern-plugin/src/client/' + file, import.meta.url), 'utf8'), context)
   }
+  vm.runInContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/effects.cjs', import.meta.url), 'utf8'), context)
+  vm.runInContext('const effects = createStageEffects({window,loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+'pixi-filters.js'})', context)
   const [first, second] = await Promise.all([
     vm.runInContext('loadPixiRuntime()', context), vm.runInContext('loadPixiRuntime()', context)
   ])
   assert.equal(first, second)
-  await vm.runInContext('loadPixiFilters()', context)
-  await vm.runInContext('loadPixiFilters()', context)
+  await vm.runInContext('effects.loadFilters()', context)
+  await vm.runInContext('effects.loadFilters()', context)
   assert.deepEqual(scripts, [
     '/api/dsh-tavern/vendor/runtime-assets/pixi/pixi.min.js',
     '/api/dsh-tavern/vendor/runtime-assets/pixi/pixi-filters.js'

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 // 正文走工具调用时整段正文一次性落地；这里只验证落点与放手条件，不启动浏览器。
 async function loadClient() {

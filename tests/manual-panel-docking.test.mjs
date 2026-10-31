@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { parseExpressionAt } from 'acorn'
 import { JSDOM } from 'jsdom'
 import { browserReactScript } from './fixtures/browser-react.mjs'

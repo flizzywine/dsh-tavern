@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { chatAnswerBootScript, installChatAnswerBootPatch } from '../tavern-plugin/lib/domain/chat-answer-boot-patch.js'
 import { CHAT_ANSWER_STEP_MARKER } from '../tavern-plugin/lib/domain/chat-answer-step.js'
 

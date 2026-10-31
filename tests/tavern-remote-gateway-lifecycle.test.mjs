@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { setImmediate } from 'node:timers/promises'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 // Resolve the same Gateway that builds the remote package, without depending on
 // an unrelated global DSH installation or replacing its lifecycle with a double.

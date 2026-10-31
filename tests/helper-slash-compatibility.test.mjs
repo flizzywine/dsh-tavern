@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { assembleTavernClient } from '../bin/build-tavern-client.mjs'
 
 const assembled = await assembleTavernClient()

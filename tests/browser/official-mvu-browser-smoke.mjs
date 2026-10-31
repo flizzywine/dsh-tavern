@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from '../fixtures/client-vm.mjs'
 import { TAVERN_RUNTIME_ASSET_PREFIX, readTavernRuntimeAsset } from '../../tavern-plugin/lib/domain/tavern-runtime-assets.js'
 
 const root = new URL('../../', import.meta.url)

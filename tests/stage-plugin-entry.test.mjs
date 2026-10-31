@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 import {readFile} from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import * as stage from '../tavern-plugin/packages/dsh-tavern-stage/lib/index.js'
 
 test('independent stage plugin follows real Cordis load, unload and reload',async()=>{

@@ -2,7 +2,7 @@ import { helperLoaderSource, helperLoaderBootstrap } from './fixtures/helper-loa
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 let descriptor
 vm.runInNewContext(await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {

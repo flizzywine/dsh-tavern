@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { sourceFunction } from './fixtures/source-function.mjs'
 import { readFileSync } from 'node:fs'
 

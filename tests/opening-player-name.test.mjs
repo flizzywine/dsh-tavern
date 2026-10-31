@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const line = source.split('\n').find(line => line.includes('className: "dsh-tavern-player-name"'))

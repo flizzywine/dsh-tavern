@@ -1,6 +1,6 @@
 import { helperLoaderSource } from './helper-loader-source.mjs'
 import assert from 'node:assert/strict'
-import vm from 'node:vm'
+import vm from './client-vm.mjs'
 import { readFile } from 'node:fs/promises'
 let descriptor
 vm.runInNewContext(await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {

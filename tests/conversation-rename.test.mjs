@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { createConversationHandlers } from '../tavern-plugin/lib/rpc/conversations.js'
 import { createTavernConversationRegistry } from '../tavern-plugin/lib/domain/tavern-conversation-registry.js'
 

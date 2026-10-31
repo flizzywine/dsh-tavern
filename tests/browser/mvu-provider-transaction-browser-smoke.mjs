@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from '../fixtures/client-vm.mjs'
 import { chromium } from 'playwright'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { readOfficialMvuBundle } from '../../tavern-plugin/lib/domain/official-mvu-assets.js'

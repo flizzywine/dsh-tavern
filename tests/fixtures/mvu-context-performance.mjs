@@ -1,7 +1,7 @@
 // Isolated measurement of production Helper projection/diff/apply; no user data or model calls.
 // node tests/fixtures/mvu-context-performance.mjs
 import { readFile, mkdir, writeFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './client-vm.mjs'
 import { chromium } from 'playwright'
 const projectionSource = (await readFile(new URL('../../tavern-plugin/lib/domain/tavern-helper-context.js', import.meta.url), 'utf8')).split('/** Append Helper-owned')[0].replace(/^import .*$/mg, '').replaceAll('export function', 'function')
 let descriptor

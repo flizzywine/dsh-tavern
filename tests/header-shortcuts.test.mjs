@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
 
@@ -70,12 +70,11 @@ test('客户端顶栏默认值与服务端一致，设置在首次读取前就�
 })
 
 // the fork settings layout keeps 顶栏配置 last in 高级 (02951363b); the header also opens it as 顶栏设置.
-test('默认对小白无感：开始页没有图钉，「⋯」只在有按钮收起时出现，配置放在高级末尾', () => {
+test('默认对小白无感：开始页没有图钉，「⋯」只在有按钮收起时出现，配置放在显示与交互', () => {
   assert.doesNotMatch(client, /dsh-tavern-start-pin/)
   assert.doesNotMatch(client, /dsh-tavern-header-divider/)
   assert.match(client, /foldedEntries\.length \? h\("div", \{ className: "dsh-tavern-more-actions dsh-tavern-header-more" \}/)
-  assert.doesNotMatch(client.slice(client.indexOf('group("显示与交互"'), client.indexOf('group("高级"')), /HeaderItemsSettings/)
-  assert.match(client.slice(client.indexOf('group("高级"')), /^group\("高级"[^]*?h\(HeaderItemsSettings\)\)\)\s*\);/)
+  assert.match(client.slice(client.indexOf('group("显示与交互"'), client.indexOf('group("高级"')), /HeaderItemsSettings/)
 })
 
 test('空间不足时从尾部收起页面，酒馆状态和导出永不收起', () => {

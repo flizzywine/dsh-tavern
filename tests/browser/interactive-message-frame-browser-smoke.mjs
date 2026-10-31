@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from '../fixtures/client-vm.mjs'
 
 const source = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 let descriptor

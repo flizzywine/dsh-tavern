@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 import { activeCardPersonaText, applyCardPersonaChange, presentCardPersonas } from '../tavern-plugin/lib/domain/card-personas.js'
 import { cardPersonas } from '../tavern-plugin/lib/prompt-catalog.js'

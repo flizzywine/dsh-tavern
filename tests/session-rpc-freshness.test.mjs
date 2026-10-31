@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { deferred } from './fixtures/sync-clock.mjs'
 const source = fs.readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 function harness() {

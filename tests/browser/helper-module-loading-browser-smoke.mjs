@@ -2,7 +2,7 @@
 // Only unrelated bootstrap dependencies are stubbed; no user data or model calls.
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from '../fixtures/client-vm.mjs'
 
 let descriptor
 vm.runInNewContext(await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8'), {

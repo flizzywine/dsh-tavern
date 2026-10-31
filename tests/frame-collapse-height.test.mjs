@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile,mkdir} from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import {chromium} from 'playwright'
 
 for(const width of [900,390]) for(const opening of [false,true]) test(`embedded panel shrinks after collapse at width ${width}, opening=${opening}`,async()=>{

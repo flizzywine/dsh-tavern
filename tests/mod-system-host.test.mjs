@@ -123,7 +123,7 @@ test('public plugin API follows optional managed host removal and reinstallation
   let host
   const api=createTavernPluginApi({get modHost(){return host}})
   assert.equal(api.service.modHostApi,null)
-  assert.throws(()=>api.service.registerMod({},{}),/not enabled/)
+  assert.throws(()=>api.service.registerMod({},{}),/ctx.inject/)
   const stops=[]
   const ctx={fiber:{name:timer.name},effect(fn){const stop=fn();stops.push(stop);return stop}}
   ctx.tavern=Object.assign(Object.create(api.service),{ctx})

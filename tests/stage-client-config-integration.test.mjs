@@ -22,6 +22,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const document=dom.window.document,h=React.createElement
   const reading=store({voiceRate:1,textSpeed:28,autoWait:700,autoSpeed:1.3,textScale:{},frameCap:60,reducedMotion:false,photosensitive:true})
   const audio=store({master:1,voice:1,music:1,sfx:1,ambience:1,ui:1,muted:{},duck:true})
+  audio.getSnapshot=audio.get
   audio.setDucking=value=>audio.set({duck:value});audio.toggleMute=layer=>audio.set({muted:{...audio.get().muted,[layer]:!audio.get().muted[layer]}})
   audio.setVolume=(layer,value)=>audio.set({[layer]:value})
   const quality=store('high'),sounds={play(){}},Icon=()=>null,ResetButton=props=>h('button',{onClick:props.onClick},props.label)

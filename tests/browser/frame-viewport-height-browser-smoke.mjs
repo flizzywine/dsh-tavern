@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
-import vm from 'node:vm'
+import vm from '../fixtures/client-vm.mjs'
 import {chromium} from 'playwright'
 let descriptor
 vm.runInNewContext(await readFile('tavern-plugin/lib/client.js','utf8'),{window:{__ModuleLoader__:{load(value){descriptor=value}}},console})

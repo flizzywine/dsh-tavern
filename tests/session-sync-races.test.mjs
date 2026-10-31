@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 import { deferred, flush, syncClock } from './fixtures/sync-clock.mjs'
 const source = readFileSync(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 let descriptor

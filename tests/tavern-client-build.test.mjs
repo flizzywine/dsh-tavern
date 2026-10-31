@@ -4,7 +4,7 @@ import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFil
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 import { assembleTavernClient } from '../bin/build-tavern-client.mjs'
 

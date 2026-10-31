@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
+import vm from './fixtures/client-vm.mjs'
 
 // The host's MarkdownText keeps its streaming parser only while `labels` keeps its
 // identity (dsh-client-ui-primitives: `streamLabelsRef.current !== labels` rebuilds
