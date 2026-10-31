@@ -15,6 +15,7 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
   const epoch=Date.now(),start=performance.now()
   now ||= ()=>Math.floor(epoch+performance.now()-start)
   const sessions=new Map(),pending=new Map(),field='stageTimerV1'
+  let closing=false,disposal=null
   const turnOf=row=>Number(row.turn || (row.greeting?1:0))
   const progress=({revision,at,highWater,floors,checkpoint,...rest})=>JSON.stringify([rest,checkpoint?.clock?{...checkpoint,remainingMs:0,elapsedMs:0}:checkpoint])
   const release=sessionId=>{clearTimeout(pending.get(sessionId)?.timer);pending.delete(sessionId)}
@@ -175,9 +176,10 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
     if(change && prior?.turn===turn)release(args.sessionId)
     else if(hold && prior && prior.turn!==turn)await flush(args.sessionId)
     if(hold) {
-      const timer=pending.get(args.sessionId)?.timer ?? setTimeout(()=>{
+      const timer=closing ? null : pending.get(args.sessionId)?.timer ?? setTimeout(()=>{
+        if(closing)return
         if(pending.get(args.sessionId))pending.get(args.sessionId).timer=null
-        queue(args.sessionId,()=>flush(args.sessionId))
+        queue(args.sessionId,()=>flush(args.sessionId)).catch(()=>{})
       },progressFlushMs)
       timer?.unref?.()
       pending.set(args.sessionId,{...hold,timer})
@@ -203,13 +205,17 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
     const frame=Object.entries(frames || {}).filter(([at,value])=>Number(at)<=args.at && value.instanceId===own.instanceId).sort((a,b)=>Number(a[0])-Number(b[0])).at(-1)?.[1]
     return frame?{timer:own,checkpoint:{...frame,durationMs:own.durationMs}}:null
   }
+  function update(args) {
+    const state=stateFor(args.sessionId),stamp=now(),result=queue(args.sessionId,()=>mutate(args,state,stamp))
+    if(args.action!=='close')return result
+    return queue(args.sessionId,()=>flush(args.sessionId)).catch(()=>{}).then(()=>result)
+  }
   return {
     now,owner,clockView,
     overlay,
     update(args) {
-      const state=stateFor(args.sessionId),stamp=now(),result=queue(args.sessionId,()=>mutate(args,state,stamp))
-      if(args.action!=='close')return result
-      return queue(args.sessionId,()=>flush(args.sessionId)).catch(()=>{}).then(()=>result)
+      if(closing)return Promise.reject(Object.assign(new Error('Stage timer disposed'),{code:'RESOURCE_DISPOSED'}))
+      return update(args)
     },
     historical(saved,args,timer) {
       if(!saved?.clockEvents)return undefined
@@ -222,9 +228,24 @@ export function createStageTimerClock({readChat,readDirection,patchChat,enabled,
       const floor=selected[1],event=saved.clockEvents[floor.eventSeq]
       return {timer:event.timer,checkpoint:timerClockFrozen(event.checkpoint,floor.atMs),recorded:true}
     },
-    async dispose() {
-      await Promise.all([...sessions].flatMap(([sessionId,state])=>[...state.leases].filter(([,open])=>open).map(([lease])=>this.update({sessionId,lease,action:'close'}))))
-      await Promise.all([...pending.keys()].map(sessionId=>queue(sessionId,()=>flush(sessionId)).catch(()=>{})))
+    dispose() {
+      if(disposal)return disposal
+      closing=true
+      for(const value of pending.values()){clearTimeout(value.timer);value.timer=null}
+      disposal=(async()=>{
+        const errors=[]
+        const settle=async tasks=>{
+          for(const result of await Promise.allSettled(tasks))if(result.status==='rejected')errors.push(result.reason)
+        }
+        // A queued open acquires its lease inside mutate, so drain before enumerating leases.
+        await settle([...sessions.values()].map(state=>state.tail))
+        await settle([...sessions].flatMap(([sessionId,state])=>[...state.leases].filter(([,open])=>open).map(([lease])=>update({sessionId,lease,action:'close'}))))
+        await settle([...pending.keys()].map(sessionId=>queue(sessionId,()=>flush(sessionId))))
+        for(const sessionId of [...pending.keys()])release(sessionId)
+        sessions.clear()
+        if(errors.length)throw new AggregateError(errors,'Stage timer disposal failed')
+      })()
+      return disposal
     }
   }
 }
