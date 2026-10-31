@@ -32,7 +32,7 @@ function useGalOn(sessionId) {
 }
 // Mounted in the session shell; the stage covers the whole window (and the screen, when the
 // browser grants full screen). Leaving full screen opens the stage menu (Esc exits full screen first).
-function GalStageHost(props) {
+function StagePortal(props) {
     const state = useGalOn(props.sessionId);
     // Admit the stage and its veil atomically with decoded loader art. Keep the
     // transcript visible during the cold read rather than showing an empty veil.
@@ -97,6 +97,40 @@ function GalStageHost(props) {
     }, [props.sessionId]);
     const h = React.createElement;
     return admitted && target && ReactDOM && ReactDOM.createPortal ? ReactDOM.createPortal(h(GalStage, { sessionId: props.sessionId, data: state.data, Regenerate: props.Regenerate, replayFailed: props.replayFailed, Choices: props.Choices, choiceProps: props.choiceProps, onExit: galLeave }), target) : null;
+}
+
+// This boundary belongs to the shell slot, outside the stage portal and controller subtree.
+// It can uncover chat and exit without running a broken controller's leave animation.
+let StageBoundary;
+function boundaryType() {
+    if (StageBoundary) return StageBoundary;
+    StageBoundary = class extends React.Component {
+        state = {failed:false};
+        static getDerivedStateFromError() { return {failed:true}; }
+        recover(exit = false) {
+            const actions = [() => galUncover?.(), () => galEscapeLock(false)];
+            if (exit) actions.push(() => (navigation.galLeaveNow || galLeave)());
+            for (const action of actions) {
+                try { action(); } catch (error) { window.console?.error('Stage recovery failed',error); }
+            }
+        }
+        componentDidCatch() { this.recover(); }
+        render() {
+            if (!this.state.failed) return this.props.children;
+            return React.createElement('div',{role:'alert','data-stage-failure':true},
+                React.createElement('p',null,'舞台显示出错，普通聊天仍可使用。'),
+                React.createElement('button',{type:'button',onClick:()=>{
+                    this.recover(true);
+                    if (!galActive.get()) this.setState({failed:false});
+                }},'返回普通聊天'));
+        }
+    };
+    return StageBoundary;
+}
+function GalStageHost(props) {
+    const active = React.useSyncExternalStore(galActive.subscribe,galActive.get);
+    return React.createElement(boundaryType(),{key:props.sessionId},
+        !disposed && active === props.sessionId ? React.createElement(StagePortal,props) : null);
 }
 
 // Header button: enter the stage (full screen). Esc opens the stage menu; its 「返回主页面」(or the chat button) leaves.

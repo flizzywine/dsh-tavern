@@ -25,10 +25,11 @@ for (const disposal of ['react', 'plugin', 'plugin-with-error']) test(`stage hos
     galLeave:() => events.push('leave'),
   }
   const React = {
+    Component:class {constructor(props){this.props=props}},
     useSyncExternalStore:(_,get) => get(),
     useState:() => [null,()=>{}],
     useLayoutEffect:fn => effects.push(fn), useEffect:fn => effects.push(fn),
-    createElement:()=>{},
+    createElement:(type,props,...children)=>typeof type==='function' ? type.prototype?.render ? new type({...props,children}).render() : type(props) : null,
   }
   const views = createStageViews({React,ReactDOM:{flushSync:fn => fn()},window,document,navigation,
     useBubbles:() => ({cardPath:'card',config:{enabled:true}}),useGalEntryLoader:() => 'ready'})
