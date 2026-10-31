@@ -108,7 +108,6 @@
         // shared physical sizing contract and candidate-only measurement.
         // @include-protocol figure-scale.cjs
         // @include figure-measure.js
-		// @include gal-device.js
 		// @include gal-motion.js
 		// @include gal-scene.js
 // @include gal-effects.js

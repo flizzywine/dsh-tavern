@@ -838,9 +838,9 @@ function GalStage(props) {
     // A stage actor key (speaker, member ids) may be a carried key: its card character comes through the figure ref.
     function characterOf(alias) { return stageActorCharacter(config, pack.characters, alias); }
     function colorOf(alias) { const character = characterOf(alias); return character?.color || (alias ? bubbleColor(character) : ''); }
-    // the accepted state as this device shows it (gal-device.js); a profile change re-renders.
-    const device = useGalDeviceProfile();
-    const state = React.useMemo(() => galDeviceState(pack.state, device), [pack.state, device]);
+    // the accepted state as this device shows it (stage plugin device profile); a profile change re-renders.
+    const device = stageViews.device.useProfile();
+    const state = React.useMemo(() => stageViews.device.state(pack.state, device), [pack.state, device]);
     const [shot, setShot] = React.useState({key:'',n:0,acts:{},effects:[],emotes:[]});
     const [debugEmote, setDebugEmote] = React.useState(null);
     const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
@@ -1421,6 +1421,7 @@ function bindStageViews(createViews) {
     const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
         useBubbles, GalStage, Icon,
         admission:{performance, setTimeout, clearTimeout, Spinner},
+        device:{matchMedia},
         mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
         sfx:{Audio, audio:forkStageAudio, foreground:forkForeground, matches:stageResourceMatches},
         music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},

@@ -23163,7 +23163,7 @@ function tavernModelRefusalNotice(text) {
 		const DICE_T = Object.freeze({ land: 880, settle: 1000, combine: 240, stamp: 120, hitStop: 100, hold: 540, fade: 260, cupDrop: 600, slam: 790, hiddenEnd: 1650 });
 		// The cup's fall: from `height` above the floor; after the slam it hops `hop` high and lands again `rebound` ms later.
 		const DICE_CUP = Object.freeze({ height: 4, hop: 0.16, rebound: 150 });
-		// The throw's area (CSS px, at most the text box's width) and camera zoom per device profile (gal-device.js): the
+		// The throw's area (CSS px, at most the text box's width) and camera zoom per device profile (stage plugin device profile): the
 		// band above the box, centred on it; phones get a shorter band, framed tighter so the dice stay legible.
 		const DICE_ZOOM = Object.freeze({ desktop: 1.3, "mobile-landscape": 1.1, "mobile-portrait": 1.15 });
 		const DICE_TRAY = Object.freeze({ desktop: [860, 330], "mobile-landscape": [560, 180], "mobile-portrait": [390, 240] });
@@ -45828,50 +45828,6 @@ function cardLibraryDisplayName(card) {
                 finally { if (texture) texture.destroy(true); }
             });
         }
-		// the device presentation profile.
-		// Director commands and the persistent stage state are device-independent; how a presentation command LOOKS on this
-		// screen is a render-time projection of that state, so a resized window, a rotated phone or another device re-renders
-		// correctly without a new command and without rewriting anything.
-		//
-		// Profiles, from the stage's existing breakpoints (the compact CONFIG sheet, gal-config.js, and the stage's
-		// ≤ 640px layout in theme.css): a short touch screen is a phone held sideways; otherwise a narrow viewport is a
-		// phone held upright; everything else is desktop.
-		const GAL_DEVICE_QUERIES = Object.freeze({
-		    "mobile-landscape": "(max-height: 520px) and (pointer: coarse)",
-		    "mobile-portrait": "(max-width: 640px)"
-		});
-		// The one table: presentation command -> what it renders as, per profile. A command absent here looks the same everywhere.
-		//   camera.close: the close-up (gal-scene.js galCloseFrame), or the normal shot - on an upright phone the full
-		//   choice menu reserved under a close-up takes most of the screen, so the face cannot fit.
-		const GAL_DEVICE_RENDER = Object.freeze({
-		    "camera.close": Object.freeze({ desktop: "close", "mobile-landscape": "close", "mobile-portrait": "normal" })
-		});
-		function galDeviceProfile() {
-		    if (typeof matchMedia !== "function") return "desktop";
-		    for (const name of Object.keys(GAL_DEVICE_QUERIES)) if (matchMedia(GAL_DEVICE_QUERIES[name]).matches) return name;
-		    return "desktop";
-		}
-		function galDeviceSubscribe(changed) {
-		    if (typeof matchMedia !== "function") return () => {};
-		    const lists = Object.values(GAL_DEVICE_QUERIES).map(query => matchMedia(query));
-		    lists.forEach(list => list.addEventListener?.("change", changed));
-		    return () => lists.forEach(list => list.removeEventListener?.("change", changed));
-		}
-		function useGalDeviceProfile() {
-		    return React.useSyncExternalStore(galDeviceSubscribe, galDeviceProfile, () => "desktop");
-		}
-		// What the command renders as on this profile ("" when the table does not know the command).
-		function galDeviceRender(command, profile) {
-		    const row = GAL_DEVICE_RENDER[command];
-		    return row ? row[profile] || row.desktop : "";
-		}
-		// The accepted stage state as this profile shows it: the same object when nothing differs, otherwise a shallow copy with
-		// the projected fields. Never stored or sent anywhere.
-		function galDeviceState(state, profile) {
-		    if (state?.camera?.mode === "close" && galDeviceRender("camera.close", profile) === "normal")
-		        return { ...state, camera: { mode: "reset", actor: null } };
-		    return state;
-		}
 		// uninterrupted idle, an independent gesture queue, then parameter springs.
 		// Cubism4-specific adapter; the vendored runtime and loaded clip cache stay untouched.
 		function galGestureWeight(age, duration, fadeIn = 0.40, fadeOut = 0.50) {
@@ -59924,9 +59880,9 @@ function galUiApplier() {
 		    // A stage actor key (speaker, member ids) may be a carried key: its card character comes through the figure ref.
 		    function characterOf(alias) { return stageActorCharacter(config, pack.characters, alias); }
 		    function colorOf(alias) { const character = characterOf(alias); return character?.color || (alias ? bubbleColor(character) : ''); }
-		    // the accepted state as this device shows it (gal-device.js); a profile change re-renders.
-		    const device = useGalDeviceProfile();
-		    const state = React.useMemo(() => galDeviceState(pack.state, device), [pack.state, device]);
+		    // the accepted state as this device shows it (stage plugin device profile); a profile change re-renders.
+		    const device = stageViews.device.useProfile();
+		    const state = React.useMemo(() => stageViews.device.state(pack.state, device), [pack.state, device]);
 		    const [shot, setShot] = React.useState({key:'',n:0,acts:{},effects:[],emotes:[]});
 		    const [debugEmote, setDebugEmote] = React.useState(null);
 		    const cg = useCgStage(sessionId,runtime.store,{paused:backlog || configOpen || galleryOpen || menuOpen || sceneHolding,reducedMotion:reading.reducedMotion,photosensitive:reading.photosensitive,forward:forwardReading && !skipping});
@@ -60507,6 +60463,7 @@ function galUiApplier() {
 		    const views = createViews({React, ReactDOM, window, document, navigation:stageNavigation,
 		        useBubbles, GalStage, Icon,
 		        admission:{performance, setTimeout, clearTimeout, Spinner},
+		        device:{matchMedia},
 		        mixer:{Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
 		        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground, matches:stageResourceMatches},
 		        music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},

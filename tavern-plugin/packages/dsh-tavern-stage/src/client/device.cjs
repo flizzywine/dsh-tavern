@@ -1,3 +1,6 @@
+function createStageDevice({React, matchMedia}) {
+let disposed = false;
+const subscriptions = new Set();
 // the device presentation profile.
 // Director commands and the persistent stage state are device-independent; how a presentation command LOOKS on this
 // screen is a render-time projection of that state, so a resized window, a rotated phone or another device re-renders
@@ -22,10 +25,25 @@ function galDeviceProfile() {
     return "desktop";
 }
 function galDeviceSubscribe(changed) {
-    if (typeof matchMedia !== "function") return () => {};
+    if (disposed || typeof matchMedia !== "function") return () => {};
     const lists = Object.values(GAL_DEVICE_QUERIES).map(query => matchMedia(query));
-    lists.forEach(list => list.addEventListener?.("change", changed));
-    return () => lists.forEach(list => list.removeEventListener?.("change", changed));
+    let active = true;
+    const notify = () => { if (active && !disposed) changed(); };
+    const release = () => {
+        if (!active) return;
+        active = false;
+        subscriptions.delete(release);
+        const errors = [];
+        for (const list of lists) { try { list.removeEventListener?.("change", notify); } catch (error) { errors.push(error); } }
+        if (errors.length) throw new AggregateError(errors, 'Stage device listener cleanup failed');
+    };
+    subscriptions.add(release);
+    try { lists.forEach(list => list.addEventListener?.("change", notify)); }
+    catch (error) {
+        try { release(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage device subscription failed'); }
+        throw error;
+    }
+    return release;
 }
 function useGalDeviceProfile() {
     return React.useSyncExternalStore(galDeviceSubscribe, galDeviceProfile, () => "desktop");
@@ -42,3 +60,13 @@ function galDeviceState(state, profile) {
         return { ...state, camera: { mode: "reset", actor: null } };
     return state;
 }
+
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, dispose() {
+    if (disposed) return;
+    disposed = true;
+    const errors = [];
+    for (const release of [...subscriptions]) { try { release(); } catch (error) { errors.push(error); } }
+    if (errors.length) throw new AggregateError(errors, 'Stage device cleanup failed');
+}};
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageDevice};

@@ -33,7 +33,7 @@ const DICE_THREE = "/api/dsh-tavern/vendor/runtime-assets/three/";
 const DICE_T = Object.freeze({ land: 880, settle: 1000, combine: 240, stamp: 120, hitStop: 100, hold: 540, fade: 260, cupDrop: 600, slam: 790, hiddenEnd: 1650 });
 // The cup's fall: from `height` above the floor; after the slam it hops `hop` high and lands again `rebound` ms later.
 const DICE_CUP = Object.freeze({ height: 4, hop: 0.16, rebound: 150 });
-// The throw's area (CSS px, at most the text box's width) and camera zoom per device profile (gal-device.js): the
+// The throw's area (CSS px, at most the text box's width) and camera zoom per device profile (stage plugin device profile): the
 // band above the box, centred on it; phones get a shorter band, framed tighter so the dice stay legible.
 const DICE_ZOOM = Object.freeze({ desktop: 1.3, "mobile-landscape": 1.1, "mobile-portrait": 1.15 });
 const DICE_TRAY = Object.freeze({ desktop: [860, 330], "mobile-landscape": [560, 180], "mobile-portrait": [390, 240] });
