@@ -216,7 +216,10 @@ body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-
 /* 只藏宿主的原生「在新对话中分支」：它绕开酒馆的游戏状态，点了会得到一个没有存档分支的 Session。
    正文的「复制」是宿主自己的按钮，不能一起藏掉；它紧挨在 assistant-actions 插槽前面。 */
 body.dsh-tavern-shell-active [data-turn-tail] > [data-slot="conversation.chat.turnTail"] + div > [data-slot="conversation.chat.assistant-actions"] + button { display: none !important; }
-body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork) { display: none !important; }
+body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"] > :not(.dsh-tavern-message-fork):not(.dsh-tavern-illustration-instructions) { display: none !important; }
+body.dsh-tavern-shell-active [data-turn-tail] [data-slot="conversation.chat.assistant-actions"]:has(> .dsh-tavern-illustration-instructions) { display: flex !important; flex: 0 0 100% !important; flex-wrap: wrap !important; width: 100% !important; }
+body.dsh-tavern-shell-active [data-turn-tail] > div:has(.dsh-tavern-illustration-instructions) { flex-wrap: wrap !important; }
+.dsh-tavern-illustration-instructions { box-sizing: border-box; flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--dsw-alias-border-l2, currentColor); border-radius: 10px; background: var(--dsw-specific-sidebar-fill, Canvas); color: var(--dsw-alias-label-primary, CanvasText); }
 /* 每一轮都能分叉：较早轮次的操作栏原本只在鼠标悬停时显示，这里只剩分叉按钮，常显。 */
 body.dsh-tavern-shell-active [data-turn-tail] > div:has([data-slot="conversation.chat.assistant-actions"]) { opacity: 1 !important; }
 /* 长对话的每一轮在视口外时跳过样式与布局。宿主打开对话时会多次读布局（toBottom、ResizeObserver 写 --dsh-* 变量后再读高度），
