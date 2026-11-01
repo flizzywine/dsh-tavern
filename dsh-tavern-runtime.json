@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "3681a0960daf03fb98e0bc67886ab8d8112f7650",
-  "releaseSequence": 1013,
+  "revision": "6f68057392cfe33b3ba837ce3a53a9210a2fca68",
+  "releaseSequence": 1014,
   "version": "3.2.0",
   "files": [
     {
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "cd74beff85f5fb53b77f652baa240bbd66d0999b4d983b408f7b1a03f3e7d366",
-      "size": 21574
+      "sha256": "6186feea3a0debaa9e3eb36d3cbb9f1e80bbee4c9129f58f28c60f1efcf4f6af",
+      "size": 22102
     },
     {
       "path": "bin/build-installer-scripts.mjs",
@@ -351,8 +351,8 @@
     },
     {
       "path": "bin/system-proxy.mjs",
-      "sha256": "720e9e641a15f94ff94470445d15ff9ba47d70fbd1088292003337de65303342",
-      "size": 6909
+      "sha256": "28c3989a4d0789df4375b88099e4e8d30fbd5e8202a18231b892a9ca5486d107",
+      "size": 7516
     },
     {
       "path": "bin/tavern-window.mjs",
@@ -641,8 +641,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "2f93e8d0fc098b7e99de513e1b9b8d993049a769a763997ed72e8525fd5a94ff",
-      "size": 42277
+      "sha256": "4f81c791f9aabb0b4e413c7cca934b3967d14e4d3514203fae1081c08a1947ff",
+      "size": 42556
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -8606,9 +8606,9 @@
     }
   ],
   "archive": {
-    "commit": "94306a290cc6afd560cae64cda36257b4eee7a57",
+    "commit": "cbcc9e01d5cdded31509fc6e5a712f3d27536461",
     "path": "runtime.zip",
-    "sha256": "a04d4195dae113f6e9ec7862df050b956d014f84c3e2024c33c06b568025a7bd",
-    "size": 15226093
+    "sha256": "c9fb97ac19c21b347c5e4838518caa8279e7e676df5cfd78b1573e1a33c83a99",
+    "size": 15226659
   }
 }
