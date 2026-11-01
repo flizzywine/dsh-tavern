@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "fea837376d844bd8b5125d6e2593c4a083d64832",
-  "releaseSequence": 1020,
+  "revision": "23b87dfa04a385e014afd2ea9aeebd9840f86ba3",
+  "releaseSequence": 1021,
   "version": "3.2.0",
   "files": [
     {
@@ -1846,8 +1846,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/model-stream-progress.js",
-      "sha256": "67a120350516b8b181fd77937311afb47aa5b28cb150737e9d4887f4b440aca0",
-      "size": 2028
+      "sha256": "94669053fd5c19e1208f130f3915470b555647846b3e2442bd6fb3d0592ff31c",
+      "size": 1535
     },
     {
       "path": "tavern-plugin/lib/domain/mods/assets.js",
@@ -3371,8 +3371,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "5f1cfcc218585203c7b623646e9a83c701385a31b5aa49c7fae2c4aeb6691bd4",
-      "size": 15207
+      "sha256": "bf2a78db1ef64b1e81f8e74b29de5316c65c0eea34aca24634152cacb1fb0f03",
+      "size": 15062
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "b0db534a6196e2f65086e0231f6bfe9075e735cc",
+    "commit": "83a5ae54261d9bfa95f32eb29b6fc88cf413d123",
     "path": "runtime.zip",
-    "sha256": "3731841b847d970774c3ba47cb4a36652a860ba4f3508f25339891397d7cc0e9",
-    "size": 15227322
+    "sha256": "f09ff07f2daf7f70f6cac6df1efce210fa7359328bc8ca0c95386f85d14694cf",
+    "size": 15227092
   }
 }
