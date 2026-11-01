@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "09c073d61d4e3984fc308e6c51ec383d7796c945",
-  "releaseSequence": 1010,
+  "revision": "68ba41cb57cb661c0bbf2a091dc17e7e6fcc457d",
+  "releaseSequence": 1011,
   "version": "3.2.0",
   "files": [
     {
@@ -711,8 +711,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "a0aa39ab728220475e87ac14fbc199f11459b1cae4eb6772a0c34934b60dbcc5",
-      "size": 6456398
+      "sha256": "63b3191023f3761d4776613039d6edafba23b07704a01801ac8e08909730b1ab",
+      "size": 6468890
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3865,9 +3865,19 @@
       "size": 460333
     },
     {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/pretext/index.mjs",
+      "sha256": "0f52b0181a6789b11b773086c9c5e32b0643c5ee9a2e9ad4d098e36c6bf9b051",
+      "size": 95971
+    },
+    {
+      "path": "tavern-plugin/lib/vendor/runtime-assets/pretext/LICENSE",
+      "sha256": "b0bc6870efb4e667f911d5f6b52fc9b321d634a0469a17464e35da244c28f128",
+      "size": 11384
+    },
+    {
       "path": "tavern-plugin/lib/vendor/runtime-assets/SOURCES.md",
-      "sha256": "0a9adc4dd5777c2e86a4613a1199d38a4f570bcf3bffd20aa00eff657e89d393",
-      "size": 930
+      "sha256": "4749483c33770874c57e24543a69195457b22f6177b41c598fe33c1a1593e0a7",
+      "size": 1040
     },
     {
       "path": "tavern-plugin/lib/vendor/runtime-assets/tailwind/index.global.js",
@@ -8591,9 +8601,9 @@
     }
   ],
   "archive": {
-    "commit": "f7bef4a4222854e8ad0bb5c55c213d8972e9ce05",
+    "commit": "3cb393afd0b93895bbbb53f46234f4cc1c1d4b20",
     "path": "runtime.zip",
-    "sha256": "73347bb659ef6a0cf16dfc70f86e5df2232dc56050376330e3520b8443e2b292",
-    "size": 15177091
+    "sha256": "dd723e2d49b440a91bed54e6547addcf22f0b6359aff0e8454a138fd0f71e547",
+    "size": 15224624
   }
 }
