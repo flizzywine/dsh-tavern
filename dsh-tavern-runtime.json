@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d85e839f8103e8115f3de0736119c1fb19894a22",
-  "releaseSequence": 1019,
+  "revision": "fea837376d844bd8b5125d6e2593c4a083d64832",
+  "releaseSequence": 1020,
   "version": "3.2.0",
   "files": [
     {
@@ -716,8 +716,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "ab127b707e01432eb809fbac61aa0658643ba24154ff6c7c6192fc4546579af6",
-      "size": 6466056
+      "sha256": "3fda934e7ec3851891e8a4bfa3af85f0c06aca3fb558330f0fc8d478a16f068a",
+      "size": 6466125
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1246,8 +1246,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-initialization.js",
-      "sha256": "ec46140153276611ece3543ff2cb4547bf28e420e4c688033256f79d99ee9862",
-      "size": 22987
+      "sha256": "8876b575ebb5ed11f1da35681717c825ec4d12608840cf3e812cbc1781862164",
+      "size": 23177
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-page-store.js",
@@ -2521,8 +2521,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/script-navigation.js",
-      "sha256": "36470fa37b2aca1bff79735cbc7bad49695f2a22e3a197d57576c7d7e4b8c92c",
-      "size": 2286
+      "sha256": "e57b03ebe595618b86540a722f9e0382a7afce6378b7e3203f1d6e38604bed60",
+      "size": 2416
     },
     {
       "path": "tavern-plugin/lib/domain/script-reader.js",
@@ -2991,8 +2991,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-settings.js",
-      "sha256": "9d561ac15d5a1c62d5258472236512c05f17e6ec158bfbd457042d7cb083cf78",
-      "size": 24250
+      "sha256": "49c5d8adf190c6bb4c6d254972dade0b3fef73006fdfdc269f6057f117e6af6c",
+      "size": 24718
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-skill-provider.js",
@@ -3426,8 +3426,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "045977dd21512e9324f43c13ec541fb6d978ec1d012e8e862039cbf1f7f4f67b",
-      "size": 258871
+      "sha256": "c0b3d6fbb4836a15b54690f07c223d239f137a1899a2f7c4c3dfffb77ca623fe",
+      "size": 258913
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "f698bcb28ea7b89aaf1f37e758811a21417c3827",
+    "commit": "b0db534a6196e2f65086e0231f6bfe9075e735cc",
     "path": "runtime.zip",
-    "sha256": "c37a32766f6f76667bc0c9fdc30aae3d9affe73995aba5526d2e74ac225130f9",
-    "size": 15227034
+    "sha256": "3731841b847d970774c3ba47cb4a36652a860ba4f3508f25339891397d7cc0e9",
+    "size": 15227322
   }
 }
