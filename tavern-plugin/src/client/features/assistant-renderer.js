@@ -472,6 +472,50 @@
 				}, [ref, deferred]);
 				return deferred;
 			}
+			// A deferred floor reserves its height before any content mounts. A flat 800 px
+			// guess made every old floor the same wrong size; the text is laid out on canvas
+			// instead (modules/floor-text-measure.js), so the reservation tracks the paragraph
+			// height and the scroller does not jump when the floor finally renders.
+			function useTavernDeferredFloorReserve(ref, deferred, settled, text, sessionId, turn) {
+				const key = tavernFloorHeightStorageKey(sessionId, turn, text);
+				const [reserve, setReserve] = React.useState(0);
+				React.useEffect(function () {
+					if (!deferred) return undefined;
+					const node = ref.current;
+					const width = node ? Math.floor(Number(node.clientWidth) || 0) : 0;
+					// A floor this tab already painted keeps its measured height: no module load,
+					// no second layout. Everything else is laid out once the module is ready.
+					const remembered = tavernFloorHeightRecall(key, width);
+					if (remembered > 0) setReserve(remembered);
+					let alive = true;
+					const measure = function () {
+						const height = tavernFloorReserveHeight(ref.current, text);
+						if (alive && height > 0) setReserve(function (previous) { return previous === height ? previous : height; });
+					};
+					if (remembered > 0) return undefined;
+					measure();
+					const stop = tavernTextMeasureWhenReady(measure);
+					return function () { alive = false; stop(); };
+				}, [ref, deferred, key, text]);
+				// Once a settled floor has painted, remember what it really took, so the next
+				// open is exact instead of estimated.
+				React.useEffect(function () {
+					if (deferred || !settled || !key) return undefined;
+					const node = ref.current;
+					if (!node || typeof window.requestAnimationFrame !== "function") return undefined;
+					// Fonts and late images only ever make a painted floor taller, so the record
+					// is raised, never lowered: a second read half a second later catches them.
+					const remember = function () {
+						const height = Math.round(node.getBoundingClientRect().height);
+						const width = Math.floor(Number(node.clientWidth) || 0);
+						if (height > 0 && width > 0 && height >= tavernFloorHeightRecall(key, width)) tavernFloorHeightRemember(key, width, height);
+					};
+					const frame = window.requestAnimationFrame(remember);
+					const timer = window.setTimeout(remember, 600);
+					return function () { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+				}, [ref, deferred, settled, key]);
+				return reserve;
+			}
 
 			// Third-party plugins: use the public tavernUi API (docs/plugin-api.md), never patch this file; its structure changes freely.
 			function TavernReasoningSeat(props) {
@@ -585,6 +629,8 @@
                 const latestDshTurn = useTavernLatestDshTurn(props.useChat);
                 const eagerFloor = latestDshTurn !== null && turn > 0 && turn === latestDshTurn || storyTurn > 0 && latestProjectionTurn > 0 && latestProjectionTurn - storyTurn < TAVERN_EAGER_FLOORS;
                 const deferredFloor = useTavernDeferredFloor(historyNode, settled && !eagerFloor && (data.blocks || []).length > 0, !sessionTransitioning && !waitingForHistory);
+                const deferredFloorText = React.useMemo(function () { return tavernFloorMeasureText(data.blocks); }, [data.blocks]);
+                const deferredFloorReserve = useTavernDeferredFloorReserve(historyNode, deferredFloor, settled, deferredFloorText, props.sessionId, storyTurn || turn);
                 // the newest floor is on screen when the chat opens; tavern.css keeps it out of
                 // content-visibility, so the deferred floors measure it at its real height, not the 800 px estimate.
                 const floorShown = data.status === "running" || data.status === "interrupted" || (data.blocks || []).length > 0;
@@ -630,7 +676,7 @@
 				// A reply the row plan does not draw (an old body being regenerated, a repair
 				// copy): its row is hidden; render nothing into it either. After all hooks.
 				if (!tavernPlanShowsRow(tavernPlanOf(liveState.view), String(turn), "assistant-step")) return null;
-				if (deferredFloor) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-deferred-floor": true, style: { minHeight: "800px" } });
+				if (deferredFloor) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-deferred-floor": true, "data-deferred-reserve": deferredFloorReserve > 0 ? "measured" : "fallback", style: { minHeight: (deferredFloorReserve || tavernTextMeasureFallback()) + "px" } });
 				if (!(data.status === "running" || data.status === "interrupted" || rendered.length > 0)) return null;
 				if (distantHeight > 0) return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-distant-floor": true, style: { height: distantHeight + "px" } });
 				// A registered presenter may fold this finished reply into one line; only the step

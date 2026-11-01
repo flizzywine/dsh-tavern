@@ -12,6 +12,7 @@ The corresponding license or notice is retained in each package directory.
 - `vue-router@5.2.0`: `dist/vue-router.global.prod.js`
 - `lodash@4.18.1`: `lodash.min.js`
 - `marked@16.3.0`: `lib/marked.umd.js`
+- `@chenglou/pretext@1.0.0`: jsDelivr `+esm` single-file browser bundle (multiline text measurement & layout)
 - `yaml@2.9.0`: jsDelivr `+esm` single-file browser bundle
 - `zod@4.4.3`: jsDelivr `+esm` single-file browser bundle
 

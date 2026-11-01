@@ -914,6 +914,9 @@ window.__ModuleLoader__.load({
 		// Guard pathological card resize loops without constraining normal long content.
 // @include runtime/message-frame-lifecycle.js
 
+		// Canvas text layout for floors that must reserve height before they mount.
+// @include modules/floor-text-measure.js
+
 // @include features/plugin-extensions.js
 
 // @include features/reply-observer.js
