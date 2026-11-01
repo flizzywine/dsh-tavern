@@ -190,7 +190,27 @@
 			function notifyDataChanged(kinds) {
 				notifyTavernDataChanged(kinds, "sidebar");
 			}
+			// 打开会话、tavern 数据变更事件、设置变更会几乎同时触发侧栏刷新，原来每次
+			// 各发一份 listCards/listSessions 并整表重建一次。这里按 kinds 合并并发调用，
+			// 期间到达的请求排一次尾随刷新：既不吃掉变更后的新数据，也不再重复重建整张表。
+			const refreshStateRef = React.useRef({ inFlight: Object.create(null), trailing: Object.create(null) });
 			function refresh(kinds) {
+				const key = Array.isArray(kinds) && kinds.length ? kinds.slice().sort().join(",") : "*";
+				const state = refreshStateRef.current;
+				const running = state.inFlight[key];
+				if (running) {
+					if (!state.trailing[key]) {
+						const chain = function () { delete state.trailing[key]; return refresh(kinds); };
+						state.trailing[key] = running.then(chain, chain);
+					}
+					return state.trailing[key];
+				}
+				const settle = function (value) { if (state.inFlight[key] === task) delete state.inFlight[key]; return value; };
+				const task = refreshNow(kinds).then(settle, function (error) { settle(undefined); throw error; });
+				state.inFlight[key] = task;
+				return task;
+			}
+			function refreshNow(kinds) {
                 if (!Array.isArray(kinds) || !kinds.length || kinds.indexOf("*") >= 0) kinds = null;
 				return Promise.all([
 					(!kinds || kinds.indexOf("cards") >= 0) && call("listCards").then(function (result) {
