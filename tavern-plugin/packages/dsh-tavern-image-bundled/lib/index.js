@@ -1898,6 +1898,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
         cfg: rawParams?.cfg,
+        seed: Number.isSafeInteger(rawParams?.seed) && rawParams.seed >= 0 ? rawParams.seed : undefined,
         characters: Array.isArray(rawParams?.characters) ? rawParams.characters.filter(item => item && String(item.prompt ?? '').trim()).slice(0, 8).map(item => ({ prompt: String(item.prompt).slice(0, 4000), centers: String(item.centers ?? '').slice(0, 40), uc: String(item.uc ?? '').slice(0, 4000) })) : [],
       }
       if (rawParams?.sessionId) lastSessionId = String(rawParams.sessionId)
@@ -1948,6 +1949,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const onStage = traceStages ? (name, data) => traceStages.push({ name, data }) : null
       const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
+      params.seed = compiled.seed
       if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
       if (traceStages) {
         const T = diag.text
@@ -2156,7 +2158,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const keepComfySource = source.backend === 'comfyui' && jobConfig.imageBackend === 'comfyui'
       if (keepComfySource && source.workflowId?.startsWith('simple-')) throw Object.assign(new Error('该作业来自已停用的 ComfyUI 简易模式；原数据已保留，请导入完整 ComfyUI API workflow 后再重绘'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
       const workflow = keepComfySource ? workflows.find(item => item.id === source.workflowId && !item.error) : null
-      if (keepComfySource && source.workflowId && !isSimpleSource && !workflow) {
+      if (keepComfySource && source.workflowId && !workflow) {
         throw Object.assign(new Error('原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘'), { submissionNotStarted: true })
       }
       let fresh
@@ -2173,6 +2175,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
+          seed: source.seed,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
@@ -6305,7 +6308,7 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
 
   const seed = Number.isSafeInteger(workflow.fixedSeed) && workflow.fixedSeed >= 0
     ? workflow.fixedSeed
-    : randomInt(0, 2 ** 47)
+    : Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 47)
   if (workflow.bindings.seed?.length) setBinding(prompt, workflow.bindings.seed, seed)
 
   for (const node of Object.values(prompt)) {
