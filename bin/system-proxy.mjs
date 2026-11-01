@@ -113,6 +113,18 @@ export function proxyEnvironment(env = process.env, { platform = process.platfor
 }
 
 let applied = null
+const appliedEnvironment = new Map()
+
+// A service/updater child must inherit the user's original proxy policy, not the
+// settings synthesized for this process's downloads. Remove only values we really
+// inserted, and preserve any later explicit changes. Never mutate the parent env.
+export function withoutAppliedSystemProxy(env = process.env) {
+  const environment = { ...env }
+  for (const [key, value] of appliedEnvironment) {
+    if (environment[key] === value) delete environment[key]
+  }
+  return environment
+}
 
 // Apply proxyEnvironment() to `env` and to this process's own fetch.
 // Node >= 24 exposes setGlobalProxyFromEnv(); older runtimes only get the variables.
@@ -120,7 +132,11 @@ export function applySystemProxy(env = process.env, options = {}) {
   if (applied !== null && env === process.env) return applied
   let result
   try { result = proxyEnvironment(env, options) } catch { result = { added: {}, source: null } }
-  for (const [key, value] of Object.entries(result.added)) if (env[key] === undefined) env[key] = value
+  for (const [key, value] of Object.entries(result.added)) {
+    if (env[key] !== undefined) continue
+    env[key] = value
+    if (env === process.env) appliedEnvironment.set(key, value)
+  }
   if (result.added.HTTPS_PROXY || result.added.HTTP_PROXY) {
     try { http.setGlobalProxyFromEnv?.(env) } catch { /* 老版本 Node 没有这个接口 */ }
   }

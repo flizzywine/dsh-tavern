@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { runInstallationProcess } from './installation-process.mjs'
 import installationState from './installation-state.cjs'
 import installationLocation from './installation-location.cjs'
-import { applySystemProxy } from './system-proxy.mjs'
+import { applySystemProxy, withoutAppliedSystemProxy } from './system-proxy.mjs'
 import { createUpdateState } from './update-state.mjs'
 import { readInstallationReceipt } from './installation-receipt.mjs'
 import { closeSync, copyFileSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
@@ -120,11 +120,11 @@ export function parseUpdateOptions(args) {
 
 // Long-lived services must be born outside the installer Job/process group.
 // The existing start command owns its readiness timeout and child cleanup.
-export async function startUpdatedService({ sourceRoot, dshHome, log = console.log, noOpen = false }) {
+export async function startUpdatedService({ sourceRoot, dshHome, log = console.log, noOpen = false, env = runtimeEnvironment({ installation: false }) }) {
   try {
     const result = await promisify(execFile)(process.execPath, [path.join(sourceRoot, 'bin/dsh-tavern.mjs'), 'start'], {
       cwd: sourceRoot, windowsHide: true, timeout: startupTimeoutMs('cli') + 15_000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...runtimeEnvironment({ installation: false }), DSH_HOME: dshHome, DSH_TAVERN_CLI_HOME: dshHome, DSH_TAVERN_RUNTIME_HOST: 'cli', ...(noOpen ? { DSH_TAVERN_NO_OPEN: '1' } : {}) },
+      env: { ...env, DSH_HOME: dshHome, DSH_TAVERN_CLI_HOME: dshHome, DSH_TAVERN_RUNTIME_HOST: 'cli', ...(noOpen ? { DSH_TAVERN_NO_OPEN: '1' } : {}) },
     })
     if (result.stdout) log(result.stdout.trim())
   } catch (error) {
@@ -146,6 +146,11 @@ export function installerFailureTail(output, lines = 12) {
 }
 
 export async function updateApplication(options = { host: RUNTIME_HOST, statusFile: '', delay: 0 }) {
+  // Keep the ordinary launch environment before adding download-only proxy settings.
+  // Node reads NODE_USE_ENV_PROXY at startup; leaking it changes service networking
+  // even when applySystemProxy() cannot change this updater's current dispatcher.
+  // Preserve intentional user proxy/bypass/Node settings rather than stripping them.
+  const serviceEnvironment = withoutAppliedSystemProxy(runtimeEnvironment({ installation: false }))
   // 更新器自己的诊断请求和随后的安装子进程都要能看到系统代理：先翻译成环境变量，
   // 子进程用同一份 env 启动（Windows 的 WinINET 设置对 Node/curl/git/pnpm 都不可见）。
   applySystemProxy()
@@ -265,7 +270,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
     if (options.host === 'cli') {
       lease.update({ stage: '启动 Tavern 服务', supervised: false })
       if (installationState.cancellationRequested(dshHome, attemptId)) throw Object.assign(new Error('更新已取消'), { code: 'INSTALLATION_ABORTED' })
-      await (options.startService || startUpdatedService)({ sourceRoot: installedSourceRoot, dshHome, log, noOpen: options.statusFile !== '' })
+      await (options.startService || startUpdatedService)({ sourceRoot: installedSourceRoot, dshHome, log, noOpen: options.statusFile !== '', env: serviceEnvironment })
     }
     await writeUpdateStatus({
       phase: 'completed', attemptId, host: options.host, completedAt: Date.now(),
@@ -302,7 +307,7 @@ export async function updateApplication(options = { host: RUNTIME_HOST, statusFi
       }
       restored = !!await readInstallationReceipt({ sourceRoot: appRoot, dshHome, host: options.host })
       if (existsSync(path.join(appRoot, 'bin/dsh-tavern.mjs'))) {
-        try { await (options.startService || startUpdatedService)({ sourceRoot: appRoot, dshHome, log, noOpen: options.statusFile !== '' }) }
+        try { await (options.startService || startUpdatedService)({ sourceRoot: appRoot, dshHome, log, noOpen: options.statusFile !== '', env: serviceEnvironment }) }
         catch (startError) { failure = new Error(`${String(failure?.message || failure)}\n${String(startError?.message || startError)}`) }
       }
     }

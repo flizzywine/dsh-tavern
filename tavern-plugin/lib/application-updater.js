@@ -11,7 +11,7 @@ import { createUpdateState } from '../../bin/update-state.mjs'
 import { verifyInstallationProcessesStopped } from '../../bin/installation-process.mjs'
 import { readInstallationReceipt } from '../../bin/installation-receipt.mjs'
 import installationState from '../../bin/installation-state.cjs'
-import { applySystemProxy, describeProxy } from '../../bin/system-proxy.mjs'
+import { applySystemProxy, describeProxy, withoutAppliedSystemProxy } from '../../bin/system-proxy.mjs'
 
 const STATUS_FILE = 'update-status.json'
 const RELEASE_FILE = '.dsh-tavern-release.json'
@@ -635,7 +635,10 @@ export function createApplicationUpdater(options) {
     const args = platform === 'win32'
       ? [path.join(sourceRoot, 'bin', 'dsh-tavern-update-helper.mjs'), execPath, ...updaterArgs]
       : updaterArgs
-    const launchEnvironment = { ...process.env }
+    // Plugin-side update checks may already have translated the system proxy.
+    // The updater applies its own download proxy; do not promote these temporary
+    // values to user-supplied settings that its restarted service would inherit.
+    const launchEnvironment = withoutAppliedSystemProxy()
     for (const key of Object.keys(launchEnvironment)) {
       if (/^DSH_TAVERN_INSTALL_/i.test(key) || key === 'DSH_TAVERN_UPDATE_ATTEMPT') delete launchEnvironment[key]
     }
