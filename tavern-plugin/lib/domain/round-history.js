@@ -26,6 +26,11 @@ function str(value) {
 // its partial body only if the following commit can still land.
 const REGEN_WRITE_ATTEMPTS = 4
 
+// A provider that keeps moderating or cutting a regeneration short can often be
+// worked around by dropping the foreground tool calls the player enabled for this
+// game: 本局设置 → 高级 → 前台工具.
+const FOREGROUND_TOOL_HINT = '也可以试试在「本局设置 → 高级 → 前台工具」关掉前台工具后再发一次。'
+
 /**
  * The input of a regeneration attempt. The provider never sees the replaced body
  * (the request projection drops it), so without guidance this is a fresh sample
@@ -366,7 +371,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         const streamed = streamedAttemptText(session, syntheticTurn, eventStart)
         if (streamed === '') {
           if (generationError !== null) throw generationError
-          throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），正文保持原样，可以再试一次')
+          throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），正文保持原样，可以再试一次。' + FOREGROUND_TOOL_HINT)
         }
         await updateChat(chat.id, function (current) {
           if (current?.regenRecovery?.id !== operationId) throw new Error('重新生成操作已失效')
@@ -453,7 +458,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const result = await view(settledChat, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
-    if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。'
+    if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
   }
 
@@ -580,7 +585,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
         const streamed = streamedAttemptText(session, syntheticTurn, eventStart)
         if (streamed === '') {
           if (generationError !== null) throw generationError
-          throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），正文保持原样，可以再试一次')
+          throw new Error('这次重新生成没有完成（可能被内容审核拦截或已停止），正文保持原样，可以再试一次。' + FOREGROUND_TOOL_HINT)
         }
         // 被截断的尝试写进存档之后，宿主和插件的失败轮清理还会各写一次（例如
         // 还原 promptTemplateInput）。用读到的 revision 只写一次就作废，会把刚
@@ -678,7 +683,7 @@ export function createRoundHistory({ chats, sessions, scripts, timeline, queueSe
     }
     const result = await view(settledChat, card)
     result.adopted = { text: body, guidance: guide, hiddenTurn: oldTurn, syntheticTurn: syntheticTurn }
-    if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。'
+    if (keptStreamed) result.regenerationWarning = '这次重新生成没有完成（可能被内容审核拦截或已停止），已保留生成到的部分正文。' + FOREGROUND_TOOL_HINT
     return result
   }
 

@@ -192,8 +192,8 @@ function createTurnErrorControls(root, options) {
             const moderated = replayable && refusal !== '' && !dismissed;
             const repeated = moderated && streak >= 2 && options.canRewind === true;
             const notice = !moderated ? refusal : repeated
-                ? '已连续 ' + streak + ' 次被模型服务商的内容审核拦截，多半是前面的剧情触发了审核，换输入或重发都会继续被拦。建议回退上一轮，或编辑上一轮正文后再继续。'
-                : '模型服务商的内容审核拦截了这一轮回复，这不是酒馆故障。原样重新生成通常还会被拦截；可以撤回这条输入，修改后再发送。';
+                ? '已连续 ' + streak + ' 次被模型服务商的内容审核拦截，多半是前面的剧情触发了审核，换输入或重发都会继续被拦。建议回退上一轮，或编辑上一轮正文后再继续。' + TAVERN_FOREGROUND_TOOL_HINT
+                : '模型服务商的内容审核拦截了这一轮回复，这不是酒馆故障。原样重新生成通常还会被拦截；可以撤回这条输入，修改后再发送。' + TAVERN_FOREGROUND_TOOL_HINT;
             const summaryText = foldedNow ? '这一轮的失败已清除，错误已收起' : dismissed ? '错误提示已隐藏' : notice || (long
                 ? (/message content cannot be empty/i.test(text) ? '模型接口错误：消息内容不能为空。' : '模型接口调用失败，已收起过长的错误信息。') : '');
             if (entry.label.textContent !== summaryText) entry.label.textContent = summaryText;
