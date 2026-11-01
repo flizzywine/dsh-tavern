@@ -1898,7 +1898,6 @@ function createRuntime(ctx, overrides, logger, deps) {
         textVersion: String(rawParams?.textVersion ?? ''),
         steps: rawParams?.steps,
         cfg: rawParams?.cfg,
-        seed: Number.isSafeInteger(rawParams?.seed) && rawParams.seed >= 0 ? rawParams.seed : undefined,
         characters: Array.isArray(rawParams?.characters) ? rawParams.characters.filter(item => item && String(item.prompt ?? '').trim()).slice(0, 8).map(item => ({ prompt: String(item.prompt).slice(0, 4000), centers: String(item.centers ?? '').slice(0, 40), uc: String(item.uc ?? '').slice(0, 4000) })) : [],
       }
       if (rawParams?.sessionId) lastSessionId = String(rawParams.sessionId)
@@ -1949,7 +1948,6 @@ function createRuntime(ctx, overrides, logger, deps) {
       const onStage = traceStages ? (name, data) => traceStages.push({ name, data }) : null
       const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
-      params.seed = compiled.seed
       if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
       if (traceStages) {
         const T = diag.text
@@ -2175,7 +2173,6 @@ function createRuntime(ctx, overrides, logger, deps) {
           model: workflow ? workflow.id : source.params?.model || '',
           steps: source.params?.steps,
           cfg: source.params?.cfg,
-          seed: source.seed,
           characterSnapshot,
           textVersion,
           sessionId: session, turn,
@@ -6308,7 +6305,7 @@ export function compileJob({ workflow, params, config, definitions, onStage = nu
 
   const seed = Number.isSafeInteger(workflow.fixedSeed) && workflow.fixedSeed >= 0
     ? workflow.fixedSeed
-    : Number.isSafeInteger(params.seed) && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 47)
+    : randomInt(0, 2 ** 47)
   if (workflow.bindings.seed?.length) setBinding(prompt, workflow.bindings.seed, seed)
 
   for (const node of Object.values(prompt)) {

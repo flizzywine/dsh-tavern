@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { imagePluginFixture, IMAGE_PNG, imageJson } from './fixtures/image-plugin-runtime.mjs'
+import { compileJob } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js'
 
 const workflow = {
   format: 'dsh-tavern-comfy-v1', name: 'redraw fixture', outputNode: '10',
@@ -53,7 +54,7 @@ function mockComfy(t) {
   return { calls, prompts }
 }
 
-test('real runtime 重画沿用 Comfy workflow、参数、尺寸、seed 和人物快照', { timeout: 20000 }, async t => {
+test('real runtime 重画沿用 Comfy workflow、参数、尺寸、轮次和人物快照；默认 seed 不显式复用', { timeout: 20000 }, async t => {
   const fixture = await setup(t)
   const runtime = await fixture.start()
   const comfy = mockComfy(t)
@@ -84,12 +85,13 @@ test('real runtime 重画沿用 Comfy workflow、参数、尺寸、seed 和人�
   assert.ok(saved[source.id], 'original job remains in durable history')
   assert.ok(saved[replacementId], 'replacement is persisted')
   assert.equal(saved[replacementId].workflowId, savedSource.workflowId)
-  assert.equal(saved[replacementId].seed, savedSource.seed)
+  assert.ok(Number.isSafeInteger(saved[replacementId].seed) && saved[replacementId].seed >= 0 && saved[replacementId].seed < 2 ** 47)
   assert.equal(saved[replacementId].params.size, savedSource.params.size)
   assert.equal(saved[replacementId].params.steps, savedSource.params.steps)
   assert.equal(saved[replacementId].params.cfg, savedSource.params.cfg)
   assert.equal(saved[replacementId].params.rawTag, 'new prompt')
-  assert.equal(saved[replacementId].params.seed, savedSource.seed)
+  assert.equal(savedSource.params.seed, undefined, 'random workflow seed is not written as an explicit reuse parameter')
+  assert.equal(saved[replacementId].params.seed, undefined, 'redraw does not pass the source seed back into compilation')
   assert.equal(saved[replacementId].gameId, savedSource.gameId)
   assert.equal(saved[replacementId].turn, savedSource.turn)
   assert.equal(saved[replacementId].textVersion, savedSource.textVersion)
@@ -98,9 +100,18 @@ test('real runtime 重画沿用 Comfy workflow、参数、尺寸、seed 和人�
   assert.equal(comfy.prompts[1].prompt['2'].inputs.text, 'no watermark')
   assert.equal(comfy.prompts[1].prompt['3'].inputs.width, 768)
   assert.equal(comfy.prompts[1].prompt['3'].inputs.height, 512)
-  assert.equal(comfy.prompts[1].prompt['4'].inputs.seed, savedSource.seed)
+  assert.equal(comfy.prompts[1].prompt['4'].inputs.seed, saved[replacementId].seed)
   assert.equal(comfy.prompts[1].prompt['4'].inputs.steps, 31)
   assert.equal(comfy.prompts[1].prompt['4'].inputs.cfg, 5.5)
+})
+
+test('workflow.fixedSeed 仍高于默认随机 seed', () => {
+  const fixedSeed = 246813579
+  const compiled = compileJob({ workflow: { ...workflow, fixedSeed },
+    config: { imageBackend: 'comfyui', promptMode: 'tags', negativeMode: 'merge', weightMode: 'keep' },
+    params: { tag: 'fixed seed prompt' }, definitions: {} })
+  assert.equal(compiled.seed, fixedSeed)
+  assert.equal(compiled.prompt['4'].inputs.seed, fixedSeed)
 })
 
 test('缺失 workflow 和 retired simple 作业返回可读错误且不提交 Comfy', { timeout: 20000 }, async t => {
