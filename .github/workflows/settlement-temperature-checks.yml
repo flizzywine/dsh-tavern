@@ -1,0 +1,50 @@
+name: Settlement temperature checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/settlement-temperature-checks.yml'
+      - 'tavern-plugin/lib/hooks/model-stream.js'
+      - 'tavern-plugin/lib/domain/temperature-rejection.js'
+      - 'tests/settlement-temperature-retry.test.mjs'
+      - 'tests/plugin-agent-request-log.test.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  pull_request:
+    paths:
+      - '.github/workflows/settlement-temperature-checks.yml'
+      - 'tavern-plugin/lib/hooks/model-stream.js'
+      - 'tavern-plugin/lib/domain/temperature-rejection.js'
+      - 'tests/settlement-temperature-retry.test.mjs'
+      - 'tests/plugin-agent-request-log.test.mjs'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  settlement-temperature:
+    name: Settlement temperature / ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            node: 24.12.0
+          - os: ubuntu-22.04
+            node: 22.19.0
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check settlement parameter fallback without external model requests
+        run: node --test tests/settlement-temperature-retry.test.mjs tests/plugin-agent-request-log.test.mjs tests/model-request-log.test.mjs tests/background-progress.test.mjs tests/plain-settlement-engine.test.mjs tests/mvu-background-settlement.test.mjs

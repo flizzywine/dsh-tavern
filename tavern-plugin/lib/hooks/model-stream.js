@@ -1,3 +1,4 @@
+import { isTemperatureRejection } from '../domain/temperature-rejection.js'
 import { promptSection } from '../domain/prompt-section.js'
 import { createModelStreamProgress } from '../domain/model-stream-progress.js'
 import { assertFrozenStageRequest } from '../domain/stage-shared-context.js'
@@ -179,6 +180,11 @@ export function registerModelStreamHooks({
         enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
       let finish = null, usage = null
       let failure = null, interrupted = false
+      let retryWithoutTemperature = false, outputStarted = false
+      const canRetryTemperature = error => backgroundContext?.task === 'settlement'
+        && options.purpose === undefined && typeof options.temperature === 'number'
+        && !requestHandledBy(options, 'temperature-fallback') && !outputStarted
+        && !options.signal?.aborted && isTemperatureRejection(error)
       const liveness = createModelStreamProgress({signal:options.signal,
         onInterrupt:() => agentRegistry.get(sessionId)?.cancel?.({kind:'user'})})
       let iterator, exhausted = false
@@ -189,6 +195,14 @@ export function registerModelStreamHooks({
           const item = await liveness.wait(iterator.next())
           if (item.done) {exhausted = true; break}
           const chunk = item.value
+          // Never replay a request after any content or tool block was exposed.
+          // Usage alone is accounting, not generated output.
+          if (chunk?.type !== 'finish' && chunk?.type !== 'usage') outputStarted = true
+          if (chunk?.type === 'finish' && chunk.reason?.kind === 'error' && canRetryTemperature(chunk.reason.failure)) {
+            finish = chunk.reason
+            retryWithoutTemperature = true
+            break
+          }
           liveness.chunk(chunk)
           if (chunk && chunk.type === 'text-delta') {
             responseText += str(chunk.text)
@@ -210,7 +224,8 @@ export function registerModelStreamHooks({
         interrupted = /^MODEL_STREAM_/.test(error?.code || '')
         const displayedError = chat ? presentModelError(error) : error
         failure = str(displayedError && displayedError.message || displayedError)
-        throw displayedError
+        if (canRetryTemperature(error)) retryWithoutTemperature = true
+        else throw displayedError
       } finally {
         const timing = liveness.snapshot()
         liveness.dispose()
@@ -226,6 +241,13 @@ export function registerModelStreamHooks({
             interrupted: interrupted || (!failure && !finish) || finish?.kind === 'aborted' || options.signal?.aborted || Boolean(timing.interruption), timing }) }
           catch (error) { console.error('dsh-tavern: 模型结果日志写入失败', str(error && error.message || error)) }
         }
+      }
+      if (retryWithoutTemperature) {
+        options.signal?.throwIfAborted()
+        const { temperature: _rejectedTemperature, ...retry } = options
+        // Re-enter logging/projection with a lineage guard; no Agent task or
+        // previously executed tool is repeated. The second failure is final.
+        yield * ctx.llm.stream(markRequestHandled(retry, 'temperature-fallback'))
       }
     })()
   }, { global: true })
