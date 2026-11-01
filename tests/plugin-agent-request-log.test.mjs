@@ -18,14 +18,14 @@ function memoryLog() {
   })
 }
 
-function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted) {
+function install(log, headers, pluginSettlementProgress, beginReplyObserver, emitted, agentRegistry = { get: () => undefined }) {
   let stream
   const game = { id: 'chat-game', mode: 'story', requestMode: 'sillytavern' }
   const ctx = { on(name, fn) { if (name === 'llm/stream') stream = fn }, llm: {}, get() {}, logger: () => ({ warn() {} }) }
   const observers = createPresentationObservers()
   if (beginReplyObserver) observers.register("test", {beginReply:beginReplyObserver})
   registerModelStreamHooks({
-    ctx, agentRegistry: { get: () => undefined },
+    ctx, agentRegistry,
     sessionStore: { get: id => headers[id] && { id, header: headers[id] }, flush() {} },
     backgroundAgentRunner: { owns: () => false, requestContext: () => undefined },
     chatForSession: async () => undefined,
@@ -34,12 +34,70 @@ function install(log, headers, pluginSettlementProgress, beginReplyObserver, emi
     fullTemplateRuntime: {}, modelRequestLog: log, pluginSettlementProgress, openReplyObservers:observers.openReply, requestCoordinates: new Map([['session-game', { turn: 2, step: 1 }]]), str: value => typeof value === 'string' ? value : '',
     sessionStateForSession: async () => null, updateChat: async () => {}, worldbookRecallLog: { requested: async () => {} }, runtimePrompt: () => '', storyRetention: async () => ({})
   })
-  return async sessionId => {
+  return async (sessionId, signal) => {
     const chunks = []
-    for await (const chunk of stream({ sessionId, messages: [{ role: 'user', content: [{ type: 'text', text: '结算' }] }] }, async function * () { if (emitted) yield * emitted(); else { yield { type: 'text-delta', text: '好' }; yield { type: 'finish', reason: { kind: 'stop' } } } })) chunks.push(chunk)
+    for await (const chunk of stream({ sessionId, signal, messages: [{ role: 'user', content: [{ type: 'text', text: '结算' }] }] }, async function * () { if (emitted) yield * emitted(); else { yield { type: 'text-delta', text: '好' }; yield { type: 'finish', reason: { kind: 'stop' } } } })) chunks.push(chunk)
     return chunks
   }
 }
+
+test('正文等待首字及流中停顿超过 90 秒仍可继续，不被当作用户停止', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const cancellations = []
+  let resume, ready
+  const paused = new Promise(resolve => { ready = resolve })
+  const gate = new Promise(resolve => { resume = resolve })
+  let resumeAgain, readyAgain
+  const pausedAgain = new Promise(resolve => { readyAgain = resolve })
+  const gateAgain = new Promise(resolve => { resumeAgain = resolve })
+  const log = memoryLog()
+  const send = install(log, {}, null, null, async function * () {
+    ready(); await gate
+    yield { type: 'text-delta', text: '开头' }
+    readyAgain(); await gateAgain
+    yield { type: 'text-delta', text: '结尾' }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }, { get: () => ({ cancel: reason => cancellations.push(reason) }) })
+  const result = send('session-game')
+  // Attach immediately so the old watchdog's rejection is observed by the test.
+  result.catch(() => {})
+  await paused
+  t.mock.timers.tick(120000)
+  resume()
+  // If the stream failed, propagate that failure rather than waiting for its next pause.
+  await Promise.race([pausedAgain, result])
+  t.mock.timers.tick(120000)
+  resumeAgain()
+  assert.equal((await result).map(chunk => chunk.text || '').join(''), '开头结尾')
+  assert.deepEqual(cancellations, [])
+  assert.equal((await log.evidence('chat-game')).requests[0].response.error, null)
+})
+
+test('用户主动停止仍能结束不响应的模型流，不必等待接口返回', async () => {
+  const controller = new AbortController()
+  let resume, ready
+  const paused = new Promise(resolve => { ready = resolve })
+  const gate = new Promise(resolve => { resume = resolve })
+  const send = install(memoryLog(), {}, null, null, async function * () {
+    ready(); await gate
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })
+  const result = send('session-game', controller.signal)
+  result.catch(() => {})
+  await paused
+  controller.abort()
+  try { await assert.rejects(result, /模型请求已停止/) }
+  finally { resume() }
+})
+
+test('缺失结束标记的正文流报错，不伪装成用户主动停止', async () => {
+  const cancellations = []
+  const send = install(memoryLog(), {}, null, null, async function * () {
+    yield { type: 'text-delta', text: '未完成正文' }
+  }, { get: () => ({ cancel: reason => cancellations.push(reason) }) })
+  await assert.rejects(send('session-game'), /未收到完整结束标记/)
+  assert.deepEqual(cancellations, [])
+})
 
 test('a plugin agent created under a game is logged as that game\'s background request', async () => {
   const log = memoryLog()

@@ -179,8 +179,7 @@ export function registerModelStreamHooks({
         enabled:!backgroundContext && !child && options.purpose === undefined && ['story','script'].includes(chat?.mode)})
       let finish = null, usage = null
       let failure = null, interrupted = false
-      const liveness = createModelStreamProgress({signal:options.signal,
-        onInterrupt:() => agentRegistry.get(sessionId)?.cancel?.({kind:'user'})})
+      const liveness = createModelStreamProgress({signal:options.signal})
       let iterator, exhausted = false
       try {
         liveness.provider()
@@ -203,7 +202,6 @@ export function registerModelStreamHooks({
           yield chunk
         }
         if (!finish || finish.kind === 'aborted') {
-          agentRegistry.get(sessionId)?.cancel?.({kind:'user'})
           throw Object.assign(new Error('模型流已中断，未收到完整结束标记。'), {code:'MODEL_STREAM_INTERRUPTED'})
         }
       } catch (error) {
