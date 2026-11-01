@@ -371,10 +371,6 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-card-pick.selected { border-color: color-mix(in srgb, var(--dsh-tavern-accent) 40%, transparent); background: color-mix(in srgb, var(--dsh-tavern-accent) 6%, transparent); }
 .dsh-tavern-card-pick b { display: block; color: var(--dsh-tavern-accent); }
 .dsh-tavern-card-pick span { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.4; }
-.dsh-tavern-card-pick.with-image,.dsh-tavern-library-card.with-image { display: flex; align-items: center; gap: 12px; }
-.dsh-tavern-card-thumb { display: block; flex: none; width: 56px; height: 56px; margin: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 50%; object-fit: cover; object-position: center top; background: var(--dsw-alias-interactive-bg-hover); }
-.dsh-tavern-card-list-copy { display: block; min-width: 0; flex: 1; margin: 0; }
-.dsh-tavern-card-pick .dsh-tavern-card-list-copy,.dsh-tavern-library-card .dsh-tavern-card-list-copy { color: inherit; font-size: inherit; }
 .dsh-tavern-card-pick-wrap { display: flex; align-items: center; gap: 7px; width: 100%; box-sizing: border-box; }
 .dsh-tavern-card-pick-wrap .dsh-tavern-card-pick { flex: 1 1 auto; min-width: 0; margin-top: 0; }
 .dsh-tavern-card-pick-wrap .dsh-tavern-script-file { flex: 0 0 auto; }
@@ -383,12 +379,16 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-segmented button:hover { color: var(--dsw-alias-label-primary); }
 .dsh-tavern-segmented button[aria-pressed="true"] { background: var(--dsw-alias-bg-base, #fff); color: var(--dsh-tavern-accent-active); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .dsh-tavern-segmented button:focus-visible { outline: 2px solid var(--dsh-tavern-accent-border); outline-offset: 1px; }
-.dsh-tavern-card-view-switch { display: flex; width: max-content; margin: 6px 12px; }
+.dsh-tavern-card-grid-container { container-type: inline-size; min-width: 0; }
 .dsh-tavern-card-grid { display: grid; grid-template-columns: repeat(var(--dsh-tavern-card-grid-cols, 4), minmax(0, 1fr)); gap: 10px; align-items: start; padding: 4px 12px 12px; }
-.dsh-tavern-card-grid-tools { display: flex; align-items: center; gap: 8px; padding: 2px 12px 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.dsh-tavern-card-grid-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 12px 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-card-grid-tools .dsh-tavern-segmented button { padding: 0 8px; }
 .dsh-tavern-card-grid-count { margin-left: auto; }
 .dsh-tavern-card-grid-empty { padding: 24px 8px; text-align: center; opacity: .6; }
+/* Keep a two-column grid on older mobile WebViews without container queries too. */
+@media (max-width: 640px) { .dsh-tavern-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
+@container (max-width: 600px) { .dsh-tavern-card-grid { grid-template-columns: repeat(min(var(--dsh-tavern-card-grid-cols, 4), 3), minmax(0, 1fr)); } }
+@container (max-width: 400px) { .dsh-tavern-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
 .dsh-tavern-card-grid-item { position: relative; min-width: 0; }
 .dsh-tavern-card-grid-open { position: relative; display: flex; flex-direction: column; width: 100%; padding: 0; overflow: hidden; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: color-mix(in srgb, var(--dsh-tavern-accent) 8%, transparent); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .dsh-tavern-card-grid-open:hover { border-color: var(--dsh-tavern-accent); }
@@ -504,8 +504,6 @@ body.dsh-tavern-picker-open [id^="improved-phone-floating-button-"] { visibility
 .dsh-tavern-library-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-tavern-library-card b { display: block; overflow: hidden; overflow-wrap: anywhere; }
 .dsh-tavern-library-card span { margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 10px; }
-.dsh-tavern-library-card-row { display: flex; align-items: center; gap: 6px; }
-.dsh-tavern-library-card-row .dsh-tavern-library-card { flex: 1; min-width: 0; }
 .dsh-tavern-library-head-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .dsh-tavern-resource-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 20px; }
 .dsh-tavern-script-preview { margin: 0; padding: 14px 16px 24px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; color: var(--dsw-alias-label-primary); }
@@ -1409,11 +1407,7 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 
 .dsh-tavern-group-add { display: block; margin: 12px auto; padding: 7px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .dsh-tavern-group-add:hover { background: var(--dsw-specific-input-major, #ffffff12); color: var(--dsw-alias-label-primary); }
-.dsh-tavern-group-add-list { max-height: min(48vh, 360px); overflow-y: auto; margin-top: 12px; }
-.dsh-tavern-group-add-list label { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; cursor: pointer; }
-.dsh-tavern-group-add-list label:hover { background: var(--dsw-specific-input-major, #ffffff12); }
-.dsh-tavern-group-add-list span { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
-.dsh-tavern-group-add-list small { display: block; margin-top: 3px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsh-tavern-group-add-grid { max-height: min(48vh, 360px); overflow-y: auto; margin-top: 12px; }
 
 .dsh-tavern-character-design-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .dsh-tavern-character-design-head .dsh-tavern-status-label { margin: 0; }
@@ -1766,69 +1760,6 @@ header .nL4_yW_moreButton { display: none !important; }
 
 .dsh-tavern-card-library > .dsh-tavern-resource-body {
   padding: 8px 10px 24px;
-}
-.dsh-tavern-card-library .dsh-tavern-library-card-row {
-  gap: 8px;
-  margin: 2px 0;
-  padding: 2px 4px;
-  border-radius: var(--dsh-card-radius-md);
-}
-.dsh-tavern-card-library .dsh-tavern-library-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 64px;
-  padding: 10px 12px;
-  border: 1px solid transparent;
-  border-radius: var(--dsh-card-radius-md);
-  background: transparent;
-  transition: background 140ms cubic-bezier(0.23, 1, 0.32, 1), transform 100ms ease-out;
-}
-.dsh-tavern-card-library .dsh-tavern-library-card:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-.dsh-tavern-card-library .dsh-tavern-library-card:active:not(:disabled) {
-  transform: scale(0.985);
-}
-.dsh-tavern-card-library .dsh-tavern-library-card.selected {
-  border-color: var(--dsh-card-action-border);
-  background: var(--dsh-card-action-soft);
-}
-.dsh-tavern-card-library .dsh-tavern-card-thumb {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--dsh-card-radius-md);
-  border: 1px solid var(--dsw-alias-border-l2);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-}
-.dsh-tavern-card-library .dsh-tavern-card-list-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.dsh-tavern-card-library .dsh-tavern-library-card b {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.24px;
-  line-height: 1.27;
-  color: var(--dsw-alias-label-primary);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.dsh-tavern-card-library .dsh-tavern-library-card span {
-  margin-top: 0;
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.08px;
-  line-height: 1.35;
-  color: var(--dsw-alias-label-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .dsh-tavern-card-library .dsh-tavern-resource-at {
   min-height: 28px;
@@ -2600,11 +2531,9 @@ select.dsh-tavern-settings-select:disabled { cursor: default; opacity: .55; }
 .dsh-tavern-empty-state > strong { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .dsh-tavern-empty-state > p { max-width: 280px; margin: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
 .dsh-tavern-empty-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 6px; border-radius: 12px; background: var(--dsh-tavern-accent-soft); color: var(--dsh-tavern-accent); font-size: 20px; }
-.dsh-tavern-card-thumb.placeholder { display: grid; place-items: center; box-sizing: border-box; background: var(--dsh-tavern-accent-soft); color: var(--dsh-tavern-accent); font-size: 16px; font-weight: 600; line-height: 1; box-shadow: none; }
 .dsh-tavern-card-library > .dsh-tavern-card-import-hint { margin: 0; padding: 10px 16px 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
 
 /* ===== Right-panel pages: unified list rows ===== */
-.dsh-tavern-card-pick:has(> .dsh-tavern-card-thumb), .dsh-tavern-library-card:has(> .dsh-tavern-card-thumb) { display: flex; align-items: center; gap: 12px; }
 :is(.dsh-tavern-resource-body, .dsh-tavern-preset-list) { padding: 12px 16px 24px; }
 :is(.dsh-tavern-library, .dsh-tavern-resources, .dsh-tavern-presets) .dsh-tavern-resource-group { margin-bottom: 20px; }
 :is(.dsh-tavern-library, .dsh-tavern-resources, .dsh-tavern-presets) .dsh-tavern-resource-group-title { margin: 0 2px 8px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-tertiary); }
@@ -2628,10 +2557,6 @@ select.dsh-tavern-settings-select:disabled { cursor: default; opacity: .55; }
 .dsh-tavern-library .dsh-tavern-card-pick-wrap > .dsh-tavern-library-card > b { display: block; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .dsh-tavern-library .dsh-tavern-card-pick-wrap > .dsh-tavern-library-card > span { display: block; margin-top: 2px; font-size: 11px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
 
-/* Card library keeps a flat list but aligns avatars and names. */
-.dsh-tavern-card-library .dsh-tavern-library-card { padding: 8px 10px; border-radius: 10px; }
-.dsh-tavern-card-library .dsh-tavern-library-card .dsh-tavern-card-list-copy b { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
-.dsh-tavern-card-library .dsh-tavern-library-card .dsh-tavern-card-list-copy span { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
 
 /* Presets: title + meta left, single compact action right. */
 .dsh-tavern-presets .dsh-tavern-preset-row { display: flex; align-items: center; gap: 12px; }

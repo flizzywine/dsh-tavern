@@ -47,7 +47,7 @@ function filterOrganizedCards(cards, filter, query) {
     && (filter === '*' || (filter === 'favorites' ? card.starred : (card.group || '') === filter.slice(6))));
 }
 
-function useCardOrganization(cards, busy, refresh, onError, batch) {
+function useCardOrganization(cards, busy, refresh, onError, batch = {}) {
   const askConfirm = useTavernConfirm();
   const h = React.createElement;
   const [groups, setGroups] = React.useState([]);
@@ -157,7 +157,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch) {
           } }, '删除'))) : h(EmptyState, { compact: true, noun: '自定义分组' }),
         h('div', { className: 'dsh-tavern-group-manager-footer' },
           h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => nameGroup() }, '＋ 创建分组'),
-          h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => { setManaging(false); batch.begin(); } }, '批量整理人物卡')))) : null);
+          typeof batch.begin === 'function' ? h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => { setManaging(false); batch.begin(); } }, '批量整理人物卡') : null))) : null);
   }
   function addCardsFooter() {
     if (!filter.startsWith('group:') || !groups.includes(filter.slice(6)) || batch.managing) return null;
@@ -173,13 +173,17 @@ function useCardOrganization(cards, busy, refresh, onError, batch) {
         h('div', { className: 'dsh-tavern-group-manager-head' }, h('h3', null, '添加到「' + addingGroup + '」'),
           h('button', { className: 'dsh-tavern-btn', disabled: saving, onClick: () => setAddingGroup(null) }, '取消')),
         h('input', { className: 'dsh-tavern-library-search', value: addQuery, placeholder: '搜索人物卡', 'aria-label': '搜索可添加的人物卡', onChange: event => setAddQuery(event.target.value) }),
-        h('div', { className: 'dsh-tavern-group-add-list' }, candidates.length ? candidates.map(card => h('label', { key: card.path },
-          h('input', { type: 'checkbox', disabled, checked: addPaths.includes(card.path), onChange: event => {
-            const checked = event.target.checked;
-            setAddPaths(previous => checked ? [...previous, card.path] : previous.filter(path => path !== card.path));
-          } }),
-          h('span', null, card.name, h('small', null, card.group ? '来自「' + card.group + '」' : '未分组'))
-        )) : h('p', { className: 'dsh-tavern-question-sub' }, '没有可添加的人物卡')),
+        h('div', { className: 'dsh-tavern-group-add-grid' }, candidates.length ? h(TavernCardList, {
+          place: 'group', cards: candidates, busy: disabled,
+          batch: {
+            managing: true,
+            isSelected: path => addPaths.includes(path),
+            toggle: path => {
+              if (disabled || !candidates.some(card => card.path === path)) return;
+              setAddPaths(previous => previous.includes(path) ? previous.filter(item => item !== path) : [...previous, path]);
+            }
+          }
+        }) : h('p', { className: 'dsh-tavern-question-sub' }, '没有可添加的人物卡')),
         addError ? h('div', { role: 'alert', className: 'dsh-tavern-dock-error' }, addError) : null,
         h('div', { className: 'dsh-tavern-group-manager-footer' },
           h('button', { className: 'dsh-tavern-btn', disabled: disabled || !addPaths.length, onClick: async () => {
@@ -224,5 +228,5 @@ function useCardOrganization(cards, busy, refresh, onError, batch) {
         onChange: event => submit({ action: 'cards', paths: [card.path], group: event.target.value.slice(6) }) }, options())),
       h('button', { className: 'dsh-tavern-btn', disabled, onClick: () => nameGroup() }, '创建分组'));
   }
-  return { visible, toolbar, rowMenu, detailSettings, addCardsFooter, renderCards: render => visible.map(render) };
+  return { visible, toolbar, rowMenu, detailSettings, addCardsFooter };
 }

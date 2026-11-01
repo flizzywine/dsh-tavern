@@ -1,21 +1,3 @@
-		// Module scope keeps row identity stable; a nested component type would remount every thumbnail per parent render.
-		function TavernCardListContent(props) {
-			const card = props.card;
-			const image = card && card.hasImage ? React.createElement("img", {
-				className: "dsh-tavern-card-thumb",
-				src: "/api/dsh-tavern/card-image?path=" + encodeURIComponent(card.path),
-				alt: "",
-				loading: "lazy",
-				onError: function (event) { event.currentTarget.hidden = true; }
-			}) : React.createElement("span", { className: "dsh-tavern-card-thumb placeholder", "aria-hidden": "true" }, Array.from(String(card && card.name || "?").replace(/^[^\p{L}\p{N}]+/u, ""))[0] || "?");
-			return React.createElement(React.Fragment, null, image, React.createElement("span", { className: "dsh-tavern-card-list-copy" },
-				React.createElement("b", { title: card.name }, card.name),
-				props.showPath && card.path ? React.createElement("span", { title: card.path, style: { overflowWrap: "anywhere" } }, "文件：" + String(card.path).replace(/\\/g, "/").split("/").pop()) : null,
-				card.readError || props.detail ? React.createElement("span", { className: card.readError ? "dsh-tavern-dock-error" : undefined }, card.readError || props.detail) : null,
-				props.extra ? React.createElement("span", null, props.extra) : null
-			));
-		}
-
 		async function deleteTavernCards(cards, remove) {
 			const results = [];
 			const paths = new Set();
