@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f79bd0609a4a3bef70fe1e173f00ad537a31808a",
-  "releaseSequence": 1012,
+  "revision": "3681a0960daf03fb98e0bc67886ab8d8112f7650",
+  "releaseSequence": 1013,
   "version": "3.2.0",
   "files": [
     {
@@ -226,8 +226,8 @@
     },
     {
       "path": "bin/launcher-environment.mjs",
-      "sha256": "9e2718707a6f12ce2ae655e8d12376c374ad34d0a0c079854c6949c204c0b270",
-      "size": 11879
+      "sha256": "ed13acec2d0125df69fc412c97370a73bd7a2e2bb2a39612c908a6941b8d2474",
+      "size": 12032
     },
     {
       "path": "bin/launcher-settings.mjs",
@@ -320,14 +320,19 @@
       "size": 1750
     },
     {
+      "path": "bin/service-address.mjs",
+      "sha256": "01bbebf14b00effa0128e0b8401af1a4a032fe3b7c607dece786a1a90c1b319c",
+      "size": 1270
+    },
+    {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "874ec8f6ea0445c3b0bfaea3a830b48d35e6ca237804c612ca9cfad62568f2f2",
-      "size": 19689
+      "sha256": "8816d0a499fb033672e6665b5f7549c47b9473d43fffe0d1a88cf759b96e4be4",
+      "size": 21044
     },
     {
       "path": "bin/service-process-identity.mjs",
-      "sha256": "118797f9ebd89402f9a33942ef7c6cb64475729440792200d355f7bef2c361ac",
-      "size": 3011
+      "sha256": "68cad633e76ae17f238be79859c50868624489bdf02d09cbbca2f17430c8e3b7",
+      "size": 3234
     },
     {
       "path": "bin/service-startup.mjs",
@@ -8601,9 +8606,9 @@
     }
   ],
   "archive": {
-    "commit": "7803a5b767acb34d6e24d3d49a0284dbd74b4f83",
+    "commit": "94306a290cc6afd560cae64cda36257b4eee7a57",
     "path": "runtime.zip",
-    "sha256": "a67842a444763b6ec543fc89cae6f5d41a160f74a30f45643fe75a77ded93260",
-    "size": 15224731
+    "sha256": "a04d4195dae113f6e9ec7862df050b956d014f84c3e2024c33c06b568025a7bd",
+    "size": 15226093
   }
 }
