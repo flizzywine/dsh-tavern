@@ -11,7 +11,7 @@ function completeSystem(sections) {
 import { createBackgroundAgentRunner } from '../tavern-plugin/lib/background-agent-runner.js'
 import { createContextPlanner } from '../tavern-plugin/lib/domain/context-planner.js'
 
-test('人物设计阶段独立提高温度，结束后恢复结算温度', async () => {
+test('结算及其人物设计阶段均不传温度', async () => {
   const registered = new Map()
   const listeners = []
   const temperatures = []
@@ -74,7 +74,7 @@ test('人物设计阶段独立提高温度，结束后恢复结算温度', async
     }
   })
 
-  assert.deepEqual(temperatures, [0.2, 0.7, 0.7, 0.2])
+  assert.deepEqual(temperatures, [undefined, undefined, undefined, undefined])
   assert.match(results[1], /character_design_finish/)
   assert.equal(JSON.parse(results[3]).ok, true)
   assert.equal(submitted, true)

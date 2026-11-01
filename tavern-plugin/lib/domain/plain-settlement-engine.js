@@ -55,7 +55,6 @@ export function createPlainSettlementEngine(deps) {
       system: plan.system,
       tools: plan.tools,
       maxToolCalls: 12,
-      temperature: 0.2,
       sessionId: snapshot.sessionId,
       webSearchEnabled: snapshot.webSearchEnabled === true,
       signal,

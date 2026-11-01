@@ -731,7 +731,7 @@ export function createMvuSettlementModule(options = {}) {
         toolLimitMessage: '本轮后台工具调用过多，请停止额外查询；变量更新仍不得跳过校验。',
         stopToolsWhen: () => feedback !== null && (feedback.ok || !feedback.retryable) && (!tasks.posture || posture !== null),
         acceptWithoutText: () => result !== null && (!tasks.posture || posture !== null),
-        temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0), signal: input.signal,
+        sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0), signal: input.signal,
         webSearchEnabled: input.webSearchEnabled === true,
         onToolCall(call) {
           const pending = toolTail.then(() => executeTool(call))
@@ -793,7 +793,7 @@ export function createMvuSettlementModule(options = {}) {
       selection: input.selection, messages: request.messages, turnContext: request.turnContext,
       system: [str(input.system).trim(), system].filter(Boolean).join('\n\n'),
       tools, maxToolCalls: Math.max(1, tools.length + 4),
-      temperature: 0.1, sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
+      sessionId: input.sessionId, turn: Math.max(0, Number(input.turn) || 0),
       signal: input.signal, webSearchEnabled: input.webSearchEnabled === true,
       acceptWithoutText: () => (!tasks.posture || posture !== null) && !tasks.characterDesign,
       onToolCall(call) {

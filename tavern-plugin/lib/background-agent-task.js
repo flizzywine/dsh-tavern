@@ -1,3 +1,4 @@
+import { backgroundRequestTemperature } from './domain/background-request-temperature.js'
 import { withWorldbookFileInstructions } from './domain/worldbook-virtual-surface.js'
 import { createBackgroundProgress } from './domain/background-progress.js'
 import { worldbookSnapshot } from './domain/worldbook-snapshot.js'
@@ -247,11 +248,7 @@ export function createBackgroundAgentTask(options) {
         const { maxTokens: _oldLimit, ...request } = inherited
         const limit = Number.isSafeInteger(input.maxTokens) && input.maxTokens > 0 ? input.maxTokens : maximumBackgroundTokens(input.selection)
         if (limit !== undefined) request.maxTokens = limit
-        const temperature = state.characterDesignStage
-          ? state.characterDesignStage.temperature(input.temperature)
-          : input.temperature
-        if (typeof temperature !== 'number' || input.selection && input.selection.provider === 'openai-codex') return request
-        return Object.assign({}, request, { temperature })
+        return backgroundRequestTemperature(request, input, state.characterDesignStage)
       })
     }
   }

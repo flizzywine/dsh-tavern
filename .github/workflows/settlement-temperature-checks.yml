@@ -6,8 +6,11 @@ on:
     paths:
       - '.github/workflows/settlement-temperature-checks.yml'
       - 'tavern-plugin/lib/hooks/model-stream.js'
-      - 'tavern-plugin/lib/domain/temperature-rejection.js'
-      - 'tests/settlement-temperature-retry.test.mjs'
+      - 'tavern-plugin/lib/domain/background-request-temperature.js'
+      - 'tavern-plugin/lib/background-agent-task.js'
+      - 'tavern-plugin/lib/domain/mvu-background-settlement.js'
+      - 'tavern-plugin/lib/domain/plain-settlement-engine.js'
+      - 'tests/settlement-temperature.test.mjs'
       - 'tests/plugin-agent-request-log.test.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -15,8 +18,11 @@ on:
     paths:
       - '.github/workflows/settlement-temperature-checks.yml'
       - 'tavern-plugin/lib/hooks/model-stream.js'
-      - 'tavern-plugin/lib/domain/temperature-rejection.js'
-      - 'tests/settlement-temperature-retry.test.mjs'
+      - 'tavern-plugin/lib/domain/background-request-temperature.js'
+      - 'tavern-plugin/lib/background-agent-task.js'
+      - 'tavern-plugin/lib/domain/mvu-background-settlement.js'
+      - 'tavern-plugin/lib/domain/plain-settlement-engine.js'
+      - 'tests/settlement-temperature.test.mjs'
       - 'tests/plugin-agent-request-log.test.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -46,5 +52,5 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Check settlement parameter fallback without external model requests
-        run: node --test tests/settlement-temperature-retry.test.mjs tests/plugin-agent-request-log.test.mjs tests/model-request-log.test.mjs tests/background-progress.test.mjs tests/plain-settlement-engine.test.mjs tests/mvu-background-settlement.test.mjs
+      - name: Check settlement uses model defaults without external model requests
+        run: node --test tests/settlement-temperature.test.mjs tests/plugin-agent-request-log.test.mjs tests/model-request-log.test.mjs tests/background-progress.test.mjs tests/plain-settlement-engine.test.mjs tests/mvu-background-settlement.test.mjs
