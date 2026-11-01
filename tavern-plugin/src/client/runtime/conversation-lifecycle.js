@@ -25,8 +25,11 @@
 			}
 			const now = typeof options.now === "function" ? options.now : Date.now;
 			const sleep = typeof options.sleep === "function" ? options.sleep : function (ms) { return new Promise(function (resolve) { window.setTimeout(resolve, ms); }); };
-			const timeoutMs = Math.max(100, Number(options.timeoutMs || 8000));
-			const retryDelays = Array.isArray(options.retryDelays) && options.retryDelays.length ? options.retryDelays : [0, 150, 350, 700, 1200, 1800, 2500];
+			// 宿主的 session.list 是本地调用，正常几毫秒就回；8 秒上限意味着任一环卡住时
+			// 用户要实打实等满 8 秒才看到报错。压到 4 秒、阶梯收紧密，卡死时更快暴露，
+			// 正常路径也不会被拉长。
+			const timeoutMs = Math.max(100, Number(options.timeoutMs || 4000));
+			const retryDelays = Array.isArray(options.retryDelays) && options.retryDelays.length ? options.retryDelays : [0, 120, 250, 400, 650, 900, 1200];
 			const isUnknownSession = typeof options.isUnknownSession === "function" ? options.isUnknownSession : function (error) {
 				return /sessions\.(select|retain): unknown session/i.test(String(error && error.message || error || ""));
 			};

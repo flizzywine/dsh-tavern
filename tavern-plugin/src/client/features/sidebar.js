@@ -20,12 +20,24 @@
 			return { read: function () { return (loaded || load()).then(function () { return enabled; }); } };
 		})();
 
+		// The Tavern sidebar occupies `sidebar.workspaces`, so the host's session tree — and with it the live
+		// 「进行中」 StateDot — is not on screen. `useSessionStatus` is a standard prop of that slot: a Map of
+		// sessionId -> { running, pendingInteraction, completionUnread }, updated by api-session/status events.
+		// A host without that seat still gets one stable hook per render (hook order must not change).
+		const emptySessionStatus = new Map();
+		function noSessionStatus() { return emptySessionStatus; }
+		function useTavernSessionStatus(props) {
+			const hook = props && typeof props.useSessionStatus === "function" ? props.useSessionStatus : noSessionStatus;
+			return hook(function (statuses) { return statuses; });
+		}
+
 		function TavernSidebar(props) {
             const askConfirm = useTavernConfirm(props.sessionId || props.scope?.sessionId);
 			const collapsed = props.collapsed;
 			// 0.2 hosts dropped the snapshot's top-level current; the main view's retain names it now.
 			const current = props.useSessions(function (state) { return mainSessionId(state) || ""; });
 			const summaries = props.useSessions(function (state) { return state.byId; });
+			const liveStatus = useTavernSessionStatus(props);
 			const workspaceId = props.useWorkspaces(function (state) { return props.conversationHost.workspaceId(state, current); });
 			const [cards, setCards] = React.useState([]);
 			const [initialResources, setInitialResources] = React.useState([]);
@@ -191,7 +203,27 @@
 			function notifyDataChanged(kinds) {
 				notifyTavernDataChanged(kinds, "sidebar");
 			}
+			// 打开会话、tavern 数据变更事件、设置变更会几乎同时触发侧栏刷新，原来每次
+			// 各发一份 listCards/listSessions 并整表重建一次。这里按 kinds 合并并发调用，
+			// 期间到达的请求排一次尾随刷新：既不吃掉变更后的新数据，也不再重复重建整张表。
+			const refreshStateRef = React.useRef({ inFlight: Object.create(null), trailing: Object.create(null) });
 			function refresh(kinds) {
+				const key = Array.isArray(kinds) && kinds.length ? kinds.slice().sort().join(",") : "*";
+				const state = refreshStateRef.current;
+				const running = state.inFlight[key];
+				if (running) {
+					if (!state.trailing[key]) {
+						const chain = function () { delete state.trailing[key]; return refresh(kinds); };
+						state.trailing[key] = running.then(chain, chain);
+					}
+					return state.trailing[key];
+				}
+				const settle = function (value) { if (state.inFlight[key] === task) delete state.inFlight[key]; return value; };
+				const task = refreshNow(kinds).then(settle, function (error) { settle(undefined); throw error; });
+				state.inFlight[key] = task;
+				return task;
+			}
+			function refreshNow(kinds) {
                 if (!Array.isArray(kinds) || !kinds.length || kinds.indexOf("*") >= 0) kinds = null;
 				return Promise.all([
 					(!kinds || kinds.indexOf("cards") >= 0) && call("listCards").then(function (result) {
@@ -870,10 +902,18 @@
 				if (next) openSessionWhenReady(next.sessionId).catch(function (err) { setError(String(err && err.message || err)); });
 				else void openBlankConversation().then(function () { openPicker("cards"); });
 			};
+			// The host writes a reply (or a workbench task) through the native chat, so `sessionStatus` knows a
+			// conversation is generating. The Tavern sidebar replaced the host's session tree, so this row is the
+			// only place that can carry the 「生成中」 mark the host's StateDot used to show.
+			function sessionGenerating(sessionId) {
+				const live = liveStatus && typeof liveStatus.get === "function" ? liveStatus.get(sessionId) : null;
+				return !!(live && live.running);
+			}
 			function renderHistoryRow(item) {
 				const summary = summaries[item.sessionId];
 				const title = historyTitle(item, summary);
-				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") },
+				const generating = sessionGenerating(item.sessionId);
+				return h("div", { key: item.sessionId, className: "dsh-tavern-side-row" + (current === item.sessionId ? " active" : "") + (generating ? " is-generating" : "") },
 					// in 管理 the whole row is the checkbox (house round check), not a small native box.
 					h("button", Object.assign({ className: "dsh-tavern-side-row-main" + (managing ? " ap-check-row" : ""), disabled: busy }, managing ? { role: "checkbox", "aria-checked": selectedChats.includes(item.chatId), "aria-label": "选择对话：" + title } : null, { onClick: async function () {
 					if (managing) { toggleChatSelection(item.chatId); return; }
@@ -884,8 +924,10 @@
 				} }),
 					managing ? h("span", { className: "ap-check-mark", "aria-hidden": true }, selectedChats.includes(item.chatId) ? h("svg", { viewBox: "0 0 24 24", width: 12, height: 12, fill: "none", stroke: "currentColor", strokeWidth: 2.4, strokeLinecap: "round", strokeLinejoin: "round" }, h("path", { d: "M5 12.5l4.5 4.5L19 7.5" })) : null) : null,
 					h(managing ? "span" : React.Fragment, managing ? { className: "dsh-tavern-side-row-text" } : null,
-					h("div", { className: "dsh-tavern-side-row-name" }, title),
-					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, formatTime(item.createdAt || item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt)))))
+					h("div", { className: "dsh-tavern-side-row-name" },
+						generating ? h("span", { className: "dsh-tavern-side-row-spinner", role: "status", "aria-label": "正在生成" }, h(Spinner, {})) : null,
+						h("span", { className: "dsh-tavern-side-row-title" }, title)),
+					h("div", { className: "dsh-tavern-side-row-meta" }, h("span", null, item.mode === "card" ? (item.cardPath ? ("已创建：" + item.cardName) : "尚未创建正式人物卡") : modeLabel(item.mode || "story")), h("span", null, generating ? "生成中" : formatTime(item.createdAt || item.lastOpenedAt || (summary ? summary.updatedAt : item.updatedAt)))))
 					),
 					!managing ? h("button", { className: "dsh-tavern-side-row-more", title: "对话操作", "aria-expanded": menuSession === item.sessionId ? "true" : "false", onClick: function () { setMenuSession(menuSession === item.sessionId ? null : item.sessionId); } }, "⋯") : null,
 					!managing && menuSession === item.sessionId ? h("div", { className: "dsh-tavern-side-row-menu" },
@@ -901,7 +943,10 @@
 				return h("section", { key: group.key, className: "dsh-tavern-history-group" },
 					h("button", { className: "dsh-tavern-history-group-toggle", "aria-expanded": expanded, title: group.path || group.name,
 						onClick: function () { setHistoryGroupState(previous => ({ ...previous, [group.key]: !expanded })); setMenuSession(null); }
-					}, h("span", { "aria-hidden": true }, expanded ? "▾" : "▸"), h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
+					}, h("span", { "aria-hidden": true }, expanded ? "▾" : "▸"),
+						// A collapsed group hides its rows, so its head carries the same mark when one of them generates.
+						group.items.some(function (item) { return sessionGenerating(item.sessionId); }) ? h("span", { className: "dsh-tavern-history-group-spinner", role: "status", "aria-label": "有对话正在生成" }, h(Spinner, {})) : null,
+						h("span", { className: "dsh-tavern-history-group-name" }, group.name), h("span", { className: "dsh-tavern-history-group-count" }, group.items.length)),
 					expanded ? h("div", { className: "dsh-tavern-history-group-items" }, group.items.map(renderHistoryRow)) : null);
 			});
 			const selectedOpening = openingPicker && openingPicker.openings[openingPicker.index];

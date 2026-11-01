@@ -66,10 +66,20 @@ function createSessionCompat(sessions, uiWorkspace) {
 		const snapshot = sessions.list && typeof sessions.list.getSnapshot === "function" ? sessions.list.getSnapshot() : null;
 		return Boolean(snapshot && snapshot.byId && snapshot.byId[sessionId]);
 	}
+	// 宿主的 refresh 是 single-flight：紧接着再 await 一次只会拿到同一次拉取的结果，
+	// 连拉三次等于白等。让出一拍再重试，才可能读到新出现的那一行。
+	function retireTick() {
+		return new Promise(function (resolve) {
+			if (typeof window !== "undefined" && typeof window.setTimeout === "function") window.setTimeout(resolve, 80);
+			else setTimeout(resolve, 80);
+		});
+	}
 	async function ensureKnownSession(target, attempts) {
 		for (let index = 0; index < attempts; index += 1) {
 			if (knownSession(target)) return true;
 			try { await compat.refresh(); } catch (_) { /* 单次拉取失败由下一次重试兜底 */ }
+			if (knownSession(target)) return true;
+			if (index + 1 < attempts) await retireTick();
 		}
 		return knownSession(target);
 	}

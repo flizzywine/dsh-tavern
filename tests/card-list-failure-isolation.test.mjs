@@ -6,7 +6,8 @@ import { readFile } from 'node:fs/promises'
 
 const client = await readFile(new URL('../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const sidebar = client.slice(client.indexOf('function TavernSidebar'))
-const refreshSource = sidebar.slice(sidebar.indexOf('function refresh(kinds)'), sidebar.indexOf('\t\t\tReact.useEffect', sidebar.indexOf('function refresh(kinds)')))
+// refresh() is now the coalescing wrapper; the list calls it runs live in refreshNow().
+const refreshSource = sidebar.slice(sidebar.indexOf('function refreshNow(kinds)'), sidebar.indexOf('\t\t\tReact.useEffect', sidebar.indexOf('function refreshNow(kinds)')))
 for (const failed of ['listCards', 'listSessions']) {
   test('sidebar independently refreshes surviving data when ' + failed + ' fails', async () => {
     const state = { cards: ['previous-card'], history: ['previous-session'], errors: [] }

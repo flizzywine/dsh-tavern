@@ -304,7 +304,13 @@ body.dsh-tavern-shell-active span:has(.dsh-tavern-hero-lockup) + span { display:
 .dsh-tavern-side-row-menu button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 7px 10px; text-align: left; background: transparent; color: inherit; cursor: pointer; }
 .dsh-tavern-side-row-menu button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .dsh-tavern-side-row-menu button.danger { color: #c34f4f; }
-.dsh-tavern-side-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.dsh-tavern-side-row-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
+.dsh-tavern-side-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A conversation the host is generating in: the house spinner before the title, 「生成中」 in place of the time.
+   The Tavern sidebar occupies sidebar.workspaces, so the host's session tree (and its 进行中 StateDot) is not on
+   screen; the row is where that state has to live. */
+.dsh-tavern-side-row-spinner { display: inline-flex; flex: 0 0 auto; color: inherit; opacity: .8; }
+.dsh-tavern-side-row-spinner > .fork-spinner { --fork-spinner-size: 12px; }
 .dsh-tavern-side-row-meta { margin-top: 3px; display: flex; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsh-tavern-side-empty { padding: 18px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.6; text-align: center; }
 .dsh-tavern-update { flex: none; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--dsw-alias-border-l2); }
@@ -1110,6 +1116,9 @@ body.dsh-tavern-shell-active [data-dsh-panel-host] { overflow: clip; }
 .dsh-tavern-history-group-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 .dsh-tavern-history-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .dsh-tavern-history-group-count { flex-shrink: 0; opacity: .6; font-size: 12px; }
+/* A collapsed group hides its rows: its head keeps the mark while one of them generates. */
+.dsh-tavern-history-group-spinner { display: inline-flex; flex: 0 0 auto; color: inherit; opacity: .8; }
+.dsh-tavern-history-group-spinner > .fork-spinner { --fork-spinner-size: 11px; }
 .dsh-tavern-history-group-items { padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
 
 .dsh-tavern-history-group-items .dsh-tavern-side-row-meta > span:last-child { white-space: nowrap; flex-shrink: 0; }
