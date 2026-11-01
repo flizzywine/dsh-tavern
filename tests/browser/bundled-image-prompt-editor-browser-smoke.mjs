@@ -31,7 +31,9 @@ try {
   const page = await browser.newPage()
   page.setDefaultTimeout(7000)
   const pageErrors = []
+  const dialogs = []
   page.on('pageerror', error => pageErrors.push(error.message))
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss() })
   await page.setContent('<!doctype html><div id="root"></div>')
   await page.addScriptTag({ content: await browserReactScript() })
 
@@ -43,14 +45,24 @@ try {
   const componentScript = [
     'const React=modules.react; const useEffect=React.useEffect, useState=React.useState;',
     'const BASE="http://localhost/plugins/dsh-tavern-image"; let openPromptEditor=null; const IMAGE_REFERENCE_PROTOCOLS=new Set(["openai","gemini","gemini-chat","atlascloud","seedream","grok","qwen","sdwebui"]); function uiSupportsImageReferences(channel,state){ if(!channel)return state?.referenceSupported===true; if(channel.provider==="comfyui")return state?.referenceSupported===true&&state?.config?.imageBackend==="comfyui"; return IMAGE_REFERENCE_PROTOCOLS.has(channel.provider==="custom"?String(channel.options?.apiProtocol||"openai"):channel.provider); }',
-    'const mediaPostLocks=new Set(), mediaUncertainActions=new Set(), requests=[]; window.__jobOverrides={};',
+    'const mediaPostLocks=new Set(), mediaUncertainActions=new Set(), requests=[]; window.__jobOverrides={}; window.__redrawAttempts=[]; window.__newJobs=0;',
     'const validMediaContext=context=>Boolean(context&&context.gameId&&context.mediaId&&context.jobId&&context.textVersion&&Number.isFinite(Number(context.turn)));',
+    `window.fetch=async (url,options={}) => {
+      if(String(url).endsWith('/redraw')) {
+        window.__redrawAttempts.push(JSON.parse(options.body));
+        const failure=window.__redrawFailure;
+        if(failure.status<400) window.__newJobs++;
+        return new Response(JSON.stringify({ok:false,error:failure.message}),{status:failure.status,headers:{'content-type':'application/json'}});
+      }
+      throw new Error('unexpected browser fetch: '+url);
+    };`,
+    declaration('jsonFetchOnce'),
     `async function jsonFetch(url,options={}) {
       if(url.includes('/job-detail?')) return {ok:true,job:{rawPrompt:'two people in a garden',tag:'two people in a garden',prompt:'expanded',promptText:${JSON.stringify(promptText)},negative:'base uc'}};
       if(url.includes('/jobs?')) return {ok:true,job:{generationMode:'text',backend:'atlascloud',channelId:'atlas',references:[],positive:'expanded',negative:'base uc',submittedPrompt:'expanded',...(window.__jobOverrides[new URL(url).searchParams.get('id')]||{})}};
       if(url.endsWith('/state')) return {config:{imageChannels:[{id:'atlas',name:'atlas cloud',provider:'atlascloud'},{id:'other',name:'other provider',provider:'novelai'}]}};
       if(url.endsWith('/media-action')) { requests.push(JSON.parse(options.body)); return {ok:true,jobId:'replacement'}; }
-      if(url.endsWith('/redraw')) { requests.push(JSON.parse(options.body)); return {ok:true,job:{id:'legacy-replacement'}}; }
+      if(url.endsWith('/redraw')) return jsonFetchOnce(url,options);
       if(url.endsWith('/improve-prompt')) return {ok:true,prompt:'后台改写后的提示词'};
       throw new Error('unexpected request');
     }`,
@@ -113,13 +125,28 @@ try {
   await page.waitForFunction(() => document.querySelector('[aria-label="本次生图模式"]') && !document.querySelector('[aria-label="本次生图模式"]').disabled)
   await page.getByRole('button', { name: /让后台改/ }).click()
   await page.waitForFunction(() => document.querySelector('textarea')?.value === '后台改写后的提示词')
-  await page.getByRole('button', { name: /用这段重画/ }).click()
-  await page.waitForFunction(() => window.__requests.length === 4)
-  assert.equal(await page.evaluate(() => window.__requests[3].prompt), '后台改写后的提示词')
-  assert.equal(await page.evaluate(() => window.__requests[3].generationMode), 'text')
-  assert.equal(await page.evaluate(() => window.__requests[3].refreshReferences), false)
+  await prompt.fill('草稿应在服务端拒绝后保留')
+  const failureCases = [
+    { status: 400, message: '原 ComfyUI 工作流已不存在；请在控制台选择其他渠道后重绘' },
+    { status: 500, message: '内部错误：simulated runtime failure' },
+  ]
+  for (const [index, failure] of failureCases.entries()) {
+    await page.evaluate(value => { window.__redrawFailure = value }, failure)
+    await page.getByRole('button', { name: /用这段重画/ }).click()
+    const visibleError = page.getByText('失败：' + failure.message, { exact: true })
+    await visibleError.waitFor({ state: 'visible' })
+    assert.equal(await visibleError.isVisible(), true, 'HTTP ' + failure.status + ' error is visible inline in the editor')
+    assert.equal(await visibleError.textContent(), '失败：' + failure.message)
+    assert.equal(await prompt.inputValue(), '草稿应在服务端拒绝后保留', 'server error must preserve the editable draft')
+    const redrawButton = page.getByRole('button', { name: '🎨 用这段重画', exact: true })
+    assert.equal(await redrawButton.isVisible(), true)
+    assert.equal(await redrawButton.isDisabled(), false, 'busy state is released after HTTP ' + failure.status)
+    assert.equal(await page.evaluate(() => window.__newJobs), 0, 'server failures must not create a job')
+    assert.equal(await page.evaluate(() => window.__redrawAttempts.length), index + 1)
+  }
+  assert.deepEqual(dialogs, [], 'redraw errors stay inline without opening a popup')
   assert.deepEqual(pageErrors, [], 'browser runtime reports no uncaught errors')
-  console.log('PASS Chromium bundled React prompt editor: role-preserving redraw, immutable input details, reference snapshot opt-in, capability warning, legacy improve/redraw')
+  console.log('PASS Chromium bundled React prompt editor: role-preserving redraw, immutable input details, reference snapshot opt-in, capability warning, visible HTTP 400/500 redraw errors, preserved draft, released busy state, zero new jobs, no popup')
 } finally {
   await browser.close()
 }

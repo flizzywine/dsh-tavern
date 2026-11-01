@@ -730,7 +730,8 @@
 				const [instruction, setInstruction] = React.useState("");
 				const [manualError, setManualError] = React.useState("");
 				const [manualBusy, setManualBusy] = React.useState(false);
-				const dialogRef = React.useRef(null);
+				const buttonRef = React.useRef(null);
+				const instructionRef = React.useRef(null);
 				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
 				const instructionTitleId = React.useId();
 				function clearPress() {
@@ -748,7 +749,11 @@
 				}
 				function closeManual() {
 					manualOpenRef.current = false;
+					suppressClickRef.current = false;
 					setManualOpen(false);
+					setInstruction("");
+					setManualError("");
+					if (buttonRef.current && buttonRef.current.isConnected) buttonRef.current.focus();
 				}
 				// Progress and outcome show in the turn's text (TavernIllustrationDraft), not here.
 				async function draw() {
@@ -776,17 +781,20 @@
 					}
 				}
 				React.useEffect(function () {
-					const dialog = dialogRef.current;
-					if (!dialog) return;
-					if (manualOpen && !dialog.open && typeof dialog.showModal === "function") dialog.showModal();
-					else if (!manualOpen && dialog.open) dialog.close();
-					manualOpenRef.current = manualOpen;
+					if (!manualOpen) return;
+					const frame = requestAnimationFrame(function () {
+						if (instructionRef.current) {
+							instructionRef.current.focus({ preventScroll: true });
+							instructionRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+						}
+					});
+					return function () { cancelAnimationFrame(frame); };
 				}, [manualOpen]);
 				React.useEffect(function () { return function () { clearPress(); }; }, []);
 				const label = busy ? "正在整理画面…" : "为这一轮配图";
 				return React.createElement(React.Fragment, null,
 					React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
-						React.createElement("button", { type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: "点击直接配图；长按或右键填写本次画面要求", disabled: busy, onClick: function (event) {
+						React.createElement("button", { ref: buttonRef, type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: "点击直接配图；长按或右键填写本次画面要求", disabled: busy, onClick: function (event) {
 							if (suppressClickRef.current) { suppressClickRef.current = false; event.preventDefault(); return; }
 							return draw();
 						},
@@ -813,18 +821,17 @@
 						onContextMenu: function (event) { event.preventDefault(); openManual(); },
 						onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); openManual(); } }
 						}, React.createElement(TavernIllustrateIcon, null))),
-					React.createElement("dialog", { ref: dialogRef, "aria-labelledby": instructionTitleId, onCancel: function (event) { event.preventDefault(); if (!manualBusy) closeManual(); }, onClose: function () { if (manualOpen && !manualBusy) closeManual(); },
-						style: { colorScheme: "light dark", width: "min(420px, calc(100vw - 32px))", maxWidth: "calc(100vw - 32px)", padding: "18px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", borderRadius: "12px", background: "var(--dsw-specific-sidebar-fill, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", boxShadow: "0 18px 60px rgba(0,0,0,.35)" } },
-						React.createElement("form", { onSubmit: submitManual },
+					manualOpen ? React.createElement("section", { className: "dsh-tavern-illustration-instructions", "aria-labelledby": instructionTitleId },
+						React.createElement("form", { onSubmit: submitManual, onKeyDown: function (event) { if (event.key === "Escape" && !manualBusy) { event.preventDefault(); closeManual(); } } },
 							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),
 							React.createElement("p", { style: { margin: "0 0 12px", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "12px", lineHeight: 1.5 } }, "仅本次生图使用，不会保存到设置。可写视角、镜头、动作或想画的内容。"),
-							React.createElement("textarea", { autoFocus: true, rows: 5, maxLength: 2000, value: instruction, disabled: manualBusy, "aria-label": "本次配图要求（最多 2000 字）", placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: function (event) { setInstruction(event.target.value); },
+							React.createElement("textarea", { ref: instructionRef, rows: 4, maxLength: 2000, value: instruction, disabled: manualBusy, "aria-label": "本次配图要求（最多 2000 字）", placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: function (event) { setInstruction(event.target.value); },
 								style: { boxSizing: "border-box", width: "100%", resize: "vertical", padding: "9px", borderRadius: "8px", border: "1px solid var(--dsw-alias-border-l2, currentColor)", background: "var(--dsw-specific-input-major, Canvas)", color: "var(--dsw-alias-label-primary, CanvasText)", font: "inherit" } }),
 							React.createElement("div", { style: { marginTop: "5px", textAlign: "right", color: "var(--dsw-alias-label-secondary, GrayText)", fontSize: "11px" } }, instruction.length + " / 2000"),
 							manualError ? React.createElement("div", { role: "alert", style: { marginTop: "8px", color: "var(--dsh-tavern-accent-error, #c54f4f)", fontSize: "12px" } }, manualError) : null,
 							React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "14px" } },
 								React.createElement("button", { type: "button", className: "dsh-tavern-btn", disabled: manualBusy, onClick: closeManual }, "取消"),
-								React.createElement("button", { type: "submit", className: "dsh-tavern-btn", disabled: manualBusy }, manualBusy ? "正在提交…" : "按要求配图")))))
+								React.createElement("button", { type: "submit", className: "dsh-tavern-btn", disabled: manualBusy }, manualBusy ? "正在提交…" : "按要求配图")))) : null)
 			}
 			function register(input) {
 				// uiWorkspace 由 dsh-client-ui-workspace 提供；缺失时（老宿主/未加载）退化为 sessions.retain。
