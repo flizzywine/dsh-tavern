@@ -51853,7 +51853,7 @@ function createTurnRailFilter(root, options) {
 			            await rpc("setScriptChunkSize", { chunkSize: value, revision: page.revision, cardPath: page.cardPath, scriptVersion: page.scriptVersion }, props.sessionId);
 			            if (session !== activeSession.current) return;
 			            setPosition("");
-			            setNotice("已保存，下一轮生效。");
+			            setNotice("已保存为用户默认值，下一轮生效。");
 			            liveTavernView.invalidate(props.sessionId);
 			            await load();
 			        } catch (err) { if (session === activeSession.current) setError(String(err.message || err)); }
@@ -51907,7 +51907,7 @@ function createTurnRailFilter(root, options) {
 			                h("input", { type: "number", min: 100, max: 10000, step: 1, "aria-label": "每轮推进字数", value: chunkSize, disabled: locked,
 			                    onChange: event => setChunkSize(event.target.value) }),
 			                h("button", { type: "submit", disabled: locked || Number(chunkSize) === (page.chunkSize || 500) }, saving ? "保存中…" : "保存")),
-			            h("p", { className: "dsh-script-nav-hint" }, "可填 100–10000，下一轮生效，已读到的位置不变。")) : null);
+			            h("p", { className: "dsh-script-nav-hint" }, "可填 100–10000。保存后当前局下一轮生效，新建剧本会话也会沿用，已读到的位置不变。")) : null);
 			}
 
         function TavernSaveUpgrade(props) {

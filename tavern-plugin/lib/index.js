@@ -3086,6 +3086,7 @@ export async function apply(ctx) {
   })
   const scriptNavigation = createScriptNavigation({
     chats: { forSession: chatForSession, update: updateChat }, readScript, scripts: scriptContinuity,
+    updateSettings: updateTavernSettings,
     exclusive: backgroundTasks.exclusive,
     isBusy: chat => backgroundTasks.activity(chat).busy || Boolean(chat.regenInProgress)
       || agentRegistry.get(chat.sessionId)?.phase?.kind === 'running'

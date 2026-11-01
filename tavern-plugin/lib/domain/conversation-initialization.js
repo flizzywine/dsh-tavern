@@ -199,6 +199,8 @@ export function createConversationInitialization(options) {
     chat.presentationWarnings = openingProjection.warnings
     if (chat.mode === 'script') {
       chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
+      chat.scriptState = scriptContinuity.transition({ script, state: chat.scriptState,
+        event: { kind: 'set-chunk-size', chunkSize: currentSettings.scriptChunkSize || 500 } }).state
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     if (greeting !== '') chat.messages.push(Object.assign({

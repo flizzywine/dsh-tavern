@@ -6,6 +6,22 @@ import { createUserPreferenceProfile } from '../tavern-plugin/lib/domain/user-pr
 
 const messages = session => session.events.filter(event => event.type === 'assistant/message' && event.data?.message?.source?.model === 'character-card')
 
+test('新剧本会话沿用用户保存的推进字数，重新打开不重置已有设置或位置', async () => {
+  const h = initializationFixture()
+  h.state.script = { title: '剧本', chunks: Array.from({ length: 20 }, (_, order) => ({ id: 'c' + order, order, text: '汉'.repeat(500) })) }
+  h.state.settings.scriptChunkSize = 1200
+  const input = { ...h.input, mode: 'script' }
+  const first = await h.make().start(input)
+  assert.equal(first.scriptState.chunkSize, 1200)
+  const offset = first.scriptState.sourceOffset
+  h.state.settings.scriptChunkSize = 800
+  const reopened = await h.make().start(input)
+  assert.equal(reopened.scriptState.chunkSize, 1200)
+  assert.equal(reopened.scriptState.sourceOffset, offset)
+  const next = await h.make().start({ ...input, sessionId: 'next-script' })
+  assert.equal(next.scriptState.chunkSize, 800)
+})
+
 const seedMessages = session => session.events.filter(event => {
   const source = event.type === 'assistant/message' ? event.data?.message?.source : event.data?.source
   return source?.form === 'synthetic-trajectory' || source?.model === 'synthetic-trajectory'

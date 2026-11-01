@@ -7,6 +7,18 @@ import { applyTavernSettingsPatch, normalizePlayDefaults, presentTavernSettings 
 
 const serverSource = await readFile(new URL('../tavern-plugin/lib/index.js', import.meta.url), 'utf8')
 
+test('用户推进字数随配置保存和读回，旧配置默认 500 且拒绝非法值', () => {
+  assert.equal(presentTavernSettings({}, {}).scriptChunkSize, 500)
+  const saved = applyTavernSettingsPatch({ other: 'keep' }, { scriptChunkSize: 1200 })
+  assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).scriptChunkSize, 1200)
+  assert.equal(saved.other, 'keep')
+  assert.equal(applyTavernSettingsPatch(saved, { hideContextAndReasoning: false }).scriptChunkSize, 1200)
+  for (const scriptChunkSize of [99, 10001, 1200.5, '1200', null]) {
+    assert.throws(() => applyTavernSettingsPatch(saved, { scriptChunkSize }), /100–10000/)
+    assert.equal(presentTavernSettings({ scriptChunkSize }, {}).scriptChunkSize, 500)
+  }
+})
+
 // Exercise the real save/read call sites with durable storage, not a copied implementation.
 
 const settingsModuleSource = await readFile(new URL('../tavern-plugin/src/client/modules/global-settings.js', import.meta.url), 'utf8')

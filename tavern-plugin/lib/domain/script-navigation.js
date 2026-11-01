@@ -6,7 +6,7 @@ function scriptToken(script) {
   return hash.digest('hex')
 }
 
-export function createScriptNavigation({ chats, readScript, scripts, isBusy, exclusive }) {
+export function createScriptNavigation({ chats, readScript, scripts, isBusy, exclusive, updateSettings }) {
   function check(chat) {
     if (!chat || chat.mode !== 'script') throw new Error('当前会话不是剧本模式')
   }
@@ -32,6 +32,7 @@ export function createScriptNavigation({ chats, readScript, scripts, isBusy, exc
         draft.scriptState = scripts.transition({ script, state: draft.scriptState, event }).state
         return draft
       }, { source: 'script.' + event.kind })
+      if (event.kind === 'set-chunk-size') await updateSettings({ scriptChunkSize: saved.scriptState.chunkSize })
       return { cursor: saved.scriptState.cursor, chunkSize: saved.scriptState.chunkSize || 500, message: '已保存，下一轮生效' }
     })
   }

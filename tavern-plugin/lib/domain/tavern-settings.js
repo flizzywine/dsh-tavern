@@ -219,6 +219,10 @@ export function normalizePlayDefaults(value) {
 export function applyTavernSettingsPatch(current, patch) {
   const next = Object.assign({}, object(current))
   const input = object(patch)
+  if (Object.hasOwn(input, 'scriptChunkSize')) {
+    if (!Number.isSafeInteger(input.scriptChunkSize) || input.scriptChunkSize < 100 || input.scriptChunkSize > 10000) throw new Error('每轮推进字数须为 100–10000 的整数')
+    next.scriptChunkSize = input.scriptChunkSize
+  }
   delete next.webAccess // Retired Tavern search settings never affect the host.
   // The old stage's settings: the stage now has its own engine settings, and 对话气泡 / 舞台模式 are each card's.
   for (const key of ['stageToggles', 'stageDimensions', 'stageActionCaps', 'stageSkin', 'castPresentation']) delete next[key]
@@ -383,6 +387,7 @@ export function presentTavernSettings(document, defaults) {
   const storyToolCalls = storyToolCallSettings(document)
   return {
     defaultPlaySettings: normalizePlayDefaults(object(document).defaultPlaySettings),
+    scriptChunkSize: Number.isSafeInteger(object(document).scriptChunkSize) && document.scriptChunkSize >= 100 && document.scriptChunkSize <= 10000 ? document.scriptChunkSize : 500,
     defaultDisabledWritingSkills: Array.isArray(object(document).defaultDisabledWritingSkills) ? object(document).defaultDisabledWritingSkills.filter(name => typeof name === 'string') : [],
     modModels: structuredClone(object(document).modModels || {}),
     defaultForegroundModel: normalizeBackgroundModel(object(document).defaultForegroundModel),
