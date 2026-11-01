@@ -831,7 +831,13 @@
 					const frame = requestAnimationFrame(function () {
 						if (instructionRef.current) {
 							instructionRef.current.focus({ preventScroll: true });
-							instructionRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+							const section = instructionRef.current.closest(".dsh-tavern-illustration-instructions");
+							const scroller = section && tavernReplyRevealScroller(section, window);
+							if (scroller) {
+								const box = section.getBoundingClientRect();
+								const viewport = scroller === document.scrollingElement ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect();
+								if (box.bottom > viewport.bottom || box.top < viewport.top) scroller.scrollTop += box.bottom - viewport.bottom;
+							}
 						}
 					});
 					return function () { cancelAnimationFrame(frame); };
