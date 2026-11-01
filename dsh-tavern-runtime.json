@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ac423d93a6a112b1fedea76493a53850af96ecd9",
-  "releaseSequence": 1008,
+  "revision": "3d0c5008bd97a472f6cfcb6c2128d261b0653511",
+  "releaseSequence": 1009,
   "version": "3.2.0",
   "files": [
     {
@@ -701,8 +701,8 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "70b3b9291c6ae5a6ff757a1d931f33728705901e375d098cd8b8137b7a74e69c",
-      "size": 372142
+      "sha256": "d931aa14fa23d3db38122b97ed89d174976585cd6a691c57bf81822915f8a41e",
+      "size": 372889
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
@@ -711,8 +711,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "7823c0dba281f025b5130c24f865d7104acf15c595334d7adcaf3b05f6d376ab",
-      "size": 6455251
+      "sha256": "33f3a5efa65ff9ac59114ae92ca8eb1a2770bd112c9ef8f8f0c2f4404eb57084",
+      "size": 6455976
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6731,7 +6731,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "f2c72d6a46a9871195387669441b017a0be09deb0b12a126d0ff3eca168b0a17",
+      "sha256": "31e39b8507da2b049bbee084ff927fbf8ed08b8045d9b74ffd2693a5e7d4f4a8",
       "size": 259
     },
     {
@@ -6831,8 +6831,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "6e4f469af6ecb1dadc33ec5d5bedcee29c92d592524f84535095b7eac892fa61",
-      "size": 385522
+      "sha256": "53f083cd3c21aa81278773fe5ef0df0921998209a103dd859f47668c64bd7793",
+      "size": 385503
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js",
@@ -7056,7 +7056,7 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "4af814ef766e5bd0045c4a063a1ccf9581cd5ec3999829e9799b1afd88529a86",
+      "sha256": "37d7b0bc6235abaaba46c3b2fe98f9fc8537b29a55e51448035c8bbaf42833e7",
       "size": 1649
     },
     {
@@ -8591,9 +8591,9 @@
     }
   ],
   "archive": {
-    "commit": "ee010c810de8223f6ec7699ede2ae1655f4b1da1",
+    "commit": "1b50a846983483560a0ace624511992dbc6013d4",
     "path": "runtime.zip",
-    "sha256": "c85106bd84d6912f12847b5e7d51358130dacc1bccfbd5ad5c21afb344f7ceac",
-    "size": 15176550
+    "sha256": "a4b952213d739bdff7a09fc569d835ff909f037e0ee59b456a8c0f2a8dfe5d3b",
+    "size": 15176683
   }
 }
