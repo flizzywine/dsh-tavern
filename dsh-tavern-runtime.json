@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a9b006749d6e24755d93be8a3d596a2dd85d80f3",
-  "releaseSequence": 1017,
+  "revision": "306e8ef98a8c50afe139ba90165f44f160921b6e",
+  "releaseSequence": 1018,
   "version": "3.2.0",
   "files": [
     {
@@ -3010,6 +3010,11 @@
       "size": 3305
     },
     {
+      "path": "tavern-plugin/lib/domain/temperature-rejection.js",
+      "sha256": "22872d4e9a3644c5811f22fe007e91f642614a066a290f07da3292c9712a0518",
+      "size": 1004
+    },
+    {
       "path": "tavern-plugin/lib/domain/template-history-pipe.js",
       "sha256": "9ba882b6bcd3e991db58badc7214e338c8587bb24b4820740eee59138ad66214",
       "size": 2290
@@ -3366,8 +3371,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/model-stream.js",
-      "sha256": "5f1cfcc218585203c7b623646e9a83c701385a31b5aa49c7fae2c4aeb6691bd4",
-      "size": 15207
+      "sha256": "03af4dd157a506962cb9cf1b83e18f988ae7f74dca2d1eb179d50b83141a29e6",
+      "size": 16596
     },
     {
       "path": "tavern-plugin/lib/hooks/request.js",
@@ -8606,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "ed3fb9ce5f8018b1b0cec3e72d4e48b19cea8716",
+    "commit": "a85f6238c0f7dd884720c71e93ec5ae5ac2f740f",
     "path": "runtime.zip",
-    "sha256": "832c634f5b610e3db16d788e27d766de829466ddd2a9a25c373eebc24fc7ee63",
-    "size": 15226582
+    "sha256": "742975220614c435ff81b3e37e1d5e2a91e0f381bc0633828cab497c2936cd1b",
+    "size": 15227617
   }
 }
