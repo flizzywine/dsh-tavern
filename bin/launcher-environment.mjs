@@ -1,3 +1,4 @@
+import { DEFAULT_BIND_HOST, resolveBindHost } from './service-address.mjs'
 import { runInstallationProcess } from './installation-process.mjs'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -8,7 +9,6 @@ import { resolveDshCliEntry, resolveNpmCliEntry } from './plugin-dependencies.mj
 
 // Shared installation paths and process invocation; no install/start/update effects on import.
 export const INSTALL_HOSTS = new Set(['cli', 'desktop', 'android'])
-export const CLI_HOST = '127.0.0.1'
 export const CLI_PORT = resolveServicePort(process.env.DSH_TAVERN_PORT)
 export const SCRIPT_PATH = fileURLToPath(new URL('./dsh-tavern.mjs', import.meta.url))
 export const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
@@ -17,6 +17,7 @@ const installation = existsSync(installationFile) ? JSON.parse(readFileSync(inst
 const hostArgument = process.argv.find((arg) => arg.startsWith('--host='))?.slice(7)
   || (process.argv.includes('--host') ? process.argv[process.argv.indexOf('--host') + 1] : '')
 export const RUNTIME_HOST = hostArgument || process.env.DSH_TAVERN_RUNTIME_HOST || process.env.DSH_TAVERN_HOST || installation.host || 'cli'
+export const CLI_HOST = RUNTIME_HOST === 'cli' ? resolveBindHost(process.env.DSH_TAVERN_BIND) : DEFAULT_BIND_HOST
 export const LEGACY_DSH_ROOT = process.env.DSH_TAVERN_LEGACY_DSH_HOME || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 export const DSH_ROOT = path.resolve(RUNTIME_HOST === 'cli'
   ? (process.env.DSH_TAVERN_CLI_HOME || (installation.host === 'cli' && installation.dshHome) || path.join(os.homedir(), '.dsh-tavern'))

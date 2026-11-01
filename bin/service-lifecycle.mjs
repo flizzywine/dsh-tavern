@@ -1,3 +1,4 @@
+import { DEFAULT_BIND_HOST, resolveBindHost, serviceOrigin, isLoopbackHost } from './service-address.mjs'
 import { inspectRecordedProcess as inspectProcess, processStartToken } from './service-process-identity.mjs'
 import { startupTimeoutMs, waitForServiceStartup, stopStartupChild } from './service-startup.mjs'
 import { spawn, spawnSync } from 'node:child_process'
@@ -15,8 +16,8 @@ export function webUrlFromLogChunk(source) {
   return matches.length > 0 ? matches[matches.length - 1][1] : ''
 }
 
-export async function resolveServiceWebUrl({ port, record = {}, log = Buffer.alloc(0), request = fetch }) {
-  const origin = `http://127.0.0.1:${port}`
+export async function resolveServiceWebUrl({ port, bindHost = DEFAULT_BIND_HOST, record = {}, log = Buffer.alloc(0), request = fetch }) {
+  const origin = serviceOrigin(record.bindHost ?? bindHost, port)
   const bytes = Buffer.isBuffer(log) ? log : Buffer.from(log)
   // New PID records delimit this process's output; old installations use the latest URL.
   const offset = Number.isSafeInteger(record.logOffset) && record.logOffset >= 0 ? record.logOffset : 0
@@ -37,8 +38,8 @@ export async function resolveServiceWebUrl({ port, record = {}, log = Buffer.all
   return ''
 }
 
-export function restartBrowserTarget(port, runtimeGeneration, webUrl = `http://127.0.0.1:${port}/`) {
-  const target = new URL(webUrl)
+export function restartBrowserTarget(port, runtimeGeneration, webUrl, bindHost = DEFAULT_BIND_HOST) {
+  const target = new URL(webUrl || `${serviceOrigin(bindHost, port)}/`)
   target.searchParams.set('tavern-boot', String(runtimeGeneration))
   return target.toString()
 }
@@ -109,8 +110,8 @@ function readPidRecord() {
   }
 }
 
-function writePidRecord(pid, port, logOffset) {
-  writeFileSync(PID_FILE, `${JSON.stringify({ pid, port, logOffset, profile: PROFILE, source: SOURCE_ROOT, ...(RUNTIME_HOST === 'android' && process.platform === 'linux' ? { startToken: processStartToken(pid) } : {}), startedAt: new Date().toISOString() }, null, 2)}\n`)
+function writePidRecord(pid, port, logOffset, bindHost) {
+  writeFileSync(PID_FILE, `${JSON.stringify({ pid, port, bindHost, logOffset, profile: PROFILE, source: SOURCE_ROOT, ...(RUNTIME_HOST === 'android' && process.platform === 'linux' ? { startToken: processStartToken(pid) } : {}), startedAt: new Date().toISOString() }, null, 2)}\n`)
 }
 
 function removePidRecord() {
@@ -126,7 +127,7 @@ function isProcessAlive(pid) {
   }
 }
 
-export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
+export function isPortOpen(port, host = DEFAULT_BIND_HOST, timeout = 300) {
   return new Promise((resolve) => {
     const socket = net.createConnection({ port, host })
     const finish = (open) => {
@@ -141,10 +142,11 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 300) {
   })
 }
 
-export async function isServiceReady(port, request = fetch, host = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli') {
+export async function isServiceReady(port, request = fetch, host = process.env.DSH_TAVERN_RUNTIME_HOST || 'cli', bindHost = DEFAULT_BIND_HOST) {
   try {
-    const response = await request(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
-    return response.ok || response.status === 401 || (host === 'android' && response.status === 403)
+    const response = await request(`${serviceOrigin(bindHost, port)}/`, { redirect: 'manual', signal: AbortSignal.timeout(1000) })
+    await response.body?.cancel()
+    return response.ok || (response.status >= 300 && response.status < 400) || response.status === 401 || (host === 'android' && response.status === 403)
   } catch {
     return false
   }
@@ -160,15 +162,16 @@ async function serviceState() {
   const pidAlive = identity === 'owned'
   // A running service keeps the port it started on, which may be a fallback (see startService).
   const port = pidAlive && Number.isSafeInteger(record.port) ? record.port : CLI_PORT
-  const portOpen = await isPortOpen(port)
-  const ready = portOpen && await isServiceReady(port)
+  const bindHost = pidAlive ? resolveBindHost(record.bindHost ?? DEFAULT_BIND_HOST) : CLI_HOST
+  const portOpen = await isPortOpen(port, bindHost)
+  const ready = portOpen && await isServiceReady(port, fetch, RUNTIME_HOST, bindHost)
   if (record && !pidAlive && (identity !== 'unknown' || !portOpen)) {
     removePidRecord()
     console.log(`已清理不可用的服务记录：PID ${record.pid}（该 PID 不再指向本酒馆服务）。`)
   }
   // Never adopt another Android process by port/profile alone.
-  const legacyRecord = !pidAlive && portOpen && RUNTIME_HOST !== 'android' ? findLegacyService(port) : null
-  return { port, record: pidAlive ? record : legacyRecord, portOpen, ready }
+  const legacyRecord = !pidAlive && portOpen && RUNTIME_HOST !== 'android' ? findLegacyService(port, bindHost) : null
+  return { port, bindHost, record: pidAlive ? record : legacyRecord, portOpen, ready }
 }
 
 export function legacyServiceOwnedHere(command, host = RUNTIME_HOST, root = DSH_ROOT) {
@@ -176,7 +179,12 @@ export function legacyServiceOwnedHere(command, host = RUNTIME_HOST, root = DSH_
   return command.includes(path.join(root, 'runtime') + path.sep) && command.includes('dsh --profile')
 }
 
-function findLegacyService(port) {
+export function legacyBindHostMatches(command, bindHost) {
+  const match = command.match(/(?:^|\s)--host(?:=|\s+)([^\s]+)/)
+  try { return resolveBindHost(match?.[1] ?? DEFAULT_BIND_HOST) === bindHost } catch { return false }
+}
+
+function findLegacyService(port, bindHost) {
   if (process.platform === 'win32' || !commandExists('lsof')) return null
   const listeners = spawnSync('lsof', ['-tiTCP:' + port, '-sTCP:LISTEN'], { encoding: 'utf8' })
   if (listeners.status !== 0) return null
@@ -185,8 +193,8 @@ function findLegacyService(port) {
     const processInfo = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' })
     // Same profile name is not enough: the CLI install (~/.dsh-tavern) and the desktop install (~/.dsh)
     // both serve `tavern`, from different data. Adopt only this install's own runtime.
-    if (processInfo.status === 0 && processInfo.stdout.includes(`--profile ${PROFILE}`) && legacyServiceOwnedHere(processInfo.stdout)) {
-      return { pid, port, profile: PROFILE, source: SOURCE_ROOT, legacy: true }
+    if (processInfo.status === 0 && processInfo.stdout.includes(`--profile ${PROFILE}`) && legacyServiceOwnedHere(processInfo.stdout) && legacyBindHostMatches(processInfo.stdout, bindHost)) {
+      return { pid, port, bindHost, profile: PROFILE, source: SOURCE_ROOT, legacy: true }
     }
   }
   return null
@@ -214,7 +222,7 @@ export async function statusService() {
 async function currentServiceWebUrl(state) {
   let log = Buffer.alloc(0)
   try { log = readFileSync(LOG_FILE) } catch {}
-  return resolveServiceWebUrl({ port: state.port, record: state.record || {}, log })
+  return resolveServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: state.record || {}, log })
 }
 
 function printServiceWebUrl(url) {
@@ -273,7 +281,7 @@ export async function stopService() {
           // Already gone; the wait loop below clears the record.
         } else if (error?.code === 'EPERM') {
           const identity = inspectRecordedProcess(state.record)
-          if (identity === 'owned' || await isPortOpen(state.port)) throw new Error(stopPermissionMessage(state.record.pid))
+          if (identity === 'owned' || await isPortOpen(state.port, state.bindHost)) throw new Error(stopPermissionMessage(state.record.pid))
         } else {
           throw error
         }
@@ -282,7 +290,7 @@ export async function stopService() {
   }
 
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (!(await isPortOpen(state.port)) && inspectRecordedProcess(state.record) !== 'owned') {
+    if (!(await isPortOpen(state.port, state.bindHost)) && inspectRecordedProcess(state.record) !== 'owned') {
       removePidRecord()
       console.log('DSH Tavern 已停止。')
       return
@@ -304,7 +312,7 @@ export async function startService() {
     await waitForServiceStartup({
       timeoutMs,
       alive: () => inspectRecordedProcess(state.record) === 'owned',
-      ready: async () => await isPortOpen(state.port) && await isServiceReady(state.port),
+      ready: async () => await isPortOpen(state.port, state.bindHost) && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost),
       stop: async () => {},
     })
     if (inspectRecordedProcess(state.record) !== 'owned') throw new Error('等待中的 DSH Tavern 进程已被替换，请重试。')
@@ -322,7 +330,7 @@ export async function startService() {
     // on 3081). Without an explicit DSH_TAVERN_PORT, move to the next free port.
     if (String(process.env.DSH_TAVERN_PORT ?? '').trim() !== '') throw new Error(`端口 ${state.port} 已被其他进程占用，拒绝启动。请换一个 DSH_TAVERN_PORT。`)
     let free = null
-    for (let port = state.port + 1; port <= Math.min(65535, state.port + 20) && free === null; port++) if (!(await isPortOpen(port))) free = port
+    for (let port = state.port + 1; port <= Math.min(65535, state.port + 20) && free === null; port++) if (!(await isPortOpen(port, state.bindHost))) free = port
     if (free === null) throw new Error(`端口 ${state.port} 及之后 20 个端口都被占用，拒绝启动。可用 DSH_TAVERN_PORT 指定端口。`)
     console.log(`端口 ${state.port} 已被其他程序占用（比如 DeepSeek Harness 桌面版），改用端口 ${free}。`)
     state.port = free
@@ -335,11 +343,14 @@ export async function startService() {
   })
   if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
 
+  if (!isLoopbackHost(state.bindHost)) {
+    console.warn(`安全提示：正在监听 ${state.bindHost}；此端口可执行远程代码，token 是访问凭证，请仅用于可信内网或 VPN，勿暴露到公网或分享完整链接。`)
+  }
   const runtimeHost = RUNTIME_HOST
   const dsh = findDshCommand(runtimeHost)
   const invocation = resolveDshInvocation(
     dsh,
-    ['--profile', PROFILE, '--host', CLI_HOST, '--port', String(state.port), '--no-open'],
+    ['--profile', PROFILE, '--host', state.bindHost, '--port', String(state.port), '--no-open'],
     runtimeHost,
   )
   // A pinned desktop DSH (DSH_DESKTOP_DSH_BOOTSTRAP) is already the Electron executable plus
@@ -364,7 +375,7 @@ export async function startService() {
   mkdirSync(LOG_DIR, { recursive: true })
   const logOffset = existsSync(LOG_FILE) ? statSync(LOG_FILE).size : 0
   const startupLog = (event, details = {}) => appendFileSync(LOG_FILE, JSON.stringify({ at: new Date().toISOString(), event, ...details }) + '\n')
-  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, port: state.port, timeoutMs })
+  startupLog('service.starting', { node: process.version, executable: invocation.command, entry: invocation.args[0].startsWith('--') ? invocation.args[1] : invocation.args[0], cwd: SOURCE_ROOT, home: DSH_ROOT, bindHost: state.bindHost, port: state.port, timeoutMs })
   const logDescriptor = openSync(LOG_FILE, 'a')
   let child
   try {
@@ -392,7 +403,7 @@ export async function startService() {
     closeSync(logDescriptor)
   }
   child.unref()
-  try { writePidRecord(child.pid, state.port, logOffset) }
+  try { writePidRecord(child.pid, state.port, logOffset, state.bindHost) }
   catch (error) { await stopStartupChild(child); throw error }
 
   let portOpen = false
@@ -403,8 +414,8 @@ export async function startService() {
       alive: () => isProcessAlive(child.pid),
       onSlow: () => console.log(`DSH Tavern 仍在初始化（首次启动较慢），最多等待 ${timeoutMs / 1000} 秒……`),
       ready: async () => {
-        portOpen = await isPortOpen(state.port)
-        serviceReady = portOpen && await isServiceReady(state.port)
+        portOpen = await isPortOpen(state.port, state.bindHost)
+        serviceReady = portOpen && await isServiceReady(state.port, fetch, RUNTIME_HOST, state.bindHost)
         return serviceReady
       },
       stop: async () => {
@@ -423,9 +434,9 @@ export async function startService() {
     webUrl = webUrlFromLogChunk(logChunk)
     if (webUrl === '') await sleep(100)
   }
-  webUrl = await currentServiceWebUrl({ port: state.port, record: { logOffset } })
+  webUrl = await currentServiceWebUrl({ port: state.port, bindHost: state.bindHost, record: { logOffset } })
   console.log(`DSH Tavern 已启动：PID ${child.pid}`)
   printServiceWebUrl(webUrl)
   console.log(`日志：${LOG_FILE}`)
-  return { port: state.port, runtimeGeneration: `${child.pid}-${Date.now()}`, webUrl }
+  return { port: state.port, bindHost: state.bindHost, runtimeGeneration: `${child.pid}-${Date.now()}`, webUrl }
 }

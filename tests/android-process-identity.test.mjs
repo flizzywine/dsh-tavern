@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { resolveBindHost, DEFAULT_BIND_HOST } from '../bin/service-address.mjs'
 import { sourceFunction } from './fixtures/source-function.mjs'
 
 const source = readFileSync(new URL('../bin/service-lifecycle.mjs', import.meta.url), 'utf8')
@@ -14,6 +15,7 @@ function sandbox(identity, portOpen = false, host = 'android') {
   let removed = 0, signals = 0
   const record = { pid: 27035, source: '/tavern', profile: 'tavern' }
   const context = { process: { platform: 'linux', kill(_pid, signal) { if (signal) signals++; denied() } },
+    resolveBindHost, DEFAULT_BIND_HOST, CLI_HOST: DEFAULT_BIND_HOST, fetch,
     RUNTIME_HOST: host, SOURCE_ROOT: '/tavern', PROFILE: 'tavern', CLI_PORT: 3088,
     PID_FILE: '/root/.dsh-tavern/logs/tavern.pid.json',
     readPidRecord: () => record, removePidRecord: () => removed++,
@@ -71,4 +73,14 @@ test('Linux permission failure while signaling is reported instead of the raw ki
   const h = sandbox('owned', false, 'cli')
   await assert.rejects(vm.runInContext('stopService()', h.context), /权限不足。该 PID 可能已被其他进程复用/)
   assert.deepEqual(h.counts(), { removed: 0, signals: 1 })
+})
+
+test('recorded bind address is part of process identity, with canonical IPv6 comparison', () => {
+  const args = host => ['node', 'dsh', '--profile', 'tavern', '--port', '3088', '--host', host, ''].join('\0')
+  const bound = { ...record, bindHost: 'fd00::1' }
+  assert.equal(inspectRecordedProcess(bound, options({ cmdline: args('fd00:0:0:0:0:0:0:1') })), 'owned')
+  assert.equal(inspectRecordedProcess(bound, options({ cmdline: args('fd00::2') })), 'foreign')
+  assert.equal(inspectRecordedProcess(bound, options({ cmdline: args('::') })), 'foreign')
+  assert.equal(inspectRecordedProcess(bound, options()), 'foreign')
+  assert.equal(inspectRecordedProcess(record, options()), 'owned', 'records without bindHost remain compatible')
 })

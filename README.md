@@ -192,6 +192,28 @@ curl -fsSL 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/install
 
 装好后用 `dsh-tavern start` 启动，按显示的地址在浏览器打开；`dsh-tavern stop` / `status` / `update` 停止、查看、更新。
 
+#### 在可信局域网 / VPN 内直接访问
+
+命令行版默认只监听 `127.0.0.1`。可用 `DSH_TAVERN_BIND` 指定**本机已有的具体 IP 地址**（示例地址需替换为电脑的局域网或 VPN 地址）：
+
+```sh
+DSH_TAVERN_BIND=192.168.1.10 dsh-tavern restart
+# IPv6 不加方括号；输出的访问链接会自动加上方括号
+DSH_TAVERN_BIND=fd00::1234 dsh-tavern restart
+```
+
+PowerShell：
+
+```powershell
+$env:DSH_TAVERN_BIND='192.168.1.10'; dsh-tavern restart
+```
+
+仅 CLI 生效，不改变桌面版 / Android 宿主。可与 `DSH_TAVERN_PORT` 一起使用；不支持通配地址（`0.0.0.0` / `::`）、域名、URL 或带作用域 ID 的 IPv6（如 `fe80::1%eth0`）。地址必须已分配给本机，否则启动失败，不会回退到其他网卡。
+
+`status`、`open`、重复 `start` 和 `stop` 使用进程记录里的实际地址，不需要重复设置变量。**每次新启动（包括 `restart`、更新后的重新启动）都读取当次环境变量**；希望持续使用同一地址，请在启动环境中保留它。取消变量后运行 `restart` 即恢复仅本机访问（PowerShell：`Remove-Item Env:DSH_TAVERN_BIND`）。旧版进程记录没有地址时仍按 `127.0.0.1` 处理。
+
+**安全：这个端口具有远程代码执行能力，token 是访问凭证。** 仅在可信内网或 VPN 使用，不要直接暴露到公网，不要分享完整 token 链接；普通 HTTP 不加密，跨不可信网络应使用可信加密 VPN。此配置不会关闭鉴权，也不会自动更改防火墙、路由或 VPN。其他设备应打开启动输出中的完整地址。如果启用了 Node 环境代理（`NODE_USE_ENV_PROXY=1`），请把绑定地址加入 `NO_PROXY`（IPv6 的 URL 主机为 `[地址]`），避免自检及带 token 的链接验证经过代理；工具不会替你修改代理配置。
+
 ### 手机远程访问
 
 酒馆跑在电脑或服务器上，用手机浏览器也能玩。[详细说明 →](https://github.com/flizzywine/dsh-tavern/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%90%AF%E5%8A%A8#user-content-a02--section-2)

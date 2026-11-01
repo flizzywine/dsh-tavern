@@ -1,3 +1,4 @@
+import { resolveBindHost } from './service-address.mjs'
 import { readFileSync } from 'node:fs'
 
 export function processStartToken(pid, read = readFileSync) {
@@ -44,6 +45,9 @@ export function inspectRecordedProcess(record, { platform = process.platform, ho
     }
     if (option('--profile') !== (record.profile || 'tavern')) return 'foreign'
     if (record.port && option('--port') !== String(record.port)) return 'foreign'
+    if (record.bindHost) {
+      try { if (resolveBindHost(option('--host')) !== resolveBindHost(record.bindHost)) return 'foreign' } catch { return 'foreign' }
+    }
     const env = read(`/proc/${record.pid}/environ`, 'utf8').split('\0')
     const dshHome = env.find(entry => entry.startsWith('DSH_HOME='))?.slice(9)
     if (!dshHome) return 'unknown'
