@@ -56,7 +56,7 @@ test('backlog rows draw their replay as the speaker glyph',async()=>{
 })
 
 test('the speaker waves light in sequence only while playing and stand still under reduced motion',()=>{
- const css=fs.readFileSync(new URL('../tavern-plugin/lib/client-assets/theme.css',import.meta.url),'utf8')
+ const css=['../tavern-plugin/lib/client-assets/theme.css','../tavern-plugin/packages/dsh-tavern-stage/src/client/themes.css'].map(file=>fs.readFileSync(new URL(file,import.meta.url),'utf8')).join('\n')
  assert.match(css,/\.fork-voice-button\[data-voice-state="playing"\] \[data-fk-layer\] > \.fork-voice-wave \{ animation: fork-voice-wave /)
  assert.match(css,/\.fork-voice-wave\[data-wave="2"\] \{ animation-delay: \.2s; \}/)
  assert.match(css,/\.fork-voice-wave\[data-wave="3"\] \{ animation-delay: \.4s; \}/)

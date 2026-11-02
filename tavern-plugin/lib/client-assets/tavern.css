@@ -3187,9 +3187,6 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
    above-dialogue layers share the text box band (theme.css "Mod UI bands") and are re-appended after it on every
    start, so they cover the box but stay under choices, the top bar, backlog and menus. Neither takes pointer input. */
 .fork-performance-keyframes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
-.fork-gal-stage > .fork-performance-keyframes.is-above { z-index: 6; }
-.fork-gal-stage[data-look-ui] :is(.fork-performance-under, .fork-performance-over) { filter: url(#fork-gal-look-ui); }
-.fork-gal-stage :is(.fork-gal-scene, .fork-performance-under, .fork-performance-over, .fork-performance-keyframes.is-below) { translate: var(--performance-shake-x, 0px) var(--performance-shake-y, 0px); }
 /* 侧边卡片是 better-sidebar 的开发者设置，玩家无需看到。 */
 [data-dsh-better-sidebar-settings-nav] { display: none !important; }
 .dsh-tavern-plugin-overlay {
