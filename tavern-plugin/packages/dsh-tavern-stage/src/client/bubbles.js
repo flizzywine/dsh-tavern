@@ -409,7 +409,10 @@ function BubbleContent(props) {
     const segments = React.useMemo(() => parseBubbles(text, props.streaming), [text, props.streaming]);
     useThoughtFace(segments.some(segment => segment.thought));
     const select = React.useMemo(() => bubbleMessageSelector(segments), [segments]);
-    const data = useBubbles(props.sessionId, has || Boolean(props.voiceScope), select);
+    // A session whose card has dialogue bubbles off (view.stage.dialogue, host-decided) asks for bubble settings only
+    // when its text has @bubble lines: those rows still need their speakers' names and avatars. Settings pages pass their own wanted flag.
+    const dialogue = useStageDialogue(props.sessionId);
+    const data = useBubbles(props.sessionId, has || dialogue && Boolean(props.voiceScope), select);
     const match = /^(\d+):(\d+)(?::plugin:\d+)?$/.exec(String(props.voiceScope || ""));
     const source = props.stageSource;
     const stageSuperseded = Boolean(props.stageSuperseded || source && (source.superseded || galIsSuperseded(source.view, source.nativeTurn, match && Number(match[1]))));

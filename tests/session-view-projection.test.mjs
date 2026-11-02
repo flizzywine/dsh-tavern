@@ -48,3 +48,16 @@ test('card save stays readable as turn/path after full, cached and dirty project
   const play = await f.projection.project.full({ ...f.chat, lastCardSave: undefined })
   assert.equal(play.cardSave, null)
 })
+
+test('the session view publishes the host-decided stage switches of the card, none without a stage runtime or card', async () => {
+  const asked = []
+  const f = projectionFixture({ readCardStageMode: async path => { asked.push(path); return { dialogue: true, stage: false } } })
+  const story = await f.projection.project.full(f.chat)
+  assert.deepEqual(story.stage, { dialogue: true, stage: false })
+  assert.deepEqual(asked, ['cards/a.json'])
+  const workbench = await f.projection.project.full({ ...f.chat, mode: 'card' })
+  assert.deepEqual(workbench.stage, { dialogue: false, stage: false }, 'the card workbench is not a stage session')
+  assert.deepEqual(asked, ['cards/a.json'])
+  const plain = await projectionFixture().projection.project.full(f.chat)
+  assert.deepEqual(plain.stage, { dialogue: false, stage: false }, 'without a stage runtime no card has the stage')
+})

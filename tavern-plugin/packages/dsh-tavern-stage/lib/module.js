@@ -32,6 +32,9 @@ import {readStageProjection, stageProjectionPage} from './domain/stage-projectio
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {stageReadCarries} from '../../../lib/domain/stage-read-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
+import {effectiveCardStage} from '../../../lib/domain/card-stage-settings.js'
+import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
+import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -273,7 +276,13 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  // The two switches the session view publishes (view.stage): the client loads and asks the stage only when one is on.
+  async function cardStageMode(cardPath) {
+    const raw = (await readCardWorkspace(cardPath))?.raw
+    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)
+    return {dialogue:stage.dialogue === true, stage:stage.stage === true}
+  }
+  return {cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

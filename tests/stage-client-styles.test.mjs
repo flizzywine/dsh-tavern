@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFile} from 'node:fs/promises'
 import vm from './fixtures/client-vm.mjs'
+import {loadStageClientPlugin} from './fixtures/stage-client-plugin.mjs'
 import {checkCssSyntax} from '../bin/lib/css-syntax-guard.mjs'
 
 test('stage theme retains its cascade position and all stage styles leave on unload', async () => {
@@ -14,10 +15,8 @@ test('stage theme retains its cascade position and all stage styles leave on unl
   }
   const install = vm.runInNewContext(await readFile(new URL('../tavern-plugin/src/client/stylesheet.js',import.meta.url),'utf8') + '\ninstallTavernStylesheet',{})
   install(document,'base',['before','after'])
-  let plugin, stop
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'), {
-    document,window:{__ModuleLoader__:{load(value) {plugin=value.factory()}}}
-  })
+  let stop
+  const plugin = await loadStageClientPlugin({document,window:{}})
   plugin.apply({get:() => ({mount:() => () => {}}),effect:run => {stop=run()}})
   assert.deepEqual(nodes.map(node => node.dataset.pluginCss),[
     'dsh-tavern-plugin/tavern.css','dsh-tavern-plugin/features.css',

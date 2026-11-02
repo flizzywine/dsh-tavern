@@ -986,6 +986,7 @@ window.__ModuleLoader__.load({
 // @include features/polish-compare.js
 
 // @include stage-session-binding.js
+// @include stage-client-loader.cjs
 
 
 
@@ -1087,7 +1088,17 @@ window.__ModuleLoader__.load({
                 report: error => tavernErrorHub.report("舞台", error)
             });
             ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
-            ctx.provide("tavernStageFrontend", Object.freeze({availability:{read:()=>rpc('getStageRuntimeStatus',{}),subscribe:listener=>signals.subscribe('plugin:dsh-tavern-stage','plugin-lifecycle',listener,listener,listener)},mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
+            // The stage client is downloaded and started only for a session whose card has the stage on
+            // (view.stage, host-decided); availability = server stage ready and such a session is open.
+            const stageClientLoader = createStageClientLoader({
+                sessions: ctx.sessions, views: liveTavernView,
+                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
+                install: plugin => ctx.plugin(plugin),
+                report: error => tavernErrorHub.report("舞台", error)
+            });
+            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, mount: stageClientEntry.mount, sessionInputs: () => stageSessionInputs(ctx)}));
+            ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
