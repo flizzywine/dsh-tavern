@@ -313,8 +313,8 @@ function GalBacklog(props) {
         const go = event => { if (!pick(pos, event)) props.onJump(entry.page, entry.turn, entry.targetPara); };
         // The voice control follows the speaker's name in every look;
         // narration has no name: its narrator voice (旁白配音) stands alone in the name's place.
-        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice })) : null) : h("div", { className: "fork-gal-backlog-name" }, h("b", { "data-figure-ink": "4.5", "data-text": name },
-                    props.nameParts ? props.nameParts(name, entry).map((text, index) => text ? h("i", { key: index, "data-np": ["lead", "rest", "given-lead", "given-rest"][index] }, text) : null) : name), voice ? h(VoiceButton, { voice }) : null, entry.thought ? h("span", { className: "fork-gal-backlog-tag" }, "心声") : null, badgePlace === "name" ? badge : null);
+        const nameRow = !line ? (voice ? h("div", { className: "fork-gal-backlog-name is-narrator" }, h(VoiceButton, { voice, glyph: "speaker" })) : null) : h("div", { className: "fork-gal-backlog-name" }, h("b", { "data-figure-ink": "4.5", "data-text": name },
+                    props.nameParts ? props.nameParts(name, entry).map((text, index) => text ? h("i", { key: index, "data-np": ["lead", "rest", "given-lead", "given-rest"][index] }, text) : null) : name), voice ? h(VoiceButton, { voice, glyph: "speaker" }) : null, entry.thought ? h("span", { className: "fork-gal-backlog-tag" }, "心声") : null, badgePlace === "name" ? badge : null);
         const wrap = looks.roles[role]?.wrap;
         const text = h("p", { className: "fork-gal-backlog-text" }, badgePlace === "text" ? badge : null, look === "band" && wrap ? [wrap[0], entry.text, wrap[1]] : props.quote && line && look === "row" ? galQuoted(entry.text, entry.pending) : entry.text, entry.pending ? h("span", { className: "fork-gal-typing", "aria-label": "正在生成" }, h("i"), h("i"), h("i")) : null);
         const face = h("div", { className: "fork-gal-backlog-face" },

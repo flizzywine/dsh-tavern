@@ -658,6 +658,8 @@ function stageSkinArt(document, files, entry = '') {
         marks['data-fk-skin-art-voice']='';
         const [vw,vh]=size(art.voice.image,art.voice.scale);
         Object.assign(tokens,{'--art-voice-w':String(vw),'--art-voice-h':String(vh),'--art-voice':url(art.voice.image),'--art-voice-focus':url(art.voice.focus || art.voice.image),'--art-voice-on':url(art.voice.active || art.voice.focus || art.voice.image)});
+        // waves: the backlog speaker's arcs as their own layers over the body (theme.css 「backlog voice waves」).
+        if (art.voice.waves) {marks['data-fk-skin-art-voice-waves']=String(art.voice.waves.length); art.voice.waves.forEach((image,index) => {tokens['--art-voice-wave-' + (index + 1)]=url(image);});}
     }
     // box false: the textbox has no replay control (the original's has none); replay stays on R and in the backlog.
     if (art.voice?.box === false) marks['data-fk-skin-art-voice-box']='none';

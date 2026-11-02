@@ -61,7 +61,18 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
     },[active,props.sessionId,props.voiceAuto,available,JSON.stringify(Object.values(handles).map(handle=>handle.id))]);
     return handles;
 }
-function VoiceButton({voice}) {
+// glyph speaker (the stage backlog's rows): a speaker whose body stays still while its sound-wave arcs light in sequence as the
+// line plays (theme.css 「backlog voice waves」); a skin's art.voice.waves draws the arcs from its own images (the i layers).
+const VOICE_SPEAKER_BODY = 'M2 9h3.5L10 5v14l-4.5-4H2z';
+const VOICE_SPEAKER_WAVES = ['M12.5 9.5a3.5 3.5 0 0 1 0 5', 'M14.9 7a7 7 0 0 1 0 10', 'M17.4 4.6a10.5 10.5 0 0 1 0 14.8'];
+function VoiceSpeaker() {
+    const h = React.createElement;
+    return [h('svg',{key:'glyph',className:'fork-voice-speaker',width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},
+        h('path',{d:VOICE_SPEAKER_BODY,fill:'currentColor'}),
+        VOICE_SPEAKER_WAVES.map((d,index)=>h('path',{key:index,className:'fork-voice-wave','data-wave':index+1,d,fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round'}))),
+        h('span',{key:'art',className:'fork-voice-art-waves','aria-hidden':true},[1,2,3].map(wave=>h('i',{key:wave,className:'fork-voice-wave','data-wave':wave})))];
+}
+function VoiceButton({voice, glyph}) {
     const current=voice.player?.owner===voice.owner&&voice.player?.id===voice.id?voice.player:null;
     const failure = current?.error || voice.error;
     const error = {QWEN_INVALID_TEXT:'这句没有可朗读内容或被 Qwen 拒绝，请修改台词后重播',VOICE_NOT_FOUND:'声音绑定未解析，请重新选择该人物的声音','voice-unbound':'声音绑定未解析，请重新选择该人物的声音',QWEN_MODEL_NOT_FOUND:'Qwen 当前服务无法访问此配音模型（404），请在百炼控制台检查模型开通状态与区域',QWEN_RESOURCE_NOT_FOUND:'Qwen 语音服务资源不存在（404），请检查区域、模型与音色',QWEN_AUDIO_NOT_FOUND:'Qwen 合成音频下载失败（404），请重试',QWEN_REQUEST_FAILED:'Qwen 语音服务请求失败'}[failure] || failure;
@@ -79,5 +90,5 @@ function VoiceButton({voice}) {
         if (state === 'idle' || state === 'error') playTelemetry.record('voice_replay', voice.sessionId);
         click(event);
     }},
-        state==='error'?h('span',{'aria-hidden':true},'⚠'):state==='loading'?h(Spinner,{className:'fork-voice-spinner'}):h('svg',{width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},h('path',{d:path,fill:'currentColor'})));
+        state==='error'?h('span',{'aria-hidden':true},'⚠'):state==='loading'?h(Spinner,{className:'fork-voice-spinner'}):glyph==='speaker'?h(VoiceSpeaker):h('svg',{width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},h('path',{d:path,fill:'currentColor'})));
 }
