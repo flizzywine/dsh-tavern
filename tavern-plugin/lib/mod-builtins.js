@@ -32,6 +32,7 @@ export async function createFirstPartyMods({host}={}) {
   // This is a resource catalogue; executable code belongs only to the managed host.
   const resources={manifest:id=>entries.get(id).manifest,module:id=>host.execution(id),file:(id,name)=>entries.get(id).files.get(name),files:id=>new Map(entries.get(id).files)}
   return Object.freeze({...resources,
+    validatePack:(id,pack)=>entries.get(id)?.module.validatePack?.(pack),
     catalogue:() => sources.map(source=>({id:source.id,name:resources.manifest(source.id).name,version:resources.manifest(source.id).version})),
     source(id) {const source=sources.find(row=>row.id===id);if(!source)throw Object.assign(new Error('Unknown first-party release'),{code:'MOD_RESOURCE_UNAVAILABLE'});return {kind:'directory',path:fileURLToPath(source.directory)}},
   })

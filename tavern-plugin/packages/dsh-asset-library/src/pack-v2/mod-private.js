@@ -1,4 +1,6 @@
 import {check} from '../asset-packs/common.js'
+import {MEDIA_PURPOSE_LIMITS} from './media.js'
+import {PACK_BUDGET} from './budget.js'
 
 export const MOD_PRIVATE_PATH=/^mods\/([a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+)\/(config\.json|files\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(png|webp|jpg|mp3|ogg|wav))$/
 export const isModConfigPack=pack=>!!pack?.local?.modConfig || !!pack && !pack.manifest.assets.length && !pack.manifest.figures.length && pack.manifest.files.some(file=>file.path.startsWith('mods/'))
@@ -7,7 +9,7 @@ export async function validateModPrivate({files,previous,validators,readDocument
   let total=0,count=0
   for(const [name,bytes] of files)if(name.startsWith('mods/')) {
     total+=bytes.length;count++
-    check(total<=16*1024**2 && count<=128,name,'Mod private area limit','LIMIT_EXCEEDED')
+    check(total<=PACK_BUDGET.totalSize && count<=128,name,'Mod private area limit','LIMIT_EXCEEDED')
     const match=MOD_PRIVATE_PATH.exec(name),validate=match && validators?.get(match[1])
     check(validate,name,'Unknown mod private namespace','UNKNOWN_FIELD')
     if(match[2]==='config.json') {
@@ -22,8 +24,8 @@ export async function validateModPrivate({files,previous,validators,readDocument
       }
     } else {
       if(previous?.files.get(name)===bytes)continue
-      check(bytes.length<=512*1024,name,'Mod upload size limit','LIMIT_EXCEEDED')
       const ext=name.split('.').at(-1)
+      check(bytes.length<=(mime[ext]?.startsWith('audio/')?MEDIA_PURPOSE_LIMITS.audio:MEDIA_PURPOSE_LIMITS.image),name,'Mod upload size limit','LIMIT_EXCEEDED')
       await inspectMedia(bytes,{ext,mime:mime[ext],size:bytes.length},decodeMedia)
     }
   }

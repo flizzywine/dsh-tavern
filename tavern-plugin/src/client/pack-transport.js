@@ -84,7 +84,7 @@ function createPackTransport({fetch: request = fetch, interval = 2000} = {}) {
             return result;
         } finally { for (const ticket of tickets) void control('discardUpload',{ticket}).catch(() => {}); }
     }
-    const methods = ['listPackSummaries','getPackSnapshot','createPack','patchPack','removePack','putBlob','removeBlob','putBundle','removeBundle','createFigure','patchFigure','removeFigure','removeFigureEmotion','setFigureEmotionFallback','createSimpleSprite','setFigureAvatarCrop','copyFigure','copyItems','resolveAssets','resolveFigures','inspectImport','applyImport','exportPack','exportPacks','exportCardBundle','inspectCardBundle','previewCardBundleDecisions','applyCardBundle','leaseMedia','leaseBundle',
+    const methods = ['listPackSummaries','getPackSnapshot','createPack','patchPack','removePack','putModMedia','leaseModMedia','putBlob','removeBlob','putBundle','removeBundle','createFigure','patchFigure','removeFigure','removeFigureEmotion','setFigureEmotionFallback','createSimpleSprite','setFigureAvatarCrop','copyFigure','copyItems','resolveAssets','resolveFigures','inspectImport','applyImport','exportPack','exportPacks','exportCardBundle','inspectCardBundle','previewCardBundleDecisions','applyCardBundle','leaseMedia','leaseBundle',
         // the figure voice page writes through the same carrier.
         'savePackVoice','saveFigureVoiceBinding','createAndAssignPackVoice','savePackVoiceVariant','deletePackVoiceVariant','listVoiceTemplates','saveVoiceTemplate','deleteVoiceTemplate','assignVoiceTemplate',
         // same authenticated control port; offered by the UI only with 'url-install'.

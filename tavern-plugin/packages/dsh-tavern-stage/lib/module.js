@@ -117,6 +117,7 @@ export async function createStageModule(core) {
       },
     },
     engineJudge,coreCommands:coreModCommands,connected:sessionId=>sessionSignals.connected(sessionId),
+    resolveAssets:input=>ctx.get('assetLibrary').resolveAssets(input),
     assetSnapshot:assetRuntime.snapshot,publishView:(sessionId,snapshot)=>sessionSignals.publish(sessionId,{kind:'mod-view',sessionId,version:String(++modViewVersion),snapshot}),
     stage:createModStagePort({readChat:readStageChat,readTurn:(sessionId,turn)=>readRoundView(sessionId,turn),readSource:(sessionId,turn)=>readStageChat.view(sessionId,{turn,sourceOnly:true}),updateChat:rawUpdateChat,readCard:readModCard,publish:event=>sessionSignals.publish(event.sessionId,event)}),
     coreMedia:createModCoreMedia({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),snapshot:assetRuntime.snapshot,service:()=>ctx.get('assetLibrary')}),
@@ -159,6 +160,7 @@ export async function createStageModule(core) {
   ctx.inject(['assetLibrary'],child => {
     const owner=child.get('assetLibrary')
     child.effect(() => {modConfigHost.register(owner);return () => modConfigHost.unregister(owner)})
+    child.effect(() => owner.registerModMedia(modService.media))
     void modService.installBuiltinAssets(owner).catch(error=>ctx.logger.warn('MOD_BUILTIN_ASSETS %s',error.message))
   })
   // galgame stage director

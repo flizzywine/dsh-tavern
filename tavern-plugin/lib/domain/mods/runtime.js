@@ -38,7 +38,7 @@ export function createBuiltinModRegistry(releases) {
 // timeoutMs bounds the module's own time. Host capability calls (stage.place writes the
 // chat through the serialized persistence gate, which a director checkpoint can occupy for seconds) pause that clock
 // and are bounded separately by hostTimeoutMs; a slow write must not silently drop an accepted director command.
-export function createModRuntime({builtins, current, createHost, resolveBuiltin = modId => modId, timeoutMs=1500, hostTimeoutMs=30000, maxOutputBytes=131072}) {
+export function createModRuntime({builtins, current, createHost, resolveBuiltin = modId => modId, onError=()=>{}, timeoutMs=1500, hostTimeoutMs=30000, maxOutputBytes=131072}) {
   const active=new Set()
   let disposed=false
   async function invoke(context,hook,input) {
@@ -64,11 +64,18 @@ export function createModRuntime({builtins, current, createHost, resolveBuiltin 
       } : Object.freeze(Object.fromEntries(Object.entries(value).map(([key,item])=>[key,wrap(item)])))
       const host=wrap(createHost(frozen,isCurrent))
       const timeout=new Promise((_,reject)=>{fail=reject;started=Date.now();expire('Mod callback timed out',timeoutMs)})
-      const output=await Promise.race([Promise.resolve().then(()=>module[hook](args,host,frozen)),timeout])
+      // Managed view-only mods need not implement director lifecycle hooks.
+      const output=await Promise.race([Promise.resolve().then(()=>hook==='command' ? module[hook](args,host,frozen) : module[hook]?.(args,host,frozen)),timeout])
       assertModCurrent(frozen,isCurrent)
       modJson(output ?? null,maxOutputBytes)
       return modFreeze({ok:true,value:structuredClone(output ?? null)})
-    } catch(error) {return modFreeze(modResultError(error))}
+    } catch(error) {
+      const diagnostic={modId:context.modId,operation:hook,name:error?.name || 'Error',message:String(error?.message ?? error),...(error?.stack?{stack:error.stack}:{})}
+      onError(diagnostic)
+      const result=modResultError(error)
+      result.error={...result.error,modId:diagnostic.modId,operation:hook,message:diagnostic.modId+' '+hook+': '+diagnostic.message}
+      return modFreeze(result)
+    }
     finally {clearTimeout(timer);if(call){call.live=false;active.delete(call)}}
   }
   return Object.freeze({invoke,dispose(){disposed=true;for(const call of active)call.live=false;active.clear()}})
