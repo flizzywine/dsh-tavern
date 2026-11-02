@@ -1,3 +1,4 @@
+import {withVoiceCues} from './helpers/voice-cues-source.mjs'
 import { createStageHandlers } from '../tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js'
 // tagged English defaults; retain protocol, payload, cache and budget assertions.
 // historical vocabulary is fixture data, not a runtime default.
@@ -492,7 +493,7 @@ test('人物卡绑定了独立世界书时写进绑定的那本', async () => {
 })
 
 test('客户端解析：旁白保留为 Markdown，气泡行与心里话、流式半行', async () => {
-  const source = (await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')).split('// @include bubble-line.cjs').join(await readFile(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8')).replace('__TAVERN_BUBBLE_MOODS__', JSON.stringify(moods))
+  const source = (await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/bubbles.js', import.meta.url), 'utf8')).split('// @include bubble-line.cjs').join(withVoiceCues(await readFile(new URL('../tavern-plugin/src/client/bubble-line.cjs', import.meta.url), 'utf8'))).replace('__TAVERN_BUBBLE_MOODS__', JSON.stringify(moods))
   const context = {}
   vm.runInNewContext(source.slice(0, source.indexOf('// Per-session bubble settings')) + ';this.parse = parseBubbles; this.mood = bubbleMood;', context)
   const segments = context.parse('她抬起头。\n@bubble:madoka|鹿目圆|害羞|[你好]\n@bubble:kyubey|丘比|平静|[*签订契约吧*]\n旁白', false)

@@ -1,10 +1,11 @@
+import {withVoiceCues} from './helpers/voice-cues-source.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { browserReactScript } from './fixtures/browser-react.mjs'
 
-const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8')))
+const sources = await Promise.all(['bubble-line.cjs', 'text-colors.js', 'features/speech.js', 'turn-actions.js'].map(name => readFile(new URL('../tavern-plugin/src/client/' + name, import.meta.url), 'utf8').then(withVoiceCues)))
 async function mount(t, text, enabled = true, narratorVoice = 'narrator-voice') {
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
