@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { checkDependencyTree, readImporterDependencies, resolvedVersion } from '../bin/dependency-tree-check.mjs'
 
@@ -123,7 +124,7 @@ test('命令行入口用退出码表达结论', async (t) => {
   await install(root, 'peered', '2.1.0')
   await install(root, 'aliased', '3.0.0')
   await install(root, 'devdep', '4.0.0')
-  const script = new URL('../bin/dependency-tree-check.mjs', import.meta.url).pathname
+  const script = fileURLToPath(new URL('../bin/dependency-tree-check.mjs', import.meta.url))
   const ok = spawnSync(process.execPath, [script, root], { encoding: 'utf8' })
   assert.equal(ok.status, 0, ok.stderr)
   assert.match(ok.stdout, /核对通过/)

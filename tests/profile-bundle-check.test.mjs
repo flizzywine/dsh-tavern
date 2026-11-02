@@ -3,11 +3,12 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { findDshCommand } from '../bin/launcher-environment.mjs'
 import { assertProfileBundlesLoad, skippedBundleFailure } from '../bin/profile-bundle-check.mjs'
 
-const bridge = new URL('../tavern-plugin/packages/dsh-profile-bridge', import.meta.url).pathname
+const bridge = fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge', import.meta.url))
 let dsh = null
 try { dsh = findDshCommand() } catch {}
 

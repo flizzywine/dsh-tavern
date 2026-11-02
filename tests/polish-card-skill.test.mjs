@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { parse } from 'yaml'
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
@@ -16,7 +17,7 @@ test('polish-card 的审稿标准与前台精修 prompts/polish.md 的「审稿�
 })
 
 test('polish-card 可由卡片工作台读取，引用资源齐全且默认可调用', async () => {
-  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skills = createTavernSkillModule({ directory: fileURLToPath(new URL('../data/skills/', import.meta.url)), builtInDirectory: fileURLToPath(root) })
   const skill = await skills.read('polish-card')
   assert.equal(skill.source, 'builtin')
   const metadata = parse(skill.content.match(/^---\n([\s\S]*?)\n---/)[1])

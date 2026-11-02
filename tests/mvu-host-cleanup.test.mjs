@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { stripTypeScriptTypes } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 test('宿主 MVU 不提示或执行旧变量清理，即使旧设置已开启；保留变量恢复', async () => {
@@ -12,7 +13,7 @@ test('宿主 MVU 不提示或执行旧变量清理，即使旧设置已开启；
   const dir = await mkdtemp(join(tmpdir(), 'mvu-cleanup-test-'))
   try {
     await cp(new URL('upstream/', root), dir, { recursive: true })
-    execFileSync(process.execPath, [new URL('host-build/prepare-host-build.mjs', root).pathname, join(dir, 'webpack.config.ts')])
+    execFileSync(process.execPath, [fileURLToPath(new URL('host-build/prepare-host-build.mjs', root)), join(dir, 'webpack.config.ts')])
     const chat = Array.from({ length: 40 }, () => ({ swipes: ['正文'], variables: [{ stat_data: { hp: 10 }, schema: {}, initialized_lorebooks: [] }] }))
     const before = JSON.stringify(chat)
     const unexpected = () => assert.fail('清理不应弹窗、写入或提示成功')

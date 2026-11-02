@@ -1,5 +1,4 @@
-import { execFileSync } from 'node:child_process'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { clearFailedTurnSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -11,6 +10,7 @@ import { createStoryTimeline } from '../tavern-plugin/lib/domain/story-timeline.
 import { createChatPersistence } from '../tavern-plugin/lib/domain/chat-persistence.js'
 import { createChatJournalStore } from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
+import { readZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 function harness({ checkpoint = false, mode = 'story', journal = false } = {}) {
   const calls = [], revisions = new Map()
@@ -194,7 +194,7 @@ test('配对失败的证据写入现有诊断包，原错误与聊天、原生�
   try {
     const archive = join(directory, 'diagnostics.zip')
     await writeFile(archive, exported.buffer)
-    const content = execFileSync('unzip', ['-p', archive, 'mvu/diagnostics.json'], { encoding: 'utf8' })
+    const content = readZipEntries(await readFile(archive)).get('mvu/diagnostics.json').toString('utf8')
     assert.match(content, /regeneration-target/)
     assert.match(content, /previous-message-not-user/)
   } finally { await rm(directory, { recursive: true, force: true }) }

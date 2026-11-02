@@ -4,6 +4,7 @@ import { cp, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
 test('宿主 MVU 连续事件分别等待自己的处理，不返回上轮 throttle Promise', async () => {
@@ -11,7 +12,7 @@ test('宿主 MVU 连续事件分别等待自己的处理，不返回上轮 throt
   const dir = await mkdtemp(join(tmpdir(), 'mvu-event-test-'))
   try {
     await cp(new URL('upstream/', root), dir, { recursive: true })
-    execFileSync(process.execPath, [new URL('host-build/prepare-host-build.mjs', root).pathname, join(dir, 'webpack.config.ts')])
+    execFileSync(process.execPath, [fileURLToPath(new URL('host-build/prepare-host-build.mjs', root)), join(dir, 'webpack.config.ts')])
     const source = await readFile(join(dir, 'src/function/update/index.ts'), 'utf8')
     const expression = source.match(/tavern_events.MESSAGE_RECEIVED,\s*([^\n]+)/)[1]
     const context = vm.createContext({ setTimeout, clearTimeout })
@@ -33,7 +34,7 @@ test('host MVU uses the current complete snapshot when earlier floors have no MV
   const dir = await mkdtemp(join(tmpdir(), 'mvu-baseline-test-'))
   try {
     await cp(new URL('upstream/', root), dir, { recursive: true })
-    execFileSync(process.execPath, [new URL('host-build/prepare-host-build.mjs', root).pathname, join(dir, 'webpack.config.ts')])
+    execFileSync(process.execPath, [fileURLToPath(new URL('host-build/prepare-host-build.mjs', root)), join(dir, 'webpack.config.ts')])
     const source = await readFile(join(dir, 'src/function/update_variables.ts'), 'utf8')
     const expression = source.slice(source.indexOf('export async function handleVariablesInMessage')).match(/const variables = ([\s\S]*?);\n    const settings/)[1]
     const current = { stat_data: { hp: 10 }, schema: { type: 'object' } }

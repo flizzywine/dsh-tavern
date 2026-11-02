@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { findDshCommand, SOURCE_ROOT } from './launcher-environment.mjs'
 import { resolveDshBootModule } from './plugin-dependencies.mjs'
@@ -27,7 +28,7 @@ const tests = selected.length ? selected : ['tests', 'testsets/tests'].flatMap(d
     .filter(name => name.endsWith('.test.mjs'))
     .sort()
     .map(name => path.join(SOURCE_ROOT, directory, name)))
-const result = spawnSync(process.execPath, ['--import', path.join(SOURCE_ROOT, 'tests/fixtures/host-session-patch-preload.mjs'), '--test', ...tests], {
+const result = spawnSync(process.execPath, ['--import', pathToFileURL(path.join(SOURCE_ROOT, 'tests/fixtures/host-session-patch-preload.mjs')).href, '--test', ...tests], {
   cwd: SOURCE_ROOT,
   env: { ...process.env, DSH_BOOT_MODULE: boot },
   stdio: 'inherit',
