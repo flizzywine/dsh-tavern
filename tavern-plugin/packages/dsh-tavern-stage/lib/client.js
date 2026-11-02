@@ -3169,7 +3169,7 @@ function stageVideoAcquire(source) {
     }};
 }
 // host: the element it fills (positioned by the consumer); source: the host's projection of the entry (stage-video.js);
-// options: {audio: play its soundtrack, loop / fit: override the entry's, poster: show the poster (default true; a consumer whose
+// options: {audio: play its soundtrack, exclusive: its single play's soundtrack silences every other stage sound, loop / fit: override the entry's, poster: show the poster (default true; a consumer whose
 // own drawing stands in passes false), readyMs}. Returns {ready: Promise<boolean> (settles by readyMs), playable: Promise (resolves
 // whenever it can play, even after readyMs; never if it cannot), sync({time, rate, alpha}), play(), pause(), state(), dispose()}.
 // The layer is a decorative media layer ([data-fk-layer]): its opacity is --fk-layer-opacity (0 until shown).
@@ -3185,7 +3185,11 @@ function stageVideoPlayer(host, source, options) {
     for (const node of [poster, video]) node.style.objectFit = o.fit;
     layer.append(poster, video);
     host.append(layer);
-    let status = 'loading', bound = false, settle, playableNow;
+    let status = 'loading', bound = false, alone = false, settle, playableNow;
+    // exclusive: from binding until its single play ends, is paused by the consumer (a skip), fails or goes, its soundtrack is
+    // the only stage sound (forkStageAudio.exclusive); the rest returns afterwards.
+    const unclaim = () => { if (alone) { alone = false; forkStageAudio.exclusive(video, false); } };
+    video.addEventListener('ended', unclaim);
     const playable = new Promise(resolve => { playableNow = resolve; });
     const read = stageVideoAcquire(source);
     const ready = new Promise(resolve => { settle = resolve; });
@@ -3194,7 +3198,7 @@ function stageVideoPlayer(host, source, options) {
     const fail = error => {
         if (status === 'disposed') return;
         if (error) console.warn('Stage video unavailable', error);
-        status = 'failed'; clearTimeout(timer); settle(false); show();
+        status = 'failed'; clearTimeout(timer); settle(false); show(); unclaim();
     };
     video.addEventListener('canplaythrough', () => {
         if (status !== 'loading') return;
@@ -3205,7 +3209,8 @@ function stageVideoPlayer(host, source, options) {
     read.video.then(url => {
         if (status === 'disposed') return;
         if (o.audio && source.audio && source.audio !== 'none' && typeof forkStageAudio !== 'undefined') {
-            try { video.muted = false; forkStageAudio.bind(video, source.audio, url, {volume: source.volume, identity: source.hash, loudness: source.loudness, trace: {reason: 'stage-video'}}); bound = true; }
+            try { video.muted = false; forkStageAudio.bind(video, source.audio, url, {volume: source.volume, identity: source.hash, loudness: source.loudness, trace: {reason: 'stage-video'}}); bound = true;
+                if (o.exclusive && !o.loop) { alone = true; forkStageAudio.exclusive(video, true); } }
             catch (error) { video.muted = true; console.warn('Stage video sound unavailable', error); }
         }
         if (!bound && typeof forkForeground !== 'undefined') forkForeground.media(video);
@@ -3216,7 +3221,7 @@ function stageVideoPlayer(host, source, options) {
         const played = video.play();
         if (played && played.catch) played.catch(error => {
             // The autoplay policy may refuse sound before a gesture: the picture still plays, silent.
-            if (status !== 'disposed' && error && error.name === 'NotAllowedError' && !video.muted) { video.muted = true; video.play().catch(() => {}); }
+            if (status !== 'disposed' && error && error.name === 'NotAllowedError' && !video.muted) { video.muted = true; unclaim(); video.play().catch(() => {}); }
         });
     };
     const player = {
@@ -3230,6 +3235,7 @@ function stageVideoPlayer(host, source, options) {
             let drift = Math.abs(video.currentTime - at.time);
             if (o.loop) drift = Math.min(drift, duration - drift);
             if (!(rate > 0) || at.ended) {
+                if (at.ended) unclaim();
                 if (!video.paused) video.pause();
                 if (drift > 0.04) video.currentTime = at.time;
                 return;
@@ -3240,7 +3246,7 @@ function stageVideoPlayer(host, source, options) {
         },
         // A free-running use (a looping skin background): the element's own clock.
         play() { if (status === 'ready') { reveal(1); start(); } else ready.then(ok => { if (ok && status === 'ready') { reveal(1); start(); } }); },
-        pause() { if (status !== 'disposed') video.pause(); },
+        pause() { if (status !== 'disposed') { video.pause(); unclaim(); } },
         state: () => ({status, time: video.currentTime, paused: video.paused, muted: video.muted, poster: !poster.hidden}),
         dispose() {
             if (status === 'disposed') return;
@@ -3248,6 +3254,7 @@ function stageVideoPlayer(host, source, options) {
             const errors = [];
             for (const release of [
                 () => video.pause(),
+                unclaim,
                 () => {if (bound && typeof forkStageAudio !== 'undefined') forkStageAudio.release(video);},
                 () => {video.removeAttribute('src'); video.load();},
                 () => poster.removeAttribute('src'),
@@ -13628,9 +13635,12 @@ function GalStage(props) {
     const phoneModCall=readPhoneCall?.() || null;
     const h = React.createElement;
     const sessionId = props.sessionId;
-    // Leaving or failing the stage must not leave its music playing over ordinary chat.
-    React.useEffect(() => () => {
-        if (stageViews.bgm.get().sessionId === sessionId) stageViews.bgm.pause(true);
+    // Leaving or failing the stage must not leave its music playing over ordinary chat; opening it again resumes.
+    // The hold is not the player's pause, so a reload or reopened chat plays again (bgm.cjs away).
+    React.useEffect(() => {
+        const bgm = stageViews.bgm;
+        if (bgm.get().sessionId === sessionId) bgm.away(false);
+        return () => { if (bgm.get().sessionId === sessionId) bgm.away(true); };
     }, [sessionId]);
     const runtime = useStageRuntime(sessionId);
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
@@ -13820,6 +13830,10 @@ function GalStage(props) {
     // the box's slot for the choices wait (gal-choices.js portals it here).
     const [choiceWaitSlot, setChoiceWaitSlot] = React.useState(null);
     const [auto, setAuto] = React.useState(false);
+    // AUTO, and a round streaming with voice, start the next line from a timer, not a tap: the mixer stays awake for them
+    // (stage-audio.js keepAwake; iOS may not resume a suspended context without a gesture).
+    const audioOwner = React.useRef({}).current, audioAwake = auto || (streaming && voiceAvailable);
+    React.useEffect(() => { forkStageAudio.keepAwake(audioOwner, audioAwake); return () => forkStageAudio.keepAwake(audioOwner, false); }, [audioAwake]);
     // Skip is either latched (the SKIP control) or held (Ctrl down, like most galgames).
     const [skipLatch, setSkipping] = React.useState(false);
     const [skipHeld, setSkipHeld] = React.useState(false);
@@ -19601,7 +19615,9 @@ function StageEntrance({run, ready: loaded, covered, started, onEvent, onBright}
         try {
         if (run.video) {
             // No poster here: an entrance's own drawn layers are what stands in for a video it cannot play.
-            const own = player.current = video.player(videoHost.current, run.video, {audio: run.doc.layers.video.audio === true, poster: false, readyMs: ENTRANCE_VIDEO_WAIT_MS});
+            // An entrance that declares its sound is heard alone: the rest of the stage's sound waits until it ends or is skipped.
+            const audio = run.doc.layers.video.audio === true;
+            const own = player.current = video.player(videoHost.current, run.video, {audio, exclusive: audio, poster: false, readyMs: ENTRANCE_VIDEO_WAIT_MS});
             own.ready.then(begin);
             own.playable.then(() => { if (live && !disposed && player.current === own) { begin(); port.current?.input({video: true}); } });
         } else begin();
@@ -24250,7 +24266,9 @@ if (typeof module !== "undefined" && typeof window === "undefined") module.expor
 // alike, so opening or leaving the stage never restarts or doubles a track. It co-owns (pins) the loaded
 // track it plays. 导演选曲 on: the director's accepted cue; off: the manual pick (cues are still recorded).
 // The mode, the pick and pause last for the session only (localStorage by session id, never on the card).
-const BGM_STORAGE = 'fork-bgm-sessions', BGM_KEEP = 32;
+// Leaving the stage only holds the music for this page (away): a reload, a restart or another chat resumes it;
+// only the player's own pause is remembered.
+const BGM_STORAGE = 'fork-bgm-sessions-v2', BGM_KEEP = 32;
 const bgmKey = ref => ref ? ref.packId + '/' + ref.assetId : '';
 // Previous / next walk the whole list in its order and wrap; from outside the list they enter at an end.
 function bgmStep(tracks, key, delta) {
@@ -24273,6 +24291,9 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     const notifyPerformance = (type, value, reason) => performanceListeners.forEach(fn => fn({type, instanceKey:value.instanceKey, reason}));
     let active = null, store = null, selector = null, input = null, snapshot = null, reloadTimer = 0;
     let mine = {follow:true, manual:null, paused:false}, generation = 0, playback = 0, held = [], retried = '', error = false;
+    // The v1 record also kept the leave-the-stage pause, so every reopened chat started paused; it is dropped once.
+    try { storage?.removeItem?.('fork-bgm-sessions'); } catch (_) {}
+    const silent = () => mine.paused || !!mine.away;
     function saved() { try { return JSON.parse(storage?.getItem(BGM_STORAGE) || '{}') || {}; } catch (_) { return {}; } }
     function remember() {
         const all = saved();
@@ -24326,7 +24347,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     function view() {
         const list = lists.get(active), current = target();
         return Object.freeze({sessionId:active, available:!!input?.available, enabled:!!input?.enabled,
-            follow:mine.follow, paused:mine.paused, error, loading:!!list?.loading, tracks:list?.tracks || [],
+            follow:mine.follow, paused:silent(), error, loading:!!list?.loading, tracks:list?.tracks || [],
             cue:input?.cue ? {key:input.cue.key, name:input.cue.name} : null,
             current:current ? {key:current.key, name:current.name, source:current.source} : null});
     }
@@ -24345,14 +24366,14 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (disposed) return;
         const run = ++generation, goal = target(), playing = music.get();
         publish();
-        if (!goal || mine.paused && playing.identity !== goal.identity) {
+        if (!goal || silent() && playing.identity !== goal.identity) {
             const epoch = ++playback;
-            const done = music.stop(!(!goal && input?.enabled && mine.follow && !mine.paused && !input.snap));
+            const done = music.stop(!(!goal && input?.enabled && mine.follow && !silent() && !input.snap));
             const settled = () => { if (epoch === playback) release(null); };
             if (done) done.then(settled); else settled();
             return;
         }
-        if (mine.paused) { music.pause(); return; }
+        if (silent()) { music.pause(); return; }
         if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd}); music.resume(); return; }
         let pin = null;
         try {
@@ -24503,9 +24524,11 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
             if (!on) override('follow');
             set(on ? {follow:true, manual:null} : {follow:false, manual:cue ? {key:cue.key, name:cue.name, identity:cue.identity} : null});
         },
-        pause(paused) { set({paused:!!paused}); },
+        pause(paused) { set({paused:!!paused, away:false}); },
+        // The stage closing (on) or opening (off): holds the music without remembering it.
+        away(on) { if (disposed || !!mine.away === !!on) return; mine = {...mine, away:!!on}; void apply(); },
         // Autoplay can refuse the first play(); a later user gesture retries it.
-        kick() { const playing = music.get(); if (active && !mine.paused && playing.current && playing.paused) music.resume(); },
+        kick() { const playing = music.get(); if (active && !silent() && playing.current && playing.paused) music.resume(); },
         dispose() {
             if (disposed) return; disposed = true; playback++;
             generation++;

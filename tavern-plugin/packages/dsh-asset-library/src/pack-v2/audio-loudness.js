@@ -52,7 +52,7 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
       const name = audioContentFile(previous.manifest, asset, content)
       if (!name) continue
       const key = identity(previous.manifest, name)
-      old.set(asset.kind + '/' + asset.id + '/' + name, key)
+      old.set(asset.kind + '/' + asset.id + '/' + name, {key, loudness:content.loudness})
       if (content.loudness) known.set(key, content.loudness)
     }
   }
@@ -64,7 +64,12 @@ export async function authorAudioLoudness(manifest, files, {previous, read, meas
       const replacedVideo = previous && asset.kind === 'videos' && files.get(name) instanceof Uint8Array
       const key = replacedVideo ? name : identity(manifest, name)
       if (content.loudness) { known.set(key, content.loudness); continue }
-      if (!replacedVideo && old.get(asset.kind + '/' + asset.id + '/' + name) === key) continue
+      // Retain this entry's measurement, without migrating unchanged legacy entries sharing its media.
+      const prior = old.get(asset.kind + '/' + asset.id + '/' + name)
+      if (!replacedVideo && prior?.key === key) {
+        if (prior.loudness) { content.loudness = {...prior.loudness}; changed = true }
+        continue
+      }
       if (!known.has(key)) {
         const extension = path.extname(name)
         if (!/^\.(wav|mp3|ogg|flac|m4a|aac|opus|webm|mp4)$/.test(extension)) throw new Error('Unsupported audio extension')

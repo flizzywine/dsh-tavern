@@ -55,6 +55,9 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
         return JSON.stringify([available && player?.owner === owner ? [player.id,player.loading,player.error,Boolean(player.audio),player.audio?.paused] : null,
             Object.values(handles).map(handle => voicePlayer.getError(handle))]);
     });
+    // A reply streaming with voice plays its lines as they arrive, with no tap: the mixer stays awake meanwhile (stage-audio.js keepAwake).
+    const streamingVoice=Boolean(available && props.streaming && props.voiceAuto);
+    React.useEffect(()=>{ forkStageAudio.keepAwake(owner,streamingVoice); return()=>forkStageAudio.keepAwake(owner,false); },[owner,streamingVoice]);
     React.useEffect(()=>{
         if (active===props.sessionId || !props.voiceAuto || !available) return;
         for (const handle of Object.values(handles)) void handle.prefetch();
