@@ -729,11 +729,11 @@ var manifest_default = {
     },
     {
       path: "view/index.js",
-      size: 104942
+      size: 104865
     },
     {
       path: "view/style.css",
-      size: 97773
+      size: 98060
     },
     {
       path: "view/assets/message.wav",

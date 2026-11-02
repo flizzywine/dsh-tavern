@@ -200,6 +200,7 @@ export function createStageTransaction({ baseline, catalog, target, units, budge
         last = beat.at
         const ops = []
         for (const [j, op] of beat.ops.entries()) {
+          if (op?.op === 'phone.message') fail(`${path}.ops[${j}]`, 'Use the current director submit tool with an explicit recipient. Example: phone-mark mark to=$player form=text; for an NPC use their listed handle.')
           if (++count > limits.maxOpsPerCall) fail(`${path}.ops`, `At most ${limits.maxOpsPerCall} operations per batch`)
           const clearsOverlay = resetsTransientFocus(op, beat.at, entries.concat(accepted, [{ at: beat.at, ops }]))
           if (operation(next, op, catalog, `${path}.ops[${j}]`, { sourceKey: target.sourceKey, at: beat.at, instanceId: target.sourceKey + ':' + (entries.length + accepted.length) + ':' + ops.length }) || clearsOverlay) {
@@ -392,7 +393,6 @@ export function buildStageUpdateTool({ units, budget, catalog } = {}) {
     .concat(persistentStageSchemas(catalog))
     .concat([command('event', { value: { type: 'object', additionalProperties: false, properties: { op: { type: 'string', enum: ['act', 'emote', 'beat', 'trans', 'focus', 'sfx', 'title'] }, id: { type: 'string' }, value: { type: 'string' } }, required: ['op', 'value'] } })])
     .concat([command('actor.variant', { actor, value }), command('act', { actor, value: { type: 'string', enum: ['nod', 'shake', 'jump', 'tremble', 'turn', 'bow', 'lean', 'step-back'] } })])
-  if (catalog?.widgetsEnabled === true && catalog.phone?.aliases?.length) operations.push(command('phone.message', { contact: { type: 'string', enum: catalog.phone.aliases }, side: { type: 'string', enum: ['in', 'out'] } }))
   return { name: 'stage_update', description: 'Stage incremental presentation changes. Omitted values persist, including offstage variants. Never repeat unchanged settings. Send an empty beats list to seal unchanged paragraphs. done finalizes the task; it does not clear the stage.',
     parameters: { type: 'object', additionalProperties: false, required: ['sequence', 'through', 'done', 'beats'], properties: {
       sequence: { type: 'integer', minimum: 1 }, through: { type: 'integer', minimum: 1, maximum: units }, done: { type: 'boolean' },
