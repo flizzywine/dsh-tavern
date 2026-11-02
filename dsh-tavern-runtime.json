@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "bcbac3e2b3aa1e85ae9f095304a0f94f351932b1",
-  "releaseSequence": 1047,
+  "revision": "14b46a6bf7a27d0783613ecd66404d0757490ed2",
+  "releaseSequence": 1048,
   "version": "3.2.0",
   "files": [
     {
@@ -3411,8 +3411,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "6b2d6b382d32a6b33220a2f66a0a6c6a5facccd237c59f4c91a71e8e7ebf3ccb",
-      "size": 259926
+      "sha256": "1941018aa1b0027aae47225dac431c2f29951b605da6cd8830bf35262a07aed5",
+      "size": 260072
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -8501,9 +8501,9 @@
     }
   ],
   "archive": {
-    "commit": "6385209fc41c82ead9d523766f47d038ccbd289b",
+    "commit": "c3745e480458ccbeda03b2923214acf3f23cb8bf",
     "path": "runtime.zip",
-    "sha256": "e8cb9bc0d7651ca5d66bfaea691f94cb5106279883be34407a1ddf4d00e1ee19",
-    "size": 15074268
+    "sha256": "5f5087fe208d97552c6f25ca37ea04b0a33023849979a008f4e95dbe44f04d18",
+    "size": 15074271
   }
 }
