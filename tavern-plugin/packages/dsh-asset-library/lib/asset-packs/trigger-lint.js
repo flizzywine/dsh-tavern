@@ -4,6 +4,7 @@ const key = row => row.kind + '/' + row.id
 const active = row => row.enabled !== false
 const primary = row => row.kind === 'figure' ? row.aliases || [] : row.recall?.keywords || []
 const words = row => [...primary(row), ...Object.values(row.recall?.synonyms || {}).flat()]
+const bands = /^(?:mygo!{0,5}|ave\s*mujica|crychic|aqours|μ'?s|muse|liella!?|roselia|poppin'?party|b小町|放课后茶会)$/iu
 const categories = /^(?:魔女结界|魔女|结界|演唱|歌曲|音乐|bgm|音效|背景|服装|场景)$/u
 const epithet = /(?:魔女|之王|女王|使者|化身)$/u
 function entries({manifest, figures = {}}) {
@@ -41,7 +42,7 @@ export function lintTriggers(document, {before} = {}) {
     for (const word of unique) {
       const peers = usage.get(scope(row)+'/'+word)
       const nameForm = names.has(word) || !epithet.test(word) && [row.name,row.label,...row.aliases || []].filter(Boolean).some(name => norm(name) === word)
-      const unit = row.kind === 'music' && !names.has(word) && /(?:乐队|组合|ユニット)$/.test(word)
+      const unit = row.kind === 'music' && !names.has(word) && (bands.test(word) || /(?:乐队|组合|ユニット)$/.test(word))
       if (list.filter(w=>w===word).length > 1) add(row,word,'duplicate','主关键词重复；同义表中的复用不算独立重复')
       if (nameForm) continue
       // Sound nouns/idioms (雷声、钟声、泣不成声) are prose, not mechanically appended labels.
