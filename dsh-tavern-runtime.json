@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1848ffef78b18549ea273223669811abfcc96593",
-  "releaseSequence": 1022,
+  "revision": "8d67aae3a42f5654f1a8850fd3fab25d52a44fb3",
+  "releaseSequence": 1023,
   "version": "3.2.0",
   "files": [
     {
@@ -1426,8 +1426,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
-      "sha256": "30a666dbb5d6a2193280a73bdbb5934cef3bcddca99ec8d11b2acbb3bb20b5f4",
-      "size": 2228
+      "sha256": "dbc887c727a89b20d5f77b04ea123b3f11e2cb97d1992021634e6964f08f7f0f",
+      "size": 2879
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-variable-changes.js",
@@ -3346,8 +3346,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/worldbook-virtual-surface.js",
-      "sha256": "c794843b312500263f5514051d89d1b97c3b84409d9081251403fd04aaa586c0",
-      "size": 2926
+      "sha256": "cce9a2d6befbc65752734d415efcf7ec55cf6b29a647b99dd4e5e9a13a41d00a",
+      "size": 4204
     },
     {
       "path": "tavern-plugin/lib/domain/zip-entries.js",
@@ -3381,8 +3381,8 @@
     },
     {
       "path": "tavern-plugin/lib/hooks/turn-lifecycle.js",
-      "sha256": "951355cd6f7fcf5363ab41d782a2b335d05da6a9c34b8e4ecf748027c513cdc9",
-      "size": 8132
+      "sha256": "ae31d42bd9dbf106873175b8dbf8d68b2e8157b97af55ae3aa26fc4b3b13650f",
+      "size": 8162
     },
     {
       "path": "tavern-plugin/lib/host/mod-danmaku.mjs",
@@ -8611,9 +8611,9 @@
     }
   ],
   "archive": {
-    "commit": "e5e1eea7df3b14a2a363d55e3c7f741a3412dad7",
+    "commit": "f83486bb86d622f923c184f22c2f63c431b4d2ae",
     "path": "runtime.zip",
-    "sha256": "cb57fa7451a0b33b3389abf3f55ab10f88ba6b800e1cbff06f1d18bd555e87d6",
-    "size": 15230718
+    "sha256": "94fd63a236130458e86af16255f00ab620e2f4c5ac62e79b2128573655d13906",
+    "size": 15231431
   }
 }
