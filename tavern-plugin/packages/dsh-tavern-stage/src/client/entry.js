@@ -135,6 +135,7 @@ window.__ModuleLoader__.load({
         __STAGE_AVAILABILITY__
         __STAGE_VIEWS__
         __STAGE_VIEW_SCOPE__
+        __STAGE_FEATURES__
         return ({
         name: 'dsh-tavern-stage',
         inject: ['tavernStageFrontend'],
@@ -142,6 +143,11 @@ window.__ModuleLoader__.load({
             // Private migration bridge: the stage package owns mounting/unmounting.
             // UI implementation is being extracted from the core client closure.
             const host = ctx.get('tavernStageFrontend');
+            const stageFeatures=createStageFeatures();
+            stageFeatures.register('timer',{views:({options,views,own,getResourceOwner})=>({
+                timer:own(createStageTimer({React:options.React,window,...options.timer,getResourceOwner,createRects:views.performanceSurface.createRects,createKeyframeLayer:views.performanceSurface.createKeyframeLayer,performanceSafety:views.performanceSurface.safety}))
+            })});
+            ctx.provide('stageFeatures',stageFeatures);
             const activate=() => {
                 const cleanups=[];
                 let disposed=false;
@@ -244,11 +250,11 @@ window.__ModuleLoader__.load({
                         ...createStageLabels({React:options.React, Icon:options.Icon, document, ...options.labels}),
                         ...textViews};
                     views.performanceSurface=own(createStagePerformanceSurface({React:options.React,window,document,clock:options.sceneServices?.foreground,...options.performanceSurface,sessions:()=>views.sessions,runtime:views.sessionRuntime}));
-                    views.timer=own(createStageTimer({React:options.React,window,...options.timer,getResourceOwner,createRects:views.performanceSurface.createRects,createKeyframeLayer:views.performanceSurface.createKeyframeLayer,performanceSafety:views.performanceSurface.safety}));
                     views.input=own(createStageInput({React:options.React,window,document,clock:options.sceneServices?.foreground,controls,navigation:options.navigation}));
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    stageFeatures.mount({options,views,own,window,document,getResourceOwner});
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
