@@ -218,6 +218,8 @@ function bindStageViews(createViews) {
             dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
             DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat},
         controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
+        // 设置 › 舞台 (stage global-settings.js): the page's core rows and controls (modules/global-settings.js).
+        globalSettings:stageGlobalSettingsOptions,
         admission:{performance, setTimeout, clearTimeout, Spinner},
         widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         phoneAdjust:{navigator, pad:8, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},

@@ -39888,41 +39888,6 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void rpc("openUserPluginsFolder").catch(function (err) { setError(String(err && err.message || err)); }); } }, "打开插件文件夹")));
         }
 
-        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry}) {
-            function StageModelSettings() {
-                const h = React.createElement;
-                const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
-                React.useEffect(() => {
-                    let active = true;
-                    const refresh = () => rpc('getTavernSettings').then(result => {
-                        if (active) setState(current => ({...current, loading:false, slots:(result.modModelSlots || []).filter(slot=>slot.modId === 'dsh.stage'), settings:result.settings, catalog:result.modelCatalog || [], scoringCatalog:result.scoringCatalog || [], error:""}));
-                    }, error => { if (active) setState(current=>({...current, loading:false, error:String(error.message || error)})); });
-                    refresh();
-                    window.addEventListener('dsh-tavern-mods-changed', refresh);
-                    return () => { active = false; window.removeEventListener('dsh-tavern-mods-changed', refresh); };
-                }, []);
-                async function save(modModelSelection) {
-                    setState(current=>({...current,busy:true,error:""}));
-                    try {
-                        const result = await rpc('updateTavernSettings', {patch:{modModelSelection}});
-                        notifySettingsChanged();
-                        setState(current=>({...current,busy:false,settings:result.settings}));
-                    } catch(error) { setState(current=>({...current,busy:false,error:String(error.message || error)})); }
-                }
-                return h(React.Fragment, null,
-                    state.error ? h('p', {role:'alert'}, state.error) : null,
-                    h(TavernModelSlotGroups, {rowsOnly:true, slots:state.slots, values:state.settings?.modModels, catalog:state.catalog, scoringCatalog:state.scoringCatalog, disabled:state.loading || state.busy, onChange:save}));
-            }
-            function TavernStageSettingsSection() {
-                const h = React.createElement;
-                return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
-                    h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
-                    h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
-                    h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
-                    h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
-            }
-            return {TavernStageSettingsSection};
-        }
         // Settings owns its initial snapshot; each editor saves only its own resource.
         function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, HeaderItemsSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry, ForkModManagerEntry, StageGenerationSettings, TavernSettingRow, InlineField, Switch, HelpTip }) {
             // explanations live in a 「?」 beside the name (ui-design R3), never as grey lines.
@@ -40067,10 +40032,21 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                         h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
                         h(TavernUserPluginsSettings)));
             }
-            const { TavernStageSettingsSection } = createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry});
-            return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection };
+            // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
+            // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
+            // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings).
+            const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry};
+            function TavernStageSettingsSection() {
+                const h = React.createElement;
+                React.useEffect(() => galStageHold(), []);
+                const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+                const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
+                return Page ? h(Page) : h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+                    h(SettingsGroup, {title:"舞台"}, h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…")));
+            }
+            return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
         }
-        const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection } = createGlobalSettingsModule({
+        const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
@@ -48695,6 +48671,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		const galStageLifetime = () => stageNavigation.galStageLifetime();
 		const galCurrentEntry = () => stageNavigation?.getEntry() || null;
 		const galHoldLeave = hold => stageNavigation?.holdLeave(hold) || (() => {});
+		// Pages that need the stage client for any card (设置 › 舞台) hold the loader (stage-client-loader.cjs hold); main.js binds it.
+		let stageClientHold = null;
+		const galStageHold = () => stageClientHold ? stageClientHold() : () => {};
 		function bindStageNavigation(createNavigation, ctx) {
 		    if (stageNavigation) throw new Error('Stage navigation already mounted');
 		    const navigation = createNavigation({window, document, navigator:window.navigator,
@@ -49112,6 +49091,8 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		            dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
 		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat},
 		        controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
+		        // 设置 › 舞台 (stage global-settings.js): the page's core rows and controls (modules/global-settings.js).
+		        globalSettings:stageGlobalSettingsOptions,
 		        admission:{performance, setTimeout, clearTimeout, Spinner},
 		        widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
 		        phoneAdjust:{navigator, pad:8, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
@@ -55944,9 +55925,10 @@ function openSessionIds(snapshot) {
 // ({version}, the latest one replayed on connect), `wake` on errors and (re)connection;
 // load: ()=>import(stage-client.mjs); install: plugin=>ctx.plugin(plugin).
 function createStageClientLoader({sessions, views, runtime, load, install, report}) {
-    const listeners = new Set(), watched = new Map();
+    const listeners = new Set(), holds = new Set(), watched = new Map();
     let wanted = false, stopped = true, revision = 0, loading = null, fiber = null, lifecycle;
     const compute = () => {
+        if (holds.size) return true;
         for (const id of watched.keys()) if (stageWantedOf(views.getSnapshot(id))) return true;
         return false;
     };
@@ -56005,6 +55987,14 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
     }
     return Object.freeze({
         availability,
+        // Pages that show stage settings for any card (the 舞台 settings section) need the client too.
+        hold() {
+            const token = {};
+            holds.add(token);
+            update();
+            let released = false;
+            return () => { if (released) return; released = true; holds.delete(token); update(); };
+        },
         loaded: () => fiber !== null,
         start() {
             if (!stopped) throw new Error('Stage client loader already started');
@@ -56205,6 +56195,7 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
             });
             // registrations: what the stage client runs, as one owned lifetime, each time it mounts (dsh-tavern-stage entry.js).
             ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx)}));
+            ctx.effect(() => { stageClientHold = stageClientLoader.hold; return () => { if (stageClientHold === stageClientLoader.hold) stageClientHold = null; }; }, "dsh-tavern: stage client hold");
             ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
