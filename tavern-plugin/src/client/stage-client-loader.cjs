@@ -27,9 +27,10 @@ function openSessionIds(snapshot) {
 // ({version}, the latest one replayed on connect), `wake` on errors and (re)connection;
 // load: ()=>import(stage-client.mjs); install: plugin=>ctx.plugin(plugin).
 function createStageClientLoader({sessions, views, runtime, load, install, report}) {
-    const listeners = new Set(), watched = new Map();
+    const listeners = new Set(), holds = new Set(), watched = new Map();
     let wanted = false, stopped = true, revision = 0, loading = null, fiber = null, lifecycle;
     const compute = () => {
+        if (holds.size) return true;
         for (const id of watched.keys()) if (stageWantedOf(views.getSnapshot(id))) return true;
         return false;
     };
@@ -88,6 +89,14 @@ function createStageClientLoader({sessions, views, runtime, load, install, repor
     }
     return Object.freeze({
         availability,
+        // Pages that show stage settings for any card (the 舞台 settings section) need the client too.
+        hold() {
+            const token = {};
+            holds.add(token);
+            update();
+            let released = false;
+            return () => { if (released) return; released = true; holds.delete(token); update(); };
+        },
         loaded: () => fiber !== null,
         start() {
             if (!stopped) throw new Error('Stage client loader already started');

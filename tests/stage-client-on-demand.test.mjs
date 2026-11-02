@@ -166,6 +166,22 @@ test('a failed download is reported and retried on the next wake', async () => {
   stop()
 })
 
+test('a hold (the 舞台 settings page) loads the client without a stage session; releasing it makes the stage idle', async () => {
+  const host = createHost(), runtime = createRuntime(), installed = []
+  const loader = createStageClientLoader({sessions:host.sessions, views:host.views, runtime,
+    load:() => Promise.resolve({default:{apply() {}}}), install:plugin => {installed.push(plugin); return {then:resolve => resolve(), dispose() {}}}, report:error => assert.fail(error)})
+  const stop = loader.start()
+  await settle()
+  assert.equal(runtime.reads, 0)
+  const release = loader.hold()
+  await settle()
+  assert.equal(installed.length, 1)
+  assert.deepEqual(await loader.availability.read(), {status:'ready'})
+  release(); release()
+  assert.deepEqual(await loader.availability.read(), {status:'idle'})
+  stop()
+})
+
 test('stage flags come from the host view; open sessions are the retained rows', () => {
   assert.equal(stageWantedOf({view:{stage:{dialogue:false, stage:false}}}), false)
   assert.equal(stageWantedOf({view:{stage:{dialogue:true, stage:false}}}), true)

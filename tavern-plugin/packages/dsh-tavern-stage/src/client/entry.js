@@ -129,6 +129,8 @@ const stageClientPlugin = (() => {
         __STAGE_AVAILABILITY__
         __STAGE_VIEWS__
         __STAGE_VIEW_SCOPE__
+        // 设置 › 舞台 (global-settings.js): the core's settings section holds the stage client and renders views.GlobalSettings.
+        __STAGE_GLOBAL_SETTINGS__
         __STAGE_FEATURES__
         return ({
         name: 'dsh-tavern-stage',
@@ -253,6 +255,7 @@ const stageClientPlugin = (() => {
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:options.controller || {dialogue:{},figures:{}},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
+                    if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings}).TavernStageSettingsSection;
                     activeViews=views;
                     return views;
                 })});

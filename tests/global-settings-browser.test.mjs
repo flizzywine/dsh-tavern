@@ -132,7 +132,7 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   let settings = {defaultPlaySettings:{playerName:'你',backgroundTasks:{}},modModels:{'dsh.stage':{director:{provider:'p',model:'saved'}}}}
   const respond = (method,args) => {
     if (method === 'getBackgroundModelReasoning') return {reasoning:{efforts:[]}}
-    if (method === 'getStageRuntimeStatus') return {enabled:true,status:'unloaded'}
+    if (method === 'getStageRuntimeStatus') return {enabled:true,status:'ready'}
     if (method === 'getAssetGenPrompts') return {data:{kinds:[],revision:'fixture'}}
     if (method === 'getTavernSettings') return {settings, modelCatalog:[{provider:'p',models:[{id:'saved'},{id:'next'}]}], modModelSlots:[{modId:'dsh.stage',modName:'舞台',id:'director',label:'导演模型',fallback:'foreground'}]}
     if (method === 'updateTavernSettings') {
@@ -144,7 +144,8 @@ test('舞台模型只在舞台设置展示，保存沿用原有模型槽', async
   const general = await openTavernSettings(t,{respond})
   await general.page.locator('button[aria-label^="默认前台模型："]').waitFor()
   assert.equal(await general.page.locator('button[aria-label^="导演模型："]').count(),0)
-  const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage settings section'})
+  // 设置 › 舞台 is the stage package's page, loaded by the page's hold (stage-client-loader.cjs)
+  const stage = await openTavernSettings(t,{respond,section:'dsh-tavern: stage settings section',stageClient:true})
   await stage.page.locator('button[aria-label^="导演模型："]').waitFor()
   assert.equal(await stage.page.getByRole('button',{name:'停用',exact:true}).count(),0)
   assert.equal(await stage.page.getByRole('heading',{name:'舞台插件',exact:true}).count(),0)

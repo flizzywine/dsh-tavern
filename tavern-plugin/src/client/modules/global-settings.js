@@ -142,6 +142,17 @@ function createGlobalSettingsModule({ React, rpc, notifySettingsChanged, TavernD
                 h("p", null, "给酒馆加功能：粘贴插件作者的 GitHub 地址即可安装。不支持 SillyTavern 插件。"),
                 h(TavernUserPluginsSettings)));
     }
-    const { TavernStageSettingsSection } = createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry});
-    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection };
+    // 设置 › 舞台 is the stage package's page (global-settings.js in dsh-tavern-stage, stageViews.GlobalSettings): opening it holds the
+    // stage client (stage-client-loader.cjs hold) so the page loads for any card; the core only draws the wait. The names the
+    // page needs from the core travel as the stage view options (gal-stage.js bindStageViews, globalSettings).
+    const stageGlobalSettingsOptions = {rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry};
+    function TavernStageSettingsSection() {
+        const h = React.createElement;
+        React.useEffect(() => galStageHold(), []);
+        const enabled = React.useSyncExternalStore(galStageAvailable.subscribe, galStageAvailable.get);
+        const Page = enabled && stageViews ? stageViews.GlobalSettings : null;
+        return Page ? h(Page) : h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
+            h(SettingsGroup, {title:"舞台"}, h("p", {className:"dsh-tavern-settings-desc", role:"status"}, "正在加载舞台…")));
+    }
+    return { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection, stageGlobalSettingsOptions };
 }

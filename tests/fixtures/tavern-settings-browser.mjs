@@ -4,7 +4,8 @@ import { chromium } from 'playwright'
 
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
-export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender } = {}) {
+// stageClient: the page loads the built stage client through the core's hold and loader, as in production.
+export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false } = {}) {
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'] })
   t.after(() => browser.close())
   const page = await browser.newPage()
@@ -13,6 +14,9 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
   page.on('pageerror', error => errors.push(error.message))
   await page.route('http://tavern.test/**', async route => {
     const method = new URL(route.request().url()).pathname.split('/').at(-1)
+    // the core's on-demand loader imports the built stage client (packages/dsh-tavern-stage/lib/client.js)
+    if (stageClient && route.request().url().endsWith('/api/dsh-tavern/client-assets/stage-client.mjs'))
+      return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8') })
     if (!route.request().url().includes('/api/')) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
     const args = route.request().postDataJSON()
     calls.push({ method, args })
@@ -50,24 +54,29 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
   if (exposeConversationModels) source = source.replace('function TavernConversationBackgroundModel(props) {', 'window.__modelSlotsChat = TavernConversationBackgroundModel; function TavernConversationBackgroundModel(props) {')
   await page.addScriptTag({ content: source })
   const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
-  await page.evaluate(async ({ section, provided, sessionId }) => {
+  await page.evaluate(async ({ section, provided, sessionId, stageClient }) => {
     let Settings
+    // stageClient: the core's stage client hold and loader run, and the loader's ctx.plugin applies the stage plugin
+    // with the core's tavernStageFrontend.
+    const services = {}, stageEffects = ['dsh-tavern: stage client hold', 'dsh-tavern: stage client loader']
+    const stageCtx = { provide() {}, get: name => services[name], effect(run) { return run() } }
     window.client.apply({
       inject() { return { dispose() {} } },
       // A provided panel (e.g. ttsLineSpeechSettings, placed by another plugin's page) renders as the page itself.
-      provide(name, value) { if (name === provided) Settings = () => value.render() },
+      provide(name, value) { services[name] = value; if (name === provided) Settings = () => value.render() },
+      plugin(plugin) { return plugin.apply(stageCtx) },
       get() {},
-      sessions: { subagentAddress() {} },
+      sessions: { subagentAddress() {}, list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } },
       betterSidebar: { registerTab(spec) { Settings = () => modules.react.createElement(spec.component, { scope: { sessionId } }); } },
       tavernSessionSignals: { subscribe() { return () => {} } },
-      effect(run, label) { if (label === section) return run() },
+      effect(run, label) { if (label === section || (stageClient && stageEffects.includes(label))) return run() },
       slots: { inject(_name, run) { return run() }, register(_spec, Component) { Settings = Component } }
     })
     // A renamed or removed section would otherwise leave the test waiting forever.
     for (const deadline = Date.now() + 3000; !Settings; await new Promise(resolve => setTimeout(resolve, 10)))
       if (Date.now() > deadline) throw new Error('No settings section ' + JSON.stringify(section || provided))
     modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null }))
-  }, { section, provided, sessionId })
+  }, { section, provided, sessionId, stageClient })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, calls }
 }
