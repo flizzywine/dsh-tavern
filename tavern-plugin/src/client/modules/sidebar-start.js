@@ -43,6 +43,7 @@ function tavernStartIcon(id, option, size) {
 
 // Group the flat catalog the same way the start page does: Tavern's own groups
 // first, then groups plugins registered, then plugin tabs, then the rest.
+// Plugins that name the same group share one section, in sidebar order.
 function tavernStartGroups(options, pluginGroups) {
 	const list = Array.isArray(options) ? options.filter(Boolean) : [];
 	const claimed = new Set();
@@ -52,10 +53,15 @@ function tavernStartGroups(options, pluginGroups) {
 		const found = ids.map(id => list.find(option => option.id === id)).filter(Boolean);
 		if (found.length) groups.push([title, found]);
 	}
+	const shared = new Map();
 	for (const group of pluginGroups || []) {
 		const tabs = (group && group.tabs || []).filter(id => !claimed.has(id) && (claimed.add(id), true));
 		const found = tabs.map(id => list.find(option => option.id === id)).filter(Boolean);
-		if (found.length) groups.push([group.title, found]);
+		if (!found.length) continue;
+		const section = shared.get(group.title);
+		if (!section) { shared.set(group.title, found); groups.push([group.title, found]); continue; }
+		section.push(...found);
+		section.sort((a, b) => list.indexOf(a) - list.indexOf(b));
 	}
 	const plugins = list.filter(option => String(option.id).startsWith("tavern-plugin:") && !claimed.has(option.id));
 	if (plugins.length) groups.push(["插件", plugins]);
