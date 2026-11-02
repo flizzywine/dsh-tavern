@@ -37,6 +37,28 @@ try {
   assert.deepEqual((await host.rpc('getFrameStorage', {})).values, {})
   assert.ok(await host.rpc('listCards', {}))
   host.services.get('sessions').set('stage-session', { id: 'stage-session', events: [] })
+  const signalsAbort = new AbortController()
+  const signals = host.services.get('tavernSessionSignals').follow(['stage-session'], signalsAbort.signal)
+  const identityPlugin = Object.assign(Object.create(tavern), { ctx: { fiber: { name: 'identity-test-plugin' } } })
+  try {
+    await signals.next()
+    assert.equal((await host.rpc('getSession', { sessionId: 'stage-session' })).view.playerName, '你')
+    const nextSignal = signals.next()
+    const timeout = setTimeout(() => signalsAbort.abort(), 5000)
+    try {
+      assert.equal(await identityPlugin.setPlayerName({ gameId: 'stage-session', playerName: '旅人' }), '旅人')
+      let update = await nextSignal
+      while (!update.done && !update.value.signal.version.startsWith('player-name:')) update = await signals.next()
+      assert.equal(update.done, false, 'plugin writes must wake the session view without a restart')
+      assert.equal(update.value.signal.kind, 'tavern-state')
+      assert.ok(update.value.signal.version.startsWith('player-name:'))
+      assert.equal((await host.rpc('getSession', { sessionId: 'stage-session' })).view.playerName, '旅人')
+      assert.equal(await identityPlugin.getPlayerName({ gameId: 'stage-session' }), '旅人')
+    } finally { clearTimeout(timeout) }
+  } finally {
+    signalsAbort.abort()
+    await signals.return()
+  }
   const bubbles = await host.rpc('getDialogueBubbles', { sessionId: 'stage-session' })
   assert.equal(bubbles.cardPath, imported.card.path)
   assert.ok(bubbles.config)

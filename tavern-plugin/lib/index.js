@@ -3118,6 +3118,7 @@ export async function apply(ctx) {
     if (chat.macroState === null || typeof chat.macroState !== 'object') chat.macroState = { userName: name, local: {}, global: {} }
     else chat.macroState.userName = name
     await writeChat(chat, { source: 'player-name.set' })
+    sessionSignals.publish(sessionId, { kind: 'tavern-state', version: 'player-name:' + Date.now() + ':' + Math.random().toString(36).slice(2) })
     return name
   }
   // ---------- 后台结算 ----------
