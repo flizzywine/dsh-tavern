@@ -27,17 +27,37 @@ test('card material becomes one pack named after the card; the same material aga
   const service = createAssetPackService({ assetRoot: root, voiceChannels: async () => ['fish-audio'] })
   t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   const first = await service.importCardMaterial({ name: 'Iroha', material: material() })
-  assert.deepEqual([first.status, first.notices], ['installed', []])
-  assert.deepEqual(await service.importCardMaterial({ name: 'Iroha', material: material() }), { ...first, status: 'noop' })
+  assert.deepEqual([first.status, first.notices, typeof first.revision], ['installed', [], 'string'])
+  const { revision: _revision, ...installed } = first
+  assert.deepEqual(await service.importCardMaterial({ name: 'Iroha', material: material() }), { ...installed, status: 'noop' })
+  assert.deepEqual(await service.importCardMaterial({ name: 'Another card', material: material() }), { ...installed, status: 'noop' }, 'the card name is not the identity')
   assert.notEqual((await service.importCardMaterial({ name: 'Iroha', material: material(png([1, 2, 3])) })).packId, first.packId, 'other material is another pack')
 
   const projected = await service.projectCardMaterial({ packIds: [first.packId] })
   const [character] = projected.characters
-  assert.deepEqual([character.name, character.aliases, Object.keys(character.sprites), character.voiceLanguage, character.voiceSource],
-    ['彩叶', ['Iroha'], ['neutral', 'joy', 'sadness'], 'ja', { provider: 'fish', clone: true }])
+  assert.deepEqual([character.name, character.aliases, character.labels, character.voiceLanguage, character.voiceSource],
+    ['彩叶', ['Iroha'], { neutral: '平静', joy: '开心', sadness: '难过' }, 'ja', { provider: 'fish', clone: true }])
   assert.deepEqual(await projected.read(character.avatar), png([240, 160, 180]))
   assert.deepEqual(await Promise.all(character.references.map(clip => projected.read(clip.file))), [1, 2, 3].map(wav))
   assert.deepEqual(projected.backgrounds.map(row => row.name), ['教室'])
+})
+
+test('a pack id names one content: an unmatched voice source is dropped from the pack, and nothing usable makes no pack', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'card-material-'))
+  const service = createAssetPackService({ assetRoot: root, voiceChannels: async () => [] })
+  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
+  const unmatched = await service.importCardMaterial({ name: 'Iroha', material: material() })
+  assert.deepEqual([unmatched.status, unmatched.notices], ['installed', ['彩叶的声音来源 fish 没有对应渠道，已忽略']])
+  const [character] = (await service.projectCardMaterial({ packIds: [unmatched.packId] })).characters
+  assert.equal(character.voiceSource, undefined, 'the dropped source is not in the pack')
+  assert.equal(character.references.length, 3)
+  const configured = createAssetPackService({ assetRoot: join(root, 'other'), voiceChannels: async () => ['fish-audio'] })
+  t.after(() => configured.dispose())
+  assert.notEqual((await configured.importCardMaterial({ name: 'Iroha', material: material() })).packId, unmatched.packId, 'other content, other id')
+
+  for (const empty of [{ characters: [{ name: '空', aliases: [], sprites: [], voiceSource: {} }] }, { characters: [{ name: '空', aliases: [], sprites: [], voiceSource: { provider: '' } }] }]) {
+    assert.deepEqual(await service.importCardMaterial({ name: 'Empty', material: empty }), { packId: null, status: 'empty', notices: [] })
+  }
 })
 
 test('cast voice fields and a library voice map both ways through one mapping', () => {
@@ -47,7 +67,8 @@ test('cast voice fields and a library voice map both ways through one mapping', 
   assert.deepEqual(matched.voice.sources[matched.voice.defaultSource], { kind: 'preset', provider: 'openai-compatible', voiceName: 'alloy' })
   assert.deepEqual(castVoiceFields(matched.voice, matched.binding), { references, voiceLanguage: 'ja', voiceSource: { provider: 'openai' }, voices: { openai: 'alloy' } })
   const clipsOnly = castVoice({ name: 'Voice owner', references, voiceSource: { provider: 'fish', clone: true } }, [], 'voice-b')
-  assert.deepEqual([clipsOnly.dropped, clipsOnly.voice.language, clipsOnly.voice.sources.fish.references.length], ['fish', 'zh', 1], 'an unmatched source keeps the clips')
+  assert.deepEqual([clipsOnly.dropped, clipsOnly.voice.language, clipsOnly.voice.sources.fish.references.length, clipsOnly.binding.source], ['fish', 'zh', 1, null], 'an unmatched source keeps the clips, chosen by nothing')
+  assert.deepEqual(castVoiceFields(clipsOnly.voice, clipsOnly.binding), { references, voiceLanguage: 'zh' })
   const unmatched = castVoice({ name: 'Voice owner', references: [], voiceSource: { provider: 'minimax' }, voices: { minimax: 'x' } }, ['fish-audio'], 'voice-c')
   assert.deepEqual([unmatched.voice, unmatched.dropped], [null, 'minimax'])
 })

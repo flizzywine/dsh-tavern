@@ -7,19 +7,21 @@ const CHANNEL_OF = Object.fromEntries(Object.entries(CAST_VOICE_CHANNELS).map(([
 /**
  * A cast character's voice as a pack voice and the figure's binding. `references` are the clips already stored as pack
  * media ([{media, text}]); `channels` the voice service kinds configured here. A source without such a channel is
- * dropped and named in `dropped` (the clips stay); null voice when nothing is left.
+ * dropped and named in `dropped`: the clips stay as the voice's reference list and the figure chooses no source
+ * (binding.source null), as when the card names none. Null voice when nothing is left.
  */
 export function castVoice({name, references = [], voiceSource, voiceLanguage, voices = {}}, channels, voiceId) {
   const language = voiceLanguage || 'zh', sources = {}
   if (references.length) sources.fish = {kind:'reference-list', provider:'fish-audio', references:references.map(clip => ({media:clip.media, text:clip.text || '', language}))}
   const channel = voiceSource?.provider, kind = CAST_VOICE_CHANNELS[channel]
-  let defaultSource = references.length ? 'fish' : '', dropped = ''
+  let chosen = null, dropped = ''
   if (channel && !(kind && channels.includes(kind))) dropped = String(channel)
-  else if (kind === 'fish-audio' && !voiceSource.clone && voices.fish) { sources['fish-id'] = {kind:'voice-id', provider:kind, voiceId:voices.fish}; defaultSource = 'fish-id' }
-  else if (kind === 'fish-audio') { sources.fish ||= {kind:'reference-list', provider:kind, references:[]}; defaultSource = 'fish' }
-  else if (kind) { sources[kind] = {kind:'preset', provider:kind, ...(voices[channel] ? {voiceName:voices[channel]} : {})}; defaultSource = kind }
+  else if (kind === 'fish-audio' && !voiceSource.clone && voices.fish) { sources['fish-id'] = {kind:'voice-id', provider:kind, voiceId:voices.fish}; chosen = 'fish-id' }
+  else if (kind === 'fish-audio') { sources.fish ||= {kind:'reference-list', provider:kind, references:[]}; chosen = 'fish' }
+  else if (kind) { sources[kind] = {kind:'preset', provider:kind, ...(voices[channel] ? {voiceName:voices[channel]} : {})}; chosen = kind }
+  const defaultSource = chosen || Object.keys(sources)[0]
   if (!defaultSource) return {voice:null, binding:null, dropped}
-  return {voice:{name, language, defaultSource, sources}, binding:{voice:voiceId}, dropped}
+  return {voice:{name, language, defaultSource, sources}, binding:{voice:voiceId, ...(chosen ? {} : {source:null})}, dropped}
 }
 
 /** The cast voice fields of a figure's voice: its reference clips ([{media, text}]), language and chosen source. */

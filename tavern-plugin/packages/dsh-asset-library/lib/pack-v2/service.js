@@ -652,16 +652,18 @@ export function createAssetPackService(options) {
       })
     },
     // A card's loose material (no packs of its own) as one pack named after the card; the card binds it. The same material
-    // names the same pack: already installed (perhaps edited since), it is left as it is.
+    // names the same pack: already installed (perhaps edited since), it is left as it is. Nothing usable: no pack
+    // (status 'empty'), only the notices. A new pack's revision lets the caller take it back (removePack) when the card
+    // it was made for is not written.
     async importCardMaterial({name, material}) {
       alive(); check(typeof name === 'string' && name.trim().length > 0, '$.name')
       const built = await cardMaterialPack({...material, name}, (await options.voiceChannels?.()) || [])
-      if (!built?.manifest) return built && {packId:null, status:'empty', notices:built.notices}
+      if (!built.manifest) return {packId:null, status:'empty', notices:built.notices}
       const packId = built.manifest.id
       return run([packId], async () => {
         if (await metadata(packId)) return {packId, status:'noop', notices:built.notices}
         const result = await install(await importPack(built.manifest, built.files), null)
-        return {packId, status:result.status, notices:built.notices}
+        return {packId, status:result.status, revision:result.snapshot.revision, notices:built.notices}
       })
     },
     // The figures and backgrounds of a card's packs as cast material (a CHARX export). Files are named
