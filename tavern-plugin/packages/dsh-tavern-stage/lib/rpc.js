@@ -53,7 +53,7 @@ return method==='getStageTimer'?stageTimer.read(args):stageTimer.update(args)
 return modService.builtinImages('dsh.timer')
     },
     async getStageTimerReaction(args, method, serverTemplate, authority) {
-      const { STAGE_TIMER_FIELD, assetEngineSettings, assetRuntime, readRoundView, stageDirector } = deps
+      const { STAGE_TIMER_FIELD, assetEngineSettings, assetRuntime, cardStageSwitch, readRoundView, stageDirector } = deps
 
         const chat=await readRoundView(args.sessionId,args.turn)
         if(!chat)return {status:'unavailable'}
@@ -61,7 +61,7 @@ return modService.builtinImages('dsh.timer')
         if(JSON.stringify(direction.token)!==JSON.stringify(args.expectedDirectionToken))return {status:'stale'}
         const message=chat.messages.findLast(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))===Number(args.turn))
         const event=message?.[STAGE_TIMER_FIELD]?.events?.find(row=>row.id===args.eventId),ref=event?.onTimeup
-        if(!ref || assetEngineSettings.read().values.stageToggles.performance === false)return {status:'unavailable'}
+        if(!ref || !await cardStageSwitch(chat.cardPath,'performance'))return {status:'unavailable'}
         const consumer=await assetRuntime.consumer(chat,authority?.origin)
         if(!consumer?.presentation.available() || !consumer.allowedPackIds.includes(ref.packId))return {status:'unavailable'}
         const metadata=await consumer.presentation.performanceMetadata([ref])
@@ -70,7 +70,7 @@ return modService.builtinImages('dsh.timer')
 
     },
     async getStageItems(args, method, serverTemplate, authority) {
-      const { assetEngineSettings, readCardWorkspace, readRoundView, stageDirector } = deps
+      const { cardStageSwitch, readCardWorkspace, readRoundView, stageDirector } = deps
 
         const chat = await readRoundView(args.sessionId,args.turn)
         if (!chat) return {enabled:false,records:[]}
@@ -78,7 +78,7 @@ return modService.builtinImages('dsh.timer')
         const ids = [...new Set([...((raw?.data || raw)?.extensions?.dsh_tavern?.assetBindings?.boundPackIds || []),...(ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [])])]
         const library = ctx.get('assetLibrary')
         const snapshots = library ? (await Promise.all(ids.map(packId => library.getPackSnapshot({packId}).catch(() => null)))).filter(Boolean) : []
-        if (assetEngineSettings.read().values.stageToggles.items === false) return {enabled:false,records:[],performances:[]}
+        if (!await cardStageSwitch(chat.cardPath,'items')) return {enabled:false,records:[],performances:[]}
         if (args.revision === chat._storageRevision && args.waiting !== true) return {unchanged:true}
         const turn = Number(args.turn), direction = await stageDirector.get(chat,turn,null,{readOnly:true})
         const performances=(direction.modPerformances || []).filter(row=>row.kind==='core.items.item' && !row.removed).map(row=>{
@@ -164,7 +164,7 @@ return cgGallery.ack(args,authority?.origin)
 
     },
     async getAssetPackPresentation(args, method, serverTemplate, authority) {
-      const { STAGE_PLAYBACK_FIELD, assetEngineSettings, assetRuntime, cgGallery, chatPersistence, deletedChatIds, modService, patchStagePlayback, readRoundOps, readRoundView, readStageProjection, readWidgetWindowProjection, requestPerformance, figureRuntimes, stageDirector, stageTimer, view } = deps
+      const { STAGE_PLAYBACK_FIELD, assetEngineSettings, assetRuntime, cardStageSwitch, cgGallery, chatPersistence, deletedChatIds, modService, patchStagePlayback, readRoundOps, readRoundView, readStageProjection, readWidgetWindowProjection, requestPerformance, figureRuntimes, stageDirector, stageTimer, view } = deps
 
         if (Object.hasOwn(args,'widgetWindow')) {
           // One turn view per request, naming the earlier rounds whose beats mark this widget: later reads in the same
@@ -200,7 +200,7 @@ return cgGallery.ack(args,authority?.origin)
           const marked=[...new Set([...phoneRounds(marks.records),...widgetSourceRounds(marks.records)])]
           if (marked.length) await marks.view(marked)
         })().catch(() => {})
-        const performanceEnabled=!!chat && assetEngineSettings.read().values.stageToggles.performance !== false
+        const performanceEnabled=!!chat && await cardStageSwitch(chat.cardPath,'performance')
         return cgGallery.project(args,() => readStageProjection({
           ...args, trace:requestPerformance, live2d, spine, performanceEnabled, revision:() => assetRuntime.revision, readSettings:() => assetEngineSettings.read(),
           readCountdown:async ({direction,at}) => stageTimer.read({sessionId:args.sessionId,turn:Number(args.turn),at,expectedDirectionToken:direction.token,mode:args.history?'history':'live'}),

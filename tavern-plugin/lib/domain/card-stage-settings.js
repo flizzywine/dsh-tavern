@@ -1,7 +1,8 @@
 import cardStageModeProtocol from '../../packages/dsh-presentation-protocol/src/card-stage-mode.cjs'
 const {cardStageMode} = cardStageModeProtocol
 // Global stage toggles and card-owned visual/module preferences.
-import { DIRECTOR_DIMENSIONS, RETIRED_STAGE_SKINS, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
+import { DIRECTOR_DIMENSIONS, RETIRED_STAGE_SKINS, STAGE_TOGGLES, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
+import { resolveSwitch } from './mod-system.js'
 import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { shape, bool, check } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
@@ -16,8 +17,13 @@ export function validateStageSkinSelection(skin, path) {
 export function validateCardStage(value, path = '$.stage') {
   // enabled is the single card declaration; dialogue/stage remain accepted for old cards.
   const switches = ['enabled', 'widgets', 'dialogue', 'stage']
-  shape(value, [...switches, 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
+  shape(value, [...switches, 'switches', 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
+  // 基础设置's card layer (本卡开启 / 本卡关闭) of each four-state switch; a missing key follows the global switch.
+  if (value.switches !== undefined) {
+    shape(value.switches, CARD_STAGE_SWITCHES, [], path + '.switches')
+    for (const [key, choice] of Object.entries(value.switches)) check(choice === 'on' || choice === 'off', path + '.switches.' + key)
+  }
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
   // defaultSkin is the card's one skin value 「使用皮肤」: exported and imported with the card, and written by
   // CONFIG › 画面「本卡皮肤」. Presentation policy, never a recorded director operation. `skinChoice` is the retired
@@ -64,21 +70,47 @@ export function cardContentPackIds(extension) {
   return (extension?.assetBindings?.boundPackIds || []).filter(id => id !== extension.modConfigPackId)
 }
 
+// The card-declared pair: their card layer is stage.enabled (cardStageChoice), not stage.switches.
+const CARD_DECLARED = ['dialogue', 'stage']
+
+// The four-state switches of 基础设置: the engine's stageToggles (global) and 自动生成选项 (global: tavern settings
+// candidateAutoGenerate), each with this card's stage.switches key. 旁白配音's card layer is stage.narrator.enabled;
+// 对话气泡 / 舞台模式's is stage.enabled.
+export const CARD_STAGE_SWITCHES = Object.freeze([...STAGE_TOGGLES.filter(key => !CARD_DECLARED.includes(key)), 'autoChoices'])
+
+// The card layer of 对话气泡 / 舞台模式: the card's declaration as cardStageMode reads it (stage.enabled for both, or an
+// older card's dialogue / stage pair; 舞台模式 needs 对话气泡); no declaration = null, follow the global switch.
+export function cardStageChoice(stored, key) {
+  if (stored?.enabled === undefined && stored?.dialogue === undefined && stored?.stage === undefined) return null
+  return cardStageMode(stored)[key] ? 'on' : 'off'
+}
+
+// The one place a card's stage switches are decided: each resolves 本卡关闭 > 全局开启 > 本卡开启 > 全局关闭 (resolveSwitch,
+// the mods' own rule), then 舞台模式 needs 对话气泡 in effect. The stage's own kinds (BGM … 入场演出) need no gate here: without
+// the stage there is no stage snapshot (asset-runtime.js), and the panel greys them by the same effective state.
 export function effectiveCardStage(extension, engine) {
   const stored = extension?.stage || {}
   validateCardStage(stored)
-  // 对话气泡 and 舞台模式 come from the card alone; the global switches cover the rest (配音, music, sounds, …).
-  const { dialogue: _dialogue, stage: _stage, ...global } = engine?.stageToggles || defaultAssetEngineSettings().stageToggles
-  const value = {widgets:false, ...stored, ...global}
-  Object.assign(value, cardStageMode(stored))
+  const global = engine?.stageToggles || defaultAssetEngineSettings().stageToggles, card = stored.switches || {}
+  const choice = key => CARD_DECLARED.includes(key) ? cardStageChoice(stored, key) : card[key]
+  const value = {widgets:false, ...stored, ...Object.fromEntries(STAGE_TOGGLES.map(key => [key, resolveSwitch(global[key], choice(key))]))}
+  // an ordinary card (no dsh_tavern extension) never has 对话气泡 or 舞台模式, whatever the global switches say.
+  value.dialogue &&= !!extension
+  value.stage &&= value.dialogue
   return value
+}
+
+// 自动生成选项 for a card: the global candidateAutoGenerate with this card's switch.
+export function effectiveAutoChoices(extension, globalOn) {
+  return resolveSwitch(globalOn === true, extension?.stage?.switches?.autoChoices)
 }
 
 // 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one, the tts plugin's
 // tts.reading().narrator (`globalNarrator`; absent = off). The voice is {packId, figureId}, {browser} or {serviceId, voice}.
 export function effectiveNarrator(extension, globalNarrator) {
   const global = globalNarrator || {enabled:false, voice:null}, card = extension?.stage?.narrator || {}
-  return {enabled:(card.enabled ?? global.enabled) === true, voice:card.voice !== undefined ? card.voice : global.voice}
+  // its switch is four-state too: the card layer's enabled (true 本卡开启, false 本卡关闭) with the global one.
+  return {enabled:resolveSwitch(global.enabled, card.enabled === undefined ? null : card.enabled ? 'on' : 'off'), voice:card.voice !== undefined ? card.voice : global.voice}
 }
 
 export function cardEngineSettings(engine, extension) {
@@ -89,5 +121,5 @@ export function cardEngineSettings(engine, extension) {
   for (const [toggle, dimension] of [['performance','performance'], ['items','items'], ['music','music'], ['sfx','sfx'], ['ambience','soundscape'], ['widgets','widgets']]) {
     dimensions[dimension] = stage[toggle] === true
   }
-  return {...engine, dimensions}
+  return {...engine, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key, stage[key]])), dimensions}
 }

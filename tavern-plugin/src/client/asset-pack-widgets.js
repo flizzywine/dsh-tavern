@@ -45,10 +45,13 @@ function StageSection({title,meta,help,need,active,onEnable,children,className,a
 // a row with a detail page (`onOpen(rowElement)`, its 「›」 in `status`) opens
 // it from anywhere but the switch — icon, name, empty space, ⚠; only the switch toggles (Space). The 「›」 is the keyboard
 // route (Enter) and its focus ring is drawn around the row. A row without a page keeps the whole-row <label> toggle.
-function SwitchRow({label,ariaLabel,icon,help,checked,disabled,onChange,status,onOpen}) {
+// `tag` (基础设置): a four-state text switch (StageSwitchTag) in place of the on/off switch; the row is then never a <label>.
+function SwitchRow({label,ariaLabel,icon,help,checked,disabled,onChange,status,onOpen,tag}) {
+  const name=h('span',{className:'ap-switch-name'},icon&&h(Glyph,{name:icon}),h('span',null,label),help&&h(Help,{text:help,label:label+' 说明'}));
+  if(tag)return h('div',{className:'ap-switch-row has-tag'+(onOpen?' is-openable':''),'data-disabled':disabled||undefined,onClick:onOpen?switchRowClick(onOpen):undefined},
+    h('div',{className:'ap-switch-main'},name,status||null,tag));
   // The switch comes first in the DOM (CSS order puts it on the right) so the label's control is the switch, not the 「?」.
   const toggle=h(Switch,{bare:true,label:ariaLabel||label,checked,disabled,onChange}); // the one switch (inline-field.js)
-  const name=h('span',{className:'ap-switch-name'},icon&&h(Glyph,{name:icon}),h('span',null,label),help&&h(Help,{text:help,label:label+' 说明'}));
   // no state tag beside the switch — the switch is the state; a row that needs an
   // action adds the ⚠ chip only.
   if(!onOpen)return h('div',{className:'ap-switch-row','data-disabled':disabled||undefined},h('label',{className:'ap-switch-main'},toggle,name,status||null));

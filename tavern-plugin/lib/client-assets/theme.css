@@ -6253,8 +6253,11 @@ textarea:is(input.fork-edit, textarea.fork-edit, .ap-ui input:not([type=checkbox
 .fork-mod-switch-anchor { flex: none; }
 .fork-mod-switch-anchor .ap-popover { min-width: 168px; padding: 5px; }
 .ap-ui button.fork-mod-switch-opt[aria-checked=true] { background: var(--fork-hover); }
-.fork-mod-row .ap-switch-main > .fork-mod-switch-anchor { order: 3; }
-.fork-mod-row .ap-switch-main > .ap-hint-line.is-compact { order: 2; margin-right: 0; }
+.fork-mod-row .ap-switch-main > .fork-mod-switch-anchor, .ap-switch-row.has-tag .ap-switch-main > .fork-mod-switch-anchor { order: 3; }
+.fork-mod-row .ap-switch-main > .ap-hint-line.is-compact, .ap-switch-row.has-tag .ap-switch-main > .ap-hint-line.is-compact { order: 2; margin-right: 0; }
+/* 舞台设置 › 基础设置 uses the same tag; a row greyed by an upstream switch greys its tag too (the stored choice stays shown). */
+.ap-ui .ap-switch-row[data-disabled] button.fork-mod-switch:disabled { color: var(--fork-ink-3); cursor: default; }
+.ap-switch-row.has-tag:not(.is-openable) .ap-switch-main { cursor: default; }
 .fork-mod-notices { display: grid; gap: 6px; margin: 0 0 12px; }
 .fork-mod-section > .ap-section-body > .ap-hint-line, .fork-mod-section > .ap-section-body > .ap-notice { margin: 0 0 8px; }
 

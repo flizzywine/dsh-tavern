@@ -18,7 +18,8 @@ function identity(chat) {
 
 const playModes = ['story', 'script']
 
-export function createAutoChoices({ read, preferences, activity, submit,
+// `enabled(chat)`: 自动生成候选项 in effect for the chat's card (the global switch with the card's own, effectiveAutoChoices).
+export function createAutoChoices({ read, enabled: enabledFor, activity, submit,
   defer = callback => setTimeout(callback, 1000), clear = clearTimeout, report = console.error }) {
   const pending = new Map()
   const seen = new Set()
@@ -44,8 +45,8 @@ export function createAutoChoices({ read, preferences, activity, submit,
 
   async function check(item) {
     try {
-      const enabled = (await preferences()).candidateAutoGenerate === true
       const state = await read(item.sessionId)
+      const enabled = await enabledFor(state?.chat) === true
       if (!current(item)) return
       const chat = state?.chat
       if (!enabled || !chat || !playModes.includes(chat.mode || 'story') ||
@@ -89,8 +90,8 @@ export function createAutoChoices({ read, preferences, activity, submit,
     const item = { sessionId, messageId, requestId: 'auto-choices-' + createHash('sha256').update(key).digest('hex') }
     pending.set(sessionId, item)
     try {
-      const enabled = (await preferences()).candidateAutoGenerate === true
       const state = await read(sessionId)
+      const enabled = await enabledFor(state?.chat) === true
       if (!current(item)) return
       const chat = state?.chat
       const reply = latestReply(chat)

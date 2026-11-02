@@ -182,8 +182,8 @@ function ModConfigList({ rpc, cardId, cardName, sessionId, modId, manifest, data
         entries || null);
 }
 // ---------- 物品 (items core) ----------
-// A built-in capability, not a mod (AGENTS rule 15: one global switch, a card differs by its entries): the switch is the
-// engine's stageToggles.items — the 基础设置 row 「物品 ›」 under BGM / 音效 / 环境音, and this page's head. No 全局 | 本卡
+// A built-in capability, not a mod: the four-state switch (engine stageToggles.items with this card's stage.switches.items,
+// stageSwitchTag) — the 基础设置 row 「物品 ›」 under BGM / 音效 / 环境音, and this page's head. No 全局 | 本卡 settings
 // layer and no categories: an 物品's own 标签 group it, and a pack may give a tag an icon (素材包 ⋯ › 标签图标).
 //   ‹ 物品 (?) ………………… switch          the page head
 //   设置 (?)                              状态来源 (global, dsh.state) · 背包 (the card's one variable binding)
@@ -359,7 +359,7 @@ function ItemsInventory({ ctx, state }) {
 // The page (StagePage sub-page; ‹ and Esc go back to 舞台设置, the focus returns to the 基础设置 row's 「›」).
 function StageItemsPage({ ctx, onBack }) {
     const h = React.createElement, state = useItemsSlot(ctx), missing = stageMissing('stage', ctx.active);
-    const toggle = h(Switch, { bare: true, label: '物品', checked: ctx.prefs.items !== false, disabled: missing.length > 0, onChange: value => ctx.writer.global({ items: value }) });
+    const toggle = stageSwitchTag(ctx, 'items', '物品', missing.length > 0);
     return h('article', { className: 'ap-mod-detail fork-items-page', onKeyDown: subpageKeys(onBack) },
         h(SubpageHead, { parent: '舞台设置', title: '物品', onBack, className: 'fork-mod-head', help: h(Help, { text: ITEMS_HELP, label: '物品 说明' }), tools: toggle }),
         h('div', { className: 'fork-cfg-page', 'data-mod': 'core.items' },

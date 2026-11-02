@@ -27673,40 +27673,47 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // the director command toggles live only on 舞台模式 › 可用演出
 // (asset-pack-engine-ui.js); a card has no command chips and its stored stage.dimensions is never read or written.
 
-// ---------- Pure helpers (tests/card-centric-stage-ui.test.mjs) ----------
-// A card declares stage.enabled; legacy dialogue/stage fields are read only for compatibility.
-// Other switches remain global and share backend defaults.
-const CARD_SWITCHES=['enabled','dialogue','stage'];
+// ---------- Pure helpers (tests/card-stage-switch-ui.test.mjs) ----------
+// 基础设置's switches are four-state like a mod's (全局开启 / 全局关闭 / 本卡开启 / 本卡关闭, ModSwitchTag): the global layer
+// is the engine's stageToggles, the card layer this card's stage.switches ('on' / 'off'; a missing key follows the global
+// switch). 使用舞台's card layer is the card's own declaration (stage.enabled, read through cardStageMode). Each resolves with
+// the mods' own rule (modSwitchOn; the host: card-stage-settings.js effectiveCardStage).
+const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true};
+const STAGE_DECLARED=['dialogue','stage'];
+// The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
+function stageDeclared(stored,key) {
+  if(stored?.enabled===undefined&&stored?.dialogue===undefined&&stored?.stage===undefined)return undefined;
+  return cardStageMode(stored)[key]?'on':'off';
+}
+function stageSwitchLayers(ext,engine) {
+  const stored=ext?.stage||{},card={...(stored.switches||{})};
+  for(const key of STAGE_DECLARED)card[key]=stageDeclared(stored,key);
+  return {global:{...STAGE_SWITCH_DEFAULTS,...engine?.values?.stageToggles},card};
+}
 function stagePrefs(ext,engine) {
-  const {dialogue:_dialogue,stage:_stage,...global}=engine?.values?.stageToggles||{};
-  return {widgets:false,...(ext?.stage||{}),
-    voice:true,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,...global,
-    ...cardStageMode(ext?.stage)};
+  const {global,card}=stageSwitchLayers(ext,engine);
+  return {widgets:false,...(ext?.stage||{}),...Object.fromEntries(Object.keys(global).map(key=>[key,modSwitchOn(global[key],card[key])]))};
 }
-// The single stage choice is card-owned; other switches go to global settings.
-function stageWrite(writer,changes) {
-  const card={},global={};
-  for(const [key,value] of Object.entries(changes))(CARD_SWITCHES.includes(key)?card:global)[key]=value;
-  const jobs=[];
-  if(Object.keys(card).length)jobs.push(writer.write(ext=>stagePatch(ext,card)));
-  if(Object.keys(global).length)jobs.push(writer.global(global));
-  return Promise.all(jobs);
-}
-// What actually runs: every switch needs its upstream switches on.
+// What actually runs: every switch needs its upstream switches in effect.
 function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice,stage:dialogue&&!!prefs.stage}; }
+// A card-layer change, `undefined` clearing the key (the switch follows the global one again). 使用舞台 ('stage') writes
+// the card's declaration: 'on' / 'off' set stage.enabled, `undefined` removes it (an older dialogue / stage pair too).
+function stageSwitchPatch(ext,changes) {
+  const stored=ext?.stage||{},next={...(stored.switches||{})},declared={};
+  for(const [key,value] of Object.entries(changes)){if(STAGE_DECLARED.includes(key))declared.enabled=value===undefined?undefined:value==='on';else next[key]=value;}
+  for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
+  return stagePatch(ext,{switches:Object.keys(next).length?next:undefined,...(Object.hasOwn(declared,'enabled')?{enabled:declared.enabled,dialogue:undefined,stage:undefined}:{})});
+}
 // A stage patch replaces only card preferences; `undefined` removes an override.
 function stagePatch(ext,changes) {
   const next={...(ext?.stage||{})};
-  if (Object.hasOwn(changes,'enabled') || Object.hasOwn(changes,'stage') || Object.hasOwn(changes,'dialogue')) {
-    next.enabled = changes.enabled ?? changes.stage ?? changes.dialogue;
-    delete next.dialogue; delete next.stage;
-    changes = Object.fromEntries(Object.entries(changes).filter(([key])=>!['enabled','dialogue','stage'].includes(key)));
-  }
   Object.assign(next,changes);
   for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
   return {stage:next};
 }
-function stageEnable(key) { return Object.fromEntries([...STAGE_REQUIRES[key],key].map(k=>[k,true])); }
+// 「需要… · 去开启」: like a mod's dependency 「开启」, the missing switches become 本卡开启 (a switch that is on and only waits for
+// 使用舞台 keeps its layer).
+function stageEnable(key,active,prefs) { return Object.fromEntries(stageMissing(key,active).filter(k=>k==='stage'||prefs[k]!==true).map(k=>[k,'on'])); }
 // cards select packs; figure policy is authored in the library.
 function emptyExtension() { return {schemaVersion:1,assetBindings:{boundPackIds:[]}}; }
 // the packs whose entries 舞台设置 reads in full — lit for this card (全局 / 本卡:
@@ -27863,7 +27870,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
   const ttsState=!binding.tts?'off':services.value&&!services.value.length?'empty':'ok';
   // machine service settings return to the page, never to a retired card voice editor.
   const openVoice=()=>{writeStageReturn(stageSession(),{label:'返回舞台设置',payload:{cardPath:path}});return nav?.openTab?.(VOICE_TAB);};
-  const enable=key=>stageWrite(writer,stageEnable(key));
+  const enable=key=>writer.write(current=>stageSwitchPatch(current,stageEnable(key,active,prefs)));
   const status=writer.status;
   const saveState=h('span',{className:'ap-save-state',role:'status','data-state':typeof status==='object'?'error':status},status==='saving'?'正在保存…':status==='saved'?'已保存':'');
   const wizardButton=stageSetupReady(binding)&&h('button',{type:'button',className:'ap-manage ap-wizard-open',ref:wizardReturn,onClick:()=>setWizard(true)},'设置向导');
@@ -28035,26 +28042,45 @@ const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!
 // 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
 // follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
 // dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
-const STAGE_BASIC_HELP='“使用舞台”只对这张卡生效，开启时自动提供对话气泡和完整舞台；其余开关对所有卡生效。某张卡没有对应素材时，导演不会收到相关说明。';
+const STAGE_BASIC_HELP='每个开关和模组一样有四种状态：全局开启 / 关闭对没有单独设置的卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效，本卡关闭优先。“使用舞台”本卡开启时自动提供对话气泡和完整舞台。某张卡没有对应素材时，导演不会收到相关说明。';
 const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
+// One 基础设置 switch as the mods' text switch (ModSwitchTag, the one implementation). 本卡 writes this card's layer; a 全局
+// choice clears it (when set), then writes the global layer (when it differs), like a mod's two plans. `global` is the
+// global layer's boolean, `card` the card's 'on' / 'off' (undefined: not set).
+function StageSwitchTag({name,global,card,disabled,busy,writeCard,writeGlobal}) {
+  const change=(scope,value)=>{
+    if(scope==='card')return writeCard(value);
+    if(card!==undefined)writeCard(undefined);
+    if(global!==value)writeGlobal(value);
+  };
+  return h(ModSwitchTag,{name,switches:{global,card:card??null,effective:modSwitchOn(global,card)},cardScoped:true,busy,disabled,onChange:change});
+}
+// A stageToggles switch: global = engine stageToggles, card = stage.switches. 使用舞台 ('stage') is one row for the
+// declared pair: its global choice writes both stageToggles.dialogue and .stage, its card choice stage.enabled.
+function stageSwitchTag(ctx,key,name,disabled) {
+  const {global,card}=stageSwitchLayers(ctx.ext,ctx.engine),declared=key==='stage';
+  return h(StageSwitchTag,{name,global:declared?global.dialogue===true&&global.stage===true:global[key]===true,card:card[key],disabled,
+    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{[key]:value})),writeGlobal:value=>ctx.writer.global(declared?{dialogue:value,stage:value}:{[key]:value})});
+}
 function StageSwitches({ctx}) {
-  const {prefs,active,writer}=ctx,set=(key,value)=>stageWrite(writer,{[key]:value});
+  const {active}=ctx;
   const row=(key,status,onOpen)=>{const blocked=stageMissing(key,active).some(k=>k!==key);
-    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],checked:prefs[key],disabled:blocked,help:blocked?(key==='stage'?'先打开对话气泡':stageNeedText(key,active)):undefined,onChange:v=>set(key,v),status,onOpen});};
-  // Sounds play on the stage: greyed (stored value kept) while 舞台模式 is off, like a dependent switch.
+    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],disabled:blocked,help:blocked?stageNeedText(key,active):undefined,
+      tag:stageSwitchTag(ctx,key,STAGE_NAMES[key],blocked),status,onOpen});};
+  // Sounds play on the stage: greyed (stored choice kept) while the stage is not in effect, like a dependent switch.
   const sound=([key,label,icon])=>{const missing=stageMissing('stage',active);
-    return h(SwitchRow,{key,label,icon,checked:prefs[key]!==false,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
-      onChange:v=>set(key,v),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
+    return h(SwitchRow,{key,label,icon,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+      tag:stageSwitchTag(ctx,key,label,missing.length>0),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
   return h('div',{ref:ctx.basicRef},h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,action:ctx.headTools,reveal:ctx.setupComplete},
     active.voice?h(StageVoiceRow,{key:'voice',ctx,row}):row('voice'),
     h(StageNarratorRow,{key:'narrator',ctx}),
-    h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,checked:active.stage,onChange:value=>stageWrite(writer,{enabled:value}),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
-    h(StageAutoChoicesRow,{key:'auto-choices'}),
+    h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,tag:stageSwitchTag(ctx,'stage','使用舞台',false),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
+    h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
     h(StageGlobalSkin,{key:'skin',ctx}),
     AUDIO_ROWS.map(sound),
-    h(StageItemsRow,{key:'items',ctx,set}),
-    h(StagePerformanceRow,{key:'performance',ctx,set}),
-    h(StageEntranceRow,{key:'entrance',ctx,set})));
+    h(StageItemsRow,{key:'items',ctx}),
+    h(StagePerformanceRow,{key:'performance',ctx}),
+    h(StageEntranceRow,{key:'entrance',ctx})));
 }
 // 旁白配音 — 舞台设置 › 基础设置 「旁白配音 ›」 and its page. Two layers like a mod's settings
 // (ui-design.md R8 / §三.25): the global layer (the tts plugin's tts.reading.narrator, complete) and this card's (stage.narrator,
@@ -28062,9 +28088,11 @@ function StageSwitches({ctx}) {
 // config.narrator. A global voice is a browser voice or a service voice ({serviceId, voice}); a card's a browser voice or a figure.
 
 const NARRATOR_DEFAULT=Object.freeze({enabled:false,voice:null});
+// its switch is four-state too: the card layer's enabled (true 本卡开启, false 本卡关闭) with the global one.
+const narratorCardSwitch=card=>card.enabled===undefined?undefined:card.enabled?'on':'off';
 function narratorLayers(ext,reading) {
   const global={...NARRATOR_DEFAULT,...reading?.narrator},card=ext?.stage?.narrator||{};
-  return {global,card,effective:{enabled:(card.enabled??global.enabled)===true,voice:card.voice!==undefined?card.voice:global.voice}};
+  return {global,card,effective:{enabled:modSwitchOn(global.enabled===true,narratorCardSwitch(card)),voice:card.voice!==undefined?card.voice:global.voice}};
 }
 const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
   :'figure:'+JSON.stringify([voice.packId,voice.figureId]);
@@ -28075,8 +28103,6 @@ function narratorVoiceFromKey(key) {
   const [packId,figureId]=JSON.parse(key.slice(7));
   return {packId,figureId};
 }
-// The basic row's switch writes the layer that decides it now: this card's when it overrides the switch, else the global one.
-const narratorSwitchScope=ext=>ext?.stage?.narrator?.enabled!==undefined?'card':'global';
 // A card layer patch: `undefined` removes a key; an empty layer removes stage.narrator.
 function narratorCardPatch(ext,changes) {
   const next={...(ext?.stage?.narrator||{}),...changes};
@@ -28098,10 +28124,12 @@ function narratorWrite(ctx,scope,changes) {
   return ctx.writer.setReading({narrator:reset});
 }
 function StageNarratorRow({ctx}) {
-  const jump=React.useRef(null),{effective}=narratorLayers(ctx.ext,ctx.writer.reading),blocked=!ctx.active.voice;
+  const jump=React.useRef(null),{global,card}=narratorLayers(ctx.ext,ctx.writer.reading),blocked=!ctx.active.voice;
   React.useEffect(()=>{if(ctx.takeNarratorFocus?.())jump.current?.focus?.();},[]);
-  return h(SwitchRow,{label:'旁白配音',icon:'voice',checked:effective.enabled,disabled:blocked,help:blocked?stageNeedText('voice',ctx.active):undefined,
-    onChange:v=>narratorWrite(ctx,narratorSwitchScope(ctx.ext),{enabled:v}),onOpen:ctx.onNarrator?pressRowJump:undefined,
+  const tag=h(StageSwitchTag,{name:'旁白配音',global:global.enabled===true,card:narratorCardSwitch(card),disabled:blocked,
+    writeCard:value=>narratorWrite(ctx,'card',{enabled:value===undefined?undefined:value==='on'}),writeGlobal:value=>narratorWrite(ctx,'global',{enabled:value})});
+  return h(SwitchRow,{label:'旁白配音',icon:'voice',disabled:blocked,help:blocked?stageNeedText('voice',ctx.active):undefined,
+    tag,onOpen:ctx.onNarrator?pressRowJump:undefined,
     status:ctx.onNarrator?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'旁白配音设置',title:'旁白配音设置',onClick:()=>ctx.onNarrator()},h(Glyph,{name:'chevRight'})):null});
 }
 function StageNarratorPage({ctx,onBack}) {
@@ -28126,15 +28154,15 @@ function StageNarratorPage({ctx,onBack}) {
           onCommit:key=>key!==value&&narratorWrite(ctx,scope,{voice:narratorVoiceFromKey(key)}),
           trail:[missing?h(HintLine,{key:'missing',compact:true,text:'所选声音不可用，请重新选择'}):null,reset('voice')]}))));
 }
-// 「入场演出 ›」 - the one global switch of the stage's opening
-// performance (engine stageToggles.entrance, default on), placed like 演出组合; a card differs only by its packs' 入场演出
+// 「入场演出 ›」 - the four-state switch of the stage's opening
+// performance (engine stageToggles.entrance, default on, with this card's stage.switches.entrance), placed like 演出组合; a card differs only by its packs' 入场演出
 // entries (蓝灯 / 关闭). Its page lists this card's entries.
-function StageEntranceRow({ctx,set}) {
+function StageEntranceRow({ctx}) {
   const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
   React.useEffect(()=>{if(ctx.takeEntranceFocus?.())jump.current?.focus?.();},[]);
-  return h(SwitchRow,{label:'入场演出',icon:'entrances',checked:ctx.prefs.entrance!==false,disabled:missing.length>0,
+  return h(SwitchRow,{label:'入场演出',icon:'entrances',disabled:missing.length>0,
     help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
-    onChange:v=>set('entrance',v),onOpen:ctx.onEntrances?pressRowJump:undefined,
+    tag:stageSwitchTag(ctx,'entrance','入场演出',missing.length>0),onOpen:ctx.onEntrances?pressRowJump:undefined,
     status:ctx.onEntrances?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'入场演出素材',title:'入场演出素材',onClick:()=>ctx.onEntrances()},h(Glyph,{name:'chevRight'})):null});
 }
 function StageEntrancePage({ctx,onBack}) {
@@ -28144,12 +28172,12 @@ function StageEntrancePage({ctx,onBack}) {
     h(SubpageHead,{parent:'舞台设置',title:'入场演出',help:'进入舞台时代替「载入中」播放的开场演出；载入完成后单击可跳过。',onBack}),
     h(ModEntries,{ctx,modId:'core.entrance',kind:'entrances'}));
 }
-function StagePerformanceRow({ctx,set}) {
+function StagePerformanceRow({ctx}) {
   const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
   React.useEffect(()=>{if(ctx.takePerformanceFocus?.())jump.current?.focus?.();},[]);
-  return h(SwitchRow,{label:'演出组合',icon:'performances',checked:ctx.prefs.performance!==false,disabled:missing.length>0,
+  return h(SwitchRow,{label:'演出组合',icon:'performances',disabled:missing.length>0,
     help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
-    onChange:v=>set('performance',v),onOpen:ctx.onPerformances?pressRowJump:undefined,
+    tag:stageSwitchTag(ctx,'performance','演出组合',missing.length>0),onOpen:ctx.onPerformances?pressRowJump:undefined,
     status:ctx.onPerformances?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'演出组合素材',title:'演出组合素材',onClick:()=>ctx.onPerformances()},h(Glyph,{name:'chevRight'})):null});
 }
 function StagePerformancePage({ctx,onBack}) {
@@ -28159,13 +28187,13 @@ function StagePerformancePage({ctx,onBack}) {
     h(SubpageHead,{parent:'舞台设置',title:'演出组合',onBack}),
     h(ModEntries,{ctx,modId:'core.performance',kind:'performances'}));
 }
-// 「物品 ›」 — the built-in item capability's one global switch, placed like the sounds
+// 「物品 ›」 — the built-in item capability's four-state switch, placed like the sounds
 // (it plays on the stage: greyed while 舞台模式 is off); the name and the quiet 「›」 open its page (StageItemsPage).
-function StageItemsRow({ctx,set}) {
+function StageItemsRow({ctx}) {
   const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
   React.useEffect(()=>{if(ctx.takeItemsFocus?.())jump.current?.focus?.();},[]);
-  return h(SwitchRow,{label:'物品',icon:'item',checked:ctx.prefs.items!==false,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
-    onChange:v=>set('items',v),onOpen:ctx.onItems?pressRowJump:undefined,
+  return h(SwitchRow,{label:'物品',icon:'item',disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+    tag:stageSwitchTag(ctx,'items','物品',missing.length>0),onOpen:ctx.onItems?pressRowJump:undefined,
     status:ctx.onItems?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'物品设置',title:'物品设置',onClick:()=>ctx.onItems()},h(Glyph,{name:'chevRight'})):null});
 }
 // 「舞台模式 ›」 like 「配音 ›」 — the switch on the right, the name and the quiet
@@ -28180,13 +28208,17 @@ function StageModeJump({ctx}) {
 // 候选项 and the stage CONFIG): the global candidateAutoGenerate through the one hook (auto-choices-preference.js). Needs no stage
 // switch: it also serves the chat view. A save failure is the row's ⚠.
 const STAGE_AUTO_CHOICES_HELP='每轮正文完成后自动生成选项；不补生成旧回复，失败可手动重试。';
-function StageAutoChoicesRow() {
+// Four-state like the rest: the global layer is candidateAutoGenerate, the card layer stage.switches.autoChoices (the host
+// decides per chat with effectiveAutoChoices).
+function StageAutoChoicesRow({ctx}) {
   if(typeof autoChoices!=='function')return null;
-  return h(StageAutoChoicesSwitch);
+  return h(StageAutoChoicesSwitch,{ctx});
 }
-function StageAutoChoicesSwitch() {
+function StageAutoChoicesSwitch({ctx}) {
   const {enabled,loading,busy,error,save}=autoChoices('getTavernSettings');
-  return h(SwitchRow,{label:'自动生成选项',icon:'select',help:STAGE_AUTO_CHOICES_HELP,checked:enabled,disabled:loading||busy,onChange:v=>save(v),
+  const tag=h(StageSwitchTag,{name:'自动生成选项',global:enabled===true,card:ctx.ext?.stage?.switches?.autoChoices,busy,disabled:loading,
+    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{autoChoices:value})),writeGlobal:value=>save(value)});
+  return h(SwitchRow,{label:'自动生成选项',icon:'select',help:STAGE_AUTO_CHOICES_HELP,tag,
     status:error?h(HintLine,{compact:true,text:error}):null});
 }
 // the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
@@ -29945,16 +29977,17 @@ function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
 }
 
 // The switch tag: the checked choice + ⌄; the menu is one selection list with one ✓ — 全局开启 / 全局关闭, and on a card also
-// 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed).
+// 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed). `disabled`: greyed while an upstream switch is
+// off (舞台设置 › 基础设置 uses the same tag, asset-pack-card-ui.js StageSwitchTag); the stored choice stays shown.
 const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
-function ModSwitchTag({ name, switches, cardScoped, busy, onChange }) {
+function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) {
   const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
   const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
     h('span', { className: 'ap-state-label' }, label), checked && h('span', { className: 'ap-state-check' }, h(Glyph, { name: 'check' }))); };
   const closeMenu = React.useRef(null);
   return h(Popover, { label: name + ' 开关', className: 'fork-mod-switch-anchor', stopClicks: true,
     trigger: ({ toggle, open }) => h('button', { type: 'button', className: 'fork-mod-switch', 'data-on': switches?.effective || undefined, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
-        'aria-label': name + '：' + word + '，更改', disabled: busy || undefined, onClick: toggle },
+        'aria-label': name + '：' + word + '，更改', disabled: busy || disabled || undefined, onClick: toggle },
       busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
     content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });
 }
@@ -30154,7 +30187,7 @@ function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
       extra: dependents.length ? dependents.join('、') + '需要它。' : undefined }));
 }
 
-            return {CandidateArt, CandidateImageView, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
+            return {CandidateArt, CandidateImageView, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, stageSwitchTag, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
         }
         // Feature factories run once per view scope, after the scene and shared surfaces exist.
 // Factories return named views; own() ties resources and CSS to the view's rollback/disposal.

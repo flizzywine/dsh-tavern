@@ -250,6 +250,7 @@ import { createStageReads, stageReadScope } from './domain/stage-read-projection
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
 import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
+import {effectiveAutoChoices} from './domain/card-stage-settings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -756,7 +757,8 @@ export async function apply(ctx) {
     preset: 'card-task-preset',
     'debug-play': 'card-task-debug-play'
   })
-  // A card's stage extension (null without stage settings): the card layer of its narrator.
+  // A card's stage extension (null without stage settings): the card layer of its narrator and of its 自动生成候选项
+  // switch (effectiveAutoChoices).
   async function cardStageExtension(cardPath) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
@@ -3072,7 +3074,7 @@ export async function apply(ctx) {
   })
   // 自动生成候选项: fed by live turn ends only, submitting through candidateTasks like the button.
   const autoChoices = createAutoChoices({
-    preferences: readTavernSettings,
+    enabled: async chat => !!chat && effectiveAutoChoices(await cardStageExtension(chat.cardPath), (await readTavernSettings()).candidateAutoGenerate),
     async read(sessionId) {
       const chat = await chatForSession(sessionId)
       const session = sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session
