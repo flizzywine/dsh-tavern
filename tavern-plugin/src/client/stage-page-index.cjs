@@ -40,11 +40,26 @@ function stagePageMovableTail(text) {
     const last = sentences[sentences.length - 1];
     return sentences.length > 1 && !/[\u3002\uff01\uff1f!?\u2026\u300d\u300f\uff09)\n]$/.test(last) ? last : '';
 }
-// The tail of a streaming page the stage holds back on its last text box card: the movable sentence above, else (the
-// unfinished sentence opens the page and cannot move to the next page) its unfinished last clause, which may still move
-// to the next card - the card then breaks at the clause the box fits, as the same paragraph does from history
-//.
+// A streaming round paginates at version 2: a short last page is merged into the one before it (stageBlockPages). While
+// the paragraph streams that merged tail is still movable - once it grows past a third of a page it becomes its own page
+// again, complete sentences included. Returns it ('' for a page the version-1 split keeps whole).
+function stagePageMergedTail(text) {
+    const value = String(text || '');
+    if (value.length <= STAGE_PAGE_CHARS) return '';
+    let length = 0;
+    for (const match of value.matchAll(STAGE_SENTENCES)) {
+        if (length && length + match[0].length > STAGE_PAGE_CHARS) return value.slice(match.index);
+        length += match[0].length;
+    }
+    return '';
+}
+// The tail of a streaming page the stage holds back on its last text box card: a merged short tail (above), else the
+// movable sentence, else (the unfinished sentence opens the page and cannot move to the next page) its unfinished last
+// clause, which may still move to the next card - the card then breaks at the clause the box fits, as the same paragraph
+// does from history.
 function stagePageHeldTail(text) {
+    const merged = stagePageMergedTail(text);
+    if (merged) return merged;
     const movable = stagePageMovableTail(text);
     if (movable) return movable;
     const sentences = String(text || '').match(STAGE_SENTENCES) || [], last = sentences[sentences.length - 1] || '';

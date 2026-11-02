@@ -9561,7 +9561,8 @@ function reduceStageRuntime(previous, event) {
     // screen is this turn's starting point. Navigation (history jump, resume, a SEND that pulls a
     // historical cursor forward) still shows the departure position until this visit stages a page.
     // eligible: the landing page plays its one-shots (live arrival).
-    function selectSource(source, mode, text, anchor, generating, follow = false, eligible = mode === 'live') {
+    // still: a restored reading position (a lifecycle reload of the round on screen) shows its page as it stands and plays nothing.
+    function selectSource(source, mode, text, anchor, generating, follow = false, eligible = mode === 'live', still = false) {
         const old = state.source;
         // Leaving the working live round for an earlier one keeps that round's phase (indicator v2); any other move drops it.
         const leaving = mode === 'history' && !state.round && state.cursor.mode === 'live' ? stageRoundPhase(state) : null;
@@ -9580,7 +9581,7 @@ function reduceStageRuntime(previous, event) {
         const ledger = Object.fromEntries(Object.entries(state.ledger).filter(([,entry]) => entry.descriptor.kind === 'mod-performance' && !entry.dwell && !(replay && sameSource(entry.token.source, source))));
         patch({source, text: nextText, director: emptyDirector(), carry: null, carryRequest: null, ledger, liveStreamSeen: mode === 'live' && (!!generating || nextText.streaming),
             visitStaged: mode === 'live' && follow, replay: replay ? {phase: 'baseline', request: null} : null,
-            cursor: {mode, anchor: anchor || nextText.pages[0]?.anchor || null, visitId: state.cursor.visitId + 1, readThrough: 0, skipping: state.cursor.skipping, firstPageEligible: eligible, afterEligible: eligible, still: false, dwell: null},
+            cursor: {mode, anchor: anchor || nextText.pages[0]?.anchor || null, visitId: state.cursor.visitId + 1, readThrough: still ? anchor?.offset || 0 : 0, skipping: state.cursor.skipping, firstPageEligible: eligible && !still, afterEligible: eligible && !still, still, dwell: null},
             interrupted: false, retryable: false, empty: false,
             pending: {text: !!generating || nextText.streaming, director: false, projection: false, resources: false, error: null}});
         if (mode === 'live') patch({latestSource: source});
@@ -9740,7 +9741,7 @@ function reduceStageRuntime(previous, event) {
             patch({latestSource: event.source});
             if (state.cursor.mode === 'history') followRound(event.source, event.text);
         } else if (!sameSource(state.source, event.source)) {
-            selectSource(event.source, 'live', event.text, null, event.type !== 'TURN_CHANGED' || event.generating, state.cursor.mode === 'live' && !!state.source);
+            selectSource(event.source, 'live', event.text, event.anchor || null, event.type !== 'TURN_CHANGED' || event.generating, state.cursor.mode === 'live' && !!state.source, true, event.still === true);
         } else if (event.type !== 'TURN_CHANGED' && state.cursor.mode !== 'live') {
             // SEND can precede the new native node. Leave history/replay now, or its later
             // TURN_CHANGED would keep following the old turn forever.
@@ -15115,6 +15116,20 @@ function stageAttemptFailure(chat, view) {
     return stopped;
 }
 
+// The reader's place, kept across a lifecycle reload (a card reload, a rollback's lifecycle revision, a remount's new
+// authority): chat + round + the first character on screen (its paragraph, offset and opening text). Refresh, remount and
+// a lifecycle reload are not a reset: the same round's text puts the reader back on
+// the page holding that character, still (nothing replays). A changed text (a regenerated round) starts at its beginning.
+function stageReadingMark(state, chatId) {
+    const anchor = state.cursor.anchor, page = anchor && state.text.pages.find(page => page.anchor.para === anchor.para && page.anchor.offset === anchor.offset);
+    if (!state.source || !page || state.cursor.mode === 'replay' || typeof page.text !== 'string') return null;
+    return {chatId, turn: state.source.turn, para: anchor.para, offset: anchor.offset, head: page.text.slice(0, 24)};
+}
+function stageMarkedPage(pages, mark) {
+    const index = pages.findIndex(page => page.anchor.para === mark.para && page.anchor.offset === mark.offset && typeof page.text === 'string' && page.text.startsWith(mark.head));
+    return index < 0 ? null : index;
+}
+
 // lifetime follows native bindings, never the transcript or stage mount.
 function createStageSessionOwner(options) {
     const records = new Map();
@@ -15191,7 +15206,7 @@ function createStageSessionOwner(options) {
         if (options.visible) store.dispatch({type: 'VISIBILITY', visible: options.visible()});
         const record = {id, store, index: options.createIndex(), active: true, stops: [], binding: null,
             stopBinding: () => {}, reconciling: false, dirty: false, sources: new Map(), epoch: 0, branch: 0,
-            widgetUi:{state:null,refs:new Map()}, widgetHistory:null, historyReads:new Map(), prefetches:new Map(), authority: null, context: null, lastTurns: [], lastNativeTurn: 0, lastRunning: false, promptError: null, rejectedSend: null, settingsKey: '', prefsKey: '', revision: 0};
+            widgetUi:{state:null,refs:new Map()}, widgetHistory:null, historyReads:new Map(), prefetches:new Map(), authority: null, context: null, chatId: null, held: null, lastTurns: [], lastNativeTurn: 0, lastRunning: false, promptError: null, rejectedSend: null, settingsKey: '', prefsKey: '', revision: 0};
         records.set(id, record);
         const viewSource = options.views.select(id, options.viewPaths);
         function reconcile() {
@@ -15211,12 +15226,16 @@ function createStageSessionOwner(options) {
                     if (!settings) options.settings.load(id);
                     const prefs = options.preferences.get();
                     const authority = JSON.stringify([view?.chatId || '', view?.card?.path || coordination?.cardPath || '', coordination?.runtimeGeneration || '']);
-                    if (record.authority !== null && record.authority !== authority) {record.epoch++; record.widgetUi.state=null; record.widgetUi.refs.clear(); record.widgetHistory=null; record.sources.clear(); record.index.clear(); record.prefetches.clear(); options.invalidateHistory?.(id);}
-                    record.authority = authority;
                     // historyWindow.revision is a storage/cache revision (including
                     // playback metadata), not a branch reset. The text index invalidates its rows.
                     const context = JSON.stringify([view?.chatId || '', view?.tavernHelper?.lifecycleRevision || 0,
                         (view?.suppressedDshTurns || []).filter(turn => !Object.values(view?.regeneratedDshTurns || {}).includes(turn))]);
+                    // A reload of this chat keeps the reader's place until the same round's text is back (stageReadingMark).
+                    if ((record.authority !== null && record.authority !== authority) || (record.context !== null && record.context !== context)) record.held ||= stageReadingMark(store.getSnapshot(), record.chatId);
+                    if (record.held && record.held.chatId !== (view?.chatId || '')) record.held = null;
+                    record.chatId = view?.chatId || '';
+                    if (record.authority !== null && record.authority !== authority) {record.epoch++; record.widgetUi.state=null; record.widgetUi.refs.clear(); record.widgetHistory=null; record.sources.clear(); record.index.clear(); record.prefetches.clear(); options.invalidateHistory?.(id);}
+                    record.authority = authority;
                     if (record.context !== null && record.context !== context) {record.branch++; record.widgetHistory=null; record.widgetUi.refs.clear(); record.sources.clear(); record.prefetches.clear(); options.invalidateHistory?.(id);}
                     record.context = context;
                     let branchId = JSON.stringify([view?.chatId || id, record.branch]);
@@ -15268,7 +15287,14 @@ function createStageSessionOwner(options) {
                             sourceRecord.text = {...(text || {pages: [], hasReadableText: false, units: []}), streaming, revision: ++record.revision};
                         }
                         const source = sourceRecord.source;
-                        store.dispatch({type: running && !record.lastRunning ? 'SEND' : 'TURN_CHANGED', source, text: sourceRecord.text, generating: running});
+                        // the held place: on this (latest) round it is the new source's landing page; on an earlier round the
+                        // latest round lands still and the reader is taken back to that round's page (navigate, still).
+                        const held = !running && record.held && store.getSnapshot().source !== source ? record.held : null;
+                        const heldPage = held && held.turn === latest ? stageMarkedPage(sourceRecord.text.pages, held) : null;
+                        if (held || running) record.held = null;
+                        store.dispatch({type: running && !record.lastRunning ? 'SEND' : 'TURN_CHANGED', source, text: sourceRecord.text, generating: running,
+                            ...(held ? {still: true} : {}), ...(heldPage !== null ? {anchor: sourceRecord.text.pages[heldPage].anchor} : {})});
+                        if (held && held.turn !== latest && turns.get(held.turn)) Promise.resolve().then(() => owner.navigate(id, held.turn, 0, false, held, true));
                         store.dispatch({type: 'TEXT_RECONCILE', source, text: sourceRecord.text});
                         // A rejected send never started a turn: it is the latest attempt only until the session runs again.
                         if (session.promptError !== record.promptError) {
@@ -15392,7 +15418,7 @@ function createStageSessionOwner(options) {
             record.reconcile();
         }
     }
-    return {
+    const owner = {
         start() {if (stopList || disposed) return; stopList = options.sessions.list.subscribe(reconcileList); reconcileList();},
         get: id => records.get(id)?.store || null,
         getIndex: id => records.get(id)?.index || null,
@@ -15455,7 +15481,8 @@ function createStageSessionOwner(options) {
             forward = forward && turn === state.latestSource.turn;
             record.index.touch?.(turn);
             const source = sourceFor(record,turn,row);
-            index = para ? row.text.pages.findIndex(page => page.anchor.para >= para) : index < 0 ? row.text.pages.length - 1 : index;
+            // para: a paragraph number, or a held reading mark (stageReadingMark) whose page is found only in the same text.
+            index = para && typeof para === 'object' ? stageMarkedPage(row.text.pages, para) ?? 0 : para ? row.text.pages.findIndex(page => page.anchor.para >= para) : index < 0 ? row.text.pages.length - 1 : index;
             index = Math.max(0,index || 0);
             const anchor = row.text.pages[index]?.anchor || row.text.pages[0]?.anchor;
             // A replay pages within its round; leaving the round leaves the replay.
@@ -15513,6 +15540,7 @@ function createStageSessionOwner(options) {
             cleanupStageSessionResources([() => stop?.(), ...Array.from(records.values(), record => () => release(record))]);
         }
     };
+    return owner;
 }
 
 return {createStageSessionOwner};
