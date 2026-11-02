@@ -2,13 +2,29 @@ import path from 'node:path'
 import {mkdir, open, readFile, rename, stat, unlink} from 'node:fs/promises'
 import {randomUUID} from 'node:crypto'
 import {checkedAssetPath} from './card-storage.js'
+import {imageDimensions,MEDIA_PURPOSE_LIMITS} from '../packages/dsh-asset-library/lib/pack-v2/media.js'
 import contract from '../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check} = contract
 
 // a mod's own pack media. Bytes are written once, synced, under a fresh name, and only
 // then may a pack revision (CAS) reference them, so private metadata never points at unwritten media. No hashing; the
 // archive boundary owns transfer digests. Built-in release files are read from the static first-party release.
-export const MOD_MEDIA_LIMIT = 512 * 1024
+export const MOD_MEDIA_LIMITS = MEDIA_PURPOSE_LIMITS
+export function validateModMedia({mime,bytes,purpose='icon'}) {
+  const ext=TYPES[mime],limit=MOD_MEDIA_LIMITS[purpose]
+  check(ext && limit && bytes instanceof Uint8Array,'$.mime','Unsupported media type or purpose')
+  bytes=Buffer.from(bytes)
+  check(bytes.length>0 && bytes.length<=limit,'$.bytes','Media exceeds '+purpose+' size limit','LIMIT_EXCEEDED')
+  check(sniff[ext](bytes),'$.bytes','Media content does not match its type')
+  if(mime.startsWith('image/')) {
+    check(purpose!=='audio','$.purpose','Audio slot requires audio')
+    const [width,height]=imageDimensions(bytes,ext==='jpg'?'jpeg':ext)
+    check(width>0 && height>0 && width<=8192 && height<=8192 && width*height<=32*1024**2,'$.bytes','Image dimensions exceed limit','LIMIT_EXCEEDED')
+    if(purpose==='icon')check(Math.max(width,height)<=512,'$.bytes','Icon exceeds 512 pixels','LIMIT_EXCEEDED')
+    if(purpose==='background')check(width*9===height*16,'$.bytes','Background must be 16:9')
+  } else check(purpose==='audio' || purpose==='icon','$.purpose','Image slot requires an image')
+  return {bytes,ext}
+}
 const TYPES = {'image/png':'png','image/webp':'webp','image/jpeg':'jpg','audio/mpeg':'mp3','audio/ogg':'ogg','audio/wav':'wav'}
 export const MOD_MEDIA_MIME = Object.freeze(Object.fromEntries(Object.entries(TYPES).map(([mime,ext]) => [ext,mime])))
 const MIME = MOD_MEDIA_MIME
@@ -21,10 +37,10 @@ const sniff = {
 }
 
 export function decodeModMedia({mime,data}) {
-  const ext = TYPES[mime]
-  check(ext && typeof data === 'string' && data.length <= Math.ceil(MOD_MEDIA_LIMIT / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(data), '$.mime', 'Unsupported media type or size')
+  const ext = TYPES[mime],limit=mime?.startsWith('audio/')?MOD_MEDIA_LIMITS.audio:MOD_MEDIA_LIMITS.image
+  check(ext && typeof data === 'string' && data.length <= Math.ceil(limit / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(data), '$.mime', 'Unsupported media type or size')
   const bytes = Buffer.from(data, 'base64')
-  check(bytes.length > 0 && bytes.length <= MOD_MEDIA_LIMIT, '$.data', 'Media size limit', 'MOD_RESOURCE_UNAVAILABLE')
+  check(bytes.length > 0 && bytes.length <= limit, '$.data', 'Media size limit', 'MOD_RESOURCE_UNAVAILABLE')
   check(sniff[ext](bytes), '$.data', 'Media content does not match its type')
   return {bytes,ext}
 }
@@ -36,9 +52,9 @@ export function createModMediaStore({root, builtinFile = () => null, ownedFile =
     check(typeof packId === 'string' && uuid.test(packId), '$.packId')
   }
   const locate = (modId, packId, file) => checkedAssetPath(root, ['media', modId, packId, file].join('/'))
-  async function put({modId, packId, mime, data}) {
+  async function put({modId, packId, mime, bytes:input, purpose}) {
     identity(modId, packId)
-    const {bytes,ext} = decodeModMedia({mime,data})
+    const {bytes,ext} = validateModMedia({mime,bytes:input,purpose})
     const file = 'media/' + randomUUID() + '.' + ext, target = await locate(modId, packId, file), temporary = target + '.' + randomUUID() + '.tmp'
     await mkdir(path.dirname(target), {recursive:true})
     const handle = await open(temporary, 'wx')
@@ -52,7 +68,7 @@ export function createModMediaStore({root, builtinFile = () => null, ownedFile =
     if (!MOD_MEDIA_PATH.test(file)) return (await ownedFile(modId,packId,file) || builtinFile(modId,file,packId))?.length ?? null
     try { return (await stat(await locate(modId, packId, file))).size } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   }
-  async function read(modId, packId, file, expectedSize) {
+  async function readBytes(modId, packId, file, expectedSize) {
     identity(modId, packId)
     const ext = /\.([a-z0-9]+)$/.exec(file)?.[1], mime = MIME[ext]
     check(mime, '$.path', 'Unsupported media type')
@@ -60,9 +76,10 @@ export function createModMediaStore({root, builtinFile = () => null, ownedFile =
     if (MOD_MEDIA_PATH.test(file)) bytes = await readFile(await locate(modId, packId, file)).catch(error => { if (error.code === 'ENOENT') return null; throw error })
     bytes ||= await ownedFile(modId,packId,file) || builtinFile(modId,file,packId) || null
     check(bytes && (expectedSize===undefined || bytes.length===expectedSize), '$.path', 'Media is unavailable or has the wrong size', 'MOD_RESOURCE_UNAVAILABLE')
-    return {mime, data:Buffer.from(bytes).toString('base64')}
+    return {mime,bytes:Buffer.from(bytes)}
   }
-  return Object.freeze({put, size, read})
+  async function read(...args) {const {mime,bytes}=await readBytes(...args);return {mime,data:bytes.toString('base64')}}
+  return Object.freeze({put,size,read,readBytes})
 }
 
 // Resolve pack-local paths through their actual release directory, including copied installations.
@@ -100,12 +117,11 @@ export function withModMedia(library, media) {
     return row.packs[packId] || null
   }
   return Object.freeze({...library,
-    async putModMedia({modId, packId, mime, data}) { pack(modId, packId); return media.put({modId, packId, mime, data}) },
-    async readModMedia({modId, packId, path: file}) {
-      const found = pack(modId, packId)
-      const declared=found?.files.find(row=>row.path===file)
-      check(declared, '$.path', 'Media is not part of this pack', 'MOD_RESOURCE_UNAVAILABLE')
-      return media.read(modId, packId, file, declared.size)
+    async putModMedia(args) {
+      pack(args.modId,args.packId)
+      const slot=library.snapshot().mods[args.modId].manifest.assetKinds.find(row=>row.id===args.kind)?.mediaSlots.find(row=>row.id===args.slot)
+      check(slot && args.mime?.startsWith(slot.type+'/'),'$.slot','Choose a declared media slot')
+      return media.put({...args,purpose:slot.purpose || 'icon'})
     },
     async saveModPack(args) {
       const files = args?.pack?.files

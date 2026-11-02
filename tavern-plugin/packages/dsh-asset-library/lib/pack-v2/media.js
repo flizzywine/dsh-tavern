@@ -1,7 +1,8 @@
 // Bounded structural validation, not full compressed-media decoding.
 import { inflateSync, crc32 } from 'node:zlib'
 import { check } from '../asset-packs/common.js'
-export const STAGE_IMAGE_MAX_BYTES = 6 * 1024 ** 2
+export const MEDIA_PURPOSE_LIMITS = Object.freeze({icon:512*1024,image:6*1024**2,background:4*1024**2,audio:60*1024**2})
+export const STAGE_IMAGE_MAX_BYTES = MEDIA_PURPOSE_LIMITS.image
 export function imageKind(bytes) {
   if (bytes.length >= 16 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'webp'
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'png'

@@ -7,7 +7,7 @@ const MOD_PROMPT_SLOTS = Object.freeze({
     settlement: Object.freeze(['settlement.rules', 'settlement.variables'])
 });
 const MOD_STAGE_CAPABILITIES = Object.freeze(['place', 'state', 'playDeclarative', 'reviseAfterSettlement', 'music', 'skin', 'sfx', 'overlays']);
-const MOD_FIELD_TYPES = Object.freeze(['text', 'toggle', 'slider', 'segmented', 'colour', 'asset-picker', 'sound-picker', 'object', 'list', 'reference']);
+const MOD_FIELD_TYPES = Object.freeze(['text', 'toggle', 'slider', 'segmented', 'colour', 'asset-picker', 'sound-picker', 'object', 'list', 'reference', 'asset-ref']);
 const MOD_SETTLEMENT_POLICY = Object.freeze({initial: 'immediate', pending: 'play-original', ok: 'revise-existing', error: 'log-only', skipped: 'log-only', replay: 'no-one-shots'});
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const safeKey = key => typeof key === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && !['constructor', 'prototype', '__proto__'].includes(key);

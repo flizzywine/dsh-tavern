@@ -44,8 +44,9 @@ export function modSettingValue(field, value, ownerId) {
     case 'segmented': return field.choices.some(option => option.value === value)
     case 'colour': return (value === 'auto' && !!field.stageToken) || (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value))
     case 'asset-picker': case 'sound-picker': return referenceValue({target:{library:field.source === 'main' ? 'main' : 'mod',modId:ownerId,kinds:[field.kind]}}, value)
+    case 'asset-ref': return referenceValue({target:{...field.target,library:'main'}},value)
     case 'reference': return referenceValue(field, value)
-    case 'object': return plain(value) && field.fields.every(child => Object.hasOwn(value, child.key) && modSettingValue(child, value[child.key], ownerId)) && Object.keys(value).every(k => field.fields.some(child => child.key === k))
+    case 'object': return plain(value) && field.fields.every(child => Object.hasOwn(value, child.key) ? modSettingValue(child, value[child.key], ownerId) : child.optional===true) && Object.keys(value).every(k => field.fields.some(child => child.key === k))
     case 'list': return Array.isArray(value) && value.length <= field.maxItems && value.every(item => modSettingValue(field.item, item, ownerId))
     default: return false
   }
@@ -65,8 +66,8 @@ export function validateModSettingsSchema(schema, path = '$.settingsSchema', set
   }
   const declaration = (field, at, depth) => {
     check(plain(field) && MOD_FIELD_TYPES.includes(field.type) && depth <= 4, at, 'Unknown field type or nesting limit')
-    const extras = {text:['maxLength','placeholder'],toggle:[],slider:['min','max','step','unit'],segmented:['choices'],colour:['stageToken','palette'], 'asset-picker':['kind','source'], 'sound-picker':['kind'],reference:['target'],object:['fields'],list:['item','maxItems']}[field.type]
-    shape(field, ['key','type','label','help','default','bindable',...(settings ? ['scope','dependsOn','presentation'] : []),...extras], ['type','label','default',...(settings ? ['scope'] : []),...extras.filter(k => !['unit','placeholder','stageToken','palette'].includes(k))], at)
+    const extras = {text:['maxLength','placeholder'],toggle:[],slider:['min','max','step','unit'],segmented:['choices'],colour:['stageToken','palette'], 'asset-picker':['kind','source'], 'sound-picker':['kind'],'asset-ref':['target'],reference:['target'],object:['fields'],list:['item','maxItems']}[field.type]
+    shape(field, ['key','type','label','help','default','bindable','optional',...(settings ? ['scope','dependsOn','presentation'] : []),...extras], ['type','label','default',...(settings ? ['scope'] : []),...extras.filter(k => !['unit','placeholder','stageToken','palette'].includes(k))], at)
     if (settings) {
       check(field.scope==='global', at + '.scope', 'Mod settings are global only')
       if(field.presentation!==undefined)check(typeof field.presentation==='boolean',at+'.presentation')
@@ -79,6 +80,7 @@ export function validateModSettingsSchema(schema, path = '$.settingsSchema', set
     if (field.stageToken !== undefined) check(/^--gal-ui-[a-z-]+$/.test(field.stageToken), at + '.stageToken')
     if (field.palette !== undefined) check(Array.isArray(field.palette) && field.palette.length <= 32 && field.palette.every(value => /^#[0-9a-f]{6}$/i.test(value)), at + '.palette')
     if (field.bindable !== undefined) check(typeof field.bindable === 'boolean', at + '.bindable')
+    if (field.optional !== undefined) check(typeof field.optional === 'boolean' && !settings, at + '.optional')
     if (field.type === 'text') check(Number.isSafeInteger(field.maxLength) && field.maxLength > 0 && field.maxLength <= 4096, at)
     if (field.type === 'slider') {
       check([field.min,field.max,field.step].every(Number.isFinite) && field.min < field.max && field.step > 0 && (field.max - field.min) / field.step <= 10000, at)
@@ -96,6 +98,10 @@ export function validateModSettingsSchema(schema, path = '$.settingsSchema', set
     if (['asset-picker','sound-picker'].includes(field.type)) {
       check(key(field.kind), at + '.kind')
       if (field.type === 'asset-picker') check(['own','main'].includes(field.source), at + '.source')
+    }
+    if (field.type === 'asset-ref') {
+      shape(field.target,['kinds'],undefined,at+'.target')
+      check(Array.isArray(field.target.kinds) && field.target.kinds.length===1 && field.target.kinds[0]==='backgrounds',at+'.target')
     }
     if (field.type === 'reference') {
       if (field.target?.library === 'pack') {

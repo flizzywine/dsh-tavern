@@ -7,10 +7,8 @@ const modMediaBindings=new WeakMap();
 function modMediaBinding(rpc,modId) {
   let map=modMediaBindings.get(rpc);if(!map){map=new Map();modMediaBindings.set(rpc,map);}
   if(!map.has(modId))map.set(modId,{previewMedia:async({packId,hash})=>{
-    const media=await rpc('readModMedia',{modId,packId,path:hash}),raw=atob(media.data),bytes=new Uint8Array(raw.length);
-    for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
-    const url=URL.createObjectURL(new Blob([bytes],{type:media.mime}));let done=false;
-    return {url,release:()=>{if(!done){done=true;URL.revokeObjectURL(url);}}};
+    const service=packClient(),lease=await service.leaseModMedia({modId,packId,path:hash});
+    return {...lease,release:()=>service.releaseLease(lease.ticket)};
   }});
   return map.get(modId);
 }
@@ -18,30 +16,26 @@ const MOD_MEDIA_MAX=512*1024;
 const modRandom=bytes=>Array.from(crypto.getRandomValues(new Uint8Array(bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const modUuid=()=>crypto.randomUUID?crypto.randomUUID():(r=>r.slice(0,8)+'-'+r.slice(8,12)+'-4'+r.slice(13,16)+'-'+'89ab'[parseInt(r[16],16)&3]+r.slice(17,20)+'-'+r.slice(20,32))(modRandom(16));
 const modDefaults=schema=>Object.fromEntries((schema?.fields||[]).map(field=>[field.key,structuredClone(field.default)]));
-async function modBase64(blob) {
-  const bytes=new Uint8Array(await blob.arrayBuffer());let text='';
-  for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));
-  return btoa(text);
-}
 // Icons and entry art: at most 512 px, WebP (PNG where the browser cannot encode WebP).
-async function modImageMedia(file) {
+async function modImageMedia(file,purpose='icon') {
   if(!/^image\/(png|webp|jpeg)$/.test(file?.type||''))throw new Error('请选择 PNG、WebP 或 JPEG 图片');
   const bitmap=await createImageBitmap(file);
   try {
+    if(purpose!=='icon')return {mime:file.type,bytes:new Uint8Array(await file.arrayBuffer())};
     const scale=Math.min(1,512/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
     canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);
     let blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',.9));
     if(!blob||blob.type!=='image/webp')blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
     if(!blob||blob.size>MOD_MEDIA_MAX)throw new Error('图片过大');
-    return {mime:blob.type,data:await modBase64(blob)};
+    return {mime:blob.type,bytes:new Uint8Array(await blob.arrayBuffer())};
   } finally { bitmap.close?.(); }
 }
-async function modAudioMedia(file) {
+async function modAudioMedia(file,purpose='icon') {
   const mime={'audio/mpeg':'audio/mpeg','audio/mp3':'audio/mpeg','audio/ogg':'audio/ogg','audio/wav':'audio/wav','audio/x-wav':'audio/wav','audio/wave':'audio/wav'}[file?.type||''];
   if(!mime)throw new Error('请选择 MP3、OGG 或 WAV 音频');
-  if(file.size>MOD_MEDIA_MAX)throw new Error('音频过大（上限 512 KB）');
-  return {mime,data:await modBase64(file)};
+  if(file.size>(purpose==='audio'?60*1024**2:MOD_MEDIA_MAX))throw new Error('音频过大');
+  return {mime,bytes:new Uint8Array(await file.arrayBuffer())};
 }
 const modLamp=entry=>entry.enabled===false?'off':entry.recall?.mode==='constant'?'constant':'keyword';
 function ModPlay({binding,pack,entry,slot}) {
@@ -67,10 +61,11 @@ function ModAssets({rpc,cardId,modId,data,title,help}) {
     });
   }
   // Media bytes first (host store), then one CAS pack save; `apply(pack, stored)` places the new file.
-  async function upload(packId,type,file,apply) {
+  async function upload(packId,kind,slotId,file,apply) {
     setProblem('');
     try {
-      const media=type==='image'?await modImageMedia(file):await modAudioMedia(file),stored=await rpc('putModMedia',{modId,packId,...media});
+      const slot=manifest.assetKinds.find(row=>row.id===kind).mediaSlots.find(row=>row.id===slotId);
+      const media=slot.type==='image'?await modImageMedia(file,slot.purpose):await modAudioMedia(file,slot.purpose),stored=await packClient().putModMedia({modId,packId,kind,slot:slotId,...media});
       await packWrite(packId,pack=>{if(!pack)throw new Error('素材包已被删除');apply(pack,stored);return pack;},[stored]);
     } catch(error) { setProblem(error?.code?modFailure(error):error?.message||'上传失败'); }
   }
@@ -205,7 +200,7 @@ function ModListRowDetail({manifest,pack,packs,binding,field,row,editRow,upload}
   const idKey=modListIdKey(field),labelKey=modListLabelKey(field),iconKey=modListIconKey(manifest,field),id=row[idKey],label=(labelKey&&row[labelKey])||modText(manifest,field.label);
   const iconField=iconKey&&field.item.fields.find(child=>child.key===iconKey),iconKind=iconField?.target.kinds.find(kind=>modImageSlot(manifest,kind));
   // Uploading makes (or replaces the media of) this row's own icon entry, named after the row.
-  const uploadIcon=file=>upload(pack.id,'image',file,(current,stored)=>{
+  const uploadIcon=file=>upload(pack.id,iconKind,modImageSlot(manifest,iconKind),file,(current,stored)=>{
     const rows=current.fields[field.key]||[],target=rows.find(item=>item[idKey]===id);if(!target)throw new Error('分类已被删除');
     const slot=modImageSlot(manifest,iconKind),old=target[iconKey]?.packId===pack.id&&current.entries.find(entry=>entry.id===target[iconKey].entryId&&entry.kind===iconKind);
     const shared=old&&rows.some(item=>item!==target&&item[iconKey]?.entryId===old.id);
@@ -237,5 +232,5 @@ function ModEntryDetail({manifest,pack,packs,entry,binding,edit,upload}) {
         h(ModField,{key:field.key,field,manifest,value:entry.fields[field.key],values:entry.fields,packs,pack,binding,onCommit:value=>set(row=>{row.fields={...row.fields,[field.key]:value};})})),
       kind.mediaSlots.filter(slot=>slot.type!=='bundle').map(slot=>h(InlineRow,{key:slot.id,label:slot.type==='image'?'图片':'声音'},
         h(ModUpload,{type:slot.type,label:entry.media[slot.id]?(slot.type==='image'?'换图':'换声音'):(slot.type==='image'?'上传图片':'上传声音'),
-          onFile:file=>upload(pack.id,slot.type,file,(current,stored)=>{const row=current.entries.find(item=>item.id===entry.id);if(!row)throw new Error('条目已被删除');row.media={...row.media,[slot.id]:stored.path};})})))));
+          onFile:file=>upload(pack.id,entry.kind,slot.id,file,(current,stored)=>{const row=current.entries.find(item=>item.id===entry.id);if(!row)throw new Error('条目已被删除');row.media={...row.media,[slot.id]:stored.path};})})))));
 }

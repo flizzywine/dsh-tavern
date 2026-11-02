@@ -12,7 +12,7 @@ import {modTurnActive} from './domain/mods/catalogue.js'
 const {modCheck:check,modShape:shape,modJson,modFreeze} = contract
 
 // Source/Timeline/lease adapters are supplied by the existing host owners. No raw RPC or FS facade.
-export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent,readText,assetPort,variablePort,stagePort,sourcePort,coreCommands=[]}) {
+export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent,readText,assetPort,variablePort,stagePort,sourcePort,coreCommands=[],onError=()=>{}}) {
   const contexts=new WeakSet(),prepareCalls=new Map()
   let active=true
   const current=context=>active && contexts.has(context) && sourceCurrent(context)===true && library.authority(context.modId,context.cardId)===context.authority
@@ -37,7 +37,7 @@ export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent
     while(issued.size>128)issued.delete(issued.keys().next().value)
     return value
   }
-  const runtime=createModRuntime({builtins,current:isCurrent,resolveBuiltin:modId=>library.snapshot().mods[modId]?.origin?.builtinId || modId,
+  const runtime=createModRuntime({builtins,current:isCurrent,onError,resolveBuiltin:modId=>library.snapshot().mods[modId]?.origin?.builtinId || modId,
     createHost(value,callCurrent) {
       const manifest=library.snapshot().mods[value.modId].manifest
       const own=()=>library.getMod({modId:value.modId,cardId:value.cardId})
@@ -126,8 +126,11 @@ export function createModHostRuntime({library,builtins,engineJudge,sourceCurrent
       check(value && current(value),'$.source','Command source is stale','MOD_SOURCE_STALE')
       const command=prepared.commands.find(row=>row.modId===modId && row.id===commandId)
       check(command,'$.commandId','Command is not registered','MOD_PERMISSION_DENIED')
-      validateModCommand(command,params)
-      validateCommand(modId,commandId,params)
+      // Sealed parameters are canonical output, not model input; admission already ran in the submit tool.
+      if (!accepted) {
+        validateModCommand(command,params)
+        validateCommand(modId,commandId,params)
+      }
       const invocation=accepted?context({...value,command:{...accepted,commandId}},modId):value
       return runtime.invoke(issue(invocation),'command',{commandId,params})
     },

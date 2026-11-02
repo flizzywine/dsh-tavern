@@ -2,7 +2,7 @@ import path from 'node:path'
 import {readFile,mkdir,open,rename,unlink,stat,readdir} from 'node:fs/promises'
 import {randomUUID} from 'node:crypto'
 import {checkedAssetPath} from '../../../lib/card-storage.js'
-import {decodeModMedia,MOD_MEDIA_MIME,MOD_MEDIA_LIMIT} from '../../../lib/mod-media.js'
+import {decodeModMedia,MOD_MEDIA_MIME} from '../../../lib/mod-media.js'
 import {createModConfigService,CONFIG_FILE_PATH} from '../../../lib/domain/mods/config.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
 const absent=error=>{if(error.code==='ENOENT')return null;throw error}
@@ -36,11 +36,9 @@ export function createModConfigFiles({root,cardPacks}) {
       else {
         const target=await locate(args.modId,args.path),info=await stat(target).catch(absent)
         if(!info)fail('SOURCE_MISSING','Uploaded file does not exist in this layer')
-        if(info.size>MOD_MEDIA_LIMIT)fail('CONFIG_TYPE','Uploaded file exceeds size limit')
         bytes=await readFile(target)
       }
       if(!bytes)fail('SOURCE_MISSING','Uploaded file does not exist in this layer')
-      if(bytes.length>MOD_MEDIA_LIMIT)fail('CONFIG_TYPE','Uploaded file exceeds size limit')
       return {file:{path:args.path,mime:MOD_MEDIA_MIME[args.path.split('.').at(-1)],size:bytes.length},data:Buffer.from(bytes).toString('base64')}
     },
     async put(args,cardRevision) {

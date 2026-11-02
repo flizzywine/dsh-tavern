@@ -12,7 +12,8 @@ import {createModEventCatalogue} from '../../../lib/mod-event-catalogue.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import {managedExecutionView} from './mod-system-execution.js'
 import {createFirstPartyMods} from '../../../lib/mod-builtins.js'
-import {createLibraryModMedia} from '../../../lib/mod-media.js'
+import {createLibraryModMedia,withModMedia} from '../../../lib/mod-media.js'
+import {createManagedModPackOwner} from './mod-pack-owner.js'
 import {createModPerformanceMedia} from '../../../lib/domain/mods/performance-media.js'
 import {createModHostRuntime} from '../../../lib/mod-runtime.js'
 import {createModVariablePort} from '../../../lib/mod-variables.js'
@@ -26,7 +27,7 @@ import {captureStageTarget} from '../../../lib/domain/stage-incremental.js'
 import {createModStageCorrections,admitModSettlement} from '../../../lib/domain/mods/stage-corrections.js'
 import contract from '../../dsh-presentation-protocol/src/mod-contract.cjs'
 const {modCheck:check,modShape:shape,modFreeze,modResultError}=contract
-export const MOD_MANAGEMENT_METHODS=Object.freeze(['listMods','getMod','listModPacks','saveModSettings','readModMedia'])
+export const MOD_MANAGEMENT_METHODS=Object.freeze(['listMods','getMod','listModPacks','saveModSettings','saveModPack'])
 const messageAt=(chat,turn)=>chat.messages.findLast(row=>row?.role==='assistant' && Number(row.turn || (row.greeting?1:0))===turn)
 const sourceValue=message=>[message.swipeId || 0,message.stageDirectionGeneration || 0,message.sourceText ?? message.text]
 // Installed grammar is resource data, not an executable hook. Disabled or
@@ -36,8 +37,10 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,root,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,coreMedia,connected,models,assetSnapshot,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
+export function createBuiltinModService({workbenchAuthority,root,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,coreMedia,connected,models,assetSnapshot,resolveAssets,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
   let service,library,runtime,sessionEvents,settledSource,performanceMedia,libraryMedia,dirty=true,active=true,epoch=0,tail=Promise.resolve()
+  const packs=createManagedModPackOwner({root})
+  const stopPacks=packs.subscribe(()=>invalidate())
   const modelTasks=models?createModModelTasks(models):null
   const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
   let grammarRevision,grammarCommands
@@ -110,7 +113,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     check(active,'$','Mod service is disposed','MOD_RESOURCE_UNAVAILABLE')
     if(!dirty)return
     const builtin=await builtins
-    library=await managedExecutionView({management,builtins:builtin})
+    library=await managedExecutionView({management,builtins:builtin,packs,resolveAssets})
     dirty=false
     const variablePort=createModVariablePort({...variables,sourceCurrent,prepareCommit:input=>service.variableCommit(input),onError})
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
@@ -122,6 +125,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
         catch{return [slot.id,{selection:'follow-foreground',provider:null,model:null,label:slot.label,available:false}]}
       })))}):null
     runtime=createModHostRuntime({library,builtins:builtin,engineJudge,sourceCurrent:current,coreCommands,
+      onError:diagnostic=>onLog({kind:'mod-runtime-failure',...diagnostic}),
       readText:async(id,name)=>builtin.file(library.snapshot().mods[id].origin?.builtinId || id,name)?.toString('utf8'),
       variablePort,stagePort,sourcePort,
     })
@@ -199,6 +203,14 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
   }
   return service=Object.freeze({invalidate,
     assetsChanged(){eventCatalogue?.clear();sessionEvents?.refresh()},
+    media:Object.freeze({
+      put:args=>run(()=>withModMedia(library,libraryMedia).putModMedia(args),'upload'),
+      read:args=>run(()=>{
+        const file=library.snapshot().mods[args.modId]?.packs[args.packId]?.files.find(row=>row.path===args.path)
+        check(file,'$.path','Media is not part of this pack','MOD_RESOURCE_UNAVAILABLE')
+        return libraryMedia.readBytes(args.modId,args.packId,args.path,file.size)
+      },'media'),
+    }),
     installBuiltinAssets:owner=>run(async()=>{for(const pack of (await builtins).assetPacks?.() || [])await owner.ensureBuiltinPack(pack)}),
     stageViews(sessionId,authority) {
       check(typeof authority?.origin==='string','$.origin','Same-origin stage authority required','MOD_PERMISSION_DENIED')
@@ -229,11 +241,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
       check(MOD_MANAGEMENT_METHODS.includes(method),'$.method','Management method is unavailable','MOD_API_UNSUPPORTED')
       check(typeof authority?.origin==='string' || !!workbenchAuthority && authority===workbenchAuthority,'$.origin','Same-origin or workbench management required','MOD_PERMISSION_DENIED')
       return run(async()=>{
-        if(method==='readModMedia') {
-          const file=library.snapshot().mods[args.modId]?.packs[args.packId]?.files.find(row=>row.path===args.path)
-          check(file,'$.path','Media is not part of this pack','MOD_RESOURCE_UNAVAILABLE')
-          return libraryMedia.read(args.modId,args.packId,args.path,file.size)
-        }
+        if(method==='saveModPack')return withModMedia(library,libraryMedia).saveModPack(args)
         if(method!=='saveModSettings')return library[method](args)
         writingSettings=true;settingsNotified=false
         try {
@@ -456,6 +464,6 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
         if(snapshot)await correct(snapshot)
       })().catch(onError).finally(()=>recovering.delete(id))})
     },
-    dispose() {active=false;runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
+    dispose() {active=false;stopPacks();runtime?.dispose();sessionEvents?.dispose();modelTasks?.dispose();unsubscribe();unregister();proofs.clear();prepared.clear();settlements.clear()},
   })
 }

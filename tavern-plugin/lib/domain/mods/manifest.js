@@ -293,8 +293,9 @@ export function validateModManifest(input) {
       check(text(kind.label,80) && typeof kind.directorSelectable === 'boolean', location)
       validateModSettingsSchema(kind.fields, location + '.fields', false, value.id)
       declarations(kind.mediaSlots, location + '.mediaSlots', (slot, loc) => {
-        shape(slot, ['id','type'], undefined, loc)
+        shape(slot, ['id','type','purpose'], ['id','type'], loc)
         check(['image','audio','bundle'].includes(slot.type), loc)
+        check(slot.purpose===undefined || (slot.type==='image'?['icon','image','background']:slot.type==='audio'?['audio']:[]).includes(slot.purpose),loc+'.purpose')
       })
     })
     declarations(value.uiPages, '$.uiPages', (page, location) => {
