@@ -6,7 +6,7 @@ import {createRoot} from 'react-dom/client'
 import {JSDOM} from 'jsdom'
 const require=createRequire(import.meta.url)
 const {createStageSourceWidgets}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/source-widgets.cjs')
-function fixture(options={}){
+function fixture({prepare,...options}={}){
  const dom=new JSDOM('<!doctype html><main class="fork-gal-stage"></main>',{url:'https://example.test'}),{window}=dom,document=window.document
  const previous={window:globalThis.window,document:globalThis.document,act:globalThis.IS_REACT_ACT_ENVIRONMENT}
  globalThis.window=window;globalThis.document=document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
@@ -16,6 +16,7 @@ function fixture(options={}){
  window.ResizeObserver=class{constructor(){observers++}observe(){}disconnect(){observers--}}
  const foreground={setInterval:fn=>{jobs.set(++serial,fn);return serial},clearInterval:id=>jobs.delete(id)}
  const context={state:null,refs:new Map()}
+ prepare?.(window)
  const plugin=createStageSourceWidgets({React,window,document,storage:window.localStorage,foreground,
   views:{phoneLayout:{prefs,min:()=>50},admission:{shown:{get:()=>true,settled:()=>Promise.resolve()}},scene:{rects:()=>[]}},
   sessions:()=>({owner:{getWidgetContext(){widgetReads++;return context}}}),sandbox:{theme:()=>null,stopSfx(){},scroll(){}},
@@ -78,5 +79,43 @@ test('a late widget avatar lease is released without warming the shared cache af
  act(()=>f.plugin.dispose())
  await act(async()=>{finish({handle:{url:'blob:face'},release:()=>released++});await Promise.resolve()})
  assert.equal(released,1);assert.equal(prepared,0)
+ }finally{f.close()}
+})
+test('a phone contact keeps one face across rounds, outfit changes and moods',async()=>{
+ const phoneProtocol=require('../tavern-plugin/mods/phone/stage-phone.cjs'),drawn=[]
+ // The card face is the contact's only face; the stage portrait follows the current outfit and mood.
+ const characters=[{alias:'alice',name:'Alice',avatarMedia:{default:{identity:'alice-default-calm',revision:1},moods:{happy:{identity:'alice-happy'},sad:{identity:'alice-sad'}}}}]
+ const f=fixture({phoneProtocol,
+  characters:{character:(config,name)=>config.characters.find(row=>row.alias===(name?.alias ?? name))},
+  figureResolution:{resolveFigureName:(rows,id)=>{const row=rows.find(value=>value.actorKey===id);return row ? {status:'resolved',row,actorKey:id} : {status:'unresolved'}}},
+  avatarCache:{subscribe:()=>()=>{},get:face=>'card:'+face.identity,ready:face=>'card:'+face.identity,prepare(){}},
+  sessions:()=>({owner:{getWidgetContext:()=>null}}),
+  // Thumbnails are drawn from the face's image: a canvas here keeps the url it drew.
+  prepare:window=>{
+   window.Image=class{set src(value){this.url=value;this.naturalWidth=this.naturalHeight=64;queueMicrotask(()=>this.onload())}get src(){return this.url}}
+   window.HTMLCanvasElement.prototype.getContext=function(){return {drawImage:image=>{this.drawn=image.src;drawn.push(image.src)}}}
+   window.HTMLCanvasElement.prototype.toDataURL=function(){return 'thumb:'+this.drawn}
+  }})
+ const phone={ref:{modId:'dsh.phone'},modSource:true,sourceOnly:true,state:{},definition:{contentIdentity:'phone',document:{presentation:{open:{width:280,anchor:'corner-right'}}}}}
+ const round=(turn,mood,outfitKey)=>({turn,page:0,pages:[{kind:'line',para:1,alias:'alice',name:'Alice',mood,text:'hi '+turn}],
+  actors:{alice:{outfitKey,figure:{packId:'p',figureId:'f'}}},
+  record:{phase:'done',through:1,token:{bindingKey:'b',sourceKey:'k'+turn,generation:1},entries:[{at:1,ops:[{op:'mod.command',modId:'dsh.phone',commandId:'mark',params:{contact:'alice',side:'in'}}]}]}})
+ let value
+ function View(props){value=f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters},widgets:[phone],enabled:true,mode:'live',
+  readHistory:()=>Promise.resolve(null),phoneThreadsRpc:()=>Promise.resolve(null),
+  avatarOf:()=>({src:'stage:'+props.mood+':'+props.actors.alice.outfitKey}),...props});return null}
+ const faces=()=>{const source=value.items.find(item=>item.ref.modId==='dsh.phone').source
+  const person=source.threads.flatMap(thread=>thread.participants).find(row=>row.id==='alice')
+  return {contact:source.avatars[person.avatar],messages:source.messages.map(row=>row.avatar ?? null)}}
+ try {
+ const seen=[]
+ for (const props of [round(1,'happy','i01'),round(2,'sad','i05'),round(3,'angry','i02')]) {
+  await act(async()=>{f.root.render(React.createElement(View,props));await new Promise(resolve=>setTimeout(resolve,0))})
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,0))})
+  seen.push(faces())
+ }
+ // The header, every bubble, the banner and the call read the contact face; no message carries a face of its own.
+ assert.deepEqual(seen,Array(3).fill({contact:'thumb:card:alice-default-calm',messages:[null]}))
+ assert.deepEqual([...new Set(drawn)],['card:alice-default-calm'])
  }finally{f.close()}
 })
