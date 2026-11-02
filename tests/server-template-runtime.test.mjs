@@ -24,6 +24,8 @@ function fixture(t, options = {}) {
     if (method === 'saveFullPromptTemplateGlobals') { current.environment.extension_settings.variables.global = structuredClone(args.variables); return {updated:true,variables:args.variables} }
     if (method === 'saveFullPromptTemplateState') { current.state=structuredClone(args.state); return {updated:true,state:args.state} }
     if (method === 'countFullTemplateTokens') return {tokens:args.text.length}
+    // Read-only bound worldbook for TavernHelper probes in card EJS.
+    if (method === 'getFullTemplateWorldbook') return {worldbook:{name:'主线',entries:[{name:'配角',enabled:true},{name:'可选剧情',enabled:true}]}}
     throw Error(method)
   } })
   t.after(() => runtime.dispose())
@@ -97,4 +99,15 @@ test('display worker failures preserve bounded redacted stderr without replay or
   assert.equal(journal.transient, true)
   assert.equal(journal.phase, 'interrupted')
   assert.equal((await runtime.inspect('s')).task.workerDiagnostic.exitCode, 42)
+})
+
+// Card world entries probe their own worldbook via TavernHelper before rendering.
+test('worldbook templates can read the bound worldbook through read-only TavernHelper calls', async t => {
+  const {engine,calls} = fixture(t)
+  const template = '<%_ var active = false; var name = await window.TavernHelper.getCharWorldbookNames(\'current\').primary; var entries = await window.TavernHelper.getWorldbook(name); for (var i = 0; i < entries.length; i++) if (entries[i].name === \'可选剧情\' && entries[i].enabled) active = true; _%>城市<%= active ? \'+剧情\' : \'\' %>|<%= name %>|<%= typeof getWorldbook %>'
+  const result = await engine.render(template)
+  // Before the first read the primary name is the host alias "current"; afterwards the real name.
+  assert.equal(result.text, '城市+剧情|current|function')
+  assert.equal((await engine.render('<%= window.TavernHelper.getCharWorldbookNames().primary %>')).text, '主线')
+  assert.ok(calls.some(call => call.method === 'getFullTemplateWorldbook' && call.args.name === 'current'))
 })

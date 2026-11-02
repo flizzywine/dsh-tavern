@@ -187,7 +187,7 @@ const { id, contentHash } = await ctx.tavern.saveCardPack({ card, id: 'stage-bg'
 - `format` 说明由谁解读包的内容，Tavern 不解读。图片、音视频、字体、JSON、文本按原类型提供，其他类型只能下载、不会在页面里运行。
 - `removeCardPack` 只是把包从卡上取下，返回是否取下了。卡内插件只能写自己的卡。
 
-### `speechProvider({ id, label, description?, voices?, defaultVoice?, version?, synthesize })`
+### `speechProvider({ id, label, description?, voices?, defaultVoice?, version?, synthesize?, recognize? })`
 
 添加一个配音渠道，例如 Edge TTS、火山、自己部署的语音服务。玩家在「设置 → DSH Tavern → 显示与交互 → 配音」的渠道列表里选中它后，台词朗读、舞台朗读和其他插件的 `synthesizeSpeech` 都走这个渠道。
 
@@ -208,6 +208,7 @@ ctx.tavern.speechProvider({
 - `synthesize` 还收到（第 3 版）：`gameId`（为某一局合成时）、`speaker`（正文里的人名，设置页试听时为空字符串）、`narration`（是不是旁白）。渠道可以据此自己决定怎么读，例如按人物挑参考音频。
 - `version`（第 3 版，最多 40 字）：渠道的合成方式变了（换了模型、参数）时改它，旧缓存就不再使用。
 - 渠道自己的地址、Key 等设置由插件自己保存（DSH 的设置区或凭据服务），Tavern 只保存每个人物用哪个声音。
+- 渠道也可以只提供语音识别：给 `recognize({ audio, sampleRate, language, signal, onPartial })`（`audio` 为 16 kHz 单声道 PCM，`onPartial({ text, language })` 报中间结果），返回 `{ text, language }`。`synthesize` 与 `recognize` 至少给一个；只有 `recognize` 的渠道不出现在配音渠道列表里，只供宿主的语音识别（如电话通话）选用，同样 120 秒超时、随插件卸载消失。
 - 同一渠道、同一声音、同一情绪的同一句话只合成一次，之后读缓存；插件渠道的缓存还按 `speaker`、`narration` 和 `version` 区分。120 秒没返回或出错时这句不播，错误记进 Tavern 日志。插件卸载后渠道消失，选着它的玩家听不到配音，直到选别的渠道或插件重新加载。
 
 ### `synthesizeSpeech({ gameId, speaker, text, emotion?, narration? })`

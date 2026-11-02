@@ -1281,6 +1281,49 @@ test('插件数据：不跟某一局走，每个插件只读写自己的那一�
   assert.equal(await image.readPluginData(), null)
 })
 
+test('call context uses shared registries without opting old story plugins into calls', {skip:!cordis}, async t => {
+  const h = await harness(t), seen = []
+  const fiber = await h.root.plugin({name:'call-source', inject:['tavern'], apply(ctx) {
+    ctx.tavern.promptSection({name:'same', text:'story-only'})
+    ctx.tavern.promptSection({name:'same', target:'call', text:context => { seen.push(structuredClone(context)); context.subject.name = 'mutated'; return 'call-only' }})
+    ctx.tavern.turnSection({name:'before', target:'call', position:'before', text:({subject,input}) => subject.name + ':' + input})
+    ctx.tavern.worldbookSource({name:'world', target:'call', entries:({subject}) => [{title:subject.name, content:'private lore'}]})
+    ctx.tavern.promptSection({name:'broken', target:'call', text:() => {throw Error('isolated')}})
+    assert.throws(() => ctx.tavern.promptSection({name:'bad', target:'unknown', text:'x'}), /target/)
+  }})
+  const subject = {id:'actor-42', handle:'lin_yue', name:'林月', ref:{packId:'story-pack',figureId:'figure-7'}}
+  const input = {gameId:'game-1', turn:3, target:'call', subject, input:'你好'}
+  assert.deepEqual((await h.api.promptSections(input)).map(row=>row.text), ['call-only'])
+  assert.deepEqual((await h.api.promptSections({gameId:'game-1',turn:3})).map(row=>row.text), ['story-only'])
+  assert.deepEqual((await h.api.turnContext(input)).map(row=>[row.position,row.text]), [['before','林月:你好'],[undefined,'[林月] private lore']])
+  assert.equal(subject.name, '林月')
+  assert.equal(seen[0].subject.ref.figureId, 'figure-7')
+  assert.deepEqual(await h.api.turnContext({gameId:'game-1',turn:3}), [])
+  await fiber.dispose(); await tick()
+  assert.deepEqual(await h.api.promptSections(input), [])
+  assert.deepEqual(await h.api.turnContext(input), [])
+  // A host-owned section (e.g. a full call history) is not subject to the third-party section cap.
+  const fullHistory = '完整通话'.repeat(3000)
+  h.api.builtinPromptSection({name:'contact-call-history',target:'call',text:fullHistory,unbounded:true})
+  assert.deepEqual((await h.api.promptSections(input)).map(row => row.text), [fullHistory])
+})
+
+test('recognition-only speech providers share registration and unloading but never become TTS choices', {skip:!cordis}, async t => {
+  const h = await harness(t), partials = []
+  const fiber = await h.root.plugin({name:'asr-plugin', inject:['tavern'], apply(ctx) {
+    ctx.tavern.speechProvider({id:'local', label:'本地识别', recognize:async ({onPartial,signal}) => {
+      signal.throwIfAborted(); onPartial({text:'你',language:'zh'}); return {text:'你好',language:'zh'}
+    }})
+  }})
+  assert.deepEqual(h.api.speechProviders(), [])
+  const [provider] = h.api.speechProviders('recognize')
+  assert.equal(provider.id, 'asr-plugin/local')
+  assert.deepEqual(await provider.recognize({signal:new AbortController().signal,onPartial:row=>partials.push(row)}), {text:'你好',language:'zh'})
+  assert.deepEqual(partials, [{text:'你',language:'zh'}])
+  await fiber.dispose(); await tick()
+  assert.deepEqual(h.api.speechProviders('recognize'), [])
+})
+
 test('插件联网声明随卸载释放，不能覆盖原生工具或重复声明', { skip: !cordis }, async t => {
   const h = await harness(t, { reservedToolNames: ['web_search'] })
   let service

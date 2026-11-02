@@ -101,6 +101,11 @@ function sectionName(name) {
   if (typeof name !== 'string' || !SECTION_NAME.test(name)) throw new Error('name 只能用小写字母、数字、点、下划线和连字符')
 }
 
+function contextTarget(target) {
+  if (!['story', 'call'].includes(target)) throw new TypeError("target must be 'story' or 'call'")
+  return target
+}
+
 function taskKey(owner, name) { return owner + ':' + name }
 
 function galleryItemId(owner, id) {
@@ -321,13 +326,13 @@ export function createTavernPluginApi(deps) {
 
   async function collectSections(registry, context, label, disabled) {
     const result = []
-    const entries = Array.from(registry.values()).filter(entry => !disabled?.has(entry.owner)).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
+    const entries = Array.from(registry.values()).filter(entry => !disabled?.has(entry.owner) && (entry.target || 'story') === (context.target || 'story')).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))
     for (const entry of entries) {
       let text
       try { text = typeof entry.text === 'function' ? await bounded(entry.text(structuredClone(context)), label) : entry.text }
       catch (error) { recordError(context.gameId, entry.owner, label, error); continue }
       if (typeof text !== 'string' || !text.trim()) continue
-      result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' ? { position: 'before' } : {}), text: text.trim().slice(0, MAX_SECTION_TEXT) })
+      result.push({ name: 'tavern-plugin:' + entry.owner + ':' + entry.name, owner: entry.owner, ...(entry.position === 'before' ? { position: 'before' } : {}), text: entry.unbounded ? text.trim() : text.trim().slice(0, MAX_SECTION_TEXT) })
     }
     return result
   }
@@ -525,17 +530,19 @@ export function createTavernPluginApi(deps) {
     },
 
     // A speech channel of the plugin's own: it joins the voice service as provider 'tavern-plugin:<owner>:<id>'
-    // (its voices are the catalogue, version its revision).
-    speechProvider({ id, label, description = '', voices = [], defaultVoice = '', version = '', synthesize } = {}) {
+    // (its voices are the catalogue, version its revision). recognize alone offers speech recognition only.
+    speechProvider({ id, label, description = '', voices = [], defaultVoice = '', version = '', synthesize, recognize } = {}) {
       const owner = ownerOf(this)
       sectionName(id)
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
-      if (typeof synthesize !== 'function') throw new TypeError('speechProvider 需要 synthesize 函数')
+      if (typeof synthesize !== 'function' && typeof recognize !== 'function') throw new TypeError('speechProvider requires synthesize or recognize')
+      if (synthesize !== undefined && typeof synthesize !== 'function' || recognize !== undefined && typeof recognize !== 'function') throw new TypeError('speechProvider capabilities must be functions')
       if (!Array.isArray(voices) || voices.some(voice => typeof voice !== 'string')) throw new TypeError('voices 必须是文本数组')
       if (typeof version !== 'string' || version.length > 40) throw new TypeError('version 必须是不超过 40 字的字符串')
       const key = owner + '/' + id
       const entry = { id: key, owner, label: label.trim(), description: String(description).slice(0, 300), voices: voices.slice(0, 200), defaultVoice: String(defaultVoice || ''), version,
-        synthesize: input => bounded(synthesize(input), '配音渠道 ' + key, REPLACEMENT_TIMEOUT_MS).catch(error => { recordError(null, owner, '配音', error); throw error }) }
+        ...(synthesize ? {synthesize: input => bounded(synthesize(input), '配音渠道 ' + key, REPLACEMENT_TIMEOUT_MS).catch(error => { recordError(null, owner, '配音', error); throw error })} : {}),
+        ...(recognize ? {recognize: input => bounded(recognize(input), 'Recognition ' + key, REPLACEMENT_TIMEOUT_MS)} : {}) }
       return register.call(this, speechProviders, key, entry, 'tavern.speechProvider()', '配音渠道 ' + id + ' 已注册', () => deps.speechProvidersChanged?.())
     },
 
@@ -1093,17 +1100,17 @@ export function createTavernPluginApi(deps) {
       return items.map(item => publicPluginMedia(item, currentKeys.get(item.turn) === item.key))
     },
 
-    promptSection({ name, text } = {}) {
+    promptSection({ name, text, target = 'story' } = {}) {
       const owner = ownerOf(this)
-      sectionName(name); textOrFunction(text)
-      return register.call(this, sections, owner + '\u0000' + name, { owner, name, text }, 'tavern.promptSection()', '提示词段落 ' + name + ' 已注册')
+      sectionName(name); textOrFunction(text); contextTarget(target)
+      return register.call(this, sections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, target }, 'tavern.promptSection()', '提示词段落 ' + name + ' 已注册')
     },
 
-    turnSection({ name, text, position = 'after' } = {}) {
+    turnSection({ name, text, position = 'after', target = 'story' } = {}) {
       const owner = ownerOf(this)
-      sectionName(name); textOrFunction(text)
+      sectionName(name); textOrFunction(text); contextTarget(target)
       if (!['before', 'after'].includes(position)) throw new Error("position 只能是 'before' 或 'after'")
-      return register.call(this, turnSections, owner + '\u0000' + name, { owner, name, text, position }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
+      return register.call(this, turnSections, owner + '\u0000' + target + '\u0000' + name, { owner, name, text, position, target }, 'tavern.turnSection()', '本轮上下文段落 ' + name + ' 已注册')
     },
 
     settlementSection({ name, text } = {}) {
@@ -1195,11 +1202,11 @@ export function createTavernPluginApi(deps) {
       }, 'tavern.worldbookStrategy()')
     },
 
-    worldbookSource({ name, entries } = {}) {
+    worldbookSource({ name, entries, target = 'story' } = {}) {
       const owner = ownerOf(this)
-      sectionName(name)
+      sectionName(name); contextTarget(target)
       if (typeof entries !== 'function') throw new TypeError('entries 必须是函数')
-      return register.call(this, worldbookSources, owner + '\u0000' + name, { owner, name, entries }, 'tavern.worldbookSource()', '世界书来源 ' + name + ' 已注册')
+      return register.call(this, worldbookSources, owner + '\u0000' + target + '\u0000' + name, { owner, name, entries, target }, 'tavern.worldbookSource()', '世界书来源 ' + name + ' 已注册')
     },
 
     // Entries joining this game's world book pool: Tavern's own recall decides what reaches a request.
@@ -1488,17 +1495,18 @@ export function createTavernPluginApi(deps) {
   }
 
   /** Plugin sections for the foreground story prompt, in a stable order. */
-  async function promptSections({ gameId, turn }) {
+  async function promptSections({ gameId, turn, target = 'story', subject }) {
     const { disabled } = await choicesFor(gameId)
-    return (await collectSections(sections, { gameId, turn }, '提示词段落', disabled)).map(({ name, text }) => ({ name, text }))
+    const context = { gameId, turn, ...(target === 'story' ? {} : {target, subject}) }
+    return (await collectSections(sections, context, '提示词段落', disabled)).map(({ name, text }) => ({ name, text }))
   }
 
   /** Seam: per-turn context for the story request, computed once while the turn is prepared. */
-  async function turnContext({ gameId, turn, input }) {
-    const context = { gameId, turn, input: String(input || '') }
+  async function turnContext({ gameId, turn, input, target = 'story', subject }) {
+    const context = { gameId, turn, input: String(input || ''), ...(target === 'story' ? {} : {target, subject}) }
     const { disabled } = await choicesFor(gameId)
     const result = await collectSections(turnSections, context, '本轮上下文段落', disabled)
-    for (const source of Array.from(worldbookSources.values()).filter(entry => !disabled.has(entry.owner)).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))) {
+    for (const source of Array.from(worldbookSources.values()).filter(entry => !disabled.has(entry.owner) && entry.target === target).sort((a, b) => a.owner.localeCompare(b.owner) || a.name.localeCompare(b.name))) {
       let entries
       try { entries = await bounded(source.entries(structuredClone(context)), '世界书来源') }
       catch (error) { recordError(gameId, source.owner, '世界书来源', error); continue }
@@ -1797,6 +1805,10 @@ export function createTavernPluginApi(deps) {
 
   return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
-    speechProviders: () => Array.from(speechProviders.values()), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    builtinPromptSection({name,target,text,unbounded = false}) {
+      return register.call({ctx:deps.ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
+        {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
+    },
+    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
 }

@@ -38,6 +38,10 @@ ctx.tavern.worldbookSource({ name: 'side-quests', entries: async ({ gameId, inpu
 - 每个来源每轮最多 20 条，每条最多 4000 字；`title` 可省略。
 - 其余规则同 `turnSection`：每轮算一次、出错跳过、兼容请求模式不生效。
 
+## `target`：正文还是通话
+
+`promptSection`、`turnSection`、`worldbookSource` 都接受 `target`，默认 `'story'`（游玩时的正文请求）。`target: 'call'` 的段落只进入与联系人的独立通话请求（电话模组），不进入正文；已有插件不写 `target` 就不会进入通话。通话时函数额外收到 `target: 'call'` 和 `subject`（被呼叫的人物，含 `id`、`name` 等），按需返回这个人物的资料。同一插件可以用同一个 `name` 分别为正文和通话各注册一段。
+
 ## `worldbookEntries({ name, entries })`（第 2 版）
 
 把插件自己的条目放进这局的世界书条目池，和人物卡、世界书库的条目一起交给 Tavern 召回：关键词激活、常驻、冷却、筛选复审，以及后台结算、候选和 Agent 查世界书看到的资料，都按 Tavern 自己的规则处理。适合会话临时世界书、NPC 台账、剧情线索这类随游戏变化的条目。

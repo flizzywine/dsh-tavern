@@ -38,6 +38,18 @@ async function initialize(sessionId, readOnly = false) {
   for (const file of ['../vendor/runtime-assets/jquery/jquery.min.js', '../vendor/runtime-assets/lodash/lodash.min.js', '../vendor/st-prompt-template/server-artifact/engine.js']) {
     w.eval(await readFile(new URL(file, import.meta.url), 'utf8'))
   }
+  // Card EJS often probes its own worldbook through TavernHelper (checks of whether optional
+  // entries are enabled). This realm only has the template engine, so expose the read-only
+  // subset backed by the bound worldbook RPC.
+  let charBook = 'current'
+  const readBook = async name => {
+    const book = (await rpc('getFullTemplateWorldbook', { name: !name || name === charBook ? 'current' : name })).worldbook
+    if (book?.name) charBook = book.name
+    return book?.entries || []
+  }
+  const helper = { getCharWorldbookNames: () => ({ primary: charBook, additional: [] }), getWorldbook: readBook }
+  w.TavernHelper = Object.assign({}, w.TavernHelper, helper)
+  for (const [name, fn] of Object.entries(helper)) if (typeof w[name] !== 'function') w[name] = fn
   session = await w.DSHTemplate.createServerTemplateSession({ sessionId, rpc,
     settingsHtml: await readFile(new URL('../vendor/st-prompt-template/upstream/settings.html', import.meta.url), 'utf8') })
 }
