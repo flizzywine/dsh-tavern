@@ -4,7 +4,9 @@
 // alike, so opening or leaving the stage never restarts or doubles a track. It co-owns (pins) the loaded
 // track it plays. 导演选曲 on: the director's accepted cue; off: the manual pick (cues are still recorded).
 // The mode, the pick and pause last for the session only (localStorage by session id, never on the card).
-const BGM_STORAGE = 'fork-bgm-sessions', BGM_KEEP = 32;
+// Leaving the stage only holds the music for this page (away): a reload, a restart or another chat resumes it;
+// only the player's own pause is remembered.
+const BGM_STORAGE = 'fork-bgm-sessions-v2', BGM_KEEP = 32;
 const bgmKey = ref => ref ? ref.packId + '/' + ref.assetId : '';
 // Previous / next walk the whole list in its order and wrap; from outside the list they enter at an end.
 function bgmStep(tracks, key, delta) {
@@ -27,6 +29,9 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     const notifyPerformance = (type, value, reason) => performanceListeners.forEach(fn => fn({type, instanceKey:value.instanceKey, reason}));
     let active = null, store = null, selector = null, input = null, snapshot = null, reloadTimer = 0;
     let mine = {follow:true, manual:null, paused:false}, generation = 0, playback = 0, held = [], retried = '', error = false;
+    // The v1 record also kept the leave-the-stage pause, so every reopened chat started paused; it is dropped once.
+    try { storage?.removeItem?.('fork-bgm-sessions'); } catch (_) {}
+    const silent = () => mine.paused || !!mine.away;
     function saved() { try { return JSON.parse(storage?.getItem(BGM_STORAGE) || '{}') || {}; } catch (_) { return {}; } }
     function remember() {
         const all = saved();
@@ -80,7 +85,7 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
     function view() {
         const list = lists.get(active), current = target();
         return Object.freeze({sessionId:active, available:!!input?.available, enabled:!!input?.enabled,
-            follow:mine.follow, paused:mine.paused, error, loading:!!list?.loading, tracks:list?.tracks || [],
+            follow:mine.follow, paused:silent(), error, loading:!!list?.loading, tracks:list?.tracks || [],
             cue:input?.cue ? {key:input.cue.key, name:input.cue.name} : null,
             current:current ? {key:current.key, name:current.name, source:current.source} : null});
     }
@@ -99,14 +104,14 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
         if (disposed) return;
         const run = ++generation, goal = target(), playing = music.get();
         publish();
-        if (!goal || mine.paused && playing.identity !== goal.identity) {
+        if (!goal || silent() && playing.identity !== goal.identity) {
             const epoch = ++playback;
-            const done = music.stop(!(!goal && input?.enabled && mine.follow && !mine.paused && !input.snap));
+            const done = music.stop(!(!goal && input?.enabled && mine.follow && !silent() && !input.snap));
             const settled = () => { if (epoch === playback) release(null); };
             if (done) done.then(settled); else settled();
             return;
         }
-        if (mine.paused) { music.pause(); return; }
+        if (silent()) { music.pause(); return; }
         if (playing.identity === goal.identity && playing.current) { music.trim?.(goal.volume, {loopStart:goal.loopStart,loopEnd:goal.loopEnd}); music.resume(); return; }
         let pin = null;
         try {
@@ -257,9 +262,11 @@ function createBgmPlayer({music, session, owner, read, storage, authority, now =
             if (!on) override('follow');
             set(on ? {follow:true, manual:null} : {follow:false, manual:cue ? {key:cue.key, name:cue.name, identity:cue.identity} : null});
         },
-        pause(paused) { set({paused:!!paused}); },
+        pause(paused) { set({paused:!!paused, away:false}); },
+        // The stage closing (on) or opening (off): holds the music without remembering it.
+        away(on) { if (disposed || !!mine.away === !!on) return; mine = {...mine, away:!!on}; void apply(); },
         // Autoplay can refuse the first play(); a later user gesture retries it.
-        kick() { const playing = music.get(); if (active && !mine.paused && playing.current && playing.paused) music.resume(); },
+        kick() { const playing = music.get(); if (active && !silent() && playing.current && playing.paused) music.resume(); },
         dispose() {
             if (disposed) return; disposed = true; playback++;
             generation++;

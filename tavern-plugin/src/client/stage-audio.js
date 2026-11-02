@@ -1,5 +1,9 @@
 // @include audio-trace.cjs
 const AUDIO_DEFAULT_LEVEL = 0.8;
+// The quiet after the last source ends before the mixer's AudioContext is suspended (see settle()).
+const AUDIO_IDLE_SUSPEND_MS = 3000;
+// The time constant (s) of the other sources' return after an exclusive source ends (~1.2 s to 95%).
+const AUDIO_EXCLUSIVE_RETURN = 0.4;
 function audioContentKey(identity) {
     const match = /(?:^|[^0-9a-f])([0-9a-f]{64})(?![0-9a-f])/.exec(String(identity || ""));
     return match ? match[1] : null;
@@ -84,6 +88,26 @@ const forkStageAudio = (function () {
     }
     const clamp = value => Math.max(0, Math.min(1, Number(value) || 0));
     const volume = layer => prefs.muted[layer] ? 0 : prefs[layer];
+    // An exclusive source (a full-screen entrance video's own soundtrack, `exclusive`) is the only one heard while it
+    // sounds: every other source on every bus (BGM, ambience, voice, other SE, UI cues) holds at 0 under the user's levels,
+    // which stay as they are; auditions are not stage sound. When it ends the others glide back in (BGM fades in).
+    let solo = null;
+    const held = record => solo !== null && solo !== record && !record.preview;
+    // A running AudioContext keeps the device's audio hardware awake even in silence (a phone's battery). With nothing on the
+    // mixer - no bound element playing, no buffer/stream source, no call, no recorder tap - it is suspended after a short
+    // quiet; every source start resumes it first (ensure, or a bound element's play), so nothing is cut.
+    // Playback that is about to sound again on its own (the stage's AUTO, a streaming round with voice) holds it awake too
+    // (keepAwake): iOS Safari may refuse to resume a suspended context without a user gesture, which a timer-led next line lacks.
+    let idleTimer = null, tapped = false;
+    const awake = new Set();
+    const busy = () => tapped || triggers.call || active.size > 0 || awake.size > 0;
+    function settle() {
+        clearTimeout(idleTimer); idleTimer = null;
+        if (!context || busy() || context.state !== "running") return;
+        idleTimer = setTimeout(() => { idleTimer = null; if (!busy() && context.state === "running") context.suspend().catch(() => {}); }, AUDIO_IDLE_SUSPEND_MS);
+    }
+    active.add = function (record) { Set.prototype.add.call(this, record); settle(); return this; };
+    active.delete = function (record) { const had = Set.prototype.delete.call(this, record); if (had) settle(); return had; };
     function ensure() {
         if (context) { if (context.state === "suspended") context.resume().catch(() => {}); return context; }
         const Constructor = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
@@ -99,6 +123,7 @@ const forkStageAudio = (function () {
             }
             previewBus = context.createGain(); previewBus.gain.value = 1; previewBus.connect(master);
             if (context.state === "suspended") context.resume().catch(() => {});
+            context.addEventListener("statechange", settle);
         } catch (_) { context = null; }
         return context;
     }
@@ -129,7 +154,7 @@ const forkStageAudio = (function () {
         }
         active.forEach(record => { if (!record.gain) update(record); });
     }
-    function trigger(name, on) { if (triggers[name] === on) return; triggers[name] = on; retarget(); }
+    function trigger(name, on) { if (triggers[name] === on) return; triggers[name] = on; retarget(); if (name === "call") settle(); }
     const sounding = () => trigger("sfx", [...active].some(record => ["sfx", "ui"].includes(record.layer) && !record.preview));
     function measured(record) { return record.loudness || known(record.url)?.loudness || (record.layer === "voice" ? AUDIO_VOICE : undefined); }
     // an entry's authored 音量 (0..1) multiplies its normalized gain.
@@ -147,10 +172,11 @@ const forkStageAudio = (function () {
             lufs: audioMeasurement(loudness) ? loudness.lufs : undefined, trackDb: trackGain > 0 ? 20 * Math.log10(trackGain) : undefined,
             trim: record.trim, duck: buses[record.layer] ? buses[record.layer].to : undefined, duration, position, error: extra.error });
     }
-    function update(record) {
+    const level = record => held(record) ? 0 : (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
+    function update(record, glide = 0.05) {
         if (record.released) return;
-        const gain = (voiceGains.get(record.node) ?? audioGain(record.layer, measured(record), record.gainDb)) * record.trim;
-        if (record.gain) { record.gain.gain.cancelScheduledValues(context.currentTime); record.gain.gain.setTargetAtTime(gain, context.currentTime, 0.05); }
+        const gain = level(record);
+        if (record.gain) { record.gain.gain.cancelScheduledValues(context.currentTime); record.gain.gain.setTargetAtTime(gain, context.currentTime, glide); }
         else record.node.volume = 0;
     }
     function bind(node, layer, url, authored = {}) {
@@ -160,7 +186,7 @@ const forkStageAudio = (function () {
         if (!record) {
             record = { node, layer, url, envelope: node.volume, gain: null, gainDb: authored.gainDb ?? 0, loudness: authored.loudness, trim: trimOf(authored.volume), released: false, preview: Boolean(authored.preview), trace: authored.trace }; nodes.set(node, record);
             if (ensure()) {
-                try { const source = context.createMediaElementSource(node), gain = context.createGain(); source.connect(gain); gain.connect(authored.preview ? previewBus : buses[layer].gain); record.source = source; record.gain = gain; gain.gain.value = (voiceGains.get(node) ?? audioGain(layer, measured(record), record.gainDb)) * record.trim; }
+                try { const source = context.createMediaElementSource(node), gain = context.createGain(); source.connect(gain); gain.connect(authored.preview ? previewBus : buses[layer].gain); record.source = source; record.gain = gain; gain.gain.value = level(record); }
                 catch (error) { node.muted = true; throw error; }
             }
             if (!record.gain) { node.muted = true; throw new Error("Audio mixer unavailable"); }
@@ -172,9 +198,13 @@ const forkStageAudio = (function () {
             // A refused play() (autoplay policy, an interrupted load) never fires a media event: trace it here.
             const play = node.play;
             if (typeof play === 'function') node.play = function () {
-                const result = play.apply(node, arguments);
-                if (result && typeof result.catch === 'function') result.catch(error => trace('fail', record, { error: (error && error.name) || 'play-rejected' }));
-                return result;
+                const args = arguments, start = () => {
+                    const result = play.apply(node, args);
+                    if (result && typeof result.catch === 'function') result.catch(error => trace('fail', record, { error: (error && error.name) || 'play-rejected' }));
+                    return result;
+                };
+                // An idle-suspended mixer wakes before the element starts, so its first syllable is heard.
+                return context.state === "suspended" ? context.resume().then(start, start) : start();
             };
         }
         if (record.layer !== layer && !record.preview) { if (record.gain) { record.gain.disconnect(); record.gain.connect(buses[layer].gain); } record.layer = layer; }
@@ -193,17 +223,22 @@ const forkStageAudio = (function () {
         try { localStorage.setItem("dsh-tavern-stage-audio", JSON.stringify(prefs)); } catch (_) {}
         retarget();
         if (context) { master.gain.setTargetAtTime(volume("master"), context.currentTime, 0.015); for (const layer of Object.keys(buses)) buses[layer].gain.gain.setTargetAtTime(volume(layer), context.currentTime, 0.015); }
-        active.forEach(update); listeners.forEach(fn => fn());
+        active.forEach(record => update(record)); listeners.forEach(fn => fn());
     }
     return {
         install,
         musicContext: ensure,
+        // owner (any value) holds the mixer awake while on; the context wakes now if it was asleep (the toggle is usually a tap).
+        keepAwake(owner, on) {
+            if (on) { awake.add(owner); if (context && context.state === "suspended") context.resume().catch(() => {}); } else awake.delete(owner);
+            settle();
+        },
         // External buffer/oscillator players own their sources, never their output destination.
         bufferInput(layer, { loudness, gainDb = 0, volume: trim = 1, trace: meta, url = "", duration } = {}) {
             const ctx = ensure(); if (!ctx) return null;
             const input = ctx.createGain();
             const record = { node: input, layer, url, envelope: 1, gain: input, gainDb, trim: trimOf(trim), loudness, released: false, trace: meta };
-            input.gain.value = audioGain(layer, loudness, gainDb) * record.trim;
+            input.gain.value = level(record);
             input.connect(buses[layer].gain); active.add(record); sounding(); trace('start', record, { duration });
             return { context: ctx, input, release() { record.released = true; active.delete(record); input.disconnect(); sounding(); } };
         },
@@ -259,6 +294,14 @@ const forkStageAudio = (function () {
         },
         // a phone call, from dialling (its ringback) to hang-up, ducks every bus below the voice.
         call(on) { trigger("call", Boolean(on)); },
+        // A bound element becomes (on) or stops being (off) the one source heard; see `solo`. Silencing is quick, the return
+        // a ~1 s glide. Releasing the element ends its exclusivity too.
+        exclusive(node, on) {
+            const record = nodes.get(node);
+            if (on ? !record || record.released || solo === record : !record || solo !== record) return;
+            solo = on ? record : null;
+            active.forEach(other => { if (other !== record) update(other, on ? 0.015 : AUDIO_EXCLUSIVE_RETURN); });
+        },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         get() { return { ...prefs, muted: { ...prefs.muted } }; },
         getSnapshot() { return snapshot; },
@@ -271,7 +314,7 @@ const forkStageAudio = (function () {
                 const loudness = record.loudness || catalogue.get(record.url)?.loudness || (record.layer === "voice" ? AUDIO_VOICE : undefined);
                 // trackGain = loudness normalization x the entry's authored volume; effective adds envelope, layer, duck and master.
                 const trackGain = (voiceGains.get(record.node) ?? audioGain(record.layer, loudness, record.gainDb)) * record.trim;
-                const effective = trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
+                const effective = held(record) ? 0 : trackGain * record.envelope * volume(record.layer) * duck(record.layer) * volume("master");
                 const known = audioMeasurement(loudness);
                 return { layer: record.layer, content: record.content ? record.content.slice(0, 12) : null, measured: known ? { lufs: loudness.lufs, peak: loudness.peak } : null, trim: record.trim,
                     envelope: round(record.envelope, 4), trackGain: round(trackGain, 4), trackGainDb: trackGain > 0 ? round(20 * Math.log10(trackGain), 2) : null,
@@ -283,7 +326,7 @@ const forkStageAudio = (function () {
             for (const layer of ["master", "voice", "music", "sfx", "ambience", "ui"]) { levels[layer] = prefs[layer]; levels.muted[layer] = Boolean(prefs.muted[layer]); }
             const ducking = {};
             for (const layer of Object.keys(AUDIO_TARGETS)) ducking[layer] = buses[layer] ? { db: buses[layer].db, by: buses[layer].by } : dipOf(layer);
-            return { context: Boolean(context), speaking: triggers.voice, call: triggers.call, sfx: triggers.sfx, ducking, prefs: levels, tracks };
+            return { context: Boolean(context), exclusive: solo ? solo.layer : null, speaking: triggers.voice, call: triggers.call, sfx: triggers.sfx, ducking, prefs: levels, tracks };
         },
         // CONFIG › 声音 › 自动混音: off is stored as duck: false, on drops the field; buses glide to the new dips.
         setDucking(on) { if (on) delete prefs.duck; else prefs.duck = false; save(); },
@@ -297,7 +340,7 @@ const forkStageAudio = (function () {
                 if (!audioMeasurement(item.loudness) && audioMeasurement(previous?.loudness)) continue;
                 remember(item);
             }
-            active.forEach(update);
+            active.forEach(record => update(record));
         }, bind,
         // Terminal opt-in teardown. Retain the WeakMap tombstone: a media element may only
         // have one MediaElementSource, even after that source has been disconnected.
@@ -305,6 +348,7 @@ const forkStageAudio = (function () {
             const record = nodes.get(node);
             if (!record || record.released) return;
             if (active.has(record)) trace('stop', record);
+            if (solo === record) { solo = null; active.forEach(other => { if (other !== record) update(other, AUDIO_EXCLUSIVE_RETURN); }); }
             record.released = true; active.delete(record); voiceActivity(node, false); sounding();
             if (typeof node.removeEventListener === "function") {
                 for (const [event, handler] of Object.entries(record.handlers)) node.removeEventListener(event, handler);
@@ -387,10 +431,10 @@ const forkStageAudio = (function () {
         voice(activeVoice) { voiceActivity("stage", Boolean(activeVoice)); },
         voiceActivity,
         // System speech has no PCM output; its API only permits a 0..1 utterance volume.
-        speechVolume(preview = false) { return volume("master") * (preview ? 1 : volume("voice")); },
+        speechVolume(preview = false) { return volume("master") * (preview ? 1 : solo ? 0 : volume("voice")); },
         // Measurement only: the graph points a recorder taps - the output after the
         // master and foreground gains, and each bus after its dip. Connecting to them never changes what is heard.
-        taps() { if (!ensure()) return null; const after = {}; for (const layer of Object.keys(buses)) after[layer] = buses[layer].duck; return { context, output, buses: after }; }
+        taps() { if (!ensure()) return null; tapped = true; settle(); const after = {}; for (const layer of Object.keys(buses)) after[layer] = buses[layer].duck; return { context, output, buses: after }; }
     };
 })();
 try { if (typeof window !== "undefined" && window) {

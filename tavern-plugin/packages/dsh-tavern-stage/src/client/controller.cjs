@@ -107,9 +107,12 @@ function GalStage(props) {
     const phoneModCall=readPhoneCall?.() || null;
     const h = React.createElement;
     const sessionId = props.sessionId;
-    // Leaving or failing the stage must not leave its music playing over ordinary chat.
-    React.useEffect(() => () => {
-        if (stageViews.bgm.get().sessionId === sessionId) stageViews.bgm.pause(true);
+    // Leaving or failing the stage must not leave its music playing over ordinary chat; opening it again resumes.
+    // The hold is not the player's pause, so a reload or reopened chat plays again (bgm.cjs away).
+    React.useEffect(() => {
+        const bgm = stageViews.bgm;
+        if (bgm.get().sessionId === sessionId) bgm.away(false);
+        return () => { if (bgm.get().sessionId === sessionId) bgm.away(true); };
     }, [sessionId]);
     const runtime = useStageRuntime(sessionId);
     const partsMap = React.useMemo(() => new Map([...runtime.textIndex.values()].flatMap(row => (row.unloaded ? [{scope:'unloaded:' + row.turn,turn:row.turn,segments:[],unloaded:true}] : row.parts).map(part => [part.scope, part]))), [runtime.textIndex]);
@@ -299,6 +302,10 @@ function GalStage(props) {
     // the box's slot for the choices wait (gal-choices.js portals it here).
     const [choiceWaitSlot, setChoiceWaitSlot] = React.useState(null);
     const [auto, setAuto] = React.useState(false);
+    // AUTO, and a round streaming with voice, start the next line from a timer, not a tap: the mixer stays awake for them
+    // (stage-audio.js keepAwake; iOS may not resume a suspended context without a gesture).
+    const audioOwner = React.useRef({}).current, audioAwake = auto || (streaming && voiceAvailable);
+    React.useEffect(() => { forkStageAudio.keepAwake(audioOwner, audioAwake); return () => forkStageAudio.keepAwake(audioOwner, false); }, [audioAwake]);
     // Skip is either latched (the SKIP control) or held (Ctrl down, like most galgames).
     const [skipLatch, setSkipping] = React.useState(false);
     const [skipHeld, setSkipHeld] = React.useState(false);

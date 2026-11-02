@@ -117,7 +117,9 @@ function StageEntrance({run, ready: loaded, covered, started, onEvent, onBright}
         try {
         if (run.video) {
             // No poster here: an entrance's own drawn layers are what stands in for a video it cannot play.
-            const own = player.current = video.player(videoHost.current, run.video, {audio: run.doc.layers.video.audio === true, poster: false, readyMs: ENTRANCE_VIDEO_WAIT_MS});
+            // An entrance that declares its sound is heard alone: the rest of the stage's sound waits until it ends or is skipped.
+            const audio = run.doc.layers.video.audio === true;
+            const own = player.current = video.player(videoHost.current, run.video, {audio, exclusive: audio, poster: false, readyMs: ENTRANCE_VIDEO_WAIT_MS});
             own.ready.then(begin);
             own.playable.then(() => { if (live && !disposed && player.current === own) { begin(); port.current?.input({video: true}); } });
         } else begin();
