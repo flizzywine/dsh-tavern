@@ -21,8 +21,10 @@ function uuidV5(name, namespace = CARD_MATERIAL_NAMESPACE) {
 
 /**
  * The pack of a card's material: { name, characters:[{ name, aliases, avatar, sprites:[{emotion, label, bytes}] (resting
- * first), voiceReferences:[{audio, text}], voiceSource, voiceLanguage, voices }], backgrounds:[{ name, bytes }] }.
- * `channels`: the voice service kinds configured here (cast-voice.js). Null when nothing is usable.
+ * first; the label is the card's own name for the expression), voiceReferences:[{audio, text}], voiceSource, voiceLanguage,
+ * voices }], backgrounds:[{ name, bytes }] }. `channels`: the voice service kinds configured here (cast-voice.js).
+ * The pack id is a v5 UUID of the pack's content (figures, media by hash, voices as mapped here), not of its name, so one
+ * id always means one content. Without a usable figure or background there is no manifest, only the notices.
  */
 export async function cardMaterialPack({name, characters = [], backgrounds = []}, channels) {
   const blobs = {}, files = new Map(), hashed = new Map(), notices = []
@@ -34,22 +36,24 @@ export async function cardMaterialPack({name, characters = [], backgrounds = []}
     if (!blobs[hash]) { blobs[hash] = {ext, mime:BLOB_MIME_TYPES[ext], size:bytes.length}; files.set(file, bytes); hashed.set(file, hash) }
     return hash
   }
-  const cast = characters.map(character => ({...character,
-    avatar:character.avatar ? media(character.avatar, 'image') : null,
-    sprites:(character.sprites || []).map(sprite => ({emotion:sprite.emotion, label:sprite.label, media:media(sprite.bytes, 'image')})).filter(sprite => sprite.media),
-    references:(character.voiceReferences || []).map(clip => ({media:media(clip.audio, 'audio'), text:typeof clip.text === 'string' ? clip.text : ''})).filter(clip => clip.media)}))
+  const cast = []
+  for (const character of characters) {
+    const avatar = character.avatar ? media(character.avatar, 'image') : null
+    const sprites = (character.sprites || []).map(sprite => ({emotion:sprite.emotion, label:sprite.label, media:media(sprite.bytes, 'image')})).filter(sprite => sprite.media)
+    const references = (character.voiceReferences || []).map(clip => ({media:media(clip.audio, 'audio'), text:typeof clip.text === 'string' ? clip.text : ''})).filter(clip => clip.media)
+    const key = 'cast-' + (cast.length + 1)
+    const {voice, binding, dropped} = castVoice({name:character.name, references, voiceSource:character.voiceSource, voiceLanguage:character.voiceLanguage, voices:character.voices}, channels, key)
+    if (dropped) notices.push(character.name + '的声音来源 ' + dropped + ' 没有对应渠道，已忽略')
+    if (sprites.length || avatar || voice) cast.push({name:character.name, aliases:character.aliases || [], avatar, sprites, key, voice, binding})
+  }
   const scenes = backgrounds.map(background => ({name:background.name, media:media(background.bytes, 'image')})).filter(background => background.media)
-  // the identity is the material itself (media by hash), not this machine's voice services.
-  const identity = canonicalJson({name, characters:cast.map(({name, aliases = [], avatar, sprites, references, voiceSource = null, voiceLanguage = null, voices = {}}) =>
-    ({name, aliases, avatar, sprites, references, voiceSource, voiceLanguage, voices})), backgrounds:scenes})
-  const packId = uuidV5(identity)
+  if (skipped) notices.push('「' + name + '」有 ' + skipped + ' 个素材格式不支持，没有放进素材包')
+  if (!cast.length && !scenes.length) return {notices}
+  const packId = uuidV5(canonicalJson({characters:cast, backgrounds:scenes}))
   const manifest = {format:'dsh-asset-pack', schemaVersion:1, id:packId, name, contentHash:'0'.repeat(64), assets:[], figures:[], sprites:{}, bundles:{}, blobs, files:[]}
   const voices = {}
   cast.forEach((character, index) => {
-    const id = uuidV5(String(index), Buffer.from(packId.replaceAll('-', ''), 'hex')), key = 'cast-' + (index + 1)
-    const {voice, binding, dropped} = castVoice({name:character.name, references:character.references, voiceSource:character.voiceSource, voiceLanguage:character.voiceLanguage, voices:character.voices}, channels, key)
-    if (dropped) notices.push(character.name + '的声音来源 ' + dropped + ' 没有对应渠道，已忽略')
-    if (!character.sprites.length && !character.avatar && !voice) return
+    const id = uuidV5(String(index), Buffer.from(packId.replaceAll('-', ''), 'hex')), {key, voice, binding} = character
     const figure = {schemaVersion:1, id, name:character.name, ...(character.aliases?.length ? {aliases:character.aliases} : {}), enabled:true, recall:{mode:'constant'},
       appearance:character.sprites.length ? 'sprite' : 'avatar', outfits:[]}
     if (character.sprites.length) {
@@ -69,8 +73,6 @@ export async function cardMaterialPack({name, characters = [], backgrounds = []}
   })
   scenes.forEach((background, index) => manifest.assets.push({kind:'backgrounds', id:'bg-' + (index + 1), name:background.name || '背景 ' + (index + 1), enabled:true,
     recall:{mode:'constant', keywords:[]}, directorNote:'', media:background.media}))
-  if (skipped) notices.push('「' + name + '」有 ' + skipped + ' 个素材格式不支持，没有放进素材包')
-  if (!manifest.figures.length && !manifest.assets.length) return notices.length ? {notices} : null
   if (Object.keys(voices).length) manifest.voiceLibrary = {version:1, voices}
   await sealPack(manifest, files, undefined, hashed)
   return {manifest, files, notices}
@@ -85,23 +87,23 @@ function outfitImage(outfit, sprite, emotion) {
 }
 
 /**
- * A pack's figures as cast material: each enabled figure's first enabled outfit (its emotion pictures and resting avatar)
- * and its voice fields, media by hash. Backgrounds as {name, media}.
+ * A pack's figures as cast material: each enabled figure's first enabled outfit (its emotion pictures, their labels and the
+ * resting avatar) and its voice fields, media by hash. Backgrounds as {name, media}.
  */
 export function cardMaterialProjection({manifest, figures, sprites}) {
   const characters = []
   for (const id of manifest.figures) {
     const figure = figures[id]
     if (!figure.enabled) continue
-    const outfit = figure.outfits.find(item => item.enabled), images = {}
+    const outfit = figure.outfits.find(item => item.enabled), images = {}, labels = {}
     if (outfit?.sprite) for (const row of figure.emotions || []) {
       const hash = outfitImage(outfit, sprites[outfit.sprite.manifestKey], row.id)
-      if (hash) images[row.id] = hash
+      if (hash) { images[row.id] = hash; if (row.label) labels[row.id] = row.label }
     }
     const avatars = outfit?.avatars || {}
     const avatar = avatars[outfit?.defaultEmotion ?? figure.emotions?.[0]?.id] || Object.values(avatars)[0] || null
     const voice = figure.voice && manifest.voiceLibrary?.voices[figure.voice.voice]
-    characters.push({name:figure.name, aliases:figure.aliases || [], avatar, sprites:images, ...(voice ? castVoiceFields(voice, figure.voice) : {})})
+    characters.push({name:figure.name, aliases:figure.aliases || [], avatar, sprites:images, labels, ...(voice ? castVoiceFields(voice, figure.voice) : {})})
   }
   const backgrounds = manifest.assets.filter(asset => asset.kind === 'backgrounds' && asset.enabled).map(asset => ({name:asset.name, media:assetContent(asset).media})).filter(row => row.media)
   return {characters, backgrounds}
