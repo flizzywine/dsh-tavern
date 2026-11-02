@@ -26,8 +26,7 @@ function usePlayback(frame,{advance,finishSkip,finishTyping}){
     const pages={length:pageCount};
     // a history page the reader settles on plays its own
     // one-shots (the runtime's HISTORY_DWELL: projection only, no write, no consumption) - shortly after a jump or a single
-    // page turn, and only 1 s after the last turn while paging continuously (the danmaku history rule, danmaku-streaming.md
-    // 生命周期). A page left earlier plays nothing; what plays is cut with its page. Overlays (the text-only 履历 included),
+    // page turn, and only 1 s after the last turn while paging continuously. A page left earlier plays nothing; what plays is cut with its page. Overlays (the text-only 履历 included),
     // skip and a restored page (still) never play.
     const replayableKinds = performance.replayable;
     const dwellPageKey = runtime.cursor.anchor ? JSON.stringify([sessionId,runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '';

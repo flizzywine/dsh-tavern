@@ -98,7 +98,7 @@ function useGalHudReveal(rootRef, { mode, labels, live }) {
     React.useEffect(() => () => forkForeground.clearTimeout(timer.current), []);
     const bar = () => rootRef.current?.querySelector(".fork-gal-topbar");
     function show() { forkForeground.clearTimeout(timer.current); timer.current = 0; setShown(true); }
-    // An open popover of an entry (BGM, background, danmaku, phone list) or focus inside keeps the bar; a hidden chip gives
+    // An open popover of an entry (BGM, background, phone list) or focus inside keeps the bar; a hidden chip gives
     // its focus back to the stage.
     function linger() {
         if (timer.current) return;

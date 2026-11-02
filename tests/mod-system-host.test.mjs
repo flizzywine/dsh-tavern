@@ -5,11 +5,10 @@ import {createTavernPluginApi} from '../tavern-plugin/lib/plugin-api.js'
 import {emptyCardMods,emptyGlobalMods} from '../tavern-plugin/lib/domain/mod-system-contract.js'
 import * as timer from '../tavern-plugin/mods/timer/plugin.mjs'
 import * as performance from '../tavern-plugin/mods/performance/plugin.mjs'
-import * as danmaku from '../tavern-plugin/mods/danmaku/plugin.mjs'
 
 function harness() {
-  const host=createManagedModHost({authorized:['dsh.timer','dsh.performance','dsh.danmaku']}),api=createTavernPluginApi({modHost:host}),disposers={}
-  for(const plugin of [timer,performance,danmaku]) {
+  const host=createManagedModHost({authorized:['dsh.timer','dsh.performance']}),api=createTavernPluginApi({modHost:host}),disposers={}
+  for(const plugin of [timer,performance]) {
     const ctx={fiber:{name:plugin.name},effect(fn){disposers[plugin.name]=fn();return disposers[plugin.name]}}
     ctx.tavern=Object.assign(Object.create(api.service),{ctx});plugin.apply(ctx)
   }
@@ -25,7 +24,7 @@ function tick(h,id,elapsedMs,activity={}) {h.state=h.host.advance({state:h.state
 function ok(h,instance,op,input,extra) {const result=h.command(instance,op,input,extra);assert.equal(result.ok,true,JSON.stringify(result.error));h.state=result.state;if(op==='off' && (!extra?.mode || extra.mode==='live')){const exit=h.command(instance,'exited',{},extra);assert.equal(exit.ok,true);h.state=exit.state}return result}
 
 test('real plugins register through the upstream owned API; package identity and grammar are bound',()=>{
-  const h=harness();assert.equal(h.host.manifests().length,3);assert.ok(h.session.grammar.some(c=>c.dsl.verb==='timer'));assert.ok(h.session.grammar.some(c=>c.dsl.verb==='performance-set'))
+  const h=harness();assert.equal(h.host.manifests().length,2);assert.ok(h.session.grammar.some(c=>c.dsl.verb==='timer'));assert.ok(h.session.grammar.some(c=>c.dsl.verb==='performance-set'))
   const before=JSON.stringify(h.session.grammar)
   h.card.mods['dsh.performance']='off';h.host.queueChoices({card:h.card,global:h.global})
   assert.equal(h.command('a','start',start()).ok,true,'in-flight snapshot does not change')
@@ -110,13 +109,6 @@ test('off retains the lease through exit; duplicate start is idempotent and prov
   assert.equal(h.command('b','start',start(),{snapshot}).error.code,'MOD_RESOURCE_BUSY')
   ok(h,'a','exited',{}, {snapshot});assert.equal(Object.keys(h.state.stageControls).length,0)
   assert.equal(h.command('__proto__','start',start(),{snapshot}).error.code,'MOD_INVALID')
-})
-
-test('generic danmaku subscription uses the real runtime; disposal does not call a paid model',async()=>{
-  const h=harness();let modelCalls=0
-  const facade={model:{call(){modelCalls++;throw new Error('No paid model in tests')}},state:{read:async()=>null,write:async()=>{}},presentation:{emit:async()=>{}},config:{}}
-  await h.host.event(h.snapshot,'dsh.danmaku',{event:'session.disposed',context:{sessionId:'isolated'},payload:{}},facade)
-  assert.equal(modelCalls,0)
 })
 
 test('public plugin API follows optional managed host removal and reinstallation',()=>{

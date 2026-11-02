@@ -211,8 +211,8 @@ function WidgetContextMenu({item,owner,request,layer,onClose}) {
                 entry.type==='pin'?h('i',{className:'fork-widget-context-check','aria-hidden':true}):null))));
 }
 // the top-right mod launcher is one HUD icon button, the
-// same 30px glyph as 弹幕 / 电影模式 (no label, no count - R4). One mod: the button IS that mod (its glyph and name) and
-// opens / collapses it directly. Several: a grid glyph opening one flat stage menu, the 弹幕 menu's sheet (one opaque
+// same 30px glyph as 电影模式 (no label, no count - R4). One mod: the button IS that mod (its glyph and name) and
+// opens / collapses it directly. Several: a grid glyph opening one flat stage menu (one opaque
 // surface, rows with a hover fill, no inner boxes). Unread / changed mods put an accent dot on the button.
 function WidgetMenu({owner}) {
     const h=React.createElement,[open,setOpen]=React.useState(false),[left,setLeft]=React.useState(null),trigger=React.useRef(null),list=React.useRef(null);

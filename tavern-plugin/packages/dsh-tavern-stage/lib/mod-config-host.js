@@ -10,8 +10,7 @@ import {cardStageSkin,cardStageSkinPackIds} from '../../../lib/domain/card-stage
 import {cardAssetWorkspaceRevision} from '../../../lib/card-asset-bindings.js'
 import {readCardVariableSources} from '../../../lib/domain/card-variable-bindings.js'
 import skinContract from '../../dsh-presentation-protocol/src/stage-skin.cjs'
-import {figureCatalogue,effectiveFigurePackIds,resolution} from '../../../lib/domain/figure-catalogue.js'
-import {selectFigureAvatar} from '../../../lib/domain/pack-avatar.cjs'
+import {figureCatalogue,effectiveFigurePackIds} from '../../../lib/domain/figure-catalogue.js'
 import {stateSourceSchema,ledgerSource,ledgerConfigExports,resolveStateSource,ledgerInventoryBinding} from '../../../lib/domain/mods/state-source.js'
 import {ASSET_PACK_RECORD_FIELD,readAssetPackRecord} from './domain/stage-asset-pack-director.js'
 const fail=(code,message)=>{throw Object.assign(new Error(message),{code})}
@@ -139,46 +138,6 @@ export function createModConfigHost({workbenchAuthority,root,store:managedStore,
     if(['setModConfig','clearModConfig','uploadModConfigFile'].includes(method)){cache.clear();invalidate()}
     return value?.resolved?projectOptions(value,args,authority):value
   },async values(modId,card,chat) {return (await this.resolved(modId,card,chat)).values},
-  async readDanmakuSettings(cardId) {
-    const {card,global}=await store.read({modId:'dsh.danmaku',cardId}),values={}
-    for(const key of ['commentsPerRequest','minIntervalSeconds','maxCallsPerMinute']) {
-      const entry=card[key] ?? global[key]
-      if(entry)values[key]=entry.fixed ?? schemas['dsh.danmaku'].fields.find(field=>field.key===key).default
-    }
-    return values
-  },
-  // the host's face set in the room's settings — an uploaded 主播头像图片,
-  // else the card's 主播头像 figure. Without either, the stage gives the bar the face of the figure the host's name
-  // (主播名称, or the player's name) resolves to, with the same card-figure lookup as the phone's contacts
-  // (useCardFaces, every figure of the card's and global packs); otherwise the neutral face.
-  async readStreamer(cardId) {
-    const {card}=await store.read({modId:'dsh.danmaku',cardId})
-    const identity={name:card.streamerName?.fixed ?? '',avatarRef:card.streamerAvatarRef?.fixed ?? null}
-    let transient=false
-    try {
-      const image=card.streamerAvatarImage?.fixed
-      if(image?.file) {
-        const media=await store.readFile({modId:'dsh.danmaku',cardId,layer:'card',path:image.file})
-        if(['image/png','image/jpeg','image/webp'].includes(media.file.mime))identity.avatar={src:'data:'+media.file.mime+';base64,'+media.data}
-      } else if(identity.avatarRef) {
-        const {workspace}=await cardPacks.lookup(cardId),bindings=rawData(workspace.raw).extensions?.dsh_tavern?.assetBindings || {}
-        const global=getGlobalEnabledPackIds(),packs=await getPacks()
-        const read=await Promise.all(effectiveFigurePackIds(bindings,global).map(packId=>packs.getPackSnapshot({packId}).catch(()=>null))),snapshots=read.filter(Boolean)
-        // A pack that could not be read now (library still starting, a write in flight) is not an answer: read again later.
-        if(snapshots.length<read.length)transient=true
-        const rows=figureCatalogue({snapshots,bindings,globalEnabledPackIds:global}),resolved=resolution.resolveFigureName(rows,identity.avatarRef)
-        if(resolved.status==='resolved') {
-          const pack=snapshots.find(pack=>pack.manifest.id===resolved.ref.packId),avatar=selectFigureAvatar(resolved.row.figure,pack.sprites)
-          if(avatar) {
-            await packs.readMedia({packId:resolved.ref.packId,hash:avatar.hash,expectedRevision:pack.revision})
-            identity.avatar={src:'/api/dsh-asset-library/v2/thumbnail?v=1&packId='+encodeURIComponent(resolved.ref.packId)+'&hash='+encodeURIComponent(avatar.hash),crop:avatar.crop}
-          }
-        }
-      }
-    } catch { transient=true /* Unavailable card media stays neutral for now; keep the stored reference intact. */ }
-    // `transient`: the caller (fork-mod-events) re-reads instead of keeping a neutral face for the whole session.
-    return transient?Object.defineProperty(identity,'transient',{value:true}):identity
-  },
   // a reference or formula that cannot be read shows the declared default on stage (the
   // editor alone shows the ⚠); layers say which layer's files/ an uploaded image is read from.
   async resolved(modId,card,chat) {

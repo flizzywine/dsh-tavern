@@ -81,7 +81,7 @@ function ModDetail({rpc,cardId,cardName,sessionId,modId,onBack,faceOf,ctx}) {
   // their page replaces the manifest renderer (no pack editor for the phone, no saveModSettings).
   const ConfigPage=MOD_CONFIG_PAGES[modId];
   // no summary line under the title (mod-pages-ui: it is the head's (?)).
-  // A config page places `entries` itself (last). One that also has manifest settings (弹幕's call cadence) renders them
+  // A config page places `entries` itself (last). One that also has manifest settings renders them
   // with ModField over `modSettings`: the values (with this page's drafts) and this page's one saveModSettings writer.
   const modSettings={values:{...data.settings.values,...draft},stored:data.settings.storedValues,edit,setDraft,saving:view.saving};
   if(ConfigPage)return h('article',{className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},head,

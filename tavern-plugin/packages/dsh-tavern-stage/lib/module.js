@@ -114,7 +114,6 @@ export async function createStageModule(core) {
       },
     },
     engineJudge,coreCommands:coreModCommands,connected:sessionId=>sessionSignals.connected(sessionId),
-    readAssetText:input=>ctx.get('assetLibrary').readAssetText(input),
     assetSnapshot:assetRuntime.snapshot,publishView:(sessionId,snapshot)=>sessionSignals.publish(sessionId,{kind:'mod-view',sessionId,version:String(++modViewVersion),snapshot}),
     stage:createModStagePort({readChat:readStageChat,readTurn:(sessionId,turn)=>readRoundView(sessionId,turn),readSource:(sessionId,turn)=>readStageChat.view(sessionId,{turn,sourceOnly:true}),updateChat:rawUpdateChat,readCard:readModCard,publish:event=>sessionSignals.publish(event.sessionId,event)}),
     coreMedia:createModCoreMedia({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),snapshot:assetRuntime.snapshot,service:()=>ctx.get('assetLibrary')}),

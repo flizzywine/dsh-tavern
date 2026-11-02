@@ -1,4 +1,4 @@
-// Generated from dsh.danmaku by build.mjs; do not edit.
+// The 观众群 (audience) asset kind's content schema; the kind stays readable in installed packs.
 export const SC_AMOUNTS = Object.freeze([30,50,100,500,1000,2000])
 
 // Called by the fixed audience kind owner only when importing/writing content.

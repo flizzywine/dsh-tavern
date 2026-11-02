@@ -823,7 +823,7 @@
   },
   "hud": {
    "type": "object",
-   "description": "The top bar of stage entries (背景, BGM, 声音, 手机, 弹幕, 电影模式, ✕): auto = hidden while reading, revealed by a mouse near the top, focus or the open menu (default); always = always shown. The player's CONFIG 顶栏按钮 overrides it.",
+   "description": "The top bar of stage entries (背景, BGM, 声音, 手机, 电影模式, ✕): auto = hidden while reading, revealed by a mouse near the top, focus or the open menu (default); always = always shown. The player's CONFIG 顶栏按钮 overrides it.",
    "additionalProperties": false,
    "properties": {
     "reveal": {

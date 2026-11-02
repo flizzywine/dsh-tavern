@@ -5,7 +5,7 @@ import {isDeepStrictEqual as equal} from 'node:util'
 import {assetRefKey} from '../packages/dsh-presentation-protocol/src/asset-packs.js'
 
 // Reuse core blue/green admission, including the director's already-paid judge result.
-// AGENTS.md rule 15: a mod's own built-in asset pack (the 弹幕 audience groups) is usable whenever the mod's global switch
+// AGENTS.md rule 15: a mod's own built-in asset pack is usable whenever the mod's global switch
 // is on; the card adds nothing. It joins this recall as if globally enabled; its entries keep their own lights.
 export function createModEventCatalogue({snapshot,builtinPacks=async()=>[]}) {
   const recalled=new Map()

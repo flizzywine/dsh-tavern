@@ -187,7 +187,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup(skinError ? ["外观", h("span", { key: "error", className: "fork-gal-config-caption-alert", role: "alert" }, "⚠ " + skinError)] : "外观", null,
             galConfigRow("本卡皮肤", skinRow, h(React.Fragment, null, h("span", null, "只换这张卡的皮肤，其他卡不受影响。"),
                 h("span", null, "↺ 回到卡自带的皮肤；卡没有指定时回到 舞台设置 › 基础设置 的默认皮肤。导演临时换的皮肤（如场景光效）结束后也回到这里。"))),
-            galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、弹幕、电影模式这一排按钮。"),
+            galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、电影模式这一排按钮。"),
                 h("span", null, "自动隐藏：鼠标移到画面上方、打开菜单或用 Tab 时出现，地点或曲子变化时标签也会出现几秒。默认跟随皮肤。")))),
         galConfigGroup("效果", null,
             galConfigRow("特效质量", galConfigSegmented({ label: "特效质量", value: quality, options: [["high", "高"], ["low", "低"]], onChange: value => stageQuality.set(value) }),

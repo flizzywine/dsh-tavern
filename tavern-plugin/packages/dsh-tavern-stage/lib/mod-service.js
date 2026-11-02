@@ -36,7 +36,7 @@ const installedCommands=snapshot=>Object.values(snapshot.mods).flatMap(({manifes
 ).sort((a,b)=>a.op<b.op?-1:a.op>b.op?1:0)
 
 // First-party-only composition. Archive/transfer code deliberately does not enter this graph.
-export function createBuiltinModService({workbenchAuthority,root,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,coreMedia,connected,models,assetSnapshot,readAssetText,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
+export function createBuiltinModService({workbenchAuthority,root,management,readCard,engineJudge,variables,coreCommands=[],onChange=()=>{},onError=()=>{},onLog=()=>{},stage,config,coreMedia,connected,models,assetSnapshot,publishView,builtins=createFirstPartyMods({host:management.modHost})}) {
   let service,library,runtime,sessionEvents,settledSource,performanceMedia,libraryMedia,dirty=true,active=true,epoch=0,tail=Promise.resolve()
   const modelTasks=models?createModModelTasks(models):null
   const eventCatalogue=assetSnapshot?createModEventCatalogue({snapshot:assetSnapshot,builtinPacks:async()=>(await builtins).assetPacks?.() || []}):null
@@ -115,7 +115,7 @@ export function createBuiltinModService({workbenchAuthority,root,management,read
     const variablePort=createModVariablePort({...variables,sourceCurrent,prepareCommit:input=>service.variableCommit(input),onError})
     settledSource=variables && stage?.source?createSettledModSource({...variables,source:stage.source}):null
     sessionEvents=variables && stage?.source?createModSessionEvents({library,builtins:builtin,readCard,config,...variables,source:stage.source,
-      variables:()=>variablePort,epoch:()=>epoch,connected,onError,modelTasks,readAssetText,presentation:stage.presentation,
+      variables:()=>variablePort,epoch:()=>epoch,connected,onError,modelTasks,presentation:stage.presentation,
       catalogues:eventCatalogue?.read,publishView,modelStatus:async(manifest,sessionId)=>Object.fromEntries(await Promise.all((manifest.modelSlots || []).map(async slot=>{
         if(models?.describe)return [slot.id,await models.describe({modId:manifest.id,slotId:slot.id,sessionId,slot})]
         try {const chosen=await models?.select({modId:manifest.id,slotId:slot.id,sessionId,slot});return [slot.id,{selection:'follow-foreground',provider:chosen?.provider || null,model:chosen?.model || null,label:chosen?.model || slot.label,available:!!chosen?.provider && !!chosen?.model}]}

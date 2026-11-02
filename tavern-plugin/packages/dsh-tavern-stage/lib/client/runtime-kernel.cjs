@@ -3,7 +3,7 @@
 // All collaborators are explicit: this kernel can run outside the application closure.
 function createStageRuntimeKernel({performanceStateKernel, modProjectionKernel, phoneBeatKernel, performanceKindsKernel}) {
 // a page turn under this long after the previous one is continuous paging;
-// history then waits this long on a page before it plays (recorded danmaku, a settled history page's performances).
+// history then waits this long on a page before it plays (a settled history page's performances).
 const STAGE_HISTORY_SETTLE_MS = 1000;
 const performancePhaseLedgerKey = token => JSON.stringify(['performance-phase',token.instanceKey,token.phaseKey]);
 const samePerformanceToken = (a,b) => !!a && !!b && sameSource(a.source,b.source) &&

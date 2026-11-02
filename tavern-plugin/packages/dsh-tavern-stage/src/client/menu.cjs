@@ -18,7 +18,7 @@ function own(cleanup) {
 // a row, second, also where the screen has a LOG / 履历 control (the menu's way into it on touch and keyboard - L). 自动 / 跳过 are
 // rows only where the screen shows no such control (options.controls: the ids the skin and width leave out - a phone, a skin
 // without drawn buttons), right after 履历; 隐藏 (H / right click) and 上一页 (← / the backlog) are keys, and the stage entries (背景, BGM,
-// 声音, 手机, 弹幕, 电影模式) live in the top bar, which stands over the open menu.
+// 声音, 手机, 电影模式) live in the top bar, which stands over the open menu.
 // Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd }.
 function galMenuItems(options) {
     const items = [{ id: "resume", label: "回到舞台", sub: "RESUME", title: "回到舞台（Esc）" }];

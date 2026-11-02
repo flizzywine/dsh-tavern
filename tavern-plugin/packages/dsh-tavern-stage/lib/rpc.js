@@ -371,10 +371,6 @@ return directorProbeRpc.getDirectorToolSupport()
       const { directorProbeRpc } = deps
  const {_performance,_traceId,...input} = args || {}; return directorProbeRpc.testDirectorConnection(input)
     },
-    async readAudienceCorpus(args, method, serverTemplate, authority) {
-      const { readAudienceCorpus } = deps
-return readAudienceCorpus({library:ctx.get('assetLibrary'),origin:authority?.origin,packId:args?.packId,assetId:args?.assetId})
-    },
     async getAssetEngineSettings(args, method, serverTemplate, authority) {
       const { assetEngineSettings } = deps
 return assetEngineSettings.read()
