@@ -26,9 +26,11 @@ description: "编写或修改给 DSH Tavern 用的插件：文生图、文生视
 - 插件设置用 `savePluginData` 存，密钥用 `credentials`，都不写进插件文件夹（更新插件会整体替换它）。
 - 生图等收费请求不要自动重试；失败时把媒体项标为 `failed` 并写明原因。
 
-## 放在哪里
+## 安装与分发
 
-一个插件一个文件夹，放进数据目录的 `plugins/<名称>/`（写法见接口总览「快速开始」）。不要放进 `tools/` 或 `tools.cordis.yml`。
+给用户分发时，按 `references/plugin-publishing.md` 提供可安装的 GitHub 仓库或 ZIP，并在 README 写明：打开 **设置 → DSH Tavern → 插件**，粘贴仓库地址安装，或点「上传 ZIP」。交付前用插件面板实际安装一次，确认包内入口和资源齐全。
+
+本地开发或手动安装时，一个插件一个文件夹，放进数据目录的 `plugins/<名称>/`（写法见接口总览「快速开始」）；插件面板也会自动安装到这里。不要放进 `tools/` 或 `tools.cordis.yml`。
 
 ## 验证
 

@@ -16,7 +16,9 @@ DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视
 
 ## 快速开始
 
-一个插件就是一个文件夹。把它放进 Tavern 数据目录的 `plugins/` 下就会加载，不需要改 Tavern 的任何文件，也不需要打包：
+用户安装插件时，使用 **设置 → DSH Tavern → 插件**：粘贴 GitHub 仓库地址安装，或点「上传 ZIP」。作者分发时提供可直接安装的仓库或 ZIP，并附上这条安装路径；包结构和发布前验证见[发布与一键安装](plugin-publishing.md)。
+
+本地开发或手动安装时，一个插件就是一个文件夹。把它放进 Tavern 数据目录的 `plugins/` 下就会加载，不需要改 Tavern 的任何文件；插件面板也会自动安装到这里：
 
 ```text
 ~/.dsh/profile-data/tavern/data/plugins/
