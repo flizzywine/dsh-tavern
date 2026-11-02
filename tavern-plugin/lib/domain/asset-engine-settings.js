@@ -15,8 +15,10 @@ export const DIRECTOR_DIMENSIONS = Object.freeze(Object.keys(directorCommands.di
 // widgets are a card preference; the director dimension is derived, never an engine setting.
 const ENGINE_DIMENSIONS = DIRECTOR_DIMENSIONS.filter(key => !['widgets','music','sfx','soundscape','items'].includes(key))
 export const ACTION_CAPS = Object.freeze({ beat:6, act:4 })
-// built-in theme ids come from the one registry (classic, gothic, magical, crt 显像管, aero 千禧晴空).
+// built-in theme ids come from the one registry (classic, crt 显像管, aero 千禧晴空).
 const builtinThemes = Object.keys(skinContract.BUILTIN_STAGE_SKINS)
+// Removed built-in skins: a selection saved before their removal still loads and is drawn as classic.
+export const RETIRED_STAGE_SKINS = Object.freeze(['gothic', 'magical'])
 export const DIALOGUE_COLOR_TOKENS = Object.freeze(['--gal-ui-ink', '--gal-ui-ink-2', '--gal-ui-muted', '--gal-ui-accent', '--gal-ui-accent-ink', '--gal-ui-line', '--gal-ui-surface', '--gal-ui-surface-2', '--gal-ui-veil', '--gal-ui-hover'])
 const id = (value, path) => check(typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value) && !['constructor', 'prototype', '__proto__'].includes(value), path)
 const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && value >= min && value <= max, path)
@@ -44,14 +46,16 @@ export function validateEnginePreset(value) {
   check(!builtinThemes.includes(value.id), '$.id', 'Built-in themes cannot be replaced')
   // Existing skin/tokens only, not arbitrary CSS, URLs, fonts or executable themes.
   shape(value.style, ['theme', 'tokens'], ['theme'], '$.style')
-  check(builtinThemes.includes(value.style.theme), '$.style.theme')
+  check(builtinThemes.includes(value.style.theme) || RETIRED_STAGE_SKINS.includes(value.style.theme), '$.style.theme')
   if (value.style.tokens !== undefined) {
     shape(value.style.tokens, [...DIALOGUE_COLOR_TOKENS, '--gal-ui-radius'], [], '$.style.tokens')
     for (const [key, token] of Object.entries(value.style.tokens)) {
       check(typeof token === 'string' && (key === '--gal-ui-radius' ? /^(?:[0-9]|[1-3][0-9]|40)px$/.test(token) : /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(token)), '$.style.tokens.' + key)
     }
   }
-  return cloneJson(value)
+  const preset = cloneJson(value)
+  if (RETIRED_STAGE_SKINS.includes(preset.style.theme)) preset.style.theme = 'classic'
+  return preset
 }
 export function validateAssetEngineSettings(value) {
   assertJson(value)
@@ -80,7 +84,7 @@ export function validateAssetEngineSettings(value) {
   shape(value, keys, keys, '$'); check(value.schemaVersion === 1, '$.schemaVersion')
   for (const [key, format] of [['dialogueThemes', 'dsh-dialogue-theme']]) {
     array(value[key], '$.' + key, 128); unique(value[key].map(item => item.id), '$.' + key)
-    for (const item of value[key]) { check(item.format === format, '$.' + key); validateEnginePreset(item) }
+    value[key] = value[key].map(item => { check(item.format === format, '$.' + key); return validateEnginePreset(item) })
   }
   // The dialogue switch is the card's (stage.dialogue), not the retired dialogue.enabled.
   if (value.dialogue && typeof value.dialogue === 'object' && !Array.isArray(value.dialogue)) delete value.dialogue.enabled
@@ -88,6 +92,7 @@ export function validateAssetEngineSettings(value) {
   shape(value.dialogue, ['emotions','injection'], ['emotions','injection'], '$.dialogue')
   normalizeBubbleEmotions(value.dialogue.emotions); normalizeBubbleInjection(value.dialogue.injection)
   // the global default skin (舞台设置 › 基础设置「默认皮肤」) may also be a pack skin.
+  if (RETIRED_STAGE_SKINS.includes(value.dialogueTheme)) value.dialogueTheme = 'classic'
   if (value.dialogueTheme && typeof value.dialogueTheme === 'object') validateAssetRef(value.dialogueTheme, '$.dialogueTheme', 'skins')
   else check(builtinThemes.includes(value.dialogueTheme) || value.dialogueThemes.some(item => item.id === value.dialogueTheme), '$.dialogueTheme')
   // directorModel is null (跟随前台, the default; a stored 'foreground' reads

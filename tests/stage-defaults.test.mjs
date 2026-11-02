@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cardExtension } from './fixtures/asset-packs/pack.mjs'
-import {validateCardStage, effectiveCardStage } from '../tavern-plugin/lib/domain/card-stage-settings.js'
+import {validateCardStage, effectiveCardStage, cardStageSkin } from '../tavern-plugin/lib/domain/card-stage-settings.js'
 import { defaultAssetEngineSettings, validateAssetEngineSettings } from '../tavern-plugin/lib/domain/asset-engine-settings.js'
 import { cardBubbleConfig } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js'
 
@@ -35,4 +35,13 @@ test('single stage declaration owns both modes and takes precedence over legacy 
  assert.equal(effectiveCardStage({stage:{dialogue:true}}).dialogue,true)
  assert.equal(effectiveCardStage({stage:{dialogue:true}}).stage,false)
  assert.equal(cardBubbleConfig({extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[]},stage:{enabled:true}}}},defaultAssetEngineSettings()).stage.enabled,true)
+})
+
+test('removed built-in skins (gothic, magical): saved selections still load and are drawn as classic',()=>{
+ const engine=defaultAssetEngineSettings(),preset={format:'dsh-dialogue-theme',schemaVersion:1,id:'night',name:'夜',style:{theme:'magical'}}
+ const saved=validateAssetEngineSettings({...structuredClone(engine),dialogueTheme:'gothic',dialogueThemes:[preset]})
+ assert.equal(saved.dialogueTheme,'classic');assert.equal(saved.dialogueThemes[0].style.theme,'classic')
+ assert.doesNotThrow(()=>validateCardStage({defaultSkin:'gothic',skinChoice:'magical'}))
+ assert.deepEqual(cardStageSkin({stage:{defaultSkin:'gothic',skinChoice:'magical'}},engine),{skin:'classic',fallback:'classic'})
+ assert.throws(()=>validateCardStage({defaultSkin:'nope'}))
 })

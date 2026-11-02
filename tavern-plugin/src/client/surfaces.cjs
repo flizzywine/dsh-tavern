@@ -7,8 +7,6 @@ const forkSurfaces = (() => {
         'chat-light': ['#ffffff', '#0f1115', '#555a60', '#4176e6'],
         'chat-dark': ['#232324', '#f9fafb', '#cfd3d6', '#679efe'],
         'stage-classic': ['#0c0a14', '#f5f2fa', '#bcb8c6', '#e9e4f3', '#1a1628'],
-        'stage-gothic': ['#0c0816', '#f6f1fb', '#c2b8cc', '#e8d8a8', '#110b1d'],
-        'stage-magical': ['#fffafd', '#6b2f55', '#80506d', '#b7457b', '#fff5fa'],
         // 显像管 (crt): tube-black glass, pale phosphor ink, excited P1 green.
         'stage-crt': ['#06110c', '#c8f5d2', '#7fbf95', '#4dff88', '#0a1a12'],
         // 千禧晴空 (aero): sky-white glass, deep navy ink, Aero blue.
@@ -18,7 +16,7 @@ const forkSurfaces = (() => {
     // the caption scrim over artwork and the small dark chip used for badges/buttons drawn over images or the scene.
     const veils = {
         'chat-light': 'rgb(15 17 21 / .42)', 'chat-dark': 'rgb(0 0 0 / .58)',
-        'stage-classic': 'rgb(8 6 14 / .64)', 'stage-gothic': 'rgb(6 4 12 / .7)', 'stage-magical': 'rgb(255 244 250 / .58)',
+        'stage-classic': 'rgb(8 6 14 / .64)',
         'stage-crt': 'rgb(2 8 5 / .72)', 'stage-aero': 'rgb(212 235 251 / .55)'
     };
     // Emotion chips (舞台设置 / 角色窗口 / 对白设置). Builtin colours mirror tests/fixtures/legacy-dialogue-moods.json (a test keeps
