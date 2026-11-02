@@ -260,7 +260,7 @@
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            return h(TavernSettingRow, { title: "隐藏上下文注入和思考过程", help: "仅影响显示，正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
+            return h(TavernSettingRow, { title: "隐藏上下文注入和思考过程", help: "仅隐藏游玩对话中的过程，卡片工作台始终显示工作记录。正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
                 h(Switch, { label: "隐藏上下文注入和思考过程", checked: preferences?.hideContextAndReasoning === true, disabled: preferences === null || busy,
                     onChange: value => save({ hideContextAndReasoning: value }) }));
         }

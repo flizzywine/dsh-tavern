@@ -5,13 +5,13 @@ import { JSDOM } from 'jsdom'
 const css = await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css', import.meta.url), 'utf8')
 test('隐藏注入、执行请求和思考时保留正文、工具、错误，关闭后恢复原有折叠状态', () => {
   const dom = new JSDOM(`<style>${css.slice(css.indexOf('/* Presentation only:'))}</style><body>
-    <div id="context" data-chat-flow-kind="context">注入内容</div>
+    <section data-dsh-fork-session="play"><div id="context" data-chat-flow-kind="context">注入内容</div>
     <div id="folded" data-chat-flow-kind="context" hidden>已折叠注入</div>
     <div id="thinking" data-chat-flow-kind="turn-process"><button data-turn-process-tool-calls="0" data-turn-process-subagents="0">已思考</button></div>
     <div id="tools" data-chat-flow-kind="turn-process"><button data-turn-process-tool-calls="1" data-turn-process-subagents="0">工具执行</button></div>
     <div id="answer" data-chat-flow-kind="assistant-step"><details id="reasoning" class="dsh-tavern-assistant-reasoning">思考内容</details><p>正文</p></div>
     <div id="trigger" data-chat-flow-kind="turn-trigger">收到执行请求</div>
-    <div id="error" data-chat-flow-kind="turn-error">错误</div></body>`)
+    <div id="error" data-chat-flow-kind="turn-error">错误</div></section></body>`)
   const {document} = dom.window, before = document.body.innerHTML
   const display = id => dom.window.getComputedStyle(document.getElementById(id)).display
   document.documentElement.classList.add('dsh-tavern-hide-process')
@@ -22,6 +22,26 @@ test('隐藏注入、执行请求和思考时保留正文、工具、错误，�
   assert.equal(display('folded'), 'none')
   assert.equal(document.body.innerHTML, before)
   dom.window.close()
+})
+
+test('工作台始终保留思考、工具历史和执行记录，游玩仍遵循隐藏设置', () => {
+  const rows = `
+    <div id="context" data-chat-flow-kind="context">上下文</div>
+    <div id="system" data-chat-flow-kind="system-prompt">系统提示</div>
+    <div id="thinking" data-chat-flow-kind="turn-process"><button data-turn-process-tool-calls="0" data-turn-process-subagents="0">思考</button></div>
+    <div id="reasoning" class="dsh-tavern-assistant-reasoning">思考内容</div>
+    <div id="tools" data-chat-flow-kind="turn-process"><button data-turn-process-tool-calls="1" data-turn-process-subagents="0">调用工具</button><span data-chat-paging-anchor>历史步骤</span></div>
+    <div id="trigger" data-chat-flow-kind="turn-trigger">执行请求</div>`.trim().split(/\n\s*/)
+  for (const mode of ['card', 'play']) for (const hidden of [true, false]) for (const row of rows) {
+    const dom = new JSDOM(`<style>${css.slice(css.indexOf('/* Presentation only:'))}</style><body>
+      <section data-dsh-fork-session="${mode}">${row}</section></body>`)
+    const { document } = dom.window
+    const display = id => dom.window.getComputedStyle(document.getElementById(id)).display
+    document.documentElement.classList.toggle('dsh-tavern-hide-process', hidden)
+    const kind = document.querySelector('section > div').id
+    assert.equal(display(kind) === 'none', mode === 'play' && hidden, `${mode} ${kind} 的显示范围`)
+    dom.window.close()
+  }
 })
 
 test('正文底栏保留宿主复制和酒馆分叉，只藏原生分支与酒馆之外的插件动作', () => {

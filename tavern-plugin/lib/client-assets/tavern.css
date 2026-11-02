@@ -2095,16 +2095,16 @@ body.dsh-tavern-shell-active > :is([role="tree"], [role="menu"], [role="listbox"
 .dsh-tavern-menu-unavailable { display: grid; gap: 2px; white-space: normal !important; }
 .dsh-tavern-menu-unavailable small { font-size: 11px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
 
-/* Presentation only: keep request/history data and actionable tool rows intact. */
-html.dsh-tavern-hide-process [data-chat-flow-kind="context"],
-html.dsh-tavern-hide-process [data-chat-flow-kind="system-prompt"],
+/* Presentation only: hide process content in play; card workbenches keep their full work log. */
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="context"],
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="system-prompt"],
 /* 宿主给「不是玩家发起」的回合插的说明卡：游玩时每个重生成/重试都会多一张。 */
-html.dsh-tavern-hide-process [data-chat-flow-kind="turn-trigger"],
-html.dsh-tavern-hide-process .dsh-tavern-assistant-reasoning,
-html.dsh-tavern-hide-process [data-chat-flow-kind="turn-process"]:has([data-turn-process-tool-calls="0"][data-turn-process-subagents="0"]),
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-trigger"],
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] .dsh-tavern-assistant-reasoning,
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-turn-process-tool-calls="0"][data-turn-process-subagents="0"]),
 /* 已收起的回合整块是「已调用工具」这类步骤行，也不该占行。
    正在跑的那一轮还没有分页锚点，进度照常可见。 */
-html.dsh-tavern-hide-process [data-chat-flow-kind="turn-process"]:has([data-chat-paging-anchor]) { display: none !important; }
+html.dsh-tavern-hide-process [data-dsh-fork-session="play"] [data-chat-flow-kind="turn-process"]:has([data-chat-paging-anchor]) { display: none !important; }
 
 
 .dsh-tavern-default-skills { display: block; }
