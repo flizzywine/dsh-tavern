@@ -27,12 +27,12 @@ import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
 import {createFigureVoiceAuthoring} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
-import {createStageTimerService} from './mods/timer/stage-service.js'
+import {createTimerExtension} from './mods/timer/extension.js'
+import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createCgGallery} from './cg-gallery.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
-import {stageReadCarries} from '../../../lib/domain/stage-read-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
@@ -258,6 +258,10 @@ export function createStageAssets(core) {
     routes:{getSpineRuntimeStatus:(_args,_authority,_template,files) => files.status(),
       importSpineRuntime:(args,_authority,_template,files) => files.import(args)}
   })
+  const stageExtensions = createStageExtensions()
+  ctx.effect(() => () => stageExtensions.dispose())
+  stageExtensions.register('timer', createTimerExtension)
+  ctx.provide('stageExtensions', stageExtensions)
   const assetEngineSettings = createAssetEngineSettings(ctx)
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
@@ -283,7 +287,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
@@ -340,15 +344,6 @@ export function createStageServices(core) {
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
-  const stageControllerEnabled = (chat, consumer) => consumer === 'core.performance'
-    ? assetEngineSettings.read().values.stageToggles.performance !== false
-    : managedModManagement.enabled({modId:consumer,cardPath:chat.cardPath})
-
-  const stageTimer = createStageTimerService({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),
-    // The clock reads the latest round's view; its latest saved timer may sit on an earlier round, read with that round.
-    readDirection:async (chat,turn)=>stageDirector.get(stageReadCarries(chat,turn) ? chat : await readRoundView(chat.sessionId,turn),turn,null,{readOnly:true}),patchChat:chatPersistence.patch,
-    enabled:chat=>managedModManagement.enabled({modId:'dsh.timer',cardPath:chat.cardPath}),
-    controllerEnabled:stageControllerEnabled,publish:({sessionId,event})=>modService.stageEvent(sessionId,event)})
-  ctx.effect(()=>()=>stageTimer.dispose(), 'dsh-tavern: close stage clocks')
-  return {widgetVariables, cgGallery, stageTimer}
+  const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery})
+  return {widgetVariables, cgGallery, ...extensions}
 }
