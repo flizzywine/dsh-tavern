@@ -1,13 +1,13 @@
 // which 入场演出 (an `entrances` entry, dsh.entrance/1) plays
 // when this card's stage opens. The one rule (AGENTS rule 10): only the card's own content packs, in binding order, then each
 // pack's manifest order; the first entry that is on (蓝灯 - an entrance has no 绿灯). A global pack never plays it for every
-// card. The global switch (舞台设置 › 基础设置「入场演出」, engine stageToggles.entrance) off, or no such entry: null - the stage
+// card. The card's switch (舞台设置 › 基础设置「入场演出」, effectiveCardStage) off, or no such entry: null - the stage
 // keeps the skin loader or the engine's own veil. Never part of a prompt or the director catalogue.
-import { cardContentPackIds } from '../../../../lib/domain/card-stage-settings.js'
+import { cardContentPackIds, effectiveCardStage } from '../../../../lib/domain/card-stage-settings.js'
 import { projectStageVideo } from './stage-video.js'
 
 export function selectStageEntrance(extension, packSnapshots, engine) {
-  if (engine?.stageToggles?.entrance === false) return null
+  if (!effectiveCardStage(extension, engine).entrance) return null
   for (const packId of cardContentPackIds(extension)) {
     const pack = packSnapshots.find(row => row?.manifest.id === packId)
     const asset = pack?.manifest.assets.find(row => row.kind === 'entrances' && row.enabled === true && row.recall.mode === 'constant')
