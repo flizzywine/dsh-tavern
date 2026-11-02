@@ -2672,6 +2672,12 @@ export async function apply(ctx) {
       turn: Number(chat?.messages?.at(-1)?.turn) || 0, ...own, tools, maxToolCalls: 16,
       onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments) })
   }
+  const resolveGalleryContext = async sessionId => {
+    const id = str(sessionId)
+    if (!id) return null
+    const header = await chatHeaderForSession(id, ['cardPath'])
+    return header ? { sessionId: id, cardPath: str(header.cardPath) } : null
+  }
   const pluginApi = createTavernPluginApi({
     ctx,get modHost() {return ctx.get('tavernManagedModules')},
     logger: console,
@@ -2686,6 +2692,7 @@ export async function apply(ctx) {
     data: pluginData,
     pluginData: pluginDataStore,
     ...pluginTurns,
+    resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
     readCard: readPluginCard,
     readCharacterDesigns: async sessionId => projectCharacterDesignDocument((await chatForSession(sessionId))?.characterDesignDocument),
@@ -2795,8 +2802,11 @@ export async function apply(ctx) {
     void pluginApi.turnSettled(id).catch(error => console.warn('dsh-tavern: 插件轮次通知失败:', str(error?.message || error)))
     void announceCast(id).catch(error => console.warn('dsh-tavern: 台词通知失败', str(error?.message || error)))
   }
-  const { readPluginMediaFile, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems } =
-    createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignals, attachments: () => ctx.get('attachments'), mediaRemoved: pluginApi.mediaRemoved })
+  const { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems } =
+    createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignals, attachments: () => ctx.get('attachments'), mediaRemoved: pluginApi.mediaRemoved,
+      resolveGalleryContext,
+      listGalleryProviderItems: pluginApi.listGalleryProviderItems, readGalleryProviderImage: pluginApi.readGalleryProviderImage,
+      removeGalleryProviderItems: pluginApi.removeGalleryProviderItems })
   const backgroundTasks = createBackgroundTaskCoordinator({
     presentationActivity: chat => presentationObservers.activity(chat),
     store: { readChat, writeChat, updateChat, patchChat, readState: chatPersistence.readSessionState, readRecoveryState: taskStateReader.read, readSlice: chatPersistence.readSlice, readSettlementCheckpoint: chatPersistence.readSettlementCheckpoint },
@@ -3741,6 +3751,7 @@ export async function apply(ctx) {
     runtimeGeneration,
     runtimeReadiness,
     readPluginMediaFile: (...args) => readPluginMediaFile(...args),
+    readPluginGalleryImage: (...args) => readPluginGalleryImage(...args),
     sessionResources,
     str,
     tavernRemoteAssets,

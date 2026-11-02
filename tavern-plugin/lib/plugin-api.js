@@ -42,6 +42,8 @@ const TOOL_MODES = ['play', 'card']
 const TASK_PHASES = Object.freeze({ before: '结算前', parallel: '与结算同时', after: '结算后' })
 const MAX_PUBLISHED_STATE = 256 * 1024
 const MAX_PUBLISHED_ENTRIES = 2000
+const MAX_GALLERY_ITEMS = 2000
+const MAX_GALLERY_IMAGE_BYTES = 32 * 1024 * 1024
 const MAX_PACK_FILES = 5000
 // Card files Tavern reads itself; a plugin importer never takes these.
 const NATIVE_CARD_EXTENSIONS = new Set(['.png', '.json', '.charx', '.dshcard'])
@@ -96,6 +98,28 @@ function sectionName(name) {
 
 function taskKey(owner, name) { return owner + ':' + name }
 
+function galleryItemId(owner, id) {
+  return 'gallery:' + Buffer.from(JSON.stringify([owner, id]), 'utf8').toString('base64url')
+}
+
+function parseGalleryItemId(value) {
+  const match = /^gallery:([A-Za-z0-9_-]+)$/.exec(String(value || ''))
+  if (!match) return null
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'))
+    return Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string' && typeof parsed[1] === 'string'
+      ? { owner: parsed[0], id: parsed[1] } : null
+  } catch { return null }
+}
+
+function galleryImageType(bytes) {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp'
+  if (bytes.length >= 6 && /^GIF8[79]a$/.test(bytes.toString('ascii', 0, 6))) return 'image/gif'
+  return ''
+}
+
 function taskTitle(title, name) {
   if (title === undefined) return name
   if (typeof title !== 'string' || !title.trim() || title.trim().length > MAX_TASK_TITLE) throw new Error('title 必须是 1–' + MAX_TASK_TITLE + ' 字')
@@ -136,8 +160,9 @@ export function createTavernPluginApi(deps) {
   const settingHandlers = new Set()
   const speechProviders = new Map()
   const imageProviders = new Map()
+  const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1 })
+  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -189,7 +214,11 @@ export function createTavernPluginApi(deps) {
 
   /** Card plugins (card-plugins.js): those of another card than this game's, and this card's own. */
   async function cardPluginsFor(game) {
-    const scopes = deps.cardScope ? await deps.cardScope().catch(() => null) : null
+    let scopes = null
+    if (deps.cardScope) {
+      try { scopes = await deps.cardScope() } catch { return [] }
+      if (!(scopes instanceof Map)) return []
+    }
     if (!scopes?.size) return { elsewhere: new Set(), own: new Set() }
     const cardPath = game && deps.cardPathOf ? await deps.cardPathOf(game.sessionId).catch(() => null) : null
     const elsewhere = new Set(), own = new Set()
@@ -326,6 +355,19 @@ export function createTavernPluginApi(deps) {
       const entry = { owner, name, settle }
       return register.call(this, mvuSettlementProviders, owner + '\u0000' + name, entry,
         'tavern.mvuSettlementProvider()', 'MVU 提供器 ' + name + ' 已注册')
+    },
+
+    registerGalleryProvider({ list, read, remove } = {}) {
+      const owner = ownerOf(this)
+      if (typeof list !== 'function' || typeof read !== 'function' || typeof remove !== 'function') {
+        throw new TypeError('list、read、remove 都必须是函数')
+      }
+      return owned(this, () => {
+        if (galleryProviders.has(owner)) throw new Error('本插件已经注册了画廊来源')
+        const entry = { owner, list, read, remove, active: true }
+        galleryProviders.set(owner, entry)
+        return () => { entry.active = false; if (galleryProviders.get(owner) === entry) galleryProviders.delete(owner) }
+      }, 'tavern.registerGalleryProvider()')
     },
 
     onTurnSettled(handler) {
@@ -1613,7 +1655,101 @@ export function createTavernPluginApi(deps) {
       .sort((a, b) => a.plugin.localeCompare(b.plugin) || a.task.localeCompare(b.task))
   }
 
+  async function galleryProvidersFor(sessionId) {
+    const gameId = gameIdOf(sessionId)
+    const context = await deps.resolveGalleryContext?.(gameId).catch(() => null)
+    if (!context || context.sessionId !== gameId) return []
+    const scopes = deps.cardScope ? await deps.cardScope().catch(() => null) : null
+    return Array.from(galleryProviders.values()).filter(entry => entry.active && (() => {
+      const scope = scopes?.get(entry.owner)
+      return !scope || (typeof context.cardPath === 'string' && scope.cards.includes(context.cardPath))
+    })())
+  }
+
+  async function providerItems(entry, sessionId) {
+    const listed = await bounded(Promise.resolve().then(() => entry.list({ sessionId })), '画廊来源 ' + entry.owner, PLUGIN_TIMEOUT_MS)
+    if (!Array.isArray(listed)) throw new Error('list 必须返回数组')
+    return listed.slice(0, MAX_GALLERY_ITEMS).filter(item => item && typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 256)
+  }
+
+  async function listGalleryProviderItems(sessionId) {
+    const items = []
+    for (const entry of await galleryProvidersFor(sessionId)) {
+      try {
+        const listed = await providerItems(entry, sessionId)
+        if (!entry.active || !(await galleryProvidersFor(sessionId)).includes(entry)) continue
+        for (const item of listed.slice(0, MAX_GALLERY_ITEMS - items.length)) {
+          items.push({ id: galleryItemId(entry.owner, item.id), provider: entry.owner,
+            caption: typeof item.caption === 'string' ? item.caption.slice(0, 500) : '',
+            createdAt: Number.isFinite(Number(item.createdAt)) ? Number(item.createdAt) : 0,
+            updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : 0 })
+        }
+        if (items.length >= MAX_GALLERY_ITEMS) break
+      } catch (error) { recordError(sessionId, entry.owner, '画廊列表', error) }
+    }
+    return items
+  }
+
+  async function readGalleryProviderImage(sessionId, itemId) {
+    const decoded = parseGalleryItemId(itemId)
+    const entry = (await galleryProvidersFor(sessionId)).find(item => item.owner === decoded?.owner)
+    if (!entry || !decoded) throw Object.assign(new Error('画廊图片不存在或不可用'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    const listed = await providerItems(entry, sessionId)
+    if (!listed.some(item => item.id === decoded.id) || !entry.active || !(await galleryProvidersFor(sessionId)).includes(entry)) {
+      throw Object.assign(new Error('画廊图片不存在或不可用'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    }
+    const result = await bounded(Promise.resolve().then(() => entry.read({ sessionId, id: decoded.id })), '画廊图片 ' + entry.owner, PLUGIN_TIMEOUT_MS)
+    if (!entry.active || !(await galleryProvidersFor(sessionId)).includes(entry)) throw Object.assign(new Error('画廊来源已卸载或不可用'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    const data = Buffer.isBuffer(result) ? result : result?.data
+    if (!(Buffer.isBuffer(data) || data instanceof Uint8Array) || data.byteLength < 8 || data.byteLength > MAX_GALLERY_IMAGE_BYTES) {
+      throw new Error('画廊图片字节无效或超过 32 MB')
+    }
+    const bytes = Buffer.from(data)
+    const actual = galleryImageType(bytes)
+    if (!actual || (result?.mediaType && result.mediaType !== actual)) throw new Error('画廊图片必须是有效的 PNG、JPEG、WebP 或 GIF')
+    return { data: bytes, mediaType: actual, length: bytes.length }
+  }
+
+  async function removeGalleryProviderItems(sessionId, ids) {
+    const providers = await galleryProvidersFor(sessionId)
+    const results = []
+    const groups = new Map()
+    for (const itemId of ids) {
+      const decoded = parseGalleryItemId(itemId)
+      const entry = decoded && providers.find(item => item.owner === decoded.owner)
+      if (!entry) { results.push({ versionId: String(itemId), ok: false, error: '图片不存在或来源不可用' }); continue }
+      const group = groups.get(entry) || []
+      group.push({ itemId: String(itemId), id: decoded.id })
+      groups.set(entry, group)
+    }
+    for (const [entry, group] of groups) {
+      try {
+        const listed = await providerItems(entry, sessionId)
+        const available = new Set(listed.map(item => item.id))
+        for (const item of group) {
+          try {
+            if (!available.has(item.id) || !entry.active || !(await galleryProvidersFor(sessionId)).includes(entry)) throw new Error('图片不存在或来源不可用')
+            const result = await bounded(Promise.resolve().then(() => entry.remove({ sessionId, id: item.id })), '删除画廊图片 ' + entry.owner, PLUGIN_TIMEOUT_MS)
+            if (!entry.active || !(await galleryProvidersFor(sessionId)).includes(entry)) throw new Error('画廊来源已卸载或不可用')
+            if (result !== true) throw new Error('来源未删除该图片')
+            available.delete(item.id)
+            results.push({ versionId: item.itemId, ok: true })
+          } catch (error) {
+            recordError(sessionId, entry.owner, '删除画廊图片', error)
+            results.push({ versionId: item.itemId, ok: false, error: String(error?.message || error).slice(0, 200) })
+          }
+        }
+      } catch (error) {
+        recordError(sessionId, entry.owner, '画廊列表', error)
+        for (const item of group) results.push({ versionId: item.itemId, ok: false, error: '画廊来源暂不可用' })
+      }
+    }
+    const order = new Map(ids.map((id, index) => [String(id), index]))
+    return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
+  }
+
   return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
+    listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     speechProviders: () => Array.from(speechProviders.values()), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
 }

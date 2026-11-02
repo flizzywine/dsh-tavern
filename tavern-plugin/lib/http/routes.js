@@ -39,6 +39,7 @@ export function registerTavernHttpRoutes({
   runtimeGeneration,
   runtimeReadiness,
   readPluginMediaFile,
+  readPluginGalleryImage,
   pluginAssets,
   sessionResources,
   str,
@@ -346,6 +347,14 @@ export function registerTavernHttpRoutes({
               }
               res.end()
             } catch { res.destroy() }
+            return
+          }
+          if (req.method === 'GET' && pathname === '/api/dsh-tavern/plugin-gallery-media') {
+            const query = new URL(req.url, 'http://x').searchParams
+            const file = await readPluginGalleryImage(query.get('sessionId'), query.get('id'))
+            res.writeHead(200, { 'Content-Type': file.mediaType, 'Content-Length': file.length, 'Cache-Control': 'private, no-cache',
+              'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" })
+            res.end(file.data)
             return
           }
           if (readsOfficialMvu) {

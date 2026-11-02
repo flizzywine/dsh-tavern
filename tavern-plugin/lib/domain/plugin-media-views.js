@@ -7,7 +7,8 @@ function str(value) {
 // What the player sees of plugin media: every read is limited to the text version on
 // screen (pluginTurns.currentKey), and every removal tells that game's pages to refresh
 // and the owning plugin what went (mediaRemoved), so its own copies go with it.
-export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignals, attachments: getAttachments, mediaRemoved = () => {} }) {
+export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignals, attachments: getAttachments, mediaRemoved = () => {},
+  resolveGalleryContext = async () => null, listGalleryProviderItems = async () => [], readGalleryProviderImage, removeGalleryProviderItems = async () => [] }) {
   const publishChange = sessionId => sessionSignals.publish(sessionId, { kind: 'plugin-media', version: String(Date.now()) + ':' + Math.random().toString(36).slice(2) })
   // Bytes of one item, only while it belongs to the text version on screen.
   // `version` picks an earlier picture of the item (its history index); without it, the current one.
@@ -52,23 +53,32 @@ export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignal
   // The gallery also shows pictures plugins attached (dsh-tavern-image draws new ones there),
   // limited to the current text version of each turn, the same rule the story view uses.
   async function pluginGalleryItems(sessionId) {
+    const context = await resolveGalleryContext(str(sessionId))
     const game = await pluginTurns.resolveGame(str(sessionId))
-    if (!game) return []
+    if (!context && !game) return []
     const keys = new Map(), items = []
-    for (const item of await pluginMedia.list({ chatId: game.chatId })) {
-      if (item.status !== 'ready' || !str(item.attachment?.mediaType).startsWith('image/')) continue
-      if (!keys.has(item.turn)) keys.set(item.turn, await pluginTurns.currentKey(game.sessionId, item.turn))
-      if (keys.get(item.turn) !== item.key) continue
-      items.push({ id: item.id, turn: Number(item.turn) || 0, caption: str(item.caption), createdAt: Number(item.createdAt) || 0, updatedAt: Number(item.updatedAt) || 0 })
+    if (game) {
+      for (const item of await pluginMedia.list({ chatId: game.chatId })) {
+        if (item.status !== 'ready' || !str(item.attachment?.mediaType).startsWith('image/')) continue
+        if (!keys.has(item.turn)) keys.set(item.turn, await pluginTurns.currentKey(game.sessionId, item.turn))
+        if (keys.get(item.turn) !== item.key) continue
+        items.push({ id: item.id, turn: Number(item.turn) || 0, caption: str(item.caption), createdAt: Number(item.createdAt) || 0, updatedAt: Number(item.updatedAt) || 0 })
+      }
     }
-    return items
+    try { return [...items, ...(context ? await listGalleryProviderItems(context.sessionId) : [])] }
+    catch { return items }
   }
   async function removePluginGalleryItems(sessionId, ids) {
     if (!Array.isArray(ids) || !ids.length) return []
     if (ids.length > 500) throw new Error('一次最多删除 500 张')
     const game = await pluginTurns.resolveGame(str(sessionId))
+    const context = await resolveGalleryContext(str(sessionId))
+    const providerIds = ids.filter(id => str(id).startsWith('gallery:'))
+    const providerResults = context ? await removeGalleryProviderItems(context.sessionId, providerIds) : providerIds.map(id => ({ versionId: str(id), ok: false, error: '当前会话不存在' }))
+    const providerResultById = new Map(providerResults.map(result => [result.versionId, result]))
     const results = []
     for (const id of ids) {
+      if (str(id).startsWith('gallery:')) { results.push(providerResultById.get(str(id)) || { versionId: str(id), ok: false, error: '图片不存在或来源不可用' }); continue }
       try {
         const item = game ? await pluginMedia.find(game.chatId, str(id)) : null
         if (!item) throw new Error('图片不存在或已删除')
@@ -76,9 +86,16 @@ export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignal
         results.push({ versionId: str(id), ok: true })
       } catch (error) { results.push({ versionId: str(id), ok: false, error: str(error?.message || error) }) }
     }
-    if (game && results.some(row => row.ok)) publishChange(game.sessionId)
+    const changedSession = context?.sessionId || game?.sessionId
+    if (changedSession && results.some(row => row.ok)) publishChange(changedSession)
     return results
   }
 
-  return { readPluginMediaFile, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems }
+  async function readPluginGalleryImage(sessionId, itemId) {
+    const context = await resolveGalleryContext(str(sessionId))
+    if (!context || !readGalleryProviderImage) throw Object.assign(new Error('画廊图片不存在或不可用'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+    return readGalleryProviderImage(context.sessionId, itemId)
+  }
+
+  return { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems }
 }

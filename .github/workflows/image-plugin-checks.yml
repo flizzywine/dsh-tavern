@@ -10,6 +10,19 @@ on:
       - 'tests/browser/bundled-image-prompt-editor-browser-smoke.mjs'
       - 'tests/browser/bundled-image-reference-settings-browser-smoke.mjs'
       - 'tests/browser/tavern-illustrator-manual-direction-browser-smoke.mjs'
+      - 'tests/browser/tavern-gallery-provider-browser-smoke.mjs'
+      - 'tests/plugin-api.test.mjs'
+      - 'tests/plugin-guide-api.test.mjs'
+      - 'tests/scene-image-gallery.test.mjs'
+      - 'tests/scene-image-frontend.test.mjs'
+      - 'tavern-plugin/lib/plugin-api.js'
+      - 'tavern-plugin/lib/domain/plugin-media-views.js'
+      - 'tavern-plugin/lib/rpc/media.js'
+      - 'tavern-plugin/lib/http/routes.js'
+      - 'tavern-plugin/lib/index.js'
+      - 'tavern-plugin/src/client/features/scene-images.js'
+      - 'presets/tavern/skills/tavern-plugin/references/plugin-api.md'
+      - 'presets/tavern/skills/tavern-plugin/references/plugin-api-data.md'
       - 'tests/fixtures/browser-react.mjs'
       - 'tavern-plugin/packages/dsh-tavern-image-bundled/**'
       - 'tavern-plugin/src/client/features/assistant-renderer.js'
@@ -73,6 +86,8 @@ jobs:
         run: pnpm check:client
       - name: Check interface skin line ending normalization
         run: node --test tests/interface-skin-line-endings.test.mjs
+      - name: Run Tavern API, gallery, and plugin guide regressions
+        run: node --test tests/plugin-api.test.mjs tests/plugin-guide-api.test.mjs tests/scene-image-gallery.test.mjs tests/scene-image-frontend.test.mjs
       - name: Run bundled image and installer tests
         shell: bash
         run: node --test --test-concurrency=2 --test-timeout=30000 tests/bundled-image-*.test.mjs tests/bundled-scene-image-plugin.test.mjs
@@ -88,3 +103,6 @@ jobs:
       - name: Run prompt editor redraw error browser check
         if: matrix.os == 'ubuntu-22.04'
         run: node tests/browser/bundled-image-prompt-editor-browser-smoke.mjs
+      - name: Run gallery provider browser check
+        if: matrix.os == 'ubuntu-22.04'
+        run: node tests/browser/tavern-gallery-provider-browser-smoke.mjs

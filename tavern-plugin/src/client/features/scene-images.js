@@ -35,12 +35,14 @@
 			const currentItems = items && items.sessionId === props.gallerySessionId ? items : null;
 			const rows = [];
 			(currentItems ? currentItems.plugin : []).forEach(function (item) {
-				let row = rows.find(function (entry) { return entry.turn === item.turn; });
-				if (!row) rows.push(row = { turn: item.turn, shots: [] });
+				let row = rows.find(function (entry) { return item.provider ? entry.provider === item.provider : !entry.provider && entry.turn === item.turn; });
+				if (!row) rows.push(row = item.provider ? { provider: item.provider, shots: [] } : { turn: item.turn, shots: [] });
 				row.shots.push({ item: item, plugin: true, version: { id: item.id, description: item.caption, createdAt: item.createdAt }, id: "plugin/" + item.id,
-					url: "/api/dsh-tavern/plugin-media?" + new URLSearchParams({ sessionId: props.gallerySessionId, id: item.id, v: String(item.updatedAt || "") }).toString() });
+					url: item.provider
+						? "/api/dsh-tavern/plugin-gallery-media?" + new URLSearchParams({ sessionId: props.gallerySessionId, id: item.id }).toString()
+						: "/api/dsh-tavern/plugin-media?" + new URLSearchParams({ sessionId: props.gallerySessionId, id: item.id, v: String(item.updatedAt || "") }).toString() });
 			});
-			rows.sort(function (a, b) { return a.turn - b.turn; });
+			rows.sort(function (a, b) { return a.provider ? (b.provider ? a.provider.localeCompare(b.provider) : 1) : b.provider ? -1 : a.turn - b.turn; });
 			rows.forEach(function (row) { row.shots.sort(function (a, b) { return a.version.createdAt - b.version.createdAt; }); });
 			const shots = rows.flatMap(function (row) { return row.shots; });
 			const urls = shots.map(function (shot) { return shot.url; });
@@ -49,7 +51,13 @@
 			async function remove(list) {
 				const revision = galleryRevision.current;
 				const sessionId = props.gallerySessionId;
-				if (!list.length || !await askConfirm(list.length === 1 ? "删除第 " + list[0].item.turn + " 轮的这张图片？只移除图片，不影响正文与存档。" : "删除选中的 " + list.length + " 张图片？只移除图片，不影响正文与存档。")) return;
+				const hasProviderItems = list.some(function (shot) { return Boolean(shot.item.provider); });
+				if (!list.length || !await askConfirm(list.length === 1 ? list[0].item.provider
+					? "删除「" + list[0].item.provider + "」图库里的这张图片？这会调用插件的删除方法，可能同时删除本地图片文件。"
+					: "删除第 " + list[0].item.turn + " 轮的这张图片？只移除图片，不影响正文与存档。"
+					: "删除选中的 " + list.length + " 张图片？" + (hasProviderItems
+						? "这会调用对应插件的删除方法，可能同时删除本地图片文件。"
+						: "只移除图片，不影响正文与存档。"))) return;
 				if (revision !== galleryRevision.current) return;
 				setBusy(true); setNotice("");
 				try {
@@ -80,11 +88,11 @@
 				notice ? h("p", { role: "status" }, notice) : null,
 				currentItems && !shots.length ? h("p", { className: "dsh-context-empty" }, "这一局还没有插图。") : null,
 				rows.map(function (row) {
-					return h("section", { key: row.turn, className: "dsh-tavern-gallery-turn" },
-						h("h4", null, row.turn > 0 ? "第 " + row.turn + " 轮" : "开场", h("span", null, row.shots.length + " 张")),
+					return h("section", { key: row.provider || "turn-" + row.turn, className: "dsh-tavern-gallery-turn" },
+						h("h4", null, row.provider ? "扩展图库 · " + row.provider : row.turn > 0 ? "第 " + row.turn + " 轮" : "开场", h("span", null, row.shots.length + " 张")),
 						h("div", { className: "dsh-tavern-gallery-row" }, row.shots.map(function (shot) {
 							return h("figure", { key: shot.id, className: "dsh-tavern-gallery-shot" + (picked[shot.id] ? " is-picked" : ""), title: shot.version.description },
-								h("a", { href: shot.url, "aria-label": "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) {
+									h("a", { href: shot.url, "aria-label": shot.item.provider ? "放大「" + shot.item.provider + "」图库图片" : "放大第 " + shot.item.turn + " 轮插图", onClick: function (event) {
 									event.preventDefault();
 									if (picking) toggle(shot, !picked[shot.id]);
 									else openSceneImagePreview(shot.url, event.currentTarget, null, null, { urls: urls, index: urls.indexOf(shot.url) });
