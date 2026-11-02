@@ -88,7 +88,8 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
   function visit(value) {
     if (!value || typeof value !== 'object') return
     if (object(value.stat_data) && Object.hasOwn(value, 'schema')) {
-      const beforeData = hash(value.stat_data)
+      // Change check only: keep the serialized snapshot instead of hashing it before and after.
+      const beforeData = JSON.stringify(value.stat_data)
       const done = value.dshCardMigrations || {}
       if (plans.length) value.dshCardMigrations = done
       for (const plan of plans) {
@@ -111,7 +112,7 @@ export function migrateCardSnapshots(chat, defaults, plans = [], removedPaths = 
       value.schema = {...value.schema,...generateSchema(clone(value.stat_data), value.schema)}
       for (const key of ['strictTemplate','concatTemplateArray','strictSet']) if (Object.hasOwn(defaults.$meta || {},key)) value.schema[key] = defaults.$meta[key]
       cleanUpMetadata(value.stat_data)
-      if (hash(value.stat_data) !== beforeData) {
+      if (JSON.stringify(value.stat_data) !== beforeData) {
         value.display_data = clone(value.stat_data)
         value.delta_data = {}
       }
@@ -231,7 +232,8 @@ export function createLiveCardUpdate({readGlobals = async () => ({}), readWorldB
       ? {...card,first_mes:previous.messages.find(message => message.greeting)?.sourceText || '',alternate_greetings:[]} : null)
     if (oldDefinition) {
       const oldDefaults = previous.cardStateDefaults || await initialDefaults(previous, oldDefinition)
-      unchanged = hash(oldDefaults) === hash(defaults) && hash(previous.cardDefinitionSnapshot?.extensions?.dsh_tavern?.stateMigrations || []) === hash(plans)
+      // plain deep equality (same JSON.stringify input the hash used), no sha256 of both sides.
+      unchanged = JSON.stringify(oldDefaults) === JSON.stringify(defaults) && JSON.stringify(previous.cardDefinitionSnapshot?.extensions?.dsh_tavern?.stateMigrations || []) === JSON.stringify(plans)
       const oldShape = clone(oldDefaults)
       for (const plan of plans) if (!previous.cardStateMigrationIds?.includes(plan.id)) migrate(oldShape, plan.operations)
       function collectRemoved(old, next, path = '') {
