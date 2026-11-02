@@ -42,3 +42,30 @@ test('气泡渲染抛错时退回普通 Markdown，正文不消失', async t => 
   assert.equal(document.getElementById('story').textContent, '她走进客舱。')
   assert.equal(reports.length,1,'停用后不应再调用舞台气泡')
 })
+
+test('舞台关闭时 @bubble 行仍渲染为气泡（不显示原始标记），无 @bubble 的正文直接走 Markdown', async t => {
+  const dom = new JSDOM('<div id="root"></div>')
+  const previous = Object.fromEntries(['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
+  let root
+  t.after(async () => {
+    if (root) await act(() => root.unmount())
+    dom.window.close()
+    for (const [key, descriptor] of Object.entries(previous)) descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key]
+  })
+  const seen = []
+  const context = vm.createContext({ React, Object, String, Boolean, stageViews:null,
+    galStageAvailable:{subscribe:()=>()=>{},get:()=>false},
+    tavernErrorHub: { report() {} },
+    BubblePublication: props => { seen.push(props.staged); return React.createElement('div', { id: 'bubbles' }, props.text) },
+    TavernColoredMarkdown: props => React.createElement('p', { id: 'story' }, props.text) })
+  vm.runInContext(fragment('let tavernStageBoundaryClass = null', '\n\t\t}\n') + '\n\t\t}', context)
+  const Safe = vm.runInContext(fragment('function BubbleSafePublication(props)', 'let bubblePublicationMemo') + '; BubbleSafePublication', context)
+  root = createRoot(document.getElementById('root'))
+  await act(() => root.render(React.createElement(Safe, { text: '@bubble:kaguya|辉夜|喜悦|[好耶]', sessionId: 's', voiceScope: '2:0' })))
+  assert.ok(document.getElementById('bubbles'))
+  assert.deepEqual(seen, [false], '舞台未挂载时以本体气泡渲染，不进入舞台')
+  await act(() => root.render(React.createElement(Safe, { text: '她走进客舱。', sessionId: 's', voiceScope: '2:0' })))
+  assert.equal(document.getElementById('story').textContent, '她走进客舱。')
+  assert.deepEqual(seen, [false])
+})
