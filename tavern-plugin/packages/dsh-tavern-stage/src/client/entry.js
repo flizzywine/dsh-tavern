@@ -63,6 +63,7 @@ const stageClientPlugin = (() => {
         __STAGE_SESSIONS__
         __STAGE_TEXT_INDEX__
         __STAGE_CLIENT_LIFETIME__
+        __STAGE_CLIENT_ENTRY__
         __STAGE_SESSION_RUNTIME__
         __STAGE_RUNTIME_STORE__
         __STAGE_SESSION_OWNER__
@@ -150,7 +151,7 @@ const stageClientPlugin = (() => {
                     if(errors.length)throw new AggregateError(errors,'Stage activation cleanup failed');
                 };
                 try {
-                    if(!host || typeof host.mount!=='function')throw new Error('Stage host is unavailable');
+                    if(!Array.isArray(host?.registrations))throw new Error('Stage host is unavailable');
                     // Styles arrive after boot: name their owner, or the module loader claims them for
                     // whichever plugin materializes next and removes them on that plugin's reload.
                     const theme=document.createElement('style');
@@ -167,7 +168,9 @@ const stageClientPlugin = (() => {
                     style.textContent=__STAGE_PRESENTATION_CSS__;
                     document.head.appendChild(style);
                     let activeViews=null;
-                    const stop=host.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
+                    // The core's stage registrations (main.js stageEffect) run as one owned lifetime of this activation.
+                    const entry=createStageClientEntry({startLifetime:startStageClientLifetime,install:host.registrations,report:host.report});
+                    const stop=entry.mount({createNavigation:createStageNavigation, createViews:options => createStageViewScope(own => {
                     // Session access stays inside this activation; stale consumers cannot reach a later plugin instance.
                     let sessions = null;
                     const getSession = id => sessions?.get(id) || null;

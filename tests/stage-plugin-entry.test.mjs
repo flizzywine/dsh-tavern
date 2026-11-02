@@ -24,8 +24,6 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const require = createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
   const local = createRequire(import.meta.url)
   const {Context} = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
-  const {startStageClientLifetime} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/lifetime.cjs')
-  const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
   const controllerSource=await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs',import.meta.url),'utf8')
   const controllerCalls=[...new Set([...controllerSource.matchAll(/stageViews\.([A-Za-z0-9_.]+)\(/g)].map(match=>match[1]))]
   const controllerComponents=[...new Set([...controllerSource.matchAll(/React\.createElement\(stageViews\.([A-Za-z0-9_.]+),/g)].map(match=>match[1]))]
@@ -36,7 +34,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   assert.deepEqual([...plugin.inject], ['tavernStageFrontend'])
   const assembled = []
   const forbidden = () => {throw new Error('host must not supply stage session access')}
-  const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
+  // The core's stage registrations (main.js stageEffect): the plugin runs them as one owned lifetime per activation.
+  const seen = [], registrations = [
     input => {
       assert.equal(typeof input.createNavigation,'function')
       const React = {
@@ -66,9 +65,9 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
       seen.push('tab')
       return () => {views.dispose(); seen.push('remove-tab')}
     },
-  ]})
+  ]
   const ctx = new Context()
-  ctx.provide('tavernStageFrontend', {mount:host.mount,sessionInputs:()=>({
+  ctx.provide('tavernStageFrontend', {registrations,sessionInputs:()=>({
     native:{sessions:{list:{getSnapshot:()=>({byId:{}}),subscribe:()=>()=>{}}},selectedSessionId:()=>null,settings:{subscribe:()=>()=>{}}},
     io:{},assets:{createOwner:()=>{seen.push('sessions');let closed=false;return {dispose:()=>{if(!closed){closed=true;seen.push('stop-sessions')}}}}},dialogue:{},text:{},performance:{},
     observation:{packs:{subscribe:()=>()=>{},runtimeChanged:()=>()=>{}},portraits:{select(){}},media:{background:{activate(){}}}}
@@ -102,7 +101,6 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   for (const style of styles) assert.equal(style.dataset.plugin, 'dsh-tavern-stage')
   assert.match([...styles][1].textContent, /fork-tc-layer/)
   assert.match([...styles][1].textContent, /fork-widget-source-controls/)
-  assert.throws(() => host.mount(), /already mounted/)
   await first.dispose()
   assert.deepEqual(seen,['tab','sessions','stop-sessions','remove-tab'])
   assert.equal(styles.size,0)
@@ -110,8 +108,6 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   assert.deepEqual(seen.slice(-2),['tab','sessions'])
   await second.dispose()
   assert.equal(styles.size,0)
-  host.dispose()
-  assert.throws(() => host.mount(), /disposed/)
   await ctx.fiber.dispose()
 })
 
@@ -129,9 +125,11 @@ test('failed browser stage mount rolls back registrations and can be retried', (
   fail = false
   const stop = host.mount()
   assert.equal(count,1)
+  assert.throws(() => host.mount(), /already mounted/)
   stop(); stop()
   assert.equal(count,0)
   host.dispose()
+  assert.throws(() => host.mount(), /disposed/)
 })
 
 
@@ -141,7 +139,7 @@ test('browser stage entry removes its style when mounting fails', async () => {
     document:{querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
     window:{}
   })
-  assert.doesNotThrow(() => plugin.apply({provide(){},get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}))
+  assert.doesNotThrow(() => plugin.apply({provide(){},get:() => ({registrations:[() => {throw new Error('failed')}]}),effect:run => run()}))
   assert.equal(styles.size,0)
 })
 
@@ -149,7 +147,7 @@ test('stage activation rolls back partial style insertion and retries without to
   let fail=true,mounted=0,stopped=0
   const original={name:'ordinary-chat'},styles=new Set([original])
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this)}}),head:{insertBefore(style){styles.add(style)},appendChild(style){styles.add(style);if(fail)throw Error('style insertion failed')}}}
-  const plugin=await loadStageClientPlugin({document,window:{}}),context={provide(){},get:()=>({mount(){mounted++;return ()=>stopped++}}),effect:run=>run()}
+  const plugin=await loadStageClientPlugin({document,window:{}}),context={provide(){},get:()=>({registrations:[()=>{mounted++;return ()=>stopped++}]}),effect:run=>run()}
   assert.doesNotThrow(()=>plugin.apply(context))
   assert.deepEqual([...styles],[original]);assert.equal(mounted,0)
   fail=false;let cleanup;plugin.apply({...context,effect:run=>cleanup=run()})
@@ -161,7 +159,7 @@ test('stage shutdown removes every owned style even when mount cleanup and one r
   const styles=new Set(),removed=[]
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){removed.push(this.dataset.pluginCss);styles.delete(this);if(this.dataset.pluginCss.endsWith('presentation.css'))throw Error('style cleanup failed')}}),head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
   const plugin=await loadStageClientPlugin({document,window:{}})
-  plugin.apply({provide(){},get:()=>({mount:()=>()=>{throw Error('mount cleanup failed')}}),effect:run=>cleanup=run()})
+  plugin.apply({provide(){},get:()=>({registrations:[()=>()=>{throw Error('mount cleanup failed')}]}),effect:run=>cleanup=run()})
   assert.throws(()=>cleanup(),error=>error.name==='AggregateError'&&error.errors.length===2)
   assert.equal(styles.size,0);assert.equal(removed.length,2);cleanup();assert.equal(removed.length,2)
 })
@@ -179,7 +177,7 @@ test('activation and rollback errors stay diagnostic and do not reject host star
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this);throw Error('cleanup failed')}}),
     head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
   const plugin=await loadStageClientPlugin({document,console:{error:(...args)=>failures.push(args)},window:{}})
-  assert.doesNotThrow(()=>plugin.apply({provide(){},get:()=>({mount(){throw Error('mount failed')}}),effect:run=>cleanup=run()}))
+  assert.doesNotThrow(()=>plugin.apply({provide(){},get:()=>({registrations:[()=>{throw Error('mount failed')}]}),effect:run=>cleanup=run()}))
   assert.equal(styles.size,0)
   assert.equal(failures.length,1)
   assert.equal(failures[0][1].name,'AggregateError')
