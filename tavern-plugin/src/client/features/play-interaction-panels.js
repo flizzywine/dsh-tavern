@@ -67,6 +67,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             } else next = current + (current && !current.endsWith("\n") ? "\n" : "") + marked;
             draftRef.current = next;
             props.inputActions.setDraft(next);
+            if (!isAdded) tavernPlayEvents.emit("choice", props.sessionId, { choiceIndex: index });
             if (!isAdded && dismissMode !== "after-send") setCandidatePanel(null);
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
         }

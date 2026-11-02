@@ -15,7 +15,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })
   t.after(() => { Object.assign(globalThis, { window: previous.window, document: previous.document, IS_REACT_ACT_ENVIRONMENT: previous.act }); dom.window.close() })
   const { createRoot } = await import('react-dom/client')
-  const calls = [], errors = []
+  const calls = [], errors = [], playEvents = []
   let finishPolish
   dom.window.addEventListener('error', event => errors.push(event.error))
   const interactions = createPlayInteractionFlow({ rpc: async (...args) => { calls.push(args); return { task: {}, view: {} } },
@@ -27,7 +27,7 @@ test('panels use the flow interface and candidate selection preserves user edits
     }, window: dom.window, document: dom.window.document,
     useCandidatePreferences: () => 'after-send', useTavernSessionMode: () => 'story',
     latestTavernAssistantMessageId: () => 'm', isPlayMode: () => true, TAVERN_MOBILE_QUERY: '(max-width: 1023px)',
-    useLiveTavernView: () => ({ view: {} }) })
+    useLiveTavernView: () => ({ view: {} }), tavernPlayEvents: { emit: (...args) => playEvents.push(args) } })
   vm.runInContext(source, context)
   const usePanel = store => () => React.useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const panels = context.createPlayInteractionPanels({ interactions, useCandidatePanel: usePanel(interactions.candidates),
@@ -46,6 +46,7 @@ test('panels use the flow interface and candidate selection preserves user edits
   await render(panels.CandidateQuestion)
   await act(async () => dom.window.document.querySelector('.dsh-tavern-question-option').click())
   assert.equal(draft, '玩家原文\n慢慢走近')
+  assert.equal(JSON.stringify(playEvents), JSON.stringify([['choice', 'a', { choiceIndex: 0 }]]), 'picking a choice is a play event; taking it back is not')
   interactions.guide.set({ sessionId: 'a', messageId: 'm', phase: 'input' })
   await render(panels.CandidateGuidePanel)
   await act(async () => dom.window.document.querySelector('.dsh-tavern-regen-submit').click())

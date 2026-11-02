@@ -555,13 +555,8 @@ window.__ModuleLoader__.load({
 					if (result?.errorDetails) error.details = result.errorDetails;
 					throw error;
 				}
-                ;
-                ;
+                if (method === 'regenBody') tavernPlayEvents.emit('regenerate', payload.sessionId);
 				const accepted = viewRead ? viewRead.accept(result) : result;
-                if (method === 'getSession' && accepted.view && payload.sessionId) {
-                    ;
-                    ;
-                }
 				if (viewRead) rememberHistoryWindow(payload.sessionId, accepted.view);
                 if (accepted.contextWindow) return {...accepted,context:expandTavernOpeningWindow(accepted.contextWindow).tavernHelper};
                 return accepted.view && accepted.view.historyWindow ? {...accepted,view:expandTavernOpeningWindow(accepted.view)} : accepted;
@@ -869,6 +864,8 @@ window.__ModuleLoader__.load({
 		}
 
 // @include runtime/conversation-lifecycle.js
+
+// @include features/play-events.js
 
 // @include ui/error-center.js
 

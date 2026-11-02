@@ -93,7 +93,7 @@ function VoiceButton({voice, glyph}) {
         else current.audio.pause();
     } : voice.click;
     return h('button',{type:'button',className:'fork-voice-button','data-voice-state':state,'aria-label':label,'aria-busy':state==='loading',disabled:state==='loading',title:error||label,onClick:event=>{
-        if (state === 'idle' || state === 'error') playTelemetry.record('voice_replay', voice.sessionId);
+        if (state === 'idle' || state === 'error') tavernPlayEvents.emit('voice_replay', voice.sessionId);
         click(event);
     }},
         state==='error'?h('span',{'aria-hidden':true},'⚠'):state==='loading'?h(Spinner,{className:'fork-voice-spinner'}):glyph==='speaker'?h(VoiceSpeaker):h('svg',{width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},h('path',{d:path,fill:'currentColor'})));

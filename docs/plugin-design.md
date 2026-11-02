@@ -137,6 +137,7 @@ const data = await ctx.tavern.readGameData({ gameId })
 | `tavernUi.openOverlay` | 界面 | 添加 |
 | `tavernUi.assetUrl` | 界面（插件 `assets/` 静态资源） | — |
 | `tavernUi.setInput`、`tavernUi.submitInput` | 玩家输入 | 代玩家填写或发送，走玩家输入的同一条路径 |
+| `tavernUi.onPlayEvent` | 玩家操作（选项、翻页停留、重播、报错） | 观察：只有计数和序号，不含正文 |
 | `saveTurnData`、`readTurnData`、`saveGameData`、`readGameData` | （存档数据，见第 4 节） | — |
 | `attach`、`update`、`remove`、`list` | 界面 | 添加 |
 | `tavernUi` 全部 | 界面、回复 | 添加 |

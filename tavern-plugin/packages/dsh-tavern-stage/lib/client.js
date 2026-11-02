@@ -13947,7 +13947,7 @@ function createStageController({React:react,window,document,views:stageViews,nav
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-    DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus}=services;
+    DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus,playEvents}=services;
 const {galActive,galMenuRequest}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
 const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,galQuoted=options.backlogView?.galQuoted;
@@ -14045,6 +14045,31 @@ function GalBacklog(props) {
         return projected ? {...value,entries:projected.entries} : value;
     } : null,[props.sessionId,props.readDirection,sessionRuntime]);
     return stageViews ? React.createElement(stageViews.backlogView.Backlog,{...props,inputs,chatId,readDirection}) : null;
+}
+
+// Play events (tavernUi.onPlayEvent): how long a page was read, in visible time only, and the AUTO / skip switches.
+// paused: the page is not being read (box hidden, backlog, config, gallery, still streaming); its time is not counted.
+function usePlayPageEvents(sessionId, turn, page, version, paused, skipping, auto) {
+    React.useEffect(() => {
+        if (!turn || paused) return;
+        let started = document.hidden ? null : window.performance.now(), elapsed = 0;
+        function pause() { if (started !== null) { elapsed += window.performance.now() - started; started = null; } }
+        function visibility() { if (document.hidden) pause(); else started = window.performance.now(); }
+        function commit() {
+            pause();
+            if (elapsed > 0) playEvents.emit('page', sessionId, { turn, page, dwellMs: Math.round(elapsed), skipped: skipping });
+            elapsed = 0;
+        }
+        document.addEventListener('visibilitychange', visibility);
+        window.addEventListener('pagehide', commit);
+        return () => { commit(); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pagehide', commit); };
+    }, [sessionId, turn, page, version, paused, skipping]);
+    const previous = React.useRef({ auto: false, skipping: false });
+    React.useEffect(() => {
+        if (auto !== previous.current.auto) playEvents.emit(auto ? 'auto_on' : 'auto_off', sessionId, { turn });
+        if (skipping && !previous.current.skipping) playEvents.emit('skip', sessionId, { turn });
+        previous.current = { auto, skipping };
+    }, [sessionId, turn, auto, skipping]);
 }
 
 function GalStage(props) {
@@ -14272,7 +14297,7 @@ function GalStage(props) {
     const [configOpen, setConfig] = React.useState(false);
     // gallery is a local modal, never a second stage cursor.
     const [galleryOpen,setGallery]=React.useState(false);
-    ;
+    usePlayPageEvents(sessionId, turn, page, runtime.source?.generation, hidden || backlog || configOpen || galleryOpen || streaming, skipping, auto);
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     const [sceneError, setSceneError] = React.useState(""); // shown in the notice stack, not over the HUD
@@ -14581,7 +14606,7 @@ function GalStage(props) {
     function replay() {
         forkLipSync.wake();
         if (!voice) return;
-        ;
+        playEvents.emit('voice_replay', sessionId, { turn, page });
         const now = voicePlayer.get();
         if (playingHere && now && now.audio) { now.audio.currentTime = 0; now.audio.play().catch(() => {}); }
         else voice.click();
@@ -19094,7 +19119,7 @@ return {textcardNode,textcardReadable,textcardFit,textcardPaints};
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageTextcardLayout};
 
-        function createStageChoices({React:react,ReactDOM,window,document,layout,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
+        function createStageChoices({React:react,ReactDOM,window,document,layout,playEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -19312,6 +19337,9 @@ function GalChoices(props) {
         try {
             // A pipe would split the slash command; the full-width bar reads the same.
             await props.executeSlash("/send " + value.replace(/\|/g, "｜") + "|/trigger", sessionId);
+            const choiceIndex = choices.findIndex(choice => textOf(choice) === value);
+            if (choiceIndex >= 0) playEvents.emit('choice', sessionId, { choiceIndex });
+            if (withdrawn && withdrawn !== value) playEvents.emit('input_rewrite', sessionId, { editChars: playEvents.editChars(withdrawn, value) });
             if(!current())return;
             commands.clear(); setEditingAt(null); setDrafts({});
             props.onSent && props.onSent(value);

@@ -14158,13 +14158,8 @@ window.__ModuleLoader__.load({
 					if (result?.errorDetails) error.details = result.errorDetails;
 					throw error;
 				}
-                ;
-                ;
+                if (method === 'regenBody') tavernPlayEvents.emit('regenerate', payload.sessionId);
 				const accepted = viewRead ? viewRead.accept(result) : result;
-                if (method === 'getSession' && accepted.view && payload.sessionId) {
-                    ;
-                    ;
-                }
 				if (viewRead) rememberHistoryWindow(payload.sessionId, accepted.view);
                 if (accepted.contextWindow) return {...accepted,context:expandTavernOpeningWindow(accepted.contextWindow).tavernHelper};
                 return accepted.view && accepted.view.historyWindow ? {...accepted,view:expandTavernOpeningWindow(accepted.view)} : accepted;
@@ -15530,6 +15525,43 @@ window.__ModuleLoader__.load({
             return Object.freeze({ begin, claim, cancel });
         }
 
+		// Play events: what the player does on this page (a choice picked, a page read, a voice
+		// replayed, an error shown), for plugins through tavernUi.onPlayEvent (docs/plugin-api.md).
+		// Counts and indices only: no story text crosses this interface. Listeners run after the
+		// action and can never fail it.
+		const tavernPlayEvents = (function () {
+			const listeners = new Set();
+			const seen = new Set();
+			function turnOf(gameId) {
+				const view = gameId && liveTavernView.getSnapshot(gameId)?.view;
+				return Math.max(0, Number(view && view.latestAssistantTurn) || 0);
+			}
+			function emit(type, gameId, fields) {
+				if (!listeners.size) return;
+				const id = String(gameId || "");
+				const event = Object.freeze(Object.assign({ type: type, gameId: id, turn: turnOf(id), at: Date.now() }, fields));
+				for (const listener of Array.from(listeners)) listener(event);
+			}
+			return {
+				emit: emit,
+				// Once per key for this page, for things a re-render shows again (a failed turn's error row).
+				emitOnce: function (key, type, gameId, fields) {
+					if (!listeners.size || seen.has(key)) return;
+					if (seen.size >= 2000) seen.clear();
+					seen.add(key);
+					emit(type, gameId, fields);
+				},
+				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
+				// Characters changed between two texts (the edit, not its length): common prefix and suffix are left out.
+				editChars: function (before, after) {
+					let start = 0, end = 0;
+					while (start < before.length && start < after.length && before[start] === after[start]) start++;
+					while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+					return before.length + after.length - 2 * (start + end);
+				}
+			};
+		})();
+
 		function isIgnoredTavernError(value) {
 			return /failed to fetch/i.test(String(value && value.message || value || "").trim());
 		}
@@ -15568,6 +15600,7 @@ window.__ModuleLoader__.load({
 					const message = String(error && error.message || error || "").trim();
 					if (!message) return;
 					const code = error && typeof error === "object" && error.code ? String(error.code) : "";
+					tavernPlayEvents.emit("error", "");
 					const scope = String(source || "DSH Tavern");
 					const now = Date.now();
 					const existing = items[0] && items[0].source === scope && items[0].message === message ? items[0] : null;
@@ -22081,7 +22114,7 @@ function tavernModelRefusalNotice(text) {
 		        else current.audio.pause();
 		    } : voice.click;
 		    return h('button',{type:'button',className:'fork-voice-button','data-voice-state':state,'aria-label':label,'aria-busy':state==='loading',disabled:state==='loading',title:error||label,onClick:event=>{
-		        if (state === 'idle' || state === 'error') playTelemetry.record('voice_replay', voice.sessionId);
+		        if (state === 'idle' || state === 'error') tavernPlayEvents.emit('voice_replay', voice.sessionId);
 		        click(event);
 		    }},
 		        state==='error'?h('span',{'aria-hidden':true},'⚠'):state==='loading'?h(Spinner,{className:'fork-voice-spinner'}):glyph==='speaker'?h(VoiceSpeaker):h('svg',{width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},h('path',{d:path,fill:'currentColor'})));
@@ -30507,7 +30540,7 @@ function tavernFloorHeightRecall(key, width) {
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 7,
+				apiVersion: 8,
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -30699,6 +30732,26 @@ function tavernFloorHeightRecall(key, width) {
 					const record = workStatusRecords.get(sessionId);
 					if (record) return record.state;
 					return projectWorkStatus(sessionId, workStatusInput(sessionId), null);
+				},
+				// What the player does in the games open here (apiVersion 8), for play statistics or a
+				// companion that reacts: listener({ type, gameId, turn, at, ...fields }) after the action.
+				// Counts and indices only, never story text; returns the unsubscribe function.
+				onPlayEvent(listener) {
+					if (typeof listener !== "function") throw new TypeError("onPlayEvent 需要 listener 函数");
+					const owner = ownerOf(this);
+					return owned(this, function () {
+						let failures = 0;
+						const stop = tavernPlayEvents.subscribe(function (event) {
+							if (event.gameId && !tavernPluginAllowed(owner, event.gameId)) return;
+							try { listener(event); }
+							catch (error) {
+								// The report is itself an error event: a listener that keeps throwing is dropped, not looped.
+								if (++failures >= 3) stop();
+								try { tavernErrorHub.report("插件 " + owner + " 的游玩事件回调", error); } catch (_) {}
+							}
+						});
+						return stop;
+					}, "tavernUi.onPlayEvent()");
 				},
 				// One holder per (session, scope), with a TTL (apiVersion 7). Scopes are the
 				// plugin's own names ("voice", "stage", "composer", …); Tavern enforces who may
@@ -45484,7 +45537,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        useBubbles, Icon,
 		        controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
 		            dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat},
+		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents},
 		        controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
 		        // 设置 › 舞台 (stage global-settings.js): the page's core rows and controls (modules/global-settings.js).
 		        globalSettings:stageGlobalSettingsOptions,
@@ -45517,7 +45570,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        textcardFonts:{FontFace:globalThis.FontFace,fonts:tavernFonts},
 		        textcardPlayer:{performance,requestAnimationFrame,cancelAnimationFrame,setInterval,clearInterval,setTimeout,clearTimeout},
 		        textcardLayout:{getComputedStyle,figureTextColor,figurePlateColor},
-		        choices:{ReactDOM,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
+		        choices:{ReactDOM,playEvents:tavernPlayEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
 		        choiceLayout:{getComputedStyle},
 		        regenerate:{report:(...args)=>tavernErrorHub.report(...args),sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,HelpTip,Segmented,TextArea,StageWaitStop,StageWaitLines},
 		        backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useClipBacklog:typeof useClipBacklog==='function'?useClipBacklog:undefined,useJumpLatest,JumpLatest,useFigureTextContrast,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
@@ -46911,6 +46964,7 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             } else next = current + (current && !current.endsWith("\n") ? "\n" : "") + marked;
             draftRef.current = next;
             props.inputActions.setDraft(next);
+            if (!isAdded) tavernPlayEvents.emit("choice", props.sessionId, { choiceIndex: index });
             if (!isAdded && dismissMode !== "after-send") setCandidatePanel(null);
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
         }
@@ -48730,6 +48784,9 @@ function createTurnRailFilter(root, options) {
 						if (result.composerText.trim() !== "" && props.inputActions && typeof props.inputActions.setDraft === "function") props.inputActions.setDraft(result.composerText);
 						return;
 					}
+					const before = panel.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }).join("\n");
+					const editChars = tavernPlayEvents.editChars(before, panel.texts.join("\n"));
+					if (editChars) tavernPlayEvents.emit(panel.edit.role === "user" ? "input_rewrite" : "ai_edit", props.sessionId, { editChars: editChars });
 					liveTavernView.setView(props.sessionId, result.view);
 					notifyTavernDataChanged(["sessions"], "play-controls");
 					tavernCoordination.invalidate(props.sessionId);
@@ -49855,6 +49912,7 @@ function createTurnRailFilter(root, options) {
 				const rail = createTurnRailFilter(root);
 				const controls = createTurnErrorControls(root, {
                     sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, replayTurn: replayTurn,
+                    onVisible: function (turn) { tavernPlayEvents.emitOnce(props.sessionId + ":" + turn, "native_error", props.sessionId, { nativeTurn: turn }); },
                     onToggle: !Array.isArray(hiddenTurns) ? undefined : async function (turn, hidden) {
                         const result = await rpc("setFailedErrorVisibility", { sessionId: props.sessionId, turn: turn, hidden: hidden });
                         liveTavernView.setView(props.sessionId, result.view);

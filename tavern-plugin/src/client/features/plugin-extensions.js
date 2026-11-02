@@ -418,7 +418,7 @@
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 7,
+				apiVersion: 8,
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -610,6 +610,26 @@
 					const record = workStatusRecords.get(sessionId);
 					if (record) return record.state;
 					return projectWorkStatus(sessionId, workStatusInput(sessionId), null);
+				},
+				// What the player does in the games open here (apiVersion 8), for play statistics or a
+				// companion that reacts: listener({ type, gameId, turn, at, ...fields }) after the action.
+				// Counts and indices only, never story text; returns the unsubscribe function.
+				onPlayEvent(listener) {
+					if (typeof listener !== "function") throw new TypeError("onPlayEvent 需要 listener 函数");
+					const owner = ownerOf(this);
+					return owned(this, function () {
+						let failures = 0;
+						const stop = tavernPlayEvents.subscribe(function (event) {
+							if (event.gameId && !tavernPluginAllowed(owner, event.gameId)) return;
+							try { listener(event); }
+							catch (error) {
+								// The report is itself an error event: a listener that keeps throwing is dropped, not looped.
+								if (++failures >= 3) stop();
+								try { tavernErrorHub.report("插件 " + owner + " 的游玩事件回调", error); } catch (_) {}
+							}
+						});
+						return stop;
+					}, "tavernUi.onPlayEvent()");
 				},
 				// One holder per (session, scope), with a TTL (apiVersion 7). Scopes are the
 				// plugin's own names ("voice", "stage", "composer", …); Tavern enforces who may
