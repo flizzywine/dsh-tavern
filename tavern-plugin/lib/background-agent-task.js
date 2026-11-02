@@ -439,7 +439,7 @@ export function createBackgroundAgentTask(options) {
       const eventStart = sessionEvents(agent.session).length
       const scriptContext = projectCandidateScriptContext(agent.session, input)
       const snapshot = turnWorldbookSource && typeof turnWorldbookSource === 'object'
-        ? worldbookSnapshot(agent.session, turnWorldbook) : null
+        ? worldbookSnapshot(agent.session, [{ ref: 'background:worldbook', text: turnWorldbook }]) : null
       const systemUpdate = input.task === 'candidate' && typeof input.systemPromptText === 'string'
         ? cardSystemPromptSnapshot(agent.session, input.systemPromptText) : null
       // Tool definitions stay fixed for the cache; which ones may be called is stated each

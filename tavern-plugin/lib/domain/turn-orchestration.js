@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { captureChatHeader } from './chat-persistence.js'
 import { validAnchor } from './round-anchor.js'
 import { CARD_MEMORY_TOOLS } from '../../packages/dsh-tavern-card-memory/index.js'
@@ -15,6 +16,12 @@ import { STORY_SUBMIT_TOOL_NAME, storyToolCallEnabled } from './story-tool-submi
 import { normalizeDisabledForegroundTools } from './foreground-tools.js'
 import { variableUpdateFor } from './variable-update.js'
 import { replyProse } from './reply-prose.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: "A background agent settles variables after the story is submitted. Output only story prose: no `<UpdateVariable>`, JSON Patch or variable-update notes.",
+  p002: "No character card is selected yet. Briefly ask the user to choose one in the interface first."
+})
 
 export const cordisToolNames = Object.freeze([
   'cordis_inspect_list',
@@ -200,7 +207,7 @@ function presetMiddleInstructions(snapshot) {
   })
 }
 
-export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat, pluginSections = []) {
+export function foregroundFrameInputs(plan, sourceText, projectedText, presetSnapshot, chat, pluginSections = [], rosterAddendum = '') {
   const inputs = [{
     kind: 'foreground.user-input',
     sourceText,
@@ -225,15 +232,18 @@ export function foregroundFrameInputs(plan, sourceText, projectedText, presetSna
     inputs.push({
       kind: FRAME_INSTRUCTION_KIND[sectionKind] || (sectionKind === 'legacy-plan-text' ? 'foreground.writing-rules' : 'foreground.unsupported'),
       text: str(section && section.text),
+      ...(section.entries ? { entries: section.entries } : {}),
       required: section && section.required === true,
       source: { stage: 'context-plan', sectionKind, index }
     })
   }
+  // A speaker recalled after the frozen roster: this turn's tail only.
+  if (rosterAddendum) inputs.push({ kind: 'foreground.current-state', text: rosterAddendum, required: true, source: { stage: 'speaker-roster-addendum' } })
   for (const section of plugins.filter(item => item.position !== 'before')) inputs.push(pluginInput(section))
   if (usesOfficialMvu(chat)) {
     inputs.push({
       kind: 'foreground.writing-rules',
-      text: '变量更新由正文提交后的后台 Agent 独立结算。只输出剧情正文，不要输出 <UpdateVariable>、JSON Patch 或变量更新说明。',
+      text: promptSection('variable_ownership', PROMPT_PROSE.p001),
       required: true,
       source: { stage: 'mvu-background-owner' }
     })
@@ -306,7 +316,7 @@ export function createTurnOrchestrator(options) {
         ready: false,
         mode: 'unbound',
         cardName: '',
-        text: '【酒馆状态】\n尚未选择人物卡。请简短提示用户先在界面中选择人物卡。'
+        text: promptSection('tavern_state', PROMPT_PROSE.p002)
       }
     }
     let preparationBase = store.writeChatHeader ? captureChatHeader(chat) : null
@@ -457,6 +467,8 @@ export function createTurnOrchestrator(options) {
     // Seam to the plugin layer; it never throws and drops a failing plugin's part.
     const pluginSections = typeof options.pluginTurnContext === 'function'
       ? await options.pluginTurnContext({ gameId: input.sessionId, turn, input: userText }).catch(() => []) : []
+    const rosterAddendum = foregroundWorldBook && typeof options.foregroundRosterAddendum === 'function'
+      ? await options.foregroundRosterAddendum({ chat, userText: runtimeUserText }) : ''
     const source = frameSource(chat, card, foregroundOperation)
     source.card.systemPromptText = plan.systemPromptText
     source.worldBook.scriptPromptRefs = Array.isArray(scriptWorldBook && scriptWorldBook.refs) ? clone(scriptWorldBook.refs) : []
@@ -476,7 +488,7 @@ export function createTurnOrchestrator(options) {
       turn,
       inputs: foregroundFrameInputs(plan, userText, runtimeUserText,
         Object.hasOwn(input, 'runtimePresetSnapshot') ? input.runtimePresetSnapshot
-          : resolveRuntimePresetMacros(chat.runtimePresetSnapshot, { charName: card.name, macroState: chat.macroState }).snapshot, chat, pluginSections),
+          : resolveRuntimePresetMacros(chat.runtimePresetSnapshot, { charName: card.name, macroState: chat.macroState }).snapshot, chat, pluginSections, rosterAddendum),
       source
     }
     let frame = frameBuilder.build(frameInput)

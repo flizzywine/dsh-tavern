@@ -143,6 +143,7 @@ function harness(mode, options = {}) {
     projectReply: projectReplyLayers,
     projectWorldBookTemplates: options.projectWorldBookTemplates,
     projectForegroundWorldbook: options.projectForegroundWorldbook,
+    foregroundRosterAddendum: options.foregroundRosterAddendum,
     recordWorldbookRecall: options.recordWorldbookRecall,
     projectScriptPromptWorldbook: options.projectScriptPromptWorldbook,
     shellToolName: options.shellToolName,
@@ -268,6 +269,23 @@ test('玩家模板先于本轮召回，重试不重复执行；提交后只产�
   assert.equal(run.chat().messages[0].text,'进入少林')
   assert.equal(run.chat().messages[0].variables[0].place,'少林')
   assert.equal(run.chat().promptTemplateInput,undefined)
+})
+
+test('a speaker recalled after the frozen roster reaches only this turn\'s tail', async () => {
+  const asked = []
+  const addendum = async ({ userText }) => { asked.push(userText); return '<late_speakers>\nMira\n</late_speakers>' }
+  const projectForegroundWorldbook = async () => ({ context: 'Frozen roster', activation: { refs: [] }, refs: [], reads: {} })
+  const run = harness('story', { projectForegroundWorldbook, foregroundRosterAddendum: addendum })
+  const prepared = await run.orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: 'Mira, why are you here?' })
+  assert.deepEqual(asked, ['Mira, why are you here?'])
+  const late = prepared.frame.contributions.filter(item => item.source?.stage === 'speaker-roster-addendum')
+  assert.deepEqual(late.map(item => [item.slot, item.text]), [['currentStateProjection', '<late_speakers>\nMira\n</late_speakers>']])
+  assert.ok(prepared.frame.contributions.indexOf(late[0]) > prepared.frame.contributions.findIndex(item => item.slot === 'activeWorldbook'))
+
+  // Without a foreground worldbook projection there is no frozen roster to extend.
+  const plain = await harness('story', { foregroundRosterAddendum: addendum }).orchestrator.prepare({ sessionId: 'session-1', turn: 2, userText: 'again' })
+  assert.equal(asked.length, 1)
+  assert.equal(plain.frame.contributions.some(item => item.source?.stage === 'speaker-roster-addendum'), false)
 })
 
 test('失败回合的玩家模板变量被撤销，遗留的别轮模板输入在下一轮开始前恢复（#193）', async () => {

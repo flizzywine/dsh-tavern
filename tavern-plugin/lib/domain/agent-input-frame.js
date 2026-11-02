@@ -70,6 +70,7 @@ function collectForegroundInputs(inputs) {
         kind,
         slot,
         text,
+        ...(Array.isArray(input.entries) ? { entries: clone(input.entries) } : {}),
         required: input.required === true,
         source: inputSource(input)
       }
