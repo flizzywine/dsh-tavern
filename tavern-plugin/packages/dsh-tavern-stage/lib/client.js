@@ -577,7 +577,7 @@ return {gaze:galGaze, anchor:galSpeakerAnchor, priority:galFigurePriority, recen
 if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSpeaker};
 
         'use strict';
-function createStageChatEntry({React, MutationObserver, markdown:TavernColoredMarkdown, enter:navigate, plain:galPlain, blocks:galBlocks, paragraphs:galParagraphs, parse:parseBubbles, schedule, cancel:cancelTimer}) {
+function createStageChatEntry({React, MutationObserver, markdown:TavernColoredMarkdown, enter:navigate, plain:galPlain, blocks:galBlocks, schedule, cancel:cancelTimer}) {
 let disposed = false;
 const galEnter = (...args) => { if (!disposed) return navigate(...args); };
 const cleanups = new Set(), timers = new Set();
@@ -594,9 +594,6 @@ function own(cleanup) {
     return stop;
 }
 // Presentation-only turn navigation. No history read here may start a director task.
-function galParagraphCount(text) {
-    return galParagraphs([{ segments: parseBubbles(String(text || ''), false) }]).length;
-}
 // Icon-only: the stage glyph is drawn by CSS (theme.css "chat stage entry"), so the button adds no text to the
 // paragraph (copying prose never picks up a label); the tooltip and the accessible name carry the words.
 function StageEnterHere(props) {
@@ -717,7 +714,7 @@ function StageMarkdown(props) {
         React.createElement(TavernColoredMarkdown, props.markdownProps));
 }
 
-return {EnterHere:StageEnterHere, Paragraph:StageParagraph, Markdown:StageMarkdown, count:galParagraphCount, targets:galParagraphTargets, dispose() {
+return {EnterHere:StageEnterHere, Paragraph:StageParagraph, Markdown:StageMarkdown, targets:galParagraphTargets, dispose() {
     if (disposed) return; disposed = true;
     const errors = [];
     for (const stop of [...cleanups, ...[...timers].map(timer => () => clearTimeout(timer))]) { try {stop();} catch (error) {errors.push(error);} }
