@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "afa049161e385df5b52ac65a5a7683230ace6a06",
-  "releaseSequence": 1043,
+  "revision": "e606c6ce50666adb8c6eb111b6ebbf3336698335",
+  "releaseSequence": 1044,
   "version": "3.2.0",
   "files": [
     {
@@ -716,8 +716,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "b8aaf5f2a04b5cd23baa41a2ed61a8432ad5dc69d389c4d23a7a035cdce7990d",
-      "size": 6355026
+      "sha256": "f690a39db194c455e4d0c8462ac57162248907314633a4b6d4cdf6b43c4251af",
+      "size": 6355838
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7221,8 +7221,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "2d4acd5dd3c4dc413cf0168c841a529e658714f1ac2dc346d5c3798b2562034c",
-      "size": 1946932
+      "sha256": "44f912875d1677f2209ce476af5be9ea4b2215d4bfc06ff157f2f1a3b5b84ba4",
+      "size": 1949945
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -7251,8 +7251,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs",
-      "sha256": "2fc446e29222d1f3f46d43c38bcbffcbb3d4df2b050a722f2c2c9ed1844f67e9",
-      "size": 69044
+      "sha256": "dd572fae96a791a574c1548078991930e60727f977e41e356bef387deb3547ee",
+      "size": 69279
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-store.cjs",
@@ -7261,8 +7261,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/session.cjs",
-      "sha256": "e662f7d09e788c6cd62737591bff327bab596be565d2874ee59ca1b74b2f4fea",
-      "size": 30568
+      "sha256": "687be48a68450021e89d87a706d64cf2142352528ee90152644c672437ad0551",
+      "size": 33346
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs",
@@ -8451,8 +8451,8 @@
     },
     {
       "path": "tavern-plugin/src/client/stage-page-index.cjs",
-      "sha256": "af09246c6ae06f87da7dcb11ead8f1f25507bddd8913af13428bc40110de2993",
-      "size": 4631
+      "sha256": "5244d76cb321f27ab96045c56ada237e236b8947e0e4da9a12bf3389575d549f",
+      "size": 5443
     },
     {
       "path": "tavern-plugin/src/client/stage-performance-kinds.cjs",
@@ -8501,9 +8501,9 @@
     }
   ],
   "archive": {
-    "commit": "e0bcde3eacf712d2aa1924c535a78cbf48429ce5",
+    "commit": "a6ad4d8c636ed52fb47525a63038160bdb2c9340",
     "path": "runtime.zip",
-    "sha256": "dd9f0fa8056f3e99d0993c4ff8bf26d97cd0d85c43e3e81abe0a5f86b23c7575",
-    "size": 15067576
+    "sha256": "f730bbe9e040611bca0cb2a0c23029de2defcca585217dcdfeb4571694460ab9",
+    "size": 15069722
   }
 }
