@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "b9a5629ec3077d5f00f3fcf5711b13896fb0b8e8",
-  "releaseSequence": 1035,
+  "revision": "2747b48527cdafd8a14c111269772089089bc39e",
+  "releaseSequence": 1036,
   "version": "3.2.0",
   "files": [
     {
@@ -586,8 +586,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-game.md",
-      "sha256": "a837932c90102e384197bcd22738a87ecc8cb65dc7d95bea7644e915f0656a9f",
-      "size": 15599
+      "sha256": "9ce4cd9aa6931274cb3a9b55ea5d004083ea2bbf7e106b8f56ceac1aea973d15",
+      "size": 16766
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-prompt.md",
@@ -3411,8 +3411,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "dd9f5fffde007306fbb93ced9fdf64db98890eddde17d2ed728b952eb771e4cc",
-      "size": 259522
+      "sha256": "e6bd5ff006abbd8939680b4e50038efe19f60daab95246e2e4c4b0619435c19b",
+      "size": 259740
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -3481,8 +3481,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "507d9698923745c5be93e1d323a87fc66cc2cb3391cf27b81cae1fdefbe43c40",
-      "size": 107430
+      "sha256": "533aaf69a469de4c1a5cd247b356284d1534e65eaaba8ef950424edaebf825ea",
+      "size": 107818
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -8501,9 +8501,9 @@
     }
   ],
   "archive": {
-    "commit": "5c5f5dbdce6b81d39221e725da9d4c811fbbd5dd",
+    "commit": "484493b89a18bbe323c33ddb37d5ac87d031d875",
     "path": "runtime.zip",
-    "sha256": "e515826ab0ac6c19da6540d2d1b7d167579858a85c856de5955e26f20647629e",
-    "size": 15053053
+    "sha256": "3420210c6914332fa164b23ea17efd2570da1b04eacf46d0c0a4b71da3f63ed3",
+    "size": 15053681
   }
 }
