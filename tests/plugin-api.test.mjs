@@ -566,6 +566,36 @@ test('tavern 服务：worldbookEntries 的条目经校验后交给世界书召�
   assert.deepEqual(await h.api.worldbookPoolEntries({ gameId: 'game-1', turn: 4 }), [])
 })
 
+test('tavern 服务：玩家称呼区分全局默认与本局，实时读取且不依赖轮次结算', { skip: !cordis }, async t => {
+  let defaultName = '默认玩家', playerName = '林岚'
+  const sessions = []
+  const h = await harness(t, {
+    readDefaultPlayerName: async () => defaultName,
+    readPlayerName: async sessionId => { sessions.push(sessionId); return playerName },
+    readLatestSettledTurn: async () => { throw new Error('称呼读取不应依赖正文') },
+  })
+  let tavern
+  await h.root.plugin({ name: 'archive-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await tick()
+  assert.equal(await tavern.getDefaultPlayerName(), '默认玩家')
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '林岚')
+  defaultName = '新的默认'
+  assert.equal(await tavern.getDefaultPlayerName(), '新的默认')
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '林岚', '改默认称呼不改已有游戏')
+  playerName = ' 本局新称呼 '
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '本局新称呼')
+  assert.deepEqual(sessions, ['game-1', 'game-1', 'game-1'])
+  playerName = undefined
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '你', '旧存档缺称呼时不套用新的全局默认')
+  for (const empty of [undefined, '', '  ']) {
+    defaultName = playerName = empty
+    assert.equal(await tavern.getDefaultPlayerName(), '你')
+    assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '你')
+  }
+  await assert.rejects(tavern.getPlayerName({ gameId: 'missing' }), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+  await assert.rejects(tavern.getPlayerName(), /gameId/)
+})
+
 test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只改最新一轮的当前版本', { skip: !cordis }, async t => {
   const writes = [], edits = [], ranges = []
   const h = await harness(t, {

@@ -96,6 +96,25 @@ async function settle({ currentVariables, signal }) {
 
 回退、撤销回退、重新生成后读到的是回退后的当前状态。浏览器侧用 `tavernUi.getTurnState` / `watchTurnState`。
 
+## `getDefaultPlayerName()`、`getPlayerName({ gameId })`
+
+两个接口都异步返回玩家称呼字符串，空值返回 `"你"`，每次调用读取最新值：
+
+- `getDefaultPlayerName()`：全局设置中的「默认玩家称呼」，用于新游戏；不需要 `gameId`。
+- `getPlayerName({ gameId })`：这局当前使用的玩家称呼，即 `{{user}}` 的值。开局或本局修改过称呼时，它可能与全局默认值不同；游戏不存在或不是游玩对话时抛出 `TAVERN_PLUGIN_NOT_FOUND`。
+
+人物档案、NPC 提取等插件应读取**本局称呼**来识别玩家。称呼并非玩家的完整别名列表；第二人称「你」等指代仍需插件按正文语境处理。旧版宿主请检查方法是否存在：
+
+```js
+ctx.tavern.onTurnSettled(async ({ gameId, text }) => {
+  if (typeof ctx.tavern.getPlayerName !== 'function') return
+  const playerName = await ctx.tavern.getPlayerName({ gameId })
+  // 用 playerName 识别正文中的玩家，避免为玩家建立 NPC 档案。
+})
+```
+
+浏览器插件可通过自己的宿主处理器调用，再用 `tavernUi.callHost` 取回结果（见[界面扩展](plugin-api-ui.md)）。
+
 ## `getCardContext({ gameId, turn })`
 
 读这一轮可用的设定材料，供插件写画面提示词：

@@ -2694,6 +2694,8 @@ export async function apply(ctx) {
     ...pluginTurns,
     resolveGalleryContext,
     backgroundModel: async sessionId => backgroundModelSelection(await backgroundConfigForSession(sessionId)),
+    readDefaultPlayerName: async () => (await readTavernSettings()).defaultPlaySettings.playerName,
+    readPlayerName: async sessionId => (await chatHeaderForSession(sessionId, ['macroState']))?.macroState?.userName,
     readCard: readPluginCard,
     readCharacterDesigns: async sessionId => projectCharacterDesignDocument((await chatForSession(sessionId))?.characterDesignDocument),
     saveCharacterDesign: async (sessionId, input) => {

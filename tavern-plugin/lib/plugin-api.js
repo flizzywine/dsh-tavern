@@ -675,6 +675,16 @@ export function createTavernPluginApi(deps) {
       return await turnState(gameId)
     },
 
+    // New-game default and the current game's {{user}} identity are separate values.
+    async getDefaultPlayerName() {
+      return String(await deps.readDefaultPlayerName() || '').trim() || '你'
+    },
+
+    async getPlayerName({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      return String(await deps.readPlayerName(game.sessionId) || '').trim() || '你'
+    },
+
     // The plugin's latest state for its own page side (tavernUi.watchState): kept in memory, replaced on each call.
     async publishState({ gameId, name, data } = {}) {
       const owner = ownerOf(this)
