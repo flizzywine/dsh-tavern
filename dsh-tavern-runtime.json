@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0ea797e3b22c2b098f8f368e8d70e01357f942a7",
-  "releaseSequence": 1056,
+  "revision": "0edcab53199f456b7df91216624b2d63d2765cfb",
+  "releaseSequence": 1057,
   "version": "3.2.0",
   "files": [
     {
@@ -7186,8 +7186,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/asset-engine.js",
-      "sha256": "4900eb8d95e9c2837911e667d9b0a107a656e26c36504f409d7b69d485cb4869",
-      "size": 3898
+      "sha256": "35e371c3e457cfc976cc76219d8b751cf7277cf37e6ac80f80adfb55527a375e",
+      "size": 3781
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/asset-runtime.js",
@@ -7216,8 +7216,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/cg-gallery.js",
-      "sha256": "2b5976dc1b3d67986ed90e987ec73198534c922f07c2c7348a29697c316fbc27",
-      "size": 7916
+      "sha256": "f9252073f20083f1fb9df1babfaf750c39c767bb047f38eb0742fb6456a56b15",
+      "size": 7934
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js",
@@ -7386,13 +7386,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-playback.js",
-      "sha256": "b91a87badda9e8d7c576e39260da7402279e37c90f5a05d85a16ffdf7ac4c50f",
-      "size": 15331
+      "sha256": "051ab7f33a0391383e359d59d69112fca2c303f48fc48288a83ef5abd858408d",
+      "size": 15705
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-projection.js",
-      "sha256": "06eda8f9d37c57a05ede8e593e80548c9707d51230b67023516d0218d187bc88",
-      "size": 24032
+      "sha256": "0e2703d978c8c06026d194caf2234e71b000983596f50eb82d02439b5943bdf8",
+      "size": 23830
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-sfx-categories.js",
@@ -8511,9 +8511,9 @@
     }
   ],
   "archive": {
-    "commit": "8950c7507fa183e89d7a81aa5cfa58ac1ed59a35",
+    "commit": "27cfc07688f52cefbd64b996e2513cc3de09d11c",
     "path": "runtime.zip",
-    "sha256": "c5bab6fbf3d35a1578d544a9cecb1f31173c0822fee18997f4eb65b4fd37b322",
-    "size": 15083380
+    "sha256": "b820dca3be5671f190b94aa894d363e1b37419d5605682b72be114ffb878348e",
+    "size": 15083429
   }
 }
