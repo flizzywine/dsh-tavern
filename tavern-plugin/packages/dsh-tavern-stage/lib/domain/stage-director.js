@@ -31,6 +31,8 @@ const messageIndex = (chat, turn) => chat.messages.findIndex(m => m.role === 'as
 const expired = () => Object.assign(new Error('Director task expired; retry explicitly'), {code:'REVISION_CONFLICT'})
 // The log names why a director stopped; the player UI shows only debug text for it.
 const sourceChanged = () => Object.assign(new Error('舞台导演已停止：本轮正文已变化'), {code:'REVISION_CONFLICT'})
+// The card's assets, the engine settings or speech changed under a running director (a pack install, say).
+const assetsChanged = () => Object.assign(new Error('舞台导演已停止：素材已更新'), {code:'ASSETS_CHANGED'})
 const FAILURE = 'stageDirectionAssetPacksFailure'
 // A director at work on its round: written when it starts, cleared with its record or failure.
 // One left by an earlier run of Tavern means a restart cut it off (DIRECTOR_INTERRUPTED).
@@ -70,7 +72,15 @@ export function createStageDirector(deps) {
   }
   function invalidate(cardPath) {
     if (cardPath) openingAssets.delete(cardPath); else openingAssets.clear()
-    for (const job of [...jobs.values(), ...streams.values()]) if (!cardPath || job.cardPath === cardPath) stop(job)
+    for (const job of [...jobs.values(), ...streams.values()]) if (!cardPath || job.cardPath === cardPath) {
+      stop(job, disposed ? undefined : assetsChanged())
+      // A stream still reading the body is dropped: the round's directing read after the body directs it afresh.
+      if (!job.finishing && streams.get(key({id:job.chatId},job.turn)) === job) dropStream(job)
+    }
+  }
+  function dropStream(job) {
+    streams.delete(key({id:job.chatId},job.turn))
+    if (job.pack) {const stopped=job.pack.kernel.drain();tasks.add(stopped);stopped.finally(() => tasks.delete(stopped))}
   }
   // A running director, for the deploy gate's view; never the game's busy state.
   function activity(chat) {
@@ -79,14 +89,18 @@ export function createStageDirector(deps) {
     return job ? {operationId:job.stopId, busy:true, phase:'running', role:'stage-director'} : null
   }
   // A stopped director is silent (as upstream): the round keeps what was saved, records no
-  // failure, and is not started again by itself. Only a director's own error is recorded.
+  // failure, and is not started again by itself. Only a director's own error is recorded, and
+  // so is a change of assets under it: nobody stopped that round, and its observers (voice, the
+  // phone) must not wait for a direction that no longer comes.
   function stop(job, reason) {
     if (job.stopped) return
     job.stopped = true
+    job.stopReason = reason
     job.controller?.abort(reason)
     job.pack?.kernel.cancel()
     publish(job)
   }
+  const quiet = job => job.stopped && job.stopReason?.code !== 'ASSETS_CHANGED'
   // The next turn (no turn) or an interrupted or discarded turn stops its directors.
   function cancel(chat, turn) {
     for (const job of [...jobs.values(), ...streams.values()]) if (job.sessionId === chat.sessionId && (turn === undefined || job.turn === Number(turn))) stop(job)
@@ -98,8 +112,7 @@ export function createStageDirector(deps) {
       const op = chat.timeline?.operations?.[job.operationId]
       const index = metadataOnly ? -1 : messageIndex(chat, job.turn)
       if (chat.id !== job.chatId || chat.cardPath !== job.cardPath || chat.timeline?.branchId !== job.branchId || !op || ['cancelled','failed','stale','interrupted'].includes(op.status) || index >= 0 && recordAt(chat,index)) {
-        stop(job); streams.delete(key({id:job.chatId},job.turn))
-        if (job.pack) {const stopped=job.pack.kernel.drain();tasks.add(stopped);stopped.finally(() => tasks.delete(stopped))}
+        stop(job); dropStream(job)
       }
     }
     for (const job of jobs.values()) if (job.sessionId === chat.sessionId) {
@@ -439,7 +452,8 @@ export function createStageDirector(deps) {
       } catch (error) {
         // A failure before admission settled still records through its writer.
         task ||= await admission?.catch(() => undefined)
-        const failure = {status:'error',sourceKey:captureStageTarget(chat,messageIndex(chat,turn)).sourceKey,error:String(error.message),retryable:true}
+        const cause = job.stopped && !quiet(job) ? job.stopReason : error
+        const failure = {status:'error',sourceKey:captureStageTarget(chat,messageIndex(chat,turn)).sourceKey,...(cause === error ? {} : {code:cause.code}),error:String(cause.message),retryable:true}
         const snapshot = job.pack.kernel.snapshot(), prepared = job.finalInput?.prepared
         if (snapshot.through && prepared && snapshot.committed && snapshot.phase === 'failed' && error.code !== 'REVISION_CONFLICT' && !job.stopped) {
           const binding = {...prepared.binding,generation:snapshot.epoch,stream:{version:1,operationId:job.operationId,epoch:snapshot.epoch,committed:true}}
@@ -448,7 +462,7 @@ export function createStageDirector(deps) {
           failure.preview = readAssetPackPreview({...body,prefixDigest:assetPackDigest(body)})
         }
         const current = () => !disposed && streams.get(key(chat,turn)) === job
-        if (current() && !job.stopped) failures.set(key(chat,turn),failure)
+        if (current() && !quiet(job)) failures.set(key(chat,turn),failure)
         job.error = String(error.message)
         job.pack.kernel.fail(error)
         const saved = await saveFailure(task,job,failure,message => {
@@ -483,10 +497,11 @@ export function createStageDirector(deps) {
     return saved
   }
   async function saveFailure(task, job, failure, apply = () => {}) {
-    if (job.stopped) {
+    if (quiet(job)) {
       deps.log?.({kind:'director-stopped',sessionId:job.sessionId,turn:job.turn,error:failure.error})
-      // Stopped is silent: the round keeps what was saved, only its running mark goes.
-      if (task) await deps.writeMessage(job.chatId, messageIndex(task.chat,job.turn), message => { delete message[RUNNING] }).catch(() => {})
+      // Stopped is silent: the round keeps what was saved, only its running mark goes. A shutdown
+      // keeps the mark, so the next run of Tavern reads the round as interrupted (DIRECTOR_INTERRUPTED).
+      if (task && !disposed) await deps.writeMessage(job.chatId, messageIndex(task.chat,job.turn), message => { delete message[RUNNING] }).catch(() => {})
       return true
     }
     deps.log?.({kind:'director-failure',sessionId:job.sessionId,turn:job.turn,sourceKey:failure.sourceKey,code:failure.code,error:failure.error})
@@ -600,7 +615,7 @@ export function createStageDirector(deps) {
         const reason = job.controller.signal.reason, error = typeof reason?.code === 'string' ? reason : thrown
         const failure = {status:'error', sourceKey:job.target.sourceKey, code:error.code || 'DIRECTION_FAILED', error:String(error.message), retryable:true, ...(job.value.preview ? {preview:job.value.preview} : {}), ...(job.preparation ? {preparation:job.preparation} : {})}
         logMods('failed')
-        if (!job.stopped) failures.set(id,failure)
+        if (!quiet(job)) failures.set(id,failure)
         await saveFailure(task,job,failure)
       }
     })().finally(() => { if (jobs.get(id) === job) jobs.delete(id); tasks.delete(promise); publish(job) })
