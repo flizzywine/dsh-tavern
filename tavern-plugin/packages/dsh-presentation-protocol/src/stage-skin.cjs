@@ -383,12 +383,15 @@ const skinConfig = skinObject({...skinArtScreen,
     select:skinObject({plain:skinImage,focus:skinImage,h:skinNumber(8,256),ink:skinColor},['plain','h'])},['page','font','row','control']);
 // voice = every voice replay control's art (the backlog rows' and the box's replay): idle, focus (hover / keyboard) and
 // active (playing) images, drawn in the control's box.
+// waves = the backlog rows' speaker drawn in parts: image / focus / active hold the speaker body alone and each wave image
+// (inner arc first, the same canvas as image) one sound-wave arc; the arcs stand still at rest and light in sequence while
+// the row's line plays, the body never changes (the stage's 减少动态: still arcs).
 // box false = the textbox shows no replay control (the original's box has none): replay stays on its key (R) and in the backlog.
 // backlog false = the backlog's rows show no replay control: replay stays on its key (R) and in the box.
 // scale (skinScale): the images drawn at this many design px per image px (a raster made for a larger design screen).
-const skinVoice = value => skinObject({image:skinImage,focus:skinImage,active:skinImage,box:box => box === false,backlog:backlog => backlog === false,scale:skinScale})(value)
+const skinVoice = value => skinObject({image:skinImage,focus:skinImage,active:skinImage,waves:skinArray(skinImage,1,3),box:box => box === false,backlog:backlog => backlog === false,scale:skinScale})(value)
     && (Object.hasOwn(value,'image') || value.box === false || value.backlog === false)
-    && (Object.hasOwn(value,'image') || !value.focus && !value.active);
+    && (Object.hasOwn(value,'image') || !value.focus && !value.active && !value.waves);
 // confirm = the stage's confirm dialogs (重新生成 …) drawn as the original's dialog band on wide stages: band = the body image
 // stretched over the band, top / bottom = the torn edges at the band's top and bottom (natural
 // size, full width), h = the band's least height, pad [top, bottom], gap between its rows, width = the content column, dim =
@@ -842,7 +845,7 @@ function stageSkinScreenFiles(art) {
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),
-        ...Object.values(art?.voice || {})].filter(value => typeof value === 'string'))];
+        ...Object.values(art?.voice || {}),...(art?.voice?.waves || [])].filter(value => typeof value === 'string'))];
 }
 function stageSkinFontFiles(font) {return Object.values(font?.faces || {}).map(face => face.file);}
 function stageSkinQuickFiles(menu) {return [...Object.values(menu?.icons || {}).flatMap(icon => [icon.image,icon.on].filter(Boolean)),...stageSkinButtonFiles(menu?.button),...stageSkinButtonFiles(menu?.button?.narrow)];}

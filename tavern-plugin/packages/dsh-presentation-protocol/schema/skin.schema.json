@@ -2754,7 +2754,7 @@
     },
     "voice": {
      "type": "object",
-     "description": "Every voice replay control (the backlog rows' and the box's replay) drawn from these images in its box: idle, focus (hover / keyboard) and active (playing). box false = the textbox shows no replay control (the original's box has none): replay stays on its key (R) and in the backlog. backlog false = the backlog's rows show no replay control (an original whose log has none): replay stays on its key (R) and in the box. Needs image unless box or backlog is false.",
+     "description": "Every voice replay control (the backlog rows' and the box's replay) drawn from these images in its box: idle, focus (hover / keyboard) and active (playing). box false = the textbox shows no replay control (the original's box has none): replay stays on its key (R) and in the backlog. backlog false = the backlog's rows show no replay control (an original whose log has none): replay stays on its key (R) and in the box. waves = the backlog rows' speaker in parts: image / focus / active then hold the speaker body alone, and each wave image (inner arc first, drawn on the same canvas as image) one sound-wave arc; the arcs stand still at rest and light in sequence while the row's line plays (the body never changes; still under the stage's reduced motion). Needs image unless box or backlog is false.",
      "additionalProperties": false,
      "properties": {
       "image": {
@@ -2765,6 +2765,14 @@
       },
       "active": {
        "$ref": "#/$defs/image"
+      },
+      "waves": {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 3,
+       "items": {
+        "$ref": "#/$defs/image"
+       }
       },
       "box": {
        "const": false
@@ -2806,6 +2814,11 @@
          {
           "required": [
            "active"
+          ]
+         },
+         {
+          "required": [
+           "waves"
           ]
          }
         ]

@@ -1019,6 +1019,16 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 /* Touch and narrow screens: a little larger disc, hit area 36px (ui-design §一 checklist); still clear of the eyes and text. */
 @media (pointer: coarse), (max-width: 720px) { .fork-bubble .fork-bubble-portrait > .fork-voice-button, .fork-gal-backlog .fork-gal-backlog-name > .fork-voice-button { --voice-disc: 24px; --voice-hit: 36px; } }
 .fork-voice-spinner { --fork-spinner-size: 12px; }
+/* Backlog voice waves (gal-backlog.js: VoiceButton glyph speaker): the row's replay is a speaker whose body stays still while
+   the sound-wave arcs to its right light one after another, inner first, as that line plays; idle, paused and the stage's
+   CONFIG 「减少动态」 show the arcs still. A skin's art.voice.waves draws the arcs from its own images (the .fork-voice-art-waves
+   layers, 「stage skin: art screens」); a skin art without waves keeps its idle / active images. */
+.fork-voice-button .fork-voice-art-waves { display: none; }
+.fork-voice-button[data-voice-state="playing"] .fork-voice-wave { animation: fork-voice-wave 1.2s ease-in-out infinite both; }
+.fork-voice-button[data-voice-state="playing"] .fork-voice-wave[data-wave="2"] { animation-delay: .2s; }
+.fork-voice-button[data-voice-state="playing"] .fork-voice-wave[data-wave="3"] { animation-delay: .4s; }
+@keyframes fork-voice-wave { 0%, 100% { opacity: .2; } 35%, 65% { opacity: 1; } }
+.fork-gal-stage[data-reduced-motion] .fork-voice-button .fork-voice-wave { animation: none; }
 @media (prefers-reduced-motion: reduce) and (update: none) {
   .fork-bubble .fork-bubble-portrait > .fork-voice-button::before, .fork-gal-backlog .fork-gal-backlog-name > .fork-voice-button::before { transition: none; }
 }
@@ -7757,6 +7767,15 @@ body { --fork-accent-fill: var(--fk-s-base-fill, var(--fork-accent)); --fork-on-
   .fork-gal-stage[data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"] { background-image: var(--art-voice-on); }
   .fork-gal-stage[data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="loading"] { filter: brightness(.6); }
   .fork-gal-stage[data-fk-skin-art-voice]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="error"] { filter: grayscale(1); }
+  /* art.voice.waves (「backlog voice waves」): the arcs are their own layers over the body, which keeps its idle / focus image
+     while the line plays (no active swap: only the arcs move). */
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"] { background-image: var(--art-voice); }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button[data-voice-state="playing"]:is(:hover, :focus-visible) { background-image: var(--art-voice-focus); }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves { display: block; position: absolute; inset: 0; pointer-events: none; }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i { position: absolute; inset: 0; background: none center / contain no-repeat; }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="1"] { background-image: var(--art-voice-wave-1, none); }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="2"] { background-image: var(--art-voice-wave-2, none); }
+  .fork-gal-stage[data-fk-skin-art-voice-waves]:not(.is-film) .fork-gal-backlog-name > .fork-voice-button > .fork-voice-art-waves > i[data-wave="3"] { background-image: var(--art-voice-wave-3, none); }
 }
 /* ==== end stage skin: art screens ==== */
 /* ==== stage skin: config surface ==== */
