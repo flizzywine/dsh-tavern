@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1f09f3fbb2217b6b7077f326a86ea09d6b71dcd0",
-  "releaseSequence": 1054,
+  "revision": "da67db98123623ac2b19e8471214c992d05f421d",
+  "releaseSequence": 1055,
   "version": "3.2.0",
   "files": [
     {
@@ -716,8 +716,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "b7f114ba509a425ddf48df0e934c5c61bc2259190016904c4fd19430f3c3746e",
-      "size": 6361042
+      "sha256": "97aadb7ba9c28f685fc1b01ee97450ebf19828f8096047dbbe9e936f993ecbff",
+      "size": 6361350
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -2746,8 +2746,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/stage-incremental.js",
-      "sha256": "1d612a0a9e4e5205fbf1ea5eeb4688c955df4de4829fa192af3aec9b050acba6",
-      "size": 31499
+      "sha256": "f8f53b951052a370112b114ae0620143b22b4a8304e6b4fd9616229c7df0829e",
+      "size": 31493
     },
     {
       "path": "tavern-plugin/lib/domain/stage-narration.cjs",
@@ -3386,7 +3386,7 @@
     },
     {
       "path": "tavern-plugin/lib/host/mod-phone.mjs",
-      "sha256": "84665f8867b474a9bbc403c78751be0433bbd7f0ee6f722737d26967525555e2",
+      "sha256": "5b8379dff080ddd8819343b380d92fb116ad29c86e736166521f8a69249e7676",
       "size": 24654
     },
     {
@@ -4781,8 +4781,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/call.js",
-      "sha256": "f5ce8f42245ce363fd9859469b24a9f32efde6482316903dd6010f37071b71a7",
-      "size": 26445
+      "sha256": "9456b383ec06c299f6cf651be5c3120fb28abb4a572434d2ad5cd61c7a08cf8a",
+      "size": 27136
     },
     {
       "path": "tavern-plugin/mods/phone/logic.js",
@@ -4791,7 +4791,7 @@
     },
     {
       "path": "tavern-plugin/mods/phone/manifest.json",
-      "sha256": "f5361c6f7eeb8280f5f5d433fcbabd655d67fcc1838cb9e94444e57f6b006393",
+      "sha256": "40d2e01814d41a109f4310fc7f24691712a53e439e33dc7b1ffef2670bb1df87",
       "size": 7787
     },
     {
@@ -4886,8 +4886,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/view/index.js",
-      "sha256": "8a3b8f7ce27c564d86883472bcbf66af0412d6508a614c1d31a00ffac80bc182",
-      "size": 104747
+      "sha256": "5de9f1324f983140b5cab3b887f441e4da71045c93fc1e8f788906b7a13cb232",
+      "size": 104865
     },
     {
       "path": "tavern-plugin/mods/phone/view/photos.js",
@@ -4896,8 +4896,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/view/style.css",
-      "sha256": "995707a2683c44f7cde350d90d90218913628b3f6788b68928dbbdcc479c9e68",
-      "size": 97773
+      "sha256": "4ac2d4fb7e3e7628270a29a82bbbcfd4352ecf8f4b3d841bbae0c0e629c410ae",
+      "size": 98060
     },
     {
       "path": "tavern-plugin/mods/textcard/manifest.json",
@@ -6401,8 +6401,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/director-commands.cjs",
-      "sha256": "f29b49acc545f4aabcc0958d9d415f2547c8e37bd94acabdc0be58a14495c5ce",
-      "size": 46510
+      "sha256": "0035f7dab44b542d95f03f6d2597e31ebd41414e81e3d189bfad8ae2281b7dac",
+      "size": 46814
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/figure-resolution.cjs",
@@ -8511,9 +8511,9 @@
     }
   ],
   "archive": {
-    "commit": "b21ce4d5efebf49a5b3e5565bb23814dcff1bef3",
+    "commit": "e9e40f54abdc3c5756fdee64596aa59f961d8107",
     "path": "runtime.zip",
-    "sha256": "aba7705e7e19fb87687a12004cffe909f123361149dc8db845567eec457c9334",
-    "size": 15082102
+    "sha256": "16b0702e63255c33ab838ef3812d48efae2e6e49cb001dff18887baac54918ad",
+    "size": 15082750
   }
 }
