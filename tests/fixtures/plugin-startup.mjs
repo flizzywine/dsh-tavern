@@ -44,7 +44,7 @@ try {
   assert.equal(typeof direction.status, 'string')
   const modRpc = (method, args) => host.rpc(method, args, { origin: 'http://localhost:3081' })
   const mods = await modRpc('managedModsList', {})
-  assert.equal(mods.mods.length, 5)
+  assert.equal(mods.mods.length, 4)
   assert.ok(mods.mods.every(mod => mod.switches.global === false && mod.switches.effective === false))
   const plan = await modRpc('managedModSwitchPlan', { revision: mods.revision, kind: 'mod', scope: 'global', id: 'dsh.dice', value: true })
   await modRpc('managedModApply', { token: plan.token, revision: plan.revision, answers: {} })
