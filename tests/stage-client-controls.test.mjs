@@ -13,7 +13,6 @@ test('folded skins keep missing auto and skip actions in the menu',()=>{
  assert.equal(controls.drawn('eye-off',{resolvedControlIcons:{}}),false)
  assert.equal(controls.drawn('auto',{resolvedControlIcons:{}}),true)
  assert.equal(controls.keyCaps.skip,'Ctrl')
- assert.equal(controls.shortcuts(false).some(row=>row[2]==='danmaku'),false)
 })
 test('regenerate shortcut follows visibility and disabled state of the existing control',()=>{
  const controls=createStageControls()

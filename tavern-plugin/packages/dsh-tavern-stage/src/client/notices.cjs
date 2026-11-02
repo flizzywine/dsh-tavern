@@ -144,7 +144,7 @@ function GalSceneReload({ onReload }) {
 // round = the round's phase, 'body' | 'staging' | null (「正在生成正文…」 / 「正在生成后续演出…」, the round's 停止 when onStop is given).
 // The stop's label is the phrase without the ellipsis, like the text box's 「正在生成选项」.
 const GAL_ROUND_TEXT = { body: '正在生成正文', staging: '正在生成后续演出' };
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, danmaku, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], nameOf, scope }) {
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], nameOf, scope }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -191,7 +191,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
     return h('div', { className: 'fork-gal-notices', onWheel: event => event.stopPropagation(), onClick: event => event.stopPropagation() },
         hints?.sound ? notice('sound', 'hint', h('span', { className: 'fork-gal-runtime-icon', 'aria-hidden': true }, h(Icon, { name: 'speaker', size: 15 })), '点任意处开启声音') : null,
         hints?.keys ? h('div', { key: 'keys', className: 'fork-gal-runtime-status fork-gal-runtime-keys', 'data-tone': 'hint', role: 'note', 'aria-label': '快捷键' },
-            h('dl', null, galShortcuts(danmaku).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
+            h('dl', null, galShortcuts().map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
         interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
         null,

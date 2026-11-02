@@ -552,9 +552,6 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     // on a phone (ack) the name row carries the sub-page ‹ and leads the page.
     const title=h('div',{className:'ap-detail-title'+(back?' ap-subhead':'')},back&&h(SubpageBack,back),h(CommitInput,{className:'ap-title-input','aria-label':'名称',value:asset.name,validate:v=>!v.trim()?'名称不能为空':chars(v)>256?'名称最多 256 字':'',onCommit:v=>write(c=>({...c,name:v.trim()}))}),
         copyMenu||removeMenu||(!asset.variants&&VARIANT_MEDIA_KINDS.includes(kind)&&uploadVariant&&h(MediaReplaceMenu,{asset,busy,onError:setError,upload:(id,file)=>uploadVariant(kind,asset.id,id,file)}))||null);
-    // a 观众群 预设弹幕 / 接话 section without rules is a 「＋ 名称」 chip until opened.
-    const [rulesOpen,setRulesOpen]=React.useState(()=>new Set());
-    const audienceContent=kind==='audience'?(selected?content:asset.content):null;
     // on every size the name row leads the pane, above the preview / player,
     // and is the only place the name is shown (the player card dropped its own title).
     return h('div',{className:'ap-detail-pane','data-disabled':asset.enabled===false||undefined},title,h(ErrorBox,{error}),hero,
@@ -563,7 +560,6 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
       // the settings are one column of inline rows — 「label value」, the
       // value read as text and edited in place (InlineField); switches, the slider and the 详情 text sit in the same rows.
       h(InlineGrid,{label:asset.name+' 设置',columns:1,className:'ap-entry-fields'},
-        ...(kind==='audience'?AudienceFields({content:selected?content:asset.content,onCommit:next=>writeContent(c=>selected?next:{...c,content:next}),Help}):[]),
         // enabling is part of 触发策略 — 蓝灯 / 绿灯 / 关闭 (关闭 = enabled: false;
         // the lamp keeps its mode underneath), the separate 启用 switch is gone. Kinds the director never picks by lamp get
         // 启用 / 关闭 and no 触发词 (nothing reads them there).
@@ -594,11 +590,7 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
         // an 物品's 库存标识 (shared by its variants) links it to the 背包 row with the same id.
         kind==='props'&&h(InlineField,{kind:'text',label:'库存标识',hideEmpty:true,help:entryHelp('库存标识',INVENTORY_ID_HELP),value:asset.inventoryId||'',maxLength:256,
           onCommit:v=>write(c=>{const next={...c},id=v.trim();if(id)next.inventoryId=id;else delete next.inventoryId;return next;})}),
-        ...(kind==='audience'?audienceRuleAdds({content:audienceContent,open:rulesOpen,onOpen:k=>setRulesOpen(s=>new Set(s).add(k))}):[]),
         variantAddChip({asset,selected,onSelect:id=>{audio.stop();setVariant(id);},write,busy})),
-      // an entry with real danmaku shows them read-only above its preset rules.
-      kind==='audience'&&audienceHasCorpus(asset)&&h(AudienceCorpus,{binding,pack,asset}),
-      kind==='audience'&&h(AudienceRuleSections,{content:audienceContent,open:rulesOpen,onClose:k=>setRulesOpen(s=>{const next=new Set(s);next.delete(k);return next;}),onCommit:next=>writeContent(c=>selected?next:{...c,content:next})}),
       kind==='backgrounds'&&h(BackgroundStageTheme,{asset:view,onCommit:writeContent}),
       kind==='widgets'&&h(WidgetSettingsForm,{declaration:document,defaults:content.settingsDefaults,binding,packs:packs.length?packs:[pack],
         onChange:(key,_type,value)=>writeContent(current=>{const settingsDefaults={...current.settingsDefaults};if(_type)settingsDefaults[key]=value;else delete settingsDefaults[key];return {...current,settingsDefaults};}),
@@ -612,12 +604,12 @@ const LAMP_HELP='同 SillyTavern 世界书：蓝灯始终可选，绿灯在名�
     if(asset.variants)return asset.variants;
     const identity=new Set(['kind','id','name','enabled','recall','directorNote','remark','description','category','inventoryId','aliases','author','license','credits','extensions']);
     if(asset.kind==='cg')identity.delete('description');
-    const content=asset.kind==='audience'?asset.content:Object.fromEntries(Object.entries(asset).filter(([key])=>!identity.has(key)));
+    const content=Object.fromEntries(Object.entries(asset).filter(([key])=>!identity.has(key)));
     return {default:'base',entries:[{id:'base',name:'原图',content}]};
   }
   function entryWithVariants(asset,variants) {
     const next={...asset};
-    if(!asset.variants)for(const key of asset.kind==='audience'?['content']:Object.keys(variants.entries[0].content))delete next[key];
+    if(!asset.variants)for(const key of Object.keys(variants.entries[0].content))delete next[key];
     return {...next,variants};
   }
   // 「变体」 is one strip of chips — a small picture (picture kinds) and the

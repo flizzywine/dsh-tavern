@@ -118,7 +118,6 @@
         // @include cg-stage.js
 		// @include gal-stage.js
 		// @include gal-config.js
-        // @include danmaku-ui.js
         // @include phone-layout.js
 		// @include bgm-player.js
 		// @include bg-manual.js

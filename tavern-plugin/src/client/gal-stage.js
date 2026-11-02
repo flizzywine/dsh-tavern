@@ -235,8 +235,6 @@ function bindStageViews(createViews) {
         callViews:{subscribeFrames:callback=>typeof phoneModCall==='object' && phoneModCall?.frames ? phoneModCall.frames(callback) : null},
         backgrounds:{correction:galLayerCorrection,timeGrade:galTimeGrade},
         sceneGraphics:{paintEmpty:stagePaintEmpty,emptyPalette:stageEmptyPalette},
-        danmaku:{Image,getComputedStyle,requestAnimationFrame,cancelAnimationFrame,setTimeout,clearTimeout,performance},
-        danmakuUi:{sections:STAGE_CONFIG_SECTIONS,entries:stageEntries,report:useStageEntryState,confirm:useTavernConfirm,sounds:forkUiSfx,setTimeout,clearTimeout},
         textcard:{clock:forkForeground},
         textcardFonts:{FontFace:globalThis.FontFace,fonts:tavernFonts},
         textcardPlayer:{performance,requestAnimationFrame,cancelAnimationFrame,setInterval,clearInterval,setTimeout,clearTimeout},

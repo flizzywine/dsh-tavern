@@ -1,6 +1,4 @@
 import {randomUUID} from 'node:crypto'
-import {createDanmakuRetrieval} from './danmaku-corpus.js'
-import {corpusPageSignals} from './danmaku-signals.js'
 import {isDeepStrictEqual as equal} from 'node:util'
 import contract from '../packages/dsh-presentation-protocol/src/mod-contract.cjs'
 import {createModEventBus} from './domain/mods/events.js'
@@ -16,9 +14,8 @@ const unwrap=async value=>{const result=await value;if(!result.ok)throw Object.a
 const publicContext=(value,epoch)=>({modId:'',sessionId:value.head.sessionId,branchId:value.source.branchId,revision:String(value.head._storageRevision),
   sourceKey:value.source.sourceKey,generation:value.source.generation,textVersion:value.source.textVersion,authorityEpoch:epoch,settledTurn:value.turn,mode:value.mode || 'live'})
 
-export function createModSessionEvents({library,builtins,readCard,config,index,readWindow,readRevision,source,variables,epoch,connected=()=>true,onError=()=>{},modelTasks,readAssetText,presentation,catalogues,modelStatus,publishView=()=>{}}) {
+export function createModSessionEvents({library,builtins,readCard,config,index,readWindow,readRevision,source,variables,epoch,connected=()=>true,onError=()=>{},modelTasks,presentation,catalogues,modelStatus,publishView=()=>{}}) {
   const settled=createSettledModSource({index,readWindow,readRevision,source}),sessions=new Map(),presentations=new Map(),observedRevisions=new Map()
-  const retrieve=readAssetText?createDanmakuRetrieval({read:readAssetText}):null
   let live=true,sequence=0
   const clock=row=>row.elapsed+(row.active?Date.now()-row.started:0)
   function clearViews(row) {
@@ -35,11 +32,9 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
     if(!valid() || !result?.view || !row.active)return
     if(Number.isFinite(result.view.activeTimeMs)){row.elapsed=Math.max(clock(row),result.view.activeTimeMs);row.started=Date.now()}
     if(row.failures?.has(manifest.id))result={...result,view:{...result.view,status:'error',error:row.failures.get(manifest.id)}}
-    const view=manifest.id==='dsh.danmaku'?{...result.view,streamer:row.streamer,provisional:!!row.provisional,...(row.display.displayToken?{displayToken:row.display.displayToken}:{}),displayTurn:row.provisional?row.display.turn:context.settledTurn}:result.view
-    row.views.set(manifest.id,{modId:manifest.id,manifest,context,view:presentationView(manifest,view)})
+    row.views.set(manifest.id,{modId:manifest.id,manifest,context,view:presentationView(manifest,result.view)})
     publishView(context.sessionId,{views:[...row.views.values()]})
-    // History wakes only the audience's settle-delayed page backfill (「像看录播」).
-    if(context.mode!=='live' && manifest.id!=='dsh.danmaku' || result.wakeAfterMs===null || !Number.isFinite(result.wakeAfterMs))return
+    if(context.mode!=='live' || result.wakeAfterMs===null || !Number.isFinite(result.wakeAfterMs))return
     const timer=setTimeout(()=>{row.timers.delete(manifest.id);void enqueue(async()=>{
       if(!valid() || !row.active)return
       const fresh=await prepare(context.sessionId)
@@ -75,13 +70,12 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
       context.variableBindings=await config.bindings(manifest,card,value.head,turn.sources)
     }
     const catalogue=row.catalogues?.[manifest.id]
-    const settings={...library.getMod({modId:manifest.id,cardId:card.meta.id}).settings.values,...(manifest.id==='dsh.danmaku'?row.danmakuSettings:{})}
+    const settings=library.getMod({modId:manifest.id,cardId:card.meta.id}).settings.values
     const models=await modelStatus?.(manifest,context.gameId) || {}
     const shown=modelEvent?presentations.get(event.context.sessionId):row.display
     const anchor={sourceKey:event.context.sourceKey,part:'body',paragraph:1,charOffset:0,...shown?.anchor}
     context.anchor=anchor
-    const payload={...event.payload,provisional:!!row.provisional,pageReady:!row.provisional || !!shown?.pageText,...(shown?.visit?{visit:shown.visit}:{}),...(shown?.rapid?{rapid:true}:{}),
-      ...(manifest.id==='dsh.danmaku' && shown?.pages?.length?{pages:shown.pages}:{}),active:row.active,anchor,activeTimeMs:clock(row),host:{
+    const payload={...event.payload,provisional:!!row.provisional,pageReady:!row.provisional || !!shown?.pageText,...(shown?.visit?{visit:shown.visit}:{}),...(shown?.rapid?{rapid:true}:{}),active:row.active,anchor,activeTimeMs:clock(row),host:{
       entries:catalogue?.packs.flatMap(pack=>pack.entries) || [],settings,models}}
     const adapter=builtins.presentation?.(manifest.id)
     let transport
@@ -90,25 +84,13 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
       createHost(_context,callCurrent) {
         const host=createModVariables({...variables(),manifest,context,current:callCurrent}),token=randomUUID()
         transport=createModMessageTransport({context:event.context,token,current:()=>!cleanup && callCurrent(),methods:{
-          'host.danmaku.retrieve':async args=>{
-            // Free keyword matching: live pages and the history-page backfill (「像看录播」) alike.
-            check(manifest.id==='dsh.danmaku' && row.active,'$.activity','Retrieval requires the active audience mod','MOD_PERMISSION_DENIED')
-            shape(args,['pages','budget','recent'])
-            check(Array.isArray(args.pages) && args.pages.length<=4 && Number.isInteger(args.budget) && args.budget>=0 && args.budget<=12,'$.pages')
-            const supplied=shown?.pages || []
-            check(args.pages.every(p=>supplied.some(s=>s.index===p.index && s.text===p.text)),'$.pages','Reading source changed','MOD_SOURCE_STALE')
-            const canonical=args.pages.map(p=>supplied.find(s=>s.index===p.index && s.text===p.text))
-            const result=retrieve?await retrieve(payload.host.entries,{...args,pages:corpusPageSignals(canonical,value.units,value.turn)}):{comments:[]}
-            check(valid(),'$.source','Retrieval source changed','MOD_SOURCE_STALE')
-            return result
-          },
           'host.models.request':async args=>{
             check(modelTasks,'$.models','Model service unavailable','MOD_RESOURCE_UNAVAILABLE')
             check(row.active && context.mode==='live','$.activity','Model requests need an active live stage','MOD_SOURCE_STALE')
             check(!row.failures?.has(manifest.id),'$.source','Reopen the stage after a mod callback failure','MOD_RUNTIME_FAILED')
             return modelTasks.request({manifest,owner,sessionId:context.gameId,
               current:()=>(args.purpose==='comments'?commentCurrent():display===presentations.get(event.context.sessionId) && sourceValid()) && row.active && context.mode==='live' && connected(context.gameId),
-              window:async()=>{check(valid() && display===presentations.get(event.context.sessionId),'$.source','Model source changed','MOD_SOURCE_STALE');return manifest.id==='dsh.danmaku' && args.purpose==='comments' && args.input.pages?.length?{units:[],inputs:[]}:{units:structuredClone(value.units),inputs:structuredClone(value.inputs)};},
+              window:async()=>{check(valid() && display===presentations.get(event.context.sessionId),'$.source','Model source changed','MOD_SOURCE_STALE');return {units:structuredClone(value.units),inputs:structuredClone(value.inputs)};},
               prompts:async slotId=>manifest.prompts.filter(prompt=>prompt.target==='model' && prompt.modelSlot===slotId)
                 .sort((a,b)=>a.placement.order-b.placement.order || a.id.localeCompare(b.id)).map(prompt=>({key:'mod.'+manifest.id+'.'+prompt.id,text:builtins.file(mod.origin?.builtinId || manifest.id,prompt.path).toString('utf8')})),
               deliver:payload=>row.bus.publish({event:payload.status==='streaming'?'model.output':'model.completed',modId:manifest.id,context:event.context,payload})},args)
@@ -118,7 +100,6 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
             'host.presentation.publish':args=>{shape(args,['view']);accept(row,manifest,event.context,{view:args.view,wakeAfterMs:null},valid);return {}},
             'host.presentation.read':args=>row.provisional?adapter.read(row.transient || adapter.empty(),{anchor:args.anchor,sources:[{...context.source,sessionId:context.gameId}]}):presentation.read(context,adapter,args),
             'host.presentation.append':(args,{isCurrent})=>{
-              // History writes are the page's one corpus backfill (the adapter enforces it).
               check(row.active,'$.activity','Presentation needs an active stage','MOD_SOURCE_STALE')
               if(row.provisional) {
                 const next=adapter.append(row.transient || adapter.empty(),args,{source:{...context.source,sessionId:context.gameId},turn:context.turn,active:row.active,mode:context.mode,anchorAllowed:anchor=>equal(anchor,context.anchor)})
@@ -187,13 +168,6 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
     if(row.admitted)for(const id of row.admitted)if(!admitted.has(id))row.bus.publish({modId:id,event:'session.disposed',context:row.context})
     row.provisional=provisional
     if(!provisional)row.transient=null
-    // Config writes invalidate the session owner; do not reread card settings for every streamed line.
-    // A host face that could not be read yet (transient) is read again after a short wait, not kept neutral all session.
-    if(!row.streamer || row.card?.meta.id!==card.meta.id || row.streamerRetryAt && Date.now()>=row.streamerRetryAt) {
-      row.streamer=await config?.readStreamer?.(card.meta.id,{sessionId}) || {name:'',avatarRef:null}
-      row.streamerRetryAt=row.streamer.transient?Date.now()+5000:0
-      row.danmakuSettings=await config?.readDanmakuSettings?.(card.meta.id) || {}
-    }
     row.catalogues=views
     row.display={...row.display,...display}
     row.admitted=admitted
@@ -223,7 +197,7 @@ export function createModSessionEvents({library,builtins,readCard,config,index,r
     },
     views(sessionId){return {views:[...(sessions.get(sessionId)?.views.values() || [])]}},
     refresh() {
-      for(const row of sessions.values()){row.activityVersion++;row.streamer=null;clearViews(row)}
+      for(const row of sessions.values()){row.activityVersion++;clearViews(row)}
       modelTasks?.invalidate()
       void enqueue(async()=>{for(const id of sessions.keys()){
         const row=await prepare(id)

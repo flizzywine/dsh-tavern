@@ -390,7 +390,7 @@ function InlineRow(props) {
 // share one line at the grid's end. A click (Enter / Space) puts the row back in its place and focuses it; leaving it
 // still empty (blur, or Esc) folds it back into its chip (Esc returns the focus to the chip). Rows with a value, menus,
 // switches and InlineRow are never hidden. The one implementation for every 素材库 entry view (ui-design R4).
-// An empty optional *section* (an entry's 变体 without a table, 观众群 预设弹幕 / 接话 without rules) is not shown
+// An empty optional *section* (an entry's 变体 without a table) is not shown
 // at all: its owner puts <InlineSectionAdd key label onAdd /> among the grid's children and it becomes one more 「＋ 名称」 chip
 // on the same line; the click is the section's own add (the section then appears with what was added). `render(chip)`
 // replaces the plain button when the add needs a menu: chip = { props, children } for the trigger button.

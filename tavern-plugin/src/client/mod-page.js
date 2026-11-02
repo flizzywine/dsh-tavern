@@ -12,14 +12,13 @@
 // The page head's (?): one sentence a player understands (a manifest summary is written for the director); another
 // mod shows its manifest summary.
 const MOD_HELP = Object.freeze({
-    'dsh.danmaku': '模拟观众看你游玩时发的弹幕；只看，不影响剧情。',
     'dsh.performance': '场景专属的持续演出（如场景光效），导演按本卡的演出素材播放。',
     'dsh.timer': '舞台上的倒计时：剧情限时，或等你回应的时限，时间到时自动替你回应；打开菜单、履历时暂停，刷新也不会扣时。',
     'dsh.phone': '角色用手机收发消息时，舞台上显示成手机画面。',
     'dsh.textcard': '情绪转折、回忆、章节切换时，用全屏文字卡强调。'
 });
 // The 舞台设置 › 模组 row icon of a first-party mod (glyph names of the panel's one Glyph); another mod shows 'widgets'.
-const MOD_GLYPHS = Object.freeze({ 'dsh.danmaku': 'audience', 'dsh.performance': 'performances', 'dsh.phone': 'phone', 'dsh.textcard': 'textcard', 'dsh.timer': 'timers' });
+const MOD_GLYPHS = Object.freeze({ 'dsh.performance': 'performances', 'dsh.phone': 'phone', 'dsh.textcard': 'textcard', 'dsh.timer': 'timers' });
 // A setting's (?) where the config schema carries none (the manifest's settingsSchema help is used first).
 const MOD_FIELD_HELP = Object.freeze({ 'dsh.textcard': { intensity: '每轮最多几张文字卡、播放快慢：克制 5 张偏慢，标准 8 张，浓烈 12 张偏快。' } });
 const MOD_ENTRY_HELP = '蓝灯每轮可用，绿灯在正文提到触发词时可用；一轮里一条都用不上时，这个模组那一轮不启用。';
@@ -43,7 +42,7 @@ function ModSettings({ modId, config, help, children }) {
 // A mod's own built-in asset pack (tavern-plugin/lib/mod-builtins.js assetPackId; tests keep them equal). Rule 15:
 // its entries are in use whenever the mod is on, like a 全局 pack (mod-event-catalogue.js), so its section lists them
 // first and 舞台设置 loads its document like a lit pack's (stageDetailRows).
-const MOD_BUILTIN_PACKS = Object.freeze({ 'dsh.danmaku': '829254f8-e721-4c06-ae27-73d91c495f7c' });
+const MOD_BUILTIN_PACKS = Object.freeze({});
 // This card's entries of one kind, pack by pack (the mod's built-in pack, then 全局 packs, then 本卡 — the packs the
 // mod reads): the full pack documents 舞台设置 already holds (items null while one is still loading).
 function modEntryGroups(ctx, kind, modId) {

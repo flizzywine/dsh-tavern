@@ -19,7 +19,6 @@ const useStageFilm=()=>React.useSyncExternalStore(legacy.film.subscribe,legacy.f
 const useStageReading=()=>React.useSyncExternalStore(options.entrance.reading.subscribe,options.entrance.reading.get);
 const useStageQuality=()=>React.useSyncExternalStore(options.configAppearance.quality.subscribe,options.configAppearance.quality.get);
 const stageSessions={get:id=>stageViews.sessions.get(id),get owner(){return stageViews.sessions.owner;},get resourceOwner(){return stageViews.sessions.resourceOwner;}};
-const DANMAKU_MOD='dsh.danmaku';
 const {Event}=window;
 const matchMedia=(...args)=>window.matchMedia(...args),queueMicrotask=fn=>window.queueMicrotask(()=>{if(!closed)fn();});
 let closed=false;const cleanups=new Set(),timers=new Map(),foregroundTimers=new Set();
@@ -458,7 +457,7 @@ function GalStage(props) {
     // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
     const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
     // the entries' reports - a badge keeps its entry on screen while the top
-    // bar hides; the first-run key list names D only while 弹幕 is usable.
+    // bar hides.
     const entryStore = React.useMemo(createStageEntryStore, []);
     const entryStates = React.useSyncExternalStore(entryStore.subscribe, entryStore.get);
     // the top bar hides while reading and reveals on demand; the
@@ -540,12 +539,6 @@ function GalStage(props) {
         const next = Math.max(0, Math.min(pages.length - 1, target));
         subtitles.select(next, 0); stageSessions.owner.navigate(sessionId,turn,next,false); setTyped(true); setEndedAt(null);
     }
-    // The stage plugin owns the exported round's danmaku replay state.
-    React.useEffect(() => {
-        if (!replaying) return;
-        stageViews.danmaku.replay(sessionId, true, String(runtime.cursor.visitId));
-        return () => stageViews.danmaku.replay(sessionId, false);
-    }, [replaying, replaying && runtime.cursor.visitId, sessionId]);
     // 「跳到最新一轮」: the latest available page (where skip also stops), through the same navigation as a backlog jump.
     function jumpLatest() {
         if (turn === latestTurn || !latestTurn) return;
@@ -1022,14 +1015,14 @@ function GalStage(props) {
                         h("button", { type: "button", className: "fork-gal-generate-turn", onClick: () => rpc('retryStageDirection',{turn},sessionId).then(() => runtime.store.dispatch({type:'DIRECTOR_WAKE'})) }, "为这一轮生成演出")) : null,
                 entryDock("scene")), // background (bg-manual.js), BGM (bgm-player.js), 声音 (gal-mixer.js)
             h("div", { className: "fork-gal-topright" },
-                entryDock("feature"), // mods (gal-widgets.js), danmaku (danmaku-ui.js), 电影模式
+                entryDock("feature"), // mods (gal-widgets.js), 电影模式
                 menuFold ? menuFoldButton() : null,
                 // the stage's own ✕, last in the top bar, revealed with it in every skin.
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
             (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length) ?
-            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, danmaku: typeof DANMAKU_MOD === 'string' && entryStates['mod:' + DANMAKU_MOD]?.available === true, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf,
+            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf,
                 scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).

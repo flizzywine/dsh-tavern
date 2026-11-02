@@ -10,7 +10,7 @@ const distributions = await firstPartyDistributions()
 const manifests = distributions.map(row => row.manifest)
 
 test('first-party distributions are packaged but a fresh profile enables none', () => {
-  assert.equal(manifests.length, 5)
+  assert.equal(manifests.length, 4)
   assert.deepEqual(defaultModSettings().global.enabledModIds, [])
   assert.deepEqual(resolveMods({ manifests }).enabled, [])
   for (const row of distributions) {
@@ -28,7 +28,7 @@ test('fresh-profile manager exposes experimental mods off and an explicit global
     settings: { read: async () => ({ revision: 1, value: global }) },
   })
   const fresh = await manager.call('managedModsList')
-  assert.equal(fresh.mods.length, 5)
+  assert.equal(fresh.mods.length, 4)
   assert.ok(fresh.mods.every(row => row.experimental && !row.switches.global && !row.switches.effective))
   global.mods['dsh.dice'] = true
   const enabled = await manager.call('managedModsList')

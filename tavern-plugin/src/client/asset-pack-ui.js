@@ -56,11 +56,11 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // 演出风格 (`directions`) — text entries the director always receives
   // while their pack is lit (蓝灯 全局 / 绿灯 本卡) and the entry is 启用.
   // built-in kinds come first in their canonical order; kinds a mod brings (MOD_KINDS:
-  // kind → owning mod id, e.g. the danmaku mod's 观众群) follow them — mod id order, then the order listed. KIND_ORDER is
+  // kind → owning mod id, e.g. the timer mod's 计时器) follow them — mod id order, then the order listed. KIND_ORDER is
   // the one order every kind list uses (library tabs + 更多, pack-row chips, pack window tabs, setup, add/copy menus).
   // 入场演出 (`entrances`, dsh.entrance/1) - what the stage plays as it opens; 蓝灯 or 关闭.
   const BUILTIN_KINDS = {figures:'人物', backgrounds:'背景', cg:'CG', props:'物品', performances:'演出组合', music:'音乐', sfx:'音效', ambience:'环境音', looks:'滤镜', skins:'舞台皮肤', entrances:'入场演出', videos:'视频', widgets:'模组', directions:'演出风格'};
-  const MOD_KINDS = [['audience','dsh.danmaku','观众群'], ['timers','dsh.timer','计时器']];
+  const MOD_KINDS = [['timers','dsh.timer','计时器']];
   const KIND_ORDER = kindOrder(Object.keys(BUILTIN_KINDS), MOD_KINDS);
   const kinds = Object.fromEntries(KIND_ORDER.map(key => [key, BUILTIN_KINDS[key] ?? MOD_KINDS.find(row => row[0] === key)[2]]));
   // shorter labels for the library's one-row kind filter (full name stays the tab's name).
@@ -1335,7 +1335,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('span',null,kinds[k]))));
   }
   // Category glyphs for the pack navigation (the old 素材库 rail had one per kind).
-  const kindGlyphs={timers:'M8 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM6.5 1.5h3M8 4V2M8 9V6.5M12 4.5l1-1',audience:'M2.5 3h11v8h-7l-3 2v-2h-1zM5 6h6M5 8h4',backgrounds:'M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3',music:'M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',sfx:'M3 8h1.5M6 5v6M8.5 3v10M11 5.5v5M13.5 7v2',ambience:'M2 6.5c2-1.5 4-1.5 6 0s4 1.5 6 0M2 10c2-1.5 4-1.5 6 0s4 1.5 6 0',looks:'M8 2.5l1.4 3.6 3.6 1.4-3.6 1.4L8 12.5l-1.4-3.6L3 7.5l3.6-1.4z',widgets:'M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z',figures:'M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3.5 13.5c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4',
+  const kindGlyphs={timers:'M8 14a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM6.5 1.5h3M8 4V2M8 9V6.5M12 4.5l1-1',backgrounds:'M2.5 3.5h11v9h-11zM2.5 10.5l3-3 3 3 2-2 3 3',music:'M6 12.5V4l7-1.5V11M6 12.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM13 11a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z',sfx:'M3 8h1.5M6 5v6M8.5 3v10M11 5.5v5M13.5 7v2',ambience:'M2 6.5c2-1.5 4-1.5 6 0s4 1.5 6 0M2 10c2-1.5 4-1.5 6 0s4 1.5 6 0',looks:'M8 2.5l1.4 3.6 3.6 1.4-3.6 1.4L8 12.5l-1.4-3.6L3 7.5l3.6-1.4z',widgets:'M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z',figures:'M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3.5 13.5c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4',
     // packs-v3: 舞台皮肤 (a screen with a dialogue box) and 演出 (a clapperboard) were missing.
     skins:'M3 2.5h10a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5zM4.5 9h7v3h-7zM4.5 5h3',performances:'M2.5 7h11v6.5h-11zM2.5 7 3.6 3.4l9.6 1.2L12.8 7M6.3 3.8 5.4 7M9.8 4.2 9 7',
     // 演出风格 — the director's megaphone.

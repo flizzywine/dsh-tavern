@@ -56,6 +56,5 @@ function StageModSection({ctx,cardId}) {
 // @include-stage-source mod-manager.js
 // @include mod-page.js
 // @include mod-config-pages.js
-// @include danmaku-pages.js
 // @include mod-settings.js
 // @include mod-assets.js

@@ -45,7 +45,7 @@ function cfgField(field) {
     const type = valueType === "number" ? "number" : valueType === "boolean" ? "boolean" : ui.control || f.control || (valueType === "string" ? "text" : valueType === "array" || f.fieldMapping ? "list" : "json");
     const auto = !!(f.guessHints || f.autoRef || type === "list");
     // a number without an automatic source (电量, 信号) may still follow a
-    // variable: 固定 · 选择变量… · 公式…, no 自动 (unset reads as its default). A `fixedOnly` field (弹幕量, 调用节奏) takes a
+    // variable: 固定 · 选择变量… · 公式…, no 自动 (unset reads as its default). A `fixedOnly` field (调用节奏) takes a
     // fixed value or its default, nothing else.
     const bindable = !auto && (type === "number" || f.bindable) && !f.fixedOnly;
     // A record list (背包) is read from the card: 自动 or 引用 of an array / object branch, never typed in.

@@ -21,8 +21,7 @@ function createStageModNotifications({getSnapshot,send,browseMs,now=Date.now,rep
     },
     // when each page was reached and whether the page turn before it was under
     // browseMs earlier (wheel / quick paging through history). Measured when the stage reports the turn, not when the
-    // queued notification is sent; the host plays such a page's recorded danmaku only once the reader settles (its
-    // HISTORY_SETTLE_MS, tavern-plugin/mods/danmaku/controller.js).
+    // queued notification is sent.
     modBrowse: new Map(),
     browseMs,
     browseKey(state) {
