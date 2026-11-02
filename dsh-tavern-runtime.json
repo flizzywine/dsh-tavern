@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "da67db98123623ac2b19e8471214c992d05f421d",
-  "releaseSequence": 1055,
+  "revision": "0ea797e3b22c2b098f8f368e8d70e01357f942a7",
+  "releaseSequence": 1056,
   "version": "3.2.0",
   "files": [
     {
@@ -161,8 +161,8 @@
     },
     {
       "path": "bin/desktop-profile-installation.mjs",
-      "sha256": "e6c8a3eec06939473f7e77102c77fd8a5e33bb1083dc497240677eabaefb20e5",
-      "size": 8318
+      "sha256": "c527e8d2eda3d544b3c5062086446a6e0e428f8138b1d8e3d1837acc5e05e399",
+      "size": 8514
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -271,8 +271,8 @@
     },
     {
       "path": "bin/portable-fs.mjs",
-      "sha256": "37a38ce66a271ebe519031c8b19e59c270e77e3cd62d3c55480600de906af2f1",
-      "size": 4520
+      "sha256": "5ae419592c47a871e61d043f0cebc6ac951a2d1f2713db6aed551a02f711e038",
+      "size": 5551
     },
     {
       "path": "bin/prefetch-fonts.mjs",
@@ -8511,9 +8511,9 @@
     }
   ],
   "archive": {
-    "commit": "e9e40f54abdc3c5756fdee64596aa59f961d8107",
+    "commit": "8950c7507fa183e89d7a81aa5cfa58ac1ed59a35",
     "path": "runtime.zip",
-    "sha256": "16b0702e63255c33ab838ef3812d48efae2e6e49cb001dff18887baac54918ad",
-    "size": 15082750
+    "sha256": "c5bab6fbf3d35a1578d544a9cecb1f31173c0822fee18997f4eb65b4fd37b322",
+    "size": 15083380
   }
 }
