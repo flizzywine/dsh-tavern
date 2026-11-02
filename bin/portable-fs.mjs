@@ -3,10 +3,29 @@
 // name): cpSync fails or crashes, rmSync silently deletes nothing. Fixed upstream
 // only in late Node 24 releases (nodejs/node#61878, #56049); installers must not
 // depend on the user's Node being new enough.
-import { copyFileSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, rmdirSync, statSync, symlinkSync, unlinkSync } from 'node:fs'
+import { copyFileSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync, renameSync, rmdirSync, statSync, symlinkSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 
 const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+
+// Windows scanners and closing applications can briefly retain directory handles.
+// Each move (including rollback) gets its own bounded retry budget.
+export function renameWithRetrySync(from, to, {
+  rename = renameSync, platform = process.platform, timeout = 10000,
+  interval = 100, now = Date.now, delay = sleep,
+} = {}) {
+  const deadline = now() + timeout
+  for (;;) {
+    try { return rename(from, to) } catch (error) {
+      if (platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code)) throw error
+      if (now() >= deadline) {
+        error.message = `无法移动配置目录 ${from} → ${to}（${error.code}）：目录可能被占用或没有访问权限。请完整退出 DeepSeek Harness（含托盘），关闭使用该目录的终端、资源管理器或编辑器，检查目录权限后重新运行安装；请勿手动删除配置或备份。原始错误：${error.message}`
+        throw error
+      }
+      delay(Math.min(interval, Math.max(0, deadline - now())))
+    }
+  }
+}
 
 export function copyTreeSync(from, to, { dereference = false } = {}) {
   const stat = dereference ? statSync(from) : lstatSync(from)

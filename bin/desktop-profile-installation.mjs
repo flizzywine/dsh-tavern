@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import installationLocation from './installation-location.cjs'
 import { beginOriginalBridgeUpdate } from './original-bridge-update.mjs'
-import { copyTreeSync } from './portable-fs.mjs'
+import { copyTreeSync, renameWithRetrySync } from './portable-fs.mjs'
 import { assertDesktopStopped } from './import-user-home.mjs'
 
 const present = file => { try { lstatSync(file); return true } catch (e) { if (e.code === 'ENOENT') return false; throw e } }
@@ -41,12 +41,12 @@ function installBridge(dir, sourceRoot) {
   doc.dsh.profile.bundles = [...new Set([...doc.dsh.profile.bundles, 'dsh-profile-bridge'])]
   save(path.join(dir, 'package.json'), doc)
 }
-function recover(journalFile, journal) {
+function recover(journalFile, journal, rename) {
   for (const action of [...journal.actions].reverse()) {
     if (action.reverted) continue
     if (present(action.to)) {
       if (present(action.from)) throw Error(`恢复路径冲突，请保留备份并人工检查：${journalFile}`)
-      renameSync(action.to, action.from)
+      rename(action.to, action.from)
     }
     action.reverted = true; save(journalFile, journal)
   }
@@ -54,7 +54,8 @@ function recover(journalFile, journal) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }) }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), rename = renameSync, retry = {} }) {
+  const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   const interrupted = (() => { try { return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'install.json'), 'utf8')).phase === 'preparing' } catch { return false } })()
   const linkedToTavern = present(live) && lstatSync(live).isSymbolicLink() && present(tavern) && realpathSync(live) === realpathSync(tavern)
@@ -75,7 +76,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped
   const journalFile = path.join(state, 'install.json')
   if (existsSync(journalFile)) {
     const old = JSON.parse(readFileSync(journalFile, 'utf8'))
-    if (old.phase === 'preparing') recover(journalFile, old)
+    if (old.phase === 'preparing') recover(journalFile, old, moveDirectory)
   }
   if (!present(live)) throw Error('请先启动一次官方桌面，再完整退出后安装。')
   const linked = lstatSync(live).isSymbolicLink()
@@ -89,7 +90,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped
   save(journalFile, journal)
   const move = (from, to) => {
     journal.actions.push({ from, to }); save(journalFile, journal)
-    renameSync(from, to)
+    moveDirectory(from, to)
   }
   let done = false
   try {
@@ -118,7 +119,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped
         move(link, live)
       },
       commit() { journal.phase = 'completed'; save(journalFile, journal); done = true },
-      rollback() { if (!done) { recover(journalFile, journal); done = true } },
+      rollback() { if (!done) { recover(journalFile, journal, moveDirectory); done = true } },
     }
-  } catch (error) { recover(journalFile, journal); throw error }
+  } catch (error) { recover(journalFile, journal, moveDirectory); throw error }
 }

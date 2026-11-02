@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
@@ -56,4 +56,45 @@ test('旧版占用 desktop：保留酒馆配置并恢复匹配的原版备份', 
   tx.finish(); tx.commit()
   await switchProfile({ mode: 'unlink', profilesRoot: r.profiles, liveDir: r.desktop, stamp: 'restore' })
   assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
+})
+
+test('Windows 首次安装等待 desktop 短暂占用释放后完成切换，回滚也重试', t => {
+  const r = fixture(t)
+  let time = 0, publishAttempts = 0, rollbackAttempts = 0
+  const tx = prepare({ ...r,
+    retry: { platform: 'win32', timeout: 200, interval: 100, now: () => time, delay: ms => { time += ms } },
+    rename(from, to) {
+      if (from === r.desktop && ++publishAttempts <= 2) throw Object.assign(Error('sharing violation'), { code: 'EPERM' })
+      if (path.basename(from) === 'previous-desktop' && ++rollbackAttempts <= 2) throw Object.assign(Error('busy'), { code: 'EBUSY' })
+      renameSync(from, to)
+    },
+  })
+  tx.finish()
+  assert.equal(publishAttempts, 3)
+  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+  tx.rollback()
+  assert.equal(rollbackAttempts, 3)
+  assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
+  assert.equal(existsSync(r.tavern), false)
+  assert.equal(readFileSync(path.join(r.home, 'profile-data/tavern/data/story'), 'utf8'), '正文与历史')
+})
+
+test('Windows desktop 持续拒绝移动：限时退出并提示，原版配置及存档可回滚', t => {
+  const r = fixture(t)
+  let time = 0, attempts = 0
+  const tx = prepare({ ...r,
+    retry: { platform: 'win32', timeout: 200, interval: 100, now: () => time, delay: ms => { time += ms } },
+    rename(from, to) {
+      if (from === r.desktop) { attempts++; throw Object.assign(Error('access denied'), { code: 'EPERM' }) }
+      renameSync(from, to)
+    },
+  })
+  assert.throws(() => tx.finish(), error => error.code === 'EPERM' && error.message.includes(r.desktop) && /托盘/.test(error.message) && /权限/.test(error.message))
+  assert.equal(attempts, 3)
+  tx.rollback()
+  assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
+  assert.equal(readFileSync(path.join(r.desktop, 'cordis.patch.yml'), 'utf8'), '# original\n[]\n')
+  assert.equal(readFileSync(path.join(r.home, 'profile-data/tavern/data/story'), 'utf8'), '正文与历史')
+  assert.equal(JSON.parse(readFileSync(path.join(r.home, 'profile-bridge/install.json'))).phase, 'rolled-back')
+  assert.ok(existsSync(tx.backup))
 })
