@@ -21,7 +21,7 @@ function fixture(){
  Texture.WHITE={};Texture.EMPTY={};Texture.BLACK={}
  class Image{constructor(){images.push(this)}decode(){return new Promise(resolve=>{this.complete=resolve})}}
  const chain=()=>({slots:new Map(),set(name,value){if(value)this.slots.set(name,value);else this.slots.delete(name)},refresh(){}})
- const filters={world:chain(),figures:chain()},overlay=new Container()
+ const filters={world:chain(),figures:chain(),backdrop:chain()},overlay=new Container()
  const PIXI={Filter,Container,Sprite,Texture,BaseTexture:class{},MIPMAP_MODES:{OFF:0},SCALE_MODES:{LINEAR:1},WRAP_MODES:{CLAMP:0},BLEND_MODES:{SCREEN:1,ADD:2},filters:{KawaseBlurFilter:Filter,AdvancedBloomFilter:Filter,OldFilmFilter:Filter}}
  const manager=createStageLooks({math,shaders:createStageLookShaders(),art:()=>new Texture(),matrix,clamp,ease,fade,useFilter,weather:{kinds:[],matrix:()=>matrix.identity()},colors:{mix:(a,b)=>a},Image})
  const env={PIXI,filters,overlay,app:{renderer:{resolution:1}},tune:f=>f}
@@ -43,10 +43,12 @@ test('look renderer routes time grading and releases every owned pass and overla
  const desc={packLayers:{timeWorld:math.galLookNormalize({gamma:2}),moodWorld:math.galLookNormalize({bloom:{amount:1},distortion:0.2,grain:0.2,soften:0.1}),timeGradeTarget:'figures',id:'test',grade:'night',lighting:{time:'night',mood:'test'}}}
  renderer.tick(desc,0,800,600,'high')
  assert.ok(f.filters.figures.slots.has('timeGrade'));assert.equal(f.filters.world.slots.has('timeGrade'),false)
- assert.ok(f.filters.world.slots.has('screenGrade'));assert.ok(f.filters.world.slots.has('bloom'));assert.ok(f.filters.world.slots.has('soften'))
+ assert.ok(f.filters.world.slots.has('screenGrade'));assert.ok(f.filters.world.slots.has('soften'))
+ // bloom lights the backdrop only: on the world it clipped the speaker (shade 1) but not listeners (0.8)
+ assert.ok(f.filters.backdrop.slots.has('bloom'));assert.equal(f.filters.world.slots.has('bloom'),false);assert.equal(f.filters.figures.slots.has('bloom'),false)
  assert.ok(renderer.ui(matrix.identity(),{}))
  f.manager.dispose();renderer.destroy();renderer.tick(desc,100,800,600,'high')
- assert.equal(f.filters.world.slots.size,0);assert.equal(f.filters.figures.slots.size,0);assert.equal(f.overlay.children.length,0)
+ assert.equal(f.filters.world.slots.size,0);assert.equal(f.filters.figures.slots.size,0);assert.equal(f.filters.backdrop.slots.size,0);assert.equal(f.overlay.children.length,0)
  assert.ok(f.made.length>=7);assert.ok(f.made.every(filter=>filter.destroyCount===1))
  assert.equal(renderer.ui(matrix.identity(),{}),null)
 })

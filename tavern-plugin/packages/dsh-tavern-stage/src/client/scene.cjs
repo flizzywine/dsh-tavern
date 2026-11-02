@@ -158,7 +158,7 @@ function galCreateScene(host, options, own) {
     app.stage.addChild(world, bust.sprite, overlay, call.container);
     // Filter attachment points (render order within each chain).
     const filters = {
-        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "bloom", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur"]),
+        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"]),
         backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
     };
     function tune(filter) {

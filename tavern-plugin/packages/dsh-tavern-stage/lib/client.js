@@ -8047,7 +8047,7 @@ function galCreateScene(host, options, own) {
     app.stage.addChild(world, bust.sprite, overlay, call.container);
     // Filter attachment points (render order within each chain).
     const filters = {
-        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "bloom", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur"]),
+        world: stageViews.sceneGraphics.filters(world, app.screen, ["timeGrade", "grade", "soften", "screen", "film", "beatBlur", "glitch", "shock"]), backdrop: stageViews.sceneGraphics.filters(backdrop, app.screen, ["blur", "bloom"]),
         backFx: stageViews.sceneGraphics.filters(backFx), figures: stageViews.sceneGraphics.filters(figuresBox), frontFx: stageViews.sceneGraphics.filters(frontFx), overlay: stageViews.sceneGraphics.filters(overlay, app.screen)
     };
     function tune(filter) {
@@ -17926,8 +17926,9 @@ function galCreateLookRenderer(env) {
         grade(timeGradeFilter, timeLook, timePlan, timeGradeTarget);
         grade(gradeFilter, moodLook, moodPlan);
         grade(screenGradeFilter, screenLook, screenPlan);
-        // bloom
-        const bloom = use("world", "bloom", () => Object.assign(new PIXI.filters.AdvancedBloomFilter({ threshold: 0.72, bloomScale: 0, brightness: 1, blur: 7, quality: 4 }), { forkLowRes: true }), plan.bloom, now);
+        // bloom: the backdrop only. Figures are not light sources, and the speaker (shade 1) sits above a typical
+        // threshold while listeners (0.8) sit below it, so a world bloom glowed - and clipped - only the speaker.
+        const bloom = use("backdrop", "bloom", () => Object.assign(new PIXI.filters.AdvancedBloomFilter({ threshold: 0.72, bloomScale: 0, brightness: 1, blur: 7, quality: 4 }), { forkLowRes: true }), plan.bloom, now);
         if (bloom) { bloom.threshold = look.bloom.threshold; bloom.bloomScale = look.bloom.amount; bloom.brightness = 1; if (Math.abs(bloom.blur - look.bloom.blur) > 0.05) bloom.blur = look.bloom.blur; }
         // screen (lens + stylize + dirt)
         const screen = use("world", "screen", () => new PIXI.Filter(undefined, GAL_SCREEN_FRAG, { uLens: new Float32Array(4), uFx: new Float32Array(4), uWobble: new Float32Array(2), uDirtTex: PIXI.Texture.BLACK }), plan.screen, now);
