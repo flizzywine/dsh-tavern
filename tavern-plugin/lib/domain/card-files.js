@@ -159,17 +159,22 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     let workspace = cardPreparation.create({ kind: 'import', payload: payload })
     const { library: toLibrary = true, ...importOptions } = options
     const library = assetLibrary()
-    let material = collected, libraryPack = null, libraryNotices = []
+    let material = collected, libraryPack = null, libraryNotices = [], installed
     if (collected && toLibrary && typeof library?.importCardMaterial === 'function') {
       const name = cardPreparation.project(workspace).name || '人物卡', split = cardLibraryMaterial(collected, name)
       if (split.material) {
         const stored = await library.importCardMaterial({ name, material: split.material })
         libraryNotices = stored.notices
-        material = split.rest
-        if (stored.packId) { workspace = bindLibraryPack(workspace, stored.packId); libraryPack = { id: stored.packId, name, status: stored.status } }
+        if (stored.packId) { material = split.rest; workspace = bindLibraryPack(workspace, stored.packId); libraryPack = { id: stored.packId, name, status: stored.status }; installed = stored.revision }
       }
     }
-    const cardPath = await fileResources.importCard(payload, workspace, importOptions)
+    let cardPath
+    try { cardPath = await fileResources.importCard(payload, workspace, importOptions) }
+    catch (error) {
+      // a pack this import installed goes with the card it was made for
+      if (installed !== undefined) await library.removePack({ packId: libraryPack.id, expectedRevision: installed })
+      throw error
+    }
     const card = cardPreparation.project(workspace)
     let assets = null
     if (material && (material.emotions.length || material.backgrounds.length || material.cover || material.extras.length || material.cast.length || material.skipped)) {

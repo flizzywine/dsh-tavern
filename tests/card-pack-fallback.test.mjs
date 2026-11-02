@@ -32,7 +32,8 @@ async function setup(t, channels = []) {
   const service = createAssetPackService({ assetRoot: join(root, 'library'), voiceChannels: async () => channels })
   t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   const profileData = createProfileDataStore({ dataRoot: root })
-  const fileResources = createFileResourceStore({ dataRoot: root })
+  const store = createFileResourceStore({ dataRoot: root }), failWrites = { on: false }
+  const fileResources = ({ ...store, importCard: (...args) => failWrites.on ? Promise.reject(new Error('disk full')) : store.importCard(...args) })
   let serial = 0
   const cardPreparation = createCardPreparation({ id: () => 'card-' + ++serial, now: Date.now })
   const readCardWorkspace = async cardPath => {
@@ -48,18 +49,18 @@ async function setup(t, channels = []) {
     presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), pluginApi: () => assert.fail('not a plugin format'), assetLibrary: () => service
   })
   const bindings = async cardPath => rawData((await readCardWorkspace(cardPath)).raw).extensions.dsh_tavern
-  return { root, files, service, bindings }
+  return { root, files, service, bindings, failWrites }
 }
 
-// The figure is 彩叶 (alias Iroha); the card is named by the alias. Expressions carry Chinese names.
+// The figure is 彩叶 (alias Iroha); the card is named by the alias. Expressions carry the card's own Chinese names.
 const images = { joy: png([250, 200, 80]), sadness: png([60, 90, 200]), neutral: png([120, 180, 120]), avatar: png([240, 160, 180]), cover: png([10, 20, 30]) }
 const clips = [wav(1), wav(2), wav(3)]
-function charx({ description = '日语声音的彩叶' } = {}) {
+function charx({ description = '日语声音的彩叶', characters } = {}) {
   const uri = name => 'embeded://assets/x/' + name
   const card = { spec: 'chara_card_v3', spec_version: '3.0', data: { name: 'Iroha', description,
-    assets: [{ type: 'icon', name: 'main', ext: 'png', uri: uri('cover.png') }, { type: 'emotion', name: '开心', ext: 'png', uri: uri('joy.png') },
-      { type: 'emotion', name: '难过', ext: 'png', uri: uri('sadness.png') }, { type: 'emotion', name: '平静', ext: 'png', uri: uri('neutral.png') }],
-    extensions: { dsh_tavern: { cast: { version: 1, characters: [{ name: '彩叶', aliases: ['Iroha'], avatar: uri('avatar.png'),
+    assets: [{ type: 'icon', name: 'main', ext: 'png', uri: uri('cover.png') }, ...(characters ? [] : [{ type: 'emotion', name: '微笑', ext: 'png', uri: uri('joy.png') },
+      { type: 'emotion', name: '哭泣', ext: 'png', uri: uri('sadness.png') }, { type: 'emotion', name: '默认', ext: 'png', uri: uri('neutral.png') }])],
+    extensions: { dsh_tavern: { cast: { version: 1, characters: characters || [{ name: '彩叶', aliases: ['Iroha'], avatar: uri('avatar.png'),
       sprites: { joy: uri('joy.png'), sadness: uri('sadness.png'), neutral: uri('neutral.png') }, voices: {},
       voiceReferences: clips.map((_, index) => ({ audio: uri('voice-' + index + '.wav'), text: '参考の台詞 ' + (index + 1) })),
       voiceSource: { provider: 'fish', clone: true }, voiceLanguage: 'ja' }] } } } } }
@@ -84,10 +85,11 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   assert.notEqual(figure.id, figure.name)
   assert.equal(figure.name, '彩叶')
   assert.deepEqual(figure.aliases, ['Iroha'])
-  assert.deepEqual(figure.emotions.map(row => [row.id, row.label]), [['neutral', '平静'], ['joy', '开心'], ['sadness', '难过']])
+  assert.deepEqual(figure.emotions.map(row => [row.id, row.label]), [['neutral', '默认'], ['joy', '微笑'], ['sadness', '哭泣']])
   const [outfit] = figure.outfits
   assert.equal(Object.keys(outfit.avatars).length, 1)
   const voice = pack.manifest.voiceLibrary.voices[figure.voice.voice]
+  assert.equal(figure.voice.source, null, 'the dropped source chooses nothing; the clips stay')
   assert.equal(voice.language, 'ja')
   assert.deepEqual(voice.sources[voice.defaultSource].references.map(clip => [clip.text, clip.language]), [['参考の台詞 1', 'ja'], ['参考の台詞 2', 'ja'], ['参考の台詞 3', 'ja']])
 
@@ -104,9 +106,9 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   assert.equal(exported.extension, 'charx.png')
   const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
   const card = JSON.parse(entries.get('card.json').toString())
-  assert.deepEqual(card.data.assets.filter(asset => asset.type === 'emotion').map(asset => asset.name).sort(), ['joy', 'neutral', 'sadness'])
+  assert.deepEqual(card.data.assets.filter(asset => asset.type === 'emotion').map(asset => asset.name).sort(), ['哭泣', '微笑', '默认'], 'the card\'s own expression names')
   const [cast] = card.data.extensions.dsh_tavern.cast.characters
-  assert.deepEqual([cast.name, cast.aliases, cast.voiceLanguage, cast.voiceSource], ['彩叶', ['Iroha'], 'ja', { provider: 'fish', clone: true }])
+  assert.deepEqual([cast.name, cast.aliases, cast.voiceLanguage, cast.voiceSource], ['彩叶', ['Iroha'], 'ja', undefined], 'the dropped source is not written back')
   assert.deepEqual(cast.voiceReferences.map(clip => entries.get(clip.audio.slice('embeded://'.length))), clips)
   assert.deepEqual(entries.get(cast.avatar.slice('embeded://'.length)), images.avatar)
   const back = join(root, 'back.charx.png')
@@ -114,6 +116,41 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   const again = await files.importCardArchiveFile(back, 'back.charx.png')
   assert.deepEqual([again.libraryPack.id, again.libraryPack.status], [first.libraryPack.id, 'noop'])
   assert.equal((await service.listPacks()).length, 1)
+})
+
+test('with a matching channel the source is the figure\'s and goes back out on export', async t => {
+  const { root, files, service } = await setup(t, ['fish-audio'])
+  const source = join(root, 'iroha.charx')
+  await writeFile(source, charx())
+  const first = await files.importCardArchiveFile(source, 'iroha.charx')
+  assert.equal(first.libraryNotices, undefined)
+  const [figure] = Object.values((await service.getPackSnapshot({ packId: first.libraryPack.id })).figures)
+  assert.deepEqual(figure.voice, { voice: 'cast-1' })
+  const exported = await files.exportCardFile(first.path)
+  const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
+  const [cast] = JSON.parse(entries.get('card.json').toString()).data.extensions.dsh_tavern.cast.characters
+  assert.deepEqual(cast.voiceSource, { provider: 'fish', clone: true })
+  const back = join(root, 'back.charx.png')
+  await writeFile(back, exported.bytes)
+  assert.deepEqual((await files.importCardArchiveFile(back, 'back.charx.png')).libraryPack, { ...first.libraryPack, status: 'noop' })
+})
+
+test('a cast with nothing usable makes no pack and the card still imports; a failed card write takes its new pack with it', async t => {
+  const { root, files, service, failWrites } = await setup(t)
+  for (const [index, voiceSource] of [{}, { provider: '' }, { provider: 'minimax' }].entries()) {
+    const source = join(root, 'empty-' + index + '.charx')
+    await writeFile(source, charx({ description: 'empty ' + index, characters: [{ name: '空壳', aliases: [], sprites: {}, voices: {}, voiceSource }] }))
+    const imported = await files.importCardArchiveFile(source, 'empty-' + index + '.charx')
+    assert.equal(imported.libraryPack, undefined)
+    assert.deepEqual(imported.libraryNotices, voiceSource.provider ? ['空壳的声音来源 minimax 没有对应渠道，已忽略'] : undefined)
+  }
+  assert.deepEqual(await service.listPacks(), [])
+
+  const source = join(root, 'iroha.charx')
+  await writeFile(source, charx())
+  failWrites.on = true
+  await assert.rejects(files.importCardArchiveFile(source, 'iroha.charx'), /disk full/)
+  assert.deepEqual(await service.listPacks(), [])
 })
 
 test('a .dshcard with packs keeps them; its loose material makes no pack of its own', async t => {
