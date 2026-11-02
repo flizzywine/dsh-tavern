@@ -839,6 +839,9 @@ test('舞台打断：停止生成并撤回未提交的输入，剧情、checkpoi
   assert.deepEqual(h.chat.messages, before.messages)
   assert.deepEqual(h.chat.timeline, before.timeline)
   assert.deepEqual(h.chat.candidates, before.candidates)
+  assert.deepEqual(h.chat.suppressedDshTurns, [3])
+  const visible = h.session.surface.nodes.map(seq => h.session.events[seq]).filter(event => event.type === 'assistant/message').map(event => event.data.message.content[0]?.text)
+  assert.deepEqual(visible, ['旧正文'], 'the partial body leaves the model-visible surface')
 })
 
 test('舞台打断：正文已提交时不回退该轮', async () => {
@@ -851,6 +854,31 @@ test('舞台打断：正文已提交时不回退该轮', async () => {
   assert.equal(h.chat.rollbackUndo, undefined)
 })
 
+// the 重新生成 dialog's 停止 is the same interrupt; during a
+// regeneration it only stops the run, and the regeneration restores the original round.
+test('重新生成中打断：只停前台运行，正文保持原样、不撤回输入', async () => {
+  const h = harness({ checkpoint: true, journal: true })
+  const before = structuredClone(h.chat)
+  let entered, release
+  const started = new Promise(resolve => { entered = resolve })
+  h.beforeGenerate(async () => { h.agent.phase.kind = 'running'; entered(); await new Promise(resolve => { release = resolve }) })
+  const stops = []
+  h.agent.cancel = reason => { stops.push(reason.kind); h.setGeneration('missing'); delete h.agent.phase.kind; release() }
+  const generate = h.agent.whenIdle
+  let run
+  h.agent.whenIdle = () => run ??= generate()
+  const live = h.create()
+  const regeneration = live.regenerate('chat', '写得更短', 'session')
+  await started
+  const result = await live.interrupt('session', 'chat')
+  assert.deepEqual(stops, ['user'])
+  assert.equal(result.withdrawn, false)
+  await assert.rejects(regeneration, /已停止.*正文保持原样/)
+  assert.deepEqual(h.chat.messages, before.messages)
+  assert.ok(!h.chat.regenInProgress)
+  assert.equal(h.chat.regenRecovery, undefined)
+  assert.equal(h.chat.rollbackUndo, undefined)
+})
 
 test('读卡期间重放已独占失败回合，读卡失败释放锁后可重试', async () => {
   const h = harness()
