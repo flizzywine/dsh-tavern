@@ -7,8 +7,8 @@ test('skin saves are serialized and preserve unrelated card stage settings',asyn
   let choice='old'
   const view=createStageConfigAppearance({React:{},fields:{},cards:{get:()=>({cardPath:'card'}),set:(_,value)=>published.push(value)},rpc:async(method,args)=>{
     calls.push(method)
-    if(method==='getCardAssetBindings')return {revision:1,extension:{stage:{theme:'classic',skinChoice:choice}}}
-    if(method==='saveCardAssetBindings'){assert.equal(args.patch.stage.theme,'classic');choice=args.patch.stage.skinChoice;return {}}
+    if(method==='getCardAssetBindings')return {revision:1,extension:{stage:{theme:'classic',skinChoice:'retired',defaultSkin:choice}}}
+    if(method==='saveCardAssetBindings'){assert.equal(args.patch.stage.theme,'classic');assert.equal(Object.hasOwn(args.patch.stage,'skinChoice'),false);choice=args.patch.stage.defaultSkin;return {}}
     return {choice}
   }})
   await Promise.all([view.saveSkin('s','new'),view.saveSkin('s',null)])

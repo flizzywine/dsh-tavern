@@ -266,7 +266,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
 // 默认舞台皮肤 is the CONFIG skin select in the panel's paint — the trigger shows the
 // chosen skin's mini stage and name, the menu every skin with its own mini stage and a ✓; a search box once the list is
 // long. The thumbnails are the CONFIG's (.fork-gal-config-theme-art): a built-in paints its theme scope, a pack skin the
-// palette of its own document (default level), else its initial. Saves stage.defaultSkin at once.
+// palette of its own document (default level), else its initial. Saves the engine's dialogueTheme at once.
 const STAGE_BUILTIN_SKINS=[['classic','经典'],['crt','显像管'],['aero','千禧晴空']];
 const SKIN_SEARCH_MIN=8;
 // pack skin refs compare by identity; this module owns its key (the widget page's refKey is function-local).
@@ -313,10 +313,10 @@ function StageSkinPicker({label,choices,value,onChange}) {
           onClick:()=>{close();if(!on)onChange(choice.value);back();}},h(StageSkinArt,{choice}),h('span',{className:'ap-skin-name'},choice.label),on&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));}),
       !shown.length&&h(EmptyState,{compact:true,noun:'皮肤',query,onClear:()=>setQuery('')}))});
 }
-// 「默认皮肤」 in 基础设置 is the global default (engine
-// dialogueTheme) - long-term, every card; a card's own skin and the player's 本卡皮肤 (stage CONFIG › 画面) come first. It works
+// 「默认皮肤」 in 基础设置 is the global default (engine dialogueTheme) for every card without its own 「使用皮肤」
+// (stage.defaultSkin: imported with the card or chosen in stage CONFIG › 画面 本卡皮肤); 经典 when unusable. It works
 // without 舞台模式 (the text box shows whenever bubbles are on).
-const STAGE_SKIN_HELP='所有卡默认用这套皮肤；卡自带皮肤或在舞台 CONFIG › 画面 选了「本卡皮肤」的卡除外。';
+const STAGE_SKIN_HELP='没有指定皮肤的卡都用这套；皮肤不可用时用「经典」。';
 function StageGlobalSkin({ctx}) {
   // The engine's custom dialogue themes (dsh-dialogue-theme presets) are global choices too.
   const engine=ctx.writer.engine,selected=engine?.values?.dialogueTheme;
@@ -324,7 +324,7 @@ function StageGlobalSkin({ctx}) {
   if(!engine?.values||engine.writable===false)return null;
   return h(InlineRow,{label:'默认皮肤',className:'ap-stage-skin-row',help:h(Help,{text:STAGE_SKIN_HELP,label:'默认皮肤 说明'})},
     h(StageSkinPicker,{label:'默认皮肤',choices,value:selected,onChange:value=>ctx.writer.global(value,'dialogueTheme')}),
-    !choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(selected))&&h(HintLine,{compact:true,text:'所选皮肤不可用，请重新选择'}));
+    !choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(selected))&&h(HintLine,{compact:true,text:'所选皮肤不可用，正在用「经典」'}));
 }
 
 // 5.2: the only solid button on the page.

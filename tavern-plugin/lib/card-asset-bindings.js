@@ -142,7 +142,7 @@ export function createCardAssetBoundary({ctx, getEngine, listCards, readWorkspac
       patch = cloneJson(patch)
       check(!Object.hasOwn(patch,'modConfigPackId'),'$.patch.modConfigPackId','Config pack identity is managed by its owner','UNKNOWN_FIELD')
       if(modConfig && patch.variableBindings)check(!patch.variableBindings.entries.some(row=>row.target.kind==='mods'),'$.patch.variableBindings','Use mod config for mod bindings','UNKNOWN_FIELD')
-      const rawOperations = cardAssetRawOperations(card.raw, patch, {skinPackIds:optional(ctx,'assetPackSettings')?.read().values.globalEnabledPackIds || []})
+      const rawOperations = cardAssetRawOperations(card.raw, patch)
       if (patch.variableBindings !== undefined) {
         const packs = await snapshots(patch.variableBindings.entries.map(row => row.target.ref?.packId).filter(Boolean))
         if(modConfig)check(!patch.variableBindings.entries.some(row=>row.target.kind==='widgets' && packs.find(pack=>pack.manifest.id===row.target.ref.packId)?.widgets?.[row.target.ref.assetId]?.namespace==='phone'),'$.patch.variableBindings','Use mod config for phone bindings','UNKNOWN_FIELD')

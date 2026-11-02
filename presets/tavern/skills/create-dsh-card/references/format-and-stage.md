@@ -48,7 +48,7 @@
 
 `.dshcard` 导入器仍接受 `dsh.json.defaults.stage: true` 快捷声明，将其转换为 enabled:true。新增卡优先显式填写卡片字段。新字段需要包含单开关实现的新版酒馆；早期 v3.2 标签不支持此字段，不能只看发行版本就保证兼容。遇到旧运行时应要求更新，或按用户明确要求另做旧格式兼容副本。
 
-stage.defaultSkin 是作者默认皮肤；stage.skinChoice 属于玩家本地选择，不作为作者默认导出。widgets 与 modSystem 另管模组配置，不替代舞台声明。玩家密钥、静音和权限不能由卡包覆盖。
+stage.defaultSkin 是这张卡唯一的皮肤值「使用皮肤」：随卡导出导入，玩家在舞台 CONFIG › 画面「本卡皮肤」里改的也是它。没有填写或皮肤不可用时依次用全局「默认皮肤」和「经典」；素材包不再声明默认皮肤，旧的 stage.skinChoice 不再读取。widgets 与 modSystem 另管模组配置，不替代舞台声明。玩家密钥、静音和权限不能由卡包覆盖。
 
 ## 素材与迁移
 

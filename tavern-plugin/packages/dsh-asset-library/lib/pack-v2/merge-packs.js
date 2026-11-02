@@ -83,9 +83,9 @@ export function mergePackContents(source, target, {name, figureMerges = [], back
     }
     files.set('figures/'+figure.id+'.json',jsonBytes(figure))
   }
-  for (const key of ['backgroundStyle','stageSkin']) if (source.manifest[key]) {
-    if (!manifest[key]) manifest[key] = rewrite(source.manifest[key])
-    else check(isDeepStrictEqual(manifest[key],rewrite(source.manifest[key])) || key==='backgroundStyle' && backgroundStyle,'$.'+key,'Conflicting pack setting needs an explicit choice')
+  if (source.manifest.backgroundStyle) {
+    if (!manifest.backgroundStyle) manifest.backgroundStyle = rewrite(source.manifest.backgroundStyle)
+    else check(isDeepStrictEqual(manifest.backgroundStyle,rewrite(source.manifest.backgroundStyle)) || backgroundStyle,'$.backgroundStyle','Conflicting pack setting needs an explicit choice')
   }
   if (backgroundStyle) manifest.backgroundStyle = structuredClone(backgroundStyle==='source'?source.manifest.backgroundStyle:target.manifest.backgroundStyle)
   for (const row of source.manifest.tagIcons || []) {

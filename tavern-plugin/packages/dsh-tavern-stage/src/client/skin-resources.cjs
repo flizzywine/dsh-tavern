@@ -1,4 +1,4 @@
-function createStageSkinResources({React,getSession,getResourceOwner,setTimeout,clearTimeout}) {
+function createStageSkinResources({React,getSession,getResourceOwner,setTimeout,clearTimeout,classic}) {
 let disposed=false;const cleanups=new Set();
 function own(cleanup) {
     let active=true;
@@ -11,7 +11,8 @@ function own(cleanup) {
 // is acquired from the shared resource owner under the stage authority (the projection's own pin then shares the entry, same
 // identity). Until the new bundle is decoded the stage keeps drawing the skin it shows, with that skin's default key, so a
 // switch never flashes an unskinned stage or moves the drawn buttons' actions into the Esc menu. A failed read of a new
-// bundle draws the document alone (no art) until a retry reads it; of the bundle already shown (a pack revision moved), it keeps that art. -> { skin, defaultKey }.
+// bundle draws 经典 (`classic`, the universal fallback) until a retry reads it; of the bundle already shown (a pack revision
+// moved), it keeps that art. -> { skin, defaultKey }.
 function useStageConfigSkin(sessionId, skin, defaultKey) {
     const descriptor = !skin?.builtin && !skin?.url && skin?.resource?.kind === 'bundle' ? skin.resource : null;
     const session = descriptor ? getSession(sessionId) : null;
@@ -39,7 +40,7 @@ function useStageConfigSkin(sessionId, skin, defaultKey) {
             console.warn('Stage skin bundle unavailable',error);
             // The same bundle content already on screen (only the pack revision moved) keeps its art.
             const held = pins.current.current;
-            setReady(held?.handle.identity === descriptor.identity ? {key,skin:{...skin,url:held.handle.url},defaultKey} : {key,skin,defaultKey});
+            setReady(held?.handle.identity === descriptor.identity ? {key,skin:{...skin,url:held.handle.url},defaultKey} : {key,skin:{builtin:true,document:classic},defaultKey});
             timer = setTimeout(() => {if(live && !disposed)setAttempt({key,n:tries + 1});}, Math.min(30000, 1000 * 2 ** tries));
         });
         return own(() => { live = false; clearTimeout(timer); });

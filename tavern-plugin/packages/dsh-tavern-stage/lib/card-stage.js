@@ -75,9 +75,9 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
       voiceLanguage:figureVoiceLanguage(figure, pack)}
   })
   config.stage.styles = directionStyles(packSnapshots, extension?.assetBindings.boundPackIds, globalEnabledPackIds)
-  // defaultSkin = the card's skin now (cardStageSkin); skinChoice = the player's own choice for this
-  // card (CONFIG 本卡皮肤, null = none) and skinFallback what its ↺ returns to.
-  config.stage.defaultSkin = structuredClone(chosen.skin); config.stage.skinChoice = structuredClone(extension?.stage?.skinChoice ?? null); config.stage.skinFallback = structuredClone(chosen.fallback);
+  // defaultSkin = the card's skin now (cardStageSkin); cardSkin = the card's stored 「使用皮肤」 (CONFIG 本卡皮肤, null = none)
+  // and skinFallback what the card shows without it (global default, else classic; its ↺ returns there).
+  config.stage.defaultSkin = structuredClone(chosen.skin); config.stage.cardSkin = structuredClone(extension?.stage?.defaultSkin ?? null); config.stage.skinFallback = structuredClone(chosen.fallback);
   // the 音效 / 环境音 switches are part of the session settings like BGM, so switching
   // one in 舞台设置 changes the settings key and the open stage re-projects its audio at once (not on the next turn).
   config.stage.sfx = stage.sfx; config.stage.ambience = stage.ambience;

@@ -82,8 +82,7 @@ export function createTransferAssets({ root, library } = {}) {
         figures: manifest.figures || [],
         sprites: manifest.sprites || {},
         bundles: manifest.bundles || {},
-        blobs: manifest.blobs || {},
-        ...(manifest.stageSkin === undefined ? {} : { stageSkin: manifest.stageSkin })
+        blobs: manifest.blobs || {}
       }
       const dir = packDir(id)
       const title = document.name || id
@@ -132,7 +131,6 @@ export function createTransferAssets({ root, library } = {}) {
     const revision = created.snapshot.revision
     const patch = { name, assets: document.assets, figures: document.figures || [], sprites: document.sprites || {}, bundles: document.bundles || {}, blobs: document.blobs || {} }
     if (document.description !== undefined) patch.description = document.description
-    if (document.stageSkin !== undefined) patch.stageSkin = document.stageSkin
     try {
       const saved = await library.patchPack({ packId, expectedRevision: revision, patch, fileUpdates: files })
       return { id: saved.snapshot.manifest.id, name: saved.snapshot.manifest.name }

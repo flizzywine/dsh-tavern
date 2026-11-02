@@ -38,7 +38,7 @@ for (const skin of ['classic', 'aero']) test(`candidate commit preserves streame
     assert.equal(JSON.parse(receipt).ok,true,receipt)
     return receipt
   })
-  f.workspace.raw.extensions.dsh_tavern.stage = {...f.workspace.raw.extensions.dsh_tavern.stage, skinChoice:skin}
+  f.workspace.raw.extensions.dsh_tavern.stage = {...f.workspace.raw.extensions.dsh_tavern.stage, defaultSkin:skin}
   t.after(async () => {release.resolve(); await f.dispose()})
   const op = f.beginReply(2), stream = await f.director.beginStream(f.read(),2)
   stream.update(text); await f.director.drain()

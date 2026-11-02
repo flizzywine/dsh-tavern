@@ -26,8 +26,10 @@ function galConfigSaveSkin(sessionId, choice) {
         const current = await rpc('getCardAssetBindings', { path: data.cardPath }, sessionId);
         check();
         if(bubbleStore.get(sessionId)?.cardPath!==data.cardPath)throw new Error("人物卡已切换");
-        const { skinChoice: _was, ...stage } = current.extension.stage || {};
-        await rpc('saveCardAssetBindings', { path: data.cardPath, expectedRevision: current.revision, patch: { stage: choice === null ? stage : { ...stage, skinChoice: choice } } }, sessionId);
+        // the card's one skin value 「使用皮肤」 (stage.defaultSkin); null clears it (the global default applies). The retired
+        // per-player skinChoice an older card may still hold is dropped here.
+        const { defaultSkin: _was, skinChoice: _retired, ...stage } = current.extension.stage || {};
+        await rpc('saveCardAssetBindings', { path: data.cardPath, expectedRevision: current.revision, patch: { stage: choice === null ? stage : { ...stage, defaultSkin: choice } } }, sessionId);
         check();
         const result = await rpc('getDialogueBubbles', {}, sessionId);
         check();
@@ -151,7 +153,7 @@ function GalConfigSkinSelect(props) {
 }
 
 // A sample line typed at the chosen speed, then held for the auto wait (as a silent page would be), then again.
-// 画面 (PROPOSAL §五): 外观 - 本卡皮肤 (the player's choice for this card, ↺ back to the card's / global default) and 顶栏按钮 (the
+// 画面 (PROPOSAL §五): 外观 - 本卡皮肤 (the card's 「使用皮肤」, ↺ clears it back to the global default) and 顶栏按钮 (the
 // player's choice over the skin's hud.reveal, ↺ back to the skin's); 效果 - quality, frame cap, motion, flashes.
 function GalConfigScreenTab(props) {
     const h = React.createElement;
@@ -179,14 +181,14 @@ function GalConfigScreenTab(props) {
     const skinRow = h("div", { className: "fork-gal-config-value-reset is-select", "data-fk-control": "select" },
         h(GalConfigSkinSelect, { label: "本卡皮肤", choices, value: savingSkin ? savingSkin.value === null ? stage.skinFallback : savingSkin.value : stage.defaultSkin || stage.theme || "classic", stage, theme: stage.theme || "classic",
             reducedMotion: reading.reducedMotion === true, busy: Boolean(savingSkin) || props.skinPending === true, onChange: saveSkin, onWarm: warmSkin }),
-        stage.skinChoice ? h(ResetButton, { label: "恢复为" + (nameOf(stage.skinFallback) ? "「" + nameOf(stage.skinFallback) + "」" : "默认皮肤"), onClick: () => saveSkin(null) }) : null);
+        stage.cardSkin ? h(ResetButton, { label: "恢复为默认皮肤" + (nameOf(stage.skinFallback) ? "「" + nameOf(stage.skinFallback) + "」" : ""), onClick: () => saveSkin(null) }) : null);
     const hudRow = h("div", { className: "fork-gal-config-value-reset is-select", "data-fk-control": "segmented" },
         galConfigSegmented({ label: "顶栏按钮", value: reading.hudReveal || props.skinHud, options: [["auto", hudNames.auto], ["always", hudNames.always]], onChange: value => stageReading.set({ hudReveal: value }) }),
         reading.hudReveal ? h(ResetButton, { label: "恢复为皮肤默认（" + hudNames[props.skinHud] + "）", onClick: () => stageReading.set({ hudReveal: null }) }) : null);
     return h(React.Fragment, null,
         galConfigGroup(skinError ? ["外观", h("span", { key: "error", className: "fork-gal-config-caption-alert", role: "alert" }, "⚠ " + skinError)] : "外观", null,
-            galConfigRow("本卡皮肤", skinRow, h(React.Fragment, null, h("span", null, "只换这张卡的皮肤，其他卡不受影响。"),
-                h("span", null, "↺ 回到卡自带的皮肤；卡没有指定时回到 舞台设置 › 基础设置 的默认皮肤。导演临时换的皮肤（如场景光效）结束后也回到这里。"))),
+            galConfigRow("本卡皮肤", skinRow, h(React.Fragment, null, h("span", null, "只换这张卡的皮肤，导出卡时一起带走。"),
+                h("span", null, "↺ 改用 舞台设置 › 基础设置 的默认皮肤。皮肤不可用时先退回默认皮肤，再退回「经典」。导演临时换的皮肤（如场景光效）结束后也回到这里。"))),
             galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、电影模式这一排按钮。"),
                 h("span", null, "自动隐藏：鼠标移到画面上方、打开菜单或用 Tab 时出现，地点或曲子变化时标签也会出现几秒。默认跟随皮肤。")))),
         galConfigGroup("效果", null,
