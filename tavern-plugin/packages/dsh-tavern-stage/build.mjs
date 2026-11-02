@@ -166,6 +166,6 @@ export async function buildStageClient({check = false} = {}) {
   return {changed:build.changed}
 }
 
-if (process.argv[1] && await realpath(process.argv[1]).catch(() => '') === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && await realpath(process.argv[1]).catch(() => '') === await realpath(fileURLToPath(import.meta.url))) {
   await buildStageClient({check:process.argv.includes('--check')})
 }
