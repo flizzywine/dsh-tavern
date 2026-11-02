@@ -961,6 +961,7 @@
 			const running = props.useSession(function (snapshot) { return snapshot.running; });
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const state = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
+			const play = isPlayMode(state.view && state.view.mode);
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
 			const replayTurn = state.view && state.view.canReplayFailedTurn ? Number(state.view.replayFailedTurn) || null : null;
@@ -1028,14 +1029,15 @@
                     },
                     onError: function (error) { tavernErrorHub.report("保存错误提示状态失败", error); }
                 });
-				// Settled rounds fold their work-step rows away; the live round keeps its
+				// Only play folds settled work-step rows; card workbenches keep native DSH behavior.
+				// The live round keeps its
 				// progress, and the error row below owns the one control that brings them back.
-				const stepFold = createStepFoldControls(root, { running: running === true });
+				const stepFold = createStepFoldControls(root, { running: running === true, play: play });
 				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); rail.apply({ accept: railAccept }); };
 				apply();
 				const observer = observeTurnErrorProjection(root, apply);
 				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); rail.dispose(); };
-			}, [props.sessionId, revision, running]);
+			}, [props.sessionId, revision, running, play]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
 		// @include background-suppression.js

@@ -44,7 +44,7 @@ function conversation(options = {}) {
     panel.textContent = '隐藏此错误'
     root.append(panel)
   }
-  const controls = createStepFoldControls(root, { running: options.running === true })
+  const controls = createStepFoldControls(root, { running: options.running === true, play: options.play !== false })
   controls.apply()
   const hidden = () => [...root.querySelectorAll('[data-chat-flow-kind="turn-process"]')]
     .filter(step => step.hasAttribute('data-tavern-step-fold'))
@@ -86,8 +86,27 @@ test('行被宿主重挂载后重新收起，dispose 全部还原', () => {
   assert.equal(steps[2].style.display, '');
   controls.dispose();
   assert.ok(root.querySelector('[data-chat-following-tail]'));
-  const settled = createStepFoldControls(root, { running: false });
+  const settled = createStepFoldControls(root, { running: false, play: true });
   settled.apply();
   assert.equal(steps[2].style.display, 'none');
   settled.dispose();
  });
+
+
+test('卡片工作台保留 DSH 原生过程入口和折叠状态，不添加隐藏或查看步骤按钮', () => {
+  const { root, steps, controls, hidden, toggles } = conversation({ turns: [1, 2], failing: [2], play: false })
+  assert.equal(hidden().length, 0)
+  assert.equal(toggles().length, 0)
+  assert.equal(steps[1].style.display, '')
+  steps[2].hidden = true
+  controls.apply()
+  assert.equal(steps[2].hidden, true, '保留宿主自己的折叠状态')
+  const play = createStepFoldControls(root, { play: true })
+  play.apply()
+  assert.equal(steps[1].style.display, 'none')
+  const card = createStepFoldControls(root, { play: false })
+  card.apply()
+  assert.equal(steps[1].style.display, '', '模式变化时释放酒馆添加的隐藏状态')
+  assert.equal(steps[2].hidden, true)
+  card.dispose()
+})
