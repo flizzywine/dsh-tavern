@@ -202,7 +202,9 @@ export function registerCardEditingTools({
               path: { type: 'string', required: true, description: '变量路径，如 /状态/体力' },
               label: { type: 'string' },
               kind: { type: 'string', enum: ['text', 'bar', 'list'] },
-              max: { type: 'number', description: 'bar 的满值，默认 100' }
+              max: { type: 'number', description: 'bar 的满值，默认 100' },
+              yes: { type: 'string', description: '布尔值为 true 时显示的词，如 在线；默认 是' },
+              no: { type: 'string', description: '布尔值为 false 时显示的词，如 离线；默认 否' }
             } } }
           } } }
         }

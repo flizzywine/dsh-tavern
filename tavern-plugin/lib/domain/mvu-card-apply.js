@@ -63,19 +63,41 @@ function sectionsOf(spec, state) {
   return [...groups].map(([title, fields]) => ({ title, fields }))
 }
 
+// A field without its own label is named by the shortest tail of its path that no other
+// field of the section shares: /地图/人物/角色甲/地点 next to /地图/玩家/地点 is 「角色甲 · 地点」.
+function fieldLabels(fields) {
+  const parts = fields.map(field => field.path.split('/').filter(Boolean))
+  const depth = fields.map(() => 1)
+  const name = index => str(fields[index].label) || parts[index].slice(-depth[index]).join(' · ') || fields[index].path
+  for (let changed = true; changed;) {
+    changed = false
+    const names = fields.map((field, index) => name(index))
+    fields.forEach((field, index) => {
+      if (field.label || depth[index] >= parts[index].length) return
+      if (names.some((other, at) => at !== index && other === names[index])) { depth[index]++; changed = true }
+    })
+  }
+  return fields.map((field, index) => name(index))
+}
+
 export function generatePanel(spec, state) {
   const accent = /^#[0-9a-f]{3,8}$|^[a-z]+$/i.test(str(spec.accent)) ? spec.accent : '#8b3a2e'
-  const sections = sectionsOf(spec, state)
-  const label = field => escapeHtml(field.label || field.path.split('/').filter(Boolean).slice(-1)[0] || field.path)
+  const sections = sectionsOf(spec, state).map(section => {
+    const labels = fieldLabels(section.fields)
+    return { ...section, fields: section.fields.map((field, index) => ({ ...field, label: labels[index] })) }
+  })
+  const label = field => escapeHtml(field.label)
   const row = field => {
     const path = escapeHtml(field.path)
+    // Yes/no words for a true/false value, e.g. 在线 / 离线; the script falls back to 是 / 否.
+    const yesNo = (str(field.yes) ? ' data-yes="' + escapeHtml(field.yes) + '"' : '') + (str(field.no) ? ' data-no="' + escapeHtml(field.no) + '"' : '')
     const kind = field.kind || (Array.isArray(at(state, field.path)) ? 'list' : 'text')
     if (kind === 'list') return '<div class="row list"><b>' + label(field) + '</b><ul data-mvu-list="' + path + '"></ul></div>'
     if (kind === 'bar') {
       const max = Number(field.max) > 0 ? Number(field.max) : 100
       return '<div class="row"><b>' + label(field) + '</b><span data-mvu="' + path + '"></span><div class="bar"><i data-mvu-width="' + path + '" data-max="' + max + '"></i></div></div>'
     }
-    return '<div class="row"><b>' + label(field) + '</b><span data-mvu="' + path + '"></span></div>'
+    return '<div class="row"><b>' + label(field) + '</b><span data-mvu="' + path + '"' + yesNo + '></span></div>'
   }
   const body = sections.map(section => '<section>' + (section.title ? '<h3>' + escapeHtml(section.title) + '</h3>' : '') + section.fields.map(row).join('') + '</section>').join('\n')
   return `<!doctype html>
@@ -104,7 +126,7 @@ ${body}
   function get(data, path) { return path.split('/').slice(1).reduce(function (value, key) { return value == null ? undefined : value[key]; }, data); }
   function render() {
     var data = Mvu.getMvuData({ type: 'message', message_id: 'latest' }).stat_data || {};
-    document.querySelectorAll('[data-mvu]').forEach(function (el) { var v = get(data, el.dataset.mvu); el.textContent = v == null || v === '' ? '未明确' : typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    document.querySelectorAll('[data-mvu]').forEach(function (el) { var v = get(data, el.dataset.mvu); el.textContent = v == null || v === '' ? '未明确' : typeof v === 'boolean' ? (v ? el.dataset.yes || '是' : el.dataset.no || '否') : typeof v === 'object' ? JSON.stringify(v) : String(v); });
     document.querySelectorAll('[data-mvu-width]').forEach(function (el) { var v = Number(get(data, el.dataset.mvuWidth)) || 0, max = Number(el.dataset.max) || 100; el.style.width = Math.max(0, Math.min(100, v / max * 100)) + '%'; });
     document.querySelectorAll('[data-mvu-list]').forEach(function (el) { var v = get(data, el.dataset.mvuList); el.replaceChildren(); (Array.isArray(v) ? v : []).forEach(function (item) { var li = document.createElement('li'); li.textContent = typeof item === 'object' ? JSON.stringify(item) : String(item); el.append(li); }); if (!el.children.length) { var li = document.createElement('li'); li.textContent = '无'; el.append(li); } });
   }

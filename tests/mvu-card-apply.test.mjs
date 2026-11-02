@@ -67,6 +67,25 @@ test('生成的标准面板读取变量、随更新刷新，进度条、列表�
   assert.deepEqual([...w.document.querySelectorAll('li')].map(li => li.textContent), ['无'])
 })
 
+test('标准面板给同名字段带上父键，布尔值显示为可读的词而不是 true/false', async () => {
+  const { JSDOM } = await import('jsdom')
+  const { generatePanel } = await import('../tavern-plugin/lib/domain/mvu-card-apply.js')
+  const state = { 地图: { 玩家: { 地点: '码头' }, 人物: { 角色甲: { 地点: '事务所', 在线: false }, 角色乙: { 地点: '广场', 在线: true } }, 已解锁: ['事务所'] } }
+  const read = html => {
+    const w = new JSDOM(html, { runScripts: 'outside-only' }).window
+    Object.assign(w, { Mvu: { getMvuData: () => ({ stat_data: state }), events: {} }, tavern_events: {}, waitGlobalInitialized: async () => {}, eventOn: () => {} })
+    w.eval(html.match(/<script>([\s\S]*?)<\/script>/)[1])
+    return w
+  }
+  const auto = read(generatePanel({}, state))
+  await new Promise(resolve => setImmediate(resolve))
+  const rows = w => [...w.document.querySelectorAll('.row')].map(row => row.querySelector('b').textContent + '=' + (row.querySelector('span')?.textContent ?? ''))
+  assert.deepEqual(rows(auto), ['玩家 · 地点=码头', '角色甲 · 地点=事务所', '角色甲 · 在线=否', '角色乙 · 地点=广场', '角色乙 · 在线=是', '已解锁='])
+  const named = read(generatePanel({ sections: [{ title: '人物', fields: [{ path: '/地图/人物/角色甲/在线', yes: '在线', no: '离线' }, { path: '/地图/人物/角色乙/在线', label: '角色乙', yes: '在线', no: '离线' }] }] }, state))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(rows(named), ['在线=离线', '角色乙=在线'])
+})
+
 test('概览一次列出开场、世界书、正则与脚本，并标出可能的旧状态协议', async () => {
   const { surveyMvuCard, surveyText } = await import('../tavern-plugin/lib/domain/mvu-card-apply.js')
   const raw = card()
