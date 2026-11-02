@@ -108,16 +108,25 @@ function galCreateScene(host, options, own) {
     const onDebug = options.onDebug || function () {};
     let quality = options.quality === "low" ? "low" : "high";
     const refreshRate = options.refreshRate || window.screen && window.screen.refreshRate;
+    // A handheld phone (options.handheld, device.cjs galDeviceHandheld) draws lighter: 30 fps unless the reader chose a cap, DPR 2 at most.
+    const isHandheld = options.handheld || (() => false);
+    let handheld = isHandheld();
     const app = new PIXI.Application({ resizeTo: host, backgroundColor: 0x0b0812, backgroundAlpha: 1, antialias: true, autoDensity: true,
-        resolution: galResolution(quality), powerPreference: "high-performance" });
+        resolution: galResolution(quality, undefined, handheld), powerPreference: "high-performance" });
     own(app,value=>value.destroy(true,{children:true}));
     host.appendChild(app.view);
+    // Pixi's InteractionManager re-tests a resting pointer against the whole scene on the shared system ticker every frame
+    // (hover). Nothing in the scene is Pixi-interactive (taps are DOM handlers on the stage), so that second 60 Hz loop only
+    // cost power; pointer events still reach the manager.
+    app.renderer.plugins.interaction.useSystemTicker = false;
     const gl = app.renderer.gl;
 
     // resizeTo resizes - and so clears - the canvas in its own animation frame; the paced
     // ticker may skip that vsync, which then shows an empty scene for a frame (leaving full screen flashed). Redraw now.
     app.renderer.on("resize", () => { if (!state.destroyed && state.desc) app.render(); });
-    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap);
+    // A rotated phone can change profile (desktop <-> handheld at the breakpoints): retune at once.
+    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(quality); });
+    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
     const tickerUpdate = app.ticker.update;
     const pace = { last: 0, next: 0, fps: 0, vsync: 0 };
     const generated = stageViews.sceneGraphics.textures(PIXI, host);
@@ -219,7 +228,7 @@ function galCreateScene(host, options, own) {
 
     const textures=stageViews.sceneTextures.create({PIXI,upload:texture=>app.renderer.plugins.prepare?.upload(texture)});
     own(textures,value=>value.dispose());
-    const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures});
+    const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
@@ -387,14 +396,16 @@ function galCreateScene(host, options, own) {
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
     function figureLayout(desc,W,H,now) {
-        const crops={};
+        // Its height and where its head sits above its feet (display heights), for the short-figure rescue.
+        const crops={},bodies={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
-            const anatomy=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)?.anatomy||figure?.figureSizing?.anatomy;
+            const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
+            if(anatomy&&input?.heightCm>0&&anatomy.headRatio>0&&anatomy.feet>anatomy.headTop&&anatomy.chin>anatomy.headTop)bodies[figure.alias]={cm:input.heightCm,headRatio:anatomy.headRatio,chinRatio:anatomy.headRatio*(anatomy.feet-anatomy.chin)/(anatomy.feet-anatomy.headTop)};
         }
         const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,bodies,instant:desc.snap||desc.skipping});
         if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
         return result.layout;
     }
@@ -642,6 +653,9 @@ function galCreateScene(host, options, own) {
         const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
             groundHMax: ruled ? fit.ruler : state.figureScale?.to, groundRatio: ruled ? 1 : state.figureScale?.groundTo,
             occluderTop: faceEnvironment(desc, W, H).occluderTop, fit: fit.fit, fitDrop: fit.drop, fitTop: fit.top, spread: fit.spread };
+        // The short-figure rescue (galFigureLayout small): drawn as the ruler frames it, the knee-up framing.
+        const small = new Set(sceneLayout.layout?.small || []), smallFraming = { ...framing, fit: 1, fitDrop: 0, fitTop: H * FIGURE_DISPLAY.HEAD_TOP };
+        const framingOf = entry => small.has(entry.figure.alias) ? smallFraming : framing;
         const reducedHop = galHopReduced(quality);
         const dofTarget = desc.dof ? entryOf(desc.dof) : null;
         // figures loaded off stage for the call view live the same life (load, blink, mouth, mood, place).
@@ -673,7 +687,7 @@ function galCreateScene(host, options, own) {
                 entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
             }
             if(renderer){
-                renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
+                renderer.tick(entry,figure,desc,{now,dt,W,H,framing:framingOf(entry),reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
                 if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
@@ -681,7 +695,7 @@ function galCreateScene(host, options, own) {
                 tapTextureStatic(entry, now);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
-                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
+                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing:framingOf(entry),W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
             if(pose){
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
@@ -726,13 +740,15 @@ function galCreateScene(host, options, own) {
     function tickFaceRest(desc, now, W, H) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
-        const fitTo = sceneLayout.target;
-        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, fitTo.fit, fitTo.drop, fitTo.top, fitTo.ruler, fitTo.spread].join(":");
-        const ruled = fitTo.ruler != null;
+        const castFit = sceneLayout.target, small = new Set(sceneLayout.layout?.small || []);
+        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread].join(":");
+        const ruled = castFit.ruler != null;
         state.figures.forEach(entry => {
             if (!entry.restHead) return;
-            const input = entry.figureSizing || entry.sprite?.figureInput;
-            const key = [layoutKey, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
+            const input = entry.figureSizing || entry.sprite?.figureInput, rescued = small.has(entry.figure.alias);
+            // A rescued short figure is framed by the ruler (tickFigures), so it keeps the full-body ledge.
+            const fitTo = rescued ? { ...castFit, fit: 1, drop: 0, top: H * FIGURE_DISPLAY.HEAD_TOP } : castFit;
+            const key = [layoutKey, rescued, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
             const supportY = entry.figureResolved?.support?.y ?? H * (1 - (entry.figure.ground || 0));
             const old = entry.faceRest;
             let lockHead = entry.restHead, lockSupportY = supportY;
@@ -908,8 +924,9 @@ function galCreateScene(host, options, own) {
 
     function applyQuality(next) {
         quality = next === "low" ? "low" : "high";
-        const resolution = galResolution(quality);
-        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap);
+        handheld = isHandheld();
+        const resolution = galResolution(quality, undefined, handheld);
+        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
         if (app.renderer.resolution !== resolution) { app.renderer.resolution = resolution; app.resize(); }
         const all = [].concat(...Object.values(filters).map(chain => chain.all()));
         state.figures.forEach(entry => all.push(...entry.filters.all()));
@@ -1011,7 +1028,7 @@ function galCreateScene(host, options, own) {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap);
+        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap, handheld);
     }
     // The wrapper restores the requested cap after Pixi dispatches its listeners.
     app.ticker.update = function (now) {
@@ -1245,7 +1262,7 @@ function GalScene(props) {
         if ((props.reload || 0) === reloads.current) return;
         reloads.current = props.reload || 0;
         setError('');
-        if (scene.current && !error) scene.current.reload(); else setAttempt(n => n + 1);
+        if (scene.current) scene.current.reload(); else setAttempt(n => n + 1);
     }, [props.reload]);
     React.useEffect(function () {
         if (!startRenderer) return;
@@ -1253,7 +1270,7 @@ function GalScene(props) {
         loadPixiRuntime().then(function () {
             if (disposed || !live || !host.current) return;
             try {
-                scene.current = create(host.current, { quality: latest.current && latest.current.quality, onError: message => { if (live) setError(message); },
+                scene.current = create(host.current, { quality: latest.current && latest.current.quality, handheld: stageViews.device.handheld, onError: message => { if (live) setError(message); },
                     onDebug: effect => { if (live && debugHandler.current) debugHandler.current(effect); },
                     onUi: frame => { if (live && uiHandler.current) uiHandler.current(frame); },
                     onPresented: revision => { if (live) presentedHandler.current?.(revision); },

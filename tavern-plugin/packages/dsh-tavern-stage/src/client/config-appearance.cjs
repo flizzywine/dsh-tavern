@@ -1,4 +1,4 @@
-function createStageConfigAppearance({React:react, window, document, getComputedStyle, fields, rpc, cards:bubbleStore, reading:sharedReading, quality:sharedQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton}) {
+function createStageConfigAppearance({React:react, window, document, getComputedStyle, fields, rpc, cards:bubbleStore, reading:sharedReading, quality:sharedQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, frameRate:galFrameRate, handheld:galDeviceHandheld, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton}) {
 let disposed=false;
 const cleanups=new Set();
 const stageReading={...sharedReading,set:value=>{if(!disposed)sharedReading.set(value);}};
@@ -192,7 +192,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup("效果", null,
             galConfigRow("特效质量", galConfigSegmented({ label: "特效质量", value: quality, options: [["high", "高"], ["low", "低"]], onChange: value => stageQuality.set(value) }),
                 "低：分辨率和帧率降低，粒子减少，去掉颗粒、泛光、景深等重滤镜，更省电。"),
-            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(reading.frameCap), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
+            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate("high", true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
                 "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降至 30 帧。低特效质量仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
             galConfigRow("光敏保护", h(GalConfigSwitch, { label: "光敏保护", checked: reading.photosensitive === true, onChange: on => stageReading.set({ photosensitive: on }) }), "默认开启：闪光保留颜色但减弱强度，红闪改为暗红。整个舞台每秒最多三次闪光。")));

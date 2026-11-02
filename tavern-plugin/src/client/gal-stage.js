@@ -71,7 +71,7 @@ function useStageFilm() { return React.useSyncExternalStore(stageFilm.subscribe,
 // The auto waits and a silent page's reading time (galAutoHold) are stage-auto-timing.cjs, shared with clip exports.
 // @include stage-auto-timing.cjs
 // @include stage-performance-kinds.cjs
-const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: 60, reducedMotion:false, photosensitive:true, textScale:{}, hudReveal:null };
+const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, textScale:{}, hudReveal:null };
 const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }; // [min, max, step]
 const STAGE_TEXT_SCALE = [70, 130, 5]; // [min, max, step] percent of the skin's own size
 function stageTextScaleMap(map) {
@@ -87,7 +87,9 @@ function stageTextScaleOf(reading, skin) { return reading.textScale[skin] || 100
 function stageReadingPrefs(saved) {
     const out = { ...STAGE_READING_DEFAULTS };
     if (!saved || typeof saved !== "object") return out;
-    if ([0, 30, 60, 120].includes(saved.frameCap)) out.frameCap = saved.frameCap;
+    // frameCap null = not chosen: the device's own cap (galFrameRate: 30 on a handheld phone, else 60). Records before v 2
+    // stored the old default 60 whether chosen or not, so that 60 is read as not chosen (once; the next write is v 2).
+    if ([0, 30, 60, 120].includes(saved.frameCap) && (saved.v === 2 || saved.frameCap !== 60)) out.frameCap = saved.frameCap;
     for (const key of ['reducedMotion','photosensitive']) if (typeof saved[key] === 'boolean') out[key]=saved[key];
     if (saved.hudReveal === 'auto' || saved.hudReveal === 'always') out.hudReveal = saved.hudReveal;
     if (saved.textScale && typeof saved.textScale === 'object') out.textScale = stageTextScaleMap(saved.textScale);
@@ -119,8 +121,8 @@ const stageReading = (function () {
     return {
         get,
         set(patch) {
-            cached = stageReadingPrefs({ ...get(), ...patch });
-            try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch (_) {}
+            cached = stageReadingPrefs({ ...get(), ...patch, v: 2 });
+            try { localStorage.setItem(KEY, JSON.stringify({ ...cached, v: 2 })); } catch (_) {}
             listeners.forEach(fn => fn());
         },
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }

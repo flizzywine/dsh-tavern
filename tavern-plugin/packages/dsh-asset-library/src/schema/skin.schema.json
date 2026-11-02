@@ -779,6 +779,12 @@
    "minimum": 1,
    "maximum": 6
   },
+  "phoneFigures": {
+   "type": "integer",
+   "description": "On a portrait stage (a phone: taller than wide) at most this many figures are drawn, on the skin's figureSlots at the lone figure's size (maxFigures still caps it). Omitted = 1: only the speaker (the most recent speaker on a narration page).",
+   "minimum": 1,
+   "maximum": 6
+  },
   "figures": {
    "type": "object",
    "description": "How the original frames its figures: one zoom and head line for the whole cast (relative heights stay the shared ruler's). Omitted = the shared stage framing.",

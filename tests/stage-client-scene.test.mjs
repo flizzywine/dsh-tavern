@@ -6,7 +6,7 @@ const {createStageScene}=require('../tavern-plugin/packages/dsh-tavern-stage/src
 const math=require('../tavern-plugin/src/client/gal-scene-helpers.cjs')
 function fixture(phase){
  const calls=[];let serial=0
- const PIXI={Application:class{constructor(){this.view={};this.renderer={on(){},gl:{}};this.ticker={update(){}}}destroy(){calls.push('app')}},Container:class{constructor(){this.id=++serial;if(this.id===3)throw Error('node allocation')}destroy(){this.destroyed=true;calls.push('node:'+this.id)}}}
+ const PIXI={Application:class{constructor(){this.view={};this.renderer={on(){},gl:{},plugins:{interaction:{}}};this.ticker={update(){}}}destroy(){calls.push('app')}},Container:class{constructor(){this.id=++serial;if(this.id===3)throw Error('node allocation')}destroy(){this.destroyed=true;calls.push('node:'+this.id)}}}
  const sceneGraphics={textures(){
   if(phase==='textures')throw Error('texture allocation')
   return {a:{destroy(){calls.push('texture');if(phase==='cleanup')throw Error('texture cleanup')}}}

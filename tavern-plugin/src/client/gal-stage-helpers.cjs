@@ -61,8 +61,12 @@ function galQuoted(text, pending) {
 // stand, how many are drawn, the framing, whether listeners dim, whether figures draw at all. The one reader for every
 // display mode (skin, film, classic, phone): a display mode changes chrome, never who stands where. A skin that leaves
 // maxFigures out draws at most 3, and so does a built-in theme with no pack
-// skin document (classic and the other built-ins too).
-function stageSkinFigures(skin) {
-    return { slots: skin?.figureSlots, max: skin?.maxFigures ?? 3, framing: skin?.figures, dimListeners: skin?.dimListeners !== false, shown: skin?.figures?.mode !== "none" };
+// skin document (classic and the other built-ins too). A portrait stage (a phone) draws one, the speaker, unless the skin
+// declares phoneFigures. A skin that draws no figures because its bust window is the speaker (figures.mode none +
+// art.portrait.bust) has no bust on a phone (narrow, the 640px breakpoint), so there the speaker stands at the default
+// framing.
+function stageSkinFigures(skin, narrow = false) {
+    const bustStandIn = narrow && skin?.figures?.mode === "none" && Boolean(skin?.art?.portrait?.bust);
+    return { slots: skin?.figureSlots, max: skin?.maxFigures ?? 3, phone: skin?.phoneFigures ?? 1, framing: bustStandIn ? undefined : skin?.figures, dimListeners: skin?.dimListeners !== false, shown: bustStandIn || skin?.figures?.mode !== "none" };
 }
 if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galParagraphs, galPages, galQuoted, stageSkinFigures };

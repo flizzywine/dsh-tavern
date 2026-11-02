@@ -1,7 +1,38 @@
 // Prepares displayable figure assets; texture cache and source metrics are separate services.
 function createStageFigureAssets({spineFigures,metrics}) {
-    let disposed=false;const scopes=new Set();
-    function create({PIXI,renderer,screen,textures}) {
+    let disposed=false;const scopes=new Set(),headCentres=new Map();
+    // Where a pack figure stands across the stage: the middle of the ink inside its head band (headTop..chin, canvas
+    // fractions; the 10th-90th percentile, as live2dHeadBox centres the cast faces), in canvas px. The picture's support x
+    // (the centre of its opaque bounds) moves with a tail, a raised arm or a prop on one side - a long tail put
+    // one figure 4% of the stage width off her slot. undefined when unreadable or empty. Once per
+    // picture and head band.
+    function headCentre(document, key, texture, top, chin) {
+        const id = key + ":head-x:" + top + ":" + chin;
+        if (headCentres.has(id)) return headCentres.get(id);
+        let result;
+        try {
+            const canvas = document.createElement("canvas"), ratio = Math.min(1, 512 / Math.max(texture.width, texture.height));
+            canvas.width = Math.max(1, Math.round(texture.width * ratio)); canvas.height = Math.max(1, Math.round(texture.height * ratio));
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
+            const y0 = Math.max(0, Math.floor(top * canvas.height)), y1 = Math.min(canvas.height, Math.ceil(chin * canvas.height));
+            if (y1 > y0) {
+                const data = ctx.getImageData(0, y0, canvas.width, y1 - y0).data, columns = new Float64Array(canvas.width);
+                let total = 0;
+                for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { columns[((i - 3) / 4) % canvas.width]++; total++; }
+                if (total >= 16) {
+                    let seen = 0, low = -1, high = -1;
+                    for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.1) low = x; if (high < 0 && seen >= total * 0.9) high = x; }
+                    result = (low + high + 1) / 2 / ratio;
+                }
+            }
+        } catch (_) { result = undefined; }
+        if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
+        headCentres.set(id, result);
+        return result;
+    }
+    // centred: scene-math galCentredAnatomy (a pack picture stands on its head's centre).
+    function create({PIXI,renderer,screen,textures,document,centred}) {
         if(disposed)throw new Error('Figure asset owner disposed');
         let closed=false;const assets=new Set();
         function own(sprite,candidate,spine=null){
@@ -27,7 +58,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                     candidate = sprite.figureInput.pack && sprite.figureInput.anatomy ? null : metrics.measure(sprite.figureInput.source, texture);
                     if (sprite.figureInput.pack) {
                         // Sized by the picture's head (its crop) unless its anatomy really knows head and feet (metrics.anatomy).
-                        const canvas = [texture.width, texture.height], anatomy = metrics.anatomy(sprite.figureInput, canvas, candidate);
+                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin));
                         sprite.figureInput = { ...sprite.figureInput, anatomy, metrics: metrics.record({ ...sprite.figureInput, anatomy }, canvas, candidate) };
                     }
                     const sizing = metrics.resolve({ ...sprite.figureInput, W: screen.width, H: screen.height, canvas: [texture.width, texture.height] });
@@ -66,6 +97,6 @@ function createStageFigureAssets({spineFigures,metrics}) {
         }};
         scopes.add(scope);return scope;
     }
-    return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(const scope of [...scopes])try{scope.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure assets cleanup failed');}};
+    return {create,dispose(){if(disposed)return;disposed=true;headCentres.clear();const errors=[];for(const scope of [...scopes])try{scope.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure assets cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureAssets};

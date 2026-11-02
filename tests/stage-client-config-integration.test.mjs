@@ -11,6 +11,8 @@ const {createStageConfigScreen}=factory('config-screen')
 const {createStageConfigText}=factory('config-text')
 const {createStageConfigAppearance}=factory('config-appearance')
 const {createStageMixer}=factory('mixer')
+// entry.js wires the scene's frame-rate rule (read before the test installs a window, which hides Node exports).
+const {galFrameRate}=factory('scene-math').createStageSceneMath({colorMath:require('../tavern-plugin/shared/color-math.cjs'),figureScale:require('../tavern-plugin/packages/dsh-presentation-protocol/src/figure-scale.cjs')})
 function store(value){
   const listeners=new Set()
   return {get:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:patch=>{value=typeof patch==='object'?{...value,...patch}:patch;listeners.forEach(fn=>fn())},listeners}
@@ -31,7 +33,7 @@ test('real React config switches tabs, edits shared preferences and unmounts wit
   const fields=createStageConfigFields({React,Slider,Segmented,ResetButton,HelpTip:()=>null,sounds})
   const mixer=createStageMixer({React,fields,reading,voiceRateLimits:[.8,2,.1],audio,Slider,Icon,sounds})
   const text=createStageConfigText({React,fields,reading,limits:{textSpeed:[0,80,2],autoWait:[0,3000,100]},defaults:{textSpeed:28},scale:[70,130,5],scaleOf:(r,id)=>r.textScale[id]||100,themes:[['classic','经典']],Typewriter:()=>null})
-  const appearance=createStageConfigAppearance({React,fields,reading,quality,themes:[['classic','经典']],window:dom.window,document,Icon,ResetButton,sounds})
+  const appearance=createStageConfigAppearance({React,fields,reading,quality,themes:[['classic','经典']],window:dom.window,document,Icon,ResetButton,sounds,frameRate:galFrameRate,handheld:()=>false})
   const screen=createStageConfigScreen({React,window:dom.window,document,sections:{},rpc:async()=>({mods:[]}),useSounds(){},sounds,Icon,Sound:mixer.Sound,Text:text.Text,Appearance:appearance.Appearance})
   const root=createRoot(document.getElementById('root'))
   const click=async label=>{const node=[...document.querySelectorAll('button')].find(n=>n.textContent===label||n.getAttribute('aria-label')===label);assert.ok(node,label);await act(async()=>node.click())}

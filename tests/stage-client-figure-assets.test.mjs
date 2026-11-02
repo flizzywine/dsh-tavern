@@ -11,7 +11,7 @@ function fixture(){
  const candidate={bodyX:40},metrics={headTop:()=>.1,source:src=>src,measure:()=>candidate,anatomy:()=>({headTop:.1}),record:()=>({bodyX:40}),resolve(){if(fail)throw Error('sizing failed');return {mode:'physical',supportX:30,feet:190}},bodyX:m=>m?.bodyX,bodyCentre:()=>45}
  let resolvePicture,resolveSpine;const textures={load:()=>new Promise(resolve=>resolvePicture=resolve)}
  const owner=createStageFigureAssets({metrics,spineFigures:{prepare:()=>new Promise(resolve=>resolveSpine=resolve)}})
- const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures})
+ const scope=owner.create({PIXI:{Sprite},renderer:{},screen:{width:800,height:600},textures,centred:anatomy=>anatomy})
  const rig=()=>{const body=new Sprite(texture);return {body,frame:[0,0,100,200],measured:{candidate},dead:0,mood(value){this.animation=value},destroy(){this.dead++;if(!body.destroyed)body.destroy({children:true})}}}
  return {scope,owner,texture,sprites,candidate,rig,picture(){resolvePicture(texture)},spine(figure){resolveSpine(figure)},fail(){fail=true}}
 }
