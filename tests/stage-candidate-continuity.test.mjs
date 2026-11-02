@@ -6,6 +6,8 @@ import {directorPromptData} from './fixtures/asset-packs/prompt.mjs'
 import {createCandidateGenerator} from '../tavern-plugin/lib/domain/candidate-generation.js'
 import {createStageDirector} from '../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js'
 import {createStoryTimeline} from '../tavern-plugin/lib/domain/story-timeline.js'
+import phoneBeat from '../tavern-plugin/src/client/phone-beat.cjs'
+const {phoneModAutoVoiceAllowed} = phoneBeat
 
 const text = Array.from({length:7}, (_, i) => `Synthetic paragraph ${i + 1}.`).join('\n\n')
 const music = {...answer.beats[0].ops[0].background, kind:'music'}
@@ -194,4 +196,71 @@ test('a director marks its round while it works and a mark from before a restart
   })
   const cut = await f.director.get(f.read(),1,null,{readOnly:true})
   assert.equal(cut.code,'DIRECTOR_INTERRUPTED')
+})
+
+// With the director on, automatic voice waits for a round's direction (phoneModAutoVoiceAllowed);
+// a round whose director is gone must read as terminal or its voice never plays.
+const voiceAllowed = (value, para) => phoneModAutoVoiceAllowed({phase:value.phase, through:value.through, entries:value.entries || []}, para, true)
+
+test('a restart mid-director leaves its round interrupted, so its automatic voice plays', async t => {
+  const started = deferred(), release = deferred()
+  const f = await fixture(async request => {started.resolve(); await release.promise; return modelCall(request,{name:'stage_update',arguments:answer})})
+  t.after(async () => {release.resolve(); await f.dispose()})
+  await f.director.get(f.read(),1); await started.promise
+  // Shutting Tavern down disposes the director while its model call is still out.
+  const closing = f.director.dispose(); release.resolve(); await closing
+  assert.ok(f.read().messages[0].stageDirectionRunning, 'a shutdown keeps the running mark')
+  // The next run of Tavern loads the director module afresh (its own boot).
+  const next = await import('../tavern-plugin/packages/dsh-tavern-stage/lib/domain/stage-director.js?restart')
+  const restarted = next.createStageDirector({assets:f.assets, runAgent:() => assert.fail('a read must not direct')})
+  t.after(() => restarted.dispose())
+  const value = await restarted.get(f.read(),1,null,{readOnly:true})
+  assert.equal(value.phase,'error')
+  assert.equal(value.code,'DIRECTOR_INTERRUPTED')
+  assert.equal(voiceAllowed(value,1),true)
+  assert.equal(voiceAllowed(value,2),true)
+})
+
+// Incident shape: window 1 streamed with the body, then a pack install stopped window 2.
+test('a pack change under the remainder window records the round as undirected for its voice', async t => {
+  const started = deferred(), release = deferred(), logs = []
+  const f = await fixture(async request => {
+    const tail = directorPromptData(request), first = tail.first ?? 1
+    if (f.calls.length === 2) {started.resolve(); await release.promise}
+    return modelCall(request,{name:'stage_update',arguments:{sequence:1,through:first + tail.reply.length - 1,done:true,beats:[]}})
+  },{log:row => logs.push(row)})
+  t.after(async () => {release.resolve(); await f.dispose()})
+  const op = f.beginReply(2), stream = await f.director.beginStream(f.read(),2)
+  stream.update(text); await f.director.drain()
+  f.commitReply(op,2,text); await f.director.get(f.read(),2); await started.promise
+  f.changePack()
+  release.resolve(); await f.director.drain()
+  const message = f.read().messages.find(m => m.turn === 2)
+  assert.equal(message.stageDirectionAssetPacks,undefined)
+  assert.equal(message.stageDirectionAssetPacksFailure?.code,'ASSETS_CHANGED')
+  assert.equal(message.stageDirectionRunning,undefined)
+  assert.ok(logs.some(row => row.kind === 'director-failure' && row.code === 'ASSETS_CHANGED'))
+  for (const director of [f.director, createStageDirector({assets:f.assets, runAgent:() => assert.fail('a read must not direct')})]) {
+    const value = await director.get(f.read(),2,null,{readOnly:true})
+    assert.equal(value.phase,'error')
+    assert.equal(voiceAllowed(value,7),true)
+    if (director !== f.director) await director.dispose()
+  }
+  assert.equal(f.calls.length,2)
+})
+
+test('a pack change while the body streams directs the round afresh once the body is in', async t => {
+  const f = await fixture(async request => {
+    const tail = directorPromptData(request), first = tail.first ?? 1
+    return modelCall(request,{name:'stage_update',arguments:{sequence:1,through:first + tail.reply.length - 1,done:true,beats:[]}})
+  })
+  t.after(() => f.dispose())
+  const op = f.beginReply(2), stream = await f.director.beginStream(f.read(),2)
+  stream.update(text.split('\n\n').slice(0,3).join('\n\n')); await f.director.drain()
+  f.changePack()
+  stream.update(text); await f.director.drain()
+  f.commitReply(op,2,text); await f.director.get(f.read(),2); await f.director.drain()
+  const done = await f.director.get(f.read(),2,null,{readOnly:true})
+  assert.equal(done.phase,'done',done.error)
+  assert.equal(f.read().messages.find(m => m.turn === 2).stageDirectionAssetPacksFailure,undefined)
 })
