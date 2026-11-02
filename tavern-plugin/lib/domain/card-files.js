@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { readCardArchive } from './card-archive.js'
-import { buildCharx, cardImport, cardImportFromCard, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
+import { buildCharx, cardImport, cardImportFromCard, cardLibraryMaterial, charxLibraryMaterial, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
+import { cardAssetExtensionPointer, validateCardAssetExtension } from './card-asset-bindings.js'
+import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath, stripPngTextChunks } from './file-resources.js'
 import { openZipFile } from './zip-file.js'
@@ -77,8 +79,9 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, pack)
         packs.push({ id: stored.id, contentHash: stored.contentHash, format: stored.format, title: stored.title, name: pack.prefix.split('/')[1], files: Object.keys(stored.files).length, reused })
       }
-      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true })
+      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length })
       if (packs.length) await castAssets.bindPacks(imported.path, packs)
+      libraryNotices.push(...(imported.libraryNotices || []))
       await cardImportIdentity.remember(imported.path, archiveSha256)
       // The card's plugins come on with it, confined to this card; the card library can turn them off.
       const plugins = archive.plugins.length ? await cardPlugins.stage(zip, { cardKey: castAssets.keyOf(imported.path), plugins: archive.plugins }) : []
@@ -114,7 +117,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       const { pack: stored, reused } = await assetPacks.importFiles(pack.files, { id: pack.id, format: pack.format, title: pack.title })
       packs.push({ id: stored.id, contentHash: stored.contentHash, format: stored.format, title: stored.title, name: '', files: Object.keys(stored.files).length, reused })
     }
-    const imported = await storeImportedCard(cardImportFromCard({ card: converted.card, resolve, name: str(name).replace(/\.[^.]+$/, '') }), { unique: true })
+    const imported = await storeImportedCard(cardImportFromCard({ card: converted.card, resolve, name: str(name).replace(/\.[^.]+$/, '') }), { unique: true, library: !converted.packs.length })
     if (packs.length) await castAssets.bindPacks(imported.path, packs)
     await cardImportIdentity.remember(imported.path, archiveSha256)
     await pluginApi().cardImported(converted, imported.path)
@@ -141,30 +144,62 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     await castAssets.setStartDefaults(cardPath, Object.keys(stored).length ? stored : null)
     return stored
   }
+  // The asset library's pack becomes the card's own (本卡开启); the cast it came from is in the pack now.
+  function bindLibraryPack(workspace, packId) {
+    const data = rawData(workspace.raw), pointer = cardAssetExtensionPointer(workspace.raw)
+    const { cast: _cast, ...own } = data.extensions?.dsh_tavern || {}
+    const next = { ...own, schemaVersion: own.schemaVersion ?? 1, assetBindings: { boundPackIds: [...new Set([...(own.assetBindings?.boundPackIds || []), packId])] } }
+    validateCardAssetExtension(next)
+    const rawOperations = data.extensions === undefined ? [{ op: 'set', path: pointer.slice(0, -'/dsh_tavern'.length), value: { dsh_tavern: next } }] : [{ op: 'set', path: pointer, value: next }]
+    return cardPreparation.update({ kind: 'card', card: workspace, patch: {}, rawOperations }).card
+  }
+  // options.library: a card without packs of its own. With the asset library, the material it brings becomes one pack
+  // of the library that the card binds; what the library has no place for stays the card's character material.
   async function storeImportedCard({ payload, collected }, options = {}) {
-    const workspace = cardPreparation.create({ kind: 'import', payload: payload })
-    const cardPath = await fileResources.importCard(payload, workspace, options)
+    let workspace = cardPreparation.create({ kind: 'import', payload: payload })
+    const { library: toLibrary = true, ...importOptions } = options
+    const library = assetLibrary()
+    let material = collected, libraryPack = null, libraryNotices = []
+    if (collected && toLibrary && typeof library?.importCardMaterial === 'function') {
+      const name = cardPreparation.project(workspace).name || '人物卡', split = cardLibraryMaterial(collected, name)
+      if (split.material) {
+        const stored = await library.importCardMaterial({ name, material: split.material })
+        libraryNotices = stored.notices
+        material = split.rest
+        if (stored.packId) { workspace = bindLibraryPack(workspace, stored.packId); libraryPack = { id: stored.packId, name, status: stored.status } }
+      }
+    }
+    const cardPath = await fileResources.importCard(payload, workspace, importOptions)
     const card = cardPreparation.project(workspace)
     let assets = null
-    if (collected && (collected.emotions.length || collected.backgrounds.length || collected.cover || collected.extras.length || collected.cast.length || collected.skipped)) {
-      try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected }), skipped: collected.skipped } }
+    if (material && (material.emotions.length || material.backgrounds.length || material.cover || material.extras.length || material.cast.length || material.skipped)) {
+      try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected: material }), skipped: material.skipped } }
       catch (error) { assets = { error: str(error?.message || error) } }
     }
-    return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}) }
+    return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}),
+      ...(libraryPack ? { libraryPack } : {}), ...(libraryNotices.length ? { libraryNotices } : {}) }
   }
-  // The card as CHARX: Character Card V3 with its character material (Wiki「设计：tavern-to-galgame」).
-  async function exportCardCharx(input) {
-    const cardPath = normalizeResourcePath(input, 'card')
-    const workspace = await readCardWorkspace(cardPath)
-    if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
-    const document = cardPreparation.present({ card: workspace, as: 'sillytavern-v3', characterBook: await worldBooks.characterBookForCard(cardPath) })
-    const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
-    const manifest = await castAssets.read(cardPath)
-    const files = new Map()
+  // A CHARX's character material: the card's own and, with the asset library, the figures and backgrounds of the packs
+  // it binds (projectCardMaterial; a name both have is the library's).
+  async function charxMaterial(cardPath, document) {
+    const manifest = await castAssets.read(cardPath), files = new Map()
     for (const file of new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))) {
       files.set(file, await castAssets.readFile(cardPath, file))
     }
-    const name = str(document?.data?.name || cardPreparation.project(workspace).name || '人物卡')
+    const library = assetLibrary(), packIds = document?.data?.extensions?.dsh_tavern?.assetBindings?.boundPackIds || []
+    if (!packIds.length || typeof library?.projectCardMaterial !== 'function') return { manifest, files }
+    const projected = await library.projectCardMaterial({ packIds })
+    const own = charxLibraryMaterial(projected, str(document?.data?.name), files.size)
+    for (const file of new Set([...own.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites), ...(character.voiceReferences || []).map(clip => clip.file)]), ...own.backgrounds.map(row => row.file)].filter(Boolean))) {
+      files.set(file, await projected.read(file))
+    }
+    const names = new Set(own.characters.map(character => character.name))
+    return { files, manifest: { ...manifest, characters: [...own.characters, ...manifest.characters.filter(character => !names.has(character.name))], backgrounds: [...own.backgrounds, ...(manifest.backgrounds || [])] } }
+  }
+  // The card as CHARX: Character Card V3 with its character material (Wiki「设计：tavern-to-galgame」).
+  async function exportCardCharx(cardPath, document, { manifest, files }) {
+    const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
+    const name = str(document?.data?.name || '人物卡')
     return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file) }) }
   }
   async function presentCardText(cardPath) {
@@ -189,16 +224,16 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   // and Tavern imports the whole CHARX.
   async function exportCardFile(input) {
     const cardPath = normalizeResourcePath(input, 'card')
-    const manifest = await castAssets.read(cardPath)
+    const { document } = await presentCardText(cardPath)
+    const material = await charxMaterial(cardPath, document), { manifest } = material
     const hasMaterial = manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean) || character.voiceReferences?.length)
       || (manifest.backgrounds || []).some(item => item.file) || (manifest.extras || []).some(item => item.file)
     if (hasMaterial) {
-      const charx = await exportCardCharx(cardPath)
+      const charx = await exportCardCharx(cardPath, document, material)
       if (!await fileResources.hasCardImage(cardPath)) return { ...charx, extension: 'charx', contentType: 'application/zip' }
       return { name: charx.name, bytes: Buffer.concat([(await exportCardPng(cardPath)).bytes, charx.bytes]), extension: 'charx.png', contentType: 'image/png' }
     }
     if (await fileResources.hasCardImage(cardPath)) return { ...await exportCardPng(cardPath), extension: 'png', contentType: 'image/png' }
-    const { document } = await presentCardText(cardPath)
     return { name: str(document?.data?.name || '人物卡'), bytes: Buffer.from(JSON.stringify(document, null, 2)), extension: 'json', contentType: 'application/json; charset=utf-8' }
   }
 

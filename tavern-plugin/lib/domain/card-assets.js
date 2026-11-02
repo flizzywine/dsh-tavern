@@ -229,6 +229,54 @@ export function collectCardAssets(card, resolve) {
   return result
 }
 
+// resting first: a library figure's first emotion is its default.
+const EMOTION_ORDER = ['neutral', ...Object.keys(CAST_EMOTIONS).filter(slot => slot !== 'neutral')]
+const emotionRows = sprites => EMOTION_ORDER.filter(slot => sprites[slot]).map(slot => ({ emotion: slot, label: CAST_EMOTIONS[slot], bytes: sprites[slot] }))
+
+/**
+ * What of a card's collected material goes to the asset library (a card without packs of its own): the cast, the main
+ * character's expressions (the closest name per emotion, as cast-assets.js picks them) and the backgrounds. The rest
+ * (a non-PNG cover, kept extras, expressions no emotion name matches) stays with the card. Null material when none.
+ */
+export function cardLibraryMaterial(collected, mainName) {
+  const characters = collected.cast.map(character => ({ ...character, sprites: { ...character.sprites } }))
+  let main = characters.find(character => character.name === mainName || character.aliases.includes(mainName))
+  const emotions = []
+  const ordered = collected.emotions.map((emotion, index) => ({ emotion, index })).sort((left, right) => emotionRank(left.emotion.name) - emotionRank(right.emotion.name) || left.index - right.index).map(item => item.emotion)
+  for (const emotion of ordered) {
+    const slot = emotionSlot(emotion.name)
+    if (!slot) { emotions.push(emotion); continue }
+    if (!main) characters.unshift(main = { name: mainName, aliases: [], avatar: null, sprites: {}, voices: {} })
+    if (!main.sprites[slot]) main.sprites[slot] = emotion.bytes
+    else if (!main.sprites[slot].equals(emotion.bytes)) emotions.push(emotion)
+  }
+  const used = characters.filter(character => Object.keys(character.sprites).length || character.avatar || character.voiceReferences?.length || character.voiceSource)
+  // kept as they came, so a CHARX export writes them back as they were
+  const rest = { emotions: [], backgrounds: [], cover: collected.cover, extras: [...collected.extras, ...emotions.map(({ name, ext, bytes }) => ({ type: 'emotion', name, ext, bytes }))], cast: [], skipped: collected.skipped }
+  if (!used.length && !collected.backgrounds.length) return { material: null, rest: collected }
+  return { rest, material: { characters: used.map(character => ({ ...character, sprites: emotionRows(character.sprites) })), backgrounds: collected.backgrounds.map(({ name, bytes }) => ({ name, bytes })) } }
+}
+
+/**
+ * Library cast material (projectCardMaterial) as CHARX character material: emotion ids as cast emotion names, the main
+ * character first, and only as many characters and backgrounds as a CHARX can carry next to `used` files of its own.
+ */
+export function charxLibraryMaterial({ characters, backgrounds }, mainName, used) {
+  let budget = MAX_ASSETS - used - 1
+  const fit = count => count <= budget && (budget -= count, true)
+  const ordered = [...characters].sort((left, right) => Number(right.name === mainName || right.aliases.includes(mainName)) - Number(left.name === mainName || left.aliases.includes(mainName)))
+  const cast = []
+  for (const character of ordered) {
+    const sprites = {}
+    for (const [emotion, file] of Object.entries(character.sprites)) { const slot = emotionSlot(emotion) || emotion; if (!sprites[slot]) sprites[slot] = file }
+    const entry = { name: character.name, aliases: character.aliases, avatar: character.avatar, sprites, voices: character.voices || {},
+      ...(character.references?.length ? { voiceReferences: character.references } : {}),
+      ...(character.voiceSource ? { voiceSource: character.voiceSource } : {}), ...(character.voiceLanguage ? { voiceLanguage: character.voiceLanguage } : {}) }
+    if (fit(Number(Boolean(entry.avatar)) + Object.keys(sprites).length + (entry.voiceReferences || []).length)) cast.push(entry)
+  }
+  return { characters: cast, backgrounds: backgrounds.filter(() => fit(1)) }
+}
+
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'])
 
 /**
