@@ -85,7 +85,7 @@ test('browser source and Node exports share algorithms without overwriting facto
 test('package import graph is closed, inert and independent of Tavern/plugin implementations', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(manifest.sideEffects, false); assert.equal(manifest.dependencies, undefined); assert.equal(manifest.dsh, undefined)
-  assert.deepEqual(Object.keys(manifest.exports), ['.', './asset-packs', './asset-pack-stage', './config', './playback', './figure', './soundscape'])
+  assert.deepEqual(Object.keys(manifest.exports), ['.', './asset-packs', './asset-pack-stage', './config', './playback', './figure', './soundscape', './tts'])
   for (const file of await readdir(new URL('../src/', import.meta.url))) {
     if (!/\.(?:js|cjs)$/.test(file)) continue
     const source = await readFile(new URL('../src/' + file, import.meta.url), 'utf8')

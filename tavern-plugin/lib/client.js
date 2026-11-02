@@ -8965,7 +8965,6 @@ window.__ModuleLoader__.load({
 		  // figure without a voice gets a new pack voice; editing a voice that other figures share asks first (copy, or all).
 		  // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
 		  // Missing service / key / voice → ⚠ chip, the figure stays silent (不配音); nothing silently switches service.
-		  const VOICE_TTS_ROOT='/api/dsh-tts/v1/';
 		  const VOICE_PROVIDERS={'fish-audio':'Fish Audio',qwen:'通义千问',azure:'Azure',volcengine:'火山引擎','openai-compatible':'自定义语音服务',browser:'浏览器朗读'};
 		  const FIGURE_VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语'],['ko','韩语'],['yue','粤语']];
 		  const VOICE_SAMPLES={ja:'こんにちは。今日もよろしくお願いします。',zh:'你好，今天也请多关照。',en:'Hello. It is good to see you today.',ko:'안녕하세요. 오늘도 잘 부탁해요.',yue:'你好，今日都請多多指教。'};
@@ -9151,11 +9150,10 @@ window.__ModuleLoader__.load({
 		    return status;
 		  }
 		  // A preview job already submitted by previewFigureVoice: poll the TTS job, then fetch through its audio ticket.
-		  async function voiceJobWait(requestId,timeoutMs,live,signal){
+		  async function voiceJobWait(tts,requestId,timeoutMs,live,signal){
 		    const deadline=Date.now()+(timeoutMs||125000);
 		    while(live()&&Date.now()<deadline){
-		      const {response,status}=await previewWait((async()=>{const response=await fetch(VOICE_TTS_ROOT+'synthesis/status?requestId='+encodeURIComponent(requestId),{credentials:'same-origin',signal});return {response,status:await response.json()};})(),Math.min(15000,Math.max(1,deadline-Date.now())),'REQUEST_TIMEOUT',signal);
-		      if(!response.ok)throw voiceFailure(status.error||'REQUEST_FAILED',status.message);
+		      const status=await previewWait(tts.jobStatus(requestId,{signal}),Math.min(15000,Math.max(1,deadline-Date.now())),'REQUEST_TIMEOUT',signal);
 		      if(status.state==='ready')return status.result;
 		      if(status.state==='error')throw voiceFailure(status.error,status.message);
 		      if(status.state==='cancelled')throw voiceFailure('ABORTED');
@@ -9163,7 +9161,6 @@ window.__ModuleLoader__.load({
 		    }
 		    throw voiceFailure(live()?'TIMEOUT':'ABORTED');
 		  }
-		  const voiceJobCancel=requestId=>{if(typeof fetch==='function')fetch(VOICE_TTS_ROOT+'synthesis/status?requestId='+encodeURIComponent(requestId),{method:'DELETE',credentials:'same-origin'}).catch(()=>{});};
 		  // the figure editor's preview card speaks with whatever voice the
 		  // editor plays — 试听, a reference clip, a list's ▶ — one audio element at a time, and the 差分 it speaks in ('' = the 差分
 		  // on show). Players call speak(audio, mood) once it plays and hush(audio) when it ends or stops; the card reads `audio` /
@@ -9183,7 +9180,7 @@ window.__ModuleLoader__.load({
 		  // `speech` (usePreviewSpeech) hears the playing element, so the preview card lip-syncs to it.
 		  function useVoicePreview(binding,speech){
 		    const [state,setState]=React.useState(null),[ask,setAsk]=React.useState(null),current=React.useRef(null),kinds=React.useRef(null);
-		    const finish=run=>{if(run.requestId&&!run.done)voiceJobCancel(run.requestId);if(run.scope){const scope=run.scope;run.scope=null;binding.rpc('closeFigureVoicePreview',{scope}).catch(()=>{});}};
+		    const finish=run=>{if(run.requestId&&!run.done)binding.tts?.cancelJob(run.requestId);if(run.scope){const scope=run.scope;run.scope=null;binding.rpc('closeFigureVoicePreview',{scope}).catch(()=>{});}};
 		    function stop(){const run=current.current;current.current=null;if(run){run.cancelled=true;run.abort.abort(voiceFailure('ABORTED'));run.resolve?.(false);try{clearPreviewAudio(run.audio);}catch(_){}if(run.audio)speech?.hush(run.audio);finish(run);}setAsk(null);setState(null);}
 		    React.useEffect(()=>stop,[binding]);
 		    // The billed service and its configured model (TTS capabilities.modelLabel, e.g. Fish 「Drama 3」), for the dialog's sentence.
@@ -9218,10 +9215,10 @@ window.__ModuleLoader__.load({
 		        run.scope=result.scope;run.requestId=result.requestId;
 		        if(!live()){finish(run);return;}
 		        if(result.status!=='submitted')throw voiceFailure('REQUEST_FAILED');
-		        const done=await voiceJobWait(result.requestId,result.timeoutMs,live,run.abort.signal);run.done=true;
+		        const done=await voiceJobWait(binding.tts,result.requestId,result.timeoutMs,live,run.abort.signal);run.done=true;
 		        if(!live())return;
 		        if(typeof Audio==='undefined')throw voiceFailure('AUDIO_GONE');
-		        const audio=new Audio(binding.tts.audioUrl?binding.tts.audioUrl(done.ticket):VOICE_TTS_ROOT+'audio?ticket='+encodeURIComponent(done.ticket));
+		        const audio=new Audio(binding.tts.audioUrl(done.ticket));
 		        run.audio=audio;forkStageAudio.preview(audio,done.loudness);
 		        audio.onended=()=>{if(current.current===run)stop();};
 		        audio.onerror=()=>failed(previewAudioError(audio));

@@ -159,3 +159,12 @@ const data = await ctx.tavern.readGameData({ gameId })
 1. **编辑正文后通知插件**：编辑产生新的正文版本后，也发一次 `onTurnSettled`（新的 `textVersion`），插件据此重算这一轮的数据。
 2. **替换冲突**：同一阶段有多个插件要替换时，都不生效，用 Tavern 自己的。
 3. **导出存档**：带上当前剧情线上的插件按轮数据、整局数据和媒体项（含媒体文件），导入时按新游戏的正文版本重新绑定；被回退的版本不带。
+
+## 9. 语音服务
+
+配音由语音插件（`dsh-tavern-tts`）提供，本体与舞台只通过契约读写，不 import 插件文件，也不拼插件的 HTTP 地址：
+
+- **契约唯一来源**：`dsh-presentation-protocol/tts`（`src/types/tts.d.ts`）。插件的类型从这里 re-export；本体与舞台不另抄一份。
+- **三个服务**：`ctx.get('tts')`（宿主侧 `Tts`：合成、缓存、服务列表、素材包声音来源与授权）、`ctx.get('ttsClient')`（浏览器侧 `TtsClient`：`available()`、`synthesize`、`audioUrl`、`jobStatus`、`cancelJob`）与 `ctx.get('ttsControl')`（配音设置页的控制 RPC）。插件未启用时这些服务都不提供，每次使用前重新 `ctx.get`。
+- **没有服务时**：调用方保持安静，以 `TTS_UNAVAILABLE` 作为诊断；正文、存档和聊天照常，错误不进聊天。
+- **边界守门**：`tests/tts-boundary.test.mjs`（只减不增）检查本体与舞台不以相对路径 import 插件、插件的 HTTP 根不出现在本体与舞台，以及 `ctx.get('tts*')` 调用点与本体 `provide('tts*')` 的上限。
