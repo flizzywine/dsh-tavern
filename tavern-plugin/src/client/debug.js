@@ -43,7 +43,7 @@ function DebugSetting() {
     return h("div", { className: "dsh-tavern-settings-row dsh-fork-debug-setting" },
         h("span", { className: "dsh-tavern-settings-copy" },
             h("span", { className: "dsh-tavern-settings-title" }, h("label", { htmlFor: id }, "调试视图"),
-                typeof HelpTip === "function" ? h(HelpTip, { label: "调试视图说明" }, "显示上下文、推理、轨迹、Token 统计、子代理入口与版本信息。设置保存在服务端，对所有对话生效。") : null)),
+                typeof HelpTip === "function" ? h(HelpTip, { label: "调试视图说明" }, "显示轨迹、Token 统计、子代理入口与版本信息。游玩中的思考和工具记录由「游玩显示工作过程」单独控制。设置保存在服务端。") : null)),
         h("span", { className: "dsh-tavern-settings-control" },
             notice ? h("span", { className: "dsh-tavern-settings-note", role: "status" }, notice) : null,
             // the one switch (inline-field.js Switch).

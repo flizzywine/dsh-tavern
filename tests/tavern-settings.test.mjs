@@ -87,3 +87,15 @@ test('新游戏统一主动检索，旧默认值归一化且严格校验', () =>
   assert.equal(updated.defaultPlaySettings.worldbookStrategy, 'native-skills')
   assert.throws(() => applyTavernSettingsPatch({}, { defaultPlaySettings: { worldbookStrategy: 'unknown' } }), /默认世界书策略无效/)
 })
+
+
+test('游玩工作过程独立保存，旧调试用户保持可见且配置类型受校验', () => {
+  assert.equal(presentTavernSettings({}, {}).showPlayProcess, false)
+  assert.equal(presentTavernSettings({ hideContextAndReasoning: false }, {}).showPlayProcess, true)
+  for (const showPlayProcess of [true, false]) {
+    const saved = applyTavernSettingsPatch({ hideContextAndReasoning: true }, { showPlayProcess })
+    assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).showPlayProcess, showPlayProcess)
+    assert.equal(saved.hideContextAndReasoning, true, '过程开关不改动调试视图')
+  }
+  for (const showPlayProcess of [null, 'true', 1]) assert.throws(() => applyTavernSettingsPatch({}, { showPlayProcess }), /游玩过程/)
+})

@@ -215,8 +215,8 @@
                 return { items: tavernViewTabItems(input && typeof input === "object" && Array.isArray(input.items) ? input : null) };
             }
             function apply(settings) {
-                value = { hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
-                document.documentElement.classList.toggle("dsh-tavern-hide-process", value.hideContextAndReasoning);
+                value = { showPlayProcess: typeof settings.showPlayProcess === "boolean" ? settings.showPlayProcess : settings.hideContextAndReasoning === false, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
                 applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
                 listeners.forEach(listener => listener());
             }
@@ -237,9 +237,9 @@
                 },
                 start() {
                     // hide developer/process content before the first server response.
-                    const hidden = value ? value.hideContextAndReasoning : true;
+                    const hidden = value ? !value.showPlayProcess : true;
                     document.documentElement.classList.toggle("dsh-tavern-hide-process", hidden);
-                    applyDebug(document, !hidden);
+                    applyDebug(document, value ? !value.hideContextAndReasoning : false);
                     refresh();
                     const onStorage = event => { if (event.key === key) refresh(); };
                     window.addEventListener("focus", refresh);
@@ -248,8 +248,7 @@
                 }
             };
         })();
-        // 隐藏上下文注入和思考过程 is the 调试视图 switch (debug.js DebugSetting); this keeps upstream's
-        // 渲染深度 as a row of the 显示与交互 card (ui-design §三.5 inline menu, explanation in the 「?」).
+        // Play process visibility is independent of developer chrome; card workbenches always keep native process controls.
         function DisplayPreferencesSettings() {
             const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
             const [busy, setBusy] = React.useState(false), [notice, setNotice] = React.useState("");
@@ -260,9 +259,9 @@
                 finally { setBusy(false); }
             }
             const h = React.createElement;
-            return h(TavernSettingRow, { title: "隐藏上下文注入和思考过程", help: "仅隐藏游玩对话中的过程，卡片工作台始终显示工作记录。正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
-                h(Switch, { label: "隐藏上下文注入和思考过程", checked: preferences?.hideContextAndReasoning === true, disabled: preferences === null || busy,
-                    onChange: value => save({ hideContextAndReasoning: value }) }));
+            return h(TavernSettingRow, { title: "游玩显示工作过程", help: "开启后恢复 DSH 原生的思考、工具调用和执行记录入口，可点击展开。卡片工作台始终显示，不受此开关影响。正文、模型请求和存档内容不变。", note: notice, className: "dsh-tavern-display-preferences" },
+                h(Switch, { label: "游玩显示工作过程", checked: preferences?.showPlayProcess === true, disabled: preferences === null || busy,
+                    onChange: value => save({ showPlayProcess: value }) }));
         }
         function HeaderItemsSettings(props) {
             const h = React.createElement;
@@ -575,8 +574,8 @@
         // @include modules/global-settings.js
         const { TavernSettingsSection, TavernPluginsSettingsSection, TavernStageSettingsSection } = createGlobalSettingsModule({
             React, rpc, notifySettingsChanged: () => { window.dispatchEvent(new CustomEvent("dsh-tavern-settings-changed")); notifyTavernDataChanged(["sessions"], "global-settings"); },
-            // 隐藏上下文 is the 调试视图 row (DebugSetting); 配音 has its own settings page (main.js).
-            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings: () => null, HeaderItemsSettings,
+            // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
+            TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
             StageGenerationSettings: () => React.createElement(packUi.GenPromptSettings, { call: engineRpc }),
             // 设置 › 舞台 › 模组管理 (mod-manager.js, in the asset-pack UI factory).

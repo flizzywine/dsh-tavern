@@ -56,7 +56,7 @@ export function createSettingsHandlers(deps) {
     },
     async getDisplayPreferences(args) {
       const settings = await readTavernSettings()
-      return { hideContextAndReasoning: settings.hideContextAndReasoning, headerItems: settings.headerItems, viewTabs: settings.viewTabs }
+      return { showPlayProcess: settings.showPlayProcess, hideContextAndReasoning: settings.hideContextAndReasoning, headerItems: settings.headerItems, viewTabs: settings.viewTabs }
     },
     async getCandidatePreferences(args) {
       const { readTavernSettings } = deps

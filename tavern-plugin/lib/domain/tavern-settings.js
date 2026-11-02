@@ -265,6 +265,10 @@ export function applyTavernSettingsPatch(current, patch) {
     if (typeof input.candidateAutoGenerate !== 'boolean') throw new Error('无效的自动生成候选项设置')
     next.candidateAutoGenerate = input.candidateAutoGenerate
   }
+  if (Object.hasOwn(input, 'showPlayProcess')) {
+    if (typeof input.showPlayProcess !== 'boolean') throw new Error('无效的游玩过程显示设置')
+    next.showPlayProcess = input.showPlayProcess
+  }
   if (Object.hasOwn(input, 'hideContextAndReasoning')) {
     if (typeof input.hideContextAndReasoning !== 'boolean') throw new Error('无效的对话显示设置')
     next.hideContextAndReasoning = input.hideContextAndReasoning
@@ -395,6 +399,7 @@ export function presentTavernSettings(document, defaults) {
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
+    showPlayProcess: typeof object(document).showPlayProcess === 'boolean' ? document.showPlayProcess : object(document).hideContextAndReasoning === false,
     hideContextAndReasoning: object(document).hideContextAndReasoning !== false,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),

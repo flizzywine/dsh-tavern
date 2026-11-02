@@ -962,6 +962,8 @@
 			const latestMessageId = props.useChat(latestTavernAssistantMessageId);
 			const state = useLiveTavernView(props.sessionId, "suppression:" + String(latestMessageId || "") + ":" + String(running));
 			const play = isPlayMode(state.view && state.view.mode);
+			const preferences = React.useSyncExternalStore(displayPreferences.subscribe, displayPreferences.snapshot, displayPreferences.snapshot);
+			const hideProcess = play && !(preferences && preferences.showPlayProcess === true);
 			const turns = state.view && state.view.suppressedDshErrorTurns || [];
 			const hiddenTurns = state.view && state.view.hiddenDshErrorTurns;
 			const replayTurn = state.view && state.view.canReplayFailedTurn ? Number(state.view.replayFailedTurn) || null : null;
@@ -1032,12 +1034,12 @@
 				// Only play folds settled work-step rows; card workbenches keep native DSH behavior.
 				// The live round keeps its
 				// progress, and the error row below owns the one control that brings them back.
-				const stepFold = createStepFoldControls(root, { running: running === true, play: play });
+				const stepFold = createStepFoldControls(root, { running: running === true, play: hideProcess });
 				const apply = function () { projection.apply(turns); controls.apply(); stepFold.apply(); rail.apply({ accept: railAccept }); };
 				apply();
 				const observer = observeTurnErrorProjection(root, apply);
 				return function () { observer.disconnect(); controls.dispose(); stepFold.dispose(); projection.dispose(); rail.dispose(); };
-			}, [props.sessionId, revision, running, play]);
+			}, [props.sessionId, revision, running, hideProcess]);
 			return React.createElement("span", { ref: marker, hidden: true, "data-tavern-error-projection": props.sessionId });
 		}
 		// @include background-suppression.js
