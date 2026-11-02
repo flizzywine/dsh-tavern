@@ -5,6 +5,7 @@ import {modelCall,modelHandle,modelArguments} from './helpers/director-model-cal
 import { directorPromptData } from './fixtures/asset-packs/prompt.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { syntheticPack, distinctMedia, cardExtension, PACK_ID, OTHER_PACK_ID, FIGURE_ID, OTHER_FIGURE_ID } from './fixtures/asset-packs/pack.mjs'
 import { assetRefKey } from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-packs.js'
 import { reduceAssetPackScene, applyAssetPackLight, assetPackBackgroundVariant, assetPackLookLayer } from '../tavern-plugin/packages/dsh-presentation-protocol/src/asset-pack-stage.js'
@@ -443,6 +444,14 @@ test('ambience is director-selected, retains full refs and uses handles', async 
   const f = await fixture(), p = f.prepare(), tx = transact(p)
   assert.equal(tx.submit(batch([scene(), {op:'ambience.set', refs:[ref('ambience','rain')]}])).ok, true)
   assert.deepEqual(tx.effect().end.soundscape.layer1, ref('ambience', 'rain'))
+  // the director's soundscape keys are slots the stage soundscape player plays (regression: invalid-slot).
+  const {createSoundscapePlayer} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/soundscape.cjs')
+  const player = createSoundscapePlayer({now:() => 0, requestFrame:() => 1, cancelFrame() {}, mixer:{bind() {}, level:() => 0},
+    Audio:class {addEventListener() {} removeEventListener() {} pause() {} removeAttribute() {} load() {} play() {return Promise.resolve()}}})
+  const played = player.apply({version:1, layers:Object.entries(tx.effect().end.soundscape).map(([slot, value]) => ({slot, identity:value.assetId, id:value.assetId, url:'/' + value.assetId, gain:1}))})
+  assert.deepEqual(played.warnings, [])
+  assert.equal(played.slots.layer1.current.id, 'rain')
+  player.dispose()
   assert.ok(directorPromptData(tx.request).catalogue.ambience.length)
   assert.equal(p.context.catalogue.candidates.ambience[0].consumer, 'director')
   // ambience belongs to a place: any beat where the carried loop no longer fits must re-check it, not only a location change.

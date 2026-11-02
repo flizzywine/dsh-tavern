@@ -4,7 +4,7 @@ import {createRequire} from 'node:module'
 const {createAmbience} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/ambience.cjs')
 test('ambience unload releases late pins and cannot restart its player', async () => {
   let finish, changed, selectorDisposed = 0, disposed = 0, released = 0, played = 0
-  const state = {accepted:{ambience:{version:1,layers:[{identity:'rain',slot:'weather',url:{resource:true}}]}},source:{turn:1},cursor:{}}
+  const state = {accepted:{ambience:{version:1,layers:[{identity:'rain',slot:'layer2',url:{resource:true}}]}},source:{turn:1},cursor:{}}
   const ambience = createAmbience({
     player:() => ({apply:() => played++,whenSettled:() => Promise.resolve(),stop(){},dispose:() => disposed++}),
     session:() => ({select:select => ({
@@ -46,7 +46,7 @@ test('soundscape disposal continues across a failed mixer release and settles fa
     requestFrame:fn => {frames.add(fn);return fn},cancelFrame:fn => frames.delete(fn),
     mixer:{bind(){},level:() => 0,release:node => {released.push(node.id);if(node.id===1)throw new Error('mixer failure')}},
   })
-  player.apply({version:1,layers:['place','weather'].map(slot => ({slot,identity:slot,url:'blob:'+slot,gain:1}))})
+  player.apply({version:1,layers:['layer1','layer2'].map(slot => ({slot,identity:slot,url:'blob:'+slot,gain:1}))})
   const settled = player.whenSettled()
   assert.throws(() => player.dispose(),/cleanup failed/)
   await settled
@@ -54,7 +54,7 @@ test('soundscape disposal continues across a failed mixer release and settles fa
   assert.equal(frames.size,0)
   assert.equal(player.snapshot().disposed,true)
   player.dispose()
-  player.apply({version:1,layers:[{slot:'place',identity:'new',url:'blob:new',gain:1}]})
+  player.apply({version:1,layers:[{slot:'layer1',identity:'new',url:'blob:new',gain:1}]})
   assert.equal(id,2)
 })
 test('ambience disposal releases all pins even if subscription and audio cleanup fail', () => {

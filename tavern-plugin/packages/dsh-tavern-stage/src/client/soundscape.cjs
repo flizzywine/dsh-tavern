@@ -9,8 +9,9 @@ function createSoundscapePlayer(deps) {
     // audio fades use a wall-clock scheduler, not visibility-paused RAF.
     const requestFrame = deps.requestFrame || (fn => setTimeout(fn, 16));
     const cancelFrame = deps.cancelFrame || (id => clearTimeout(id));
-    // performance: the stage performance's own ambience layer (stage-ambience.cjs), beside the scene's place/weather.
-    const slots = { place: { current: null, outgoing: null }, weather: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
+    // layer1/layer2: the director's soundscape keys (ambience.set in stage-asset-pack-tools.js);
+    // performance: the stage performance's own ambience layer (ambience.cjs).
+    const slots = { layer1: { current: null, outgoing: null }, layer2: { current: null, outgoing: null }, performance: { current: null, outgoing: null } };
     const duration = 1200, openCutoff = 24000;
     let frame = null, disposed = false, warnings = [];
     const settled = new Set();
