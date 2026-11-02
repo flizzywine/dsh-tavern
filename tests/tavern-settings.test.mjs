@@ -89,9 +89,9 @@ test('新游戏统一主动检索，旧默认值归一化且严格校验', () =>
 })
 
 
-test('游玩工作过程独立保存，旧调试用户保持可见且配置类型受校验', () => {
+test('游玩工作过程默认隐藏、独立保存且配置类型受校验', () => {
   assert.equal(presentTavernSettings({}, {}).showPlayProcess, false)
-  assert.equal(presentTavernSettings({ hideContextAndReasoning: false }, {}).showPlayProcess, true)
+  assert.equal(presentTavernSettings({ hideContextAndReasoning: false }, {}).showPlayProcess, false)
   for (const showPlayProcess of [true, false]) {
     const saved = applyTavernSettingsPatch({ hideContextAndReasoning: true }, { showPlayProcess })
     assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).showPlayProcess, showPlayProcess)

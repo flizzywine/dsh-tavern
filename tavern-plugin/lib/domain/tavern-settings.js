@@ -399,7 +399,7 @@ export function presentTavernSettings(document, defaults) {
     polishModel: normalizeBackgroundModel(object(document).polishModel),
     defaultWorkbenchModel: normalizeBackgroundModel(object(document).defaultWorkbenchModel),
     contextCompaction: compactionPolicy(object(document).contextCompaction),
-    showPlayProcess: typeof object(document).showPlayProcess === 'boolean' ? document.showPlayProcess : object(document).hideContextAndReasoning === false,
+    showPlayProcess: object(document).showPlayProcess === true,
     hideContextAndReasoning: object(document).hideContextAndReasoning !== false,
     headerItems: readHeaderItems(object(document).headerItems),
     viewTabs: readViewTabs(object(document).viewTabs),

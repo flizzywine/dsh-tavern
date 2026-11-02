@@ -215,7 +215,7 @@
                 return { items: tavernViewTabItems(input && typeof input === "object" && Array.isArray(input.items) ? input : null) };
             }
             function apply(settings) {
-                value = { showPlayProcess: typeof settings.showPlayProcess === "boolean" ? settings.showPlayProcess : settings.hideContextAndReasoning === false, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
+                value = { showPlayProcess: settings.showPlayProcess === true, hideContextAndReasoning: settings.hideContextAndReasoning === true, headerItems: headerItemsOf(settings), viewTabs: viewTabsOf(settings) };
                 document.documentElement.classList.toggle("dsh-tavern-hide-process", !value.showPlayProcess);
                 applyDebug(document, !value.hideContextAndReasoning); // derive developer chrome from the same setting
                 listeners.forEach(listener => listener());
