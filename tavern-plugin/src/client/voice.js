@@ -63,14 +63,15 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
 }
 // glyph speaker (the stage backlog's rows): a speaker whose body stays still while its sound-wave arcs light in sequence as the
 // line plays (theme.css 「backlog voice waves」); a skin's art.voice.waves draws the arcs from its own images (the i layers).
+// Both are decorative layers (data-fk-layer): only they fade, never the button or its label.
 const VOICE_SPEAKER_BODY = 'M2 9h3.5L10 5v14l-4.5-4H2z';
 const VOICE_SPEAKER_WAVES = ['M12.5 9.5a3.5 3.5 0 0 1 0 5', 'M14.9 7a7 7 0 0 1 0 10', 'M17.4 4.6a10.5 10.5 0 0 1 0 14.8'];
 function VoiceSpeaker() {
     const h = React.createElement;
-    return [h('svg',{key:'glyph',className:'fork-voice-speaker',width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},
+    return [h('svg',{key:'glyph',className:'fork-voice-speaker','data-fk-layer':'',width:12,height:12,viewBox:'0 0 24 24','aria-hidden':true},
         h('path',{d:VOICE_SPEAKER_BODY,fill:'currentColor'}),
         VOICE_SPEAKER_WAVES.map((d,index)=>h('path',{key:index,className:'fork-voice-wave','data-wave':index+1,d,fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round'}))),
-        h('span',{key:'art',className:'fork-voice-art-waves','aria-hidden':true},[1,2,3].map(wave=>h('i',{key:wave,className:'fork-voice-wave','data-wave':wave})))];
+        h('span',{key:'art',className:'fork-voice-art-waves','data-fk-layer':'','aria-hidden':true},[1,2,3].map(wave=>h('i',{key:wave,className:'fork-voice-wave','data-wave':wave})))];
 }
 function VoiceButton({voice, glyph}) {
     const current=voice.player?.owner===voice.owner&&voice.player?.id===voice.id?voice.player:null;

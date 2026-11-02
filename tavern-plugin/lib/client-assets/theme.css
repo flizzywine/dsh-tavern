@@ -1024,11 +1024,11 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
    CONFIG 「减少动态」 show the arcs still. A skin's art.voice.waves draws the arcs from its own images (the .fork-voice-art-waves
    layers, 「stage skin: art screens」); a skin art without waves keeps its idle / active images. */
 .fork-voice-button .fork-voice-art-waves { display: none; }
-.fork-voice-button[data-voice-state="playing"] .fork-voice-wave { animation: fork-voice-wave 1.2s ease-in-out infinite both; }
-.fork-voice-button[data-voice-state="playing"] .fork-voice-wave[data-wave="2"] { animation-delay: .2s; }
-.fork-voice-button[data-voice-state="playing"] .fork-voice-wave[data-wave="3"] { animation-delay: .4s; }
+.fork-voice-button[data-voice-state="playing"] [data-fk-layer] > .fork-voice-wave { animation: fork-voice-wave 1.2s ease-in-out infinite both; }
+.fork-voice-button[data-voice-state="playing"] [data-fk-layer] > .fork-voice-wave[data-wave="2"] { animation-delay: .2s; }
+.fork-voice-button[data-voice-state="playing"] [data-fk-layer] > .fork-voice-wave[data-wave="3"] { animation-delay: .4s; }
 @keyframes fork-voice-wave { 0%, 100% { opacity: .2; } 35%, 65% { opacity: 1; } }
-.fork-gal-stage[data-reduced-motion] .fork-voice-button .fork-voice-wave { animation: none; }
+.fork-gal-stage[data-reduced-motion] .fork-voice-button [data-fk-layer] > .fork-voice-wave { animation: none; }
 @media (prefers-reduced-motion: reduce) and (update: none) {
   .fork-bubble .fork-bubble-portrait > .fork-voice-button::before, .fork-gal-backlog .fork-gal-backlog-name > .fork-voice-button::before { transition: none; }
 }
