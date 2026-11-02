@@ -1,7 +1,7 @@
 // Viewport cast arrangement, fit transitions, and parked-figure projection.
 function createStageCastLayout({calculate,mix}) {
     let disposed=false;const instances=new Set();
-    function create(){
+    function create({drawn=kind=>kind==='spine'}={}){
         if(disposed)throw new Error('Cast layout owner disposed');
         let closed=false,layout=null,seen=null,transition=null,memo=null,shown=null;
         function fit(now){
@@ -34,7 +34,7 @@ function createStageCastLayout({calculate,mix}) {
         function project(source,arrangement=layout){
             if(closed)return [];
             if(memo&&memo.source===source&&memo.layout===arrangement)return memo.list;
-            const figures=source.filter(figure=>figure&&figure.key&&(figure.kind==='static'||figure.kind==='spine'));
+            const figures=source.filter(figure=>figure&&figure.key&&(figure.kind==='static'||drawn(figure.kind)));
             const list=arrangement?figures.map(figure=>figure.alias in arrangement.x?(figure.x===arrangement.x[figure.alias]?figure:{...figure,x:arrangement.x[figure.alias]})
                 :{...figure,visible:false,parked:true,speaking:false,talking:false,audio:null,act:null}):figures;
             memo={source,layout:arrangement,list};return list;
