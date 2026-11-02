@@ -7010,16 +7010,25 @@ function galCreateScene(host, options, own) {
     const onDebug = options.onDebug || function () {};
     let quality = options.quality === "low" ? "low" : "high";
     const refreshRate = options.refreshRate || window.screen && window.screen.refreshRate;
+    // A handheld phone (options.handheld, device.cjs galDeviceHandheld) draws lighter: 30 fps unless the reader chose a cap, DPR 2 at most.
+    const isHandheld = options.handheld || (() => false);
+    let handheld = isHandheld();
     const app = new PIXI.Application({ resizeTo: host, backgroundColor: 0x0b0812, backgroundAlpha: 1, antialias: true, autoDensity: true,
-        resolution: galResolution(quality), powerPreference: "high-performance" });
+        resolution: galResolution(quality, undefined, handheld), powerPreference: "high-performance" });
     own(app,value=>value.destroy(true,{children:true}));
     host.appendChild(app.view);
+    // Pixi's InteractionManager re-tests a resting pointer against the whole scene on the shared system ticker every frame
+    // (hover). Nothing in the scene is Pixi-interactive (taps are DOM handlers on the stage), so that second 60 Hz loop only
+    // cost power; pointer events still reach the manager.
+    app.renderer.plugins.interaction.useSystemTicker = false;
     const gl = app.renderer.gl;
 
     // resizeTo resizes - and so clears - the canvas in its own animation frame; the paced
     // ticker may skip that vsync, which then shows an empty scene for a frame (leaving full screen flashed). Redraw now.
     app.renderer.on("resize", () => { if (!state.destroyed && state.desc) app.render(); });
-    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap);
+    // A rotated phone can change profile (desktop <-> handheld at the breakpoints): retune at once.
+    app.renderer.on("resize", () => { if (!state.destroyed && isHandheld() !== handheld) applyQuality(quality); });
+    app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
     const tickerUpdate = app.ticker.update;
     const pace = { last: 0, next: 0, fps: 0, vsync: 0 };
     const generated = stageViews.sceneGraphics.textures(PIXI, host);
@@ -7121,7 +7130,7 @@ function galCreateScene(host, options, own) {
 
     const textures=stageViews.sceneTextures.create({PIXI,upload:texture=>app.renderer.plugins.prepare?.upload(texture)});
     own(textures,value=>value.dispose());
-    const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures});
+    const figureAssets=stageViews.figureAssets.create({PIXI,renderer:app.renderer,screen:app.screen,textures,document,centred:math.galCentredAnatomy});
     own(figureAssets,value=>value.dispose());
     const renderers=new Map();
     for(const [kind,factory] of figureRenderers)renderers.set(kind,own(factory({PIXI,app,state,emotes:emotesBox,figures:figuresBox,onError,commit:commitFigureReplacement,lifeOn:figureLifeOn,tune,spine:createSpineRenderer}),value=>value.dispose()));
@@ -7289,14 +7298,16 @@ function galCreateScene(host, options, own) {
     // the viewport layout of the directed cast (galFigureLayout), recomputed only
     // when the stage size, text box, ruler, cast or priority change. The fit eases like the face rest (700 ms).
     function figureLayout(desc,W,H,now) {
-        const crops={};
+        // Its height and where its head sits above its feet (display heights), for the short-figure rescue.
+        const crops={},bodies={};
         for(const figure of desc.figures||[]){
             const entry=figure&&state.figures.get(figure.key);
-            const anatomy=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)?.anatomy||figure?.figureSizing?.anatomy;
+            const input=(entry?.model?entry.figureSizing:entry?.sprite?.figureInput)||figure?.figureSizing,anatomy=input?.anatomy||figure?.figureSizing?.anatomy;
             if(anatomy&&anatomy.feet>anatomy.visibleBottom)crops[figure.alias]=(anatomy.feet-anatomy.visibleBottom)/(anatomy.feet-(anatomy.headTop??anatomy.figureTop));
+            if(anatomy&&input?.heightCm>0&&anatomy.headRatio>0&&anatomy.feet>anatomy.headTop&&anatomy.chin>anatomy.headTop)bodies[figure.alias]={cm:input.heightCm,headRatio:anatomy.headRatio,chinRatio:anatomy.headRatio*(anatomy.feet-anatomy.chin)/(anatomy.feet-anatomy.headTop)};
         }
         const result=sceneLayout.update({plan:desc.figureLayout,figures:desc.figures,W,H,now,
-            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,instant:desc.snap||desc.skipping});
+            top:faceEnvironment(desc,W,H).layoutTop,ruler:state.figureScale,loaded:state.figureLoads,crops,bodies,instant:desc.snap||desc.skipping});
         if(result.report&&options.onLayout){state.layoutReport=result.report;reportLayout();}
         return result.layout;
     }
@@ -7544,6 +7555,9 @@ function galCreateScene(host, options, own) {
         const framing = { sceneHMax: ruled ? fit.ruler : sceneFrame.hMax, sceneGroundRatio: ruled ? 1 : sceneFrame.groundRatio,
             groundHMax: ruled ? fit.ruler : state.figureScale?.to, groundRatio: ruled ? 1 : state.figureScale?.groundTo,
             occluderTop: faceEnvironment(desc, W, H).occluderTop, fit: fit.fit, fitDrop: fit.drop, fitTop: fit.top, spread: fit.spread };
+        // The short-figure rescue (galFigureLayout small): drawn as the ruler frames it, the knee-up framing.
+        const small = new Set(sceneLayout.layout?.small || []), smallFraming = { ...framing, fit: 1, fitDrop: 0, fitTop: H * FIGURE_DISPLAY.HEAD_TOP };
+        const framingOf = entry => small.has(entry.figure.alias) ? smallFraming : framing;
         const reducedHop = galHopReduced(quality);
         const dofTarget = desc.dof ? entryOf(desc.dof) : null;
         // figures loaded off stage for the call view live the same life (load, blink, mouth, mood, place).
@@ -7575,7 +7589,7 @@ function galCreateScene(host, options, own) {
                 entry.appearance.setShade(galFigureMatrix(shade, alpha, look.glow, look.shadow, backgrounds.grade.current));
             }
             if(renderer){
-                renderer.tick(entry,figure,desc,{now,dt,W,H,framing,reducedHop});
+                renderer.tick(entry,figure,desc,{now,dt,W,H,framing:framingOf(entry),reducedHop});
                 if(!renderer.spriteBased)return;
             }else {
                 if (!layeredSpriteTickScene(entry, textures, PIXI, !desc.skipping && figure.speaking)) entry.sprite.texture = entry.baseTexture;
@@ -7583,7 +7597,7 @@ function galCreateScene(host, options, own) {
                 tapTextureStatic(entry, now);
             }
             const pose=entry.pose.update({sprite:entry.sprite,fading:entry.fading,now,reduced:reducedHop,
-                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing,W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
+                command:figure.act,idle:staticIdle(entry,desc,dt,now),framing:framingOf(entry),W,H,x:entry.cx.v,flip:entry.flip.v,lift:entry.lift.v,size:figure.size,ground:figure.ground});
             if(pose){
                 entry.restHead=pose.restHead;entry.restBody=pose.restBody;entry.localHead=pose.localHead;
                 if(pose.resolved)entry.figureResolved=pose.resolved;
@@ -7628,13 +7642,15 @@ function galCreateScene(host, options, own) {
     function tickFaceRest(desc, now, W, H) {
         const env = faceEnvironment(desc, W, H);
         const closeShot = desc.camera?.shot === "close";
-        const fitTo = sceneLayout.target;
-        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, fitTo.fit, fitTo.drop, fitTo.top, fitTo.ruler, fitTo.spread].join(":");
-        const ruled = fitTo.ruler != null;
+        const castFit = sceneLayout.target, small = new Set(sceneLayout.layout?.small || []);
+        const layoutKey = [state.figureScale?.scene, state.figureScale?.rescales, env.key, closeShot, castFit.fit, castFit.drop, castFit.top, castFit.ruler, castFit.spread].join(":");
+        const ruled = castFit.ruler != null;
         state.figures.forEach(entry => {
             if (!entry.restHead) return;
-            const input = entry.figureSizing || entry.sprite?.figureInput;
-            const key = [layoutKey, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
+            const input = entry.figureSizing || entry.sprite?.figureInput, rescued = small.has(entry.figure.alias);
+            // A rescued short figure is framed by the ruler (tickFigures), so it keeps the full-body ledge.
+            const fitTo = rescued ? { ...castFit, fit: 1, drop: 0, top: H * FIGURE_DISPLAY.HEAD_TOP } : castFit;
+            const key = [layoutKey, rescued, input?.source || entry.figure.url || entry.figure.modelId, entry.figure.close || false].join(":");
             const supportY = entry.figureResolved?.support?.y ?? H * (1 - (entry.figure.ground || 0));
             const old = entry.faceRest;
             let lockHead = entry.restHead, lockSupportY = supportY;
@@ -7810,8 +7826,9 @@ function galCreateScene(host, options, own) {
 
     function applyQuality(next) {
         quality = next === "low" ? "low" : "high";
-        const resolution = galResolution(quality);
-        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap);
+        handheld = isHandheld();
+        const resolution = galResolution(quality, undefined, handheld);
+        app.ticker.maxFPS = galFrameRate(quality, true, refreshRate, stageReading.get().frameCap, handheld);
         if (app.renderer.resolution !== resolution) { app.renderer.resolution = resolution; app.resize(); }
         const all = [].concat(...Object.values(filters).map(chain => chain.all()));
         state.figures.forEach(entry => all.push(...entry.filters.all()));
@@ -7913,7 +7930,7 @@ function galCreateScene(host, options, own) {
         const desc = describe(), plan = effects.looks.plan();
         const neutral = plan && !plan.grade && !plan.soften && !plan.frame && !plan.bloom && !plan.screen && !plan.film && !plan.backBlur && !plan.motes.length && !plan.vignette && !plan.haze && !plan.leaks.length && !plan.flare;
         const idle = !state.figures.size && !(desc.figures || []).length && !desc.animatedUi && !desc.thinking && !(thinking.alpha > 0) && !desc.weather && !(desc.effects || []).length && !state.debugEffects.length && !state.override && !state.preview && neutral && backgrounds.layers.length <= 1 && !backgrounds.pending && performance.now() - state.changedAt > 4000 && state.clock >= state.camera.start + state.camera.ms;
-        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap);
+        return galFrameRate(quality, !idle, refreshRate, stageReading.get().frameCap, handheld);
     }
     // The wrapper restores the requested cap after Pixi dispatches its listeners.
     app.ticker.update = function (now) {
@@ -8147,7 +8164,7 @@ function GalScene(props) {
         if ((props.reload || 0) === reloads.current) return;
         reloads.current = props.reload || 0;
         setError('');
-        if (scene.current && !error) scene.current.reload(); else setAttempt(n => n + 1);
+        if (scene.current) scene.current.reload(); else setAttempt(n => n + 1);
     }, [props.reload]);
     React.useEffect(function () {
         if (!startRenderer) return;
@@ -8155,7 +8172,7 @@ function GalScene(props) {
         loadPixiRuntime().then(function () {
             if (disposed || !live || !host.current) return;
             try {
-                scene.current = create(host.current, { quality: latest.current && latest.current.quality, onError: message => { if (live) setError(message); },
+                scene.current = create(host.current, { quality: latest.current && latest.current.quality, handheld: stageViews.device.handheld, onError: message => { if (live) setError(message); },
                     onDebug: effect => { if (live && debugHandler.current) debugHandler.current(effect); },
                     onUi: frame => { if (live && uiHandler.current) uiHandler.current(frame); },
                     onPresented: revision => { if (live) presentedHandler.current?.(revision); },
@@ -8229,6 +8246,18 @@ function galBodyX(record, candidate) {
     const m = { ...candidate?.auto, ...record?.auto, ...record?.override };
     return Number.isFinite(m.supportX) ? m.supportX : null;
 }
+// A pack figure stands on its slot by its head: the anatomy's support x becomes the middle of the head band's ink
+// (centre(anatomy) in canvas px - figure-assets.cjs headCentre), so a tail or a prop on one side never
+// pulls the figure off its slot. Feet, sizing and the head line are unchanged. Without a face rect the head box (rest
+// head, close-ups, face clamp) is the canvas centre's; it gets the same centre and its usual width (one head span). A
+// calibrated face rect is the centre itself (no measurement). The anatomy as is when unmeasurable.
+function galCentredAnatomy(anatomy, canvas, centre) {
+    if (!anatomy || !(anatomy.chin > anatomy.headTop)) return anatomy;
+    const x = anatomy.faceRect ? (anatomy.faceRect[0] + anatomy.faceRect[2] / 2) * canvas[0] : centre(anatomy);
+    if (!(Number.isFinite(x) && x > 0 && x < canvas[0])) return anatomy;
+    const span = anatomy.chin - anatomy.headTop, wide = span * canvas[1] / canvas[0];
+    return { ...anatomy, supportX: x / canvas[0], ...(anatomy.faceRect ? null : { faceRect: [x / canvas[0] - wide / 2, anatomy.headTop, wide, span] }) };
+}
 // The drawn body centres (stage-width fractions under the settled camera) are sampled four times a second. A figure is
 // settled when two samples agree within 1% of the width, and its reported place moves only when a settled place moves by
 // 1% or more: walking in, a gesture or idle sway never reach the box, a new standing place does, once. null = unchanged.
@@ -8245,9 +8274,11 @@ function galBodyReport(shown, last, now, tolerance = 0.01) {
 function sceneFigureScale() {
     return figureScale;
 }
-function galFrameRate(quality, animated, refreshRate, frameCap = 60) {
+// frameCap is the reader's CONFIG 帧率上限; not chosen (null), a handheld phone (device.cjs galDeviceHandheld) caps at 30 and
+// anything else at 60.
+function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
-    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : 60;
+    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld ? 30 : 60;
     if (quality === "low" || !animated) return Math.min(display, 30);
     // Zero bypasses software pacing: requestAnimationFrame follows the actual display refresh.
     return cap === 0 ? 0 : Math.min(display, cap);
@@ -8376,12 +8407,13 @@ function live2dStartIdle(model, seconds, jitter) {
     const layers = internal.motionManager.forkMotionLayers;
     idle().galLive2dDesync(internal, jitter);
     forkGalOwnBlink(internal, seconds || (() => layers ? layers.dt : 0));
-    const idle = Object.keys(groups).find(name => /^idle$/i.test(name));
-    if (!idle) return;
-    const count = Array.isArray(groups[idle]) ? groups[idle].length : 0;
+    // `idle` above is the figure-idle module (factory parameter); the model's Idle motion group gets its own name.
+    const group = Object.keys(groups).find(name => /^idle$/i.test(name));
+    if (!group) return;
+    const count = Array.isArray(groups[group]) ? groups[group].length : 0;
     const index = jitter && count > 1 ? Math.min(count - 1, Math.floor(jitter.pick * count)) : 0;
     if (jitter && layers) layers.idleLead = jitter.offset;
-    internal.motionManager.groups.idle = idle; model.motion(idle, index, 1);
+    internal.motionManager.groups.idle = group; model.motion(group, index, 1);
 }
 // Mesh points are Cubism units (Y up), not model canvas pixels. The caller supplies
 // the complete affine transform into the emote layer, excluding the shared camera.
@@ -8731,16 +8763,43 @@ function galFigureGone(entry) { return !entry.started || entry.alpha.v < 0.01 ||
 // below minHeadPx; when even that cannot make room, the lowest-priority figure is parked. A shrunk cast stands lower
 // (never lower than unshrunk) so its feet - and a cropped picture's bottom edge - stay behind the text box. Desktop /
 // landscape casts fit at 1 and are unchanged.
-const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04 });
+// Portrait (a phone: one figure by default): the skin's phone
+// cap (input.phone, phoneFigures, omitted = 1) - the first of the priority ranking, the speaker (on a narration page the
+// most recent speaker); the others wait off screen until they speak. Every drawn figure keeps the lone figure's size (the
+// width fit of one nominal body) and stands on the skin's slots for the drawn count. smallHeight / smallHeads: the
+// short-figure rescue below.
+const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04, smallHeight: 0.9, smallHeads: 1 });
+// The camera when the skin declares no figures.scale / top (built-in themes too): the tallest figure's head top at 8.5%
+// of H, its head about 26% of H, the frame cutting just below the upper thighs - the galgame / ADV close framing.
+// The ruler's own (scale 1, head top 13%, head 19%) showed the knees and read as distant.
+const GAL_DEFAULT_FRAMING = Object.freeze({ scale: 1.36, top: 0.085 });
 // where n figures stand, as fractions of the stage width. The
-// active skin may declare its own per count (dsh.skin/1 figureSlots); otherwise n + 1 equal gaps.
+// active skin may declare its own per count (dsh.skin/1 figureSlots); otherwise the default spreads them over the width: equal
+// gaps between neighbours and galSlotEdge of a gap from each edge to the outer one - half a gap for 2-3 figures, 0.7 for 4 or
+// more so four outer faces keep a head-width from the edge - 1: 50%; 2: 25 / 75%; 3: 17 / 50 / 83%; 4: 16 / 39 / 61 / 84%.
+// The former n + 1 equal gaps (25 / 50 / 75%) bunched three figures in the middle and left the outer thirds empty. The outer
+// faces keep more than a head of
+// margin, neighbours' faces never meet (a gap is over two head widths), and four at 16:9 keep the full default size (the gap
+// holds the overlap bound).
+function galSlotEdge(count) {
+    return count >= 4 ? 0.7 : 0.5;
+}
+function galSlotGap(count) {
+    return 1 / (count - 1 + 2 * galSlotEdge(count));
+}
 function galSlots(count, skinSlots) {
-    return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + 1) / (count + 1));
+    return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
-//   max: the skin's maxFigures, framing: the skin's figures {scale, top} }
-// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
+//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
+//   bodies: { id: { cm: height, headRatio, chinRatio: head top / chin to feet in display heights (pack anatomy) } } }
+// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order,
+//      small: ids drawn at the ruler's own size (the short-figure rescue) }
+// Short-figure rescue (a very short figure, e.g. a mascot): under the default camera a figure
+// shorter than smallHeight of the tallest present whose box line would leave less than smallHeads of its own head below
+// its chin (head and shoulders only) is drawn as the ruler frames it (scale 1, head line HEAD_TOP - the knee-up
+// framing), so a small figure whose whole body fits stands on the box again (the full-body ledge).
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
 // one rule picks who stays: the priority ranking. Size and drop are the viewport fit of the drawn count; the scene ruler
 // (hMax) stays the whole present cast's, so a hidden tall figure still sets the head line.
@@ -8760,17 +8819,22 @@ function galFigureLayout(input) {
     const c = GAL_FIGURE_FIT, W = input.W, H = input.H, cast = input.cast || [], framing = input.framing, ruler = framing?.ruler ?? null;
     const hMax = ruler ?? (input.hMax || FIGURE_DISPLAY.REF_MIN_CM), headLine = H * FIGURE_DISPLAY.HEAD_TOP;
     const head = figureDisplayCm(hMax, hMax) * figurePixelsPerCm(H, hMax) * c.headShare;
-    const zoom = framing?.scale ?? 1, top = framing?.top != null ? framing.top * H : headLine;
-    const floor = Math.min(1, c.minHeadPx / (head * zoom));
+    const zoom = framing?.scale ?? GAL_DEFAULT_FRAMING.scale, top = (framing?.top ?? GAL_DEFAULT_FRAMING.top) * H;
+    const floor = Math.min(1, c.minHeadPx / (head * zoom)), portrait = H > W, gapOf = n => { const slots = galSlots(n, input.slots); return Math.min(galSlotGap(n), ...slots.slice(1).map((x, i) => x - slots[i])); };
+    // A lone figure (and, in portrait, everyone) still fits the stage's width (its nominal body, bodyHeads heads wide).
+    const lone = zoom > 1 ? Math.min(1, W / (head * zoom * c.bodyHeads)) : 1;
     let count = Math.min(cast.length, input.max || Infinity), fit = 1;
-    for (; count > 1; count--) {
-        // A skin's slots never fit more or larger figures than the equal gaps (portrait: 「竖屏三个人太挤」); closer ones shrink more.
-        const slots = galSlots(count, input.slots), gap = Math.min(1 / (count + 1), ...slots.slice(1).map((x, i) => x - slots[i]));
-        fit = Math.min(1, W * gap / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
-        if (fit >= floor) break;
+    if (portrait) {
+        count = Math.min(count, input.phone || 1);
+        fit = lone;
+    } else {
+        for (; count > 1; count--) {
+            // A skin's slots never fit more or larger figures than the default gap; closer ones shrink more.
+            fit = Math.min(1, W * gapOf(count) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
+            if (fit >= floor) break;
+        }
+        if (count <= 1) fit = lone;
     }
-    // A framed single figure still fits the stage's width (its nominal body, bodyHeads heads wide).
-    if (count <= 1) fit = zoom > 1 ? Math.min(1, W / (head * zoom * c.bodyHeads)) : 1;
     const ranked = [];
     for (const id of (input.priority || []).concat(cast)) if (cast.includes(id) && !ranked.includes(id)) ranked.push(id);
     const shown = new Set(ranked.slice(0, Math.min(count, input.max || Infinity))), visible = cast.filter(id => shown.has(id)), x = {};
@@ -8780,7 +8844,17 @@ function galFigureLayout(input) {
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
     const slots = galSlots(visible.length, input.slots);
     visible.forEach((id, i) => { x[id] = slots[i]; });
-    return { count: visible.length, fit: fit * zoom, drop, top, framed: framing?.scale != null || framing?.top != null || ruler != null, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
+    const framed = framing?.scale != null || framing?.top != null || ruler != null, small = [];
+    if (!framed && zoom * fit > 1 && input.bodies) {
+        const feet = fitGround + drop, perCm = figurePixelsPerCm(H, hMax) * zoom * fit;
+        for (const id of visible) {
+            const body = input.bodies[id];
+            if (!body || !(body.cm < hMax * c.smallHeight)) continue;
+            const px = figureDisplayCm(body.cm, hMax) * perCm, crown = feet - px * body.headRatio, chin = feet - px * body.chinRatio;
+            if (input.boxTop - chin < (chin - crown) * c.smallHeads) small.push(id);
+        }
+    }
+    return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible, small };
 }
 // a performance's speaker shot on a W x H
 // stage. shot = {head: [centre x, top, height] (stage fractions), roll (degrees, counter-clockwise)} for the subject's side.
@@ -9022,7 +9096,7 @@ function galSceneMerge(base, patch) {
     ["background", "camera", "figureLight"].forEach(function (key) { if (patch[key] && base[key] && typeof patch[key] === "object") out[key] = Object.assign({}, base[key], patch[key]); });
     return out;
 }
-return { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
+return { galFigureRects, galCropHidden, galBodyX, galCentredAnatomy, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, GAL_DEFAULT_FRAMING, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageSceneMath};
 
@@ -13816,7 +13890,7 @@ function GalStage(props) {
     // a display mode changes only chrome - film mode's letterbox,
     // subtitles and controls replace the skin's box, art and buttons (activeSkin) - while the skin's stage projection
     // (skinFigures) and the director's camera apply in every mode.
-    const activeSkin = film ? null : drawnSkin, skinFigures = stageSkinFigures(drawnSkin);
+    const activeSkin = film ? null : drawnSkin, skinFigures = stageSkinFigures(drawnSkin, narrow);
     const waitLines = activeSkin?.waitLines || STAGE_WAIT_LINES; // the skin's wait lines (wait-lines.js), else the default ones
     const skinMotionKeyframes = React.useMemo(() => activeSkin ? stageSkinMotionKeyframes(activeSkin) : '', [activeSkin]);
     const backlogLooks = React.useMemo(() => activeSkin ? stageSkinBacklog(activeSkin) : null, [activeSkin]);
@@ -14200,7 +14274,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:{shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,
@@ -15522,17 +15596,17 @@ function createStageCastLayout({calculate,mix}) {
             return {fit:from.fit+(to.fit-from.fit)*k,drop:from.drop+(to.drop-from.drop)*k,
                 top:from.top+(to.top-from.top)*k,framed:to.framed,ruler:to.ruler,shrunk:to.shrunk,spread:to.spread};
         }
-        function update({plan,figures,W,H,now,top,ruler,loaded,crops,instant}){
+        function update({plan,figures,W,H,now,top,ruler,loaded,crops,bodies,instant}){
             if(closed)return {layout:null,report:null};
             if(!plan){layout=seen=transition=null;return {layout:null,report:null};}
             if(seen&&seen.plan===plan&&seen.figures===figures&&seen.W===W&&seen.H===H&&seen.top===top&&seen.ruler===ruler&&seen.loaded===loaded){
                 if(instant)transition.from=transition.to;
                 return {layout,report:null};
             }
-            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(plan.slots||null),plan.max||0,JSON.stringify(plan.framing||null)].join('|');
+            const key=[W,H,top,ruler?.to,ruler?.groundTo,plan.cast.join('\n'),plan.priority.join('\n'),JSON.stringify(crops),JSON.stringify(bodies),JSON.stringify(plan.slots||null),plan.max||0,plan.phone||0,JSON.stringify(plan.framing||null)].join('|');
             let report=null;
             if(layout?.key!==key){
-                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,slots:plan.slots,max:plan.max,framing:plan.framing})};
+                const next={key,W,H,...calculate({W,H,boxTop:top,hMax:ruler?.to,groundRatio:ruler?.groundTo,cast:plan.cast,priority:plan.priority,crops,bodies,slots:plan.slots,max:plan.max,phone:plan.phone,framing:plan.framing})};
                 const to={fit:next.fit,drop:next.drop,top:next.top,framed:next.framed,ruler:next.ruler,shrunk:next.shrunk,spread:next.spread};
                 transition=!transition||instant||transition.to.ruler!==to.ruler||transition.to.spread!==to.spread?{from:to,to,start:now}:{from:fit(now),to,start:now};
                 layout=next;
@@ -15678,8 +15752,39 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
 
         // Prepares displayable figure assets; texture cache and source metrics are separate services.
 function createStageFigureAssets({spineFigures,metrics}) {
-    let disposed=false;const scopes=new Set();
-    function create({PIXI,renderer,screen,textures}) {
+    let disposed=false;const scopes=new Set(),headCentres=new Map();
+    // Where a pack figure stands across the stage: the middle of the ink inside its head band (headTop..chin, canvas
+    // fractions; the 10th-90th percentile, as live2dHeadBox centres the cast faces), in canvas px. The picture's support x
+    // (the centre of its opaque bounds) moves with a tail, a raised arm or a prop on one side - a long tail put
+    // one figure 4% of the stage width off her slot. undefined when unreadable or empty. Once per
+    // picture and head band.
+    function headCentre(document, key, texture, top, chin) {
+        const id = key + ":head-x:" + top + ":" + chin;
+        if (headCentres.has(id)) return headCentres.get(id);
+        let result;
+        try {
+            const canvas = document.createElement("canvas"), ratio = Math.min(1, 512 / Math.max(texture.width, texture.height));
+            canvas.width = Math.max(1, Math.round(texture.width * ratio)); canvas.height = Math.max(1, Math.round(texture.height * ratio));
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(texture.baseTexture.resource.source, 0, 0, canvas.width, canvas.height);
+            const y0 = Math.max(0, Math.floor(top * canvas.height)), y1 = Math.min(canvas.height, Math.ceil(chin * canvas.height));
+            if (y1 > y0) {
+                const data = ctx.getImageData(0, y0, canvas.width, y1 - y0).data, columns = new Float64Array(canvas.width);
+                let total = 0;
+                for (let i = 3; i < data.length; i += 4) if (data[i] >= 64) { columns[((i - 3) / 4) % canvas.width]++; total++; }
+                if (total >= 16) {
+                    let seen = 0, low = -1, high = -1;
+                    for (let x = 0; x < canvas.width; x++) { seen += columns[x]; if (low < 0 && seen >= total * 0.1) low = x; if (high < 0 && seen >= total * 0.9) high = x; }
+                    result = (low + high + 1) / 2 / ratio;
+                }
+            }
+        } catch (_) { result = undefined; }
+        if (headCentres.size >= 256) headCentres.delete(headCentres.keys().next().value);
+        headCentres.set(id, result);
+        return result;
+    }
+    // centred: scene-math galCentredAnatomy (a pack picture stands on its head's centre).
+    function create({PIXI,renderer,screen,textures,document,centred}) {
         if(disposed)throw new Error('Figure asset owner disposed');
         let closed=false;const assets=new Set();
         function own(sprite,candidate,spine=null){
@@ -15705,7 +15810,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
                     candidate = sprite.figureInput.pack && sprite.figureInput.anatomy ? null : metrics.measure(sprite.figureInput.source, texture);
                     if (sprite.figureInput.pack) {
                         // Sized by the picture's head (its crop) unless its anatomy really knows head and feet (metrics.anatomy).
-                        const canvas = [texture.width, texture.height], anatomy = metrics.anatomy(sprite.figureInput, canvas, candidate);
+                        const canvas = [texture.width, texture.height], anatomy = centred(metrics.anatomy(sprite.figureInput, canvas, candidate), canvas, anatomy => headCentre(document, src, texture, anatomy.headTop, anatomy.chin));
                         sprite.figureInput = { ...sprite.figureInput, anatomy, metrics: metrics.record({ ...sprite.figureInput, anatomy }, canvas, candidate) };
                     }
                     const sizing = metrics.resolve({ ...sprite.figureInput, W: screen.width, H: screen.height, canvas: [texture.width, texture.height] });
@@ -15744,7 +15849,7 @@ function createStageFigureAssets({spineFigures,metrics}) {
         }};
         scopes.add(scope);return scope;
     }
-    return {create,dispose(){if(disposed)return;disposed=true;const errors=[];for(const scope of [...scopes])try{scope.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure assets cleanup failed');}};
+    return {create,dispose(){if(disposed)return;disposed=true;headCentres.clear();const errors=[];for(const scope of [...scopes])try{scope.dispose();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Figure assets cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageFigureAssets};
 
@@ -22162,7 +22267,7 @@ const STAGE_THEMES = Object.freeze([
 ].map(row => Object.freeze(row)));
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_THEMES};
 
-        function createStageConfigAppearance({React:react, window, document, getComputedStyle, fields, rpc, cards:bubbleStore, reading:sharedReading, quality:sharedQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton}) {
+        function createStageConfigAppearance({React:react, window, document, getComputedStyle, fields, rpc, cards:bubbleStore, reading:sharedReading, quality:sharedQuality, themes:STAGE_THEMES, prefetch:stageSkinPrefetch, frameRate:galFrameRate, handheld:galDeviceHandheld, sounds:forkUiSfx, FloatingPanel, Icon, Spinner, ResetButton}) {
 let disposed=false;
 const cleanups=new Set();
 const stageReading={...sharedReading,set:value=>{if(!disposed)sharedReading.set(value);}};
@@ -22356,7 +22461,7 @@ function GalConfigScreenTab(props) {
         galConfigGroup("效果", null,
             galConfigRow("特效质量", galConfigSegmented({ label: "特效质量", value: quality, options: [["high", "高"], ["low", "低"]], onChange: value => stageQuality.set(value) }),
                 "低：分辨率和帧率降低，粒子减少，去掉颗粒、泛光、景深等重滤镜，更省电。"),
-            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(reading.frameCap), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
+            galConfigRow("帧率上限", galConfigSegmented({ label: "帧率上限", value: String(galFrameRate("high", true, Infinity, reading.frameCap, galDeviceHandheld())), options: [["30", "30"], ["60", "60"], ["120", "120"], ["0", "跟随屏幕"]], onChange: value => stageReading.set({ frameCap: Number(value) }) }),
                 "上限越高越流畅，但会增加 GPU 负载和耗电。跟随屏幕不额外限帧；静止场景自动降至 30 帧。低特效质量仍限制为 30 帧。"),
             galConfigRow("减少动态", h(GalConfigSwitch, { label: "减少动态", checked: reading.reducedMotion === true, onChange: on => stageReading.set({ reducedMotion: on }) }), "演出装饰保持静态并关闭震动；系统的减少动态设置同样生效。"),
             galConfigRow("光敏保护", h(GalConfigSwitch, { label: "光敏保护", checked: reading.photosensitive === true, onChange: on => stageReading.set({ photosensitive: on }) }), "默认开启：闪光保留颜色但减弱强度，红闪改为暗红。整个舞台每秒最多三次闪光。")));
@@ -23571,6 +23676,12 @@ function galDeviceProfile() {
     for (const name of Object.keys(GAL_DEVICE_QUERIES)) if (matchMedia(GAL_DEVICE_QUERIES[name]).matches) return name;
     return "desktop";
 }
+// A phone in the hand, either way up: a mobile profile on a touch screen. Like the phone mod's handheld sheet
+// (source-widgets.cjs phoneModHandheld), never a narrow desktop window. The scene draws lighter there (galFrameRate,
+// galResolution) to spare a phone's battery.
+function galDeviceHandheld() {
+    return galDeviceProfile().startsWith("mobile") && matchMedia("(pointer: coarse)").matches;
+}
 function galDeviceSubscribe(changed) {
     if (disposed || typeof matchMedia !== "function") return () => {};
     const lists = Object.values(GAL_DEVICE_QUERIES).map(query => matchMedia(query));
@@ -23608,7 +23719,7 @@ function galDeviceState(state, profile) {
     return state;
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, dispose() {
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];
@@ -24577,7 +24688,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     const configFields = own(createStageConfigFields({React:options.React, ...options.configFields}));
                     const textViews = createStageText({React:options.React, document, ...options.text});
                     const configText = own(createStageConfigText({React:options.React, fields:configFields, Typewriter:textViews.Typewriter, ...options.configText, themes:STAGE_THEMES}));
-                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, prefetch:skinResources.prefetch, themes:STAGE_THEMES}));
+                    const configAppearance = own(createStageConfigAppearance({React:options.React, window, document, fields:configFields, ...options.configAppearance, prefetch:skinResources.prefetch, themes:STAGE_THEMES, frameRate:(...args)=>sceneMath.galFrameRate(...args), handheld:()=>views.device.handheld()}));
                     const mixer = own(createStageMixer({React:options.React, fields:configFields, ...options.mixer}));
                     const phoneLayout = own(createStagePhoneLayout({React:options.React, group:configFields.group, row:configFields.row, slider:configFields.slider, Switch:configFields.Switch, ...options.phoneLayout}));
                     const phoneAdjust = own(createStagePhoneAdjust({React:options.React, window, document, sizes:phoneLayout.sizes, ...options.phoneAdjust}));

@@ -31,6 +31,18 @@ function galBodyX(record, candidate) {
     const m = { ...candidate?.auto, ...record?.auto, ...record?.override };
     return Number.isFinite(m.supportX) ? m.supportX : null;
 }
+// A pack figure stands on its slot by its head: the anatomy's support x becomes the middle of the head band's ink
+// (centre(anatomy) in canvas px - figure-assets.cjs headCentre), so a tail or a prop on one side never
+// pulls the figure off its slot. Feet, sizing and the head line are unchanged. Without a face rect the head box (rest
+// head, close-ups, face clamp) is the canvas centre's; it gets the same centre and its usual width (one head span). A
+// calibrated face rect is the centre itself (no measurement). The anatomy as is when unmeasurable.
+function galCentredAnatomy(anatomy, canvas, centre) {
+    if (!anatomy || !(anatomy.chin > anatomy.headTop)) return anatomy;
+    const x = anatomy.faceRect ? (anatomy.faceRect[0] + anatomy.faceRect[2] / 2) * canvas[0] : centre(anatomy);
+    if (!(Number.isFinite(x) && x > 0 && x < canvas[0])) return anatomy;
+    const span = anatomy.chin - anatomy.headTop, wide = span * canvas[1] / canvas[0];
+    return { ...anatomy, supportX: x / canvas[0], ...(anatomy.faceRect ? null : { faceRect: [x / canvas[0] - wide / 2, anatomy.headTop, wide, span] }) };
+}
 // The drawn body centres (stage-width fractions under the settled camera) are sampled four times a second. A figure is
 // settled when two samples agree within 1% of the width, and its reported place moves only when a settled place moves by
 // 1% or more: walking in, a gesture or idle sway never reach the box, a new standing place does, once. null = unchanged.
@@ -47,9 +59,11 @@ function galBodyReport(shown, last, now, tolerance = 0.01) {
 function sceneFigureScale() {
     return figureScale;
 }
-function galFrameRate(quality, animated, refreshRate, frameCap = 60) {
+// frameCap is the reader's CONFIG 帧率上限; not chosen (null), a handheld phone (device.cjs galDeviceHandheld) caps at 30 and
+// anything else at 60.
+function galFrameRate(quality, animated, refreshRate, frameCap = null, handheld = false) {
     const display = Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : Infinity;
-    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : 60;
+    const cap = [0, 30, 60, 120].includes(frameCap) ? frameCap : handheld ? 30 : 60;
     if (quality === "low" || !animated) return Math.min(display, 30);
     // Zero bypasses software pacing: requestAnimationFrame follows the actual display refresh.
     return cap === 0 ? 0 : Math.min(display, cap);
@@ -178,12 +192,13 @@ function live2dStartIdle(model, seconds, jitter) {
     const layers = internal.motionManager.forkMotionLayers;
     idle().galLive2dDesync(internal, jitter);
     forkGalOwnBlink(internal, seconds || (() => layers ? layers.dt : 0));
-    const idle = Object.keys(groups).find(name => /^idle$/i.test(name));
-    if (!idle) return;
-    const count = Array.isArray(groups[idle]) ? groups[idle].length : 0;
+    // `idle` above is the figure-idle module (factory parameter); the model's Idle motion group gets its own name.
+    const group = Object.keys(groups).find(name => /^idle$/i.test(name));
+    if (!group) return;
+    const count = Array.isArray(groups[group]) ? groups[group].length : 0;
     const index = jitter && count > 1 ? Math.min(count - 1, Math.floor(jitter.pick * count)) : 0;
     if (jitter && layers) layers.idleLead = jitter.offset;
-    internal.motionManager.groups.idle = idle; model.motion(idle, index, 1);
+    internal.motionManager.groups.idle = group; model.motion(group, index, 1);
 }
 // Mesh points are Cubism units (Y up), not model canvas pixels. The caller supplies
 // the complete affine transform into the emote layer, excluding the shared camera.
@@ -533,16 +548,43 @@ function galFigureGone(entry) { return !entry.started || entry.alpha.v < 0.01 ||
 // below minHeadPx; when even that cannot make room, the lowest-priority figure is parked. A shrunk cast stands lower
 // (never lower than unshrunk) so its feet - and a cropped picture's bottom edge - stay behind the text box. Desktop /
 // landscape casts fit at 1 and are unchanged.
-const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04 });
+// Portrait (a phone: one figure by default): the skin's phone
+// cap (input.phone, phoneFigures, omitted = 1) - the first of the priority ranking, the speaker (on a narration page the
+// most recent speaker); the others wait off screen until they speak. Every drawn figure keeps the lone figure's size (the
+// width fit of one nominal body) and stands on the skin's slots for the drawn count. smallHeight / smallHeads: the
+// short-figure rescue below.
+const GAL_FIGURE_FIT = Object.freeze({ headShare: 0.155, bodyHeads: 2.2, maxOverlap: 0.3, minHeadPx: 72, feetBelow: 0.04, smallHeight: 0.9, smallHeads: 1 });
+// The camera when the skin declares no figures.scale / top (built-in themes too): the tallest figure's head top at 8.5%
+// of H, its head about 26% of H, the frame cutting just below the upper thighs - the galgame / ADV close framing.
+// The ruler's own (scale 1, head top 13%, head 19%) showed the knees and read as distant.
+const GAL_DEFAULT_FRAMING = Object.freeze({ scale: 1.36, top: 0.085 });
 // where n figures stand, as fractions of the stage width. The
-// active skin may declare its own per count (dsh.skin/1 figureSlots); otherwise n + 1 equal gaps.
+// active skin may declare its own per count (dsh.skin/1 figureSlots); otherwise the default spreads them over the width: equal
+// gaps between neighbours and galSlotEdge of a gap from each edge to the outer one - half a gap for 2-3 figures, 0.7 for 4 or
+// more so four outer faces keep a head-width from the edge - 1: 50%; 2: 25 / 75%; 3: 17 / 50 / 83%; 4: 16 / 39 / 61 / 84%.
+// The former n + 1 equal gaps (25 / 50 / 75%) bunched three figures in the middle and left the outer thirds empty. The outer
+// faces keep more than a head of
+// margin, neighbours' faces never meet (a gap is over two head widths), and four at 16:9 keep the full default size (the gap
+// holds the overlap bound).
+function galSlotEdge(count) {
+    return count >= 4 ? 0.7 : 0.5;
+}
+function galSlotGap(count) {
+    return 1 / (count - 1 + 2 * galSlotEdge(count));
+}
 function galSlots(count, skinSlots) {
-    return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + 1) / (count + 1));
+    return skinSlots?.[count] || Array.from({ length: count }, (_, i) => (i + galSlotEdge(count)) * galSlotGap(count));
 }
 // { W, H, boxTop, hMax, groundRatio, cast: ids in stage order, priority: ids, most important first,
 //   crops: { id: share of the head-to-feet span missing below the picture }, slots: the skin's figureSlots,
-//   max: the skin's maxFigures, framing: the skin's figures {scale, top} }
-// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order }
+//   max: the skin's maxFigures, phone: its phoneFigures (portrait cap, omitted = 1), framing: the skin's figures {scale, top},
+//   bodies: { id: { cm: height, headRatio, chinRatio: head top / chin to feet in display heights (pack anatomy) } } }
+// -> { count, fit, drop, top (head line px), framed, head (shown head span px), x: { id: 0..1 }, visible: ids in stage order,
+//      small: ids drawn at the ruler's own size (the short-figure rescue) }
+// Short-figure rescue (a very short figure, e.g. a mascot): under the default camera a figure
+// shorter than smallHeight of the tallest present whose box line would leave less than smallHeads of its own head below
+// its chin (head and shoulders only) is drawn as the ruler frames it (scale 1, head line HEAD_TOP - the knee-up
+// framing), so a small figure whose whole body fits stands on the box again (the full-body ledge).
 // The skin's maxFigures  and the viewport are one cap - the smaller wins - and
 // one rule picks who stays: the priority ranking. Size and drop are the viewport fit of the drawn count; the scene ruler
 // (hMax) stays the whole present cast's, so a hidden tall figure still sets the head line.
@@ -562,17 +604,22 @@ function galFigureLayout(input) {
     const c = GAL_FIGURE_FIT, W = input.W, H = input.H, cast = input.cast || [], framing = input.framing, ruler = framing?.ruler ?? null;
     const hMax = ruler ?? (input.hMax || FIGURE_DISPLAY.REF_MIN_CM), headLine = H * FIGURE_DISPLAY.HEAD_TOP;
     const head = figureDisplayCm(hMax, hMax) * figurePixelsPerCm(H, hMax) * c.headShare;
-    const zoom = framing?.scale ?? 1, top = framing?.top != null ? framing.top * H : headLine;
-    const floor = Math.min(1, c.minHeadPx / (head * zoom));
+    const zoom = framing?.scale ?? GAL_DEFAULT_FRAMING.scale, top = (framing?.top ?? GAL_DEFAULT_FRAMING.top) * H;
+    const floor = Math.min(1, c.minHeadPx / (head * zoom)), portrait = H > W, gapOf = n => { const slots = galSlots(n, input.slots); return Math.min(galSlotGap(n), ...slots.slice(1).map((x, i) => x - slots[i])); };
+    // A lone figure (and, in portrait, everyone) still fits the stage's width (its nominal body, bodyHeads heads wide).
+    const lone = zoom > 1 ? Math.min(1, W / (head * zoom * c.bodyHeads)) : 1;
     let count = Math.min(cast.length, input.max || Infinity), fit = 1;
-    for (; count > 1; count--) {
-        // A skin's slots never fit more or larger figures than the equal gaps (portrait: 「竖屏三个人太挤」); closer ones shrink more.
-        const slots = galSlots(count, input.slots), gap = Math.min(1 / (count + 1), ...slots.slice(1).map((x, i) => x - slots[i]));
-        fit = Math.min(1, W * gap / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
-        if (fit >= floor) break;
+    if (portrait) {
+        count = Math.min(count, input.phone || 1);
+        fit = lone;
+    } else {
+        for (; count > 1; count--) {
+            // A skin's slots never fit more or larger figures than the default gap; closer ones shrink more.
+            fit = Math.min(1, W * gapOf(count) / (head * zoom * c.bodyHeads * (1 - c.maxOverlap)));
+            if (fit >= floor) break;
+        }
+        if (count <= 1) fit = lone;
     }
-    // A framed single figure still fits the stage's width (its nominal body, bodyHeads heads wide).
-    if (count <= 1) fit = zoom > 1 ? Math.min(1, W / (head * zoom * c.bodyHeads)) : 1;
     const ranked = [];
     for (const id of (input.priority || []).concat(cast)) if (cast.includes(id) && !ranked.includes(id)) ranked.push(id);
     const shown = new Set(ranked.slice(0, Math.min(count, input.max || Infinity))), visible = cast.filter(id => shown.has(id)), x = {};
@@ -582,7 +629,17 @@ function galFigureLayout(input) {
     const drop = Math.min(framedGround - fitGround, Math.max(0, input.boxTop + H * c.feetBelow + crop * (fitGround - top) - fitGround));
     const slots = galSlots(visible.length, input.slots);
     visible.forEach((id, i) => { x[id] = slots[i]; });
-    return { count: visible.length, fit: fit * zoom, drop, top, framed: framing?.scale != null || framing?.top != null || ruler != null, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible };
+    const framed = framing?.scale != null || framing?.top != null || ruler != null, small = [];
+    if (!framed && zoom * fit > 1 && input.bodies) {
+        const feet = fitGround + drop, perCm = figurePixelsPerCm(H, hMax) * zoom * fit;
+        for (const id of visible) {
+            const body = input.bodies[id];
+            if (!body || !(body.cm < hMax * c.smallHeight)) continue;
+            const px = figureDisplayCm(body.cm, hMax) * perCm, crown = feet - px * body.headRatio, chin = feet - px * body.chinRatio;
+            if (input.boxTop - chin < (chin - crown) * c.smallHeads) small.push(id);
+        }
+    }
+    return { count: visible.length, fit: fit * zoom, drop, top, framed, ...(ruler != null ? { ruler, shrunk: fit < 1 } : null), ...(framing?.spread != null ? { spread: framing.spread } : null), head: head * zoom * fit, x, visible, small };
 }
 // a performance's speaker shot on a W x H
 // stage. shot = {head: [centre x, top, height] (stage fractions), roll (degrees, counter-clockwise)} for the subject's side.
@@ -824,6 +881,6 @@ function galSceneMerge(base, patch) {
     ["background", "camera", "figureLight"].forEach(function (key) { if (patch[key] && base[key] && typeof patch[key] === "object") out[key] = Object.assign({}, base[key], patch[key]); });
     return out;
 }
-return { galFigureRects, galCropHidden, galBodyX, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
+return { galFigureRects, galCropHidden, galBodyX, galCentredAnatomy, galBodyReport, sceneFigureScale, galFrameRate, galFrameDue, galTextureOwners, galMoodMotionPlan, galPlayMoodMotion, galMotionFade, galMotionTransitions, galShouldBlink, forkGalOwnBlink, live2dStartIdle, galMeshHead, galFaceDrawables, galCheekIndex, galCheekValue, galBlushStep, galFlushFace, galInitFace, galMeshRotation, galFallbackHead, galDisplayMatrix, galSmoothHead, galLipSyncIds, galApplyLipSync, galApplyStageHead, galEase, galClamp01, galSpring, galSpringValue, galTween, galTweenAt, galCallView, galCover, GAL_TRANSITIONS, GAL_TEXTURE_KEEP_BYTES, galBackgroundTransition, galTransitionPlan, galTransitionFrame, galBlinkLids, galSlashBars, galFigureCutFrame, galWipeRect, galIrisSize, galMatrix, GAL_GLOW_MATRIX, GAL_SHADOW_MATRIX, galFigureMatrix, GAL_ZOOM_IN, GAL_ZOOM_MS, galCameraTarget, GAL_SCENE_DIP_MS, galFigureInit, galFigureStep, galFigureGone, GAL_FIGURE_FIT, GAL_DEFAULT_FRAMING, galSlots, galFigureLayout, galShotFrame, galVisibleFrame, galFrameMix, GAL_CLOSE_MIN_HEAD, galFramedHead, galCloseFrame, GAL_CHOICE_PROBE, galChoiceReserveTop, galFrameCameraTarget, galEstimateHeadTop, galHeadroomShift, galFaceRest, galFaceRestFrame, galFaceRestUpdate, galFaceUnion, galFaceClamp, galHeadTopCache, galTextureHeadTop, galFlatLayout, GAL_HOP_MS, GAL_FLAT_ACTS, galHopAt, galHopReduced, galBlinkCalm, galShiverAt, galBodyActAt, galFlatActAt, galSceneMerge };
 }
 if(typeof module!=="undefined"&&typeof window==="undefined")module.exports={createStageSceneMath};

@@ -721,6 +721,7 @@ const stageSkinShape = skinObject({
     sfx:skinSfx,duck:skinDuck,photosensitive:value => typeof value === 'boolean',figureSlots:skinSlots,
     // at most this many figures drawn at once.
     maxFigures:skinNumber(1,6,true),
+    phoneFigures:skinNumber(1,6,true),
     // how the original frames its figures - a multiplier on the shared
     // ruler and where the tallest figure's head top stands (share of the stage height from the top). Presentation only;
     // relative heights stay the ruler's.

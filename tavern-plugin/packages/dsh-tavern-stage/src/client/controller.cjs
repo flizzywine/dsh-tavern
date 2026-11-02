@@ -413,7 +413,7 @@ function GalStage(props) {
     // a display mode changes only chrome - film mode's letterbox,
     // subtitles and controls replace the skin's box, art and buttons (activeSkin) - while the skin's stage projection
     // (skinFigures) and the director's camera apply in every mode.
-    const activeSkin = film ? null : drawnSkin, skinFigures = stageSkinFigures(drawnSkin);
+    const activeSkin = film ? null : drawnSkin, skinFigures = stageSkinFigures(drawnSkin, narrow);
     const waitLines = activeSkin?.waitLines || STAGE_WAIT_LINES; // the skin's wait lines (wait-lines.js), else the default ones
     const skinMotionKeyframes = React.useMemo(() => activeSkin ? stageSkinMotionKeyframes(activeSkin) : '', [activeSkin]);
     const backlogLooks = React.useMemo(() => activeSkin ? stageSkinBacklog(activeSkin) : null, [activeSkin]);
@@ -797,7 +797,7 @@ function GalStage(props) {
         lateFade:entryGate.visible && !skipping && entryPage.current === turn + ':' + page,
         // a picture the player switched to (bg-manual.js) takes its own transition (fade, or cut under 「减少动态」).
         background:pack.scene?.backgroundUrl ? {identity:pack.scene.backgroundMedia.identity,url:pack.scene.backgroundUrl,scene:JSON.stringify(pack.scene.background),transition:pack.scene.userTransition || (forwardReading&&!skipping?changeKind:'cut'),timing:!pack.scene.userTransition ? sceneChange : null} : null,
-        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
+        hideFigures:!!accepted.cg || cg.visible,figureMode:figuresShown ? 'stage' : 'none',figuresAway:sourceWidget.phoneShade,reducedMotion:reading.reducedMotion===true,figures:items,figureLayout:{cast:castIds,priority:figurePriority,slots:skinFigures.slots,max:skinFigures.max,phone:skinFigures.phone,framing:skinFigures.framing},packLayers,grade:packLayers?JSON.stringify([packLayers.time,packLayers.mood]):'',timeFadeMs:pack.scene?.timeTransitionMs || 0,
         tapGate,tapMedia,weather:state?.weather || 'none',screen:state?.screen || null,camera:{shot:state?.camera.mode || '',target:state?.camera.actor || ''},dof:state?.dof,effects:sceneEffects,effectTables,safety:effectSafety,skipping,preload:[],
         // The inner-monologue backdrop (the resolved `thinking` effect) while the line on screen is inner monologue.
         thinking:!awaiting && !transitioning && current?.thought ? stageEffectResolve('thinking',effectTables.skin,effectTables.local) : null,

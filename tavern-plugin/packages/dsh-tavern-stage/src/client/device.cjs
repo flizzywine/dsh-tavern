@@ -24,6 +24,12 @@ function galDeviceProfile() {
     for (const name of Object.keys(GAL_DEVICE_QUERIES)) if (matchMedia(GAL_DEVICE_QUERIES[name]).matches) return name;
     return "desktop";
 }
+// A phone in the hand, either way up: a mobile profile on a touch screen. Like the phone mod's handheld sheet
+// (source-widgets.cjs phoneModHandheld), never a narrow desktop window. The scene draws lighter there (galFrameRate,
+// galResolution) to spare a phone's battery.
+function galDeviceHandheld() {
+    return galDeviceProfile().startsWith("mobile") && matchMedia("(pointer: coarse)").matches;
+}
 function galDeviceSubscribe(changed) {
     if (disposed || typeof matchMedia !== "function") return () => {};
     const lists = Object.values(GAL_DEVICE_QUERIES).map(query => matchMedia(query));
@@ -61,7 +67,7 @@ function galDeviceState(state, profile) {
     return state;
 }
 
-return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, dispose() {
+return {useProfile:useGalDeviceProfile, state:galDeviceState, profile:galDeviceProfile, subscribe:galDeviceSubscribe, handheld:galDeviceHandheld, dispose() {
     if (disposed) return;
     disposed = true;
     const errors = [];

@@ -45795,8 +45795,11 @@ function cardLibraryDisplayName(card) {
 		// Pixi scene with its Live2D / Spine figures, keyframe performances, the dice throw and the Live2D / Spine editor previews.
 		// It is the device's own pixel ratio, so a 4K screen at Windows 225% (2.25) or a DPR 3 phone draws 1:1 device pixels; the
 		// old cap at 2 stretched every 4K frame by 1.125. The low quality
-		// setting renders at 1; a ratio below 1 (zoomed out) still renders at 1.
-		function galResolution(quality, dpr = globalThis.devicePixelRatio) { return quality === "low" ? 1 : Math.max(1, dpr || 1); }
+		// setting renders at 1; a ratio below 1 (zoomed out) still renders at 1. The stage scene on a handheld phone
+		// (galDeviceHandheld) renders at most at 2: a DPR 3 iPhone draws 56% fewer pixels a frame; its text and UI stay DOM.
+		function galResolution(quality, dpr = globalThis.devicePixelRatio, handheld = false) {
+		    return quality === "low" ? 1 : Math.min(handheld ? 2 : Infinity, Math.max(1, dpr || 1));
+		}
 		// Calls changed() whenever the pixel ratio changes (the window moved to another monitor, the browser zoom) and returns the
 		// unsubscribe. A resolution query matches one ratio only, so it is re-armed at the new ratio after each change.
 		function galResolutionSubscribe(changed) {
@@ -48601,9 +48604,13 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// stand, how many are drawn, the framing, whether listeners dim, whether figures draw at all. The one reader for every
 		// display mode (skin, film, classic, phone): a display mode changes chrome, never who stands where. A skin that leaves
 		// maxFigures out draws at most 3, and so does a built-in theme with no pack
-		// skin document (classic and the other built-ins too).
-		function stageSkinFigures(skin) {
-		    return { slots: skin?.figureSlots, max: skin?.maxFigures ?? 3, framing: skin?.figures, dimListeners: skin?.dimListeners !== false, shown: skin?.figures?.mode !== "none" };
+		// skin document (classic and the other built-ins too). A portrait stage (a phone) draws one, the speaker, unless the skin
+		// declares phoneFigures. A skin that draws no figures because its bust window is the speaker (figures.mode none +
+		// art.portrait.bust) has no bust on a phone (narrow, the 640px breakpoint), so there the speaker stands at the default
+		// framing.
+		function stageSkinFigures(skin, narrow = false) {
+		    const bustStandIn = narrow && skin?.figures?.mode === "none" && Boolean(skin?.art?.portrait?.bust);
+		    return { slots: skin?.figureSlots, max: skin?.maxFigures ?? 3, phone: skin?.phoneFigures ?? 1, framing: bustStandIn ? undefined : skin?.figures, dimListeners: skin?.dimListeners !== false, shown: bustStandIn || skin?.figures?.mode !== "none" };
 		}
 		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { galIsSuperseded, galPlain, galBlocks, galParagraphs, galPages, galQuoted, stageSkinFigures };
 		// Stable readers keep core React subscribers alive while the optional provider comes and goes.
@@ -48899,7 +48906,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 
 		if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {STAGE_PERFORMANCE_RENDERERS, STAGE_PERFORMANCE_ROLES, STAGE_PERFORMANCE_CORE,
 		    validateStagePerformanceDeclaration, createStagePerformanceRegistry, stagePerformanceKindOf, stagePerformancePointer, stagePerformanceBlocks, stagePerformancePhaseBlocks};
-		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: 60, reducedMotion:false, photosensitive:true, textScale:{}, hudReveal:null };
+		const STAGE_READING_DEFAULTS = { textSpeed: 28, autoWait: STAGE_AUTO.wait, autoSpeed: STAGE_AUTO.speed, voiceRate: 1, frameCap: null, reducedMotion:false, photosensitive:true, textScale:{}, hudReveal:null };
 		const STAGE_READING_LIMITS = { textSpeed: [0, 80, 2], autoWait: [0, 3000, 100], autoSpeed: [0.5, 3, 0.1], voiceRate: [0.8, 2, 0.1] }; // [min, max, step]
 		const STAGE_TEXT_SCALE = [70, 130, 5]; // [min, max, step] percent of the skin's own size
 		function stageTextScaleMap(map) {
@@ -48915,7 +48922,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		function stageReadingPrefs(saved) {
 		    const out = { ...STAGE_READING_DEFAULTS };
 		    if (!saved || typeof saved !== "object") return out;
-		    if ([0, 30, 60, 120].includes(saved.frameCap)) out.frameCap = saved.frameCap;
+		    // frameCap null = not chosen: the device's own cap (galFrameRate: 30 on a handheld phone, else 60). Records before v 2
+		    // stored the old default 60 whether chosen or not, so that 60 is read as not chosen (once; the next write is v 2).
+		    if ([0, 30, 60, 120].includes(saved.frameCap) && (saved.v === 2 || saved.frameCap !== 60)) out.frameCap = saved.frameCap;
 		    for (const key of ['reducedMotion','photosensitive']) if (typeof saved[key] === 'boolean') out[key]=saved[key];
 		    if (saved.hudReveal === 'auto' || saved.hudReveal === 'always') out.hudReveal = saved.hudReveal;
 		    if (saved.textScale && typeof saved.textScale === 'object') out.textScale = stageTextScaleMap(saved.textScale);
@@ -48947,8 +48956,8 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		    return {
 		        get,
 		        set(patch) {
-		            cached = stageReadingPrefs({ ...get(), ...patch });
-		            try { localStorage.setItem(KEY, JSON.stringify(cached)); } catch (_) {}
+		            cached = stageReadingPrefs({ ...get(), ...patch, v: 2 });
+		            try { localStorage.setItem(KEY, JSON.stringify({ ...cached, v: 2 })); } catch (_) {}
 		            listeners.forEach(fn => fn());
 		        },
 		        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -55666,6 +55675,7 @@ const stageSkinShape = skinObject({
     sfx:skinSfx,duck:skinDuck,photosensitive:value => typeof value === 'boolean',figureSlots:skinSlots,
     // at most this many figures drawn at once.
     maxFigures:skinNumber(1,6,true),
+    phoneFigures:skinNumber(1,6,true),
     // how the original frames its figures - a multiplier on the shared
     // ruler and where the tallest figure's head top stands (share of the stage height from the top). Presentation only;
     // relative heights stay the ruler's.
