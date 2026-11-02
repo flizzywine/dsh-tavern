@@ -23,6 +23,7 @@
 			const replySubscribers = new Map();
 			const replyPresenterFailures = new Map();
 			const replyPresenterDisabled = new Set();
+			const stageViewWarnedOwners = new Set();
 			// Work status (apiVersion 7): what a game is doing right now, for plugins such as a
 			// companion pet. One shared record per session, fed by Tavern's live view and the
 			// reply observer; success is a short pulse after a busy turn settles.
@@ -709,12 +710,16 @@
 					}, "tavernUi.watchStage()");
 				},
 				// Retired with the old stage (#424): Tavern now draws the stage itself from the card's 素材包 and
-				// the director; a plugin can no longer replace its scene. Says so in the error notice instead of
-				// registering a view nothing would show. Never throws: a throw while a plugin applies fails the
-				// whole page's boot, not just that plugin.
+				// the director; a plugin can no longer replace its scene. Says so once per plugin in the developer
+				// console instead of registering a view nothing would show, and raises no player-facing error: the
+				// call usually comes from a plugin still being developed, which would toast on every reload.
+				// Never throws: a throw while a plugin applies fails the whole page's boot, not just that plugin.
 				registerStageView() {
-					const message = "插件 " + ownerOf(this) + " 调用了已停用的 registerStageView：舞台改由 Tavern 按人物卡绑定的素材包绘制，这个舞台视图不会显示。请给人物卡绑定素材包并打开对话气泡，改用 Tavern 的舞台。";
-					try { tavernErrorHub.report("舞台", new Error(message)); } catch (_) { console.warn(message); }
+					const owner = ownerOf(this);
+					if (!stageViewWarnedOwners.has(owner)) {
+						stageViewWarnedOwners.add(owner);
+						console.warn("dsh-tavern: 插件 " + owner + " 调用了已停用的 registerStageView：舞台改由 Tavern 按人物卡绑定的素材包绘制，这个舞台视图不会显示。请给人物卡绑定素材包并打开对话气泡，改用 Tavern 的舞台。");
+					}
 					return function () {};
 				},
 				// This plugin's own settings in a game (declared on the host side with tavern.gameSettings):
