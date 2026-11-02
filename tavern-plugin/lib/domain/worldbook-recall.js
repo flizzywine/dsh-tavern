@@ -64,7 +64,7 @@ function allEntries(worldBook) {
 }
 
 export function isWorldBookTemplateEntry(entry) {
-  return /<%[=_-]?[\s\S]*?%>/i.test(str(entry && entry.content))
+  return entry?.foregroundCapability !== true && /<%[=_-]?[\s\S]*?%>/i.test(str(entry && entry.content))
 }
 
 function templateBody(value) {
@@ -154,7 +154,7 @@ export function constantWorldBookContext(input = {}) {
 /** Let the upstream plugin preprocess/filter its decorators before native keyword selection. */
 export async function prepareTemplateWorldbook(worldBook, runtime, chat, globals = {}) {
   if (!worldBook?.view || worldBook.templatePrepared || !runtime.prepareWorldbook) return worldBook
-  const entries = allEntries(worldBook)
+  const entries = allEntries(worldBook).filter(entry => entry.foregroundCapability !== true)
   // The engine reads decorators only from leading @@ lines, so `lora@@@2@@@` in prose is plain text.
   // Disabled entries still count: [GENERATE:] controllers are usually disabled in the source book.
   if (!entries.some(entry => /^@@/.test(str(entry.content)) || /\[(?:GENERATE:|RENDER:|InitialVariables|Preprocessing)|@INJECT/.test(entry.content + '\n' + (entry.comment || entry.title)))) return worldBook
@@ -166,7 +166,7 @@ export async function prepareTemplateWorldbook(worldBook, runtime, chat, globals
     const original = entries.find(item => String(item.sourceUid ?? item.ref) === String(entry.uid))
     return original ? [{ ...original, ...entry, ref: original.ref, content: entry.content, enabled: !entry.disable, primaryKeys: entry.key || [], secondaryKeys: entry.keysecondary || [], constant: original.constant }] : []
   })
-  return { ...worldBook, templatePrepared: true, templateScopes: result.scopes, templateActivationRequests: (result.activationRequests || []).map(request => ({...request, sourceRef:"[GENERATE:BEFORE]"})), view: { ...worldBook.view, entries: transformed } }
+  return { ...worldBook, templatePrepared: true, templateScopes: result.scopes, templateActivationRequests: (result.activationRequests || []).map(request => ({...request, sourceRef:"[GENERATE:BEFORE]"})), view: { ...worldBook.view, entries: [...transformed,...allEntries(worldBook).filter(entry=>entry.foregroundCapability === true)] } }
 }
 
 /** Resolve enabled constant EJS controllers for one request.
@@ -182,7 +182,6 @@ export async function projectWorldBookTemplates(input = {}) {
   const controllers = promptOrder((input.selectedEntries || resources).filter(function (entry) {
     return (entry.enabled !== false || (input.activationRequests || []).some(request => request.ref === entry.ref && request.force)) && (input.selectedEntries || entry.constant === true) && (input.mvuUpdateOnly === true ? isMvuUpdateEntry(entry) : !isMvuUpdateEntry(entry)) && (input.includeConstants === true || isWorldBookTemplateEntry(entry))
   }))
-  const { foregroundRefs, prefixRefs } = worldbookPlacement([...resources.filter(entry => !isMvuUpdateEntry(entry)), ...controllers.filter(entry => entry.enabled === false).map(entry => ({ ...entry, enabled: true }))])
   const projectedEntries = []
   let scopes = input.worldBook?.templateScopes || {
     global: clone(input.globalVariables || {}),
@@ -254,16 +253,19 @@ export async function projectWorldBookTemplates(input = {}) {
     const entryActivations = (result.activationRequests || []).map(request => ({ ...request, sourceRef: entry.ref }))
     activationRequests.push(...entryActivations)
     if (!useBatch || input.renderCache) scopes = clone(result.scopes)
-    const projected = input.includeConstants === true
+    // Foreground capability entries (foreground-capabilities.js) are already final text: never projected or cached.
+    const projected = input.includeConstants === true && entry.foregroundCapability !== true
       ? projectAgentContent(renderWorldbookRandom(result.text, random), { charName: str(input.card?.name), macroState }) : null
     if (projected) macroState = projected.macroState
-    const text = str(input.randomOutputs?.[entry.ref] ?? (projected ? projected.agentText : result.text)).trim()
-    input.renderCache?.set(entry.ref, { text, beforeScopes, beforeMacroState, scopes: clone(result.scopes || scopes), macroState: clone(macroState), activationRequests: entryActivations, readerState, effectful: !dependencies || /\{\{|<%/.test(JSON.stringify(readerState)) })
+    const text = str(entry.foregroundCapability === true ? entry.content : input.randomOutputs?.[entry.ref] ?? (projected ? projected.agentText : result.text)).trim()
+    if (entry.foregroundCapability !== true) input.renderCache?.set(entry.ref, { text, beforeScopes, beforeMacroState, scopes: clone(result.scopes || scopes), macroState: clone(macroState), activationRequests: entryActivations, readerState, effectful: !dependencies || /\{\{|<%/.test(JSON.stringify(readerState)) })
     if (text === '') continue
     context.push(text)
     projectedEntries.push({ ...entry, content: text })
     refs.push(str(entry.ref))
   }
+  // EJS may emit a group's opening/closing tags; place the rendered span together.
+  const { foregroundRefs, prefixRefs } = worldbookPlacement([...resources.filter(entry => !isMvuUpdateEntry(entry)), ...controllers.filter(entry => entry.enabled === false).map(entry => ({ ...entry, enabled: true }))], projectedEntries)
   return {
     context: context.join('\n\n'),
     renderedEntries: projectedEntries.map(entry => ({ ref: entry.ref, text: entry.content, location: foregroundRefs.has(entry.ref) ? 'foreground' : 'prefix', ...(foregroundRefs.has(entry.ref) && prefixRefs.has(entry.ref) ? { alsoInPrefix: true } : {}) })),

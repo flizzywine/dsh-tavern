@@ -48,6 +48,6 @@ test('玩家手写的追加指令不参与变量插值，非酒馆段落不受�
   const assembly = markTavernSectionsLiteral(prependSystemInstruction({ sections: [host] }, '  用 {{user}} 称呼玩家  '))
   assert.deepEqual(assembly.sections.map(section => section.name), ['tavern:system-append', 'tool:web_search'])
   assert.equal(assembly.sections[0].interpolate, false)
-  assert.equal(assembly.sections[0].text, '用 {{user}} 称呼玩家')
+  assert.equal(assembly.sections[0].text, '<system_append>\n用 {{user}} 称呼玩家\n</system_append>')
   assert.equal(assembly.sections[1], host)
 })

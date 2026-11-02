@@ -1,3 +1,4 @@
+import { promptSection, promptSectionBody } from './prompt-section.js'
 import { createHash, randomBytes } from 'node:crypto'
 import { projectPlayerContent } from './player-input-content.js'
 import { resolveRuntimePresetMacros } from './runtime-presets.js'
@@ -18,17 +19,17 @@ export const CARD_REFERENCE_SECTION_LIMIT = 8000
 function cardReferenceSection(section) {
   const text = str(section.text)
   if (section.name === 'tavern:constant-worldbook') {
-    const chars = Array.from(text.replace(/^【常驻世界书】\n?/, '').trim()).length
+    const chars = Array.from(promptSectionBody('constant_worldbook', text).replace(/^【常驻世界书】\n?/, '').trim()).length
     if (chars <= CARD_REFERENCE_WORLDBOOK_LIMIT) return section
-    return { name: section.name, text: '【常驻世界书】\n共约 ' + chars + ' 字，超过预载上限，未放入参考资料。需要时用 tavern_read_worldbook 按关键词或编号读取相关条目。' }
+    return { name: section.name, text: promptSection('constant_worldbook', 'About ' + chars + ' characters exceed the preload limit. Read relevant entries with tavern_read_worldbook by keyword or number when needed.') }
   }
   const chars = Array.from(text).length
   if (chars <= CARD_REFERENCE_SECTION_LIMIT) return section
   const [title, name] = text.split('\n')
   if (section.name === 'tavern:character-card') {
-    return { name: section.name, text: title + '\n' + (/^名字: /.test(name || '') ? name + '\n' : '') + '人物卡设定共约 ' + chars + ' 字，超过预载上限，未放入参考资料。需要时用 tavern_read_card 按字段读取。' }
+    return { name: section.name, text: promptSection('character_card', (/^(?:Name: |名字: )/.test(name || '') ? name + '\n' : '') + 'About ' + chars + ' characters exceed the preload limit. Read card fields with tavern_read_card when needed.') }
   }
-  return { name: section.name, text: title + '\n共约 ' + chars + ' 字，超过预载上限，未放入参考资料。需要时用 tavern_read_card 读取 system_prompt 字段。' }
+  return { name: section.name, text: promptSection('card_system', 'About ' + chars + ' characters exceed the preload limit. Read system_prompt with tavern_read_card when needed.') }
 }
 
 function str(value) {

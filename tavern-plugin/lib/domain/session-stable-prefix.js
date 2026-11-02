@@ -1,3 +1,4 @@
+import { promptSection } from './prompt-section.js'
 import { sessionVariableDirectorySection } from './session-variable-directory.js'
 import { replaceSessionSurface } from './session-surface-mutations.js'
 import { ensureSessionSystemHead, sessionEvents, appendSessionEvent } from './session-events.js'
@@ -5,6 +6,12 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createDurableFilePromotion } from '../durable-file-promotion.js'
 import { isProducerSource } from './message-source.js'
+
+// Prompt prose source. Keys are stable; interpolation arguments are data.
+export const PROMPT_PROSE = Object.freeze({
+  p001: ""
+})
+
 
 const EVENT = 'dsh-tavern/stable-prefix'
 const pending = new WeakMap()
@@ -72,10 +79,10 @@ function messageRecord(event) {
 
 function sourceSections(text) {
   const boundaries = [
-    { marker: '【用户已确认的长期偏好】', name: 'tavern:user-preference' },
-    { marker: '【故事设定 · 人物卡】', name: 'tavern:character-card' },
-    { marker: '【人物卡系统提示】', name: 'tavern:card-system-prompt' },
-    { marker: '【常驻世界书】', name: 'tavern:constant-worldbook' }
+    { marker: text.includes('<user_preferences>\n') ? '<user_preferences>' : '【用户已确认的长期偏好】', name: 'tavern:user-preference' },
+    { marker: text.includes('<character_card>\n') ? '<character_card>' : '【故事设定 · 人物卡】', name: 'tavern:character-card' },
+    { marker: text.includes('<card_system>\n') ? '<card_system>' : '【人物卡系统提示】', name: 'tavern:card-system-prompt' },
+    { marker: text.includes('<constant_worldbook>\n') ? '<constant_worldbook>' : '【常驻世界书】', name: 'tavern:constant-worldbook' }
   ]
   const starts = boundaries.map(function (boundary) {
     return { ...boundary, index: text.indexOf(boundary.marker) }
@@ -181,5 +188,5 @@ export function sessionStablePrefixSections(session, openingText = '') {
 export function withCurrentWorldbook(sections, context) {
   const fixed = sections.filter(section => section.name !== 'tavern:constant-worldbook')
   const text = str(context).trim()
-  return text ? [{ name: 'tavern:constant-worldbook', text: '【常驻世界书】\n' + text }, ...fixed] : fixed
+  return text ? [{ name: 'tavern:constant-worldbook', text: promptSection('constant_worldbook', PROMPT_PROSE.p001 + text) }, ...fixed] : fixed
 }

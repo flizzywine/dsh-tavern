@@ -75,7 +75,7 @@ test('真实卡片 Agent 请求：偏好仅在 system，附加指令置顶且修
     assert.match(request.system, /卡片资源工作区/)
     assert.doesNotMatch(request.system, /不应自动替换|不可丢失的固定背景/)
     assert.ok(request.messages.filter(m => m.role !== 'system').every(m => !JSON.stringify(m.content).includes('固定偏好')))
-    if (index < 2) assert.ok(request.system.startsWith(index ? '附加指令第二版\n\n' : '附加指令第一版\n\n'))
+    if (index < 2) assert.ok(request.system.startsWith(index ? '<system_append>\n附加指令第二版\n</system_append>\n\n' : '<system_append>\n附加指令第一版\n</system_append>\n\n'))
     else assert.doesNotMatch(request.system, /附加指令/)
   }
 })
