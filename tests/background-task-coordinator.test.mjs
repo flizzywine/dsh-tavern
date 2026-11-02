@@ -187,6 +187,9 @@ test('复用快照开始时撞上并发写入：只重读任务状态字段再�
     updateChat: p.update, patchChat: (...args) => p.patch(...args) } })
   const task = await coordinator.begin(snapshot, 'style-reference', { reuseSnapshot: true })
   assert.equal(fullReads, 0)
+  // The task-state header carries an empty message slice; the task keeps the snapshot's floors
+  // (a settlement that lost them settled no MVU reply and left its variables pending).
+  assert.deepEqual(task.chat.messages, snapshot.messages)
   const saved = await p.read('c')
   assert.equal(saved.title, '并发写入')
   assert.equal(saved.timeline.operations[task.operationId].status, 'running')
