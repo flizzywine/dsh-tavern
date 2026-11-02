@@ -154,9 +154,8 @@ export function validatePackManifest(value, path = '$') {
   const required = ['format', 'schemaVersion', 'id', 'name', 'contentHash', 'assets', 'figures', 'sprites', 'bundles', 'blobs', 'files']
   shape(value, [...required, ...metadata, 'voiceLibrary', 'tagIcons', 'genStyle', 'backgroundStyle', 'stageSkin'], required, path)
   if (value.genStyle !== undefined) oneOf(value.genStyle, PACK_GEN_STYLES, path + '.genStyle')
-  // the stage skin a card bound to this pack first gets when it has no
-  // skin of its own (card-stage-settings.js cardStageSkin / packStageSkin); one of the pack's skins. A skin removed later only
-  // stops it applying.
+  // `stageSkin` is the retired pack default skin: a card's skin is its own value, then the global default, then classic
+  // (card-stage-settings.js cardStageSkin). An older pack keeps it as stored and it is still shape-checked, but nothing reads it.
   if (value.stageSkin !== undefined) validateShortId(value.stageSkin, path + '.stageSkin')
   if (value.voiceLibrary !== undefined) validateVoiceLibrary(value.voiceLibrary, path + '.voiceLibrary')
   oneOf(value.format, ['dsh-asset-pack'], path + '.format'); check([1,2].includes(value.schemaVersion), path + '.schemaVersion', 'Unsupported schemaVersion', 'UNSUPPORTED_SCHEMA_VERSION')

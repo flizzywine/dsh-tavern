@@ -18,12 +18,9 @@ export function validateCardAssetExtension(value, path = '$.dsh_tavern') {
   if(value.modConfigPackId!==undefined){validateUuid(value.modConfigPackId);check(bindings.boundPackIds.includes(value.modConfigPackId),path+'.modConfigPackId','Config pack must be bound','UNBOUND_PACK')}
   if (value.variableBindings !== undefined) validateCardVariableBindings(value.variableBindings)
   array(bindings.boundPackIds, path + '.assetBindings.boundPackIds'); bindings.boundPackIds.forEach(id => validateUuid(id)); unique(bindings.boundPackIds, path + '.assetBindings.boundPackIds')
-  if (value.stage !== undefined) {
-    validateCardStage(value.stage, path + '.stage')
-    // The card's own skin travels with it, so its pack is bound. The player's choice (skinChoice, never exported) may also name
-    // a globally enabled pack's skin; that is checked when it is written (cardAssetRawOperations).
-    if(value.stage.defaultSkin?.packId) check(bindings.boundPackIds.includes(value.stage.defaultSkin.packId),path + '.stage.defaultSkin','Skin pack must be bound','UNBOUND_PACK')
-  }
+  // The card's skin value may name any pack skin (本卡皮肤 also offers globally enabled packs'); one whose pack is off or missing
+  // falls back when it is drawn (cardStageSkin), never here.
+  if (value.stage !== undefined) validateCardStage(value.stage, path + '.stage')
   if (value.openings !== undefined) validateCardOpenings(value.openings, path + '.openings')
   return value
 }
@@ -37,9 +34,7 @@ export function readCardAssetExtension(raw) {
   if (data.extensions.dsh_tavern?.stage !== undefined) validateCardStage(data.extensions.dsh_tavern.stage)
   return cloneJson(data.extensions.dsh_tavern)
 }
-// skinPackIds: the globally enabled packs, whose skins 本卡皮肤 offers next to the bound packs' (a skin pack is
-// switched on globally with its lamp).
-export function cardAssetRawOperations(raw, patch, {skinPackIds = []} = {}) {
+export function cardAssetRawOperations(raw, patch) {
   assertJson(raw); assertJson(patch)
   shape(patch, ['assetBindings', 'stage', 'openings', 'variableBindings','modConfigPackId'], [], '$.patch')
   if (Object.hasOwn(patch, 'stage')) validateCardStage(patch.stage)
@@ -57,9 +52,6 @@ export function cardAssetRawOperations(raw, patch, {skinPackIds = []} = {}) {
   // New opt-ins have no legacy stage behavior to preserve. Stage patches replace
   // the whole preference object so omitting an override restores inheritance.
   validateCardAssetExtension(next)
-  const choice = next.stage?.skinChoice
-  if (choice?.packId && canonicalJson(choice) !== canonicalJson(existing?.stage?.skinChoice ?? null))
-    check(next.assetBindings.boundPackIds.includes(choice.packId) || skinPackIds.includes(choice.packId), '$.patch.stage.skinChoice', 'Skin pack must be bound or globally enabled', 'UNBOUND_PACK')
   return data.extensions === undefined
     ? [{ op: 'set', path: pointer.slice(0, -'/dsh_tavern'.length), value: { dsh_tavern: next } }]
     : [{ op: 'set', path: pointer, value: next }]

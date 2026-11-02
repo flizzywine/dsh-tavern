@@ -19,8 +19,9 @@ export function validateCardStage(value, path = '$.stage') {
   shape(value, [...switches, 'defaultSkin', 'skinChoice', 'dimensions', 'narrator'], [], path)
   for (const key of switches) if (value[key] !== undefined) bool(value[key], path + '.' + key)
   if (value.narrator !== undefined) validateNarratorSettings(value.narrator, path + '.narrator')
-  // a default is presentation policy, never a recorded director operation. defaultSkin is the card's own
-  // (authored, exported with it); skinChoice the player's choice for this card (CONFIG › 画面「本卡皮肤」, never exported).
+  // defaultSkin is the card's one skin value 「使用皮肤」: exported and imported with the card, and written by
+  // CONFIG › 画面「本卡皮肤」. Presentation policy, never a recorded director operation. `skinChoice` is the retired
+  // per-player choice: old cards keep it as stored and it is still shape-checked, but nothing reads it (CONFIG's next save drops it).
   for (const key of ['defaultSkin', 'skinChoice']) if (value[key] !== undefined) validateStageSkinSelection(value[key], path + '.' + key)
   // `dimensions` is a retired per-card override of the director
   // commands. Old cards keep it as stored (never rewritten) and it is still shape-checked, but nothing reads it
@@ -32,49 +33,35 @@ export function validateCardStage(value, path = '$.stage') {
   return value
 }
 
-// the one place the card's skin is decided, when the
-// director is not changing it for a while (a performance skin wins and returns here). The player's choice
-// for this card > the card's own default > its bound packs' default (cardPackStageSkin) > the global default (engine
-// dialogueTheme, 舞台设置 › 基础设置; a saved custom dialogue theme reads as its built-in theme) > classic. { skin, fallback }:
-// fallback = the same without the player's choice (CONFIG's ↺ goes back to it). `manifests`: the installed manifests the caller
-// read (the card's content packs, and any other pack a selection names). A pack skin is drawn only while its pack still has it;
-// an absent one (pack deleted, unbound or the skin removed) is passed over for the next in the order - presentation only, the
-// stored selection is never rewritten, and it applies again once its skin is back (§17.5).
+// The one place the card's skin is decided, when the director is not changing it for a while (a performance skin wins and
+// returns here): the card's 「使用皮肤」 (stage.defaultSkin) > the global 默认皮肤 (engine dialogueTheme, 舞台设置 › 基础设置; a
+// saved custom dialogue theme reads as its built-in theme) > 经典. { skin, fallback }: fallback = global, else classic - what
+// the card shows without its own value (CONFIG's ↺ clears the value back to it). `manifests`: the manifests of the packs this
+// card may use that the selections name (cardStageSkinPackIds). A pack skin is drawn only while its pack is on for this card
+// (bound or globally enabled) and still has it; otherwise the next in the order applies - presentation only, the stored value
+// is never rewritten, and it applies again once its skin is back (§17.5).
 export function cardStageSkin(extension, engine, manifests = []) {
   const stage = extension?.stage || {}, theme = engine?.dialogueTheme
   const global = theme && typeof theme === 'object' ? theme : Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, theme ?? '') ? theme
-    : engine?.dialogueThemes?.find(item => item.id === theme)?.style.theme || 'classic'
-  const present = skin => typeof skin === 'string' ? Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, skin)
+    : engine?.dialogueThemes?.find(item => item.id === theme)?.style.theme
+  const usable = skin => typeof skin === 'string' ? Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS, skin)
     : !!skin && manifests.some(manifest => manifest?.id === skin.packId && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === skin.assetId))
-  const fallback = [stage.defaultSkin, cardPackStageSkin(extension, manifests), global].find(present) ?? 'classic'
-  return {skin: present(stage.skinChoice) ? stage.skinChoice : fallback, fallback}
+  const fallback = usable(global) ? global : 'classic'
+  return {skin: usable(stage.defaultSkin) ? stage.defaultSkin : fallback, fallback}
 }
 
-// The packs whose manifests cardStageSkin needs: the card's content packs, the pack of a global default pack skin and, while
-// it is globally enabled (`enabledPackIds`), the pack of the player's choice (本卡皮肤 offers globally enabled packs' skins).
+// The packs whose manifests cardStageSkin needs: the packs of the card's value and of the global default, each only while it
+// is on for this card - bound, or globally enabled (`enabledPackIds`). A pack that is off is not read, so its skin falls back.
 export function cardStageSkinPackIds(extension, engine, enabledPackIds = []) {
-  const theme = engine?.dialogueTheme, choice = extension?.stage?.skinChoice
-  return [...new Set([...cardContentPackIds(extension), ...(theme && typeof theme === 'object' ? [theme.packId] : []),
-    ...(choice?.packId && enabledPackIds.includes(choice.packId) ? [choice.packId] : [])])]
+  const bound = extension?.assetBindings?.boundPackIds || []
+  return [...new Set([extension?.stage?.defaultSkin, engine?.dialogueTheme].map(skin => skin?.packId)
+    .filter(id => id && (bound.includes(id) || enabledPackIds.includes(id))))]
 }
 
 // The card's content packs in binding order (boundPackIds keep it; the dedicated 模组 config pack, modConfigPackId, holds
 // settings, not content).
 export function cardContentPackIds(extension) {
   return (extension?.assetBindings?.boundPackIds || []).filter(id => id !== extension.modConfigPackId)
-}
-
-// The pack default a card without its own skin takes: the first of its content packs, in binding order, that declares one
-// (a figures- or music-only pack bound before it declares none and so does not hide it).
-export function cardPackStageSkin(extension, manifests) {
-  for (const id of cardContentPackIds(extension)) { const skin = packStageSkin(manifests.find(manifest => manifest?.id === id)); if (skin) return skin }
-  return null
-}
-
-// A pack's declared default stage skin (manifest.stageSkin) as a skin ref, while that skin is still in the pack.
-export function packStageSkin(manifest) {
-  const id = manifest?.stageSkin
-  return id && manifest.assets.some(asset => asset.kind === 'skins' && asset.id === id) ? {packId: manifest.id, kind: 'skins', assetId: id} : null
 }
 
 export function effectiveCardStage(extension, engine) {

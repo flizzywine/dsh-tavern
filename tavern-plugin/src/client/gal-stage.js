@@ -211,7 +211,7 @@ function bindStageViews(createViews) {
         entrance:{reading:stageReading,safety:stageSafety,flashGate:stageFlashGate},
         entranceMedia:{getService:()=>packTransport.service,fetch,AbortController},
         skinPresentation:{fonts:tavernFonts,files:getStageBundleFiles,appearance:stageSkinAppearance},
-        skinResources:{setTimeout,clearTimeout},
+        skinResources:{setTimeout,clearTimeout,classic:BUILTIN_STAGE_SKINS.classic},
         skinContract:{stageSkinImageOf,stageSkinSliceEdges,stageSkinScreenFiles,skinContrast},
         useBubbles, Icon,
         controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,

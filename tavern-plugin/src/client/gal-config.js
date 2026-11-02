@@ -7,8 +7,8 @@
 // The font picker (舞台字体 / 字幕字体 here, 正文字体 on the 外观 settings page — appearance.js, same closure).
 // @include font-picker.js
 
-// 本卡皮肤 - the player's own skin for this card (stage.skinChoice; null clears it, back to the
-// card's / the global default). Serialized per session, same RPC and store as the settings tab (bubbleStore).
+// 本卡皮肤 - the card's one skin value 「使用皮肤」 (stage.defaultSkin; null clears it, back to the
+// global default). Serialized per session, same RPC and store as the settings tab (bubbleStore).
 // Application-owned slots; imported mods cannot register executable client code.
 const STAGE_CONFIG_SECTIONS = {};
 function GalConfigScreen(props) { return stageViews ? React.createElement(stageViews.configScreen.Screen, props) : null; }
