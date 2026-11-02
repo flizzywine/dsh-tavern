@@ -61,7 +61,7 @@ function attach(read,send){
                 send({type:'menu'});
             }
             else if (letter === "h") send({type:'hidden',value:!hidden});
-            else if (letter === "r") send({type:'replay'});
+            else if (letter === "v") send({type:'replay'});
             // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
             // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
             else if (letter === "g") { if (controls.pressRegenerate(root)) event.preventDefault(); }

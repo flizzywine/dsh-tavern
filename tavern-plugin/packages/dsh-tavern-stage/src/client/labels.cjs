@@ -43,7 +43,7 @@ function GalHudLabels(props) {
 }
 
 // Name plate of the text box: the name (classic: 【名字】 unless in film mode), the mood tag (other themes) and,
-// only when the line is voiced, a small replay button right after the name (R does the same).
+// only when the line is voiced, a small replay button right after the name (V does the same).
 // props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay() }.
 // a name as [family lead, family rest, given lead, given rest] - the
 // given name is the longest of the figure's other names (aliases) that ends the name; without one the name is all family.
@@ -82,8 +82,10 @@ function GalNamePlate(props) {
                 const vertical = style.writingMode.startsWith("vertical");
                 const extent = vertical ? "height" : "width";
                 const padding = vertical ? parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) : parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-                // the run against the box on screen (a ratio: a transform scales both), the padding against its layout size
-                const [shown, layout] = size();
+                // the run against the box on screen (a ratio: a transform scales both), the padding against its layout size in
+                // fractional px (offsetWidth rounds: a short name that fits read 0.2% over and was set smaller)
+                const shown = size()[0], content = parseFloat(style[extent]);
+                const layout = style.boxSizing === "border-box" ? content : content + padding;
                 const over = range.getBoundingClientRect()[extent] / Math.max(1, shown) + padding / Math.max(1, layout);
                 if (over <= 1.001) break;
                 scale = Math.max(.6, Math.floor(1000 * scale / over - 10) / 1000);
@@ -100,7 +102,7 @@ function GalNamePlate(props) {
     }, [props.name, state]);
     const reason = {VOICE_NOT_FOUND:"声音绑定未解析，请重新选择该人物的声音","voice-unbound":"声音绑定未解析，请重新选择该人物的声音",QWEN_MODEL_NOT_FOUND:"Qwen 配音模型不存在，请在声音预设中选择服务当前提供的模型",QWEN_AUDIO_NOT_FOUND:"Qwen 合成音频下载失败（404），请重试",QWEN_RESOURCE_NOT_FOUND:"Qwen 语音服务资源不存在（404），请检查区域、模型与音色",FISH_AUTH_FAILED:"Fish Audio 密钥无效（401）",FISH_BILLING_REQUIRED:"Fish Audio 额度或余额不足（402），未切换付费模型",FISH_RATE_LIMITED:"Fish Audio 请求受限（429），请稍后重试",FISH_REQUEST_FAILED:"Fish Audio 请求失败，请检查声音模型 ID 与服务状态",QWEN_BILLING_REQUIRED:"千问额度或账户余额不足，请检查阿里云用量与账单",QWEN_AUTH_FAILED:"千问密钥无效",QWEN_RATE_LIMITED:"千问请求过于频繁或达到限额",QWEN_ACCESS_DENIED:"千问访问被拒绝，请检查模型权限与账户状态",QWEN_REQUEST_FAILED:"千问服务请求失败",SERVICE_OFFLINE:"配音服务暂时不可用",TIMEOUT:"配音请求超时"}[props.voiceError] || props.voiceError || "配音服务暂时不可用";
     const label = state === "error" ? "配音失败：" + reason + "；点击重试" : state === "loading" ? "语音准备中" : "重播这一句";
-    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（R）", "aria-label": label, "aria-keyshortcuts": "R",
+    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
         onClick: event => { event.stopPropagation(); props.onReplay(); },
         // Enter / Space activate the focused button instead of turning the page (the stage listens on window).
         onKeyDown: event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); } }, state === "error" ? "⚠ 配音" : h(Icon, { name: "speaker", size: 14 })) : null;

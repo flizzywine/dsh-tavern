@@ -59,3 +59,9 @@ test('partial listener installation failure rolls back listeners already install
  assert.throws(()=>scope.attach(()=>({}),action=>calls.push(action)),/install failed/)
  assert.equal(removes,4);const count=calls.length;window.dispatchEvent(new Event('keydown'));assert.equal(calls.length,count);scope.dispose()
 })
+test('V replays the line voice; R is no longer bound',()=>{
+ const f=fixture();try{
+ f.key('v');assert.deepEqual(f.calls.at(-1),{type:'replay'})
+ const count=f.calls.length;f.key('r');assert.equal(f.calls.slice(count).some(x=>x.type==='replay'),false)
+ }finally{f.cleanup()}
+})

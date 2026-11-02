@@ -15,7 +15,8 @@ test('choice image slices snap to whole device pixels at fractional scaling',()=
 })
 test('oversized art menu scales to its room and releases obsolete snap heights',()=>{
  const module=createStageChoiceLayout({getComputedStyle:()=>({getPropertyValue:()=> '1px'})})
- const row={style:style()},list={style:style(),children:[row],scrollHeight:200,clientHeight:100}
+ // the rows' laid-out boxes are measured (not scrollHeight, which counts the entrance transforms).
+ const row={style:style(),offsetTop:0,offsetHeight:200},list={style:style(),children:[row],clientHeight:100}
  row.style.setProperty('--fk-snap-h','40px')
  assert.equal(module.galFitChoices(list),true)
  assert.equal(list.style.getPropertyValue('--art-choice-fit'),'0.5')

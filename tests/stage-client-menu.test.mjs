@@ -28,3 +28,10 @@ test('stage menu disposal removes keyboard and director subscriptions before Rea
  stops.forEach(fn=>fn?.())
  assert.equal(released,1)
 })
+test('stage menu labels are Chinese only and a touch screen gets no shortcut entry',()=>{
+ const menu=createStageMenu({})
+ const items=menu.items({controls:[]})
+ assert.equal(items.some(item=>'sub' in item),false)
+ assert.equal(items.some(item=>item.id==='keys'),true)
+ assert.equal(menu.items({controls:[],touch:true}).some(item=>item.id==='keys'),false)
+})

@@ -54,14 +54,26 @@ function useStageEntrance(store, entrance, loadGate) {
     }, [run]);
     const hidden = active && !status.covered;
     const gate = hidden ? {...loadGate, phase: loadGate.phase === 'pending' ? 'pending' : 'loading', visible: false} : loadGate;
-    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined,
-        overlay: active && !status.covered ? {loadPhase: loadGate.phase, bright: !!bright} : null,
+    // The veil keeps its entrance form (only the progress line, hidden once loaded) from the cover on and after the entrance:
+    // turning back into the plain veil would fade its hold colour and 「正在点亮舞台」 out over the cover. Only a stage still
+    // loading ENTRANCE_LOADING_GRACE_MS after an entrance that ended early (failed) gets the plain veil.
+    const loading = !['revealing', 'ready'].includes(loadGate.phase);
+    const [late, setLate] = React.useState(false);
+    React.useEffect(() => {
+        if (!run || active || !loading) return undefined;
+        const timer = setTimeout(() => {if(!disposed)setLate(true);}, ENTRANCE_LOADING_GRACE_MS);
+        return () => clearTimeout(timer);
+    }, [run, active, loading]);
+    const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
+    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
         element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
             onBright: () => {if(!disposed)setBright(Date.now());}}) : null};
 }
 
 // How long a video layer may preload before the timeline starts without it (it joins when it can play).
 const ENTRANCE_VIDEO_WAIT_MS = 2500;
+// An entrance that ended before the stage was ready leaves the bare stage this long before the plain loading veil shows.
+const ENTRANCE_LOADING_GRACE_MS = 300;
 // The skip (every entrance): black fades in over the frozen entrance, holds until the stage is
 // shown under it, then fades out to the stage. CSS opacity transitions, so the compositor keeps them smooth while the reveal
 // loads the main thread; each step follows the veil's own transition end, never a parallel timer (a loaded page started the

@@ -2,11 +2,22 @@
 function createStageHints({React, window, document, storage:forkFrameStorage, music, setTimeout, clearTimeout}) {
 let disposed = false;
 const cleanups = new Set();
+// A touch screen (GAL_TOUCH_QUERY: no hover, coarse pointer) has no keys: the key list is never rendered there, nor marked seen.
+const GAL_TOUCH_QUERY = '(hover: none) and (pointer: coarse)';
+const matchMedia = typeof window.matchMedia === 'function' ? window.matchMedia.bind(window) : null;
+function galTouchOnly() { return Boolean(matchMedia && matchMedia(GAL_TOUCH_QUERY).matches); }
+function galTouchSubscribe(changed) {
+    if (!matchMedia) return () => {};
+    const list = matchMedia(GAL_TOUCH_QUERY);
+    list.addEventListener?.('change', changed);
+    return () => list.removeEventListener?.('change', changed);
+}
 const GAL_KEYS_HINT = 'stage-shortcuts';
 let galSoundHintShown = false;
 function useGalFirstRunHints(visible, rootRef, position) {
     const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
-    const [keys, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
+    const [keyList, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
+    const touch = React.useSyncExternalStore(galTouchSubscribe, galTouchOnly, () => false), keys = keyList && !touch;
     const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
     React.useEffect(function () {
         if (!visible || !store) return undefined;
@@ -45,7 +56,7 @@ function useGalFirstRunHints(visible, rootRef, position) {
         if (shownAt.current !== position) { if (store) store.markSeen(GAL_KEYS_HINT); setKeys(false); }
     }, [keys, position]);
     const showKeys = React.useCallback(() => setKeys(true), []);
-    return React.useMemo(() => ({ keys, sound, showKeys }), [keys, sound, showKeys]);
+    return React.useMemo(() => ({ keys, sound, touch, showKeys }), [keys, sound, touch, showKeys]);
 }
 return {useHints:useGalFirstRunHints, dispose() { if (disposed) return; disposed = true; const errors = []; for (const cleanup of [...cleanups]) { try {cleanup();} catch (error) {errors.push(error);} } cleanups.clear(); if (errors.length) throw new AggregateError(errors, 'Stage hint cleanup failed'); }};
 }

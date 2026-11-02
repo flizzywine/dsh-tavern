@@ -21,21 +21,21 @@ function own(cleanup) {
 // 声音, 手机, 电影模式) live in the top bar, which stands over the open menu.
 // Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd }.
 function galMenuItems(options) {
-    const items = [{ id: "resume", label: "回到舞台", sub: "RESUME", title: "回到舞台（Esc）" }];
+    const items = [{ id: "resume", label: "回到舞台", title: "回到舞台（Esc）" }];
     const controls = new Set(options?.controls || []);
-    items.push({ id: "backlog", label: "履历", sub: "BACKLOG", title: "履历（L / 滚轮向上）" });
-    if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", sub: "AUTO", title: "自动翻页（A）", on: Boolean(options.auto) });
-    if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", sub: "SKIP", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
+    items.push({ id: "backlog", label: "履历", title: "履历（L / 滚轮向上）" });
+    if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", title: "自动翻页（A）", on: Boolean(options.auto) });
+    if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
     // the CG gallery lives here, not as a text button in the control row.
-    items.push({ id: "gallery", label: "回想", sub: "RECOLLECTION", title: "回想（CG 图库）" });
+    items.push({ id: "gallery", label: "回想", title: "回想（CG 图库）" });
     // regeneration is a latest-turn action, not historical editing; an earlier turn offers the way back instead.
-    if (options?.historical) items.push({ id: "latest", label: "跳到最新一轮", sub: "LATEST",
+    if (options?.historical) items.push({ id: "latest", label: "跳到最新一轮",
         note: Number.isInteger(options.latestTurn) && options.latestTurn > 0 ? "第 " + options.latestTurn + " 轮" : "", title: "跳到最新一轮的最新一页" });
-    else items.push({ id: "regenerate", label: "重新生成", sub: "REGENERATE", disabled: Boolean(options?.busy) });
-    items.push({ id: "config", label: "设置", sub: "CONFIG", title: "设置" },
-        // the first-run key list again (useGalFirstRunHints showKeys).
-        { id: "keys", label: "快捷键", sub: "SHORTCUTS", title: "快捷键" },
-        { id: "leave", label: "返回主页面", sub: "TITLE", title: "离开舞台，回到聊天（保留阅读位置）", separated: true });
+    else items.push({ id: "regenerate", label: "重新生成", disabled: Boolean(options?.busy) });
+    items.push({ id: "config", label: "设置", title: "设置" },
+        // the first-run key list again (useGalFirstRunHints showKeys); a touch screen has no keys, so no entry for them.
+        ...(options?.touch ? [] : [{ id: "keys", label: "快捷键", title: "快捷键" }]),
+        { id: "leave", label: "返回主页面", title: "离开舞台，回到聊天（保留阅读位置）", separated: true });
     return items;
 }
 // Roving focus: ↑/↓ and Tab / Shift+Tab wrap (focus stays in the menu), Home / End jump. Other keys: null.
@@ -58,7 +58,7 @@ function useGalMenuDirectorBusy(sessionId, turn) {
     return React.useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }
 
-// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, onClose(),
+// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, onClose(),
 // onAuto(), onSkip(), onBacklog(), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
 // Focus moves to the first item on open and back to the opener on close (not when leaving the stage, which restores
 // its own opener). Esc, right click or a click on the dimmed stage close it; the stage never sees keys typed here.
@@ -72,7 +72,7 @@ function GalMenu(props) {
     const closeRegenerate = () => { if (props.regenerate) props.onClose(); else setRegenerateOpen(false); };
     const [regenerateBusy, setRegenerateBusy] = React.useState(false);
     const items = galMenuItems({ historical: props.historical, latestTurn: props.latestTurn, busy: busy || regenerateBusy, controls: props.controls,
-        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd });
+        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch });
     const [active, setActive] = React.useState(0);
     const refs = React.useRef([]);
     const live = React.useRef(null);
@@ -164,7 +164,6 @@ function GalMenu(props) {
             onPointerMove: () => { if (live.current.active !== index) moveTo(index); } },
             h("i", { className: "fork-gal-menu-gem", "aria-hidden": true }),
             h("b", null, item.label),
-            h("span", { className: "fork-gal-menu-sub", "aria-hidden": true }, item.sub),
             item.note ? h("small", { className: "fork-gal-menu-note" }, item.note) : null));
     });
     // leaving (skin-interface.md §18 E3): the drawn menu's exit motion plays; it no longer takes input.
@@ -177,7 +176,7 @@ function GalMenu(props) {
             h("i", { className: "fork-gal-menu-ornament", "aria-hidden": true }),
             h("i", { className: "fork-gal-menu-frame", "aria-hidden": true }),
             h("div", { className: "fork-gal-menu-head", "aria-hidden": true },
-                h("i", { className: "fork-gal-menu-gem is-title" }), h("b", null, "MENU"), h("span", null, "菜单")),
+                h("i", { className: "fork-gal-menu-gem is-title" }), h("b", null, "菜单")),
             // --n: the item count, for a skin's tile grid (stage-skin-adv.md「art.menu.tiles」: its rows and its fit).
             h("div", { className: "fork-gal-menu-list", role: "presentation", style: { "--n": items.length } }, children),
             // a skin's drawn menu screen carries the title, the focused
