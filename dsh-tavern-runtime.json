@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "401078cea980b8b3994370f5b6e663a999f1d630",
-  "releaseSequence": 1040,
+  "revision": "c07dcf83814e79b0649fb70afb463572efa5878d",
+  "releaseSequence": 1041,
   "version": "3.2.0",
   "files": [
     {
@@ -5206,8 +5206,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/card-material.js",
-      "sha256": "c26f3b8263e25896b755642b16caf0117f312a0685ffad99ce4c63cd47d8282b",
-      "size": 7774
+      "sha256": "d6d486f608f30541d740a7d57c4ffa95ac7f77e23d5e74f211f7e95178d211c1",
+      "size": 7868
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/copied-mouth-debt.js",
@@ -5341,8 +5341,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/service.js",
-      "sha256": "e9278cbdbcc9201ff80cc1d3e7b821caab47c5e6baad2bb2bdb010725fae63b3",
-      "size": 97714
+      "sha256": "5230291d20b2d5634439b77d211cf1d511176586c3fe81a1306567a41f41f780",
+      "size": 97923
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/pack-v2/settings-config.js",
@@ -5486,8 +5486,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/cast-voice.js",
-      "sha256": "a1c042f94d6ad092b9aeb310b532f1d3a15645d3059304aa6503b4f714a1f6f6",
-      "size": 3079
+      "sha256": "c50a24952e2dcf5182a30fb5844280298808c9cd79d5e46b825cff6bd50f43fd",
+      "size": 3232
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/emotion-identity.cjs",
@@ -5786,8 +5786,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/card-material.js",
-      "sha256": "c26f3b8263e25896b755642b16caf0117f312a0685ffad99ce4c63cd47d8282b",
-      "size": 7774
+      "sha256": "d6d486f608f30541d740a7d57c4ffa95ac7f77e23d5e74f211f7e95178d211c1",
+      "size": 7868
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/copied-mouth-debt.js",
@@ -5921,8 +5921,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js",
-      "sha256": "e9278cbdbcc9201ff80cc1d3e7b821caab47c5e6baad2bb2bdb010725fae63b3",
-      "size": 97714
+      "sha256": "5230291d20b2d5634439b77d211cf1d511176586c3fe81a1306567a41f41f780",
+      "size": 97923
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/pack-v2/settings-config.js",
@@ -6066,8 +6066,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/cast-voice.js",
-      "sha256": "a1c042f94d6ad092b9aeb310b532f1d3a15645d3059304aa6503b4f714a1f6f6",
-      "size": 3079
+      "sha256": "c50a24952e2dcf5182a30fb5844280298808c9cd79d5e46b825cff6bd50f43fd",
+      "size": 3232
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/emotion-identity.cjs",
@@ -6381,8 +6381,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/cast-voice.js",
-      "sha256": "b47537ecb946ce4f2c76827b872f25542867fcdda775ff066d117720991f2939",
-      "size": 3008
+      "sha256": "2b77c49e929d360f0cf86144a98f686b701a09773e5fc797ebe121ae96515b8e",
+      "size": 3161
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/config-budget.js",
@@ -8501,9 +8501,9 @@
     }
   ],
   "archive": {
-    "commit": "d89a505cd51ef204a1561300c466e7ba5b7d5dfb",
+    "commit": "288e9d717e185488a4890af25422e1298b0f20a7",
     "path": "runtime.zip",
-    "sha256": "9c8168676da531c3193ca3b03c1da5ef4f862de526b213800c1d8e0ab6658c01",
-    "size": 15065978
+    "sha256": "c60944ea5e0376bc5579e9647839414fa231ea6aa23304c00371ed24b49d8ea3",
+    "size": 15066458
   }
 }
