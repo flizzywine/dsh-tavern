@@ -57,10 +57,10 @@ test('backlog rows draw their replay as the speaker glyph',async()=>{
 
 test('the speaker waves light in sequence only while playing and stand still under reduced motion',()=>{
  const css=fs.readFileSync(new URL('../tavern-plugin/lib/client-assets/theme.css',import.meta.url),'utf8')
- assert.match(css,/\.fork-voice-button\[data-voice-state="playing"\] \.fork-voice-wave \{ animation: fork-voice-wave /)
+ assert.match(css,/\.fork-voice-button\[data-voice-state="playing"\] \[data-fk-layer\] > \.fork-voice-wave \{ animation: fork-voice-wave /)
  assert.match(css,/\.fork-voice-wave\[data-wave="2"\] \{ animation-delay: \.2s; \}/)
  assert.match(css,/\.fork-voice-wave\[data-wave="3"\] \{ animation-delay: \.4s; \}/)
- assert.match(css,/\.fork-gal-stage\[data-reduced-motion\] \.fork-voice-button \.fork-voice-wave \{ animation: none; \}/)
+ assert.match(css,/\.fork-gal-stage\[data-reduced-motion\] \.fork-voice-button \[data-fk-layer\] > \.fork-voice-wave \{ animation: none; \}/)
  // a skin's waves keep its body still: playing shows the idle image, not the active one
  assert.match(css,/\[data-fk-skin-art-voice-waves\]:not\(\.is-film\) \.fork-gal-backlog-name > \.fork-voice-button\[data-voice-state="playing"\] \{ background-image: var\(--art-voice\); \}/)
 })
