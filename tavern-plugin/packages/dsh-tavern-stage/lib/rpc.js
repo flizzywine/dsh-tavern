@@ -172,7 +172,7 @@ return cgGallery.ack(args,authority?.origin)
 
     },
     async getAssetPackPresentation(args, method, serverTemplate, authority) {
-      const { STAGE_PLAYBACK_FIELD, assetEngineSettings, assetRuntime, cgGallery, chatPersistence, deletedChatIds, modService, patchStagePlayback, readRoundOps, readRoundView, readStageProjection, readWidgetWindowProjection, requestPerformance, spineRuntimeAvailable, stageDirector, stageTimer, view } = deps
+      const { STAGE_PLAYBACK_FIELD, assetEngineSettings, assetRuntime, cgGallery, chatPersistence, deletedChatIds, modService, patchStagePlayback, readRoundOps, readRoundView, readStageProjection, readWidgetWindowProjection, requestPerformance, figureRuntimes, stageDirector, stageTimer, view } = deps
 
         if (Object.hasOwn(args,'widgetWindow')) {
           // One turn view per request, naming the earlier rounds whose beats mark this widget: later reads in the same
@@ -196,7 +196,7 @@ return cgGallery.ack(args,authority?.origin)
         }
         // the runtime is the only stage projection consumer.
         // Live2D needs both Core and display; otherwise retain the missing-runtime prompt and static fallback.
-        const live2d = false, spine = await requestPerformance.stage('projection.spine', () => spineRuntimeAvailable())
+        const live2d = await figureRuntimes.available('live2d'), spine = await requestPerformance.stage('projection.spine', () => figureRuntimes.available('spine'))
         const read = () => readRoundView(args.sessionId,args.turn)
         const chat=await requestPerformance.stage('projection.chat', read)
         // A round that binds mod source views (the phone, widget windows) asks next for the marks in its latest 20 rounds:
@@ -466,15 +466,6 @@ return modService.stageViews(str(args?.sessionId),authority)
         stageDirector.cancel({ sessionId: str(args?.sessionId) }, Number(args?.turn))
         return { ok: true }
 
-    },
-    
-    async getSpineRuntimeStatus(args, method, serverTemplate, authority) {
-      const { spineRuntimeStatus } = deps
-return spineRuntimeStatus()
-    },
-    async importSpineRuntime(args, method, serverTemplate, authority) {
-      const { importSpineRuntime } = deps
-return importSpineRuntime(args)
     },
     
     async previewForegroundVoicePlan(args, method, serverTemplate, authority) {

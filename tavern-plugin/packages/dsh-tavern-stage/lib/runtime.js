@@ -4,7 +4,6 @@ import {describeOpeningScenes} from './domain/stage-opening-scene.js'
 import {readStageProjection} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement} from './domain/stage-playback.js'
-import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
 import {stageModHistoryTurns} from './domain/stage-items.js'
 import {registerStageClientAssets} from './client-assets.js'
 import {createForegroundCapabilities} from '../../../lib/domain/foreground-capabilities.js'
@@ -60,7 +59,8 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     requests(bindings, registry) {
       assert('ready')
-      const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,readAudienceCorpus,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,spineRuntimeAvailable,spineRuntimeStatus,importSpineRuntime,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
+      assets.figureRuntimes.bind(registry)
+      const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,readAudienceCorpus,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
       return module.requests(Object.create(bindings,owned),registry)
     },
     async dispose() {phase = 'disposed';await scope.dispose()},

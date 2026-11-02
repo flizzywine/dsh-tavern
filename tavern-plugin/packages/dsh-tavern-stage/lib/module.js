@@ -1,3 +1,5 @@
+import {createFigureRuntimes} from './figure-runtimes.js'
+import {spineRuntimeAvailable, spineRuntimeStatus, importSpineRuntime} from '../../../lib/domain/tavern-runtime-assets.js'
 import {createCardStage, watchFigureBubbleBooks} from './card-stage.js'
 import {modelSlotRows} from '../../../lib/domain/model-slots.js'
 import {createStageWorkflow} from './workflow.js'
@@ -248,6 +250,14 @@ export async function createStageModule(core) {
 // （写卡时让素材运行时失效、模型槽读判断模型），所以单独先建；只通过 `core` 里的几项读卡与解析模型槽。
 export function createStageAssets(core) {
   const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
+  const figureRuntimes = createFigureRuntimes()
+  ctx.effect(() => () => figureRuntimes.dispose())
+  ctx.provide('figureRuntimes', figureRuntimes)
+  figureRuntimes.register('spine', {
+    files:{available:spineRuntimeAvailable,status:spineRuntimeStatus,import:importSpineRuntime},
+    routes:{getSpineRuntimeStatus:(_args,_authority,_template,files) => files.status(),
+      importSpineRuntime:(args,_authority,_template,files) => files.import(args)}
+  })
   const assetEngineSettings = createAssetEngineSettings(ctx)
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
@@ -273,7 +283,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

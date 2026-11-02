@@ -10,7 +10,7 @@ function fixture(){
  let cast;
  const bridge={forget:e=>cast ? cast.forget(e) : (state.figures.get(e.key)===e&&state.figures.delete(e.key)),commit:e=>cast.commit(e)};
  const start=source.indexOf('    function commitFigureReplacement('),end=source.indexOf('    // the runtime loads',start)
- const api=vm.runInNewContext(source.slice(start,end)+';({destroyFigure,commitFigureReplacement})',{state,cast:bridge,AggregateError,console:{warn:(...args)=>warnings.push(args)},releaseTapStills:e=>calls.push(e.key+':tap'),layeredSpriteClearScene:e=>calls.push(e.key+':layers')})
+ const api=vm.runInNewContext(source.slice(start,end)+';({destroyFigure,commitFigureReplacement})',{state,renderers:new Map(),cast:bridge,AggregateError,console:{warn:(...args)=>warnings.push(args)},releaseTapStills:e=>calls.push(e.key+':tap'),layeredSpriteClearScene:e=>calls.push(e.key+':layers')})
  const entry=(key,fail=false)=>{
   const resource=name=>({destroy(){calls.push(key+':'+name);if(fail&&name==='warp')throw Error('GPU cleanup failed')}})
   return {key,warp:resource('warp'),blink:{dispose(){calls.push(key+':blink')}},pose:{dispose(){calls.push(key+':pose')}},appearance:{dispose(){calls.push(key+':appearance')}},figureAsset:resource('asset'),fading:[{asset:resource('fading')}],container:resource('container')}
