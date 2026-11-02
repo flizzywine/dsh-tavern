@@ -1944,6 +1944,7 @@ export async function apply(ctx) {
     tavernExtensionSettings,
     readCardExtensions: (cardPath, chat, settings) => readCardExtensions(cardPath, chat, false, settings),
     readLiveCardStage, stageReadScope, readStageChat,
+    readCardStageMode: cardPath => stageRuntime.assets.cardStageMode(cardPath),
     tavernRemoteAssets,
     liveCardUpdate,
     activityOf: chat => backgroundTasks.activity(chat),
@@ -1998,7 +1999,8 @@ export async function apply(ctx) {
       const paths = new Set([chat.cardPath])
       for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
       const versions = await Promise.all([...paths].map(path => profileData.version('resources/' + path)))
-      return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json')])
+      // The stage runtime state too: view.stage (readCardStageMode) has no stage until the runtime is there.
+      return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json'), stageRuntime.status()])
     },
     readChanges: chatPersistence.readChangedIndices,
     readViewDelta: chatPersistence.readViewDelta,

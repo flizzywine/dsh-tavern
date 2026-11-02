@@ -58,12 +58,15 @@ export async function createOptionalStage(core,{enabled=true,load,onStatus=()=>{
   }
   if(enabled)try {runtime=(await loadImplementation()).createStageRuntime(core);setState('loaded')}catch(error){failed(error)}
   const emptyConfig=()=>normalizeBubbleConfig({enabled:false})
+  // Without a stage runtime no card has dialogue bubbles or the stage mode; the session view publishes this (view.stage).
+  const noStage=Object.freeze({dialogue:false,stage:false})
+  const cardStageMode=(...args)=>runtime ? runtime.assets.cardStageMode(...args) : Promise.resolve(noStage)
   const dialogueBubbles={
     read:(...args)=>runtime ? runtime.assets.dialogueBubbles.read(...args) : Promise.resolve(emptyConfig()),
     snapshot:(...args)=>runtime ? runtime.assets.dialogueBubbles.snapshot(...args) : Promise.resolve({config:emptyConfig(),requireAvailable:emptyConfig}),
     sync:(...args)=>runtime ? runtime.assets.dialogueBubbles.sync(...args) : Promise.resolve()
   }
-  const api = Object.freeze({assets:{dialogueBubbles},enable,disable,
+  const api = Object.freeze({assets:{dialogueBubbles,cardStageMode},enable,disable,
     cards(bindings) {
       phases.set('cards',[bindings])
       if(runtime)try{cards=runtime.cards(bindings)}catch(error){failed(error)}

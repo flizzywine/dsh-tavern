@@ -1,6 +1,7 @@
-window.__ModuleLoader__.load({
-    id: 'dsh-tavern-stage',
-    factory: () => {
+// The stage client is its own ES module, not a row of the host's client combo: the core
+// imports it on demand (src/client/stage-client-loader.cjs) once a session needs the stage
+// and starts it with ctx.plugin(). A card without the stage never downloads or runs this file.
+const stageClientPlugin = (() => {
         __STAGE_NAVIGATION__
         __STAGE_TEXT__
         __STAGE_SPEAKER__
@@ -150,14 +151,18 @@ window.__ModuleLoader__.load({
                 };
                 try {
                     if(!host || typeof host.mount!=='function')throw new Error('Stage host is unavailable');
+                    // Styles arrive after boot: name their owner, or the module loader claims them for
+                    // whichever plugin materializes next and removes them on that plugin's reload.
                     const theme=document.createElement('style');
                     cleanups.push(()=>theme.remove());
+                    theme.dataset.plugin='dsh-tavern-stage';
                     theme.dataset.pluginCss='dsh-tavern-stage/themes.css';
                     theme.textContent=__STAGE_THEME_CSS__;
                     const anchor=document.querySelector('[data-plugin-css="dsh-tavern-plugin/features-after-stage.css"]');
                     document.head.insertBefore(theme,anchor);
                     const style=document.createElement('style');
                     cleanups.push(()=>style.remove());
+                    style.dataset.plugin='dsh-tavern-stage';
                     style.dataset.pluginCss='dsh-tavern-stage/presentation.css';
                     style.textContent=__STAGE_PRESENTATION_CSS__;
                     document.head.appendChild(style);
@@ -265,5 +270,6 @@ window.__ModuleLoader__.load({
             };
             ctx.effect(() => host?.availability ? watchStageAvailability({source:host.availability,activate}) : activate(), 'dsh-tavern-stage: client lifetime');
         }
-    });}
-});
+    });
+})();
+export default stageClientPlugin;

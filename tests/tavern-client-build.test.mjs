@@ -47,6 +47,7 @@ for (const check of [false, true]) {
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/timer-clock.cjs', import.meta.url), path.join(stage, 'timer-clock.cjs'))
     for(const name of ['lifetime.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/'+name,import.meta.url),path.join(stage,name))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
+    await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js', import.meta.url), path.join(stage, '../client-assets.js'))
     await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-kernel.cjs', import.meta.url), path.join(stage, 'runtime-kernel.cjs'))
     await copyFile(new URL('../bin/lib/client-export-guard.mjs', import.meta.url), path.join(root, 'bin/lib/client-export-guard.mjs'))

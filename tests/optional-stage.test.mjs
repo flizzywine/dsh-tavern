@@ -7,6 +7,7 @@ test('disabled stage does not import or initialize its implementation',async()=>
   const stage=await createOptionalStage({}, {enabled:false,load(){assert.fail('stage imported')}})
   assert.equal(stage.status(),'disabled')
   assert.equal((await stage.assets.dialogueBubbles.read('cards/a.json')).enabled,false)
+  assert.deepEqual(await stage.assets.cardStageMode('cards/a.json'),{dialogue:false,stage:false},'no runtime: the session view publishes no stage')
   const foreground=stage.foreground({})
   assert.deepEqual((await foreground.project({},book)).view.entries,[book.view.entries[0]])
   assert.deepEqual(await foreground.preview({}),[])
