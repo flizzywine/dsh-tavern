@@ -83,6 +83,37 @@ function StageSkinButtons({buttons, decor = [], keyCaps, auto, skipping, atEnd, 
         }));
 }
 
-return {SkinButtons:StageSkinButtons};
+// art.decor on the stage: a still print is clipped to the stage and off the controls a reader needs -
+// the folded menu control, the box's control row and the key strip. Each rect it crosses is cut away on the side that keeps
+// the most of the print; returns the cut [top, right, bottom, left] in px of its own box (a clip-path inset).
+const GAL_DECOR_CLEAR = ".fork-gal-menu-fold, .fork-gal-controls, .fork-gal-runtime-keys";
+function galDecorClip(print, stage, avoid) {
+    const cut = [Math.max(0, stage.top - print.top), Math.max(0, print.right - stage.right), Math.max(0, print.bottom - stage.bottom), Math.max(0, stage.left - print.left)];
+    for (const a of avoid) {
+        const top = print.top + cut[0], right = print.right - cut[1], bottom = print.bottom - cut[2], left = print.left + cut[3];
+        if (!(a.left < right && left < a.right && a.top < bottom && top < a.bottom)) continue;
+        // each side's cut that clears the rect, with the area it keeps
+        const sides = [[0, a.bottom - top, (right - left) * (bottom - a.bottom)], [1, right - a.left, (bottom - top) * (a.left - left)],
+            [2, bottom - a.top, (right - left) * (a.top - top)], [3, a.right - left, (bottom - top) * (right - a.right)]];
+        const [side, by] = sides.reduce((best, next) => next[2] > best[2] ? next : best);
+        cut[side] += by;
+    }
+    return cut.map(n => Math.round(n * 10) / 10);
+}
+// Applies galDecorClip to the stage's prints (a print with nothing left hides). Measured on stage resize, skin change and
+// the key strip's toggle (controller.cjs), never per frame; the rects are layout boxes, so a hidden top bar's control counts.
+function galClipStageDecor(root) {
+    const prints = root ? root.querySelectorAll(".fork-stage-skin-decor") : [];
+    if (!prints.length) return;
+    const stage = root.getBoundingClientRect();
+    const avoid = [...root.querySelectorAll(GAL_DECOR_CLEAR)].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height);
+    for (const print of prints) {
+        const r = print.getBoundingClientRect(), cut = galDecorClip(r, stage, avoid);
+        const gone = cut[0] + cut[2] >= r.height || cut[1] + cut[3] >= r.width;
+        print.style.clipPath = cut.some(Boolean) && !gone ? "inset(" + cut.map(n => n + "px").join(" ") + ")" : "";
+        print.style.visibility = gone ? "hidden" : "";
+    }
+}
+return {SkinButtons:StageSkinButtons, decorClip:galDecorClip, clipStageDecor:galClipStageDecor};
 }
 if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSkinButtons};

@@ -3,8 +3,8 @@ function createStageControls() {
 // The stage's real key bindings (the window keydown handler in GalStage, the held Ctrl and galStageShortcut's F12):
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
-// R replays the line's voice.
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'R', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
+// V replays the line's voice.
+const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
 function galShortcuts() { return GAL_SHORTCUTS; }
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).

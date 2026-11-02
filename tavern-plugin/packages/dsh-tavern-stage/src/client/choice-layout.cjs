@@ -43,11 +43,16 @@ function galSnapChoices(list, dpr) {
 // a wide art menu whose words wrap (long suggestions: two-line bars) can be
 // taller than its room even after the gaps close; it then scales once more as one (--art-choice-fit on the list, read by the
 // art-choices --cu in theme.css) until it fits, down to half size, before the list scrolls. Narrow stages (no
-// --art-cu0) keep their own text size and scroll. Returns whether anything changed.
+// --art-cu0) keep their own text size and scroll. Returns whether anything changed. The rows' laid-out boxes are measured,
+// not the scroll height: that counts the rows' transforms too, and the entrance (rows sliding in from ±300cu) shrank the
+// menu to ~0.6 for good, so its size differed between scenes.
 function galFitChoices(list) {
-    if (!list || typeof getComputedStyle !== "function" || !getComputedStyle(list).getPropertyValue("--art-cu0").trim()) return false;
+    const style = list && typeof getComputedStyle === "function" ? getComputedStyle(list) : null;
+    if (!style || !style.getPropertyValue("--art-cu0").trim()) return false;
     const fit = parseFloat(list.style.getPropertyValue("--art-choice-fit")) || 1;
-    const over = list.scrollHeight / Math.max(1, list.clientHeight);
+    let laid = 0;
+    for (const row of list.children || []) laid = Math.max(laid, row.offsetTop + row.offsetHeight);
+    const over = (laid + (parseFloat(style.paddingBottom) || 0)) / Math.max(1, list.clientHeight);
     if (!(over > 1.004) || fit <= .5) return false;
     list.style.setProperty("--art-choice-fit", String(Math.max(.5, Math.floor(fit / over * 0.995 * 1000) / 1000)));
     // The snapped heights were taken at the old size; the next pass snaps the scaled bars again.

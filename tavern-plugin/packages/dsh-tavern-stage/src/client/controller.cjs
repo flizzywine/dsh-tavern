@@ -456,6 +456,20 @@ function GalStage(props) {
     // where each reading action lives on this stage (stageViews.controls.actionHomes) - the control row or the
     // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
     const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
+    // art.decor clipped to the stage and off the menu control, the box's control row and the key strip (galClipStageDecor):
+    // again when the stage or the box resizes (a phone box grows with its lines), the skin changes or the strip toggles.
+    const decorPrints = activeSkin?.resolvedArt?.decor?.length || 0;
+    React.useLayoutEffect(function () {
+        const root = rootRef.current;
+        if (!decorPrints || !root || typeof window.ResizeObserver !== "function") return undefined;
+        let frame = 0;
+        const clip = () => { frame = 0; stageViews.clipStageDecor(root); };
+        const size = new window.ResizeObserver(() => { if (!frame) frame = forkForeground.requestAnimationFrame(clip); });
+        size.observe(root);
+        root.querySelectorAll(":scope > .fork-gal-box").forEach(box => size.observe(box));
+        clip();
+        return () => { size.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); };
+    }, [decorPrints, activeSkin, firstRun.keys, menuFold, page]);
     // the entries' reports - a badge keeps its entry on screen while the top
     // bar hides.
     const entryStore = React.useMemo(createStageEntryStore, []);
@@ -667,7 +681,9 @@ function GalStage(props) {
         if (effect.kind === 'mod-performance' && textcard.accepts(effect.performance)) return textcard.play(effect,{accent:textcardAccent(token.anchor)});
         if (effect.kind === 'mod-performance') return modPerformances.play(effect,token);
         if (effect.kind === 'title') return new Promise(done => setTitle(old => { old?.done?.(); return {text:effect.value,nonce:token.id,done}; }));
-        else if (['act', 'beat', 'emote'].includes(effect.kind)) setShot(old => ({key:turn + ':' + page,n:token.id,
+        // The shot belongs to the token's own page: a forward page turn plays its events inside the same runtime dispatch,
+        // before this component renders the new page (the last render's turn/page is still the page left).
+        else if (['act', 'beat', 'emote'].includes(effect.kind)) setShot(old => ({key:JSON.stringify([token.visitId, token.anchor.paragraphId, token.anchor.offset]),n:token.id,
             acts:effect.kind === 'act' ? {...old.acts,[effect.id]:effect.value} : old.acts,
             effects:effect.kind === 'beat' ? [{...effect,nonce:token.id}] : old.effects,
             emotes:effect.kind === 'emote' ? [{...effect,nonce:token.id}] : old.emotes}));
@@ -729,7 +745,7 @@ function GalStage(props) {
     const callVideo = phoneCall?.video ? phoneCall.video() : null;
     const callView = callVideo ? galCallView(callVideo, packFigureRenderInputs, {skipping, sessionId}) : null;
     const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
-    const shotHere = !awaiting && shot.key === turn + ':' + page;
+    const shotHere = !awaiting && shot.key === (runtime.cursor.anchor ? JSON.stringify([runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '');
     // reserve the full directed cast's slots while individual resources arrive.
     const members = state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -968,7 +984,7 @@ function GalStage(props) {
     const backDisabled = turnIndex <= 0 && page === 0 && card === 0 && !transitioning;
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
-        busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd }, menuActions);
+        busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : ""), "data-theme": theme, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it

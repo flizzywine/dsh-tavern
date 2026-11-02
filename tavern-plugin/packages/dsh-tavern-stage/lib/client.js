@@ -749,21 +749,21 @@ function own(cleanup) {
 // 声音, 手机, 电影模式) live in the top bar, which stands over the open menu.
 // Items in display order. options: { historical, latestTurn, busy, controls, auto, skipping, atEnd }.
 function galMenuItems(options) {
-    const items = [{ id: "resume", label: "回到舞台", sub: "RESUME", title: "回到舞台（Esc）" }];
+    const items = [{ id: "resume", label: "回到舞台", title: "回到舞台（Esc）" }];
     const controls = new Set(options?.controls || []);
-    items.push({ id: "backlog", label: "履历", sub: "BACKLOG", title: "履历（L / 滚轮向上）" });
-    if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", sub: "AUTO", title: "自动翻页（A）", on: Boolean(options.auto) });
-    if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", sub: "SKIP", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
+    items.push({ id: "backlog", label: "履历", title: "履历（L / 滚轮向上）" });
+    if (controls.has("auto")) items.push({ id: "auto", label: options.auto ? "停止自动" : "自动", title: "自动翻页（A）", on: Boolean(options.auto) });
+    if (controls.has("skip")) items.push({ id: "skip", label: options.skipping ? "停止跳过" : "跳过", title: "跳过（按住 Ctrl 快进）", on: Boolean(options.skipping), disabled: Boolean(options.atEnd) && !options.skipping });
     // the CG gallery lives here, not as a text button in the control row.
-    items.push({ id: "gallery", label: "回想", sub: "RECOLLECTION", title: "回想（CG 图库）" });
+    items.push({ id: "gallery", label: "回想", title: "回想（CG 图库）" });
     // regeneration is a latest-turn action, not historical editing; an earlier turn offers the way back instead.
-    if (options?.historical) items.push({ id: "latest", label: "跳到最新一轮", sub: "LATEST",
+    if (options?.historical) items.push({ id: "latest", label: "跳到最新一轮",
         note: Number.isInteger(options.latestTurn) && options.latestTurn > 0 ? "第 " + options.latestTurn + " 轮" : "", title: "跳到最新一轮的最新一页" });
-    else items.push({ id: "regenerate", label: "重新生成", sub: "REGENERATE", disabled: Boolean(options?.busy) });
-    items.push({ id: "config", label: "设置", sub: "CONFIG", title: "设置" },
-        // the first-run key list again (useGalFirstRunHints showKeys).
-        { id: "keys", label: "快捷键", sub: "SHORTCUTS", title: "快捷键" },
-        { id: "leave", label: "返回主页面", sub: "TITLE", title: "离开舞台，回到聊天（保留阅读位置）", separated: true });
+    else items.push({ id: "regenerate", label: "重新生成", disabled: Boolean(options?.busy) });
+    items.push({ id: "config", label: "设置", title: "设置" },
+        // the first-run key list again (useGalFirstRunHints showKeys); a touch screen has no keys, so no entry for them.
+        ...(options?.touch ? [] : [{ id: "keys", label: "快捷键", title: "快捷键" }]),
+        { id: "leave", label: "返回主页面", title: "离开舞台，回到聊天（保留阅读位置）", separated: true });
     return items;
 }
 // Roving focus: ↑/↓ and Tab / Shift+Tab wrap (focus stays in the menu), Home / End jump. Other keys: null.
@@ -786,7 +786,7 @@ function useGalMenuDirectorBusy(sessionId, turn) {
     return React.useSyncExternalStore(selection.subscribe, selection.getSnapshot, selection.getSnapshot);
 }
 
-// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, onClose(),
+// props: { sessionId, Regenerate, busy, historical, latestTurn, controls, auto, skipping, atEnd, touch, onClose(),
 // onAuto(), onSkip(), onBacklog(), onGallery(), onConfig(), onKeys(), onLatest(), onLeave() }.
 // Focus moves to the first item on open and back to the opener on close (not when leaving the stage, which restores
 // its own opener). Esc, right click or a click on the dimmed stage close it; the stage never sees keys typed here.
@@ -800,7 +800,7 @@ function GalMenu(props) {
     const closeRegenerate = () => { if (props.regenerate) props.onClose(); else setRegenerateOpen(false); };
     const [regenerateBusy, setRegenerateBusy] = React.useState(false);
     const items = galMenuItems({ historical: props.historical, latestTurn: props.latestTurn, busy: busy || regenerateBusy, controls: props.controls,
-        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd });
+        auto: props.auto, skipping: props.skipping, atEnd: props.atEnd, touch: props.touch });
     const [active, setActive] = React.useState(0);
     const refs = React.useRef([]);
     const live = React.useRef(null);
@@ -892,7 +892,6 @@ function GalMenu(props) {
             onPointerMove: () => { if (live.current.active !== index) moveTo(index); } },
             h("i", { className: "fork-gal-menu-gem", "aria-hidden": true }),
             h("b", null, item.label),
-            h("span", { className: "fork-gal-menu-sub", "aria-hidden": true }, item.sub),
             item.note ? h("small", { className: "fork-gal-menu-note" }, item.note) : null));
     });
     // leaving (skin-interface.md §18 E3): the drawn menu's exit motion plays; it no longer takes input.
@@ -905,7 +904,7 @@ function GalMenu(props) {
             h("i", { className: "fork-gal-menu-ornament", "aria-hidden": true }),
             h("i", { className: "fork-gal-menu-frame", "aria-hidden": true }),
             h("div", { className: "fork-gal-menu-head", "aria-hidden": true },
-                h("i", { className: "fork-gal-menu-gem is-title" }), h("b", null, "MENU"), h("span", null, "菜单")),
+                h("i", { className: "fork-gal-menu-gem is-title" }), h("b", null, "菜单")),
             // --n: the item count, for a skin's tile grid (stage-skin-adv.md「art.menu.tiles」: its rows and its fit).
             h("div", { className: "fork-gal-menu-list", role: "presentation", style: { "--n": items.length } }, children),
             // a skin's drawn menu screen carries the title, the focused
@@ -1721,7 +1720,38 @@ function StageSkinButtons({buttons, decor = [], keyCaps, auto, skipping, atEnd, 
         }));
 }
 
-return {SkinButtons:StageSkinButtons};
+// art.decor on the stage: a still print is clipped to the stage and off the controls a reader needs -
+// the folded menu control, the box's control row and the key strip. Each rect it crosses is cut away on the side that keeps
+// the most of the print; returns the cut [top, right, bottom, left] in px of its own box (a clip-path inset).
+const GAL_DECOR_CLEAR = ".fork-gal-menu-fold, .fork-gal-controls, .fork-gal-runtime-keys";
+function galDecorClip(print, stage, avoid) {
+    const cut = [Math.max(0, stage.top - print.top), Math.max(0, print.right - stage.right), Math.max(0, print.bottom - stage.bottom), Math.max(0, stage.left - print.left)];
+    for (const a of avoid) {
+        const top = print.top + cut[0], right = print.right - cut[1], bottom = print.bottom - cut[2], left = print.left + cut[3];
+        if (!(a.left < right && left < a.right && a.top < bottom && top < a.bottom)) continue;
+        // each side's cut that clears the rect, with the area it keeps
+        const sides = [[0, a.bottom - top, (right - left) * (bottom - a.bottom)], [1, right - a.left, (bottom - top) * (a.left - left)],
+            [2, bottom - a.top, (right - left) * (a.top - top)], [3, a.right - left, (bottom - top) * (right - a.right)]];
+        const [side, by] = sides.reduce((best, next) => next[2] > best[2] ? next : best);
+        cut[side] += by;
+    }
+    return cut.map(n => Math.round(n * 10) / 10);
+}
+// Applies galDecorClip to the stage's prints (a print with nothing left hides). Measured on stage resize, skin change and
+// the key strip's toggle (controller.cjs), never per frame; the rects are layout boxes, so a hidden top bar's control counts.
+function galClipStageDecor(root) {
+    const prints = root ? root.querySelectorAll(".fork-stage-skin-decor") : [];
+    if (!prints.length) return;
+    const stage = root.getBoundingClientRect();
+    const avoid = [...root.querySelectorAll(GAL_DECOR_CLEAR)].map(node => node.getBoundingClientRect()).filter(r => r.width && r.height);
+    for (const print of prints) {
+        const r = print.getBoundingClientRect(), cut = galDecorClip(r, stage, avoid);
+        const gone = cut[0] + cut[2] >= r.height || cut[1] + cut[3] >= r.width;
+        print.style.clipPath = cut.some(Boolean) && !gone ? "inset(" + cut.map(n => n + "px").join(" ") + ")" : "";
+        print.style.visibility = gone ? "hidden" : "";
+    }
+}
+return {SkinButtons:StageSkinButtons, decorClip:galDecorClip, clipStageDecor:galClipStageDecor};
 }
 if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSkinButtons};
 
@@ -1730,8 +1760,8 @@ function createStageControls() {
 // The stage's real key bindings (the window keydown handler in GalStage, the held Ctrl and galStageShortcut's F12):
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
-// R replays the line's voice.
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'R', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
+// V replays the line's voice.
+const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
 function galShortcuts() { return GAL_SHORTCUTS; }
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
@@ -2022,11 +2052,22 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
 function createStageHints({React, window, document, storage:forkFrameStorage, music, setTimeout, clearTimeout}) {
 let disposed = false;
 const cleanups = new Set();
+// A touch screen (GAL_TOUCH_QUERY: no hover, coarse pointer) has no keys: the key list is never rendered there, nor marked seen.
+const GAL_TOUCH_QUERY = '(hover: none) and (pointer: coarse)';
+const matchMedia = typeof window.matchMedia === 'function' ? window.matchMedia.bind(window) : null;
+function galTouchOnly() { return Boolean(matchMedia && matchMedia(GAL_TOUCH_QUERY).matches); }
+function galTouchSubscribe(changed) {
+    if (!matchMedia) return () => {};
+    const list = matchMedia(GAL_TOUCH_QUERY);
+    list.addEventListener?.('change', changed);
+    return () => list.removeEventListener?.('change', changed);
+}
 const GAL_KEYS_HINT = 'stage-shortcuts';
 let galSoundHintShown = false;
 function useGalFirstRunHints(visible, rootRef, position) {
     const store = typeof forkFrameStorage === 'object' && forkFrameStorage && typeof forkFrameStorage.seen === 'function' ? forkFrameStorage : null;
-    const [keys, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
+    const [keyList, setKeys] = React.useState(false), [soundGone, setSoundGone] = React.useState(galSoundHintShown);
+    const touch = React.useSyncExternalStore(galTouchSubscribe, galTouchOnly, () => false), keys = keyList && !touch;
     const blocked = React.useSyncExternalStore(music.subscribeBlocked, music.blocked, () => false);
     React.useEffect(function () {
         if (!visible || !store) return undefined;
@@ -2065,7 +2106,7 @@ function useGalFirstRunHints(visible, rootRef, position) {
         if (shownAt.current !== position) { if (store) store.markSeen(GAL_KEYS_HINT); setKeys(false); }
     }, [keys, position]);
     const showKeys = React.useCallback(() => setKeys(true), []);
-    return React.useMemo(() => ({ keys, sound, showKeys }), [keys, sound, showKeys]);
+    return React.useMemo(() => ({ keys, sound, touch, showKeys }), [keys, sound, touch, showKeys]);
 }
 return {useHints:useGalFirstRunHints, dispose() { if (disposed) return; disposed = true; const errors = []; for (const cleanup of [...cleanups]) { try {cleanup();} catch (error) {errors.push(error);} } cleanups.clear(); if (errors.length) throw new AggregateError(errors, 'Stage hint cleanup failed'); }};
 }
@@ -2492,7 +2533,7 @@ function GalHudLabels(props) {
 }
 
 // Name plate of the text box: the name (classic: 【名字】 unless in film mode), the mood tag (other themes) and,
-// only when the line is voiced, a small replay button right after the name (R does the same).
+// only when the line is voiced, a small replay button right after the name (V does the same).
 // props: { name, mood, classic, film, voiceState ("" | ready | loading | playing | paused | error), voiceError, onReplay() }.
 // a name as [family lead, family rest, given lead, given rest] - the
 // given name is the longest of the figure's other names (aliases) that ends the name; without one the name is all family.
@@ -2531,8 +2572,10 @@ function GalNamePlate(props) {
                 const vertical = style.writingMode.startsWith("vertical");
                 const extent = vertical ? "height" : "width";
                 const padding = vertical ? parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) : parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-                // the run against the box on screen (a ratio: a transform scales both), the padding against its layout size
-                const [shown, layout] = size();
+                // the run against the box on screen (a ratio: a transform scales both), the padding against its layout size in
+                // fractional px (offsetWidth rounds: a short name that fits read 0.2% over and was set smaller)
+                const shown = size()[0], content = parseFloat(style[extent]);
+                const layout = style.boxSizing === "border-box" ? content : content + padding;
                 const over = range.getBoundingClientRect()[extent] / Math.max(1, shown) + padding / Math.max(1, layout);
                 if (over <= 1.001) break;
                 scale = Math.max(.6, Math.floor(1000 * scale / over - 10) / 1000);
@@ -2549,7 +2592,7 @@ function GalNamePlate(props) {
     }, [props.name, state]);
     const reason = {VOICE_NOT_FOUND:"声音绑定未解析，请重新选择该人物的声音","voice-unbound":"声音绑定未解析，请重新选择该人物的声音",QWEN_MODEL_NOT_FOUND:"Qwen 配音模型不存在，请在声音预设中选择服务当前提供的模型",QWEN_AUDIO_NOT_FOUND:"Qwen 合成音频下载失败（404），请重试",QWEN_RESOURCE_NOT_FOUND:"Qwen 语音服务资源不存在（404），请检查区域、模型与音色",FISH_AUTH_FAILED:"Fish Audio 密钥无效（401）",FISH_BILLING_REQUIRED:"Fish Audio 额度或余额不足（402），未切换付费模型",FISH_RATE_LIMITED:"Fish Audio 请求受限（429），请稍后重试",FISH_REQUEST_FAILED:"Fish Audio 请求失败，请检查声音模型 ID 与服务状态",QWEN_BILLING_REQUIRED:"千问额度或账户余额不足，请检查阿里云用量与账单",QWEN_AUTH_FAILED:"千问密钥无效",QWEN_RATE_LIMITED:"千问请求过于频繁或达到限额",QWEN_ACCESS_DENIED:"千问访问被拒绝，请检查模型权限与账户状态",QWEN_REQUEST_FAILED:"千问服务请求失败",SERVICE_OFFLINE:"配音服务暂时不可用",TIMEOUT:"配音请求超时"}[props.voiceError] || props.voiceError || "配音服务暂时不可用";
     const label = state === "error" ? "配音失败：" + reason + "；点击重试" : state === "loading" ? "语音准备中" : "重播这一句";
-    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（R）", "aria-label": label, "aria-keyshortcuts": "R",
+    const voice = state ? h("button", { type: "button", className: "fork-gal-voice", "data-state": state, title: state === "loading" ? label : label + "（V）", "aria-label": label, "aria-keyshortcuts": "V",
         onClick: event => { event.stopPropagation(); props.onReplay(); },
         // Enter / Space activate the focused button instead of turning the page (the stage listens on window).
         onKeyDown: event => { if (event.key === "Enter" || event.key === " ") event.stopPropagation(); } }, state === "error" ? "⚠ 配音" : h(Icon, { name: "speaker", size: 14 })) : null;
@@ -10364,7 +10407,7 @@ function attach(read,send){
                 send({type:'menu'});
             }
             else if (letter === "h") send({type:'hidden',value:!hidden});
-            else if (letter === "r") send({type:'replay'});
+            else if (letter === "v") send({type:'replay'});
             // G presses the turn-end menu's 重新生成 (the badge on the 自由输入 row,
             // gal-choices.js) - only while it is shown and can act, so the key follows the control's own rule.
             else if (letter === "g") { if (controls.pressRegenerate(root)) event.preventDefault(); }
@@ -13934,6 +13977,20 @@ function GalStage(props) {
     // where each reading action lives on this stage (stageViews.controls.actionHomes) - the control row or the
     // folded menu control, the skin's drawn buttons, and the Esc menu rows for what has no home on screen.
     const homes = stageViews.controls.actionHomes(activeSkin, narrow), menuFold = homes.fold;
+    // art.decor clipped to the stage and off the menu control, the box's control row and the key strip (galClipStageDecor):
+    // again when the stage or the box resizes (a phone box grows with its lines), the skin changes or the strip toggles.
+    const decorPrints = activeSkin?.resolvedArt?.decor?.length || 0;
+    React.useLayoutEffect(function () {
+        const root = rootRef.current;
+        if (!decorPrints || !root || typeof window.ResizeObserver !== "function") return undefined;
+        let frame = 0;
+        const clip = () => { frame = 0; stageViews.clipStageDecor(root); };
+        const size = new window.ResizeObserver(() => { if (!frame) frame = forkForeground.requestAnimationFrame(clip); });
+        size.observe(root);
+        root.querySelectorAll(":scope > .fork-gal-box").forEach(box => size.observe(box));
+        clip();
+        return () => { size.disconnect(); if (frame) forkForeground.cancelAnimationFrame(frame); };
+    }, [decorPrints, activeSkin, firstRun.keys, menuFold, page]);
     // the entries' reports - a badge keeps its entry on screen while the top
     // bar hides.
     const entryStore = React.useMemo(createStageEntryStore, []);
@@ -14145,7 +14202,9 @@ function GalStage(props) {
         if (effect.kind === 'mod-performance' && textcard.accepts(effect.performance)) return textcard.play(effect,{accent:textcardAccent(token.anchor)});
         if (effect.kind === 'mod-performance') return modPerformances.play(effect,token);
         if (effect.kind === 'title') return new Promise(done => setTitle(old => { old?.done?.(); return {text:effect.value,nonce:token.id,done}; }));
-        else if (['act', 'beat', 'emote'].includes(effect.kind)) setShot(old => ({key:turn + ':' + page,n:token.id,
+        // The shot belongs to the token's own page: a forward page turn plays its events inside the same runtime dispatch,
+        // before this component renders the new page (the last render's turn/page is still the page left).
+        else if (['act', 'beat', 'emote'].includes(effect.kind)) setShot(old => ({key:JSON.stringify([token.visitId, token.anchor.paragraphId, token.anchor.offset]),n:token.id,
             acts:effect.kind === 'act' ? {...old.acts,[effect.id]:effect.value} : old.acts,
             effects:effect.kind === 'beat' ? [{...effect,nonce:token.id}] : old.effects,
             emotes:effect.kind === 'emote' ? [{...effect,nonce:token.id}] : old.emotes}));
@@ -14207,7 +14266,7 @@ function GalStage(props) {
     const callVideo = phoneCall?.video ? phoneCall.video() : null;
     const callView = callVideo ? galCallView(callVideo, packFigureRenderInputs, {skipping, sessionId}) : null;
     const renderInputs = stageViews.speaker.voiceInputs(pack.characters, {audio,speaker,skipping,turn,page,sessionId,phoneVoice,callAudio,phoneCallKey});
-    const shotHere = !awaiting && shot.key === turn + ':' + page;
+    const shotHere = !awaiting && shot.key === (runtime.cursor.anchor ? JSON.stringify([runtime.cursor.visitId, runtime.cursor.anchor.paragraphId, runtime.cursor.anchor.offset]) : '');
     // reserve the full directed cast's slots while individual resources arrive.
     const members = state ? stageViews.speaker.members(state).filter(member => !!renderInputs.get(member.id)?.stage) : [];
     const xs = Object.fromEntries(members.map(member => [member.id,member.x]));
@@ -14446,7 +14505,7 @@ function GalStage(props) {
     const backDisabled = turnIndex <= 0 && page === 0 && card === 0 && !transitioning;
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
-        busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd }, menuActions);
+        busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch }, menuActions);
     return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : ""), "data-theme": theme, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
@@ -18412,11 +18471,16 @@ function galSnapChoices(list, dpr) {
 // a wide art menu whose words wrap (long suggestions: two-line bars) can be
 // taller than its room even after the gaps close; it then scales once more as one (--art-choice-fit on the list, read by the
 // art-choices --cu in theme.css) until it fits, down to half size, before the list scrolls. Narrow stages (no
-// --art-cu0) keep their own text size and scroll. Returns whether anything changed.
+// --art-cu0) keep their own text size and scroll. Returns whether anything changed. The rows' laid-out boxes are measured,
+// not the scroll height: that counts the rows' transforms too, and the entrance (rows sliding in from ±300cu) shrank the
+// menu to ~0.6 for good, so its size differed between scenes.
 function galFitChoices(list) {
-    if (!list || typeof getComputedStyle !== "function" || !getComputedStyle(list).getPropertyValue("--art-cu0").trim()) return false;
+    const style = list && typeof getComputedStyle === "function" ? getComputedStyle(list) : null;
+    if (!style || !style.getPropertyValue("--art-cu0").trim()) return false;
     const fit = parseFloat(list.style.getPropertyValue("--art-choice-fit")) || 1;
-    const over = list.scrollHeight / Math.max(1, list.clientHeight);
+    let laid = 0;
+    for (const row of list.children || []) laid = Math.max(laid, row.offsetTop + row.offsetHeight);
+    const over = (laid + (parseFloat(style.paddingBottom) || 0)) / Math.max(1, list.clientHeight);
     if (!(over > 1.004) || fit <= .5) return false;
     list.style.setProperty("--art-choice-fit", String(Math.max(.5, Math.floor(fit / over * 0.995 * 1000) / 1000)));
     // The snapped heights were taken at the old size; the next pass snaps the scaled bars again.
@@ -19474,14 +19538,26 @@ function useStageEntrance(store, entrance, loadGate) {
     }, [run]);
     const hidden = active && !status.covered;
     const gate = hidden ? {...loadGate, phase: loadGate.phase === 'pending' ? 'pending' : 'loading', visible: false} : loadGate;
-    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined,
-        overlay: active && !status.covered ? {loadPhase: loadGate.phase, bright: !!bright} : null,
+    // The veil keeps its entrance form (only the progress line, hidden once loaded) from the cover on and after the entrance:
+    // turning back into the plain veil would fade its hold colour and 「正在点亮舞台」 out over the cover. Only a stage still
+    // loading ENTRANCE_LOADING_GRACE_MS after an entrance that ended early (failed) gets the plain veil.
+    const loading = !['revealing', 'ready'].includes(loadGate.phase);
+    const [late, setLate] = React.useState(false);
+    React.useEffect(() => {
+        if (!run || active || !loading) return undefined;
+        const timer = setTimeout(() => {if(!disposed)setLate(true);}, ENTRANCE_LOADING_GRACE_MS);
+        return () => clearTimeout(timer);
+    }, [run, active, loading]);
+    const overlay = !run || late && !active ? null : {loadPhase: hidden ? loadGate.phase : 'ended', bright: hidden && !!bright};
+    return {gate, active, stageAttr: active ? status.covered ? 'covered' : 'playing' : undefined, overlay,
         element: active ? React.createElement(StageEntrance, {key: 'entrance', run, ready, covered: status.covered, started: status.started, onEvent,
             onBright: () => {if(!disposed)setBright(Date.now());}}) : null};
 }
 
 // How long a video layer may preload before the timeline starts without it (it joins when it can play).
 const ENTRANCE_VIDEO_WAIT_MS = 2500;
+// An entrance that ended before the stage was ready leaves the bare stage this long before the plain loading veil shows.
+const ENTRANCE_LOADING_GRACE_MS = 300;
 // The skip (every entrance): black fades in over the frozen entrance, holds until the stage is
 // shown under it, then fades out to the stage. CSS opacity transitions, so the compositor keeps them smooth while the reveal
 // loads the main thread; each step follows the veil's own transition end, never a parallel timer (a loaded page started the
