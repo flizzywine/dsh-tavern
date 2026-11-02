@@ -888,6 +888,16 @@
 				} }));
 		}
 
+		function MobileComposerStatsToggle() {
+			const [open, setOpen] = React.useState(false);
+			const label = open ? "收起运行信息" : "展开运行信息";
+			return React.createElement("button", {
+				type: "button", className: "dsh-tavern-mobile-stats-toggle",
+				"aria-label": label, title: label, "aria-expanded": open,
+				onClick: function () { setOpen(!open); }
+			}, React.createElement("span", { "aria-hidden": "true", className: "dsh-tavern-mobile-stats-glyph" }, "⌃"));
+		}
+
 		function CandidateDockActions(props) {
 			const address = props.sessions && props.sessions.subagentAddress(props.sessionId);
 			const ownerSessionId = address ? address.parentSessionId : props.sessionId;
@@ -904,12 +914,13 @@
 				!compacting && live.view.contextCompaction.warning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
 					rpc("dismissCompactionWarning", { sessionId: ownerSessionId }, ownerSessionId).then(function () { liveTavernView.invalidate(ownerSessionId); }, function (error) { tavernErrorHub.report("关闭压缩提示", error); });
 				} }, "×") : null) : null;
-			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId })) : null;
+			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId }), h(MobileComposerStatsToggle)) : null;
 			return h("div", { className: "dsh-tavern-dock-actions",
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
 				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
 				isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
 				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
+				React.createElement(MobileComposerStatsToggle),
                 compactionStatus
 			);
 		}

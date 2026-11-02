@@ -1884,4 +1884,14 @@ button[aria-label*="子智能体"]::before {
   text-decoration-thickness: 1px;
 }
 
+/* 移动端把宿主实时状态折叠到操作行末尾；桌面继续显示完整状态。 */
+@media (max-width: 1023px), (pointer: coarse) {
+  .dsh-tavern-dock-actions { gap: 14px !important; padding: 4px 12px !important; }
+  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger { min-height: 44px !important; padding: 8px 0 !important; }
+  .dsh-tavern-dock-actions .dsh-tavern-mobile-stats-toggle {
+    min-height: 44px !important; padding: 0 !important; border: 0 !important;
+    background: var(--paper, var(--dsw-specific-sidebar-fill)) !important; color: var(--text-muted) !important;
+  }
+}
+
 
