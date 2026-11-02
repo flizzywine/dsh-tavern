@@ -46,7 +46,8 @@ test('native: one-shot runs of one conversation continue its session; a closed c
   const runtime = await createBackgroundNativeRuntime(process.env.DSH_BOOT_MODULE)
   t.after(() => runtime.dispose())
   const run = (marker, conversation) => runtime.runBackground({sessionId:'scene-parent', task:'stage-director', persistent:false,
-    selection:{provider:'scene-fixture', model:'fixture-text'}, system:'Fixture director.', tools:[], conversation,
+    selection:{provider:'scene-fixture', model:'fixture-text'}, system:'Fixture director.', conversation,
+    tools:[{name:'stage_update', description:'Fixture submission.', parameters:{type:'object', properties:{}}}], onToolCall:async () => '{"ok":true}',
     messages:[{role:'user', content:[{type:'text', text:marker}]}]})
   const token = runtime.conversation()
   const first = await run('Window one marker', token)
