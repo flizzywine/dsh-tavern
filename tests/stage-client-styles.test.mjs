@@ -17,7 +17,7 @@ test('stage theme retains its cascade position and all stage styles leave on unl
   install(document,'base',['before','after'])
   let stop
   const plugin = await loadStageClientPlugin({document,window:{}})
-  plugin.apply({provide() {},get:() => ({mount:() => () => {}}),effect:run => {stop=run()}})
+  plugin.apply({provide(){},get:() => ({registrations:[]}),effect:run => {stop=run()}})
   assert.deepEqual(nodes.map(node => node.dataset.pluginCss),[
     'dsh-tavern-plugin/tavern.css','dsh-tavern-plugin/features.css',
     'dsh-tavern-stage/themes.css','dsh-tavern-plugin/features-after-stage.css','dsh-tavern-stage/presentation.css'

@@ -1102,12 +1102,6 @@ window.__ModuleLoader__.load({
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
-            const stageClientEntry = createStageClientEntry({
-                startLifetime: startStageClientLifetime,
-                install: stageRegistrations,
-                report: error => tavernErrorHub.report("舞台", error)
-            });
-            ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
             // The stage client is downloaded and started only for a session whose card has the stage on
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
@@ -1117,7 +1111,8 @@ window.__ModuleLoader__.load({
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)
             });
-            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, mount: stageClientEntry.mount, sessionInputs: () => stageSessionInputs(ctx)}));
+            // registrations: what the stage client runs, as one owned lifetime, each time it mounts (dsh-tavern-stage entry.js).
+            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx)}));
             ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;

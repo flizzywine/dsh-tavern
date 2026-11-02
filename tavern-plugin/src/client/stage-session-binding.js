@@ -4,8 +4,6 @@
 // @include-protocol performance-timeline.cjs
 // @include mod-projection.cjs
 // @include phone-beat.cjs
-// @include-stage lifetime.cjs
-// @include-stage entry.cjs
 // @include stage-runtime.cjs
 // @include stage-page-index.cjs
 // @include stage-resources.cjs

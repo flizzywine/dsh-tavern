@@ -54309,72 +54309,6 @@ function phoneModAutoVoiceAllowed(direction,para,directorEnabled) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports={phoneModBeat,phoneModRun,phoneModAutoVoiceAllowed};
 'use strict';
 
-// Register each resource immediately, so a later startup failure can unwind it.
-function startStageClientLifetime(start) {
-    const cleanups = [];
-    let active = true;
-    const dispose = () => {
-        if (!active) return;
-        active = false;
-        const errors = [];
-        for (const cleanup of cleanups.splice(0).reverse()) {
-            try { cleanup(); } catch (error) { errors.push(error); }
-        }
-        if (errors.length) throw new AggregateError(errors, 'Stage client cleanup failed');
-    };
-    const own = cleanup => {
-        if (typeof cleanup !== 'function') throw new TypeError('Stage cleanup must be a function');
-        if (active) cleanups.push(cleanup);
-        else cleanup();
-        return cleanup;
-    };
-    try { start({own, active: () => active}); }
-    catch (error) {
-        try { dispose(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Stage client startup failed'); }
-        throw error;
-    }
-    return dispose;
-}
-
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {startStageClientLifetime};
-'use strict';
-
-function createStageClientEntry({startLifetime, install, report}) {
-    let mounted = null, disposed = false;
-    return Object.freeze({
-        mount(input) {
-            if (disposed) throw new Error('Stage client host is disposed');
-            if (mounted) throw new Error('Stage client is already mounted');
-            const token = {};
-            mounted = token;
-            try {
-                const stop = startLifetime(({own}) => {
-                    for (const run of install) {
-                        if (disposed) throw new Error('Stage client host is disposed');
-                        const cleanup = run(input);
-                        if (cleanup) own(cleanup);
-                        if (disposed) throw new Error('Stage client host is disposed');
-                    }
-                });
-                token.stop = () => {
-                    if (mounted !== token) return;
-                    mounted = null;
-                    stop();
-                };
-                return token.stop;
-            } catch (error) {
-                mounted = null;
-                report?.(error);
-                throw error;
-            }
-        },
-        dispose() {disposed = true; mounted?.stop();}
-    });
-}
-
-if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientEntry};
-'use strict';
-
 // Temporary UI delegates; the browser state machine is owned by the stage package.
 const stageRuntimeNode = typeof module !== 'undefined' && typeof window === 'undefined' ? (() => {
 const stageRuntimeFactory = typeof module !== 'undefined' && typeof window === 'undefined'
@@ -56260,12 +56194,6 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
             // Host shortcuts and exit registration; the plugin starts its own session runtime.
             stageEffect(() => galStageShortcut(ctx), "dsh-tavern: stage keyboard shortcut");
             stageEffect(() => galStageLifetime(), "dsh-tavern: stage visibility lifetime");
-            const stageClientEntry = createStageClientEntry({
-                startLifetime: startStageClientLifetime,
-                install: stageRegistrations,
-                report: error => tavernErrorHub.report("舞台", error)
-            });
-            ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
             // The stage client is downloaded and started only for a session whose card has the stage on
             // (view.stage, host-decided); availability = server stage ready and such a session is open.
             const stageClientLoader = createStageClientLoader({
@@ -56275,7 +56203,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                 install: plugin => ctx.plugin(plugin),
                 report: error => tavernErrorHub.report("舞台", error)
             });
-            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, mount: stageClientEntry.mount, sessionInputs: () => stageSessionInputs(ctx)}));
+            // registrations: what the stage client runs, as one owned lifetime, each time it mounts (dsh-tavern-stage entry.js).
+            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, registrations: stageRegistrations, report: error => tavernErrorHub.report("舞台", error), sessionInputs: () => stageSessionInputs(ctx)}));
             ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
