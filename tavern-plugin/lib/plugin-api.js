@@ -560,6 +560,15 @@ export function createTavernPluginApi(deps) {
       return register.call(this, imageProviders, key, entry, 'tavern.imageProvider()', '生图渠道 ' + id + ' 已注册')
     },
 
+    // Draw one picture on the channel the image plugin offers (tavern.imageProvider), the one Tavern's asset pictures use:
+    // { prompt, width, height, background?, quality?, references?: [{ data, mediaType }] (PNG/JPEG/WebP, ≤ 8 MiB each),
+    // signal? } → { data, mediaType }. Shares their limit of four in flight. Errors carry code NOT_CONFIGURED /
+    // UNSUPPORTED_CHANNEL / INVALID_ARGUMENT / BUSY / GENERATION_FAILED; mayHaveCharged === true when a request went out.
+    async generateImage(input = {}) {
+      if (!deps.generateImage) throw Object.assign(new Error('当前版本不支持生图'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      return await deps.generateImage(input)
+    },
+
     // Say a line in its voice through the voice service: { url, mediaType }, or null when there is no voice service,
     // the voice is the browser's own, or narration is off.
     async synthesizeSpeech({ gameId, speaker, text, emotion, narration } = {}) {

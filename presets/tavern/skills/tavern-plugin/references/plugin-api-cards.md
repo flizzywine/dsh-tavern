@@ -213,3 +213,19 @@ ctx.tavern.speechProvider({
 ### `synthesizeSpeech({ gameId, speaker, text, emotion?, narration? })`
 
 用玩家选的渠道和这个人物的声音合成一句，返回 `{ url, mediaType }`，`url` 可以直接交给 `<audio>`。配音关闭、渠道是浏览器朗读（声音在浏览器里合成，宿主侧拿不到音频）、或旁白没有设声音时返回 `null`。`narration: true` 表示旁白，用旁白声音。适合做自己的播放界面、把语音挂进媒体项；只想在浏览器里播放时用 `tavernUi.speak` 更省事。
+
+### `generateImage({ prompt, width, height, background?, quality?, references?, signal? })`
+
+用配图插件给 Tavern 的生图渠道（`imageProvider`，和素材库生图是同一个）画一张图，返回 `{ data, mediaType }`（`data` 是 Uint8Array）。
+
+```js
+const { data, mediaType } = await ctx.tavern.generateImage({
+  prompt: '傍晃的教室，窗外有樱花', width: 1536, height: 1024,
+  background: 'opaque', quality: 'medium',                 // 可省略，默认 auto
+  references: [{ data: pngBytes, mediaType: 'image/png' }] // 可省略；PNG/JPEG/WebP，每张至多 8 MiB
+})
+```
+
+- 参考图至多 4 张，且不超过渠道自己的上限；`background` 为 `auto`/`transparent`/`opaque`，`quality` 为 `auto`/`low`/`medium`/`high`。
+- 与素材库生图共用「同时至多四张」的限制；不重试、不缓存，一次调用就是一次请求。
+- 出错时错误带 `code`：`NOT_CONFIGURED`（没有配图插件或渠道没配好）、`UNSUPPORTED_CHANNEL`（参考图超出渠道上限）、`INVALID_ARGUMENT`、`BUSY`、`GENERATION_FAILED`。`mayHaveCharged === true` 表示请求已发出、可能已经计费，是否重试由你决定。
