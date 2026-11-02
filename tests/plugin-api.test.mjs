@@ -596,6 +596,44 @@ test('tavern 服务：玩家称呼区分全局默认与本局，实时读取且�
   await assert.rejects(tavern.getPlayerName(), /gameId/)
 })
 
+test('tavern 服务：修改玩家称呼校验输入、隔离默认与本局，拒绝忙碌及越界写入', { skip: !cordis }, async t => {
+  let defaultName = '默认', playerName = '本局', activity = {}
+  const writes = []
+  const h = await harness(t, {
+    readDefaultPlayerName: async () => defaultName,
+    readPlayerName: async () => playerName,
+    writeDefaultPlayerName: async name => { writes.push(['default', name]); return defaultName = name },
+    writePlayerName: async (id, name) => { writes.push([id, name]); return playerName = name },
+    readActivity: async () => activity,
+    cardScope: async () => new Map([['card-plugin', { cards: ['/cards/a.json'] }]]),
+    cardPathOf: async gameId => gameId === 'game-1' ? '/cards/a.json' : '/cards/other.json',
+  })
+  let tavern, cardTavern
+  await h.root.plugin({ name: 'identity-plugin', inject: ['tavern'], apply(ctx) { tavern = ctx.tavern } })
+  await h.root.plugin({ name: 'card-plugin', inject: ['tavern'], apply(ctx) { cardTavern = ctx.tavern } })
+  await tick()
+  assert.equal(await tavern.setDefaultPlayerName({ playerName: ' 新默认 ' }), '新默认')
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '本局')
+  assert.equal(await tavern.setPlayerName({ gameId: 'game-1', playerName: ' 新称呼 ' }), '新称呼')
+  assert.equal(await tavern.getDefaultPlayerName(), '新默认')
+  assert.equal(await tavern.getPlayerName({ gameId: 'game-1' }), '新称呼')
+  assert.equal(await tavern.setDefaultPlayerName({ playerName: '' }), '你')
+  assert.equal(await cardTavern.setPlayerName({ gameId: 'game-1', playerName: '  ' }), '你')
+  const before = writes.length
+  for (const invalid of [undefined, null, 123, {}, '长'.repeat(81)]) {
+    await assert.rejects(tavern.setDefaultPlayerName({ playerName: invalid }), /80/)
+    await assert.rejects(tavern.setPlayerName({ gameId: 'game-1', playerName: invalid }), /80/)
+  }
+  await assert.rejects(tavern.setPlayerName({ gameId: 'missing', playerName: '新名' }), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+  await assert.rejects(cardTavern.setDefaultPlayerName({ playerName: '新名' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  await assert.rejects(cardTavern.setPlayerName({ gameId: 'other-game', playerName: '新名' }), { code: 'TAVERN_PLUGIN_SCOPE' })
+  for (const busy of [{ generating: true }, { settling: true }]) {
+    activity = busy
+    await assert.rejects(tavern.setPlayerName({ gameId: 'game-1', playerName: '新名' }), { code: 'TAVERN_PLUGIN_BUSY' })
+  }
+  assert.equal(writes.length, before, '拒绝的请求没有写入')
+})
+
 test('tavern 服务：getCard、getHistory 只读；setVariables、editTurn 只改最新一轮的当前版本', { skip: !cordis }, async t => {
   const writes = [], edits = [], ranges = []
   const h = await harness(t, {

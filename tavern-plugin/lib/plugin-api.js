@@ -88,6 +88,11 @@ function positiveTurn(value) {
   return turn
 }
 
+function playerNameOf(value) {
+  if (typeof value !== 'string' || value.length > 80) throw new TypeError('playerName 必须是不超过 80 字的字符串')
+  return value.trim() || '你'
+}
+
 function textOrFunction(text) {
   if (typeof text !== 'string' && typeof text !== 'function') throw new TypeError('text 必须是字符串或函数')
 }
@@ -683,6 +688,22 @@ export function createTavernPluginApi(deps) {
     async getPlayerName({ gameId } = {}) {
       const game = await requireGame(gameId)
       return String(await deps.readPlayerName(game.sessionId) || '').trim() || '你'
+    },
+
+    async setDefaultPlayerName({ playerName } = {}) {
+      const owner = ownerOf(this)
+      const name = playerNameOf(playerName)
+      const scopes = deps.cardScope ? await deps.cardScope() : null
+      if (scopes?.has(owner)) throw Object.assign(new Error('卡内插件不能修改全局默认玩家称呼'), { code: 'TAVERN_PLUGIN_SCOPE' })
+      return await deps.writeDefaultPlayerName(name)
+    },
+
+    async setPlayerName({ gameId, playerName } = {}) {
+      const game = await requireGame(gameId)
+      const name = playerNameOf(playerName)
+      const activity = await deps.readActivity?.(game.sessionId)
+      if (activity?.generating || activity?.settling) throw Object.assign(new Error('请等待正文生成和后台结算完成后再修改玩家称呼'), { code: 'TAVERN_PLUGIN_BUSY' })
+      return await deps.writePlayerName(game.sessionId, name)
     },
 
     // The plugin's latest state for its own page side (tavernUi.watchState): kept in memory, replaced on each call.

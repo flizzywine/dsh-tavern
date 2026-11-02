@@ -115,6 +115,19 @@ ctx.tavern.onTurnSettled(async ({ gameId, text }) => {
 
 浏览器插件可通过自己的宿主处理器调用，再用 `tavernUi.callHost` 取回结果（见[界面扩展](plugin-api-ui.md)）。
 
+### `setDefaultPlayerName({ playerName })`、`setPlayerName({ gameId, playerName })`
+
+两个修改接口都异步返回保存后的称呼字符串。`playerName` 必须是最多 80 字的字符串，去掉首尾空白后保存；空字符串恢复为 `"你"`。类型错误、超过长度或省略 `playerName` 时拒绝修改。
+
+```js
+await ctx.tavern.setDefaultPlayerName({ playerName: '林岚' }) // 只影响新游戏默认值
+await ctx.tavern.setPlayerName({ gameId, playerName: '林岚' }) // 只修改这一局
+```
+
+本局修改使用玩家在设置中修改称呼的同一保存流程，修改后界面和后续 `{{user}}` 展开使用新称呼，已生成的历史正文保持原样。正文生成或后台结算期间拒绝本局修改，报 `TAVERN_PLUGIN_BUSY`；游戏不存在时报 `TAVERN_PLUGIN_NOT_FOUND`。卡内插件只能修改所属卡的游戏称呼，不能修改全局默认值，越界时报 `TAVERN_PLUGIN_SCOPE`。
+
+适合插件里的玩家设置表单。只需排除玩家建档的插件使用读取接口即可。旧版宿主请先检查对应修改方法是否存在。
+
 ## `getCardContext({ gameId, turn })`
 
 读这一轮可用的设定材料，供插件写画面提示词：
