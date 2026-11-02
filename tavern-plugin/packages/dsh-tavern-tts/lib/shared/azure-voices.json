@@ -1,0 +1,11 @@
+{
+  "en-US-AshleyNeural": {
+    "styles": []
+  },
+  "zh-CN-XiaoxiaoNeural": {
+    "styles": ["affectionate", "angry", "assistant", "calm", "chat", "chat-casual", "cheerful", "customerservice", "disgruntled", "excited", "fearful", "friendly", "gentle", "lyrical", "newscast", "poetry-reading", "sad", "serious", "sorry", "whispering"]
+  },
+  "zh-CN-YunxiNeural": {
+    "styles": ["angry", "assistant", "chat", "cheerful", "depressed", "disgruntled", "embarrassed", "fearful", "narration-relaxed", "newscast", "sad", "serious"]
+  }
+}

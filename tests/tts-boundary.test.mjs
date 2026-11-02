@@ -31,6 +31,14 @@ const coreSources = () => sourcesIn(['tavern-plugin/lib', 'tavern-plugin/src', S
 const read = file => readFileSync(path.join(root, file), 'utf8')
 const relativeTargets = file => [...read(file).matchAll(SPECIFIER)].map(match => path.posix.normalize(path.posix.join(path.posix.dirname(file), match[2])))
 
+test('the TTS plugin imports nothing outside itself except the protocol', () => {
+  const leaving = []
+  for (const file of sourcesIn(['tavern-plugin/packages/dsh-tavern-tts/src'])) for (const target of relativeTargets(file)) {
+    if (!PLUGIN.test(target) && !target.startsWith('tavern-plugin/packages/dsh-presentation-protocol/')) leaving.push(`${file} -> ${target}`)
+  }
+  assert.deepEqual(leaving, [])
+})
+
 test('core and stage never import a TTS plugin by relative path', () => {
   const into = []
   for (const file of coreSources()) for (const target of relativeTargets(file)) if (PLUGIN.test(target)) into.push(`${file} -> ${target}`)
@@ -41,8 +49,8 @@ test('the TTS HTTP root is not spelled outside the plugin', () => {
   assert.deepEqual(coreSources().filter(file => read(file).includes('/api/dsh-tts/v1')), [])
 })
 
-// ctx.get('tts*') call sites and core-provided tts* services (ttsReadingsEditor) today.
-const GETS = 14, PROVIDES = 1
+// ctx.get('tts*') call sites and core-provided tts* services (ttsReadingsEditor, ttsBrowserSpeech) today.
+const GETS = 14, PROVIDES = 2
 test('core and stage use the TTS services only within the shrink-only ceilings', () => {
   let gets = 0, provides = 0
   for (const file of coreSources()) {

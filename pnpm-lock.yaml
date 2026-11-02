@@ -86,6 +86,9 @@ importers:
       dsh-tavern-remote:
         specifier: link:./tavern-plugin/packages/dsh-tavern-remote
         version: link:tavern-plugin/packages/dsh-tavern-remote
+      dsh-tavern-tts:
+        specifier: link:./tavern-plugin/packages/dsh-tavern-tts
+        version: link:tavern-plugin/packages/dsh-tavern-tts
       dsh-web-mobile:
         specifier: 3.1.0
         version: 3.1.0(patch_hash=f4e306c03ef6fb2ffca172bcac2f1f72debff28a56bdc2b966a304ccd7fb5fa5)(react@19.2.0)

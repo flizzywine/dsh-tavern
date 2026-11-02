@@ -1255,6 +1255,8 @@ window.__ModuleLoader__.load({
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			// The voice plugin's 配音 page lists browser speech as its first 语音服务 row; the Tavern owns the speaking (voice.js).
+			ctx.provide("ttsBrowserSpeech", browserSpeechService);
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
                     () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });

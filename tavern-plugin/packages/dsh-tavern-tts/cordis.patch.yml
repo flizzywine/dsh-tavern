@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-tavern-tts
+      name: dsh-tavern-tts
+      config:
+        profileId: tavern
+        dataDir: !!js dshHomePath('profile-data', 'tavern', 'tts')
