@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9beed522347afac1cd43367c37b350dd54268066",
-  "releaseSequence": 1063,
+  "revision": "50cb2a47ae3e1d1e5f96f4fe1636107f3fe9f973",
+  "releaseSequence": 1064,
   "version": "3.2.0",
   "files": [
     {
@@ -706,18 +706,18 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "0ae2e8d0950476a58e06cb4729f2aea6dbdfbd1cb3b6392f0dc2dd82fc3a90a4",
-      "size": 373025
+      "sha256": "dfb3a48c4d5a2f8b853d10d84ea6942168daa5c3ab229032e080cbf63a40ba33",
+      "size": 372631
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "fc6cd157b56351dcf0dc6a6e5ad583bf0f99f291e0095930a1dd1562e314f44d",
-      "size": 1428121
+      "sha256": "def9575796cfabbb4cc82f95631e4ece8d028a4939cc408138aecc559cb60f63",
+      "size": 688021
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "1192d2af14de7ba26f9c6483de3364305c0a10d9537ea46a8cbdd2f9bf0f80cb",
-      "size": 6367173
+      "sha256": "30dd9ea83da268d12576ccbd62faa66db26b33d6f46fcaa28a0c344de6747ad8",
+      "size": 5617902
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -7226,8 +7226,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client.js",
-      "sha256": "63282e5b84fd0f0b8ffc426379d7221bdc390c8cee6d424ec90dadc91f259579",
-      "size": 1963463
+      "sha256": "b54a555b589cc6f9b0d7554764a6dda195221353544fafb4c17e043bc35085eb",
+      "size": 2713004
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/client/director-source.cjs",
@@ -8171,8 +8171,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/themes.css",
-      "sha256": "372b84821870bc7c9d78b1b6b61d40528aed52718d81c28ef78734ba5d3daf7f",
-      "size": 41437
+      "sha256": "51a48da4cd41923b20c742bcc8c485a7bcb1f907ff26f6c708c5eb99d7578a73",
+      "size": 782193
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/src/client/timer.cjs",
@@ -8511,9 +8511,9 @@
     }
   ],
   "archive": {
-    "commit": "56c0a9f1961d31982c167c789e9931546d86ad5e",
+    "commit": "79b5c81a09a0a07e718775797c9b3245e3af528e",
     "path": "runtime.zip",
-    "sha256": "71945d9383751d507a287cc7a9e9022091ec146cc077c497560b57d6e8eba0cf",
-    "size": 15090461
+    "sha256": "d5dcb2a4f9852cfd20f614d24ee91625abdc90b04ab588a45ba75ede28a777ac",
+    "size": 15086742
   }
 }
