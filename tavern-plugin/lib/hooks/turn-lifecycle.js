@@ -125,7 +125,7 @@ export function registerTurnLifecycleHooks({
       const native = chat.worldbookStrategy === 'native-skills'
       const projected = await nativeWorldBookTemplateContext(chat, await readChatCard(chat), native
         ? { restore: false } : undefined)
-      fixedSystemSections = (native ? withVirtualWorldbook : withCurrentWorldbook)(fixedSystemSections, projected.prefixContext ?? '')
+      fixedSystemSections = (native ? withVirtualWorldbook : withCurrentWorldbook)(fixedSystemSections, projected.prefixContext ?? '', chat.disabledForegroundTools)
     }
     const assembled = await foregroundStrategies.assembleSystemPrompt(assembly, {
       sessionId: agent.session.id,

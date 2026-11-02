@@ -4,6 +4,11 @@ export const FOREGROUND_TOOL_CATALOG = Object.freeze([
   { name: 'tavern_read_variables', label: '读取变量', description: '只读查询当前变量和结算状态。' },
   { name: 'skill', label: '加载 Skill', description: '按需加载写作或任务 Skill。' },
   { name: 'tavern_read_skill_reference', label: '读取 Skill 参考', description: '读取已加载 Skill 的参考文件。' },
+  // 世界书检索走真实文件，所以 worldbook_list/worldbook_grep 与宿主 read 是一组：
+  // 只给 worldbook_* 而不列 read，玩家就没有完整开关，模型也能被提示拉动去读正文。
+  { name: 'worldbook_grep', label: '搜索世界书', description: '在本局世界书原文里全文搜索设定。', modes: ['story', 'script'] },
+  { name: 'worldbook_list', label: '浏览世界书', description: '分页浏览本局世界书目录和标题。', modes: ['story', 'script'] },
+  { name: 'read', label: '读取文件', description: '读取世界书、Skill 等资源的文件正文。', modes: ['story', 'script'] },
   { name: 'style_reference_submit', label: '文风联想', description: '前台记录本轮笔调参考；还需本局开启文风联想。', modes: ['story'] },
   { name: 'tavern_recall_history', label: '召回历史', description: '按关键词或轮次检索已压缩的历史正文。' },
   { name: 'web_search', label: '联网搜索', description: '联网查找资料；还需本局开启「联网搜索」。' },

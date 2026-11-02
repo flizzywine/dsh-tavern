@@ -20,6 +20,32 @@ test('native request prefix preserves original whitespace without modifying pers
   assert.equal(fixed[0].text, 'stale')
 })
 
+test('前台工具关掉世界书检索后，提示不再教模型调用不存在的工具', () => {
+  const sectionOf = sections => sections.find(section => section.name === 'tavern:worldbook-skills')
+  const full = withVirtualWorldbook([], 'ctx')
+  assert.match(sectionOf(full).text, /worldbook_grep/)
+  assert.match(sectionOf(full).text, /再用 read 按返回的绝对路径和行号读取上下文/)
+  assert.match(sectionOf(full).text, /worldbook_list/)
+  assert.match(sectionOf(full).text, /片段截断时读取全文/)
+
+  const bothOff = withVirtualWorldbook([], 'ctx', ['worldbook_list', 'worldbook_grep'])
+  assert.equal(sectionOf(bothOff), undefined, '两个检索工具都关掉时整段指令消失')
+  assert.equal(bothOff[0].text, '【常驻世界书】\nctx', '常驻世界书正文不受工具开关影响')
+
+  const grepOnly = withVirtualWorldbook([], '', ['worldbook_list'])
+  assert.match(sectionOf(grepOnly).text, /worldbook_grep/)
+  assert.doesNotMatch(sectionOf(grepOnly).text, /worldbook_list/)
+
+  const listOnly = withVirtualWorldbook([], '', ['worldbook_grep'])
+  assert.match(sectionOf(listOnly).text, /worldbook_list/)
+  assert.doesNotMatch(sectionOf(listOnly).text, /worldbook_grep/)
+
+  const noRead = withVirtualWorldbook([], '', ['read'])
+  assert.doesNotMatch(sectionOf(noRead).text, /\bread\b/, 'read 关掉后不再要求按路径读取')
+  assert.match(sectionOf(noRead).text, /worldbook_grep/)
+  assert.match(sectionOf(noRead).text, /不能读取文件正文/)
+})
+
 test('system assembly excludes dynamic recovery and stays byte-identical across dynamic updates', async () => {
   const { registerTurnLifecycleHooks } = await import('../tavern-plugin/lib/hooks/turn-lifecycle.js')
   const hooks = new Map(), calls = []
