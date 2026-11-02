@@ -12983,7 +12983,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
         // Stage widget placement, reading projection, phone settings and avatar preparation.
 function createStageSourceWidgets({React:react,window,document,views,sessions,storage:localStorage,foreground:forkForeground,rpc:hostRpc,signals:tavernSessionSignals,characters,avatarCache,phoneProtocol,figureResolution,sandbox,playerErrorText,fetch,createImageBitmap}) {
 const {Image,FileReader,ResizeObserver,CustomEvent,crypto,performance,Blob,AbortController}=window;
-const {character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter}=characters || {};
+const {character:bubbleCharacter,actor:stageActorCharacter}=characters || {};
 const phoneModPrefs=views.phoneLayout.prefs,phoneModSizeMin=views.phoneLayout.min,phoneModRun=phoneProtocol?.run;
 const matchMedia=(...args)=>window.matchMedia(...args),getComputedStyle=(...args)=>window.getComputedStyle(...args);
 // Viewport reads must stay live across resize, not be captured at activation.
@@ -13024,31 +13024,28 @@ function stageWidgetAvatarSquare(width,height,crop={x:0,y:0,w:1,h:1}) {
     const w=crop.w*width,h=crop.h*height,side=Math.min(w,h);
     return {x:crop.x*width+(w-side)/2,y:crop.y*height+(h-side)*.15,width:side,height:side};
 }
-// the bounded thumbnail set handed to a source widget. Every listed
-// person's face comes first (one per figure, so a long contact list never runs out after eight people); per-message mood
-// variants only fill a small extra allowance, and a bubble without its own variant shows the sender's face instead.
-// inputs: [[id, encodedUrl|null, kind:'person'|'message']] -> {urls, rows:{id:'a<n>'}} (ids without a thumbnail are absent).
-const STAGE_WIDGET_AVATAR_PEOPLE=24,STAGE_WIDGET_AVATAR_VARIANTS=8;
+// the bounded thumbnail set handed to a source widget: one face per listed person (a long contact list never runs out
+// after a few people). A message has no face of its own; its bubble shows its sender's face.
+// inputs: [[id, encodedUrl|null]] -> {urls, rows:{id:'a<n>'}} (ids without a thumbnail are absent).
+const STAGE_WIDGET_AVATAR_PEOPLE=24;
 function stageWidgetAvatarBudget(inputs) {
     const urls=[],rows={};
-    const take=(kind,limit)=>{let added=0;for (const [id,url,type] of inputs) {
-        if (type!==kind || !url) continue;
+    for (const [id,url] of inputs) {
+        if (!url) continue;
         let index=urls.indexOf(url);
-        if (index<0 && added<limit) {index=urls.push(url)-1;added++;}
+        if (index<0 && urls.length<STAGE_WIDGET_AVATAR_PEOPLE) index=urls.push(url)-1;
         if (index>=0) rows[id]='a'+index;
-    }};
-    take('person',STAGE_WIDGET_AVATAR_PEOPLE);take('message',STAGE_WIDGET_AVATAR_VARIANTS);
+    }
     return {urls,rows};
 }
 // the device pixels of the faces handed to the phone, from
 // the phone's width on the stage (stage units: a docked stage is only scaled down, so this never asks for less than is shown)
 // and the screen's pixel ratio. One iOS point of the phone is its width / 393 (style.css --pt, on the stage and on the sheet);
-// a person's face is drawn for the largest place it appears, her 200 pt contact-card photo (the call's 132 / 55 pt photo and every list face are smaller); a message's own mood face is at most the 32 px
-// bubble / banner face of the 280 px design, zoomed with the phone. Rounded up to 32 px so a small resize redraws nothing.
-const PHONE_FACE_PT=200,PHONE_POINTS=393,PHONE_DESIGN_WIDTH=280,PHONE_MESSAGE_FACE=32;
+// a person's face is drawn for the largest place it appears, her 200 pt contact-card photo (the call's 132 / 55 pt photo,
+// every list, bubble and banner face are smaller). Rounded up to 32 px so a small resize redraws nothing.
+const PHONE_FACE_PT=200,PHONE_POINTS=393;
 function stageWidgetFacePx(width,dpr) {
-    const device=css=>Math.ceil(css*dpr/32)*32;
-    return {person:device(PHONE_FACE_PT*width/PHONE_POINTS),message:device(PHONE_MESSAGE_FACE*width/PHONE_DESIGN_WIDTH)};
+    return Math.ceil(PHONE_FACE_PT*width/PHONE_POINTS*dpr/32)*32;
 }
 
 // ephemeral reading UI, never a director state or a persisted preference.
@@ -13900,7 +13897,7 @@ function useWidgetStage(props) {
     // Keep only the mounted descriptor while checking a new window; it cannot authorize actions, claims or media.
     const checked=grants.scope===scope && grants.key===grantKey;
     const historical=props.enabled ? (checked ? grants.items : [...held.current.items.values()].map(item=>({...item,checking:true}))) : [];
-    for (const widget of [...available,...historical]) {if (!byRef.has(stageWidgetRefKey(widget.ref))) byRef.set(stageWidgetRefKey(widget.ref),{...widget,historyAvatars:checked?grants.items.find(item=>stageWidgetRefKey(item.ref)===stageWidgetRefKey(widget.ref))?.historyAvatars:{}});}
+    for (const widget of [...available,...historical]) {if (!byRef.has(stageWidgetRefKey(widget.ref))) byRef.set(stageWidgetRefKey(widget.ref),widget);}
     const rows=[...(history?.scope===scope ? history.rows.filter(row=>row.turn<props.turn) : []),currentRow];
     const hasPhone=[...byRef.values()].some(value=>value.ref?.modId==='dsh.phone' && value.sourceOnly);
     const directoryKey=JSON.stringify([scope,props.turn,props.record?.phase,hasPhone]);
@@ -13963,46 +13960,35 @@ function useWidgetStage(props) {
             identity:props.sessionId+':'+(props.source?.authorityEpoch || 0)+':'+(props.source?.branchId || '')+':'+key+':'+value.definition.contentIdentity,notifications:value.definition.document.presentation.notifications,
             fingerprint:JSON.stringify(value.state),performance:Boolean(value.performance)};
     });
-    const avatarInputs=[...new Map(items.flatMap(item=>item.source?.messages.map(row=>{
-        const id=row.turn+':'+row.para, avatar=item.historyAvatars?.[id];
-        const line=row.turn===props.turn ? props.pages.find(line=>line.para===row.para) : null;
-        const character=line && bubbleCharacter(props.config,line);
-        const mood=character && bubbleMood(line.mood,bubbleMoodList(props.config,character.alias))?.id;
-        return [id,[id,character?{alias:character.alias,mood}:null,avatar]];
-    }).concat([...(item.source?.threads || []).flatMap(thread=>thread.participants),...(item.source?.phones || []),...(item.source?.contacts || [])].flatMap(person=>{
-        // Every listed person's face, and each phone owner's, the player's own included (their persona figure): it is the
-        // face on the phone's Settings account card.
-        const alias=person.id==='$player' ? directory?.playerId : person.id;
-        return alias ? [['p:'+person.id,['p:'+person.id,{alias},null]]] : [];
-    })) || [])).values()];
-    // a listed person's face is their card figure's own face — the identity
-    // resolver's avatar of the card character (config.characters[].avatarMedia.default, the face the transcript shows),
-    // prepared in the session avatar cache whether or not the figure is on stage. The stage only hands over the faces of
-    // its visible cast and speaker until it is idle (stage-resource-runner visibleAvatars), so a contact who is not on
-    // stage used to stay an initial while reading. The stage portrait remains the fallback for a person without a card face.
+    // A person has one contact face (2026-11-02, like a real phone's contact photo): their card figure's own face — the
+    // identity resolver's avatar of the card character (config.characters[].avatarMedia.default: the default outfit, calm,
+    // the face the transcript shows), prepared in the session avatar cache whether or not the figure is on stage. The
+    // header, every bubble, the banner and the call show it in every round: it follows neither the stage's current
+    // outfit and mood nor a message's own mood. A person without a card face shows their initial.
     // A contact id is a stage actor key (the mark's canonical contact); a carried key (chat copy, pack merge) is not its card
     // character's alias, so it names that character through the roster's figure ref (stageActorCharacter, the one
     // resolver the speaker tint uses; 2026-10-21: a three-glyph name showed as its initial).
     const actorFigures=React.useMemo(()=>Object.entries(props.actors || {}).flatMap(([alias,actor])=>actor?.figure?.figureId ? [{alias,ref:actor.figure}] : []),[props.actors]);
     const cardAlias=alias=>(typeof stageActorCharacter==='function' ? stageActorCharacter(props.config,actorFigures,alias)?.alias : null) || alias;
-    const personAliases=[...new Set(avatarInputs.flatMap(([id,current])=>id.startsWith('p:') && current ? [cardAlias(current.alias)] : []))];
+    // Every listed person, and each phone owner, the player's own included (their persona figure): it is the face on the
+    // phone's Settings account card.
+    const avatarInputs=[...new Map(items.flatMap(item=>[...(item.source?.threads || []).flatMap(thread=>thread.participants),...(item.source?.phones || []),...(item.source?.contacts || [])].flatMap(person=>{
+        const alias=person.id==='$player' ? directory?.playerId : person.id;
+        return alias ? [['p:'+person.id,cardAlias(alias)]] : [];
+    }))).entries()];
+    const personAliases=[...new Set(avatarInputs.map(([,alias])=>alias))];
     // every face is drawn at the size the phone shows it
     // (stageWidgetFacePx: the phone's widest width so far on this stage x the screen's pixel ratio), and the card face is asked
     // of the session avatar cache at that size, so her 512 px library face reaches the 200 pt card and the 132 pt call
     // screen sharp instead of as a 64 px thumbnail scaled up four to six times.
     const phoneOpenWidth=items.find(item=>item.ref.modId==='dsh.phone')?.definition.document.presentation.open.width;
     const [phoneFaceWidth,setPhoneFaceWidth]=React.useState(0),dpr=window.devicePixelRatio || 1;
-    const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : {person:64,message:64};
-    const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx.person/dpr});
-    const avatarInputsResolved=avatarInputs.map(([id,current,history])=>{
-        const card=id.startsWith('p:') && current ? cardUrls.get(cardAlias(current.alias)) : null;
-        if (card) return [id,JSON.stringify([card,null,facePx.person]),'person'];
-        const face=current?props.avatarOf?.(current.alias,current.mood):history;const url=current?face?.src:face?.url;
-        const kind=id.startsWith('p:')?'person':'message';
-        return [id,url?JSON.stringify([url,face?.crop || null,facePx[kind]]):null,kind];
-    });
-    // Independent image budget (stageWidgetAvatarBudget): every listed person's face, then a few mood variants (lossy
-    // WebP at the shown size); missing decoration never delays reading. Thumbnails are kept per image (stageWidgetThumbs),
+    const facePx=phoneOpenWidth ? stageWidgetFacePx(Math.max(phoneOpenWidth,phoneFaceWidth),dpr) : 64;
+    const cardUrls=useCardFaces({config:props.config,sessionId:props.sessionId,source:props.source,names:personAliases,px:facePx/dpr});
+    const hasCardFace=alias=>Boolean(bubbleCharacter(props.config,alias)?.avatarMedia?.default);
+    const avatarInputsResolved=avatarInputs.map(([id,alias])=>{const card=cardUrls.get(alias);return [id,card ? JSON.stringify([card,null,facePx]) : null,alias];});
+    // Independent image budget (stageWidgetAvatarBudget): every listed person's face (lossy WebP at the shown size);
+    // missing decoration never delays reading. Thumbnails are kept per image (stageWidgetThumbs),
     // so a new message, page or history read never drops the faces already shown while the new set is prepared.
     const avatarBudget=stageWidgetAvatarBudget(avatarInputsResolved);
     const avatarKey=JSON.stringify(avatarBudget.urls);
@@ -14038,17 +14024,16 @@ function useWidgetStage(props) {
     // A person's face already shown stays while a sharper one of the same person is prepared (a wider phone, the card face
     // arriving at the phone's size).
     const shownFaces=React.useRef(new Map()).current;
-    const pendingPerson=new Set(avatarInputsResolved.filter(([id,url])=>id.startsWith('p:') && url && !stageWidgetThumbs.has(url) && !failedUrls.has(url)).map(([id])=>id));
+    const pendingPerson=new Set(avatarInputsResolved.filter(([,url,alias])=>url ? !stageWidgetThumbs.has(url) && !failedUrls.has(url) : hasCardFace(alias)).map(([id])=>id));
     for (const item of items) if (item.source) {
         item.source.avatars={};
         const face=(id,row)=>{
             const key=avatarBudget.rows[id];let value=key && stageWidgetThumbs.get(avatarBudget.urls[Number(key.slice(1))]);
-            if (value && id.startsWith('p:')) shownFaces.set(id,value);
+            if (value) shownFaces.set(id,value);
             else if (key && pendingPerson.has(id) && shownFaces.has(id)) value=shownFaces.get(id);
             if (!value) return pendingPerson.has(id) ? {...row,avatarPending:true} : row;
             item.source.avatars[key]=value;return {...row,avatar:key};
         };
-        item.source.messages=item.source.messages.map(row=>face(row.turn+':'+row.para,row));
         if (item.source.threads) item.source.threads=item.source.threads.map(thread=>({...thread,participants:thread.participants.map(person=>face('p:'+person.id,person))}));
         if (item.source.phones) item.source.phones=item.source.phones.map(row=>face('p:'+row.id,row));
         if (item.source.contacts) item.source.contacts=item.source.contacts.map(row=>face('p:'+row.id,row));
@@ -14874,11 +14859,11 @@ function GalStage(props) {
     useWidgetTheme(rootRef,pack.scene,activeSkin,{theme:stageConfig.theme || 'classic',snap:runtime.cursor.mode==='history' || skipping || performanceLayer.snap,reducedMotion:reading.reducedMotion});
     // the phone's own Settings app saves its settings to this card or globally.
     const phoneSettings = usePhoneSettings({ sessionId });
-    // Source widgets read faces synchronously; initialize their map before invoking the hook.
+    // The stage's current faces by actor key (avatarOf: the backlog's speaker faces).
     const portraits = stageViews.speaker.portraits(pack.avatars, sessionId);
     const sourceWidget = useWidgetStage({ sessionId, chatId:props.data?.chatId, config, actors:pack.state?.actors, placeKey:props.data && props.data.cardPath, source:runtime.source, turn, pages, page, card, record:receivedDirection, phoneSettings, phoneCall:typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null,
         widgets:[...(pack.widgets || []),...performanceLayer.widgets.map(widget=>({...widget,performance:true}))], assetRevision:accepted.presentationRevision,
-        mode:presenting, skipping, rootRef, avatarOf, enabled:true, film, revealed:typed && lastCard && !current?.pending,
+        mode:presenting, skipping, rootRef, enabled:true, film, revealed:typed && lastCard && !current?.pending,
         // A settled history page's mod one-shots (HISTORY_DWELL): the phone sounds its line's incoming tone once more.
         replays:stageHistoryModPlays(runtime),
         historyVoice:line=>stageVoiceHandle(sessionId,line.voice,config,line.anchor?.paragraphId),

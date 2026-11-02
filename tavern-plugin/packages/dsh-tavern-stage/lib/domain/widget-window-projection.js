@@ -20,20 +20,13 @@ export async function readWidgetWindowProjection({widgetWindow,turn,at,page,expe
     const coordinate=stageProjectionPage(current,at,page)
     if (!Number.isSafeInteger(at) || at<1 || at>current.through || coordinate && coordinate.para!==at) return {status:'stale'}
     const turns=[...new Set(await readTurns())].filter(n=>Number.isSafeInteger(n) && n<=turn).sort((a,b)=>b-a).slice(0,20)
-    const found=[], avatarSources=[]
+    const found=[]
     for (const number of turns) {
       const direction=number===turn ? current : await readDirection(number)
       if (!direction?.token || !['partial','done'].includes(direction.phase)) continue
       const record=direction.record || direction.preview
       const entries=record?.entries.filter(entry=>entry.at<=direction.through && (number!==turn || entry.at<=at)) || []
-      let used=false
-      for (const entry of [...entries].reverse()) for (const raw of entry.ops) {
-        const op=sourceOp(raw,ref)
-        if (!op) continue
-        used=true
-        if (avatarSources.length<80 && number<turn) avatarSources.push({turn:number,para:entry.at,contact:op.contact,actor:entry.state?.actors?.[op.contact]})
-      }
-      if (used) found.push({number,token:direction.token})
+      if (entries.some(entry=>entry.ops.some(raw=>sourceOp(raw,ref)))) found.push({number,token:direction.token})
     }
     if (!found.length || !valid()) return {status:'revoked',widgets:[]}
     const consumer=await readConsumer()
@@ -48,7 +41,7 @@ export async function readWidgetWindowProjection({widgetWindow,turn,at,page,expe
       } catch { return false }
     }
     const widgets=await consumer.presentation.widgets({widgets:{}},{sourceRefs:[ref],engine:settings.values,isCurrent:valid,
-      grantKey:JSON.stringify([expectedDirectionToken,found]),authorizeSource,avatarSources})
+      grantKey:JSON.stringify([expectedDirectionToken,found]),authorizeSource})
     if (!await authorizeSource()) return {status:'stale'}
     return {status:'ready',widgets,revision:version}
   } catch { return {status:'failed',widgets:[]} }

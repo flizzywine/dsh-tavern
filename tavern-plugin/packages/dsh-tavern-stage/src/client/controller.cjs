@@ -468,11 +468,11 @@ function GalStage(props) {
     useWidgetTheme(rootRef,pack.scene,activeSkin,{theme:stageConfig.theme || 'classic',snap:runtime.cursor.mode==='history' || skipping || performanceLayer.snap,reducedMotion:reading.reducedMotion});
     // the phone's own Settings app saves its settings to this card or globally.
     const phoneSettings = usePhoneSettings({ sessionId });
-    // Source widgets read faces synchronously; initialize their map before invoking the hook.
+    // The stage's current faces by actor key (avatarOf: the backlog's speaker faces).
     const portraits = stageViews.speaker.portraits(pack.avatars, sessionId);
     const sourceWidget = useWidgetStage({ sessionId, chatId:props.data?.chatId, config, actors:pack.state?.actors, placeKey:props.data && props.data.cardPath, source:runtime.source, turn, pages, page, card, record:receivedDirection, phoneSettings, phoneCall:typeof phoneModCall === 'object' && phoneModCall ? phoneModCall : null,
         widgets:[...(pack.widgets || []),...performanceLayer.widgets.map(widget=>({...widget,performance:true}))], assetRevision:accepted.presentationRevision,
-        mode:presenting, skipping, rootRef, avatarOf, enabled:true, film, revealed:typed && lastCard && !current?.pending,
+        mode:presenting, skipping, rootRef, enabled:true, film, revealed:typed && lastCard && !current?.pending,
         // A settled history page's mod one-shots (HISTORY_DWELL): the phone sounds its line's incoming tone once more.
         replays:stageHistoryModPlays(runtime),
         historyVoice:line=>stageVoiceHandle(sessionId,line.voice,config,line.anchor?.paragraphId),

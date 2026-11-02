@@ -121,7 +121,7 @@ return cgGallery.ack(args,authority?.origin)
     
     
     async getStagePhonePresentation(args, method, serverTemplate, authority) {
-      const { assetRuntime, modService, readRoundOps, readRoundView, stageDirector } = deps
+      const { modService, readRoundOps, readRoundView, stageDirector } = deps
 
         if(!Number.isSafeInteger(args.turn) || args.turn<1)return {status:'failed',widgets:[]}
         // Of the page's latest 20 rounds, the earlier ones whose beats mark a phone message are read with their records;
@@ -135,7 +135,7 @@ return cgGallery.ack(args,authority?.origin)
         const direction=await stageDirector.get(chat,Number(args.turn),null,{readOnly:true})
         if(JSON.stringify(direction.token)!==JSON.stringify(args.expectedDirectionToken) || !Number.isSafeInteger(args.at) || args.at<1 || args.at>direction.through)return {status:'stale',widgets:[]}
         let view
-        const found=[],avatarSources=[]
+        const found=[]
         for(const message of chat.messages.filter(row=>row.role==='assistant' && Number(row.turn || (row.greeting?1:0))<=args.turn).slice(-20).reverse()) {
           const turn=Number(message.turn || (message.greeting?1:0))
           // An earlier round without a phone mark adds nothing (the record the director restores is the floor's own); a
@@ -147,10 +147,7 @@ return cgGallery.ack(args,authority?.origin)
           let used=false
           for(const entry of record.entries) {
             if(entry.at>candidate.through || turn===args.turn && entry.at>args.at)continue
-            for(const op of entry.ops)if(phoneMark(op)) {
-              view ||= bound;used=true
-              if(turn<args.turn && avatarSources.length<80)avatarSources.push({turn,para:entry.at,contact:op.params.contact,actor:entry.state.actors[op.params.contact]})
-            }
+            if(entry.ops.some(phoneMark)) {view ||= bound;used=true}
           }
           if(used)found.push({turn,token:candidate.token})
         }
@@ -163,11 +160,6 @@ return cgGallery.ack(args,authority?.origin)
           return true
         }
         const widgets=view?await modService.readPhonePresentation({chat,direction,at:args.at,view}):[]
-        if(widgets.length && avatarSources.length) {
-          const consumer=await assetRuntime.consumer(chat,authority?.origin)
-          const historyAvatars=consumer?await consumer.presentation.sourceAvatars({avatarSources,grantKey:JSON.stringify([direction.token,found]),isCurrent:()=>true,authorizeSource}):{}
-          for(const item of widgets)item.historyAvatars=historyAvatars
-        }
         return await authorizeSource()?{status:'ready',widgets}:{status:'stale',widgets:[]}
 
     },
