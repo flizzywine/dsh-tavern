@@ -23,6 +23,7 @@ const REMOTE_ARCHIVE = Symbol('host-only downloaded archive')
 const CARD_URL_DEADLINE_MS = 20 * 60000
 import { assertPublicPackChain } from './public-export.js'
 import { createSimpleSprite } from './simple-sprite.js'
+import { cardMaterialPack, cardMaterialProjection } from './card-material.js'
 import { trimAuthoringImages } from './image-closure.js'
 import { applyStateImageMapping, retainPublishedStateImages } from './state-images.js'
 import {applyResolutionWrites} from './resolution-write.js'
@@ -649,6 +650,40 @@ export function createAssetPackService(options) {
         check(bytes, '$.hash', 'Blob missing', 'ASSET_UNAVAILABLE')
         return {bytes, descriptor:copy(descriptor)}
       })
+    },
+    // A card's loose material (no packs of its own) as one pack named after the card; the card binds it. The same material
+    // names the same pack: already installed (perhaps edited since), it is left as it is.
+    async importCardMaterial({name, material}) {
+      alive(); check(typeof name === 'string' && name.trim().length > 0, '$.name')
+      const built = await cardMaterialPack({...material, name}, (await options.voiceChannels?.()) || [])
+      if (!built?.manifest) return built && {packId:null, status:'empty', notices:built.notices}
+      const packId = built.manifest.id
+      return run([packId], async () => {
+        if (await metadata(packId)) return {packId, status:'noop', notices:built.notices}
+        const result = await install(await importPack(built.manifest, built.files), null)
+        return {packId, status:result.status, notices:built.notices}
+      })
+    },
+    // The figures and backgrounds of a card's packs as cast material (a CHARX export). Files are named
+    // <packId>/<sha256>.<ext>; read(file) returns the bytes of one the export keeps.
+    async projectCardMaterial({packIds}) {
+      const characters = [], backgrounds = [], revisions = new Map()
+      for (const packId of packIds) {
+        const pack = await service.getPackSnapshot({packId, readOnly:true})
+        if (!pack) continue
+        revisions.set(packId, pack.revision)
+        const file = hash => hash ? packId + '/' + hash + '.' + pack.manifest.blobs[hash].ext : null
+        const projected = cardMaterialProjection(pack)
+        for (const character of projected.characters) characters.push({...character, avatar:file(character.avatar),
+          sprites:Object.fromEntries(Object.entries(character.sprites).map(([emotion, hash]) => [emotion, file(hash)])),
+          ...(character.references ? {references:character.references.map(clip => ({file:file(clip.media), text:clip.text}))} : {})})
+        for (const background of projected.backgrounds) backgrounds.push({name:background.name, file:file(background.media)})
+      }
+      const read = async name => {
+        const [packId, base] = name.split('/')
+        return (await service.readMedia({packId, hash:base.split('.')[0], expectedRevision:revisions.get(packId)})).bytes
+      }
+      return {characters, backgrounds, read}
     },
     // Application-owned defaults are installed once, off; never overwrite a user's edits.
     ensureBuiltinPack({packId,name,assets}) {

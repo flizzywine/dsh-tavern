@@ -30,7 +30,9 @@ export function apply(ctx, config = {}) {
     check(owner, '$.mediaStore', 'Media owner unavailable', 'RECOVERY_REQUIRED')
     return owner[method](...args)
   }]))
-  const transport = createAssetPackTransport({...config, mediaStore, normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards})
+  const transport = createAssetPackTransport({...config, mediaStore, normalizeSkinMods:async(mods,assets) => (await ctx.get('tavernSkinOptions')?.normalize(mods,assets)) || {}, thumbnails:{isBusy:() => runningAgents.size > 0,onError:error => ctx.logger.warn('[asset-thumbnails] ' + error.message)}, limits:PACK_BUDGET, decodeMedia:config.decodeMedia || decodeMedia, settings, catalogueSettings, cardTransactions:cards,
+    // a card's voice source maps to a configured voice service of the same kind (card-material.js).
+    voiceChannels:async () => ((await ctx.get('tts')?.listServices()) || []).map(service => service.kind)})
   ctx.provide('assetLibrary',transport.service)
   ctx.provide('assetPackSettings',settings)
   registerAssetPackTransport(ctx,transport)
