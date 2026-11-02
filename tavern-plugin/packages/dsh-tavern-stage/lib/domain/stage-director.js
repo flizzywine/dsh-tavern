@@ -331,7 +331,7 @@ export function createStageDirector(deps) {
         const input = {...assets,playerInput:playerInputBefore(chat,chat.messages.length,assets.raw),stateSource:await deps.stateSource?.(chat,assets.raw),...(mods ? {mods} : {}),items:prepareStageItems(assets.raw,chat,chat.messages.length),engine,target,record,predecessor:recordsThrough(chat,chat.messages.length - 1,history).records,
           opening:greeting ? openingOf(assets,greeting).state : undefined,modelInfo:await deps.modelInfo?.(engine.directorModel)}
         job.pack = createStreamingPackDirector({input,twoChunks:true,identity:{sessionId:chat.sessionId,branchId:job.branchId,bodyOperationId:operation.id,nativeTurn:turn},
-          current,
+          current, openConversation:deps.openConversation,
           async prepareWindow({source,carried,signal,committed}) {
             if (committed && job.finalInput) {
               const prepared = job.finalInput.prepared
@@ -648,7 +648,7 @@ export function createStageDirector(deps) {
       ...(binding ? {binding, bindingKey:token.bindingKey, prefixRevision, baseline:record?.baseline || preview.baseline,
         entries:record?.entries || preview.entries} : {}),
       ...(record ? {record} : {}), ...(preview ? {preview} : {}), ...(value.opening ? {opening:value.opening} : {}), ...(value.error ? {error:value.error, ...(value.code ? {code:value.code} : {})} : {})}
-    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview}))
+    Object.assign(body,roundPerformances(chat,index,target,{binding,record,preview,items:await deps.itemsEnabled?.(chat) !== false}))
     const result = observation(chat,turn,body,assetPackDigest(displayUnits),unitsDigest,pageDigest,options)
     if (result.unchanged || !options.includePredecessor) return result
     // a page folds the performance chain only; a round that starts at a boundary needs no earlier record.
@@ -658,7 +658,8 @@ export function createStageDirector(deps) {
   // The round's stored performances (modPerformances, modCorrectionRevision): mod corrections for its source and core
   // items sealed against its record, or the item intents of an in-flight preview. Of the record it reads only the
   // digest and, for a preview, the binding and entries.
-  function roundPerformances(chat, index, target, {binding, record, preview}) {
+  // `items`: the card's 物品 switch in effect (deps.itemsEnabled), read by the async caller.
+  function roundPerformances(chat, index, target, {binding, record, preview, items}) {
     const result = {}, generation = chat.messages[index]?.stageDirectionGeneration || 0
     const modCorrections=chat.messages[index]?.modCorrections
     if(binding && modCorrectionSourceMatches(modCorrections,{branchId:target.branchId,sourceKey:target.sourceKey,generation,textVersion:target.sourceKey})) {
@@ -666,10 +667,10 @@ export function createStageDirector(deps) {
       result.modCorrectionRevision=modCorrections.revision
     }
     const coreItems=chat.messages[index]?.stageItems
-    if(deps.itemsEnabled?.() !== false && record && coreItems?.version===2 && coreItems.directionDigest===record.digest) {
+    if(items && record && coreItems?.version===2 && coreItems.directionDigest===record.digest) {
       result.modPerformances=[...(result.modPerformances || []),...coreItems.performances.filter(row=>!row.removed)]
       result.modCorrectionRevision=(result.modCorrectionRevision || 0)+coreItems.revision
-    } else if(deps.itemsEnabled?.() !== false && preview && binding?.items?.version===2) {
+    } else if(items && preview && binding?.items?.version===2) {
       result.modPerformances=[...(result.modPerformances || []),...coreItemIntents({binding:{...binding,generation},entries:preview.entries})]
     }
     return result
@@ -685,7 +686,7 @@ export function createStageDirector(deps) {
     if (disposed || !chat.cardPath || !await deps.assets.hasBindings(chat.cardPath)) return undefined
     const history = await historyCache.read(chat,index), record = history.identity(index)
     // An earlier round without an accepted record has no binding: nothing plays.
-    return record ? roundPerformances(chat,index,history.target(index,chat),{binding:record.binding,record,preview:null}).modPerformances : undefined
+    return record ? roundPerformances(chat,index,history.target(index,chat),{binding:record.binding,record,preview:null,items:await deps.itemsEnabled?.(chat) !== false}).modPerformances : undefined
   }
   async function retry(chat, turn, {regenerate = false} = {}) {
     turn ||= latestTurn(chat)

@@ -21,15 +21,25 @@ export const PROMPT_PROSE = Object.freeze({
 })
 
 
-export function createStreamingPackDirector({input, identity, runAgent, current, onChange = () => {}, prepareWindow, twoChunks = false}) {
+export function createStreamingPackDirector({input, identity, runAgent, current, onChange = () => {}, prepareWindow, openConversation, twoChunks = false}) {
   const first = prepareAssetPackDirector({...input, units:[], generation:0})
   const fixed = buildAssetPackRequest(first)
   const tool = fixed.tools[0]
   const windowPrompt = promptSection('director_window', PROMPT_PROSE.p001 + '\n' + PROMPT_PROSE.p003)
   const system = fixed.system.replace(DIRECTOR_PROSE.p006,PROMPT_PROSE.p002) + '\n' + windowPrompt
-  // Each window is a one-shot request of its own (as upstream): it carries the accepted stage
-  // state plus read-only directed pages and accepted effects, never the earlier conversation.
-  let kernel, latest = first, attempts = 0, retries = 0, imageFailure
+  let kernel, latest = first, attempts = 0, retries = 0, imageFailure, conversation = null
+  // The windows of one source epoch are one conversation: a later window continues after the
+  // earlier window's request and submissions. A rewrite, failure or the round's end closes it.
+  function closeConversation() {
+    const token = conversation?.token
+    conversation = null
+    if (token) void Promise.resolve(token.close()).catch(() => {})
+  }
+  function conversationFor(epoch) {
+    if (!openConversation) return undefined
+    if (conversation?.epoch !== epoch) {closeConversation(); conversation = {epoch,token:openConversation()}}
+    return conversation.token
+  }
   function windowSource(displayUnits, firstAt, carried, epoch) {
     const units = cleanDirectorUnits(displayUnits)
     return {...input, units, imageUnits:displayUnits, recallUnits:units.slice(firstAt - 1), pageIndex:stagePageIndex(displayUnits), baseline:carried, record:undefined, generation:epoch, continuation:true}
@@ -53,6 +63,7 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
   }
   kernel = createStreamingDirector({identity, baseline:first.baseline, system, tools:[tool],
     onChange(value) {
+      if (conversation && (conversation.epoch !== value.epoch || ['settled','failed','cancelled'].includes(value.phase))) closeConversation()
       if (early && (early.epoch !== value.epoch || ['failed','cancelled'].includes(value.phase))) dropEarly()
       onChange(value)
     },
@@ -72,11 +83,6 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
       const prompt = buildAssetPackRequest({...prepared,baseline:carried,units:units.slice(paragraphs[0].at - 1)},true,undefined,'',false,paragraphs[0].at)
       // Mod framework prose can precede the JSON; window metadata is its own text part.
       prompt.messages[0].content.push({type:'text',text:JSON.stringify({first:paragraphs[0].at})})
-      if (paragraphs[0].at > 1) prompt.messages[0].content.push({type:'text',text:promptSection('directed_context',
-        'Read-only: these earlier paragraphs are already directed. Continue them; do not direct them or repeat their accepted effects.\n' + JSON.stringify({
-          paragraphs:units.slice(0,paragraphs[0].at - 1).map((unit,index) => ({at:index + 1,unit})),
-          accepted:snapshot.entries.map(({at,ops}) => ({at,ops}))
-        }))})
       const wire = {...request,system:prompt.system.replace(DIRECTOR_PROSE.p006,PROMPT_PROSE.p002) + '\n' + windowPrompt,tools:prompt.tools,messages:prompt.messages,maxTokens:prompt.maxTokens}
       const capacity = prepared.modelInfo?.context?.contextWindow
       if (Number.isFinite(capacity) && estimateDirectorTokens(JSON.stringify(wire)) + wire.maxTokens > capacity) throw Object.assign(new Error('Streaming director request exceeds model context'),{code:'MODEL_CONTEXT_EXCEEDED'})
@@ -100,9 +106,10 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
         })}
       }
       let lastReply, error, windowAttempts = 0, chain = Promise.resolve()
+      const thread = conversationFor(epoch)
       // Dev diagnostics (request log): how long this window waited for its preparation.
       const preparation = {waitMs:Math.round(performance.now() - preparing),early:!!earlyInput}
-      try { if (!imageFailure) await runAgent({...wire, signal, task:'stage-director', selection:first.selection, temperature:0.2, window:{first:paragraphs[0].at,through:last}, preparation,
+      try { if (!imageFailure) await runAgent({...wire, signal, task:'stage-director', selection:first.selection, temperature:0.2, window:{first:paragraphs[0].at,through:last}, preparation, ...(thread ? {conversation:thread} : {}),
         persistent:false,webSearchEnabled:false,stopToolsWhen:tx.terminal,acceptWithoutText:() => lastReply !== undefined,
         onToolCall(call) {
           const pending = chain.then(() => {
@@ -116,6 +123,7 @@ export function createStreamingPackDirector({input, identity, runAgent, current,
           chain = pending.catch(cause => {error=cause})
           return pending
         }}) } catch (cause) {
+        if (thread && conversation?.token === thread) closeConversation()
         if (!hasStateImagePools(prepared.context) || signal.aborted) throw cause
         tx.assertCurrent()
         imageFailure = {code:cause.code || 'DIRECTION_FAILED',error:String(cause.message)}

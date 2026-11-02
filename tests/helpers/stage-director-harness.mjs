@@ -12,7 +12,7 @@ export const deferred = () => {let resolve; const promise = new Promise(r => {re
 export const answer = {sequence:1, through:2, done:true, beats:[{at:1,ops:[{op:"scene.set", background:{packId:PACK_ID,kind:'backgrounds',assetId:'classroom'}, time:'day'}]},{at:2,ops:[{op:"scene.set", background:{packId:PACK_ID,kind:'backgrounds',assetId:'classroom'}, time:'dusk'}]}]}
 export const GREETINGS = ['Synthetic greeting.\n\nSynthetic hello.', 'Alternate greeting.']
 // `greeting` starts the chat with a card greeting (turn 1) instead of a directed reply.
-export async function fixture(model, {bound = true, tts, getBinding, greeting = false, extension = stageEnabledExtension(cardExtension()), sessionId = 'session', paragraphParts, bodyForTurn, timedWidgets = false, configurePack, engineValues = {}, foreground, judge, mods, log} = {}) {
+export async function fixture(model, {bound = true, tts, getBinding, greeting = false, extension = stageEnabledExtension(cardExtension()), sessionId = 'session', paragraphParts, bodyForTurn, timedWidgets = false, configurePack, engineValues = {}, foreground, judge, mods, log, openConversation} = {}) {
   const pack = await syntheticPack(), packListeners = new Set(), engineListeners = new Set(), effects = []
   // new-schema tests author figures explicitly without changing legacy-record fixtures.
   configurePack?.(pack)
@@ -47,7 +47,7 @@ export async function fixture(model, {bound = true, tts, getBinding, greeting = 
   const store = {readChat:async () => clone(chat),writeChat:async value => {chat = clone(value); director?.observe(chat)},updateChat:async (_id, fn) => {chat = fn(clone(chat)) ?? chat; director?.observe(chat); return clone(chat)}}
   const tasks = createBackgroundTaskCoordinator({store,timeline,presentationActivity:chat => ({director:director?.activity(chat)})}) // production deploy-gate projection
   const calls = []
-  director = createStageDirector({assets, judge, mods, paragraphParts, bodyForTurn, log, // fake judge injection
+  director = createStageDirector({assets, judge, mods, paragraphParts, bodyForTurn, log, openConversation, // fake judge injection
     updateChat:store.updateChat, readChat:store.readChat,
     publish:event => signals.publish(event.sessionId,event), readTaskChat:store.readChat,
     writeMessage:async (_id,index,mutate) => {const next = clone(chat); if (!next.messages[index]) return false; mutate(next.messages[index]); chat = next; director?.observe(chat); return true}, /* the director runs on the chat model (foreground) */ foreground:foreground || (async () => ({provider:'fake',model:'fake'})),

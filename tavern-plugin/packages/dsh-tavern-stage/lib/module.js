@@ -34,6 +34,9 @@ import {createCgGallery} from './cg-gallery.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
+import {effectiveCardStage} from '../../../lib/domain/card-stage-settings.js'
+import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
+import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -164,7 +167,7 @@ export async function createStageModule(core) {
     readChat:readStageChat,
     trace: requestPerformance,
     judge:engineJudge,mods:modService,
-    itemsEnabled:()=>assetEngineSettings.read().values.stageToggles.items !== false,
+    itemsEnabled:chat=>core.cardStageSwitch(chat.cardPath,'items'),
     stateSource:(chat,raw)=>modConfigHost.stateSource(chat,raw),
     log:event => console.info('dsh-tavern:',JSON.stringify(event)),
     publish:event => {
@@ -200,6 +203,8 @@ export async function createStageModule(core) {
       const output = info.defaultMaxTokens
       return { ...(info.context ? {context:info.context} : {}), ...(output !== undefined ? {defaultMaxTokens:output} : {}) }
     }, runAgent: input => backgroundAgentRunner.run(input),
+    // One round's streaming windows continue one director conversation.
+    openConversation: () => backgroundAgentRunner.conversation(),
     bodyForTurn: async (chat, target, options = {}) => {
       const display = await replyDisplayForChat(chat,await readChatCard(chat),options.persisted === true)
       const projection = display.projections.find(item => item.turn === target.turn)
@@ -263,6 +268,12 @@ export function createStageAssets(core) {
   stageExtensions.register('timer', createTimerExtension)
   ctx.provide('stageExtensions', stageExtensions)
   const assetEngineSettings = createAssetEngineSettings(ctx)
+  // A card's stage switch in effect (effectiveCardStage: the card's own setting over the global stageToggles), for the
+  // readers that have a chat or card path, not a stage snapshot.
+  async function cardStageSwitch(cardPath, key) {
+    const raw = (await readCardWorkspace(cardPath))?.raw
+    return effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)[key] === true
+  }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
     getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
@@ -287,7 +298,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
