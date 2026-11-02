@@ -686,10 +686,11 @@
     homeBar.addEventListener('pointerup',()=>{if(swipe && !swipe.done)release();});
     homeBar.addEventListener('pointercancel',()=>{swipe=null;release();});
     homeBar.onclick=event=>{const swiped=swipe?.done;swipe=null;release();event.stopPropagation();if(!swiped)homeAction();};
-    // Once per phone (this view's life): the first time it is opened, the bar lifts twice so the reader sees it can move.
+    // Once per phone (this view's life), as iOS does: the first time it is opened, the indicator alone rises a little
+    // twice so the reader sees it can be swiped. Only the bar's own pixels move; its band, halo and the input bar hold still.
     let hinted=false;
     function endHint() {homeBar.classList.remove('hint');}
-    homeBar.addEventListener('animationend',event=>{if(event.target===homeBar)homeBar.classList.remove('hint');});
+    homeBar.addEventListener('animationend',event=>{if(event.target===homeBar.firstElementChild)endHint();});
     homeBar.addEventListener('pointerenter',()=>endHint());homeBar.addEventListener('focus',()=>endHint());
     function maybeHint() {
         if(hinted || presentation.state!=='open' || presentation.suspended)return;

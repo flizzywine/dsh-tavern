@@ -220,10 +220,11 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
     },
     /** The page's heartbeat while a call is open (ringing included). */
     alive({sessionId, callId}) { owned(sessionId, callId); return {alive:true} },
-    async start({sessionId, chat, contact, persona, language, playerName, at, origin}) {
+    /** `greeting`: her pick-up line ({say, sub, mood}), already voiced, that the page plays the moment she picks up. */
+    async start({sessionId, chat, contact, persona, language, playerName, at, origin, greeting = null}) {
       for (const row of [...calls.values()]) if (row.sessionId === sessionId) close(row)
       const document = await store.read(chat.id), anchor = storyAnchor(chat, at)
-      const call = {id:id(), sessionId, chatId:chat.id, contact:structuredClone(contact), persona, language, playerName, anchor, startedAt:now(), endedAt:null, lines:[], turn:null, timings:{}, messages:[]}
+      const call = {id:id(), sessionId, chatId:chat.id, contact:structuredClone(contact), persona, language, playerName, anchor, startedAt:now(), endedAt:null, lines:[], turn:null, timings:{}, messages:[], greeting}
       calls.set(call.id, call)
       // Taken as she starts ringing, never awaited by the dial; a voice without a provider to hold resolves to null.
       call.lease = hold({sessionId, contact:call.contact, origin}).catch(() => null)
@@ -234,6 +235,16 @@ export function createPhoneCalls({store, model, serviceState = async () => ({sta
         call.selection = extra.selection
       } catch (error) { close(call); throw error }
       return {callId:call.id, contact, language, anchor}
+    },
+    /** She picked up and her greeting sounded: it stands in the record after the hidden dial cue, before her reply. */
+    async greeted({sessionId, callId}) {
+      const call = owned(sessionId, callId)
+      if (!call.greeting || call.greeted) return {accepted:false}
+      call.greeted = true
+      const {say, sub, mood} = call.greeting, cue = call.lines.findIndex(line => line.cue)
+      call.lines.splice(cue + 1, 0, {role:'contact', segments:[{say, sub, mood}], at:now()})
+      await persist(call)
+      return {accepted:true}
     },
     /** The call became a FaceTime video call: its record says so. */
     async video({sessionId, callId}) {

@@ -3970,6 +3970,8 @@ window.__ModuleLoader__.load({
 		    }
 		    // Frozen, declarative admission data comes from the registered first-party compiler.
 		    const checkModAdmission = (command,params,check) => {
+		        if (command.admission?.source === 'phone.message')
+		            check((params.to !== undefined) !== (params.thread !== undefined),'$.to','Choose one explicit recipient or group. Example: phone-mark mark to=$player form=text; for an NPC use their listed handle instead of $player.','ARG_INVALID');
 		        for (const field of command.admission?.nonblank || []) if (params[field] !== undefined)
 		            check(typeof params[field] === 'string' && params[field].trim().length > 0,'$.'+field,'Use nonblank text or omit this optional field.','ARG_INVALID');
 		        for (const rule of command.admission?.lists || []) if (params[rule.selector] === rule.value) {
