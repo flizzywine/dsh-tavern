@@ -78,6 +78,7 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   const own = await bindings(first.path)
   assert.deepEqual(own.assetBindings.boundPackIds, [first.libraryPack.id], 'the card binds its pack (本卡开启)')
   assert.equal(own.cast, undefined, 'the cast lives in the pack now')
+  assert.deepEqual(own.stage, { enabled: true }, 'the card\'s stage switch is 本卡开启')
 
   const pack = await service.getPackSnapshot({ packId: first.libraryPack.id })
   assert.equal(pack.manifest.name, 'Iroha')
@@ -154,7 +155,7 @@ test('a cast with nothing usable makes no pack and the card still imports; a fai
 })
 
 test('a .dshcard with packs keeps them; its loose material makes no pack of its own', async t => {
-  const { root, files, service } = await setup(t)
+  const { root, files, service, bindings } = await setup(t)
   const packId = '55555555-5555-4555-8555-555555555555'
   const card = { spec: 'chara_card_v3', spec_version: '3.0', data: { name: 'Packed', description: 'own pack',
     extensions: { dsh_tavern: { schemaVersion: 1, assetBindings: { boundPackIds: [packId] }, cast: { version: 1, characters: [{ name: '彩叶', avatar: 'embeded://avatar.png', sprites: {}, voices: {} }] } } } } }
@@ -165,5 +166,6 @@ test('a .dshcard with packs keeps them; its loose material makes no pack of its 
   const imported = await files.importCardArchiveFile(source, 'packed.dshcard')
   assert.equal(imported.libraryPack, undefined)
   assert.ok(imported.assets, 'its loose material stays the card\'s character material')
+  assert.equal((await bindings(imported.path)).stage, undefined, 'its stage switch is the card\'s own')
   assert.deepEqual((await service.listPacks()).filter(row => row.manifest?.id !== packId), [])
 })

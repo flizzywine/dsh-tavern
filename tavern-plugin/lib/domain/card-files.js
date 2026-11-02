@@ -144,11 +144,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     await castAssets.setStartDefaults(cardPath, Object.keys(stored).length ? stored : null)
     return stored
   }
-  // The asset library's pack becomes the card's own (本卡开启); the cast it came from is in the pack now.
+  // The asset library's pack becomes the card's own (本卡开启); the cast it came from is in the pack now. The card's stage
+  // switch becomes 本卡开启 too (stage.enabled, as a .dshcard's defaults.stage declares it), so its figures show with the
+  // global switch off.
   function bindLibraryPack(workspace, packId) {
     const data = rawData(workspace.raw), pointer = cardAssetExtensionPointer(workspace.raw)
     const { cast: _cast, ...own } = data.extensions?.dsh_tavern || {}
-    const next = { ...own, schemaVersion: own.schemaVersion ?? 1, assetBindings: { boundPackIds: [...new Set([...(own.assetBindings?.boundPackIds || []), packId])] } }
+    const { dialogue: _dialogue, stage: _stage, ...stage } = own.stage || {}
+    const next = { ...own, schemaVersion: own.schemaVersion ?? 1, assetBindings: { boundPackIds: [...new Set([...(own.assetBindings?.boundPackIds || []), packId])] }, stage: { ...stage, enabled: true } }
     validateCardAssetExtension(next)
     const rawOperations = data.extensions === undefined ? [{ op: 'set', path: pointer.slice(0, -'/dsh_tavern'.length), value: { dsh_tavern: next } }] : [{ op: 'set', path: pointer, value: next }]
     return cardPreparation.update({ kind: 'card', card: workspace, patch: {}, rawOperations }).card
