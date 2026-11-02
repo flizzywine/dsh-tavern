@@ -422,6 +422,7 @@ export function createSessionViewProjection({
     const previousMessages = previous.tavernHelper.messages
     const changes = {baseRevision:previous.tavernHelper.stateRevision,indices:[...dirtyMessageIndices],layoutChanged,changedHeaderFields}
     const next = Object.assign({}, previous, await volatileSessionViewFields(chat, activity, changes), {
+      playerName: str(chat.macroState?.userName).trim() || '你',
       posture: chat.posture || '',
       postureEnabled: chat.backgroundTasks?.posture !== false,
       styleReference: latestStyleReference(chat),
@@ -441,6 +442,7 @@ export function createSessionViewProjection({
       dirtyIndices: dirtyMessageIndices
     }))
     next.tavernHelper = Object.assign({}, previous.tavernHelper, helperCore, {
+      playerName: next.playerName,
       openingHost: previous.tavernHelper.openingHost,
       worldbook: previous.tavernHelper.worldbook,
       globalVariables: previous.tavernHelper.globalVariables,

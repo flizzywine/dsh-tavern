@@ -2,6 +2,25 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { projectionFixture } from './fixtures/session-view-projection.mjs'
 
+test('header-only player name changes refresh the view and helper across repeated writes and cached reads', async () => {
+  const f = projectionFixture()
+  let chat = { ...f.chat, macroState: { userName: '你' } }
+  let previous = await f.projection.project.full(chat)
+  for (const name of ['dd1', 'aa1', 'aa2', 'aa2', '', 'aa5', '  ']) {
+    chat = { ...chat, _storageRevision: chat._storageRevision + 1, macroState: { userName: name } }
+    const expected = name.trim() || '你'
+    const dirty = await f.projection.project.dirty(chat, previous, new Set(), { busy: false },
+      { changedHeaderFields: ['macroState'], layoutChanged: false })
+    assert.equal(dirty.playerName, expected)
+    assert.equal(dirty.tavernHelper.playerName, expected)
+    const cached = await f.projection.project.cached(chat, dirty, { busy: false })
+    assert.equal(cached.playerName, expected)
+    assert.equal(cached.tavernHelper.playerName, expected)
+    assert.equal(previous.playerName, previous.tavernHelper.playerName)
+    previous = cached
+  }
+})
+
 test('window projection uses real resource revisions and absolute helper ids without poisoning full caches', async () => {
   const f = projectionFixture()
   const chat = { ...f.chat, cardDefinitionSnapshot: { name: '卡' }, openingWorldbookSnapshot: { version: 1, document: null } }
