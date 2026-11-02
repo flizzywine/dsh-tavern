@@ -19,12 +19,6 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "dsh-tavern-plugin"
-      ]
     }
   },
   "scripts": {

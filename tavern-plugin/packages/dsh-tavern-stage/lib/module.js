@@ -275,6 +275,12 @@ export function createStageAssets(core) {
     const raw = (await readCardWorkspace(cardPath))?.raw
     return effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)[key] === true
   }
+  // The two switches the session view publishes (view.stage): the client loads and asks the stage only when one is on.
+  async function cardStageMode(cardPath) {
+    const raw = (await readCardWorkspace(cardPath))?.raw
+    const stage = effectiveCardStage(raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null, assetEngineSettings.read().values)
+    return {dialogue:stage.dialogue === true, stage:stage.stage === true}
+  }
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
     getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
@@ -299,7 +305,7 @@ export function createStageAssets(core) {
     onInvalidate:() => { void coordinationEvents?.publishAll() }})
   ctx.effect(() => () => assetRuntime.dispose())
   ctx.effect(() => core.presentationObservers.register('dsh-tavern-stage-assets',{cardChanged:path => assetRuntime.invalidate(path)}), 'dsh-tavern: asset card invalidation')
-  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
+  return {figureRuntimes,stageExtensions,cardStage,dialogueBubbles:cardStage.bubbles,assetEngineSettings, cardStageSwitch, cardStageMode, engineJudge, judgeRpc, directorProbeRpc, figureVoiceAuthoring, assetRuntime}
 }
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {pathToFileURL} from 'node:url'
 import {readFile} from 'node:fs/promises'
-import vm from './fixtures/client-vm.mjs'
+import {loadStageClientPlugin} from './fixtures/stage-client-plugin.mjs'
 import * as stage from '../tavern-plugin/packages/dsh-tavern-stage/lib/index.js'
 
 test('independent stage plugin follows real Cordis load, unload and reload',async()=>{
@@ -26,16 +26,14 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   const {Context} = await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
   const {startStageClientLifetime} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/lifetime.cjs')
   const {createStageClientEntry} = local('../tavern-plugin/packages/dsh-tavern-stage/lib/client/entry.cjs')
-  let definition
   const controllerSource=await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/controller.cjs',import.meta.url),'utf8')
   const controllerCalls=[...new Set([...controllerSource.matchAll(/stageViews\.([A-Za-z0-9_.]+)\(/g)].map(match=>match[1]))]
   const controllerComponents=[...new Set([...controllerSource.matchAll(/React\.createElement\(stageViews\.([A-Za-z0-9_.]+),/g)].map(match=>match[1]))]
   const styles = new Set()
   const document = {addEventListener(){},removeEventListener(){},querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)}, createElement:() => ({dataset:{},remove() {styles.delete(this)}})}
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
-    document, window:{__ModuleLoader__:{load(value) {definition = value}}}
-  })
-  assert.equal(definition.id, 'dsh-tavern-stage')
+  const plugin = await loadStageClientPlugin({document, window:{}})
+  assert.equal(plugin.name, 'dsh-tavern-stage')
+  assert.deepEqual([...plugin.inject], ['tavernStageFrontend'])
   const assembled = []
   const forbidden = () => {throw new Error('host must not supply stage session access')}
   const seen = [], host = createStageClientEntry({startLifetime:startStageClientLifetime, install:[
@@ -77,7 +75,6 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
   })})
   assert.deepEqual(seen, [], 'core setup does not start the stage')
   assert.equal(styles.size,0)
-  const plugin = definition.factory()
   const first = ctx.plugin(plugin); await first.await()
   assert.deepEqual(seen,['tab','sessions'])
   // Exercise the compiled composition: private consumers resolve this activation's owner,
@@ -101,6 +98,8 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
     views.sessions.owner = originalOwner
   }
   assert.equal(styles.size,2)
+  // Styles inserted after boot name their owner, or the module loader claims them for the next plugin it materializes.
+  for (const style of styles) assert.equal(style.dataset.plugin, 'dsh-tavern-stage')
   assert.match([...styles][1].textContent, /fork-tc-layer/)
   assert.match([...styles][1].textContent, /fork-widget-source-controls/)
   assert.throws(() => host.mount(), /already mounted/)
@@ -138,21 +137,19 @@ test('failed browser stage mount rolls back registrations and can be retried', (
 
 test('browser stage entry removes its style when mounting fails', async () => {
   const styles = new Set()
-  let definition
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url),'utf8'), {
+  const plugin = await loadStageClientPlugin({
     document:{querySelector:() => null, head:{appendChild:style => styles.add(style),insertBefore:style => styles.add(style)},createElement:() => ({dataset:{},remove() {styles.delete(this)}})},
-    window:{__ModuleLoader__:{load(value) {definition = value}}}
+    window:{}
   })
-  assert.doesNotThrow(() => definition.factory().apply({provide(){},get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}))
+  assert.doesNotThrow(() => plugin.apply({provide(){},get:() => ({mount() {throw new Error('failed')}}),effect:run => run()}))
   assert.equal(styles.size,0)
 })
 
 test('stage activation rolls back partial style insertion and retries without touching unrelated styles',async()=>{
-  let definition,fail=true,mounted=0,stopped=0
+  let fail=true,mounted=0,stopped=0
   const original={name:'ordinary-chat'},styles=new Set([original])
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this)}}),head:{insertBefore(style){styles.add(style)},appendChild(style){styles.add(style);if(fail)throw Error('style insertion failed')}}}
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document,window:{__ModuleLoader__:{load(value){definition=value}}}})
-  const plugin=definition.factory(),context={provide(){},get:()=>({mount(){mounted++;return ()=>stopped++}}),effect:run=>run()}
+  const plugin=await loadStageClientPlugin({document,window:{}}),context={provide(){},get:()=>({mount(){mounted++;return ()=>stopped++}}),effect:run=>run()}
   assert.doesNotThrow(()=>plugin.apply(context))
   assert.deepEqual([...styles],[original]);assert.equal(mounted,0)
   fail=false;let cleanup;plugin.apply({...context,effect:run=>cleanup=run()})
@@ -160,30 +157,29 @@ test('stage activation rolls back partial style insertion and retries without to
 })
 
 test('stage shutdown removes every owned style even when mount cleanup and one removal fail',async()=>{
-  let definition,cleanup
+  let cleanup
   const styles=new Set(),removed=[]
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){removed.push(this.dataset.pluginCss);styles.delete(this);if(this.dataset.pluginCss.endsWith('presentation.css'))throw Error('style cleanup failed')}}),head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document,window:{__ModuleLoader__:{load(value){definition=value}}}})
-  definition.factory().apply({provide(){},get:()=>({mount:()=>()=>{throw Error('mount cleanup failed')}}),effect:run=>cleanup=run()})
+  const plugin=await loadStageClientPlugin({document,window:{}})
+  plugin.apply({provide(){},get:()=>({mount:()=>()=>{throw Error('mount cleanup failed')}}),effect:run=>cleanup=run()})
   assert.throws(()=>cleanup(),error=>error.name==='AggregateError'&&error.errors.length===2)
   assert.equal(styles.size,0);assert.equal(removed.length,2);cleanup();assert.equal(removed.length,2)
 })
 
 test('missing stage host degrades without adding styles',async()=>{
-  let definition,created=0
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{document:{createElement(){created++;throw Error('must not allocate')}},window:{__ModuleLoader__:{load(value){definition=value}}}})
-  assert.doesNotThrow(()=>definition.factory().apply({provide(){},get:()=>null,effect:run=>run()}))
+  let created=0
+  const plugin=await loadStageClientPlugin({document:{createElement(){created++;throw Error('must not allocate')}},window:{}})
+  assert.doesNotThrow(()=>plugin.apply({provide(){},get:()=>null,effect:run=>run()}))
   assert.equal(created,0)
 })
 
 test('activation and rollback errors stay diagnostic and do not reject host startup',async()=>{
-  let definition,cleanup
+  let cleanup
   const styles=new Set(),failures=[]
   const document={querySelector:()=>null,createElement:()=>({dataset:{},remove(){styles.delete(this);throw Error('cleanup failed')}}),
     head:{insertBefore:s=>styles.add(s),appendChild:s=>styles.add(s)}}
-  vm.runInNewContext(await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client.js',import.meta.url),'utf8'),{
-    document,console:{error:(...args)=>failures.push(args)},window:{__ModuleLoader__:{load(value){definition=value}}}})
-  assert.doesNotThrow(()=>definition.factory().apply({provide(){},get:()=>({mount(){throw Error('mount failed')}}),effect:run=>cleanup=run()}))
+  const plugin=await loadStageClientPlugin({document,console:{error:(...args)=>failures.push(args)},window:{}})
+  assert.doesNotThrow(()=>plugin.apply({provide(){},get:()=>({mount(){throw Error('mount failed')}}),effect:run=>cleanup=run()}))
   assert.equal(styles.size,0)
   assert.equal(failures.length,1)
   assert.equal(failures[0][1].name,'AggregateError')

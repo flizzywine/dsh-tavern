@@ -329,8 +329,8 @@ try {
     if (!process.argv.includes('--settlement-performance')) await context.tracing.start({ screenshots: true, snapshots: true, sources: true })
     if(stageAudioLifecycle)await context.addInitScript(installStageAudioProbe)
     page = await context.newPage()
-    if(stageRenderFault || stageLifecycle || stageIsolation === 'activation') await page.route('**/plugins/**',async route=>{
-      if(!route.request().url().includes('client.js')) return route.continue()
+    // The core client is a plugin combo row; the stage client is the stage's own asset, imported on demand.
+    if(stageRenderFault || stageLifecycle || stageIsolation === 'activation') await page.route(url=>/\/plugins\/.*client\.js|\/client-assets\/stage-client\.mjs$/.test(url.pathname),async route=>{
       const response=await route.fetch(),body=await response.text()
       if(stageLifecycle && body.includes("const host = ctx.get('tavernStageFrontend');")) {
         return route.fulfill({response,body:body.replace("return ({\n        name: 'dsh-tavern-stage'","return (window.__stageLifecyclePlugin={\n        name: 'dsh-tavern-stage'").replace("const host = ctx.get('tavernStageFrontend');",`window.__stageLifecycleTest={disable:()=>ctx.fiber.dispose(),enable:async()=>{const fiber=ctx.fiber.parent.plugin(window.__stageLifecyclePlugin);await fiber.await();}}; const host = ctx.get('tavernStageFrontend');`)})

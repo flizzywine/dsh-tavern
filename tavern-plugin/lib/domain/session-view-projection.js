@@ -35,6 +35,8 @@ export const sessionViewMessageFields = Object.freeze([
   'native', 'nativeAnchor', 'bodyEdit', 'importSource', 'templateHistoryEdit', 'templateInputSource'
 ])
 
+const NO_STAGE = Object.freeze({dialogue: false, stage: false})
+
 /** Own projection caches and field assembly for full, dirty, cached and bounded views. */
 export function createSessionViewProjection({
   readChanges, scheduleTemplateSync, warmCandidates, requestPerformance, readTavernSettings, readScript,
@@ -42,7 +44,8 @@ export function createSessionViewProjection({
   liveCardUpdate, activityOf, cardUpdateStatus, agentRegistry, str, sessionResources, worldBooks,
   sessionDebugEvidence, cardViewOf, projectLedgerTask, projectCharacterDesignTask, projectPhoneChat,
   readPromptTemplateGlobalVariables, sessionStore, readChatCard, workspaceViewOf, helperHistoryAccess,
-  readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat
+  readLiveCardStage = async () => null, stageReadScope = () => false, readStageChat,
+  readCardStageMode = async () => NO_STAGE
 }) {
   const inputFieldsProjection = createInputFieldsProjection()
   const incrementalReplyView = createIncrementalReplyView({ readChanges })
@@ -106,6 +109,10 @@ export function createSessionViewProjection({
     // Card Stage reads the live card so stage edits show without a card update.
     const cardStage = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
       ? await requestPerformance.stage('cardStage', () => readLiveCardStage(chat.cardPath)) : null
+    // Dialogue bubbles / stage mode in effect for this card (card-stage-settings.js effectiveCardStage, decided by the host):
+    // the client loads and asks the stage only when one is on, and never recomputes it.
+    const stageMode = ['story', 'script'].includes(chat.mode || 'story') && str(chat.cardPath) !== ''
+      ? await requestPerformance.stage('cardStageMode', () => readCardStageMode(chat.cardPath)) : NO_STAGE
     const helperEnabled = hasTavernScriptRuntime(chat, cardExtensions.helperScripts) || (cardStage !== null && cardStage.html !== '')
     const helperRuntime = helperEnabled
       ? projectTavernHelperScripts(cardExtensions.helperScripts, chat.tavernHelperScriptVariables)
@@ -189,6 +196,7 @@ export function createSessionViewProjection({
       // tavernStatusView duplicated tavernStatusViews[0] in every read; clients use the list.
       tavernStatusViews: replyDisplay.statusViews || [],
       cardStage,
+      stage: {dialogue: stageMode.dialogue === true, stage: stageMode.stage === true},
       mvuReceipts: mvuReceiptsOf(chat),
       // Replies whose text is a 精修 (manual or automatic), by turn, for the small mark under them;
       // automatic ones (body.polish, they keep polishedFrom) are told apart in its title.

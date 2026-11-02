@@ -12,9 +12,14 @@ test('stage owns its executable chunk across repeated registration and disposal'
     const result = await assets.read(url)
     assert.equal(result.mediaType, 'text/javascript; charset=utf-8')
     assert.match(result.body.toString(), /export \{createSkinOverlayPlayer,createDecorativeScript\}/)
+    // The stage client itself is the stage's asset too: the core imports it only for a session that needs the stage.
+    const client = await assets.read(TAVERN_CLIENT_ASSET_PREFIX + 'stage-client.mjs')
+    assert.equal(client.mediaType, 'text/javascript; charset=utf-8')
+    assert.match(client.body.toString(), /\nexport default stageClientPlugin;\n?$/)
     assert.throws(() => registerStageClientAssets(assets), /already registered/)
     stop(); stop()
     assert.equal(await assets.read(url), undefined)
+    assert.equal(await assets.read(TAVERN_CLIENT_ASSET_PREFIX + 'stage-client.mjs'), undefined)
   }
   for (const name of ['../skin-overlay.mjs','%2e%2e/skin-overlay.mjs','constructor','__proto__']) {
     assert.equal(await assets.read(TAVERN_CLIENT_ASSET_PREFIX + name), undefined)

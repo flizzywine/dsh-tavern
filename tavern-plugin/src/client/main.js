@@ -986,6 +986,7 @@ window.__ModuleLoader__.load({
 // @include features/polish-compare.js
 
 // @include stage-session-binding.js
+// @include stage-client-loader.cjs
 
 
 
@@ -1004,13 +1005,33 @@ window.__ModuleLoader__.load({
             stageEffect(({createViews}) => bindStageViews(createViews));
             // Local debug capture delegates to the same session and stage routes as the UI.
             // No endpoint, cursor writer or replay protocol: live never installs this adapter.
-            stageEffect(() => {
+            // Registered in the core (not with the stage client): opening the session is what makes the
+            // on-demand loader start the stage, so the route must exist before the stage does.
+            ctx.effect(() => {
                 // Debug launch fills this marker only in its isolated code copy; normal builds stay null.
                 const captureSlot = /* dsh-debug-capture-slot */ null;
                 if (!captureSlot) return;
-                const navigate = async ({ sessionId, turn, para = 1 }) => {
+                const until = async (ready, tries) => { for (let wait = 0; wait < tries && !ready(); wait++) await new Promise(resolve => setTimeout(resolve, 50)); return ready(); };
+                // plain: only open the session (the transcript as a player sees it), never entering its stage — also for a
+                // card whose stage would first offer its setup wizard.
+                const navigate = async ({ sessionId, turn, para = 1, plain = false }) => {
                     if (!sessionId || !Number.isSafeInteger(turn) || turn < 1 || !Number.isSafeInteger(para) || para < 1) throw new Error('Debug capture target refused');
                     await createSessionCompat(ctx.sessions, ctx.get("uiWorkspace")).open(sessionId);
+                    // A card without a stage is not entered: the transcript hides under its session's stage
+                    // (bubbles.js), so entering one that never mounts would leave the chat blank. The host decides
+                    // this per card (view.stage); the stage client then loads for the open session.
+                    if (!await until(() => liveTavernView.getSnapshot(sessionId)?.view, 200)) return { loaded: false, available: false };
+                    if (plain) {
+                        // A stage still entered (an earlier capture, or the player) is left as F12 「回聊天」 does.
+                        if (galActive.get()) { galLeave(); await until(() => !galActive.get(), 200); }
+                        return { loaded: true, available: false, plain: true };
+                    }
+                    if (!stageWantedOf(liveTavernView.getSnapshot(sessionId))) return { loaded: true, available: false };
+                    if (!await until(() => stageNavigation && stageSessions.owner, 600)) throw new Error('Stage client did not start for the capture session');
+                    bubbleStore.load(sessionId);
+                    await until(() => bubbleStore.get(sessionId), 200);
+                    const card = bubbleStore.get(sessionId);
+                    if (!card?.cardPath || !card.config?.enabled) return { loaded: Boolean(card), available: false };
                     galEnter(sessionId, { turn, para });
                     // A round before the conversation's loaded window is not indexed, so the stage's navigation skipped it and the
                     // stage stayed on the previous round. Pull earlier pages through the backlog's 「加载更早」 route, then enter it.
@@ -1087,7 +1108,17 @@ window.__ModuleLoader__.load({
                 report: error => tavernErrorHub.report("舞台", error)
             });
             ctx.effect(() => () => stageClientEntry.dispose(), "dsh-tavern: stage client bridge lifetime");
-            ctx.provide("tavernStageFrontend", Object.freeze({availability:{read:()=>rpc('getStageRuntimeStatus',{}),subscribe:listener=>signals.subscribe('plugin:dsh-tavern-stage','plugin-lifecycle',listener,listener,listener)},mount: stageClientEntry.mount,sessionInputs:()=>stageSessionInputs(ctx)}));
+            // The stage client is downloaded and started only for a session whose card has the stage on
+            // (view.stage, host-decided); availability = server stage ready and such a session is open.
+            const stageClientLoader = createStageClientLoader({
+                sessions: ctx.sessions, views: liveTavernView,
+                runtime: {read: () => rpc('getStageRuntimeStatus', {}), subscribe: (changed, wake) => signals.subscribe('plugin:dsh-tavern-stage', 'plugin-lifecycle', changed, wake, wake)},
+                load: () => import('/api/dsh-tavern/client-assets/stage-client.mjs'),
+                install: plugin => ctx.plugin(plugin),
+                report: error => tavernErrorHub.report("舞台", error)
+            });
+            ctx.provide("tavernStageFrontend", Object.freeze({availability: stageClientLoader.availability, mount: stageClientEntry.mount, sessionInputs: () => stageSessionInputs(ctx)}));
+            ctx.effect(() => stageClientLoader.start(), "dsh-tavern: stage client loader");
 			function reconcileLibraryTabTitles() {
 				if (!ctx.betterSidebar || typeof ctx.betterSidebar.getSnapshot !== "function" || typeof ctx.betterSidebar.updateTab !== "function") return;
 				const snapshot = ctx.betterSidebar.getSnapshot();
