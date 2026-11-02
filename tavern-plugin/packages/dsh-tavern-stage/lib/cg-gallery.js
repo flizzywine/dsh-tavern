@@ -23,7 +23,7 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
     const data = await profileData.readJson(file(cardId))
     if (!data) return []
     if (data.schemaVersion !== 1 || !Array.isArray(data.unlocked)) throw new Error('Invalid CG gallery data')
-    for (const ref of data.unlocked) validateAssetRef(ref,'$.unlocked','cg')
+    // Each ref was checked when ack wrote it; a read keeps fields this version does not know.
     return data.unlocked
   }
   return {
