@@ -12,11 +12,10 @@ export function createAssetEngineSettings(ctx) {
   const changed = () => { for (const listener of listeners) listener() }
   const read = () => {
     check(active, '$', 'Engine settings disposed', 'CONSUMER_UNAVAILABLE')
-    const {catalogueCaps:_retired, ...stored} = source()
-    // initialize the new CG switch without rewriting native settings on read.
+    // The settings source applies validateAssetEngineSettings once (installSettingsSection hooks.validate).
     // these `dimensions` (舞台引擎 › 可用演出) are the one director
     // command setting; a card's stored stage.dimensions is ignored (cardEngineSettings).
-    const values = validateAssetEngineSettings({...stored, dimensions:{cg:entry.dimensions.cg,...stored.dimensions}})
+    const values = source()
     return { values, revision:engineSettingsRevision(values), writable:!!settingsSectionProvider(ctx, ENGINE_SECTION) && settingsSectionProvider(ctx, ENGINE_SECTION).writable !== false, live:true }
   }
   ctx.inject(['settings'], child => {

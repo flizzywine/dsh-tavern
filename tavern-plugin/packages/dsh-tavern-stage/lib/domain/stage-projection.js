@@ -5,7 +5,7 @@ import { matchBubbleMood } from '../../../../src/client/bubble-line.cjs'
 import { stageAssetRefs } from './stage-asset-pack-catalogue.js'
 import { foldAssetPackEntries } from './stage-asset-pack-director.js'
 import {foldPerformanceAt, performanceWidgetDefaults} from './performance-projection.js'
-import { createStagePlayback, validateStagePlayback, stagePlaybackKey, stagePlaybackIdentity, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter, STAGE_PLAYBACK_VERSION } from './stage-playback.js'
+import { reuseStagePlayback, stagePlaybackKey, stagePlaybackRuler, stagePlaybackEmotions, stagePlaybackWriter } from './stage-playback.js'
 
 import {isImmutableJson} from '../../../../lib/domain/freeze-json.js'
 import {stageNarrationLayout} from '../../../../lib/domain/stage-narration.cjs'
@@ -48,7 +48,7 @@ export async function readStageProjection(options) {
     let saved = old
     if (!warm) {
       // Old playback is derived data: rebuild from the stored director, never decode/migrate old frames.
-      const metadata = old?.version === STAGE_PLAYBACK_VERSION && same(old.source,stagePlaybackIdentity(direction)) ? validateStagePlayback(old,direction) : createStagePlayback(direction)
+      const metadata = reuseStagePlayback(old,direction)
       const snapshotCache = {views:new WeakMap(),moods:new Map(),packs:new Set()}
       let changed = false, assetRevision, appendFrame
       // Freeze every sealed semantic boundary, not the subset visited by this viewport.
