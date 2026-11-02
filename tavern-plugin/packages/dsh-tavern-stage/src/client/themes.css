@@ -114,7 +114,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage:not(.is-film) .fork-gal-box.is-awaiting { display: grid; grid-template: 1fr / minmax(0, 1fr); }
 .fork-gal-stage:not(.is-film) .fork-gal-box.is-awaiting > .fork-gal-writing { grid-area: 1 / 1; }
 .fork-gal-box.is-awaiting .fork-gal-writing { display: flex; align-items: center; justify-content: center; }
-/* No relief stroke (the magical relief read as a white outline). The wait itself is the shared stage wait ("stage
+/* No relief stroke (a relief read as a white outline). The wait itself is the shared stage wait ("stage
    wait" block): UI type, accent dots and rules - plainly not the reply - and the 停止 control with a 44px target. */
 .fork-gal-stage:not(.is-film) .fork-gal-box.is-awaiting .fork-gal-writing { box-sizing: border-box; padding: 0; margin: 0; text-indent: 0; text-shadow: none; }
 .fork-gal-box.is-awaiting .fork-gal-writing > .stage-wait, .fork-gal-box-wait-row > .stage-wait { min-height: 44px; padding: 6px 16px; }
@@ -156,7 +156,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 /* Reading any turn (gal-stage.js): the scene hold, the history chip and the
    per-turn direction control in the top bar, and the "your move" page between turns. Colours come only from the stage
    UI tokens; no theme selectors. The top-bar chips share one small opaque pill in the panel paint, its radius capped to
-   the pill's half height (classic 10px, gothic 8px, magical round). */
+   the pill's half height (classic 10px, crt 4px, aero 16px). */
 /* Scene hold: covers at once, then fades out over the resolved page. It stays mounted (.is-resolved) so the fade can
    run; the short delay lets the renderer reveal cached textures first, so the dark dissolves into the scene instead of
    cutting. Its colour is the empty canvas's, so a slow texture never shows a step either. */
@@ -334,7 +334,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   /* No padding glide (like classic): the text column (.is-facing) is laid out once when a page opens. */
 }
 .fork-gal-stage[data-theme="classic"] .fork-gal-box { --gal-box-normal-height: var(--cl-box-h); --gal-box-normal-bottom: var(--cl-bottom); }
-.fork-gal-stage[data-theme="magical"] .fork-gal-box { --gal-box-safe-rise: 4px; }
 .fork-gal-stage[data-theme]:not(.is-film) .fork-gal-box { height: var(--gal-box-normal-height); min-height: 0; bottom: var(--gal-box-normal-bottom); }
 .fork-gal-stage[data-theme]:not(.is-film) .fork-gal-box .fork-gal-text { height: calc(3 * 1lh); min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   /* the scroll box clips on every side, so it reaches --fk-text-bleed past the

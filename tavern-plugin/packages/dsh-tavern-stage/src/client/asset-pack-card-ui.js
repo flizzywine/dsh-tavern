@@ -267,7 +267,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
 // chosen skin's mini stage and name, the menu every skin with its own mini stage and a ✓; a search box once the list is
 // long. The thumbnails are the CONFIG's (.fork-gal-config-theme-art): a built-in paints its theme scope, a pack skin the
 // palette of its own document (default level), else its initial. Saves stage.defaultSkin at once.
-const STAGE_BUILTIN_SKINS=[['classic','经典'],['gothic','哥特'],['magical','魔法少女'],['crt','显像管'],['aero','千禧晴空']];
+const STAGE_BUILTIN_SKINS=[['classic','经典'],['crt','显像管'],['aero','千禧晴空']];
 const SKIN_SEARCH_MIN=8;
 // pack skin refs compare by identity; this module owns its key (the widget page's refKey is function-local).
 const stageSkinKey=value=>typeof value==='string'?value:JSON.stringify([value?.packId,value?.kind,value?.assetId]);

@@ -13,7 +13,7 @@ export interface CurrentStageConfig {
   injection: { template: string; extra: string; placement?: { book?: string; position?: number; depth?: number; role?: number; order?: number } };
   voice: { enabled: boolean } | null;
   stage: {
-    theme: 'classic' | 'gothic' | 'magical' | 'crt' | 'aero'; face: 'always' | 'offstage' | 'off';
+    theme: 'classic' | 'crt' | 'aero'; face: 'always' | 'offstage' | 'off';
     background: string; music: boolean; widgets: boolean; widgetTuning: JsonObject;
     director: boolean; directorModel: { provider: string; model: string } | null;
     directorPrompt: string; directorBudget: StageBudget;

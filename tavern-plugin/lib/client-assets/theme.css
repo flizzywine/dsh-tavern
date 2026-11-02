@@ -1340,7 +1340,7 @@ textarea.fork-status-guide-input:focus { outline: none; border-color: color-mix(
 /* one set of replay states for every plate. At rest
    the glyph is in the plate's own text colour, slightly dimmed; hover / keyboard focus bring it to full strength over a
    soft disc of that same colour (no dark fill, no blur), so it reads on any plate colour. Playing keeps the pulse.
-   Themes and skins only pick the glyph colour; badge designs (magical disc, aero gel, P5 ransom disc) opt out. */
+   Themes and skins only pick the glyph colour; badge designs (aero gel, P5 ransom disc) opt out. */
 .fork-gal-name .fork-gal-voice { display: inline-grid; place-items: center; width: 26px; height: 26px; margin: -4px -8px -4px 0; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; opacity: .72; cursor: pointer; transition: opacity .12s, background-color .12s; }
 .fork-gal-name .fork-gal-voice:is(:hover, :focus-visible, [data-state="playing"]) { opacity: 1; }
 .fork-gal-name .fork-gal-voice:is(:hover, :focus-visible):not([data-state="error"]) { background: color-mix(in srgb, currentColor 18%, transparent); }
@@ -1609,7 +1609,7 @@ button.stage-wait[data-busy] { cursor: default; }
 /* Top bar: place name and an obvious way out */
 /* the top chrome has no plates. Place, BGM chip, mixer, history chips, the top-right
    buttons and the runtime notice sit straight on the scene and stay legible through --gal-ui-hud-glow, a tight halo in
-   the theme's HUD paint (stage-hud bgSolid: dark behind the light inks of classic/gothic, pale behind magical's plum ink;
+   the theme's HUD paint (stage-hud bgSolid: dark behind the light inks of classic/crt, pale behind aero's navy ink;
    the table validates ink : paint >= 3:1). Every control is 30px tall (icon buttons 30px squares, 16px icons), the
    textbox quick-menu size. Only hover / keyboard focus draws a solid chip (the quick menu's chip language) with a
    bolder stroke; toggled states take the HUD accent ink and a small dot, never a plate. The bar is quiet at rest
@@ -1775,7 +1775,7 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 .fork-bg-editor-fields input, .fork-bg-editor-fields textarea { box-sizing: border-box; width: 100%; padding: 5px 8px; border: 1px solid var(--fork-hairline); border-radius: 7px; background: var(--dsw-specific-input-major, transparent); color: var(--fork-ink); font: 12.5px/1.5 var(--fork-font-ui); resize: vertical; }
 @media (max-width: 480px) { .fork-bg-editor { grid-template-columns: 1fr; } }
 /* Waiting for the next reply after a choice: see "stage awaiting box" after the classic theme. */
-/* ---------- Dialogue box v2: gothic glass with filigree (galgame stage) ---------- */
+/* ---------- Dialogue box v2: dark glass with filigree (galgame stage) ---------- */
 .fork-gal-stage { --gal-gold: #e8d8a8; --gal-ink: #f6f1fb; --gal-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif; }
 .fork-gal-box {
   bottom: clamp(14px, 3vh, 30px); width: min(92%, 1040px); min-height: clamp(132px, 23%, 200px);
@@ -1836,50 +1836,6 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 .fork-gal-controls { bottom: 6px; }
 .fork-gal-text .fork-gal-next { margin-left: 8px; vertical-align: -1px; }
 .fork-gal-frame .bow, .fork-gal-frame .spark { display: none; }
-
-/* ---------- Theme: 魔法少女 (pastel, floaty, cute) ---------- */
-.fork-gal-stage[data-theme="magical"] { --gal-ink: #6b2f55; --gal-serif: "M PLUS Rounded 1c", "Yuanti SC", "YouYuan", "PingFang SC", "Microsoft YaHei", sans-serif; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-box {
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 12% 20%, #fff 0 1.5px, transparent 2px) 0 0 / 46px 38px,
-    radial-gradient(circle at 70% 60%, #ffd6ec 0 1.2px, transparent 1.8px) 0 0 / 60px 44px,
-    radial-gradient(140% 120% at 0% 0%, var(--gal-box-speaker), transparent 60%),
-    linear-gradient(180deg, var(--gal-box-plate), #ffe6f2);
-  --gal-box-speaker: color-mix(in srgb, var(--bubble-color) 22%, #fff1f8);
-  --gal-control-idle: #c24a85; --gal-control-on: #a8174f;
-  box-shadow: 0 18px 50px rgb(214 90 150 / .28), 0 0 0 3px rgb(255 255 255 / .85), 0 0 0 6px rgb(255 182 216 / .55), inset 0 0 0 2px rgb(255 255 255 / .7), inset 0 -18px 40px rgb(255 190 222 / .35);
-  animation: fork-gal-float 6s ease-in-out infinite;
-}
-@keyframes fork-gal-float { 50% { transform: translateX(-50%) translateY(-4px); } }
-/* one frame - the white + pink rings around the plate. The dashed stitch inset 9 px
-   inside it read as a box in a box and was removed; ::after is only the SKIP label. */
-.fork-gal-stage[data-theme="magical"] .fork-gal-box.is-skipping::after { content: "SKIP ♡♡"; inset: auto; top: 12px; right: 22px; border: 0; color: #ff6fae; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-box.is-hidden { transform: translateX(-50%) translateY(12px) scaleY(.4); animation: none; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-frame .tl, .fork-gal-stage[data-theme="magical"] .fork-gal-frame .br, .fork-gal-stage[data-theme="magical"] .fork-gal-frame .sweep { display: none; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-frame .bow { display: block; top: calc(clamp(56px, 5.2vw, 76px) * -.74); right: -16px; width: clamp(56px, 5.2vw, 76px); aspect-ratio: 289 / 320; background: url("/api/dsh-tavern/vendor/runtime-assets/gal-stage/bow.webp") center / contain no-repeat; filter: drop-shadow(0 6px 10px rgb(214 90 150 / .3)); transform-origin: 50% 20%; animation: fork-gal-bow 4s ease-in-out infinite; }
-@keyframes fork-gal-bow { 50% { transform: rotate(-5deg) translateY(-2px); } }
-.fork-gal-stage[data-theme="magical"] .fork-gal-frame .spark { display: block; width: 14px; height: 14px; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); background: #fff; filter: drop-shadow(0 0 4px #ff9ccc); transform: scale(0); animation: fork-gal-twinkle 3.2s ease-in-out infinite; }
-.fork-gal-frame .s0 { top: 14%; left: 3%; animation-delay: 0s !important; }
-.fork-gal-frame .s1 { top: -8px; left: 38%; width: 10px !important; height: 10px !important; animation-delay: .7s !important; }
-.fork-gal-frame .s2 { bottom: 18%; left: 22%; width: 9px !important; height: 9px !important; animation-delay: 1.4s !important; }
-.fork-gal-frame .s3 { top: 30%; right: 12%; animation-delay: 2s !important; }
-.fork-gal-frame .s4 { bottom: -6px; right: 30%; width: 11px !important; height: 11px !important; animation-delay: 2.6s !important; }
-.fork-gal-frame .s5 { top: 55%; left: 60%; width: 8px !important; height: 8px !important; animation-delay: 1.1s !important; }
-@keyframes fork-gal-twinkle { 0%, 100% { transform: scale(0) rotate(0); } 40% { transform: scale(1) rotate(45deg); } 70% { transform: scale(.3) rotate(90deg); } }
-.fork-gal-stage[data-theme="magical"] .fork-gal-text { color: var(--gal-ink); font-weight: 500; letter-spacing: .03em; text-shadow: 0 1px 0 rgb(255 255 255 / .8); }
-.fork-gal-stage[data-theme="magical"] .fork-gal-box.is-narration .fork-gal-text { color: #7d4a6c; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-box.is-thought .fork-gal-text { color: #85587a; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-name { left: clamp(40px, 5vw, 70px); padding: 7px 22px; clip-path: none; border-radius: 999px; background: linear-gradient(180deg, color-mix(in srgb, var(--bubble-color) 60%, white), color-mix(in srgb, var(--bubble-color) 85%, #ff7ab6)); box-shadow: 0 0 0 3px #fff, 0 6px 14px rgb(214 90 150 / .3); filter: none; letter-spacing: .1em; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-name span { background: #fff; border-color: #fff; color: color-mix(in srgb, var(--bubble-color) 60%, #4a1d3b); --figure-ink: auto; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-name-gem { width: 14px; height: 13px; clip-path: path("M7 13 C7 13 0 8.5 0 4 C0 1.6 1.8 0 3.8 0 C5.2 0 6.3 .8 7 2 C7.7 .8 8.8 0 10.2 0 C12.2 0 14 1.6 14 4 C14 8.5 7 13 7 13 Z"); background: linear-gradient(160deg, #fff, #ffb3d6 40%, #ff5fa2); box-shadow: none; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-name-gem { background: #fff; }
-.fork-gal-stage[data-theme="magical"]:not(.is-film) .fork-gal-name .fork-gal-voice { opacity: 1; background: #fff; color: color-mix(in srgb, var(--bubble-color) 60%, #4a1d3b); }
-.fork-gal-stage[data-theme="magical"]:not(.is-film) .fork-gal-name .fork-gal-voice:hover { background: #ffe6f2; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-meta { color: #b04a7c; }
-.fork-gal-stage[data-theme="magical"] .fork-gal-typing i { background: var(--gal-ui-accent); }
-.fork-gal-stage[data-theme="magical"] .fork-gal-place { border-left-color: #e0679f; }
-@media (prefers-reduced-motion: reduce) and (update: none) { .fork-gal-stage[data-theme="magical"] .fork-gal-box, .fork-gal-stage[data-theme="magical"] .fork-gal-frame .bow, .fork-gal-stage[data-theme="magical"] .fork-gal-frame .spark { animation: none; } .fork-gal-stage[data-theme="magical"] .fork-gal-frame .spark { transform: scale(.7); } }
 /* Theme picker (card stage settings) */
 .fork-stage-themes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .fork-bubble-settings .fork-stage-theme { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; margin: 0; padding: 8px 10px; border: 1.5px solid var(--fork-hairline); border-radius: 12px; background: transparent; color: var(--fork-ink); text-align: left; cursor: pointer; }
@@ -1887,19 +1843,15 @@ body:not(.dsh-fork-debug) .fork-gal-runtime-status[data-tone="debug"] { display:
 .fork-stage-theme b { font: 600 12.5px/1.3 var(--fork-font-ui); }
 .fork-stage-theme small { grid-column: 2; color: var(--fork-ink-3); font-size: 11px; }
 /* Swatches: one set of flat, same-size boxes in the theme's text-box colour with its cue glyph centred
-   (classic ▼, gothic gold ◆, magical ♥); no borders, rings or gradients, so none reads as a frame in a frame. */
+   (classic ▼, crt block, aero ▼); no borders, rings or gradients, so none reads as a frame in a frame. */
 .fork-stage-theme-swatch { grid-row: 1 / 3; display: grid; place-items: center; flex: none; box-sizing: border-box; width: 30px; height: 20px; padding: 0; border-radius: 5px; corner-shape: round; background: #1b1726; box-shadow: none; }
 .fork-stage-theme-swatch i { display: block; width: 8px; height: 6px; clip-path: polygon(0 0, 100% 0, 50% 100%); background: #f5f2fa; }
-.fork-stage-theme[data-theme="gothic"] .fork-stage-theme-swatch { background: #1a1228; }
-.fork-stage-theme[data-theme="gothic"] .fork-stage-theme-swatch i { width: 7px; height: 10px; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: #e3c77e; }
-.fork-stage-theme[data-theme="magical"] .fork-stage-theme-swatch { background: #f59ac2; }
 /* 显像管 swatch: a scanned tube with a phosphor block cursor. */
 .fork-stage-theme[data-theme="crt"] .fork-stage-theme-swatch { background: repeating-linear-gradient(180deg, #0c2216 0 2px, #06110c 2px 3px); box-shadow: inset 0 0 0 1px #1d5a33; }
 .fork-stage-theme[data-theme="crt"] .fork-stage-theme-swatch i { width: 5px; height: 10px; clip-path: none; background: #4dff88; box-shadow: 0 0 4px #4dff88; }
 /* 千禧晴空 swatch: the sky-white glass with its glossy blue next-cue triangle. */
 .fork-stage-theme[data-theme="aero"] .fork-stage-theme-swatch { background: #dcefff; }
 .fork-stage-theme[data-theme="aero"] .fork-stage-theme-swatch i { width: 10px; height: 8px; clip-path: polygon(0 0, 100% 0, 50% 100%); background: linear-gradient(180deg, #8fd8ff 0%, #3aa2ea 30%, #1172c8 58%, #0a5fae 100%); }
-.fork-stage-theme[data-theme="magical"] .fork-stage-theme-swatch i { width: 10px; height: 9px; clip-path: path("M5 9 C5 9 0 5.9 0 2.8 C0 1.15 1.25 0 2.65 0 C3.65 0 4.5 .6 5 1.4 C5.5 .6 6.35 0 7.35 0 C8.75 0 10 1.15 10 2.8 C10 5.9 5 9 5 9 Z"); background: #fff; }
 /* Section subtitle: a few words saying what the library is for */
 .fork-section-sub { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--fork-ink-3); font-size: var(--fork-fs-meta); white-space: nowrap; text-overflow: ellipsis; }
 .fork-bubble-section-head > .fork-section-sub + .fork-voice-health { margin-left: 0; }
@@ -2043,7 +1995,6 @@ body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu
 .fork-gal-face.is-on::before { opacity: 1; }
 .fork-gal-face-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; animation: fork-gal-face-in .45s cubic-bezier(.2,.7,.3,1) both; }
 @keyframes fork-gal-face-in { from { opacity: 0; transform: translateY(8%); } }
-.fork-gal-stage[data-theme="magical"] .fork-gal-face { left: 11px; top: 11px; bottom: 11px; height: auto; border-radius: 19px 0 0 19px; }
 @media (max-width: 640px) { .fork-gal-box { --face-w: 88px; } }
 .fork-stage-card .fork-stage-select { width: auto; min-width: min(180px, 100%); max-width: 100%; height: 30px; padding: 0 28px 0 10px; border: 1px solid var(--fork-hairline); border-radius: var(--fork-radius); background: var(--fork-raised, var(--fork-surface)); color: var(--fork-ink); font: inherit; font-size: 12.5px; }
 /* ---------- 本卡素材 (card asset pack) ---------- */
@@ -2335,70 +2286,6 @@ body[data-ds-dark-theme] :is([role="menu"]:not(.fork-gal-choices, .fork-gal-menu
   --gal-ui-reading-leading: 1.7;
   /* The restrained classic title deliberately has no ornamental glow. */
   --gal-ui-title-shadow: none;
-}
-.fork-gal-stage[data-theme="gothic"], .fork-gal-theme-scope[data-theme="gothic"] {
-  --gal-empty-accent: #e8d8a8;
-  --gal-empty-surface: var(--gal-base-bg);
-  --gal-empty-deep: color-mix(in srgb, var(--gal-base-accent) 5%, #060409);
-  --gal-base-bg: var(--fk-s-base-bgSolid);
-  --gal-base-ink: var(--fk-s-stage-panel-fg);
-  --gal-base-accent: var(--fk-s-stage-panel-accent);
-  --gal-base-radius: 8px;
-  --gal-base-font: "Tavern neo-zhisong-screen", "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
-  /* Gold filigree corner (the text box's own art), one background layer with its size: the Config sheet puts it
-     on its top-left and (turned) bottom-right corners, the backlog on its top-left. */
-  --gal-ui-ornament: url("/api/dsh-tavern/vendor/runtime-assets/gal-stage/corner.webp") left top / clamp(96px, 9vw, 140px) auto no-repeat;
-  /* The faceted jewel is a shape/material, not a palette-derived triangle. */
-  --gal-ui-gem: polygon(50% 0, 100% 45%, 50% 100%, 0 45%);
-  --gal-ui-gem-height: 13px;
-  /* The turning soul gem in the speaker's colour. */
-  --gal-ui-next: polygon(50% 0, 100% 45%, 50% 100%, 0 45%);
-  --gal-ui-next-width: 12px;
-  --gal-ui-next-height: 16px;
-  --gal-ui-next-fill: none;
-  --gal-ui-next-motion: fork-gal-gem 1.6s ease-in-out infinite;
-  --gal-ui-gem-fill: linear-gradient(160deg, var(--gal-ui-ink), var(--gal-ui-accent) 45%, color-mix(in srgb, var(--gal-ui-accent) 55%, var(--gal-base-bg)));
-}
-.fork-gal-stage[data-theme="magical"], .fork-gal-theme-scope[data-theme="magical"] {
-  /* Opening fallback keeps magical's bright ornamental pink, not the deepened UI accent. */
-  --gal-empty-accent: #e0508f;
-  --gal-empty-surface: color-mix(in srgb, #e0508f 16%, #160c18);
-  --gal-empty-deep: color-mix(in srgb, #e0508f 5%, #09050b);
-  --gal-base-bg: var(--fk-s-base-bgSolid);
-  --gal-base-ink: var(--fk-s-stage-panel-fg);
-  --gal-base-accent: var(--fk-s-stage-panel-accent);
-  --gal-base-radius: 22px;
-  --gal-base-font: "Tavern resource-han-rounded", "M PLUS Rounded 1c", "Yuanti SC", "YouYuan", "PingFang SC", "Microsoft YaHei", sans-serif;
-  /* Pale stationery: the base pink is a mid-tone, so text drawn in the accent (and the pale ink on an accent fill) would
-     sit near 3.5:1. The semantic accent and the secondary ink are deepened toward the ink to keep 4.5:1 on the frosted
-     surface; the ornaments keep the bright base pink. */
-  --gal-ui-accent: var(--fk-s-stage-panel-accent);
-  --gal-ui-ink-2: var(--fk-s-stage-panel-fgMuted);
-  /* A heart and stitched dividers cannot be derived from colour/radius. */
-  --gal-ui-divider: dashed;
-  --gal-ui-divider-width: 2px;
-  --gal-ui-gem: path("M8 15 C8 15 0 9.8 0 4.6 C0 1.8 2 0 4.4 0 C6 0 7.2 .9 8 2.3 C8.8 .9 10 0 11.6 0 C14 0 16 1.8 16 4.6 C16 9.8 8 15 8 15 Z");
-  --gal-ui-gem-width: 16px;
-  --gal-ui-gem-height: 15px;
-  --gal-ui-gem-fill: linear-gradient(160deg, color-mix(in srgb, var(--gal-ui-accent) 25%, var(--gal-base-bg)), var(--gal-ui-accent));
-  /* Frosted stationery has pale relief/highlights instead of dark glass shadows. */
-  --gal-ui-text-shadow: 0 1px 0 color-mix(in srgb, var(--gal-base-bg) 80%, transparent);
-  /* A crisp one-pixel paper relief only: a 2px white offset plus a 16px pink glow read as a fuzzy double edge. */
-  --gal-ui-title-shadow: 0 1px 0 color-mix(in srgb, var(--gal-base-bg) 85%, transparent);
-  /* Stationery cards: a soft white bloom toward the top, solid at every stop. */
-  --gal-ui-veil: radial-gradient(120% 90% at 50% 30%, var(--gal-base-bg), var(--gal-ui-surface-2));
-  /* Ornaments echo the text box's stationery (white + pink rings, twinkling sparkles): the box's
-     filigree tinted from the accent on the large sheets, a sparkle cluster on cards. Art shapes cannot be derived. */
-  --gal-ui-ornament: linear-gradient(135deg, color-mix(in srgb, var(--gal-base-accent) 55%, var(--gal-base-bg)), var(--gal-base-accent) 70%);
-  --gal-ui-ornament-corner: url("/api/dsh-tavern/vendor/runtime-assets/gal-stage/corner.webp") left top / contain no-repeat;
-  --gal-ui-ornament-glow: drop-shadow(0 0 1px var(--gal-base-bg)) drop-shadow(0 0 5px color-mix(in srgb, var(--gal-base-accent) 35%, transparent));
-  --gal-ui-ornament-mini: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M12 1C12.9 8.2 15.8 11.1 23 12 15.8 12.9 12.9 15.8 12 23 11.1 15.8 8.2 12.9 1 12 8.2 11.1 11.1 8.2 12 1Z'/><path d='M25 18.5C25.4 22.2 26.3 23.1 30 23.5 26.3 23.9 25.4 24.8 25 28.5 24.6 24.8 23.7 23.9 20 23.5 23.7 23.1 24.6 22.2 25 18.5Z'/><circle cx='26' cy='7' r='1.7'/></svg>") center / contain no-repeat;
-  --gal-ui-ornament-mini-size: 22px;
-  --gal-ui-ornament-accent: linear-gradient(135deg, color-mix(in srgb, var(--gal-base-accent) 45%, var(--gal-base-bg)), var(--gal-base-accent));
-  /* One frame: a 3px paper rim right outside each surface's edge line. The dashed seam inside cards and
-     status rows, and the faint pink ring beyond a white gap, drew a frame inside / around the frame and are gone. */
-  --gal-ui-ornament-halo: 0 0 0 3px color-mix(in srgb, var(--gal-base-bg) 85%, transparent);
-  --gal-ui-ornament-motion: fork-gal-ornament-glint 4.8s ease-in-out infinite;
 }
 /* 显像管 crt. The panel palette comes from the surface table (stage-crt);
    these are the shapes a palette cannot express: a block-cursor gem and next cue, a prompt before backlog names,
@@ -3493,7 +3380,7 @@ body[data-ds-dark-theme] .fork-modal { color-scheme: dark; }
 /* ==== end stage overlays: config + mixer ==== */
 /* ==== stage system menu ==== */
 /* gal-menu.js: Esc on the stage opens a centred galgame system menu. The stage dims behind it as overlay glass
-   (like the backlog / CONFIG; the text box, choices and top bar step aside); the panel itself is opaque (menus are). Only --gal-ui-* tokens, no theme selectors; the magical ornaments come through the
+   (like the backlog / CONFIG; the text box, choices and top bar step aside); the panel itself is opaque (menus are). Only --gal-ui-* tokens, no theme selectors; theme ornaments come through the
    same token recipe as the CONFIG sheet. The host rounds every corner as a superellipse; the menu asks for round. */
 .fork-gal-stage.is-menu :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; pointer-events: none; }
 .fork-gal-stage.is-menu .fork-gal-topbar { z-index: 11; }

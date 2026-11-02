@@ -1,14 +1,15 @@
 import cardStageModeProtocol from '../../packages/dsh-presentation-protocol/src/card-stage-mode.cjs'
 const {cardStageMode} = cardStageModeProtocol
 // Global stage toggles and card-owned visual/module preferences.
-import { DIRECTOR_DIMENSIONS, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
+import { DIRECTOR_DIMENSIONS, RETIRED_STAGE_SKINS, defaultAssetEngineSettings, validateNarratorSettings } from './asset-engine-settings.js'
 import { validateAssetRef } from '../../packages/dsh-presentation-protocol/src/asset-packs.js'
 import skinContract from '../../packages/dsh-presentation-protocol/src/stage-skin.cjs'
 import { shape, bool, check } from '../../packages/dsh-presentation-protocol/src/asset-pack-json.js'
 
-// A stage skin selection: a built-in id or a pack skin ref.
+// A stage skin selection: a built-in id or a pack skin ref. A removed built-in id still validates; cardStageSkin draws it
+// as an absent skin (the next in the order).
 export function validateStageSkinSelection(skin, path) {
-  if (typeof skin === 'string') check(Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS,skin), path)
+  if (typeof skin === 'string') check(Object.hasOwn(skinContract.BUILTIN_STAGE_SKINS,skin) || RETIRED_STAGE_SKINS.includes(skin), path)
   else validateAssetRef(skin,path,'skins')
 }
 

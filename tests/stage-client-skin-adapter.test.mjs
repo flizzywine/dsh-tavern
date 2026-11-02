@@ -13,7 +13,7 @@ test('skin scope restores every applied surface on unload and rejects late appli
  const dom=new JSDOM('<div></div><div></div>'),skin=create(),roots=[...dom.window.document.querySelectorAll('div')]
  roots[0].style.setProperty('--gal-skin-bg','original');roots[0].setAttribute('data-fk-skin','previous')
  const restore=skin.applyStageSkin(roots[0],contract.BUILTIN_STAGE_SKINS.classic,fonts)
- skin.applyStageSkin(roots[1],contract.BUILTIN_STAGE_SKINS.gothic,fonts)
+ skin.applyStageSkin(roots[1],contract.BUILTIN_STAGE_SKINS.crt,fonts)
  assert.equal(roots[0].getAttribute('data-fk-skin'),'classic')
  skin.applyStageSkinMode(roots[0],{marks:{'data-fk-skin-mode':'debate'},tokens:{'--mode-font':'20'}})
  skin.dispose();restore();skin.dispose()

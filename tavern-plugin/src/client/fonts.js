@@ -24,8 +24,6 @@ function createTavernFonts(options) {
     function notify() { revision++; listeners.forEach(function (fn) { fn(); }); }
     function fallback(role, theme) {
         if (role === "reading") return "var(--fork-font-ui)";
-        if (role === "stage" && theme === "gothic") return '"Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif';
-        if (role === "stage" && theme === "magical") return '"M PLUS Rounded 1c", "Yuanti SC", "YouYuan", ' + sans;
         if (role === "stage" && theme === "aero") return '"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", ' + sans;
         return sans;
     }

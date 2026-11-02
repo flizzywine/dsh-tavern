@@ -857,8 +857,6 @@ function stageSkinFiles(value) {return [...new Set([...Object.values(value.asset
 // built-in skin ids preserve the existing layout selectors, not a second theme preference.
 const BUILTIN_STAGE_SKINS = Object.freeze(Object.fromEntries([
     ['classic','经典','沉静的深色阅读舞台','#0c0a14','#f5f2fa','#bcb8c6','#e9e4f3','neo-xihei-screen'],
-    ['gothic','哥特','暗紫底色与浅金装饰','#0c0816','#f6f1fb','#c2b8cc','#e8d8a8','neo-zhisong-screen'],
-    ['magical','魔法少女','明亮的奶油粉色舞台','#fffafd','#6b2f55','#80506d','#b7457b','resource-han-rounded'],
     // 显像管 phosphor tube: tight 4px glass corners and a dim phosphor rule.
     ['crt','显像管','深夜绿色荧光的显像管屏幕','#06110c','#c8f5d2','#7fbf95','#4dff88','neo-xihei-screen',4,'#1d5a33'],
     // 千禧晴空 Frutiger Aero: sky glass, Aero blue, a pale sky-white scrim
