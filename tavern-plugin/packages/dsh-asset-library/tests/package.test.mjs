@@ -13,11 +13,14 @@ test('built client registers its module and owns one disposable library tab', as
   })
   assert.equal(descriptor.id, 'dsh-asset-library')
   const client = descriptor.factory(() => { throw new Error('Unexpected client dependency') })
-  const tabs = [], effects = []
-  client.apply({
+  const tabs = [], effects = [], groups = []
+  const ctx = {
     effect(fn) { effects.push(fn()) },
-    get(name) { return name === 'betterSidebar' ? {registerTab(tab) { tabs.push(tab); return () => tabs.pop() }} : {render: props => props} },
-  })
+    inject(names, apply) { assert.equal(names.join(), 'tavernUi'); apply(ctx) },
+    get(name) { return name === 'betterSidebar' ? {registerTab(tab) { tabs.push(tab); return () => tabs.pop() }} : name === 'tavernUi' ? {registerStartGroup(group) { groups.push(group) }} : {render: props => props} },
+  }
+  client.apply(ctx)
+  assert.deepEqual(JSON.parse(JSON.stringify(groups)), [{title: '舞台装置', tabs: ['dsh-tavern:bubbles', 'dsh-asset-library:library']}])
   assert.equal(tabs.length, 1)
   assert.equal(tabs[0].id, 'dsh-asset-library:library')
   const props = {}
