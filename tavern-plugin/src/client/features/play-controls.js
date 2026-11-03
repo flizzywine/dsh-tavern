@@ -741,6 +741,9 @@
 						if (result.composerText.trim() !== "" && props.inputActions && typeof props.inputActions.setDraft === "function") props.inputActions.setDraft(result.composerText);
 						return;
 					}
+					const before = panel.edit.parts.filter(function (part) { return part.kind === "text"; }).map(function (part) { return part.text; }).join("\n");
+					const editChars = tavernPlayEvents.editChars(before, panel.texts.join("\n"));
+					if (editChars) tavernPlayEvents.emit(panel.edit.role === "user" ? "input_rewrite" : "ai_edit", props.sessionId, { editChars: editChars });
 					liveTavernView.setView(props.sessionId, result.view);
 					notifyTavernDataChanged(["sessions"], "play-controls");
 					tavernCoordination.invalidate(props.sessionId);
@@ -1012,6 +1015,7 @@
 				const rail = createTurnRailFilter(root);
 				const controls = createTurnErrorControls(root, {
                     sessionId: props.sessionId, storage: window.localStorage, hiddenTurns: hiddenTurns, replayTurn: replayTurn,
+                    onVisible: function (turn) { tavernPlayEvents.emitOnce(props.sessionId + ":" + turn, "native_error", props.sessionId, { nativeTurn: turn }); },
                     onToggle: !Array.isArray(hiddenTurns) ? undefined : async function (turn, hidden) {
                         const result = await rpc("setFailedErrorVisibility", { sessionId: props.sessionId, turn: turn, hidden: hidden });
                         liveTavernView.setView(props.sessionId, result.view);

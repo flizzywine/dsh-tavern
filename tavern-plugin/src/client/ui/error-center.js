@@ -36,6 +36,7 @@
 					const message = String(error && error.message || error || "").trim();
 					if (!message) return;
 					const code = error && typeof error === "object" && error.code ? String(error.code) : "";
+					tavernPlayEvents.emit("error", "");
 					const scope = String(source || "DSH Tavern");
 					const now = Date.now();
 					const existing = items[0] && items[0].source === scope && items[0].message === message ? items[0] : null;

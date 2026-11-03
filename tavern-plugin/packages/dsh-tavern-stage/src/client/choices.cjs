@@ -1,4 +1,4 @@
-function createStageChoices({React:react,ReactDOM,window,document,layout,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
+function createStageChoices({React:react,ReactDOM,window,document,layout,playEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver,setTimeout:hostSetTimeout,clearTimeout:hostClearTimeout,requestAnimationFrame:hostRequestFrame,cancelAnimationFrame:hostCancelFrame}) {
 let disposed=false;
 const cleanups=new Set(),timers=new Map(),frames=new Map();
 function own(cleanup){let active=true;const release=()=>{if(!active)return;active=false;cleanups.delete(release);cleanup();};cleanups.add(release);return release;}
@@ -216,6 +216,9 @@ function GalChoices(props) {
         try {
             // A pipe would split the slash command; the full-width bar reads the same.
             await props.executeSlash("/send " + value.replace(/\|/g, "｜") + "|/trigger", sessionId);
+            const choiceIndex = choices.findIndex(choice => textOf(choice) === value);
+            if (choiceIndex >= 0) playEvents.emit('choice', sessionId, { choiceIndex });
+            if (withdrawn && withdrawn !== value) playEvents.emit('input_rewrite', sessionId, { editChars: playEvents.editChars(withdrawn, value) });
             if(!current())return;
             commands.clear(); setEditingAt(null); setDrafts({});
             props.onSent && props.onSent(value);

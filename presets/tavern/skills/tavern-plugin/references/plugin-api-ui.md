@@ -160,6 +160,34 @@ const stop = ctx.tavernUi.watchWorkStatus(gameId, (status) => {
 - 换局、关掉这一局、插件卸载都会自动停掉订阅。
 - 只读，不改变游戏。
 
+## `onPlayEvent(listener)`（第 8 版）
+
+玩家在当前页面里做了什么：选了哪个选项、一页读了多久、重播了语音、看到了报错。给游玩统计、陪玩这类插件用。每次动作之后调用 `listener(event)`，返回取消函数；插件卸载时自动停掉。
+
+```js
+const stop = ctx.tavernUi.onPlayEvent((event) => {
+  if (event.type === 'page') stats.read(event.gameId, event.turn, event.dwellMs)
+})
+```
+
+每个事件都有 `type`、`gameId`、`turn`（这一局最新的轮次，事件自带时以事件为准）和 `at`（毫秒时间戳），其余字段按类型：
+
+| `type` | 何时 | 其余字段 |
+|---|---|---|
+| `choice` | 选了一个候选选项（输入框上方的候选，或舞台的选项） | `choiceIndex` |
+| `input_rewrite` | 改写了自己的输入：编辑已发送的输入，或在舞台上改了撤回的那句再发 | `editChars` |
+| `ai_edit` | 编辑了 AI 写的正文 | `editChars` |
+| `regenerate` | 重新生成正文 | — |
+| `native_error` | 一轮失败的报错出现在屏幕上（同一轮在本页只算一次） | `nativeTurn`：报错行上的 DSH 原生轮次（不是剧情轮次 `turn`） |
+| `error` | 报错中心收到一条报错；`gameId` 为空字符串 | — |
+| `voice_replay` | 点了语音按钮重播 | 舞台上另有 `page` |
+| `page` | 舞台上离开一页（翻页、暂停阅读或关掉页面） | `page`、`dwellMs`（只算页面可见、未暂停的时间）、`skipped` |
+| `auto_on`、`auto_off`、`skip` | 舞台的 AUTO 开关、开始快进 | — |
+
+- 只有计数和序号，不含任何正文文字。`editChars` 是改动的字数（去掉前后相同的部分），不是长度差。
+- 插件在这一局被关掉时收不到这一局的事件。
+- 回调抛错会进报错中心；连续出错三次后这个回调被停掉。
+
 ## `acquireLease({ sessionId, scope, ttlMs?, reason? })`、`getLease(sessionId, scope)`、`watchLease(sessionId, scope, listener)`（第 7 版）
 
 「占用锁」：同一局同一个 `scope` 同时只给一个插件。给桌宠这类会抢气泡、动作、舞台的插件协调用，避免两个插件同时说话或同时换画面。
