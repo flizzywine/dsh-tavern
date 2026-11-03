@@ -14050,7 +14050,8 @@ window.__ModuleLoader__.load({
         }
         if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createPresentationQueue, rpcFetchPriority};
         const presentationRequest = createPresentationQueue();
-
+        // The isolated clip export page answers every request from its frozen export snapshot (clipReplayCore below).
+        let clipExportTransport = null;
 		// A save whose session log cannot be upgraded may not open at all, so this works from the
 		// conversation menu too: the structure goes to the developer, the story text stays home.
 		async function downloadSessionDiagnostics(args, sessionId) {
@@ -14059,6 +14060,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function rpc(method, args, sessionId, requestOptions) {
+            if (clipExportTransport) return clipExportTransport(method, {...args,sessionId:sessionId || args?.sessionId});
 			// While DSH restarts (after an update) it accepts requests a moment before Tavern's
 			// routes and auth are mounted: they answer 404/401/5xx without running the handler.
 			// Wait that window out instead of reporting it; a lasting failure still surfaces.
@@ -45136,11 +45138,12 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// Pages that need the stage client for any card (设置 › 舞台) hold the loader (stage-client-loader.cjs hold); main.js binds it.
 		let stageClientHold = null;
 		const galStageHold = () => stageClientHold ? stageClientHold() : () => {};
-		function bindStageNavigation(createNavigation, ctx) {
+		// hooks: the isolated clip export page enters its one session silently, with no setup check (clip-render.cjs).
+		function bindStageNavigation(createNavigation, ctx, hooks) {
 		    if (stageNavigation) throw new Error('Stage navigation already mounted');
 		    const navigation = createNavigation({window, document, navigator:window.navigator,
 		        playCue:cue => forkUiSfx.play(cue), checkSetup:stageSetupGate,
-		        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id)});
+		        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id), ...hooks});
 		    const stops = [];
 		    stageNavigation = navigation;
 		    for (const [name, signal] of stageNavigationSignals) stops.push(navigation[name].subscribe(signal.emit));
@@ -45547,6 +45550,8 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
 		            dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
 		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents},
+		        // Clip export (clip-export.cjs) lives in the stage package; these are the core names it uses.
+		        clipExport:{rpc,Icon,Spinner,EmptyState,overlayEscape,useOverlay,InlineField},
 		        controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
 		        // 设置 › 舞台 (stage global-settings.js): the page's core rows and controls (modules/global-settings.js).
 		        globalSettings:stageGlobalSettingsOptions,
@@ -45582,7 +45587,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        choices:{ReactDOM,playEvents:tavernPlayEvents,sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,TextArea,Icon,StageWaitStop,StageWaitLines,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
 		        choiceLayout:{getComputedStyle},
 		        regenerate:{report:(...args)=>tavernErrorHub.report(...args),sounds:forkUiSfx,useSounds:useForkUiSfxControls,episode:stageWaitLinesEpisode,waitLines:STAGE_WAIT_LINES,HelpTip,Segmented,TextArea,StageWaitStop,StageWaitLines},
-		        backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useClipBacklog:typeof useClipBacklog==='function'?useClipBacklog:undefined,useJumpLatest,JumpLatest,useFigureTextContrast,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
+		        backlogView:{voicePlayer,useDiceBacklog,diceBacklogEntries,diceLine,useJumpLatest,JumpLatest,useFigureTextContrast,bubbleCharacter,galQuoted,VoiceButton,PackImage,Icon,HelpTip,Spinner,getComputedStyle,ResizeObserver:globalThis.ResizeObserver,setTimeout,clearTimeout,requestAnimationFrame,cancelAnimationFrame},
 		        backlogHistory:{read:sessionId=>rpc('getStageModHistory',{},sessionId), subscribe:(sessionId,refresh)=>tavernSessionSignals.subscribe(sessionId,'stage-direction',refresh,refresh,refresh)},
 		        backlogVoice:{player:voicePlayer, wake:()=>forkLipSync?.wake?.()},
 		        backlogRows:{registry:createStagePerformanceRegistry, core:STAGE_PERFORMANCE_CORE, pointer:stagePerformancePointer},
@@ -51961,6 +51966,16 @@ function useStageDialogue(sessionId) {
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageClientLoader, stageWantedOf, stageDialogueOf, openSessionIds};
 
+// Clip export: the stage client replays a round on the isolated export page (dsh-tavern-stage clip-render.cjs) over
+// these core names; the setters replace the core bindings the export page swaps out.
+function clipReplayCore() {
+    return {React, ReactDOM, avatarCache, bgManual, bgmPlayer, bindStageNavigation, bindStageViews, bubbleCharacter, bubbleMediaDescriptor, bubbleMoodList, bubbleStore,
+        forkStageAudio, galEnter, galStageLifetime, segmentSpeechInput, spineRuntimeState, STAGE_HISTORY_SETTLE_MS, stageBlockPages, stagePageCards, stageReading, voicePlayer,
+        get stageViews() {return stageViews;},
+        set tavernSessionSignals(value) {tavernSessionSignals = value;}, set forkTtsScope(value) {forkTtsScope = value;},
+        set clipExportTransport(value) {clipExportTransport = value;}, set packTransport(value) {packTransport = value;}};
+}
+
 
 
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
@@ -52328,6 +52343,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.findTavernQuoteRanges = findTavernQuoteRanges;
         exports.installTavernTextColors = installTavernTextColors;
         exports.TavernColoredMarkdown = TavernColoredMarkdown;
+        exports.clipReplayCore = clipReplayCore;
         exports.apply = apply;
 		exports.createTurnHistoryProjection = createTurnHistoryProjection;
 		exports.createTurnErrorControls = createTurnErrorControls;
@@ -52666,9 +52682,9 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 			}
 			Object.defineProperty(proto, "__dshTavernSessionPatch", { value: true })
 		}
-		// The page's session history only: the server's headless card runtime has none, and
+		// The page's session history only: the server's headless card runtime and the clip-export page have none, and
 		// would report the missing patch for the whole profile.
-		if (!window.__dshTavernHeadless) installTavernSessionHistoryPatch(require, rpc);
+		if (!window.__dshTavernHeadless && window.location?.hostname !== 'clip-export.invalid') installTavernSessionHistoryPatch(require, rpc);
 		return module.exports;
 	})
 });
