@@ -141,14 +141,22 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
     })
   }
 
-  async function waitJob(jobId, task, timeoutMs = 8 * 60 * 1000) {
-    const deadline = Date.now() + timeoutMs
+  async function waitJob(jobId, task, onProgress) {
+    const deadline = Date.now() + 8 * 60 * 1000
+    let lastPercent = 0
+    let nextUpdateAt = 0
     while (Date.now() < deadline) {
       await assertCurrent(task)
       const job = engine.getJob(jobId)
       if (!job) return null
       if (job.state === 'done' && job.file) return job
       if (job.state === 'failed' || job.state === 'cancelled' || job.state === 'uncertain') return job
+      const percent = job.percent
+      if (Number.isFinite(percent) && percent < 100 && percent - lastPercent >= 5 && Date.now() >= nextUpdateAt) {
+        lastPercent = percent
+        nextUpdateAt = Date.now() + 2000
+        try { await onProgress(percent / 100) } catch { /* Progress is optional. */ }
+      }
       await pause(500, task.controller.signal)
     }
     return null
@@ -344,7 +352,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
       if (!jobId) { await tavern.update(attached.id, { status: 'failed', error: '没有拿到作业号' }).catch(() => {}); return 0 }
 
       try {
-        const job = await waitJob(jobId, task)
+        const job = await waitJob(jobId, task, progress => tavern.update(attached.id, { progress }))
         if (!job) { await tavern.update(attached.id, { status: 'failed', error: '等待出图超时' }); return 0 }
         if (job.state !== 'done' || !job.file) {
           await tavern.update(attached.id, { status: 'failed', error: String(job.error || '出图失败').slice(0, 200), actions: [{ id: 'retry', label: '重试' }] })

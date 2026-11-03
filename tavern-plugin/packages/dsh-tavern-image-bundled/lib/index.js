@@ -33,6 +33,7 @@ import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
+import { createComfyProgress } from './comfy-progress.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -1213,6 +1214,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
     let workflows = []
     const jobs = new Map()
+    const comfyProgress = createComfyProgress()
     // 出全黑图时用来换种子重画：jobId → { prompt, seedBindings }（只在内存里，重启后不重画）。
     const blankRetry = new Map()
     const BLANK_RETRIES = 2
@@ -1528,13 +1530,16 @@ function createRuntime(ctx, overrides, logger, deps) {
       let result
       let promptPostStarted = false
       try {
-        const requestBody = JSON.stringify({ prompt: compiled.prompt, prompt_id: job.comfyId, client_id: randomUUID() })
-        diag.recordJob(job?.id, 'comfy-request', { method: 'POST', path: '/prompt', body: diag.text(requestBody) })
         job.controller.signal.throwIfAborted()
         assertComfyEndpoint(job)
         await onGenerationSubmit?.()
         job.controller.signal.throwIfAborted()
         assertComfyEndpoint(job)
+        const clientId = job.gameId && job.turn && job.textVersion
+          ? comfyProgress.watch(job.comfyEndpoint, comfyHeaders(config), job)
+          : undefined
+        const requestBody = JSON.stringify({ prompt: compiled.prompt, prompt_id: job.comfyId, client_id: clientId ?? randomUUID() })
+        diag.recordJob(job?.id, 'comfy-request', { method: 'POST', path: '/prompt', body: diag.text(requestBody) })
         promptPostStarted = true
         result = await comfyJson('/prompt', {
           method: 'POST',
@@ -1780,6 +1785,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     // 这里补一个后台扫描：每 3 秒把所有"还没结束且知道 ComfyUI 作业号"的作业刷一遍。
     function startJobSweeper() {
       const timer = setInterval(() => {
+        comfyProgress.sweep(endpointOf(config.comfyUrl), job => jobs.get(job.id) === job && (job.submitting || ['pending', 'running'].includes(job.state)))
         for (const job of jobs.values()) {
           if ((job.state === 'pending' || job.state === 'running' || job.state === 'uncertain')
             && (job.comfyId || (resumableChannelForJob(job) && job.providerTaskId))) refresh(job).catch(() => {})
@@ -1799,6 +1805,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     let imageDisposed = false
     if (typeof ctx.effect === 'function') ctx.effect(() => () => {
       imageDisposed = true
+      comfyProgress.dispose()
       for (const controller of settledTurnWaitControllers) controller.abort(new Error('插件已卸载'))
       settledTurnWaitControllers.clear()
       for (const job of jobs.values()) if (job.backend !== 'comfyui' && ['pending', 'running', 'uncertain'].includes(job.state)) job.controller?.abort()
