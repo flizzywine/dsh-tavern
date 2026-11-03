@@ -27,6 +27,18 @@ test('a call trims the reply, keeps temperature except for Codex, and lists only
   assert.deepEqual(await calls.tavernModelCatalog(), [{ provider: 'p', providerName: 'P', models: [{ id: 'text', name: 'text' }] }])
 })
 
+test('an explicit selection, streamed deltas and chunks, and usage on request', async () => {
+  const { calls, prepared } = harness({ chunks: [
+    { type: 'text-delta', text: ' answer ' }, { type: 'usage', usage: { inputTokens: 7, outputTokens: 2 } }
+  ] })
+  const deltas = [], chunks = []
+  const result = await calls.callModel({ selection: { provider: 'judge', model: 'small' }, messages: [], returnUsage: true, onText: text => deltas.push(text), onChunk: chunk => chunks.push(chunk.type) })
+  assert.deepEqual(prepared[0], { provider: 'judge', model: 'small' })
+  assert.deepEqual(deltas, [' answer '])
+  assert.deepEqual(chunks, ['text-delta', 'usage'])
+  assert.deepEqual(result, { output: 'answer', usage: { inputTokens: 7, outputTokens: 2 } })
+})
+
 test('no model, an empty reply, a token cut-off and a failed stream all reject with the reason', async () => {
   await assert.rejects(harness({ defaultSelection: null }).calls.callModel({ messages: [] }), /没有可用的模型配置/)
   await assert.rejects(harness({ chunks: [{ type: 'text-delta', text: '  ' }] }).calls.callModel({ messages: [] }), /模型返回为空/)
