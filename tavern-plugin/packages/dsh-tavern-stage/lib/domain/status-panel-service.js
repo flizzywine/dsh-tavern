@@ -31,6 +31,7 @@ export function createStatusPanelService({ readWorkspace, chatForSession, index,
       const sources = indexed ? await readCardVariableSources({ path: chat.cardPath, indexed, readWindow, readRevision }) : {}
       return {
         title: panel.title || '状态',
+        size: panel.size || 'window',
         figures: panel.figures || [],
         ...(withHtml === true ? { html: panel.html } : {}),
         data: {

@@ -4,7 +4,8 @@ import contract from '../../src/client/widget-contracts.cjs'
 import { emptyLedger } from './story-ledger.js'
 
 export const STATUS_PANEL_LEDGER_SECTIONS = Object.freeze(Object.keys(emptyLedger()).filter(name => name !== 'version'))
-const KEYS = ['version', 'title', 'html', 'variables', 'ledger', 'figures']
+const KEYS = ['version', 'title', 'size', 'html', 'variables', 'ledger', 'figures']
+export const STATUS_PANEL_SIZES = Object.freeze(['window', 'full'])
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 function invalid(path, message) {
@@ -22,6 +23,7 @@ export function validateCardStatusPanel(value, path = 'statusPanel') {
   if (value.version !== 1) invalid(path + '.version', '必须是 1')
   if (typeof value.html !== 'string' || !value.html.trim()) invalid(path + '.html', '必须是非空的 HTML 字符串')
   if (value.title !== undefined) text(value.title, path + '.title', 40)
+  if (value.size !== undefined && !STATUS_PANEL_SIZES.includes(value.size)) invalid(path + '.size', '只能是 ' + STATUS_PANEL_SIZES.join(' 或 ') + '（省略为 window）')
   if (value.variables !== undefined) {
     if (!plain(value.variables) || value.variables.writes !== undefined) invalid(path + '.variables', '只能声明 {reads}；状态面板不写变量')
     try { contract.validateStageWidgetVariables(value.variables) }

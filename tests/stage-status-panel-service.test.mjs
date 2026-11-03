@@ -46,6 +46,8 @@ test('withHtml:false omits html; withHtml:true includes it', async () => {
   const without = await service().read({sessionId:'chat', withHtml:false})
   assert.equal('html' in without, false)
   assert.equal(without.title, '辉夜的状态')
+  assert.equal(without.size, 'window')
+  assert.equal((await service({workspace:{raw:card({...panel, size:'full'})}}).read({sessionId:'chat'})).size, 'full')
   assert.deepEqual(without.figures, panel.figures)
   assert.equal((await service().read({sessionId:'chat', withHtml:true})).html, '<p>状态</p>')
 })

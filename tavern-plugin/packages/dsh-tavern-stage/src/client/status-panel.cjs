@@ -32,7 +32,8 @@ function faceDataUrl(url) {
 }
 
 // One open panel: the frame, its facade and the data feed. host() → the element the frame goes into.
-// onState({phase:'loading'|'ready'|'empty'|'error', title, figures, error}) drives the sheet's own chrome.
+// onState({phase:'loading'|'ready'|'empty'|'error', title, size, figures, error}) drives the sheet's own chrome
+// (size 'full': the sheet fills the stage instead of the centred window).
 function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
     let closed = false, frame = null, releaseFacade = null, stopSignals = null, raw = null, avatars = new Map(), theme = {};
     let inFlight = false, again = false, faceJob = 0;
@@ -59,7 +60,7 @@ function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
         }
     }
     function state(phase, extra) {
-        if (!closed) onState({phase, title: raw?.title || '', figures: raw?.figures || [], ...extra});
+        if (!closed) onState({phase, title: raw?.title || '', size: raw?.size || 'window', figures: raw?.figures || [], ...extra});
     }
     function mount(html) {
         const target = host();
@@ -108,7 +109,7 @@ function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
             const result = await read(sessionId, true);
             if (closed) return;
             if (!result) { raw = null; state('empty'); return; }
-            raw = {title: result.title || '', figures: result.figures || [], data: result.data || {}};
+            raw = {title: result.title || '', size: result.size || 'window', figures: result.figures || [], data: result.data || {}};
             state('ready');
             mount(result.html);
             stopSignals = signals.subscribe(sessionId, refresh);
@@ -163,13 +164,14 @@ function useStatusPanel(sessionId) {
     return value;
 }
 
-function Overlay({sessionId, config, source, onClose}) {
+// size: the probe's (useStatusPanel) panel size, so a full-stage sheet opens full instead of growing after its read.
+function Overlay({sessionId, config, source, size, onClose}) {
     const h = React.createElement, root = React.useRef(null), body = React.useRef(null), panel = React.useRef(null), close = React.useRef(onClose);
     close.current = onClose;
     const live = useLiveView ? useLiveView(sessionId, 'status-panel', [['tavernRuntimePolicy']]) : null;
     const ready = !useLiveView || Boolean(live?.view);
     const trusted = useLiveView ? Boolean(live?.view?.tavernRuntimePolicy?.trustedCardMode) : true;
-    const [state, setState] = React.useState({phase: 'loading', title: '', figures: []});
+    const [state, setState] = React.useState({phase: 'loading', title: '', size: size || 'window', figures: []});
     React.useEffect(() => {
         if (disposed || !ready) return;
         const current = openStatusPanel({sessionId, trustedCardMode: trusted, host: () => body.current, onClose: () => close.current(), onState: setState});
@@ -197,7 +199,7 @@ function Overlay({sessionId, config, source, onClose}) {
         return () => window.removeEventListener('keydown', key, true);
     }, []);
     const title = state.title || '状态';
-    return h('div', {className: 'fork-gal-status', onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current(); },
+    return h('div', {className: 'fork-gal-status', 'data-size': state.size, onClick: event => { event.stopPropagation(); if (event.target === event.currentTarget) close.current(); },
         onWheel: event => event.stopPropagation(), onContextMenu: event => { event.preventDefault(); event.stopPropagation(); close.current(); }},
         h('section', {ref: root, tabIndex: -1, className: 'fork-gal-status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, 'data-phase': state.phase},
             h('header', {className: 'fork-gal-status-head'},
