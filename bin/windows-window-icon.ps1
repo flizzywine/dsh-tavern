@@ -1,5 +1,10 @@
-param([string]$Icon, [string]$Browser, [switch]$DefineOnly)
+param([string]$Icon, [string]$Browser, [string]$LogFile, [switch]$DefineOnly)
 $ErrorActionPreference = 'Stop'
+function Write-IconLog([string]$Message) {
+    if ($LogFile) { [IO.File]::AppendAllText($LogFile, ([DateTime]::UtcNow.ToString('o') + ' ' + $Message + [Environment]::NewLine)) }
+}
+trap { Write-IconLog ('error: ' + $_.Exception.Message); exit 1 }
+if (!$DefineOnly) { Write-IconLog ('started pid=' + $PID) }
 Add-Type @'
 using System;
 using System.Collections.Generic;
@@ -77,9 +82,14 @@ $taskMutex = New-Object Threading.Mutex($false, ('Local\DSHTavernIcons-' + $task
 if (!$taskMutex.WaitOne(0)) { $taskMutex.Dispose(); return }
 try {
     $taskDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    $taskPreviousCount = -1
     while ([DateTime]::UtcNow -lt $taskDeadline) {
         $taskWindows = [TavernWindowIcons]::Find($Browser)
         foreach ($taskWindow in $taskWindows) { [TavernWindowIcons]::Apply($taskWindow, $Icon) }
+        if ($taskWindows.Count -ne $taskPreviousCount) {
+            Write-IconLog ('matched windows=' + $taskWindows.Count)
+            $taskPreviousCount = $taskWindows.Count
+        }
         if ($taskWindows.Count -gt 0) { $taskDeadline = [DateTime]::UtcNow.AddSeconds(5) }
         Start-Sleep -Milliseconds 1000
     }
@@ -87,4 +97,5 @@ try {
     [TavernWindowIcons]::Dispose()
     $taskMutex.ReleaseMutex()
     $taskMutex.Dispose()
+    Write-IconLog 'stopped'
 }
