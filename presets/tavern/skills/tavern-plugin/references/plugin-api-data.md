@@ -57,7 +57,7 @@ const outfits = person ? await ctx.tavern.listImageOutfits({
 
 `listImageCharacters`、`listImageOutfits` 都接受 `{ gameId?, card?, providerId?, query?, offset?, limit? }`，服装查询另可传 `characterId`（此时必须指定 `providerId`，避免不同库的角色 ID 冲突）。返回 `{ items, total, offset, limit, hasMore, errors }`；默认每页 50 项，最多 200 项。`query` 最多 200 字，匹配名称、说明和人物别名。`errors` 仅报告 `{ providerId, code: 'PROVIDER_FAILED' }`，其他正常来源仍可用。
 
-每项带 `providerId`、`providerLabel`；人物字段为 `{ id, name, aliases, group, description, traits, outfitIds }`，`traits` 支持 `face/faceBack/bodySFW/fullSFW/bodyNSFW/fullNSFW/negative`；服装字段为 `{ id, name, description, characterId, parts, negative, isDefault }`，`parts` 支持 `upper/lower/shoes/accessory/full/back`。通用服装的 `characterId` 是 `null`。`id` 与 `outfitIds` 都是不透明字符串，按 `providerId + id` 标识资源。宿主只返回这些字段的独立副本，不传文件路径或未知字段。
+每项带 `providerId`、`providerLabel`；人物字段为 `{ id, name, aliases, group, description, traits, outfitIds }`，`traits` 支持 `feature`、`face`、`faceBack`、`bodySFW`、`bodySFWBack`、`lowerSFW`、`lowerSFWBack`、`bodyNSFW`、`bodyNSFWBack`、`lowerNSFW`、`lowerNSFWBack`、`negative`，并保留旧字段 `fullSFW` 与 `fullNSFW`；服装字段为 `{ id, name, description, characterId, parts, negative, isDefault }`，`parts` 支持 `upper/lower/shoes/accessory/full/back`。通用服装的 `characterId` 是 `null`。`id` 与 `outfitIds` 都是不透明字符串，按 `providerId + id` 标识资源。宿主只返回这些字段的独立副本，不传文件路径或未知字段。
 
 每个来源单次返回最多 2000 项，来源负责按收到的 `{ gameId?, card?, characterId? }` 筛选自己库内的可见项；宿主在合并后搜索、分页。回调并行执行且最多等待 5 秒，不缓存用户资料，卸载后尚未返回的结果会丢弃。
 

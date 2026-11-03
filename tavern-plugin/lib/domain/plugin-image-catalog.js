@@ -4,7 +4,8 @@ const MAX_ITEMS = 2000
 const text = (value, max = 8000) => typeof value === 'string' ? value.slice(0, max) : ''
 const strings = value => Array.isArray(value) ? value.slice(0, 100).map(v => text(v, 256)).filter(Boolean) : []
 const fields = (value, keys) => Object.fromEntries(keys.map(key => [key, text(value?.[key])]))
-const TRAITS = ['face', 'faceBack', 'bodySFW', 'fullSFW', 'bodyNSFW', 'fullNSFW', 'negative']
+const TRAITS = ['feature', 'face', 'faceBack', 'bodySFW', 'bodySFWBack', 'lowerSFW', 'lowerSFWBack',
+  'bodyNSFW', 'bodyNSFWBack', 'lowerNSFW', 'lowerNSFWBack', 'negative', 'fullSFW', 'fullNSFW']
 const PARTS = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']
 
 function rows(value) {
@@ -20,9 +21,15 @@ function rows(value) {
 /** Read-only projections. Files, credentials and provider-specific fields never cross this boundary. */
 function libraryItem(kind, item) {
   const common = { id: item.id, name: text(item.name, 100), description: text(item.description) }
-  return kind === 'characters'
-    ? { ...common, aliases: strings(item.aliases), group: text(item.group, 40), traits: fields(item.traits, TRAITS), outfitIds: strings(item.outfitIds) }
-    : { ...common, characterId: text(item.characterId, 256) || null, parts: fields(item.parts, PARTS), negative: text(item.negative), isDefault: item.isDefault === true }
+  if (kind === 'outfits') {
+    return { ...common, characterId: text(item.characterId, 256) || null, parts: fields(item.parts, PARTS), negative: text(item.negative), isDefault: item.isDefault === true }
+  }
+  const traits = fields(item.traits, TRAITS)
+  for (const [key, legacy] of [['lowerSFW', 'fullSFW'], ['lowerNSFW', 'fullNSFW']]) {
+    traits[key] ||= traits[legacy]
+    traits[legacy] ||= traits[key]
+  }
+  return { ...common, aliases: strings(item.aliases), group: text(item.group, 40), traits, outfitIds: strings(item.outfitIds) }
 }
 
 export function createPluginImageCatalog({ imageProviders, available, reportError }) {

@@ -50,7 +50,9 @@ test('model discovery and explicit selection preserve legacy providers and never
 
 test('character and outfit libraries use projections, search, pagination, scoped identities and independent failures', async () => {
   const h = harness(), provider = h.plugin('images'), consumer = h.plugin('consumer').service
-  const definitions = [{ id: 'c', name: '小雨', aliases: ['rain'], traits: { face: 'blue eyes', privatePath: 'C:/secret' }, referenceImage: '/private/file' }, { id: 'd', name: '小雪' }]
+  const definitions = [{ id: 'c', name: '小雨', aliases: ['rain'],
+    traits: { face: 'blue eyes', lowerSFW: 'lower', bodySFWBack: 'back', fullNSFW: 'legacy', privatePath: 'C:/secret' },
+    referenceImage: '/private/file' }, { id: 'd', name: '小雪' }]
   provider.service.registerImageLibrary({ id: 'library', label: '角色', characters: () => definitions,
     outfits: ({ characterId }) => [{ id: 'o', name: '常服', characterId, parts: { upper: 'shirt', apiKey: 'secret' } }] })
   assert.throws(() => provider.service.registerImageLibrary({ id: 'library', label: '重复', characters: () => [] }), /已注册/)
@@ -58,6 +60,10 @@ test('character and outfit libraries use projections, search, pagination, scoped
   const found = await consumer.listImageCharacters({ query: 'RAIN', limit: 1 })
   assert.equal(found.total, 1)
   assert.equal(found.items[0].providerId, 'images/library')
+  assert.deepEqual(
+    [found.items[0].traits.lowerSFW, found.items[0].traits.fullSFW, found.items[0].traits.bodySFWBack, found.items[0].traits.lowerNSFW],
+    ['lower', 'lower', 'back', 'legacy'],
+  )
   assert.deepEqual(found.errors, [{ providerId: 'broken/library', code: 'PROVIDER_FAILED' }])
   found.items[0].traits.face = 'changed'
   assert.equal(definitions[0].traits.face, 'blue eyes')
