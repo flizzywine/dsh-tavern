@@ -3,6 +3,8 @@ import {describeOpeningScenes} from './domain/stage-opening-scene.js'
 import {readStageProjection} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {STAGE_PLAYBACK_FIELD, saveStagePlayback, patchStagePlayback, addStageMeasurement} from './domain/stage-playback.js'
+import {createLive2dFiles, live2dFigureRuntime} from './live2d/live2d-files.js'
+import {isAbsolute, join} from 'node:path'
 import {stageModHistoryTurns} from './domain/stage-items.js'
 import {registerStageClientAssets} from './client-assets.js'
 import {createForegroundCapabilities} from '../../../lib/domain/foreground-capabilities.js'
@@ -58,6 +60,8 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     requests(bindings, registry) {
       assert('ready')
+      // The user-installed Live2D runtime (Cubism Core + display library) under the data directory, a figure runtime like Spine.
+      if (isAbsolute(String(bindings.dataRoot || ''))) assets.figureRuntimes.register('live2d', live2dFigureRuntime(createLive2dFiles(join(bindings.dataRoot, 'live2d'))))
       assets.figureRuntimes.bind(registry)
       assets.stageExtensions.bind(registry)
       const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))

@@ -46,6 +46,9 @@ export async function spineRuntimeStatus(target) {
     purchaseUrl: 'https://esotericsoftware.com/spine-purchase',
     importSupported: true }
 }
+// Live2D likewise: Cubism Core is proprietary and the cubism4 display build embeds the Cubism Framework, so neither ships.
+// The stage downloads both into <dataRoot>/live2d/core (dsh-tavern-stage lib/live2d); this route serves them.
+export const LIVE2D_RUNTIME_FILES = Object.freeze({ core: 'live2d/live2dcubismcore.min.js', display: 'live2d/pixi-live2d-display-cubism4.min.js' })
 export async function importSpineRuntime(input, target) {
   const body = validateRuntimeImport(input, { names: ['pixi-spine.umd.js', 'pixi-spine.js'],
     markers: ['PIXI.spine', 'SpineParser', 'TextureAtlas', 'SkeletonBinary', 'AnimationState', 'Spine'], label: 'pixi-spine UMD' })
@@ -61,7 +64,9 @@ export async function resolveTavernRuntimeAsset(pathname, dataRoot = resolveTave
   if (!asset) return asset
   const relative = pathname.slice(TAVERN_RUNTIME_ASSET_PREFIX.length)
   const imports = {
-    'spine/pixi-spine.js': 'runtime-imports/spine/pixi-spine.js'
+    'spine/pixi-spine.js': 'runtime-imports/spine/pixi-spine.js',
+    [LIVE2D_RUNTIME_FILES.display]: 'live2d/core/pixi-live2d-display-cubism4.min.js',
+    [LIVE2D_RUNTIME_FILES.core]: 'live2d/core/live2dcubismcore.min.js'
   }
   if (!imports[relative] || await exists(asset.file)) return asset
   return { ...asset, file: path.join(dataRoot, imports[relative]) }
