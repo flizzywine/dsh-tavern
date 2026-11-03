@@ -62,7 +62,7 @@ export function createModConfigHost({workbenchAuthority,root,store:managedStore,
   for(const id of ['mvu','helper-chat'])sources.register({id,label:id==='mvu'?'MVU':'聊天变量',exports:[],read:ctx=>ctx.sources?.[id] || {available:false}})
   sources.register({id:'ledger',label:'游玩台账',exports:ledgerConfigExports,read:ctx=>ctx.sources?.ledger || {available:false}})
   sources.register({id:'stage',label:'舞台',exports:stageConfigExports,read:ctx=>ctx.sources?.stage || {available:false}})
-  for(const [id,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))sources.register({id:'mod:'+id,label:manifests.find(row=>row.id===id).name,exports:schema.fields.map(field=>({path:'/'+field.key,name:field.label || field.key,type:field.valueType,description:field.label || field.key,settingKey:field.key})),read:({settings})=>settings})
+  for(const [id,schema] of Object.entries(schemas).filter(([id])=>id!=='dsh.state'))sources.register({id:'mod:'+id,label:(managedManifests || manifests).find(row=>row.id===id).name,exports:schema.fields.map(field=>({path:'/'+field.key,name:field.label || field.key,type:field.valueType,description:field.label || field.key,settingKey:field.key})),read:({settings})=>settings})
   const service=createModConfigService({schemas,store,sources})
   async function context(args,pinned) {
     const indexed=pinned?.chat || (args.sessionId?await readSession(args.sessionId):null)

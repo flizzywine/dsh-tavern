@@ -9,6 +9,7 @@ import {freezeForegroundModPrompts} from '../../../lib/domain/mod-system-prompts
 import {createManagedConfigAssetValidator,createManagedConfigAssetReader} from '../../../lib/domain/mod-system-config-assets.js'
 import {createManagedModHost} from '../../../lib/domain/mod-system-host.js'
 import {validateSkinModOptions} from '../../../lib/domain/mod-system-options.js'
+import {modVersionMatches} from '../../../lib/domain/mod-system-semver.js'
 
 export {MANAGED_MOD_METHODS}
 
@@ -110,6 +111,8 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
           row.active=row.digest===bundle.sha256
           if(row.active)Object.assign(row,{installed:true,authorized:true,globalRoot:true})
         }
+        // A built-in release is the current code, not a choice: cards follow it within their range.
+        for(const lock of value.locks.filter(lock=>lock.modId===bundle.manifest.id && modVersionMatches(bundle.manifest.version,lock.range)))lock.digest=bundle.sha256
       }
       await installations.compareAndSwap({expectedRevision:current.revision,expectedValue:current.value,value})
       await authorize()
