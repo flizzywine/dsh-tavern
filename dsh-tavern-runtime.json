@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9b7f5116cc748cf98ce12ddbc5ca0f8a611293bb",
-  "releaseSequence": 1153,
+  "revision": "167b3ba2a808427429c3fa7134d6f874f8d8724c",
+  "releaseSequence": 1154,
   "version": "3.2.0",
   "files": [
     {
@@ -6956,13 +6956,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/BUNDLED-VERSION.json",
-      "sha256": "c2ad31c7ca8af829f1a04db7ff0be8de97bfa3fc34a19f734eb05a123147a800",
+      "sha256": "655b99df583ece8aa1b9931cb22a614f3479295329129c6b405ba99506423786",
       "size": 259
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/client.js",
-      "sha256": "464c3764c00b7e49c70cd8df364d32e5b111e6526c2b698008b78dfd88855cb5",
-      "size": 482787
+      "sha256": "dcb7d7bf5193ed6c20a79b155559067dc30b8b3b681e1f90bf65a0ed475bfc08",
+      "size": 483297
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/console.html",
@@ -7066,8 +7066,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js",
-      "sha256": "c2fbd66f5c7aac72c9f2def00250839fdac6384cdf65f527fd5faecbc8763be7",
-      "size": 387886
+      "sha256": "227552a292c21ba73f6f9c0d5ddcf1e88555c7de60fb7cfd17bccfc217d577fb",
+      "size": 390121
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/media-actions.js",
@@ -7116,8 +7116,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/tavern-bridge.js",
-      "sha256": "2280f16b300909fc8b467099a439f3122077a72f0d73f514ea0ab77d5e7ef951",
-      "size": 26377
+      "sha256": "d54ddf8af47d41119f383483cb94818f72f36b7ea133340bb33933c77ba6fbf1",
+      "size": 26716
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/updater.js",
@@ -7275,6 +7275,11 @@
       "size": 53
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/wardrobe-hints.js",
+      "sha256": "993077ef1f62466f7f7f05da397b1ac1fa5851132a1d87a294e25b5ab9e1886a",
+      "size": 2134
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/lib/workflow-delete.js",
       "sha256": "90a816e5badfaf4198f92871fb2f82179c91f673f13d9d1a3bd94f31e851f567",
       "size": 3774
@@ -7291,13 +7296,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/package.json",
-      "sha256": "ab45d530e0226a90aa4d09fec57c2833907485d510eae609781fcd9c1ebdf8a4",
+      "sha256": "f991b3887213a8b15d35abb700e1f267ca0de72b01123470126724e1b1d53d5d",
       "size": 1649
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/README.md",
-      "sha256": "074aae7f7ca0c8037567194f601d9fde98bd6631dea513382869866f8d64cea4",
-      "size": 42669
+      "sha256": "24bdce44d0517e76ceac0e1aaeca177feca12788d567d4a7df8c3a55b6b4755e",
+      "size": 43049
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-image-bundled/workflows/.gitkeep",
@@ -9461,9 +9466,9 @@
     }
   ],
   "archive": {
-    "commit": "094c8e12cf7009506a87a89ad945bd9392b24943",
+    "commit": "99384d6ae2dd8cd92584144099a3167e56840a4c",
     "path": "runtime.zip",
-    "sha256": "2fa5ec67ad560d2b736f046a3fd470c4882506a28efc1c93e5297036336d644e",
-    "size": 16018268
+    "sha256": "44f32600c8218444e98e1f52f50bf901399f423b7261444bceb4ba9c21b3db3d",
+    "size": 16020629
   }
 }
