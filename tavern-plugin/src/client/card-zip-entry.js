@@ -51,7 +51,8 @@ function useCardPackBinding(given, service, sessionId, open) {
     }, [given, service, sessionId, open]);
     React.useEffect(function () { return function () { if (binding && binding !== given && binding.dispose) binding.dispose(); }; }, [binding]);
     return binding;
-}function useCardZipImport(options) {
+}
+function useCardZipImport(options) {
     const opts = options || {};
     const serial = React.useRef(0), lastUrl = React.useRef("");
     const [sheet, setSheet] = React.useState(null), [asking, setAsking] = React.useState(false), [busy, setBusy] = React.useState(false);
@@ -62,7 +63,6 @@ function useCardPackBinding(given, service, sessionId, open) {
     const service = opts.binding ? opts.binding.service : typeof packClient === "function" ? packClient() : undefined;
     const open_ = !!sheet, sessionId = opts.sessionId || "";
     const binding = useCardPackBinding(opts.binding, service, sessionId, open_);
-
     const available = !!target && !!service;
     async function begin(file, url) {
         if (!target) throw new Error("现在不能导入卡片 ZIP。");
