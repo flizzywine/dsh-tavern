@@ -12,7 +12,8 @@
     "./config": { "types": "./src/types/config.d.ts", "default": "./src/config.js" },
     "./playback": { "types": "./src/types/playback.d.ts", "default": "./src/playback.js" },
     "./figure": { "types": "./src/types/figure.d.ts", "default": "./src/figure-scale.cjs" },
-    "./soundscape": { "types": "./src/types/soundscape.d.ts", "default": "./src/stage-soundscape.cjs" }
+    "./soundscape": { "types": "./src/types/soundscape.d.ts", "default": "./src/stage-soundscape.cjs" },
+    "./tts": { "types": "./src/types/tts.d.ts" }
   },
   "scripts": { "test": "node --test tests/*.test.mjs" }
 }
