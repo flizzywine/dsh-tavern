@@ -1,6 +1,6 @@
 'use strict';
-// enabled is the author-facing switch. Legacy bubble-only cards keep their
-// presentation until explicitly edited; a new declaration always wins.
+// enabled is the author-facing switch (bubbles and stage together); bubbles
+// without the stage are the dialogue / stage pair. enabled always wins.
 function cardStageMode(stage) {
   if (typeof stage?.enabled === 'boolean') return {dialogue:stage.enabled,stage:stage.enabled};
   const dialogue = stage?.dialogue === true;

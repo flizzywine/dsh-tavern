@@ -5911,8 +5911,8 @@ window.__ModuleLoader__.load({
 		    return [folded,set];
 		  }
 		  const STAGE_REQUIRES={dialogue:[],voice:['dialogue'],stage:['dialogue']};
-		  const STAGE_NAMES={dialogue:'舞台',voice:'配音',stage:'舞台'};
-		  function stageMissing(key,active) { return [...new Set([...STAGE_REQUIRES[key],key].filter(k=>!active[k]).map(k=>k==='dialogue'?'stage':k))]; }
+		  const STAGE_NAMES={dialogue:'对话气泡',voice:'配音',stage:'舞台模式'};
+		  function stageMissing(key,active) { return [...STAGE_REQUIRES[key],key].filter(k=>!active[k]); }
 		  // Section with the 「需要… · 去开启」 shortcut; a blocked body stays visible but inert. `help` is a 「?」 beside the title.
 		  // `aside` (optional) is a node between the title and the action, for a section that lays its head out as a table (提示词).
 		  // the title (with its count and a quiet chevron) is a button that folds the
