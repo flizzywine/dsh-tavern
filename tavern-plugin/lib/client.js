@@ -32423,6 +32423,48 @@ function tavernFloorHeightRecall(key, width) {
 			}
 			if (failure && instruction !== undefined) throw failure;
 		}
+		const TAVERN_ILLUSTRATE_TITLE = "点击直接配图；长按或右键填写本次画面要求";
+		// The 配图 button's gestures, in the chat and on the stage: a click draws at once; a long press (550 ms), a right click
+		// or Shift+F10 opens this time's picture request instead (openManual). `release` after that request closes.
+		function useTavernIllustratePress(busy, draw, openManual) {
+			const pressRef = React.useRef(null), suppressRef = React.useRef(false);
+			function clear() {
+				if (pressRef.current) clearTimeout(pressRef.current.timer);
+				pressRef.current = null;
+			}
+			function manual() { suppressRef.current = true; clear(); openManual(); }
+			React.useEffect(function () { return clear; }, []);
+			return {
+				release: function () { suppressRef.current = false; },
+				handlers: {
+					onClick: function (event) {
+						if (suppressRef.current) { suppressRef.current = false; event.preventDefault(); return; }
+						return draw();
+					},
+					onPointerDown: function (event) {
+						if (busy || event.button !== 0 || event.isPrimary === false) return;
+						suppressRef.current = false;
+						clear();
+						const press = { id: event.pointerId, x: event.clientX, y: event.clientY, timer: null };
+						press.timer = setTimeout(function () {
+							if (pressRef.current !== press) return;
+							pressRef.current = null;
+							manual();
+						}, 550);
+						pressRef.current = press;
+					},
+					onPointerMove: function (event) {
+						const press = pressRef.current;
+						if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) { clear(); suppressRef.current = true; }
+					},
+					onPointerUp: function (event) { if (pressRef.current && pressRef.current.id === event.pointerId) clear(); },
+					onPointerCancel: function () { if (pressRef.current) suppressRef.current = true; clear(); },
+					onPointerLeave: function () { if (pressRef.current) { clear(); suppressRef.current = true; } },
+					onContextMenu: function (event) { event.preventDefault(); event.stopPropagation(); manual(); },
+					onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); manual(); } }
+				}
+			};
+		}
 		// `items` are the turn's plugin media: once the illustrator attaches a new one, planning is
 		// over and that item's own card shows the drawing, so the placeholder goes.
 		function TavernIllustrationDraft(props) {
@@ -34810,24 +34852,19 @@ function tavernFloorHeightRecall(key, width) {
 				const [manualBusy, setManualBusy] = React.useState(false);
 				const buttonRef = React.useRef(null);
 				const instructionRef = React.useRef(null);
-				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
+				const submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
 				const instructionTitleId = React.useId();
-				function clearPress() {
-					if (pressRef.current) clearTimeout(pressRef.current.timer);
-					pressRef.current = null;
-				}
 				function openManual() {
-					suppressClickRef.current = true;
 					if (manualOpenRef.current) return;
 					manualOpenRef.current = true;
-					clearPress();
 					setManualError("");
 					setInstruction("");
 					setManualOpen(true);
 				}
+				const press = useTavernIllustratePress(busy, draw, openManual);
 				function closeManual() {
 					manualOpenRef.current = false;
-					suppressClickRef.current = false;
+					press.release();
 					setManualOpen(false);
 					setInstruction("");
 					setManualError("");
@@ -34874,37 +34911,11 @@ function tavernFloorHeightRecall(key, width) {
 					});
 					return function () { cancelAnimationFrame(frame); };
 				}, [manualOpen]);
-				React.useEffect(function () { return function () { clearPress(); }; }, []);
 				const label = busy ? "正在整理画面…" : "为这一轮配图";
 				return React.createElement(React.Fragment, null,
 					React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
-						React.createElement("button", { ref: buttonRef, type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: "点击直接配图；长按或右键填写本次画面要求", disabled: busy, onClick: function (event) {
-							if (suppressClickRef.current) { suppressClickRef.current = false; event.preventDefault(); return; }
-							return draw();
-						},
-						onPointerDown: function (event) {
-							if (busy || event.button !== 0 || event.isPrimary === false) return;
-							suppressClickRef.current = false;
-							clearPress();
-						const press = { id: event.pointerId, x: event.clientX, y: event.clientY, timer: null };
-						press.timer = setTimeout(function () {
-							if (pressRef.current !== press) return;
-							pressRef.current = null;
-							suppressClickRef.current = true;
-							openManual();
-						}, 550);
-						pressRef.current = press;
-						},
-						onPointerMove: function (event) {
-							const press = pressRef.current;
-							if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) { clearPress(); suppressClickRef.current = true; }
-						},
-						onPointerUp: function (event) { if (pressRef.current && pressRef.current.id === event.pointerId) clearPress(); },
-						onPointerCancel: function () { if (pressRef.current) suppressClickRef.current = true; clearPress(); },
-						onPointerLeave: function () { if (pressRef.current) { clearPress(); suppressClickRef.current = true; } },
-						onContextMenu: function (event) { event.preventDefault(); openManual(); },
-						onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); openManual(); } }
-						}, React.createElement(TavernIllustrateIcon, null))),
+						React.createElement("button", Object.assign({ ref: buttonRef, type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: TAVERN_ILLUSTRATE_TITLE, disabled: busy }, press.handlers),
+							React.createElement(TavernIllustrateIcon, null))),
 					manualOpen ? React.createElement("section", { className: "dsh-tavern-illustration-instructions", "aria-labelledby": instructionTitleId },
 						React.createElement("form", { onSubmit: submitManual, onKeyDown: function (event) { if (event.key === "Escape" && !manualBusy) { event.preventDefault(); closeManual(); } } },
 							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),
@@ -45567,7 +45578,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		// An entry with nothing usable this round (its button renders nothing) is nowhere.
 		//
 		// Entry: { id, priority, group: 'scene' (top-left) | 'feature' (top-right), hud (the place / track label line), icon
-		//   (ICON_PATHS name), label, render(ctx) } - ctx = { sessionId, rpc, place, live, widgets, film, openConfig(tab) }.
+		//   (ICON_PATHS name), label, render(ctx) } - ctx = { sessionId, turn (the round on screen), rpc, place, live, widgets, film, openConfig(tab) }.
 		// The mounted button reports its state with useStageEntryState(id, { available, on, badge, detail, icon, label }).
 		const stageEntries = (function () {
 		    const entries = new Map();
@@ -46857,7 +46868,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        useBubbles, Icon,
 		        controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
 		            dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents},
+		            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents,
+		            // 场景生图 pictures of the round on screen (stage-scene-images.js): the CG insert pages and the 「正在生成 CG…」 notice.
+		            pictures:{use:useStagePictures}},
 		        // Clip export (clip-export.cjs) lives in the stage package; these are the core names it uses.
 		        clipExport:{rpc,Icon,Spinner,EmptyState,overlayEscape,useOverlay,InlineField},
 		        controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
@@ -46905,7 +46918,9 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSwitch?"toggle":null},
 		        phoneLayout:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), width:()=>innerWidth, ResetButton, sections:STAGE_CONFIG_SECTIONS},
 		        cg:{ResizeObserver, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, policy:cgMotionPolicy, rpc},
-		        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner},
+		        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner,
+		            // 回想 › 在素材库中编辑: the 素材库 tab opened at that CG entry (asset-launcher.js stageNav).
+		            openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)},
 		        // 状态面板 (stage status-panel.cjs): the card's panel html through the card-HTML frame builder, its data and close
 		        // through the trusted host facade status bars use; re-read after each session state signal while open.
 		        statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
@@ -47428,6 +47443,98 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		}
 		if (typeof stageEntries === "object") stageEntries.register({ id: "background", priority: 80, group: "scene", hud: true, icon: "image", label: "背景",
 		    render: ctx => React.createElement(BgManualStage, { sessionId: ctx.sessionId, place: ctx.place, live: ctx.live }) });
+		// 场景生图 on the stage, part of the core: the illustrator plugin being on for the card is its only switch.
+		// - useStagePictures: the illustrator's pictures of one round placed on the stage's paragraphs, for the stage's CG insert
+		//   pages and its 「正在生成 CG…」 notice (gal-stage.js bindStageViews → the controller's `pictures`).
+		// - the top bar's 场景生图 entry: the chat's 配图 button for the round on screen - a click draws at once, a long press or
+		//   right click asks for this time's picture request (useTavernIllustratePress, runTavernIllustrator).
+		// Display only: nothing here writes the story, the stage cursor or the director.
+		function stageIllustrator(sessionId) {
+		    const illustrator = tavernUiExtensions.illustrator();
+		    return illustrator && tavernPluginAllowed(illustrator.owner, sessionId) ? illustrator : null;
+		}
+		// units: the round's host paragraphs ({para, text}, the stage text index). A picture follows the first paragraph holding its
+		// anchor sentence (the chat's own match, pluginAnchorInsertion); one whose sentence is not found closes the round, as in the chat.
+		function stagePicturePara(units, anchor) {
+		    if (anchor) for (const unit of units) if (pluginAnchorInsertion(String(unit.text || ""), anchor) >= 0) return unit.para;
+		    return units.length ? units[units.length - 1].para : 1;
+		}
+		// { items: [{ id, para, state 'pending'|'ready'|'failed', progress 0..1|null, url (ready only), caption }], planning }
+		// progress is the plugin's own report, null until it reports one.
+		function useStagePictures(sessionId, turn, units, enabled) {
+		    const extensions = useTavernUiExtensions();
+		    const media = useTavernPluginMedia(sessionId, turn, enabled);
+		    const draft = React.useSyncExternalStore(tavernIllustrationDrafts.subscribe, () => tavernIllustrationDrafts.get(sessionId, turn));
+		    return React.useMemo(() => {
+		        const ours = item => { const owner = item.kind.indexOf("/") > 0 ? tavernUiExtensions.illustrator(item.kind) : null; return Boolean(owner && tavernPluginAllowed(owner.owner, sessionId)); };
+		        const items = enabled ? media.items.filter(ours).map(item => {
+		            const progress = item.activity ? item.activity.progress : item.progress;
+		            return { id: item.id, para: stagePicturePara(units || [], item.anchor), state: item.activity ? "pending" : item.status,
+		                progress: typeof progress === "number" && progress > 0 && progress < 1 ? progress : null,
+		                url: item.status === "ready" && item.attachment ? tavernPluginMediaUrl(sessionId, item) : "", caption: item.caption || "" };
+		        }) : [];
+		        return { items, planning: Boolean(enabled && draft && draft.planning) };
+		    }, [media, units, draft, sessionId, enabled, extensions]);
+		}
+
+		function StageSceneImageEntry(props) {
+		    useTavernUiExtensions();
+		    const illustrator = props.turn > 0 ? stageIllustrator(props.sessionId) : null;
+		    useStageEntryState("scene-image", { available: Boolean(illustrator) });
+		    return illustrator ? React.createElement(StageSceneImageButton, { key: props.sessionId + ":" + props.turn, sessionId: props.sessionId, turn: props.turn, illustrator }) : null;
+		}
+		function StageSceneImageButton(props) {
+		    const h = React.createElement;
+		    const [busy, setBusy] = React.useState(false), [open, setOpen] = React.useState(false);
+		    const [text, setText] = React.useState(""), [sending, setSending] = React.useState(false), [failed, setFailed] = React.useState(false);
+		    const chip = React.useRef(null), panel = React.useRef(null), field = React.useRef(null), opened = React.useRef(false);
+		    // The round's notice (「正在生成 CG…」) shows the drawing; the button only stays busy while the plugin plans.
+		    async function draw() {
+		        if (busy) return;
+		        setBusy(true);
+		        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn); } finally { setBusy(false); }
+		    }
+		    function openManual() {
+		        if (opened.current) return;
+		        opened.current = true;
+		        forkUiSfx.play("open");
+		        setText(""); setFailed(false); setOpen(true);
+		    }
+		    const press = useTavernIllustratePress(busy, draw, openManual);
+		    function close() { opened.current = false; press.release(); setOpen(false); }
+		    useBgmPopover(open, () => { forkUiSfx.play("close"); close(); }, chip, panel, true);
+		    useForkUiSfxControls(panel, open);
+		    React.useEffect(() => { if (open && field.current) field.current.focus({ preventScroll: true }); }, [open]);
+		    async function submit(event) {
+		        event.preventDefault();
+		        if (sending) return;
+		        setSending(true); setFailed(false);
+		        try { await runTavernIllustrator(props.illustrator, props.sessionId, props.turn, text); close(); if (chip.current) chip.current.focus({ preventScroll: true }); }
+		        // The plugin's own words stay in its chat card; the stage says only that it did not start.
+		        catch (_) { setFailed(true); }
+		        finally { setSending(false); }
+		    }
+		    const stop = event => event.stopPropagation();
+		    const label = busy ? "正在整理画面…" : "场景生图";
+		    return h("span", { className: "fork-scene-image-entry" },
+		        h("button", Object.assign({ ref: chip, type: "button", className: "fork-gal-scene-image", title: TAVERN_ILLUSTRATE_TITLE, "aria-label": label,
+		            "aria-haspopup": "dialog", "aria-expanded": open, "aria-busy": busy || undefined, disabled: busy }, press.handlers,
+		            { onClick: event => { event.stopPropagation(); return press.handlers.onClick(event); } }),
+		            busy ? h(Spinner, { delay: 0 }) : h(Icon, { name: "image", size: 16 })),
+		        open ? h("form", { ref: panel, "data-level": "popover", className: "fk-surface fork-bgm fork-bgm-panel fork-scene-image-panel", role: "dialog", "aria-label": "本次画面要求",
+		            onSubmit: submit, onClick: stop, onWheel: stop, onContextMenu: stop, onKeyDown: stop },
+		            h("div", { className: "fork-bgm-head" }, h("i", { className: "fork-bgm-gem", "aria-hidden": true }), h("b", { className: "fork-bgm-title" }, "本次画面要求")),
+		            h(TextArea, { inputRef: field, value: text, maxLength: 2000, rows: 3, disabled: sending, label: "本次画面要求（最多 2000 字）",
+		                placeholder: "例如：从门外侧拍摄，镜头略低；角色正在推开窗户。", onChange: setText,
+		                onKeyDown: event => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit(event); } }),
+		            failed ? h("p", { className: "fork-bgm-error", role: "alert" }, "⚠ 没能开始配图") : null,
+		            h("div", { className: "fork-scene-image-actions" },
+		                h("button", { type: "button", className: "fork-scene-image-cancel", disabled: sending, onClick: () => { forkUiSfx.play("close"); close(); if (chip.current) chip.current.focus({ preventScroll: true }); } }, "取消"),
+		                h("button", { type: "submit", className: "fork-scene-image-submit", disabled: sending }, sending ? "正在提交…" : "按要求配图"))) : null);
+		}
+		// After 电影模式's place: the top bar's features read 手机 / 模组, 场景生图, 电影模式 (stageEntryOrder: higher first).
+		if (typeof stageEntries === "object") stageEntries.register({ id: "scene-image", priority: 31, group: "feature", icon: "image", label: "场景生图",
+		    render: ctx => React.createElement(StageSceneImageEntry, { sessionId: ctx.sessionId, turn: ctx.turn || 0 }) });
 		// Optional ambience follows the selected session in both stage and chat.
 		const ambience = {
 		    activate:id => stageViews?.ambience.activate(id),

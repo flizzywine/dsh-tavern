@@ -1,4 +1,4 @@
-function createStageGallery({React, window, document, ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, owner:getOwner, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner}) {
+function createStageGallery({React, window, document, ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, owner:getOwner, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner, openLibrary}) {
 let disposed = false;
 const cleanups = new Set();
 function useEffect(setup, deps) {
@@ -66,11 +66,13 @@ function CgGalleryImage({image,authority,focus,thumb=false}) {
     },[image,authority,focus,thumb]);
     return React.createElement('div',{className:'fork-cg-gallery-picture'},React.createElement('div',{ref:root,className:'fork-cg-stage'},React.createElement('img',{draggable:false}),React.createElement('img',{draggable:false})),error?React.createElement('span',{role:'status'},'素材不可用'):null);
 }
-function CgGallery({sessionId,store,onClose}) {
+function CgGallery({sessionId,store,onClose,onExit}) {
     const h=React.createElement,root=React.useRef(null),opener=React.useRef(null),lastCell=React.useRef(null);
     const [items,setItems]=React.useState([]),[cursor,setCursor]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(true);
     const [selected,setSelected]=React.useState(null),[variant,setVariant]=React.useState(''),[focus,setFocus]=React.useState(null),[hidden,setHidden]=React.useState(false);
     const revision=usePackRevision(),generation=React.useRef(0);
+    // a 场景生图 CG (row.scene): 在素材库中编辑 opens its entry in the 素材库; 删除此 CG asks once, then removes it everywhere.
+    const [removing,setRemoving]=React.useState(null);
     const source=store.getSnapshot().source,authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
     async function load(next=null) {
         if (disposed) return;
@@ -94,8 +96,16 @@ function CgGallery({sessionId,store,onClose}) {
         target?.focus();
     },[selected,hidden]);
     const active=selected?.variants.find(item=>item.key===variant);
-    function back() {if(disposed)return;if(hidden)setHidden(false);else if(selected){setSelected(null);setFocus(null);}else onClose();}
-    const choose=item=>{if(disposed)return;lastCell.current=JSON.stringify(item.ref);setSelected(item);setVariant(item.defaultVariant);setFocus(null);};
+    function back() {if(disposed)return;if(removing){setRemoving(null);return;}if(hidden)setHidden(false);else if(selected){setSelected(null);setFocus(null);}else onClose();}
+    function edit() {if(disposed||!selected||!openLibrary)return;const ref=selected.ref;(onExit||onClose)();void openLibrary(sessionId,{packId:ref.packId,kind:'cg',figureId:ref.assetId});}
+    async function remove() {
+        if(disposed||!selected||removing==='busy')return;
+        if(removing!=='ask'){setRemoving('ask');return;}
+        setRemoving('busy');
+        try {await rpc('removeSceneCg',{ref:selected.ref},sessionId);if(disposed)return;setRemoving(null);setSelected(null);setFocus(null);void load();}
+        catch(_) {if(!disposed)setRemoving('failed');}
+    }
+    const choose=item=>{if(disposed)return;lastCell.current=JSON.stringify(item.ref);setSelected(item);setVariant(item.defaultVariant);setFocus(null);setRemoving(null);};
     function key(event) {
         if (disposed) return;
         event.stopPropagation();
@@ -109,13 +119,19 @@ function CgGallery({sessionId,store,onClose}) {
             const index=buttons.indexOf(document.activeElement);event.preventDefault();buttons[(index+(event.shiftKey?buttons.length-1:1))%buttons.length]?.focus();
         }
     }
-    useEffect(()=>{window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[selected,variant,hidden,onClose]);
+    useEffect(()=>{window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);},[selected,variant,hidden,removing,onClose]);
     return h('section',{ref:root,tabIndex:-1,role:'dialog','aria-modal':true,'aria-label':'回想',className:'fork-cg-gallery',onClick:e=>e.stopPropagation(),onWheel:e=>e.stopPropagation(),onContextMenu:e=>{e.preventDefault();e.stopPropagation();if(selected)setHidden(!hidden);}},
         selected?h(CgGalleryImage,{image:active?.image,authority,focus}):null,
         hidden?h('button',{type:'button',className:'fork-cg-gallery-reveal',onClick:()=>setHidden(false)},'显示控件'):
         h(React.Fragment,null,h('header',null,h('h2',null,selected?.label||'回想'),h('button',{type:'button',onClick:back},selected?'返回图库':'关闭')),
             selected?h('footer',null,h('div',{className:'fork-cg-gallery-strip',role:'group','aria-label':'差分'},selected.variants.map(v=>h('button',{key:v.key,type:'button','aria-pressed':v.key===variant,onClick:()=>setVariant(v.key)},v.label))),
-                h('div',{className:'fork-cg-gallery-strip',role:'group','aria-label':'构图'},h('button',{type:'button','aria-pressed':!focus,onClick:()=>setFocus(null)},'完整图'),selected.focusHints.map(f=>h('button',{key:f.key,type:'button','aria-pressed':focus?.key===f.key,onClick:()=>setFocus(f)},f.label))),h('button',{type:'button',onClick:()=>setHidden(true)},'隐藏控件')):
+                h('div',{className:'fork-cg-gallery-strip',role:'group','aria-label':'构图'},h('button',{type:'button','aria-pressed':!focus,onClick:()=>setFocus(null)},'完整图'),selected.focusHints.map(f=>h('button',{key:f.key,type:'button','aria-pressed':focus?.key===f.key,onClick:()=>setFocus(f)},f.label))),h('button',{type:'button',onClick:()=>setHidden(true)},'隐藏控件'),
+                selected.scene?h('div',{className:'fork-cg-gallery-strip fork-cg-gallery-scene',role:'group','aria-label':'这张 CG'},
+                    removing==='ask'||removing==='busy'?h(React.Fragment,null,h('span',{role:'status'},'删除这张 CG？素材包和回想里都会删掉。'),
+                        h('button',{type:'button',disabled:removing==='busy',onClick:()=>setRemoving(null)},'取消'),
+                        h('button',{type:'button',className:'is-danger',disabled:removing==='busy','aria-busy':removing==='busy'||undefined,onClick:remove},removing==='busy'?'正在删除…':'删除')):
+                    h(React.Fragment,null,openLibrary?h('button',{type:'button',onClick:edit},'在素材库中编辑'):null,
+                        h('button',{type:'button',className:'is-danger',onClick:remove},'删除此 CG'),removing==='failed'?h('span',{role:'alert'},'⚠ 没能删除'):null)):null):
             h('div',{className:'fork-cg-gallery-scroll'},!busy&&!items.length?h('p',null,'暂无 CG 素材'):null,
                 h('div',{className:'fork-cg-gallery-grid'},items.map(item=>h('button',{key:JSON.stringify(item.ref),'data-cg-cell':JSON.stringify(item.ref),type:'button',className:'fork-cg-gallery-cell','aria-label':item.unlocked?(item.available?item.label:'素材不可用'):'尚未解锁',disabled:!item.unlocked||!item.available,onClick:()=>choose(item)},
                     item.unlocked&&item.available?h(CgGalleryImage,{image:item.variants.find(v=>v.key===item.defaultVariant)?.image,authority,thumb:true}):h('span',null,item.unlocked?'素材不可用':'尚未解锁'),item.unlocked&&item.available?h('span',null,item.label):null))),

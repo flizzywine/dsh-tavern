@@ -34,6 +34,8 @@ export function lintTriggers(document, {before} = {}) {
     // Directions are always-on instructions; their schema deliberately forbids trigger words. An entrance plays as the stage
     // opens and is never recalled (blue or off), so it has none either.
     if (row.kind === 'figure' || row.kind === 'directions' || row.kind === 'entrances' || row.kind === 'videos') continue
+    // A picture the illustrator drew for one moment of a chat (scene-cg.js) waits in 回想 without words until the player gives it some.
+    if (row.kind === 'cg' && row.extensions?.dsh_tavern?.scenePicture && !words(row).length) continue
     // An empty blue audience needs no recall keywords: it is available without a story match.
     if (row.kind === 'audience' && row.recall?.mode === 'constant' && !words(row).length) continue
     const list = primary(row).map(norm), unique = new Set(words(row).map(norm))

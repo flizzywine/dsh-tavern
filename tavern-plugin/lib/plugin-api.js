@@ -162,6 +162,8 @@ export function createTavernPluginApi(deps) {
   const settledHandlers = new Set()
   const removedHandlers = new Set()
   const mediaRemovedHandlers = new Set()
+  // Host-only: Tavern's own readers of a finished plugin picture (the stage's CG sync); plugins never see this.
+  const pictureObservers = new Set()
   const timelineHandlers = new Set()
   const castHandlers = new Set()
   const cardHandlers = new Set()
@@ -1129,6 +1131,7 @@ export function createTavernPluginApi(deps) {
       if (typeof textVersion !== 'string' || textVersion === '') throw new Error('textVersion 必须是 onTurnSettled 或 getTurn 给出的值')
       const record = await deps.media.attach({ chatId: material.chatId, sessionId: material.sessionId, owner, turn: material.turn, key: textVersion, currentKey: material.key, item })
       await changed(material.sessionId)
+      pictureReady(material.sessionId, record)
       return { id: record.id }
     },
 
@@ -1137,6 +1140,7 @@ export function createTavernPluginApi(deps) {
       const { chatId, sessionId } = await locateItem(itemId)
       const record = await deps.media.patch({ chatId, owner, itemId, changes })
       await changed(sessionId)
+      pictureReady(sessionId, record)
       return publicPluginMedia(record)
     },
 
@@ -1383,6 +1387,19 @@ export function createTavernPluginApi(deps) {
     if (typeof converted.imported !== 'function') return
     try { await bounded(converted.imported({ card }), '导入器收尾') }
     catch (error) { recordError(null, converted.owner, '导入人物卡收尾', error) }
+  }
+
+  /** A plugin item now shows a finished picture: Tavern's observers hear it (once per picture is theirs to decide). */
+  function pictureReady(gameId, record) {
+    if (record.status !== 'ready' || !String(record.attachment?.mediaType || '').startsWith('image/')) return
+    const item = publicPluginMedia(record)
+    for (const observer of Array.from(pictureObservers)) {
+      Promise.resolve().then(() => observer({ gameId, item })).catch(error => recordError(gameId, record.owner, '同步插图', error))
+    }
+  }
+  function onPictureReady(observer) {
+    pictureObservers.add(observer)
+    return () => pictureObservers.delete(observer)
   }
 
   /** Called by Tavern after the player removed pictures of a plugin's media item; only its owner hears. */
@@ -1871,7 +1888,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
+  return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     builtinPromptSection({name,target,text,unbounded = false}) {
       return register.call({ctx:deps.ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,

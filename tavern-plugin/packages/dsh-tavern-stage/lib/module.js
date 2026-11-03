@@ -33,6 +33,7 @@ import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
 import {createStatusPanelService} from './domain/status-panel-service.js'
 import {createCgGallery} from './cg-gallery.js'
+import {createSceneCg} from './scene-cg.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
 import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js'
@@ -261,7 +262,11 @@ export async function createStageModule(core) {
       const clipExport = createStageClipExport({ctx, deps, stageDirector, modService, deploymentWork,
         cardStageSwitch:core.cardStageSwitch, dialogueBubbles:core.dialogueBubbles, assetEngineSettings:core.assetEngineSettings, live2dFiles:deps.live2dFiles,
         call:(method, args, authority) => requests.call(method, args, authority)})
-      const requests = createStageRequests(Object.create(deps, {stagePhoneDirectory:{value:phone.stagePhoneDirectory}, phoneCallHost:{value:phone.phoneCallHost}}), {managedModManagement,modConfigHost,modService,clipExport})
+      // 场景生图 pictures become the card's CG entries and 回想 unlocks (scene-cg.js) as each one finishes.
+      const sceneCg = createSceneCg({library:() => ctx.get('assetLibrary'), attachments:() => ctx.get('attachments'), chatForSession:deps.chatForSession,
+        cardAssetBindings:deps.cardAssetBindings, resolveCard:cardStorage.resolve, cgGallery:deps.cgGallery, removePicture:deps.removePluginPicture})
+      ctx.effect(() => deps.pluginApi.onPictureReady(event => sceneCg.sync(event)), 'dsh-tavern: scene CG sync')
+      const requests = createStageRequests(Object.create(deps, {stagePhoneDirectory:{value:phone.stagePhoneDirectory}, phoneCallHost:{value:phone.phoneCallHost}, sceneCg:{value:sceneCg}}), {managedModManagement,modConfigHost,modService,clipExport})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')

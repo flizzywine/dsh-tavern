@@ -360,6 +360,30 @@ function GalStage(props) {
     // a session whose card has no panel (or another session) has nothing open
     React.useEffect(() => { if (!statusPanel) setStatusOpen(false); }, [statusPanel]);
     usePlayPageEvents(sessionId, turn, page, runtime.source?.generation, hidden || backlog || configOpen || galleryOpen || statusOpen || streaming, skipping, auto);
+    // 场景生图 (pictures.cjs, the core's useStagePictures): this round's pictures on its paragraphs. A ready one is a CG insert
+    // page after its paragraph; one being drawn is the notice's 「正在生成 CG…」. A clip export records none, and while the
+    // round streams nothing is placed (as in the chat). The insert is this view's state only: { key, list, index, delta, view }.
+    const pictureState = stageViews.pictures && services.pictures ? services.pictures.use(sessionId, turn, runtime.text.units, !replaying && !streaming) : null;
+    const pictureKey = sessionId + ':' + turn + ':' + (runtime.source?.generation ?? '');
+    const [inserted, setInserted] = React.useState(null);
+    // Only a page turn holds an insert page: another round, or a jump to another page (履历, a mode change), leaves it behind.
+    React.useEffect(() => { setInserted(null); }, [pictureKey, page]);
+    const insert = inserted && inserted.key === pictureKey ? inserted : null, insertPicture = insert ? insert.list[insert.index] : null;
+    const pictureWorking = pictureState ? stageViews.pictures.working(pictureState) : null;
+    // A picture finished after its page was read: 「CG 已生成 · 查看」 for a while; 查看 opens it where the reader is.
+    const [pictureLate, setPictureLate] = React.useState(null);
+    const seenPictures = React.useRef(null);
+    React.useEffect(() => {
+        if (!pictureState) return;
+        const ready = pictureState.items.filter(item => item.state === 'ready' && item.url), pending = new Set(pictureState.items.filter(item => item.state === 'pending').map(item => item.id));
+        const seen = seenPictures.current;
+        seenPictures.current = {key:pictureKey, pending};
+        if (!seen || seen.key !== pictureKey) return;
+        const passed = ready.filter(item => seen.pending.has(item.id) && item.para < (pages[page]?.para || 1));
+        if (passed.length) setPictureLate({key:pictureKey, picture:passed[passed.length - 1]});
+    }, [pictureState, pictureKey]);
+    const lateShown = pictureLate && pictureLate.key === pictureKey && !insert ? pictureLate : null;
+    React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 8000); return () => clearTimeout(timer); }, [lateShown]);
     // opened from the system menu's 回想 item (gal-menu.js), not from the control row.
     function openGallery() { setHidden(false); setGallery(true); }
     function openStatus() { if (!statusPanel) return; forkLipSync.wake(); forkUiSfx.play("open"); setHidden(false); setStatusOpen(true); }
@@ -600,11 +624,34 @@ function GalStage(props) {
         setAuto(false); setSkipping(false);
         selectTurn(latestTurn, -1);
     }
-    function go(delta, fromSkip) {
+    // The CG insert pages a page turn passes (pictures.cjs passed): forward off a page's last card to the next page's paragraph
+    // (or past the round's last page), back off a page's first card. Skip never stops on them.
+    function enterPictures(delta) {
+        if (!pictureState || skipping || transitioning || !pages[page] || delta > 0 && atEnd) return false;
+        const from = pages[page].para;
+        const list = delta > 0 ? (lastCard ? stageViews.pictures.passed(pictureState.items, from, page < pages.length - 1 ? pages[page + 1].para : null, true) : [])
+            : card === 0 && page > 0 ? stageViews.pictures.passed(pictureState.items, from, pages[page - 1].para, false) : [];
+        if (!list.length) return false;
+        voicePlayer.stopPlayback();
+        setInserted({key:pictureKey, list, index:0, delta, view:false});
+        return true;
+    }
+    // On an insert page: the way it was entered walks its pictures, then turns the page it was entered for; the other way
+    // walks back and lands where it was entered. A picture opened from the notice (view) closes on any input.
+    function turnPicture(delta) {
+        if (insert.view) { setInserted(null); return true; }
+        const index = insert.index + (delta === insert.delta ? 1 : -1);
+        if (index >= 0 && index < insert.list.length) { setInserted({...insert, index}); return true; }
+        setInserted(null);
+        return index < 0 ? true : go(delta, true, true);
+    }
+    function go(delta, fromSkip, pastPictures) {
         forkLipSync.wake();
         if (awaiting || sceneHolding) return false;
         if (!fromSkip && skipLatch) { setSkipping(false); return; }
+        if (insert && !pastPictures) { if (!skipping) return turnPicture(delta); setInserted(null); }
         if (!fromSkip && delta > 0 && current && !typed) { setTyped(true); return; } // first click finishes the line (a streaming one up to its stable end)
+        if (!pastPictures && enterPictures(delta)) return true;
         // turning past the round's last line opens the end panel. It is a page turn: like
         // PAGE (stage-runtime.cjs cancel-playback) it cuts the line's voice, or a voice still on its way.
         if (delta > 0 && atLastLine && !atEnd) { voicePlayer.stopPlayback(); setEndedAt(endKey); return true; }
@@ -943,10 +990,19 @@ function GalStage(props) {
     const calmMotion = reading.reducedMotion === true || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const handoff = useGalFaceHandoff(sessionId + ":" + boxPageKey, { facing, shown: Boolean(face && (face.src || face.glyph)), moves: faceMode !== "off", snap: faceSnap || !!accepted.cg || cg.visible, calm: calmMotion, typed });
     const historyRolls=stageViews.playback.usePlayback({sessionId,runtime,reading,auto,skipping,hidden,
-        overlay:backlog||configOpen||galleryOpen||statusOpen||menuOpen,typed,current,atEnd,awaiting,sceneHolding,
+        overlay:backlog||configOpen||galleryOpen||statusOpen||menuOpen||!!insert,typed,current,atEnd,awaiting,sceneHolding,
         line:{turn,page,card,inputCard,transitioning,subtitles,inputSubtitles,lastCard,voice,audioBusy,heldMs:handoff.heldMs,film,pageCount:pages.length},
         performance:{replayable:performanceKinds.replayable,holds:modPerformances.holds,blocking:textcard.busy||!!title,dialogueHeld,busy:presentationBusy}},
         {advance:()=>go(1,true),finishSkip:()=>{setEndedAt(endKey);stopSkip();},finishTyping:()=>setTyped(true)});
+    // An insert page holds the playback clock (overlay above): AUTO turns it after a wordless page's wait (the CONFIG auto
+    // wait, galAutoDelay); skip passes it at once.
+    React.useEffect(() => {
+        if (!insert) return;
+        if (skipping) { setInserted(null); return; }
+        if (!auto || hidden || backlog || configOpen || galleryOpen || statusOpen || menuOpen) return;
+        const timer = setTimeout(() => go(1, true), options.configText.autoDelay(reading, false, ''));
+        return () => clearTimeout(timer);
+    }, [insert, auto, skipping, hidden, backlog, configOpen, galleryOpen, statusOpen, menuOpen]);
     // Portraits retain historical stage actor keys; the card speaker identifies the same figure by ref.
     function avatarOf(entry) { return stageViews.speaker.avatarOf(config, pack.avatars, portraits, entry); }
     function nameOf(alias) { const character = bubbleCharacter(config,alias); return character && character.name || ""; }
@@ -1028,7 +1084,7 @@ function GalStage(props) {
     // data-reduced-motion mirrors CONFIG 「减少动态」 for CSS-only theme motion (the crt power-on/blink).
     const menuProps = leaving => Object.assign({ leaving, sessionId, useChat: props.choiceProps.useChat, Regenerate: props.Regenerate, waitLines, regenerate: menuRegenerate, historical: turn !== latestTurn, latestTurn,
         busy: regenerateBlocked, controls: homes.menu, auto, skipping: skipLatch, atEnd, touch: firstRun.touch, statusPanel: !!statusPanel }, menuActions);
-    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : ""), "data-theme": theme, "data-status-panel": statusPanel ? "true" : undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
+    return h("div", { ref: rootRef, tabIndex: -1, className: "fork-gal-stage" + (film ? " is-film" : "") + (backlog ? " is-backlog" : "") + (configOpen ? " is-config" : "") + (menuOpen ? " is-menu" : "") + (hidden ? " is-ui-hidden" : "") + (textcard.up ? " is-textcard" : "") + (insertPicture ? " is-picture" : ""), "data-theme": theme, "data-status-panel": statusPanel ? "true" : undefined, "data-entry": entryGate.phase, "data-entrance": entrance.stageAttr, "data-skin-buttons": homes.declared.join(" ") || undefined, "data-reduced-motion": reading.reducedMotion === true || undefined, "data-cg-visible": !!accepted.cg || cg.visible || undefined, "data-narration-layout": narrationLayout, "data-phone-open": sourceWidget.phoneOpen || undefined, "data-fk-context": "stage-" + theme, "data-hud": hud.state || undefined, "data-speaking": speaker ? "true" : "false", "data-fk-portrait-bust": bustAlias ? "" : undefined, "data-fork-stage-turn": turn, "data-fork-stage-para": para,
         "data-fk-tx-leaving": stageLeaving || undefined, "data-fk-tx-entering": stageEntering || undefined, "data-fk-veil": veilShown.current || undefined,
         // the current skin's text percent; theme.css multiplies the skin's own sizes by it
         // and keeps the text block where the skin puts it (data-fk-text-scale: only set off 100%, so 100% is untouched).
@@ -1048,6 +1104,8 @@ function GalStage(props) {
         modPerformances.node && React.cloneElement(modPerformances.node,{accent:color || undefined,skinItem:skinItem || undefined}),
         h(ModStageLayers,{sessionId,config,sourceKey:receivedDirection.token?.sourceKey,stage:{title:props.data?.cardName,turn,latestTurn,scene:place,bgm:track?.name}}),
         textcard.node,
+        // the CG insert page over the scene and the box, under the top bar and its notices.
+        insertPicture ? h(stageViews.pictures.Page, { key: insert.key + ':' + insertPicture.id, picture: insertPicture, onFailed: () => turnPicture(insert.view ? 0 : insert.delta) }) : null,
         h("div", {className:"fork-gal-scene-hold" + (entryGate.visible ? " is-resolved" : ""), "aria-hidden":true}),
         h(GalWidgets,{owner:sourceWidget,onBacklog:openBacklog,onAdvance:()=>input(1),onWheel:wheel}),
         sourceWidget.claim ? h('div', { className: 'fork-widget-source-controls', role: 'toolbar', 'aria-label': '模组演出控制', onClick: event => event.stopPropagation() },
@@ -1080,8 +1138,9 @@ function GalStage(props) {
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
-            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing) ?
-            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, statusPanel: !!statusPanel,
+            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing || pictureWorking || lateShown) ?
+            h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf, statusPanel: !!statusPanel, picture: pictureWorking,
+                pictureReady: lateShown ? { onView: () => { setPictureLate(null); setInserted({key:pictureKey, list:[lateShown.picture], index:0, delta:1, view:true}); } } : null,
                 live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
@@ -1167,7 +1226,9 @@ function GalStage(props) {
             withdrawnText: withdrawal && withdrawal.landed ? withdrawal.text : "",
             onSending: (text, how) => { setAuto(false); setWithdrawal(null); pickRef.current = { text: String(text || ""), offered: Boolean(how && how.offered) }; setWaiting({ turn, text: String(text || ""), seen: false }); },
             onSendFailed: () => setWaiting(null), onInputActivity: stageTimer.onInputActivity, fallbackRef: stageTimer.fallbackRef })) : null,
-        galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:()=>{setGallery(false);backlogClosedAt.current=Date.now();}}) : null,
+        galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:()=>{setGallery(false);backlogClosedAt.current=Date.now();},
+            // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
+            onExit:()=>{setGallery(false);props.onExit();}}) : null,
         statusOpen && statusPanel ? h(stageViews.statusPanel.Overlay, { key: sessionId, sessionId, config, source: runtime.source, onClose: closeStatus }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
@@ -1183,7 +1244,7 @@ function GalStage(props) {
     // the registered entries of one top-bar side, in priority order. Each sits in a
     // .fork-stage-entry (display: contents); one with a badge carries data-attention and stays on screen while the bar hides.
     function entryDock(group) {
-        const ctx = { sessionId, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
+        const ctx = { sessionId, turn, rpc, place, live: runtime.cursor.mode !== 'history' && !skipping, widgets: sourceWidget, film,
             openConfig: (tab, opener) => { stageViews.configScreen.select(tab); openConfig(opener); } };
         const list = stageEntries.list(group), node = entry => h("span", { key: entry.id, className: "fork-stage-entry", "data-stage-entry": entry.id,
             "data-attention": entryStates[entry.id]?.badge ? "" : undefined }, entry.render(ctx));

@@ -2801,7 +2801,7 @@ export async function apply(ctx) {
     void pluginApi.turnSettled(id).catch(error => console.warn('dsh-tavern: 插件轮次通知失败:', str(error?.message || error)))
     void announceCast(id).catch(error => console.warn('dsh-tavern: 台词通知失败', str(error?.message || error)))
   }
-  const { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems } =
+  const { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, removePluginPicture, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems } =
     createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignals, attachments: () => ctx.get('attachments'), mediaRemoved: pluginApi.mediaRemoved,
       resolveGalleryContext,
       listGalleryProviderItems: pluginApi.listGalleryProviderItems, readGalleryProviderImage: pluginApi.readGalleryProviderImage,
@@ -3554,7 +3554,7 @@ export async function apply(ctx) {
     presentUserPreferenceProfile, presetLibrary, previewPreset, profileData, projectOpeningWindow,
     readBackgroundSuppression, readCard, readCardExtensions, readCardExtensionSources, readCardWorkspace, readChat, readChatCard,
     readOpeningWindow, readRawTavernSettings, readScript, readSessionMap, readTavernSettings, reconcileStory, reconcileWhenIdle,
-    regenBody, regexLibrary, regexManager, removePluginGalleryItems, removePluginMediaVersion, renameResource,
+    regenBody, regexLibrary, regexManager, removePluginGalleryItems, removePluginMediaVersion, removePluginPicture, renameResource,
     replayFailedTurn, requestPerformance, retrySettlement, retryStyleReference, rollbackTurn, rollbackToTurn,
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,

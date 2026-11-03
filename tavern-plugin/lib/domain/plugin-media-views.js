@@ -36,6 +36,15 @@ export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignal
     if (before) mediaRemoved(game.sessionId, before, removedPictures(before, version ?? 'current'), item === null)
     return { item: item ? publicPluginMedia(item) : null }
   }
+  // One picture of an item by its file (a 回想 CG deleted from the stage): whichever version shows it now; nothing when gone.
+  async function removePluginPicture(sessionId, itemId, attachmentId) {
+    const game = await pluginTurns.resolveGame(str(sessionId))
+    const item = game ? await pluginMedia.find(game.chatId, str(itemId)) : null
+    if (!item) return { item: null }
+    if (item.attachment?.attachmentId === attachmentId) return removePluginMediaVersion(sessionId, itemId, null)
+    const version = (item.history || []).findIndex(entry => entry.attachment?.attachmentId === attachmentId)
+    return version < 0 ? { item: publicPluginMedia(item) } : removePluginMediaVersion(sessionId, itemId, version)
+  }
   // Turns that hold any plugin item, so the browser asks only those turns.
   async function pluginMediaTurns(sessionId) {
     const game = await pluginTurns.resolveGame(str(sessionId))
@@ -97,5 +106,5 @@ export function createPluginMediaViews({ pluginMedia, pluginTurns, sessionSignal
     return readGalleryProviderImage(context.sessionId, itemId)
   }
 
-  return { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems }
+  return { readPluginMediaFile, readPluginGalleryImage, removePluginMediaVersion, removePluginPicture, pluginMediaTurns, pluginMediaForTurn, pluginGalleryItems, removePluginGalleryItems }
 }

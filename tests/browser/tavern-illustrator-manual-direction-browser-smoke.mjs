@@ -34,6 +34,9 @@ function declaration(source, name) {
 const action = declaration(hostSource, 'TavernPluginIllustrateAction')
 const icon = declaration(hostSource, 'TavernIllustrateIcon')
 const run = declaration(extensionsSource, 'runTavernIllustrator')
+// the gestures and tooltip the chat button shares with the stage's 场景生图 entry
+const press = declaration(extensionsSource, 'useTavernIllustratePress')
+const title = extensionsSource.match(/const TAVERN_ILLUSTRATE_TITLE = [^\n]*/)[0]
 const drawRunner = declaration(imageClientSource, 'createMessageDrawRunner')
 const scroller = declaration(revealSource, 'tavernReplyRevealScroller')
 const chromeCandidates = [process.env.CHROME_PATH]
@@ -75,7 +78,7 @@ try {
     'const illustrator={draw:async context=>{calls.push({...context});if(failNext){failNext=false;throw new Error("network unavailable")}if(delayNext){delayNext=false;return new Promise(resolve=>{finishDelayed=()=>resolve({})})}return {};}};',
     'window.__calls=calls;window.__fail=()=>{failNext=true};window.__delay=()=>{delayNext=true};window.__finish=()=>finishDelayed?.();',
     'window.__run=(...args)=>runTavernIllustrator(illustrator,...args);',
-    run, icon, action, scroller,
+    run, title, press, icon, action, scroller,
     'const root=modules["react-dom/client"].createRoot(document.querySelector("#app"));',
     'window.__render=(gameId="game-A",turn=7,status="settled")=>{document.querySelector("[data-turn-tail=\\\"7\\\"]").dataset.streaming=String(status==="streaming");root.render(h(TavernPluginIllustrateAction,{key:gameId+":"+turn,sessionId:gameId,turn,illustrator,status}));};',
     'window.__unmount=()=>root.unmount();',
