@@ -2,6 +2,7 @@ import {installHttpStreamPatch} from './domain/http-stream-patch.js'
 import {createExtensionRequests} from './domain/extension-requests.js'
 import {createModelSlotRegistry} from './domain/model-slot-registry.js'
 import {createPresentationObservers} from './domain/presentation-observers.js'
+import {createSpeechRecognitionHost} from './speech-recognition-host.js'
 import { installPluginSettingsMigration } from './settings-config.js'
 export { Config } from './settings-config.js'
 import { CORE_MODEL_MANIFESTS, modelSlotRows, resolveModelSlotOffered } from './domain/model-slots.js'
@@ -3526,6 +3527,10 @@ export async function apply(ctx) {
     },
   })
 
+  // Speech recognition is the host's shared service (ctx 'asr'); the phone's calls are one of its users.
+  const speechRecognition = await createSpeechRecognitionHost({store:profileData,credentials:() => ctx.get('credentials'),providers:() => pluginApi.speechProviders('recognize')})
+  ctx.provide('asr', speechRecognition.service)
+  ctx.effect(() => () => speechRecognition.service.dispose())
 
   // Request handlers by area live in rpc/; bindings assigned later are read through getters.
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
@@ -3624,6 +3629,7 @@ export async function apply(ctx) {
     scoringCatalog: { get: () => scoringCatalog },
     modelSelectionChanged: { get: () => () => presentationObservers.modelChanged() },
     speech: { get: () => speech },
+    speechRecognition: { get: () => speechRecognition },
     str: { get: () => str },
     taskStateReader: { get: () => taskStateReader },
     tavernModelCatalog: { get: () => tavernModelCatalog },

@@ -30,6 +30,14 @@ export function createMediaHandlers(deps) {
     async speechForLine(args, method, serverTemplate, authority) {
       return await speakLine(args && args.sessionId, args || {}, authority?.origin)
     },
+    // Speech recognition: the host's shared service (speech-recognition-host.js).
+    getSpeechRecognitionConfig(args) { return deps.speechRecognition.methods.getSpeechRecognitionConfig(args) },
+    saveSpeechRecognitionConfig(args) { return deps.speechRecognition.methods.saveSpeechRecognitionConfig(args) },
+    setSpeechRecognitionKey(args) { return deps.speechRecognition.methods.setSpeechRecognitionKey(args) },
+    startSpeechRecognition(args) { return deps.speechRecognition.methods.startSpeechRecognition(args) },
+    appendSpeechRecognition(args) { return deps.speechRecognition.methods.appendSpeechRecognition(args) },
+    pollSpeechRecognition(args) { return deps.speechRecognition.methods.pollSpeechRecognition(args) },
+    cancelSpeechRecognition(args) { return deps.speechRecognition.methods.cancelSpeechRecognition(args) },
     async castRemoveCharacter(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.removeCharacter({ cardPath, name: args.name }))
     },
