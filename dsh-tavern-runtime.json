@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "9476a83fba7f9823623bbb9a8a7b242c439f8cc6",
-  "releaseSequence": 1077,
+  "revision": "0a5e9f15950b69fa2cb96926c8664265f5cc3ed5",
+  "releaseSequence": 1078,
   "version": "3.2.0",
   "files": [
     {
@@ -7596,8 +7596,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "c5a8b15b16c18c113229ac2e0081f95733d9da23f2529f81c3317d4432681f35",
-      "size": 29598
+      "sha256": "3939a5a8ebb736119e87f263234daff9651dba04be36f98692a0bb244d3b6099",
+      "size": 29827
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/requests.js",
@@ -7623,6 +7623,41 @@
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/story-observer.js",
       "sha256": "0550794f27735a1849a423ab382812a96c45ec4f44cdc5b435879d82e2531772",
       "size": 2954
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/actions.js",
+      "sha256": "50ad9fc7a36dc5b37b15ebfc43283bfe15490bc0394a7440c075b0718a638c2d",
+      "size": 17871
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/files.js",
+      "sha256": "0ac91501bd7e6b9e520c677915ec80c1037930c1d22fcd1e87b71ff357beee9e",
+      "size": 3073
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/host.js",
+      "sha256": "e8163d9f658d9f7f007c18c18b54a0585c8c826a52ebc2eaeb0378270e3c130b",
+      "size": 6329
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/index.js",
+      "sha256": "0c020fe46d036b270b6e57b8026378ea74ab8b48b3a8b076bd6f3deb2166432e",
+      "size": 1683
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/projections.js",
+      "sha256": "e58aa1b452b4f9e9cb12ff8f328cd22df4165635cb437fd73e44dda5c6b5791f",
+      "size": 3307
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/schema.js",
+      "sha256": "e24433de4923ce19f1f0060044a0a9c5dd72f742b8cf9722908fa76c16271f9f",
+      "size": 5962
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/tools.js",
+      "sha256": "5d911ae2ba55d34f03eeeb474b9596ab7e40e0b64daa2dbb78ee459fef9cba80",
+      "size": 7554
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workflow.js",
@@ -9116,9 +9151,9 @@
     }
   ],
   "archive": {
-    "commit": "0a031d5647ae4396136e95001dc17bdccae60341",
+    "commit": "d9cf13605d83b279c017182915d7b7a838e382fb",
     "path": "runtime.zip",
-    "sha256": "c35e69b7cb285e524ed8069d26b4475b2a2211a81f792ae2dc2c7223ef6ab0c2",
-    "size": 15480486
+    "sha256": "67f663c7d46ff902e922fccb7cbc6361462002edf3d776598171bc7c354f16cb",
+    "size": 15498258
   }
 }
