@@ -38,7 +38,7 @@ import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } 
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
 import { createCredentialStore } from './credential-store.js'
 import { patchWorkflowGraph, workflowRevision } from './workflow-graph.js'
-import { parseImagePlan, hideGlobalPlayers, parsePlannerDecision, characterRoster, buildPlannerSystem, runPlanner, normalizePrompts, dedupeTags, parseDesign, parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from './planner.js'
+import { parseImagePlan, hideGlobalPlayers, isPlayerCharacter, parsePlannerDecision, characterRoster, buildPlannerSystem, runPlanner, normalizePrompts, dedupeTags, parseDesign, parsePromptsBlock, formatPromptsBlock, preserveCharacterMetadata } from './planner.js'
 import { normalizeEntryActivation, selectPlannerContext } from './planner-context.js'
 import { createDownloadPackage, PLUGIN_DOWNLOADS } from './download-package.js'
 import { createMediaActions } from './media-actions.js'
@@ -136,6 +136,8 @@ const DEFAULTS = {
   plannerCount: 3,
   plannerTemperature: 1,
   plannerExtra: '',
+  // 正文写衣服时参考人物的服装库（只在配图和规划都开着时注入正文）
+  wardrobeHints: true,
   // 世界书里哪几条进规划提示词；空数组 = 用默认的任务规则区
   plannerEntries: [],
   artistPosition: 'prefix',
@@ -992,7 +994,7 @@ export function apply(ctx, config = {}) {
           deps.bridge = installTavernBridge({
             tavern,
             attachments: attachmentApi,
-            engine: { planMessage: engine.planMessage, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
+            engine: { planMessage: engine.planMessage, wardrobePrompt: context => engine.wardrobePrompt(context), wardrobeEntries: context => engine.wardrobeEntries(context), noteSnapshot: (gameId, snapshot) => engine.noteSnapshot(gameId, snapshot), getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
             getConfig: () => engine.currentConfig(),
             logger,
             readFileAsBytes: async file => new Uint8Array(await readFile(file)),
@@ -2253,12 +2255,91 @@ function createRuntime(ctx, overrides, logger, deps) {
     const cardCache = new Map()   // gameId → { path, name }
     const lastTurn = new Map()    // gameId → 最近一轮的轮次号
 
+    // ---- 给正文的「衣服库」：正文写衣服时照人物的服装库挑 ----
+    // 正文模型原本看不到服装库，写衣服全靠自己编，玩家不在输入框里写清楚就对不上；配图再去认也认不准。
+    // 本轮上下文只放一份名单（人名 + 衣服名）和现在穿的那套；每套衣服的完整描述做成插件世界书条目，
+    // 被正文提到名字、或正文模型用 worldbook_search 查到时才进上下文。配图或规划关着时两样都是空的。
+    const wardrobeSnaps = new Map()   // gameId → 最近一轮的角色快照（里面有 current.outfit）
+    let wardrobeGame = ''
+    function noteWardrobeSnapshot(gameId, snapshot) {
+      const id = String(gameId ?? '').trim()
+      if (id && snapshot && typeof snapshot === 'object') wardrobeSnaps.set(id, snapshot)
+    }
+    // 这一局能用的人物（这张卡绑定的 + 没有专属玩家时的通用玩家）和他们启用的衣服。
+    async function wardrobePeople(gameId, turn) {
+      if (!config.wardrobeHints || config.imageEnabled === false || config.plannerEnabled === false) return { people: [], card: null }
+      const id = String(gameId ?? '').trim() || wardrobeGame
+      if (!id) return { people: [], card: null }
+      let card = cardCache.get(id) ?? null
+      if (!card) { try { card = await currentCard(id, turn) } catch { card = null } }
+      if (!card) return { people: [], card: null }
+      const people = scopeCharacters(definitions.characters, card)
+        .filter(ch => ch && ch.enabled !== false && ((ch.cards ?? []).length || isPlayerCharacter(ch)))
+        .map(ch => ({ person: ch, outfits: (ch.outfits ?? []).filter(o => o && o.enabled !== false && o.name) }))
+        .filter(item => item.outfits.length)
+      return { people, card, gameId: id }
+    }
+    function outfitFull(outfit) {
+      return [outfit.upper, outfit.lower, outfit.shoes, outfit.accessory, outfit.full].map(v => String(v ?? '').trim().replace(/[。；;]+$/, '')).filter(Boolean).join('，')
+    }
+    const wardrobeId = v => String(v ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 30) || 'x'
+    /** 世界书条目池：每套衣服一条，被正文提到名字、或正文模型用 worldbook_search 查到时才进上下文。 */
+    async function wardrobeEntries({ gameId, turn } = {}) {
+      const { people } = await wardrobePeople(gameId, turn)
+      const entries = []
+      // 衣服名只有一个人有时只按衣服名召回（正文多半写「她换上……」，不一定带人名）；几个人重名时再要求同时提到人名。
+      const nameCount = new Map()
+      for (const { outfits } of people) for (const o of outfits) nameCount.set(o.name, (nameCount.get(o.name) || 0) + 1)
+      for (const { person, outfits } of people) {
+        const names = [person.name, String(person.name ?? '').replace(/[（(][^（）()]*[）)]/g, ''), ...String(person.match ?? '').split(/[,，、]/)].map(v => v.trim()).filter(Boolean)
+        for (const outfit of outfits) {
+          if (entries.length >= 200) break
+          entries.push({
+            id: wardrobeId(person.id) + '.' + wardrobeId(outfit.id || outfit.name),
+            title: person.name + '的衣服·' + outfit.name,
+            keys: [outfit.name],
+            ...(nameCount.get(outfit.name) > 1 ? { secondaryKeys: [...new Set(names)].slice(0, 10) } : {}),
+            content: person.name + '的衣服「' + outfit.name + '」' + (outfit.nsfw ? '（私密场合穿）' : '') + '：' + outfitFull(outfit) + '。' + (outfit.back ? '背面：' + String(outfit.back).replace(/[。]+$/, '') + '。' : ''),
+          })
+        }
+      }
+      return entries
+    }
+    /** 本轮上下文：衣服名单 + 现在穿的那套全文 + 怎么用。 */
+    async function wardrobePrompt(context = {}) {
+      const turn = Number(context?.turn) || lastTurn.get(String(context?.gameId ?? '')) || 0
+      const { people, gameId } = await wardrobePeople(context?.gameId, turn)
+      if (!people.length) return ''
+      // 「现在穿什么」按这条剧情线上最近一轮的记录读（回退、重生成后自动对上）；读不到再用内存里的。
+      let snap = null
+      if (turn && typeof deps.tavern?.readTurnData === 'function') {
+        try { snap = (await deps.tavern.readTurnData({ gameId, turn }))?.data ?? null } catch { snap = null }
+      }
+      if (!snap) snap = wardrobeSnaps.get(gameId) ?? null
+      const blocks = people.map(({ person, outfits }) => {
+        const names = outfits.map(o => o.name + (o.nsfw ? '（私密）' : '')).join('、')
+        const now = String(snap?.characters?.[String(person.id)]?.current?.outfit ?? '').trim()
+        const nowBase = now.replace(/[（(][^（）()]*[）)]\s*$/, '').trim()
+        const hit = outfits.find(o => o.name === now || o.name === nowBase)
+        const nowLine = !now ? '' : '  上一段结束时穿着：' + (hit ? hit.name + '——' + outfitFull(hit) + (now !== hit.name ? '（' + now.slice(hit.name.length).replace(/^[（(]|[）)]$/g, '') + '）' : '') : now) + '。前文写的穿着以前文为准。'
+        return person.name + '：' + names + (nowLine ? '\n' + nowLine : '')
+      })
+      return ['【人物衣服库】（每套衣服的完整描述在世界书里，标题是「人名的衣服·衣服名」）', ...blocks, '',
+        '写到人物穿什么时：',
+        '1. 玩家指定了穿什么，照玩家说的写，衣服库里有没有都行。',
+        '2. 剧情需要换衣服、玩家没说穿什么时，从这个人的名单里挑一套合场合的，先用 worldbook_search 查「人名 衣服名」读出这套的完整描述，照着写颜色和款式，不要另编一套。标了「私密」的只在两人独处的私密场合穿。',
+        '3. 没换衣服就一直穿着现在这套，不要为了用衣服库而换衣服。',
+        '4. 衣服库只是你的参考资料：正文里直接写衣服本身（颜色、款式），不要写衣服库里的名字当标注，不要加括号、问号之类的说明。',
+      ].join('\n')
+    }
+
     /** 记住一轮的卡与轮次（tavern-bridge 在每轮结算时调用）。 */
     function rememberTurn(gameId, turn, card) {
       const id = String(gameId ?? '').trim()
       if (!id) return
       const t = Number(turn)
       if (Number.isSafeInteger(t) && t > 0) lastTurn.set(id, t)
+      wardrobeGame = id
       if (card && (card.id || card.name)) {
         cardCache.set(id, { path: String(card.id ?? ''), name: String(card.name ?? '') })
       }
@@ -2278,6 +2359,8 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (!id) return
       cardCache.delete(id)
       lastTurn.delete(id)
+      // 回退、切版本：之前记的「现在穿什么」可能是被丢掉那一支的，扔掉（衣服库段落会按当时的轮次重读）。
+      wardrobeSnaps.delete(id)
       const turn = Number(event?.turn)
       if (Number.isSafeInteger(turn) && turn > 0) lastTurn.set(id, turn)
     }
@@ -4986,6 +5069,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       startJob, startReplacement, revisePrompt, cancelJob, refresh, getJob: id => (id ? getJob(id) : null), findJob, publicJob, deleteJob,
       planMessage,
       currentConfig: () => config,
+      wardrobePrompt: async context => { try { return await wardrobePrompt(context) } catch { return '' } },
+      wardrobeEntries: async context => { try { return await wardrobeEntries(context) } catch { return [] } },
+      noteSnapshot: (gameId, snapshot) => noteWardrobeSnapshot(gameId, snapshot),
       currentDefinitions: () => definitions,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
@@ -5292,6 +5378,8 @@ function normalizeCharacter(raw, index) {
     negative: String(outfit?.negative ?? ''),
     enabled: outfit?.enabled !== false,
     default: outfit?.default === true,
+    // 服装生成器会给私密场景的衣服标 nsfw；以前这里没保留，保存一次人物库就全丢了。
+    ...(outfit?.nsfw === true ? { nsfw: true } : {}),
   }))
   return item
 }

@@ -272,6 +272,7 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
           try {
             await assertCurrent(task)
             await tavern.saveTurnData({ gameId, turn, textVersion, data: value.characterSnapshot })
+            try { engine.noteSnapshot?.(gameId, value.characterSnapshot) } catch {}
           } catch (error) {
             if (task.controller.signal.aborted) throw error
             warn('保存角色历史失败：' + (error?.message ?? error))
@@ -424,6 +425,28 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
     log('已注册提示词段落 auto-image-gen')
   } catch (error) {
     warn('注册提示词段落失败：' + (error?.message ?? error))
+  }
+
+  // ── ①b 人物衣服库（配图、规划关着时都是空的）──────────────────────
+  //   本轮上下文：名单 + 现在穿的那套；世界书条目池：每套衣服一条，被提到或被 worldbook_search 查到才进上下文。
+  try {
+    const wardrobeText = async (...args) => { try { return (await engine.wardrobePrompt?.(...args)) || '' } catch { return '' } }
+    const off = typeof tavern.turnSection === 'function'
+      ? tavern.turnSection({ name: 'outfit-wardrobe', text: wardrobeText })
+      : tavern.promptSection({ name: 'outfit-wardrobe', text: wardrobeText })
+    if (typeof off === 'function') disposes.push(off)
+    log('已注册衣服库段落 outfit-wardrobe')
+  } catch (error) {
+    warn('注册衣服库段落失败：' + (error?.message ?? error))
+  }
+  try {
+    if (typeof tavern.worldbookEntries === 'function') {
+      const off = tavern.worldbookEntries({ name: 'outfits', entries: async context => { try { return (await engine.wardrobeEntries?.(context)) || [] } catch { return [] } } })
+      if (typeof off === 'function') disposes.push(off)
+      log('已注册衣服世界书条目 outfits')
+    }
+  } catch (error) {
+    warn('注册衣服世界书条目失败：' + (error?.message ?? error))
   }
 
   // ── ② 每轮结算 → 自动配图 ───────────────────────────────────────
