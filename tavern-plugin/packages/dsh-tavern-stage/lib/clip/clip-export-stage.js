@@ -14,12 +14,12 @@ export const CLIP_FILE_ROUTE = '/dsh-tavern-stage/clip-file'
 // The stage's clip export: the isolated replay host over the core's chat readers (request deps) and the
 // stage's director, mods and engine settings. `call` reaches the stage's own requests (the clip's history timer reads).
 export function createStageClipExport({ctx, deps, stageDirector, modService, cardStageSwitch, dialogueBubbles, assetEngineSettings, live2dFiles, deploymentWork, call}) {
-  const {dataRoot, readSessionMap, readChat, readChatCard, replyDisplayForChat, readCardWorkspace} = deps
+  const {dataRoot, readSessionMap, readChat, readChatCard, replyDisplayForChat, readCardWorkspace, paragraphSpeech} = deps
   const fonts = createFontLibrary({dataRoot})
   const clipExport = createClipHost({
     readChat:async sessionId => {const id=(await readSessionMap())[sessionId];return id ? readChat(id) : null},
     readDisplay:async chat => replyDisplayForChat(chat,await readChatCard(chat),true),
-    readConfig:cardPath => dialogueBubbles.read(cardPath),readWorkspace:readCardWorkspace,
+    readConfig:cardPath => dialogueBubbles.read(cardPath),readWorkspace:readCardWorkspace,paragraphSpeech,
     readDirection:(chat,turn) => stageDirector.get(chat,turn,null,{readOnly:true,includePredecessor:true}),
     library:() => ctx.get('assetLibrary'),tts:() => ctx.get('tts'),settings:() => assetEngineSettings.read(),
     globalPacks:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || [],
