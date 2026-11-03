@@ -25651,6 +25651,3359 @@ function stageEntranceContract() {
 const stageEntrance = stageEntranceContract();
 if (typeof module !== 'undefined' && typeof window === 'undefined' && module.exports) module.exports = Object.assign({ stageEntranceContract }, stageEntrance);
 
+        // The asset-pack pages (asset-pack-{gen,card,engine}-ui.js, mod-manager.js) are part of the core's createAssetPackUI closure in
+        // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
+        // the names it uses from them (stageScope.bind). Both lists are exact.
+        function createStageAssetPackViews(core) {
+            const {React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardImportSheet, CatAddTile, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, STAGE_REQUIRES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useTask, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText,
+                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
+            // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
+            'use strict';
+// enabled is the author-facing switch. Legacy bubble-only cards keep their
+// presentation until explicitly edited; a new declaration always wins.
+function cardStageMode(stage) {
+  if (typeof stage?.enabled === 'boolean') return {dialogue:stage.enabled,stage:stage.enabled};
+  const dialogue = stage?.dialogue === true;
+  return {dialogue,stage:dialogue && stage?.stage === true};
+}
+if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = {cardStageMode};
+
+              // In-app asset generation. A picture is made where it goes: a 差分 tile (编辑's grid, 生图's wall) opens the
+  // ONE generation dialog (GenDialog), and the request then runs in the tile itself (a ring and the time, 排队, 待采用, ⚠).
+  // The batch buttons send one request per missing 差分 with its default prompt and no dialog. Generation draws from the
+  // 设定图 or the 设定文字 (外貌 + 服装描述), never from 平和 (平和 only stays the ruler an adopted 立绘 is aligned to). Nothing loops,
+  // retries or refills in the background, and nothing here talks about money. The pack modal owns one controller
+  // (useAssetGen); nothing is read from the backend until a 生图 surface opens.
+  const GEN_POLL_MS=1500,GEN_PARALLEL=4,GEN_REF_LIMIT=4,GEN_REF_BYTES=8*1024*1024;
+  // ⚠ chips: a short label per deterministic check; the backend sentence is the tooltip.
+  const GEN_WARNINGS={NO_TRANSPARENCY:'没有透明背景',EDGE_CONTACT:'人物碰到边缘',CELL_EDGE_CONTACT:'碰到格子边缘',ASPECT_MISMATCH:'比例不对',LOW_RESOLUTION:'分辨率偏低',
+    EMPTY_IMAGE:'图是空的',CHECK_UNAVAILABLE:'无法自动检查',SHEET_UNSLICEABLE:'不能自动切分'};
+  // The host has no API that opens a settings section, so the way there is written out once.
+  // Pictures come from the 配图 plugin's channel; the server's message names what to change there.
+  const GEN_PROBLEMS={UNSUPPORTED_CHANNEL:'当前生图渠道不能生成这张素材 · 设置 → 配图',NOT_CONFIGURED:'还没配置生图渠道 · 设置 → 配图'};
+  // An earlier request of the same slot never answered: the next one asks first (the backend's confirmNewRequestIds gate).
+  const GEN_UNCERTAIN='上一次请求没有返回结果，不会自动重试。仍要再生成一张吗？';
+  const GEN_POSE_ROLE='User pose reference: borrow only the pose and expression idea, never the face or outfit';
+  const GEN_ART_ROLE='User artwork of this character: authority for identity, outfit and style';
+  const GEN_CURRENT_ROLE='Current picture of this slot: may keep its composition and pose; the settei stays the authority for identity and outfit';
+  const GEN_BASE_ROLE='Base image to edit: keep identity, outfit, pose, framing and background exactly; change only what the user notes ask for';
+  const GEN_REASONS={layered:'这个差分是动态立绘：在它格子的菜单里选「重画…」',avatar:'先有这个差分的立绘，才能生成它的头像',
+    sheet:'先有首个差分立绘或设定图，才能一次生成八个头像',avatars:'缺头像的差分还没有立绘：先有立绘，才能生成头像',basis:'还没有设定：先写外貌或服装描述，或准备一张设定图',edit:'先写想改哪里',busy:'这一格正在生成'};
+  // the eight base faces of the eight-face sheet, in its layout order (key,
+  // shared name). The sheet is used only when every one of them is a declared 差分 still missing its 头像.
+  const GEN_SHEET_FACES=[['joy','喜悦'],['anger','愤怒'],['sad','悲伤'],['anxious','紧张'],['calm','平和'],['shy','害羞'],['disgust','嫌弃'],['love','爱恋']];
+  // The shared confirmation gate (image-billing-confirmation.js, also scene illustration's) words its refusal for that page;
+  // here it only means the earlier request needs confirming first (no money talk in 生图).
+  const genError=e=>e?.code==='BILLING_CONFIRMATION_REQUIRED'?'上一次请求没有返回结果，请确认后再生成':errorText(e);
+  const genKey=t=>t.kind==='background'?'background/'+(t.assetId||''):[t.kind,t.figureId,t.outfitKey,t.emotionId||''].join('/');
+  const genShown=job=>['running','candidate','save_failed','failed'].includes(job?.status);
+  const genSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  function genBytes(base64){const s=atob(base64),out=new Uint8Array(s.length);for(let i=0;i<s.length;i++)out[i]=s.charCodeAt(i);return out;}
+  function genBase64(bytes){let s='';for(let i=0;i<bytes.length;i+=0x8000)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));return btoa(s);}
+  // The slot a generation writes, by the backend's own rule: the emotion's own sprite state (平和 → default), its own avatar.
+  function genOwnSprite(outfit,manifest,id){
+    // read through the sprite's view (hybrid / flat / layered alike), as the backend does.
+    const state=outfit?.sprite&&manifest?emotionState(outfit,manifest,id):null,src=state?.stage?.src||state?.src;
+    return src?outfit.sprite.assets?.[src]||null:null;
+  }
+  const genDefaultId=(figure,outfit)=>outfit?.defaultEmotion??figure?.emotions?.[0]?.id;
+  const genSaid=v=>!!String(v||'').trim();
+  // What a generation draws from: a picture (the outfit 设定图 or the figure's identity board), else the 设定文字 (外貌 /
+  // 服装描述), else nothing yet — then 生成 waits for one (the tile menu offers the ways to make it).
+  function genBasis(figure,outfit){return outfit?.settei||figure?.identitySettei?'image':genSaid(figure?.identityAppearance)||genSaid(outfit?.outfitAppearance)?'text':'';}
+  // The prompt a 差分 starts from: its name and 使用情景; a cell's 「存为默认」 (outfit.genPrompts, owner U4) replaces it for
+  // that figure × outfit × 差分 only. The shared fixed layer (template) is edited in 设置 → 舞台 → 素材生图 (GenPromptSettings).
+  const genBuiltPrompt=row=>row?row.label+'的表情'+(genSaid(row.guidance)?'，'+row.guidance.trim():'')+'。':'';
+  const genPromptFor=(outfit,kind,row)=>outfit?.genPrompts?.[kind]?.[row?.id]||genBuiltPrompt(row);
+  // The latest group of a target left an unconfirmed request: the next one goes through the gate.
+  function genUncertain(list,target){
+    const key=genKey(target),mine=(list||[]).filter(j=>genKey(j.target)===key);if(!mine.length)return false;
+    const last=mine.reduce((a,b)=>b.createdAt>a.createdAt?b:a);
+    return mine.some(j=>j.groupId===last.groupId&&j.outcome==='unconfirmed'&&j.status!=='running');
+  }
+  // ---------- The controller (one per pack modal) ----------
+  // Every pack write still goes through the modal's serialized writer (`enqueue`); sprite / avatar candidates are adopted
+  // through the original importFigureImage (receipts kept per job, so a retry never imports a slot twice).
+  function useAssetGen({binding,packId,enqueue,importFigureImage,onPacksChanged}) {
+    const [jobs,setJobs]=React.useState(null),[pending,setPending]=React.useState({}),[errors,setErrors]=React.useState({}),[problem,setProblem]=React.useState('');
+    const [sheet,setSheet]=React.useState(null),[dialog,setDialog]=React.useState(null),[gate,setGate]=React.useState(null),[models,setModels]=React.useState({}),[run,setRun]=React.useState(null);
+    const alive=React.useRef(true),active=React.useRef(false),known=React.useRef(null),queue=React.useRef([]),pumping=React.useRef(false),receipts=React.useRef(new Map()),urls=React.useRef(new Map()),sheets=React.useRef(0),epoch=React.useRef(0);
+    const dropping=React.useRef(new Set()),progressRef=React.useRef(null);
+    React.useEffect(()=>{alive.current=true;return()=>{alive.current=false;queue.current=[];};},[]);
+    const call=async(method,args)=>(await binding.rpc(method,args))?.data;
+    const settle=()=>enqueue(async c=>({value:c})).then(r=>r.value);
+    const show=list=>{known.current=list;if(alive.current)setJobs(list);};
+    const merge=list=>{epoch.current++;const map=new Map((known.current||[]).map(j=>[j.jobId,j]));for(const j of list||[])if(j)map.set(j.jobId,j);show([...map.values()]);};
+    const mark=(key,value)=>setPending(p=>{const next={...p};if(value)next[key]=value;else delete next[key];return next;});
+    const fail=(key,message)=>setErrors(e=>{const next={...e};if(message)next[key]=message;else delete next[key];return next;});
+    // A list that left before a newer write came back is stale: it is read again instead of overwriting the write.
+    async function refresh(){
+      for(let attempt=0;attempt<3;attempt++){
+        const seen=epoch.current;
+        try{const list=await call('listAssetCandidates',{packId});if(seen!==epoch.current)continue;show(list||[]);}catch(_){if(!known.current)show([]);}
+        break;
+      }
+      return known.current||[];
+    }
+    const open=()=>{if(active.current)return;active.current=true;refresh();};
+    // Polling only while a request of this pack is in flight.
+    React.useEffect(()=>{if(!jobs?.some(j=>j.status==='running'))return;const t=setTimeout(refresh,GEN_POLL_MS);return()=>clearTimeout(t);},[jobs]);
+    React.useEffect(()=>{
+      if(typeof window==='undefined')return;
+      const focus=()=>{if(active.current)refresh();};
+      window.addEventListener('focus',focus);
+      return()=>window.removeEventListener('focus',focus);
+    },[]);
+    // One picture waits per slot: when a newer candidate arrives (a 重画 / 改图 of a waiting one), the older one is dropped;
+    // until then the older one stays, and it is on show again when the newer request brings nothing.
+    React.useEffect(()=>{
+      if(!jobs)return;const newest=new Map();
+      for(const j of jobs)if(['candidate','save_failed'].includes(j.status)&&j.target.kind!=='background'){const k=genKey(j.target),b=newest.get(k);if(!b||j.createdAt>b.createdAt)newest.set(k,j);}
+      for(const j of jobs)if(j.status==='candidate'&&j.target.kind!=='background'&&newest.get(genKey(j.target))!==j&&!dropping.current.has(j.jobId)){dropping.current.add(j.jobId);reject(j).catch(()=>{});}
+    },[jobs]);
+    const jobFor=target=>{
+      const key=genKey(target);let best=null,held=null;
+      for(const j of jobs||[]){if(genKey(j.target)!==key)continue;if(!best||j.createdAt>=best.createdAt)best=j;if(['candidate','save_failed'].includes(j.status)&&(!held||j.createdAt>=held.createdAt))held=j;}
+      if(held&&best!==held&&!['running','accepted'].includes(best.status))return held;
+      return genShown(best)?best:null;
+    };
+    const ask=count=>new Promise(resolve=>setGate({count,resolve}));
+    // prepare → (gate) → generate. The backend retires the original only after a new candidate is saved.
+    async function start(target,input={},{approved=false,plan:kept}={}){
+      const key=genKey(target);open();mark(key,'starting');fail(key,'');
+      try{
+        let plan=kept;
+        if(!plan){
+          const pack=await settle();
+          try{plan=await call('prepareAssetGeneration',{target,expectedRevision:pack.revision,...input});}
+          catch(e){if(GEN_PROBLEMS[e.code])setProblem(e.message||GEN_PROBLEMS[e.code]);throw e;}
+          if(alive.current)setProblem('');
+          const confirm=plan.confirmNewRequestIds||[];
+          if(confirm.length&&!approved&&!await ask(confirm.length))return null;
+        }
+        const confirm=plan.confirmNewRequestIds||[];
+        let result;
+        try{result=await call('generateAssetCandidate',{planId:plan.planId,consentToken:plan.consentToken,...(confirm.length?{confirmNewRequestIds:confirm}:{})});}
+        catch(e){throw Object.assign(e,{plan});}
+        if(alive.current)setModels(m=>({...m,...Object.fromEntries(result.jobs.map(j=>[j.jobId,plan.provider?.model||'']))}));
+        merge(result.jobs);
+        return result.jobs[0];
+      }catch(e){fail(key,GEN_PROBLEMS[e.code]?'':genError(e)||'生成失败');throw e;}
+      finally{mark(key,'');}
+    }
+    const openSheet=(target,input,extra)=>{open();setSheet({id:++sheets.current,target,input,...extra});};
+    // The 生成背景 / eight-face sheet requests: started at once, their sheet opens on the progress.
+    function startSlot(target,input){openSheet(target,input);return start(target,input).catch(()=>null);}
+    // 「生成缺失立绘」 / 「生成缺失头像」 (owner U2): one request per item ({target, input}), at most four in flight; the
+    // ones not yet sent are dropped by 停止 or when the modal closes. `run` is the batch the heading counts (「生成中 a/b」).
+    async function batch(items){
+      if(!items.length)return;
+      open();const list=await refresh(),uncertain=new Set(items.filter(i=>genUncertain(list,i.target)).map(i=>genKey(i.target)));
+      if(uncertain.size&&!await ask(uncertain.size))return;
+      const keys=items.map(i=>genKey(i.target)),live=progressRef.current;
+      setRun(r=>({keys:[...new Set([...(live&&r?r.keys:[]),...keys])]}));
+      for(const item of items){queue.current.push({target:item.target,input:item.input||{},approved:uncertain.has(genKey(item.target))});mark(genKey(item.target),'queued');}
+      pump();
+    }
+    async function pump(){
+      if(pumping.current)return;pumping.current=true;
+      try{
+        while(alive.current&&queue.current.length){
+          if((known.current||[]).filter(j=>j.status==='running').length>=GEN_PARALLEL){await genSleep(GEN_POLL_MS);await refresh();continue;}
+          const item=queue.current.shift();
+          try{await start(item.target,item.input,{approved:item.approved,plan:item.plan});}
+          catch(e){
+            // Another pack's requests fill the four seats: the same consented plan is sent once a seat frees up.
+            if(e.code==='BUSY'&&e.plan&&alive.current){queue.current.push({...item,plan:e.plan});mark(genKey(item.target),'queued');fail(genKey(item.target),'');await genSleep(GEN_POLL_MS*2);await refresh();}
+            else if(GEN_PROBLEMS[e.code])for(const rest of queue.current.splice(0))mark(genKey(rest.target),'');
+          }
+        }
+      }finally{pumping.current=false;}
+    }
+    function dequeue(target){const key=genKey(target);queue.current=queue.current.filter(item=>genKey(item.target)!==key);mark(key,'');}
+    // 停止: the batch's requests not yet sent are dropped and the ones in flight cancelled; what came back stays.
+    async function stop(){
+      const keys=new Set(run?.keys||[]);
+      queue.current=queue.current.filter(item=>{const key=genKey(item.target);if(!keys.has(key))return true;mark(key,'');return false;});
+      for(const j of known.current||[])if(j.status==='running'&&keys.has(genKey(j.target)))await cancel(j).catch(()=>{});
+    }
+    const forget=jobId=>{for(const key of [...urls.current.keys()])if(key.startsWith(jobId+'|'))urls.current.delete(key);receipts.current.delete(jobId);};
+    async function cancel(job){merge([await call('cancelAssetGenerationJob',{jobId:job.jobId})]);}
+    async function reject(job){const done=await call('rejectAssetCandidate',{jobId:job.jobId});forget(job.jobId);merge([done]);return done;}
+    async function retrySave(job){merge([await call('retryAssetCandidateSave',{jobId:job.jobId})]);}
+    // The background sheet's 「按意见重画」 (a note on the frozen request).
+    function redraw(job,note){
+      const room=(job.references||[]).filter(ref=>!ref.redraw).length<GEN_REF_LIMIT;
+      return start(job.target,{redrawOf:job.jobId,note,useCandidateReference:room});
+    }
+    // Candidate pixels for previews: one read per job / slice, kept as a data URL while the modal is open.
+    function candidateUrl(jobId,emotionId){
+      const key=jobId+'|'+(emotionId||'');let entry=urls.current.get(key);
+      if(!entry){entry=call('readAssetCandidate',{jobId,...(emotionId?{emotionId}:{})}).then(d=>'data:'+d.mediaType+';base64,'+d.base64);urls.current.set(key,entry);entry.catch(()=>urls.current.delete(key));}
+      return entry;
+    }
+    const candidateData=(job,emotionId)=>call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{})});
+    async function candidateFile(job,emotionId,forImport=false){
+      const d=await call('readAssetCandidate',{jobId:job.jobId,...(emotionId?{emotionId}:{}),...(forImport?{forImport:true}:{})});
+      return new File([genBytes(d.base64)],(emotionId||job.target.kind)+'.png',{type:d.mediaType});
+    }
+    const finalize=(job,extra)=>enqueue(async c=>{merge([await call('acceptAssetCandidate',{jobId:job.jobId,expectedRevision:c.revision,...extra})]);return {snapshot:await binding.service.getPackSnapshot({packId})};});
+    // 采用. settei / background: the backend writes the original pack (CAS on its slot). sprite / avatar: the candidate goes
+    // through importFigureImage (aligned sprite read), then accept with the receipt. A sheet imports slot by slot and
+    // resumes after a failure from the first slot without a receipt. Older candidates of the same slot are dropped.
+    async function accept(job,{replace=false,file,keywords}={}){
+      const t=job.target;
+      if(['settei','identity-settei','background'].includes(t.kind)){
+        await enqueue(async c=>{merge([await call('acceptAssetCandidate',{jobId:job.jobId,expectedRevision:c.revision,keywords,...(replace?{replace:true}:{})})]);return {snapshot:await binding.service.getPackSnapshot({packId})};});
+      } else {
+        const receipt=receipts.current.get(job.jobId)||{hashes:{}};receipts.current.set(job.jobId,receipt);
+        const slots=t.kind==='avatar-sheet'?t.emotionIds.filter(Boolean):[t.emotionId];
+        // An avatar is imported byte for byte, so a slot that already holds this candidate (an earlier attempt, maybe
+        // before the modal was reopened) counts as imported. Sprites are aligned on import; their receipt is the session's.
+        const now=(await settle()).figures?.[t.figureId]?.outfits.find(o=>o.key===t.outfitKey);
+        for(const id of slots){const want=t.kind==='avatar-sheet'?job.candidate?.slices?.[id]?.hash:t.kind==='avatar'?job.candidate?.hash:null;if(!receipt.hashes[id]&&want&&(now?.sprite?.imagePools?.[id]?.imageIds.some(imageId=>now.avatars?.[imageId]===want)||now?.avatars?.[id]===want))receipt.hashes[id]=want;}
+        for(const id of slots){
+          if(receipt.hashes[id])continue;
+          const image=file||await candidateFile(job,t.kind==='avatar-sheet'?id:null,t.kind==='sprite');
+          await importFigureImage(t.figureId,t.outfitKey,id,image,t.kind==='sprite'?'sprite':'avatar',{expectedPackId:packId,expectedRevision:(await settle()).revision,imageId:t.imageId,onImported:r=>{receipt.hashes[id]=r.hash;}});
+        }
+        await finalize(job,t.kind==='avatar-sheet'?{importedHashes:receipt.hashes}:{importedHash:receipt.hashes[t.emotionId]});
+      }
+      // Adopting settles the slot: other candidates of it are dropped, and a failed request's ⚠ (a redraw that brought
+      // nothing) is cleared with it.
+      forget(job.jobId);fail(genKey(t),'');
+      for(const j of known.current||[])if(j.jobId!==job.jobId&&['candidate','failed'].includes(j.status)&&genKey(j.target)===genKey(t)&&!dropping.current.has(j.jobId)){dropping.current.add(j.jobId);reject(j).catch(()=>{});}
+      onPacksChanged?.();
+      follow((known.current||[]).find(j=>j.jobId===job.jobId)||job);
+    }
+    // gen-ui b5: what waited for this picture's 采用 (the job's followUp) is sent now, as a batch — a 立绘 carrying its own 头像
+    // as the next follow-up; a 头像 goes straight (its 立绘 is there now).
+    function follow(job){
+      const t=job.target,list=job.followUp||[];if(!list.length)return;
+      const at=(kind,emotionId)=>({packId:t.packId,figureId:t.figureId,outfitKey:t.outfitKey,kind,emotionId,...(kind==='avatar'&&job.acceptedImageId?{imageId:job.acceptedImageId}:{})}),opts=f=>({...(f.userPrompt?{userPrompt:f.userPrompt}:{}),...(f.style?{style:f.style}:{})});
+      const sprites=list.filter(f=>f.kind==='sprite').map(f=>f.emotionId);
+      batch(list.filter(f=>f.kind==='sprite'||!sprites.includes(f.emotionId)).map(f=>{const then=f.kind==='sprite'?list.filter(a=>a.kind==='avatar'&&a.emotionId===f.emotionId):[];
+        return {target:at(f.kind,f.emotionId),input:{...opts(f),...(then.length?{followUp:then}:{})}};})).catch(()=>{});
+    }
+    // 「全部采用」: one after another (each its own CAS write); a slot that fails keeps its candidate and says why.
+    async function acceptAll(list){
+      let done=0;
+      for(const job of list){try{await accept(job);done++;}catch(e){fail(genKey(job.target),errorText(e));}}
+      return done;
+    }
+    const dialogs=gate&&h(ConfirmDialog,{title:'上一次还没有结果',body:gate.count>1?'其中 '+gate.count+' 项上一次请求没有返回结果，不会自动重试。仍要再生成吗？':GEN_UNCERTAIN,confirmLabel:'仍要生成',
+      onConfirm:()=>gate.resolve(true),onClose:()=>{gate.resolve(false);setGate(null);}});
+    // the exact prompt and references a request would send, built by the backend without
+    // a plan, a channel or a request.
+    const previewPrompt=async(target,input={})=>{const pack=await settle();return call('prepareAssetGeneration',{target,expectedRevision:pack.revision,...input,preview:true});};
+    // The batch the heading counts: done / total while any of it is queued, starting or drawing; else none.
+    // Slots waiting for an earlier picture's 采用 (followUp of a request in flight or waiting): shown 「排队中」.
+    const after=new Set((jobs||[]).filter(j=>['running','candidate','save_failed'].includes(j.status)).flatMap(j=>(j.followUp||[]).map(f=>genKey({...j.target,kind:f.kind,emotionId:f.emotionId}))));
+    const progress=run?(()=>{const left=run.keys.filter(key=>{if(pending[key])return true;return (jobs||[]).some(j=>j.status==='running'&&genKey(j.target)===key);}).length;
+      return left?{total:run.keys.length,done:run.keys.length-left,keys:run.keys}:null;})():null;
+    progressRef.current=progress;
+    return {jobs,pending,errors,problem,models,sheet,dialog,progress,after,open,refresh,jobFor,start,startSlot,previewPrompt,batch,stop,dequeue,cancel,reject,retrySave,redraw,accept,acceptAll,
+      candidateUrl,candidateData,candidateFile,dialogs,openSheet,clearError:key=>fail(key,''),
+      openDialog:(target,extra={})=>{open();setDialog({id:++sheets.current,target,mode:'gen',...extra});},closeDialog:()=>setDialog(null),
+      retarget:(target,extra)=>setSheet(s=>s&&{...s,...extra,target}),closeSheet:()=>setSheet(null),
+      waiting:(figureId,kinds)=>(jobs||[]).some(j=>j.target.figureId===figureId&&(!kinds||kinds.includes(j.target.kind))&&['candidate','save_failed'].includes(j.status))};
+  }
+  // ---------- Pieces ----------
+  function useCandidateUrl(gen,jobId,emotionId){
+    const key=jobId?jobId+'|'+(emotionId||''):'',[value,setValue]=React.useState(null);
+    React.useEffect(()=>{if(!jobId)return;let live=true;gen.candidateUrl(jobId,emotionId).then(url=>{if(live)setValue({key,url});},()=>{});return()=>{live=false;};},[key]);
+    return value?.key===key?value.url:null;
+  }
+  function CandidateArt({gen,jobId,emotionId,className}) {
+    const url=useCandidateUrl(gen,jobId,emotionId);
+    return url?h(RevealImg,{src:url,alt:'',draggable:false,className}):h(Spinner,{key:jobId+(emotionId||''),fill:true});
+  }
+  // 查看大图 of a waiting candidate (its pixels are read once per job).
+  function CandidateImageView({gen,jobId,label,actions,onClose}) {
+    return h(PackImageView,{src:useCandidateUrl(gen,jobId),label,actions,onClose});
+  }
+  function GenWarnings({warnings}) {
+    if(!warnings?.length)return null;
+    return h('div',{className:'ap-gen-warns',role:'list','aria-label':'检查结果'},warnings.map((w,i)=>h('span',{key:w.code+i,role:'listitem',className:'ap-gen-warn',title:w.message},h(Glyph,{name:'warning'}),w.label||GEN_WARNINGS[w.code]||w.message)));
+  }
+  function useElapsed(since,on) {
+    const [now,setNow]=React.useState(()=>Date.now());
+    React.useEffect(()=>{if(!on)return;const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[on]);
+    const s=Math.max(0,Math.floor((now-(since||now))/1000));
+    return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  }
+  // ↑ ↓ (and ← → in a picture grid) walk a small 生图 menu.
+  function genMenuKeys(e) {
+    const items=[...e.currentTarget.querySelectorAll('button:not(:disabled),input')],i=items.indexOf(document.activeElement),n=items.length,next={ArrowDown:i+1,ArrowRight:i+1,ArrowUp:i-1,ArrowLeft:i-1,Home:0,End:n-1}[e.key];
+    if(next===undefined||!n)return;e.preventDefault();items[(next+n)%n].focus();
+  }
+  // ---------- One slot as the grid sees it ----------
+  // 'queued' / 'running' (with `since`) / 'candidate' / 'failed' / 'idle', and the job behind it. A 头像 counts the latest
+  // eight-face sheet request covering it too (then `sheet` is that request's target).
+  function genCell(gen,target){
+    const key=genKey(target),own=gen.jobFor(target);
+    const sheetTarget=target.kind==='avatar'?{packId:target.packId,figureId:target.figureId,outfitKey:target.outfitKey,kind:'avatar-sheet'}:null,cover=sheetTarget&&gen.jobFor(sheetTarget);
+    const inSheet=!!cover&&(cover.target.emotionIds||[]).includes(target.emotionId),covering=inSheet&&(!own||cover.createdAt>own.createdAt)?cover:null,job=covering||own;
+    const pend=gen.pending[key]||(inSheet&&!own?gen.pending[genKey(sheetTarget)]:'')||'';
+    let state=pend==='queued'?'queued':pend||job?.status==='running'?'running':['candidate','save_failed'].includes(job?.status)?'candidate':job?.status==='failed'||(!job&&gen.errors[key])?'failed':'idle';
+    const after=state==='idle'&&!!gen.after?.has(key);if(after)state='queued';
+    const warnings=covering?covering.candidate?.slices?.[target.emotionId]?.checks?.warnings||[]:job?.candidate?.checks?.warnings||[];
+    // A waiting candidate's `error` is why its last 采用 failed (「全部采用」 goes on past it; the tile keeps its ⚠).
+    return {state,key,target,after,job:state==='idle'||state==='queued'?null:job,sheet:covering?covering.target:null,since:!pend&&job?.status==='running'?job.createdAt:null,
+      error:state==='failed'?job?.error?.message||gen.errors[key]||'':state==='candidate'?gen.errors[key]||'':'',warnings};
+  }
+  // The candidate in a 差分 tile: a 立绘 is cut to the head and shoulders (a generated 立绘 fills its 2:3 canvas centred,
+  // the head in its top fifth), a 头像 shows whole.
+  function GenFaceCandidate({gen,cell,kind}) {
+    return h('span',{className:'ap-gen-face-art','data-kind':kind},h(CandidateArt,{gen,jobId:cell.job.jobId,emotionId:cell.sheet?cell.target.emotionId:null}));
+  }
+  // The marks a request leaves on a tile: a turning ring and the time (生成中), 「排队中」, the dot and 「待采用」, ⚠.
+  function GenFaceMarks({cell}) {
+    const elapsed=useElapsed(cell.since,cell.state==='running'&&!!cell.since);
+    if(cell.state==='queued')return h('span',{className:'ap-gen-queue'},'排队中');
+    if(cell.state==='running')return h(React.Fragment,null,h(Spinner,{key:'run'+cell.key,fill:true,delay:0,className:'ap-gen-spin'}),cell.since?h('span',{className:'ap-gen-face-time'},elapsed):null);
+    if(cell.state==='candidate')return h(React.Fragment,null,h('span',{className:'ap-gen-dot','aria-hidden':true}),h('span',{className:'ap-gen-badge'},'待采用'),
+      (cell.error||cell.warnings.length>0)&&h('span',{className:'ap-gen-flag',title:[cell.error,...cell.warnings.map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'})));
+    if(cell.state==='failed')return h('span',{className:'ap-gen-flag',title:genFailText(cell.error)},h(Glyph,{name:'warning'}));
+    return null;
+  }
+  // status words are plain terms — 排队中 / 生成中 / 待采用 / 生图失败; a failure reads
+  // 「没能生成：<reason>」 on the tile's hover, in the records and on the 新人物 page: the host's Chinese reason through the
+  // shared playerErrorText (no provider English, no HTTP status —).
+  const GEN_CELL_WORDS={queued:'排队中',running:'生成中',candidate:'待采用',failed:'生图失败'};
+  const genFailText=reason=>{const why=String((typeof reason==='string'?reason:reason?.message)||'').replace(/^生图失败[：:]?/,'');
+    return '没能生成：'+(why?playerErrorText(why,{fallback:'请稍后再试'}):'请稍后再试').replace(/[。；;，,]$/,'');};
+  // The preview card of the picked 差分 while its request runs (the ring, 生成中 / 排队中 and the time) and while a candidate
+  // waits (the picture on the checkerboard, 「待采用」, the outfit 设定图 in a corner to compare against — mock E5 / E6).
+  function GenStageWait({cell}) {
+    const elapsed=useElapsed(cell.since,cell.state==='running'&&!!cell.since);
+    return h('span',{className:'ap-gen-stage-wait',role:'status'},h(Spinner,{key:'wait'+cell.key,delay:0}),
+      h('b',null,GEN_CELL_WORDS[cell.state==='queued'?'queued':'running']),cell.since&&cell.state==='running'&&h('small',null,elapsed));
+  }
+  function GenStageCandidate({gen,binding,packId,cell,kind,emotionId,settei}) {
+    return h('span',{className:'ap-stand ap-gen-stand','data-kind':kind},
+      h('span',{className:'ap-gen-stand-art'},h(CandidateArt,{gen,jobId:cell.job.jobId,emotionId:cell.sheet?emotionId:null})),
+      h('span',{className:'ap-gen-badge is-stage'},'待采用'),
+      settei&&h('span',{className:'ap-gen-pip',title:'服装设定图'},h(Thumb,{binding,packId,hash:settei,label:'服装设定图'}),h('small',null,'设定图')));
+  }
+  // The 差分 detail's request line (UI standard R9: the selected tile's actions under the grid): state, checks, actions.
+  function GenCellStatus({gen,cell,outfit,onDialog}) {
+    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),elapsed=useElapsed(cell.since,cell.state==='running'&&!!cell.since);
+    if(cell.state==='idle')return null;
+    const run=fn=>{setBusy(true);setError('');return Promise.resolve().then(fn).catch(e=>setError(errorText(e))).finally(()=>setBusy(false));};
+    const job=cell.job,basis=job?.references?.some(r=>r.hash&&r.hash===outfit?.settei)?'照服装设定图':'照设定文字';
+    const actions=cell.state==='candidate'?(cell.sheet?[h(Button,{key:'view',disabled:busy,onClick:()=>gen.openSheet(cell.sheet)},'查看八个头像')]:[
+        h(Button,{key:'no',className:'ap-gen-no',disabled:busy,onClick:()=>run(()=>gen.reject(job))},'不要'),
+        h(Button,{key:'redraw',disabled:busy,onClick:()=>onDialog('redraw')},'重画…'),
+        h(Button,{key:'yes',disabled:busy,onClick:()=>run(()=>gen.accept(job))},'采用')]):
+      cell.state==='failed'?[h(Button,{key:'retry',disabled:busy,onClick:()=>run(()=>gen.start(cell.target,job?.userPrompt?{userPrompt:job.userPrompt}:{}))},h(Glyph,{name:'reset'}),'重试'),
+        h(Button,{key:'adjust',disabled:busy,onClick:()=>onDialog('gen')},'调整后重试…')]:
+      [h(Button,{key:'stop',disabled:busy||cell.after||cell.state==='running'&&!job,title:cell.after?'采用前一张图后开始':undefined,onClick:()=>run(()=>cell.state==='queued'?gen.dequeue(cell.target):gen.cancel(job))},cell.state==='queued'?'取消排队':'取消')];
+    // One row: the pill, the reason or detail, the actions; it wraps only when the width runs out. A
+    // failure's reason is the host's text after the 「生图失败」 pill (no second ⚠).
+    const meta=cell.state==='failed'?(cell.error?h('span',{className:'ap-gen-warn-ink'},cell.error):null):cell.error?h('span',{className:'ap-gen-warn-ink'},h(Glyph,{name:'warning'}),'采用失败：'+cell.error):
+      cell.state==='candidate'&&!cell.sheet?h('span',null,basis+(job?.userPrompt?' · '+job.userPrompt:'')):cell.state==='running'&&cell.since?h('span',{className:'ap-gen-time'},elapsed):null;
+    return h('div',{className:'ap-gen-status','data-state':cell.state,role:'group','aria-label':'生成'},
+      h('div',{className:'ap-gen-status-row'},h('span',{className:'ap-gen-pill','data-state':cell.state},GEN_CELL_WORDS[cell.state]),
+        cell.state==='candidate'&&h(GenWarnings,{warnings:cell.warnings}),meta&&h('span',{className:'ap-gen-status-meta'},meta),h('span',{className:'ap-gen-status-actions'},actions)),
+      error&&h('p',{className:'ap-field-error',role:'alert'},error));
+  }
+  // The ⚠ line a gated action leaves where it was clicked (for touch, where tooltips do not show). It stays until the next
+  // action there (or the picked 差分 / view changes, which remounts its owner) — no timer, so it never vanishes unread.
+  function useGenNote() {
+    const [note,setNote]=React.useState('');
+    return [note,text=>setNote(text||'')];
+  }
+  function GenGateNote({text,className=''}) {
+    if(!text)return null;
+    return h('p',{className:('ap-gen-gate '+className).trim(),role:'status'},h(Glyph,{name:'warning'}),h('span',null,text));
+  }
+  // ---------- The ONE generation dialog ----------
+  // 编辑 and 生图 open the same dialog: 生成 / 重画 / 改图 a 差分 (输出 立绘＋头像 · 立绘 · 头像), a 服装 or 人物设定图, and
+  // 添加服装 (a new outfit, optionally with its 服装设定图 and then its first 差分). One column — no preview, no divider lines:
+  // 参考图 (the 设定图 that exist and, for 重画, the picture being redrawn; never a 平和 stand-in; a chip's ✕ leaves a
+  // default out → `omit`; ＋ uploads), 外貌 / 服装描述 as read-only chips with ✎, 额外要求 (this 差分's default description;
+  // changed → ↺ and 「存为默认」 for this cell only, U4), 画风 (the pack's default; changed → 「设为本包默认」). The footer's
+  // quiet icon shows the full prompt (a preview: no plan, no request). Title 「生图」; the subtitle goes big → small:
+  // figure · outfit · 差分 (· 重画 / 改图). A 头像 follows its 立绘: 「立绘＋头像」 sends the 立绘 now and its 头像 once that is
+  // adopted (the job's followUp), as 添加服装 sends its first 差分 after the 服装设定图. Ctrl+Enter sends, Esc closes; the
+  // request then runs in its tile and the dialog closes as soon as it is sent.
+  const GEN_STYLES=[['clean','干净低细节'],['anime','动画截图'],['polished','精美高质量商业插画'],['none','不指定']];
+  const GEN_HELP={figure:'这个人物的标准样貌图。之后的立绘、头像和服装设定图都以它为参考图。',outfit:'这套服装的标准样貌图。这套服装之后的立绘和头像都以它为参考图。',
+    first:label=>'两项都勾时先生成服装设定图；采用后再以它为参考图生成「'+label+'」的立绘和头像。',style:'只用于这一次；「设为本包默认」后，这个素材包的生图都默认用它。「不指定」不附任何画风要求。'};
+  const genWhere=(...parts)=>parts.filter(Boolean).join(' · ');
+  const genFileInput=(ref,label,onFile)=>h('input',{ref,type:'file',hidden:true,tabIndex:-1,accept:'image/png,image/webp,image/jpeg','aria-label':label,onChange:e=>{const f=e.target.files?.[0];e.target.value='';if(f)onFile(f);}});
+  // `bare`: no caption under the picture (the 新人物 page's 设定图 row names them in its label).
+  function GenRefChip({binding,packId,hash,url,name,wide=false,bare=false,onRemove}) {
+    const art=hash?h(Thumb,{binding,packId,hash,label:name,className:'ap-gen-ref-art'}):url?h('img',{src:url,alt:'',draggable:false}):h(Glyph,{name:'note'});
+    return h('span',{className:'ap-gd-ref'},h('span',{className:'ap-gd-ref-chip'},h('span',{className:'ap-gen-ref is-static','data-wide':wide||undefined,role:'img','aria-label':name,title:name},art),
+      onRemove&&h('button',{type:'button',className:'ap-gen-ref-x','aria-label':'移除参考图 '+name,title:'移除',onClick:onRemove},h(Glyph,{name:'close'}))),!bare&&h('small',null,name));
+  }
+  // A user reference picture (uploaded or pasted) as the request sends it; refuses what the backend would.
+  async function genReadUpload(file){
+    if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('参考图请选 PNG、JPEG 或 WebP');
+    if(file.size>GEN_REF_BYTES)throw new Error('参考图最大 8 MB');
+    const base64=genBase64(new Uint8Array(await file.arrayBuffer()));
+    return {id:file.name+file.size+Date.now()+Math.random().toString(36).slice(2,6),mediaType:file.type,base64,url:'data:'+file.type+';base64,'+base64};
+  }
+  // 外貌 / 服装描述 beside a 差分 request: a read-only chip 「name text ✎」; ✎ (or the text) turns it into the house inline
+  // field in place — Enter / leaving saves the stored text (R17), Esc cancels — and back.
+  function GenSaid({name,value,onSave}) {
+    const [edit,setEdit]=React.useState(false),ref=React.useRef(null);
+    React.useEffect(()=>{if(edit)ref.current?.focus?.();},[edit]);
+    if(edit)return h('div',{className:'ap-gd-said is-edit',onBlur:e=>{if(!e.currentTarget.contains(e.relatedTarget))setTimeout(()=>setEdit(false),0);},onKeyDown:e=>{if(e.key==='Escape'){e.stopPropagation();setEdit(false);}}},
+      h(InlineField,{kind:'text',multiline:true,label:name,controlRef:ref,className:'ap-gd-said-field',value,placeholder:'未填写',maxLength:1000,onCommit:v=>{onSave(v);setEdit(false);}}));
+    return h('span',{className:'ap-gd-said'},h('span',{className:'ap-gd-said-key'},name),
+      h('button',{type:'button',className:'ap-gd-said-text','data-empty':!value||undefined,title:value||undefined,'aria-label':name+'：'+(value||'未填写'),onClick:()=>setEdit(true)},value||'未填写'),
+      h(IconButton,{icon:'edit',label:'编辑'+name,className:'ap-icon-button ap-gd-said-edit',onClick:()=>setEdit(true)}));
+  }
+  const genCheck=(on,set,text)=>h('button',{type:'button',role:'checkbox','aria-checked':on,className:'ap-check-row ap-gd-check',onClick:()=>set(v=>!v)},
+    h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})),h('span',null,text));
+  // The footer's quiet 「查看完整提示词」: the exact text a request would send (lines edited in 设置 → 舞台 → 素材生图 marked), read on
+  // demand before the popover opens so it places itself once with its real height.
+  function GenPeek({load}) {
+    const [shown,setShown]=React.useState(null);
+    return h(Popover,{label:'完整提示词',className:'ap-gd-peek',float:true,limit:520,
+      trigger:({toggle,open})=>h(IconButton,{icon:'note',label:'查看完整提示词',className:'ap-icon-button ap-gd-peek-btn','aria-haspopup':'dialog','aria-expanded':open,'aria-busy':shown?.busy||undefined,
+        onClick:()=>{if(open){toggle();return;}setShown({busy:true});load().then(p=>{setShown({text:p.prompt,parts:p.parts});toggle();},e=>{setShown({error:errorText(e)});toggle();});}}),
+      content:()=>h('div',{className:'ap-gd-peek-body'},!shown||shown.busy?h('p',{className:'ap-loading',role:'status'},h(Spinner),'正在读取…'):
+        shown.error?h('p',{className:'ap-field-error',role:'alert'},h(Glyph,{name:'warning'}),shown.error):
+        h(React.Fragment,null,shown.parts?.some(p=>p.edited)&&h('p',{className:'ap-gen-prompt-legend'},h('mark',{className:'ap-gen-prompt-edited'},'标出'),'的部分是在「设置 → 舞台 → 素材生图」里改过的'),
+          h('pre',{className:'ap-gen-prompt-text ap-gd-peek-text',tabIndex:0,'aria-label':'将发送的提示词'},shown.parts?shown.parts.map((p,i)=>p.edited?h('mark',{key:i,className:'ap-gen-prompt-edited'},p.text):p.text):shown.text)))});
+  }
+  function GenDialog({gen,binding,pack,commitFigure,importSettei,saveStyle}) {
+    const d=gen.dialog,packId=pack.manifest.id,figure=pack.figures?.[d.target.figureId]||null,mode=d.mode||'gen',adding=mode==='outfit';
+    const fig=!adding&&d.target.kind==='identity-settei',settei=fig||!adding&&d.target.kind==='settei',cellMode=!adding&&!settei,redo=mode==='redraw'||mode==='edit';
+    const raw=fig?null:figure?.outfits.find(o=>o.key===d.target.outfitKey)||null,outfit=raw&&figureOutfitView(figure,raw);
+    const rows=figure?figureEditorEmotions(figure):[],manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey];
+    const emotionId=cellMode?d.target.emotionId:null,row=rows.find(r=>r.id===emotionId)||null;
+    const takes=cellMode&&!!outfit&&spriteSlotTakesStill(outfit,manifest,emotionId);
+    const ownSprite=cellMode&&outfit?genOwnSprite(outfit,manifest,emotionId):null,ownAvatar=cellMode&&outfit?outfit.avatars?.[emotionId]||null:null;
+    const outs=cellMode&&mode!=='edit'?[takes&&['both','立绘＋头像'],takes&&['sprite','立绘'],['avatar','头像']].filter(Boolean):[];
+    const [out,setOut]=React.useState(()=>!cellMode||mode==='edit'?d.target.kind:outs.some(o=>o[0]===d.out)?d.out:d.target.kind==='avatar'||!takes?'avatar':mode==='redraw'?'sprite':'both');
+    const kind=adding?'settei':settei?d.target.kind:out==='avatar'?'avatar':'sprite';
+    const target=adding?null:fig?{packId,figureId:d.target.figureId,kind}:settei?{packId,figureId:d.target.figureId,outfitKey:d.target.outfitKey,kind}:{packId,figureId:d.target.figureId,outfitKey:d.target.outfitKey,kind,emotionId};
+    const cell=target?genCell(gen,target):{state:'idle'};
+    // 重画 / 改图 work on what the slot shows: the waiting candidate, else the adopted picture.
+    const own=fig?figure?.identitySettei?.board||null:settei?outfit?.settei||null:kind==='avatar'?ownAvatar:ownSprite;
+    const waiting=cell.state==='candidate'?cell.job:null,base=redo?(waiting?{job:waiting}:own?{hash:own}:null):null;
+    const baseUrl=useCandidateUrl(gen,base?.job?.jobId||null,cell.sheet?emotionId:null);
+    const defaultPrompt=cellMode&&mode!=='edit'&&outfit&&row?genPromptFor(outfit,kind,row):'';
+    // Text fields commit on Enter / blur (a blur precedes 生成): the latest committed text is read from here.
+    const texts=React.useRef(null);if(!texts.current)texts.current={prompt:mode==='redraw'&&waiting?.userPrompt||defaultPrompt,name:'',wear:''};
+    const [prompt,setPromptState]=React.useState(texts.current.prompt),[saved,setSaved]=React.useState(false);
+    const [removed,setRemoved]=React.useState([]),[uploads,setUploads]=React.useState([]),[style,setStyle]=React.useState(pack.manifest.genStyle||'clean');
+    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState('');
+    const [name,setNameState]=React.useState(''),[wear,setWearState]=React.useState(''),[lamp,setLamp]=React.useState('keyword');
+    const [words,setWords]=React.useState(()=>{const short=String(figure?.name||'').split(/[·・]/)[0].trim();return adding&&short?[short]:[];});
+    const [sheetFile,setSheetFile]=React.useState(null),[genSheet,setGenSheet]=React.useState(true),[genFirst,setGenFirst]=React.useState(true);
+    const refInput=React.useRef(null),sheetInput=React.useRef(null),made=React.useRef(null),submitRef=React.useRef(null);
+    const setPrompt=v=>{texts.current.prompt=v;setPromptState(v);setSaved(false);};
+    const setName=v=>{texts.current.name=v;setNameState(v);},setWear=v=>{texts.current.wear=v;setWearState(v);};
+    const close=()=>{if(!busy)gen.closeDialog();};
+    if(!figure||!fig&&!outfit)return h(Modal,{title:'生图',className:'ap-gen-dialog',onClose:close},h(EmptyState,{text:'服装已被删除'}));
+    // 参考图: the 设定图 the backend attaches by rule (asset-generation.js prepare) — the 人物设定图 (unless the outfit's 设定图
+    // no longer descends from it) and, for a 差分, the 服装设定图; a 头像 also its own 立绘 (fixed). Nothing stands in.
+    const identity=figure.identitySettei,stale=!!identity&&cellMode&&outfit.setteiParentVersion!==undefined&&outfit.setteiParentVersion!==identity.version;
+    const sheetNow=adding&&genSheet&&!sheetFile,anyGen=!adding||sheetNow||genFirst;
+    const defaults=[identity&&!fig&&!stale&&{id:'identity',hash:identity.board,name:'人物设定图'},cellMode&&outfit.settei&&{id:'settei',hash:outfit.settei,name:'服装设定图'}].filter(r=>r&&!removed.includes(r.id));
+    const fixed=cellMode&&kind==='avatar'&&ownSprite?{hash:ownSprite,name:(row?.label||'')+'立绘'}:null;
+    const current=base&&(mode==='edit'||!removed.includes('current'))?base:null;
+    const room=GEN_REF_LIMIT-defaults.length-(fixed?1:0)-(current?1:0)-uploads.length;
+    const reason=cellMode&&kind==='sprite'&&!takes?GEN_REASONS.layered:cellMode&&kind==='avatar'&&!ownSprite?GEN_REASONS.avatar:
+      mode==='edit'&&!prompt.trim()?GEN_REASONS.edit:redo&&!base?'这一格还没有图':['running','queued'].includes(cell.state)?GEN_REASONS.busy:
+      adding&&!name.trim()?'请填写服装名':settei&&!prompt.trim()&&!defaults.length&&!uploads.length&&!genSaid(figure.identityAppearance)&&!genSaid(outfit?.outfitAppearance)?GEN_REASONS.basis:'';
+    const upload=file=>genReadUpload(file).then(u=>setUploads(list=>[...list,u])).catch(e=>setError(errorText(e)));
+    // One request's input — the 画风 seam: this dialog's preset (an 改图 keeps the pack's), its references and omissions.
+    const inputNow=async()=>{
+      const references=[];
+      if(current){const role=mode==='edit'?GEN_BASE_ROLE:GEN_CURRENT_ROLE;
+        if(current.hash)references.push({hash:current.hash,role});else{const data=await gen.candidateData(current.job,cell.sheet?emotionId:null);references.push({base64:data.base64,mediaType:data.mediaType,role});}}
+      for(const u of uploads)references.push({base64:u.base64,mediaType:u.mediaType,role:cellMode?GEN_POSE_ROLE:GEN_ART_ROLE});
+      const omit=['identity','settei'].filter(id=>removed.includes(id)),text=texts.current.prompt.trim();
+      return {...(text?{userPrompt:text}:{}),...(references.length?{references}:{}),...(omit.length?{omit}:{}),...(mode!=='edit'?{style}:{})};
+    };
+    // 添加服装: the outfit is written once (a retry after a failed start does not add a second one), its uploaded 服装设定图
+    // goes in, the page shows it; then the 服装设定图 is generated (its first 差分 follows its 采用), or that 差分 at once.
+    const first=figure.outfits.find(o=>o.key===d.target.outfitKey)?.defaultEmotion??figure.emotions?.[0]?.id,firstRow=rows.find(r=>r.id===first),firstLabel=firstRow?.label||'';
+    const addOutfit=async step=>{
+      const t=texts.current;
+      if(!made.current){
+        const key=newResourceKey('outfit'),label=t.name.trim(),wearText=t.wear.trim();
+        await commitFigure(figure.id,f=>({outfits:[...f.outfits,{key,label,enabled:lamp!=='off',...(first?{defaultEmotion:first}:{}),recall:{mode:lamp==='off'?'keyword':lamp,keywords:words},...(wearText?{outfitAppearance:wearText}:{})}]}));
+        made.current=key;if(sheetFile)await importSettei(figure.id,key,sheetFile.file);d.onOutfit?.(key);
+      }
+      const key=made.current,at=(k,extra={})=>({packId,figureId:figure.id,outfitKey:key,kind:k,...extra}),input=await inputNow();
+      const firstText=firstRow?genBuiltPrompt(firstRow):'',firstFollow=first?[{kind:'avatar',emotionId:first,...(firstText?{userPrompt:firstText}:{}),style}]:[];
+      let job=true;step.sent=true;
+      if(sheetNow)job=await gen.start(at('settei'),{...input,...(genFirst&&first?{followUp:[{kind:'sprite',emotionId:first,...(firstText?{userPrompt:firstText}:{}),style},...firstFollow]}:{})});
+      else if(genFirst&&first)job=await gen.start(at('sprite',{emotionId:first}),{...input,...(firstText?{userPrompt:firstText}:{}),followUp:firstFollow});
+      if(job)gen.closeDialog();
+    };
+    // A failed start is said once, from gen.errors (startError below); only what fails before it is this dialog's own error.
+    const sendCell=async step=>{
+      const input=await inputNow();step.sent=true;
+      const follow=out==='both'?{followUp:[{kind:'avatar',emotionId,...(input.userPrompt?{userPrompt:input.userPrompt}:{}),style:input.style}]}:{};
+      const job=await gen.start(target,{...input,...follow});
+      if(job)gen.closeDialog();
+    };
+    const submit=()=>{if(busy||reason)return;setBusy(true);setError('');const step={sent:false};
+      Promise.resolve().then(()=>adding?addOutfit(step):sendCell(step)).catch(e=>{if(!step.sent)setError(errorText(e));}).finally(()=>setBusy(false));};
+    submitRef.current=submit;
+    // 「存为默认」: this cell's own description (outfit.genPrompts[kind][差分], U4); the name-and-使用情景 default needs no entry.
+    const saveDefault=()=>{const text=texts.current.prompt.trim(),k=kind;
+      return commitFigure(figure.id,f=>({outfits:f.outfits.map(o=>{
+        if(o.key!==outfit.key)return o;const all={...(o.genPrompts||{})},map={...(all[k]||{})};
+        if(!text||text===genBuiltPrompt(row))delete map[row.id];else map[row.id]=text;
+        if(Object.keys(map).length)all[k]=map;else delete all[k];
+        const next={...o};if(Object.keys(all).length)next.genPrompts=all;else delete next.genPrompts;return next;})})).then(()=>setSaved(true),e=>setError(errorText(e)));};
+    const writeLook=v=>commitFigure(figure.id,()=>({identityAppearance:v||null})).catch(e=>setError(errorText(e)));
+    const writeWear=v=>commitFigure(figure.id,f=>({outfits:f.outfits.map(o=>{if(o.key!==outfit.key)return o;const n={...o};if(v)n.outfitAppearance=v;else delete n.outfitAppearance;return n;})})).catch(e=>setError(errorText(e)));
+    const changeOut=next=>{const was=texts.current.prompt.trim();if(was===defaultPrompt.trim()&&row)setPrompt(genPromptFor(outfit,next==='avatar'?'avatar':'sprite',row));setOut(next);};
+    const row_=(key,label,body,extra={})=>h(InlineRow,{key,label,help:extra.help,multiline:extra.multiline,wide:extra.multiline,className:'ap-gen-row ap-gd-row'+(extra.className?' '+extra.className:'')},body);
+    const textField=(key,label,value,onCommit,placeholder,extra={})=>h(InlineField,{key,kind:'text',multiline:true,label,className:'ap-gen-row ap-gd-row ap-gd-text'+(extra.className?' '+extra.className:''),
+      value,placeholder,maxLength:1000,trail:extra.trail,onCommit});
+    const chip=(key,r,onRemove)=>h(GenRefChip,{key,binding,packId,hash:r.hash,url:r.url,name:r.name,wide:r.wide,onRemove});
+    const refsRow=row_('refs','参考图',h('div',{className:'ap-gd-refs',role:'group','aria-label':'参考图'},
+      defaults.map(r=>chip(r.id,{...r,wide:true},()=>setRemoved(x=>[...x,r.id]))),
+      fixed&&chip('fixed',fixed),
+      current&&chip('current',{hash:current.hash,url:current.job?baseUrl:null,name:mode==='edit'?'底图':settei?'当前设定图':kind==='avatar'?'当前头像':'当前立绘'},mode==='edit'?null:()=>setRemoved(x=>[...x,'current'])),
+      uploads.map(u=>chip(u.id,{url:u.url,name:'上传的图'},()=>setUploads(x=>x.filter(y=>y!==u)))),
+      room>0&&h(CatAddTile,{label:'上传参考图',className:'ap-gd-ref-add',onClick:()=>refInput.current?.click?.()}),genFileInput(refInput,'上传参考图',upload)),{multiline:true,className:'is-refs'});
+    const said=list=>row_('said','',h('div',{className:'ap-gd-said-list'},list.map(([k,v,save])=>h(GenSaid,{key:k,name:k,value:v,onSave:save}))),{multiline:true,className:'is-said'});
+    const lookSaid=['外貌',figure.identityAppearance||'',writeLook],wearSaid=outfit&&['服装描述',outfit.outfitAppearance||'',writeWear];
+    const changed=cellMode&&mode!=='edit'&&prompt.trim()!==defaultPrompt.trim();
+    const promptTrail=changed?h('span',{className:'ap-gd-prompt-acts'},h(IconButton,{icon:'reset',label:'恢复默认',onClick:()=>setPrompt(defaultPrompt)}),
+        h('button',{type:'button',className:'ap-inline-link ap-gd-save-default',title:'存为「'+(row?.label||'')+'」的默认描述',onClick:saveDefault},'存为默认')):
+      saved?h('span',{className:'ap-gd-prompt-acts ap-gd-saved',role:'status'},h(Glyph,{name:'check'}),'已存为默认'):null;
+    const extra=textField('prompt',mode==='edit'?'想改哪里':'额外要求',prompt,setPrompt,mode==='edit'?'例：领巾换成红色，其余不变':cellMode?'例：双手叉腰，气鼓鼓地瞪着前方':'角度、细节…',{className:'is-prompt',trail:promptTrail});
+    const packStyle=pack.manifest.genStyle||'clean';
+    const styleRow=mode!=='edit'&&anyGen&&h(InlineField,{key:'style',kind:'menu',label:'画风',help:h(Help,{text:GEN_HELP.style,label:'画风 说明'}),className:'ap-gen-row ap-gd-row is-style',value:style,
+      options:GEN_STYLES.map(([value,label])=>({value,label})),onCommit:setStyle,
+      trail:style!==packStyle&&saveStyle?h('button',{type:'button',className:'ap-inline-link ap-gd-style-save',onClick:()=>saveStyle(style).catch(e=>setError(errorText(e)))},'设为本包默认'):null});
+    let fields;
+    if(adding)fields=[
+      h(InlineField,{key:'name',kind:'text',label:'服装名',className:'ap-gen-row ap-gd-row',value:name,placeholder:'例：冬装',maxLength:24,onCommit:v=>setName(v.trim())}),
+      textField('wear','服装描述',wear,setWear,'款式、颜色、材质…'),
+      row_('sheet','服装设定图',h('span',{className:'ap-gd-sheet'},sheetFile?chip('sheet',{url:sheetFile.url,name:'服装设定图',wide:true},()=>setSheetFile(null)):
+          h('button',{type:'button',className:'ap-cat-add ap-gd-sheet-add','aria-label':'上传服装设定图',title:'上传服装设定图',onClick:()=>sheetInput.current?.click?.()},h(Glyph,{name:'upload'})),
+        genFileInput(sheetInput,'上传服装设定图',f=>setSheetFile({file:f,url:typeof URL!=='undefined'&&URL.createObjectURL?URL.createObjectURL(f):null}))),{help:h(Help,{text:GEN_HELP.outfit,label:'服装设定图 说明'})}),
+      h(InlineField,{key:'words',kind:'chips',label:'触发词',controlLabel:'服装触发词',className:'ap-gen-row ap-gd-row is-words',value:words,split:splitKeywords,validate:keywordProblem,onCommit:setWords}),
+      row_('lamp','触发方式',h(LampMenu,{label:'触发方式',named:true,mode:lamp,onChange:setLamp})),
+      row_('first','生成',h('span',{className:'ap-gd-checks'},!sheetFile&&genCheck(genSheet,setGenSheet,'同时生成服装设定图'),firstLabel&&genCheck(genFirst,setGenFirst,'生成「'+firstLabel+'」立绘＋头像')),
+        {help:!sheetFile&&firstLabel&&h(Help,{text:GEN_HELP.first(firstLabel),label:'生成 说明'})}),
+      anyGen&&refsRow,styleRow];
+    else if(settei)fields=[fig?textField('face','外貌',figure.identityAppearance||'',writeLook,'发色、瞳色、身材…'):textField('wear','服装描述',outfit.outfitAppearance||'',writeWear,'款式、颜色、材质…'),
+      refsRow,!fig&&said([lookSaid]),extra,styleRow];
+    else fields=[outs.length>1&&row_('out','输出',h(Segmented,{className:'ap-gen-views',label:'输出',value:out,onChange:changeOut,options:outs})),refsRow,said([lookSaid,wearSaid]),extra,styleRow];
+    const startKey=target?genKey(target):made.current?genKey(sheetNow?{kind:'settei',figureId:figure.id,outfitKey:made.current}:{kind:'sprite',figureId:figure.id,outfitKey:made.current,emotionId:first}):'';
+    const startError=startKey&&gen.errors[startKey]&&!gen.pending[startKey]?gen.errors[startKey]:'';
+    const title=adding?'添加服装':'生图',verb=mode==='redraw'?'重画':mode==='edit'?'改图':adding?(sheetNow||genFirst?'添加并生成':'添加'):'生成';
+    const sub=adding?figure.name:fig?genWhere(figure.name,'人物设定图',redo&&'重画'):settei?genWhere(figure.name,outfit.label,'服装设定图',redo&&'重画'):
+      genWhere(figure.name,outfit.label,row?.label,mode==='redraw'?'重画':mode==='edit'?'改图':'');
+    const head=h('header',{className:'ap-gen-sheet-head'},h('h2',null,title),h('span',{className:'ap-gen-sheet-meta'},sub),settei&&h(Help,{text:fig?GEN_HELP.figure:GEN_HELP.outfit,label:(fig?'人物设定图':'服装设定图')+' 说明'}),
+      h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:close}));
+    const foot=h('footer',{className:'ap-gen-foot ap-gd-foot'},target&&h(GenPeek,{load:()=>inputNow().then(input=>gen.previewPrompt(target,input))}),busy&&h('span',{className:'ap-busy'},h(Spinner),'正在发送…'),
+      h(Button,{disabled:busy,onClick:close},'取消'),h(Button,{primary:true,className:'ap-primary ap-gd-go',disabled:busy||!!reason,title:reason||'Ctrl+Enter',onClick:submit},verb!=='添加'&&h(Glyph,{name:'spark'}),verb));
+    return h(Modal,{title:title+' · '+sub,className:'ap-gen-dialog',frame:{'data-mode':mode},onClose:close,busy,head,foot,initialFocus:'dialog'},
+      h('div',{className:'ap-gd-body','data-mode':mode,onKeyDown:e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();e.target?.blur?.();setTimeout(()=>submitRef.current(),0);}}},
+        h('div',{className:'ap-gd-fields'},...fields.filter(Boolean),
+          gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
+          reason&&reason!==GEN_REASONS.edit&&!(adding&&!name.trim())&&h('p',{className:'ap-gen-reason'},reason),
+          startError&&!gen.problem&&h('p',{className:'ap-alert',role:'alert'},startError),
+          error&&h('p',{className:'ap-alert',role:'alert'},h(Glyph,{name:'warning'}),error))));
+  }
+  // ---------- The large view (查看大图) and the background / eight-face requests ----------
+  // Desktop: the picture large on the left, checks / references beside it, actions at the foot. Phone: a full-screen
+  // sheet — picture, then the rest, actions pinned to the bottom. A figure picture's 重画 / 改图 go to the dialog.
+  function GenSheet({gen,binding,pack,importSettei}) {
+    const {target,input}=gen.sheet,packId=pack.manifest.id,key=genKey(target),kind=target.kind;
+    const [busy,setBusy]=React.useState(false),[error,setError]=React.useState(''),[redrawing,setRedrawing]=React.useState(false),[note,setNote]=React.useState('');
+    const [words,setWords]=React.useState([]);
+    const [changed,setChanged]=React.useState(false),[framing,setFraming]=React.useState(null),[view,setView]=React.useState('slices'),[prompt,setPrompt]=React.useState('');
+    const job=gen.jobFor(target),pend=gen.pending[key],startError=!pend&&(gen.errors[key]||gen.sheet.error);
+    const state=pend||job?.status==='running'?'running':job?.status==='candidate'?'candidate':job?.status==='save_failed'?'save_failed':job?.status==='failed'?'failed':'idle';
+    const elapsed=useElapsed(job?.createdAt,state==='running');
+    let title='',meta='',hash=null,figure=null,outfit=null,asset=null,ready=true,reason='';
+    if(kind==='background'){asset=target.assetId?pack.manifest.assets.find(a=>a.kind==='backgrounds'&&a.id===target.assetId):null;title=asset?.name||'新背景';hash=asset?.media||null;}
+    else{
+      figure=pack.figures?.[target.figureId];outfit=figure?.outfits.find(o=>o.key===target.outfitKey);meta=outfit?.label||'';
+      const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],emotion=figure&&figureEditorEmotions(figure).find(r=>r.id===target.emotionId)?.label||'';
+      title=kind==='settei'?'设定图':kind==='avatar-sheet'?'八个表情头像':emotion+(kind==='sprite'?'立绘':'头像');
+      hash=kind==='settei'?outfit?.settei:kind==='sprite'?genOwnSprite(outfit,manifest,target.emotionId):kind==='avatar'?outfit?.avatars?.[outfitImageId(outfit,target.emotionId)]:null;
+      reason=kind==='avatar-sheet'&&!genOwnSprite(outfit,manifest,genDefaultId(figure,outfit))&&!outfit?.settei?GEN_REASONS.sheet:'';
+      ready=!reason;
+    }
+    const figureKind=['sprite','avatar','settei'].includes(kind),transparent=['sprite','avatar','avatar-sheet'].includes(kind),candidate=job?.candidate,sheetSlices=candidate?.slices||null;
+    const run=fn=>{setBusy(true);setError('');return Promise.resolve().then(fn).catch(e=>setError(errorText(e))).finally(()=>setBusy(false));};
+    const close=()=>{if(!busy)gen.closeSheet();};
+    const dialog=mode=>{gen.closeSheet();gen.openDialog(target,{mode});};
+    const accept=opts=>run(async()=>{
+      try{await gen.accept(job,{...opts,keywords:words});gen.closeSheet();}
+      catch(e){
+        if(e.code==='TARGET_CHANGED'){setChanged(true);return;}
+        // The calm ruler could not align this sprite: the original picture goes to the framer instead (manual alignment).
+        if(e.code==='ALIGNMENT_REQUIRED'){setFraming(await gen.candidateFile(job,null,false));return;}
+        throw e;
+      }
+    });
+    // A failed start is shown from gen.errors (one place), not repeated here.
+    const generate=()=>run(async()=>{
+      if(figureKind){dialog('gen');return;}
+      if(kind!=='background'){await gen.start(target,input).catch(()=>{});return;}
+      await gen.start(target,{userPrompt:prompt.trim()}).catch(()=>{});
+    });
+    const drop=()=>run(async()=>{await gen.reject(job);gen.closeSheet();});
+    const references=job?.references||[];
+    const first=figure&&genDefaultId(figure,outfit);
+    const refName=r=>r.redraw?'上一张':r.hash===figure?.identitySettei?.board?'人物设定图':r.hash===outfit?.settei?'服装设定图':r.hash===outfit?.avatars?.[first]?'首个差分头像':r.purpose==='emotion-sprite'?'同差分立绘':'参考图';
+    // The stage: progress, the candidate (a sheet as its eight cut cells or whole), the failure, or the current picture.
+    const sliceWarnings=sheetSlices?Object.entries(sheetSlices).flatMap(([id,s])=>(s.checks?.warnings||[]).map(w=>({...w,id}))):[];
+    const names=figure?Object.fromEntries(figureEditorEmotions(figure).map(r=>[r.id,r.label])):{};
+    const stage=state==='running'?h('div',{className:'ap-gen-wait',role:'status'},h('span',{className:'ap-gen-wait-spin'},h(Spinner,{key:'wait',fill:true})),
+        h('strong',null,pend==='queued'?'排队等待':pend?'正在发送':'正在生成'),!pend&&h('span',{className:'ap-gen-time'},elapsed),!pend&&gen.models[job?.jobId]&&h('small',null,gen.models[job.jobId])):
+      state==='candidate'?(kind==='avatar-sheet'&&sheetSlices&&view==='slices'?h('div',{className:'ap-gen-slices'},(job.target.emotionIds||[]).map((id,i)=>id?h('figure',{key:id,className:'ap-gen-slice'},
+          h('span',{className:'ap-gen-slice-art'},h(CandidateArt,{gen,jobId:job.jobId,emotionId:id}),(sheetSlices[id]?.checks?.warnings||[]).length>0&&h('span',{className:'ap-gen-flag',title:sheetSlices[id].checks.warnings.map(w=>w.message).join('\n')},h(Glyph,{name:'warning'}))),
+          h('figcaption',null,names[id]||id)):h('span',{key:'skip'+i,className:'ap-gen-slice is-skip'}))):h(CandidateArt,{gen,jobId:job.jobId,className:'ap-gen-full'})):
+      state==='failed'||state==='save_failed'?h('div',{className:'ap-gen-wait is-failed',role:'alert'},h(Glyph,{name:'warning'}),h('p',null,job?.error?.message||'生成失败')):
+      hash?h(Thumb,{key:hash,binding,packId,hash,label:title,className:'ap-gen-full'}):h('span',{className:'ap-gen-empty'},h(Glyph,{name:'spark'}));
+    const sideWarnings=candidate?[...(candidate.checks?.warnings||[]),...Object.values(sliceWarnings.reduce((acc,w)=>{(acc[w.code]||=({...w,ids:[]})).ids.push(w.id);return acc;},{})).map(w=>({...w,label:(GEN_WARNINGS[w.code]||w.message)+'：'+w.ids.map(id=>names[id]||id).join('、')}))]:[];
+    const replaces=kind==='avatar-sheet'&&outfit?(job?.target.emotionIds||[]).filter(id=>id&&outfit.avatars?.[outfitImageId(outfit,id)]).length:0;
+    // with nothing to say beside it (a picture just being looked at), the picture
+    // takes the whole width, so a landscape 设定图 is not letterboxed into a tall empty stage.
+    const side=[
+      gen.problem&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem)),
+      state==='candidate'&&h(GenWarnings,{warnings:sideWarnings}),
+      state==='candidate'&&kind==='background'&&!target.assetId&&h(InlineField,{kind:'chips',label:'触发词',controlLabel:'背景触发词',className:'ap-gen-row is-words',value:words,split:splitKeywords,validate:keywordProblem,onCommit:setWords,help:h(Help,{text:'填写 3–6 个正文里会出现的短词，如：教室、黄昏、樱花。',label:'触发词说明'})}),
+      state==='candidate'&&['sprite','avatar'].includes(kind)&&h('div',{className:'ap-gen-tones','data-shape':kind},['light','dark'].map(tone=>h('span',{key:tone,className:'ap-gen-tone','data-tone':tone,title:tone==='light'?'浅色底':'深色底'},h(CandidateArt,{gen,jobId:job.jobId})))),
+      state==='candidate'&&kind==='avatar-sheet'&&sheetSlices&&h(Segmented,{className:'ap-gen-view',label:'显示',value:view,onChange:setView,options:[['slices','切开'],['whole','原图']]}),
+      replaces>0&&state==='candidate'&&h('p',{className:'ap-gen-reason'},'采用会替换已有的 '+replaces+' 个头像。'),
+      state==='candidate'&&job?.userPrompt&&h('div',{className:'ap-gen-used'},h('span',{className:'ap-prop-key'},'提示词'),h('p',{className:'ap-gen-used-text'},job.userPrompt)),
+      references.length>0&&state!=='idle'&&h('div',{className:'ap-gen-used'},h('span',{className:'ap-prop-key'},'参考'),h('div',{className:'ap-gen-refs'},references.map((r,i)=>h('span',{key:i,className:'ap-gen-ref is-static',title:refName(r)},
+        r.hash&&pack.manifest.blobs?.[r.hash]?h(Thumb,{binding,packId,hash:r.hash,label:refName(r),className:'ap-gen-ref-art'}):h(Glyph,{name:'note'}))))),
+      kind==='background'&&(state==='idle'||state==='failed')&&h('label',{className:'ap-gen-field'},h('span',{className:'ap-prop-key'},'想要什么样的背景'),
+        h(TextArea,{className:'ap-gen-text',rows:4,maxLength:4000,autoFocus:true,value:prompt,placeholder:'例：黄昏的教室，窗外有樱花',onChange:setPrompt})),
+      redrawing&&h('label',{className:'ap-gen-field'},h('span',{className:'ap-prop-key'},'想改哪里'),
+        h(TextArea,{className:'ap-gen-text',rows:3,maxLength:1000,autoFocus:true,value:note,placeholder:'例：蝴蝶结换成红色，头发再长一点',onChange:setNote})),
+      changed&&h('p',{className:'ap-gen-reason'},'这里已经换了一张图。'),
+      !ready&&state==='idle'&&h('p',{className:'ap-gen-reason'},reason),
+      startError&&h('p',{className:'ap-alert',role:'alert'},startError),
+      error&&h('p',{className:'ap-alert',role:'alert'},error)].filter(Boolean);
+    const sliced=kind!=='avatar-sheet'||!!sheetSlices;
+    const actions=state==='running'?[h(Button,{key:'cancel',disabled:busy||pend==='starting',onClick:()=>run(()=>pend==='queued'?gen.dequeue(target):gen.cancel(job))},pend==='queued'?'取消排队':'取消生成')]:
+      state==='candidate'&&redrawing?[h(Button,{key:'back',disabled:busy,onClick:()=>{setRedrawing(false);setNote('');}},'取消'),h(Button,{key:'go',primary:true,disabled:busy||!note.trim(),onClick:()=>run(async()=>{await gen.redraw(job,note.trim());setRedrawing(false);setNote('');})},'重画')]:
+      state==='candidate'?[h(Button,{key:'no',className:'ap-gen-no',disabled:busy,onClick:drop},'不要'),
+        figureKind?h(Button,{key:'redraw',disabled:busy,onClick:()=>dialog('redraw')},'重画…'):h(Button,{key:'redraw',disabled:busy,onClick:()=>setRedrawing(true)},'按意见重画'),
+        changed?h(Button,{key:'replace',primary:true,disabled:busy,onClick:()=>accept({replace:true})},'仍用这张替换'):h(Button,{key:'yes',primary:true,disabled:busy||!sliced,title:sliced?undefined:'这张图不能自动切开',onClick:()=>accept()},kind==='avatar-sheet'?'采用全部':'采用')]:
+      state==='save_failed'?[h(Button,{key:'no',className:'ap-gen-no',disabled:busy,onClick:drop},'不要'),h(Button,{key:'save',primary:true,disabled:busy,onClick:()=>run(()=>gen.retrySave(job))},'重试保存')]:
+      state==='failed'?[h(Button,{key:'ok',disabled:busy,onClick:()=>run(async()=>{if(job)await gen.reject(job);gen.closeSheet();})},'知道了'),h(Button,{key:'again',primary:true,disabled:busy||kind==='background'&&!prompt.trim(),onClick:generate},figureKind?'调整后重试…':'重新生成')]:
+      [kind==='settei'&&h(UploadButton,{key:'upload',label:'上传设定图',text:'上传替换',disabled:busy,onFile:file=>run(()=>importSettei(target.figureId,target.outfitKey,file))}),
+        figureKind&&hash?h(Button,{key:'edit',disabled:busy,onClick:()=>dialog('edit')},'改图…'):null,
+        h(Button,{key:'go',primary:true,disabled:busy||!ready||kind==='background'&&!prompt.trim(),title:ready?undefined:reason,onClick:figureKind&&hash?()=>dialog('redraw'):generate},h(Glyph,{name:'spark'}),figureKind?(hash?'重画…':'生成…'):hash?'重新生成':'生成')];
+    const head=h('header',{className:'ap-gen-sheet-head'},h('h2',null,title),meta&&h('span',{className:'ap-gen-sheet-meta'},meta),h(IconButton,{icon:'close',label:'关闭',disabled:busy,onClick:close}));
+    return h(React.Fragment,null,
+      h(Modal,{title:title+(meta?' · '+meta:''),className:'ap-gen-sheet'+(side.length?'':' is-wide'),onClose:close,busy,head,initialFocus:'dialog',
+          foot:h('footer',{className:'ap-gen-foot'},busy&&h('span',{className:'ap-busy'},h(Spinner),'正在处理…'),actions)},
+        h('div',{className:'ap-gen-stage','data-kind':kind,'data-checker':transparent&&(state==='candidate'||state==='idle'&&hash)?true:undefined},stage),
+        side.length>0&&h('div',{className:'ap-gen-side'},...side)),
+      framing&&h(Modal,{title:'调整立绘',className:'ap-framer-modal',closable:false,onClose:()=>setFraming(null)},
+        h(ImageFramer,{file:framing,square:false,onCancel:()=>setFraming(null),onDone:file=>{setFraming(null);accept({file});}})));
+  }
+  // ---------- The 生图 page ----------
+  // Outfits on top, the 差分 wall below, icon-led and compact. 人物: a 设定块 (the 人物设定图 slot + 外貌 as one inline line).
+  // 服装: tiles, the selected one ringed (the page's one outfit choice, shared with 编辑); a dashed ＋ opens 添加服装.
+  // 「服装名」: its one heading tool — ✦ⁿ 生成缺少的差分 (no dialog, U2), ✓ⁿ 全部采用, or the batch's n/m ■ — and its 设定块
+  // (服装设定图 + 服装描述). 差分 N: a tile per 差分, the 立绘 to the chest with its 头像 in the corner. A tile opens its menu
+  // (下载 / 重画… / 设为默认 / 上传图片 / 删除); a missing one is a dashed ✦ that opens the dialog, with ↩ 使用回退 in its corner; a new
+  // picture waits on its tile with the ✕｜✓ pill. The first visit shows one coach mark where to start.
+  function genOutfitArt(binding,pack,figure,outfit) {
+    outfit=figureOutfitView(figure,outfit);
+    const packId=pack.manifest.id,manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],bust=outfit&&outfitHead(outfit,manifest);
+    if(bust)return h(BustArt,{binding,packId,bust,figure,frame:CAST_FACE});
+    const face=outfit&&selectPackAvatar({outfit,manifest,defaultEmotion:genDefaultId(figure,outfit)});
+    if(face)return h(Thumb,{binding,packId,hash:face.hash,crop:face.crop,label:outfit.label,className:'ap-gen-outfit-thumb'});
+    if(outfit?.settei)return h(Thumb,{binding,packId,hash:outfit.settei,label:outfit.label,className:'ap-gen-outfit-thumb'});
+    return h(Silhouette,{figure});
+  }
+  const genOutfitKind=(pack,outfit)=>outfitHead(outfit,outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey])?'bust':'thumb';
+  const GEN_COACH='dsh-tavern:gen-coach';
+  const genCoachSeen=()=>{try{return typeof localStorage!=='undefined'&&localStorage.getItem(GEN_COACH)==='1';}catch(_){return false;}};
+  const genCoachDone=()=>{try{localStorage.setItem(GEN_COACH,'1');}catch(_){}};
+  // A new picture's decision: one pill — ✕ quiet, ✓ filled — at the foot of its tile (or beside its 设定图 slot).
+  const GenDecide=({label,onNo,onYes,id})=>h('span',{className:'ap-gw-decide',role:'group','aria-label':label},
+    h(IconButton,{icon:'close',label:'不要',className:'ap-icon-button ap-gw-no','data-gen-decide':'no-'+id,onClick:onNo}),
+    h(IconButton,{icon:'check',label:'采用',className:'ap-icon-button ap-gw-yes','data-gen-decide':'yes-'+id,onClick:onYes}));
+  const genFlag=cell=>(cell.state==='failed'||cell.error||cell.warnings?.length>0)&&h('span',{className:'ap-gen-flag',title:cell.state==='failed'?genFailText(cell.error):[cell.error&&'采用失败：'+cell.error,...(cell.warnings||[]).map(w=>w.message)].filter(Boolean).join('\n')},h(Glyph,{name:'warning'}));
+  const genItem=(icon,text,onClick,extra={})=>h(MenuItem,{key:text,danger:extra.danger,onClick},h(Glyph,{name:icon}),h('span',null,text));
+  // 设定块 slot: 人物设定图 or 服装设定图, a small 3:2 picture. Empty: dashed, ⤒ 上传 and ✦ 生成 (raised on hover / focus, always
+  // on touch); filled: its menu (查看大图 / 下载 / 重画… / 上传图片 / 删除); a request: the ring, or the ✕｜✓ pill beside it.
+  function GenSetteiSlot({c,level}) {
+    const {gen,binding,packId,figure,outfit}=c,fig=level==='figure',name=fig?'人物设定图':'服装设定图';
+    const target=fig?{packId,figureId:figure.id,kind:'identity-settei'}:{packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},cell=genCell(gen,target);
+    const hash=fig?figure.identitySettei?.board||null:outfit.settei||null,file=React.useRef(null),[view,setView]=React.useState(false);
+    const upload=f=>c.run(()=>fig?c.identityBoard.upload(figure.id,f):c.settei.upload(figure.id,outfit.key,f));
+    const input=genFileInput(file,'上传'+name,upload),base={className:'ap-gw-slot','data-gen-slot':target.kind};
+    if(cell.state==='candidate')return h('div',{...base,'data-state':'candidate'},
+      h('span',{className:'ap-gw-slot-art','data-checker':true},h(CandidateArt,{gen,jobId:cell.job.jobId}),genFlag(cell)),
+      h(GenDecide,{label:'新'+name,id:level,onNo:()=>c.run(()=>gen.reject(cell.job)),onYes:()=>c.accept(cell.job)}));
+    if(cell.state==='running'||cell.state==='queued')return h('div',{...base,'data-state':'running'},
+      h('span',{className:'ap-gw-slot-art'},hash&&h('span',{className:'ap-gw-dim'},h(Thumb,{binding,packId,hash,label:name})),h(GenFaceMarks,{cell})));
+    if(!hash)return h('div',{...base,'data-state':cell.state==='failed'?'failed':'empty',role:'group','aria-label':name},
+      h('span',{className:'ap-gw-slot-art ap-gw-slot-empty'},
+        h('span',{className:'ap-gw-slot-tools'},h(IconButton,{icon:'upload',label:'上传'+name,className:'ap-icon-button ap-gw-round',onClick:()=>file.current?.click?.()}),
+          h(IconButton,{icon:'spark',label:'生成'+name+'…',className:'ap-icon-button ap-gw-round',onClick:()=>c.open(target,{mode:'gen'})})),genFlag(cell)),input);
+    const remove=()=>c.ask({title:'删除'+name+'？',body:fig?'立绘、头像和服装设定图都不受影响。':'「'+outfit.label+'」的立绘和头像不受影响。',confirmLabel:'删除',danger:true,
+      onConfirm:()=>fig?c.identityBoard.remove(figure.id):c.settei.remove(figure.id,outfit.key)});
+    return h('div',{...base,'data-state':'filled'},
+      h(Popover,{label:name+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:420,
+        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-slot-hit','aria-label':name,title:name,...cellMenuTrigger({open,toggle})},
+          h('span',{className:'ap-gw-slot-art','data-checker':true},h(Thumb,{key:hash,binding,packId,hash,label:name}),genFlag(cell))),
+        content:close=>{const go=fn=>()=>{close();fn();};return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},
+          genItem('eye','查看大图',go(()=>setView(true))),
+          genItem('export','下载',go(()=>c.run(()=>downloadPackMedia(binding,c.pack,hash,figure.name+'-'+(fig?'':outfit.label+'-')+name)))),
+          genItem('reset','重画…',go(()=>c.open(target,{mode:'redraw'}))),
+          genItem('upload','上传图片',go(()=>file.current?.click?.())),(fig?c.identityBoard.remove:c.settei.remove)&&genItem('remove','删除',go(remove),{danger:true}));}}),
+      // 查看大图: the shared viewer; the old sheet's actions are its corner buttons (上传替换; a 服装设定图 also 改图… / 重画…).
+      input,view&&h(PackImageView,{binding,packId,hash,label:name,onClose:()=>setView(false),actions:[
+        {icon:'upload',label:'上传替换',onClick:()=>file.current?.click?.()},
+        !fig&&{icon:'edit',label:'改图…',onClick:()=>{setView(false);c.open(target,{mode:'edit'});}},
+        !fig&&{icon:'reset',label:'重画…',onClick:()=>{setView(false);c.open(target,{mode:'redraw'});}}]}));
+  }
+  // 人物 / 「服装」: the slot beside one inline line (R23: reads as text, ✎ on hover, Enter / leaving saves).
+  function GenSettei({c,level}) {
+    const fig=level==='figure';
+    return h('div',{className:'ap-gw-settei',role:'group','aria-label':fig?'人物设定':'服装设定'},h(GenSetteiSlot,{c,level}),
+      fig?h(InlineField,{kind:'text',label:'外貌',hideLabel:true,className:'ap-gw-line',placeholder:'外貌：发色、瞳色、身材…',maxLength:1000,value:c.figure.identityAppearance||'',onCommit:v=>c.write(()=>({identityAppearance:v||null}))}):
+        h(InlineField,{key:c.outfit.key,kind:'text',label:'服装描述',hideLabel:true,className:'ap-gw-line',placeholder:'服装描述：款式、颜色、材质…',maxLength:1000,value:c.outfit.outfitAppearance||'',
+          onCommit:v=>c.writeOutfit(o=>{const n={...o};if(v)n.outfitAppearance=v;else delete n.outfitAppearance;return n;})}));
+  }
+  // ↩ 使用回退 (owner U3) in a missing tile's corner: which 差分 stands in while it has none (setFigureEmotionFallback).
+  function GenFallback({c,row,use}) {
+    const pick=(close,v)=>()=>{close();if(v!==use)c.run(()=>c.setFallback(c.outfit.key,row.id,!!v,v&&v!==c.outfit.defaultEmotion?v:undefined));};
+    const name=id=>c.rows.find(r=>r.id===id)?.label||'';
+    // The corner holds the anchor (a floating menu copies its anchor's class, so the hide-until-hover rule stays outside).
+    return h('span',{className:'ap-gw-fallback'},h(Popover,{label:'「'+row.label+'」使用回退',className:'ap-gw-fallback-pop',float:true,limit:300,
+      trigger:({toggle,open})=>h(IconButton,{icon:'fallback',label:use?'使用回退：'+name(use):'使用回退…',className:'ap-icon-button ap-gw-round ap-gw-fallback-btn','aria-pressed':!!use,'aria-haspopup':'menu','aria-expanded':open,onClick:toggle}),
+      content:close=>h('div',{className:'ap-gen-emotion-menu',onKeyDown:genMenuKeys},
+        h('div',{className:'ap-gw-menu-head','aria-hidden':true},h(Glyph,{name:'fallback'}),h('b',null,'使用回退')),
+        [{id:''},...c.rows.filter(r=>r.id!==row.id)].map(r=>h('button',{key:r.id||'none',type:'button',role:'menuitemradio','aria-checked':use===r.id,className:'ap-menu-item',onClick:pick(close,r.id)},
+          h('span',null,r.id?r.label:'不回退'),use===r.id&&h(Glyph,{name:'check'}))))}));
+  }
+  const GenCoach=({text,onClose})=>h('span',{className:'ap-gw-coach',role:'note'},h(Glyph,{name:'spark'}),h('span',null,text),h(IconButton,{icon:'close',label:'知道了',className:'ap-icon-button ap-gw-coach-x',onClick:onClose}));
+  // One 差分 tile of the wall.
+  function GenWallCard({c,row,coach}) {
+    const {gen,binding,packId,outfit}=c,id=row.id,isDefault=id===outfit.defaultEmotion;
+    const sCell=genCell(gen,c.at('sprite',id)),aCell=genCell(gen,c.at('avatar',id)),busyState=s=>['running','queued','candidate'].includes(s.state);
+    const live=busyState(sCell)?sCell:busyState(aCell)?aCell:null,failed=sCell.state==='failed'?sCell:aCell.state==='failed'?aCell:null;
+    const spriteHash=c.sprite(id),avatarHash=c.avatar(id),hasSprite=c.hasSprite(id);
+    const nameRow=h('span',{className:'ap-gw-name'},isDefault&&h('span',{className:'ap-gw-star',title:'默认差分'},h(Glyph,{name:'star'})),h('span',null,row.label));
+    const base={role:'listitem',className:'ap-gw-card','data-emotion':id};
+    if(live?.state==='candidate'){const both=[sCell,aCell].filter(x=>x.state==='candidate'&&!x.sheet).map(x=>x.job);
+      return h('div',{...base,'data-state':'candidate'},
+        h('span',{className:'ap-gw-art','data-checker':true},h('span',{className:'ap-gw-face-art'},h(CandidateArt,{gen,jobId:live.job.jobId,emotionId:live.sheet?id:null})),genFlag(live),
+          both.length?h(GenDecide,{label:'「'+row.label+'」新图',id,onNo:()=>c.run(()=>Promise.all(both.map(j=>gen.reject(j)))),onYes:()=>c.acceptAll(both)}):
+            h(IconButton,{icon:'eye',label:'查看八个头像',className:'ap-icon-button ap-gw-round ap-gw-sheet',onClick:()=>gen.openSheet(live.sheet)})),nameRow);}
+    if(live)return h('div',{...base,'data-state':live.state,title:live.after?'采用前一张图后开始':undefined},
+      h('span',{className:'ap-gw-art'+(hasSprite||avatarHash?'':' ap-gw-missing')},spriteHash||avatarHash?h('span',{className:'ap-gw-face-art ap-gw-dim'},h(Thumb,{binding,packId,hash:spriteHash||avatarHash,label:row.label})):null,h(GenFaceMarks,{cell:live})),nameRow);
+    if(!hasSprite&&!avatarHash){
+      const use=standInValue(outfit,id),standArt=use&&(c.sprite(use)||c.avatar(use));
+      return h('div',{...base,'data-state':'missing','data-first':coach?true:undefined},
+        h('button',{type:'button',className:'ap-gw-hit ap-gw-ghost','aria-label':'生成「'+row.label+'」…',title:failed?genFailText(failed.error):'生成「'+row.label+'」…',onClick:()=>c.open(c.at('sprite',id),{mode:'gen',out:'both'})},
+          h('span',{className:'ap-gw-art ap-gw-missing'},standArt&&h('span',{className:'ap-gw-face-art ap-gw-stand'},h(Thumb,{binding,packId,hash:standArt,label:row.label})),
+            h('span',{className:'ap-gw-ghost-mark'},h(Glyph,{name:'spark'})),failed&&genFlag(failed)),nameRow),
+        !c.blank&&!isDefault&&c.setFallback&&h(GenFallback,{c,row,use}),coach);}
+    const art=spriteHash?h(Thumb,{binding,packId,hash:spriteHash,label:row.label}):hasSprite&&c.bust(id)?h(BustArt,{binding,packId,bust:c.bust(id),figure:c.figure,frame:CAST_FACE}):h(Thumb,{binding,packId,hash:avatarHash,label:row.label});
+    // 下载: the tile's own picture file — its still 立绘, or the 头像 of a 差分 without one (a model / parts 立绘 has no single file).
+    const fileHash=spriteHash||(!hasSprite&&avatarHash),fileName=c.figure.name+'-'+outfit.label+'-'+row.label+(spriteHash?'立绘':'头像');
+    const remove=()=>c.ask({title:'删除「'+row.label+'」？',body:'「'+outfit.label+'」里「'+row.label+'」的立绘和头像会被删除；差分本身和其他服装不受影响。',confirmLabel:'删除',danger:true,
+      onConfirm:async()=>{if(hasSprite)await c.removeFigureImage(c.figure.id,outfit.key,id,'sprite');if(avatarHash)await c.removeFigureImage(c.figure.id,outfit.key,id,'avatar');}});
+    return h('div',{...base,'data-state':'filled'},
+      h(Popover,{label:row.label+' 操作',className:'ap-face-menu-anchor',float:true,fit:true,limit:460,
+        trigger:({toggle,open})=>h('button',{type:'button',className:'ap-gw-hit','aria-label':row.label,title:failed?genFailText(failed.error):undefined,...cellMenuTrigger({open,toggle,onMenu:()=>c.onPick?.(id)})},
+          h('span',{className:'ap-gw-art'},h('span',{className:'ap-gw-face-art','data-kind':spriteHash||hasSprite?'sprite':'avatar'},art),
+            hasSprite&&h('span',{className:'ap-gw-face','data-empty':!avatarHash||undefined,title:avatarHash?undefined:'没有头像'},avatarHash?h(Thumb,{binding,packId,hash:avatarHash,label:row.label+'头像'}):h(Glyph,{name:'plus'})),
+            failed&&genFlag(failed)),nameRow),
+        content:close=>{const go=fn=>()=>{close();fn();};return h('div',{className:'ap-cell-menu',onKeyDown:genMenuKeys},
+          fileHash&&genItem('export','下载',go(()=>c.run(()=>downloadPackMedia(binding,c.pack,fileHash,fileName)))),
+          genItem('reset','重画…',go(()=>c.open(c.at(hasSprite&&c.takes(id)?'sprite':'avatar',id),{mode:'redraw',out:hasSprite&&c.takes(id)?'sprite':'avatar'}))),
+          !isDefault&&genItem('star','设为默认',go(()=>c.writeOutfit(o=>({...o,defaultEmotion:id})))),
+          c.uploadSprite&&c.takes(id)&&genItem('upload','上传图片',go(()=>c.uploadSprite(id))),
+          c.removeFigureImage&&genItem('remove','删除',go(remove),{danger:true}));}}));
+  }
+  function FigureGenTab({binding,pack,figure,outfit,onOutfit,onPick,write,writeOutfit,gen,settei,identityBoard,uploadSprite,removeFigureImage,setFallback}) {
+    const packId=pack.manifest.id,[confirm,setConfirm]=React.useState(null),[error,setError]=React.useState(''),[accepting,setAccepting]=React.useState(false),[coach,setCoach]=React.useState(()=>!genCoachSeen());
+    React.useEffect(()=>{gen.open();},[]);
+    const run=fn=>{setError('');return Promise.resolve().then(fn).catch(e=>setError(errorText(e)));};
+    // 采用: a 立绘 the 平和 ruler could not align (or a slot changed meanwhile) goes to the large view, which handles both.
+    const accept=job=>run(()=>gen.accept(job).catch(e=>{if(['ALIGNMENT_REQUIRED','TARGET_CHANGED'].includes(e?.code)){gen.openSheet(job.target);return;}throw e;}));
+    const endCoach=()=>{if(coach){genCoachDone();setCoach(false);}};
+    const open=(target,extra={})=>{endCoach();gen.openDialog(target,{...extra,onOutfit});};
+    const manifest=outfit?.sprite&&pack.sprites?.[outfit.sprite.manifestKey],rows=outfit?outfitEmotionRows(figure,outfit,manifest):[];
+    const c={gen,binding,pack,packId,figure,outfit,rows,write,writeOutfit,settei,identityBoard,uploadSprite,removeFigureImage,setFallback,onPick,run,accept,open,ask:setConfirm,
+      acceptAll:list=>{setAccepting(true);return gen.acceptAll(list).finally(()=>setAccepting(false));},
+      at:(kind,emotionId)=>({packId,figureId:figure.id,outfitKey:outfit.key,kind,emotionId}),
+      sprite:id=>genOwnSprite(outfit,manifest,id),avatar:id=>outfit?.avatars?.[outfitImageId(outfit,id)]||null,hasSprite:id=>!!outfit&&emotionMapped('sprite',outfit,manifest,id),
+      takes:id=>spriteSlotTakesStill(outfit,manifest,id),bust:id=>outfit.sprite&&stateBust(outfit,emotionState(outfit,manifest,id))};
+    c.blank=!!outfit&&rows.every(r=>!c.hasSprite(r.id)&&!c.avatar(r.id));
+    const head=(text,count,tools,className)=>h('h4',{className:'ap-gw-head'+(className?' '+className:'')},h('span',null,text),count!==undefined&&h('span',{className:'ap-gw-count'},count),tools&&h('span',{className:'ap-gw-tools'},tools));
+    const problem=gen.problem&&!gen.sheet&&!gen.dialog&&h('p',{className:'ap-gen-problem',role:'alert'},h(Glyph,{name:'warning'}),h('span',null,gen.problem));
+    const person=h('section',{className:'ap-gw-sec','aria-label':'人物'},head('人物'),h(GenSettei,{c,level:'figure'}));
+    const dialogs=confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)});
+    if(!outfit)return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,h(EmptyState,{noun:'服装'}),dialogs);
+    const outfits=h('section',{className:'ap-gw-sec','aria-label':'服装'},head('服装',figure.outfits.length),
+      h('div',{className:'ap-gw-outfits',role:'list'},figure.outfits.map(o=>h('div',{key:o.key,role:'listitem'},
+          h('button',{type:'button',className:'ap-gw-outfit','aria-pressed':o.key===outfit.key,title:o.label,onClick:()=>{if(o.key!==outfit.key)onOutfit(o.key);}},
+            h('span',{className:'ap-gen-outfit-art','data-kind':genOutfitKind(pack,o)},genOutfitArt(binding,pack,figure,o)),h('span',{className:'ap-gw-outfit-name'},o.label)))),
+        h('div',{role:'listitem',className:'ap-gw-outfit-addcell'},h(CatAddTile,{label:'添加服装',className:'ap-gw-outfit-add',onClick:()=>open({packId,figureId:figure.id,outfitKey:outfit.key,kind:'settei'},{mode:'outfit'})}))));
+    // The heading's one tool. ✦ⁿ fills what is missing — a 立绘 (its 头像 follows its 采用) or a 头像 whose 立绘 is there — for the
+    // 差分 with no 回退 and nothing in flight or waiting, each with its default description; it never replaces a picture. A
+    // blank outfit starts from one tile instead (the coach points there).
+    const cells=rows.map(r=>[r,genCell(gen,c.at('sprite',r.id)),genCell(gen,c.at('avatar',r.id))]);
+    const waiting=cells.flatMap(([,s,a])=>[s,a]).filter(x=>x.state==='candidate'&&!x.sheet&&x.job).map(x=>x.job),waitingCells=cells.filter(([,s,a])=>[s,a].some(x=>x.state==='candidate'&&!x.sheet)).length;
+    const idle=x=>x.state==='idle'||x.state==='failed';
+    const todo=cells.filter(([r,s,a])=>idle(s)&&idle(a)&&(!c.hasSprite(r.id)&&c.takes(r.id)&&!outfit.fallbackEmotions?.includes(r.id)||c.hasSprite(r.id)&&!c.avatar(r.id))).map(([r])=>r);
+    const fill=()=>{endCoach();run(()=>gen.batch(todo.map(r=>c.hasSprite(r.id)?{target:c.at('avatar',r.id),input:{userPrompt:genPromptFor(outfit,'avatar',r)}}:
+      {target:c.at('sprite',r.id),input:{userPrompt:genPromptFor(outfit,'sprite',r),...(c.avatar(r.id)?{}:{followUp:[{kind:'avatar',emotionId:r.id,userPrompt:genPromptFor(outfit,'avatar',r)}]})}})));};
+    const progress=gen.progress,ours=!!progress&&progress.keys.some(k=>{const p=k.split('/');return p[1]===figure.id&&p[2]===outfit.key;});
+    const badge=(icon,label,n,onClick,name)=>h('span',{className:'ap-gw-badged'},h(IconButton,{icon,label,className:'ap-icon-button ap-gw-accent','data-gen-tool':name,disabled:accepting,onClick}),h('span',{className:'ap-gw-badge','aria-hidden':true},n));
+    const tool=ours?h('span',{className:'ap-gw-progress',role:'status','aria-label':'正在生成 '+progress.done+'/'+progress.total},h(Spinner,{delay:0}),h('span',null,progress.done+'/'+progress.total),h(IconButton,{icon:'stop',label:'停止',onClick:()=>gen.stop()})):
+      waitingCells>1?badge('check','全部采用（'+waitingCells+'）',waitingCells,()=>c.acceptAll(waiting),'accept-all'):
+      todo.length&&!c.blank?badge('spark','生成缺少的 '+todo.length+' 个差分',todo.length,fill,'fill'):null;
+    const mine=(gen.jobs||[]).some(j=>j.target.figureId===figure.id&&j.target.outfitKey===outfit.key&&genShown(j));
+    const first=genDefaultId(figure,outfit),start=coach&&!mine?(c.blank?first:todo.find(r=>!c.hasSprite(r.id))?.id):null;
+    const wall=h('section',{className:'ap-gw-sec ap-gw-outfit-block','aria-label':'「'+outfit.label+'」'},
+      head('「'+outfit.label+'」',undefined,tool,'is-outfit'),
+      h(GenSettei,{c,level:'outfit'}),
+      head('差分',rows.length),
+      h('div',{className:'ap-gw-wall',role:'list','aria-label':'差分',onClickCapture:endCoach},rows.map(r=>h(GenWallCard,{key:r.id,c,row:r,
+        coach:r.id===start?h(GenCoach,{text:c.blank?'从这一格开始':'虚线格 = 缺图，点击生成',onClose:endCoach}):null}))));
+    return h('div',{className:'ap-gen-tab ap-gw'},problem,h(ErrorBox,{error}),person,outfits,wall,dialogs);
+  }
+  // ---------- 设置 → 舞台 → 素材生图: the shared layer of every whole-image request, for all characters ----------
+  // One folded section per kind with its template text (asset-generation.js prompts / setPrompt; the default stays in the
+  // template file). The {{slots}} carry the character, the outfit, the 差分 and the cell's own prompt, so an edit keeps
+  // them (checked here as the field's own validation and again on write). Enter or leaving the field saves (Shift+Enter: a
+  // new line); a blue dot marks an edited kind and ⟲ 恢复默认 drops the edit. CG has no in-app generator, so no section.
+  const GEN_PROMPT_KINDS={sprite:'立绘',avatar:'头像','avatar-sheet':'八个表情',settei:'服装设定图','identity-settei':'人物设定图',background:'背景'};
+  const GEN_PROMPT_USE={sprite:'生成立绘',avatar:'生成单个头像','avatar-sheet':'一次生成八个表情',settei:'生成服装设定图','identity-settei':'生成人物设定图',background:'生成背景'};
+  const genSlots=text=>[...new Set([...String(text).matchAll(/\{\{(\w+)\}\}/g)].map(m=>m[1]))];
+  function GenPromptSettings({call}) {
+    const [data,setData]=React.useState(null),[error,setError]=React.useState(''),[alert,setAlert]=React.useState(''),[saving,setSaving]=React.useState(''),[confirm,setConfirm]=React.useState(null),[epoch,setEpoch]=React.useState(0);
+    const current=React.useRef(null),queue=React.useRef(Promise.resolve());
+    const accept=value=>{current.current=value;setData(value);};
+    const load=()=>call('getAssetGenPrompts').then(r=>{accept(r.data);setError('');},e=>setError(errorText(e)));
+    React.useEffect(()=>{load();},[call]);
+    // Serial writes on the newest revision; a refused one shows the stored text again with the reason.
+    const write=(kind,text)=>{const task=queue.current.then(async()=>{
+      setSaving('saving');setAlert('');
+      try{accept((await call('setAssetGenPrompt',{kind,text,expectedRevision:current.current.revision})).data);setSaving('saved');}
+      catch(e){setSaving('');setAlert(e?.code==='REVISION_CONFLICT'?e.message:errorText(e));if(e?.code==='REVISION_CONFLICT')await load();setEpoch(n=>n+1);}
+    });queue.current=task.catch(()=>{});return task;};
+    const known=new Set((data?.kinds||[]).flatMap(k=>k.required));
+    const problem=k=>text=>{
+      const used=genSlots(text),unknown=used.filter(v=>!known.has(v)),missing=k.required.filter(v=>!used.includes(v));
+      return !text.trim()?'不能为空':unknown.length?'没有这个占位符：'+unknown.map(v=>'{{'+v+'}}').join(' '):missing.length?'请保留 '+missing.map(v=>'{{'+v+'}}').join(' '):'';
+    };
+    const section=k=>{const name=GEN_PROMPT_KINDS[k.kind];
+      return h(StageSection,{key:k.kind,title:name,meta:k.edited?h(OverrideDot,{label:'已改'}):undefined,foldKey:'gen-prompt:'+k.kind,defaultFolded:true,
+        help:GEN_PROMPT_USE[k.kind]+'时附上的固定要求，所有人物共用。{{…}} 是每次填入的内容，要保留。',
+        action:k.edited&&h(IconButton,{icon:'reset',label:'恢复默认',onClick:()=>setConfirm(k.kind)})},
+        h(InlineField,{key:k.kind+'/'+epoch,kind:'text',multiline:true,lines:true,wide:true,hideLabel:true,label:name,className:'ap-gen-prompt-field',
+          value:k.text.trimEnd(),maxLength:12000,validate:problem(k),onCommit:text=>write(k.kind,text)}));};
+    return h('div',{className:'ap-ui ap-gen-prompts'},
+      h('p',{className:'ap-save-state',role:'status'},saving==='saving'?'正在保存…':saving==='saved'?'已保存':''),
+      !data&&!error&&h(Loading,{shape:'fields',count:4}),
+      h(ErrorBox,{error,reload:load}),
+      alert&&h('p',{className:'ap-alert',role:'alert'},h(Glyph,{name:'warning'}),alert),
+      data&&data.kinds.filter(k=>GEN_PROMPT_KINDS[k.kind]).map(section),
+      confirm&&h(ConfirmDialog,{title:'恢复默认',body:'「'+GEN_PROMPT_KINDS[confirm]+'」改过的内容会丢失。',confirmLabel:'恢复默认',onClose:()=>setConfirm(null),
+        onConfirm:()=>write(confirm,null)}));
+  }
+
+            // @include-protocol card-stage-mode.cjs
+// 舞台设置 — the per-card page of the 「Tavern 舞台」 tab.
+// The page starts from the card: switches (基础设置, sounds included), the packs it uses, its characters; at the end, folded
+// by default, the opening (skin, 主角, greetings) and the prompts of every stage. Every control saves at once through one serial queue (card CAS and pack
+// CAS chained on the newest revision); there is no save bar.
+// no 基础 / 高级 switch — one page; the old stored mode is ignored.
+const STAGE_RETURN_KEY='dsh:settings-return', STAGE_TAB='dsh-tavern:bubbles', VOICE_TAB='dsh-tts:voice';
+// no 「双语配音」 switch — a figure whose voice language differs from the text gets its
+// second line automatically (cardBubbleConfig / bubbleInstructionPreview).
+const STAGE_CORE=['dialogue','voice','stage'];
+const STAGE_ICONS={dialogue:'bubble',voice:'voice',stage:'stage'};
+const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
+// the director command toggles live only on 舞台模式 › 可用演出
+// (asset-pack-engine-ui.js); a card has no command chips and its stored stage.dimensions is never read or written.
+
+// ---------- Pure helpers (tests/card-centric-stage-ui.test.mjs) ----------
+// A card declares stage.enabled; legacy dialogue/stage fields are read only for compatibility.
+// Other switches remain global and share backend defaults.
+const CARD_SWITCHES=['enabled','dialogue','stage'];
+function stagePrefs(ext,engine) {
+  const {dialogue:_dialogue,stage:_stage,...global}=engine?.values?.stageToggles||{};
+  return {widgets:false,...(ext?.stage||{}),
+    voice:true,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true,...global,
+    ...cardStageMode(ext?.stage)};
+}
+// The single stage choice is card-owned; other switches go to global settings.
+function stageWrite(writer,changes) {
+  const card={},global={};
+  for(const [key,value] of Object.entries(changes))(CARD_SWITCHES.includes(key)?card:global)[key]=value;
+  const jobs=[];
+  if(Object.keys(card).length)jobs.push(writer.write(ext=>stagePatch(ext,card)));
+  if(Object.keys(global).length)jobs.push(writer.global(global));
+  return Promise.all(jobs);
+}
+// What actually runs: every switch needs its upstream switches on.
+function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice,stage:dialogue&&!!prefs.stage}; }
+// A stage patch replaces only card preferences; `undefined` removes an override.
+function stagePatch(ext,changes) {
+  const next={...(ext?.stage||{})};
+  if (Object.hasOwn(changes,'enabled') || Object.hasOwn(changes,'stage') || Object.hasOwn(changes,'dialogue')) {
+    next.enabled = changes.enabled ?? changes.stage ?? changes.dialogue;
+    delete next.dialogue; delete next.stage;
+    changes = Object.fromEntries(Object.entries(changes).filter(([key])=>!['enabled','dialogue','stage'].includes(key)));
+  }
+  Object.assign(next,changes);
+  for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
+  return {stage:next};
+}
+function stageEnable(key) { return Object.fromEntries([...STAGE_REQUIRES[key],key].map(k=>[k,true])); }
+// cards select packs; figure policy is authored in the library.
+function emptyExtension() { return {schemaVersion:1,assetBindings:{boundPackIds:[]}}; }
+// the packs whose entries 舞台设置 reads in full — lit for this card (全局 / 本卡:
+// figures, skins, the opening pickers) or holding 模组 (the 模组 section), and a mod's built-in pack (its page lists those
+// entries; mod-page.js) — in list order. Every other row stays a summary.
+function stageDetailRows(rows,global,bound) {
+  const builtin=typeof MOD_BUILTIN_PACKS==='object'?Object.values(MOD_BUILTIN_PACKS):[];
+  return rows.filter(row=>!row.error&&row.manifest&&(global.includes(row.manifest.id)||bound.includes(row.manifest.id)||builtin.includes(row.manifest.id)||packCount(row,'widgets')>0));
+}
+async function stageReadDetails(binding,rows) {
+  return (await Promise.all(rows.map(row=>row.summary?loadPackDetail(binding,row).catch(()=>null):row))).filter(pack=>pack?.manifest);
+}
+function unbindPatch(ext,packId) { return {assetBindings:{...ext.assetBindings,boundPackIds:ext.assetBindings.boundPackIds.filter(id=>id!==packId)}}; }
+// Return intent shared with the 配音 panel (dsh-tts reads the same key, marks consumedBy and opens toTab).
+function writeStageReturn(storage,{label,payload},now=Date.now()) {
+  try { storage?.setItem(STAGE_RETURN_KEY,JSON.stringify({toTab:STAGE_TAB,label,payload,createdAt:now})); return true; } catch(_) { return false; }
+}
+// Session storage can be absent or denied (opaque origins); the return intent is then simply unavailable.
+function stageSession() { try { return typeof sessionStorage==='undefined'?null:sessionStorage; } catch(_) { return null; } }
+// ---------- Panel ----------
+function StagePanel({binding,sessionId,cardPath,cardName,loading,nav,prompts}) {
+  const [available,setAvailable]=React.useState(true),[view,setView]=React.useState('page');
+  React.useEffect(()=>{setAvailable(true);return binding?.onUnavailable?.(()=>setAvailable(false));},[binding]);
+  const ready=available&&binding?.service?.apiVersion===2, name=cardName||cardPath&&cardPath.split(/[\\/]/).pop().replace(/\.[^.]+$/,'');
+  // 引擎设置 is a sub-page with the shared header (‹ 「返回舞台设置」 beside its
+  // title, Esc too); coming back puts the focus on the 「舞台模式 ›」 it was opened from (stage mode entry).
+  const engineReturn=React.useRef(false),takeEngineFocus=()=>{const value=engineReturn.current;engineReturn.current=false;return value;};
+  // 智能判断 is a section of the 舞台模式 page; 提示词's ✎ opens that page at it
+  // (engineFocus 'judge'; back just shows the page).
+  const [engineFocus,setEngineFocus]=React.useState(null);
+  if(view==='engine')return h('div',{className:'ap-ui ap-stage'},
+    h(EnginePage,{binding,focus:engineFocus,onBack:()=>{engineReturn.current=!engineFocus;setView('page');}}));
+  return h('div',{className:'ap-ui ap-stage'},
+    // no page title — the tab already says 「舞台设置」 (kept for screen
+    // readers only), so the content starts at the top.
+    h('h2',{className:'ap-sr-only'},'舞台设置'),
+    loading?h(Loading,{shape:'fields'}):
+    // the empty page's one phrase + its action (R18) — the card library, where cards
+    // (and card ZIPs) are imported and opened.
+    !cardPath?h('div',{className:'ap-stage-nocard'},h(EmptyState,{text:'未打开人物卡',icon:h(Glyph,{name:'card'})}),
+      nav?.openTab&&h(Button,{className:'ap-manage',onClick:()=>nav.openTab('dsh-tavern:cards')},'打开人物卡库')):
+    h(StagePage,{key:cardPath,binding,ready,sessionId,path:cardPath,cardName:name,nav,prompts,onEngine:()=>{setEngineFocus(null);setView('engine');},takeEngineFocus,onJudge:()=>{setEngineFocus('judge');setView('engine');},onCommands:()=>{setEngineFocus('commands');setView('engine');}}));
+}
+
+// Serial writer: card patches (functions of the newest saved extension) and pack mutations
+// share one queue so quick edits chain on fresh revisions. Pending card patches are applied optimistically
+// on top of the last saved extension; a revision conflict re-reads once and re-applies the same intent.
+function useStageWriter(binding,path,state,sessionId) {
+  const store=React.useRef(null),queue=React.useRef(Promise.resolve()),[,bump]=React.useState(0),[status,setStatus]=React.useState('idle');
+  // `rows` are the list summaries (every installed pack); `packs` the full documents
+  // of the packs this page reads entries of (lit for this card, or holding 模组: stageDetailRows), read per pack by revision.
+  if(state.value&&store.current?.loadedFrom!==state.value)store.current={loadedFrom:state.value,server:state.value.card,engine:state.value.engine,pending:[],rows:state.value.packs.filter(p=>!p.error),
+    packs:new Map((state.value.details||[]).map(p=>[p.manifest.id,p])),asked:new Map((state.value.details||[]).map(p=>[p.manifest.id,p.revision]))};
+  const s=store.current,render=()=>bump(n=>n+1);
+  const conflict=e=>e?.code==='REVISION_CONFLICT'||/REVISION_CONFLICT|Card changed/i.test(String(e?.message||''));
+  const apply=(base,fn)=>({...base,...fn(base)});
+  async function refetchCard(){const fresh=await binding.rpc('getCardAssetBindings',{path});s.server={...s.server,...fresh};render();return fresh;}
+  async function refetchRows(){const list=await loadPackRows(binding);s.rows=list.filter(p=>!p.error);render();return list;}
+  // Reads the full documents a row newly needs (a pack lit meanwhile, a changed revision): each row revision is asked once.
+  async function ensureDetails(){
+    if(!s)return;const rows=stageDetailRows(s.rows,binding.globalEnabledPackIds||[],(s.server.extension||emptyExtension()).assetBindings.boundPackIds)
+      .filter(row=>row.summary?s.asked.get(row.manifest.id)!==row.revision:!s.packs.has(row.manifest.id));
+    if(!rows.length)return;for(const row of rows)s.asked.set(row.manifest.id,row.revision);
+    const details=await stageReadDetails(binding,rows);for(const pack of details)s.packs.set(pack.manifest.id,pack);if(details.length)render();
+  }
+  async function refetchPacks(){const list=await refetchRows();await ensureDetails();return list;}
+  // quiet: the caller says what failed where it happened (the 新人物 page's fields); the page head keeps no error for it.
+  function enqueue(job,quiet=false){
+    const run=queue.current.then(async()=>{setStatus('saving');const result=await job();setStatus('saved');return result;});
+    queue.current=run.catch(e=>{setStatus(quiet?'idle':{error:errorText(e)});return refetchCard().catch(()=>{});});
+    return run;
+  }
+  return {status,
+    get engine(){return s?.engine;},
+    global(patch,key='stageToggles'){
+      return enqueue(async()=>{
+        const save=engine=>binding.rpc('saveAssetEngineSettings',{expectedRevision:engine.revision,patch:{[key]:patch}});
+        try{s.engine=await save(s.engine);}catch(e){if(!conflict(e))throw e;s.engine=await save(await binding.rpc('getAssetEngineSettings'));}
+        render();return s.engine;
+      });
+    },
+    get extension(){if(!s)return null;const base=s.server.extension;return s.pending.length?s.pending.reduce(apply,base||emptyExtension()):base||null;},
+    get revision(){return s?.server.revision;},
+    get packs(){return s?s.rows:[];},
+    pack(id){return s?.packs.get(id);},
+    ensureDetails,
+    write(makePatch,{retryConflict=true}={}){
+      s.pending.push(makePatch);render();
+      return enqueue(async()=>{
+        const attempt=async()=>{const saved=await binding.rpc('saveCardAssetBindings',{path,expectedRevision:s.server.revision,patch:makePatch(s.server.extension||emptyExtension())});s.server={...s.server,...saved};return saved;};
+        try{try{return await attempt();}catch(e){if(!retryConflict||!conflict(e))throw e;await refetchCard();return await attempt();}}
+        finally{s.pending=s.pending.filter(fn=>fn!==makePatch);render();}
+      });
+    },
+    // a card RPC of its own (setCardVariableBinding, copyWidgetToCardPack, …) on the same
+    // queue: fn(expectedRevision) → result; a revision conflict re-reads once and retries when `retry(error)` allows it.
+    // The card is re-read afterwards so the next write starts from the new revision.
+    cardOp(fn,{retry=()=>true}={}){
+      return enqueue(async()=>{
+        let result;
+        try{result=await fn(s.server.revision);}
+        catch(e){if(!conflict(e)||!retry(e))throw e;await refetchCard();result=await fn(s.server.revision);}
+        await refetchCard();return result;
+      });
+    },
+    // fn(snapshot) → pack mutation {snapshot,...}; the newest snapshot is kept for the next write.
+    packOp(packId,fn,{quiet=false}={}){
+      return enqueue(async()=>{
+        const attempt=async()=>{let snapshot=s.packs.get(packId);if(!snapshot){snapshot=await binding.service.getPackSnapshot({packId});s.packs.set(packId,snapshot);}const result=await fn(snapshot);if(result?.status==='removed'){s.packs.delete(packId);s.asked.delete(packId);await refetchCard();await refetchRows();render();}else if(result?.snapshot){s.packs.set(packId,result.snapshot);s.asked.set(packId,result.snapshot.revision);render();void refetchRows().catch(()=>{});}return result;};
+        try{return await attempt();}catch(e){if(!conflict(e))throw e;s.packs.set(packId,await binding.service.getPackSnapshot({packId}));return attempt();}
+      },quiet);
+    },
+    reload:async()=>{await refetchCard();await refetchPacks();}};
+}
+
+function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,takeEngineFocus,onJudge,onCommands}) {
+  const state=useLoad(binding,async()=>{
+    const card=await binding.rpc('getCardAssetBindings',{path});
+    if(!ready)return {card,packs:[],details:[],engine:null};
+    await binding.loadSettings?.();
+    const [packs,engine]=await Promise.all([loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null)]);
+    const details=await stageReadDetails(binding,stageDetailRows(packs,binding.globalEnabledPackIds||[],card.extension?.assetBindings?.boundPackIds||[]));
+    return {card,packs,details,engine};
+  },[path,ready]);
+  // portable figure voices do not require any preset in the machine voice catalogue.
+  const services=useLoad(binding,async()=>binding.tts?(await binding.rpc('getAssetVoiceServices')).services:null,[binding.tts]);
+  React.useEffect(()=>binding.tts?.subscribe?.(()=>services.reload()),[binding.tts]);
+  const writer=useStageWriter(binding,path,state,sessionId);
+  // A pack lit after the load (or a changed revision) is read in full once; the page renders again when it arrives.
+  React.useEffect(()=>{void writer.ensureDetails().catch(()=>{});});
+  const [confirm,setConfirm]=React.useState(null),[layer,setLayer]=React.useState(null),[packModal,setPackModal]=React.useState(null),[modPage,setModPage]=React.useState(null),[itemsPage,setItemsPage]=React.useState(false),[performancePage,setPerformancePage]=React.useState(false),[entrancePage,setEntrancePage]=React.useState(false),[narratorPage,setNarratorPage]=React.useState(false);
+  // 设置向导 is a sub-page of this page (‹ / Esc back).
+  const [wizard,setWizard]=React.useState(false),wizardReturn=React.useRef(null),[setupComplete,setSetupComplete]=React.useState(0),basicRef=React.useRef(null);
+  // 人物's ＋ opens the 新人物 page as a sub-page (‹ / Esc back to the ＋).
+  const [newFigure,setNewFigure]=React.useState(false),newFigureReturn=React.useRef(null);
+  React.useEffect(()=>{if(!wizard && setupComplete){const section=basicRef.current;section?.scrollIntoView?.({block:'start'});section?.querySelector('.ap-section-toggle')?.focus?.({preventScroll:true});}},[wizard,setupComplete]);
+  // the mod whose page was just left, so its row's 「›」 takes the focus back.
+  const modReturn=React.useRef(null),narratorReturn=React.useRef(false),itemsReturn=React.useRef(false),performanceReturn=React.useRef(false),entranceReturn=React.useRef(false);
+  // the 演出规则 editor and its in-place engine writes are gone.
+  const ext=writer.extension;
+  useStageSetupAutoOpen({binding,path,ready,stageOn:!!state.value&&!!ext?.assetBindings&&stageActive(stagePrefs(ext,writer.engine)).stage,open:()=>setWizard(true)});
+  if(!state.value)return h('div',{className:'ap-card'},state.error?h(ErrorBox,{error:'读取舞台设置失败（'+state.error+'）',reload:state.reload}):h(Loading,{shape:'fields'}));
+  if(!ext?.assetBindings)return h(StageFirstRun,{writer,cardName});
+  const engine=writer.engine,prefs=stagePrefs(ext,engine),active=stageActive(prefs),packs=writer.packs;
+  const ttsState=!binding.tts?'off':services.value&&!services.value.length?'empty':'ok';
+  // machine service settings return to the page, never to a retired card voice editor.
+  const openVoice=()=>{writeStageReturn(stageSession(),{label:'返回舞台设置',payload:{cardPath:path}});return nav?.openTab?.(VOICE_TAB);};
+  const enable=key=>stageWrite(writer,stageEnable(key));
+  const status=writer.status;
+  const saveState=h('span',{className:'ap-save-state',role:'status','data-state':typeof status==='object'?'error':status},status==='saving'?'正在保存…':status==='saved'?'已保存':'');
+  const wizardButton=stageSetupReady(binding)&&h('button',{type:'button',className:'ap-manage ap-wizard-open',ref:wizardReturn,onClick:()=>setWizard(true)},'设置向导');
+  const ctx={binding,path,sessionId,cardName,setupComplete,basicRef,cardId:state.value.card.cardId,onEngine,takeEngineFocus,onJudge,onCommands,headTools:h('span',{className:'ap-stage-head-tools'},saveState,wizardButton),writer,ext,prefs,active,packs,engine,ttsState,nav,openVoice,enable,setConfirm,openLayer:render=>setLayer(()=>render),
+    // tab (optional): 'gen' opens the figure on 生图, 'voice' on its 声音 page (设置向导 › 配角色).
+    openPack:(packId,kind,figureId,tab)=>setPackModal({packId,kind,figureId,tab,at:Date.now()}),
+    openNewFigure:stageSetupReady(binding)?()=>{newFigureReturn.current=typeof document==='undefined'?null:document.activeElement;setNewFigure(true);}:undefined,
+    // a mod's settings open in place as a sub-page of 舞台设置 (模组 rows and
+    // 提示词 › 模组 labels); the separate 模组库 tab is gone.
+    // 物品 is a built-in capability now — a request for the retired items mod opens its page.
+    openMod:state.value.card.cardId&&binding.engineRpc?modId=>modId==='core.items'?setItemsPage(true):setModPage(modId):undefined,
+    onPerformances:()=>setPerformancePage(true),takePerformanceFocus:()=>{const value=performanceReturn.current;performanceReturn.current=false;return value;},
+    onNarrator:()=>setNarratorPage(true),takeNarratorFocus:()=>{const value=narratorReturn.current;narratorReturn.current=false;return value;},
+    onEntrances:()=>setEntrancePage(true),takeEntranceFocus:()=>{const value=entranceReturn.current;entranceReturn.current=false;return value;},
+    onItems:()=>setItemsPage(true),takeItemsFocus:()=>{const value=itemsReturn.current;itemsReturn.current=false;return value;},
+    takeModFocus:modId=>{if(modReturn.current!==modId)return false;modReturn.current=null;return true;}};
+  // Dialogs render outside the page's size container so they position against the viewport.
+  const closeNewFigure=()=>{setNewFigure(false);setTimeout(()=>{const back=newFigureReturn.current;if(back?.isConnected)back.focus?.({preventScroll:true});},0);};
+  return h(React.Fragment,null,newFigure&&!wizard?h('div',{className:'ap-card ap-stage-page'},
+    h(NewFigurePage,{ctx,parent:'舞台设置',ensurePack:()=>stageSetupCardPack(ctx),onBack:closeNewFigure,onCreated:closeNewFigure})):
+    wizard?h('div',{className:'ap-card ap-stage-page'},
+    h(StageSetupWizard,{ctx,onComplete:()=>{setWizard(false);setSetupComplete(value=>value+1);},onClose:()=>{setWizard(false);setTimeout(()=>wizardReturn.current?.focus?.(),0);}})):
+    performancePage?h('div',{className:'ap-card ap-stage-page'},
+    h(StagePerformancePage,{ctx,onBack:()=>{performanceReturn.current=true;setPerformancePage(false);}})):
+    narratorPage?h('div',{className:'ap-card ap-stage-page'},
+    h(StageNarratorPage,{ctx,onBack:()=>{narratorReturn.current=true;setNarratorPage(false);}})):
+    entrancePage?h('div',{className:'ap-card ap-stage-page'},
+    h(StageEntrancePage,{ctx,onBack:()=>{entranceReturn.current=true;setEntrancePage(false);}})):
+    itemsPage?h('div',{className:'ap-card ap-stage-page'},
+    h(StageItemsPage,{ctx,onBack:()=>{itemsReturn.current=true;setItemsPage(false);}})):
+    modPage?h('div',{className:'ap-card ap-stage-page'},
+    h(StageModPage,{ctx,cardId:state.value.card.cardId,modId:modPage,onBack:()=>{modReturn.current=modPage;setModPage(null);}})):
+    h('div',{className:'ap-card ap-stage-page'},
+    typeof status==='object'&&h(ErrorBox,{error:status.error,reload:()=>writer.reload()}),
+    !ready&&h('p',{className:'ap-alert',role:'status'},'素材插件不可用'),
+    // 基础设置 (the card's switches) → 模组 → 素材包 (pack section merge: with 导入导出) →
+    // 人物 → 开场设置 → 提示词 (the 读音词典 is global, in the 配音 page: ReadingsEditor). (prompt view complete) 导演指令 is a row of 提示词 › 2 导演, no section of its
+    // own. no 变量对照 section — each mod reads card variables through its own
+    // settings (自动 / 引用).
+    // no 全局设置 section. the
+    // 「舞台模式 ›」 row opens the 舞台模式 page (the former 舞台引擎 page); there is no separate engine row.
+    // 模组 sits directly below 基础设置, above 素材包.
+    h(StageSwitches,{ctx}),
+    h(StageModSection,{ctx,cardId:ctx.cardId}),
+    h(StagePackSection,{ctx,ready,state}),
+    ready&&h(StageCastEntry,{ctx}),
+    // 开场设置 and 提示词 always end the page, folded by default.
+    h(StageOpenings,{ctx}),
+    h(StagePrompts,{ctx,prompts})),
+    // packs-v3: the pack modal and other layers sit under the shared confirmation, so it always shows on top.
+    packModal&&ready&&h(StagePackModal,{key:packModal.packId+':'+packModal.at,ctx,packId:packModal.packId,kind:packModal.kind,figureId:packModal.figureId,tab:packModal.tab,onClose:()=>setPackModal(null)}),
+    // The layer gets the live ctx as well, so a layer that stays open across saves renders the newest state.
+    layer&&layer(()=>setLayer(null),ctx),
+    confirm&&h(ConfirmDialog,{...confirm,onClose:()=>setConfirm(null)}));
+}
+
+// 默认舞台皮肤 is the CONFIG skin select in the panel's paint — the trigger shows the
+// chosen skin's mini stage and name, the menu every skin with its own mini stage and a ✓; a search box once the list is
+// long. The thumbnails are the CONFIG's (.fork-gal-config-theme-art): a built-in paints its theme scope, a pack skin the
+// palette of its own document (default level), else its initial. Saves the engine's dialogueTheme at once.
+const STAGE_BUILTIN_SKINS=[['classic','经典'],['crt','显像管'],['aero','千禧晴空']];
+const SKIN_SEARCH_MIN=8;
+// pack skin refs compare by identity; this module owns its key (the widget page's refKey is function-local).
+const stageSkinKey=value=>typeof value==='string'?value:JSON.stringify([value?.packId,value?.kind,value?.assetId]);
+function stageSkinPalette(document) {
+  const level=document?.levels?.[document.levels.default];
+  if(level?.look==='theme')return null;
+  const look=level?{...document,...Object.fromEntries(['textbox','textStyle','ui'].filter(key=>Object.hasOwn(level,key)).map(key=>[key,level[key]]))}:document;
+  const paint={...look?.textbox?.paint,...look?.ui};
+  if(!paint.bg)return null;
+  const fg=paint.fg||paint.bg,radius=look.ui?.radius??look.textbox?.shape?.radius;
+  return {bg:paint.bg,fg,accent:paint.accent||look.textStyle?.emphasis||fg,border:paint.border||paint.fgMuted||fg,radius:typeof radius==='number'?radius:10};
+}
+// packIds: the packs whose skins are offered (the global default offers the globally enabled packs').
+function stageSkinChoices(ctx,packIds=ctx.ext.assetBindings.boundPackIds) {
+  const choices=STAGE_BUILTIN_SKINS.map(([value,label])=>({value,label}));
+  for(const row of ctx.packs) { const pack=packIds.includes(row.manifest.id)&&ctx.writer.pack(row.manifest.id); if(!pack)continue;
+    for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
+      const document=pack.skins?.[asset.id];if(!document)continue;
+      choices.push({value:{packId:pack.manifest.id,kind:'skins',assetId:asset.id},label:document.label,note:document.directorNote,palette:stageSkinPalette(document)});
+    }
+  }
+  return choices;
+}
+function StageSkinArt({choice}) {
+  const marks=[h('i',{key:'n',className:'art-name'}),h('i',{key:'l',className:'art-line'}),h('i',{key:'s',className:'art-line is-short'}),h('i',{key:'g',className:'art-gem'})];
+  if(typeof choice.value==='string')return h('span',{className:'fork-gal-config-theme-art fork-gal-theme-scope','data-theme':choice.value,'aria-hidden':true},marks);
+  const p=choice.palette;
+  if(!p)return h('span',{className:'fork-gal-config-theme-art is-unknown','aria-hidden':true},h('b',null,Array.from(choice.label||'')[0]||'?'));
+  return h('span',{className:'fork-gal-config-theme-art','aria-hidden':true,style:{'--gal-ui-surface-2':p.bg,'--gal-ui-surface':p.bg,'--gal-ui-ink':p.fg,'--gal-ui-accent':p.accent,'--gal-ui-line':p.border,
+    '--gal-ui-gem':'polygon(0 0, 100% 0, 50% 100%)','--gal-ui-gem-width':'9px','--gal-ui-gem-height':'7px','--gal-ui-gem-fill':p.accent,'--gal-ui-radius':p.radius+'px'}},marks);
+}
+function StageSkinPicker({label,choices,value,onChange}) {
+  const [query,setQuery]=React.useState(''),trigger=React.useRef(null),back=()=>setTimeout(()=>trigger.current?.focus?.(),0);
+  const current=choices.find(choice=>stageSkinKey(choice.value)===stageSkinKey(value))||null,q=query.trim().toLowerCase();
+  const shown=q?choices.filter(choice=>String(choice.label).toLowerCase().includes(q)):choices;
+  return h(Popover,{label,fit:true,limit:440,className:'ap-skin-anchor',
+    trigger:({toggle,open})=>h('button',{ref:trigger,type:'button',className:'ap-skin-trigger','aria-haspopup':'menu','aria-expanded':open,'aria-label':label+'：'+(current?.label||'未选择'),
+      onClick:()=>{setQuery('');toggle();}},current&&h(StageSkinArt,{choice:current}),h('span',{className:'ap-skin-name'},current?.label||'未选择'),h(Glyph,{name:'chevDown'})),
+    content:close=>h('div',{className:'ap-skin-menu',ref:openingMenuFocus,onKeyDown:e=>openingMenuKeys(e,back)},
+      choices.length>SKIN_SEARCH_MIN&&h(PackSearchBox,{label:'搜索皮肤',value:query,onChange:setQuery,className:'is-compact'}),
+      shown.map(choice=>{const on=choice===current;
+        return h('button',{key:stageSkinKey(choice.value),type:'button',role:'menuitemradio','aria-checked':on,className:'ap-menu-item ap-skin-option',title:choice.note||undefined,
+          onClick:()=>{close();if(!on)onChange(choice.value);back();}},h(StageSkinArt,{choice}),h('span',{className:'ap-skin-name'},choice.label),on&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));}),
+      !shown.length&&h(EmptyState,{compact:true,noun:'皮肤',query,onClear:()=>setQuery('')}))});
+}
+// 「默认皮肤」 in 基础设置 is the global default (engine dialogueTheme) for every card without its own 「使用皮肤」
+// (stage.defaultSkin: imported with the card or chosen in stage CONFIG › 画面 本卡皮肤); 经典 when unusable. It works
+// without 舞台模式 (the text box shows whenever bubbles are on).
+const STAGE_SKIN_HELP='没有指定皮肤的卡都用这套；皮肤不可用时用「经典」。';
+function StageGlobalSkin({ctx}) {
+  // The engine's custom dialogue themes (dsh-dialogue-theme presets) are global choices too.
+  const engine=ctx.writer.engine,selected=engine?.values?.dialogueTheme;
+  const choices=[...stageSkinChoices(ctx,ctx.binding?.globalEnabledPackIds||[]),...(engine?.values?.dialogueThemes||[]).map(theme=>({value:theme.id,label:theme.name}))];
+  if(!engine?.values||engine.writable===false)return null;
+  return h(InlineRow,{label:'默认皮肤',className:'ap-stage-skin-row',help:h(Help,{text:STAGE_SKIN_HELP,label:'默认皮肤 说明'})},
+    h(StageSkinPicker,{label:'默认皮肤',choices,value:selected,onChange:value=>ctx.writer.global(value,'dialogueTheme')}),
+    !choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(selected))&&h(HintLine,{compact:true,text:'所选皮肤不可用，正在用「经典」'}));
+}
+
+// 5.2: the only solid button on the page.
+function StageFirstRun({writer,cardName}) {
+  const [busy,setBusy]=React.useState(false),[error,setError]=React.useState('');
+  async function start(){setBusy(true);setError('');try{await writer.write(()=>({assetBindings:{boundPackIds:[]},stage:{enabled:true}}));}catch(e){setError(errorText(e));}finally{setBusy(false);}}
+  return h('div',{className:'ap-first-run'},
+    h('p',{className:'ap-first-title'},'这张卡还没有舞台设置'),
+    h('div',{className:'ap-inline-actions is-start'},h(Button,{primary:true,disabled:busy,onClick:start},h(Glyph,{name:'bubble'}),busy?'正在开启…':'使用舞台'),
+      // this is the stage's prerequisite, so the button names the stage, not only the bubbles.
+      h(Help,{text:'开启后聊天顶栏出现「舞台」入口，正文按带头像的对话气泡显示；之后可以给角色配形象和声音。'})),
+    error&&h('p',{className:'ap-alert',role:'alert'},error));
+}
+
+// The row's 「›」 does the opening (one library pack opens it, several list them).
+const pressRowJump=row=>row.querySelector('.ap-kind-jump')?.click();
+// The bound figures' confirmed synthesis rejections (getFigureVoiceEditor: exact service/model/voice the figure uses now,
+// never a provider list). a synthesis result or a pack/engine change re-reads it
+// in place — the previous answer stays until the new one arrives, so the ⚠ never blinks between reads.
+function useStageConfirmedVoiceWarnings(ctx) {
+  const rows=stageFigureRows(ctx).filter(row=>row.figure?.enabled&&row.figure.voice&&row.figure.voice.source!==null);
+  const key=JSON.stringify(rows.map(row=>[row.ref,row.pack.revision]));
+  const state=useVoiceLoad(async()=>Promise.all(rows.map(async row=>{
+    try {
+      const result=await ctx.binding.rpc('getFigureVoiceEditor',row.ref);
+      return (result.issues||[]).filter(issue=>['QWEN_MODEL_NOT_FOUND','QWEN_VOICE_UNSUPPORTED'].includes(issue.code)).map(issue=>row.figure.name+'：'+voiceIssueText(issue.code));
+    } catch { return []; }
+  })),[ctx.binding]);
+  useVoiceRefresh(ctx.binding,state.reload,[key,ctx.engine?.revision]);
+  return state.value?.flat()||[];
+}
+function stageVoiceWarning(ctx,confirmed) {
+  if(ctx.ttsState==='off')return '配音插件未启用';
+  if(ctx.ttsState==='empty')return '没有可用的语音服务';
+  return confirmed.join('；');
+}
+// 「配音」 opens 声音设置 like BGM › — a quiet 「›」 right after the name (the
+// whole row opens it too, see SwitchRow onOpen); a current problem is a ⚠ beside them (text in its tooltip), no pill.
+function StageVoiceJump({ctx,warning}) {
+  const jump=ctx.nav?.openTab&&h('button',{type:'button',className:'ap-kind-jump','aria-label':'声音设置'+(warning?'（'+warning+'）':''),title:'声音设置',onClick:()=>ctx.openVoice()},h(Glyph,{name:'chevRight'}));
+  const mark=warning&&h('span',{className:'ap-hint-mark ap-switch-warn',role:'img','aria-label':warning,title:warning,onClick:e=>e.preventDefault()},h(Glyph,{name:'warning'}));
+  return mark||jump?h(React.Fragment,null,jump,mark):null;
+}
+function StageVoiceRow({ctx,row}) {
+  const warning=stageVoiceWarning(ctx,useStageConfirmedVoiceWarnings(ctx));
+  return row('voice',h(StageVoiceJump,{ctx,warning}),ctx.nav?.openTab?()=>ctx.openVoice():undefined);
+}
+const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!==key).map(k=>STAGE_NAMES[k]).join('和');
+
+// 「基础设置」 — the card's switches in one list, the sounds (used far more often than
+// 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
+// follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
+// dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
+const STAGE_BASIC_HELP='“使用舞台”只对这张卡生效，开启时自动提供对话气泡和完整舞台；其余开关对所有卡生效。某张卡没有对应素材时，导演不会收到相关说明。';
+const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
+function StageSwitches({ctx}) {
+  const {prefs,active,writer}=ctx,set=(key,value)=>stageWrite(writer,{[key]:value});
+  const row=(key,status,onOpen)=>{const blocked=stageMissing(key,active).some(k=>k!==key);
+    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],checked:prefs[key],disabled:blocked,help:blocked?(key==='stage'?'先打开对话气泡':stageNeedText(key,active)):undefined,onChange:v=>set(key,v),status,onOpen});};
+  // Sounds play on the stage: greyed (stored value kept) while 舞台模式 is off, like a dependent switch.
+  const sound=([key,label,icon])=>{const missing=stageMissing('stage',active);
+    return h(SwitchRow,{key,label,icon,checked:prefs[key]!==false,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+      onChange:v=>set(key,v),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
+  return h('div',{ref:ctx.basicRef},h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,action:ctx.headTools,reveal:ctx.setupComplete},
+    active.voice?h(StageVoiceRow,{key:'voice',ctx,row}):row('voice'),
+    h(StageNarratorRow,{key:'narrator',ctx}),
+    h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,checked:active.stage,onChange:value=>stageWrite(writer,{enabled:value}),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
+    h(StageAutoChoicesRow,{key:'auto-choices'}),
+    h(StageGlobalSkin,{key:'skin',ctx}),
+    AUDIO_ROWS.map(sound),
+    h(StageItemsRow,{key:'items',ctx,set}),
+    h(StagePerformanceRow,{key:'performance',ctx,set}),
+    h(StageEntranceRow,{key:'entrance',ctx,set})));
+}
+// 旁白配音 — 舞台设置 › 基础设置 「旁白配音 ›」 and its page. Two layers like a mod's settings
+// (ui-design.md R8 / §三.25): the global layer (engine `narrator`, complete) and this card's (stage.narrator, only the keys it
+// overrides). The host reads the same layers (card-stage-settings.js effectiveNarrator); the stage speaks with config.narrator.
+
+const NARRATOR_DEFAULT=Object.freeze({enabled:false,voice:null});
+function narratorLayers(ext,engine) {
+  const global={...NARRATOR_DEFAULT,...engine?.values?.narrator},card=ext?.stage?.narrator||{};
+  return {global,card,effective:{enabled:(card.enabled??global.enabled)===true,voice:card.voice!==undefined?card.voice:global.voice}};
+}
+const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:'figure:'+JSON.stringify([voice.packId,voice.figureId]);
+function narratorVoiceFromKey(key) {
+  if(!key)return null;
+  if(key.startsWith('browser:'))return {browser:key.slice(8)};
+  const [packId,figureId]=JSON.parse(key.slice(7));
+  return {packId,figureId};
+}
+// The basic row's switch writes the layer that decides it now: this card's when it overrides the switch, else the global one.
+const narratorSwitchScope=ext=>ext?.stage?.narrator?.enabled!==undefined?'card':'global';
+// A card layer patch: `undefined` removes a key; an empty layer removes stage.narrator.
+function narratorCardPatch(ext,changes) {
+  const next={...(ext?.stage?.narrator||{}),...changes};
+  for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
+  return stagePatch(ext,{narrator:Object.keys(next).length?next:undefined});
+}
+// The voices a narrator can speak with: every figure voice of the packs this card uses, then the browser's system voices.
+function narratorVoiceOptions(rows,browserVoices) {
+  const figures=rows.filter(row=>row.figure&&row.figure.voice&&row.figure.voice.source!==null&&row.pack?.manifest.voiceLibrary?.voices[row.figure.voice.voice])
+    .map(row=>({value:narratorVoiceKey(row.ref),label:row.figure.name,group:'人物'}));
+  return [{value:'',label:'未选择'},...figures,...(browserVoices||[]).map(voice=>({value:narratorVoiceKey({browser:voice.id}),label:voice.label,group:'浏览器朗读'}))];
+}
+
+function narratorWrite(ctx,scope,changes) {
+  if(scope==='card')return ctx.writer.write(ext=>narratorCardPatch(ext,changes));
+  const reset=Object.fromEntries(Object.entries(changes).map(([key,value])=>[key,value===undefined?NARRATOR_DEFAULT[key]:value]));
+  return ctx.writer.global(reset,'narrator');
+}
+function StageNarratorRow({ctx}) {
+  const jump=React.useRef(null),{effective}=narratorLayers(ctx.ext,ctx.engine),blocked=!ctx.active.voice;
+  React.useEffect(()=>{if(ctx.takeNarratorFocus?.())jump.current?.focus?.();},[]);
+  return h(SwitchRow,{label:'旁白配音',icon:'voice',checked:effective.enabled,disabled:blocked,help:blocked?stageNeedText('voice',ctx.active):undefined,
+    onChange:v=>narratorWrite(ctx,narratorSwitchScope(ctx.ext),{enabled:v}),onOpen:ctx.onNarrator?pressRowJump:undefined,
+    status:ctx.onNarrator?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'旁白配音设置',title:'旁白配音设置',onClick:()=>ctx.onNarrator()},h(Glyph,{name:'chevRight'})):null});
+}
+function StageNarratorPage({ctx,onBack}) {
+  const root=React.useRef(null),[scope,setScope]=React.useState(()=>ctx.ext?.stage?.narrator?'card':'global');
+  const browser=useVoiceLoad(()=>typeof window!=='undefined'&&window.speechSynthesis?browserSpeechVoiceList(window.speechSynthesis):[],[]);
+  React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
+  const {global,card,effective}=narratorLayers(ctx.ext,ctx.engine);
+  const shown=scope==='card'?effective:global,blocked=!ctx.active.voice;
+  const own=key=>scope==='card'?card[key]!==undefined:JSON.stringify(global[key])!==JSON.stringify(NARRATOR_DEFAULT[key]);
+  const dot=key=>own(key)?h(OverrideDot,{layer:scope}):null;
+  const reset=key=>own(key)?h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',onClick:()=>narratorWrite(ctx,scope,{[key]:undefined})}):null;
+  const options=narratorVoiceOptions(stageFigureRows(ctx),browser.value);
+  const value=narratorVoiceKey(shown.voice),missing=value&&!options.some(option=>option.value===value);
+  return h('article',{ref:root,className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},
+    h(SubpageHead,{parent:'舞台设置',title:'旁白配音',onBack}),
+    h(StageSection,{title:'设置',foldKey:'narrator/settings',need:'voice',active:ctx.active,onEnable:ctx.enable,
+      action:h(ScopeSwitch,{value:scope,onChange:setScope,cardName:ctx.cardName||'本卡',disabled:blocked})},
+      h(InlineGrid,{columns:1,label:'旁白配音设置'},
+        h(InlineRow,{label:'旁白配音',help:dot('enabled')},
+          h(Switch,{bare:true,label:'旁白配音',checked:shown.enabled===true,onChange:v=>narratorWrite(ctx,scope,{enabled:v})}),reset('enabled')),
+        h(InlineField,{kind:'menu',label:'声音',help:dot('voice'),value:missing?'':value,options,placeholder:'未选择',
+          onCommit:key=>narratorWrite(ctx,scope,{voice:narratorVoiceFromKey(key)}),
+          trail:[missing?h(HintLine,{key:'missing',compact:true,text:'所选声音不可用，请重新选择'}):null,reset('voice')]}))));
+}
+// 「入场演出 ›」 - the one global switch of the stage's opening
+// performance (engine stageToggles.entrance, default on), placed like 演出组合; a card differs only by its packs' 入场演出
+// entries (蓝灯 / 关闭). Its page lists this card's entries.
+function StageEntranceRow({ctx,set}) {
+  const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
+  React.useEffect(()=>{if(ctx.takeEntranceFocus?.())jump.current?.focus?.();},[]);
+  return h(SwitchRow,{label:'入场演出',icon:'entrances',checked:ctx.prefs.entrance!==false,disabled:missing.length>0,
+    help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+    onChange:v=>set('entrance',v),onOpen:ctx.onEntrances?pressRowJump:undefined,
+    status:ctx.onEntrances?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'入场演出素材',title:'入场演出素材',onClick:()=>ctx.onEntrances()},h(Glyph,{name:'chevRight'})):null});
+}
+function StageEntrancePage({ctx,onBack}) {
+  const root=React.useRef(null);
+  React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
+  return h('article',{ref:root,className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},
+    h(SubpageHead,{parent:'舞台设置',title:'入场演出',help:'进入舞台时代替「载入中」播放的开场演出；载入完成后单击可跳过。',onBack}),
+    h(ModEntries,{ctx,modId:'core.entrance',kind:'entrances'}));
+}
+function StagePerformanceRow({ctx,set}) {
+  const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
+  React.useEffect(()=>{if(ctx.takePerformanceFocus?.())jump.current?.focus?.();},[]);
+  return h(SwitchRow,{label:'演出组合',icon:'performances',checked:ctx.prefs.performance!==false,disabled:missing.length>0,
+    help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+    onChange:v=>set('performance',v),onOpen:ctx.onPerformances?pressRowJump:undefined,
+    status:ctx.onPerformances?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'演出组合素材',title:'演出组合素材',onClick:()=>ctx.onPerformances()},h(Glyph,{name:'chevRight'})):null});
+}
+function StagePerformancePage({ctx,onBack}) {
+  const root=React.useRef(null);
+  React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
+  return h('article',{ref:root,className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},
+    h(SubpageHead,{parent:'舞台设置',title:'演出组合',onBack}),
+    h(ModEntries,{ctx,modId:'core.performance',kind:'performances'}));
+}
+// 「物品 ›」 — the built-in item capability's one global switch, placed like the sounds
+// (it plays on the stage: greyed while 舞台模式 is off); the name and the quiet 「›」 open its page (StageItemsPage).
+function StageItemsRow({ctx,set}) {
+  const jump=React.useRef(null),missing=stageMissing('stage',ctx.active);
+  React.useEffect(()=>{if(ctx.takeItemsFocus?.())jump.current?.focus?.();},[]);
+  return h(SwitchRow,{label:'物品',icon:'item',checked:ctx.prefs.items!==false,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
+    onChange:v=>set('items',v),onOpen:ctx.onItems?pressRowJump:undefined,
+    status:ctx.onItems?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'物品设置',title:'物品设置',onClick:()=>ctx.onItems()},h(Glyph,{name:'chevRight'})):null});
+}
+// 「舞台模式 ›」 like 「配音 ›」 — the switch on the right, the name and the quiet
+// 「›」 open the 舞台模式 page (导演模型 → 智能判断 → 可用演出 …; the director model is chosen there, default 跟随前台). Coming back
+// from the page focuses the 「›」.
+function StageModeJump({ctx}) {
+  const jump=React.useRef(null);
+  React.useEffect(()=>{if(ctx.takeEngineFocus?.())jump.current?.focus?.();},[]);
+  return ctx.onEngine?h('button',{type:'button',ref:jump,className:'ap-kind-jump','aria-label':'舞台模式设置',title:'舞台模式设置',onClick:()=>ctx.onEngine()},h(Glyph,{name:'chevRight'})):null;
+}
+// 「自动生成选项」 is a basic, every-card setting and lives only here (moved out of 酒馆设置 ›
+// 候选项 and the stage CONFIG): the global candidateAutoGenerate through the one hook (auto-choices-preference.js). Needs no stage
+// switch: it also serves the chat view. A save failure is the row's ⚠.
+const STAGE_AUTO_CHOICES_HELP='每轮正文完成后自动生成选项；不补生成旧回复，失败可手动重试。';
+function StageAutoChoicesRow() {
+  if(typeof autoChoices!=='function')return null;
+  return h(StageAutoChoicesSwitch);
+}
+function StageAutoChoicesSwitch() {
+  const {enabled,loading,busy,error,save}=autoChoices('getTavernSettings');
+  return h(SwitchRow,{label:'自动生成选项',icon:'select',help:STAGE_AUTO_CHOICES_HELP,checked:enabled,disabled:loading||busy,onChange:v=>save(v),
+    status:error?h(HintLine,{compact:true,text:error}):null});
+}
+// the quiet 「›」 on a 基础设置 row — the 素材库 at that kind's tab (nav.openLibrary, the same
+// deep link the library consumes) for the packs this card uses (全局 first, then 本卡). One pack opens directly; several
+// list their names. Nothing when no pack the card uses has that kind or the library cannot be reached.
+// 入场演出 only ever come from the card's own packs (lib/domain/stage-entrance.js): a global pack's are not listed.
+const CARD_ONLY_KINDS=['entrances'];
+function stageKindPacks(ctx,kind) {
+  const cardOnly=CARD_ONLY_KINDS.includes(kind),global=cardOnly?[]:ctx.binding?.globalEnabledPackIds||[];
+  const bound=ctx.ext.assetBindings.boundPackIds.filter(id=>!cardOnly||id!==ctx.ext.modConfigPackId);
+  // 人物 are the pack's figures, not assets (the 素材清单 group of 人物 jumps there too).
+  const has=pack=>packCount(pack,kind)>0;
+  const used=ctx.packs.filter(pack=>!pack.error&&pack.manifest&&(global.includes(pack.manifest.id)||bound.includes(pack.manifest.id))&&has(pack));
+  return [...used.filter(pack=>global.includes(pack.manifest.id)),...used.filter(pack=>!global.includes(pack.manifest.id))];
+}
+function StageKindJump({ctx,kind,label,packIds}) {
+  // packIds (optional) narrows the choice to the packs a prompt group actually comes from.
+  const packs=ctx.nav?.openLibrary?stageKindPacks(ctx,kind).filter(pack=>!packIds?.length||packIds.includes(pack.manifest.id)):[];
+  if(!packs.length)return null;
+  const go=pack=>ctx.nav.openLibrary({packId:pack.manifest.id,kind});
+  const name='在舞台素材查看'+label;
+  if(packs.length===1)return h('button',{type:'button',className:'ap-kind-jump','aria-label':name,title:name,onClick:()=>go(packs[0])},h(Glyph,{name:'chevRight'}));
+  return h(Popover,{label:name,className:'ap-kind-jump-anchor',trigger:({toggle,open})=>h('button',{type:'button',className:'ap-kind-jump','aria-label':name,title:name,'aria-expanded':open,onClick:toggle},h(Glyph,{name:'chevRight'})),
+    content:close=>packs.map(pack=>h(MenuItem,{key:pack.manifest.id,onClick:()=>{close();go(pack);}},pack.manifest.name))});
+}
+
+
+// 「当前素材包」 lists the packs this card uses as
+// (global-first: 全局 rows first, then 本卡; each band keeps binding order, then global-only ones) the shared pack row with a read-only state tag. 「管理」 grows the same section in place into all
+// installed packs with the state tag (search, kind tabs, 当前使用 frozen on top); 「完成」 shrinks it back. A pack name
+// opens the shared pack modal. No undo; unbinding a pack that a character's figure comes from asks first.
+// 当前素材包 and 导入导出 are one section, 「素材包 N (?)」. Its head
+// holds 管理 · 导出 · 导入 (导入 = the 导入卡 ZIP flow). 导出 enters selection mode: a house-style check per row (本卡 on,
+// 全局 off — the old 「一起导出」 defaults) with the pack's size, the head becomes 取消 · 导出, and confirming exports the
+// card with exactly the checked packs (none checked → the card alone), then leaves the mode.
+// a row is name, faces and the 全局 / 本卡 tag only — no size, no per-row
+// 导出 icon (a single pack is exported from the 素材库). A pack that holds only 模组 is not listed: the 「模组」 section
+// shows it; the card export still takes it along while one of its widgets is on for this card.
+const STAGE_PACKS_HELP='这张卡用到的素材包，「导出」把人物卡连同勾选的素材包和开着的模组打成 ZIP，「导入」打开这样的 ZIP。';
+function StagePackSection({ctx,ready,state}) {
+  const {binding,ext}=ctx,scope=usePackScope({binding,ctx,packs:ctx.packs});
+  const [manage,setManage]=React.useState(false),[query,setQuery]=React.useState(''),[kind,setKind]=React.useState(''),[sort,setSort]=usePackSort(),frozen=React.useRef(null);
+  const [picking,setPicking]=React.useState(null),work=useTask(binding);
+  const packs=ctx.packs.filter(p=>!stageWidgetOnlyPack(p)),hidden=new Set(ctx.packs.filter(stageWidgetOnlyPack).map(p=>p.manifest.id));
+  // the private config carrier is deliberately absent from the public catalogue, not missing.
+  if(ext.modConfigPackId)hidden.add(ext.modConfigPackId);
+  const ids=packs.map(p=>p.manifest.id),byId=new Map(packs.map(p=>[p.manifest.id,p])),bound=ext.assetBindings.boundPackIds.filter(id=>!hidden.has(id)),global=binding.globalEnabledPackIds||[];
+  const effective=globalFirst([...bound,...ids.filter(id=>global.includes(id)&&!bound.includes(id))],global);
+  if(manage&&!frozen.current)frozen.current=new Map(effective.map(id=>[id,global.includes(id)?0:1]));if(!manage)frozen.current=null;
+  // The card ZIP import: a picked file opens the 导入卡片 sheet (CardImportSheet, unchanged); 「换一个文件」 picks again.
+  const picker=React.useRef(null),serial=React.useRef(0),pick=()=>picker.current?.click?.();
+  const importFile=file=>{const key='card-import-'+(++serial.current);
+    ctx.openLayer(close=>h(CardImportSheet,{key,binding,path:ctx.path,file,cardName:ctx.cardName,onPick:pick,onClose:close,onDone:()=>{close();ctx.writer.reload();state?.reload?.();}}));};
+  const startPicking=()=>setPicking(new Set(effective.filter(id=>byId.has(id)&&!global.includes(id))));
+  const flip=id=>setPicking(current=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;});
+  // The widget-only packs whose widgets are on for this card go along (the 模组 section is where they are chosen).
+  const widgetPacks=picking?[...new Set(stageWidgetRows(ctx).filter(row=>row.state!=='off'&&hidden.has(row.packId)).map(row=>row.packId))]:[];
+  const chosen=picking?[...effective.filter(id=>picking.has(id)),...widgetPacks]:[],missing=picking?stageExportMissing(chosen.map(id=>ctx.writer.pack(id)).filter(Boolean),new Set(chosen)):[];
+  const exportCard=()=>work.task(async()=>{await binding.download(await binding.service.exportCardBundle({path:ctx.path,expectedRevision:ctx.writer.revision,packIds:chosen}));setPicking(null);});
+  const name=id=>(byId.get(id)||ctx.packs.find(p=>p.manifest.id===id))?.manifest.name||'缺失的素材包',busy=work.busy;
+  // Selection mode: the check, then the pack's size beside it (it only helps while choosing what goes with the card).
+  const lead=id=>{if(!picking)return null;const pack=byId.get(id),size=pack?stageBytesText(stagePackBytes(pack)):'';
+    return h(React.Fragment,null,h('button',{type:'button',role:'checkbox',className:'ap-pack-check','aria-checked':picking.has(id),'aria-label':name(id),disabled:!byId.has(id)||busy,onClick:()=>flip(id)},
+      h('span',{className:'ap-check-mark','aria-hidden':true},picking.has(id)&&h(Glyph,{name:'check'}))),size&&h('span',{className:'ap-pack-size'},size));};
+  // every row previews the pack's content after its name.
+  const row=control=>id=>h(PackRow,{key:id,id,pack:byId.get(id),scope,kind:manage?kind:'',onOpen:(packId,k)=>ctx.openPack(packId,k),control,previews:true,
+    ...(control==='static'?{lead:lead(id)}:{})});
+  const pass=packFilter(byId,query,kind);
+  const head=!ready?null:manage?h(Button,{className:'ap-manage is-done','aria-expanded':true,onClick:()=>{setManage(false);setQuery('');setKind('');}},'完成'):
+    picking?h('span',{className:'ap-pack-head-actions'},
+      h(Button,{className:'ap-manage',disabled:work.busy,onClick:()=>setPicking(null)},'取消'),
+      h(Button,{className:'ap-manage is-done',disabled:work.busy,onClick:exportCard},work.busy?'正在导出…':'导出')):
+    h('span',{className:'ap-pack-head-actions'},
+      h(Button,{className:'ap-manage','aria-expanded':false,onClick:()=>{setManage(true);setQuery('');setKind('');}},'管理'),
+      h(Button,{className:'ap-manage',disabled:busy,onClick:startPicking},'导出'),
+      // UI standard §三.20 (acceptance U10): at most two .ap-manage buttons — 导入 (the card ZIP) moves into the heading's ⋯.
+      h(Popover,{label:'素材包操作',className:'ap-pack-more',
+        trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'素材包操作','aria-haspopup':'menu','aria-expanded':open,onClick:toggle}),
+        content:close=>[h(MenuItem,{key:'import',onClick:()=>{close();pick();}},'导入')]}));
+  return h(StageSection,{title:'素材包',meta:manage?ids.length:effective.length,help:STAGE_PACKS_HELP,className:'ap-pack-section'+(picking?' is-picking':''),action:head,reveal:manage||!!picking},
+    ready&&h('input',{ref:picker,type:'file',accept:'.zip',hidden:true,tabIndex:-1,'aria-label':'导入卡 ZIP',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)importFile(file);}}),
+    !ready?h('p',{className:'ap-empty'},'素材插件不可用'):manage?h(React.Fragment,null,
+      // the kind filter and sort sit on the search row, as in the library.
+      h('div',{className:'ap-pack-toolbar'},h(PackSearchBox,{label:'搜索素材包',value:query,onChange:setQuery}),packs.length>0&&h(KindSortTools,{packs,kind,setKind,sort,onSort:setSort})),
+      // one flat list like the library — 全局 → 本卡 → 关闭 (frozen while managing), sorted.
+      h(PackList,{ids:orderPacks([...ids,...[...frozen.current.keys()].filter(id=>!byId.has(id)&&effective.includes(id))].filter(pass),{byId,sort,kind,rank:id=>frozen.current.get(id)??2}),render:row(),
+        empty:h(EmptyState,{noun:'素材包',query,filter:kind&&kinds[kind],text:!query.trim()&&kind?'没有含「'+kinds[kind]+'」的素材包':undefined,onClear:()=>{setQuery('');setKind('');}})}),
+      ctx.nav?.openLibrary&&h('p',{className:'ap-more-link'},h(Button,{className:'ap-inline-link',onClick:()=>ctx.nav.openLibrary({})},'去舞台素材安装或新建 ›'))):
+    effective.length?h('ul',{className:'ap-pack-list is-current','aria-label':'当前素材包'},effective.map(row('static'))):h(EmptyState,{compact:true,text:picking?'这张卡没有用到素材包，只导出人物卡':'未使用素材包'}),
+    missing.length>0&&h(HintLine,{text:'模组用到的图片包没有一起导出：'+missing.map(name).join('、')}),
+    h(ErrorBox,{error:scope.error||work.error}));
+}
+// Legacy widget entries remain asset/export data, not registry mod switches.
+function stageWidgetOnlyPack(pack) {
+  // a list row answers from its counts (asset kinds plus figures).
+  if(pack?.counts){const kinds=Object.keys(pack.counts).filter(kind=>pack.counts[kind]>0);return kinds.length>0&&kinds.every(kind=>kind==='widgets');}
+  const manifest=pack?.manifest,assets=manifest?.assets||[];
+  return !!manifest&&!(manifest.figures||[]).length&&assets.length>0&&assets.every(asset=>asset.kind==='widgets');
+}
+function stageWidgetRows(ctx) {
+  const global=ctx.binding?.globalEnabledPackIds||[],bound=ctx.ext.assetBindings.boundPackIds,gate=ctx.ext.stage?.widgets===true;
+  // the rows holding 模组 are read in full (stageDetailRows); list order is kept.
+  return ctx.packs.filter(row=>!row.error&&row.manifest&&packCount(row,'widgets')>0).map(row=>ctx.writer.pack(row.manifest.id)).filter(Boolean).flatMap(pack=>{
+    const packId=pack.manifest.id,packState=global.includes(packId)?'global':bound.includes(packId)?'card':'off';
+    return pack.manifest.assets.filter(asset=>asset.kind==='widgets'&&pack.widgets?.[asset.id]).map(asset=>({key:packId+'/'+asset.id,packId,pack,asset,packState,
+      state:gate&&asset.enabled!==false?packState:'off'}));
+  });
+}
+// The pack modal opened from 舞台设置: card scope (three states), confirmations above it, characters link back.
+function StagePackModal({ctx,packId,kind,figureId,tab,onClose}) {
+  const scope=usePackScope({binding:ctx.binding,ctx,packs:ctx.packs});
+  return h(PackModal,{binding:ctx.binding,packId,initial:{kind,figureId,tab},scope,packs:ctx.packs,ctx,onPacksChanged:()=>ctx.writer.reload(),onOpenPack:(id,k,item)=>ctx.openPack(id,k,item),
+    onClose:changed=>{onClose();if(changed)ctx.writer.reload();}});
+}
+// the card figure grid edits library lamps, never cast bindings.
+// figures from 全局 packs are listed before those from 本卡 packs.
+function stageFigureRows(ctx) {
+  const global=ctx.binding.globalEnabledPackIds||[],ids=globalFirst([...new Set([...ctx.ext.assetBindings.boundPackIds,...global])],global);
+  return ids.flatMap(packId=>{const pack=ctx.writer.pack(packId);return (pack?.manifest.figures||[]).map(figureId=>({ref:{packId,figureId},pack,figure:pack.figures[figureId],sprites:pack.sprites}));});
+}
+function stageFigure(ctx,key) {
+  return stageFigureRows(ctx).find(row=>typeof key==='object'?row.ref.packId===key.packId&&row.ref.figureId===key.figureId:row.ref.packId+'/'+row.ref.figureId===key)||{};
+}
+function StageAvatar({ctx,alias,className='ap-avatar'}) {
+  const info=stageFigure(ctx,alias),figure=info.figure;
+  return h(FigureCastFace,{binding:ctx.binding,packId:info.ref?.packId,pack:info.pack,figure,sprites:info.sprites,avatar:figure&&figureAvatar(figure,info.sprites),label:figure?.name||'',className,frame:'face'});
+}
+// the old 「人物」 section (lamps, ＋ new figure) is gone — figures are 素材
+// and are edited in the 素材库 (a 素材包 row › its 人物, with their lamps and ＋); a card's characters are set up in 设置向导 › 配角色.
+// 「人物 N」 is back as a quick entry only — one compact row of the enabled
+// figures of the packs this card uses (全局 first), avatar + name; a click opens that figure in the pack window (人物 › it,
+// 编辑 / 生图). No lamps, no ＋, no (?): it writes nothing. A figure's pack read in full is still on its way → the spinner.
+// the row ends in the dashed ＋ (the 触发词 ＋'s look) that opens the 新人物
+// page (asset-pack-setup-ui.js NewFigurePage, the same page as 设置向导 › 自定义角色's ＋); with no figure yet only the ＋.
+function StageCastEntry({ctx}) {
+  const global=ctx.binding.globalEnabledPackIds||[],installed=new Set(ctx.packs.filter(p=>!p.error&&p.manifest).map(p=>p.manifest.id));
+  const waiting=[...new Set([...ctx.ext.assetBindings.boundPackIds,...global])].some(id=>installed.has(id)&&!ctx.writer.pack(id)&&packCount(ctx.packs.find(p=>p.manifest?.id===id),'figures')>0);
+  const rows=stageFigureRows(ctx).filter(row=>row.figure?.enabled),add=ctx.openNewFigure;
+  return h(StageSection,{title:'人物',meta:waiting||!rows.length?undefined:rows.length,className:'ap-cast-entry'},
+    waiting&&!rows.length?h(Loading,{lead:true,count:4}):!rows.length&&!add?h(EmptyState,{noun:'人物',icon:h(Glyph,{name:'figures'})}):
+    h('ul',{className:'ap-cast-strip','aria-label':'人物'},rows.map(({ref,pack,figure,sprites})=>h('li',{key:ref.packId+'/'+ref.figureId},
+      h('button',{type:'button',className:'ap-cast-pill',title:figure.name,onClick:()=>ctx.openPack(ref.packId,'figures',ref.figureId)},
+        h(FigureCastFace,{binding:ctx.binding,packId:ref.packId,pack,figure,sprites,avatar:figureAvatar(figure,sprites),label:'',className:'ap-avatar is-mini',frame:'face'}),
+        h('span',{className:'ap-cast-pill-name'},figure.name)))),
+      add&&h('li',{key:'@add',className:'ap-cast-strip-add'},h(CatAddTile,{label:'添加人物',onClick:add}))));
+}
+// The card's 绿灯 packs: installed packs bound to this card that are not globally enabled (全局 wins, like the pack state tag).
+function stageGreenPackIds(ctx) {
+  const global=ctx.binding.globalEnabledPackIds||[];
+  return ctx.ext.assetBindings.boundPackIds.filter(id=>!global.includes(id)&&ctx.writer.pack(id)?.manifest);
+}
+
+// 演出风格 are pack entries (kind `directions`) — the
+// old style library, its JSON box and the card's stage.directionStyle are gone. The 启用 entries of a 蓝灯 (全局) pack are
+// the player's, those of a pack lit only green for this card are the card author's; the 提示词 row shows them as sent.
+// Its pencil opens the 素材库 at 演出风格: the used packs that hold styles (全局 first); with none, the card's 绿灯 pack (the same
+// rule as ＋人物: one opens, several ask, none → a pack named after the card is created and lit green for it), where the
+// pack window starts a new style.
+function stageStyleTargets(ctx) {
+  const global=ctx.binding.globalEnabledPackIds||[],used=stageKindPacks(ctx,'directions');
+  if(used.length)return used.map(pack=>({packId:pack.manifest.id,name:pack.manifest.name,mode:global.includes(pack.manifest.id)?'constant':'keyword'}));
+  return stageGreenPackIds(ctx).map(id=>({packId:id,name:ctx.writer.pack(id).manifest.name,mode:'keyword'}));
+}
+async function stageStylePack(ctx) {
+  const name=String(ctx.cardName||'').trim();
+  if(!name)throw new Error('人物卡没有名字，无法新建本卡素材包');
+  const made=await ctx.binding.service.createPack({name,expectedRevision:null}),packId=made.snapshot.manifest.id;
+  await ctx.writer.write(current=>({assetBindings:{...current.assetBindings,boundPackIds:current.assetBindings.boundPackIds.includes(packId)?current.assetBindings.boundPackIds:[...current.assetBindings.boundPackIds,packId]}}));
+  return packId;
+}
+function StageStyleEdit({ctx,onError}) {
+  const [busy,setBusy]=React.useState(false),targets=stageStyleTargets(ctx),label='编辑演出风格';
+  const go=packId=>ctx.openPack(packId,'directions');
+  async function create(){if(busy)return;setBusy(true);onError?.('');try{go(await stageStylePack(ctx));}catch(e){onError?.(errorText(e));}finally{setBusy(false);}}
+  if(targets.length>1)return h(Popover,{label:'在哪个素材包里编辑演出风格',className:'ap-style-edit-anchor',
+    trigger:({toggle,open})=>h(IconButton,{icon:'edit',label,'aria-haspopup':'menu','aria-expanded':open,onClick:toggle}),
+    content:close=>targets.map(target=>h('button',{key:target.packId,type:'button',role:'menuitem',className:'ap-menu-item ap-lamp-opt ap-cast-add-pack','data-mode':target.mode,title:target.name,onClick:()=>{close();go(target.packId);}},
+      h('span',{className:'ap-lamp-dot','aria-hidden':true}),h('span',{className:'ap-lamp-opt-name'},target.name||'未命名素材包')))});
+  return h(IconButton,{icon:'edit',label,disabled:busy,'aria-busy':busy||undefined,onClick:()=>targets.length?go(targets[0].packId):create()});
+}
+// the one 读音词典 — global, in the 配音 page (dsh-tts places
+// it through the `ttsReadingsEditor` service and hands over its control RPC `call`). There is no per-card dictionary.
+// Named presets, one active for every card: a preset menu with its ⋯ (新建 / 重命名 / 复制 / 导出 / 导入 / 删除…), the search
+// box, the 写法 → 读音 rows and a dashed ＋ (InlineAdd). The list is windowed (fixed 36px rows, only the visible ones
+// mount), a row edits in its own InlineField and saves alone (editReading: one row under the preset's revision), so a
+// keystroke never re-renders or re-sends the list. Each entry's language shows as a small tag that is also its menu.
+const READING_WARNINGS={LATIN_ASSUMED_EN:'已按英语处理；拼音或日语罗马字可修改语言',AMBIGUOUS_READING:'自动识别可能不准确，可修改语言'};
+const READING_ERRORS={REVISION_CONFLICT:'内容已在别处修改，已重新载入',DUPLICATE_READING_FORM:'这个写法已经有读音了',INVALID_READINGS:'写法或读音无效',
+  DUPLICATE_PRESET_NAME:'已有同名预设',INVALID_PRESET_NAME:'预设名称无效',LAST_PRESET:'至少保留一个预设',PRESET_LIMIT:'预设数量已达上限',PRESET_NOT_FOUND:'预设不存在，已重新载入',UNKNOWN_FIELD:'不是有效的读音预设文件',
+  BODY_TOO_LARGE:'文件太大，无法导入',REQUEST_FAILED:'操作失败，请重试'};
+const READING_ROW=36, READING_VIEW=12, READING_OVERSCAN=8;
+const readingLanguageName=id=>VOICE_LANGUAGES.find(([k])=>k===id)?.[1]||id||'自动';
+function readingWarning(entry) { return entry.languageOverride||!entry.warnings?.length?'':READING_WARNINGS[entry.warnings[0]]||READING_WARNINGS.AMBIGUOUS_READING; }
+const readingForms=entry=>entry.forms.join('，');
+// Input entries only: dsh-tts re-derives language / inferredLanguage / warnings from forms, reading and the override.
+const readingInput=e=>({forms:e.forms,reading:e.reading,...(e.languageOverride?{languageOverride:e.languageOverride}:{})});
+const readingErrorText=e=>e instanceof SyntaxError?'不是有效的读音预设文件':READING_ERRORS[e?.code||e?.message]||errorText(e);
+// Rows keep their React identity while the list around them changes (entries are replaced, never mutated).
+const readingKeys=new WeakMap();let readingKeySeq=0;
+const readingKey=entry=>{let key=readingKeys.get(entry);if(!key){key='r'+(++readingKeySeq);readingKeys.set(entry,key);}return key;};
+function ReadingLanguage({entry,label,onPick}) {
+  const value=entry.languageOverride||'',warn=readingWarning(entry);
+  return h(Popover,{label:'读音语言',className:'ap-reading-lang-anchor',
+    trigger:({toggle,open})=>h('button',{type:'button',className:'ap-reading-lang'+(warn?' is-warn':'')+(value?' is-chosen':''),'aria-expanded':open,
+      'aria-label':label+'的语言：'+readingLanguageName(entry.language)+(warn?'，'+warn:''),title:warn?'⚠ '+warn:undefined,onClick:toggle},
+      warn&&h('span',{className:'ap-reading-warn','aria-hidden':true},'⚠'),h('span',null,readingLanguageName(entry.language))),
+    content:close=>[['','自动（'+readingLanguageName(entry.inferredLanguage)+'）'],...VOICE_LANGUAGES].map(([id,name])=>
+      h('button',{key:id||'auto',type:'button',role:'menuitemradio','aria-checked':value===id,className:'ap-menu-item',onClick:()=>{close();if(value!==id)onPick(id||null);}},
+        h('span',null,name),value===id&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
+}
+// One line: 写法 → 读音 · language tag · ✕. Memoized on the entry object, so an edit elsewhere re-renders nothing here.
+function ReadingRowView({entry,position,onSave,onRemove}) {
+  const forms=readingForms(entry);
+  const cell=(label,value,field,cls)=>h(InlineField,{kind:'text',label,hideLabel:true,value,title:value,className:'ap-reading-field'+cls,
+    validate:v=>v?'':field==='forms'?'请填写写法':'请填写读音',onCommit:text=>onSave(entry,{...readingInput(entry),[field]:text})});
+  return h('div',{className:'ap-readings-row',role:'row','aria-rowindex':position+1,style:{transform:'translateY('+position*READING_ROW+'px)'}},
+    cell('写法 '+forms,forms,'forms',' is-form'),
+    h('span',{className:'ap-reading-arrow','aria-hidden':true},'→'),
+    cell('读音 '+forms,entry.reading,'reading',''),
+    h(ReadingLanguage,{entry,label:forms,onPick:id=>{const next=readingInput(entry);if(id)next.languageOverride=id;else delete next.languageOverride;onSave(entry,next);}}),
+    h(Button,{className:'ap-icon-button ap-reading-remove','aria-label':'删除读音 '+forms,title:'删除',onClick:()=>onRemove(entry)},'✕'));
+}
+const ReadingRow=typeof React.memo==='function'?React.memo(ReadingRowView):ReadingRowView;
+// The window: a fixed-height scroller (12 rows) once the list is longer; only the rows in view (+ overscan) mount.
+function ReadingList({entries,rows,onSave,onRemove,resetKey}) {
+  const [top,setTop]=React.useState(0),box=React.useRef(null),frame=React.useRef(0);
+  React.useEffect(()=>{setTop(0);if(box.current)box.current.scrollTop=0;},[resetKey]);
+  const raf=typeof requestAnimationFrame==='function'?requestAnimationFrame:fn=>setTimeout(fn,16),caf=typeof cancelAnimationFrame==='function'?cancelAnimationFrame:clearTimeout;
+  React.useEffect(()=>()=>caf(frame.current),[]);
+  const windowed=rows.length>READING_VIEW;
+  const first=windowed?Math.max(0,Math.floor(top/READING_ROW)-READING_OVERSCAN):0;
+  const last=windowed?Math.min(rows.length,Math.ceil(top/READING_ROW)+READING_VIEW+READING_OVERSCAN):rows.length;
+  const onScroll=e=>{const value=e.currentTarget.scrollTop;caf(frame.current);frame.current=raf(()=>setTop(value));};
+  const shown=[];for(let n=first;n<last;n++){const entry=entries[rows[n]];shown.push(h(ReadingRow,{key:readingKey(entry),entry,position:n,onSave,onRemove}));}
+  return h('div',{ref:box,className:'ap-readings'+(windowed?' is-windowed':''),role:'table','aria-label':'读音','aria-rowcount':rows.length,onScroll:windowed?onScroll:undefined,
+    style:{height:(windowed?READING_VIEW:rows.length)*READING_ROW+'px'}},
+    h('div',{className:'ap-readings-track',role:'rowgroup',style:{height:rows.length*READING_ROW+'px'}},shown));
+}
+// The control RPC `call(method,args)` (dsh-tts): readingPresets, readingPreset, editReading, create / rename / delete /
+// setActive / export / importReadingPreset.
+// one 「发音字典」 on the 配音 page — the reading
+// presets' 写法 → 读音 rows and nothing else (the separate 「字母词」 list and its built-in readings are gone; a user adds a
+// reading here instead).
+function ReadingsEditor({call}) {
+  return h(ReadingPresetsEditor,{call});
+}
+function ReadingPresetsEditor({call}) {
+  const [list,setList]=React.useState(null),[preset,setPreset]=React.useState(null),[loadError,setLoadError]=React.useState('');
+  const [error,setError]=React.useState(''),[saving,setSaving]=React.useState(''),[query,setQuery]=React.useState('');
+  const [naming,setNaming]=React.useState(null),[confirm,setConfirm]=React.useState(false),[busy,setBusy]=React.useState(false);
+  const [adding,setAdding]=React.useState(false),[draft,setDraft]=React.useState({forms:'',reading:''});
+  const current=React.useRef(null),queue=React.useRef(Promise.resolve()),formsRef=React.useRef(null),readingRef=React.useRef(null),picker=React.useRef(null),live=React.useRef(true);
+  React.useEffect(()=>()=>{live.current=false;},[]);
+  const show=next=>{current.current=next;if(live.current)setPreset(next);};
+  // Writes run one after another, each on the newest revision (a row commits while the previous save is in flight).
+  const run=task=>{const next=queue.current.then(task,task);queue.current=next.catch(()=>{});return next;};
+  const load=async()=>{
+    // Both requests leave together (the active preset needs no id), so the large one is not queued behind the page's
+    // first render; if the active preset changed in between, read it once more.
+    let [summary,value]=await Promise.all([call('readingPresets'),call('readingPreset',{})]);
+    if(value.id!==summary.active)value=await call('readingPreset',{id:summary.active});
+    if(!live.current)return;setList(summary);show(value);setLoadError('');
+  };
+  React.useEffect(()=>{load().catch(e=>{if(live.current)setLoadError(readingErrorText(e));});},[call]);
+  const fail=async e=>{if(!live.current)return;setSaving('');
+    if(['REVISION_CONFLICT','PRESET_NOT_FOUND'].includes(e?.code||e?.message))await load().catch(()=>{});
+    if(live.current)setError(readingErrorText(e));};
+  const edit=(op,target,input)=>run(async()=>{
+    const p=current.current,index=op==='add'?undefined:p.entries.indexOf(target);
+    if(op!=='add'&&index<0)return false;
+    setSaving('saving');
+    try{
+      const r=await call('editReading',{id:p.id,expectedRevision:p.revision,op,index,...(input?{entry:input}:{})});
+      const entries=p.entries.slice();
+      if(op==='add')entries.push(r.entry);else if(op==='set')entries[index]=r.entry;else entries.splice(index,1);
+      show({...p,revision:r.revision,entries});
+      if(live.current){setList(l=>l&&{...l,presets:l.presets.map(x=>x.id===p.id?{...x,count:entries.length,revision:r.revision}:x)});setSaving('saved');setError('');}
+      return true;
+    }catch(e){await fail(e);return false;}
+  });
+  // Stable row callbacks (the rows are memoized on their entry): created once, they only read refs.
+  const rowActions=React.useRef(null);
+  if(!rowActions.current)rowActions.current={onSave:(entry,input)=>{edit('set',entry,input);},onRemove:entry=>{edit('remove',entry);}};
+  const {onSave,onRemove}=rowActions.current;
+  // Preset operations answer with the new summary; the editor then shows the (possibly new) active preset.
+  const presetOp=(method,args)=>run(async()=>{
+    setBusy(true);setError('');
+    try{const summary=await call(method,args),value=await call('readingPreset',{id:summary.active});if(live.current){setList(summary);show(value);setQuery('');}return true;}
+    catch(e){await fail(e);return false;}finally{if(live.current)setBusy(false);}
+  });
+  async function exportPreset(){
+    try{const doc=await call('exportReadingPreset',{id:current.current.id});
+      const url=URL.createObjectURL(new Blob([JSON.stringify(doc,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');
+      a.href=url;a.download=(doc.name||'读音')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);setError('');}
+    catch(e){setError(readingErrorText(e));}
+  }
+  async function importFile(file){
+    let document;try{document=JSON.parse(await file.text());}catch(e){setError(readingErrorText(e));return;}
+    await presetOp('importReadingPreset',{document});
+  }
+  async function addDraft(){
+    const forms=draft.forms.trim(),reading=draft.reading.trim();
+    if(!forms){formsRef.current?.focus?.();return false;}
+    if(!reading){readingRef.current?.focus?.();return false;}
+    if(await edit('add',null,{forms,reading})){setDraft({forms:'',reading:''});formsRef.current?.focus?.();}
+    return false;
+  }
+  const entries=preset?.entries;
+  // Search: one lower-cased line per entry, rebuilt only when the entries array changes; the filtered row list only when
+  // the entries or the (deferred) term change.
+  const term=(React.useDeferredValue||(v=>v))(query).trim().toLowerCase(),memo=React.useRef({});
+  if(!memo.current.haystack||memo.current.entries!==entries){memo.current={entries,haystack:entries?entries.map(e=>(e.forms.join('\n')+'\n'+e.reading).toLowerCase()):[]};}
+  if(memo.current.rowsFor!==memo.current.haystack||memo.current.term!==term){const haystack=memo.current.haystack,out=[];for(let i=0;i<haystack.length;i++)if(!term||haystack[i].includes(term))out.push(i);Object.assign(memo.current,{rowsFor:haystack,term,rows:out});}
+  const rows=memo.current.rows;
+  const save=h('span',{className:'ap-save-state',role:'status','data-state':saving},saving==='saving'?'正在保存…':saving==='saved'?'已保存':'');
+  let body;
+  if(loadError)body=h(ErrorBox,{error:loadError,reload:()=>{setLoadError('');load().catch(e=>setLoadError(readingErrorText(e)));}});
+  else if(!preset||!list)body=h(Loading);
+  else {
+    const only=list.presets.length<=1;
+    const menu=h(Popover,{label:'读音预设操作',className:'fork-readings-more',
+      trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'预设操作','aria-haspopup':'menu','aria-expanded':open,disabled:busy,onClick:toggle}),
+      content:close=>[
+        h(MenuItem,{key:'new',onClick:()=>{close();setNaming({mode:'create',value:''});}},'新建'),
+        h(MenuItem,{key:'rename',onClick:()=>{close();setNaming({mode:'rename',value:preset.name});}},'重命名'),
+        h(MenuItem,{key:'copy',onClick:()=>{close();presetOp('createReadingPreset',{name:preset.name+' 副本',from:preset.id});}},'复制'),
+        h(MenuItem,{key:'export',onClick:()=>{close();exportPreset();}},'导出'),
+        h(MenuItem,{key:'import',onClick:()=>{close();picker.current?.click?.();}},'导入'),
+        h(MenuItem,{key:'delete',danger:true,disabled:only,title:only?'至少保留一个预设':undefined,onClick:()=>{close();setConfirm(true);}},'删除…')]});
+    const head=naming?h(InlineAdd,{open:true,className:'fork-readings-name',label:naming.mode==='create'?'新预设名称':'预设名称',placeholder:'预设名称',maxLength:40,busy,
+        value:naming.value,onChange:value=>setNaming(n=>n&&{...n,value}),onCancel:()=>setNaming(null),
+        onConfirm:async name=>{const ok=naming.mode==='create'?await presetOp('createReadingPreset',{name}):name===preset.name||await presetOp('renameReadingPreset',{id:preset.id,name});if(ok&&live.current)setNaming(null);return ok;}})
+      :h(InlineField,{kind:'menu',label:'预设',value:list.active,disabled:busy,className:'fork-readings-preset',
+        options:list.presets.map(p=>({value:p.id,label:p.name})),onCommit:id=>presetOp('setActiveReadingPreset',{id})});
+    body=h(React.Fragment,null,
+      h('div',{className:'fork-readings-bar'},head,!naming&&menu,
+        h('input',{ref:picker,type:'file',accept:'.json,application/json',hidden:true,tabIndex:-1,'aria-label':'导入读音预设',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)importFile(file);}})),
+      (entries.length>8||query)&&h(PackSearchBox,{label:'搜索读音',placeholder:'搜索写法或读音',value:query,onChange:setQuery,className:'fork-readings-search'}),
+      entries.length?rows.length?h(ReadingList,{entries,rows,onSave,onRemove,resetKey:preset.id+'\n'+term}):h(EmptyState,{noun:'读音',query,onClear:()=>setQuery('')})
+        :h(EmptyState,{noun:'读音'}),
+      h(InlineAdd,{open:adding,onOpen:()=>setAdding(true),onCancel:()=>{setAdding(false);setDraft({forms:'',reading:''});},
+          className:'ap-readings-row is-new',tileClassName:'fork-readings-add',inputClassName:'fork-inline-add-input fork-readings-input',inputRef:formsRef,
+          label:'新写法',addLabel:'添加读音',placeholder:'写法',value:draft.forms,onChange:forms=>setDraft(d=>({...d,forms})),
+          onConfirm:()=>{if(draft.reading.trim())return addDraft();readingRef.current?.focus?.();return false;}},
+        h('span',{className:'ap-reading-arrow','aria-hidden':true},'→'),
+        h(InlineAdd,{open:true,bare:true,inputRef:readingRef,inputClassName:'fork-inline-add-input fork-readings-input',label:'新读音',placeholder:'读音',value:draft.reading,
+          onChange:reading=>setDraft(d=>({...d,reading})),onConfirm:addDraft,onCancel:()=>{setAdding(false);setDraft({forms:'',reading:''});}})),
+      error&&h('p',{className:'ap-field-error',role:'alert'},error));
+  }
+  return h('div',{className:'ap-ui fork-readings'},
+    h(StageSection,{title:'发音字典',meta:entries?entries.length:undefined,foldKey:'tts-readings',action:save,
+      help:'配音前把写法换成读音，所有人物卡通用；同一时间一个预设生效。写法可写几种，用逗号或顿号分开。'},body),
+    confirm&&preset&&h(ConfirmDialog,{title:'删除预设',body:'删除「'+preset.name+'」及其 '+preset.entries.length+' 条读音？',confirmLabel:'删除',danger:true,
+      onConfirm:async()=>{if(!await presetOp('deleteReadingPreset',{id:preset.id}))throw new Error('删除失败');},onClose:()=>setConfirm(false)}));
+}
+// the card export helpers of 「素材包」 — a pack's size,
+// and the image packs a chosen pack's 模组 need but that stay behind. A 全局 pack that goes with the card is bound to
+// the exported card (the asset library's bundle export), so it works on another machine.
+// a list row carries the total of its file sizes (`bytes`); a full snapshot sums its files.
+function stagePackBytes(pack) {
+  if(Number.isFinite(pack?.bytes))return pack.bytes>0?pack.bytes:null;
+  const files=pack?.manifest?.files;
+  return Array.isArray(files)&&files.length?files.reduce((sum,file)=>sum+(Number.isFinite(file?.size)?file.size:0),0):null;
+}
+function stageBytesText(n) {
+  if(!Number.isFinite(n)||n<0)return '';
+  if(n<1024*1024)return Math.max(1,Math.round(n/1024))+' KB';
+  const mb=n/1024/1024;return mb<1024?mb.toFixed(1)+' MB':(mb/1024).toFixed(1)+' GB';
+}
+// Image packs that the chosen packs' 模组 defaults point at but that are not exported with them.
+function stageExportMissing(packs,chosen) {
+  const needed=new Set();
+  for(const pack of packs)if(chosen.has(pack.manifest.id))for(const asset of pack.manifest.assets)if(asset.kind==='widgets')
+    for(const value of Object.values(asset.settingsDefaults||{}))if(value?.kind==='backgrounds'&&value.packId)needed.add(value.packId);
+  return [...needed].filter(id=>!chosen.has(id));
+}
+
+// 「提示词」 — the one advanced place for prompts. It lists each stage in order and
+// exactly what this plugin adds there, verbatim, with where it comes from (全局 / 本卡 / the pack by name / 本轮) and a local token estimate:
+// 1. 正文模型 — the dialogue-format worldbook entries the host syncs (getDialogueBubbles `injection`): 对白格式 (global,
+//    编辑 / 恢复默认; it carries the 双语 rules only while a figure's voice language differs from the text language),
+//    then each figure's emotion entry (its figure owns it), then any other bubble entry the bound worldbooks still hold
+//    (one another card left behind is sent as well: 「旧条目」);
+// 2. 导演模型 — (prompt view complete) every byte of the real request (previewStageDirectorPrompt system,
+//    messages, tools), cut into rows by kind and listed in the order they are sent: 职责与协议, 导演指令 (the command
+//    guidance and frozen command schemas), 演出风格, 素材清单, 剧情, 演出指引, 临时要求, 工具定义, and
+//    拼接与封装 last (the joins between the parts and the message envelope). The row bytes add up to the request.
+// The host supplies `prompts`: usePrompts() → {story:{parts,custom,entries,userName}|null, director:{loading,error,result},
+// refresh}, dialogueEditor(close) → its editor dialog, resetDialogue() → Promise. No internal keys reach the page.
+// the 演出规则 row is now 演出风格 (style.* sections).
+// what each mod adds sits in its own row 模组, every block named by its mod
+// (the registered display name the preview carries) and what it is.
+const DIRECTOR_PROMPT_ROWS=[['card','人物卡上下文'],['protocol','导演职责与协议'],['commands','导演指令'],['styles','演出风格'],['catalogue','素材清单'],['story','剧情'],['mods','模组'],['guidance','演出指引'],['request','临时要求'],['tool','工具定义'],['frame','拼接与封装']];
+const MOD_PROMPT_ROLES={commands:'命令说明',candidates:'候选素材',state:'当前状态',context:'上下文',rules:'使用规则'};
+const PROMPT_PIECE_NAMES={director:'导演职责与协议',role:'导演职责与协议',task:'导演协议','incremental-task':'本次任务参数','sound-rules':'声音规则','widget-rules':'模组规则','phone-rules':'手机短信规则',
+  'command-guidance':'指令说明','allowed-commands':'本轮可用指令列表','stage-assets-lead':'素材清单说明','admission-command-guidance':'本轮可用指令',performances:'演出组合','performance-combinations':'演出组合','style.lead':'引导语','command-schema':'指令参数格式','tool-frame':'提交工具',
+  'actors.constant':'常驻人物','actors.turn':'本轮人物',actors:'人物',outfits:'服装',roster:'人物','phone-roster':'手机联系人',contacts:'手机联系人','widget-catalogue':'模组',scenes:'背景',music:'BGM',sfx:'音效',looks:'滤镜',
+  'cue-guidance':'场景提示','music-state':'音乐状态','state-hints':'状态提示',progress:'执行反馈',
+  carried:'沿用的舞台状态',state:'沿用的舞台状态',reply:'本轮正文',paragraphs:'本轮正文',backlog:'前文',messages:'剧情与素材',guidance:'本次临时要求',tools:'提交工具的参数格式','tool-schema':'提交工具的参数格式',
+  'stable-prefix':'角色设定与常驻世界书',worldbook:'本轮触发的世界书','foreground-reads':'正文查阅过的世界书',dynamic:'指南与当前变量','card-system':'人物卡系统指令','card-post-history':'人物卡后置指令'};
+// the turn-local director inputs kept out of the cached system prefix (场景提示,
+// 音乐状态, 状态提示) sit with the turn's other state in 剧情, not under 导演职责与协议.
+const PROMPT_ROW_OF={'command-guidance':'commands','allowed-commands':'guidance','admission-command-guidance':'guidance',performances:'guidance','cue-guidance':'story','music-state':'story','state-hints':'story',carried:'story',state:'story',reply:'story',paragraphs:'story',backlog:'story',messages:'story',progress:'story',
+  tools:'tool','tool-schema':'tool',guidance:'request',outfits:'catalogue',roster:'catalogue','phone-roster':'catalogue',contacts:'catalogue','widget-catalogue':'catalogue',scenes:'catalogue',music:'catalogue',sfx:'catalogue',looks:'catalogue',
+  'stable-prefix':'card',worldbook:'card','foreground-reads':'card',dynamic:'card','card-system':'card','card-post-history':'card'};
+const promptTokens=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+const promptSum=items=>items.every(item=>item.tokens!==null)?items.reduce((sum,item)=>sum+item.tokens,0):null;
+const promptTokenText=value=>value===null?'':'约 '+value.toLocaleString('en-US')+' tokens';
+const promptBytes=text=>new TextEncoder().encode(String(text??'')).length;
+// The director's local estimate (lib/domain/stage-director-tokens.js estimateDirectorTokens, same weights), for the parts
+// the panel cuts out itself (the command schemas, the joins).
+function promptTokenEstimate(text) {
+  let half=0;
+  for(const piece of String(text??'').match(/[A-Za-z]+|[0-9]+|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|\r?\n|[^\p{L}\p{N}\s]+|[^\s]/gu)||[]){
+    if(/^[A-Za-z]+$/.test(piece))half+=2*Math.ceil(piece.length/4);
+    else if(/^[0-9]+$/.test(piece))half+=2*Math.ceil(piece.length/3);
+    else if(/^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]$/u.test(piece))half+=3;
+    else half+=2*Math.ceil([...piece].length/2);
+  }
+  return Math.ceil(half/2);
+}
+function directorPromptRow(key) {
+  if(/^style\./.test(key))return 'styles';
+  if(/^mod\./.test(key))return 'mods';
+  if(/^catalogue[.-]/.test(key)||/^actors(\.|$)/.test(key))return 'catalogue';
+  return PROMPT_ROW_OF[key]||'protocol';
+}
+// A piece of the director prompt is named by what it is; a catalogue entry carries no name of its own (its verbatim text
+// is the content, shown inside its kind's group). A 演出风格 entry is named by its title (the entry's name).
+function directorPieceName(key,text,title) {
+  if(/^style\.(card|player)\./.test(key))return typeof title==='string'&&title?title:'演出风格';
+  if(/^catalogue\./.test(key))return '';
+  if(/^catalogue-digest-/.test(key))return '分类摘要';
+  return PROMPT_PIECE_NAMES[key]||'其他内容';
+}
+// 素材清单 groups — one per asset kind, in the library's kind order (人物 first).
+function catalogueGroup(key) {
+  let m=/^catalogue\.([^.]+)\./.exec(key);if(m)return m[1];
+  m=/^catalogue-digest-(.+)$/.exec(key);if(m)return kinds[m[1]]?m[1]:m[1]==='scenes'?'backgrounds':'other';
+  if(/^actors(\.|$)/.test(key)||['outfits','roster','phone-roster'].includes(key))return 'figures';
+  return {'widget-catalogue':'widgets',contacts:'widgets',scenes:'backgrounds',music:'music',sfx:'sfx',looks:'looks'}[key]||'other';
+}
+// The kind whose packs a pack-owned piece without explicit pack ids comes from (outfits, the turn's actors, performances).
+const promptPieceKind=(row,key)=>row==='catalogue'?catalogueGroup(key):key==='performances'?'performances':null;
+function directorSectionPieces(result) {
+  return (Array.isArray(result?.sections)?result.sections:[]).filter(Boolean).flatMap(item=>{
+    const key=String(item.key||''),text=typeof item.text==='string'?item.text:item.text==null?'':JSON.stringify(item.text),kind=item.source?.kind,row=directorPromptRow(key);
+    const packIds=item.source?.packId?[item.source.packId]:Array.isArray(item.source?.packs)?item.source.packs.filter(id=>typeof id==='string'):[];
+    // A mod section: 「物品演出 · 命令说明」 (an older host without the name or role still says 模组).
+    const mod=kind==='mod'?{modId:typeof item.source.modId==='string'?item.source.modId:'',modName:typeof item.source.name==='string'&&item.source.name?item.source.name:'模组',role:MOD_PROMPT_ROLES[item.source.role]?item.source.role:''}:null;
+    const piece={key,row,name:mod?[mod.modName,MOD_PROMPT_ROLES[mod.role]].filter(Boolean).join(' · '):directorPieceName(key,text,item.title),...mod,kind,packIds,assetId:typeof item.source?.assetId==='string'?item.source.assetId:undefined,packKind:promptPieceKind(row,key),placement:item.source?.placement,tokens:promptTokens(item.tokens),text};
+    return [piece];
+  });
+}
+const promptRowName=id=>DIRECTOR_PROMPT_ROWS.find(([key])=>key===id)?.[1]||'其他内容';
+function promptRowsOf(pieces,order) {
+  const rows=new Map();
+  for(const piece of pieces){if(!rows.has(piece.row))rows.set(piece.row,[]);rows.get(piece.row).push(piece);}
+  return [...rows].sort(([a,ap],[b,bp])=>order(a,ap)-order(b,bp)).map(([id,own])=>({id,name:promptRowName(id),kinds:own.map(piece=>piece.kind),tokens:promptSum(own),
+    bytes:own.reduce((sum,piece)=>sum+(piece.bytes??promptBytes(piece.text)),0),pieces:own}));
+}
+// previewStageDirectorPrompt without the request itself (an older host) → its sections grouped in the rows' order.
+function directorPromptRows(result) {
+  const rank=id=>DIRECTOR_PROMPT_ROWS.findIndex(([key])=>key===id);
+  return promptRowsOf(directorSectionPieces(result).filter(piece=>piece.text||piece.row!=='commands'),(id)=>rank(id));
+}
+// Every op schema list of the submit tool (the oneOf whose items each name one op).
+function commandSchemaLists(value,found=[]) {
+  if(Array.isArray(value)){for(const item of value)commandSchemaLists(item,found);return found;}
+  if(!value||typeof value!=='object')return found;
+  for(const [key,item] of Object.entries(value)){
+    if((key==='oneOf'||key==='anyOf')&&Array.isArray(item)&&item.length&&item.every(entry=>typeof entry?.properties?.op?.const==='string'))found.push(item);
+    else commandSchemaLists(item,found);
+  }
+  return found;
+}
+// the real director request, byte for byte. Each place the request
+// carries text — the system prompt, every text part of the messages, the tools JSON — is cut at the preview sections
+// (found verbatim; a turn section is anchored on its key in the user JSON) and the op schemas; what
+// is left over (the joins: new lines, section tags, JSON keys and brackets) is a 拼接与封装 piece, and so is the
+// message envelope (roles, part wrappers and the JSON escaping of the texts). The escaping is counted in bytes only: the
+// provider decodes it, so the model never reads it as tokens. Rows come in the order the request first
+// uses them; within a row the pieces keep the request's order and say where they go (at). Null without `system`.
+const PROMPT_ANCHORS={'allowed-commands':'allowedCommands',carried:'carried',reply:'reply',outfits:'outfits','actors.turn':'actors',contacts:'contacts',progress:'progress'};
+function directorWire(result) {
+  if(typeof result?.system!=='string')return null;
+  const places=[{at:'system',text:result.system}],messages=Array.isArray(result.messages)?result.messages:[];
+  messages.forEach((message,index)=>{const parts=typeof message?.content==='string'?[{text:message.content}]:Array.isArray(message?.content)?message.content:[];
+    for(const part of parts)if(typeof part?.text==='string')places.push({at:message.role==='system'?'system':'user',text:part.text,message:index});});
+  if(Array.isArray(result.tools))places.push({at:'tools',text:JSON.stringify(result.tools)});
+  for(const place of places)place.claims=[];
+  const free=(place,start,end)=>place.claims.every(c=>end<=c.start||start>=c.end);
+  const find=(place,text,anchor)=>{const needle=anchor?'"'+anchor+'":'+text:text,skip=needle.length-text.length;
+    for(let i=place.text.indexOf(needle);i>=0;i=place.text.indexOf(needle,i+1))if(free(place,i+skip,i+skip+text.length))return i+skip;return -1;};
+  const unplaced=[],pieces=directorSectionPieces(result).filter(piece=>piece.row!=='tool');
+  // Longest first, so a short text never takes a place inside a longer one.
+  for(const piece of [...pieces].sort((a,b)=>b.text.length-a.text.length)){
+    if(!piece.text)continue;
+    const turn=piece.placement==='turn'||piece.kind==='turn'||piece.kind==='request'||Object.hasOwn(PROMPT_ANCHORS,piece.key);
+    let placed=false;
+    for(const at of turn?['user','system']:['system','user'])for(const place of places)if(!placed&&place.at===at){
+      const start=find(place,piece.text,PROMPT_ANCHORS[piece.key]);if(start>=0){place.claims.push({start,end:start+piece.text.length,piece});placed=true;}}
+    if(!placed)unplaced.push(piece.key);
+  }
+  const tools=places.find(place=>place.at==='tools');
+  // The sending mods (id, display name, each command's 命令说明 by its key) name the mod commands in the reference.
+  const mods=[];for(const piece of directorSectionPieces(result))if(piece.kind==='mod'&&piece.modId){let mod=mods.find(row=>row.modId===piece.modId);if(!mod)mods.push(mod={modId:piece.modId,modName:piece.modName,commands:{}});if(piece.role==='commands')mod.commands[piece.key]=piece.text;}
+  if(tools)for(const list of commandSchemaLists(result.tools)){const text=JSON.stringify(list),start=tools.text.indexOf(text);
+    if(start>=0&&free(tools,start+1,start+text.length-1))tools.claims.push({start:start+1,end:start+text.length-1,piece:{key:'command-schema',row:'commands',name:PROMPT_PIECE_NAMES['command-schema'],kind:'engine',text:text.slice(1,-1),items:list.map(item=>JSON.stringify(item)),mods}});}
+  const all=[],layout=[];
+  places.forEach((place,index)=>{
+    place.claims.sort((a,b)=>a.start-b.start);
+    const segments=[];let at=0;
+    const gap=end=>{if(end>at)segments.push({start:at,text:place.text.slice(at,end)});};
+    for(const claim of place.claims){gap(claim.start);segments.push({start:claim.start,piece:claim.piece});at=claim.end;}
+    gap(place.text.length);
+    for(const segment of segments){
+      const piece=segment.piece||(place.at==='tools'?{key:'tool-frame',row:'tool',name:PROMPT_PIECE_NAMES['tool-frame'],kind:'engine',text:segment.text}:{key:'frame',row:'frame',name:'',kind:'engine',text:segment.text});
+      all.push({...piece,at:place.at,place:index,offset:segment.start,tokens:piece.items||!segment.piece?promptTokenEstimate(piece.text):piece.tokens??promptTokenEstimate(piece.text)});
+    }
+    if(place.at!=='tools'&&segments.some(segment=>!segment.piece))layout.push({at:place.at,place:index,segments:segments.map(segment=>segment.piece?{slot:promptRowName(segment.piece.row)}:{text:segment.text})});
+  });
+  // The message envelope: the messages JSON minus the texts it carries.
+  const texts=places.filter(place=>place.message!==undefined),json=JSON.stringify(messages);
+  const envelope=promptBytes(json)-texts.reduce((sum,place)=>sum+promptBytes(place.text),0);
+  if(messages.length&&envelope>0){
+    let n=0;const skeleton=JSON.stringify(messages.map(message=>({...message,content:typeof message?.content==='string'?'\u0000':Array.isArray(message?.content)?message.content.map(part=>typeof part?.text==='string'?{...part,text:'\u0000'}:part):message?.content})));
+    const first=places.findIndex(place=>place.message!==undefined);
+    const piece={key:'envelope',row:'frame',name:'消息封装',kind:'engine',at:'user',place:first,offset:-1,bytes:envelope,
+      text:skeleton.split('"\\u0000"').join('\u0000').split('\u0000').map((part,i)=>i?'"⟨'+(++n)+'⟩"'+part:part).join(''),
+      tokens:promptTokenEstimate(skeleton.split('"\\u0000"').join('""'))};
+    all.push(piece);layout.push({at:'user',place:first,envelope:true,text:piece.text,bytes:envelope});
+  }
+  const order=(a,b)=>a.place-b.place||a.offset-b.offset;
+  all.sort(order);
+  const firstUse=new Map();all.forEach((piece,index)=>{if(!firstUse.has(piece.row))firstUse.set(piece.row,index);});
+  const rows=promptRowsOf(all,id=>id==='frame'?Infinity:firstUse.get(id));
+  // The tools as sent, for 工具定义's readable view (its pieces are the JSON around the op schemas).
+  const toolRow=rows.find(row=>row.id==='tool');if(toolRow&&Array.isArray(result.tools))toolRow.tools=result.tools;
+  const frame=rows.find(row=>row.id==='frame');if(frame){frame.layout=layout.sort((a,b)=>a.place-b.place||(a.envelope?-1:0)-(b.envelope?-1:0));frame.overview=promptOverview(places,all);}
+  // 指令参数格式's chips: what this turn offers per kind, and the registry's own account of each command (describe()).
+  const schema=all.find(piece=>piece.key==='command-schema');if(schema){schema.choices=promptChoices(all);schema.described=Array.isArray(result.commands)?result.commands:[];}
+  const bytes={system:promptBytes(result.system),messages:promptBytes(json),tools:tools?promptBytes(tools.text):0};
+  return {rows,unplaced,bytes:{...bytes,total:bytes.system+bytes.messages+bytes.tools},covered:rows.reduce((sum,row)=>sum+row.bytes,0)};
+}
+// 拼接与封装 as a map of the request — one block per place the request
+// carries text (系统 / 本轮消息 / 工具), in order: the rows as runs (a join between two pieces of the same row folds into its
+// run) and the joins between them; then the message envelope.
+function promptOverview(places,all) {
+  const blocks=[];
+  places.forEach((place,index)=>{
+    const own=all.filter(piece=>piece.place===index&&piece.key!=='envelope');if(!own.length)return;
+    const items=[];
+    own.forEach((piece,i)=>{const last=items[items.length-1];
+      if(piece.row==='frame'){if(last?.row&&own[i+1]?.row===last.row)return;items.push({join:piece.text});return;}
+      if(last?.row===piece.row)last.tokens+=piece.tokens||0;else items.push({row:piece.row,name:promptRowName(piece.row),tokens:piece.tokens||0});});
+    blocks.push({at:place.at,tokens:own.reduce((sum,piece)=>sum+(piece.tokens||0),0),items});
+  });
+  const envelope=all.find(piece=>piece.key==='envelope');
+  if(envelope)blocks.push({envelope:true,tokens:envelope.tokens,bytes:envelope.bytes});
+  return blocks;
+}
+// What this turn offers per kind (素材清单, the cast and their outfits) as labels, for the chips of 指令参数格式; a kind
+// whose text this view cannot read is left out (its chip then shows no count).
+function promptChoices(pieces) {
+  const out={},unread=new Set();
+  const add=(kind,label)=>(out[kind]||(out[kind]=[])).push(label);
+  for(const piece of pieces){
+    if(piece.row!=='catalogue'&&piece.key!=='performances')continue;
+    const kind=piece.key==='performances'?'performances':catalogueGroup(piece.key),entries=catalogueEntries(piece.text);
+    if(!entries){unread.add(kind);continue;}
+    for(const entry of entries){add(kind,entry.label||entry.ref);if(kind==='figures')for(const item of entry.variants)add('outfits',item.label||item.key);}
+  }
+  for(const kind of unread)delete out[kind];
+  return {byKind:out,unread:[...unread]};
+}
+// A handle the director sees (素材清单, the cast, contacts) → its name, so 剧情 reads names where the text has handles.
+function promptHandleNames(pieces) {
+  const names={};
+  for(const piece of pieces)if(piece.row==='catalogue')for(const entry of catalogueEntries(piece.text)||[])if(entry.ref&&entry.label)names[entry.ref]=entry.label;
+  return names;
+}
+// the source column names where a part comes from — 全局, 本卡, the packs by name, 本轮 —
+// never the bare word 素材包. A pack piece without its own pack ids falls back to the used packs that have its kind.
+const stagePackName=(ctx,id)=>ctx?.packs?.find(pack=>pack.manifest?.id===id)?.manifest.name||'缺失的素材包';
+// a pack-derived source counts its packs by lamp — 「全局素材包 2，本卡素材包 1」
+// (蓝灯 packs are 全局, the card's other packs 本卡; a side with none is left out). The names (display names only,
+// 「全局：A、B　本卡：C」) are only in the tooltip. → {owners,ownersTitle}
+function promptPackScope(ctx,ids) {
+  const global=ctx?.binding?.globalEnabledPackIds||[],unique=[...new Set(ids)],names=list=>[...new Set(list.map(id=>stagePackName(ctx,id)))].join('、');
+  const lit=unique.filter(id=>global.includes(id)),card=unique.filter(id=>!global.includes(id));
+  return {owners:[lit.length?'全局素材包 '+lit.length:'',card.length?'本卡素材包 '+card.length:''].filter(Boolean).join('，'),
+    ownersTitle:[lit.length?'全局：'+names(lit):'',card.length?'本卡：'+names(card):''].filter(Boolean).join('　')};
+}
+function promptPackIds(ctx,pieces) {
+  const ids=[];
+  for(const piece of pieces)if(piece.kind==='pack')for(const id of piece.packIds?.length?piece.packIds:piece.packKind?stageKindPacks(ctx,piece.packKind).map(pack=>pack.manifest.id):[])if(!ids.includes(id))ids.push(id);
+  return ids;
+}
+// → {owners,ownersTitle}: a row with pack pieces counts its packs by lamp; any other keeps its short scope.
+function promptSources(ctx,pieces) {
+  const ids=promptPackIds(ctx,pieces);
+  if(ids.length)return promptPackScope(ctx,ids);
+  const scopes=new Set(pieces.map(piece=>piece.kind==='request'?'turn':piece.kind));
+  // a mod's part is owned by the mod, by its display name.
+  const mods=[...new Set(pieces.filter(piece=>piece.kind==='mod').map(piece=>piece.modName||'模组'))];
+  const owners=[...mods,...(scopes.has('engine')?['全局']:[]),...(scopes.has('card')?['本卡']:[]),...(scopes.has('pack')?['素材包']:[]),...(scopes.has('turn')?['本轮']:[])].join('、');
+  return {owners,ownersTitle:owners};
+}
+// getDialogueBubbles `injection` → stage-1 rows: 对白格式, then one row per figure emotion entry (its pack by name).
+// an emotion entry's source is its packs by lamp (the shared roster: the
+// packs of the figures it covers); the sent text is untouched.
+function storyPartOwners(part,ctx) {
+  const ids=Array.isArray(part.packs)?part.packs.filter(id=>typeof id==='string'):part.figure&&part.figure!=='common-roster'?[String(part.figure).split('/')[0]]:[];
+  if(ctx&&ids.length)return promptPackScope(ctx,ids);
+  const owners='素材包';
+  return {owners,ownersTitle:owners};
+}
+function storyPromptRows(story,ctx) {
+  const rows=(story?.parts||[]).map((part,index)=>part.key==='figure'
+    ?{id:'figure:'+(part.figure||index),name:'说话人名单',...storyPartOwners(part,ctx),tokens:promptTokens(part.tokens),figure:part.figure,recalled:!part.constant,pieces:[{text:part.text,tokens:promptTokens(part.tokens)}]}
+    :{id:part.key,name:part.name||(part.key==='format'?'对白格式':part.key),owners:part.owners||'全局',tokens:promptTokens(part.tokens),voice:part.voice||null,pieces:[{text:part.text,tokens:promptTokens(part.tokens)}]});
+  // a bubble entry the worldbook holds that the settings no longer produce (another
+  // card's, left in a copied card's book) still reaches the story model: it is listed as it is sent ({{user}} filled in).
+  const sent=new Set((story?.parts||[]).map(part=>part.text)),user=story?.userName||'你';
+  for(const entry of story?.entries||[]){const text=String(entry.text||'').split('{{user}}').join(user);if(sent.has(text))continue;sent.add(text);
+    rows.push({id:'entry:'+rows.length,name:String(entry.comment||'对白格式').replace(/（由「对话气泡」设置维护）$/,''),owners:entry.bookName||'本卡世界书',
+      tokens:promptTokenEstimate(text),recalled:!entry.constant,leftover:true,pieces:[{text,tokens:promptTokenEstimate(text)}]});}
+  return rows;
+}
+
+// The director rows with an empty 演出风格 row (its pencil opens the 素材库) and an empty 导演指令 row (holds the chips) when
+// nothing of theirs is sent.
+function promptWithStyles(rows) {
+  const next=[...rows],after=(id,anchors)=>{if(next.some(row=>row.id===id))return;const at=anchors.map(key=>next.findIndex(row=>row.id===key)).find(index=>index>=0);
+    next.splice(at===undefined?0:at+1,0,{id,name:promptRowName(id),kinds:[],tokens:0,bytes:0,pieces:[]});};
+  after('commands',['protocol','card']);after('styles',['commands']);
+  return next;
+}
+// 演出风格 opened — every piece verbatim, in the order sent: the lead-in
+// (引导语), then equal entries, card first and global next: the entry's name · its pack,
+// its tokens, a 「›」 to that entry in the 素材库, and the text.
+function PromptStyles({ctx,row}) {
+  if(!row.pieces.length)return h(EmptyState,{compact:true,text:'没有启用的演出风格，不加入内容'});
+  return row.pieces.map((piece,index)=>{
+    const place=piece.at&&(index===0||row.pieces[index-1].at!==piece.at)?h(PromptAt,{at:piece.at}):null;
+    const packId=piece.packIds?.[0],entry=piece.key!=='style.lead'&&packId;
+    const name=entry?piece.name+' · '+stagePackName(ctx,packId):piece.name;
+    const jump=entry&&piece.assetId&&h('button',{type:'button',className:'ap-kind-jump','aria-label':'在舞台素材查看 '+piece.name,title:'在舞台素材查看',onClick:()=>ctx.openPack(packId,'directions',piece.assetId)},h(Glyph,{name:'chevRight'}));
+    return h('div',{key:index,className:'ap-prompt-piece'+(entry?' is-style-entry':'')},
+      h('div',{className:'ap-prompt-piece-head'},place,name&&h('span',null,name),
+        piece.tokens!==null&&h('span',{className:'ap-prompt-tokens',title:promptBytesTitle(piece)},promptTokenText(piece.tokens)),jump||null),
+      h('pre',null,piece.text||'（空）'));});
+}
+// One verbatim text. Long or multi-line texts start as one line and open in place (Enter / click); short ones just show.
+function PromptRaw({text}) {
+  const [open,setOpen]=React.useState(false),value=text||'（空）',long=value.length>72||value.includes('\n');
+  if(!long)return h('div',{className:'ap-prompt-raw'},h('code',null,value));
+  return h('button',{type:'button',className:'ap-prompt-raw is-long','aria-expanded':open,title:open?'收起':'展开全文',onClick:()=>setOpen(!open)},h('code',null,value));
+}
+// a JSON text reads structurally — values with their real line breaks, a
+// long string as a text block, a run of like objects (the judge's questions, candidates) as a counted list that folds,
+// one row per item — and 「原始」 shows the text exactly as sent. promptJson(text) is the ordered tree, and only when
+// writing it back gives the text byte for byte (else null: the text shows as it is), so the structured view never
+// drops or changes a byte; token and byte counts are the text's own.
+const PJ_STR=/"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y,PJ_NUM=/-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y,PJ_LIT=/true|false|null/y;
+function promptJson(text) {
+  if(typeof text!=='string'||!/^[[{]/.test(text))return null;
+  let at=0;
+  const token=re=>{re.lastIndex=at;const m=re.exec(text);if(!m)throw new SyntaxError('json');at=re.lastIndex;return m[0];};
+  const eat=ch=>{if(text[at]!==ch)throw new SyntaxError('json');at++;};
+  const value=()=>{
+    const ch=text[at];
+    if(ch==='{'){at++;const entries=[];if(text[at]!=='}')for(;;){const key=JSON.parse(token(PJ_STR));eat(':');entries.push([key,value()]);if(text[at]!==',')break;at++;}eat('}');return {type:'object',entries};}
+    if(ch==='['){at++;const items=[];if(text[at]!==']')for(;;){items.push(value());if(text[at]!==',')break;at++;}eat(']');return {type:'array',items};}
+    if(ch==='"')return {type:'string',value:JSON.parse(token(PJ_STR))};
+    return {type:'raw',raw:token(ch==='t'||ch==='f'||ch==='n'?PJ_LIT:PJ_NUM)};
+  };
+  try{const tree=value();return at===text.length&&promptJsonText(tree)===text?tree:null;}catch(_){return null;}
+}
+function promptJsonText(node) {
+  if(node.type==='object')return '{'+node.entries.map(([key,item])=>JSON.stringify(key)+':'+promptJsonText(item)).join(',')+'}';
+  if(node.type==='array')return '['+node.items.map(promptJsonText).join(',')+']';
+  return node.type==='string'?JSON.stringify(node.value):node.raw;
+}
+const PJ_LIST_MIN=3,PJ_OPEN_MAX=8,PJ_INLINE=40;
+const pjNested=node=>node.type==='object'||node.type==='array';
+const pjChildren=node=>node.type==='object'?node.entries:node.items.map((item,index)=>[String(index),item]);
+const pjShort=node=>!pjNested(node)&&!(node.type==='string'&&(node.value.length>PJ_INLINE||node.value.includes('\n')));
+const pjCompact=node=>pjNested(node)&&pjChildren(node).length<=6&&pjChildren(node).every(([,item])=>pjShort(item));
+const pjList=node=>pjNested(node)&&pjChildren(node).length>=PJ_LIST_MIN&&pjChildren(node).every(([,item])=>item.type==='object');
+// A list item's id: its key in an object, else its own id / name field (shown first, not repeated among the fields).
+function pjItem(parent,[key,node]) {
+  if(parent.type==='object')return {id:key,fields:node.entries};
+  const own=node.entries.find(([name,item])=>['id','name'].includes(name)&&item.type==='string'&&pjShort(item));
+  return own?{id:own[1].value,fields:node.entries.filter(entry=>entry!==own)}:{id:key,fields:node.entries};
+}
+function PromptJsonScalar({node}) {
+  return node.type==='string'?h('span',{className:'ap-json-string'},node.value||'“”'):h('span',{className:'ap-json-raw-value'},node.raw);
+}
+function PromptJsonInline({node}) {
+  return h('span',{className:'ap-json-inline'},(node.type==='array'&&!node.items.length)||(node.type==='object'&&!node.entries.length)?h('span',{className:'ap-json-raw-value'},node.type==='array'?'[]':'{}'):
+    pjChildren(node).map(([key,item],index)=>h('span',{key:index,className:'ap-json-pair'},node.type==='object'&&h('span',{className:'ap-json-key'},key),h(PromptJsonScalar,{node:item}))));
+}
+function PromptJsonList({label,node}) {
+  const items=pjChildren(node),[open,setOpen]=React.useState(items.length<=PJ_OPEN_MAX),id=React.useId();
+  return h('div',{className:'ap-json-list'},
+    h('div',{className:'ap-json-list-head'},h('button',{type:'button','aria-expanded':open,'aria-controls':id,onClick:()=>setOpen(!open)},h(Glyph,{name:'chevRight'}),
+      label&&h('span',{className:'ap-json-key'},label),h('span',{className:'ap-prompt-group-count'},items.length))),
+    open&&h('ol',{id,className:'ap-json-items'},items.map((entry,index)=>{const {id:itemId,fields}=pjItem(node,entry);
+      return h('li',{key:index,className:'ap-json-item'},h('code',{className:'ap-json-id'},itemId),
+        fields.map(([key,item],i)=>!pjNested(item)||pjCompact(item)?h('span',{key:i,className:'ap-json-pair'+(pjShort(item)?'':' is-long')},h('span',{className:'ap-json-key'},key),
+            pjShort(item)?h(PromptJsonScalar,{node:item}):pjNested(item)?h(PromptJsonInline,{node:item}):h('span',{className:'ap-json-text'},item.value)):
+          h('div',{key:i,className:'ap-json-field is-block'},h('span',{className:'ap-json-key'},key),h(PromptJsonNode,{node:item}))));})));
+}
+function PromptJsonNode({node,label}) {
+  if(!pjNested(node))return pjShort(node)?h(PromptJsonScalar,{node}):h('div',{className:'ap-json-text'},node.value);
+  if(pjList(node))return h(PromptJsonList,{label,node});
+  if(pjCompact(node))return h(PromptJsonInline,{node});
+  return h('div',{className:'ap-json-fields'},pjChildren(node).map(([key,item],index)=>pjList(item)?h(PromptJsonList,{key:index,label:key,node:item}):
+    h('div',{key:index,className:'ap-json-field'+(pjShort(item)||pjCompact(item)?'':' is-block')},h('span',{className:'ap-json-key'},key),h(PromptJsonNode,{node:item}))));
+}
+// the text as sent is the row's 「查看原文」 (on its header), not a toggle here.
+function PromptJson({tree}) {
+  return h('div',{className:'ap-json'},h('div',{className:'ap-json-tree'},h(PromptJsonNode,{node:tree})));
+}
+// 指令参数格式 reads like the commands themselves. One row per command
+// target (the command name minus its last word: cast, music, cg.focus…) in 可用演出's groups (the registry's), then mods,
+// then the rest; under it one line per verb, each carrying its own arguments — the required ones, then one dashed box
+// 「可选」 holding the optional ones, where arguments the registry marks mutually exclusive (`exclusive`) read 「a 或 b」.
+// A value reads as what to give: an asset or an actor is a chip with how many this turn offers (it opens them), a value
+// set one segmented chip, a number its range, a flag `true`, text its length. The argument's own name comes first
+// (`name:`) only where the value alone does not say which argument it is. Hovering a verb shows its full command name
+// with the registry's Chinese label and help; hovering an argument, its name and the description the model gets.
+// Everything is derived from the schema shape and the registry, never from a command's name, so renamed or new
+// commands still read. 「查看原文」 (on the header) shows the text exactly as sent; the view never changes what is sent.
+const schemaObject=value=>value&&typeof value==='object'&&!Array.isArray(value);
+const schemaChip=value=>value===null?'空':typeof value==='string'?value:JSON.stringify(value);
+const schemaNum=value=>typeof value==='number'&&Number.isFinite(value)?value:null;
+const schemaOp=s=>schemaObject(s)&&schemaObject(s.properties)&&schemaObject(s.properties.op)&&(typeof s.properties.op.const==='string'||typeof s.properties.op.pattern==='string');
+const schemaOpName=s=>typeof s.properties.op.const==='string'?s.properties.op.const:s.properties.op.pattern;
+const schemaVariants=s=>[...(Array.isArray(s.anyOf)?s.anyOf:[]),...(Array.isArray(s.oneOf)?s.oneOf:[])].filter(schemaObject);
+const schemaOpList=s=>{const ops=schemaVariants(s);return ops.length&&ops.every(schemaOp)?ops:null;};
+const schemaProps=(schema,skip)=>schemaObject(schema.properties)?Object.entries(schema.properties).filter(([name,s])=>name!==skip&&schemaObject(s)):[];
+const schemaNote=s=>typeof s.description==='string'&&s.description?s.description:schemaObject(s.items)&&typeof s.items.description==='string'?s.items.description:'';
+const hasHan=text=>/\p{Script=Han}/u.test(String(text||''));
+const isActorRef=s=>schemaObject(s)&&typeof s.$ref==='string'&&/\/actor$/.test(s.$ref);
+// The fields of a registered command that take an actor (its own schema, built with every dimension on).
+function commandActorFields(def) {
+  const fields=new Set();
+  try{
+    const all=new Proxy({},{get:()=>true});
+    const walk=(s,name,depth)=>{if(!schemaObject(s)||depth>6)return;if(name&&(isActorRef(s)||isActorRef(s.items)))fields.add(name);
+      for(const [key,item] of Object.entries(schemaObject(s.properties)?s.properties:{}))walk(item,key,depth+1);for(const variant of schemaVariants(s))walk(variant,'',depth+1);};
+    walk(def.schema({dimensions:all,catalogue:{candidates:{},rows:[]},actors:{},items:{enabled:true}}),'',0);
+  }catch(_){}
+  return fields;
+}
+// `exclusive` (registry / describe()): one list of argument names, or a list of such lists.
+const commandExclusive=value=>!Array.isArray(value)?[]:value.every(item=>typeof item==='string')?[value]:value.filter(item=>Array.isArray(item)&&item.every(name=>typeof name==='string'));
+// → {title, help, group, rank, refs, actors, toggle, exclusive}: what the registry (its describe() rows from the preview,
+// `described`, else its definitions) or the sending mod says about a command.
+function commandInfo(name,mods,described) {
+  const registry=typeof directorCommands!=='undefined'?directorCommands:null,def=registry?.byName?.[name];
+  // `exclusive` comes from the preview's describe() row (context-aware: only groups the schema offers), else the definition.
+  const about=(Array.isArray(described)?described:[]).find(row=>row?.name===name),exclusive=commandExclusive(about?about.exclusive:def?.exclusive);
+  if(def){
+    const group=registry.dimensionGroups?.find(([,items])=>items.some(([key])=>key===def.toggle));
+    const groupName=group?(hasHan(group[0])?group[0]:group[1].map(([,label])=>label).join('、')):'其他演出';
+    return {title:hasHan(def.label)?def.label:registry.dimensions?.[def.toggle]||'',help:hasHan(def.help)?def.help:typeof def.summary==='string'?def.summary:'',
+      group:groupName,rank:group?registry.dimensionGroups.indexOf(group):100,refs:schemaObject(def.refs)?def.refs:{},actors:commandActorFields(def),toggle:def.toggle,exclusive};
+  }
+  // A mod command groups by the registry's ownership (describe() `mod`, named by the preview), not by whether its mod
+  // also sent a prompt piece; the sending mod only adds its 命令说明.
+  const list=Array.isArray(mods)?mods:[],owner=typeof about?.mod?.id==='string'&&about.mod.id?about.mod.id:'';
+  const mod=list.find(row=>row.modId===owner)||(!owner?list.filter(row=>String(name).startsWith('mod.'+row.modId+'.')).sort((a,b)=>b.modId.length-a.modId.length)[0]:null);
+  const summary=typeof about?.summary==='string'?about.summary:'';
+  const modName=typeof about?.mod?.name==='string'&&about.mod.name.trim()?about.mod.name.trim():mod?.modName&&mod.modName!=='模组'?mod.modName:'';
+  if(owner||mod)return {title:modName||'模组',help:mod?.commands?.[name]||mod?.commands?.['mod.'+mod.modId+'.'+about?.mod?.commandId]||summary,group:modName?'模组 · '+modName:'模组',rank:200,refs:{},actors:new Set(),exclusive};
+  return {title:'',help:summary,group:'其他',rank:300,refs:{},actors:new Set(),exclusive};
+}
+const countText=(lo,hi)=>lo!==null&&hi!==null?(lo===hi?lo:lo+'–'+hi)+' 个':lo!==null?'≥'+lo+' 个':hi!==null?'≤'+hi+' 个':'多个';
+// The asset kinds a command can take beyond the library's: a figure's outfits (listed with the cast).
+const commandKinds={...kinds,outfits:'服装'};
+const rangeText=(lo,hi,none)=>lo!==null&&hi!==null?lo+'–'+hi:lo!==null?'≥'+lo:hi!==null?'≤'+hi:none;
+// What an argument takes: an asset of a kind (the registry's refs; a field named after its command's dimension when that
+// is an asset kind, like an outfit), an actor, a value set, a flag, a number, text, or something else.
+function commandArg(name,s,info) {
+  const list=s.type==='array'&&schemaObject(s.items),item=list?s.items:s;
+  const asset=info.refs?.[name]||(name===info.toggle&&commandKinds[name+'s']?name+'s':'');
+  if(asset)return {type:'asset',kind:asset,list};
+  if(info.actors?.has(name)||isActorRef(item))return {type:'asset',kind:'figures',actor:true,list};
+  const variants=schemaVariants(item);
+  if(Object.hasOwn(item,'const')||Array.isArray(item.enum)||variants.length&&!variants.some(variant=>schemaOpList(variant)||schemaOp(variant)))return {type:'set',list};
+  const type=Array.isArray(item.type)?item.type.find(value=>value!=='null'):item.type;
+  if(type==='boolean')return {type:'flag',list};
+  if(type==='integer'||type==='number')return {type:'number',list};
+  if(type==='string')return {type:'text',list};
+  return {type:'other',list};
+}
+// The name goes first where the value alone does not say which argument it is: text, numbers, flags, anything else;
+// a value set or an asset when the verb takes more than one argument (an asset only when another takes the same kind);
+// never when the name repeats a word of the command (weather.set weather, cg.focus.set focus).
+function commandArgNamed(op,arg,args) {
+  if(arg.type!=='set'&&arg.type!=='asset')return true;
+  if(op.split('.').includes(arg.name)||args.length<2)return false;
+  return arg.type==='set'||args.filter(other=>other.type==='asset'&&other.kind===arg.kind).length>1;
+}
+// An asset / actor chip: 「背景 9」 (how many this turn offers), 「人物 · 多个」 for a list; it opens the real options.
+function CommandAsset({arg,count,choices}) {
+  const label=arg.actor?'人物':commandKinds[arg.kind]||arg.kind;
+  const known=choices&&!choices.unread.includes(arg.kind),list=known?choices.byKind[arg.kind]||[]:null;
+  const text=label+(list&&!arg.actor?' '+list.length:'')+(arg.list?' · '+count:'');
+  if(!list)return h('span',{className:'ap-cmd-asset'},text);
+  return h(Popover,{label:label+' 可选项',className:'ap-cmd-asset-anchor',limit:280,trigger:({open,toggle})=>h('button',{type:'button',className:'ap-cmd-asset','aria-haspopup':'menu','aria-expanded':open,onClick:toggle},text),
+    content:()=>list.length?list.map((value,i)=>h('div',{key:i,role:'menuitem',tabIndex:-1,className:'ap-menu-item ap-cmd-choice'},value)):h('div',{className:'ap-menu-item ap-cmd-choice is-empty'},'本轮没有可选的'+label)});
+}
+// One value set as a segmented chip; an alternative that is an actor reads as an actor chip inside it.
+function CommandSet({s,info}) {
+  const parts=[];
+  const add=item=>{
+    if(Object.hasOwn(item,'const'))parts.push(schemaChip(item.const));
+    else if(Array.isArray(item.enum))parts.push(...item.enum.map(schemaChip));
+    else if(schemaOpList(item))parts.push({word:'导演指令 '+schemaOpList(item).length+' 条'});
+    else if(schemaOp(item))parts.push(schemaOpName(item));
+    else if(schemaVariants(item).length)schemaVariants(item).forEach(add);
+    else{const props=schemaProps(item);parts.push(props.length===1&&(info.actors?.has(props[0][0])||isActorRef(props[0][1]))?{word:'人物',actor:true}:{word:commandWord(item)});}
+  };
+  add(s);
+  return h('span',{className:'ap-cmd-set'},parts.map((part,i)=>typeof part==='string'?h('span',{key:i},part):h('span',{key:i,className:part.actor?'is-actor':'is-word'},part.word)));
+}
+const commandWord=s=>{const type=Array.isArray(s.type)?s.type.find(value=>value!=='null'):s.type;return type==='string'?'文字':type==='boolean'?'true':type==='integer'||type==='number'?'数字':type==='array'?'列表':'对象';};
+function CommandValue({s,arg,info,choices}) {
+  const item=arg.list?s.items:s,count=arg.list?countText(schemaNum(s.minItems),schemaNum(s.maxItems)):'';
+  if(arg.type==='asset')return h(CommandAsset,{arg,count,choices});
+  if(arg.type==='set')return arg.list?h(React.Fragment,null,h(CommandSet,{s:item,info}),h('span',{className:'ap-cmd-val is-word'},'× '+count)):h(CommandSet,{s,info});
+  if(arg.type==='flag')return h('span',{className:'ap-cmd-val'},'true');
+  if(arg.type==='number')return h('span',{className:'ap-cmd-val'},rangeText(schemaNum(item.minimum),schemaNum(item.maximum),'数字'));
+  const length=schemaNum(item.maxLength);
+  if(arg.type==='text')return h('span',{className:'ap-cmd-val is-word'},arg.list?'文字 × '+count+(length!==null?'，每条 ≤'+length+' 字':''):length!==null?'≤'+length+' 字':'文字');
+  return h('span',{className:'ap-cmd-val is-word'},arg.list?'列表':commandWord(item));
+}
+// A verb's arguments: required first, then the dashed 「可选」 box.
+function CommandArgs({op,schema,info,choices}) {
+  const required=new Set(Array.isArray(schema.required)?schema.required:[]);
+  const args=schemaProps(schema,'op').map(([name,s])=>({name,s,...commandArg(name,s,info)}));
+  const one=arg=>{const note=schemaNote(arg.s);
+    return h('span',{key:arg.name,className:'ap-cmd-arg',title:arg.name+(note?' — '+note:'')},commandArgNamed(op,arg,args)&&h('code',{className:'ap-cmd-key'},arg.name),h(CommandValue,{s:arg.s,arg,info,choices}));};
+  const optional=args.filter(arg=>!required.has(arg.name)),groups=[],seen=new Set();
+  for(const arg of optional){if(seen.has(arg.name))continue;const set=info.exclusive.find(names=>names.includes(arg.name));
+    const members=set?optional.filter(other=>set.includes(other.name)):[arg];members.forEach(other=>seen.add(other.name));groups.push(members);}
+  return h('span',{className:'ap-cmd-args'},args.filter(arg=>required.has(arg.name)).map(one),
+    groups.length>0&&h('span',{className:'ap-cmd-optional'},h('span',{className:'ap-cmd-optional-label'},'可选'),
+      groups.map((members,i)=>members.length>1?h('span',{key:i,className:'ap-cmd-alt'},members.flatMap((arg,j)=>j?[h('span',{key:'or'+j,className:'ap-cmd-or'},'或'),one(arg)]:[one(arg)])):one(members[0]))));
+}
+function CommandLine({schema,info,choices}) {
+  const op=schemaOpName(schema),verb=op.includes('.')?op.slice(op.lastIndexOf('.')+1):op;
+  const hover=[op,info.title].filter(Boolean).join(' · ')+(info.help?'\n'+info.help:'');
+  return h('div',{className:'ap-cmd-line'},h('code',{className:'ap-cmd-verb',title:hover,'aria-label':hover},verb),h(CommandArgs,{op,schema,info,choices}));
+}
+const promptParse=text=>{try{return JSON.parse(text);}catch(_){return undefined;}};
+// 「查看原文」: a quiet toggle that sits on the header row of what it switches.
+function PromptRawToggle({raw,onChange}) {
+  return h('button',{type:'button',className:'ap-schema-toggle','aria-pressed':raw,onClick:e=>{e.stopPropagation();onChange(!raw);}},'查看原文');
+}
+// 导演指令 · 指令参数格式 (`choices`: promptChoices; `described`: the preview's describe() rows); anything not an op schema
+// keeps the raw lines.
+function PromptOps({items,raw,mods,described,choices}) {
+  const ops=items.map(promptParse);
+  const lines=h('pre',{className:'ap-prompt-lines'},items.map((item,i)=>h('span',{key:i},item+(i<items.length-1?',':''))));
+  if(raw||!ops.length||!ops.every(schemaOp))return lines;
+  const groups=new Map();
+  for(const schema of ops){const op=schemaOpName(schema),info=commandInfo(op,mods,described),target=op.includes('.')?op.slice(0,op.lastIndexOf('.')):op;
+    let group=groups.get(info.group);if(!group)groups.set(info.group,group={rank:info.rank,targets:new Map()});
+    let lines=group.targets.get(target);if(!lines)group.targets.set(target,lines=[]);lines.push({schema,info});}
+  return h('div',{className:'ap-prompt-groups'},[...groups].sort(([,a],[,b])=>a.rank-b.rank).map(([group,{targets}])=>h('section',{key:group,className:'ap-prompt-group','aria-label':group},
+    h('div',{className:'ap-prompt-group-head'},h('span',{className:'ap-prompt-group-name'},group)),
+    h('ul',{className:'ap-cmd-rows'},[...targets].map(([target,own])=>h('li',{key:target,className:'ap-cmd-row'},h('code',{className:'ap-cmd-target'},target),
+      h('div',{className:'ap-cmd-lines'},own.map(({schema,info})=>h(CommandLine,{key:schemaOpName(schema),schema,info,choices})))))))));
+}
+// 工具定义: each tool (name, description, parameters) when the tools JSON has that shape, else null (the raw pieces).
+function promptToolDefs(row) {
+  const tools=Array.isArray(row.tools)?row.tools:promptParse(row.pieces.find(piece=>piece.key==='tools')?.text??'');
+  const defs=Array.isArray(tools)?tools.map(tool=>schemaObject(tool?.function)?tool.function:tool):[];
+  return defs.length&&defs.every(def=>schemaObject(def)&&typeof def.name==='string'&&schemaObject(def.parameters))?defs:null;
+}
+// A tool's parameters in the same rows: the tool, then each nested object (`beats[]`), then each list of alternatives
+// (`ops[]`: the commands are under 导演指令) — 「a 或 b」.
+function toolRows(schema,path,out=[]) {
+  out.push({path,schema});
+  for(const [name,s] of schemaProps(schema)){
+    const item=s.type==='array'&&schemaObject(s.items)?s.items:s,key=name+(item===s?'':'[]');
+    if(schemaProps(item).length)toolRows(item,key,out);
+    else if(schemaVariants(item).length&&!schemaVariants(item).every(variant=>Array.isArray(variant.enum)||Object.hasOwn(variant,'const')))out.push({path:key,variants:schemaVariants(item)});
+  }
+  return out;
+}
+const TOOL_INFO={refs:{},actors:new Set(),exclusive:[]};
+function ToolVariant({s}) {
+  const ops=schemaOpList(s);
+  if(ops)return h('span',{className:'ap-cmd-val is-word'},'导演指令 '+ops.length+' 条之一');
+  if(schemaOp(s))return h('span',{className:'ap-cmd-arg',title:schemaNote(s)},h('code',{className:'ap-cmd-verb'},schemaOpName(s)),h(CommandArgs,{op:'',schema:s,info:TOOL_INFO}));
+  return h('span',{className:'ap-cmd-arg',title:schemaNote(s)},h(CommandValue,{s,arg:commandArg('',s,TOOL_INFO),info:TOOL_INFO}));
+}
+function PromptTools({row,defs,raw}) {
+  if(raw)return h(PromptPieces,{pieces:row.pieces});
+  return h('div',{className:'ap-prompt-groups'},defs.map((def,i)=>h('section',{key:i,className:'ap-prompt-group','aria-label':def.name},
+    h('div',{className:'ap-prompt-group-head'},h('span',{className:'ap-prompt-group-name'},'提交工具'),h('code',{className:'ap-schema-name'},def.name),
+      typeof def.description==='string'&&def.description&&h(Help,{text:def.description,label:def.name+' 说明'})),
+    h('ul',{className:'ap-cmd-rows'},toolRows(def.parameters,def.name).map(item=>h('li',{key:item.path,className:'ap-cmd-row'},h('code',{className:'ap-cmd-target'},item.path),
+      h('div',{className:'ap-cmd-lines'},h('div',{className:'ap-cmd-line is-bare'},item.variants?h('span',{className:'ap-cmd-args'},h('span',{className:'ap-cmd-alt'},
+        item.variants.flatMap((variant,j)=>j?[h('span',{key:'or'+j,className:'ap-cmd-or'},'或'),h(ToolVariant,{key:j,s:variant})]:[h(ToolVariant,{key:j,s:variant})]))):
+        h(CommandArgs,{op:'',schema:item.schema,info:TOOL_INFO})))))))));
+}
+// A piece's text: the op schemas as the command reference, a JSON text structurally, anything else verbatim; `raw`
+// always verbatim.
+function PromptText({text,items,raw}) {
+  const tree=React.useMemo(()=>items||raw?null:promptJson(text),[text,items,raw]);
+  if(items)return h(PromptOps,{items,raw});
+  return tree?h(PromptJson,{tree}):h('pre',null,text||'（空）');
+}
+// where a piece goes, in words, with its one-sentence (?).
+const PROMPT_AT={system:'系统',user:'本轮消息',tools:'工具'};
+const PROMPT_AT_HELP={system:'系统：每轮不变的固定说明，放在缓存前缀里，可以命中缓存。',user:'本轮消息：每轮单独发给模型的当轮信息，放在缓存前缀之外，不影响缓存命中。',
+  tools:'工具：模型可以调用的工具和参数格式，每轮不变，放在缓存前缀里。'};
+function PromptAt({at}) {
+  if(!PROMPT_AT[at])return null;
+  return h('span',{className:'ap-prompt-at-tag'},h('span',{className:'ap-prompt-at'},PROMPT_AT[at]),h(Help,{text:PROMPT_AT_HELP[at],label:PROMPT_AT[at]+' 说明'}));
+}
+const promptBytesTitle=piece=>(piece.bytes??promptBytes(piece.text)).toLocaleString('en-US')+' B';
+// 素材清单 opened — one region per kind (人物, 背景, 音乐, 音效, 环境音, CG, 模组…), each with its
+// name, how many entries, the packs it comes from, its tokens and the 基础设置 「›」 jump to that kind in the 素材库; inside,
+// each entry's text exactly as sent, marked with where it goes (system / 用户消息).
+// the entries read as a list — the asset's name, its note beside, and its
+// variants / outfits as chips with their own note; a run of entries going to the same place (系统 / 本轮消息) starts
+// with that tag once. The handle (what the director copies) is only in the raw text: 「查看原文」 on the row's header
+// swaps in every entry's text exactly as sent. An entry of another shape (or with nested fields this view does not
+// know) stays verbatim.
+const promptStr=value=>typeof value==='string'?value:undefined;
+const CATALOGUE_FIELDS=new Set(['label','name','ref','id','directorNote','guidance','description','variants','outfits','focus']);
+const CATALOGUE_VARIANT_FIELDS=new Set(['key','id','label','name','description','guidance','directorNote']);
+function catalogueEntry(value,handle) {
+  if(!schemaObject(value))return null;
+  const label=promptStr(value.label)??promptStr(value.name),ref=handle??promptStr(value.ref)??promptStr(value.id);
+  if(label===undefined&&ref===undefined)return null;
+  if(Object.hasOwn(value,'defaultVariant'))return null;
+  const table=value.variants;
+  if(table!==undefined&&(!schemaObject(table)||Object.keys(table).some(key=>!['default','entries'].includes(key))||typeof table.default!=='string'||!Array.isArray(table.entries)||!table.entries.length||!table.entries.every(item=>schemaObject(item)&&typeof item.id==='string'&&typeof item.name==='string'&&Object.keys(item).every(key=>['id','name'].includes(key)))||new Set(table.entries.map(item=>item.id)).size!==table.entries.length||!table.entries.some(item=>item.id===table.default)))return null;
+  if(table!==undefined&&value.outfits!==undefined)return null;
+  const list=table?.entries??value.outfits;
+  if(value.outfits!==undefined&&!(Array.isArray(value.outfits)&&value.outfits.every(item=>schemaObject(item)&&Object.entries(item).every(([key,field])=>CATALOGUE_VARIANT_FIELDS.has(key)&&typeof field==='string'))))return null;
+  if(value.focus!==undefined&&!(Array.isArray(value.focus)&&value.focus.every(item=>schemaObject(item)&&typeof item.key==='string'&&typeof item.label==='string'&&Object.keys(item).every(key=>['key','label'].includes(key)))))return null;
+  const extra=Object.entries(value).filter(([key])=>!CATALOGUE_FIELDS.has(key));
+  if(extra.some(([,field])=>field&&typeof field==='object'))return null;
+  const fallback=table?.default;
+  return {label:label??'',ref:ref??'',note:promptStr(value.directorNote)??promptStr(value.guidance)??promptStr(value.description)??'',
+    variants:(list||[]).map(item=>{const key=item.key??item.id??'';return {key,label:item.label??item.name??'',note:item.description??item.guidance??item.directorNote??'',fallback:fallback!==undefined&&key===fallback};}),
+    extra:[...extra.map(([key,field])=>[key,typeof field==='string'?field:JSON.stringify(field)]),...(value.focus?.length?[['构图焦点',value.focus.map(item=>item.label).join('、')]]:[])]};
+}
+// An entry text → its entries (one asset, a handle → asset map like the cast, or a list like the contacts), else null.
+function catalogueEntries(text) {
+  const value=promptParse(text);
+  if(Array.isArray(value)){const list=value.map(item=>catalogueEntry(item));return list.length&&list.every(Boolean)?list:null;}
+  if(!schemaObject(value))return null;
+  if(promptStr(value.ref)!==undefined||promptStr(value.label)!==undefined){const one=catalogueEntry(value);return one?[one]:null;}
+  const map=Object.entries(value).map(([key,item])=>catalogueEntry(item,key));
+  return map.length&&map.every(Boolean)?map:null;
+}
+function CatalogueEntry({entry}) {
+  return h('li',{className:'ap-pcat-entry'},
+    h('div',{className:'ap-pcat-id'},entry.label?h('span',{className:'ap-pcat-label'},entry.label):h('code',{className:'ap-pcat-label'},entry.ref)),
+    h('div',{className:'ap-pcat-body'},entry.note&&h('p',{className:'ap-pcat-note'},entry.note),
+      entry.variants.length>0&&h('ul',{className:'ap-pcat-variants'},entry.variants.map((item,i)=>h('li',{key:i,className:item.fallback?'is-default':undefined},
+        h('span',{className:'ap-schema-chip'},item.key||item.label),item.key&&item.label&&h('span',{className:'ap-pcat-variant-label'},item.label),
+        item.fallback&&h('span',{className:'ap-pcat-default','aria-label':'默认'},'★'),item.note&&h('span',{className:'ap-pcat-variant-note'},item.note)))),
+      entry.extra.map(([key,field])=>h('span',{key,className:'ap-json-pair'},h('span',{className:'ap-json-key'},key),h('span',{className:'ap-json-string'},field)))));
+}
+// One kind's entries, readable: the place tag (and the piece's name, 常驻人物 / 手机联系人) once per run.
+function CatalogueList({pieces}) {
+  const items=[];
+  pieces.forEach((piece,index)=>{
+    const before=pieces[index-1];
+    if(!before||before.at!==piece.at||before.name!==piece.name)items.push(h('li',{key:'at'+index,className:'ap-pcat-run'},h(PromptAt,{at:piece.at}),piece.name&&h('span',null,piece.name)));
+    const entries=catalogueEntries(piece.text);
+    if(entries)entries.forEach((entry,i)=>items.push(h(CatalogueEntry,{key:index+':'+i,entry})));
+    else items.push(h('li',{key:index,className:'ap-pcat-entry is-raw'},h(PromptRaw,{text:piece.text})));
+  });
+  return h('ul',{className:'ap-pcat-list'},items);
+}
+function PromptCatalogue({ctx,pieces,raw}) {
+  const groups=new Map();
+  for(const piece of pieces){const kind=catalogueGroup(piece.key);if(!groups.has(kind))groups.set(kind,[]);groups.get(kind).push(piece);}
+  const rank=kind=>{const at=KIND_ORDER.indexOf(kind);return at<0?KIND_ORDER.length:at;};
+  const count=piece=>/^catalogue\./.test(piece.key)?1:/^actors(\.|$)/.test(piece.key)?(()=>{try{const value=JSON.parse(piece.text);return value&&typeof value==='object'&&!Array.isArray(value)?Object.keys(value).length:1;}catch(_){return 1;}})():0;
+  return h('div',{className:'ap-prompt-groups'},[...groups].sort(([a],[b])=>rank(a)-rank(b)).map(([kind,own])=>{
+    const name=kinds[kind]||'其他',total=own.reduce((sum,piece)=>sum+count(piece),0),tokens=promptSum(own),packIds=promptPackIds(ctx,own.map(piece=>({...piece,packKind:piece.packKind||kind}))),sources=packIds.length?promptPackScope(ctx,packIds):null;
+    return h('section',{key:kind,className:'ap-prompt-group','aria-label':name},
+      h('div',{className:'ap-prompt-group-head'},
+        h('span',{className:'ap-prompt-group-name'},name),total>0&&h('span',{className:'ap-prompt-group-count'},total),
+        sources&&h('span',{className:'ap-prompt-owner',title:sources.ownersTitle},sources.owners),
+        tokens!==null&&h('span',{className:'ap-prompt-tokens'},promptTokenText(tokens)),
+        kinds[kind]&&h(StageKindJump,{ctx,kind,label:name,packIds})),
+      raw?h('ul',{className:'ap-prompt-raw-list'},own.map((piece,index)=>{const label=[PROMPT_AT[piece.at],piece.name].filter(Boolean).join(' · ');
+        return h('li',{key:index},label&&h('span',{className:'ap-prompt-raw-label',title:promptBytesTitle(piece)},label),h(PromptRaw,{text:piece.text}));})):
+        h(CatalogueList,{pieces:own}));
+  }));
+}
+// A row's pieces as sent: a run of pieces going to the same place starts with that place (system / 用户消息 / 工具).
+// The op schemas show one op per line (the text itself is unchanged: the lines join back into it).
+function PromptPieces({pieces,raw}) {
+  const many=pieces.length>1;
+  const head=(piece,place,name,tokens,end)=>(place||name||tokens!==null||end)&&h('div',{className:'ap-prompt-piece-head'},place,name&&h('span',null,name),
+    tokens!==null&&h('span',{className:'ap-prompt-tokens',title:promptBytesTitle(piece)},promptTokenText(tokens)),end&&h('span',{className:'ap-prompt-head-end'},end));
+  // the row head carries the row's tokens, so a lone piece has no token line
+  // of its own; in a row of several, each piece's head is name · tokens on one line.
+  return pieces.map((piece,index)=>{const place=piece.at&&PROMPT_AT[piece.at]&&(index===0||pieces[index-1].at!==piece.at)?h(PromptAt,{at:piece.at}):null,name=many?piece.name:'',tokens=many?piece.tokens??null:null;
+    if(piece.items)return h(SchemaPiece,{key:index,piece,head:end=>head(piece,place,name,tokens,end)});
+    return h('div',{key:index,className:'ap-prompt-piece'},head(piece,place,name,tokens,null),h(PromptText,{text:piece.text,raw}));});
+}
+// 指令参数格式: the command reference, with 「查看原文」 at the end of its header line.
+function SchemaPiece({piece,head}) {
+  const [raw,setRaw]=React.useState(false);
+  return h('div',{className:'ap-prompt-piece'},head(h(PromptRawToggle,{raw,onChange:setRaw})),h(PromptOps,{items:piece.items,raw,mods:piece.mods,described:piece.described,choices:piece.choices}));
+}
+// 模组 opened — a block per mod and kind, in the order sent: 「物品演出 ·
+// 命令说明」, 「物品演出 · 候选素材 3」… with its tokens; the label opens that mod's settings. Each text is as sent.
+function PromptMods({ctx,row,raw}) {
+  const groups=[];
+  for(const piece of row.pieces){const last=groups[groups.length-1];if(last&&last.modId===piece.modId&&last.role===piece.role&&last.at===piece.at)last.pieces.push(piece);else groups.push({modId:piece.modId,modName:piece.modName,role:piece.role,at:piece.at,pieces:[piece]});}
+  return groups.map((group,index)=>{
+    const place=group.at&&(index===0||groups[index-1].at!==group.at)?h(PromptAt,{at:group.at}):null,label=group.pieces[0].name,tokens=promptSum(group.pieces);
+    const bytes=group.pieces.reduce((sum,piece)=>sum+(piece.bytes??promptBytes(piece.text)),0);
+    return h('div',{key:index,className:'ap-prompt-piece'},
+      h('div',{className:'ap-prompt-piece-head'},place,
+        ctx.openMod&&group.modId?h('button',{type:'button',className:'ap-prompt-mod-link',title:group.modName+' 设置',onClick:()=>ctx.openMod(group.modId)},h('span',null,label),h(Glyph,{name:'chevRight'})):h('span',null,label),
+        group.pieces.length>1&&h('span',{className:'ap-prompt-group-count'},group.pieces.length),
+        tokens!==null&&h('span',{className:'ap-prompt-tokens',title:bytes.toLocaleString('en-US')+' B'},promptTokenText(tokens))),
+      group.pieces.map((piece,i)=>h(PromptText,{key:i,text:piece.text,raw})));
+  });
+}
+// 拼接与封装 · 查看原文: each place that has joins, as its outline — the joins verbatim (a new line shows as ↵), every other part as
+// ⟨its row⟩ — then the message envelope with its texts as ⟨1⟩, ⟨2⟩….
+function PromptFrame({row}) {
+  const line=text=>text.split('\n').flatMap((part,i)=>i?[h('span',{key:'n'+i,className:'ap-prompt-newline','aria-label':'换行'},'↵'),'\n',part]:[part]);
+  return (row.layout||[]).map((item,index)=>h('div',{key:index,className:'ap-prompt-piece'},
+    h('div',{className:'ap-prompt-piece-head'},h(PromptAt,{at:item.at}),item.envelope&&h('span',{title:item.bytes.toLocaleString('en-US')+' B'},'消息封装')),
+    h('pre',{className:'ap-prompt-outline'},item.envelope?item.text:item.segments.map((segment,i)=>segment.slot?h('span',{key:i,className:'ap-prompt-slot'},'⟨'+segment.slot+'⟩'):h(React.Fragment,{key:i},line(segment.text))))));
+}
+// 拼接与封装 opened — the request as a map: one block per place (系统 /
+// 本轮消息 / 工具, or the judge's `POST url`) with its tokens; inside, the parts in the order sent as solid chips (the row's
+// name and tokens) and the joins between them (tags, new lines ↵, JSON keys and brackets) as dashed chips — the dashed
+// ones are what this row counts; then the message envelope. 「查看原文」 shows the outline with the joins verbatim.
+const PROMPT_ENVELOPE_HELP='把本轮消息包成 JSON 消息（role、content、type 和转义）所需的字符。';
+function promptJoinText(text) {
+  const shown=text.replace(/\n/g,'↵').replace(/\t/g,'⇥').replace(/^ +| +$/g,m=>'␠'.repeat(m.length));
+  return shown.length>32?shown.slice(0,31)+'…':shown;
+}
+function PromptMap({blocks}) {
+  return h('div',{className:'ap-prompt-groups'},blocks.map((block,index)=>h('section',{key:index,className:'ap-prompt-group','aria-label':block.envelope?'消息封装':block.head||PROMPT_AT[block.at]},
+    h('div',{className:'ap-prompt-group-head'},
+      block.envelope?h('span',{className:'ap-prompt-group-name'},'消息封装'):block.head?h('code',{className:'ap-map-head',title:block.head},block.head):h(PromptAt,{at:block.at}),
+      block.envelope&&h(Help,{text:PROMPT_ENVELOPE_HELP,label:'消息封装 说明'}),
+      Number.isFinite(block.tokens)&&h('span',{className:'ap-prompt-tokens',title:Number.isFinite(block.bytes)?block.bytes.toLocaleString('en-US')+' B':undefined},promptTokenText(block.tokens))),
+    block.items&&h('div',{className:'ap-map'},block.items.map((item,i)=>item.join!==undefined?h('code',{key:i,className:'ap-map-join',title:JSON.stringify(item.join)},promptJoinText(item.join)):
+      h('span',{key:i,className:'ap-map-part'},item.name,Number.isFinite(item.tokens)&&h('span',{className:'ap-map-tokens'},item.tokens.toLocaleString('en-US'))))))));
+}
+// 剧情 opened — the reply by paragraph (its number, the speaker's name, the
+// text), a JSON object such as the carried state as rows (key | values; a handle reads as its name, the handle is its
+// hover), other JSON structurally and prose as it is. 「查看原文」 on the row's header gives every piece as sent.
+const promptParagraphs=value=>Array.isArray(value)&&value.length>0&&value.every(item=>schemaObject(item)&&typeof item.text==='string'&&Number.isFinite(item.at))?value:null;
+const promptName=(names,value)=>typeof value==='string'&&names&&Object.hasOwn(names,value)?names[value]:null;
+function PromptStory({row,raw,names}) {
+  if(raw)return h(PromptPieces,{pieces:row.pieces,raw:true});
+  return row.pieces.map((piece,index)=>{
+    const place=piece.at&&PROMPT_AT[piece.at]&&(index===0||row.pieces[index-1].at!==piece.at)?h(PromptAt,{at:piece.at}):null;
+    const value=promptParse(piece.text),paragraphs=promptParagraphs(value),state=!paragraphs&&schemaObject(value)&&promptJson(piece.text);
+    return h('div',{key:index,className:'ap-prompt-piece'},
+      h('div',{className:'ap-prompt-piece-head'},place,piece.name&&h('span',null,piece.name),paragraphs&&h('span',{className:'ap-prompt-group-count'},paragraphs.length),
+        piece.tokens!=null&&h('span',{className:'ap-prompt-tokens',title:promptBytesTitle(piece)},promptTokenText(piece.tokens))),
+      paragraphs?h(PromptParagraphs,{paragraphs,names}):state?h(PromptState,{value,names}):h(PromptText,{text:piece.text}));
+  });
+}
+function PromptParagraphs({paragraphs,names}) {
+  return h('ol',{className:'ap-story'},paragraphs.map((item,i)=>{
+    const actor=typeof item.actor==='string'?item.actor:'',who=actor?promptName(names,actor)||actor:typeof item.speaker==='string'?item.speaker:'';
+    return h('li',{key:i},h('span',{className:'ap-story-at'},item.at),h('span',{className:'ap-story-text'},who&&h('b',{title:actor||undefined},who),item.text));
+  }));
+}
+function StateValue({value,names}) {
+  if(value===null)return h('span',{className:'ap-cmd-val is-word'},'空');
+  if(Array.isArray(value))return value.length?h(React.Fragment,null,value.map((item,i)=>h(StateValue,{key:i,value:item,names}))):h('span',{className:'ap-cmd-val is-word'},'无');
+  if(schemaObject(value)&&!Object.keys(value).length)return h('span',{className:'ap-cmd-val is-word'},'无');
+  if(schemaObject(value))return h(React.Fragment,null,Object.entries(value).map(([key,item])=>h('span',{key,className:'ap-cmd-arg'},h('code',{className:'ap-cmd-key'},key),h(StateValue,{value:item,names}))));
+  const name=promptName(names,value);
+  return h('span',{className:'ap-cmd-val'+(name?' is-name':''),title:name?String(value):undefined},name||String(value));
+}
+function PromptState({value,names}) {
+  const nested=item=>schemaObject(item)&&Object.keys(item).length>0&&Object.values(item).every(schemaObject);
+  return h('div',{className:'ap-prompt-group'},h('ul',{className:'ap-cmd-rows'},Object.entries(value).map(([key,item])=>h('li',{key,className:'ap-cmd-row'},h('code',{className:'ap-cmd-target'},key),
+    h('div',{className:'ap-cmd-lines'},nested(item)?Object.entries(item).map(([inner,v])=>h('div',{key:inner,className:'ap-cmd-line'},
+        h('span',{className:'ap-cmd-verb is-name',title:promptName(names,inner)?inner:undefined},promptName(names,inner)||inner),h('span',{className:'ap-cmd-args'},h(StateValue,{value:v,names})))):
+      h('div',{className:'ap-cmd-line is-bare'},h('span',{className:'ap-cmd-args'},h(StateValue,{value:item,names}))))))));
+}
+// 提示词 is a table — the section head, the stage heads and every row share
+// one grid (theme.css .ap-prompt-section): name (with its note right after it) | scope (全局 / 本卡 / 本轮, or the packs
+// by lamp) | actions (the pencil at the far right). On a narrow pane the scope drops under the name.
+// no per-row token count — the opened row shows its pieces' tokens and the
+// headings (提示词, 正文模型, 导演) keep the totals.
+// the whole row head opens the row — chevron, name, tokens, note, the empty
+// space and the scope — with one hover tint; the pencil, reset and (?) stay their own controls (a click on any control,
+// or inside a popover portalled out of the head, does not toggle). The chevron button is the row's only Tab stop
+// (Enter / Space) and its focus ring is drawn around the whole head. A row may be opened from outside (`open` / `onOpen`: 演出指引's pencil opens 导演指令).
+// the pencil (and its reset) sits right after the row's name — 「对白格式 ✎」 —
+// then the note; a row without an action shows nothing there. The scope is right-aligned at the row's right edge.
+// every row head is one line — name (✎), its tokens, (?), the note, and the
+// scope at the right edge; an empty row shows no tokens.
+function PromptRow({row,note,help,actions,extra,body,open:shown,onOpen}) {
+  const [own,setOwn]=React.useState(false),id=React.useId(),noteId=React.useId(),open=shown??own,setOpen=onOpen||setOwn;
+  const tokens=row.pieces.length&&Number.isSafeInteger(row.tokens)?row.tokens:null;
+  return h('li',{className:'ap-prompt-row','data-open':open||undefined,'data-row':row.id},
+    h('div',{className:'ap-prompt-row-head',onClick:e=>{if(promptHeadClick(e))setOpen(!open);}},
+      h('span',{className:'ap-prompt-lead'},
+        h('button',{type:'button',className:'ap-prompt-toggle','aria-expanded':open,'aria-controls':id,'aria-describedby':note?noteId:undefined,onClick:()=>setOpen(!open)},h(Glyph,{name:'chevRight'}),h('span',{className:'ap-prompt-name'},row.name)),
+        // a quiet pencil on editable rows; generated rows have no action (the 「?」 says so).
+        actions?h('span',{className:'ap-prompt-actions'},actions):null,
+        Number.isSafeInteger(row.count)&&h('span',{className:'ap-prompt-count'},row.count),
+        tokens!==null&&h('span',{className:'ap-prompt-tokens',title:(row.bytes??row.pieces.reduce((sum,piece)=>sum+(piece.bytes??promptBytes(piece.text)),0)).toLocaleString('en-US')+' B'},promptTokenText(tokens)),
+        help&&h(Help,{text:help,label:row.name+' 说明'}),
+        note&&h('span',{className:'ap-prompt-note',id:noteId},note),
+        open&&extra?h('span',{className:'ap-prompt-head-end'},extra):null),
+      row.owners&&h('span',{className:'ap-prompt-owner',title:row.ownersTitle||row.owners},row.owners)),
+    open&&h('div',{id,className:'ap-prompt-body'},body||(row.pieces.length?h(PromptPieces,{pieces:row.pieces}):h(EmptyState,{compact:true,text:'不加入内容'}))));
+}
+// A click on the row head that is not on (or in) another control and not from a portalled popover.
+const PROMPT_HEAD_CONTROLS='button,a[href],input,textarea,select,label,[role=button],[role=menu],[role=menuitem],[role=dialog],[role=tooltip],[tabindex]';
+function promptHeadClick(e) {
+  const target=e.target;
+  if(!target||!e.currentTarget.contains(target))return false;
+  const control=target.closest?.(PROMPT_HEAD_CONTROLS);
+  return !control||!e.currentTarget.contains(control);
+}
+// a heading's total is a heading count, not a row value — title → count → 「?」,
+// left-aligned in the muted heading-count style.
+function PromptStage({title,help,tokens,action,children}) {
+  return h('div',{className:'ap-prompt-stage'},
+    h('h4',{className:'ap-prompt-stage-head'},h('span',{className:'ap-prompt-stage-title'},h('span',null,title),
+      tokens!==null&&h('span',{className:'ap-section-meta ap-prompt-tokens'},promptTokenText(tokens)),h(Help,{text:help,label:title+' 说明'}),
+      action?h('span',{className:'ap-prompt-actions'},action):null)),
+    children);
+}
+const promptIcon=(icon,label,onClick)=>h(IconButton,{icon,label,onClick});
+// the 说话人名单 snapshot lists the figures foregroundCapabilityEntries recalls
+// (recallFigures over the latest reply or opening and the player's message, plus the last judge's picks).
+const FIGURE_RECALL_HELP='只列蓝灯人物，和名字或触发词出现在最近一条回复或玩家消息里（或被判断模型选中）的绿灯人物。';
+function StagePrompts({ctx,prompts}) {
+  // the Tavern 舞台 tab always supplies the host adapter (stagePrompts); a host
+  // without one (offline harnesses, other embeddings) has nothing to show, so the section is left out instead of saying 不可用.
+  // folded by default at the end of the page; folded, it reads nothing (no story /
+  // director preview), so the view and its reads mount only once the heading opens it.
+  const [folded,setFolded]=useStageFold(STAGE_PROMPTS_TITLE,true),opened=React.useRef(false);
+  if(!prompts?.usePrompts)return null;
+  const onFold=value=>{opened.current=!value;setFolded(value);};
+  if(folded)return h(StageSection,{title:STAGE_PROMPTS_TITLE,className:'ap-prompt-section',help:STAGE_PROMPTS_HELP,defaultFolded:true,onFold});
+  return h(StagePromptsView,{ctx,prompts,onFold,focusToggle:opened.current});
+}
+const STAGE_PROMPTS_TITLE='提示词',STAGE_PROMPTS_HELP='按发送顺序原样列出舞台设置加进去的内容，带铅笔的可以修改。';
+function StagePromptsView({ctx,prompts,onFold,focusToggle}) {
+  const {story,director,refresh}=prompts.usePrompts(),[error,setError]=React.useState(''),[rawRows,setRawRows]=React.useState({});
+  const wire=director.result?directorWire(director.result):null;
+  const storyRows=storyPromptRows(story,ctx),directorRows=wire?wire.rows:director.result?directorPromptRows(director.result):[];
+  // The 演出风格 row always shows (its pencil opens the 素材库); with no style it injects nothing. So does 导演指令,
+  // even with every command off. 演出风格's scope is the packs its entries come from (the lead-in is fixed text, not a
+  // setting). 导演指令 is 全局 — 舞台模式 › 可用演出, no card chips here.
+  const directorShown=promptWithStyles(directorRows).map(row=>({...row,
+    ...(row.id==='styles'?promptSources(ctx,row.pieces.filter(piece=>piece.kind==='pack')):row.id==='commands'?{owners:'全局'}:promptSources(ctx,row.pieces))}));
+  const storyTokens=story?promptSum(storyRows):null,directorTokens=directorRows.length?promptSum(directorRows):ctx.active.stage?null:0;
+  // 智能判断 — its own stage after 导演, only while the preview carries `judge` (a provider
+  // is set and the judge is on); one row per batch with the body exactly as sent.
+  const judge=ctx.active.stage&&director.result?.judge?director.result.judge:null,judgeRows=judgePromptRows(judge),judgeTokens=judge?promptSum(judgeRows)??0:0;
+  const confirmReset=()=>ctx.setConfirm({title:'恢复默认对白格式',body:'自定义的对白格式和补充要求会被清除，所有卡都改用默认格式。',confirmLabel:'恢复默认',danger:true,onConfirm:()=>prompts.resetDialogue()});
+  const storyActions=row=>row.leftover||row.figure==='common-roster'||(!row.figure&&row.id!=='format')?null:row.figure?promptIcon('edit','编辑 '+row.name,()=>{const [packId,figureId]=row.figure.split('/');ctx.openPack(packId,'figures',figureId);}):
+    h(React.Fragment,null,story?.custom&&promptIcon('reset','对白格式恢复默认',confirmReset),promptIcon('edit','编辑对白格式',()=>ctx.openLayer(close=>prompts.dialogueEditor(close))));
+  // 导演指令 and 演出指引 (which follows the commands): the pencil opens 舞台模式 at 可用演出, like 智能判断's.
+  const directorActions=row=>row.id==='styles'?h(StageStyleEdit,{ctx,onError:setError}):
+    ctx.onCommands&&(row.id==='commands'||row.id==='guidance'&&row.kinds.includes('engine'))?promptIcon('edit',row.id==='commands'?'编辑导演指令':'编辑演出指引',()=>ctx.onCommands()):null;
+  // every row with a readable view — 工具定义, 素材清单, 剧情,
+  // 拼接与封装, any row holding JSON — has 「查看原文」 on its opened header; rows of prose are already the text as sent.
+  const rawOf=row=>!!rawRows[row.id],rawToggle=row=>h(PromptRawToggle,{raw:rawOf(row),onChange:value=>setRawRows(before=>({...before,[row.id]:value}))});
+  const readable=row=>row.id==='tool'&&!!promptToolDefs(row)||row.id==='catalogue'&&row.pieces.length>0||row.id==='frame'&&!!row.overview||row.pieces.some(piece=>!piece.items&&promptJson(piece.text));
+  const names=React.useMemo(()=>wire?promptHandleNames(wire.rows.flatMap(row=>row.pieces)):{},[director.result]);
+  const directorExtra=row=>readable(row)?rawToggle(row):null;
+  const directorBody=row=>row.id==='tool'&&promptToolDefs(row)?h(PromptTools,{row,defs:promptToolDefs(row),raw:rawOf(row)}):row.id==='catalogue'?h(PromptCatalogue,{ctx,pieces:row.pieces,raw:rawOf(row)}):
+    row.id==='mods'?h(PromptMods,{ctx,row,raw:rawOf(row)}):row.id==='styles'?h(PromptStyles,{ctx,row}):row.id==='story'?h(PromptStory,{row,raw:rawOf(row),names}):
+    row.id==='frame'&&row.overview?(rawOf(row)?h(PromptFrame,{row}):h(PromptMap,{blocks:row.overview})):row.pieces.length?h(PromptPieces,{pieces:row.pieces,raw:rawOf(row)}):null;
+  const body=!ctx.active.stage?h(EmptyState,{compact:true,text:'舞台模式关闭，导演不运行',icon:'off'}):
+    director.error?h(ErrorBox,{error:'读取导演提示词失败（'+director.error+'）',reload:refresh}):
+    !director.result?h(Loading,{shape:'fields',count:4}):
+    h(React.Fragment,null,h('ul',{className:'ap-prompt-rows','aria-label':'导演提示词'},directorShown.map(row=>h(PromptRow,{key:row.id,row,
+        actions:directorActions(row),extra:directorExtra(row),body:directorBody(row)}))),
+      !directorRows.length&&h(EmptyState,{compact:true,noun:'正文'}));
+  // no combined total — 正文 / 导演 / 判断 are separate requests; each model shows its own.
+  return h(StageSection,{title:STAGE_PROMPTS_TITLE,className:'ap-prompt-section',help:STAGE_PROMPTS_HELP,defaultFolded:true,onFold,focusToggle,
+      action:h(IconButton,{icon:'refresh',label:'重新读取提示词',disabled:director.loading,onClick:refresh})},
+    h(PromptStage,{title:'正文模型',tokens:storyTokens,help:'这里只列正文实际使用的舞台能力快照，会话开始和压缩后首轮更新，其余回合保持不变。'},
+      !story?h(Loading,{shape:'fields',count:4}):!storyRows.length?h(EmptyState,{compact:true,text:'对话气泡关闭，不加入内容',icon:'off'}):
+      h('ul',{className:'ap-prompt-rows','aria-label':'正文模型提示词'},storyRows.map(row=>h(PromptRow,{key:row.id,row,
+        note:row.leftover?'旧条目':row.voice?'含双语台词规则':null,help:row.figure&&row.recalled&&!row.leftover?FIGURE_RECALL_HELP:undefined,actions:storyActions(row)})))),
+    h(PromptStage,{title:'导演模型',tokens:ctx.active.stage?directorTokens:null,help:'正文写完后发给导演的全部内容，导演按它安排背景、人物、BGM 和演出。'},body),
+    // the judge request in three rows (剧情 / 待判断素材 / 拼接与封装), its
+    // pencil on the stage head.
+    judge&&h(PromptStage,{title:'判断模型',tokens:judgeTokens,help:'导演之前，这些请求体原样发给判断模型，问哪些未命中的绿灯素材适合本轮。',
+        action:ctx.onJudge&&promptIcon('edit','编辑判断模型',()=>ctx.onJudge())},
+      judgeRows.length?h('ul',{className:'ap-prompt-rows','aria-label':'判断模型请求'},judgeRows.map(row=>h(PromptRow,{key:row.id,row,note:row.note,
+        extra:row.pieces.length&&row.pieces[0].key!=='judge-body'?rawToggle(row):null,body:h(JudgePromptBody,{row,rows:judgeRows,raw:rawOf(row)})}))):
+      h(EmptyState,{compact:true,text:'本轮没有要判断的素材'})),
+    error&&h('p',{className:'ap-alert',role:'alert'},error));
+}
+
+// 舞台设置 › 素材包 — right after a pack's name, tiny previews of what it
+// holds, in a fixed order: 人物 (one face per figure: its default outfit's 平和 avatar; a figure without one is skipped,
+// never a placeholder) → pictures (背景 / CG / 物品, overlapping tighter the more there are) → one small icon per audio
+// kind present (音乐 / 音效 / 环境音 / 配音) → one icon each for 舞台皮肤 / 滤镜 / 演出 / 演出风格 / 模组. No counts, no
+// labels; the strip clips (with a fade) instead of wrapping. At most PV_MAX pictures per row.
+// Caching, so a second open costs nothing:
+//  - the per-pack list is derived once per pack revision (the snapshot's own `revision`; a pack edit, install or
+//    reinstall brings a new one, a deleted pack's entry simply ages out of the bounded map);
+//  - each picture is a tiny WebP (≈48 px, made once from the leased original off the main thread: createImageBitmap
+//    → OffscreenCanvas), kept in memory and in localStorage keyed by the blob's content hash (+ crop and shape) —
+//    content-addressed, so it never goes stale and needs no invalidation. A warm open reads it synchronously: no
+//    lease RPC, no media request, no full-size decode. Lease URLs carry a one-off ticket, so the HTTP cache cannot
+//    serve a later lease of the same blob; this layer is what makes repeat opens free.
+const PV_MAX=8,PV_FACES_WITH_PICTURES=5,PV_PREFIX='dsh-tavern:pack-tiny:v1:',PV_INDEX='dsh-tavern:pack-tiny-index:v2',PV_INDEX_V1='dsh-tavern:pack-tiny-index:v1',PV_STORE_MAX=480,PV_STORE_CHARS=900000;
+const PV_SIZES={face:[48,48],wide:[66,44],item:[48,48]},PV_PICTURE_KINDS=['backgrounds','cg','props'];
+const PV_AUDIO=['music','sfx','ambience'],PV_OTHER=['skins','looks','performances','directions','widgets'];
+const pvLists=new Map();
+// The default outfit (first enabled, else first) and its calm avatar only; another outfit or state never stands in.
+function pvFace(figure,sprites){
+  const outfits=figure?.outfits||[],outfit=outfits.find(o=>o.enabled)||outfits[0];if(!outfit)return null;
+  const view={...figure,enabled:true,outfits:outfits.map(o=>o===outfit?{...o,enabled:true}:o)};
+  const avatar=selectFigureAvatar(view,sprites||{},{outfitKey:outfit.key,emotion:'calm'});
+  return avatar?.hash&&avatar.stateId==='calm'&&avatar.outfitKey===outfit.key?{hash:avatar.hash,crop:avatar.crop||null,shape:'face'}:null;
+}
+const pvPictureHash=asset=>asset.variants?asset.variants.entries.find(row=>row.id===asset.variants.default)?.content.media:asset.media;
+function buildPackPreview(pack){
+  const manifest=pack.manifest||{},assets=manifest.assets||[],has=kind=>assets.some(a=>a.kind===kind);
+  const faces=(manifest.figures||[]).map(id=>{const figure=pack.figures?.[id],face=figure&&pvFace(figure,pack.sprites);return face&&{key:'f:'+id,...face};}).filter(Boolean);
+  // Pictures: enabled first, the three kinds interleaved so a pack of many backgrounds still shows its CG / items.
+  const pools=PV_PICTURE_KINDS.map(kind=>assets.filter(a=>a.kind===kind&&pvPictureHash(a)).sort((a,b)=>(b.enabled!==false)-(a.enabled!==false))
+    .map(a=>({key:kind+':'+a.id,hash:pvPictureHash(a),crop:null,shape:kind==='props'?'item':'wide'})));
+  const pictures=[];for(let i=0;pictures.length<PV_MAX&&pools.some(p=>i<p.length);i++)for(const p of pools)if(i<p.length&&pictures.length<PV_MAX)pictures.push(p[i]);
+  const shownFaces=faces.slice(0,pictures.length?PV_FACES_WITH_PICTURES:PV_MAX),shownPictures=pictures.slice(0,PV_MAX-shownFaces.length);
+  const voices=Object.keys(manifest.voiceLibrary?.voices||{}).length>0;
+  const icons=[...PV_AUDIO.filter(has),...(voices?['voice']:[]),...PV_OTHER.filter(has)];
+  const names=[...((manifest.figures||[]).length?['figures']:[]),...PV_PICTURE_KINDS.filter(has),...icons].map(k=>k==='voice'?'配音':kinds[k]);
+  return {faces:shownFaces,pictures:shownPictures,icons,names};
+}
+function packPreview(pack){
+  const id=pack?.manifest?.id;if(!id)return null;
+  const hit=pvLists.get(id);
+  if(hit&&(hit.pack===pack||(pack.revision&&hit.revision===pack.revision)))return hit.value;
+  const value=buildPackPreview(pack);
+  if(!hit&&pvLists.size>=128)pvLists.delete(pvLists.keys().next().value);
+  pvLists.set(id,{pack,revision:pack.revision,value});
+  return value;
+}
+// ---- tiny pictures (content-addressed) ----
+const pvMemory=new Map(),pvFailed=new Set(),pvPending=new Set(),pvListeners=new Map(),pvQueue=[];
+let pvActive=0,pvIndexCache=null;
+const pvKey=item=>item.hash+'|'+item.shape+(item.crop?'|'+[item.crop.x,item.crop.y,item.crop.w,item.crop.h].map(n=>Math.round(n*1e4)).join(','):'');
+function pvStore(){try{return typeof localStorage==='undefined'?null:localStorage;}catch(_){return null;}}
+// The stored tiny pictures are an LRU bounded twice: ≤ PV_STORE_MAX entries and ≤ PV_STORE_CHARS characters in total
+// (localStorage counts UTF-16, so ≈ 1.8 MB), far under the origin quota. The index ([key, length] oldest first) lives
+// in memory; a read moves its key to the end, and the next save writes the order back.
+function pvPeek(key){
+  const known=pvMemory.get(key);if(known)return known;
+  const store=pvStore();let url=null;try{url=store?.getItem(PV_PREFIX+key)||null;}catch(_){}
+  if(url){pvMemory.set(key,url);const index=pvIndex(store),at=index.findIndex(row=>row[0]===key);if(at>=0&&at<index.length-1)index.push(...index.splice(at,1));}
+  return url;
+}
+function pvIndex(store){
+  if(pvIndexCache)return pvIndexCache;
+  let rows=[];
+  try{const value=JSON.parse(store.getItem(PV_INDEX)||'null');
+    if(Array.isArray(value))rows=value.filter(row=>Array.isArray(row)&&typeof row[0]==='string'&&row[1]>0);
+    else{const old=JSON.parse(store.getItem(PV_INDEX_V1)||'[]');if(Array.isArray(old))rows=old.map(key=>[key,(store.getItem(PV_PREFIX+key)||'').length]).filter(row=>row[1]>0);store.removeItem?.(PV_INDEX_V1);}}
+  catch(_){rows=[];}
+  return pvIndexCache=rows;
+}
+function pvSave(key,url){
+  pvMemory.set(key,url);
+  const store=pvStore();if(!store||url.length>PV_STORE_CHARS/64)return;
+  const index=pvIndex(store),drop=row=>{try{store.removeItem(PV_PREFIX+row[0]);}catch(_){}};
+  const at=index.findIndex(row=>row[0]===key);if(at>=0)index.splice(at,1);
+  let chars=index.reduce((sum,row)=>sum+row[1],0)+url.length;
+  while(index.length&&(index.length>=PV_STORE_MAX||chars>PV_STORE_CHARS)){const row=index.shift();chars-=row[1];drop(row);}
+  for(let attempt=0;attempt<2;attempt++){
+    try{store.setItem(PV_PREFIX+key,url);index.push([key,url.length]);store.setItem(PV_INDEX,JSON.stringify(index));return;}
+    catch(_){for(const row of index.splice(0,Math.max(32,index.length>>2)))drop(row);}
+  }
+}function pvListen(key,fn){let set=pvListeners.get(key);if(!set){set=new Set();pvListeners.set(key,set);}set.add(fn);return()=>{set.delete(fn);if(!set.size&&pvListeners.get(key)===set)pvListeners.delete(key);};}
+function pvNotify(key){for(const fn of [...(pvListeners.get(key)||[])])fn();}
+const pvCan=()=>typeof createImageBitmap==='function'&&typeof OffscreenCanvas==='function'&&typeof fetch==='function'&&typeof FileReader==='function';
+const pvIdle=()=>new Promise(resolve=>typeof requestIdleCallback==='function'?requestIdleCallback(()=>resolve(),{timeout:500}):setTimeout(resolve,16));
+function pvRequest(binding,packId,item){
+  const key=pvKey(item);
+  if(pvMemory.has(key)||pvFailed.has(key)||pvPending.has(key))return;
+  if(!pvCan()||!binding?.previewMedia){pvFailed.add(key);pvNotify(key);return;}
+  pvPending.add(key);pvQueue.push({binding,packId,item,key});pvPump();
+}
+// Two at a time, each started in idle time, so a cold open never competes with the panel's own first paint.
+function pvPump(){
+  while(pvActive<2&&pvQueue.length){
+    const job=pvQueue.shift();pvActive++;
+    pvIdle().then(()=>pvMake(job)).then(url=>pvSave(job.key,url),()=>pvFailed.add(job.key))
+      .finally(()=>{pvPending.delete(job.key);pvActive--;pvNotify(job.key);pvPump();});
+  }
+}
+async function pvMake({binding,packId,item}){
+  const media=await holdMedia(binding,packId,item.hash);let source;
+  try{const response=await fetch(media.url,{credentials:'same-origin'});if(!response.ok)throw new Error('HTTP '+response.status);source=await createImageBitmap(await response.blob());}
+  finally{media.release();}
+  let small=null;
+  try{
+    const [W,H]=PV_SIZES[item.shape],c=item.crop||{x:0,y:0,w:1,h:1},iw=source.width,ih=source.height;
+    let sx=Math.max(0,iw*c.x),sy=Math.max(0,ih*c.y),sw=Math.min(iw-sx,iw*c.w),sh=Math.min(ih-sy,ih*c.h),dw=W,dh=H;
+    if(!(sw>=1&&sh>=1))throw new Error('empty picture');
+    if(item.shape==='item'){const s=Math.min(W/sw,H/sh);dw=Math.max(1,Math.round(sw*s));dh=Math.max(1,Math.round(sh*s));}
+    else if(sw/sh>W/H){const w=sh*W/H;sx+=(sw-w)/2;sw=w;}else{const hh=sw*H/W;sy+=item.shape==='face'?0:(sh-hh)/2;sh=hh;}
+    small=await createImageBitmap(source,Math.round(sx),Math.round(sy),Math.max(1,Math.round(sw)),Math.max(1,Math.round(sh)),{resizeWidth:dw,resizeHeight:dh,resizeQuality:'high'});
+    const canvas=new OffscreenCanvas(W,H);canvas.getContext('2d').drawImage(small,Math.round((W-dw)/2),Math.round((H-dh)/2));
+    const blob=await canvas.convertToBlob({type:'image/webp',quality:.82});
+    return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(reader.error);reader.readAsDataURL(blob);});
+  }finally{source.close?.();small?.close?.();}
+}
+// One shared IntersectionObserver (start making a row's pictures once it nears view) and one shared ResizeObserver
+// (mark a strip that overflows, so only then does its end fade).
+let pvSeenObserver=null,pvClipObserver=null;const pvSeenCalls=new WeakMap();
+function pvWatch(node,fn){
+  if(typeof IntersectionObserver==='undefined'){fn();return()=>{};}
+  if(!pvSeenObserver)pvSeenObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){const call=pvSeenCalls.get(entry.target);pvSeenCalls.delete(entry.target);pvSeenObserver.unobserve(entry.target);call?.();}},{rootMargin:'240px'});
+  pvSeenCalls.set(node,fn);pvSeenObserver.observe(node);
+  return()=>{pvSeenCalls.delete(node);pvSeenObserver.unobserve(node);};
+}
+function pvClip(node){
+  if(typeof ResizeObserver==='undefined')return()=>{};
+  if(!pvClipObserver)pvClipObserver=new ResizeObserver(entries=>{for(const {target} of entries){if(target.scrollWidth>target.clientWidth+1)target.setAttribute('data-clipped','');else target.removeAttribute('data-clipped');}});
+  pvClipObserver.observe(node);
+  return()=>pvClipObserver.unobserve(node);
+}
+// Overlap as a share of a tile's own width: 1 whole, 2 slightly, up to ~60% at the cap.
+const pvOverlap=count=>count<=1?0:Math.min(.6,.1+.065*count).toFixed(3);
+function PreviewTile({binding,packId,item,seen}) {
+  const key=pvKey(item),[url,setUrl]=React.useState(()=>pvPeek(key)),[failed,setFailed]=React.useState(()=>pvFailed.has(key));
+  React.useEffect(()=>{const sync=()=>{setUrl(pvPeek(key));setFailed(pvFailed.has(key));};sync();return pvListen(key,sync);},[key]);
+  React.useEffect(()=>{if(seen&&!url&&!failed)pvRequest(binding,packId,item);},[key,seen,url,failed,binding,packId]);
+  if(failed&&!url)return null;
+  return h('span',{className:'ap-pv-tile is-'+item.shape,'data-empty':url?undefined:true},url&&h('img',{src:url,alt:'',decoding:'async',loading:'lazy',draggable:false}));
+}
+function PreviewIcon({kind}) {
+  return h('svg',{className:'ap-pv-icon',width:14,height:14,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
+    h('path',{d:kind==='voice'?glyphs.mic:kindGlyphs[kind],stroke:'currentColor',strokeWidth:1.3,strokeLinecap:'round',strokeLinejoin:'round'}));
+}
+// a list row is a summary. Its pictures and kind icons come with it (summaryPreview);
+// faces need the figures, so a row with figures whose full document the page does not hold (detail, the lit packs) reads it
+// once the row is seen (one read per pack, kept by revision in the transport).
+function summaryPreview(row){
+  const counts=row.counts||{},has=kind=>counts[kind]>0;
+  const pictures=(row.pictures||[]).slice(0,PV_MAX).map(p=>({key:p.kind+':'+p.id,hash:p.hash,crop:null,shape:p.kind==='props'?'item':'wide'}));
+  const icons=[...PV_AUDIO.filter(has),...(row.voices>0?['voice']:[]),...PV_OTHER.filter(has)];
+  const names=[...(has('figures')?['figures']:[]),...PV_PICTURE_KINDS.filter(has),...icons].map(k=>k==='voice'?'配音':kinds[k]);
+  return {faces:[],pictures,icons,names};
+}
+function PackPreviews({binding,pack:row,detail}) {
+  const [read,setRead]=React.useState(null),pack=detail||(row?.summary?read?.revision===row.revision?read:null:row);
+  const preview=pack?packPreview(pack):row?.manifest?.id?summaryPreview(row):null,ref=React.useRef(null),[seen,setSeen]=React.useState(false),packId=row?.manifest?.id;
+  React.useEffect(()=>{if(!seen||pack||!row?.summary||!(row.counts?.figures>0)||!binding?.service)return;let live=true;
+    loadPackDetail(binding,row).then(full=>{if(live)setRead(full);},()=>{});return()=>{live=false;};},[seen,!!pack,packId,row?.revision]);
+  React.useEffect(()=>{const node=ref.current;if(!node)return;const stopSeen=seen?null:pvWatch(node,()=>setSeen(true)),stopClip=pvClip(node);return()=>{stopSeen?.();stopClip();};},[seen,!!preview]);
+  if(!preview||!preview.faces.length&&!preview.pictures.length&&!preview.icons.length)return null;
+  const label=preview.names.join('、'),group=(name,items)=>items.length>0&&h('span',{className:'ap-pv-group is-'+name,style:{'--ap-pv-f':pvOverlap(items.length)}},
+    items.map(item=>h(PreviewTile,{key:item.key,binding,packId,item,seen})));
+  return h('span',{ref,className:'ap-pack-previews',role:'img','aria-label':'包含'+label,title:label},
+    group('faces',preview.faces),group('pictures',preview.pictures),
+    preview.icons.length>0&&h('span',{className:'ap-pv-group is-icons'},preview.icons.map(kind=>h(PreviewIcon,{key:kind,kind}))));
+}
+
+            // global stage command groups, limits, judge credentials and voice services.
+const ENGINE_DIMENSION_GROUPS=[...directorCommands.dimensionGroups.slice(0,4),['CG',[['cg','CG']]]];
+const ENGINE_CAPS=[['beat','画面效果','次'],['act','人物动作','次 / 人']];
+// The engine page's folds sit in the stage panel's fold store under their own keys (kept from the old page name, so
+// stored folds survive the rename).
+const engineFold=title=>'引擎设置 › '+title;
+// ---------- 可用演出: one row per group — its name in the label column, 「全部 ⌄」 as the value (underlined on hover like a
+// field's value) — unfolding to its chips under the value column. A chip saves at once. ----------
+function engineGroupState(on,total) { return on===total?'全部':on===0?'全部关闭':'部分 '+on+'/'+total; }
+function EngineCommandGroup({group,items,isOn,disabled,onToggle}) {
+  const [open,setOpen]=React.useState(false),bodyId=React.useId();
+  const on=items.filter(([key])=>isOn(key)).length,state=engineGroupState(on,items.length);
+  return h('div',{className:'ap-engine-group','data-open':open||undefined},
+    h('button',{type:'button',className:'ap-engine-group-toggle','aria-expanded':open,'aria-controls':bodyId,onClick:()=>setOpen(!open)},
+      h('span',{className:'ap-engine-group-name'},group),
+      h('span',{className:'ap-engine-group-value'},
+        h('span',{className:'ap-engine-group-state','data-partial':on<items.length||undefined},state),
+        h('span',{className:'ap-section-chevron','aria-hidden':true},h(Glyph,{name:'chevDown'})))),
+    // The chips stay in the tree while folded (hidden), like a folded section's body.
+    h('div',{className:'ap-engine-group-body ap-dimension-list ap-check-list',id:bodyId,role:'group','aria-label':group,hidden:!open||undefined},
+      items.map(([key,label])=>{const checked=isOn(key);
+        return h('button',{key,type:'button',role:'checkbox','aria-checked':checked,className:'ap-check-row ap-dim-chip',disabled,onClick:()=>onToggle(key,!checked)},
+          checked&&h(Glyph,{name:'check'}),h('span',null,label));})));
+}
+
+// `focus:'judge'` (提示词 › 智能判断 ✎) opens the page at 智能判断, unfolded, with the focus on its heading; `focus:'commands'`
+// (提示词 › 导演指令 / 演出指引 ✎) at 可用演出 the same way.
+function EnginePage({binding,onBack,focus}) {
+  const services=useLoad(binding,async()=>(await binding.rpc('getAssetVoiceServices')).services,[]);
+  const state=useLoad(binding,()=>binding.rpc('getAssetEngineSettings'),[]),[draft,setDraft]=React.useState(null);
+  const preserved=React.useRef(null),title=React.useRef(null),page=React.useRef(null),focused=React.useRef(false);
+  React.useEffect(()=>{if(state.value){setDraft(preserved.current || clone(state.value.values));preserved.current=null;}},[state.value]);
+  React.useEffect(()=>{title.current?.focus?.({preventScroll:true});},[]);
+  React.useEffect(()=>{if(!['judge','commands'].includes(focus)||!draft||focused.current)return;focused.current=true;
+    const toggle=page.current?.querySelector((focus==='judge'?'.ap-engine-judge':'.ap-engine-commands')+' .ap-section-toggle');toggle?.closest('section')?.scrollIntoView?.({block:'start'});toggle?.focus?.({preventScroll:true});},[draft,focus]);
+  const head=h(SubpageHead,{parent:'舞台设置',title:'舞台模式',onBack,titleRef:title,help:h(Help,{label:'舞台模式 说明',text:'这一页的设置所有卡共用。'})});
+  // Esc leaves like ‹, but never drops an unsaved draft.
+  const keys=e=>{if(!draft||!dirtyOf(draft))subpageKeys(onBack)(e);};
+  const dirtyOf=value=>{if(!state.value)return false;const {dimensions:_a,semanticRecall:_b,...saved}=state.value.values,{dimensions:_c,semanticRecall:_d,...mine}=value;return JSON.stringify(saved)!==JSON.stringify(mine);};
+  if(!draft)return h('div',{className:'ap-engine',ref:page,onKeyDown:keys},head,state.error?h(ErrorBox,{error:state.error,reload:state.reload}):h(Loading,{shape:'fields'}));
+  function patch(value){setDraft({...draft,...value});}
+  // 智能判断 is part of the draft (engine settings `judge`); a draft problem (a compatible endpoint without its URL …) blocks 保存.
+  const judgeProblem=draft.judge?judgeDraftProblem(draft.judge):'';
+  // the removed vector recall's stored semanticRecall (until the backend drops it) is neither
+  // shown, compared nor sent.
+  const dirty=dirtyOf(draft);
+  // An immediate write (the model, a 可用演出 chip) keeps the rest of the unsaved draft.
+  const keep=(result,key)=>{preserved.current={...draft,[key]:result.values[key]};state.setValue(result);};
+  // `dimensions` saves at once (its chips) and the unused dialogue themes are never sent back.
+  async function save(){if(judgeProblem||!validDraft())return;const {schemaVersion,semanticRecall:_retired,dimensions:_chips,dialogueThemes:_themes,...values}=draft;const result=await state.task(()=>binding.rpc('saveAssetEngineSettings',{expectedRevision:state.value.revision,patch:values}));if(result)state.setValue(result);}
+  // 模型 saves at once.
+  // 判断模型 › API Key saves at once through the host, never through the draft. A
+  // variable-name reference also saved the judge's keyName: the page takes it and keeps the rest of the unsaved draft.
+  async function saveKey(value){
+    const result=await (binding.engineRpc||binding.rpc)('setJudgeKey',{provider:draft.judge.provider,value,expectedRevision:state.value.revision});
+    if(result.settings){preserved.current={...draft,judge:{...draft.judge,keyName:result.settings.values.judge.keyName}};state.setValue(result.settings);}
+    return result.status;
+  }
+
+  async function toggleDimension(key,value){const result=await state.task(()=>binding.rpc('saveAssetEngineSettings',{expectedRevision:state.value.revision,patch:{dimensions:{[key]:value}}}));if(result)keep(result,'dimensions');}
+  // Every command shows (a missing key reads as on, like the backend default).
+  const dims=draft.dimensions||{},groups=ENGINE_DIMENSION_GROUPS;
+  const shown=groups.flatMap(([,items])=>items.map(([key])=>key)),onCount=shown.filter(key=>dims[key]!==false).length;
+  // 配音服务选择 only lists a method that really has a choice. The stored choice is
+  // read by dsh-tts chooseService: a chosen service is used (only it); 「自动」 uses the one compatible service when there is exactly
+  // one, otherwise none. So with one service 自动 already uses it and the row changes nothing — it shows for ≥ 2 services, or
+  // when the stored choice names a service that is not installed (that kind stays silent until it is set back to 自动).
+  const installed=services.value||null,ofKind=kind=>(installed||[]).filter(s=>s.kind===kind);
+  const voiceKinds=installed?[...new Set([...installed.map(s=>s.kind),...Object.keys(draft.voiceServices).filter(k=>k!=='reference'&&k!=='gpt-sovits')])]
+    .filter(kind=>{const chosen=draft.voiceServices[kind];return ofKind(kind).length>=2||!!chosen&&!installed.some(s=>s.id===chosen);}):[];
+  return h('div',{className:'ap-engine',ref:page,onKeyDown:keys},head,
+    // 「判断模型」 (was 智能判断; the fold key keeps the old name), no provider badge.
+    draft.judge&&h(StageSection,{foldKey:engineFold('智能判断'),title:'判断模型',className:'ap-engine-judge',reveal:focus==='judge',
+        help:'可选：配置后可减轻导演负担、更精准地挑选素材；未设置时蓝灯与触发词照常生效，可用模组直接交给导演。'},
+      h(EngineJudgeFields,{binding,config:draft.judge,busy:state.busy,onSaveKey:saveKey,onPatch:value=>patch({judge:{...draft.judge,...value}})})),
+    h(StageSection,{foldKey:engineFold('可用演出'),title:'可用演出',meta:onCount+' / '+shown.length,className:'ap-engine-commands',reveal:focus==='commands',
+        help:'导演可以用哪些演出，所有卡通用，点选立即保存。'},
+      h('div',{className:'ap-engine-groups'},groups.map(([group,items])=>h(EngineCommandGroup,{key:group,group,items,isOn:key=>dims[key]!==false,disabled:state.busy||!state.value.writable,onToggle:toggleDimension})))),
+    // one column, the same label column as every other field here.
+    h(StageSection,{foldKey:engineFold('每轮上限'),title:'每轮上限',help:'每轮回复里最多用几次，免得画面一直闪、人物一直动。'},
+      h(InlineGrid,{label:'每轮上限',columns:1},ENGINE_CAPS.map(([key,label,unit])=>h(InlineField,{key,kind:'number',label,controlLabel:label+' 每轮上限',unit,integer:true,min:1,max:256,value:draft.actionCaps[key],onCommit:v=>patch({actionCaps:{...draft.actionCaps,[key]:v}})})))),
+    (voiceKinds.length>0||services.error)&&h(StageSection,{foldKey:engineFold('配音服务选择'),title:'配音服务',help:'同一种配音装了几个服务时，用哪一个。'},
+      h(InlineGrid,{label:'配音服务',columns:1},voiceKinds.map(kind=>{const current=draft.voiceServices[kind]||'',mine=ofKind(kind),name=VOICE_PROVIDERS[kind]||kind;
+        return h(InlineField,{key:kind,kind:'menu',label:name,controlLabel:name+' 默认服务',value:current,
+          options:[{value:'',label:'自动'},...(current&&!(services.value||[]).some(s=>s.id===current)?[{value:current,label:current+'（不可用）'}]:[]),...mine.map(s=>({value:s.id,label:s.label||s.name||s.id}))],
+          onCommit:v=>{const next={...draft.voiceServices};if(v)next[kind]=v;else delete next[kind];patch({voiceServices:next});}});})),
+      h(ErrorBox,{error:services.error,reload:services.reload})),
+    h(ErrorBox,{error:state.error,reload:state.reload}),
+    // Sticky while there is something to save, so 「保存」 is reachable from any section.
+    h('div',{className:'ap-engine-foot','data-dirty':dirty||undefined},
+      h('span',{className:'ap-save-state',role:'status','data-state':dirty&&judgeProblem?'problem':dirty?'dirty':'idle'},dirty&&judgeProblem?h(React.Fragment,null,h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),judgeProblem):dirty?'有未保存的修改':''),
+      h(Button,{primary:true,disabled:state.busy||!state.value.writable||!dirty||!!judgeProblem,onClick:save},'保存')));
+}
+
+// ---------- 判断模型 (智能判断) ----------
+// kept in this file (every test bundle includes it). The engine's judge config
+//. no sub-page or 基础设置 row of its own any more — it is the
+// 「智能判断」 section of 舞台模式 (EngineJudgeFields), part of that page's draft (engine settings `judge`, saved
+// by its one 「保存」; a compatible endpoint needs its URL before the config is valid). Switching the provider fills in its model
+// and default credential name. 测试连接 (testJudgeConnection) sends the unsaved draft.
+// 「API Key」 (JudgeKeyField) replaces 密钥名称 — the key itself or a variable name,
+// saved at once by the host (setJudgeKey) and never read back.
+const JUDGE_UI_PROVIDERS={jev:{label:'Jev',model:'jev-1.13.0',keyName:'TYPESAFE_API_KEY'},openai:{label:'OpenAI',model:'gpt-6-luna',keyName:'OPENAI_API_KEY'},
+  'openai-compatible':{label:'OpenAI 兼容',model:'gpt-6-luna',keyName:'OPENAI_API_KEY'}};
+// The host RPC rejects a failed test with the code as its message: map either form, never show the raw code.
+const JUDGE_ERRORS={JUDGE_INACTIVE:'未设置提供方',JUDGE_NO_KEY:'没有 API Key',JUDGE_TIMEOUT:'超时',JUDGE_HTTP_ERROR:'服务返回错误',JUDGE_INVALID_RESPONSE:'返回内容不对',JUDGE_ERROR:'连接失败'};
+// Picking a provider fills in its model and credential name; only a compatible endpoint keeps a URL. Picking one turns
+// the judge on (the stored `enabled` is kept for 未设置).
+function judgeWithProvider(config,provider) {
+  const preset=JUDGE_UI_PROVIDERS[provider];
+  return {...config,provider,enabled:preset?true:config.enabled,model:preset?.model||'',keyName:preset?.keyName||'',baseUrl:provider==='openai-compatible'?config.baseUrl:''};
+}
+function judgeUrlProblem(text) {
+  if(!text)return '请填写接口地址';
+  let url=null;try{url=new URL(text);}catch(_){}
+  if(!url||!['http:','https:'].includes(url.protocol))return '请填写 http(s) 地址';
+  return url.username||url.password||url.search||url.hash?'地址里不能带账号、参数或 #':'';
+}
+// What keeps the draft from being saved or tested (a field never committed has no inline error yet).
+function judgeDraftProblem(config) {
+  if(config.provider==='unset')return '';
+  if(config.provider==='openai-compatible'&&judgeUrlProblem(config.baseUrl))return judgeUrlProblem(config.baseUrl);
+  return config.model.trim()?'':'请填写模型';
+}
+const JUDGE_KEY_HELP='这里支持两种填法：1. 直接粘贴 API Key，最直观；2. 填环境变量的准确名称，从这个环境变量读取。';
+const judgeKeyProblem=value=>/^[\x21-\x7e]{1,4096}$/.test(value)?'':'API Key 不能含空格或中文';
+// 「API Key」: one masked box for either form; the host tells them apart. Configured: 「已配置」 (a stored key: 更换 / 清除) or
+// 「已配置 · 环境变量 NAME」 (更换). The key never comes back; a failed save keeps the typed draft with its reason. `trail` is
+// the row's 测试连接.
+function JudgeKeyField({binding,judgeRpc,provider,keyName,disabled,onSave,trail}) {
+  const status=useLoad(binding,()=>judgeRpc('getJudgeCredentialStatus',{provider,keyName}),[provider,keyName]);
+  const [editing,setEditing]=React.useState(false),[saving,setSaving]=React.useState(false),[error,setError]=React.useState('');
+  React.useEffect(()=>{setEditing(false);setError('');},[provider]);
+  async function save(value){
+    setSaving(true);setError('');
+    try{status.setValue(await onSave(value));setEditing(false);}catch(e){setError(JUDGE_ERRORS[e?.code]||'保存失败');}finally{setSaving(false);}
+  }
+  const value=status.value,help=h(Help,{label:'API Key 说明',text:JUDGE_KEY_HELP});
+  const problem=(status.error||error)&&h(HintLine,{compact:true,text:error||'读取 API Key 状态失败'});
+  if(!value&&!status.error)return h(InlineRow,{label:'API Key',help},h(Spinner),trail);
+  if(value?.configured&&!editing)return h(InlineRow,{label:'API Key',help,className:'ap-judge-key-row'},
+    h('span',{className:'ap-judge-key'},value.source==='stored'?'已配置':'已配置 · 环境变量 '+(value.keyName||'')),
+    h(Button,{className:'ap-inline-link',disabled:disabled||saving,onClick:()=>setEditing(true)},'更换'),
+    value.source==='stored'&&h(Button,{className:'ap-inline-link',disabled:disabled||saving,onClick:()=>save(null)},'清除'),problem,trail);
+  return h(InlineField,{kind:'text',secret:true,label:'API Key',help,value:'',placeholder:'粘贴 API Key 或环境变量名',maxLength:4096,disabled:disabled||saving,
+    validate:judgeKeyProblem,onCommit:v=>save(v),trail:h(React.Fragment,null,saving&&h(Spinner),problem,
+      editing&&h(Button,{className:'ap-inline-link',onClick:()=>{setEditing(false);setError('');}},'取消'),trail)});
+}
+function JudgeTestResult({result}) {
+  if(!result)return null;
+  if(result.running)return h('span',{className:'ap-judge-test-result',role:'status'},h(Spinner),'正在测试…');
+  const ms=Number.isFinite(result.latencyMs)?' · '+Math.round(result.latencyMs)+' 毫秒':'';
+  if(result.ok)return h('span',{className:'ap-judge-test-result is-ok',role:'status'},h(Glyph,{name:'check'}),'连接成功'+ms);
+  const text=JUDGE_ERRORS[result.failure]||result.failure||JUDGE_ERRORS[result.error?.code]||'连接失败';
+  return h('span',{className:'ap-judge-test-result is-error',role:'alert'},h('span',{className:'ap-hint-mark','aria-hidden':true},h(Glyph,{name:'warning'})),text+ms);
+}
+// 舞台模式 › 判断模型: the fields of the page draft's `judge` — 提供方 → (接口地址) → 模型 → API Key with 测试连接 and its
+// result at the end of that row, then 门槛 / 每类上限 / 超时 / 附加说明. `onPatch(value)` merges into the draft's judge; a
+// change clears the last test result. `onSaveKey(value)` saves the API Key at once (EnginePage).
+function EngineJudgeFields({binding,config,busy,onPatch,onSaveKey}) {
+  // Machine-wide RPCs: sent without the session (binding.engineRpc) where the host provides it.
+  const judgeRpc=(method,args)=>(binding.engineRpc||binding.rpc)(method,args);
+  const [test,setTest]=React.useState(null),testRun=React.useRef(0);
+  const provider=config.provider,set=provider!=='unset',problem=judgeDraftProblem(config);
+  const patch=value=>{testRun.current++;setTest(null);onPatch(value);};
+  async function runTest(){
+    if(problem||!validDraft())return;
+    const run=++testRun.current;setTest({running:true});
+    let result;try{result=await judgeRpc('testJudgeConnection',{config});}catch(e){result={ok:false,failure:JUDGE_ERRORS[e?.code]||JUDGE_ERRORS[e?.message]||errorText(e)};}
+    if(run===testRun.current)setTest(result);
+  }
+  const help=(label,text)=>h(Help,{label:label+' 说明',text});
+  return h(React.Fragment,null,
+    h(InlineGrid,{label:'判断模型',columns:1},
+      // 测试连接 sits at the end of the row it tests (like 导演模型's), not on a line of its own.
+      set&&h(JudgeKeyField,{key:provider,binding,judgeRpc,provider,keyName:config.keyName,disabled:busy,onSave:onSaveKey,
+        trail:h('span',{className:'ap-judge-test'},
+          h(Button,{className:'ap-engine-test',disabled:busy||test?.running||!!problem,onClick:runTest},'测试连接'),
+          h(JudgeTestResult,{result:test}))})),
+    // no 「更多」 fold — 门槛 / 每类上限 / 超时 / 附加说明 are always shown.
+    h(InlineGrid,{label:'判断模型 细节',columns:1,className:'ap-judge-details'},
+      h(InlineField,{kind:'number',label:'门槛',value:config.threshold,min:0,max:1,step:0.05,disabled:busy,help:help('门槛','判断的把握达到这个值才补进，越高补得越少。'),onCommit:v=>patch({threshold:v})}),
+      h(InlineField,{kind:'number',label:'每类上限',unit:'条',integer:true,min:0,max:300,value:config.capPerKind,disabled:busy,help:help('每类上限','每类最多补进几条；蓝灯和触发词命中的不算。'),onCommit:v=>patch({capPerKind:v})}),
+      h(InlineField,{kind:'number',label:'超时',unit:'毫秒',integer:true,min:1,max:120000,step:100,value:config.timeoutMs,disabled:busy,help:help('超时','等这么久还没结果，这一轮就只按触发词。'),onCommit:v=>patch({timeoutMs:v})}),
+      h(InlineField,{kind:'text',label:'附加说明',multiline:true,lines:true,wide:true,maxLength:4000,placeholder:'无',value:config.preamble,disabled:busy,
+        help:help('附加说明','随剧情一起发给判断模型的说明；一般留空效果更好。'),onCommit:v=>patch({preamble:v})})));
+}
+// 提示词 › 判断模型: previewStageDirectorPrompt `judge` → rows.
+// each request body is cut into what it carries — 剧情 (the story text the
+// judge reads: the body's longest string), 待判断素材 (the questions: its largest list or map) and 拼接与封装 (the rest:
+// the model name, the keys and brackets around them) — one row each, every batch in the same three rows; a batch's
+// pieces join back into its body byte for byte. A body of another shape is one row per batch (判断请求 / 第 n 批), as sent.
+const JUDGE_ROWS=[['judge-story','剧情','本轮'],['judge-questions','待判断素材','本轮'],['judge-frame','拼接与封装','全局']];
+function judgeBodyPieces(request,batch) {
+  const text=String(request.body??''),tree=promptJson(text);
+  if(tree?.type!=='object')return null;
+  const size=node=>promptJsonText(node).length,largest=list=>list.sort((a,b)=>size(b[1])-size(a[1]))[0]?.[1];
+  const story=largest(tree.entries.filter(([,node])=>node.type==='string')),questions=largest(tree.entries.filter(([,node])=>pjNested(node)));
+  if(!story||!questions)return null;
+  const pieces=[],method=String(request.method||'POST'),url=String(request.url||'');let offset=0,join='{';
+  const push=(key,piece)=>{pieces.push({key,batch,offset,method,url,text:piece,bytes:promptBytes(piece),tokens:promptTokenEstimate(piece)});offset+=piece.length;};
+  tree.entries.forEach(([key,node],i)=>{join+=(i?',':'')+JSON.stringify(key)+':';
+    if(node===story||node===questions){push('judge-frame',join);join='';push(node===story?'judge-story':'judge-questions',promptJsonText(node));}
+    else join+=promptJsonText(node);});
+  push('judge-frame',join+'}');
+  return pieces;
+}
+function judgePromptRows(judge) {
+  const requests=Array.isArray(judge?.requests)?judge.requests:[],cut=requests.map(judgeBodyPieces);
+  if(!requests.length)return [];
+  if(cut.some(pieces=>!pieces))return requests.map((request,index)=>{const text=String(request.body??''),bytes=promptBytes(text),tokens=promptTokenEstimate(text);
+    return {id:'judge:'+index,name:requests.length>1?'第 '+(index+1)+' 批':'判断请求',owners:'全局、本轮',tokens,bytes,
+      pieces:[{key:'judge-body',at:'body',name:'',method:String(request.method||'POST'),url:String(request.url||''),text,bytes,tokens}]};});
+  const all=cut.flat(),note=requests.length>1?requests.length+' 批':null;
+  return JUDGE_ROWS.map(([id,name,owners])=>{const pieces=all.filter(piece=>piece.key===id);
+    return {id,name,owners,note,tokens:promptSum(pieces),bytes:pieces.reduce((sum,piece)=>sum+piece.bytes,0),pieces,
+      ...(id==='judge-questions'?{count:pieces.reduce((sum,piece)=>sum+judgeQuestions(piece.text).length,0)}:{})};});
+}
+// The questions of a 待判断素材 piece → [{id, ask, kind, name, note}]: an id → question map or a list of named questions;
+// each question's text (its tags left out) read as 「ask [kind] name; …: note」, else the text is its name.
+const JUDGE_KINDS={background:'backgrounds',music:'music','sound effect':'sfx',ambience:'ambience',CG:'cg',lighting:'looks',outfit:'outfits',character:'figures',performance:'performances',widget:'widgets'};
+function judgeQuestions(text) {
+  const value=promptParse(text),list=Array.isArray(value)?value.map(item=>[item?.name??item?.id,item]):schemaObject(value)?Object.entries(value):[];
+  return list.map(([id,item])=>{
+    const inner=String(item?.instructions??item?.text??'').replace(/^<([\w-]+)>\n?([\s\S]*?)\n?<\/\1>$/,'$2').trim();
+    const m=/^([\s\S]*?)\s*\[([^\]]+)\]\s*([^;]*?)\s*(?:;\s*(?:[^:]*:)?\s*([\s\S]*))?$/.exec(inner);
+    const word=m?m[2]:'',kind=JUDGE_KINDS[word];
+    return {id:String(id),ask:m?m[1]:'',kind:kind||'',group:kind?commandKinds[kind]||word:word||'其他',name:m?m[3]||String(id):inner||String(id),note:m?m[4]||'':''};
+  });
+}
+// The rows opened: 剧情 by paragraph; 待判断素材 as one line with the question every item is asked, then the items by kind
+// (人物, 服装, 背景… then the mods), each a chip with its note in its hover, long groups folded at 60; 拼接与封装 as the
+// request's map (`POST url`, then the joins as dashed chips around the two parts). 「查看原文」 gives each piece as sent.
+const JUDGE_FOLD=60;
+function JudgePromptBody({row,rows,raw}) {
+  if(row.pieces[0]?.key==='judge-body')return row.pieces.map((piece,index)=>h('div',{key:index,className:'ap-prompt-piece'},
+    h('div',{className:'ap-prompt-piece-head'},h('span',{className:'ap-prompt-at ap-judge-url',title:piece.url},piece.method+' '+piece.url)),
+    h(PromptText,{text:piece.text,raw})));
+  const batches=new Set(row.pieces.map(piece=>piece.batch)).size;
+  if(row.id==='judge-frame')return raw?h('pre',{className:'ap-prompt-outline'},judgeLayout(rows).map(batch=>batch.items.map(item=>item.join??'⟨'+item.name+'⟩').join('')).join('\n')):
+    h(PromptMap,{blocks:judgeLayout(rows)});
+  if(raw)return row.pieces.map((piece,index)=>h('div',{key:index,className:'ap-prompt-piece'},batches>1&&h('div',{className:'ap-prompt-piece-head'},'第 '+(piece.batch+1)+' 批'),h('pre',null,piece.text)));
+  if(row.id==='judge-story'){const story=promptParse(row.pieces[0].text);
+    return h('div',{className:'ap-prompt-group ap-judge-story'},String(story??'').split(/\n{2,}/).map((part,i)=>h('span',{key:i,className:'ap-story-text'},part)));}
+  return h(JudgeQuestions,{questions:row.pieces.flatMap(piece=>judgeQuestions(piece.text))});
+}
+function judgeLayout(rows) {
+  const all=rows.flatMap(row=>row.pieces).sort((a,b)=>a.batch-b.batch||a.offset-b.offset),out=[];
+  for(const piece of all){let batch=out[piece.batch];if(!batch)out[piece.batch]=batch={head:piece.method+' '+piece.url,tokens:0,items:[]};
+    batch.tokens+=piece.tokens;batch.items.push(piece.key==='judge-frame'?{join:piece.text}:{name:piece.key==='judge-story'?'剧情':'待判断素材',tokens:piece.tokens});}
+  return out.filter(Boolean);
+}
+function JudgeQuestions({questions}) {
+  const [open,setOpen]=React.useState({});
+  const asks=[...new Set(questions.map(q=>q.ask))],groups=new Map();
+  for(const q of questions){if(!groups.has(q.group))groups.set(q.group,{kind:q.kind,list:[]});groups.get(q.group).list.push(q);}
+  const order=['figures','outfits',...KIND_ORDER],rank=kind=>{const at=order.indexOf(kind);return at<0?order.length:at;};
+  return h('div',{className:'ap-prompt-groups'},
+    asks.length===1&&asks[0]&&h('p',{className:'ap-judge-ask'},h('span',{className:'ap-prompt-at'},'每项都问'),h('span',null,asks[0])),
+    [...groups].sort(([,a],[,b])=>rank(a.kind)-rank(b.kind)).map(([group,{list}])=>h('section',{key:group,className:'ap-prompt-group','aria-label':group},
+      h('div',{className:'ap-prompt-group-head'},h('span',{className:'ap-prompt-group-name'},group),h('span',{className:'ap-prompt-group-count'},list.length)),
+      h('div',{className:'ap-judge-items'},(open[group]?list:list.slice(0,JUDGE_FOLD)).map((q,i)=>h('span',{key:i,className:'ap-cmd-val is-word',title:[q.name,q.note].filter(Boolean).join(' — ')},q.name)),
+        list.length>JUDGE_FOLD&&!open[group]&&h('button',{type:'button',className:'ap-schema-toggle',onClick:()=>setOpen(before=>({...before,[group]:true}))},'其余 '+(list.length-JUDGE_FOLD)+' 项')))));
+}
+
+            // 设置 › 舞台 › 舞台模组
+// and the managed mods' text switches. Host RPCs: managedModsList / managedModDetail /
+// managedModPlan / managedModSwitchPlan / managedModApply.
+// Included in the asset-pack UI factory (mod-library.js): it uses the panel's one Modal / SubpageHead / StageSection /
+// Popover / HintLine / ConfirmDialog.
+//
+// Switches are words, not lamps (blue / green / grey stay for entries). On a card the switch is one single-choice list of
+// four: 全局开启 / 全局关闭 (global on/off, this card unset), 本卡开启 / 本卡关闭 (card on / off). A card
+// key, when set, is the choice shown; picking a 全局 option clears it.
+// The host still resolves 本卡关闭 > 全局开启 > 本卡开启 > 全局关闭 (switches.effective). Every change is a host plan; its
+// confirmations (code consent, a 本卡关闭 dependency, a version conflict) are asked with the host's own options, then
+// managedModApply commits. The client never resolves dependencies itself.
+
+// The one checked choice of a switch (and the words on the tag): the card key when set, else the global switch.
+function modSwitchWord(global, card) { return card === 'off' ? '本卡关闭' : card === 'on' ? '本卡开启' : global === true ? '全局开启' : '全局关闭'; }
+const modSwitchOn = (global, card) => card !== 'off' && (global === true || card === 'on');
+// The host's dependency reasons in player words.
+const MOD_DEP_REASONS = { missing: '未安装', version: '版本不符', operation: '版本过旧', disabled: '未开启', unauthorized: '未获允许' };
+const MOD_STATUS_WORDS = { unauthorized: '未获允许', incompatible: '版本不符', blocked: '无法运行' };
+const modQuote = name => '「' + name + '」';
+// A failed host call in player words (never a code); `nameOf(id)` names the mods a message mentions.
+function modManagerError(error, nameOf) {
+  const name = id => nameOf?.(id) || id, ids = error?.details?.ids || error?.details?.mods || [];
+  if (error?.code === 'MOD_DEPENDENCY_CYCLE') {
+    const ring = [...new Set(ids)].map(id => modQuote(name(id)));
+    return '不能安装：' + (ring.length > 2 ? ring.join('') + '循环' : ring.join('和')) + '互相必需';
+  }
+  if (error?.code === 'MOD_CODE_CONFLICT') return [...new Set(ids)].map(id => modQuote(name(id))).join('和') + '不能同时开启';
+  if (error?.code === 'MOD_REVISION_CONFLICT') return '内容已变化，请重试';
+  if (error?.code === 'MOD_SESSION_REQUIRED') return '新会话才能使用这项改动';
+  if (error?.code === 'MOD_PERMISSION_DENIED') return '没有权限进行这项操作';
+  return '操作失败，请重试';
+}
+
+// The managed mods of the profile (and of a card, with `cardId`). Every surface re-reads after any applied change
+// (dsh-tavern-mods-changed), so 高级设置 and 舞台设置 never disagree.
+function useManagedMods(rpc, cardId) {
+  const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), life = React.useRef(0), latest = React.useRef(null);
+  latest.current = data;
+  const nameOf = id => latest.current?.mods.find(row => row.id === id)?.name;
+  const reload = async () => {
+    const own = life.current;
+    try { const next = await rpc('managedModsList', cardId ? { cardId } : {}); if (own === life.current) { setData(next); setError(''); } return next; }
+    catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); }
+  };
+  React.useEffect(() => {
+    life.current++; setData(null); setError(''); reload();
+    const changed = () => reload(), events = typeof window === 'undefined' ? null : window;
+    events?.addEventListener('dsh-tavern-mods-changed', changed);
+    return () => { life.current++; events?.removeEventListener('dsh-tavern-mods-changed', changed); };
+  }, [rpc, cardId]);
+  // One host call at a time; a failure shows here in words and is rethrown to stop the caller.
+  async function task(run) {
+    const own = life.current;
+    setBusy(true); setError('');
+    try { return await run(latest.current); }
+    catch (e) { if (own === life.current) setError(modManagerError(e, nameOf)); throw e; }
+    finally { if (own === life.current) setBusy(false); }
+  }
+  const changed = () => window.dispatchEvent(new CustomEvent('dsh-tavern-mods-changed'));
+  return { data, error, busy, reload, task, changed, nameOf, setError };
+}
+
+// Plan → ask each confirmation → apply. `askAll` dialogs show the host's message and options (取消 never writes);
+// the result notice names what the plan also switched on for the card, and 新会话生效 when the host says so.
+function useModPlans(rpc, mods) {
+  const [ask, setAsk] = React.useState(null), [notice, setNotice] = React.useState('');
+  const answer = confirmation => new Promise(resolve => setAsk({ confirmation, resolve }));
+  async function execute(makePlan) {
+    setNotice('');
+    let plan;
+    try { plan = await mods.task(data => makePlan(data)); } catch (_) { return null; }
+    const answers = {};
+    for (const confirmation of plan.confirmations || []) {
+      const choice = await answer({ ...confirmation, planModId: plan.modId });
+      setAsk(null);
+      if (!choice || choice === 'cancel') return null;
+      answers[confirmation.id] = choice;
+    }
+    try {
+      const result = await mods.task(() => rpc('managedModApply', { token: plan.token, revision: plan.revision, answers }));
+      mods.changed();
+      const declined = new Set((plan.confirmations || []).filter(row => row.kind === 'card-off' && answers[row.id] !== 'enable').map(row => row.modId));
+      const also = (plan.changes || []).filter(change => change.scope === 'card' && change.id !== plan.modId && change.after === 'on' && !declined.has(change.id)).map(change => modQuote(mods.nameOf(change.id) || change.id));
+      const enabled = (plan.confirmations || []).filter(row => row.kind === 'card-off' && answers[row.id] === 'enable').map(row => modQuote(mods.nameOf(row.modId) || row.modId));
+      const both = [...new Set([...also, ...enabled])];
+      setNotice([both.length ? '已同时开启' + both.join('、') : '', result?.requiresNewSession || plan.requiresNewSession ? '新会话生效' : ''].filter(Boolean).join('；'));
+      return { plan, result };
+    } catch (_) { return null; }
+  }
+  const dialog = ask && h(ModConfirmation, { confirmation: ask.confirmation, nameOf: mods.nameOf, onAnswer: ask.resolve });
+  return { execute, dialog, notice, setNotice };
+}
+// One plan confirmation: the title says what is being decided; the body is the host's message; the buttons are the host's
+// options (the safe 取消 first and always there). The option that goes ahead is the one solid button.
+const MOD_GO_OPTIONS = new Set(['enable', 'upgrade', 'approve']);
+function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
+  const name = id => modQuote(nameOf(id) || id);
+  const title = c.kind === 'card-off' ? '开启' + name(c.planModId) : c.kind === 'version-conflict' ? name(c.modId) + '版本不符' : '允许' + name(c.modId) + '运行';
+  const options = (c.options || []).filter(option => option.id !== 'cancel');
+  return h(Modal, { title, onClose: () => onAnswer('cancel'), closable: false, className: 'ap-confirm fork-mod-prompt' },
+    h('p', null, c.message),
+    h(Actions, null, h(Button, { onClick: () => onAnswer('cancel') }, '取消'),
+      options.map(option => h(Button, { key: option.id, primary: MOD_GO_OPTIONS.has(option.id), 'data-autofocus': MOD_GO_OPTIONS.has(option.id) || undefined, onClick: () => onAnswer(option.id) }, option.label))));
+}
+
+// The switch tag: the checked choice + ⌄; the menu is one selection list with one ✓ — 全局开启 / 全局关闭, and on a card also
+// 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed).
+const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
+function ModSwitchTag({ name, switches, cardScoped, busy, onChange }) {
+  const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
+  const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
+    h('span', { className: 'ap-state-label' }, label), checked && h('span', { className: 'ap-state-check' }, h(Glyph, { name: 'check' }))); };
+  const closeMenu = React.useRef(null);
+  return h(Popover, { label: name + ' 开关', className: 'fork-mod-switch-anchor', stopClicks: true,
+    trigger: ({ toggle, open }) => h('button', { type: 'button', className: 'fork-mod-switch', 'data-on': switches?.effective || undefined, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
+        'aria-label': name + '：' + word + '，更改', disabled: busy || undefined, onClick: toggle },
+      busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
+    content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });
+}
+// A switch change as host plans (managedModSwitchPlan). On a card a 全局 choice is two stored writes: clear this card's key
+// (when set), then the global switch (when it differs) — each its own plan, the second on the revision after the first.
+// The stage drops a mod switched off at once (dsh-tavern-mod-scope) and gets it back if
+// the change is cancelled or fails with the mod still on.
+function useModSwitchChange(rpc, mods, plans, cardId) {
+  // The revision belongs to the displayed card context, even when writing the global scope.
+  const plan = (row, scope, value, revision) => plans.execute(data => rpc('managedModSwitchPlan', { scope, kind: 'mod', id: row.id, value, ...(cardId ? { cardId } : {}), revision: revision ?? data.revision }));
+  return async (row, scope, value) => {
+    const before = row.switches, card = cardId ? before.card ?? null : null;
+    const steps = scope === 'card' ? [['card', value]] : [...(card != null ? [['card', null]] : []), ...(before.global !== value ? [['global', value]] : [])];
+    const after = scope === 'card' ? { global: before.global, card: value } : { global: value, card: null };
+    const off = before.effective && !modSwitchOn(after.global, after.card);
+    const scoped = enabled => window.dispatchEvent(new CustomEvent('dsh-tavern-mod-scope', { detail: { modId: row.id, enabled } }));
+    if (off) scoped(false);
+    let state = { global: before.global, card }, done = null, revision;
+    for (const [stepScope, stepValue] of steps) {
+      done = await plan(row, stepScope, stepValue, revision);
+      if (!done) break;
+      state = { ...state, [stepScope]: stepValue };
+      revision = done.result.revision;
+    }
+    if (off && !done && modSwitchOn(state.global, state.card)) scoped(true);
+    return done;
+  };
+}
+// One dependency notice (the consumer runs without it) in words; `dep` is the dependency's row when it is listed.
+function modNoticeText(notice, dep, cardId) {
+  const reason = notice.reason === 'disabled' && cardId && dep?.switches?.card === 'off' ? '本卡已关闭' : MOD_DEP_REASONS[notice.reason] || notice.message;
+  return '需要' + modQuote(dep?.name || notice.dependencyId) + '：' + reason;
+}
+const modShownNotices = row => (row?.notices || []).filter(notice => notice.policy !== 'silent' && notice.reason);
+
+// The 舞台设置 › 模组 rows: icon · name · › · ⚠ (a dependency notice or a version conflict) · the switch tag. The whole row
+// but the tag opens the mod's page.
+function ManagedModRow({ row, cardId, busy, byId, change, onOpen, onVersion, takeFocus }) {
+  const open = () => onOpen(row.id), jump = React.useRef(null), notice = modShownNotices(row)[0];
+  React.useEffect(() => { if (takeFocus?.(row.id)) jump.current?.focus?.(); }, []);
+  const warn = row.status === 'incompatible' && cardId ? h(HintLine, { compact: true, text: modQuote(row.name) + '版本不符', action: '处理', onAction: () => onVersion(row) })
+    : notice ? h(HintLine, { compact: true, text: modNoticeText(notice, byId(notice.dependencyId), cardId) })
+    : MOD_STATUS_WORDS[row.status] && row.switches.effective === false && row.switches.global ? h(HintLine, { compact: true, text: MOD_STATUS_WORDS[row.status] }) : null;
+  return h('div', { className: 'ap-switch-row is-openable fork-mod-row', onClick: switchRowClick(open) },
+    h('div', { className: 'ap-switch-main' },
+      h('span', { className: 'ap-switch-name' }, h(Glyph, { name: MOD_GLYPHS[row.id] || 'widgets' }), h('span', null, row.name)), warn,
+      h(ModSwitchTag, { name: row.name, switches: row.switches, cardScoped: !!cardId, busy, onChange: (scope, value) => change(row, scope, value) }),
+      h('button', { type: 'button', ref: jump, className: 'ap-kind-jump', 'aria-label': row.name + ' 设置', title: row.name, onClick: open }, h(Glyph, { name: 'chevRight' }))));
+}
+// 舞台设置 › 模组: every installed mod with this card's switches. A version conflict of this card's lock is asked by planning
+// the card's current choice again (the host answers with upgrade / keep-missing).
+function ManagedModSection({ rpc, cardId, onOpen, takeFocus }) {
+  const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
+  const rows = mods.data?.mods.filter(row => row.installed && !row.internal) || [], byId = id => mods.data?.mods.find(row => row.id === id);
+  return h(StageSection, { title: '模组', meta: mods.data ? rows.length : undefined, className: 'ap-widget-section fork-mod-section',
+      help: '全局开启 / 关闭对所有卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效。安装与卸载在 设置 › 舞台 › 舞台模组。' },
+    h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }),
+    plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null,
+    !mods.data ? !mods.error && h(Loading) : rows.length ? rows.map(row => h(ManagedModRow, { key: row.id, row, cardId, busy: mods.busy, byId, change, onOpen, takeFocus,
+      onVersion: item => change(item, 'card', 'on') })) : h(EmptyState, { text: '没有安装模组' }),
+    plans.dialog);
+}
+// A mod page's head switch and its dependency notices (舞台设置 › 模组 › <mod>): the notices name what this mod runs without
+// on this card; one the card disables offers 开启 (planned like any card 开启).
+function useManagedModControls({ rpc, cardId, modId, name }) {
+  const mods = useManagedMods(rpc, cardId), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans, cardId);
+  const row = mods.data?.mods.find(item => item.id === modId), byId = id => mods.data?.mods.find(item => item.id === id);
+  const toggle = row ? h(ModSwitchTag, { name, switches: row.switches, cardScoped: !!cardId, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null;
+  const shown = modShownNotices(row);
+  const notices = shown.length || mods.error || plans.notice ? h('div', { className: 'fork-mod-notices' },
+    h(ErrorBox, { error: mods.error }),
+    shown.map(notice => {
+      const dep = byId(notice.dependencyId), enable = notice.reason === 'disabled' && dep?.installed && cardId;
+      return h(HintLine, { key: notice.dependencyId, text: modNoticeText(notice, dep, cardId), action: enable ? '开启' : undefined, onAction: enable ? () => change(dep, 'card', 'on') : undefined });
+    }),
+    plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null) : null;
+  return { toggle, notices, dialog: plans.dialog };
+}
+
+// 设置 › 舞台 › 舞台模组: a row with the installed count and ›; it opens the manager.
+function ModManagerEntry({ rpc, Row }) {
+  const [open, setOpen] = React.useState(false), mods = useManagedMods(rpc), count = mods.data?.mods.filter(row => row.installed && !row.internal).length;
+  return h(React.Fragment, null,
+    h(Row, { title: '模组管理', help: '安装、卸载模组，选择运行的版本，查看依赖。', className: 'fork-mod-manager-entry' },
+      h('button', { type: 'button', className: 'fork-mod-manager-open', 'aria-label': '打开模组管理', onClick: () => setOpen(true) },
+        count === undefined ? null : h('span', null, count + ' 个'), h(Glyph, { name: 'chevRight' }))),
+    open && h(ModManager, { rpc, onClose: () => setOpen(false) }));
+}
+
+// The manager: 已安装 and 可安装 (the library's local first-party distributions), and a mod's page.
+function ModManager({ rpc, onClose }) {
+  const mods = useManagedMods(rpc), plans = useModPlans(rpc, mods), change = useModSwitchChange(rpc, mods, plans);
+  const [openId, setOpenId] = React.useState(null), back = React.useRef(null), importInput = React.useRef(null);
+  const importFile = file => plans.execute(async () => {
+    if (file.size > 48 * 1024 ** 2) throw Object.assign(new Error('模组文件不能超过 48 MiB'), { code: 'MOD_INVALID' });
+    const bytesBase64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const plan = await rpc('managedModInspect', { bytesBase64 });
+    await mods.reload();
+    return plan;
+  });
+  const all = mods.data?.mods.filter(row => !row.internal) || [], installed = all.filter(row => row.installed), available = all.filter(row => !row.installed);
+  const detail = openId && all.find(row => row.id === openId);
+  const goBack = () => { back.current = openId; setOpenId(null); };
+  const notice = plans.notice ? h('p', { className: 'ap-notice', role: 'status' }, h(Glyph, { name: 'check' }), h('span', null, plans.notice)) : null;
+  const list = (rows, label) => h('ul', { className: 'fork-mod-list', 'aria-label': label },
+    rows.map(row => h(ModManagerRow, { key: row.id, row, busy: mods.busy, change, onOpen: () => setOpenId(row.id), focus: back.current === row.id })));
+  return h(Modal, { title: '模组管理', onClose, headless: true, className: 'fork-mod-manager', initialFocus: 'dialog' },
+    detail ? h(ModManagerDetail, { key: detail.id, rpc, mods, plans, change, row: detail, notice, onBack: goBack })
+      : h(React.Fragment, null,
+        h('header', { className: 'ap-subhead fork-mod-manager-head' },
+          h('h2', { className: 'ap-subhead-title' }, h('span', { className: 'ap-subhead-text' }, '模组管理'),
+            h(Help, { label: '模组管理 说明', text: '模组是引擎的能力，安装后默认全局关闭。每个模组只运行一个版本；本卡开启与关闭在 舞台设置 › 模组。' })),
+          h('span', { className: 'ap-subhead-tools' },
+            h(Button, { disabled: mods.busy, onClick: () => importInput.current?.click() }, '导入模组…'),
+            h('input', { ref: importInput, type: 'file', hidden: true, tabIndex: -1, accept: '.dshmod', onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file); } }),
+            h(IconButton, { icon: 'close', label: '关闭', onClick: onClose }))),
+        h(ErrorBox, { error: mods.error, reload: mods.data ? null : mods.reload }), notice,
+        !mods.data ? !mods.error && h(Loading) : h(React.Fragment, null,
+          h(StageSection, { title: '已安装', meta: installed.length, foldKey: 'mod-manager/installed' },
+            installed.length ? list(installed, '已安装的模组') : h(EmptyState, { compact: true, text: '没有安装模组' })),
+          available.length ? h(StageSection, { title: '可安装', meta: available.length, foldKey: 'mod-manager/available', help: '本机已有、尚未安装的模组。' }, list(available, '可安装的模组')) : null)),
+    plans.dialog);
+}
+function ModManagerRow({ row, busy, change, onOpen, focus }) {
+  const name = React.useRef(null), notice = modShownNotices(row).find(item => !item.optional), problem = row.installed && MOD_STATUS_WORDS[row.status];
+  React.useEffect(() => { if (focus) name.current?.focus?.(); }, []);
+  return h('li', { className: 'fork-mod-list-row', onClick: packRowClick(onOpen) },
+    h('span', { className: 'fork-mod-list-icon', 'aria-hidden': true }, h(Glyph, { name: MOD_GLYPHS[row.id] || 'widgets' })),
+    h('span', { className: 'fork-mod-list-title' },
+      h('button', { type: 'button', ref: name, className: 'fork-mod-list-name', title: row.name, onClick: e => { e.stopPropagation(); onOpen(); } }, row.name),
+      h('span', { className: 'fork-mod-list-version' }, row.version || row.versions?.[0]?.version || ''),
+      row.experimental ? h('span', { className: 'fork-mod-list-version' }, '实验性') : null),
+    problem || notice ? h(HintLine, { compact: true, text: problem || MOD_DEP_REASONS[notice.reason] || notice.message }) : null,
+    row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy, onChange: (scope, value) => change(row, scope, value) }) : h('span', { className: 'fork-mod-list-value' }, '未安装'),
+    h('span', { className: 'fork-mod-list-chevron', 'aria-hidden': true }, h(Glyph, { name: 'chevRight' })));
+}
+// A labelled row of the mod page: name (+ meta, 「?」) left, the value right (iOS: grouped rows with values).
+function ModInfoRow({ label, help, meta, children }) {
+  return h('div', { className: 'fork-mod-info-row' },
+    h('span', { className: 'fork-mod-info-label' }, h('span', null, label), meta ? h('span', { className: 'fork-mod-info-meta' }, meta) : null, help ? h(Help, { label: label + ' 说明', text: help }) : null),
+    h('span', { className: 'fork-mod-info-value' }, children));
+}
+const MOD_DATA_HELP = {
+  config: '模组参数：有全局默认值，卡里可以写本卡值，本卡值随卡带走。在 舞台设置 › 模组 修改。',
+  preferences: '玩家偏好：只存在全局，不随卡带走。',
+  assets: '素材条目：蓝灯常驻、绿灯按关键词、关闭，跟着卡走。在 舞台素材 管理。'
+};
+// A mod's page: 版本 (the one running version; 安装 for a mod not installed yet) · 依赖 (id + range, the host's state) · 冲突 ·
+// 数据 (设置 / 玩家偏好 / 素材) · the red 卸载模组… behind a confirmation.
+function ModManagerDetail({ rpc, mods, plans, change, row, notice, onBack }) {
+  const [detail, setDetail] = React.useState(null), [confirm, setConfirm] = React.useState(null), [pick, setPick] = React.useState(null);
+  React.useEffect(() => { let alive = true; rpc('managedModDetail', { modId: row.id }).then(next => { if (alive) setDetail(next); }, e => { if (alive) mods.setError(modManagerError(e, mods.nameOf)); }); return () => { alive = false; }; }, [row.id, mods.data?.revision]);
+  const versions = row.versions || [], chosen = pick || row.version || versions[0]?.version, digest = version => versions.find(item => item.version === version)?.digest;
+  const plan = (action, version) => plans.execute(data => rpc('managedModPlan', { action, modId: row.id, ...(version ? { version, digest: digest(version) } : {}) }));
+  async function uninstall() {
+    let ready;
+    try { ready = await mods.task(() => rpc('managedModPlan', { action: 'uninstall', modId: row.id })); } catch (_) { return; }
+    setConfirm(ready);
+  }
+  const apply = async () => { await mods.task(() => rpc('managedModApply', { token: confirm.token, revision: confirm.revision, answers: {} })); mods.changed(); onBack(); };
+  const deps = row.dependencies || [], depNotice = id => (detail?.dependencies || row.notices || []).find(item => item.dependencyId === id), byId = id => mods.data?.mods.find(item => item.id === id);
+  const config = detail?.config, labels = list => list?.length ? list.map(field => field.label).join('、') : '无';
+  const conflicts = detail?.conflicts || [], assets = detail?.assetKinds, dependents = (detail?.dependents || []).map(item => modQuote(byId(item.consumerId)?.name || item.consumerId));
+  return h('article', { className: 'fork-mod-manager-page', onKeyDown: subpageKeys(onBack) },
+    h(SubpageHead, { parent: '模组管理', title: row.name, onBack, help: row.summary ? h(Help, { label: row.name + ' 说明', text: row.summary }) : null,
+      tools: row.installed ? h(ModSwitchTag, { name: row.name, switches: row.switches, busy: mods.busy, onChange: (scope, value) => change(row, scope, value) }) : null }),
+    h(ErrorBox, { error: mods.error }), notice,
+    h(StageSection, { title: '版本', foldKey: 'mod-manager/version' },
+      h(ModInfoRow, { label: '模组 ID' }, h('span', { className: 'fork-mod-info-meta' }, row.id)),
+      h(ModInfoRow, { label: row.installed ? '运行版本' : '版本', help: '每个模组只运行一个版本；库里保留的其他版本可以在这里切换。' },
+        h(InlineField, { kind: 'menu', label: row.installed ? '运行版本' : '版本', hideLabel: true, value: chosen, disabled: mods.busy || versions.length < 2,
+          options: versions.map(item => ({ value: item.version, label: item.version })), onCommit: version => row.installed ? version !== row.version && plan('selectVersion', version) : setPick(version) })),
+      row.installed ? null : h('div', { className: 'fork-mod-install-action' }, h(Button, { primary: true, disabled: mods.busy || !chosen, onClick: () => plan('install', chosen) }, '安装'))),
+    h(StageSection, { title: '依赖', meta: deps.length, foldKey: 'mod-manager/dependencies', help: '本卡开启时，必需的依赖会一起开启；缺少时这个模组会少一部分功能。' },
+      deps.length ? deps.map(dep => {
+        const other = byId(dep.id), state = depNotice(dep.id), text = state?.reason ? MOD_DEP_REASONS[state.reason] || state.message : other?.installed ? '已安装 ' + other.version : '未安装';
+        return h(ModInfoRow, { key: dep.id, label: other?.name || dep.id, meta: (other ? dep.id + ' ' : '') + dep.range + (dep.optional ? ' · 可选' : '') },
+          state?.reason && !dep.optional && state.reason !== 'disabled' ? h(React.Fragment, null, h(HintLine, { compact: true, text }), h('span', { 'aria-hidden': true }, text)) : h('span', null, text));
+      }) : h(EmptyState, { compact: true, text: '不依赖其他模组' }),
+      dependents.length ? h(ModInfoRow, { label: '被依赖', help: '这些模组必需它。' }, h('span', { className: 'fork-mod-info-list' }, dependents.join('、'))) : null),
+    conflicts.length ? h(StageSection, { title: '冲突', meta: conflicts.length, foldKey: 'mod-manager/conflicts', help: '冲突的两个模组不能同时开启。' },
+      conflicts.map(item => h(ModInfoRow, { key: item.id, label: byId(item.id)?.name || item.id, meta: (byId(item.id) ? item.id + ' ' : '') + item.range },
+        h('span', null, byId(item.id)?.switches?.effective ? '已开启' : byId(item.id)?.installed ? '已安装' : '未安装')))) : null,
+    h(StageSection, { title: '数据', foldKey: 'mod-manager/data' },
+      !detail ? h(Loading, { shape: 'fields' }) : h(React.Fragment, null,
+        h(ModInfoRow, { label: '设置', help: MOD_DATA_HELP.config }, h('span', { className: 'fork-mod-info-list' }, labels(config?.fields))),
+        h(ModInfoRow, { label: '玩家偏好', help: MOD_DATA_HELP.preferences }, h('span', { className: 'fork-mod-info-list' }, labels(config?.preferenceFields))),
+        assets ? h(ModInfoRow, { label: '素材', help: MOD_DATA_HELP.assets }, h('span', { className: 'fork-mod-info-list' }, labels(assets))) : null)),
+    row.installed && row.globalRoot !== false ? h('div', { className: 'fork-mod-danger' }, h(Button, { className: 'ap-danger-text', disabled: mods.busy, onClick: uninstall }, '卸载模组…')) : null,
+    confirm && h(ConfirmDialog, { title: '卸载' + modQuote(row.name), danger: true, confirmLabel: '卸载', onConfirm: apply, onClose: () => setConfirm(null),
+      body: confirm.retainedByCards?.length ? confirm.retainedByCards.length + ' 张卡仍在用它，这些卡保留它的代码；其他卡会缺少这个模组。' : '用到它的卡会缺少这个模组；卡里的选择和设置保留。',
+      extra: dependents.length ? dependents.join('、') + '需要它。' : undefined }));
+}
+
+            return {CandidateArt, CandidateImageView, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
+        }
         // Feature factories run once per view scope, after the scene and shared surfaces exist.
 // Factories return named views; own() ties resources and CSS to the view's rollback/disposal.
 function createStageFeatures() {
@@ -25804,6 +29157,8 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:options.controller || {dialogue:{},figures:{}},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings}).TavernStageSettingsSection;
+                    // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
+                    if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);own({dispose:options.assetPack.bind(views.assetPack)});}
                     activeViews=views;
                     return views;
                 })});

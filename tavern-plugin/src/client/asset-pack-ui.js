@@ -1345,22 +1345,40 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     // 视频: a film frame with a play triangle.
     videos:'M2 3.5h12v9H2zM2 5.5h12M2 10.5h12M6.8 6.6v2.8L9.2 8z'};
   function KindIcon({kind}) { return h('svg',{className:'ap-kind-icon',width:16,height:16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},h('path',{d:kindGlyphs[['cg','props'].includes(kind)?'backgrounds':kind],stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round',strokeLinejoin:'round'})); }
+  // @include asset-pack-widgets.js
   // @include widget-settings-ui.js
   // @include asset-pack-entry-ui.js
-  // @include-stage-source asset-pack-gen-ui.js
   // @include asset-pack-cg-ui.js
   // @include asset-pack-figure-ui.js
   // @include asset-pack-spine-ui.js
   // @include asset-pack-import-ui.js
   // @include asset-pack-voice-ui.js
-  // @include-stage-source asset-pack-card-ui.js
   // @include asset-pack-opening-ui.js
   // @include asset-pack-catalogue-ui.js
   // @include asset-pack-setup-ui.js
   // @include asset-pack-character-ui.js
   const prepareImage = prepareImageOverride || browserPrepareImage;
-  // @include-stage-source asset-pack-engine-ui.js
   // @include mod-library.js
+  // The stage package's pages (asset-pack-{gen,card,engine}-ui.js and mod-manager.js of dsh-tavern-stage) are not in this
+  // bundle. When the stage client mounts (gal-stage.js bindStageViews -> entry.js createStageAssetPackViews) it builds them
+  // over this closure's names (stageScope.names) and binds its own here (stageScope.bind): the core pages below reach them
+  // by name once bound. The asset library, the stage tab and the Settings rows hold the stage client first (galStageHold)
+  // and wait on stageScope.use(); a card without the stage never loads them.
+  let CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter;
+  const stageScope=(()=>{
+    const listeners=new Set();let views=null;
+    const notify=()=>{for(const fn of [...listeners])fn();};
+    const take=next=>{({CandidateArt, CandidateImageView, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, PackPreviews, StageAvatar, StageKindJump, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, stageBytesText, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter}=next);};
+    // The exact names the stage pages reference from this factory (its declarations and parameters) and from the core client.
+    const names={React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardImportSheet, CatAddTile, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, STAGE_REQUIRES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useTask, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText,
+      EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
+    return {names, get views(){return views;}, bound:()=>views!==null,
+      bind(next){views=next;take(next);notify();return()=>{if(views!==next)return;views=null;take({});notify();};},
+      // whether the stage pages are bound (a React external store; re-renders the caller on bind / unbind).
+      use(){return React.useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn);},()=>views!==null);}};
+  })();
+  // The stage pages' names on the returned API read live from the bound views (undefined until the stage client mounts).
+  const stageExposed=(target,list)=>{for(const name of list)Object.defineProperty(target,name,{enumerable:true,get:()=>stageScope.views?.[name]});return target;};
   // 素材库 manages packs only; the per-card page lives in the Tavern 舞台 tab (StagePanel).
   // packs-v3: the tab is only the pack list; a pack opens the shared modal. A deep link from 舞台设置 or the character
   // window (props.nav.take()) opens the modal at that pack / kind / figure. No basic/advanced split.
@@ -1375,14 +1393,17 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       h('header',{className:'ap-head'},h('h2',null,'舞台素材')),
       h(Home,{binding,open,onOpen:setOpen,sessionId:props.sessionId,cardPath:props.cardPath,cardStamp:props.cardStamp,filter}));
   }
-  return {App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,ModManagerEntry,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,StagePanel,StagePage,EnginePage,ReadingsEditor,ConflictDialog,CardImportSheet,CardUrlSheet,
-    // 设置 → 舞台 → 素材生图 (asset-launcher.js registers the section).
-    GenPromptSettings,
+  return stageExposed({App,Home,StageSection,KIND_ORDER,kinds,ModDetail,StageModSection,StageModPage,PackModal,PackRow,PackStateTag,EntryDetail,FigureDetail,applyEntryFields,splitKeywords,ConflictDialog,CardImportSheet,CardUrlSheet,
+    // the stage pages' seam: names in (stageScope.names), bind / use (gal-stage.js, asset-launcher.js, settings.js).
+    stageScope,
     // the manager and the card's mod section, for tests and the offline screenshot harness.
-    mods:{ModManager,ManagedModSection,modSwitchWord},
+    mods:stageExposed({},['ModManager','ManagedModSection','modSwitchWord']),
     // the sheets, for tests and the offline screenshot harness.
     catalogue:{PackGetSheet,CatalogueSourcesSheet,CatalogueUpdateSheet,CatalogueJobSheet,startCatalogueDownload},
     // entering 舞台模式 opens 设置向导 once per card (stageSetupGate).
     stageSetup,
-    stage:{openingPatch,openingPreview,directorPromptRows,directorWire,directorPieceName,directorPromptRow,promptToolDefs,PromptOps,PromptPieces,PromptCatalogue,catalogueEntries,commandInfo,PromptTools,PromptAt,promptHeadClick,promptJson,promptJsonText,judgePromptRows,judgeWithProvider,judgeDraftProblem,promptTokenEstimate,storyPromptRows,promptSources,promptPackScope,stagePrefs,stageActive,stagePatch,stageEnable,stageMissing,unbindPatch,writeStageReturn,simpleSpriteImages,replaceOutfitSprite,emotionSlot,RETURN_KEY:STAGE_RETURN_KEY}};
+    stage:stageExposed({openingPatch,openingPreview,stageMissing,simpleSpriteImages,replaceOutfitSprite,emotionSlot,get RETURN_KEY(){return stageScope.views?.STAGE_RETURN_KEY;}},
+      ['directorPromptRows','directorWire','directorPieceName','directorPromptRow','promptToolDefs','PromptOps','PromptPieces','PromptCatalogue','catalogueEntries','commandInfo','PromptTools','PromptAt','promptHeadClick','promptJson','promptJsonText','judgePromptRows','judgeWithProvider','judgeDraftProblem','promptTokenEstimate','storyPromptRows','promptSources','promptPackScope','stagePrefs','stageActive','stagePatch','stageEnable','unbindPatch','writeStageReturn'])},
+    // 设置 → 舞台 → 素材生图 (GenPromptSettings), the 舞台 tab (StagePanel / StagePage / EnginePage) and 读音词典.
+    ['ModManagerEntry','StagePanel','StagePage','EnginePage','ReadingsEditor','GenPromptSettings']);
 }

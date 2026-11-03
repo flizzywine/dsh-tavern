@@ -138,6 +138,20 @@ const stageClientPlugin = (() => {
         __STAGE_GLOBAL_SETTINGS__
         // dsh-presentation-protocol stage-entrance.cjs: the 入场演出 contract the entrance renderer plays (the core never reads it).
         __STAGE_ENTRANCE_CONTRACT__
+        // The asset-pack pages (asset-pack-{gen,card,engine}-ui.js, mod-manager.js) are part of the core's createAssetPackUI closure in
+        // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
+        // the names it uses from them (stageScope.bind). Both lists are exact.
+        function createStageAssetPackViews(core) {
+            const {React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardImportSheet, CatAddTile, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, STAGE_REQUIRES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useTask, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText,
+                EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar} = core;
+            // dsh-presentation-protocol card-stage-mode.cjs, the card page's `// @include-protocol` (the core bundle no longer includes it).
+            __STAGE_CARD_STAGE_MODE__
+            __STAGE_ASSET_PACK_GEN_UI__
+            __STAGE_ASSET_PACK_CARD_UI__
+            __STAGE_ASSET_PACK_ENGINE_UI__
+            __STAGE_MOD_MANAGER__
+            return {CandidateArt, CandidateImageView, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
+        }
         __STAGE_FEATURES__
         return ({
         name: 'dsh-tavern-stage',
@@ -263,6 +277,8 @@ const stageClientPlugin = (() => {
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:options.controller || {dialogue:{},figures:{}},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings}).TavernStageSettingsSection;
+                    // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
+                    if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);own({dispose:options.assetPack.bind(views.assetPack)});}
                     activeViews=views;
                     return views;
                 })});

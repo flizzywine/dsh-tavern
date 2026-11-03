@@ -11,9 +11,11 @@ test('stage overlay builds and imports with only its own package files and the s
   t.after(() => rm(packages, {recursive:true,force:true}))
   const root = path.join(packages, 'dsh-tavern-stage')
   const pkg = new URL('../tavern-plugin/packages/dsh-tavern-stage/', import.meta.url)
-  // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs) into the stage client.
+  // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs, and card-stage-mode.cjs for
+  // the asset-pack card page) into the stage client.
   await mkdir(path.join(packages, 'dsh-presentation-protocol/src'), {recursive:true})
-  await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-entrance.cjs', import.meta.url), path.join(packages, 'dsh-presentation-protocol/src/stage-entrance.cjs'))
+  for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs'])
+    await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/' + name, import.meta.url), path.join(packages, 'dsh-presentation-protocol/src', name))
   await cp(new URL('src/',pkg), path.join(root,'src'), {recursive:true})
   await copyFile(new URL('build.mjs',pkg),path.join(root,'build.mjs'))
   await mkdir(path.join(root,'lib/client'),{recursive:true})
