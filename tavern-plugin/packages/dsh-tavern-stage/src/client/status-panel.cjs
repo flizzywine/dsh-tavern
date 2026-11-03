@@ -15,7 +15,7 @@ function createStageStatusPanel({React, window, document, rpc, signals, themeTok
 const FACADE = 'DshStatusPanel', FACE_PX = 96;
 let disposed = false;
 const open = new Set(), faceData = new Map();
-const read = (sessionId, withHtml) => rpc('readStatusPanel', {sessionId, withHtml}, sessionId);
+const read = (sessionId, withHtml) => rpc('readStatusPanel', {sessionId, withHtml}, sessionId).then(result => result?.panel || null);
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const frameToken = () => 'status-panel:' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -107,7 +107,7 @@ function openStatusPanel({sessionId, trustedCardMode, host, onClose, onState}) {
         try {
             const result = await read(sessionId, true);
             if (closed) return;
-            if (!result || typeof result.html !== 'string') { raw = null; state('empty'); return; }
+            if (!result) { raw = null; state('empty'); return; }
             raw = {title: result.title || '', figures: result.figures || [], data: result.data || {}};
             state('ready');
             mount(result.html);

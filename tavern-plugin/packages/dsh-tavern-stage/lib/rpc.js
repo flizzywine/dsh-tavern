@@ -14,7 +14,8 @@ return widgetVariables.read({...args,origin:authority?.origin})
     async readStatusPanel(args, method, serverTemplate, authority) {
       const { statusPanel } = deps
       const { sessionId, withHtml } = args || {}
-      return statusPanel.read({ sessionId, withHtml })
+      // wrapped: the request envelope spreads a bare null into {ok:true}, which a client would take for a panel.
+      return { panel: await statusPanel.read({ sessionId, withHtml }) }
     },
     async proposeWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps

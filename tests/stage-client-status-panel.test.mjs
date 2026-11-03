@@ -19,7 +19,7 @@ function harness(result = {html: HTML, title: '辉夜的状态', figures: [{name
   }}
   const host = {appendChild: frame => { frame.isConnected = true }}
   const panels = createStageStatusPanel({React: {}, window: {console}, document,
-    rpc: (method, args, sessionId) => { reads.push({method, args, sessionId}); return Promise.resolve(args.withHtml ? result : {...result, html: undefined, data: {variables: {hp: 2}, ledger: {}}}) },
+    rpc: (method, args, sessionId) => { reads.push({method, args, sessionId}); return Promise.resolve({ok: true, panel: args.withHtml ? result : {...result, html: undefined, data: {variables: {hp: 2}, ledger: {}}}}) },
     signals: {subscribe: (_, fn) => { notify = fn; return () => { notify = null } }},
     themeTokens: () => ({accent: '#ff0000'}),
     mountCardFrame: input => { built.push(input); return '<!doctype html>' + input.content },
@@ -80,4 +80,14 @@ test('one state signal while open reads once and pushes once', async () => {
   h.signal()
   await settle()
   assert.equal(h.reads.length, 2)
+})
+
+test('a card without a panel ({panel:null} in the request envelope) opens to the empty note, not a frame', async () => {
+  const h = harness(null)
+  const states = []
+  const panel = h.panels.open({sessionId: 's1', trustedCardMode: true, host: () => h.host, onClose() {}, onState: value => states.push(value.phase)})
+  await settle()
+  assert.deepEqual(states, ['loading', 'empty'])
+  assert.equal(h.built.length, 0)
+  panel.dispose()
 })

@@ -355,9 +355,7 @@ function GalStage(props) {
     const [galleryOpen,setGallery]=React.useState(false);
     // 状态面板 (status-panel.cjs): the card's own panel, a local overlay like the gallery - S or the menu's 「状态」 row open it,
     // auto / skip pause while it is up. statusPanel: the card's declaration (null: no panel, card mode, not read yet).
-    // (the host answers a card without a panel with a bare {ok} envelope: only a declaration has a title)
-    const statusProbe = stageViews.statusPanel ? stageViews.statusPanel.useStatusPanel(sessionId) : null;
-    const statusPanel = typeof statusProbe?.title === "string" ? statusProbe : null;
+    const statusPanel = stageViews.statusPanel ? stageViews.statusPanel.useStatusPanel(sessionId) : null;
     const [statusOpen, setStatusOpen] = React.useState(false);
     // a session whose card has no panel (or another session) has nothing open
     React.useEffect(() => { if (!statusPanel) setStatusOpen(false); }, [statusPanel]);
