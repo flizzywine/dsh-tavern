@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "14bb14c6d11d42a972ba2486f1abf1e91876cffa",
-  "releaseSequence": 1126,
+  "revision": "22bbed64cebdef97c2e693434d2610c4e6328e2a",
+  "releaseSequence": 1127,
   "version": "3.2.0",
   "files": [
     {
@@ -486,8 +486,8 @@
     },
     {
       "path": "pnpm-workspace.yaml",
-      "sha256": "d900dcc666758053cc5ab727ac95af81fa97bb6e0672a5e05139e68ece5b5fd8",
-      "size": 910
+      "sha256": "86e68ffc1ca2ab7173d76c4c5ee86ac709059abdad3dc76c543c57d5b60517bb",
+      "size": 924
     },
     {
       "path": "presets/tavern-background/skills/character-design/SKILL.md",
@@ -9366,9 +9366,9 @@
     }
   ],
   "archive": {
-    "commit": "2dfbd07a5d03120b7d843232386787043420014d",
+    "commit": "88b106ef4a075016645ed3753d1f783b0d213158",
     "path": "runtime.zip",
-    "sha256": "463f773db595ad0820c264057445dbf81b1162d6bbc0078bbc88b606d07fb59e",
-    "size": 15902300
+    "sha256": "c28e63239fe5141fb636dc6984b96d2d56885928539c42338bbd468f46aeb8ae",
+    "size": 15902306
   }
 }
