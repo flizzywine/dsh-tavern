@@ -170,6 +170,12 @@ through the card adapter's `bindRaw`; the source card is unchanged. `[]` exports
 only the card. Each selected pack includes its complete snapshot, disabled entries
 and all files; missing selected packs fail. Unselected missing refs are preserved. The outer
 manifest declares exact file hashes/sizes and bound dependency content hashes.
+
+`withCardExport({path,expectedRevision?,packIds?,keepPackIds?}, consume)` is host-only (absent from the
+remote method table): Tavern's DSH card export (`lib/domain/card-files.js` `exportCardFile`) reads the card and
+the packs to embed (default: every bound pack, plus the card's mod config pack) under one run, hands the snapshot to
+`consume` and fails when the card changed meanwhile. With `packIds` the exported card stays bound to exactly those
+packs plus `keepPackIds` (adapter `retainRaw`); embedded packs pass the public export check.
 Neither native pack enable settings nor Engine permissions/credentials are input
 to this export. Global-only packs are never implicitly embedded.
 

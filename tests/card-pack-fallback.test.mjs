@@ -1,7 +1,7 @@
 // An external card without packs: its loose material becomes one library pack the card binds (本卡开启), its voice
-// fields the figure's voice; a CHARX export writes them back. A .dshcard keeps its own packs.
+// fields the figure's voice; the card's export carries that pack. A .dshcard keeps its own packs.
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -17,6 +17,7 @@ import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPackService } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/service.js'
+import { createCardBundleAdapter } from '../tavern-plugin/packages/dsh-tavern-stage/lib/card-bundle.js'
 import { png } from './fixtures/asset-packs/pack.mjs'
 
 function wav(seed) {
@@ -29,8 +30,6 @@ function wav(seed) {
 
 async function setup(t, channels = []) {
   const root = await mkdtemp(join(tmpdir(), 'card-pack-fallback-'))
-  const service = createAssetPackService({ assetRoot: join(root, 'library'), voiceChannels: async () => channels })
-  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   const profileData = createProfileDataStore({ dataRoot: root })
   const store = createFileResourceStore({ dataRoot: root }), failWrites = { on: false }
   const fileResources = ({ ...store, importCard: (...args) => failWrites.on ? Promise.reject(new Error('disk full')) : store.importCard(...args) })
@@ -41,6 +40,11 @@ async function setup(t, channels = []) {
     if (existing === undefined || cardPreparation.isWorkspace(existing)) return existing
     return await fileResources.ensureCardWorkspace(cardPath, (working, payload) => cardPreparation.migrate({ working, payload }))
   }
+  // the card owner the library's card export reads through (the stage's card-bundle.js adapter); an export writes no card.
+  const cards = createCardBundleAdapter({ cardPreparation, authorizeTarget: async path => ({ cardId: path }), readWorkspace: path => readCardWorkspace(path),
+    writeWorkspace: async () => assert.fail('an export writes no card'), withCardLock: async (_, task) => task() })
+  const service = createAssetPackService({ assetRoot: join(root, 'library'), voiceChannels: async () => channels, cardTransactions: cards })
+  t.after(async () => { await service.dispose(); await rm(root, { recursive: true, force: true }) })
   const files = createCardFiles({
     cardPreparation, fileResources, castAssets: createCastAssets({ store: profileData }), readCardWorkspace,
     assetPacks: createAssetPacks({ store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }),
@@ -102,23 +106,16 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   assert.deepEqual([second.libraryPack.id, second.libraryPack.status], [first.libraryPack.id, 'noop'])
   assert.equal((await service.listPacks()).length, 1)
 
-  // the SillyTavern export writes the library figure back, voice included; importing it opens no new pack
+  // the export carries the card's library pack whole (figure, expressions, voice); importing it again opens no new pack
   const exported = await files.exportCardFile(first.path)
+  t.after(() => exported.dispose())
   assert.equal(exported.extension, 'dshcard')
-  const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
-  const card = JSON.parse(entries.get('card.json').toString())
-  assert.deepEqual(card.data.assets.filter(asset => asset.type === 'emotion').map(asset => asset.name).sort(), ['哭泣', '微笑', '默认'], 'the card\'s own expression names')
-  const [cast] = card.data.extensions.dsh_tavern.cast.characters
-  assert.deepEqual([cast.name, cast.aliases, cast.voiceLanguage, cast.voiceSource], ['彩叶', ['Iroha'], 'ja', undefined], 'the dropped source is not written back')
-  assert.deepEqual(cast.voiceReferences.map(clip => entries.get(clip.audio.slice('embeded://'.length))), clips)
-  assert.deepEqual(entries.get(cast.avatar.slice('embeded://'.length)), images.avatar)
-  const back = join(root, 'back.dshcard')
-  await writeFile(back, exported.bytes)
-  const again = await files.importCardArchiveFile(back, 'back.dshcard')
-  assert.deepEqual([again.libraryPack.id, again.libraryPack.status], [first.libraryPack.id, 'noop'])
+  const entries = readZipEntries(await readFile(exported.file))
+  assert.deepEqual(JSON.parse(entries.get('dsh.json')).packs.map(row => row.id), [first.libraryPack.id])
+  assert.equal(JSON.parse(entries.get('assets/' + first.libraryPack.id + '/manifest.json')).contentHash, pack.manifest.contentHash)
+  await files.importCardArchiveFile(exported.file, 'back.dshcard')
   assert.equal((await service.listPacks()).length, 1)
 })
-
 test('with a matching channel the source is the figure\'s and goes back out on export', async t => {
   const { root, files, service } = await setup(t, ['fish-audio'])
   const source = join(root, 'iroha.charx')
@@ -128,14 +125,11 @@ test('with a matching channel the source is the figure\'s and goes back out on e
   const [figure] = Object.values((await service.getPackSnapshot({ packId: first.libraryPack.id })).figures)
   assert.deepEqual(figure.voice, { voice: 'cast-1' })
   const exported = await files.exportCardFile(first.path)
-  const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
-  const [cast] = JSON.parse(entries.get('card.json').toString()).data.extensions.dsh_tavern.cast.characters
-  assert.deepEqual(cast.voiceSource, { provider: 'fish', clone: true })
-  const back = join(root, 'back.dshcard')
-  await writeFile(back, exported.bytes)
-  assert.deepEqual((await files.importCardArchiveFile(back, 'back.dshcard')).libraryPack, { ...first.libraryPack, status: 'noop' })
+  t.after(() => exported.dispose())
+  const entries = readZipEntries(await readFile(exported.file))
+  const embedded = JSON.parse(entries.get('assets/' + first.libraryPack.id + '/manifest.json'))
+  assert.deepEqual(embedded.voiceLibrary, (await service.getPackSnapshot({ packId: first.libraryPack.id })).manifest.voiceLibrary, 'the voice and its source go along')
 })
-
 test('a cast with nothing usable makes no pack and the card still imports; a failed card write takes its new pack with it', async t => {
   const { root, files, service, failWrites } = await setup(t)
   for (const [index, voiceSource] of [{}, { provider: '' }, { provider: 'minimax' }].entries()) {

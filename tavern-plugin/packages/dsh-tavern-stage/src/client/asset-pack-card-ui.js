@@ -675,17 +675,15 @@ function StageKindJump({ctx,kind,label,packIds}) {
 // installed packs with the state tag (search, kind tabs, 当前使用 frozen on top); 「完成」 shrinks it back. A pack name
 // opens the shared pack modal. No undo; unbinding a pack that a character's figure comes from asks first.
 // 当前素材包 and 导入导出 are one section, 「素材包 N (?)」. Its head
-// holds 管理 · 导出 · 导入 (导入 = the 导入卡 ZIP flow). 导出 enters selection mode: a house-style check per row (本卡 on,
-// 全局 off — the old 「一起导出」 defaults) with the pack's size, the head becomes 取消 · 导出, and confirming exports the
-// card with exactly the checked packs (none checked → the card alone), then leaves the mode.
+// holds 管理 · 导出 · 导入 (导入 = the 导入卡 ZIP flow). 导出 opens the one DSH card export sheet (DshCardExportSheet,
+// below; the 人物卡库 「导出」 opens it too).
 // a row is name, faces and the 全局 / 本卡 tag only — no size, no per-row
 // 导出 icon (a single pack is exported from the 素材库). A pack that holds only 模组 is not listed: the 「模组」 section
-// shows it; the card export still takes it along while one of its widgets is on for this card.
-const STAGE_PACKS_HELP='这张卡用到的素材包，「导出」把人物卡连同勾选的素材包和开着的模组打成 ZIP，「导入」打开这样的 ZIP。';
+// shows it.
+const STAGE_PACKS_HELP='这张卡用到的素材包，「导出」把人物卡连同本卡素材包和模组打成 DSH 人物卡，「导入」打开卡片 ZIP。';
 function StagePackSection({ctx,ready,state}) {
   const {binding,ext}=ctx,scope=usePackScope({binding,ctx,packs:ctx.packs});
   const [manage,setManage]=React.useState(false),[query,setQuery]=React.useState(''),[kind,setKind]=React.useState(''),[sort,setSort]=usePackSort(),frozen=React.useRef(null);
-  const [picking,setPicking]=React.useState(null),work=useTask(binding);
   const packs=ctx.packs.filter(p=>!stageWidgetOnlyPack(p)),hidden=new Set(ctx.packs.filter(stageWidgetOnlyPack).map(p=>p.manifest.id));
   // the private config carrier is deliberately absent from the public catalogue, not missing.
   if(ext.modConfigPackId)hidden.add(ext.modConfigPackId);
@@ -696,33 +694,19 @@ function StagePackSection({ctx,ready,state}) {
   const picker=React.useRef(null),serial=React.useRef(0),pick=()=>picker.current?.click?.();
   const importFile=file=>{const key='card-import-'+(++serial.current);
     ctx.openLayer(close=>h(CardImportSheet,{key,binding,path:ctx.path,file,cardName:ctx.cardName,onPick:pick,onClose:close,onDone:()=>{close();ctx.writer.reload();state?.reload?.();}}));};
-  const startPicking=()=>setPicking(new Set(effective.filter(id=>byId.has(id)&&!global.includes(id))));
-  const flip=id=>setPicking(current=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;});
-  // The widget-only packs whose widgets are on for this card go along (the 模组 section is where they are chosen).
-  const widgetPacks=picking?[...new Set(stageWidgetRows(ctx).filter(row=>row.state!=='off'&&hidden.has(row.packId)).map(row=>row.packId))]:[];
-  const chosen=picking?[...effective.filter(id=>picking.has(id)),...widgetPacks]:[],missing=picking?stageExportMissing(chosen.map(id=>ctx.writer.pack(id)).filter(Boolean),new Set(chosen)):[];
-  const exportCard=()=>work.task(async()=>{await binding.download(await binding.service.exportCardBundle({path:ctx.path,expectedRevision:ctx.writer.revision,packIds:chosen}));setPicking(null);});
-  const name=id=>(byId.get(id)||ctx.packs.find(p=>p.manifest.id===id))?.manifest.name||'缺失的素材包',busy=work.busy;
-  // Selection mode: the check, then the pack's size beside it (it only helps while choosing what goes with the card).
-  const lead=id=>{if(!picking)return null;const pack=byId.get(id),size=pack?stageBytesText(stagePackBytes(pack)):'';
-    return h(React.Fragment,null,h('button',{type:'button',role:'checkbox',className:'ap-pack-check','aria-checked':picking.has(id),'aria-label':name(id),disabled:!byId.has(id)||busy,onClick:()=>flip(id)},
-      h('span',{className:'ap-check-mark','aria-hidden':true},picking.has(id)&&h(Glyph,{name:'check'}))),size&&h('span',{className:'ap-pack-size'},size));};
+  const exportCard=()=>ctx.openLayer(close=>h(DshCardExportSheet,{binding,path:ctx.path,cardName:ctx.cardName,onClose:close}));
   // every row previews the pack's content after its name.
-  const row=control=>id=>h(PackRow,{key:id,id,pack:byId.get(id),scope,kind:manage?kind:'',onOpen:(packId,k)=>ctx.openPack(packId,k),control,previews:true,
-    ...(control==='static'?{lead:lead(id)}:{})});
+  const row=control=>id=>h(PackRow,{key:id,id,pack:byId.get(id),scope,kind:manage?kind:'',onOpen:(packId,k)=>ctx.openPack(packId,k),control,previews:true});
   const pass=packFilter(byId,query,kind);
   const head=!ready?null:manage?h(Button,{className:'ap-manage is-done','aria-expanded':true,onClick:()=>{setManage(false);setQuery('');setKind('');}},'完成'):
-    picking?h('span',{className:'ap-pack-head-actions'},
-      h(Button,{className:'ap-manage',disabled:work.busy,onClick:()=>setPicking(null)},'取消'),
-      h(Button,{className:'ap-manage is-done',disabled:work.busy,onClick:exportCard},work.busy?'正在导出…':'导出')):
     h('span',{className:'ap-pack-head-actions'},
       h(Button,{className:'ap-manage','aria-expanded':false,onClick:()=>{setManage(true);setQuery('');setKind('');}},'管理'),
-      h(Button,{className:'ap-manage',disabled:busy,onClick:startPicking},'导出'),
+      h(Button,{className:'ap-manage','aria-haspopup':'dialog',onClick:exportCard},'导出'),
       // UI standard §三.20 (acceptance U10): at most two .ap-manage buttons — 导入 (the card ZIP) moves into the heading's ⋯.
       h(Popover,{label:'素材包操作',className:'ap-pack-more',
         trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'素材包操作','aria-haspopup':'menu','aria-expanded':open,onClick:toggle}),
         content:close=>[h(MenuItem,{key:'import',onClick:()=>{close();pick();}},'导入')]}));
-  return h(StageSection,{title:'素材包',meta:manage?ids.length:effective.length,help:STAGE_PACKS_HELP,className:'ap-pack-section'+(picking?' is-picking':''),action:head,reveal:manage||!!picking},
+  return h(StageSection,{title:'素材包',meta:manage?ids.length:effective.length,help:STAGE_PACKS_HELP,className:'ap-pack-section',action:head,reveal:manage},
     ready&&h('input',{ref:picker,type:'file',accept:'.zip',hidden:true,tabIndex:-1,'aria-label':'导入卡 ZIP',onChange:e=>{const file=e.target.files?.[0];e.target.value='';if(file)importFile(file);}}),
     !ready?h('p',{className:'ap-empty'},'素材插件不可用'):manage?h(React.Fragment,null,
       // the kind filter and sort sit on the search row, as in the library.
@@ -731,9 +715,81 @@ function StagePackSection({ctx,ready,state}) {
       h(PackList,{ids:orderPacks([...ids,...[...frozen.current.keys()].filter(id=>!byId.has(id)&&effective.includes(id))].filter(pass),{byId,sort,kind,rank:id=>frozen.current.get(id)??2}),render:row(),
         empty:h(EmptyState,{noun:'素材包',query,filter:kind&&kinds[kind],text:!query.trim()&&kind?'没有含「'+kinds[kind]+'」的素材包':undefined,onClear:()=>{setQuery('');setKind('');}})}),
       ctx.nav?.openLibrary&&h('p',{className:'ap-more-link'},h(Button,{className:'ap-inline-link',onClick:()=>ctx.nav.openLibrary({})},'去舞台素材安装或新建 ›'))):
-    effective.length?h('ul',{className:'ap-pack-list is-current','aria-label':'当前素材包'},effective.map(row('static'))):h(EmptyState,{compact:true,text:picking?'这张卡没有用到素材包，只导出人物卡':'未使用素材包'}),
-    missing.length>0&&h(HintLine,{text:'模组用到的图片包没有一起导出：'+missing.map(name).join('、')}),
-    h(ErrorBox,{error:scope.error||work.error}));
+    effective.length?h('ul',{className:'ap-pack-list is-current','aria-label':'当前素材包'},effective.map(row('static'))):h(EmptyState,{compact:true,text:'未使用素材包'}),
+    h(ErrorBox,{error:scope.error}));
+}
+// 导出 DSH 人物卡 — the one card export with its packs. The host streams GET /api/dsh-tavern/card-export (core
+// card-files.js exportCardFile): the card's bound packs are listed with sizes and the checked total; the card's own packs
+// (they hold its figures or carry its name) start checked, shared ones such as 通用背景 stay home unless checked, and an
+// unchecked pack also leaves the exported card's bindings (packIds). Figures of the checked packs can be left out (e.g. the one the player plays). The cover shows at the top.
+// Packing first (an indeterminate bar), then the download counts its bytes; closing
+// the sheet stops it. The file is saved through binding.download, like every other export.
+const DSHCARD_FAILURE={404:'找不到这张人物卡。',409:'人物卡刚刚改过，请再导出一次。'};
+function dshCardExportUrl(path,excludeFigures,packIds) {
+  return '/api/dsh-tavern/card-export?path='+encodeURIComponent(path)+(excludeFigures.length?'&excludeFigures='+encodeURIComponent(JSON.stringify(excludeFigures)):'')
+    +'&packIds='+encodeURIComponent(JSON.stringify(packIds));
+}
+async function dshCardDownload({path,excludeFigures,packIds,signal,onProgress}) {
+  const response=await fetch(dshCardExportUrl(path,excludeFigures,packIds),{credentials:'same-origin',signal});
+  // a 400 says why in plain words (a bad pack or figure list); other statuses get their sentence.
+  if(!response.ok){const detail=await response.text();throw Object.assign(new Error(response.status===400&&detail||DSHCARD_FAILURE[response.status]||'没能导出，请重试。'),{status:response.status});}
+  const total=Number(response.headers.get('content-length'))||0,reader=response.body.getReader(),chunks=[];let loaded=0;
+  onProgress({loaded,total});
+  for(let part=await reader.read();!part.done;part=await reader.read()){chunks.push(part.value);loaded+=part.value.byteLength;onProgress({loaded,total});}
+  const named=/filename\*=UTF-8''([^;]+)/i.exec(response.headers.get('content-disposition')||'');
+  return {bytes:new Blob(chunks,{type:response.headers.get('content-type')||'application/zip'}),filename:named?decodeURIComponent(named[1]):'人物卡.dshcard'};
+}
+function DshCardExportSheet({binding,path,cardName,onClose}) {
+  const state=useLoad(binding,async()=>{
+    const [card,rows]=await Promise.all([binding.rpc('getCardAssetBindings',{path,metadataOnly:true}),loadPackRows(binding)]);
+    const byId=new Map(rows.filter(p=>!p.error).map(p=>[p.manifest.id,p]));
+    const packs=(card.extension?.assetBindings?.boundPackIds||[]).map(id=>byId.get(id)).filter(Boolean);
+    // only packs that hold figures are read in full, for the figure names.
+    const details=await Promise.all(packs.map(p=>p.summary&&!(p.counts?.figures>0)?null:loadPackDetail(binding,p)));
+    const figures=details.flatMap((d,index)=>d?(d.manifest.figures||[]).map(id=>({id,packId:packs[index].manifest.id,name:d.figures?.[id]?.name||''})).filter(f=>f.name):[]);
+    // a widget-only pack is chosen in the 模组 section: it goes along, checked, without a switch here.
+    const own=packs.filter((p,index)=>stageWidgetOnlyPack(p)||(details[index]?.manifest.figures||[]).length>0||!!cardName&&String(p.manifest.name||'').includes(cardName)).map(p=>p.manifest.id);
+    return {packs,figures,own};
+  },[path]);
+  const [chosen,setChosen]=React.useState(null),[left,setLeft]=React.useState(()=>new Set()),[work,setWork]=React.useState(null),[problem,setProblem]=React.useState('');
+  const abort=React.useRef(null),mounted=React.useRef(true);
+  React.useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;abort.current?.abort();};},[]);
+  const value=state.value,packs=value?.packs||[];
+  const picked=chosen||new Set(value?.own||[]),packIds=packs.map(p=>p.manifest.id).filter(id=>picked.has(id));
+  const figures=(value?.figures||[]).filter(f=>picked.has(f.packId));
+  const sizes=packs.map(stagePackBytes),total=sizes.reduce((sum,n,index)=>sum+(picked.has(packs[index].manifest.id)&&n||0),0);
+  const toggle=(current,id)=>{const next=new Set(current);if(next.has(id))next.delete(id);else next.add(id);return next;};
+  const flip=id=>setLeft(current=>toggle(current,id)),flipPack=id=>setChosen(toggle(picked,id));
+  async function run(){
+    if(work||!value)return;
+    const controller=new AbortController();abort.current=controller;setProblem('');setWork({loaded:0,total:0});
+    try{
+      const file=await dshCardDownload({path,excludeFigures:figures.filter(f=>left.has(f.id)).map(f=>f.id),packIds,signal:controller.signal,onProgress:next=>{if(mounted.current)setWork(next);}});
+      await binding.download(file);
+      if(mounted.current)onClose();
+    }catch(error){if(mounted.current&&!controller.signal.aborted)setProblem(error.status?error.message:'没能导出，请重试。');}
+    finally{abort.current=null;if(mounted.current)setWork(null);}
+  }
+  const head=(title,meta,extra,help)=>h('header',{className:'ap-section-head'},h('h3',null,title,meta!==undefined&&h('span',{className:'ap-section-meta'},meta),help&&h(Help,{label:title+' 说明',text:help})),extra);
+  const check=(on,label,onClick)=>h('button',{type:'button',role:'checkbox',className:'ap-pack-check','aria-checked':on,'aria-label':label,disabled:!onClick||!!work,onClick},
+    h('span',{className:'ap-check-mark','aria-hidden':true},on&&h(Glyph,{name:'check'})));
+  const packing=work&&!work.total,pct=work?.total?Math.min(100,work.loaded/work.total*100):0;
+  const body=state.error?h(ErrorBox,{error:state.error,reload:state.reload}):!value?h(Loading,{shape:'rows',count:3,label:'正在读取素材包…'}):h(React.Fragment,null,
+    h('section',{className:'ap-section ap-cat-section ap-dshcard-packs'},head('素材包',packs.length,total>0&&h('span',{className:'ap-dshcard-total'},'共 '+stageBytesText(total)),'勾选的素材包随卡导出；没勾的留在本机，导出的卡也不再使用它。本卡自己的包默认勾选，通用包默认不勾。'),
+      packs.length?h('ul',{className:'ap-dshcard-list','aria-label':'随卡素材包'},packs.map((pack,index)=>h('li',{key:pack.manifest.id,className:'ap-pack-row ap-dshcard-row'},
+        check(picked.has(pack.manifest.id),pack.manifest.name,stageWidgetOnlyPack(pack)?null:()=>flipPack(pack.manifest.id)),h('span',{className:'ap-dshcard-name',title:pack.manifest.name},pack.manifest.name),sizes[index]&&h('span',{className:'ap-pack-size'},stageBytesText(sizes[index]))))):
+        h(EmptyState,{compact:true,text:'这张卡没有素材包'})),
+    figures.length>0&&h('section',{className:'ap-section ap-cat-section ap-dshcard-figures'},head('人物',figures.length,null,'取消勾选的人物不会随卡导出，例如你自己扮演的角色。'),
+      h('ul',{className:'ap-dshcard-list','aria-label':'随卡人物'},figures.map(figure=>h('li',{key:figure.id,className:'ap-pack-row ap-dshcard-row'},
+        check(!left.has(figure.id),figure.name,()=>flip(figure.id)),h('span',{className:'ap-dshcard-name',title:figure.name},figure.name))))),
+    work&&h('div',{className:'ap-dshcard-progress'},
+      h('div',{className:'ap-cat-progress','data-indeterminate':packing||undefined,role:'progressbar','aria-label':'导出进度','aria-valuemin':0,'aria-valuemax':100,'aria-valuenow':packing?undefined:Math.round(pct)},h('span',{style:packing?undefined:{width:pct+'%'}})),
+      h('p',{className:'ap-cat-job-meta',role:'status'},packing?'正在打包…':stageBytesText(work.loaded)+' / '+stageBytesText(work.total))),
+    problem&&h(CatBand,{role:'alert'},problem));
+  return h(CatSheet,{title:'导出 DSH 人物卡',className:'ap-dshcard-sheet',onClose,initialFocus:'dialog',
+      foot:h(React.Fragment,null,h(Button,{onClick:onClose},'取消'),h(Button,{primary:true,disabled:!!work||!value,onClick:run},catBusyLabel(!!work,work?'正在导出…':'导出')))},
+    h('div',{className:'ap-cat-hero'},h(CardCover,{name:cardName||'',path}),h('div',{className:'ap-cat-hero-text'},h('h3',{className:'ap-cat-hero-name'},cardName||'人物卡'),h(CatSub,null,'.dshcard 文件'))),
+    body);
 }
 // Legacy widget entries remain asset/export data, not registry mod switches.
 function stageWidgetOnlyPack(pack) {
@@ -1012,14 +1068,6 @@ function stageBytesText(n) {
   if(n<1024*1024)return Math.max(1,Math.round(n/1024))+' KB';
   const mb=n/1024/1024;return mb<1024?mb.toFixed(1)+' MB':(mb/1024).toFixed(1)+' GB';
 }
-// Image packs that the chosen packs' 模组 defaults point at but that are not exported with them.
-function stageExportMissing(packs,chosen) {
-  const needed=new Set();
-  for(const pack of packs)if(chosen.has(pack.manifest.id))for(const asset of pack.manifest.assets)if(asset.kind==='widgets')
-    for(const value of Object.values(asset.settingsDefaults||{}))if(value?.kind==='backgrounds'&&value.packId)needed.add(value.packId);
-  return [...needed].filter(id=>!chosen.has(id));
-}
-
 // 「提示词」 — the one advanced place for prompts. It lists each stage in order and
 // exactly what this plugin adds there, verbatim, with where it comes from (全局 / 本卡 / the pack by name / 本轮) and a local token estimate:
 // 1. 正文模型 — the dialogue-format worldbook entries the host syncs (getDialogueBubbles `injection`): 对白格式 (global,

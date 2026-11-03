@@ -1,4 +1,6 @@
 import test from 'node:test'
+import {Readable, Writable} from 'node:stream'
+import {once} from 'node:events'
 import assert from 'node:assert/strict'
 import { registerTavernHttpRoutes } from '../tavern-plugin/lib/http/routes.js'
 import {createTavernClientAssets} from '../tavern-plugin/lib/domain/tavern-client-assets.js'
@@ -6,7 +8,7 @@ import {registerStageClientAssets} from '../tavern-plugin/packages/dsh-tavern-st
 
 // 只为了拿到 handleTavernRequest：registerTavernHttpRoutes 在没有 webServer 时
 // 只做一次 exposeHandler 回调，不注册任何路由，也不读取其它依赖。
-function handle(clientAssets) {
+function handle(clientAssets, overrides = {}) {
   let handler
   // every HTTP request passes the host Connection first (routes.js); this one admits all.
   const ctx = { get: name => name === 'connection' ? { requestRejection: () => undefined, trustedHosts: [] } : undefined, effect: () => {} }
@@ -21,7 +23,7 @@ function handle(clientAssets) {
     str: String, tavernRemoteAssets: {}, tavernStaticResources: {},
     castAssets: {}, assetLibrary: undefined, speech: {},
     exportCardFile: async () => {}, assetPacks: {}, uploads: {},
-    exposeHandler: (fn) => { handler = fn },
+    exposeHandler: (fn) => { handler = fn }, ...overrides,
   })
   return handler
 }
@@ -150,6 +152,30 @@ test('沙箱资源仍凭能力票据访问，不要求主页面登录 Cookie', a
 })
 
 
+test('DSH card download streams its attachment, forwards the pack choice and exclusions and cleans up the spool', async () => {
+  let args, disposed = false
+  const handler = handle(undefined, {runtimeReadiness:{ok:true}, fontLibrary:{serve:async () => false}, exportCardFile:async (...input) => {
+    args = input
+    return {name:'fixture',extension:'dshcard',contentType:'application/zip',size:6,stream:() => Readable.from([Buffer.from('abc'),Buffer.from('def')]),dispose:async () => {disposed=true}}
+  }})
+  const chunks = [], res = new Writable({write(chunk,_encoding,done) {chunks.push(chunk);done()}})
+  res.writeHead = (status,headers) => {res.status=status;res.headers=headers}
+  const closed = once(res,'close')
+  await handler({method:'GET',url:'/api/dsh-tavern/card-export?path=cards/a.json&excludeFigures=%5B%22figure-id%22%5D&packIds=%5B%22pack-id%22%5D',headers:{host:PUBLIC,origin:'https://'+PUBLIC}},res)
+  await closed
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(res.status,200)
+  assert.equal(res.headers['Content-Type'],'application/zip')
+  assert.equal(res.headers['Content-Length'],6)
+  assert.match(res.headers['Content-Disposition'],/card.dshcard/)
+  assert.equal(Buffer.concat(chunks).toString(),'abcdef')
+  assert.deepEqual(args,['cards/a.json',{excludeFigures:['figure-id'],packIds:['pack-id']}])
+  assert.equal(disposed,true)
+  const bad = await call(handler,{host:PUBLIC,url:'/api/dsh-tavern/card-export?path=cards/a.json&excludeFigures=bad'})
+  assert.equal(bad.status,400)
+  const badPacks = await call(handler,{host:PUBLIC,url:'/api/dsh-tavern/card-export?path=cards/a.json&packIds=bad'})
+  assert.equal(badPacks.status,400)
+})
 test('舞台脚本 HTTP 资源仅在插件注册期间可用，保留旧 URL', async () => {
   const registry = createTavernClientAssets(), handler = handle(registry)
   const request = {host:'localhost:3081', origin:'http://localhost:3081', url:'/api/dsh-tavern/client-assets/skin-overlay.mjs'}

@@ -171,6 +171,7 @@
 		// @include-stage-source bubble-modals.js
 		// @include asset-launcher.js
 		// @include card-zip-entry.js
+		// @include card-dsh-export.js
 		// @include card-scripts.js
 
 		function substituteTavernIdentityMacros(value, context) {
