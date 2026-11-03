@@ -256,6 +256,7 @@ ctx.tavernUi.registerStartGroup({ title: '叙事锚定', tabs: ['narrative-ancho
 
 - `title` 1–20 字；`tabs` 1–20 个侧栏页 id，按顺序显示。带 `:` 的是侧栏页的完整 id（`registerTab` 时的 `id`）；不带 `:` 的是本插件 `registerPanel` 的 `id`。
 - 插件分组排在 Tavern 自带的「本局」「资料库」「偏好」之后、「插件」之前，按注册顺序。Tavern 自己的页不能移进插件分组；同一页被几个分组声明时只显示在第一个里。
+- 几个插件用同一个 `title` 时合成一节，节内按侧栏顺序排列；例如舞台和配音插件都声明「舞台装置」。
 - 列出的页没有注册时不显示；整组都没有可显示的页时，整组隐藏。插件卸载时分组自动移除。
 
 ## `registerCardListView({ id, label, render })`（第 2 版）

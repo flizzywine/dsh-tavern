@@ -145,3 +145,11 @@ test('手机顶栏的布局约束：角落按钮留座、宿主动作组保持�
   assert.match(client, /mobile \? "M12 5h\.01M12 12h\.01M12 19h\.01"/)
 })
 
+
+test('插件用同一分组名时，开始页合成一节，按侧栏顺序排列', () => {
+  const source = client.match(/const TAVERN_START_GROUPS = [\s\S]*?\n\t*\]\);\n/)[0] + client.match(/function tavernStartGroups\(options, pluginGroups\) \{[\s\S]*?\n\t*return groups;\n\t*\}/)[0]
+  const groupsOf = vm.runInNewContext(source + '; tavernStartGroups', { Object, Set, Map, String, Array })
+  const options = ['a:settings', 'b:library', 'c:voice', 'x:other'].map(id => ({ id }))
+  const groups = groupsOf(options, [{ title: '舞台装置', tabs: ['b:library'] }, { title: '舞台装置', tabs: ['c:voice', 'a:settings'] }])
+  assert.deepEqual(JSON.parse(JSON.stringify(groups.map(([title, found]) => [title, found.map(option => option.id)]))), [['舞台装置', ['a:settings', 'b:library', 'c:voice']], ['其他', ['x:other']]])
+})
