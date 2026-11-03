@@ -12,7 +12,15 @@ async function installationFingerprint(sourceRoot, dshHome, host) {
     ...['package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml'].map(file => path.join(dshHome, 'profiles', 'tavern', file)),
   ]
   const digest = createHash('sha256')
-  for (const file of files) digest.update(file).update('\0').update(await readFile(file)).update('\0')
+  for (const file of files) {
+    let bytes = await readFile(file)
+    // Only the installer-owned keys identify the installation; the machine may add its own.
+    if (path.basename(file) === '.dsh-tavern-local.json') {
+      const { host: installedHost, dshHome: installedHome } = JSON.parse(bytes)
+      bytes = JSON.stringify({ host: installedHost, dshHome: installedHome })
+    }
+    digest.update(file).update('\0').update(bytes).update('\0')
+  }
   // Release metadata alone is not install validation, but a changed source
   // revision must invalidate an earlier successful profile validation receipt.
   for (const file of ['.dsh-tavern-release.json', 'dsh-tavern-runtime.json']) {

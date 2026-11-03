@@ -1,7 +1,7 @@
 import { DEFAULT_BIND_HOST, resolveBindHost } from './service-address.mjs'
 import { runInstallationProcess } from './installation-process.mjs'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,8 +12,8 @@ export const INSTALL_HOSTS = new Set(['cli', 'desktop', 'android'])
 export const CLI_PORT = resolveServicePort(process.env.DSH_TAVERN_PORT)
 export const SCRIPT_PATH = fileURLToPath(new URL('./dsh-tavern.mjs', import.meta.url))
 export const SOURCE_ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..')
-const installationFile = path.join(SOURCE_ROOT, '.dsh-tavern-local.json')
-const installation = existsSync(installationFile) ? JSON.parse(readFileSync(installationFile, 'utf8')) : {}
+export const INSTALLATION_FILE = path.join(SOURCE_ROOT, '.dsh-tavern-local.json')
+const installation = readInstallationFile()
 const hostArgument = process.argv.find((arg) => arg.startsWith('--host='))?.slice(7)
   || (process.argv.includes('--host') ? process.argv[process.argv.indexOf('--host') + 1] : '')
 export const RUNTIME_HOST = hostArgument || process.env.DSH_TAVERN_RUNTIME_HOST || process.env.DSH_TAVERN_HOST || installation.host || 'cli'
@@ -22,6 +22,22 @@ export const LEGACY_DSH_ROOT = process.env.DSH_TAVERN_LEGACY_DSH_HOME || process
 export const DSH_ROOT = path.resolve(RUNTIME_HOST === 'cli'
   ? (process.env.DSH_TAVERN_CLI_HOME || (installation.host === 'cli' && installation.dshHome) || path.join(os.homedir(), '.dsh-tavern'))
   : (process.env.DSH_HOME || path.join(os.homedir(), '.dsh')))
+export const BACKUP_ROOT = installationBackupRoot(installation, DSH_ROOT)
+
+// The installer owns `host` and `dshHome` in .dsh-tavern-local.json. Other keys
+// belong to the machine (for example `backupRoot`) and survive every reinstall.
+export function readInstallationFile(file = INSTALLATION_FILE) {
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+}
+export function writeInstallationFile({ host, dshHome }, file = INSTALLATION_FILE) {
+  writeFileSync(file, JSON.stringify({ ...readInstallationFile(file), host, dshHome }) + '\n')
+}
+// Install-time migration backups go to `backupRoot` (absolute) when the machine
+// keeps them on another disk; otherwise beside the profiles in <DSH home>/backups.
+export function installationBackupRoot(installation, dshHome) {
+  return path.resolve(installation.backupRoot || path.join(dshHome, 'backups'))
+}
+
 // All new testing installations own a separate tavern profile.
 export function installedProfile() { return 'tavern' }
 export const PROFILE = installedProfile(RUNTIME_HOST, DSH_ROOT)

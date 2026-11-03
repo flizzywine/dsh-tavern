@@ -26,7 +26,7 @@ import { ensureUserExtensions } from '../tavern-plugin/lib/domain/user-extension
 import { beginProfileConfigurationUpdate, loadProfileManifest, mergeProfileManifest, prepareProfilePatch, prepareProfileWorkspace, syncProfileDependencyPatches } from './profile-configuration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
 import { assertProfileBundlesLoad } from './profile-bundle-check.mjs'
-import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
+import { INSTALL_HOSTS, SOURCE_ROOT, DSH_ROOT, BACKUP_ROOT, writeInstallationFile, LEGACY_DSH_ROOT, CLI_RUNTIME_ROOT, RUNTIME_HOST, PROFILE_DIR, LOG_DIR, SCRIPT_PATH, PROFILE, RELEASE_FILE, DEFAULT_COMMIT_URL, REQUIRED_SOURCE_FILES, findDshCommand, pinnedDesktopDsh, requireCommand, run, runInstallCommand, runInstallDsh } from './launcher-environment.mjs'
 
 // Own installation transaction and legacy-source discovery. Desktop never installs a CLI shim.
 export { extractDshVersion } from './dsh-compatibility.mjs'
@@ -304,7 +304,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
     const dataRoot = resolveTavernDataRoot({ dshHome: DSH_ROOT })
     const migration = await migrateLegacyTavernData({
       targetRoot: dataRoot,
-      backupRoot: path.join(DSH_ROOT, 'backups', 'dsh-tavern-data-upgrade'),
+      backupRoot: path.join(BACKUP_ROOT, 'dsh-tavern-data-upgrade'),
       legacyRoots: legacyDataRoots(),
     })
     for (const directory of ['cards', 'chats', 'scripts', 'sources', 'skills', 'diffs']) {
@@ -396,7 +396,7 @@ async function installProfileOwned(host, { attemptId, runInstall, runDsh }) {
       console.warn(`未能记录安装提交号，不影响本次安装：${String(error?.message || error)}`)
     }
 
-    writeFileSync(path.join(SOURCE_ROOT, '.dsh-tavern-local.json'), JSON.stringify({ host, dshHome: DSH_ROOT }) + '\n')
+    writeInstallationFile({ host, dshHome: DSH_ROOT })
     runtime?.commit()
     const receipt = await recordInstallationReceipt({ sourceRoot: SOURCE_ROOT, dshHome: DSH_ROOT, host, attemptId, bridgeUpdateId: bridge?.bridgeUpdateId })
     bridge?.commit()
