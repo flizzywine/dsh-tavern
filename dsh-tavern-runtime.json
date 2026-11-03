@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "7e9d0de749d8cad91fc64f756911956304c6357e",
-  "releaseSequence": 1083,
+  "revision": "1ecf5f29186126aaf16972327360ac20c7dd2d74",
+  "releaseSequence": 1085,
   "version": "3.2.0",
   "files": [
     {
@@ -706,8 +706,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-ui.md",
-      "sha256": "e234c14d896cdee3a0d4c1604c47b73e440daab824b654c014de983e19cfc45b",
-      "size": 23873
+      "sha256": "a04a6bda7eb1566e56d0cc1d5ea9c80c800e627a954abe5ea25354a66330ad96",
+      "size": 24014
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
@@ -826,8 +826,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "9e34c426b3c9327f31c4c4a417937672d8e2ebc8d86c07052029a8c91ceaf5fd",
-      "size": 5236966
+      "sha256": "ac5aeff226f8b64ba0e605e03e944e1930aadf467525248904311032daedacec",
+      "size": 5237281
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1041,8 +1041,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-archive.js",
-      "sha256": "1887a12acd951bfc21e9d3a879e1394fcec1e2d3f09f8cdad2c87839be18effa",
-      "size": 11464
+      "sha256": "bf6fb0c203ce7ec7f1788e5212bb3b6fe397de5d3fbdc56520634bb3b9cb7d27",
+      "size": 11583
     },
     {
       "path": "tavern-plugin/lib/domain/card-asset-bindings.js",
@@ -1051,8 +1051,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-assets.js",
-      "sha256": "ded44c0dd7504a0cf5b96497ac9f2b529140322e2ae7ee6ad53d0e36a8d100bf",
-      "size": 18616
+      "sha256": "d691d420d187ff3d6d6be2d38d0d67ccd01e271f0a071bed0cbf154c6896f8c4",
+      "size": 23364
     },
     {
       "path": "tavern-plugin/lib/domain/card-auto-reload.js",
@@ -1096,8 +1096,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-files.js",
-      "sha256": "84404d1e0a4de00505f2731fdbbd35f132d710a9238a0ab38e15a18b2d446f3b",
-      "size": 14831
+      "sha256": "017d6595c6f7f9bfca162d42a225d2ea7564bc504ec930cf9b6c734e2fd0c7e5",
+      "size": 18487
     },
     {
       "path": "tavern-plugin/lib/domain/card-import-identity.js",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "c6a6939ea02238f3424150ebb4f861fbc0cb60dd",
+    "commit": "ec9452aedfd8f2d2d83cc723847016c81b3d3291",
     "path": "runtime.zip",
-    "sha256": "c52265c7e06c1d640f72847d884535dd6d4d824111f6b6dab44c44f2905dc8f3",
-    "size": 15560983
+    "sha256": "66cb89a833ce1433f6b542a63cf339296c1730f62a553e5bcd8d78c1bb39a8ee",
+    "size": 15563611
   }
 }
