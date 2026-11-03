@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cf1f4e0384fe5cdca45dcdff1d132d352e34f08d",
-  "releaseSequence": 1107,
+  "revision": "4663b82be46a2be42ec4d4e4780ad9ff96c57e20",
+  "releaseSequence": 1108,
   "version": "3.2.0",
   "files": [
     {
@@ -566,8 +566,8 @@
     },
     {
       "path": "presets/tavern/skills/create-writing-skill/SKILL.md",
-      "sha256": "8c6fce115d82ca29277bdf8a97ce154c0f02f6efebc5270b758cfdab5ad5c698",
-      "size": 1804
+      "sha256": "ec2d28c4aeb2a13b96ed4d529b5d3f0c743be8a926d8745c52ab7c6d2ec9c3d4",
+      "size": 1795
     },
     {
       "path": "presets/tavern/skills/debug-card/references/evidence.md",
@@ -626,8 +626,8 @@
     },
     {
       "path": "presets/tavern/skills/polish-card/SKILL.md",
-      "sha256": "12428354b98d4b5d88b3579d7b04637620db34d108db9f76ef3e449794c271e8",
-      "size": 6652
+      "sha256": "f2cbad140c9da677556d53a98cea9d7646abb642c0871c99a19007ca0c9ec648",
+      "size": 6643
     },
     {
       "path": "presets/tavern/skills/stage-directing/references/judge.md",
@@ -881,8 +881,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "883c05928182045acce868e78cccd006ff568a883703e7301151a9f9f12d565a",
-      "size": 5246116
+      "sha256": "f6816ccb97b44a54037e7340ceb1d09c373802ec6cf0570ed70b920ca06074f9",
+      "size": 5245965
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -3236,8 +3236,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-catalog.js",
-      "sha256": "edb00ee5b23c788bfce690f49089ada787a816962c18d7bd9fda84efec2fad0f",
-      "size": 18219
+      "sha256": "ebc2a035f311a52a828455d39c1b00851f280e97c65da0672327b511e9c7a7f4",
+      "size": 18201
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-chats.js",
@@ -3256,8 +3256,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-import.js",
-      "sha256": "808ebbe2c1663e05b3fe913cffa2875144b4f3b35111b66b149c2707ff7ceada",
-      "size": 29997
+      "sha256": "5210fdbbd66501024798c3015c9b425e8ff2396939bd9288c75d01dfb99db373",
+      "size": 29988
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-logs.js",
@@ -3266,8 +3266,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-materials.js",
-      "sha256": "b515ad63a8ef533ae014451486cfed6b71d55718e9dad7b5ec76b420263e01e6",
-      "size": 4009
+      "sha256": "237aea6a42c33f784169fb6ed88e5212da852653a3372e26b0768cfba150b05a",
+      "size": 4000
     },
     {
       "path": "tavern-plugin/lib/domain/transfer-memory.js",
@@ -9331,9 +9331,9 @@
     }
   ],
   "archive": {
-    "commit": "937e4ddac584724d46f53a0d03b3f7bde265cfe5",
+    "commit": "376d9308266354220e63c31dee117ee25b8953ea",
     "path": "runtime.zip",
-    "sha256": "fbbfff31e46ea7c9f12da6ea553a374c6ba4111f998beb474e8bbced5435c4f3",
-    "size": 15757111
+    "sha256": "63d7a3bce5fafb4cea75738225a8c5ff3d3e97fbb0763873e361aa62a5ff6a40",
+    "size": 15757045
   }
 }
