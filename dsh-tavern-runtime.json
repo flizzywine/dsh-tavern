@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0899ddd4fa4b7256846c33d1501b68be203cb51f",
-  "releaseSequence": 1143,
+  "revision": "b84e7339b456b64144f35e6b604834ebb3e3a2e7",
+  "releaseSequence": 1144,
   "version": "3.2.0",
   "files": [
     {
@@ -3606,8 +3606,8 @@
     },
     {
       "path": "tavern-plugin/lib/host/mod-phone.mjs",
-      "sha256": "5b8379dff080ddd8819343b380d92fb116ad29c86e736166521f8a69249e7676",
-      "size": 24654
+      "sha256": "2605a37b97fb4d2a74e7c80dc8a19694212e518847386c471c84c7ed0d848acc",
+      "size": 24900
     },
     {
       "path": "tavern-plugin/lib/host/mod-textcard.mjs",
@@ -5046,13 +5046,13 @@
     },
     {
       "path": "tavern-plugin/mods/phone/manifest.json",
-      "sha256": "40d2e01814d41a109f4310fc7f24691712a53e439e33dc7b1ffef2670bb1df87",
+      "sha256": "6bfc4ff956db125b116432a3164120e9a51f068b7828a9ce109de64885d6a49e",
       "size": 7787
     },
     {
       "path": "tavern-plugin/mods/phone/mod.json",
-      "sha256": "4423e4448dc720cb9c37da9d496e00e1cc6d3c35fb0f4080bba567b7fd5daae3",
-      "size": 10833
+      "sha256": "66e323315572f2ef2bb9ec4e12996c45816b5acaa313b6491e5822c8122bc786",
+      "size": 11079
     },
     {
       "path": "tavern-plugin/mods/phone/package.json",
@@ -5081,8 +5081,8 @@
     },
     {
       "path": "tavern-plugin/mods/phone/prompts/phone.txt",
-      "sha256": "447d67b392ed918dfdad2ecee2c926d4fdf2663ed14de074712e3ddc44fbd0d2",
-      "size": 1039
+      "sha256": "ece966af3832b2c221e229d86004768ff16abb8441c2eefd6335ed6c593643c1",
+      "size": 1284
     },
     {
       "path": "tavern-plugin/mods/phone/runtime.js",
@@ -5101,13 +5101,13 @@
     },
     {
       "path": "tavern-plugin/mods/phone/stage.js",
-      "sha256": "30d0fac9b6a5d8a00b0cc4004935abaf9e0fc924c3940f4108b3f45a7aceca2a",
-      "size": 4473
+      "sha256": "a224654ac40436abfe18b432fa122ee816fb292d8685fe59060e7bfd46aeb1cb",
+      "size": 4901
     },
     {
       "path": "tavern-plugin/mods/phone/threads.js",
-      "sha256": "9a8493e6aff579850c82e3eb3f6bb01e47963d14db720a35d585ba91c8df6195",
-      "size": 3939
+      "sha256": "17294a1afaca1eafba46916acf50fef085fbee9eaa13432b071acd6f2ccca22a",
+      "size": 4467
     },
     {
       "path": "tavern-plugin/mods/phone/view/assets/chime.wav",
@@ -9446,9 +9446,9 @@
     }
   ],
   "archive": {
-    "commit": "05fc11fed67e1fa4de600ed0dc2da9c3ebc0829a",
+    "commit": "cceecb5fc8ee8f83fdedaa7a63ab262c117f7120",
     "path": "runtime.zip",
-    "sha256": "e1c54047a684bd7d6bc6cee43276d837677654b8ee649518dc8533471d3e7b5b",
-    "size": 15997185
+    "sha256": "122819b51cf8a0bc2a937e90b25e4160e0a3f05506dcc12d55d4a71e8dfc8919",
+    "size": 15997954
   }
 }
