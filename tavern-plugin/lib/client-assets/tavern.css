@@ -2741,7 +2741,8 @@ body.dsh-tavern-shell-active [class*="_headerUtilities"]:has(.dsh-tavern-header-
   /* 候选面板已经占据输入区上方，已展开的运行状态也先让位。 */
   html.dsh-tavern-viewport-pinned [data-composer-seat]:has(.dsh-tavern-candidate-question:not(.collapsed)) [data-composer-dock] { display: none !important; }
   .dsh-tavern-choice-trigger { min-height: 36px; padding: 5px 10px; font-size: 13px; }
-  .dsh-tavern-question.dsh-tavern-candidate-question { box-sizing: border-box; width: calc(100% - 16px); margin: 0 auto; padding: 6px 10px; border-radius: 12px; }
+  /* 候选卡与桌面同一个组件、同一套外观：宽度、圆角、内边距都不再单独覆盖；手机上只在展开时改为底部抽屉。 */
+  .dsh-tavern-question.dsh-tavern-candidate-question { box-sizing: border-box; margin: 0 auto; }
   html.dsh-tavern-viewport-pinned .dsh-tavern-candidate-question:not(.collapsed) {
     position: fixed; z-index: var(--dsh-play-z-sheet, 7);
     left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));

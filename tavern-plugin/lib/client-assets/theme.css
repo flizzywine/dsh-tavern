@@ -6361,18 +6361,6 @@ html.dsh-fork-phone-play body [data-composer-seat] .fork-phone-plus-menu .dsh-ta
 .fork-phone-plus-menu .dsh-fork-inline-actions [data-fork-action="guide"][data-count]::after { content: none; }
 .fork-phone-plus-menu .fork-compaction-status { padding: 4px 12px; }
 
-/* 接下来的行动: one row of chips (the first two, then +N) above the composer. */
-/* Edge to edge, flush with the composer card's 10px inset (mock A strip: 12px); a chip takes up to 70% of the row. */
-.dsh-tavern-candidate-chips { box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 0 10px 6px; overflow: hidden; }
-.dsh-tavern-question-chip { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 70%; min-height: 36px; padding: 0 14px; border: 1px solid var(--fork-hairline); border-radius: 999px; background: var(--fork-surface); color: var(--fork-ink); font: inherit; font-size: var(--fork-fs-body); white-space: nowrap; cursor: pointer; }
-.dsh-tavern-question-chip > .dsh-tavern-question-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.dsh-tavern-question-chip > .dsh-tavern-question-index { flex: none; color: var(--fork-accent); }
-.dsh-tavern-question-chip:hover:not(:disabled) { background: var(--fork-hover); }
-.dsh-tavern-question-chip.selected { border-color: var(--fork-accent); }
-.dsh-tavern-question-chip:focus-visible { outline: var(--fork-focus); outline-offset: 1px; }
-.dsh-tavern-question-chip.dsh-tavern-question-more { flex: none; padding: 0 12px; color: var(--fork-ink-2); font-variant-numeric: tabular-nums; }
-.dsh-tavern-question-chip.is-pending { cursor: default; color: var(--fork-ink-3); }
-
 /* Story: the portrait spans the name and the first line of text (3.2em, the desktop's 4.2em would cost the narrow column a
    fifth of its width; design 「手机里气泡渲染的头像怎么这么小啊」 about the old 30px), and a slightly smaller ▶ that stays
    on the corner, clear of the face. */

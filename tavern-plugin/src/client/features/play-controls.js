@@ -1109,7 +1109,7 @@
 			return null;
 		}
         const { CandidateQuestion, CandidateGuidePanel, RegenPanel } = createPlayInteractionPanels({
-            interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError, usePhonePlay: usePhonePlay
+            interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError
         });
         const { HeaderItems: TavernHeaderItems } = createTavernHeaderFeature({
             StatusAction: TavernConversationSettingsAction, ExportAction: TavernConversationExportAction,

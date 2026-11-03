@@ -1,5 +1,5 @@
 // Presentation and composer draft lifetime; async transitions belong to interactions.
-function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError, usePhonePlay }) {
+function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandidateGuidePanel, useRegenPanel, dismissCandidateError }) {
     const setCandidatePanel = interactions.candidates.set;
     const setRegenPanel = interactions.regeneration.set;
 		function CandidateQuestion(props) {
@@ -15,7 +15,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
         const latestMessageId = props.useChat(latestTavernAssistantMessageId);
         const [added, setAdded] = React.useState([]);
         const expanded = Boolean(panel && panel.expanded);
-        const phone = usePhonePlay(props.sessionId, props.sessions);
         function setExpanded(value) {
             if (panel) setCandidatePanel(Object.assign({}, panel, { expanded: value }));
         }
@@ -70,20 +69,6 @@ function createPlayInteractionPanels({ interactions, useCandidatePanel, useCandi
             props.inputActions.setDraft(next);
             if (!isAdded && dismissMode !== "after-send") setCandidatePanel(null);
             else setAdded(list => isAdded ? list.filter(value => value !== index) : list.concat(index));
-        }
-        // on a phone in play the folded list is one row of chips above the composer:
-        // the first two choices, then 「+N」 opening the full list (the same panel as everywhere else).
-        if (phone && !expanded) {
-            if (panel.phase !== "loading" && !count) return null;
-            const shown = items.slice(0, 2);
-            return h("div", { className: "dsh-tavern-candidate-chips", role: "group", "aria-label": heading },
-                panel.phase === "loading" ? h("span", { className: "dsh-tavern-question-chip is-pending", role: "status" }, summary)
-                    : shown.map(function (item, index) {
-                        const isAdded = added.includes(index);
-                        return h("button", { key: index, type: "button", className: "dsh-tavern-question-chip" + (isAdded ? " selected" : ""), "data-type": item.type, "aria-pressed": isAdded, title: item.text, onClick: function () { pick(index); } },
-                            isAdded ? h("span", { className: "dsh-tavern-question-index", "aria-hidden": true }, "✓") : null, h("span", { className: "dsh-tavern-question-text" }, item.text));
-                    }),
-                count > shown.length && panel.phase !== "loading" ? h("button", { type: "button", className: "dsh-tavern-question-chip dsh-tavern-question-more", "aria-label": "展开行动列表", title: "展开行动列表", onClick: function () { setExpanded(true); } }, "+" + (count - shown.length)) : null);
         }
         return h("div", { className: "dsh-tavern-question dsh-tavern-candidate-question" + (expanded ? "" : " collapsed") },
             h("div", { className: "dsh-tavern-question-head", role: "button", tabIndex: 0, "aria-expanded": expanded ? "true" : "false", onClick: function () { setExpanded(!expanded); }, onKeyDown: function (event) { if (event.target === event.currentTarget && !event.isComposing && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); setExpanded(!expanded); } } }, h("span", null, heading), h("span", { className: "dsh-tavern-question-sub" }, summary), h("button", { type: "button", className: "dsh-tavern-question-close", title: expanded ? "收起行动列表" : "展开行动列表", "aria-label": expanded ? "收起行动列表" : "展开行动列表", onClick: function (event) { event.stopPropagation(); setExpanded(!expanded); } }, expanded ? "⌃" : "⌄")),
