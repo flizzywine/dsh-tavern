@@ -86,18 +86,20 @@ export async function openZip(filename, limits = ZIP_LIMITS) {
     let end = -1
     for (let p = tail.length - 22; p >= 0; p--) if (tail.readUInt32LE(p) === 0x06054b50 && p + 22 + tail.readUInt16LE(p + 20) === tail.length) { end = p; break }
     if (end < 0) throw new Error('ZIP end record is missing')
-    const count = tail.readUInt16LE(end + 10), cdSize = tail.readUInt32LE(end + 12), cdStart = tail.readUInt32LE(end + 16)
-    if (count === 65535 || cdSize === U32 || cdStart === U32 || (end >= 20 && tail.readUInt32LE(end - 20) === 0x07064b50)) throw new Error('ZIP64 is not supported')
+    const count = tail.readUInt16LE(end + 10), cdSize = tail.readUInt32LE(end + 12), declaredStart = tail.readUInt32LE(end + 16)
+    const prefix = length - tail.length + end - cdSize - declaredStart
+    const cdStart = declaredStart + prefix
+    if (count === 65535 || cdSize === U32 || declaredStart === U32 || (end >= 20 && tail.readUInt32LE(end - 20) === 0x07064b50)) throw new Error('ZIP64 is not supported')
     if (tail.readUInt16LE(end + 4) || tail.readUInt16LE(end + 6) || tail.readUInt16LE(end + 8) !== count) throw new Error('Multi-disk ZIP is not supported')
     if (count > limits.entries) throw new Error('ZIP entry count exceeds limit')
     const cdEnd = length - tail.length + end
-    if (cdStart + cdSize !== cdEnd) throw new Error('Invalid ZIP central directory')
+    if (prefix < 0 || cdStart + cdSize !== cdEnd) throw new Error('Invalid ZIP central directory')
     const entries = [], names = new Set(), ranges = []
     let cursor = cdStart, totalSize = 0
     for (let i = 0; i < count; i++) {
       const cd = await bytesAt(handle, 46, cursor)
       if (cd.readUInt32LE(0) !== 0x02014b50) throw new Error('Invalid ZIP central entry')
-      const flags = cd.readUInt16LE(8), method = cd.readUInt16LE(10), crc = cd.readUInt32LE(16), compressedSize = cd.readUInt32LE(20), size = cd.readUInt32LE(24), nameSize = cd.readUInt16LE(28), extraSize = cd.readUInt16LE(30), commentSize = cd.readUInt16LE(32), offset = cd.readUInt32LE(42)
+      const flags = cd.readUInt16LE(8), method = cd.readUInt16LE(10), crc = cd.readUInt32LE(16), compressedSize = cd.readUInt32LE(20), size = cd.readUInt32LE(24), nameSize = cd.readUInt16LE(28), extraSize = cd.readUInt16LE(30), commentSize = cd.readUInt16LE(32), offset = cd.readUInt32LE(42) + prefix
       if (flags & (1 | 64 | 8192)) throw new Error('Encrypted ZIP entries are not supported')
       if (flags & ~(0x800 | 8 | 6)) throw new Error('Unsupported ZIP flags')
       if (![0, 8].includes(method)) throw new Error('Unsupported ZIP method')
