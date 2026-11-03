@@ -36,7 +36,8 @@ function referencedPaths(card) {
   for (const asset of Array.isArray(data.assets) ? data.assets : []) uris.push(asset && asset.uri)
   for (const entry of Array.isArray(data.extensions?.risuai?.emotions) ? data.extensions.risuai.emotions : []) uris.push(Array.isArray(entry) ? entry[1] : null)
   for (const character of Array.isArray(data.extensions?.dsh_tavern?.cast?.characters) ? data.extensions.dsh_tavern.cast.characters : []) {
-    uris.push(character && character.avatar, ...Object.values(character && character.sprites || {}))
+    uris.push(character && character.avatar, ...Object.values(character && character.sprites || {}),
+      ...(Array.isArray(character?.voiceReferences) ? character.voiceReferences.map(clip => clip && clip.audio) : []))
   }
   return [...new Set(uris.filter(uri => typeof uri === 'string' && uri.startsWith('embeded://')).map(uri => uri.slice('embeded://'.length)))].slice(0, MAX_REFERENCED)
 }

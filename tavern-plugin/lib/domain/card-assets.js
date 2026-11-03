@@ -1,6 +1,14 @@
 import * as zlib from 'node:zlib'
 import { CAST_EMOTIONS } from './cast-annotation.js'
 import { readZipEntries, writeZipEntries } from './zip-entries.js'
+import figureResolution from '../../packages/dsh-presentation-protocol/src/figure-resolution.cjs'
+
+// The card's main character among its cast characters, by the shared figure resolver (its exact name, else an alias only
+// one character has); null when none or several.
+function mainCharacter(characters, mainName) {
+  const found = figureResolution.resolveFigureName(characters.map((character, index) => ({ name: character.name, aliases: character.aliases || [], index })), String(mainName || ''))
+  return found.status === 'resolved' ? characters[found.row.index] : null
+}
 
 // Character material carried by a card file (Wiki「设计：tavern-to-galgame」): Character Card V3
 // `data.assets` in CHARX (`embeded://`), RisuAI PNG chunks (`chara-ext-asset_:N` → `__asset:N`),
@@ -229,6 +237,63 @@ export function collectCardAssets(card, resolve) {
   return result
 }
 
+// resting first: a library figure's first emotion is its default.
+const EMOTION_ORDER = ['neutral', ...Object.keys(CAST_EMOTIONS).filter(slot => slot !== 'neutral')]
+const emotionRows = (sprites, labels = {}) => EMOTION_ORDER.filter(slot => sprites[slot]).map(slot => ({ emotion: slot, label: labels[slot] || CAST_EMOTIONS[slot], bytes: sprites[slot] }))
+
+/**
+ * What of a card's collected material goes to the asset library (a card without packs of its own): the cast, the main
+ * character's expressions (the closest name per emotion, as cast-assets.js picks them, labelled with the card's own name
+ * for it) and the backgrounds. The rest (a non-PNG cover, kept extras, expressions no emotion name matches) stays with the
+ * card. Null material when none.
+ */
+export function cardLibraryMaterial(collected, mainName) {
+  const characters = collected.cast.map(character => ({ ...character, sprites: { ...character.sprites } }))
+  let main = mainCharacter(characters, mainName)
+  const emotions = [], labels = {}
+  const ordered = collected.emotions.map((emotion, index) => ({ emotion, index })).sort((left, right) => emotionRank(left.emotion.name) - emotionRank(right.emotion.name) || left.index - right.index).map(item => item.emotion)
+  for (const emotion of ordered) {
+    const slot = emotionSlot(emotion.name)
+    if (!slot) { emotions.push(emotion); continue }
+    if (!main) characters.unshift(main = { name: mainName, aliases: [], avatar: null, sprites: {}, voices: {} })
+    if (!main.sprites[slot]) main.sprites[slot] = emotion.bytes
+    else if (!main.sprites[slot].equals(emotion.bytes)) { emotions.push(emotion); continue }
+    labels[slot] ??= emotion.name
+  }
+  const used = characters.filter(character => Object.keys(character.sprites).length || character.avatar || character.voiceReferences?.length || character.voiceSource?.provider)
+  // kept as they came, so a CHARX export writes them back as they were
+  const rest = { emotions: [], backgrounds: [], cover: collected.cover, extras: [...collected.extras, ...emotions.map(({ name, ext, bytes }) => ({ type: 'emotion', name, ext, bytes }))], cast: [], skipped: collected.skipped }
+  if (!used.length && !collected.backgrounds.length) return { material: null, rest: collected }
+  return { rest, material: { characters: used.map(character => ({ ...character, sprites: emotionRows(character.sprites, character === main ? labels : {}) })), backgrounds: collected.backgrounds.map(({ name, bytes }) => ({ name, bytes })) } }
+}
+
+/**
+ * Library cast material (projectCardMaterial) as CHARX character material: emotion ids as cast emotion names (with
+ * `emotionNames`, the figure's own label where it names the same emotion, for the main character's expressions), the main
+ * character first, and only as many characters and backgrounds as a CHARX can carry next to `used` files of its own.
+ */
+export function charxLibraryMaterial({ characters, backgrounds }, mainName, used) {
+  let budget = MAX_ASSETS - used - 1
+  const fit = count => count <= budget && (budget -= count, true)
+  const main = mainCharacter(characters, mainName)
+  const ordered = main ? [main, ...characters.filter(character => character !== main)] : characters
+  const cast = []
+  for (const character of ordered) {
+    const sprites = {}, emotionNames = {}
+    for (const [emotion, file] of Object.entries(character.sprites)) {
+      const slot = emotionSlot(emotion) || emotion, label = character.labels?.[emotion]
+      if (sprites[slot]) continue
+      sprites[slot] = file
+      if (label && emotionSlot(label) === slot) emotionNames[slot] = label
+    }
+    const entry = { name: character.name, aliases: character.aliases, avatar: character.avatar, sprites, emotionNames, voices: character.voices || {},
+      ...(character.references?.length ? { voiceReferences: character.references } : {}),
+      ...(character.voiceSource ? { voiceSource: character.voiceSource } : {}), ...(character.voiceLanguage ? { voiceLanguage: character.voiceLanguage } : {}) }
+    if (fit(Number(Boolean(entry.avatar)) + Object.keys(sprites).length + (entry.voiceReferences || []).length)) cast.push(entry)
+  }
+  return { characters: cast, backgrounds: backgrounds.filter(() => fit(1)) }
+}
+
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'])
 
 /**
@@ -262,7 +327,7 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
   }
   const assets = (Array.isArray(data.assets) ? data.assets : []).filter(asset => asset && /^https?:/i.test(String(asset.uri)))
   const characters = manifest.characters || []
-  const main = characters.find(item => item.name === characterName || (item.aliases || []).includes(characterName)) || null
+  const main = mainCharacter(characters, characterName)
   if (cover) {
     used.add('assets/icon/image/main.png')
     files.push({ path: 'assets/icon/image/main.png', content: Buffer.from(cover) })
@@ -272,7 +337,7 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
   } else assets.push({ type: 'icon', uri: 'ccdefault:', name: 'main', ext: 'png' })
   for (const [slot, file] of Object.entries(main ? main.sprites || {} : {})) {
     const uri = place('emotion', file, slot)
-    if (uri) assets.push({ type: 'emotion', uri, name: slot, ext: extOf(file.split('.').pop()) })
+    if (uri) assets.push({ type: 'emotion', uri, name: main.emotionNames?.[slot] || slot, ext: extOf(file.split('.').pop()) })
   }
   ;(manifest.backgrounds || []).forEach((background, index) => {
     const uri = place('background', background.file, index === 0 ? 'main' : background.name)
