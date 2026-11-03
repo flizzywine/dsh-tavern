@@ -148,7 +148,7 @@ Internal Preset Projection 中在发送模型请求前临时追加到末尾、�
 
 ## Script
 
-用于引导故事主线的叙事资源，可以是小说、剧情大纲或故事素材。Script 可以暂未绑定；一份 Script 最多绑定一张人物卡，一张人物卡最多绑定一份 Script。
+用于引导故事主线的叙事资源，可以是小说、剧情大纲或故事素材。Script 可以暂未绑定；一份 Script 最多绑定一张人物卡，一张人物卡最多绑定一份 Script。界面称「剧本库」（内部目录仍为 `materials/`），与存放素材包的素材库不是同一个概念。
 
 ## Native LLM Game
 

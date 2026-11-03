@@ -57,7 +57,7 @@ const PART_DEFS = [
   { kind: 'assets', group: 'ext', label: '素材包与皮肤', unit: '包', supported: true,
     note: '整包带走背景、音乐、音效与皮肤；导入会发新包 id，卡上的绑定要在素材页重新指一次' },
   { kind: 'fonts', group: 'ext', label: '字体', unit: '族', supported: true, note: '只带走自装字体；插件内置字体不重复打包' },
-  { kind: 'scripts', group: 'ext', label: '剧本与素材', unit: '个', supported: true, note: '导入的参考资料原样带走；同名导入会加序号' },
+  { kind: 'scripts', group: 'ext', label: '剧本', unit: '个', supported: true, note: '导入的参考资料原样带走；同名导入会加序号' },
   { kind: 'skills', group: 'ext', label: '写作 Skill', unit: '个', supported: true, note: '整目录打包；同名导入会加序号' },
   { kind: 'logs', group: 'ext', label: '诊断日志', unit: '局', supported: true, privacy: '含私人剧情', exportOnly: true,
     note: '只导出用于排查的 zip，不导入；内容含私人剧情，分享前请检查' }
@@ -307,7 +307,7 @@ export function createTransferCatalog(deps) {
 
     if (materials && selected(selection, 'scripts').length) {
       const exports = await materials.collect(selected(selection, 'scripts'))
-      for (const item of exports) add('scripts', '剧本与素材', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'material.txt'), item.content)
+      for (const item of exports) add('scripts', '剧本', { key: item.key, title: item.title }, safeTransferFileName(item.fileName, 'material.txt'), item.content)
     }
 
     if (plugins && selected(selection, 'plugins').length) {

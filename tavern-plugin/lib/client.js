@@ -35417,7 +35417,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 				input.accept = kind === "worldbook" || kind === "preset" ? ".json,application/json" : ".txt,.md,.json,.epub,text/plain,text/markdown,application/json,application/epub+zip";
 				input.click();
 			}
-			const initialResourceTitle = cardEntry === "writing-skill" ? "剧本与素材" : "剧本";
+			const initialResourceTitle = "剧本";
 			const resourceEditPicker = h(React.Fragment, null,
 				initialResourceGroup("剧本", initialResources.filter(function (item) { return item.kind === "source"; })),
 				initialResourceGroup("世界书", initialResources.filter(function (item) { return item.kind === "worldbook"; })),
@@ -35435,12 +35435,12 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 				) : h(EmptyState, { noun: initialResourceTitle }));
 			const initialImportButtons = cardEntry === "resource-edit"
 				? h(React.Fragment, null,
-					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("source"); } }, "导入剧本或素材"),
+					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("source"); } }, "导入剧本"),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("worldbook"); } }, "导入世界书"),
 					h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("preset"); } }, "导入预设")
 				)
 				: (cardEntry === "writing-skill" || cardEntry === "extract"
-					? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("source"); } }, "导入剧本或素材")
+					? h("button", { className: "dsh-tavern-btn", disabled: busy, onClick: function () { startInitialImport("source"); } }, "导入剧本")
 					: null);
 			const cardPicker = h("div", { className: "dsh-tavern-card-picker", role: "dialog", "aria-modal": "true", "aria-label": "选择卡片工作台起始任务" }, pickerError,
 				h("div", { className: "dsh-tavern-card-picker-head" }, cardEntry ? h("button", { className: "dsh-tavern-btn", onClick: function () { setCardEntry(""); } }, "← 返回") : h("span", null, "选择起始任务"), cardEntry === "writing-skill" ? h("span", null, "选择参考素材（至少 1 份）") : cardEntry === "extract" ? h("span", null, "选择初始剧本（至少 1 份）") : cardEntry === "mvu" ? h("span", null, "选择要转换的人物卡") : cardEntry === "resource-edit" ? h("span", null, "选择一个编辑目标") : null, h("span", { className: "dsh-tavern-spacer" }), cardEntry === "edit" || cardEntry === "gentle" || cardEntry === "mvu" ? h(MobileCardImportButton, { inputRef: fileRef, disabled: busy, onImported: async function () { await refresh(); notifyDataChanged(["cards"]); } }) : null, initialImportButtons, h("button", { className: "dsh-tavern-btn", onClick: closePicker }, "关闭")),
@@ -38490,7 +38490,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				const [selectedCardPaths, setSelectedCardPaths] = React.useState({});
 				const [view, setView] = React.useState(null);
 				const [openedScript, setOpenedScript] = React.useState(null);
-				const [error, setError] = usePersistentError("剧本与素材库");
+				const [error, setError] = usePersistentError("剧本库");
 			const [busy, setBusy] = React.useState(false);
 			const [bindingPath, setBindingPath] = React.useState("");
 			const sourceInput = React.useRef(null);
@@ -38530,7 +38530,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				finally { setBusy(false); }
 			}
 				async function deleteResource(item) {
-					if (!await askConfirm("删除剧本或素材“" + item.title + "”吗？\n工作版和原版都会删除。")) return;
+					if (!await askConfirm("删除剧本“" + item.title + "”吗？\n工作版和原版都会删除。")) return;
 				setBusy(true); setError("");
 				try { await rpc("deleteResource", { path: item.path }, props.sessionId); await refresh(); notifyTavernDataChanged(["scripts", "cards", "sessions"], "resources"); }
 				catch (err) { setError(String(err && err.message || err)); }
@@ -38620,13 +38620,13 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 				);
 			}
 				if (openedScript) return h("div", { className: "dsh-tavern-resources" },
-					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setOpenedScript(null); } }, "← 返回剧本与素材库"), h("div", { className: "dsh-tavern-status-title" }, openedScript.title)),
+					h("div", { className: "dsh-tavern-status-head" }, h("button", { className: "dsh-tavern-btn", onClick: function () { setOpenedScript(null); } }, "← 返回剧本库"), h("div", { className: "dsh-tavern-status-title" }, openedScript.title)),
 					error ? h("div", { className: "dsh-tavern-dock-error" }, error) : h("pre", { className: "dsh-tavern-resource-body dsh-tavern-script-preview" }, openedScript.text)
 				);
-				const sourceActions = h("div", { className: "dsh-tavern-resource-actions" }, h("button", { className: "dsh-tavern-resource-import", disabled: busy, onClick: function () { sourceInput.current && sourceInput.current.click(); } }, "导入剧本或素材"), h("input", { ref: sourceInput, type: "file", accept: ".txt,.md,.json,.epub,text/plain,text/markdown,application/json,application/epub+zip", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importSourceResource(file); event.target.value = ""; } }));
+				const sourceActions = h("div", { className: "dsh-tavern-resource-actions" }, h("button", { className: "dsh-tavern-resource-import", disabled: busy, onClick: function () { sourceInput.current && sourceInput.current.click(); } }, "导入剧本"), h("input", { ref: sourceInput, type: "file", accept: ".txt,.md,.json,.epub,text/plain,text/markdown,application/json,application/epub+zip", style: { display: "none" }, onChange: function (event) { const file = event.target.files && event.target.files[0]; importSourceResource(file); event.target.value = ""; } }));
 				return h("div", { className: "dsh-tavern-resources" },
-						h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "剧本与素材库"), h("div", { className: "dsh-tavern-question-sub" }, readOnly ? "点击名称查看内容；导入、引用和管理请前往卡片工作台。" : "导入后按需引用；引用教学素材并提出要求，可在卡片工作台编写写作 Skill")),
-					h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("剧本与素材", "source", resources.resources || [], readOnly ? null : sourceActions))
+						h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "剧本库"), h("div", { className: "dsh-tavern-question-sub" }, readOnly ? "点击名称查看内容；导入、引用和管理请前往卡片工作台。" : "导入后按需引用；引用教学素材并提出要求，可在卡片工作台编写写作 Skill")),
+					h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, group("剧本", "source", resources.resources || [], readOnly ? null : sourceActions))
 			);
 		}
 		function register(input) {
@@ -38634,7 +38634,7 @@ const tavernTextLayoutFeature = createTavernTextLayoutFeature();
 			const appendMention = input.appendMention;
 			return ctx.effect(() => registerTab(ctx.betterSidebar, {
 				id: "dsh-tavern:resources",
-					title: "剧本与素材库",
+					title: "剧本库",
 				order: 7,
 				single: true,
 				component: function (props) {
@@ -41112,7 +41112,7 @@ function cardLibraryDisplayName(card) {
 			const selectableResources = availableResources.filter(function (item) { return !Array.isArray(item.boundCards) || item.boundCards.length === 0 || item.boundCards.some(function (boundCard) { return boundCard.path === cardPath; }); });
 			const scriptPanel = h("div", { className: "dsh-tavern-script-row" },
 				h("div", { className: "dsh-tavern-script-info" }, script ? h("span", null, h("b", null, "当前剧本："), script.title + " · " + script.chunkCount + " 块 · " + script.sourceChars + " 字") : h("span", null, "未绑定剧本；游玩时按自由故事推进")),
-				h("select", { value: selectedScriptPath, disabled: scriptBusy || scriptCatalogLoading || !scriptCatalogLoaded || !selectableResources.length, onChange: function (event) { setSelectedScriptPath(event.target.value); } }, h("option", { value: "" }, scriptCatalogLoading ? "正在读取剧本与素材库…" : "选择已有剧本"), selectableResources.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
+				h("select", { value: selectedScriptPath, disabled: scriptBusy || scriptCatalogLoading || !scriptCatalogLoaded || !selectableResources.length, onChange: function (event) { setSelectedScriptPath(event.target.value); } }, h("option", { value: "" }, scriptCatalogLoading ? "正在读取剧本库…" : "选择已有剧本"), selectableResources.map(function (item) { return h("option", { key: item.path, value: item.path }, item.title); })),
 				h("button", { className: script ? "dsh-tavern-script-file" : "dsh-tavern-script-primary", disabled: scriptBusy || !selectedScriptPath || !!(script && script.path === selectedScriptPath), onClick: bindSelectedScript }, script ? "更换绑定" : "绑定"),
 				h("input", { ref: scriptFileRef, type: "file", accept: ".txt,.md,.epub,text/plain,text/markdown,application/epub+zip", style: { display: "none" }, onChange: function (e) { const f = e.target.files && e.target.files[0]; if (f) importScriptFile(f); e.target.value = ""; } }),
 				h("button", { className: "dsh-tavern-script-file", disabled: scriptBusy, onClick: function () { scriptFileRef.current && scriptFileRef.current.click(); } }, "导入新剧本并绑定"),
@@ -52162,7 +52162,7 @@ function clipReplayCore() {
 					"dsh-tavern:cards": "人物卡库",
 					"dsh-tavern:presets": "预设",
 					"dsh-tavern:worldbooks": "世界书库",
-					"dsh-tavern:resources": "剧本与素材库",
+					"dsh-tavern:resources": "剧本库",
 					"dsh-tavern:transfer": "导出与导入"
 				};
 				function visit(node) {
