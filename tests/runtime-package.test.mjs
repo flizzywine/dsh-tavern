@@ -141,7 +141,8 @@ for (const [name, paths] of [
     assert.ok(!files.some(file => /^(docs|tests|references)\//.test(file)))
     if (name === 'Unix') {
       const plugin = 'tavern-plugin/packages/dsh-tavern-stage'
-      execFileSync('tar', ['-xf', archive, '-C', directory, plugin])
+      // the stage build reads its sibling packages (dsh-presentation-protocol's stage-entrance.cjs), as the installed tree has them
+      execFileSync('tar', ['-xf', archive, '-C', directory, 'tavern-plugin'])
       execFileSync(process.execPath, [path.join(directory, plugin, 'build.mjs'), '--check'], {encoding:'utf8'})
     }
   })

@@ -233,7 +233,8 @@ function PackImage({identity,src,crop,avatar,originalSrc,cropOverflow=false,...p
             setSize({url,width:image.naturalWidth,height:image.naturalHeight});
     }, [url,cached]);
     if (cached) return h('img',{...props,ref:node,src:cached});
-    if (typeof getStageAvatarCrop === 'function') crop = getStageAvatarCrop(url,crop);
+    // The stage client's resource owners record pack avatar crops (dsh-tavern-stage resources.cjs).
+    if (typeof stageViews !== 'undefined' && stageViews?.resources) crop = stageViews.resources.getStageAvatarCrop(url,crop);
     if (!crop) return h('img',{...props,...(avatar ? {ref:node} : {}),src:url});
     // face orientation belongs to the crop wrapper, not its offset source pixels.
     const {className,style,'data-enter':enter,'data-out':out,'data-face-actor':faceActor,...imageProps} = props;

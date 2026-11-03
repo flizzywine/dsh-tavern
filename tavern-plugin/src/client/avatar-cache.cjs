@@ -78,7 +78,7 @@ function createAvatarCache({urls = globalThis.URL, image = () => new Image(), ma
             if (generation !== epoch || !valid(value)) return null;
             const size = Math.max(1,Math.round(px * dpr)), target = canvas();
             target.width = target.height = size;
-            const crop = (typeof getStageAvatarCrop === 'function' ? getStageAvatarCrop(src,value.crop) : value.crop) || {x:0,y:0,w:1,h:1};
+            const crop = (typeof stageViews !== 'undefined' && stageViews?.resources ? stageViews.resources.getStageAvatarCrop(src,value.crop) : value.crop) || {x:0,y:0,w:1,h:1};
             const sw = source.naturalWidth * crop.w, sh = source.naturalHeight * crop.h;
             if (!(sw > 0 && sh > 0)) throw new Error('Invalid avatar dimensions');
             const scale = Math.min(size / sw,size / sh), width = sw * scale, height = sh * scale;

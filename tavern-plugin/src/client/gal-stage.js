@@ -14,7 +14,6 @@
 // @include textcard-stage.js
 // @include gal-entry.js
 // @include stage-video.js
-// @include stage-entrance.js
 // @include timer-stage.js
 
 // @include gal-stage-helpers.cjs
@@ -204,13 +203,12 @@ function bindStageViews(createViews) {
         playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},
         performances:{read:id=>rpc('getStagePerformanceKinds',{},id),registry:createStagePerformanceRegistry,core:STAGE_PERFORMANCE_CORE},
         directorCommands,
-        resourceDependencies:{stageResourceMatches,createPerformanceTimeline,performanceSustained},
+        resourceDependencies:{createPerformanceTimeline,performanceSustained},
         runtimeProtocol:{performanceStateKernel:{performanceSustained,reducePerformanceEvent},modProjectionKernel:{modPerformanceLedgerKey},phoneBeatKernel:{phoneModAutoVoiceAllowed},
             performanceKindsKernel:{stagePerformanceKindOf,stagePerformanceBlocks,stagePerformancePhaseBlocks,STAGE_PERFORMANCE_CORE}},
-        entranceContract:stageEntranceContract,
         entrance:{reading:stageReading,safety:stageSafety,flashGate:stageFlashGate},
         entranceMedia:{getService:()=>packTransport.service,fetch,AbortController},
-        skinPresentation:{fonts:tavernFonts,files:getStageBundleFiles,appearance:stageSkinAppearance},
+        skinPresentation:{fonts:tavernFonts,appearance:stageSkinAppearance},
         skinResources:{setTimeout,clearTimeout,classic:BUILTIN_STAGE_SKINS.classic},
         skinContract:{stageSkinImageOf,stageSkinSliceEdges,stageSkinScreenFiles,skinContrast},
         useBubbles, Icon,
@@ -259,7 +257,7 @@ function bindStageViews(createViews) {
         gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner},
         device:{matchMedia},
         mixer:{reading:stageReading, voiceRateLimits:STAGE_READING_LIMITS.voiceRate, Icon, Slider, audio:forkStageAudio, sounds:forkUiSfx, entries:stageEntries, report:useStageEntryState, icons:ICON_PATHS},
-        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground, matches:stageResourceMatches},
+        sfx:{Audio, audio:forkStageAudio, foreground:forkForeground},
         music:{audio:forkStageAudio,foreground:forkForeground,fetch,AbortController},
         bgm:{
             read:id => rpc("getStageMusicTracks",{},id), storage:(() => {try {return localStorage;} catch (_) {return null;}})(), authority:source => stageResourceAuthority(source)},
@@ -268,7 +266,7 @@ function bindStageViews(createViews) {
         timer:{rpc, crypto, performance, setInterval, clearInterval, Icon, foreground:forkForeground, ResizeObserver, MutationObserver,
             resourceAuthority:stageResourceAuthority, useModOptions},
         video:{getService:() => packTransport.service, fetch, URL, stageVideo, audio:forkStageAudio, foreground:forkForeground, setTimeout, clearTimeout},
-        loader:{getService:() => packTransport.service, fetch, URL, AbortController, decodeImage:stageDecodeImage},
+        loader:{getService:() => packTransport.service, fetch, URL, AbortController},
         transitions:{getComputedStyle, DOMMatrixReadOnly, setTimeout, clearTimeout},
         speaker:{character:bubbleCharacter,resolve:(...args) => figureResolution.resolveFigureName(...args),render:packFigureRenderInputs},
         chatEntry:{MutationObserver,markdown:TavernColoredMarkdown,enter:galEnter,plain:galPlain,blocks:galBlocks,paragraphs:galParagraphs,parse:parseBubbles,schedule:setTimeout,cancel:clearTimeout},
