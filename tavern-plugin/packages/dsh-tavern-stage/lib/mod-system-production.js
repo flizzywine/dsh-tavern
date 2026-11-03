@@ -19,7 +19,9 @@ export function createManagedModProduction({ctx,cardPlugins,cardPreparation,list
   const localDistributions=()=>bundles ||= distributions()
   const settings=createManagedModSettingsOwner(ctx)
   const cards=createManagedModCardOwner({cardPreparation,listPaths,readWorkspace,writeWorkspace,withCardLock})
-  const installations=cardPlugins.managed({retiredIds:['dsh.performance'],distributions:localDistributions,cardRoots:async()=>(await cards.list()).map(row=>({cardId:row.cardId,revision:row.revision,mods:[...new Set([...Object.keys(row.value.mods),...Object.keys(row.value.config)])].sort()}))})
+  // Retired: performance moved into core; danmaku was removed (#456). Their installed releases leave the catalogue and
+  // the native loader at the next installBuiltins.
+  const installations=cardPlugins.managed({retiredIds:['dsh.performance','dsh.danmaku'],distributions:localDistributions,cardRoots:async()=>(await cards.list()).map(row=>({cardId:row.cardId,revision:row.revision,mods:[...new Set([...Object.keys(row.value.mods),...Object.keys(row.value.config)])].sort()}))})
   const modHost=createManagedModHost()
   async function authorize() {const current=await installations.read();modHost.authorize(current.value.releases.filter(row=>row.active && row.installed && row.authorized).map(row=>row.manifest.id))}
   const ready=authorize()
