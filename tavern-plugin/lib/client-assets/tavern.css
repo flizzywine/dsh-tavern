@@ -3250,8 +3250,11 @@ details.dsh-tavern-recall-guide > summary .dsh-tavern-recall-guide-heading > spa
 [data-dsh-better-sidebar-settings-nav] { display: none !important; }
 .dsh-tavern-plugin-overlay {
   box-sizing: border-box; position: fixed; inset: 0; z-index: 2000; overflow: auto;
+  top: env(titlebar-area-height, 0px);
   background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary);
 }
+/* Full-screen plugins live below the host caption row, including its native window controls. */
+[data-windows-titlebar] .dsh-tavern-plugin-overlay { top: var(--dsh-windows-titlebar-height, 40px); }
 .dsh-tavern-plugin-overlay-error { display: flex; gap: 12px; align-items: center; justify-content: center; min-height: 100%; }
 
 /* the way back from a full-screen right panel on a phone (registerTavernPhonePanel). */
