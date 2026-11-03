@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "10c499b012d9a0d2e07f024384ef858be76a32a5",
-  "releaseSequence": 1103,
+  "revision": "45c03c0e822107c6ef11244c962eeb7dab0ecc65",
+  "releaseSequence": 1104,
   "version": "3.2.0",
   "files": [
     {
@@ -7751,8 +7751,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
-      "sha256": "87040b4e4c0d4a20cfa0ed1a3ce155e173c636ecf892d72c3bc3ae57f79cbba1",
-      "size": 8541
+      "sha256": "e3220b5294a81b7af827e66eb25254265aeec9a356b1c008e9f85d0c1d859d70",
+      "size": 8727
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js",
@@ -9331,9 +9331,9 @@
     }
   ],
   "archive": {
-    "commit": "bcb0c11225777fb8d20c18d2c5dededf99bc0ace",
+    "commit": "952a9f8baa1bb9a751c5b714c5e0a6a8bc0cd4c1",
     "path": "runtime.zip",
-    "sha256": "195e783861e7e31d7718190f04dad3efb0014e2f8aa900626058b30142239074",
-    "size": 15755882
+    "sha256": "7e1face378a5118e5d8c45e3de421c27545705652993712a52ddcce524292904",
+    "size": 15755970
   }
 }
