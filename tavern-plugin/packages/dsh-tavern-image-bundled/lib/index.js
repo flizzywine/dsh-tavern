@@ -2325,17 +2325,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const path = String(card.path ?? '')
       const name = String(card.name ?? '')
       const bare = path.replace(/^.*\//, '').replace(/\.json$/i, '')
-      return cards.some(entry => {
-        if (!entry) return false
-        const e = String(entry)
-        const eBare = e.replace(/^.*\//, '').replace(/\.json$/i, '')
-        if (path.endsWith(e) || e.endsWith(path) || path.includes(e) || e.includes(path)) return true
-        // 卡名匹配：会话里的 name 和绑定项里的文件名算同一个人
-        // （例如会话叫《某卡》，绑定项写的是《某卡_MVU版本》）
-        if (name && (name === e || eBare === name || eBare.includes(name) || name.includes(eBare))) return true
-        if (bare && (bare === e || eBare === bare || eBare.includes(bare) || bare.includes(eBare))) return true
-        return false
-      })
+      return cardBindingMatches(cards, { path, name })
     }
 
     /**
@@ -5992,6 +5982,28 @@ function containsNameToken(text, key) {
   }
   return false
 }
+/**
+ * 人物绑定的卡（cards 里的一项）是不是当前这张卡。
+ * 卡名、文件名互相包含也算同一张（会话叫《某卡》，绑定项写的是《某卡_MVU版本》），
+ * 但包含只在短的那一边至少 3 个字时算数：「1.json」「7.json」这种短文件名，
+ * 以前会被「v1.0 mvu版」「校园1」包含进去，别的卡的人物就混进来了。
+ */
+export function cardBindingMatches(cards, card) {
+  const path = String(card?.path ?? '')
+  const name = String(card?.name ?? '')
+  const bare = path.replace(/^.*\//, '').replace(/\.json$/i, '')
+  const contains = (long, short) => short.length >= 3 && long.includes(short)
+  return (cards ?? []).some(entry => {
+    if (!entry) return false
+    const e = String(entry)
+    const eBare = e.replace(/^.*\//, '').replace(/\.json$/i, '')
+    if (path && (path === e || path.endsWith('/' + e) || e.endsWith('/' + path) || contains(path, e) || contains(e, path))) return true
+    if (name && (name === e || eBare === name || contains(eBare, name) || contains(name, eBare))) return true
+    if (bare && (bare === e || eBare === bare || contains(eBare, bare) || contains(bare, eBare))) return true
+    return false
+  })
+}
+
 export function injectDefinitions(text, definitions, config = {}, options = {}) {
   const source = String(text ?? '')
   const keepNegative = options?.keepNegative === true
@@ -6070,7 +6082,15 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
       continue
     }
     if (expanded.some(other => sameCharacterFamily(character, other))) continue
-    const keys = structured ? [character.name, character.id, ...splitTags(character.match)].filter(Boolean) : (splitTags(character.match).length ? splitTags(character.match) : [character.name].filter(Boolean))
+    // 中文整句：人物本名（和去掉「（人形）」这类后缀的名字）也算。match 里只写了拼音时，规划忘了写人物宏、
+    // 只在画面里写「许静好站在……」，以前认不出这个人，脸和衣服都补不上。
+    // 只认两个字以上的名字（「晓」会撞上「拂晓」「知晓」）；几种形态同名时不用去掉后缀的名字，免得一起补进来。
+    const fullName = String(character.name ?? '').trim()
+    const bareName = fullName.replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim()
+    const bareShared = (definitions.characters ?? []).some(other => other && other !== character && other.enabled !== false && String(other.name ?? '').replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim() === bareName)
+    const nameKeys = options?.style === 'natural' ? [fullName, bareShared ? '' : bareName].filter(v => v && [...v].length >= 2) : []
+    const matchKeys = splitTags(character.match)
+    const keys = structured ? [character.name, character.id, ...matchKeys].filter(Boolean) : [...new Set([...(matchKeys.length ? matchKeys : [character.name].filter(Boolean)), ...nameKeys])]
     if (!keys.some(key => containsNameToken(source, key))) continue
     hits.push(character.name || character.id)
     // 露的画面（nsfw 或写着洗澡/裸体/内衣）不自动补衣服：既不补「当前穿着」，也不补常穿。
