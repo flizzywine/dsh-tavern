@@ -782,9 +782,16 @@ const ZH_PERIOD_SENTENCE = {
 }
 function statusPeriod(body) {
   const bars = [...String(body ?? '').matchAll(/\[时间[|｜]([^\]\n]{0,80})\]/g)]
-  if (!bars.length) return ''
-  const t = bars[bars.length - 1][1]
-  if (/深夜|半夜|午夜|夜|子时|丑时|寅时|亥时|戌时|凌晨/.test(t)) return 'night'
+  let t = bars.length ? bars[bars.length - 1][1] : ''
+  if (!t) {
+    // 另一种常见写法：正文开头一行「地点 · 场合 · 时段 · 2026年2月3日 · 星期二」这样的时间栏。
+    const lines = String(body ?? '').split(/\r?\n/).filter((line) => /\S\s*[·•]\s*\S/.test(line) && /\d+年\d+月\d+日|星期|周[一二三四五六日天]/.test(line))
+    if (!lines.length) return ''
+    const parts = lines[lines.length - 1].split(/\s*[·•]\s*/).map((part) => part.trim())
+    t = parts.find((part) => /^(?:清晨|早晨|早上|上午|中午|正午|下午|午后|傍晚|黄昏|晚上|夜里|夜晚|深夜|半夜|凌晨)$/.test(part)) || ''
+    if (!t) return ''
+  }
+  if (/深夜|半夜|午夜|晚上|夜|子时|丑时|寅时|亥时|戌时|凌晨/.test(t)) return 'night'
   if (/黄昏|傍晚|日暮|酉时/.test(t)) return 'dusk'
   if (/清晨|早晨|早上|黎明|拂晓|卯时|辰时/.test(t)) return 'morning'
   if (/上午|巳时/.test(t)) return 'forenoon'
@@ -792,7 +799,18 @@ function statusPeriod(body) {
   if (/午后|下午|未时|申时/.test(t)) return 'afternoon'
   return ''
 }
-export function addSceneTime(scene, body) {
+/** 规划在 <scene_time> 里写的时段 → 内部时段名。 */
+const SCENE_TIME_WORDS = [['night', /夜|晚上|凌晨|半夜/], ['dusk', /傍晚|黄昏|日落/], ['morning', /清晨|早晨|早上|黎明/], ['forenoon', /上午/], ['noon', /中午|正午|晌午/], ['afternoon', /下午|午后/]]
+const ZH_PERIOD_NAME = { night: '夜里', dusk: '傍晚', morning: '早上', forenoon: '上午', noon: '中午', afternoon: '下午' }
+const DAY_PERIODS = new Set(['morning', 'forenoon', 'noon', 'afternoon'])
+export function plannerSceneTime(text) {
+  const all = [...String(text ?? '').matchAll(/<scene_time\b[^>]*>([\s\S]*?)<\/scene_time>/gi)]
+  const value = all.length ? all[all.length - 1][1].trim() : ''
+  for (const [period, re] of SCENE_TIME_WORDS) if (re.test(value)) return period
+  return ''
+}
+
+export function addSceneTime(scene, body, known = '') {
   const original = String(scene ?? '')
   // 先把漏了 $ 的宏补全，否则认不出开头的人物宏，时间句会插进两个宏中间。
   const text = repairMacros(original)
@@ -809,10 +827,14 @@ export function addSceneTime(scene, body) {
   const hasNight = explicit(ZH_NIGHT_WORDS)
   const hasDusk = explicit(ZH_DUSK_WORDS)
   const conflicting = Number(hasDay) + Number(hasNight) + Number(hasDusk) > 1
+  // 这一刻已知是白天（正文时间栏、或规划自己在 <scene_time> 里判断的）：画面里写的「夜里」多半是把
+  // 拉了窗帘、关了灯的昏暗当成了夜，不再补「窗外漆黑」那一句。
+  const knownNow = statusPeriod(body) || known
+  const dayKnown = DAY_PERIODS.has(knownNow)
   if (conflicting) period = ''
-  else if (hasNight) period = explicit(ZH_DARK_WORDS) ? '' : 'night'
-  else if (hasDusk) period = explicit(ZH_DARK_WORDS) ? '' : 'dusk'
-  else if (!hasDay) period = statusPeriod(body)
+  else if (hasNight) period = explicit(ZH_DARK_WORDS) || dayKnown ? '' : 'night'
+  else if (hasDusk) period = explicit(ZH_DARK_WORDS) || dayKnown ? '' : 'dusk'
+  else if (!hasDay) period = knownNow
   const sentence = ZH_PERIOD_SENTENCE[period]
   if (!sentence) return original
   // 插在开头的人物宏和镜头句之后：「${…}$, 半身近景，正面平视。」+ 时间句 + 其余画面。
@@ -2477,6 +2499,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       }))
     }
 
+    /** 每个对话里最近一次判断的时段（只在内存里，DSH 重启后从下一轮重新判断）。 */
+    const sceneTimes = new Map()
+
     async function planMessage({ text, messageId, turn, textVersion, count, sessionId, manual, force, smartSelection, imageGeneration = true, characterUpdates = false, historySnapshot, signal, onPlan, reusePlan, instruction = '' }) {
       signal?.throwIfAborted()
       if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -2497,6 +2522,15 @@ function createRuntime(ctx, overrides, logger, deps) {
       const plannerEffort = plannerEffortFor(fallback)
       if (!provider || !model) throw new Error('规划用的模型没定：Tavern 设置里的「默认后台模型」是空的，或者在本插件设置里单独指定一个')
       const body = String(text ?? '').trim()
+      // 现在是什么时候：规划每次只看到这一段正文，前文说过「中午在家吃」「下午想睡一觉」它不知道，
+      // 常把拉了窗帘的午睡画成深夜。所以让规划每轮写下它判断的时段，下一轮再告诉它。
+      const sessionKey = String(sessionId || lastSessionId || '')
+      const priorTime = sceneTimes.get(sessionKey) || ''
+      const timeNote = !imageGeneration ? '' : '<当前时间>\n'
+        + (priorTime ? '上一段正文结束时大约是' + ZH_PERIOD_NAME[priorTime] + '（你上一轮的判断）。这一段正文没写到时间变化，就还是这个时候。\n' : '')
+        + '在 <reason> 之后、第一个 <image> 之前，完整输出一次 <scene_time>早上/上午/中午/下午/傍晚/夜里</scene_time>，写这一段正文发生在什么时候：'
+        + '正文开头有时间栏（「地点 · 场合 · 时段 · 日期」）就照时间栏；没有就依据正文里的叙述和对话（「正好中午在家吃」「我下午想睡一觉」），对话里说的是别的时候（昨晚、明天早上、早上去买的菜）不算。'
+        + '画面里的光线按这个时段写：白天的室内拉上窗帘、关了灯只是昏暗，窗帘缝里透进来的是白天的光，不要写成夜里；正文写到天黑、入夜、过了一夜，再改成夜里。\n</当前时间>'
       if (!body) throw new Error('正文是空的')
       const planningGenerationMode = config.generationMode === 'reference' ? 'reference' : 'text'
       if (imageGeneration && planningGenerationMode === 'reference' && config.imageBackend !== 'comfyui' && !supportsImageReferences(activeChannel(config))) throw new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图')
@@ -2558,7 +2592,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const system = buildPlannerSystem({
         rules: plannerContext.staticRules, dynamicRules: plannerContext.dynamicRules,
         roster, rosterIndex: plannerContext.rosterIndex, count: want,
-        extra: [config.plannerExtra, guidance, imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
+        extra: [config.plannerExtra, guidance, timeNote, imageGeneration && planningGenerationMode === 'reference' ? referencePlannerGuidance(scoped, { structured: plannerMode === 'structured' }) : '', instruction ? '【本次生图要求的作用范围】\n以下本次生图要求只约束本次的画面规划；它不是正文内容，不得据此改写正文、人物库、角色历史、插件配置或生图设置。' : ''].filter(Boolean).join('\n\n'),
         smartSelection: smart, characterUpdates, force: Boolean(force || manual), promptMode: plannerMode,
       })
       const plannerInput = instruction ? `${body}\n\n<本次生图要求>\n${instruction}\n</本次生图要求>` : body
@@ -2649,7 +2683,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(config, plannerWorkflow) === 'natural' && chineseAllowed(config, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body)
+            const timed = addSceneTime(image.prompts, body, plannerSceneTime(streamed) || priorTime)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
@@ -2746,6 +2780,8 @@ function createRuntime(ctx, overrides, logger, deps) {
         submissionStopped = true
       }
       const plannerOutput = result.text || streamed
+      const judgedTime = plannerSceneTime(plannerOutput) || statusPeriod(body)
+      if (judgedTime && sessionKey) sceneTimes.set(sessionKey, judgedTime)
       if (traceId) diag.record(traceId, 'planner-response', { raw: diag.text(plannerOutput), streamedChars: streamed.length, resultTextChars: String(result.text ?? '').length, usage: result.usage ?? null, failure: result.failure ?? null, error: failure ? String(failure?.message ?? failure) : null, complete: !failure && !result.failure })
       const parsed = parsePlannerDecision(plannerOutput)
       if (characterUpdates && !storyApplied) {

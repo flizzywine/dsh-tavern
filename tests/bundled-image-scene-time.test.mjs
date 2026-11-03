@@ -36,3 +36,29 @@ test('三个人以上：竖图改横图；两个人不动', () => {
   assert.equal(sceneHeadcount(twoCharactersAndOutfit), 2)
   assert.equal(crowdSize('', twoCharactersAndOutfit), '')
 })
+
+test('正文开头的时间栏「地点 · 场合 · 时段 · 日期」也能读出时段，「晚上」算夜里', async () => {
+  const { addSceneTime } = await import('../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js')
+  const night = addSceneTime('第一人称视角，半身近景，背面。民宿房间里，头顶那盏灯直照下来。', '南屿 · 海边民宿房间 · 晚上 · 2026年2月5日 · 星期四 · 腊月十八\n\n好看。')
+  assert.match(night, /时间是夜里/)
+  const day = addSceneTime('第一人称视角，近景。卧室里。', '东方名苑 · 午睡 · 下午 · 2026年2月7日 · 星期六\n\n她拉上窗帘。')
+  assert.match(day, /白天/)
+  assert.equal(addSceneTime('近景。卧室里。', '「明天早上 · 九点」她说。'), '近景。卧室里。', '没有日期或星期的不算时间栏')
+})
+
+test('已知是白天时，画面里写的「夜里」不再补窗外漆黑（拉窗帘的午睡不是夜）', async () => {
+  const { addSceneTime } = await import('../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js')
+  const scene = '第一人称视角，近景。夜里，卧室窗帘拉得严严实实，屋里很暗。'
+  assert.equal(addSceneTime(scene, '东方名苑 · 午睡 · 下午 · 2026年2月7日 · 星期六\n\n', ''), scene)
+  assert.equal(addSceneTime(scene, '没有时间栏', 'afternoon'), scene)
+  assert.match(addSceneTime(scene, '没有时间栏', 'night'), /漆黑/)
+  assert.match(addSceneTime('第一人称视角，近景。卧室里。', '没有时间栏', 'afternoon'), /白天/, '画面没写时间时用已知时段')
+})
+
+test('规划在 <scene_time> 里报的时段', async () => {
+  const { plannerSceneTime } = await import('../tavern-plugin/packages/dsh-tavern-image-bundled/lib/index.js')
+  assert.equal(plannerSceneTime('<reason>x</reason>\n<scene_time>下午</scene_time>\n<image>'), 'afternoon')
+  assert.equal(plannerSceneTime('<scene_time>夜里</scene_time>'), 'night')
+  assert.equal(plannerSceneTime('<scene_time>傍晚</scene_time>'), 'dusk')
+  assert.equal(plannerSceneTime('没有标签'), '')
+})
