@@ -16,8 +16,9 @@ const VOICE_LANGUAGES=[['ja','日语'],['zh','中文'],['en','英语']];
 // ---------- Pure helpers (tests/card-stage-switch-ui.test.mjs) ----------
 // 基础设置's switches are four-state like a mod's (全局开启 / 全局关闭 / 本卡开启 / 本卡关闭, ModSwitchTag): the global layer
 // is the engine's stageToggles, the card layer this card's stage.switches ('on' / 'off'; a missing key follows the global
-// switch). 使用舞台's card layer is the card's own declaration (stage.enabled, read through cardStageMode). Each resolves with
-// the mods' own rule (modSwitchOn; the host: card-stage-settings.js effectiveCardStage).
+// switch). 对话气泡 / 舞台模式 are two rows whose card layer is the card's own declaration (stage.enabled, or the
+// dialogue / stage pair for bubbles only; read through cardStageMode). Each resolves with the mods' own rule (modSwitchOn;
+// the host: card-stage-settings.js effectiveCardStage).
 const STAGE_SWITCH_DEFAULTS={dialogue:false,voice:true,stage:false,music:true,sfx:true,ambience:true,items:true,performance:true,entrance:true};
 const STAGE_DECLARED=['dialogue','stage'];
 // The card layer of 对话气泡 / 舞台模式 (the host: cardStageChoice); a card that declares nothing follows the global switch.
@@ -36,13 +37,23 @@ function stagePrefs(ext,engine) {
 }
 // What actually runs: every switch needs its upstream switches in effect.
 function stageActive(prefs) { const dialogue=prefs.dialogue!==false; return {dialogue,voice:dialogue&&!!prefs.voice,stage:dialogue&&!!prefs.stage}; }
-// A card-layer change, `undefined` clearing the key (the switch follows the global one again). 使用舞台 ('stage') writes
-// the card's declaration: 'on' / 'off' set stage.enabled, `undefined` removes it (an older dialogue / stage pair too).
+// The declaration is one choice for both rows: 本卡开启 / 本卡关闭 on either row writes stage.enabled (舞台模式 本卡开启 also
+// needs 对话气泡), a 全局 choice on either clears it. Only 对话气泡 on with 舞台模式 off writes the dialogue / stage pair
+// (bubbles without the stage).
+function stageDeclarePatch(stored,changes) {
+  const clear={enabled:undefined,dialogue:undefined,stage:undefined};
+  if(Object.values(changes).includes(undefined))return clear;
+  let dialogue=changes.stage==='on'?'on':changes.dialogue??stageDeclared(stored,'dialogue'),stage=changes.stage??stageDeclared(stored,'stage');
+  dialogue??=stage;stage??=dialogue;
+  return dialogue==='on'&&stage==='off'?{...clear,dialogue:true,stage:false}:{...clear,enabled:dialogue==='on'};
+}
+// A card-layer change, `undefined` clearing the key (the switch follows the global one again). 对话气泡 / 舞台模式 write the
+// card's declaration (stageDeclarePatch), never stage.switches.
 function stageSwitchPatch(ext,changes) {
   const stored=ext?.stage||{},next={...(stored.switches||{})},declared={};
-  for(const [key,value] of Object.entries(changes)){if(STAGE_DECLARED.includes(key))declared.enabled=value===undefined?undefined:value==='on';else next[key]=value;}
-  for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
-  return stagePatch(ext,{switches:Object.keys(next).length?next:undefined,...(Object.hasOwn(declared,'enabled')?{enabled:declared.enabled,dialogue:undefined,stage:undefined}:{})});
+  for(const [key,value] of Object.entries(changes))(STAGE_DECLARED.includes(key)?declared:next)[key]=value;
+  for(const key of Object.keys(next))if(next[key]===undefined||STAGE_DECLARED.includes(key))delete next[key];
+  return stagePatch(ext,{switches:Object.keys(next).length?next:undefined,...(Object.keys(declared).length?stageDeclarePatch(stored,declared):{})});
 }
 // A stage patch replaces only card preferences; `undefined` removes an override.
 function stagePatch(ext,changes) {
@@ -52,8 +63,8 @@ function stagePatch(ext,changes) {
   return {stage:next};
 }
 // 「需要… · 去开启」: like a mod's dependency 「开启」, the missing switches become 本卡开启 (a switch that is on and only waits for
-// 使用舞台 keeps its layer).
-function stageEnable(key,active,prefs) { return Object.fromEntries(stageMissing(key,active).filter(k=>k==='stage'||prefs[k]!==true).map(k=>[k,'on'])); }
+// 对话气泡 keeps its layer; the declared pair is always written).
+function stageEnable(key,active,prefs) { return Object.fromEntries(stageMissing(key,active).filter(k=>STAGE_DECLARED.includes(k)||prefs[k]!==true).map(k=>[k,'on'])); }
 // cards select packs; figure policy is authored in the library.
 function emptyExtension() { return {schemaVersion:1,assetBindings:{boundPackIds:[]}}; }
 // the packs whose entries 舞台设置 reads in full — lit for this card (全局 / 本卡:
@@ -369,7 +380,7 @@ const stageNeedText=(key,active)=>'需要'+stageMissing(key,active).filter(k=>k!
 // 导演指令) right under 舞台模式. A sound on: this card plays that kind and the director may use it (stage.<key>
 // follows the default); off: neither (stage.<key> = false; cardEngineSettings / the audio projection). The engine
 // dimension of 环境音 is `soundscape`; a kind switched off for every card is the only warning.
-const STAGE_BASIC_HELP='每个开关和模组一样有四种状态：全局开启 / 关闭对没有单独设置的卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效，本卡关闭优先。“使用舞台”本卡开启时自动提供对话气泡和完整舞台。某张卡没有对应素材时，导演不会收到相关说明。';
+const STAGE_BASIC_HELP='每个开关和模组一样有四种状态：全局开启 / 关闭对没有单独设置的卡生效，并清除这张卡的设置；本卡开启 / 关闭只在这张卡生效，本卡关闭优先。“对话气泡”和“舞台模式”共用这张卡的一项设置，舞台模式需要对话气泡；带舞台的人物卡导入时已是本卡开启。某张卡没有对应素材时，导演不会收到相关说明。';
 const AUDIO_ROWS=[['music','BGM','music','music'],['sfx','音效','sfx','sfx'],['ambience','环境音','ambience','soundscape']];
 // One 基础设置 switch as the mods' text switch (ModSwitchTag, the one implementation). 本卡 writes this card's layer; a 全局
 // choice clears it (when set), then writes the global layer (when it differs), like a mod's two plans. `global` is the
@@ -382,27 +393,28 @@ function StageSwitchTag({name,global,card,disabled,busy,writeCard,writeGlobal}) 
   };
   return h(ModSwitchTag,{name,switches:{global,card:card??null,effective:modSwitchOn(global,card)},cardScoped:true,busy,disabled,onChange:change});
 }
-// A stageToggles switch: global = engine stageToggles, card = stage.switches. 使用舞台 ('stage') is one row for the
-// declared pair: its global choice writes both stageToggles.dialogue and .stage, its card choice stage.enabled.
+// A stageToggles switch (对话气泡 … 入场演出): global = engine stageToggles.<key>, card = the declaration (对话气泡 / 舞台模式)
+// or stage.switches.<key>.
 function stageSwitchTag(ctx,key,name,disabled) {
-  const {global,card}=stageSwitchLayers(ctx.ext,ctx.engine),declared=key==='stage';
-  return h(StageSwitchTag,{name,global:declared?global.dialogue===true&&global.stage===true:global[key]===true,card:card[key],disabled,
-    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{[key]:value})),writeGlobal:value=>ctx.writer.global(declared?{dialogue:value,stage:value}:{[key]:value})});
+  const {global,card}=stageSwitchLayers(ctx.ext,ctx.engine);
+  return h(StageSwitchTag,{name,global:global[key]===true,card:card[key],disabled,
+    writeCard:value=>ctx.writer.write(ext=>stageSwitchPatch(ext,{[key]:value})),writeGlobal:value=>ctx.writer.global({[key]:value})});
 }
 function StageSwitches({ctx}) {
   const {active}=ctx;
   const row=(key,status,onOpen)=>{const blocked=stageMissing(key,active).some(k=>k!==key);
-    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],disabled:blocked,help:blocked?stageNeedText(key,active):undefined,
+    return h(SwitchRow,{key,label:STAGE_NAMES[key],icon:STAGE_ICONS[key],disabled:blocked,help:blocked?(key==='stage'?'先打开对话气泡':stageNeedText(key,active)):undefined,
       tag:stageSwitchTag(ctx,key,STAGE_NAMES[key],blocked),status,onOpen});};
-  // Sounds play on the stage: greyed (stored choice kept) while the stage is not in effect, like a dependent switch.
+  // Sounds play on the stage: greyed (stored choice kept) while 舞台模式 is not in effect, like a dependent switch.
   const sound=([key,label,icon])=>{const missing=stageMissing('stage',active);
     return h(SwitchRow,{key,label,icon,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
       tag:stageSwitchTag(ctx,key,label,missing.length>0),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
   // a direct child of the page like every other section (no wrapper), so the page's first-section rule picks it, not 模组.
   return h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,className:'ap-stage-basic',action:ctx.headTools,reveal:ctx.setupComplete},
+    row('dialogue'),
     active.voice?h(StageVoiceRow,{key:'voice',ctx,row}):row('voice'),
     h(StageNarratorRow,{key:'narrator',ctx}),
-    h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,tag:stageSwitchTag(ctx,'stage','使用舞台',false),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
+    row('stage',h(StageModeJump,{ctx}),ctx.onEngine?()=>ctx.onEngine():undefined),
     h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
