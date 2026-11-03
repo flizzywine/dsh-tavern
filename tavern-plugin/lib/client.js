@@ -3123,17 +3123,30 @@ window.__ModuleLoader__.load({
 		    "dsh-tavern:cards": "IconUserOutline16",
 		    "dsh-tavern:presets": "IconAgentPresetOutline16",
 		    "dsh-tavern:system-prompts": "IconCodeOutline16",
-		    "dsh-tavern:worldbooks": "IconDatabaseOutline16",
 		    "dsh-tavern:resources": "IconFolderOpenOutline16",
 		    "dsh-tavern:skills": "IconSkillOutline16",
 		    "dsh-tavern:card-scripts": "IconCodeOutline16"
 		};
+		// A tab glyph drawn here rather than borrowed from the host's set: the world book
+		// is an open book (the same path as the start page card in modules/sidebar-start.js),
+		// because the host only offers a database cylinder and the tab would read differently
+		// from the card, the top bar and the settings list that all open it.
+		const TAB_ICON_PATHS = {
+		    "dsh-tavern:worldbooks": 'M12 6.3C9.6 4.2 6 3.9 3.5 4.6v13c2.5-.7 6.1-.4 8.5 1.7 2.4-2.1 6-2.4 8.5-1.7v-13c-2.5-.7-6.1-.4-8.5 1.7zM12 6.3v13'
+		};
+		function tabPathIcon(path, size) {
+		    const px = size || 16;
+		    return React.createElement("svg", { viewBox: "0 0 24 24", width: px, height: px, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+		        React.createElement("path", { d: path }));
+		}
 		function registerTab(service, descriptor) {
 		    // the 人物卡库 tab's 「导入人物卡」 also takes card ZIPs, plus 「从网址导入卡」 (card-zip-entry.js).
 		    if (descriptor && descriptor.id === "dsh-tavern:cards" && typeof descriptor.component === "function" && typeof CardLibraryWithZip === "function") {
 		        const host = descriptor.component;
 		        descriptor = Object.assign({}, descriptor, { component: function (props) { return React.createElement(CardLibraryWithZip, { host: host, hostProps: props }); } });
 		    }
+		    const ownPath = descriptor && !descriptor.icon && TAB_ICON_PATHS[descriptor.id];
+		    if (ownPath) return service.registerTab(Object.assign({}, descriptor, { icon: function (size) { return tabPathIcon(ownPath, size); } }));
 		    const name = descriptor && !descriptor.icon && TAB_ICONS[descriptor.id];
 		    const Icon = name && DshUi && DshUi[name];
 		    // better-sidebar takes `icon(size)`; a plain element only reaches the chip, and the
@@ -24398,7 +24411,8 @@ function tavernModelRefusalNotice(text) {
 			'background-tasks': 'M3 6h12M3 11h7M3 16h7M12 16a5 5 0 1 0 10 0a5 5 0 1 0-10 0M17 13.5V16l1.5 1.5',
 			'conversation-settings': 'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1zM9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0',
 			cards: 'M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0',
-			worldbooks: 'M3 5c0-4 18-4 18 0s-18 4-18 0v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0',
+			// 打开的书（两页外扩 + 中缝书脊），比数据库圆柱更像「世界书」；tab-icons.js 的签条图标用同一条 path。
+			worldbooks: 'M12 6.3C9.6 4.2 6 3.9 3.5 4.6v13c2.5-.7 6.1-.4 8.5 1.7 2.4-2.1 6-2.4 8.5-1.7v-13c-2.5-.7-6.1-.4-8.5 1.7zM12 6.3v13',
 			presets: 'M10 4a2 2 0 1 0 4 0a2 2 0 1 0-4 0M3 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M17 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 6l-3 8M16 6l3 8M9 19h6',
 			resources: 'M3 8V5h7l3 3h8v12H3zM3 11h18',
 			skills: 'M13 21H5V3h14v9M8 7h8M8 11h5M18 14l1.5 3.5L23 19l-3.5 1.5L18 24l-1.5-3.5L13 19l3.5-1.5z',
