@@ -89,8 +89,8 @@ export function createTemplateHandlers(deps) {
     async executeTemplateHostCommand(args, method, serverTemplate) {
       if (!serverTemplate) throw new Error('模板命令仅由服务端执行器调用')
       const text = str(args.text)
-      const send = /^\/send\s+([\s\S]+)\|\s*\/trigger\s*$/.exec(text)
-      if (send || /^\/trigger\s*$/.test(text)) {
+      const send = /^\/send\s+([\s\S]+?)\|\s*\/trigger(?:\s+await=(?:true|false))?\s*$/i.exec(text)
+      if (send || /^\/trigger(?:\s+await=(?:true|false))?\s*$/i.test(text)) {
         await ctx.get('sessionController').prompt({ sessionId: args.sessionId, requestId: randomUUID(),
           content: send ? [{ type: 'text', text: send[1].trim() }] : [], mode: 'followup' }, new AbortController().signal)
         return { pipe: '' }

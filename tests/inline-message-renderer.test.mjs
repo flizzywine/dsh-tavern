@@ -646,3 +646,122 @@ test('保留多个正式会话时，parent.Mvu 随当前会话切换而不是最
   releaseB(); assert.equal(host.Mvu, a.Mvu)
   releaseA(); assert.equal(host.Mvu, undefined)
 })
+
+test('正式会话支持分步 /send 与 /trigger await=true|false', async () => {
+  const calls = []
+  const ctx = {
+    sessions: { scope: () => ({}), binding: () => ({ session: { prompt: async () => ({ ok: true }) } }) },
+    get: () => ({ input: { for: () => ({ setDraft: text => calls.push(['draft', text]), submit: mode => calls.push(['submit', mode]) }) } })
+  }
+  const execute = client.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout })
+  assert.deepEqual(JSON.parse(JSON.stringify(await execute('/send 租借墨池渊', 'game'))), { drafted: true, deferred: true, pipe: '' })
+  assert.deepEqual(calls, [['draft', '租借墨池渊']])
+  assert.equal((await execute('/trigger await=false', 'game')).submitted, true)
+  assert.deepEqual(calls, [['draft', '租借墨池渊'], ['draft', '租借墨池渊'], ['submit', 'queue']])
+  calls.length = 0
+  assert.equal((await execute('/send 呼叫墨池渊 | /trigger await=true', 'game', { waitForCompletion: false })).submitted, true)
+  assert.deepEqual(calls, [['draft', '呼叫墨池渊'], ['submit', 'queue']])
+})
+
+test('消息 iframe 在 /trigger 前触发 GENERATION_AFTER_COMMANDS 并排空 injectPrompts', async () => {
+  const html = client.buildTavernFrameDocument({ content: '<div>floor</div>', token: 'msg-prompt-token', helperContext: { messages: [] }, turn: 1 })
+  const helperScript = html.match(/<script data-dsh-tavern-helper>([\s\S]*?)<\/script>/)[1]
+  const interactiveScript = html.match(/<script data-dsh-tavern-interactive-helper>([\s\S]*?)<\/script>/)[1]
+  const sent = [], listeners = []
+  const parent = { postMessage(data) { sent.push(JSON.parse(JSON.stringify(data))) } }
+  const scope = { structuredClone, parent, console, addEventListener(name, fn) { if (name === 'message') listeners.push(fn) }, setTimeout, clearTimeout }
+  scope.window = scope
+  vm.createContext(scope)
+  vm.runInContext(helperScript.replace(/var ready=Promise\.all\([\s\S]*?\);/, 'var ready=Promise.resolve(true);'), scope)
+  vm.runInContext(interactiveScript, scope)
+  assert.equal(scope.tavern_events.GENERATION_AFTER_COMMANDS, 'GENERATION_AFTER_COMMANDS')
+  assert.equal(typeof scope.injectPrompts, 'function')
+  assert.equal(typeof scope.TavernHelper.injectPrompts, 'function')
+  assert.equal(typeof scope.TavernHelper.uninjectPrompts, 'function')
+
+  scope.eventOn(scope.tavern_events.GENERATION_AFTER_COMMANDS, () => {
+    scope.injectPrompts([{ id: 'character-locations', position: 'in_chat', depth: 0, role: 'system', content: '当前登场角色：墨池渊' }], { once: true })
+  })
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].type, 'dsh-tavern-frame-before-generate-hook')
+  sent.length = 0
+  const sendPromise = scope.triggerSlash('/send 你好')
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].method, 'triggerTavernSlash')
+  for (const fn of listeners) fn({ source: parent, data: { type: 'dsh-tavern-helper-response', token: 'msg-prompt-token', requestId: sent[0].requestId, ok: true, result: { pipe: '', deferred: true } } })
+  await sendPromise
+
+  sent.length = 0
+  let slashDone = false
+  const triggerPromise = scope.triggerSlash('/trigger await=true').then(res => { slashDone = true; return res })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sent.length, 1, '应先发送 updateTavernHelperPrompts，等待回执后再发 triggerTavernSlash')
+  assert.equal(sent[0].method, 'updateTavernHelperPrompts')
+  assert.deepEqual(sent[0].args.operation, {
+    kind: 'inject',
+    once: true,
+    prompts: [{ id: 'character-locations', position: 'in_chat', depth: 0, role: 'system', content: '当前登场角色：墨池渊' }]
+  })
+  for (const fn of listeners) fn({ source: parent, data: { type: 'dsh-tavern-helper-response', token: 'msg-prompt-token', requestId: sent[0].requestId, ok: true, result: { updated: true } } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(sent.length, 2)
+  assert.equal(sent[1].method, 'triggerTavernSlash')
+  assert.equal(sent[1].args.line, '/trigger await=true')
+  assert.equal(sent[1].args.beforeGenerateFlushed, true)
+  assert.equal(slashDone, false)
+  for (const fn of listeners) fn({ source: parent, data: { type: 'dsh-tavern-helper-response', token: 'msg-prompt-token', requestId: sent[1].requestId, ok: true, result: { submitted: true } } })
+  assert.deepEqual(JSON.parse(JSON.stringify(await triggerPromise)), { submitted: true })
+})
+
+test('多楼层会话仅对最新且注册了 GENERATION_AFTER_COMMANDS 的消息帧执行生成前刷新', async () => {
+  const hostListeners = new Set(), receivedByTurn = []
+  const host = {
+    sessionStorage: { getItem() { return null }, setItem() {} },
+    document: null,
+    setTimeout,
+    clearTimeout,
+    addEventListener(name, fn) { if (name === 'message') hostListeners.add(fn) },
+    removeEventListener(name, fn) { if (name === 'message') hostListeners.delete(fn) }
+  }
+  function mountFloor(turn, registerHook) {
+    const lifecycle = client.createTavernMessageFrameLifecycle(
+      { sessionId: 'multi-floor', content: '<div>floor</div>', turn, helperContext: { messages: [] } },
+      { window: host, async rpc() { return {} } }
+    )
+    const doc = lifecycle.snapshot().visibleDocument
+    const source = {
+      postMessage(data) {
+        if (data.type === 'dsh-tavern-frame-before-generate') {
+          receivedByTurn.push(turn)
+          for (const fn of hostListeners) fn({ source, data: { type: 'dsh-tavern-frame-before-generate-done', token: doc.token, requestId: data.requestId } })
+        }
+      }
+    }
+    doc.ref({ contentWindow: source })
+    const stop = lifecycle.start(() => {})
+    if (registerHook) {
+      for (const fn of hostListeners) fn({ source, data: { type: 'dsh-tavern-frame-before-generate-hook', token: doc.token } })
+    }
+    return { token: doc.token, stop }
+  }
+  const floor0 = mountFloor(0, true)
+  const floor2 = mountFloor(2, true)
+  const floor4Unhooked = mountFloor(4, false)
+  try {
+    const ctx = {
+      sessions: { scope: () => ({}), binding: () => ({ session: { prompt: async () => ({ ok: true }) } }) },
+      get: () => ({ input: { for: () => ({ setDraft() {}, submit() {} }) } })
+    }
+    const execute = client.createTavernFrameSlashExecutor(ctx, { setTimeout, clearTimeout })
+    await execute('/trigger await=false', 'multi-floor')
+    assert.deepEqual(receivedByTurn, [2], '外部触发时只刷新注册了钩子的最新楼层，不触发旧楼层且不阻塞未注册钩子的楼层')
+    receivedByTurn.length = 0
+    await execute('/trigger await=false', 'multi-floor', { beforeGenerateFlushedToken: floor2.token })
+    assert.deepEqual(receivedByTurn, [], '由消息帧自身触发且已刷新时不再唤醒其他历史楼层')
+  } finally {
+    floor0.stop()
+    floor2.stop()
+    floor4Unhooked.stop()
+  }
+
+})

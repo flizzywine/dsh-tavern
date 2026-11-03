@@ -154,6 +154,32 @@
 			});
 		}
 
+		const tavernSessionFrameBeforeGenerate = new Set();
+		function matchingTavernSessionFramesBeforeGenerate(sessionId, skipToken) {
+			const id = String(sessionId || "");
+			if (!id || !tavernSessionFrameBeforeGenerate.size) return [];
+			const matched = [];
+			let maxTurn = -Infinity;
+			for (const entry of tavernSessionFrameBeforeGenerate) {
+				if (!entry.matches(id, skipToken)) continue;
+				const turn = typeof entry.turn === "function" ? entry.turn() : 0;
+				if (turn > maxTurn) maxTurn = turn;
+				matched.push({ entry: entry, turn: turn });
+			}
+			return matched.filter(function (item) { return item.turn === maxTurn; }).map(function (item) { return item.entry; });
+		}
+		function hasTavernSessionFramesToFlush(sessionId, skipToken) {
+			return matchingTavernSessionFramesBeforeGenerate(sessionId, skipToken).length > 0;
+		}
+		function flushTavernSessionFramesBeforeGenerate(sessionId, skipToken) {
+			const entries = matchingTavernSessionFramesBeforeGenerate(sessionId, skipToken);
+			if (!entries.length) return Promise.resolve();
+			const tasks = entries.map(function (entry) {
+				return Promise.resolve().then(function () { return entry.flush(sessionId, skipToken); }).catch(function () {});
+			});
+			return Promise.all(tasks).then(function () {});
+		}
+
 		// Owns document replacement, authenticated frame messages and their cleanup.
 		// React only renders the visible/pending documents and controls lazy activation.
 		function createTavernMessageFrameLifecycle(initial, options) {
@@ -162,6 +188,7 @@
 			const configuredSlashExecutor = options && options.executeSlash;
 			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const channels = new Map();
+			const pendingBeforeGenerate = new Map();
             const generationOwners = new Set();
             function retireGenerations(document) {
                 if (!document?.generationJobs) return;
@@ -411,6 +438,15 @@
 					if (sourceDocument === visible) forkFrameZoom.adjust(sourceDocument.zoomCard, data, hostWindow);
 					return;
 				}
+				if (data.type === "dsh-tavern-frame-before-generate-hook") {
+					sourceDocument.hasBeforeGenerateHook = true;
+					return;
+				}
+				if (data.type === "dsh-tavern-frame-before-generate-done") {
+					const done = pendingBeforeGenerate.get(data.requestId);
+					if (done) done();
+					return;
+				}
 				const requestProps = props;
 				const requestLifetime = lifetime;
 				function current() { return lifetime === requestLifetime && channels.get(data.token) === channel && (visible === sourceDocument || pending === sourceDocument); }
@@ -591,7 +627,8 @@
 						const executeSlash = configuredSlashExecutor || requestProps.executeSlash;
 						Promise.resolve().then(function () {
 							if (typeof executeSlash !== "function") throw new Error("当前界面无法触发生成，请刷新页面后重试");
-							return executeSlash(String(data.args && data.args.line || ""), props.sessionId);
+							const slashOptions = data.args && data.args.beforeGenerateFlushed ? { beforeGenerateFlushedToken: data.token } : undefined;
+							return executeSlash(String(data.args && data.args.line || ""), props.sessionId, slashOptions);
 						}).then(function (result) {
 							return invoke("getSession", {}, props.sessionId).then(function (snapshot) {
 								const context = snapshot && snapshot.view && snapshot.view.tavernHelper;
@@ -622,10 +659,42 @@
 					});
 				}
 			}
+			const beforeGenerateEntry = {
+				turn: function () {
+					return Number(visible && visible.turn) || 0;
+				},
+				matches: function (targetSessionId, skipToken) {
+					if (!listener || props.persistent === true || !props.sessionId || props.sessionId !== targetSessionId) return false;
+					if (!visible || !visible.helperContext || !visible.hasBeforeGenerateHook) return false;
+					if (skipToken && visible.token === skipToken) return false;
+					const channel = channels.get(visible.token);
+					const node = channel && channel.element();
+					return Boolean(node && node.contentWindow);
+				},
+				flush: function (targetSessionId, skipToken) {
+					if (!beforeGenerateEntry.matches(targetSessionId, skipToken)) return Promise.resolve();
+					const channel = channels.get(visible.token);
+					const target = channel.element().contentWindow;
+					return new Promise(function (resolve) {
+						const requestId = "before-gen:" + nextTavernFrameToken();
+						const timer = hostWindow.setTimeout(function () {
+							pendingBeforeGenerate.delete(requestId);
+							resolve();
+						}, 1500);
+						pendingBeforeGenerate.set(requestId, function () {
+							hostWindow.clearTimeout(timer);
+							pendingBeforeGenerate.delete(requestId);
+							resolve();
+						});
+						target.postMessage({ type: "dsh-tavern-frame-before-generate", token: visible.token, requestId: requestId }, "*");
+					});
+				}
+			};
 			return Object.freeze({
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
 					const openingArtifacts = props.openingPreview && props.trustedCardMode
@@ -649,6 +718,9 @@
 					const unsubscribeTheme = hostWindow.document && typeof hostWindow.MutationObserver === "function"
 						? subscribeTavernHostTheme(hostWindow, function (theme) { sendTextColors(null, theme); }) : null;
 					return function () {
+                        tavernSessionFrameBeforeGenerate.delete(beforeGenerateEntry);
+                        pendingBeforeGenerate.forEach(function (done) { done(); });
+                        pendingBeforeGenerate.clear();
                         touchRelay.stop();
 						releaseComposer();
 						if (openingArtifacts) {

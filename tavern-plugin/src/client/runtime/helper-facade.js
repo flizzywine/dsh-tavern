@@ -65,7 +65,7 @@
 			const { currentScript, withScript, reportSubscriptions, post } = options;
 			const listeners = Object.create(null);
 			function eventName(name) {
-				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
 				return aliases[String(name)] || String(name);
 			}
 			function removeEventEntry(name, entry) {

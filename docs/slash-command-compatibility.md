@@ -3,8 +3,9 @@
 正式游戏消息页面和人物卡脚本的 `triggerSlash()` 当前支持：
 
 - `/setinput 文本`：填入草稿，不发送；后面的内容按文本处理。
-- `/send 文本 | /trigger`：发送文本并生成回复。
-- `/trigger`：基于当前已保存的消息生成回复。
+- `/send 文本`：在当前会话暂存待发输入（不立即提交生成），配合紧随其后的 `/trigger` 或 `/trigger await=true|false` 一起完成发送与生成。
+- `/send 文本 | /trigger`（含 `/trigger await=true|false`）：发送文本并生成回复。
+- `/trigger`（含 `/trigger await=true|false`）：消费此前 `/send` 暂存的文本并生成回复；无暂存文本时基于当前已保存的消息继续生成回复。
 - `/pass 文本`（别名 `/return`）：返回文本。
 - `/findentry file="世界书名称" field=key 关键词`（别名 `/findlore`、`/findwi`）：查找本局世界书中的条目 UID；未匹配时返回空字符串。
 - `/ejs`、`/ejs-refresh`：交给完整提示词模板运行时。

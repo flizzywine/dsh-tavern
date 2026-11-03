@@ -181,6 +181,11 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         draft.startCommand = { ...command, openingId, ...(typeof args.userName === 'string' ? { userName: args.userName } : {}), ...(scriptStart ? { scriptStart } : {}) }
         return { deferred: false, input: command.input }
       }
+      if (method === 'updateTavernHelperPrompts') {
+        mutateScriptPrompts(draft.chat, args.operation)
+        bumpRevision(draft)
+        return { updated: true, context: runtimeContext(draft) }
+      }
       if (!draft.runtimeEnabled) throw new Error('准备页脚本运行时未初始化')
       if (method === 'loadTavernWorldInfo') return { worldInfo: exportSillyTavernWorldBook(draft.document) }
       if (method === 'getTavernHelperWorldbook') {
@@ -283,6 +288,7 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         // Chat data the wizard saved before the first turn travels with the game.
         openingPluginData: greeting && greeting.tavernPluginData ? copy(greeting.tavernPluginData) : undefined,
         chatPluginMetadata: draft.chat.tavernPluginMetadata ? copy(draft.chat.tavernPluginMetadata) : undefined,
+        tavernScriptPrompts: Array.isArray(draft.chat.tavernScriptPrompts) && draft.chat.tavernScriptPrompts.length ? copy(draft.chat.tavernScriptPrompts) : undefined,
         preparedMessages: created.map(message => copy(message)),
         openingMessages: Object.fromEntries(draft.openings.map((opening,index)=>[opening.id,draft.chat.messages[0]?.swipes?.[index] ?? opening.text])), openingVariables: Object.fromEntries(draft.openings.map((opening, index) => [opening.id, draft.chat.messages[0]?.variables?.[index] || {}])), variables: draft.chat.variables || {}, messageVariables: draft.chat.messages[0]?.variables?.[selectedIndex] || {}, openingId: selected, sourceSessionId: draft.sourceSessionId, sourceLifecycleRevision: draft.sourceLifecycleRevision,
         // A wizard's record for the floor it sent belongs to the new game's opening

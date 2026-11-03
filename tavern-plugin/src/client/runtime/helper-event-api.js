@@ -15,7 +15,7 @@
             // to the registering script, including when its stop handle runs later.
             if (options.localEvents === true) {
                 const listeners = new Map();
-                const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+                const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
                 function eventName(name) {
                     name = String(name);
                     return Object.prototype.hasOwnProperty.call(aliases, name) ? aliases[name] : name;
@@ -146,6 +146,17 @@
                 GENERATION_ENDED: "js_generation_ended"
             }, target.iframe_events || {}));
             target.tavern_events = Object.assign({
+                MESSAGE_SENT: "MESSAGE_SENT",
+                MESSAGE_RECEIVED: "MESSAGE_RECEIVED",
+                MESSAGE_UPDATED: "MESSAGE_UPDATED",
+                MESSAGE_SWIPED: "MESSAGE_SWIPED",
+                MESSAGE_DELETED: "MESSAGE_DELETED",
+                MESSAGE_EDITED: "MESSAGE_EDITED",
+                CHAT_CHANGED: "CHAT_CHANGED",
+                CHAT_CREATED: "CHAT_CREATED",
+                CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
+                GENERATION_AFTER_COMMANDS: "GENERATION_AFTER_COMMANDS",
+                GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS",
                 USER_MESSAGE_RENDERED: "user_message_rendered",
                 CHARACTER_MESSAGE_RENDERED: "character_message_rendered"
             }, target.tavern_events || {});

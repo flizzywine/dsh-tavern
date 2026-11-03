@@ -255,6 +255,9 @@ export function createConversationInitialization(options) {
         opening.variables[opening.swipeId || 0] = structuredClone(preparation.messageVariables)
       }
       if (preparation.chatPluginMetadata) chat.tavernPluginMetadata = structuredClone(preparation.chatPluginMetadata)
+      if (Array.isArray(preparation.tavernScriptPrompts) && preparation.tavernScriptPrompts.length) {
+        chat.tavernScriptPrompts = structuredClone(preparation.tavernScriptPrompts)
+      }
       // Floors created while the game did not exist yet keep their order behind the
       // greeting; the start command's system floor is applied after them.
       for (const row of preparation.preparedMessages || []) chat.messages.push(structuredClone(row))
