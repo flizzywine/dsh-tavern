@@ -234,17 +234,34 @@ function Test-DesktopLinked {
     return [IO.Path]::GetFullPath($Target).TrimEnd('\') -ieq [IO.Path]::GetFullPath($Tavern).TrimEnd('\')
   } catch { return $false }
 }
+# DeepSeek Harness processes, marking the installer's own launch chain: the in-app updater runs this
+# script under the desktop executable in Electron's Node mode, and the desktop's own terminal under
+# the desktop itself. Stopping either kills the install that is running.
+function Get-DesktopProcesses {
+  $All = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+  $Parents = @{}
+  foreach ($Row in $All) { $Parents[[int]$Row.ProcessId] = [int]$Row.ParentProcessId }
+  $Chain = @{}
+  for ($Id = $PID; $Id -and -not $Chain.ContainsKey($Id); $Id = $Parents[$Id]) { $Chain[$Id] = $true }
+  foreach ($Row in $All) {
+    if ($Row.Name -ne 'DeepSeek Harness.exe') { continue }
+    [pscustomobject]@{ Id = [int]$Row.ProcessId; Own = $Chain.ContainsKey([int]$Row.ProcessId); NodeMode = ([string]$Row.CommandLine -match '\.[cm]?js\b') }
+  }
+}
+function Get-OtherDesktopProcesses { @(Get-DesktopProcesses | Where-Object { -not $_.Own }) }
 # Close DeepSeek Harness for a first install, before minutes of downloads rather than at the end.
 # Returns whether it was running, so the installer reopens it when done.
 function Close-DesktopForFirstInstall {
   if ($InstallHost -ne 'desktop' -or (Test-DesktopLinked)) { return $false }
-  if (-not @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count) { return $false }
+  if (@(Get-DesktopProcesses | Where-Object { $_.Own -and -not $_.NodeMode }).Count) { throw '首次安装需要先退出 DeepSeek Harness，但安装命令正运行在它的终端里：请完整退出 DeepSeek Harness，再在系统的 Windows PowerShell 里重新运行安装命令。' }
+  $Others = Get-OtherDesktopProcesses
+  if (-not $Others.Count) { return $false }
   Write-InstallStatus '首次安装需要先退出 DeepSeek Harness，正在关闭（装完会自动重新打开）…'
-  Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | ForEach-Object { try { [void]$_.CloseMainWindow() } catch {} }
-  for ($Wait = 0; $Wait -lt 10 -and @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count; $Wait++) { Start-Sleep -Seconds 1 }
-  Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  foreach ($Process in $Others) { try { [void](Get-Process -Id $Process.Id -ErrorAction Stop).CloseMainWindow() } catch {} }
+  for ($Wait = 0; $Wait -lt 10 -and (Get-OtherDesktopProcesses).Count; $Wait++) { Start-Sleep -Seconds 1 }
+  foreach ($Process in Get-OtherDesktopProcesses) { Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 2
-  if (@(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count) { throw '无法自动关闭 DeepSeek Harness：请在任务栏右下角托盘图标上右键退出，再重新运行安装命令。' }
+  if ((Get-OtherDesktopProcesses).Count) { throw '无法自动关闭 DeepSeek Harness：请在任务栏右下角托盘图标上右键退出，再重新运行安装命令。' }
   return $true
 }
 
@@ -1748,7 +1765,7 @@ try {
     Write-Host ''
     Write-Host ('DSH Tavern 安装完成，用时 ' + [int][math]::Floor($Elapsed.TotalMinutes) + ' 分 ' + $Elapsed.Seconds + ' 秒。') -ForegroundColor Green
     Write-Host '酒馆装在独立的 tavern 配置里；原来的 desktop 配置已备份，可在设置 → Profile 切换中切回。'
-    if (($FirstDesktopInstall -or $ReopenDesktop) -and -not @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue).Count -and $OfficialDesktopExecutable) {
+    if (($FirstDesktopInstall -or $ReopenDesktop) -and -not (Get-OtherDesktopProcesses).Count -and $OfficialDesktopExecutable) {
       Write-Host '正在打开 DeepSeek Harness…'
       Start-Process -FilePath $OfficialDesktopExecutable
     } else { Write-Host '请重启官方 DeepSeek Harness 进入酒馆。' }
