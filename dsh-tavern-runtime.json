@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4b3397e1b21048b9910d478724e3f20789f53106",
-  "releaseSequence": 1111,
+  "revision": "4bbde36782ed411bb9a963d2b2d75f49baabd401",
+  "releaseSequence": 1113,
   "version": "3.2.0",
   "files": [
     {
@@ -3585,14 +3585,19 @@
       "size": 1180
     },
     {
+      "path": "tavern-plugin/lib/http/public-hostname.js",
+      "sha256": "a1272086c7b51676a56ba1747fa078020a3db635149a4f1359b0395df086d934",
+      "size": 695
+    },
+    {
       "path": "tavern-plugin/lib/http/routes.js",
       "sha256": "a3decb76c48da8c94c37621c2daa78e03661ec0957d2af180faf8e66aac1d86c",
       "size": 28202
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "f41864fc4d3012d0910b7151d1ccf1bf14aafe1dc735279c5972912c643fbd4b",
-      "size": 260161
+      "sha256": "8ac8ff0689faefe2e3e8f41ea0cf43f1fcc5599469d19c183639ba035ba2e0a6",
+      "size": 260264
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -7406,8 +7411,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-stage.js",
-      "sha256": "b1d415574038031b5197d7220a660ca79119720048f2f38faaea429e68083cd1",
-      "size": 16615
+      "sha256": "5f474d0facd822171d4ec4f97f5ccb04f59d915cd2ccc24a73bcc46aba278661",
+      "size": 16981
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/card-zip-target.js",
@@ -7721,8 +7726,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-config-host.js",
-      "sha256": "6205dec2f2189f8209a9ce52a1ec68457e1dd7da7fcb6b7a8c681979a5e27092",
-      "size": 13682
+      "sha256": "30e0196531275bd1ae30a23961031485f2dd3eb6bac807e5c265ae1f0bc8bdb5",
+      "size": 13704
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-config.js",
@@ -7751,8 +7756,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mod-system-production.js",
-      "sha256": "e3220b5294a81b7af827e66eb25254265aeec9a356b1c008e9f85d0c1d859d70",
-      "size": 8727
+      "sha256": "85a213fa9c75968ff5d6cf3c506d624455ee68f197f90cf7d238e0d53a7de704",
+      "size": 9070
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js",
@@ -9331,9 +9336,9 @@
     }
   ],
   "archive": {
-    "commit": "d6458eae35743a62e4a058faeeeeff336e313345",
+    "commit": "4ba8c70a835cc772eac41bcdf6eb0351ea543e0c",
     "path": "runtime.zip",
-    "sha256": "fe0d7b24fcbfc828e8b1e81e3ebd9842be2fb1b9b190d54d6c2fc9d242eba673",
-    "size": 15757246
+    "sha256": "4f9f628a1194c6567773e858114961cda7102f4a8a227c163e9d2cbce8866e35",
+    "size": 15758090
   }
 }
