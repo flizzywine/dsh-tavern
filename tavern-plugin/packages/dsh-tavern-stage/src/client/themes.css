@@ -1880,6 +1880,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-bgm .fork-scene-image-actions .fork-scene-image-submit:hover:not(:disabled) { background: var(--bgm-play-hover); color: var(--bgm-on-accent); }
 .fork-gal-scene-image[aria-busy] { cursor: progress; }
 .fork-gal-picture-page { position: absolute; inset: 0; z-index: 4; margin: 0; overflow: hidden; background: var(--gal-base-bg); cursor: pointer; animation: fork-gal-picture-in .32s ease-out; }
+/* the page is the picture alone: the box (whatever a skin stacks it at) and its choices wait under it, still mounted */
+.fork-gal-stage.is-picture > :is(.fork-gal-box, .fork-gal-choices) { visibility: hidden; }
 .fork-gal-picture-fill { position: absolute; inset: -6%; width: 112%; height: 112%; object-fit: cover; filter: blur(28px) brightness(.5); }
 .fork-gal-picture-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .fork-gal-picture-page > :is(figcaption, .fork-gal-picture-next) { position: absolute; bottom: clamp(14px, 3vh, 32px); color: var(--gal-ui-hud-ink-on); font-family: var(--gal-ui-font); text-shadow: 0 1px 3px rgb(0 0 0 / .7), 0 0 12px rgb(0 0 0 / .45); }
