@@ -185,6 +185,33 @@ async function mods(c) {
   if(!['settings','pack'].includes(r.action))args.cardId=await c.cardId()
   return c.rpc(methods[r.action],args)
 }
+async function voice(c) {
+  const r=c.input,args=omit(r,'action','offset','limit'),read=c.name==='voice_read'
+  if(r.action==='engine-services') {
+    const result=await c.rpc(read?'getAssetEngineSettings':'saveAssetEngineSettings',read?{}:{expectedRevision:r.expectedRevision,patch:{voiceServices:r.voiceServices}})
+    return {voiceServices:result.values.voiceServices,revision:result.revision,writable:result.writable,live:result.live}
+  }
+  if(read) {
+    if(r.action==='figure')return c.rpc('getFigureVoiceEditor',args)
+    if(r.action==='choices')return c.rpc('listFigureVoiceChoices',{})
+    if(r.action==='templates')return requireService(c.library).listVoiceTemplates()
+    const method={services:'services','provider-kinds':'providerKinds',voices:'listVoices',models:'listModels',presets:'voicePresets',readings:r.id?'readingPreset':'readingPresets'}[r.action]
+    const result=await requireService(c.tts).call(method,args)
+    if(Array.isArray(result))return featurePage(result,r)
+    if(result && ['voices','models','readings'].includes(r.action)) {
+      const key=['voices','models','entries','presets'].find(k=>Array.isArray(result[k]));if(key)return {...omit(result,key),[key]:featurePage(result[key],r)}
+    }
+    return result
+  }
+  if(r.packId)await c.snapshot()
+  if(r.action==='assign-figure') {fields(r.choice,['voiceId','serviceId','language','voiceSpec']);return c.rpc('assignFigureVoice',{...omit(args,'choice'),...r.choice})}
+  const packMethods={binding:'saveFigureVoiceBinding','pack-voice':'savePackVoice','save-template':'saveVoiceTemplate','assign-template':'assignVoiceTemplate','remove-template':'deleteVoiceTemplate'}
+  if(packMethods[r.action])return receipt(await requireService(c.library)[packMethods[r.action]]({...args,...(r.action==='pack-voice'?{confirmShared:c.approved===true}:{})}),r.figureId||r.voiceId||r.templateId)
+  const methods={'save-service':'saveService','remove-service':'deleteService','test-service':'testService','save-preset':'saveVoicePreset','remove-preset':'deleteVoicePreset','reading-create':'createReadingPreset','reading-rename':'renameReadingPreset','reading-remove':'deleteReadingPreset','reading-active':'setActiveReadingPreset','reading-edit':'editReading'}
+  if(r.force===true&&!r.reason?.trim())throw featureError('INVALID_INPUT','$.reason')
+  delete args.reason
+  return requireService(c.tts).call(methods[r.action],args)
+}
 async function generation(c) {
   const r=c.input,args=omit(r,'action')
   if(r.action==='prepare') {
@@ -212,7 +239,7 @@ async function generation(c) {
   }
   return c.rpc({status:'getAssetGenerationJob',cancel:'cancelAssetGenerationJob',reject:'rejectAssetCandidate','retry-save':'retryAssetCandidateSave',list:'listAssetCandidates'}[r.action],args)
 }
-const handlers={assets_read:assetsRead,assets_patch:assetsPatch,media_upload:upload,assets_transfer:transfer,stage_read:stage,stage_patch:stage,mods_read:mods,mods_patch:mods,asset_generation:generation}
+const handlers={assets_read:assetsRead,assets_patch:assetsPatch,media_upload:upload,assets_transfer:transfer,stage_read:stage,stage_patch:stage,mods_read:mods,mods_patch:mods,voice_read:voice,voice_patch:voice,asset_generation:generation}
 export async function runWorkbenchAction(name,context) {
   if(!handlers[name])throw featureError('UNKNOWN_FIELD','$.tool')
   return handlers[name]({...context,name})
