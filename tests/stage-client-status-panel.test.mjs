@@ -91,3 +91,13 @@ test('a card without a panel ({panel:null} in the request envelope) opens to the
   assert.equal(h.built.length, 0)
   panel.dispose()
 })
+test('the panel size reaches the sheet state; an undeclared size is the window', async () => {
+  for (const [size, expected] of [['full', 'full'], [undefined, 'window']]) {
+    const h = harness({html: HTML, title: '状态', ...(size ? {size} : {}), figures: [], data: {variables: {}, ledger: {}}})
+    const states = []
+    const panel = h.panels.open({sessionId: 's1', trustedCardMode: true, host: () => h.host, onClose() {}, onState: value => states.push(value)})
+    await settle()
+    assert.deepEqual(states.map(value => [value.phase, value.size]), [['loading', 'window'], ['ready', expected]])
+    panel.dispose()
+  }
+})

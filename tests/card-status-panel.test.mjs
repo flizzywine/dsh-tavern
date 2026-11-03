@@ -12,6 +12,7 @@ const invalid = (value, path) => assert.throws(() => validateCardStatusPanel(val
 test('a valid panel is accepted', () => {
   assert.equal(validateCardStatusPanel(panel), panel)
   assert.doesNotThrow(() => validateCardStatusPanel({ version: 1, html: '<b>状态</b>' }))
+  assert.doesNotThrow(() => validateCardStatusPanel({ ...panel, size: 'full' }))
 })
 
 test('writes, unknown sources and sections, too many figures, empty html and unknown keys are rejected', () => {
@@ -23,6 +24,7 @@ test('writes, unknown sources and sections, too many figures, empty html and unk
   invalid({ ...panel, html: '  ' }, 'statusPanel.html')
   invalid({ ...panel, title: '题'.repeat(41) }, 'statusPanel.title')
   invalid({ ...panel, css: '' }, 'statusPanel.css')
+  invalid({ ...panel, size: 'huge' }, 'statusPanel.size')
 })
 
 test('a card write checks the panel it sets', () => {

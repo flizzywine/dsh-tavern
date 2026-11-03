@@ -1229,7 +1229,7 @@ function GalStage(props) {
         galleryOpen ? h(CgGallery,{key:sessionId,sessionId,store:runtime.store,onClose:()=>{setGallery(false);backlogClosedAt.current=Date.now();},
             // 在素材库中编辑 leaves the stage for the 素材库 tab (the stage covers the chat and its sidebar).
             onExit:()=>{setGallery(false);props.onExit();}}) : null,
-        statusOpen && statusPanel ? h(stageViews.statusPanel.Overlay, { key: sessionId, sessionId, config, source: runtime.source, onClose: closeStatus }) : null,
+        statusOpen && statusPanel ? h(stageViews.statusPanel.Overlay, { key: sessionId, sessionId, config, source: runtime.source, size: statusPanel.size, onClose: closeStatus }) : null,
         configOpen || configLeaving ? h(GalConfigScreen, { sessionId, data: props.data, tests: mixTests, textSkin: shownSkin.current, skinHud: activeSkin?.hud?.reveal || "auto", skinPending: configSkin.pending === true, onClose: closeConfig, leaving: configLeaving }) : null,
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,
