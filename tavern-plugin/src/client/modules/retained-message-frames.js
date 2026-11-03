@@ -240,7 +240,7 @@ function createRetainedTavernFrames(options) {
             }
             const stopSelection = retention.onSelect?.(id => { if (id === latest.sessionId) update(latest); });
             return {
-                expand: function () { return expandTavernFrame(record.node); },
+                expand: function () { return expandTavernFrame(record.node, { wide: true }); },
                 update,
                 detach: function () {
                     if (!attached) return;
