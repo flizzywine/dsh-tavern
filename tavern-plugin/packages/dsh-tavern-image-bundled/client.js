@@ -1386,7 +1386,7 @@ function versionsOf(jobId) {
               /^[a-f0-9]{64}$/i.test(String(reference.image?.id || '')) ? React.createElement('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(reference.image.id), alt: '参考图 ' + (reference.index ?? position + 1) + ' ' + referenceLabel(reference), style: { maxWidth: '100%', height: '120px', objectFit: 'contain' } }) : null,
               React.createElement('figcaption', { style: { fontSize: '12px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } },
                 '上传顺序 ' + (position + 1) + ' · 参考图 ' + (reference.index ?? position + 1) + ' · ' + referenceLabel(reference),
-                '\n用途：' + (reference.kind === 'character' ? '身份参考（面部、发型、固有体型比例；不继承服装和姿势）' : reference.kind === 'outfit' ? '服装参考（服饰设计；不继承模特身份）' : '未记录'),
+                '\n用途：' + (reference.kind === 'character' ? '身份参考（面部、发型、固有体型比例；不继承服装和姿势）' : reference.kind === 'outfit' ? '服装参考（服饰设计；不继承模特身份）' : reference.kind === 'character-outfit' ? '角色×服装设定图（同时约束身份与这套服饰；不继承姿势和背景）' : '未记录'),
                 '\n' + referenceOwner(reference),
                 reference.consistencyText ? '\n一致性补充：' + String(reference.consistencyText) : ''),
               React.createElement('details', { 'aria-label': '参考图调试信息' },
@@ -2335,13 +2335,14 @@ function versionsOf(jobId) {
       )
     }
 
-    /** One local reference per library object; binding is saved with the existing draft. */
-    function ReferenceImageEditor({ value = {}, label, onChange }) {
+    /** One local reference per library object; binding is saved with the existing draft.
+     *  field='characterOutfitImage' edits a character's own outfit sheet (角色×服装设定图), sharing the outfit's 一致性补充. */
+    function ReferenceImageEditor({ value = {}, label, onChange, field = 'referenceImage', noun = '参考图', heading = '（每个对象一张）', consistency = true }) {
       const [busy, setBusy] = React.useState(false)
       const [note, setNote] = React.useState('')
       const epoch = React.useRef(0)
       React.useEffect(() => () => { epoch.current += 1 }, [])
-      const image = value.referenceImage
+      const image = value[field]
       const imageId = /^[a-f0-9]{64}$/i.test(String(image?.id || '')) ? image.id : ''
       const inputStyle = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: '7px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid var(--dsw-alias-border-l2)', fontFamily: 'inherit', fontSize: '12px' }
       async function upload(event) {
@@ -2368,26 +2369,26 @@ function versionsOf(jobId) {
           })
           if (request !== epoch.current) return
           if (!result?.ok || !/^[a-f0-9]{64}$/i.test(String(result.referenceImage?.id || ''))) throw new Error(result?.error || '服务器没有返回有效的参考图')
-          onChange({ referenceImage: result.referenceImage })
+          onChange({ [field]: result.referenceImage })
           setNote('参考图已加入草稿，请保存人物库／服装库')
         } catch (error) {
           if (request === epoch.current) setNote('上传失败：' + (error?.message || error))
         } finally { if (request === epoch.current) setBusy(false) }
       }
-      return h('section', { 'aria-label': label + '参考图设置', style: { padding: '10px', margin: '10px 0', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '9px' } },
-        h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '6px' } }, label + '参考图（每个对象一张）'),
-        imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + '参考图', style: { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null,
+      return h('section', { 'aria-label': label + noun + '设置', style: { padding: '10px', margin: '10px 0', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '9px' } },
+        h('div', { style: { fontSize: '12px', fontWeight: 600, marginBottom: '6px' } }, label + noun + heading),
+        imageId ? h('img', { src: BASE + '/reference-image?id=' + encodeURIComponent(imageId), alt: label + noun, style: { display: 'block', maxWidth: '180px', maxHeight: '160px', objectFit: 'contain', borderRadius: '7px', marginBottom: '7px' } }) : null,
         imageId ? h('div', { style: { fontSize: '11px', overflowWrap: 'anywhere', marginBottom: '6px' } }, image.name || '已上传参考图') : null,
-        h('label', { style: { display: 'inline-flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } }, busy ? '上传中…' : imageId ? '替换参考图' : '上传参考图',
-          h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传参考图', disabled: busy, onChange: upload, style: { maxWidth: '100%' } })),
-        imageId || busy ? h('button', { type: 'button', 'aria-label': label + '移除参考图', style: { marginLeft: '8px', fontSize: '12px' }, onClick: () => {
+        h('label', { style: { display: 'inline-flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', fontSize: '12px' } }, busy ? '上传中…' : imageId ? '替换' + noun : '上传' + noun,
+          h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', 'aria-label': label + '上传' + noun, disabled: busy, onChange: upload, style: { maxWidth: '100%' } })),
+        imageId || busy ? h('button', { type: 'button', 'aria-label': label + '移除' + noun, style: { marginLeft: '8px', fontSize: '12px' }, onClick: () => {
           epoch.current += 1
           setBusy(false)
-          onChange({ referenceImage: null })
+          onChange({ [field]: null })
           setNote('已从草稿解绑，保存后生效；历史参考图不会删除')
         } }, '移除') : null,
-        h('label', { style: { display: 'block', fontSize: '12px', marginTop: '8px' } }, '一致性补充（可选）',
-          h('textarea', { 'aria-label': label + '一致性补充', value: value.consistencyText || '', rows: 2, placeholder: '补充需要保持的特征；动作、背景及正文明确的变化仍以剧情为准', style: inputStyle, onChange: event => onChange({ consistencyText: event.target.value }) })),
+        consistency ? h('label', { style: { display: 'block', fontSize: '12px', marginTop: '8px' } }, '一致性补充（可选）',
+          h('textarea', { 'aria-label': label + '一致性补充', value: value.consistencyText || '', rows: 2, placeholder: '补充需要保持的特征；动作、背景及正文明确的变化仍以剧情为准', style: inputStyle, onChange: event => onChange({ consistencyText: event.target.value }) })) : null,
         h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '5px' } }, '参考图仅本机保存，不随导出迁移。上传和移除后请保存人物库／服装库。'),
         note ? h('div', { role: 'status', style: { fontSize: '12px', marginTop: '5px', overflowWrap: 'anywhere' } }, note) : null)
     }
@@ -4139,6 +4140,8 @@ function versionsOf(jobId) {
                 ),
                 h('div', { style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--dsw-alias-border-l2)' } },
                   h('input', { type: 'text', placeholder: '服装名（常服 / 居家 / 内衣…）', value: o.name || '', style: Object.assign({}, S.input, { width: '220px' }), onChange: e => patchOutfit(i, j, { name: e.target.value }) }),
+                  h(ReferenceImageEditor, { key: 'outfit-sheet-' + c.id + '-' + o.id, value: o, field: 'characterOutfitImage', consistency: false, noun: '角色×服装设定图',
+                    heading: '（可选：这个角色穿这套衣服的图；有它时只用它，不再叠加角色图和服装图）', label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                   h(ReferenceImageEditor, { key: 'outfit-reference-' + c.id + '-' + o.id, value: o, label: '服装「' + (o.name || '未命名') + '」', onChange: changes => patchOutfit(i, j, changes) }),
                   area('上衣', '', o.upper, v => patchOutfit(i, j, { upper: v }), 2),
                   area('下装', '', o.lower, v => patchOutfit(i, j, { lower: v }), 2),

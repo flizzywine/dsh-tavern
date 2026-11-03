@@ -33,6 +33,7 @@ import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
+import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -1016,7 +1017,7 @@ export function apply(ctx, config = {}) {
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           if (tavern.capabilities?.imageLibrary >= 1 && typeof tavern.registerImageLibrary === 'function') {
-            const off = tavern.registerImageLibrary(imageLibraryProvider(() => engine.currentDefinitions()))
+            const off = tavern.registerImageLibrary(imageLibraryProvider(() => engine.currentDefinitions(), engine.characterLibrary))
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           logger.info?.('dsh-tavern-image: Tavern 官方接口桥已安装')
@@ -1211,6 +1212,17 @@ function createRuntime(ctx, overrides, logger, deps) {
     config.workflows = await scanWorkflows(config)
     let definitions = await loadDefinitions()
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
+    const characterLibrary = createCharacterLibrary({
+      getDefinitions: () => definitions, normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key),
+      putImage: input => referenceStore.put(input),
+      async saveCharacters(characters) {
+        const previous = definitions
+        const next = { ...definitions, version: CHARACTER_LIBRARY_VERSION, characters }
+        definitions = next
+        try { await saveDefinitions(next) }
+        catch (error) { if (definitions === next) definitions = previous; throw error }
+      },
+    })
     let workflows = []
     const jobs = new Map()
     // 出全黑图时用来换种子重画：jobId → { prompt, seedBindings }（只在内存里，重启后不重画）。
@@ -4474,7 +4486,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           return
         }
         definitions = {
-          version: 3,
+          version: CHARACTER_LIBRARY_VERSION,
           characters: nextChars.map((item, i) => normalizeDefinition('characters', item, i)),
           settings: (Array.isArray(next.settings) ? next.settings : definitions.settings).map((item, i) => normalizeDefinition('settings', item, i)),
           props: (Array.isArray(next.props) ? next.props : definitions.props).map((item, i) => normalizeDefinition('props', item, i)),
@@ -4987,6 +4999,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       planMessage,
       currentConfig: () => config,
       currentDefinitions: () => definitions,
+      characterLibrary,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -5268,6 +5281,8 @@ function normalizeCharacter(raw, index) {
     // 绑定到哪些卡（空 = 所有卡都能用）；可复用的通用服装 id
     cards: Array.isArray(raw?.cards) ? raw.cards.map(String) : splitTags(raw?.cards),
     outfitRefs: Array.isArray(raw?.outfitRefs) ? raw.outfitRefs.map(String) : splitTags(raw?.outfitRefs),
+    // 素材库人物（figure UUID）与这条记录是同一个人；素材库经它读写这条记录。
+    ...(raw?.figureId ? { figureId: String(raw.figureId) } : {}),
   }
   const traits = raw?.traits && typeof raw.traits === 'object' ? { ...raw.traits } : {}
   // 兼容最老的单字段写法
@@ -5283,6 +5298,8 @@ function normalizeCharacter(raw, index) {
     ...referenceFields(outfit),
     id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
     name: String(outfit?.name ?? `服装 ${j + 1}`),
+    // 角色×服装设定图：这个角色穿这套衣服的图，生图时优先于角色图＋服装图。
+    ...(normalizeReferenceImage(outfit?.characterOutfitImage) ? { characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage) } : {}),
     upper: String(outfit?.upper ?? outfit?.body ?? ''),
     lower: String(outfit?.lower ?? ''),
     shoes: String(outfit?.shoes ?? ''),
@@ -5311,7 +5328,7 @@ async function loadDefinitions() {
   const raw = await readJson(DEFS_PATH, null)
   const source = raw ?? {}
   return {
-    version: 3,
+    version: CHARACTER_LIBRARY_VERSION,
     characters: (source.characters ?? []).map((item, i) => normalizeDefinition('characters', item, i)),
     settings: (source.settings ?? []).map((item, i) => normalizeDefinition('settings', item, i)),
     props: (source.props ?? []).map((item, i) => normalizeDefinition('props', item, i)),
@@ -5470,7 +5487,14 @@ async function writeJsonRetry(path, value, tries = 6) {
   throw lastError ?? new Error('写入失败')
 }
 
-async function saveDefinitions(definitions) {
+let definitionsWriteQueue = Promise.resolve()
+function saveDefinitions(definitions) {
+  const snapshot = structuredClone(definitions)
+  const write = definitionsWriteQueue.catch(() => {}).then(() => persistDefinitions(snapshot))
+  definitionsWriteQueue = write
+  return write
+}
+async function persistDefinitions(definitions) {
   // ═══ 防清空闸门（2026-10-07）═══
   // 事故：有脚本带着空 body 调用 definitions 接口，把用户 5 个角色 + 4 套服装
   //       一次性覆盖成空。这里是最底层的写入口，所有路径都经过它，所以闸门放这。
@@ -5537,7 +5561,7 @@ async function saveDefinitions(definitions) {
     }
   } catch {}
   await writeJsonSafe(DEFS_PATH, {
-    version: 3,
+    version: CHARACTER_LIBRARY_VERSION,
     characters: definitions.characters ?? [],
     settings: definitions.settings ?? [],
     props: definitions.props ?? [],
