@@ -1886,11 +1886,15 @@ button[aria-label*="子智能体"]::before {
 
 /* 移动端把宿主实时状态折叠到操作行末尾；桌面继续显示完整状态。 */
 @media (max-width: 1023px), (pointer: coarse) {
-  .dsh-tavern-dock-actions { gap: 14px !important; padding: 4px 12px !important; }
-  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger { min-height: 44px !important; padding: 8px 0 !important; }
+  .dsh-tavern-dock-actions { gap: 5px !important; padding: 4px 8px !important; }
+  .dsh-tavern-dock-actions-primary { gap: 5px; }
+  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger { min-height: 44px !important; padding: 5px 8px !important; }
+  .dsh-tavern-dock-actions .dsh-tavern-choice-trigger:is([data-fork-action="choices"], [data-fork-action="choices-again"]) {
+    background: color-mix(in srgb, var(--accent) 10%, transparent) !important; color: var(--accent) !important;
+  }
   .dsh-tavern-dock-actions .dsh-tavern-mobile-stats-toggle {
     min-height: 44px !important; padding: 0 !important; border: 0 !important;
-    background: var(--paper, var(--dsw-specific-sidebar-fill)) !important; color: var(--text-muted) !important;
+    background: transparent !important; color: var(--text-muted) !important;
   }
 }
 

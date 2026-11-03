@@ -914,11 +914,14 @@
 				!compacting && live.view.contextCompaction.warning ? h("button", { type: "button", className: "fork-compaction-dismiss", "aria-label": "关闭这条提示", title: "关闭这条提示", onClick: function () {
 					rpc("dismissCompactionWarning", { sessionId: ownerSessionId }, ownerSessionId).then(function () { liveTavernView.invalidate(ownerSessionId); }, function (error) { tavernErrorHub.report("关闭压缩提示", error); });
 				} }, "×") : null) : null;
-			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId }), h(MobileComposerStatsToggle)) : null;
+			if (address) return isPlayMode(sessionMode) ? h("div", { className: "dsh-tavern-dock-actions" },
+				h("div", { className: "dsh-tavern-dock-actions-primary" }, h(TavernStopBackgroundAction, { sessionId: ownerSessionId })),
+				h(MobileComposerStatsToggle)) : null;
 			return h("div", { className: "dsh-tavern-dock-actions",
 				"data-compacting": live.view && live.view.contextCompaction && live.view.contextCompaction.operation && live.view.contextCompaction.operation.status === "running" || undefined },
-				isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
-				isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null,
+				h("div", { className: "dsh-tavern-dock-actions-primary" },
+					isPlayMode(sessionMode) && latestMessageId ? React.createElement(CandidateAction, Object.assign({}, props, { messageId: latestMessageId })) : null,
+					isPlayMode(sessionMode) && live.view && !live.view.canClearIncompleteReply ? React.createElement(TavernPluginComposerActions, { sessionId: props.sessionId, turn: imageTurn, running: running }) : null),
 				isPlayMode(sessionMode) ? React.createElement(TavernMoreActions, props) : React.createElement(TavernCompactionAction, props),
 				React.createElement(MobileComposerStatsToggle),
                 compactionStatus
