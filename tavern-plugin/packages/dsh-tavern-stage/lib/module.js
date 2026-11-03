@@ -27,6 +27,7 @@ import {createJudgeRpc} from './engine-judge.js'
 import {createDirectorProbeStore, createDirectorProbeRpc} from '../../../lib/director-probe.js'
 import {createFigureVoiceAuthoring} from './figure-voice-authoring.js'
 import {createAssetRuntime} from './asset-runtime.js'
+import {createStagePhoneHost} from './mods/phone/host.js'
 import {createTimerExtension} from './mods/timer/extension.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
@@ -246,11 +247,20 @@ export async function createStageModule(core) {
   })), 'dsh-tavern: stage story observations')
   return {modService, managedModManagement, modConfigHost, stageDirector,
     requests(deps, registry) {
+      // The dsh.phone directory and calls read the core's chats, models and speech recognition through the request bindings.
+      const phone = createStagePhoneHost({ctx, readModCard, resolveSlot, managedModManagement, modConfigHost, stageDirector, ...Object.fromEntries(['readCardWorkspace','chatForSession','assetRuntime','profileData','callModel',
+        'readRoundOps','readChatCard','replyDisplayForChat','pluginApi','agentRegistry','backgroundTasks','speech','speechRecognition','readStageChat','readRoundView',
+        'worldbookRecallLog','dialogueBubbles','figureRuntimes'].map(name => [name, deps[name]]))})
+      ctx.effect(() => {
+        const work = () => ({calls:phone.phoneCallHost.calls.activeCount()})
+        deploymentWork.push(work)
+        return () => {const index = deploymentWork.indexOf(work);if (index >= 0) deploymentWork.splice(index,1)}
+      }, 'dsh-tavern: phone call deployment activity')
       // Clip export replays a chat's rounds in an isolated page; its history timer reads go back through these requests.
       const clipExport = createStageClipExport({ctx, deps, stageDirector, modService, deploymentWork,
         cardStageSwitch:core.cardStageSwitch, dialogueBubbles:core.dialogueBubbles, assetEngineSettings:core.assetEngineSettings, live2dFiles:deps.live2dFiles,
         call:(method, args, authority) => requests.call(method, args, authority)})
-      const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService,clipExport})
+      const requests = createStageRequests(Object.create(deps, {stagePhoneDirectory:{value:phone.stagePhoneDirectory}, phoneCallHost:{value:phone.phoneCallHost}}), {managedModManagement,modConfigHost,modService,clipExport})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')

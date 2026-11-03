@@ -57,7 +57,7 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
   }
   async function callModel(opts) {
     opts.signal?.throwIfAborted()
-    const sel = opts.background === true ? backgroundModelSelection(await backgroundConfigForSession(opts.sessionId)) : modelSelection(opts.sessionId)
+    const sel = opts.selection || (opts.background === true ? backgroundModelSelection(await backgroundConfigForSession(opts.sessionId)) : modelSelection(opts.sessionId))
     if (sel === null) throw new Error('没有可用的模型配置，请先在当前会话的模型选择器中选择模型')
     const cfg = { provider: sel.provider, model: sel.model }
     if (sel.reasoningEffort !== undefined) cfg.reasoningEffort = sel.reasoningEffort
@@ -68,12 +68,14 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
     opts.signal?.throwIfAborted()
     const options = Object.assign({}, prepared.config, { messages: identifyHelperModelMessages(opts.messages), system: opts.system }, opts.signal ? { signal: opts.signal } : {})
     let text = ''
-    let finish = null
+    let finish = null, usage = null
     try {
       for await (const chunk of prepared.stream(options)) {
         opts.signal?.throwIfAborted()
-        if (chunk.type === 'text-delta') text += chunk.text
+        opts.onChunk?.(chunk)
+        if (chunk.type === 'text-delta') { text += chunk.text; opts.onText?.(chunk.text) }
         else if (chunk.type === 'finish') finish = chunk.reason
+        else if (chunk.type === 'usage') usage = chunk.usage
       }
     } catch (err) {
       opts.signal?.throwIfAborted()
@@ -89,7 +91,7 @@ export function createModelCalls({ llm, agentDefaultModel, agents: getAgents, se
     }
     const out = text.trim()
     if (out === '') throw new Error('模型返回为空')
-    return out
+    return opts.returnUsage ? {output:out,...(usage?{usage}:{})} : out
   }
 
   return { modelSelection, backgroundModelSelection, tavernModelCatalog, callModel }
