@@ -195,10 +195,10 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
   React.useEffect(()=>{void writer.ensureDetails().catch(()=>{});});
   const [confirm,setConfirm]=React.useState(null),[layer,setLayer]=React.useState(null),[packModal,setPackModal]=React.useState(null),[modPage,setModPage]=React.useState(null),[itemsPage,setItemsPage]=React.useState(false),[performancePage,setPerformancePage]=React.useState(false),[entrancePage,setEntrancePage]=React.useState(false),[narratorPage,setNarratorPage]=React.useState(false);
   // 设置向导 is a sub-page of this page (‹ / Esc back).
-  const [wizard,setWizard]=React.useState(false),wizardReturn=React.useRef(null),[setupComplete,setSetupComplete]=React.useState(0),basicRef=React.useRef(null);
+  const [wizard,setWizard]=React.useState(false),wizardReturn=React.useRef(null),[setupComplete,setSetupComplete]=React.useState(0),pageRef=React.useRef(null);
   // 人物's ＋ opens the 新人物 page as a sub-page (‹ / Esc back to the ＋).
   const [newFigure,setNewFigure]=React.useState(false),newFigureReturn=React.useRef(null);
-  React.useEffect(()=>{if(!wizard && setupComplete){const section=basicRef.current;section?.scrollIntoView?.({block:'start'});section?.querySelector('.ap-section-toggle')?.focus?.({preventScroll:true});}},[wizard,setupComplete]);
+  React.useEffect(()=>{if(!wizard && setupComplete){const section=pageRef.current?.querySelector(':scope > .ap-stage-basic');section?.scrollIntoView?.({block:'start'});section?.querySelector('.ap-section-toggle')?.focus?.({preventScroll:true});}},[wizard,setupComplete]);
   // the mod whose page was just left, so its row's 「›」 takes the focus back.
   const modReturn=React.useRef(null),narratorReturn=React.useRef(false),itemsReturn=React.useRef(false),performanceReturn=React.useRef(false),entranceReturn=React.useRef(false);
   // the 演出规则 editor and its in-place engine writes are gone.
@@ -214,7 +214,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
   const status=writer.status;
   const saveState=h('span',{className:'ap-save-state',role:'status','data-state':typeof status==='object'?'error':status},status==='saving'?'正在保存…':status==='saved'?'已保存':'');
   const wizardButton=stageSetupReady(binding)&&h('button',{type:'button',className:'ap-manage ap-wizard-open',ref:wizardReturn,onClick:()=>setWizard(true)},'设置向导');
-  const ctx={binding,path,sessionId,cardName,setupComplete,basicRef,cardId:state.value.card.cardId,onEngine,takeEngineFocus,onJudge,onCommands,headTools:h('span',{className:'ap-stage-head-tools'},saveState,wizardButton),writer,ext,prefs,active,packs,engine,ttsState,nav,openVoice,enable,setConfirm,openLayer:render=>setLayer(()=>render),
+  const ctx={binding,path,sessionId,cardName,setupComplete,cardId:state.value.card.cardId,onEngine,takeEngineFocus,onJudge,onCommands,headTools:h('span',{className:'ap-stage-head-tools'},saveState,wizardButton),writer,ext,prefs,active,packs,engine,ttsState,nav,openVoice,enable,setConfirm,openLayer:render=>setLayer(()=>render),
     // tab (optional): 'gen' opens the figure on 生图, 'voice' on its 声音 page (设置向导 › 配角色).
     openPack:(packId,kind,figureId,tab)=>setPackModal({packId,kind,figureId,tab,at:Date.now()}),
     openNewFigure:stageSetupReady(binding)?()=>{newFigureReturn.current=typeof document==='undefined'?null:document.activeElement;setNewFigure(true);}:undefined,
@@ -243,7 +243,7 @@ function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,t
     h(StageItemsPage,{ctx,onBack:()=>{itemsReturn.current=true;setItemsPage(false);}})):
     modPage?h('div',{className:'ap-card ap-stage-page'},
     h(StageModPage,{ctx,cardId:state.value.card.cardId,modId:modPage,onBack:()=>{modReturn.current=modPage;setModPage(null);}})):
-    h('div',{className:'ap-card ap-stage-page'},
+    h('div',{className:'ap-card ap-stage-page',ref:pageRef},
     typeof status==='object'&&h(ErrorBox,{error:status.error,reload:()=>writer.reload()}),
     !ready&&h('p',{className:'ap-alert',role:'status'},'素材插件不可用'),
     // 基础设置 (the card's switches) → 模组 → 素材包 (pack section merge: with 导入导出) →
@@ -398,7 +398,8 @@ function StageSwitches({ctx}) {
   const sound=([key,label,icon])=>{const missing=stageMissing('stage',active);
     return h(SwitchRow,{key,label,icon,disabled:missing.length>0,help:missing.length?'需要'+missing.map(k=>STAGE_NAMES[k]).join('和'):undefined,
       tag:stageSwitchTag(ctx,key,label,missing.length>0),status:h(StageKindJump,{ctx,kind:key,label}),onOpen:ctx.nav?.openLibrary&&stageKindPacks(ctx,key).length?pressRowJump:undefined});};
-  return h('div',{ref:ctx.basicRef},h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,action:ctx.headTools,reveal:ctx.setupComplete},
+  // a direct child of the page like every other section (no wrapper), so the page's first-section rule picks it, not 模组.
+  return h(StageSection,{title:'基础设置',help:STAGE_BASIC_HELP,className:'ap-stage-basic',action:ctx.headTools,reveal:ctx.setupComplete},
     active.voice?h(StageVoiceRow,{key:'voice',ctx,row}):row('voice'),
     h(StageNarratorRow,{key:'narrator',ctx}),
     h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,tag:stageSwitchTag(ctx,'stage','使用舞台',false),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
@@ -406,7 +407,7 @@ function StageSwitches({ctx}) {
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
     h(StagePerformanceRow,{key:'performance',ctx}),
-    h(StageEntranceRow,{key:'entrance',ctx})));
+    h(StageEntranceRow,{key:'entrance',ctx}));
 }
 // 旁白配音 — 舞台设置 › 基础设置 「旁白配音 ›」 and its page. Two layers like a mod's settings
 // (ui-design.md R8 / §三.25): the global layer (the tts plugin's tts.reading.narrator, complete) and this card's (stage.narrator,
