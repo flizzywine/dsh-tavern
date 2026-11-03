@@ -1355,7 +1355,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           const plain = {}
           for (const [id, job] of entries) {
             plain[id] = {
-              id: job.id, state: job.state, percent: job.percent ?? 0, createdAt: job.createdAt,
+              id: job.id, state: job.state, percent: job.backend === 'comfyui' && job.state !== 'done' ? 0 : (job.percent ?? 0), createdAt: job.createdAt,
               workflowId: job.workflowId, outputNode: job.outputNode,
               file: job.file, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '',
               positive: job.positive ?? '', negative: job.negative ?? '',
@@ -1598,6 +1598,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         error.requestMayHaveSucceeded = true
         throw error
       }
+      comfyProgress.confirm(job, result.prompt_id)
       return result.prompt_id
     }
 
@@ -1796,7 +1797,9 @@ function createRuntime(ctx, overrides, logger, deps) {
     // 这里补一个后台扫描：每 3 秒把所有"还没结束且知道 ComfyUI 作业号"的作业刷一遍。
     function startJobSweeper() {
       const timer = setInterval(() => {
-        comfyProgress.sweep(endpointOf(config.comfyUrl), job => jobs.get(job.id) === job && (job.submitting || ['pending', 'running'].includes(job.state)))
+        if (comfyProgress.active) {
+          comfyProgress.sweep(endpointOf(config.comfyUrl), job => jobs.get(job.id) === job && (job.submitting || job.state === 'pending' || job.state === 'running'))
+        }
         for (const job of jobs.values()) {
           if ((job.state === 'pending' || job.state === 'running' || job.state === 'uncertain')
             && (job.comfyId || (resumableChannelForJob(job) && job.providerTaskId))) refresh(job).catch(() => {})

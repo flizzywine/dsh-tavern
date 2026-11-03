@@ -59,5 +59,12 @@ export function createComfyProgress({ connect = (url, headers) => new WebSocket(
     return current.clientId
   }
 
-  return { watch, sweep, dispose() { disposed = true; close() } }
+  function confirm(job, promptId) {
+    // Older ComfyUI servers can replace the caller's provisional prompt ID.
+    if (!current || current.jobs.get(job.comfyId) !== job || promptId === job.comfyId) return
+    current.jobs.delete(job.comfyId)
+    current.jobs.set(promptId, job)
+  }
+
+  return { watch, confirm, sweep, get active() { return current !== null }, dispose() { disposed = true; close() } }
 }

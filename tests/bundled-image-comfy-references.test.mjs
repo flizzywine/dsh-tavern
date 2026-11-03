@@ -93,6 +93,51 @@ test('角色×服装图走现有上传流程，使用一个 LoadImage 槽并保�
   assert.match(submitted.prompt['1'].inputs.text, /角色×服装参考/)
 })
 
+test('对话 ComfyUI 作业使用同一 WebSocket client ID，进度只属于匹配的作业', async t => {
+  const sockets = []
+  const OriginalSocket = globalThis.WebSocket
+  t.after(() => { globalThis.WebSocket = OriginalSocket })
+  globalThis.WebSocket = class extends EventTarget {
+    constructor(url, options) {
+      super()
+      sockets.push({ socket: this, url, options })
+    }
+    close() { this.dispatchEvent(new Event('close')) }
+  }
+  const { runtime } = await setup(t, workflow(), { extraConfig: { generationMode: 'text' } })
+  const submitted = []
+  globalThis.fetch = async (input, init = {}) => {
+    const path = new URL(input).pathname
+    if (path === '/prompt') {
+      const request = JSON.parse(init.body)
+      const assignedId = 'server-' + request.prompt_id
+      submitted.push({ ...request, prompt_id: assignedId })
+      return imageJson({ prompt_id: assignedId })
+    }
+    if (path === '/queue') return imageJson({ queue_running: submitted.map(item => [0, item.prompt_id]), queue_pending: [] })
+    return imageJson({})
+  }
+  const start = (key, extra = {}) => runtime.request('jobs', { key, tag: '雨中的窗户', ...extra })
+  const plain = await start('no-media')
+  assert.equal(plain.status, 200)
+  assert.equal(sockets.length, 0)
+  const turn = { sessionId: 'g', turn: 1, textVersion: 'v1' }
+  const first = await start('with-media-a', turn)
+  const second = await start('with-media-b', turn)
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.equal(sockets.length, 1)
+  const [{ url, options, socket }] = sockets
+  assert.equal(options.headers.authorization, 'Bearer comfy-test-token')
+  assert.deepEqual(submitted.slice(1).map(item => item.client_id), Array(2).fill(url.searchParams.get('clientId')))
+  socket.dispatchEvent(new MessageEvent('message', {
+    data: JSON.stringify({ type: 'progress', data: { prompt_id: submitted[1].prompt_id, value: 11, max: 40 } }),
+  }))
+  const read = async response => (await runtime.request('jobs?id=' + response.body.id)).body.job.percent
+  assert.equal(await read(first), 27)
+  assert.equal(await read(second), 0)
+})
+
 test('真实 runtime 上传不可变快照并保留编译后的完整 prompt graph、output binding 与双图显式映射', { timeout: 20000 }, async t => {
   const graph = workflow({ loaders: ['8', '9'], bindings: [{ node: '9', input: 'image' }, { node: '8', input: 'image' }] })
   const { fixture, runtime } = await setup(t, graph)
