@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "767c0fc831916c1ff1976e33fe5cc8f6df1f8ad4",
-  "releaseSequence": 1088,
+  "revision": "0ff5749390554d2a2350275968f9ba147edf11a4",
+  "releaseSequence": 1089,
   "version": "3.2.0",
   "files": [
     {
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "37369a05422d890874258abda8e5fd52f0e7fc1b",
+    "commit": "96730ffd47d5a0263e16c4dedd4a4cd90ffa77c0",
     "path": "runtime.zip",
-    "sha256": "c497fa8002df4a958fcbb2adf1499b1a0ab0a49bc02f20de067105f1d0cce0a5",
+    "sha256": "f38a77976fce3864ead3ed6961f56aa91fd431912f6a6fbdddf95b3848aed14c",
     "size": 15564326
   }
 }
