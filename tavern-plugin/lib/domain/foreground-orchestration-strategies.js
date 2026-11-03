@@ -467,8 +467,12 @@ export function createNativePlayOrchestrationStrategy(options) {
     if (Array.isArray(assembly.contexts)) assembly.contexts = assembly.contexts.filter(section => section.name !== 'approval:policy')
     // A plugin's own tool shows everywhere unless the plugin scoped it (tavern.toolModes).
     const group = mode === 'card' ? 'card' : 'play'
+    // A plugin tool gated by tavern.toolSkills() waits for its Skill like Tavern's own.
+    const pluginNames = assembly.tools.map(schema => schema.name).filter(name => !options.controlledToolNames.has(name))
+    const unlocked = new Set(options.pluginToolsUnlocked ? await options.pluginToolsUnlocked(input.sessionId, pluginNames) : pluginNames)
     assembly.tools = assembly.tools.filter(function (schema) {
       if (options.controlledToolNames.has(schema.name)) return visible.has(schema.name)
+      if (!unlocked.has(schema.name)) return false
       const modes = options.pluginToolModes ? options.pluginToolModes(schema.name) : null
       return !modes || modes.includes(group)
     })

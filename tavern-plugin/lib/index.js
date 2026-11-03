@@ -3837,7 +3837,7 @@ export async function apply(ctx) {
     foregroundStrategies.clearRequestState(sessionId)
   }
 
-  const skillGatedTools = createSkillGatedTools()
+  const skillGatedTools = createSkillGatedTools({ pluginSkills: name => pluginApi.toolSkillsFor(name) })
   const controlledToolNames = new Set(['tavern_roll', 'style_reference_submit', STORY_SUBMIT_TOOL_NAME, 'tavern_read_variables', 'worldbook_list', 'worldbook_grep', ...CARD_MEMORY_TOOLS, 'bash', 'pwsh', ...dshFileToolNames, 'skill', 'tavern_read_skill_reference', 'web_search', 'web_fetch', 'tavern_save_skill', ...cordisToolNames, 'tavern_user_profile_read', 'tavern_user_profile_save', 'tavern_user_profile_confirm', 'tavern_read_card', 'tavern_read_card_raw', 'tavern_search_card', 'tavern_replace_card_text', 'tavern_mvu_overview', 'tavern_apply_mvu', 'tavern_read_play_chat', 'tavern_read_script', 'tavern_recall_history', 'worldbook_search', 'tavern_read_worldbook', 'tavern_update_worldbook', 'tavern_read_preset', 'tavern_update_preset', 'tavern_read_regex_library', 'tavern_copy_card', 'tavern_set_card_cover', 'tavern_export_card_png', 'tavern_update_card', 'tavern_restore_card', 'tavern_validate_card', 'tavern_test_response'])
   const foregroundStrategies = createForegroundOrchestrationStrategies({
     nativePlay: {
@@ -3869,6 +3869,9 @@ export async function apply(ctx) {
       },
       visibleTools: async function (sessionId) {
         const names = await turnOrchestrator.visibleTools(sessionId)
+        return skillGatedTools(names, sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session)
+      },
+      pluginToolsUnlocked: function (sessionId, names) {
         return skillGatedTools(names, sessionStore.get(sessionId) || agentRegistry.get(sessionId)?.session)
       },
       // Cache the plugin/extra tools that reached a play request. The settings

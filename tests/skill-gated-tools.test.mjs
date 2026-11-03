@@ -17,6 +17,16 @@ test('任务专用工具在加载对应 Skill 后才出现，其余工具不受�
 })
 
 
+test('插件声明的解锁 Skill 与内置表走同一套判断', () => {
+  const gates = { stage_patch: ['stage-setup', 'stage-directing'] }
+  const visible = createSkillGatedTools({ pluginSkills: name => gates[name] || null })
+  const names = ['stage_patch', 'stage_lookup', 'tavern_save_skill']
+  const session = { id: 'plugin', events: [] }
+  assert.deepEqual(visible(names, session), ['stage_lookup'])
+  session.events.push({ type: 'tool/result', data: { output: [{ type: 'text', text: '<skill_content name="stage-directing">' }] } })
+  assert.deepEqual(visible(names, session), ['stage_patch', 'stage_lookup'])
+})
+
 test('DSH 建卡独立加载即可读取长期偏好，无需传统建卡 Skill', () => {
   const visible = createSkillGatedTools()
   const session = {id:'dsh-card',events:[{type:'tool/result',data:{output:[{type:'text',text:'<skill_content name="create-dsh-card">'}]}}]}
