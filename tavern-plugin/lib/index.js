@@ -304,6 +304,7 @@ import { createChatPersistence } from './domain/chat-persistence.js'
 import { createChatJournalStore } from './domain/chat-journal-store.js'
 import { createResourceGraph } from './domain/resource-graph.js'
 import { normalizeBackgroundTasks, applyTavernSettingsPatch, presentTavernSettings, resolveSystemPrompt } from './domain/tavern-settings.js'
+import { registerModelSamplingHook } from './hooks/model-sampling.js'
 import { createSettingsTransfer } from './domain/settings-transfer.js'
 import { createSystemPromptDocuments } from './domain/system-prompt-documents.js'
 // Runtime reads go through runtimePrompt() so panel overrides apply; the raw
@@ -377,6 +378,7 @@ export async function apply(ctx) {
   }))
   await clearLegacyTavernDefault(ctx.get('settings'))
   const llm = ctx.get('llm')
+  registerModelSamplingHook(ctx)
   const agentRegistry = ctx.get('agents')
   const sessionStore = ctx.get('sessions')
   // New games are named after their card until the first turn (domain/game-titles.js).
