@@ -8,7 +8,7 @@ import { resolveDesktopAsarCommand, resolveDshCliEntry } from './plugin-dependen
 import path from 'node:path'
 import { migrateSessionPrefixEvents } from './session-prefix-migration.mjs'
 import { ensureSidebarDefaults } from './launcher-settings.mjs'
-import { PROFILE_DIR, PID_FILE, PROFILE, SOURCE_ROOT, CLI_PORT, CLI_HOST, LOG_DIR, LOG_FILE, DSH_ROOT, FRONTEND_BOOTSTRAP_FILE, FRONTEND_BOOTSTRAP_VERSION, commandExists, runtimeEnvironment, RUNTIME_HOST, findDshCommand, resolveDshInvocation, sleep } from './launcher-environment.mjs'
+import { PROFILE_DIR, PID_FILE, PROFILE, SOURCE_ROOT, CLI_PORT, CLI_HOST, LOG_DIR, LOG_FILE, DSH_ROOT, BACKUP_ROOT, FRONTEND_BOOTSTRAP_FILE, FRONTEND_BOOTSTRAP_VERSION, commandExists, runtimeEnvironment, RUNTIME_HOST, findDshCommand, resolveDshInvocation, sleep } from './launcher-environment.mjs'
 
 // Own process identity, readiness, shutdown, and validated browser access.
 export function webUrlFromLogChunk(source) {
@@ -339,7 +339,7 @@ export async function startService() {
 
   const prefixRepairs = await migrateSessionPrefixEvents({
     sessionsRoot: path.join(DSH_ROOT, 'profile-data', PROFILE, 'sessions'),
-    backupRoot: path.join(DSH_ROOT, 'backups', 'tavern-stable-prefix-v1'),
+    backupRoot: path.join(BACKUP_ROOT, 'tavern-stable-prefix-v1'),
   })
   if (prefixRepairs.length) console.log(`已兼容修复 ${prefixRepairs.length} 份旧会话的固定背景事件，原文件已备份。`)
 
