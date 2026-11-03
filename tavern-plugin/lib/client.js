@@ -270,6 +270,13 @@ window.__ModuleLoader__.load({
             const onAccent = accent => contrast(color('#ffffff'), color(accent)) >= 4.5 ? '#ffffff' : '#0c0a14';
             // Solid sRGB mix: t of a over b. Every derived state paint is opaque, so it is valid on any underlay.
             const mix = (a, b, t) => { const under = color(b); return '#' + color(a).slice(0, 3).map((v, i) => Math.round(v * t + under[i] * (1 - t)).toString(16).padStart(2, '0')).join(''); };
+            // Secondary text ink (backlog narration, the 「你」 badge, separators, section and menu row labels): the muted ink, moved
+            // toward the full ink just far enough to read at `min` (text 4.5:1) on the solid paint it sits on. Icons and decoration
+            // keep their own 3:1 floor.
+            function readableInk(candidate, ink, paint, min = 4.5) {
+                for (let step = 0; step <= 20; step++) { const out = step ? mix(ink, candidate, step / 20) : candidate; if (contrast(color(out), color(paint)) >= min) return out; }
+                return ink;
+            }
             // Emotion chip readability is a pure function of (surface, ink, ink share); host refreshes revisit the same few pairs.
             const chipChecks = new Map(), chipInks = new Map();
             function chipsReadable(paint, fg, ink) {
@@ -285,7 +292,7 @@ window.__ModuleLoader__.load({
                     if (color(s.bgSolid)[3] !== 1 || !s.onAccent) throw Error('Missing solid background or onAccent');
                     for (const under of [[0, 0, 0, 1], [255, 255, 255, 1]]) {
                         const effective = composite(bg, s.scrim ? composite(color(s.scrim), under) : under);
-                        for (const [prop, min] of [['fg', 4.5], ['fgMuted', 3], ['icon', 3]]) if (contrast(composite(color(s[prop]), effective), effective) < min) throw Error(context + '/' + level + ': ' + prop + ' contrast');
+                        for (const [prop, min] of [['fg', 4.5], ['fgMuted', 4.5], ['icon', 3]]) if (contrast(composite(color(s[prop]), effective), effective) < min) throw Error(context + '/' + level + ': ' + prop + ' contrast');
                         // Text over an image/scene sits on the media chip; check it over the worst artwork.
                         if (s.mediaChip && contrast(color(s.mediaFg), composite(color(s.mediaChip), under)) < 4.5) throw Error(context + '/' + level + ': media chip contrast');
                     }
@@ -318,9 +325,10 @@ window.__ModuleLoader__.load({
                         const h = host[context];
                         try { if (color(h.bg)[3] === 1) bg = h.bg; } catch (_) {}
                         const readable = (candidate, fallback, min) => { try { if (color(candidate)[3] === 1 && contrast(color(candidate), color(bg)) >= min) return candidate; } catch (_) {} return contrast(color(fallback), color(bg)) >= min ? fallback : onAccent(bg); };
-                        fg = readable(h.fg, fg, 4.5); muted = readable(h.fgMuted, muted, 3);
+                        fg = readable(h.fg, fg, 4.5);
+                        try { if (color(h.fgMuted)[3] === 1) muted = h.fgMuted; } catch (_) {}
                         // Floating levels (popover/modal/toast) take the host's menu colour when it is solid and keeps both inks readable.
-                        try { if (color(h.menu)[3] === 1 && contrast(color(fg), color(h.menu)) >= 4.5 && contrast(color(muted), color(h.menu)) >= 3) menu = h.menu; } catch (_) {}
+                        try { if (color(h.menu)[3] === 1 && contrast(color(fg), color(h.menu)) >= 4.5) menu = h.menu; } catch (_) {}
                         try { if (color(h.accent)[3] === 1) accent = h.accent; } catch (_) {}
                     }
                     // Design-owned seeds preserve the former 94% base / 6% accent raised stage paint.
@@ -342,7 +350,7 @@ window.__ModuleLoader__.load({
                             line: stage ? mix(accent, paint, .28) : mix(fg, paint, .13),
                             shadow: stage ? (dark ? '0 10px 30px rgb(0 0 0 / .42), 0 1px 0 rgb(255 255 255 / .04) inset' : '0 10px 28px rgb(183 69 123 / .16), 0 1px 0 rgb(255 255 255 / .9) inset')
                                 : dark ? '0 12px 32px rgb(0 0 0 / .45), 0 2px 6px rgb(0 0 0 / .24)' : '0 12px 32px rgb(15 17 21 / .14), 0 2px 6px rgb(15 17 21 / .06)',
-                            veil: veils[context], blur: 'none', fg, fgMuted: muted, fgDisabled: mix(fg, paint, .42), icon: fg,
+                            veil: veils[context], blur: 'none', fg, fgMuted: readableInk(muted, fg, paint), fgDisabled: mix(fg, paint, .42), icon: fg,
                             // Disabled / hidden content renders dimmed (desaturated toward the surface) instead of see-through.
                             dim: dark ? 'grayscale(1) contrast(.75) brightness(.6)' : 'grayscale(1) contrast(.3) brightness(1.55)',
                             hover, selected, accent, fill, accentHover, onAccent: ink, scrim: paint, ...MEDIA, chipInk: chipInk(paint, fg) }];
@@ -369,7 +377,7 @@ window.__ModuleLoader__.load({
         .fk-surface .fk-on-accent.fk-on-accent:hover:not(:disabled) { background: var(--fk-current-accentHover); }
         `;
             }
-            return { SURFACES, levels, build, validate, css, color, contrast, composite, mix, EMOTIONS, emotionColors, chipPaint };
+            return { SURFACES, levels, build, validate, css, color, contrast, composite, mix, readableInk, EMOTIONS, emotionColors, chipPaint };
         })();
         // Node tests only: in the client bundle (evaluated as a CommonJS module by the host loader) exporting would replace the
         // bundle's own exports.
