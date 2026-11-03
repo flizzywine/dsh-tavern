@@ -4,11 +4,12 @@ import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
-const script = new URL('../bin/validate-desktop-profile.mjs', import.meta.url).pathname
-const bridge = new URL('../tavern-plugin/packages/dsh-profile-bridge', import.meta.url).pathname
+const script = fileURLToPath(new URL('../bin/validate-desktop-profile.mjs', import.meta.url))
+const bridge = fileURLToPath(new URL('../tavern-plugin/packages/dsh-profile-bridge', import.meta.url))
 // The host's own profile loader validates the profile: a real DSH install provides it.
 const hostRoot = process.env.DSH_BOOT_MODULE ? process.env.DSH_BOOT_MODULE.split(path.sep + 'node_modules' + path.sep)[0] : ''
 

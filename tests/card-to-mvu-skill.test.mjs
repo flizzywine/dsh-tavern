@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 import { parse } from 'yaml'
 import { createTavernSkillModule } from '../tavern-plugin/lib/domain/tavern-skills.js'
@@ -12,7 +13,7 @@ const panel = format.match(/```html\n([\s\S]*?)\n```/)[1]
 const regexScripts = JSON.parse(format.match(/```json\n(\[[\s\S]*?\])\n```/)[1].replace('（面板 HTML）', () => panel.replace(/\n/g, '\\n').replace(/"/g, '\\"')))
 
 for (const name of ['card-to-mvu', 'edit-card', 'create-card']) test(`${name} 可由 Tavern 内置目录读取，引用资源齐全且默认可调用`, async () => {
-  const skills = createTavernSkillModule({ directory: new URL('../data/skills/', import.meta.url).pathname, builtInDirectory: root.pathname })
+  const skills = createTavernSkillModule({ directory: fileURLToPath(new URL('../data/skills/', import.meta.url)), builtInDirectory: fileURLToPath(root) })
   const skill = await skills.read(name)
   assert.equal(skill.source, 'builtin')
   const metadata = parse(skill.content.match(/^---\n([\s\S]*?)\n---/)[1])

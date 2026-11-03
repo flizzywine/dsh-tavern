@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { readZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 import { createTavernCompatibilityDiagnosticStore } from "../tavern-plugin/lib/domain/tavern-compatibility-diagnostics.js"
 import { createMvuDiagnosticStore, createMvuDiagnosticExport } from '../tavern-plugin/lib/domain/mvu-diagnostics.js'
@@ -33,7 +33,7 @@ test('记录落盘回读、去重、容量限制、Session 隔离与日志包导
     assert.match(exported.buffer.toString(), /compatibility\/missing-capabilities.json/)
     const archive = join(directory, 'diagnostics.zip')
     await writeFile(archive, exported.buffer)
-    const unpacked = execFileSync('unzip', ['-p', archive, 'compatibility/missing-capabilities.json'], { encoding: 'utf8' })
+    const unpacked = readZipEntries(await readFile(archive)).get('compatibility/missing-capabilities.json').toString('utf8')
     assert.match(unpacked, /runtime-current-script/)
     assert.doesNotMatch(unpacked, /PRIVATE_CHAT/)
     await store.record('s1', 'r2', [call, { ...call, capabilityId: 'PRIVATE_CHAT' }])

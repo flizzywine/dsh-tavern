@@ -5,7 +5,7 @@
 // 补丁不分 DSH 版本，这里也不按版本跳过：锚点漂移时直接抛错，而不是让
 // 用真实 Session 的用例以难以定位的方式失败。
 import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { prepareExpandedPatch } from '../../tavern-plugin/lib/domain/host-session-patch.js'
 
 const APPLIED = Symbol.for('dsh-tavern.host-session-patch-preload.v1')
@@ -14,7 +14,7 @@ if (!globalThis[APPLIED] && !process.argv.some(arg => arg.endsWith('/host-sessio
   let runtimeRoot
   if (process.env.DSH_BOOT_MODULE) {
     const anchor = new URL('../../dsh-session/package.json', pathToFileURL(process.env.DSH_BOOT_MODULE))
-    runtimeRoot = new URL('../../../', anchor).pathname
+    runtimeRoot = fileURLToPath(new URL('../../../', anchor))
   } else {
     const pluginRequire = createRequire(new URL('../../tavern-plugin/package.json', import.meta.url))
     const hostRequire = createRequire(pluginRequire.resolve('@deepseek-ai/dsh-tools'))

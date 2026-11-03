@@ -11,7 +11,8 @@ const repo = fileURLToPath(new URL('..', import.meta.url))
 const family = FONT_CATALOG.families[0], face = family.files[0]
 const relative = `tavern-plugin/fonts/${family.id}/${face.file}`
 function fixture(t) {
-  const home = realpathSync(mkdtempSync(path.join(tmpdir(), 'tavern-font-adoption-')))
+  // realpathSync.native also expands Windows 8.3 short names (such as RUNNER~1) in the temp path, as the product does.
+  const home = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'tavern-font-adoption-')))
   t.after(() => rmSync(home, { recursive: true, force: true }))
   const app = path.join(home, 'apps/tavern'), source = path.join(home, 'source')
   mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, 'package.json'), '{}')

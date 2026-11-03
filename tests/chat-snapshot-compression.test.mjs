@@ -85,7 +85,7 @@ for (const method of ['create', 'update', 'patch']) test(`快照发布后 ${meth
   let snapshotReads = 0
   const readFile = fs.readFile
   t.mock.method(fs, 'readFile', async (name, ...args) => {
-    if (String(name).includes('/snapshots/')) snapshotReads++
+    if (/[\\/]snapshots[\\/]/.test(String(name))) snapshotReads++
     return readFile(name, ...args)
   })
   syncBuiltinESMExports()

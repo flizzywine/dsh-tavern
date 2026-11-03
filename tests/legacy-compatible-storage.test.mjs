@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {spawn} from 'node:child_process'
 import {once} from 'node:events'
+import {fileURLToPath} from 'node:url'
 import {createChatJournalStore} from '../tavern-plugin/lib/domain/chat-journal-store.js'
 import {createChatPersistence} from '../tavern-plugin/lib/domain/chat-persistence.js'
 import {migrateConversationStorage} from '../bin/migrate-conversation-storage.mjs'
@@ -120,7 +121,7 @@ test('interrupted reverse export resumes missing revisions before switching auth
 test('migration CLI executes conversion and restore with machine-readable outcomes',async t=>{
  const {root,source}=await fixture(t)
  async function run(extra=[]){
-  const child=spawn(process.execPath,[new URL('../bin/migrate-conversation-storage.mjs',import.meta.url).pathname,'--data',root,'--chat','old',...extra],{stdio:['ignore','pipe','pipe']})
+  const child=spawn(process.execPath,[fileURLToPath(new URL('../bin/migrate-conversation-storage.mjs',import.meta.url)),'--data',root,'--chat','old',...extra],{stdio:['ignore','pipe','pipe']})
   let output='',errors='';child.stdout.on('data',v=>{output+=v});child.stderr.on('data',v=>{errors+=v})
   const [code]=await once(child,'close');assert.equal(code,0,errors)
   return JSON.parse(output)

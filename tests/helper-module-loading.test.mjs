@@ -2,6 +2,7 @@ import { helperLoaderSource, helperLoaderBootstrap } from './fixtures/helper-loa
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 import vm from './fixtures/client-vm.mjs'
 
 let descriptor
@@ -106,7 +107,7 @@ test('动态 import 网络错误保留行动提示，原始地址查询参数不
 test('large Unicode script loading stays within a bounded heap and preserves source', async () => {
   const {execFile} = await import('node:child_process')
   const {promisify} = await import('node:util')
-  const result = await promisify(execFile)(process.execPath, ['--max-old-space-size=256', new URL('./fixtures/helper-large-script-loading.mjs', import.meta.url).pathname], {timeout:30000,maxBuffer:4096})
+  const result = await promisify(execFile)(process.execPath, ['--max-old-space-size=256', fileURLToPath(new URL('./fixtures/helper-large-script-loading.mjs', import.meta.url))], {timeout:30000,maxBuffer:4096})
   assert.match(result.stdout,/PASS large Unicode script roundtrip/)
 })
 

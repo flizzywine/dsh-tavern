@@ -4,10 +4,11 @@ import { mkdtemp, readFile, writeFile, mkdir, rm, readdir, symlink } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { fileURLToPath } from 'node:url'
 import { FONT_CATALOG, createFontAssets, adoptBundledFonts } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-assets.js'
 import { createFontLibrary } from '../tavern-plugin/packages/dsh-dream-skin/lib/font-library.js'
 const family = FONT_CATALOG.families[0], face = family.files[0]
-const bundle = new URL('../tavern-plugin/packages/dsh-dream-skin/fonts/', import.meta.url).pathname
+const bundle = fileURLToPath(new URL('../tavern-plugin/packages/dsh-dream-skin/fonts/', import.meta.url))
 async function fixture(t, handler) {
   const root = await mkdtemp(path.join(tmpdir(), 'font-assets-'))
   t.after(() => rm(root, { recursive: true, force: true }))
