@@ -257,6 +257,62 @@ test('GitHub API 限流（403）不中断安装：退回默认分支并带上说
   assert.match(source.warning, /访问次数受限/)
 })
 
+for (const failure of ['network', 'timeout', 'invalid-json', 429, 500, 503]) {
+  test(`Release 查询失败（${failure}）仍能安装和更新，并记录降级原因`, async t => {
+    const calls = []
+    let version = '1.0.0'
+    if (failure === 'timeout') {
+      t.mock.method(AbortSignal, 'timeout', milliseconds => {
+        assert.equal(milliseconds, 5000)
+        return AbortSignal.abort(new DOMException('Release query timed out', 'TimeoutError'))
+      })
+    }
+    const { installer, plugins } = await setup(t, async (url, options) => {
+      calls.push(url)
+      if (url.endsWith('/releases/latest')) {
+        if (failure === 'network') throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } })
+        if (failure === 'timeout') {
+          assert.ok(options.signal, 'Release 查询必须有超时信号')
+          options.signal.throwIfAborted()
+        }
+        if (failure === 'invalid-json') return { ok: true, status: 200, json: async () => { throw new SyntaxError('Invalid JSON') } }
+        return { ok: false, status: failure }
+      }
+      assert.equal(url, 'https://codeload.github.com/author/dsh-tavern-hello/zip/HEAD')
+      assert.equal(options.signal, undefined, 'Release 查询超时不应取消后续下载')
+      return { ok: true, status: 200, arrayBuffer: async () => hello(version) }
+    })
+    for (const update of [false, true]) {
+      if (update) version = '1.1.0'
+      const installed = update ? await installer.update('dsh-tavern-hello') : await installer.installFromGithub('author/dsh-tavern-hello')
+      assert.equal(installed.version, version)
+      assert.match(installed.warning, /Release 信息暂不可用.*已改用默认分支/)
+      const reason = failure === 'network' ? /ECONNRESET/ : failure === 'timeout' ? /timed out/ : failure === 'invalid-json' ? /Invalid JSON/ : new RegExp('HTTP ' + failure)
+      assert.match(installed.warning, reason)
+      const source = JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', '.tavern-source.json'), 'utf8'))
+      assert.equal(source.resolved, '默认分支')
+      assert.equal(source.warning, installed.warning)
+    }
+    assert.equal(calls.length, 4)
+  })
+}
+
+test('指定分支时跳过 Release 查询；没有 Release 时正常安装不产生 warning', async t => {
+  const calls = []
+  const { installer, plugins } = await setup(t, async url => {
+    calls.push(url)
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    return { ok: true, status: 200, arrayBuffer: async () => hello() }
+  })
+  const explicit = await installer.installFromGithub('https://github.com/author/dsh-tavern-hello/tree/dev/x')
+  assert.deepEqual(calls, ['https://codeload.github.com/author/dsh-tavern-hello/zip/dev%2Fx'])
+  assert.equal('warning' in explicit, false)
+  const installed = await installer.installFromGithub('author/dsh-tavern-hello')
+  assert.equal('warning' in installed, false)
+  const source = JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', '.tavern-source.json'), 'utf8'))
+  assert.equal('warning' in source, false)
+})
+
 test('删除插件时，插件数据随文件夹一起进备份；更新不动插件数据', async t => {
   const { createPluginDataStore } = await import('../tavern-plugin/lib/domain/plugin-data-store.js')
   const { installer, dataRoot } = await setup(t)

@@ -77,10 +77,17 @@ export async function downloadGithubPlugin(source, { fetchImpl = fetch } = {}) {
   const archive = `https://codeload.github.com/${source.owner}/${source.repo}/zip`
   let ref = source.ref, label = source.ref ? source.ref : '默认分支', warning = ''
   if (!ref) {
-    const latest = await fetchOk(fetchImpl, api + '/releases/latest', 'application/vnd.github+json')
-    if (latest.ok) { const release = await latest.json(); ref = release.tag_name; label = 'Release ' + release.tag_name }
-    // 404 表示没有 Release；403 是共享出口 IP 把匿名配额用完了。两种都退回默认分支。
-    else if (latest.status === 403) warning = 'Release 信息暂不可用（GitHub 访问次数受限），已改用默认分支'
+    try {
+      const latest = await fetchOk(fetchImpl, api + '/releases/latest', 'application/vnd.github+json', AbortSignal.timeout(5000))
+      if (latest.ok) { const release = await latest.json(); ref = release.tag_name; label = 'Release ' + release.tag_name }
+      // 404 是正常的无 Release；其他失败都说明降级原因。
+      else if (latest.status !== 404) {
+        const reason = latest.status === 403 ? 'GitHub 访问次数受限' : 'HTTP ' + latest.status
+        warning = 'Release 信息暂不可用（' + reason + '），已改用默认分支'
+      }
+    } catch (error) {
+      warning = 'Release 信息暂不可用（' + error.message + '），已改用默认分支'
+    }
   }
   // ref 可能是标签也可能是分支（地址里写的是 …/tree/<名>），codeload 的裸 ref 两种都能解析；
   // 写成 refs/tags/ 会把分支名判死（/zip/refs/tags/main → 404）。
