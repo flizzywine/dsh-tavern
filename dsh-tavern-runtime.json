@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "41f10aee7b6d88fe062cbd132906037f312cd949",
-  "releaseSequence": 1068,
+  "revision": "64c3e5cb89d499924e4d0557eb11dcf02670f87b",
+  "releaseSequence": 1069,
   "version": "3.2.0",
   "files": [
     {
@@ -7301,8 +7301,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-host.js",
-      "sha256": "8ec557a81a481e3b3e8fbce1165bfa5d9ae9d5766bab8e1d51658bd59ff1561c",
-      "size": 17106
+      "sha256": "6101a458c47a70d41ad063b17ebdc23abe745b269abff0b2013a65e1bb0b1483",
+      "size": 17144
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-parallel.js",
@@ -7316,8 +7316,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-stage.js",
-      "sha256": "1d31fb9e567742c50d265661709638c06b765b847f5aa2d54640a883e48b7d64",
-      "size": 5045
+      "sha256": "a8264dc59593e40aee0079552e9cf120550785eb8968ad47186eba7490894110",
+      "size": 5078
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export-stream.js",
@@ -7333,11 +7333,6 @@
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/clip-export.js",
       "sha256": "fe2120112ec4afbb17d1f9df136d0f67a7cb1a4a015b261ec2217293bc76e363",
       "size": 18083
-    },
-    {
-      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/clip/paragraph-speech.js",
-      "sha256": "7c614b608cd17fb6639c602944aca274ef17207368d87e91d4933ca4d24e532c",
-      "size": 945
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/domain/asset-pack-presentation.js",
@@ -8586,9 +8581,9 @@
     }
   ],
   "archive": {
-    "commit": "e70fd41f7baf2abf866f01cf5c246293aeea8ecb",
+    "commit": "e36706f70d3c0af651700c90798acce3cd3a9723",
     "path": "runtime.zip",
-    "sha256": "8420c1878423c12d565d98125634cffb9a5e1de89b1eb9ebaf46659485524328",
-    "size": 15172841
+    "sha256": "9c46b5c486d99ad7fcff29482d48123dcf9ea1e449507dea11299cd569fd6cc2",
+    "size": 15172219
   }
 }
