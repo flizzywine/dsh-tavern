@@ -31,3 +31,19 @@ test('pre-game sys/cut/trigger removes only the wizard and carries MVU into the 
     assert.deepEqual(service.resolve(draft.id,h.card.path,'primary'),before)
   }
 })
+
+test('a card opening form replaces the greeting: nothing shown or sent, opening variables kept', async () => {
+  for (const viaForm of [true, false]) {
+    const h=initializationFixture()
+    h.state.extensions={openingSetup:{form:'<form></form>'}}
+    const service=createOpeningPreparation({readCard:async()=>h.card,worldBooks:{bound:async()=>null}})
+    const draft=await service.create(h.card.path,{})
+    if (viaForm) await service.callRuntime(draft.id,'prepareOpeningCommand',{line:'/send {"type":"LAUNCH"}|/trigger'})
+    const chat=await h.make().start({...h.input,preparation:service.resolve(draft.id,h.card.path,'primary')})
+    const greeting=chat.messages.find(m=>m.greeting)
+    assert.equal(greeting.text,'\u3000')
+    assert.equal(greeting.displayText,'\u3000')
+    const opening=h.session().events.find(e=>e.data?.message?.source?.model==='character-card')
+    assert.equal(opening.data.message.content[0].text,'\u3000')
+  }
+})

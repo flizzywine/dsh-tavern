@@ -1320,7 +1320,7 @@ export async function apply(ctx) {
       for (const opening of previews.openings) if (hasHelperScripts || hasOpeningScript(opening)) {
         opening.openingPreview = { swipes, openingIds, selectedIndex: openingIds.indexOf(opening.id),
           messageHtml: opening.projection.parts.map(part => part.kind === 'markdown' ? marked.parse(str(part.text), { gfm: true }) : str(part.content)).join('\n'),
-          preparationId: preparation.id, characterName: card.name, ...openingPreviewPayload(preparation, previewTransport) }
+          preparationId: preparation.id, characterName: card.name, playerName: str(userName).trim() || '你', ...openingPreviewPayload(preparation, previewTransport) }
       }
     }
     success = true
