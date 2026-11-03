@@ -656,7 +656,7 @@ test('真实发行副本升级旧版本：保留用户数据和删除状态，�
   const info = readBundledSceneImage(sourceRoot)
   assert.equal(info.ok, true, info.reason)
   const releaseVersion = info.version
-  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0', '3.3.1', '3.4.0', '3.4.1', '3.4.2', '3.5.0']) {
+  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0', '3.3.1', '3.4.0', '3.4.1', '3.4.2', '3.5.0', '3.6.0']) {
     assert.equal(comparePluginVersions(releaseVersion, installedVersion), 1)
     const dataRoot = makeData(t)
     const target = path.join(dataRoot, 'plugins', BUNDLED_SCENE_IMAGE_FOLDER)
@@ -689,6 +689,7 @@ test('真实发行副本升级旧版本：保留用户数据和删除状态，�
       'lib/image-channels.js', 'lib/image-provider-capabilities.js', 'lib/image-providers.js',
       'lib/image-catalog.js',
       'lib/comfy-progress.js',
+      'lib/wardrobe-hints.js',
       'lib/comfy-reference-images.js', 'client.js',
     ]) {
       assert.deepEqual(readFileSync(path.join(target, file)), readFileSync(path.join(source, file)), 'current release code: ' + file)

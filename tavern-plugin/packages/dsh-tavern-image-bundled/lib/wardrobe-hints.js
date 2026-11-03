@@ -8,7 +8,7 @@ const clean = (value, length) => String(value ?? '').replace(/\s+/g, ' ').trim()
 export function wardrobeSection(people, shared, input = '') {
   const byId = new Map(shared.filter(outfit => outfit.enabled !== false).map(outfit => [outfit.id, outfit]))
   const mentioned = clean(input, 3000).toLowerCase()
-  const choices = []
+  const namedChoices = [], defaults = [], others = []
   for (const person of people) {
     if (person.enabled === false || !clean(person.name, 45) || (!person.cards?.length && !isPlayerCharacter(person))) continue
     const seen = new Set()
@@ -19,19 +19,17 @@ export function wardrobeSection(people, shared, input = '') {
       seen.add(name)
       const named = name.length >= 2 && mentioned.includes(name.toLowerCase())
       if (outfit.nsfw === true && !named) continue
+      const choices = named ? namedChoices : outfit.default === true ? defaults : others
+      if (choices.length === MAX_OUTFITS) continue
       const description = [outfit.upper || outfit.body, outfit.lower, outfit.shoes, outfit.accessory, outfit.full]
         .map(value => clean(value, 48)).filter(Boolean).join('，').slice(0, 105)
       if (!description) continue
-      choices.push({
-        priority: named ? 2 : outfit.default === true ? 1 : 0,
-        line: clean(person.name, 45) + ' · ' + name + (outfit.nsfw === true ? '（仅私密场合）' : '') + '：' + description,
-      })
+      choices.push(clean(person.name, 45) + ' · ' + name + (outfit.nsfw === true ? '（仅私密场合）' : '') + '：' + description)
     }
   }
-  choices.sort((a, b) => b.priority - a.priority)
   const lines = [RULE]
   let length = RULE.length
-  for (const { line } of choices.slice(0, MAX_OUTFITS)) {
+  for (const line of [...namedChoices, ...defaults, ...others].slice(0, MAX_OUTFITS)) {
     if (length + 1 + line.length > MAX_CONTEXT) break
     lines.push(line)
     length += 1 + line.length
