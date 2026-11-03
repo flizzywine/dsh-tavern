@@ -1,6 +1,7 @@
 import { existsSync, watch } from 'node:fs'
 import { lstat, mkdir, readdir, readFile, realpath, writeFile, rename } from 'node:fs/promises'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseDocument, YAMLSeq } from 'yaml'
 import { pluginManifestProblem } from './plugin-manifest.js'
 
@@ -164,6 +165,20 @@ export function syncPatchText(text, plugins) {
   return next === (text ?? '') ? null : next
 }
 
+/** Tavern's own patch entries (id -> guard path) as the file holds them now; read before the first sync, it is what DSH started with. */
+export async function readPatchedUserPlugins({ dataRoot, dshHome }) {
+  let text = ''
+  try { text = await readFile(path.join(userPluginPaths(dataRoot, dshHome).profile, 'cordis.patch.yml'), 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const doc = parseDocument(text.trim() ? text : '[]\n'), entries = new Map()
+  for (const op of doc.contents instanceof YAMLSeq ? doc.contents.items : []) {
+    for (const item of op?.get?.('insert', true)?.items || []) {
+      const id = String(item?.get?.('id') ?? '')
+      if (id.startsWith(ID_PREFIX)) entries.set(id, String(item.get('name')))
+    }
+  }
+  return entries
+}
+
 // Report each skipped folder once per reason, not on every file change while it is being copied.
 const reported = new Map()
 
@@ -225,14 +240,40 @@ export async function syncUserPlugins({ dataRoot, dshHome, logger = console } = 
   return { changed: next !== null, plugins, problems, disabled }
 }
 
-/** Keep the patch in step with the plugins folder; DSH reloads the patch live. */
-export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500 }) {
+/**
+ * Restart a running user plugin from a new guard through the Cordis loader: point its patch entry (a sibling of the
+ * Tavern entry, same parent prefix) at the new file, then stop and start it so the new module is imported.
+ */
+export function loaderReload(loader, fiber) {
+  if (!loader) return null
+  const located = loader.locate(fiber) || '', prefix = located.slice(0, located.lastIndexOf(':') + 1)
+  return async (id, entry) => {
+    const row = loader.resolve(prefix + id)
+    await row.update({ name: pathToFileURL(entry).href, disabled: true })
+    await row.update({ disabled: null })
+  }
+}
+
+/**
+ * Keep the patch in step with the plugins folder. DSH's profile reload records a running plugin's new folder without
+ * importing it (official runtime 0.2.1), so a plugin whose folder moved - a managed mod republished at startup, a
+ * replaced user plugin - would keep running its old module beside the new folder's files. `loaded` (id -> guard path
+ * DSH started, readPatchedUserPlugins) tells which entries moved; `reload(id, entry)` (loaderReload) restarts each from its new guard.
+ */
+export function watchUserPlugins({ dataRoot, dshHome, logger = console, delay = 500, loaded = new Map(), reload = null }) {
   const { plugins } = userPluginPaths(dataRoot, dshHome)
   let timer = null, watcher = null, running = Promise.resolve()
+  const restartMoved = async result => {
+    for (const plugin of reload ? result.plugins : []) {
+      if (!loaded.has(plugin.id) || loaded.get(plugin.id) === plugin.entry) continue
+      await reload(plugin.id, plugin.entry)
+      loaded.set(plugin.id, plugin.entry)
+    }
+  }
   const schedule = () => {
     clearTimeout(timer)
     timer = setTimeout(() => {
-      running = running.then(() => syncUserPlugins({ dataRoot, dshHome, logger }))
+      running = running.then(() => syncUserPlugins({ dataRoot, dshHome, logger })).then(restartMoved)
         .catch(error => logger.warn?.('[Tavern 插件] 同步插件目录失败：' + (error?.message || error)))
     }, delay)
   }
