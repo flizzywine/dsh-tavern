@@ -2970,6 +2970,9 @@ body.dsh-tavern-shell-active [class*="_headerUtilities"]:has(.dsh-tavern-header-
   html.dsh-tavern-coarse-play [data-composer-card] > [class*="_row"] > [class*="_trailing"] > :not([class*="_primary"], [class*="_activity"]) { min-width: 0; }
   html.dsh-tavern-coarse-play [data-composer-card] :is([class*="_primary"], [class*="_add"]) { transform: none; }
   /* 权限入口整块移除（手机上不展示）：槽位连同宿主那层包装一起收起，宽度全给输入框。 */
+  /* 单行卡里「回到最新」原本落在卡片右上角，正好压住发送键：挪到输入框右端、模型图标左侧。 */
+  html.dsh-tavern-coarse-play [data-composer-card] .fork-chat-jump-latest { top: 8px; right: 100px; }
+
   html.dsh-tavern-coarse-play [data-composer-card] [class*="_modes"] { display: none !important; }
   /* 模型只留图标（上游 conversation 的 compact 契约，_7KE1Ra 消费这两个变量），名字让给输入框。 */
   html.dsh-tavern-coarse-play [data-composer-card] {
