@@ -1044,17 +1044,16 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-backlog-head::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0; border-top: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-thumb); mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent); }
 .fork-gal-backlog-title { display: flex; align-items: baseline; gap: 14px; color: var(--bl-accent); font-family: var(--gal-ui-title-font); }
 .fork-gal-backlog-title b { padding-left: .4em; font-size: clamp(20px, 1.7vw, 26px); font-weight: 600; letter-spacing: .4em; text-shadow: var(--gal-ui-title-shadow); }
-.fork-gal-backlog-title small { color: var(--gal-ui-ink-2); font: 600 10.5px/1 var(--gal-ui-font); letter-spacing: .42em; }
 .fork-gal-backlog-gem { display: var(--gal-ui-gem-display); align-self: center; width: var(--gal-ui-gem-width); height: var(--gal-ui-gem-height); clip-path: var(--gal-ui-gem); background: var(--gal-ui-gem-fill); }
 /* Usage hint: a ? tip beside the title (HelpTip); its floating body must sit above the stage mount. */
-/* A small quiet disc in the BACKLOG caption's type (size, weight, baseline), tinted from the theme; it brightens on hover
+/* A small quiet disc in the sheet's meta type (size, weight, baseline), tinted from the theme; it brightens on hover
    and takes the stage focus ring on keyboard focus. */
 .fork-gal-backlog-title .fork-help-tip { align-self: baseline; margin-left: -6px; }
 .fork-gal-backlog .fork-help-tip-button:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; color: var(--gal-ui-ink); }
 [data-fork-gal-stage] .fork-popover.fork-help-tip-body { z-index: 2147483002; }
 /* The runtime licence dialog (spine-runtime-entry.js, opened from the stage's 「Live2D 未安装 · 安装」 notice) is portalled to the body: above the stage mount. */
 [data-fork-gal-stage] .ap-modal-scrim:has(> .fork-runtime-consent) { z-index: 2147483002; }
-/* Close: part of the sheet's title row — a bare ✕ at the column's right end, in the BACKLOG caption's ink
+/* Close: part of the sheet's title row — a bare ✕ at the column's right end, in the secondary ink
    and centred on the title; the sheet's row hover on pointer-over, the stage focus ring on keyboard focus. */
 .fork-gal-stage .fork-gal-backlog-close { position: absolute; right: 2px; bottom: 9px; display: grid; place-items: center; box-sizing: border-box; width: 36px; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--gal-ui-radius); background: transparent; box-shadow: none; color: var(--gal-ui-ink-2); cursor: pointer; transition: background .15s, color .15s; }
 .fork-gal-stage .fork-gal-backlog-close:hover { background: var(--gal-ui-hover); color: var(--bl-accent); }
@@ -4905,7 +4904,7 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
     margin: 0; padding: 0 0 calc(var(--art-backlog-title-h) * var(--mu) * .2); background: var(--t) 0 0 / 100% 100% no-repeat; font-size: 0; }
   .fork-gal-stage[data-fk-skin-art-config~="title"]:not(.is-film) .fork-gal-config-title { --t: var(--art-config-title-img); left: calc(var(--gx) + var(--art-config-title-x) * var(--mu)); top: calc(var(--gy) + var(--art-config-title-y) * var(--mu));
     width: calc(var(--art-config-title-w) * var(--mu)); height: calc(var(--art-config-title-h) * var(--mu)); padding: 0; }
-  .fork-gal-stage[data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title > :is(b, small, .fork-gal-backlog-gem),
+  .fork-gal-stage[data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title > :is(b, .fork-gal-backlog-gem),
   .fork-gal-stage[data-fk-skin-art-config~="title"]:not(.is-film) .fork-gal-config-title > :is(b, .fork-gal-config-gem) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .fork-gal-stage[data-fk-skin-art-backlog~="title"]:not(.is-film) .fork-gal-backlog-title .fork-help-tip { margin: 0; font-size: var(--gal-ui-meta-size); }
   /* No placed title: the shared title centred at the top of the game area, so it stays below the title strip. */
