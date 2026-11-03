@@ -32,7 +32,7 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
     const client=forkTtsScope?.get('ttsClient');
     const owner=String(props.sessionId)+':'+String(props.voiceScope);
     const active = React.useSyncExternalStore(galActive.subscribe,galActive.get);
-    const available = client?.available() && !props.interrupted && (config?.voice?.enabled !== false || Boolean(config?.voice?.general));
+    const available = client?.available() && !props.interrupted && config?.voice?.enabled !== false;
     React.useEffect(()=>{
         const invalidate=event=>{ if (event?.type === 'unavailable') voicePlayer.invalidate(); };
         const off=packTransport?.service.subscribe(invalidate), host=tavernSessionSignals?.subscribe(props.sessionId,'tavern-state',invalidate);

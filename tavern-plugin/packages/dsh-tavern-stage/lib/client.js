@@ -11088,7 +11088,7 @@ function readVoice(sessionId,input){
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availability) {
     if (closed) return null;
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability);
-    if (!descriptor || config?.voice?.enabled === false && !config?.voice?.general || !(availability ?? available())) return null;
+    if (!descriptor || config?.voice?.enabled === false || !(availability ?? available())) return null;
     const input = speechInput({...descriptor, kind:'bubble'}, config);
     if (!input) return null;
     // 通用声音 (input.general): the general voice and the line's name, as the transcript keys it (voice.js).
