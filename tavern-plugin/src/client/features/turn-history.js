@@ -121,6 +121,7 @@
         // @include phone-layout.js
 		// @include bgm-player.js
 		// @include bg-manual.js
+		// @include stage-scene-images.js
 		// @include stage-ambience.js
 		// @include gal-backlog.js
 

@@ -164,7 +164,9 @@ function GalCubismNotice({ icon, request }) {
                 h('button', { type: 'button', ref: toggle, className: 'fork-gal-runtime-action', 'aria-expanded': open, 'aria-controls': panel, onClick: () => setOpen(!open) }, '安装')),
             open ? h('div', { id: panel, className: 'fork-gal-cubism-install' }, h(live2dRuntime.Entry, { request, head: false })) : null));
 }
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, statusPanel = false, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope }) {
+// picture: a 场景生图 picture of this round is being drawn ({progress}: the plugin's 0..1 once it reports one, else null);
+// pictureReady: one finished after its page was read ({onView} opens its insert page where the reader is).
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, statusPanel = false, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope, picture = null, pictureReady = null }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -213,6 +215,9 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
         hints?.keys ? h('div', { key: 'keys', className: 'fork-gal-runtime-status fork-gal-runtime-keys', 'data-tone': 'hint', role: 'note', 'aria-label': '快捷键' },
             h('dl', null, galShortcuts({ statusPanel }).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
+        picture ? notice('picture', 'busy', h(Spinner, { className: 'fork-gal-runtime-spinner' }), '正在生成 CG…' + (typeof picture.progress === 'number' ? ' ' + Math.round(picture.progress * 100) + '%' : '')) : null,
+        pictureReady ? notice('picture-ready', 'hint', null, 'CG 已生成', null,
+            h('button', { type: 'button', className: 'fork-gal-runtime-action', 'data-action': 'view-picture', onClick: event => { event.preventDefault(); event.stopPropagation(); pictureReady.onView(); } }, '查看')) : null,
         interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
         live2dRequest && live2dRuntime ? h(GalCubismNotice, { key: 'live2d-core', icon, request: live2dRequest }) : null,
         notes.length ? notice('diagnostics', 'debug', icon, '场景诊断', notes.map(note => ({

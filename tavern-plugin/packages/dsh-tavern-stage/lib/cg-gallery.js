@@ -64,6 +64,8 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
         if (row.available && row.unlocked) {
           if (!consumer?.presentation.available() || !consumer.allowedPackIds.includes(row.ref.packId)) conflict()
           row.label = asset.name; row.defaultVariant = asset.variants?.default ?? null; row.focusHints = assetContent(asset).focusHints || []
+          // a 场景生图 picture (scene-cg.js): 回想 offers its edit and delete shortcuts.
+          if (asset.extensions?.dsh_tavern?.scenePicture) row.scene = true
           row.variants = []
           for (const variant of asset.variants?.entries || [{id:null,name:asset.name}]) row.variants.push({key:variant.id,label:variant.name,image:await consumer.presentation.cg({ref:row.ref,variant:variant.id,focus:'full'},{descriptors:true})})
         }
@@ -104,6 +106,18 @@ export function createCgGallery({profileData,cardStorage,resolveCard,chatForSess
         return {ok:true,unlocked:true,changed}
       })
     },
+    // A 场景生图 picture is the player's own: unlocked when it is made (scene-cg.js), never by a played receipt.
+    unlock:(cardId,ref) => cardStorage.withCardLock(cardId,async () => {
+      const unlocked = await read(cardId), key = assetRefKey(ref)
+      if (unlocked.some(item => assetRefKey(item) === key)) return false
+      unlocked.push(ref); unlocked.sort((a,b) => assetRefKey(a).localeCompare(assetRefKey(b),'en'))
+      await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked})
+      return true
+    }),
+    forget:(cardId,ref) => cardStorage.withCardLock(cardId,async () => {
+      const unlocked = await read(cardId), key = assetRefKey(ref), rest = unlocked.filter(item => assetRefKey(item) !== key)
+      if (rest.length !== unlocked.length) await profileData.writeJson(file(cardId),{schemaVersion:1,unlocked:rest})
+    }),
     remove:cardId => cardStorage.withCardLock(cardId,() => profileData.remove(file(cardId)))
   }
 }

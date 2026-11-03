@@ -5,7 +5,7 @@
 // An entry with nothing usable this round (its button renders nothing) is nowhere.
 //
 // Entry: { id, priority, group: 'scene' (top-left) | 'feature' (top-right), hud (the place / track label line), icon
-//   (ICON_PATHS name), label, render(ctx) } - ctx = { sessionId, rpc, place, live, widgets, film, openConfig(tab) }.
+//   (ICON_PATHS name), label, render(ctx) } - ctx = { sessionId, turn (the round on screen), rpc, place, live, widgets, film, openConfig(tab) }.
 // The mounted button reports its state with useStageEntryState(id, { available, on, badge, detail, icon, label }).
 const stageEntries = (function () {
     const entries = new Map();

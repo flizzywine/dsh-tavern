@@ -778,24 +778,19 @@
 				const [manualBusy, setManualBusy] = React.useState(false);
 				const buttonRef = React.useRef(null);
 				const instructionRef = React.useRef(null);
-				const pressRef = React.useRef(null), suppressClickRef = React.useRef(false), submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
+				const submitLockRef = React.useRef(false), manualOpenRef = React.useRef(false);
 				const instructionTitleId = React.useId();
-				function clearPress() {
-					if (pressRef.current) clearTimeout(pressRef.current.timer);
-					pressRef.current = null;
-				}
 				function openManual() {
-					suppressClickRef.current = true;
 					if (manualOpenRef.current) return;
 					manualOpenRef.current = true;
-					clearPress();
 					setManualError("");
 					setInstruction("");
 					setManualOpen(true);
 				}
+				const press = useTavernIllustratePress(busy, draw, openManual);
 				function closeManual() {
 					manualOpenRef.current = false;
-					suppressClickRef.current = false;
+					press.release();
 					setManualOpen(false);
 					setInstruction("");
 					setManualError("");
@@ -842,37 +837,11 @@
 					});
 					return function () { cancelAnimationFrame(frame); };
 				}, [manualOpen]);
-				React.useEffect(function () { return function () { clearPress(); }; }, []);
 				const label = busy ? "正在整理画面…" : "为这一轮配图";
 				return React.createElement(React.Fragment, null,
 					React.createElement(DshUi.Tooltip, { label: label, side: "bottom" },
-						React.createElement("button", { ref: buttonRef, type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: "点击直接配图；长按或右键填写本次画面要求", disabled: busy, onClick: function (event) {
-							if (suppressClickRef.current) { suppressClickRef.current = false; event.preventDefault(); return; }
-							return draw();
-						},
-						onPointerDown: function (event) {
-							if (busy || event.button !== 0 || event.isPrimary === false) return;
-							suppressClickRef.current = false;
-							clearPress();
-						const press = { id: event.pointerId, x: event.clientX, y: event.clientY, timer: null };
-						press.timer = setTimeout(function () {
-							if (pressRef.current !== press) return;
-							pressRef.current = null;
-							suppressClickRef.current = true;
-							openManual();
-						}, 550);
-						pressRef.current = press;
-						},
-						onPointerMove: function (event) {
-							const press = pressRef.current;
-							if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) { clearPress(); suppressClickRef.current = true; }
-						},
-						onPointerUp: function (event) { if (pressRef.current && pressRef.current.id === event.pointerId) clearPress(); },
-						onPointerCancel: function () { if (pressRef.current) suppressClickRef.current = true; clearPress(); },
-						onPointerLeave: function () { if (pressRef.current) { clearPress(); suppressClickRef.current = true; } },
-						onContextMenu: function (event) { event.preventDefault(); openManual(); },
-						onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); openManual(); } }
-						}, React.createElement(TavernIllustrateIcon, null))),
+						React.createElement("button", Object.assign({ ref: buttonRef, type: "button", className: "dsh-tavern-message-fork dsh-tavern-message-illustrate", "aria-label": label, title: TAVERN_ILLUSTRATE_TITLE, disabled: busy }, press.handlers),
+							React.createElement(TavernIllustrateIcon, null))),
 					manualOpen ? React.createElement("section", { className: "dsh-tavern-illustration-instructions", "aria-labelledby": instructionTitleId },
 						React.createElement("form", { onSubmit: submitManual, onKeyDown: function (event) { if (event.key === "Escape" && !manualBusy) { event.preventDefault(); closeManual(); } } },
 							React.createElement("h2", { id: instructionTitleId, style: { margin: "0 0 6px", fontSize: "16px" } }, "本次配图要求"),

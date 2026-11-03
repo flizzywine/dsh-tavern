@@ -1123,6 +1123,48 @@
 			}
 			if (failure && instruction !== undefined) throw failure;
 		}
+		const TAVERN_ILLUSTRATE_TITLE = "点击直接配图；长按或右键填写本次画面要求";
+		// The 配图 button's gestures, in the chat and on the stage: a click draws at once; a long press (550 ms), a right click
+		// or Shift+F10 opens this time's picture request instead (openManual). `release` after that request closes.
+		function useTavernIllustratePress(busy, draw, openManual) {
+			const pressRef = React.useRef(null), suppressRef = React.useRef(false);
+			function clear() {
+				if (pressRef.current) clearTimeout(pressRef.current.timer);
+				pressRef.current = null;
+			}
+			function manual() { suppressRef.current = true; clear(); openManual(); }
+			React.useEffect(function () { return clear; }, []);
+			return {
+				release: function () { suppressRef.current = false; },
+				handlers: {
+					onClick: function (event) {
+						if (suppressRef.current) { suppressRef.current = false; event.preventDefault(); return; }
+						return draw();
+					},
+					onPointerDown: function (event) {
+						if (busy || event.button !== 0 || event.isPrimary === false) return;
+						suppressRef.current = false;
+						clear();
+						const press = { id: event.pointerId, x: event.clientX, y: event.clientY, timer: null };
+						press.timer = setTimeout(function () {
+							if (pressRef.current !== press) return;
+							pressRef.current = null;
+							manual();
+						}, 550);
+						pressRef.current = press;
+					},
+					onPointerMove: function (event) {
+						const press = pressRef.current;
+						if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) { clear(); suppressRef.current = true; }
+					},
+					onPointerUp: function (event) { if (pressRef.current && pressRef.current.id === event.pointerId) clear(); },
+					onPointerCancel: function () { if (pressRef.current) suppressRef.current = true; clear(); },
+					onPointerLeave: function () { if (pressRef.current) { clear(); suppressRef.current = true; } },
+					onContextMenu: function (event) { event.preventDefault(); event.stopPropagation(); manual(); },
+					onKeyDown: function (event) { if (event.shiftKey && event.key === "F10") { event.preventDefault(); manual(); } }
+				}
+			};
+		}
 		// `items` are the turn's plugin media: once the illustrator attaches a new one, planning is
 		// over and that item's own card shows the drawing, so the placeholder goes.
 		function TavernIllustrationDraft(props) {

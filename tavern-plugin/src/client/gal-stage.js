@@ -210,7 +210,9 @@ function bindStageViews(createViews) {
         useBubbles, Icon,
         controller:{useLiveView:useLiveTavernView,storyTurn:tavernStoryTurnForDshTurn,useCoordination:useTavernCoordination,rpc,phoneCall:()=>typeof phoneModCall==='object'?phoneModCall:null,
             dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents},
+            DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,playEvents:tavernPlayEvents,
+            // 场景生图 pictures of the round on screen (stage-scene-images.js): the CG insert pages and the 「正在生成 CG…」 notice.
+            pictures:{use:useStagePictures}},
         // Clip export (clip-export.cjs) lives in the stage package; these are the core names it uses.
         clipExport:{rpc,Icon,Spinner,EmptyState,overlayEscape,useOverlay,InlineField},
         controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
@@ -258,7 +260,9 @@ function bindStageViews(createViews) {
         configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSwitch?"toggle":null},
         phoneLayout:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), width:()=>innerWidth, ResetButton, sections:STAGE_CONFIG_SECTIONS},
         cg:{ResizeObserver, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, policy:cgMotionPolicy, rpc},
-        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner},
+        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner,
+            // 回想 › 在素材库中编辑: the 素材库 tab opened at that CG entry (asset-launcher.js stageNav).
+            openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)},
         // 状态面板 (stage status-panel.cjs): the card's panel html through the card-HTML frame builder, its data and close
         // through the trusted host facade status bars use; re-read after each session state signal while open.
         statusPanel:{rpc, signals:{subscribe:(id,refresh)=>tavernSessionSignals.subscribe(id,'tavern-state',refresh,()=>{},refresh)}, themeTokens:stageWidgetThemeTokens, sounds:forkUiSfx,
