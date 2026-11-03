@@ -107,9 +107,12 @@ return { settings: await readTavernSettings(), modModelSlots: await slotDeclarat
       if (!['create', 'duplicate', 'select', 'rename', 'delete'].includes(action)) throw new Error('未知的系统提示词方案操作')
       return { systemPrompts: presentSystemPrompts(await updateTavernSettings({ promptSet: { action, id: args.id, name: args.name } })) }
     },
-    async getModelPricing(args, method, serverTemplate, authority) {
-      const { modelSelection, routerPricing } = deps
-return await routerPricing.quote(modelSelection(args && args.sessionId))
+    // Prices come from a plugin (tavern.pricingProvider); Tavern itself keeps no price tables.
+    async getModelPricing(args) {
+      const { modelSelection, pluginApi } = deps
+      const [provider] = pluginApi.pricingProviders()
+      if (!provider) return { available: false, reason: '没有插件提供模型价格' }
+      return await provider.quote(modelSelection(args && args.sessionId))
     },
   }
   handlers.getConversationBackgroundConfig = handlers.getConversationBackgroundModel

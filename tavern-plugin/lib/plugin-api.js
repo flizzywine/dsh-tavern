@@ -170,9 +170,10 @@ export function createTavernPluginApi(deps) {
   const settingHandlers = new Set()
   const speechProviders = new Map()
   const imageProviders = new Map()
+  const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1 })
+  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -574,6 +575,16 @@ export function createTavernPluginApi(deps) {
     async generateImage(input = {}) {
       if (!deps.generateImage) throw Object.assign(new Error('当前版本不支持生图'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
       return await deps.generateImage(input)
+    },
+
+    // What the session's model costs, for the presentation's getModelPricing (one per plugin; the first registered answers):
+    // quote({ provider, model, reasoningEffort? }) → { available: true, rates: { input, output, cacheRead, cacheWrite } }
+    // in USD per million tokens, or { available: false, reason }.
+    pricingProvider({ quote } = {}) {
+      const owner = ownerOf(this)
+      if (typeof quote !== 'function') throw new TypeError('pricingProvider 需要 quote 函数')
+      const entry = { owner, quote: selection => bounded(Promise.resolve().then(() => quote(structuredClone(selection))), '价格提供方 ' + owner).catch(error => { recordError(null, owner, '价格', error); throw error }) }
+      return register.call(this, pricingProviders, owner, entry, 'tavern.pricingProvider()', '插件 ' + owner + ' 已提供价格')
     },
 
     // Say a line in its voice through the voice service: { url, mediaType }, or null when there is no voice service,
@@ -1818,6 +1829,6 @@ export function createTavernPluginApi(deps) {
       return register.call({ctx:deps.ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')
     },
-    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
+    speechProviders: (capability = 'synthesize') => Array.from(speechProviders.values()).filter(entry => typeof entry[capability] === 'function'), imageProviders: () => Array.from(imageProviders.values()), pricingProviders: () => Array.from(pricingProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })
 }
