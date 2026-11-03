@@ -782,10 +782,21 @@ const ZH_PERIOD_SENTENCE = {
   afternoon: '时间是午后，白天的自然光',
 }
 function statusPeriod(body) {
-  const bars = [...String(body ?? '').matchAll(/\[时间[|｜]([^\]\n]{0,80})\]/g)]
-  if (!bars.length) return ''
-  const t = bars[bars.length - 1][1]
-  if (/深夜|半夜|午夜|夜|子时|丑时|寅时|亥时|戌时|凌晨/.test(t)) return 'night'
+  const text = String(body ?? '')
+  const bars = [...text.matchAll(/\[时间[|｜]([^\]\n]{0,80})\]/g)]
+  let t = bars.at(-1)?.[1] ?? ''
+  if (!bars.length) {
+    // Some cards open with "地点 · 场合 · 时段 · 日期". A dated,
+    // standalone header is evidence for this turn; dialogue elsewhere isn't.
+    const header = text.slice(0, 512).trimStart().split(/\r?\n/, 1)[0]
+    if (header.length > 160) return ''
+    const parts = header.split(/[·•]/).map(part => part.trim())
+    if (parts.length < 3 || !parts.some(part => /^(?:\d{4}年\d{1,2}月\d{1,2}日|星期[一二三四五六日天]|周[一二三四五六日天])$/.test(part))) return ''
+    const periods = parts.filter(part => /^(?:清晨|早晨|早上|上午|中午|正午|下午|午后|傍晚|黄昏|晚上|夜里|夜晚|深夜|半夜|凌晨)$/.test(part))
+    if (periods.length !== 1) return ''
+    t = periods[0]
+  }
+  if (/深夜|半夜|午夜|晚上|夜|子时|丑时|寅时|亥时|戌时|凌晨/.test(t)) return 'night'
   if (/黄昏|傍晚|日暮|酉时/.test(t)) return 'dusk'
   if (/清晨|早晨|早上|黎明|拂晓|卯时|辰时/.test(t)) return 'morning'
   if (/上午|巳时/.test(t)) return 'forenoon'

@@ -23,6 +23,16 @@ test('开头的人物宏和镜头句保持在前面，时间句插在它们后�
   assert.ok(addSceneTime(scene, '').startsWith('${"name":"Xu Jinghao"}$\n半身，平视。时间是夜里'))
 })
 
+test('读取本轮开头有日期的时间栏，忽略对白里的类似文本及歧义时段', () => {
+  const scene = '全身，客厅里她脱下外套。'
+  assert.match(addSceneTime(scene, '客厅 · 午休 · 下午 · 2026年2月3日\n她走进来。'), /时间是午后/)
+  assert.match(addSceneTime(scene, '客厅 · 晚上 · 星期二\n她走进来。'), /时间是夜里/)
+  assert.equal(addSceneTime(scene, '她走进来。\n客厅 · 晚上 · 星期二'), scene)
+  assert.equal(addSceneTime(scene, '客厅 · 下午 · 晚上 · 星期二'), scene)
+  assert.equal(addSceneTime(scene, '客厅 · 午休 · 下午'), scene)
+  assert.match(addSceneTime('夜里的客厅，她脱下外套。', '客厅 · 下午 · 星期二'), /时间是夜里/, '画面明确入夜时保留画面时段')
+})
+
 test('三个人以上：竖图改横图；两个人不动', () => {
   const three = '${"name":"A"}$ 她站着。${"name":"B"}$ 他坐着。${"name":"C"}$ 她笑着。'
   assert.equal(sceneHeadcount(three), 3)
