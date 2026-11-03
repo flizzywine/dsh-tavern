@@ -9,6 +9,14 @@ import { execFileSync } from 'node:child_process'
 import { createTavernShortcut, ensureInitialTavernShortcut, macLauncherScript, windowsLauncherScript } from '../tavern-plugin/packages/dsh-profile-bridge/lib/shortcut.mjs'
 import { appWindowBrowser, desktopUsesTavern } from '../bin/tavern-window.mjs'
 
+test('应用图标完整保留正式 SVG Logo 的造型、线条和装饰', async () => {
+  const brand = new URL('../docs/assets/brand/', import.meta.url)
+  const mark = (await readFile(new URL('dsh-tavern-mark.svg', brand), 'utf8'))
+    .replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').replace(/\s+/g, '')
+  const icon = await readFile(new URL('dsh-tavern-app-icon.svg', brand), 'utf8')
+  assert.ok(icon.replace(/\s+/g, '').includes(mark), '只能调整外层留白或背景，不能改用简化 Logo')
+})
+
 test('Windows 图标提供原生小尺寸和高清帧，避免从单张 192px 图片缩放', async () => {
   const ico = await readFile(new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/dsh-tavern-app.ico', import.meta.url))
   assert.equal(ico.readUInt16LE(2), 1)
