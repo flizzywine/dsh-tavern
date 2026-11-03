@@ -121,3 +121,24 @@ test('missing runtime is quiet; licence dialog, failed download with drop fallba
     await page.close()
   }
 })
+
+// On the stage the licence dialog is opened from the 「Live2D 未安装 · 安装」 notice (notices.cjs) and portalled to the body like
+// in 设置: it must sit above the stage mount and take the click, not under it while the stage reads the click as 下一句.
+test('the licence dialog opened on the stage sits above the stage and takes the click', async t => {
+  const browser = await chromium.launch({ headless: true })
+  t.after(() => browser.close())
+  const stageCss = await readFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/client/themes.css', import.meta.url), 'utf8')
+  for (const width of [1200, 375]) {
+    const page = await browser.newPage({ viewport: { width, height: 812 } })
+    await page.route('**/*', route => route.abort())
+    // the stage's open state (navigation.cjs) and RuntimeConsentDialog's portal markup
+    await page.setContent(`<!doctype html><html data-fork-gal-stage><body><div class="fork-gal-mount"><div class="fork-gal-stage" onclick="window.advanced=true"></div></div>
+      <div class="ap-ui ap-layer"><div class="ap-modal-scrim"><section class="ap-modal ap-confirm fork-runtime-consent" role="dialog" aria-modal="true">
+        <header><h2>下载 Live2D 运行库</h2></header><div class="ap-actions"><button type="button">取消</button><button type="button" id="agree" onclick="window.agreed=true">同意并下载</button></div></section></div></div></body></html>`)
+    await page.addStyleTag({ content: await themeCss() + '\n' + stageCss })
+    const box = await page.locator('#agree').boundingBox()
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    assert.deepEqual(await page.evaluate(() => [window.agreed === true, window.advanced === true]), [true, false])
+    await page.close()
+  }
+})
