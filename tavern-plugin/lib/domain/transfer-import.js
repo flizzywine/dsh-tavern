@@ -479,7 +479,7 @@ export function createTransferImport(deps) {
             continue
           }
           if (part.kind === 'scripts') {
-            if (!materials) throw new Error('剧本与素材导入不可用')
+            if (!materials) throw new Error('剧本导入不可用')
             const imported = await materials.importOne({ title: item.title, content })
             result.added += 1
             if (imported && imported.path) {

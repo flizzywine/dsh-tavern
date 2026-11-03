@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-// 导出/导入里的「剧本与素材」子模块：素材就是 materials/ 下的纯文本，
+// 导出/导入里的「剧本」子模块：剧本就是 materials/ 下的纯文本，
 // 只做列出、读取与回写，不解析内容、不改扩展名规则（交给 fileStorage 决定）。
 const MATERIALS_KIND = 'source'
 const MATERIAL_LABEL = '资料'

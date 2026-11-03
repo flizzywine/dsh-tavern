@@ -15,7 +15,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>Sidebar scrollbar boun
 body{margin:0}#root{height:100vh}#conversation{height:100%;overflow-y:scroll}#conversation::-webkit-scrollbar{width:12px}#conversation::-webkit-scrollbar-thumb{background:#888}#long{height:3000px} [data-dsh-panel-host]{position:fixed;inset:0;z-index:25;pointer-events:none} [data-dsh-panel]{position:absolute;right:0;top:0;bottom:0;width:var(--dsh-sidebar-width);background:#ddd;pointer-events:auto}#controls{position:fixed;top:10px;left:10px;z-index:100;background:white} pre{white-space:pre-wrap}</style>
 <style id="fix">${fix}</style>
 <div id="root"><div id="conversation"><div id="long">长正文</div></div></div>
-<div data-dsh-panel-host><div data-dsh-panel><div class="fixture_panelResize"></div><div class="fixture_cornerHandle"></div>剧本与素材库</div></div>
+<div data-dsh-panel-host><div data-dsh-panel><div class="fixture_panelResize"></div><div class="fixture_cornerHandle"></div>剧本库</div></div>
 <div id="controls"><button id="run">运行边界检查</button><pre id="result">等待测试</pre></div>
 <script>
 document.querySelector('#run').onclick=()=>{

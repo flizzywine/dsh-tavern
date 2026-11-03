@@ -1136,7 +1136,7 @@ function clipReplayCore() {
 					"dsh-tavern:cards": "人物卡库",
 					"dsh-tavern:presets": "预设",
 					"dsh-tavern:worldbooks": "世界书库",
-					"dsh-tavern:resources": "剧本与素材库",
+					"dsh-tavern:resources": "剧本库",
 					"dsh-tavern:transfer": "导出与导入"
 				};
 				function visit(node) {
