@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "f59aa0319cee78e87595c17d2f2c73173718fcb1",
-  "releaseSequence": 1082,
+  "revision": "7e9d0de749d8cad91fc64f756911956304c6357e",
+  "releaseSequence": 1083,
   "version": "3.2.0",
   "files": [
     {
@@ -1046,8 +1046,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-asset-bindings.js",
-      "sha256": "1f390c7166965b3704dde64ec2770a629944d30668c25569765947e2aae2a26a",
-      "size": 4710
+      "sha256": "4342821e61943a9313228f35692de141d841ed371f046a2cb25d617c43f0175d",
+      "size": 4711
     },
     {
       "path": "tavern-plugin/lib/domain/card-assets.js",
@@ -1161,8 +1161,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-stage-settings.js",
-      "sha256": "e08cf413b860493c1df419c031b69b6bfb50cd698174919c2da6563eec8785a9",
-      "size": 9387
+      "sha256": "9df2ecf660eba5ebb5fc7f99918db950edadf358a1c1f53457faee9d6fcb19f3",
+      "size": 9461
     },
     {
       "path": "tavern-plugin/lib/domain/card-stage.js",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "cb5a3312d4a1a13df6f5df3a712eae98c079838a",
+    "commit": "c6a6939ea02238f3424150ebb4f861fbc0cb60dd",
     "path": "runtime.zip",
-    "sha256": "794df63997fd04025a9f5dea68278a6c8e546bf907a42082f73a8aca588b89a5",
-    "size": 15560918
+    "sha256": "c52265c7e06c1d640f72847d884535dd6d4d824111f6b6dab44c44f2905dc8f3",
+    "size": 15560983
   }
 }
