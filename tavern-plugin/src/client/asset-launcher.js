@@ -54,8 +54,18 @@ function workbenchRpc(sessionId) {
 // machine-wide engine RPCs (getJudgeConfig …) take no sessionId: their strict
 // argument check refuses it, so they go out without the session.
 function engineRpc(method,args) { return rpc(method,args || {}); }
+// The pack pages are the stage package's (asset-pack-ui.js stageScope): a surface that draws them holds the stage client while
+// mounted and draws the wait until they are bound. `view` picks the page off the API; props go to it.
+function StagePackView({view,...props}) {
+    React.useEffect(() => galStageHold(), []);
+    const bound = packUi.stageScope.use(), View = bound ? view(packUi) : null;
+    return View ? React.createElement(View, props) : React.createElement(PanelLoading, {shape:'fields', count:3, label:'正在加载舞台…'});
+}
 function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'library',prompts}) {
     usePackRevision();
+    // 素材库 and the 舞台 tab both open the stage's pack pages (the pack modal's 生图, 舞台设置).
+    React.useEffect(() => galStageHold(), []);
+    const stageBound = packUi.stageScope.use();
     const transport = packTransport, service = packClient(), tts=forkTtsScope?.get('ttsClient');
     const binding = React.useMemo(() => service ? createAssetPackBinding({service,tts,
         rpc:workbenchRpc(sessionId), engineRpc:engineRpc, settings:transport.settings,
@@ -67,7 +77,8 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
     // the Tavern 舞台 tab is one card-centric page.
     // the host's tab body is a fixed-height column that clips (overflow: hidden) and
     // scrolls nothing itself, so a page taller than the panel was cut off. The page scrolls in its own box (.fork-tab-scroll).
-    const page_=page==='stage'?React.createElement(packUi.StagePanel,{binding,sessionId,cardPath,cardName,loading,nav,prompts}):
+    const page_=!stageBound?React.createElement('div',{className:'ap-ui'},React.createElement(PanelLoading,{shape:'rows',label:'正在加载舞台…'})):
+        page==='stage'?React.createElement(packUi.StagePanel,{binding,sessionId,cardPath,cardName,loading,nav,prompts}):
         React.createElement(packUi.App,{key:service ? 'available' : 'unavailable',enabled:true,binding,nav:packNav,sessionId,cardPath,cardStamp});
     return React.createElement('div',{className:'fork-tab-scroll'},page_);
 }
@@ -128,5 +139,5 @@ function installTavernAssetLaunchers(ctx, slots) {
     ctx.provide('assetPackWorkbench',{render:props=>React.createElement(AssetLibraryTab,props)});
     // the global 读音词典 drawn with the shared panel components; the 配音
     // page (dsh-tts) places it and supplies its control RPC.
-    ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(packUi.ReadingsEditor,props)});
+    ctx.provide('ttsReadingsEditor',{render:props=>React.createElement(StagePackView,{view:ui=>ui.ReadingsEditor,...props})});
 }

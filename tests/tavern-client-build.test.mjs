@@ -46,9 +46,10 @@ for (const check of [false, true]) {
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/skin-overlay-timing.cjs', import.meta.url), path.join(stage, 'skin-overlay-timing.cjs'))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/timer-clock.cjs', import.meta.url), path.join(stage, 'timer-clock.cjs'))
     for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client/'+name,import.meta.url),path.join(stage,name))
-    // The stage build inlines the stage-only protocol contracts (stage-entrance.cjs) from the sibling protocol package.
+    // The stage build inlines the stage-only protocol contracts (stage-entrance.cjs, card-stage-mode.cjs) from the sibling protocol package.
     await mkdir(path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src'), {recursive:true})
-    await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-entrance.cjs', import.meta.url), path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src/stage-entrance.cjs'))
+    for (const name of ['stage-entrance.cjs', 'card-stage-mode.cjs'])
+      await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/' + name, import.meta.url), path.join(root, 'tavern-plugin/packages/dsh-presentation-protocol/src', name))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/build.mjs', import.meta.url), path.join(stage, '../../build.mjs'))
     await copyFile(new URL('../tavern-plugin/packages/dsh-tavern-stage/lib/client-assets.js', import.meta.url), path.join(stage, '../client-assets.js'))
     await cp(new URL('../tavern-plugin/packages/dsh-tavern-stage/src/', import.meta.url), path.join(stage, '../../src'), {recursive:true})

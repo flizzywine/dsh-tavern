@@ -53,7 +53,8 @@ function StageModPage({ctx,cardId,modId,onBack}) {
 function StageModSection({ctx,cardId}) {
   return ctx.openMod&&ctx.binding.engineRpc?h(ManagedModSection,{rpc:ctx.binding.engineRpc,cardId,onOpen:ctx.openMod,takeFocus:ctx.takeModFocus}):null;
 }
-// @include-stage-source mod-manager.js
+// mod-manager.js (ManagedModSection, ModManager, ModManagerEntry, useManagedModControls, modSwitchWord) ships in dsh-tavern-stage
+// and binds through stageScope (asset-pack-ui.js).
 // @include mod-page.js
 // @include mod-config-pages.js
 // @include mod-settings.js

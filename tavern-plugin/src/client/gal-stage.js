@@ -218,6 +218,8 @@ function bindStageViews(createViews) {
         controllerLegacy:{film:stageFilm,background:useBgManualScene,widgetTheme:useWidgetTheme,entryContext:stageEntryContextType,entryStore:createStageEntryStore},
         // 设置 › 舞台 (stage global-settings.js): the page's core rows and controls (modules/global-settings.js).
         globalSettings:stageGlobalSettingsOptions,
+        // 素材库 / 舞台 tab pages (stage asset-pack-{gen,card,engine}-ui.js, mod-manager.js): the core asset-pack closure's names in, its stage names bound back (asset-pack-ui.js stageScope).
+        assetPack:packUi.stageScope,
         admission:{performance, setTimeout, clearTimeout, Spinner},
         widgets:{sandbox:WidgetSandbox, sounds:forkUiSfx, report:useStageEntryState, entries:stageEntries, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},
         phoneAdjust:{navigator, pad:8, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame},

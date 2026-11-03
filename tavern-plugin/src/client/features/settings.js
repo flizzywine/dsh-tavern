@@ -564,7 +564,7 @@
                             plugin.source.kind === "github" ? updateAction(plugin) : null,
                             (managed || plugin.source.kind === "card" || plugin.source.kind === "builtin") ? null : h("button", { type: "button", className: "dsh-tavern-btn danger", disabled: busy, onClick: function () { void remove(plugin); } }, "删除")));
                 })) : null,
-                manageOpen ? h(packUi.mods.ModManager, {rpc, onClose:()=>setManageOpen(false)}) : null,
+                manageOpen ? h(StagePackView, {view:ui=>ui.mods.ModManager, rpc, onClose:()=>setManageOpen(false)}) : null,
                 h("div", { className: "dsh-tavern-user-plugins-folder" },
                     h("span", { className: "dsh-tavern-settings-desc", title: data ? data.dir : "" }, data ? "插件文件夹：" + data.dir : ""),
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { void rpc("openUserPluginsFolder").catch(function (err) { setError(String(err && err.message || err)); }); } }, "打开插件文件夹")));
@@ -576,9 +576,10 @@
             // Process visibility and developer chrome have separate rows; 配音 has its own settings page.
             TavernDefaultModelSetting, TavernModelSlotGroups, TavernConversationWritingSkills, DisplayPreferencesSettings, HeaderItemsSettings,
             CandidatePreferencesSettings, PromptTemplateSettingsEntry, ContextCompactionSettings, TavernUserPluginsSettings, DebugSetting, SpineRuntimeEntry,
-            StageGenerationSettings: () => React.createElement(packUi.GenPromptSettings, { call: engineRpc }),
-            // 设置 › 舞台 › 模组管理 (mod-manager.js, in the asset-pack UI factory).
-            ForkModManagerEntry: () => React.createElement(packUi.ModManagerEntry, { rpc, Row: TavernSettingRow }),
+            // both are stage package pages (asset-pack-gen-ui.js / mod-manager.js): drawn once the stage client binds them (StagePackView).
+            StageGenerationSettings: () => React.createElement(StagePackView, { view: ui => ui.GenPromptSettings, call: engineRpc }),
+            // 设置 › 舞台 › 模组管理 (mod-manager.js).
+            ForkModManagerEntry: () => React.createElement(StagePackView, { view: ui => ui.ModManagerEntry, rpc, Row: TavernSettingRow }),
             // the shared row and controls of the page.
             TavernSettingRow, InlineField, Switch, HelpTip: typeof HelpTip === "function" ? HelpTip : null
         });
