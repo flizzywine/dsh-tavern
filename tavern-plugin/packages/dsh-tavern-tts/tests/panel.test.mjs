@@ -112,7 +112,7 @@ test('one page: service rows with state words, ⚠ only for problems, a register
   const f = fixture()
   await withDom(async root => {
     assert.equal(f.tabs.size,1)
-    const tab = f.tabs.get('dsh-tts:voice'); assert.equal(tab.title,'配音'); assert.equal(tab.single,true)
+    const tab = f.tabs.get('dsh-tts:voice'); assert.equal(tab.title,'配音后端'); assert.equal(tab.single,true)
     assert.equal(tab.component,f.slots.get('tts'))
     await act(async () => {root.render(React.createElement(tab.component))}); await settle()
     const text = () => document.body.textContent
@@ -357,39 +357,26 @@ test('focus hand-over: add opens 添加语音服务 with the type chosen; an id 
   }
 })
 
-// one 配音 page — 语音服务 → 朗读 → 发音字典 → 合成缓存; 浏览器朗读 first and
-// fixed; 朗读 writes tts.reading on change through setReading, with the figure voice picker's sources.
-test('unified page: section order, 浏览器朗读 first and fixed, 朗读 saves on change with browser and service voices',async () => {
+// 配音后端 — 语音服务 → 发音字典 → 合成缓存; 浏览器朗读 first and fixed. Who speaks with which voice
+// (tts.reading) is chosen in 舞台设置 › 配音, so this page has no 朗读 section and no default engine.
+test('配音后端 page: section order, 浏览器朗读 first and fixed, no 朗读 section or default engine',async () => {
   const browserSpeech = {available:() => true,voices:async () => [{id:'Microsoft Yunxi',label:'Microsoft Yunxi',languages:['zh-CN']}],speak:async () => {},stop:() => {}}
   const f = fixture({browserSpeech,readingsEditor:{render:() => React.createElement('div',null,React.createElement('h3',null,'发音字典'))}})
   try {
     await withDom(async root => {
       await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
+      assert.equal(document.querySelector('.dtts-head h2').textContent,'配音后端')
+      assert.ok(byLabel('配音后端 说明'))
       const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
-      assert.deepEqual(headings,['语音服务','朗读','发音字典','合成缓存'])
+      assert.deepEqual(headings,['语音服务','发音字典','合成缓存'])
       const first = document.querySelector('.dtts-list > li')
       assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
       assert.equal(first.querySelector('.dtts-state').textContent,'免费')
-      assert.doesNotMatch(document.body.textContent,/默认语音引擎/)
       assert.equal(first.querySelector('[aria-haspopup=menu], .dtts-icon-button'),null,'no ⋯: it cannot be removed')
-      const reading = [...document.querySelectorAll('section')].find(s => s.querySelector('h3 span')?.textContent === '朗读')
-      assert.equal(byLabel('旁白配音').checked,false,'narration reading is off on a fresh config')
-      assert.equal(checked('旁白声音'),'未选择'); assert.equal(checked('对白默认声音'),'浏览器 · 系统默认')
-      assert.doesNotMatch(document.body.textContent,/配音渠道|台词朗读/)
-      assert.deepEqual([...reading.querySelectorAll('button')].filter(b => ['保存','试听'].includes(b.textContent)),[],'no 保存 / 试听')
-      // The same sources as the figure voice picker: system voices and each service's voices, read when a menu is reached.
-      assert.equal(f.calls.some(c => ['listOnlinePresetVoices','providerVoices','listRecommendedFishVoices'].includes(c.method)),false,'no service listing on page open')
-      assert.ok(radio('旁白声音','Microsoft Yunxi'))
-      await act(async () => radio('旁白声音','未选择').focus()); await settle()
-      assert.ok(radio('旁白声音','Microsoft Yunxi')); assert.ok(radio('旁白声音','七海')); assert.ok(radio('旁白声音','灿灿'))
-      await click(radio('旁白声音','七海')); await settle()
-      assert.deepEqual(f.calls.filter(c => c.method === 'setReading').map(c => c.args),[{narrator:{voice:{serviceId:'azure-main',voice:'ja-JP-NanamiNeural'}}}])
-      assert.equal(checked('旁白声音'),'七海')
-      await click(byLabel('旁白配音')); await settle()
-      await click(radio('对白默认声音','Microsoft Yunxi')); await settle()
-      assert.deepEqual(JSON.parse(JSON.stringify(f.reading())),{dialogueVoice:{browser:'Microsoft Yunxi'},narrator:{enabled:true,voice:{serviceId:'azure-main',voice:'ja-JP-NanamiNeural'}}})
-      assert.equal(byLabel('旁白配音').checked,true)
-      assert.equal(f.calls.some(c => c.method === 'synthesis'),false)
+      assert.equal(document.querySelector('.dtts-reading'),null)
+      for (const label of ['对白默认声音','旁白配音','旁白声音','默认语音引擎']) assert.equal(byLabel(label),null,label)
+      assert.doesNotMatch(document.body.textContent,/对白默认声音|旁白声音|默认语音引擎|同类服务/)
+      assert.equal(f.calls.some(c => ['reading','setReading','setDefaultService'].includes(c.method)),false)
     })
   } finally { f.dispose() }
 })

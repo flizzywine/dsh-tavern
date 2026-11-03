@@ -16,6 +16,9 @@ async function helpers() {
   vm.runInContext(mods.match(/^const modSwitchOn = .*$/m)[0], sandbox)
   vm.runInContext(source.slice(source.indexOf('const STAGE_SWITCH_DEFAULTS='), source.indexOf('// cards select packs')) +
     ';this.api={stageSwitchLayers,stagePrefs,stageActive,stageSwitchPatch,stageEnable};', sandbox)
+  // 配音 › 方式 (StageVoicePage): the narrator's card layer and the mode helpers.
+  vm.runInContext(source.slice(source.indexOf('const NARRATOR_DEFAULT='), source.indexOf('// 通用声音 (tts.reading.dialogueVoice')) +
+    ';Object.assign(this.api,{cardVoiceMode,voiceModePatch,voiceModeWrite,VOICE_MODE_RESET});', sandbox)
   return sandbox.api
 }
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -65,4 +68,23 @@ test('对话气泡 and 舞台模式 are two rows over one declaration; bubbles w
   // 舞台模式 本卡开启 brings 对话气泡 with it; a 全局 choice on either row clears the declaration.
   assert.deepEqual(plain(stageSwitchPatch({stage:bubbles}, {stage:'on'}).stage), {enabled:true})
   assert.deepEqual(plain(stageSwitchPatch({stage:{...bubbles, switches:{music:'off'}}}, {dialogue:undefined}).stage), {switches:{music:'off'}})
+})
+
+// 方式 writes the card layer of three four-state switches in one write: 全文朗读 = fullReading on, 角色 / 旁白 off; 分角色 goes
+// back to the global switches when the global mode is 分角色, else 角色配音 on + 全文朗读 off (旁白 untouched); ⟲ clears all three.
+test('配音 › 方式 writes one card patch; the summary reads 分角色 / 全文朗读 / 关', async () => {
+  const {voiceModePatch, voiceModeWrite, VOICE_MODE_RESET, cardVoiceMode, stagePrefs, stageActive} = await helpers()
+  const ext = {stage:{enabled:true, switches:{music:'off'}}}
+  const full = plain(voiceModeWrite(ext, voiceModePatch('full', {fullReading:false})).stage)
+  assert.deepEqual(full, {enabled:true, switches:{music:'off', fullReading:'on', voice:'off'}, narrator:{enabled:false}})
+  assert.deepEqual(plain(voiceModeWrite({stage:full}, voiceModePatch('split', {fullReading:false})).stage), {enabled:true, switches:{music:'off'}})
+  assert.deepEqual(plain(voiceModeWrite({stage:{enabled:true, narrator:{enabled:true}}}, voiceModePatch('split', {fullReading:true})).stage),
+    {enabled:true, narrator:{enabled:true}, switches:{voice:'on', fullReading:'off'}})
+  assert.deepEqual(plain(voiceModeWrite({stage:full}, VOICE_MODE_RESET).stage), {enabled:true, switches:{music:'off'}})
+  const engine = {values:{stageToggles:{dialogue:false, stage:false, voice:true, fullReading:false}}}
+  const prefs = stagePrefs({stage:full}, engine)
+  assert.equal(cardVoiceMode(prefs, false), 'full'); assert.equal(stageActive(prefs).voice, false, '全文朗读 turns 角色配音 off')
+  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:true}}, engine), false), 'split')
+  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:true, switches:{voice:'off'}}}, engine), false), 'off')
+  assert.equal(cardVoiceMode(stagePrefs({stage:{enabled:false}}, engine), true), 'off', 'no bubbles: 关')
 })

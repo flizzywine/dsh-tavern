@@ -1,5 +1,5 @@
 import { widgetSourceRounds } from './domain/widget-window-projection.js'
-import { NARRATOR_VOICE } from '../../../lib/domain/asset-pack-speech.js'
+import { NARRATOR_VOICE, GENERAL_VOICE } from '../../../lib/domain/asset-pack-speech.js'
 import { phoneMark, phoneMarkRounds as phoneRounds } from '../../../mods/phone/call-context.js'
 // The stage's requests: director, asset packs, figures and voices, widgets, mods, stage timers, phone, CG gallery.
 // They run on the same authenticated dispatcher as every other area; core requests live in the other rpc/ files.
@@ -309,7 +309,7 @@ return cgGallery.ack(args,authority?.origin)
 
         const chat = await chatForSession(args?.sessionId)
         const consumer = chat?.cardPath && await assetRuntime.consumer(chat,authority?.origin)
-        return consumer ? consumer.speech.open(args?.narrator === true ? NARRATOR_VOICE : args?.alias) : {available:false,diagnostics:['voice-unbound']}
+        return consumer ? consumer.speech.open(args?.narrator === true ? NARRATOR_VOICE : args?.general === true ? GENERAL_VOICE : args?.alias) : {available:false,diagnostics:['voice-unbound']}
 
     },
     async getStageMusicTracks(args, method, serverTemplate, authority) {

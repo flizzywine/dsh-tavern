@@ -97,6 +97,8 @@ export function effectiveCardStage(extension, engine) {
   // an ordinary card (no dsh_tavern extension) never has 对话气泡 or 舞台模式, whatever the global switches say.
   value.dialogue &&= !!extension
   value.stage &&= value.dialogue
+  // 全文朗读 reads the whole reply in the 通用声音, so 角色配音 (and with it 旁白配音, which needs voice) is off.
+  if (value.fullReading) value.voice = false
   return value
 }
 

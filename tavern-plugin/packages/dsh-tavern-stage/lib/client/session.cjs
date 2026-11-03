@@ -148,13 +148,15 @@ function createStageSessionOwner(options) {
                     if (record.context !== null && record.context !== context) {record.branch++; record.widgetHistory=null; record.widgetUi.refs.clear(); record.sources.clear(); record.prefetches.clear(); options.invalidateHistory?.(id);}
                     record.context = context;
                     let branchId = JSON.stringify([view?.chatId || id, record.branch]);
-                    let turns = record.index.reconcile({chat, view, branchId});
+                    // 全文朗读: every page of the reply reads in 通用声音 (text-index.cjs).
+                    const fullReading = settings?.config?.voice?.fullReading === true;
+                    let turns = record.index.reconcile({chat, view, branchId, fullReading});
                     const ordered = [...turns.keys()].sort((a, b) => a - b);
                     const latestNativeTurn = turns.get(ordered.at(-1))?.nativeTurn || 0;
                     if (latestNativeTurn < record.lastNativeTurn && (ordered.at(-1) || 0) < (record.lastTurns.at(-1) || 0)) {
                         record.branch++; record.sources.clear();
                         branchId = JSON.stringify([view?.chatId || id, record.branch]);
-                        turns = record.index.reconcile({chat, view, branchId});
+                        turns = record.index.reconcile({chat, view, branchId, fullReading});
                     }
                     const settingsKey = JSON.stringify(settings), prefsKey = JSON.stringify(prefs);
                     const inputs = {textIndex: turns};

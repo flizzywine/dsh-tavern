@@ -43,11 +43,12 @@ function useVoiceBubbles(props,segments,_cardPath,config) {
         const input = segmentSpeechInput(segment,config);
         if (!input) return [];
         const {text,mood} = input;
-        const id=JSON.stringify([index,text,mood,bubbleCharacter(config,segment)?.voiceKey]);
-        const character = bubbleCharacter(config,segment);
-        const cacheKey = JSON.stringify([props.sessionId,character.alias,character.voiceKey,characterVoiceLanguage(character),text,mood]);
+        const character = input.general ? null : bubbleCharacter(config,segment);
+        const id=JSON.stringify([index,text,mood,input.general ? 'general' : character.voiceKey]);
+        const speaker = input.general ? ['general',config.voice.general,segment.name] : [character.alias,character.voiceKey,characterVoiceLanguage(character)];
+        const cacheKey = JSON.stringify([props.sessionId,...speaker,text,mood]);
         const selectionKey=props.stageSource ? JSON.stringify([props.sessionId,props.stageSource.nativeTurn,(props.stageParaBase||0)+(props.stageParaOffset||0)+(voiceOrdinals.get(index)||0)]) : undefined;
-        const request={text,mood,owner,id,selectionKey,cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor=()=>rpc('openAssetPackVoice',{alias:character.alias},props.sessionId);
+        const request={text,mood,owner,id,selectionKey,cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor=()=>rpc('openAssetPackVoice',input.general ? {general:true} : {alias:character.alias},props.sessionId);
         return [[index,{...request,sessionId:props.sessionId,player:voicePlayer.get(),get error(){return voicePlayer.getError(request);},prefetch:()=>voicePlayer.prefetch(descriptor,request),
             click:options=>voicePlayer.play(descriptor,{...request,handoff:options?.handoff===true})}]];
     }) : []);

@@ -22204,8 +22204,15 @@ function tavernModelRefusalNotice(text) {
 		// Voice inputs of the stage and the chat (voice.js includes this source; Node tests require it or evaluate it beside their
 		// stubs): a segment's host speech input and the stage's voice look-ahead window.
 		// the bound figure owns voice identity; language and text completeness gate speech.
+		// 通用声音 (config.voice.general): a speaker with no figure (a temporary NPC, name only) or a figure marked general speaks
+		// the one general voice - its display text at the default mood ({general:true}; the voice opens as {general:true}). Chat
+		// (voice.js) and stage (speech.cjs) key its clips by the general voice and the line's name.
+		// 「不配音」 (a figure with no voice that is not general) stays silent.
 		function segmentSpeechInput(segment, config) {
 		    const character = bubbleCharacter(config,segment);
+		    if (config?.voice?.general && (character ? character.general === true && !character.voice : String(segment.name || '').trim())) {
+		        return segment.kind === 'bubble' && !segment.streaming && speakableText(segment.text) ? {text:segment.text, mood:null, general:true} : null;
+		    }
 		    return packSpeechInput(segment,config,character,bubbleMood(segment.mood,bubbleMoodList(config,character?.alias)));
 		}
 		// native handles keep look-ahead local; no host queue or polling ticker.
@@ -22231,11 +22238,12 @@ function tavernModelRefusalNotice(text) {
 		        const input = segmentSpeechInput(segment,config);
 		        if (!input) return [];
 		        const {text,mood} = input;
-		        const id=JSON.stringify([index,text,mood,bubbleCharacter(config,segment)?.voiceKey]);
-		        const character = bubbleCharacter(config,segment);
-		        const cacheKey = JSON.stringify([props.sessionId,character.alias,character.voiceKey,characterVoiceLanguage(character),text,mood]);
+		        const character = input.general ? null : bubbleCharacter(config,segment);
+		        const id=JSON.stringify([index,text,mood,input.general ? 'general' : character.voiceKey]);
+		        const speaker = input.general ? ['general',config.voice.general,segment.name] : [character.alias,character.voiceKey,characterVoiceLanguage(character)];
+		        const cacheKey = JSON.stringify([props.sessionId,...speaker,text,mood]);
 		        const selectionKey=props.stageSource ? JSON.stringify([props.sessionId,props.stageSource.nativeTurn,(props.stageParaBase||0)+(props.stageParaOffset||0)+(voiceOrdinals.get(index)||0)]) : undefined;
-		        const request={text,mood,owner,id,selectionKey,cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor=()=>rpc('openAssetPackVoice',{alias:character.alias},props.sessionId);
+		        const request={text,mood,owner,id,selectionKey,cacheKey:JSON.stringify([cacheKey,selectionKey])}, descriptor=()=>rpc('openAssetPackVoice',input.general ? {general:true} : {alias:character.alias},props.sessionId);
 		        return [[index,{...request,sessionId:props.sessionId,player:voicePlayer.get(),get error(){return voicePlayer.getError(request);},prefetch:()=>voicePlayer.prefetch(descriptor,request),
 		            click:options=>voicePlayer.play(descriptor,{...request,handoff:options?.handoff===true})}]];
 		    }) : []);
@@ -22799,10 +22807,14 @@ function tavernModelRefusalNotice(text) {
 		function packSpeechInput(segment, config, character, mood) {
 		    if (segment.kind !== 'bubble' || segment.streaming || !character?.voice) return null;
 		    const text = segment.speech ?? segment.text;
-		    if (!text || !/[\p{L}\p{N}]/u.test(text) || text.length > 1500) return null;
+		    if (!speakableText(text)) return null;
 		    return {text, mood:mood?.id || character.defaultEmotion || null};
 		}
-		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput };
+		// A line has something to say: a letter or a number, within one request's length.
+		function speakableText(text) {
+		    return Boolean(text) && /[\p{L}\p{N}]/u.test(text) && text.length <= 1500;
+		}
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput, speakableText };
 
 		const BUBBLE_MOODS = [];
 		// Explicit engine declarations and alias-scoped figure declarations have the same status.
@@ -32920,16 +32932,97 @@ function tavernFloorHeightRecall(key, width) {
             }
             return chunks;
         }
+        function tavernReplyBody(node) {
+            return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
+        }
+        // 全文朗读 (config.voice.fullReading, host-decided): a reply this page saw finish streaming is read once, whole, in
+        // 通用声音 — one non-narration part with no speaker. Mounting, a refresh, history or a chat switch never reads; a new
+        // turn, any 🔊 or leaving the chat stops it. On the stage the stage reads it page by page (its text index) instead.
+        // Every mounted reply action reports the chat's one reading signal; identical signals are dropped.
+        const tavernFullReading = (function () {
+            const sessions = new Map(), listeners = new Set();
+            let reading = null;
+            function emit() { listeners.forEach(fn => fn()); }
+            function stop(sessionId) {
+                if (!reading || sessionId && reading.sessionId !== sessionId) return;
+                const lease = reading; reading = null;
+                tavernSpeech.stop(lease.owner);
+                emit();
+            }
+            function session(sessionId) {
+                let state = sessions.get(sessionId);
+                if (!state) sessions.set(sessionId, state = { count: 0, signal: null, armed: false, before: null, latest: null, generation: 0 });
+                return state;
+            }
+            async function read(sessionId, state, messageId, source) {
+                const generation = ++state.generation;
+                const data = await rpc("getDialogueBubbles", { sessionId: sessionId }, sessionId).catch(() => null);
+                if (generation !== state.generation || sessions.get(sessionId) !== state || data?.config?.voice?.fullReading !== true) return;
+                if (!ttsClientAvailable() || typeof galActive !== "undefined" && galActive.get() === sessionId) return;
+                const text = tavernBodySpeechParts(source).map(part => part.text).join(" ");
+                if (!text) return;
+                stop();
+                const owner = {};
+                reading = { sessionId, messageId, owner };
+                emit();
+                tavernSpeech.speak({ sessionId, speaker: "", parts: [{ text, narration: false }], body: true, owner }).finally(function () {
+                    if (reading?.owner === owner) { reading = null; emit(); }
+                });
+            }
+            // signal: [streaming or a new player input, the latest reply's message id, its body while idle].
+            function observe(sessionId, signal) {
+                const state = session(sessionId);
+                if (state.signal === signal) return;
+                state.signal = signal;
+                const [busy, messageId, source] = JSON.parse(signal);
+                if (busy) {
+                    if (!state.armed) { state.armed = true; state.before = state.latest; }
+                    state.generation++;
+                    stop(sessionId);
+                    return;
+                }
+                state.latest = messageId;
+                // The finished reply may land a snapshot after the stream ends: stay armed until a new reply is there.
+                if (!state.armed || !messageId || messageId === state.before) return;
+                state.armed = false;
+                if (source) void read(sessionId, state, messageId, source);
+            }
+            function attach(sessionId) {
+                const state = session(sessionId);
+                state.count++;
+                return function () {
+                    state.count--;
+                    setTimeout(function () {
+                        if (state.count > 0 || sessions.get(sessionId) !== state) return;
+                        sessions.delete(sessionId); state.generation++;
+                        stop(sessionId);
+                    }, 0);
+                };
+            }
+            return { observe, attach, stop,
+                reading: (sessionId, messageId) => Boolean(reading && reading.sessionId === sessionId && reading.messageId === messageId),
+                subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); } };
+        })();
+        function tavernFullReadingSignal(snapshot) {
+            const nodes = snapshot?.legacy?.nodes || [];
+            const busy = Boolean(snapshot?.legacy?.partial) || nodes[nodes.length - 1]?.kind === "user";
+            const messageId = latestTavernAssistantMessageId(snapshot);
+            const node = !busy && messageId ? nodes.find(item => item.kind === "assistant" && item.messageId === messageId) : null;
+            return JSON.stringify([busy, messageId, node ? tavernReplyBody(node) : ""]);
+        }
         // 🔊 on a reply, while the voice service is on (ttsClient). Every part is sent: the host skips narration while the
         // narrator is off.
         function TavernBodySpeechAction(props) {
             const available = usePackRevision(ttsClientAvailable);
             const source = props.useChat(function (snapshot) {
-                const node = (snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId);
-                return (node?.blocks || []).filter(block => block.kind === "text").map(block => String(block.text || "")).join("\n");
+                return tavernReplyBody((snapshot?.legacy?.nodes || []).find(item => item.kind === "assistant" && item.messageId === props.messageId));
             });
+            const signal = props.useChat(tavernFullReadingSignal);
+            React.useEffect(() => tavernFullReading.attach(props.sessionId), [props.sessionId]);
+            React.useEffect(() => tavernFullReading.observe(props.sessionId, signal), [props.sessionId, signal]);
+            const fullReading = React.useSyncExternalStore(tavernFullReading.subscribe, () => tavernFullReading.reading(props.sessionId, props.messageId));
             const parts = React.useMemo(() => tavernBodySpeechParts(source), [source]);
-            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length }) : null;
+            return available && source ? React.createElement(TavernSpeakButton, { key: JSON.stringify([props.sessionId, props.messageId, source]), sessionId: props.sessionId, parts, body: true, disabled: !parts.length, fullReading }) : null;
         }
         /** A second press stops the current line/body, including synthesis still in flight. */
         function TavernSpeakButton(props) {
@@ -32937,10 +33030,13 @@ function tavernFloorHeightRecall(key, width) {
             const [playing, setPlaying] = React.useState(false);
             const run = React.useRef(null);
             React.useEffect(function () { return function () { if (run.current) { tavernSpeech.stop(run.current); run.current = null; } }; }, []);
-            const label = playing ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
-            return h("button", { type: "button", className: "dsh-tavern-speak" + (playing ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
+            // 全文朗读 of this reply shows as playing; pressing stops it.
+            const shown = playing || props.fullReading === true;
+            const label = shown ? "停止朗读" : props.body ? "朗读正文" : "朗读这句";
+            return h("button", { type: "button", className: "dsh-tavern-speak" + (shown ? " is-playing" : ""), "aria-label": label, disabled: props.disabled, title: props.disabled ? "本轮没有可朗读的正文" : label,
                 onClick: function (event) {
                     event.stopPropagation();
+                    if (!run.current && props.fullReading) { tavernFullReading.stop(props.sessionId); return; }
                     if (run.current) { tavernSpeech.stop(run.current); run.current = null; setPlaying(false); return; }
                     const token = {};
                     run.current = token;
@@ -32948,7 +33044,7 @@ function tavernFloorHeightRecall(key, width) {
                     tavernSpeech.speak({ sessionId: props.sessionId, speaker: props.speaker, text: props.text, parts: props.parts, emotion: props.emotion, body: props.body, owner: token }).finally(function () {
                         if (run.current === token) { run.current = null; setPlaying(false); }
                     });
-                } }, playing ? "■" : "🔊");
+                } }, shown ? "■" : "🔊");
         }
 
 		// Background music: one looping track for the page. Plugins say which track plays; the player

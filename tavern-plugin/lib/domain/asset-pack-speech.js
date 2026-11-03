@@ -5,6 +5,9 @@ import { figureTtsVoice, assetVoiceBinding, browserSpeechSource } from './figure
 const failure = code => Object.assign(new Error(code), {code})
 // The key the narrator's voice opens under (旁白配音); never a figure name, so it cannot resolve to a cast member.
 export const NARRATOR_VOICE = '\u0000narrator'
+// The key the 通用声音 (tts.reading().dialogueVoice) opens under: one shared entry for every temporary NPC and every enabled
+// figure without a voice binding, and the reader of 全文朗读.
+export const GENERAL_VOICE = '\u0000general'
 
 export function createAssetPackSpeech({presentation, getEngine, getTts, getBinding, scope, principal = 'dsh-browser', readOnly: onlyCached = false}) {
   if (!presentation) return null
@@ -40,7 +43,13 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
   // The figure's declared voice, or null when she has none here (voice off on this card, unknown name, figure off, no voice).
   async function declared(alias) {
     const engine = getEngine?.(), stage = effectiveCardStage(presentation.extension, engine)
-    if (!stage.voice) return null
+    // 通用声音: a browser system voice ('' = its default) or a configured service's voice. Under 全文朗读 the narrator's
+    // pages read in it too.
+    if (alias === GENERAL_VOICE && (stage.voice || stage.fullReading) || alias === NARRATOR_VOICE && stage.fullReading) {
+      const tts = getTts(), voice = tts?.apiVersion === 1 ? tts.reading().dialogueVoice : null
+      return voice?.serviceId ? {service:voice} : {browser:voice?.browser ?? ''}
+    }
+    if (!stage.voice || alias === GENERAL_VOICE) return null
     // The narrator speaks the Chinese narration with the chosen figure's voice (or a browser system voice, or a voice of a
     // configured service), whatever her 配音语言. Its global layer is tts.reading().narrator.
     if (alias === NARRATOR_VOICE) {
@@ -65,7 +74,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     const found = await declared(alias)
     if (!found) { drop(); return {available:false,diagnostics:['voice-unbound']} }
     if (disposed || epoch !== generation || getTts() !== service) throw failure('TTS_STALE')
-    if (found.browser) {
+    if (found.browser !== undefined) {
       drop()
       return {available:true,browser:{voice:found.browser},voiceId:'browser',language:'zh',scope,diagnostics:[]}
     }
