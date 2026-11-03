@@ -65,3 +65,18 @@ test('CONFIG: rows in one block on value plates, a value face, and a foot drawn 
     assert.throws(()=>contract.validateStageSkin(config(extra)),{code:'INVALID_SKIN'})
   assert.throws(()=>contract.validateStageSkin(config({controls:{paint:{bg:'#ffffff',fg:'#0b0b0b',fgMuted:'#bdbdbd'}}})),{code:'SKIN_CONTRAST'})
 })
+
+test('CONFIG cycler values, value sliders, tag heads, tilted painted tabs with a lead line, words and key stickers; menu poses and a put-away top bar (§18 N32)',()=>{
+  const paint={bg:'#0b0b0b',fg:'#ffffff',fgMuted:'#bdbdbd',accent:'#ffffff',onAccent:'#0b0b0b'}
+  const config=extra=>({...base,config:{frame:{look:'drawer',paint},...extra}})
+  const ok=extra=>contract.validateStageSkin(config(extra)).config
+  const bad=extra=>assert.throws(()=>contract.validateStageSkin(config(extra)),{code:/INVALID_SKIN|SKIN_CONTRAST/})
+  const c=ok({controls:{segmented:{look:'cycler'},toggle:{look:'cycler'},slider:{look:'value'}},section:{look:'tag',paint:{bg:'#d9000f',fg:'#ffffff'}},
+    nav:{place:'top',tilt:[-3,2],lead:'line',platePaint:{bg:'#ffffff',fg:'#0b0b0b',onBg:'#d9000f',onFg:'#ffffff'}},words:{weight:900,skew:6,lift:1},hints:{paint:{bg:'#ffffff',fg:'#0b0b0b'}}})
+  assert.deepEqual([c.controls.segmented.look,c.nav.tilt,c.words.lift],['cycler',[-3,2],1])
+  for(const extra of [{nav:{tilt:[9]}},{nav:{lead:'two'}},{words:{lift:2}},{words:{skew:13}},{hints:{}},{controls:{select:{look:'cycler'}}},
+    {hints:{paint:{bg:'#ffffff',fg:'#eeeeee'}}},{nav:{platePaint:{bg:'#ffffff',fg:'#0b0b0b',onBg:'#d9000f',onFg:'#ff0000'}}}])bad(extra)
+  const doc=contract.validateStageSkin(menu({topbar:'hidden',rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,poses:[{x:20,rot:-2},{x:-10}]}}))
+  assert.equal(doc.art.menu.topbar,'hidden')
+  for(const poses of [[],[{x:300}],[{rot:13}]])invalid(menu({rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,poses}}).art)
+})
