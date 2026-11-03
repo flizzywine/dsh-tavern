@@ -38,6 +38,7 @@ import {effectiveCardStage} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
 import {createStageClipExport} from './clip/clip-export-stage.js'
+import {registerStageWorkbench} from './workbench/index.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -252,6 +253,7 @@ export async function createStageModule(core) {
       const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService,clipExport})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
+      ctx.effect(() => registerStageWorkbench({ctx, deps, call:(method, args) => requests.call(method, args, workbenchAuthority)}), 'dsh-tavern: stage workbench tools')
       return requests
     }
   }
