@@ -277,6 +277,11 @@ export async function createStageModule(core) {
 
 // 舞台的素材与判断：素材引擎设置、概率判断、导演探针、人物语音、素材运行时。核心在很早就要用到它们
 // （写卡时让素材运行时失效、模型槽读判断模型），所以单独先建；只通过 `core` 里的几项读卡与解析模型槽。
+// The stage's model slots (the director and the relevance judge), registered with the host's model-slot registry.
+export const STAGE_MODEL_MANIFESTS = [{id:'dsh.stage',name:'舞台',modelSlots:[
+  {id:'director',label:'导演模型',purpose:'安排舞台演出',fallback:'foreground'},
+  {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
+
 export function createStageAssets(core) {
   const {ctx, resolveSlot, readCardWorkspace, coordinationEvents} = core
   const figureRuntimes = createFigureRuntimes()
@@ -307,11 +312,8 @@ export function createStageAssets(core) {
   const cardStage = createCardStage({cardStorage:core.cardStorage,measure:core.measure,
     getTts:() => ctx.get('tts'),getEngine:() => assetEngineSettings.read().values,
     getAssetLibrary:() => ctx.get('assetLibrary'),getGlobalEnabledPackIds:() => ctx.get('assetPackSettings')?.read().values.globalEnabledPackIds || []})
-  const manifests = [{id:'dsh.stage',name:'舞台',modelSlots:[
-    {id:'director',label:'导演模型',purpose:'安排舞台演出',fallback:'foreground'},
-    {id:'judge',label:'智能判断',purpose:'判断素材与剧情的相关概率',fallback:'background',kind:'scoring'}]}]
   ctx.effect(() => core.modelSlots.register('dsh-tavern-stage',{
-    rows:() => modelSlotRows(manifests,['dsh.stage']),scoring:() => assetEngineSettings.read().values.judge
+    rows:() => modelSlotRows(STAGE_MODEL_MANIFESTS,['dsh.stage']),scoring:() => assetEngineSettings.read().values.judge
   }), 'dsh-tavern: stage model slots')
   const engineJudge = createEngineJudge({resolveConfig:input => resolveSlot('dsh.stage','judge',input?.sessionId),getConfig:() => assetEngineSettings.read().values.judge,credentials:() => ctx.get('credentials'),log:event => console.info('dsh-tavern:',JSON.stringify(event))})
   const judgeRpc = createJudgeRpc(assetEngineSettings,engineJudge)
