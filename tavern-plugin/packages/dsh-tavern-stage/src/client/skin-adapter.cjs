@@ -364,7 +364,9 @@ function stageSkinArt(document, files, entry = '') {
             if (plate.shadow) {marks['data-fk-skin-art-np-shadow']=''; Object.assign(tokens,{'--art-np-sx':String(plate.shadow[0]),'--art-np-sy':String(plate.shadow[1])});}
             if (plate.spacing != null) tokens['--art-np-spacing']=plate.spacing + 'em';
             // narrow: pill: on phones the name leaves the drawn plate for a pill in the speaker's colour
-            if (plate.narrow) marks['data-fk-skin-art-name-narrow']=plate.narrow;
+            // (under follows the phone face: without art.portrait.phone the name keeps the phone's own plate)
+            const phoneFace=art.portrait?.narrow && art.portrait.phone === true, narrowName=plate.narrow === 'under' && !phoneFace ? null : plate.narrow;
+            if (narrowName) marks['data-fk-skin-art-name-narrow']=narrowName;
             // wide under (§18 N16): on wide stages the plate under the face window on its axis (theme.css «art name wide under»)
             if (plate.wide) marks['data-fk-skin-art-name-wide']=plate.wide;
         if (plate.lead) marks['data-fk-skin-art-name-lead']='';
@@ -833,8 +835,9 @@ function stageSkinArt(document, files, entry = '') {
                     bed:n.bed ? {color:n.bed.color,alpha:n.bed.alpha,width:n.bed.width || n.font} : null,min:n.min || n.font * .25};
             }
         }
-        // narrow (§13): the side on a phone, CSS px from the box's top-left corner; the lines clear it face or not.
-        if (art.portrait.narrow) {
+        // narrow (§13): the side on a phone, CSS px from the box's top-left corner; the lines clear it face or not. A phone
+        // portrait shows no box face by default: only art.portrait.phone true places it.
+        if (art.portrait.narrow && art.portrait.phone === true) {
             const nw=art.portrait.narrow, [sw,sh]=frame ? size(frame.image) : [art.portrait.size,art.portrait.size];
             marks['data-fk-skin-portrait-narrow']=nw.name === 'arc' || !frame?.name ? '' : nw.name || 'below';
             // flow (skin-interface.md §1.5 手机落位): how the lines clear the side - beside (its column), wrap (beside it to its bottom,

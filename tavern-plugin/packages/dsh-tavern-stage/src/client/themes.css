@@ -3927,6 +3927,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name-vertical]:not([data-fk-skin-art-span]):not(.is-film) :is(.fork-gal-box, .fork-gal-box[data-speaker-side]) .fork-gal-name {
     left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u-name)); translate: none; }
 }
+/* A phone portrait shows no box face unless the skin opts in (art.portrait.phone with its narrow side): the design's text
+   inset that kept the face window's column is dropped - the lines start at the box's left padding (16px at most, a hanging
+   plate still cleared) and take its full width. */
+@media (max-width: 640px) {
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait]:not([data-fk-skin-portrait-narrow], [data-fk-skin-art-span], [data-fk-skin-layout="slash"], .is-film) .fork-gal-box.fork-gal-box.fork-gal-box {
+    --text-left: min(calc((var(--art-text-l) - var(--art-body-x)) * var(--art-u)), 16px); padding-left: var(--text-left); }
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait][data-fk-skin-art-name-vertical]:not([data-fk-skin-portrait-narrow], [data-fk-skin-art-span], [data-fk-skin-layout="slash"], .is-film) .fork-gal-box.fork-gal-box.fork-gal-box {
+    padding-left: max(var(--text-left), calc((var(--art-np-x) + var(--art-np-w) - var(--art-body-x)) * var(--art-u-name) + .5em)); }
+}
 /* art.portrait.narrow (skin-interface.md §13, 「通用部件能力」): on a phone the face side stands at its own place - --art-face-nw
    CSS px wide, --art-face-nx / -ny px from the box's top-left corner (over the box image's top edge when negative) - and
    everything inside it (face, window, back, sheen, frame, name) keeps the frame's proportions: the side's own --art-u is its

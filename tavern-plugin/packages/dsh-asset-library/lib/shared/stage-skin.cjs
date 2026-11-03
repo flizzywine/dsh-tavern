@@ -255,7 +255,7 @@ const skinPortraitFrame = value => skinObject({image:skinImage,left:skinPx,botto
     // swap fade: a new face crossfades in the still window (the one it
     // replaces fading under it) instead of the cut; frame.motion owns the entrance when there is one.
     && !(value.swap && value.motion);
-// narrow (§13, stages of 640px and less): where the face side stands on a phone, in CSS px from the box's top-left corner -
+// narrow (§13, stages of 640px and less; used only with portrait.phone true): where the face side stands on a phone, in CSS px from the box's top-left corner -
 // width (the frame's, or the square's without one; its height by the frame's aspect), x from the box's left edge, y from its
 // top edge (negative: above it). The lines start clear of it whether a face shows or not (no reflow). name = how the frame's
 // name reads at that size: below (one straight line centred under the side; the default) or arc (as drawn); nameMin = the arc's
@@ -269,14 +269,15 @@ const skinPortraitNarrow = skinObject({width:skinNumber(32,240),x:skinNumber(-64
 // bottom, left]: the face picture fades out over that share of its square from each edge (a soft mask, phones too).
 // placeholder: a speaker the avatar resolver gives no face still shows one -
 // initial = the engine's neutral disc (the displayed name's first glyph in nameplate.paint), {image} = the skin's own art.
-// Undeclared: such a page stays faceless as before.
+// Undeclared: such a page stays faceless as before. phone: true = a phone portrait (640px and less) also shows the face, on its
+// narrow side (needs narrow); by default it shows none and the lines take the box's full width.
 const skinPortrait = value => {
-    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,
+    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,phone:skinEnum([true]),
         when:skinEnum(['always','off-stage']),feather:skinArray(skinNumber(0,.5),4,4),placeholder:placeholder => placeholder === 'initial' || skinObject({image:skinImage},['image'])(placeholder)},['left','bottom','size'])(value)) return false;
     // A framed source (bust, sprite) needs bust and only one has it; only the live cut has a crop; a frame is the square's.
     const order = stageSkinPortraitOrder(value), framed = order.includes('bust') || order.includes('sprite');
     return framed === Object.hasOwn(value,'bust') && (!framed || order.includes('bust') === Object.hasOwn(value.bust,'crop'))
-        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name);
+        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name) && !(value.phone && !value.narrow);
 };
 // how the items mod's card looks in this skin - the
 // original's evidence frame. frame = its image, drawn as box [centre x, centre y, width, height] on the design screen; media =

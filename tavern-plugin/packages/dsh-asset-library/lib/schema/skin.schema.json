@@ -4102,7 +4102,13 @@
         "always",
         "off-stage"
        ],
-       "description": "always (the default): every speaker with an avatar shows it. off-stage: on wide stages (over 640px) a speaker drawn on stage shows no face (the figure is the speaker; the page is faceless, as narration); a speaker who is not on stage shows it. Phones show every face."
+       "description": "always (the default): every speaker with an avatar shows it. off-stage: on wide stages (over 640px) a speaker drawn on stage shows no face (the figure is the speaker; the page is faceless, as narration); a speaker who is not on stage shows it. Phones show every face where they show one (phone)."
+      },
+      "phone": {
+       "enum": [
+        true
+       ],
+       "description": "A phone portrait (640px and less) also shows the box face, on its narrow side (needs narrow). Default: none there - no face, no column for it, the lines from the box's left padding at its full width; the speaker's name stays."
       },
       "placeholder": {
        "oneOf": [
@@ -4508,7 +4514,7 @@
         "x",
         "y"
        ],
-       "description": "Stages of 640px and less (§13): the face side (the frame, or the square without one) width CSS px wide, its height by the frame's aspect, x px from the box's left edge and y px from its top edge (negative: above it); the lines start clear of it whether a face shows or not. name = how a frame name reads there: below (one straight line centred under the side, default) or arc (needs frame.name) (with nameMin, its floor in CSS px); flow / left = how the lines clear the side.",
+       "description": "Stages of 640px and less (§13): the face side (the frame, or the square without one) width CSS px wide, its height by the frame's aspect, x px from the box's left edge and y px from its top edge (negative: above it); used only with phone true (otherwise a phone shows no face and keeps no column). The lines start clear of it whether a face shows or not. name = how a frame name reads there: below (one straight line centred under the side, default) or arc (needs frame.name) (with nameMin, its floor in CSS px); flow / left = how the lines clear the side.",
        "properties": {
         "width": {
          "type": "number",
