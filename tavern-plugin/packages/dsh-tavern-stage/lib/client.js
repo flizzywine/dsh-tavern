@@ -23603,7 +23603,7 @@ function GalConfigScreenTab(props) {
     return h(React.Fragment, null,
         galConfigGroup(skinError ? ["外观", h("span", { key: "error", className: "fork-gal-config-caption-alert", role: "alert" }, "⚠ " + skinError)] : "外观", null,
             galConfigRow("本卡皮肤", skinRow, h(React.Fragment, null, h("span", null, "只换这张卡的皮肤，导出卡时一起带走。"),
-                h("span", null, "↺ 改用 舞台设置 › 基础设置 的默认皮肤。皮肤不可用时先退回默认皮肤，再退回「经典」。导演临时换的皮肤（如场景光效）结束后也回到这里。"))),
+                h("span", null, "↺ 改用 舞台设置 › 舞台模式 › 皮肤 的默认皮肤。皮肤不可用时先退回默认皮肤，再退回「经典」。导演临时换的皮肤（如场景光效）结束后也回到这里。"))),
             galConfigRow("顶栏按钮", hudRow, h(React.Fragment, null, h("span", null, "背景、BGM、声音、手机、电影模式这一排按钮。"),
                 h("span", null, "自动隐藏：鼠标移到画面上方、打开菜单或用 Tab 时出现，地点或曲子变化时标签也会出现几秒。默认跟随皮肤。")))),
         galConfigGroup("效果", null,
@@ -27972,10 +27972,10 @@ function stageSkinPalette(document) {
   const fg=paint.fg||paint.bg,radius=look.ui?.radius??look.textbox?.shape?.radius;
   return {bg:paint.bg,fg,accent:paint.accent||look.textStyle?.emphasis||fg,border:paint.border||paint.fgMuted||fg,radius:typeof radius==='number'?radius:10};
 }
-// packIds: the packs whose skins are offered (the global default offers the globally enabled packs').
-function stageSkinChoices(ctx,packIds=ctx.ext.assetBindings.boundPackIds) {
+// packs: the full documents of the packs whose skins are offered (the global default offers the globally enabled packs').
+function stageSkinChoices(packs) {
   const choices=STAGE_BUILTIN_SKINS.map(([value,label])=>({value,label}));
-  for(const row of ctx.packs) { const pack=packIds.includes(row.manifest.id)&&ctx.writer.pack(row.manifest.id); if(!pack)continue;
+  for(const pack of packs) {
     for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
       const document=pack.skins?.[asset.id];if(!document)continue;
       choices.push({value:{packId:pack.manifest.id,kind:'skins',assetId:asset.id},label:document.label,note:document.directorNote,palette:stageSkinPalette(document)});
@@ -28004,19 +28004,6 @@ function StageSkinPicker({label,choices,value,onChange}) {
         return h('button',{key:stageSkinKey(choice.value),type:'button',role:'menuitemradio','aria-checked':on,className:'ap-menu-item ap-skin-option',title:choice.note||undefined,
           onClick:()=>{close();if(!on)onChange(choice.value);back();}},h(StageSkinArt,{choice}),h('span',{className:'ap-skin-name'},choice.label),on&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));}),
       !shown.length&&h(EmptyState,{compact:true,noun:'皮肤',query,onClear:()=>setQuery('')}))});
-}
-// 「默认皮肤」 in 基础设置 is the global default (engine dialogueTheme) for every card without its own 「使用皮肤」
-// (stage.defaultSkin: imported with the card or chosen in stage CONFIG › 画面 本卡皮肤); 经典 when unusable. It works
-// without 舞台模式 (the text box shows whenever bubbles are on).
-const STAGE_SKIN_HELP='没有指定皮肤的卡都用这套；皮肤不可用时用「经典」。';
-function StageGlobalSkin({ctx}) {
-  // The engine's custom dialogue themes (dsh-dialogue-theme presets) are global choices too.
-  const engine=ctx.writer.engine,selected=engine?.values?.dialogueTheme;
-  const choices=[...stageSkinChoices(ctx,ctx.binding?.globalEnabledPackIds||[]),...(engine?.values?.dialogueThemes||[]).map(theme=>({value:theme.id,label:theme.name}))];
-  if(!engine?.values||engine.writable===false)return null;
-  return h(InlineRow,{label:'默认皮肤',className:'ap-stage-skin-row',help:h(Help,{text:STAGE_SKIN_HELP,label:'默认皮肤 说明'})},
-    h(StageSkinPicker,{label:'默认皮肤',choices,value:selected,onChange:value=>ctx.writer.global(value,'dialogueTheme')}),
-    !choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(selected))&&h(HintLine,{compact:true,text:'所选皮肤不可用，正在用「经典」'}));
 }
 
 // 5.2: the only solid button on the page.
@@ -28104,7 +28091,6 @@ function StageSwitches({ctx}) {
     h(StageNarratorRow,{key:'narrator',ctx}),
     h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,tag:stageSwitchTag(ctx,'stage','使用舞台',false),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
     h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
-    h(StageGlobalSkin,{key:'skin',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
     h(StagePerformanceRow,{key:'performance',ctx}),
@@ -29658,6 +29644,21 @@ function EngineCommandGroup({group,items,isOn,disabled,onToggle}) {
           checked&&h(Glyph,{name:'check'}),h('span',null,label));})));
 }
 
+// ---------- 皮肤: 「默认皮肤」 is the global default (engine dialogueTheme) for every card without its own 「使用皮肤」
+// (stage.defaultSkin: imported with the card or chosen in stage CONFIG › 画面 本卡皮肤); 经典 when unusable. It offers the
+// built-in skins, the globally enabled packs' skins and the engine's custom dialogue themes, and saves at once.
+const STAGE_SKIN_HELP='没有指定皮肤的卡都用这套；皮肤不可用时用「经典」。';
+function EngineSkinSection({binding,value,themes,disabled,onChange}) {
+  const packs=useLoad(binding,async()=>{const global=binding.globalEnabledPackIds||[];
+    return stageReadDetails(binding,(await loadPackRows(binding)).filter(row=>!row.error&&row.manifest&&global.includes(row.manifest.id)));},[]);
+  const choices=[...stageSkinChoices(packs.value||[]),...(themes||[]).map(theme=>({value:theme.id,label:theme.name}))];
+  return h(StageSection,{foldKey:engineFold('皮肤'),title:'皮肤',className:'ap-engine-skin',help:STAGE_SKIN_HELP},
+    h(InlineRow,{label:'默认皮肤',className:'ap-stage-skin-row'},
+      h(StageSkinPicker,{label:'默认皮肤',choices,value,onChange:next=>{if(!disabled)onChange(next);}}),
+      packs.value&&!choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(value))&&h(HintLine,{compact:true,text:'所选皮肤不可用，正在用「经典」'})),
+    h(ErrorBox,{error:packs.error,reload:packs.reload}));
+}
+
 // `focus:'judge'` (提示词 › 智能判断 ✎) opens the page at 智能判断, unfolded, with the focus on its heading; `focus:'commands'`
 // (提示词 › 导演指令 / 演出指引 ✎) at 可用演出 the same way.
 function EnginePage({binding,onBack,focus}) {
@@ -29692,6 +29693,7 @@ function EnginePage({binding,onBack,focus}) {
     return result.status;
   }
 
+  async function saveSkin(value){const result=await state.task(()=>binding.rpc('saveAssetEngineSettings',{expectedRevision:state.value.revision,patch:{dialogueTheme:value}}));if(result)keep(result,'dialogueTheme');}
   async function toggleDimension(key,value){const result=await state.task(()=>binding.rpc('saveAssetEngineSettings',{expectedRevision:state.value.revision,patch:{dimensions:{[key]:value}}}));if(result)keep(result,'dimensions');}
   // Every command shows (a missing key reads as on, like the backend default).
   const dims=draft.dimensions||{},groups=ENGINE_DIMENSION_GROUPS;
@@ -29704,6 +29706,8 @@ function EnginePage({binding,onBack,focus}) {
   const voiceKinds=installed?[...new Set([...installed.map(s=>s.kind),...Object.keys(draft.voiceServices).filter(k=>k!=='reference'&&k!=='gpt-sovits')])]
     .filter(kind=>{const chosen=draft.voiceServices[kind];return ofKind(kind).length>=2||!!chosen&&!installed.some(s=>s.id===chosen);}):[];
   return h('div',{className:'ap-engine',ref:page,onKeyDown:keys},head,
+    // 皮肤 first (moved here from 基础设置: a skin is a stage concept); it saves at once like 可用演出's chips.
+    state.value.writable!==false&&h(EngineSkinSection,{binding,value:draft.dialogueTheme,themes:draft.dialogueThemes,disabled:state.busy,onChange:saveSkin}),
     // 「判断模型」 (was 智能判断; the fold key keeps the old name), no provider badge.
     draft.judge&&h(StageSection,{foldKey:engineFold('智能判断'),title:'判断模型',className:'ap-engine-judge',reveal:focus==='judge',
         help:'可选：配置后可减轻导演负担、更精准地挑选素材；未设置时蓝灯与触发词照常生效，可用模组直接交给导演。'},

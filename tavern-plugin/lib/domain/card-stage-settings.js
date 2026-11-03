@@ -40,7 +40,7 @@ export function validateCardStage(value, path = '$.stage') {
 }
 
 // The one place the card's skin is decided, when the director is not changing it for a while (a performance skin wins and
-// returns here): the card's 「使用皮肤」 (stage.defaultSkin) > the global 默认皮肤 (engine dialogueTheme, 舞台设置 › 基础设置; a
+// returns here): the card's 「使用皮肤」 (stage.defaultSkin) > the global 默认皮肤 (engine dialogueTheme, 舞台设置 › 舞台模式 › 皮肤; a
 // saved custom dialogue theme reads as its built-in theme) > 经典. { skin, fallback }: fallback = global, else classic - what
 // the card shows without its own value (CONFIG's ↺ clears the value back to it). `manifests`: the manifests of the packs this
 // card may use that the selections name (cardStageSkinPackIds). A pack skin is drawn only while its pack is on for this card

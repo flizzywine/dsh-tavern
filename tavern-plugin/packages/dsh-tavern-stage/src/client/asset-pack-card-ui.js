@@ -284,10 +284,10 @@ function stageSkinPalette(document) {
   const fg=paint.fg||paint.bg,radius=look.ui?.radius??look.textbox?.shape?.radius;
   return {bg:paint.bg,fg,accent:paint.accent||look.textStyle?.emphasis||fg,border:paint.border||paint.fgMuted||fg,radius:typeof radius==='number'?radius:10};
 }
-// packIds: the packs whose skins are offered (the global default offers the globally enabled packs').
-function stageSkinChoices(ctx,packIds=ctx.ext.assetBindings.boundPackIds) {
+// packs: the full documents of the packs whose skins are offered (the global default offers the globally enabled packs').
+function stageSkinChoices(packs) {
   const choices=STAGE_BUILTIN_SKINS.map(([value,label])=>({value,label}));
-  for(const row of ctx.packs) { const pack=packIds.includes(row.manifest.id)&&ctx.writer.pack(row.manifest.id); if(!pack)continue;
+  for(const pack of packs) {
     for(const asset of pack.manifest.assets.filter(a=>a.kind==='skins')) {
       const document=pack.skins?.[asset.id];if(!document)continue;
       choices.push({value:{packId:pack.manifest.id,kind:'skins',assetId:asset.id},label:document.label,note:document.directorNote,palette:stageSkinPalette(document)});
@@ -316,19 +316,6 @@ function StageSkinPicker({label,choices,value,onChange}) {
         return h('button',{key:stageSkinKey(choice.value),type:'button',role:'menuitemradio','aria-checked':on,className:'ap-menu-item ap-skin-option',title:choice.note||undefined,
           onClick:()=>{close();if(!on)onChange(choice.value);back();}},h(StageSkinArt,{choice}),h('span',{className:'ap-skin-name'},choice.label),on&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'})));}),
       !shown.length&&h(EmptyState,{compact:true,noun:'皮肤',query,onClear:()=>setQuery('')}))});
-}
-// 「默认皮肤」 in 基础设置 is the global default (engine dialogueTheme) for every card without its own 「使用皮肤」
-// (stage.defaultSkin: imported with the card or chosen in stage CONFIG › 画面 本卡皮肤); 经典 when unusable. It works
-// without 舞台模式 (the text box shows whenever bubbles are on).
-const STAGE_SKIN_HELP='没有指定皮肤的卡都用这套；皮肤不可用时用「经典」。';
-function StageGlobalSkin({ctx}) {
-  // The engine's custom dialogue themes (dsh-dialogue-theme presets) are global choices too.
-  const engine=ctx.writer.engine,selected=engine?.values?.dialogueTheme;
-  const choices=[...stageSkinChoices(ctx,ctx.binding?.globalEnabledPackIds||[]),...(engine?.values?.dialogueThemes||[]).map(theme=>({value:theme.id,label:theme.name}))];
-  if(!engine?.values||engine.writable===false)return null;
-  return h(InlineRow,{label:'默认皮肤',className:'ap-stage-skin-row',help:h(Help,{text:STAGE_SKIN_HELP,label:'默认皮肤 说明'})},
-    h(StageSkinPicker,{label:'默认皮肤',choices,value:selected,onChange:value=>ctx.writer.global(value,'dialogueTheme')}),
-    !choices.some(choice=>stageSkinKey(choice.value)===stageSkinKey(selected))&&h(HintLine,{compact:true,text:'所选皮肤不可用，正在用「经典」'}));
 }
 
 // 5.2: the only solid button on the page.
@@ -416,7 +403,6 @@ function StageSwitches({ctx}) {
     h(StageNarratorRow,{key:'narrator',ctx}),
     h(SwitchRow,{key:'stage',label:'使用舞台',icon:STAGE_ICONS.stage,tag:stageSwitchTag(ctx,'stage','使用舞台',false),status:h(StageModeJump,{ctx}),onOpen:ctx.onEngine?()=>ctx.onEngine():undefined}),
     h(StageAutoChoicesRow,{key:'auto-choices',ctx}),
-    h(StageGlobalSkin,{key:'skin',ctx}),
     AUDIO_ROWS.map(sound),
     h(StageItemsRow,{key:'items',ctx}),
     h(StagePerformanceRow,{key:'performance',ctx}),
