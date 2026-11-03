@@ -91,4 +91,5 @@ Object.entries({ accent: t.accent, ink: t.surfaceText, surface: t.surface, muted
 
 - 覆盖层在 1920 宽的桌面和 390 宽的手机上都会打开，面板布局要能适应窄屏。
 - 小图可以内联成 `data:` URI；不要依赖外部网络资源。
+- 文档背景透明，下面是覆盖层的皮肤表面色；`html`、`body` 的 margin 和 padding 被统一归零（`!important`），边距写在外层容器上。
 - 关闭：标题栏的关闭按钮、点面板外、右键、Esc，或脚本调 `close()`。焦点在受信任的面板内时只有 Esc 关闭，S 键留给面板自己的输入。

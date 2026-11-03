@@ -5964,7 +5964,8 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage .fork-gal-status-close:hover { background: var(--gal-ui-hover); color: var(--gal-ui-accent); }
 .fork-gal-stage .fork-gal-status-close:focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; color: var(--gal-ui-accent); }
 .fork-gal-status-body { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.fork-gal-status-frame { display: block; flex: 1; width: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; }
+/* the card frame's root is color-scheme: light dark (frame-document.js); the frame element matches it, or the browser paints an opaque canvas behind the panel */
+.fork-gal-status-frame { display: block; flex: 1; width: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; color-scheme: light dark; }
 .fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
 .fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
 .fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }
