@@ -176,16 +176,20 @@ test('GitHub 安装用最新 Release；更新重新下载，旧版进备份；�
   const fetchImpl = async url => {
     calls.push(url)
     if (url.endsWith('/releases/latest')) return { ok: true, status: 200, json: async () => ({ tag_name: 'v' + version }) }
-    if (url.includes('/zipball/')) { const zip = hello(version); return { ok: true, status: 200, arrayBuffer: async () => zip } }
+    if (url.includes('/zip/') && !url.endsWith('/zip/HEAD')) { const zip = hello(version); return { ok: true, status: 200, arrayBuffer: async () => zip } }
     return { ok: false, status: 404 }
   }
   const { installer, plugins, dataRoot } = await setup(t, fetchImpl)
   const first = await installer.installFromGithub('https://github.com/author/dsh-tavern-hello')
   assert.equal(first.version, '1.0.0')
-  assert.equal(calls.at(-1), 'https://api.github.com/repos/author/dsh-tavern-hello/zipball/v1.0.0')
+  assert.equal(calls.at(-1), 'https://codeload.github.com/author/dsh-tavern-hello/zip/v1.0.0')
+  // 下载不走 api.github.com，它只用来问最新 Release 是哪个。
+  assert.equal(calls.filter(url => url.includes('/zipball')).length, 0)
   const source = JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', '.tavern-source.json'), 'utf8'))
   assert.equal(source.repo, 'author/dsh-tavern-hello')
   assert.equal(source.resolved, 'Release v1.0.0')
+  // 一切正常时不留 warning 键，别让空字符串进配置文件。
+  assert.equal('warning' in source, false)
 
   version = '1.1.0'
   const updated = await installer.update('dsh-tavern-hello')
@@ -222,15 +226,35 @@ test('没有 Release 用默认分支；仓库不存在、连不上都给出办�
   const { installer } = await setup(t, async url => {
     calls.push(url)
     if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
-    if (url.endsWith('/zipball')) { const zip = hello(); return { ok: true, status: 200, arrayBuffer: async () => zip } }
+    if (url.endsWith('/zip/HEAD')) { const zip = hello(); return { ok: true, status: 200, arrayBuffer: async () => zip } }
     return { ok: false, status: 404 }
   })
   await installer.installFromGithub('author/dsh-tavern-hello')
-  assert.equal(calls.at(-1), 'https://api.github.com/repos/author/dsh-tavern-hello/zipball')
+  assert.equal(calls.at(-1), 'https://codeload.github.com/author/dsh-tavern-hello/zip/HEAD')
   await assert.rejects(installer.installFromGithub('https://github.com/author/missing/tree/dev'), /找不到仓库/)
 
   const offline = await setup(t, async () => { throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }) })
   await assert.rejects(offline.installer.installFromGithub('a/b'), /连不上 GitHub（ECONNRESET）.*下载 ZIP 后上传/)
+})
+
+test('GitHub API 限流（403）不中断安装：退回默认分支并带上说明', async t => {
+  const calls = []
+  const { installer, plugins } = await setup(t, async url => {
+    calls.push(url)
+    // 共享出口 IP 把匿名配额用完了：releases/latest 返回 403，但下载通道不受影响。
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 403 }
+    if (url.endsWith('/zip/HEAD')) { const zip = hello(); return { ok: true, status: 200, arrayBuffer: async () => zip } }
+    return { ok: false, status: 404 }
+  })
+  const installed = await installer.installFromGithub('author/dsh-tavern-hello')
+  assert.equal(installed.version, '1.0.0')
+  assert.match(installed.warning, /访问次数受限.*默认分支/)
+  // 下载仍然走 codeload，不碰被限流的 api.github.com。
+  assert.equal(calls.at(-1), 'https://codeload.github.com/author/dsh-tavern-hello/zip/HEAD')
+  // 这次确实降级了，附注要留在来源记录里，事后能查到当初为什么没装成 Release。
+  const source = JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', '.tavern-source.json'), 'utf8'))
+  assert.equal(source.resolved, '默认分支')
+  assert.match(source.warning, /访问次数受限/)
 })
 
 test('删除插件时，插件数据随文件夹一起进备份；更新不动插件数据', async t => {

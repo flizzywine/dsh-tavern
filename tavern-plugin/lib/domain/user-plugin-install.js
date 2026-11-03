@@ -69,19 +69,29 @@ export function comparePluginVersions(left, right) {
   return 0
 }
 
-/** 有 Release 用最新 Release，否则用默认分支；地址里写了分支或标签就用它。 */
+// 有 Release 用最新 Release，否则用默认分支；地址里写了分支或标签就用它。
+// 下载走 codeload.github.com：它不占 GitHub API 的每小时配额，本体 install.sh 也用它。
+// api.github.com 只用来问「最新 Release 是哪个」，问答失败只是退回默认分支，不中断安装。
 export async function downloadGithubPlugin(source, { fetchImpl = fetch } = {}) {
-  const base = `https://api.github.com/repos/${source.owner}/${source.repo}`
-  let ref = source.ref, label = source.ref ? source.ref : '默认分支'
+  const api = `https://api.github.com/repos/${source.owner}/${source.repo}`
+  const archive = `https://codeload.github.com/${source.owner}/${source.repo}/zip`
+  let ref = source.ref, label = source.ref ? source.ref : '默认分支', warning = ''
   if (!ref) {
-    const latest = await fetchOk(fetchImpl, base + '/releases/latest', 'application/vnd.github+json')
+    const latest = await fetchOk(fetchImpl, api + '/releases/latest', 'application/vnd.github+json')
     if (latest.ok) { const release = await latest.json(); ref = release.tag_name; label = 'Release ' + release.tag_name }
-    else if (latest.status !== 404) fail('读取仓库发布信息失败（HTTP ' + latest.status + (latest.status === 403 ? '，可能是 GitHub 访问次数受限，稍后再试或上传 ZIP' : '') + '）')
+    // 404 表示没有 Release；403 是共享出口 IP 把匿名配额用完了。两种都退回默认分支。
+    else if (latest.status === 403) warning = 'Release 信息暂不可用（GitHub 访问次数受限），已改用默认分支'
   }
-  const archive = await fetchOk(fetchImpl, base + '/zipball' + (ref ? '/' + encodeURIComponent(ref) : ''), 'application/vnd.github+json')
-  if (archive.status === 404) fail('找不到仓库 ' + source.owner + '/' + source.repo + (source.ref ? ' 的 ' + source.ref : '') + '，请检查地址，或确认仓库是公开的')
-  if (!archive.ok) fail('下载插件失败（HTTP ' + archive.status + '）')
-  return { bytes: Buffer.from(await archive.arrayBuffer()), ref: ref || 'HEAD', label }
+  // ref 可能是标签也可能是分支（地址里写的是 …/tree/<名>），codeload 的裸 ref 两种都能解析；
+  // 写成 refs/tags/ 会把分支名判死（/zip/refs/tags/main → 404）。
+  const response = await fetchOk(fetchImpl, archive + (ref ? '/' + encodeURIComponent(ref) : '/HEAD'))
+  if (response.status === 404) {
+    // 不带 ref 时 /HEAD 已是默认分支，404 只能说明仓库不存在或不是公开的。
+    if (!ref) fail('找不到仓库 ' + source.owner + '/' + source.repo + '，请检查地址，或确认仓库是公开的')
+    fail('找不到仓库 ' + source.owner + '/' + source.repo + ' 的 ' + ref + '，请检查地址，或确认仓库是公开的')
+  }
+  if (!response.ok) fail('下载插件失败（HTTP ' + response.status + '）')
+  return { bytes: Buffer.from(await response.arrayBuffer()), ref: ref || 'HEAD', label, warning }
 }
 
 function hostEntryOf(pkg) {
@@ -146,6 +156,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     const response = await fetchOk(fetchImpl, `https://api.github.com/repos/${source.owner}/${source.repo}/releases/latest`, 'application/vnd.github+json', AbortSignal.timeout(5000))
     let value
     if (response.status === 404) value = { status: 'none' }
+    else if (response.status === 403) value = { status: 'error', reason: 'GitHub 访问次数受限，暂时读不到新版本' }
     else if (!response.ok) value = { status: 'error', reason: '读取发布信息失败（HTTP ' + response.status + '）' }
     else {
       const release = await response.json()
@@ -201,7 +212,10 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         await mkdir(path.dirname(file), { recursive: true })
         await writeFile(file, data)
       }
-      await writeFile(path.join(staging, SOURCE_FILE), JSON.stringify({ ...source, version: String(pkg.version || ''), replaced: wasInstalled, installedAt: now().toISOString() }, null, 2) + '\n')
+      // 来源记录：warning 只是这一次安装的附注，没有内容就不落盘。
+      const record = { ...source, version: String(pkg.version || ''), replaced: wasInstalled, installedAt: now().toISOString() }
+      if (!record.warning) delete record.warning
+      await writeFile(path.join(staging, SOURCE_FILE), JSON.stringify(record, null, 2) + '\n')
       if (wasDisabled) await writeFile(path.join(staging, DISABLED_FILE), JSON.stringify({ disabledAt: now().toISOString(), keptAcrossUpdate: true }, null, 2) + '\n')
       if (wasInstalled) await writeFile(path.join(staging, RESTART_FILE), JSON.stringify({ updatedAt: now().toISOString(), previousVersion: String(previous.version || ''), version: String(pkg.version || '') }, null, 2) + '\n')
       const replaced = wasInstalled ? await backup(folder) : null
@@ -209,7 +223,11 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       // The next settings visit should read the Release again, not a cached "available".
       releases.clear()
       await sync()
-      return { folder, name: String(pkg.name || folder), version: String(pkg.version || ''), replaced: Boolean(replaced) }
+      // warning 只在「有话说」时出现（比如限流后退回默认分支），不污染正常返回值。
+      return {
+        folder, name: String(pkg.name || folder), version: String(pkg.version || ''), replaced: Boolean(replaced),
+        ...(source.warning ? { warning: String(source.warning) } : {}),
+      }
     } finally { await rm(staging, { recursive: true, force: true }) }
   }
 
@@ -301,7 +319,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
       return serial(async () => {
         const source = parseGithubSource(input)
         const downloaded = await downloadGithubPlugin(source, { fetchImpl })
-        return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.owner + '/' + source.repo, ref: source.ref, resolved: downloaded.label }, source.repo)
+        return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.owner + '/' + source.repo, ref: source.ref, resolved: downloaded.label, warning: downloaded.warning }, source.repo)
       })
     },
     installFromZip(bytes, fileName) {
@@ -314,7 +332,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         const parsed = parseGithubSource(source.repo)
         parsed.ref = source.ref || null
         const downloaded = await downloadGithubPlugin(parsed, { fetchImpl })
-        return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.repo, ref: source.ref || null, resolved: downloaded.label }, parsed.repo)
+        return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.repo, ref: source.ref || null, resolved: downloaded.label, warning: downloaded.warning }, parsed.repo)
       })
     },
     remove(folder) {
