@@ -1,3 +1,33 @@
+diff --git a/lib/client-registry.js b/lib/client-registry.js
+index f38251fe3fb92e5609901c6e3fdb82c9f1f490dd..73faaf32aa5d057af8471451868c76b48c138467 100644
+--- a/lib/client-registry.js
++++ b/lib/client-registry.js
+@@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const nativeTab = info.tab;
+ 			(0, react.useSyncExternalStore)((listener) => records.subscribe(listener), () => records.versionOf(sessionId, nativeTab.id));
+ 			const record = records.get(sessionId, nativeTab.id);
+-			const title = record?.tab.title ?? nativeTab.title;
+ 			const descriptor = service.getTab(descriptorId) ?? service.getTab(record?.tab.type ?? nativeTab.kind);
++			// A single page's title is its type's, read from the registry at render time: an open tab follows a renamed panel.
++			const title = descriptor?.single === true ? titleOf(descriptor) : record?.tab.title ?? nativeTab.title;
+ 			const path = record?.tab.path ?? paramsOf?.(info)?.path;
+ 			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
+ 			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
+diff --git a/lib/client.js b/lib/client.js
+index 00ee3b118e13dcdb66374638960812850931c6ca..93468a2eccd2ada54c623af7dc197a04e027c97c 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -29879,8 +29879,9 @@ Mode: this is a continuable side conversation. Your answers stay in this side th
+ 			const nativeTab = info.tab;
+ 			(0, react.useSyncExternalStore)((listener) => records.subscribe(listener), () => records.versionOf(sessionId, nativeTab.id));
+ 			const record = records.get(sessionId, nativeTab.id);
+-			const title = record?.tab.title ?? nativeTab.title;
+ 			const descriptor = service.getTab(descriptorId) ?? service.getTab(record?.tab.type ?? nativeTab.kind);
++			// A single page's title is its type's, read from the registry at render time: an open tab follows a renamed panel.
++			const title = descriptor?.single === true ? titleOf(descriptor) : record?.tab.title ?? nativeTab.title;
+ 			const path = record?.tab.path ?? paramsOf?.(info)?.path;
+ 			const glyph = (path !== void 0 && descriptorId === EDITOR_KIND$1 ? service.fileIcon(path, CHIP_ICON_SIZE) : void 0) ?? (typeof descriptor?.icon === "function" ? descriptor.icon(CHIP_ICON_SIZE) : descriptor?.icon);
+ 			const unread = (0, react.useSyncExternalStore)((listener) => service.subscribeState(listener), () => isUnread(service.getSnapshot().state, record?.tab.type ?? descriptorId));
 diff --git a/lib/index.js b/lib/index.js
 index a87bddbdde55c23260324611e99d855f161e3491..82d5b1cd2dea6a4fbb64a353d2e3c6981c38f91c 100644
 --- a/lib/index.js

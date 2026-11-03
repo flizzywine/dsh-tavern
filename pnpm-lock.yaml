@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  dsh-better-sidebar@0.28.0: 4f54fe004a0c388c920fb4827618d7795673580b54a583675b959a2b3fa7fac6
+  dsh-better-sidebar@0.28.0: 850e16168b85d56a330c133fe8f26468d70046002ca6b3e7f06a1b6cfb75450e
   dsh-pocket@2.12.0: 1b0fac9bc15853908a97cd3cd9cea13aa17484e649ce423b5f9bcbecd61ef42e
   dsh-web-mobile@3.1.0: f4e306c03ef6fb2ffca172bcac2f1f72debff28a56bdc2b966a304ccd7fb5fa5
 
@@ -73,7 +73,7 @@ importers:
         version: link:tavern-plugin/packages/dsh-asset-library
       dsh-better-sidebar:
         specifier: 0.28.0
-        version: 0.28.0(patch_hash=4f54fe004a0c388c920fb4827618d7795673580b54a583675b959a2b3fa7fac6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        version: 0.28.0(patch_hash=850e16168b85d56a330c133fe8f26468d70046002ca6b3e7f06a1b6cfb75450e)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       dsh-dream-skin:
         specifier: link:./tavern-plugin/packages/dsh-dream-skin
         version: link:tavern-plugin/packages/dsh-dream-skin
@@ -2533,7 +2533,7 @@ snapshots:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
-  dsh-better-sidebar@0.28.0(patch_hash=4f54fe004a0c388c920fb4827618d7795673580b54a583675b959a2b3fa7fac6)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
+  dsh-better-sidebar@0.28.0(patch_hash=850e16168b85d56a330c133fe8f26468d70046002ca6b3e7f06a1b6cfb75450e)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
     dependencies:
       '@codemirror/commands': 6.11.0
       '@codemirror/lang-cpp': 6.0.3
