@@ -305,6 +305,8 @@
 .fork-gal-stage .fork-gal-choice.is-free .fork-gal-choice-main { color: var(--gal-ui-ink-2); letter-spacing: .08em; }
 .fork-gal-stage .fork-gal-choice.is-free:is(:hover, :focus-within, [data-edited]) .fork-gal-choice-main { color: var(--gal-ui-ink); }
 .fork-gal-stage .fork-gal-choice.is-free .fork-gal-choice-main svg { flex: none; color: var(--gal-ui-accent); }
+/* The ✎ hangs before the words, so 自由输入 itself sits where a suggestion's words do (centred on the bar). */
+.fork-gal-stage .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-main > svg { margin-inline-start: calc(-15px - .5em); }
 /* The ellipsis clip reaches .3em past the box on every side (overflow-clip-margin; layout and the art menu's fit unchanged),
    so a face taller than the line (P5's Noto Sans SC 700) and a skin's glow keep their tops, bottoms and halo. */
 .fork-gal-stage .fork-gal-choice.is-free .fork-gal-choice-text { overflow: clip; overflow-clip-margin: .3em; white-space: nowrap; text-overflow: ellipsis; }
@@ -349,7 +351,7 @@
    padding and type); the list stands on its bottom line, so the smaller generating chip never moves the rows below. */
 /* Off: 「生成选项」 is the panel's primary action - the same ribbon with an accent wash and full accent hairlines. */
 .fork-gal-stage .fork-gal-choice:has(> [data-action="generate"]) { border-block-color: color-mix(in srgb, var(--gal-ui-accent) 75%, transparent); background: color-mix(in srgb, var(--gal-ui-accent) 14%, var(--gal-ui-surface-2)); }
-.fork-gal-stage .fork-gal-choice-main[data-action="generate"] { font-weight: 600; letter-spacing: .3em; }
+.fork-gal-stage .fork-gal-choice-main[data-action="generate"] { font-weight: 600; letter-spacing: .3em; text-indent: .3em; }
 .fork-gal-stage .fork-gal-choice:has(> [data-action="generate"]):hover { border-block-color: var(--gal-ui-accent); background: color-mix(in srgb, var(--gal-ui-accent) 22%, var(--gal-ui-surface-2)); }
 /* Failed: plain ink with a small warning dot, and a quiet outlined 重试 pill; not an alarm. */
 .fork-gal-stage .fork-gal-choice.is-error { justify-content: center; gap: 14px; border-block-color: color-mix(in srgb, var(--gal-ui-widget-warning) 55%, transparent); color: var(--gal-ui-ink); font: 500 var(--gal-ui-choice-size)/1.5 var(--gal-ui-font); letter-spacing: .03em; }
@@ -4649,6 +4651,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   padding: calc((var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu) + var(--art-pad))
     calc((var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d)) * var(--cu)) calc(var(--art-choice-l) * var(--cu) + var(--art-pad)); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices .fork-gal-choice[data-type] > .fork-gal-choice-main { --art-pad: var(--art-choice-edit); }
+/* 生成选项 and 自由输入 are the menu's own rows, not suggestions: their words centre on the whole bar whatever art.choices.align
+   says, the wider side of the text column (a number cell, the trailing control's room) kept clear on both sides; the ✎ before
+   自由输入 hangs in that margin, so the words themselves sit on the bar's centre. */
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main {
+  text-align: center; justify-content: center;
+  padding-inline: calc(max(var(--art-choice-l), var(--art-choice-w) - var(--art-choice-r)) * var(--cu) + var(--art-pad)); }
+/* (the letter spacing after its last glyph, balanced before the first) */
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main[data-action="generate"] { text-indent: var(--art-choice-spacing, 0); }
+.fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-main > svg { margin-inline-start: calc(-1 * (max(15px, .7em) + .5em)); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices :is(.fork-gal-choice.is-editing, .fork-gal-choice.is-error) {
   gap: .5em; padding: calc(max(0, var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc((var(--art-choice-w) - var(--art-choice-r)) * var(--cu))
     calc(max(0, var(--art-choice-h) - var(--art-choice-y) - var(--art-choice-d) - 12) * var(--cu)) calc(var(--art-choice-l) * var(--cu)); }
