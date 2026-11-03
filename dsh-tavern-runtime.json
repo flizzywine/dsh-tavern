@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
-  "revision": "0ff5749390554d2a2350275968f9ba147edf11a4",
-  "releaseSequence": 1089,
+  "revision": "1a62c910b3307f1c6b203b3e5dd4bb7e966cb678",
+  "releaseSequence": 1090,
   "version": "3.2.0",
   "files": [
     {
       "path": "android/apk/build-offline-bundle.sh",
-      "sha256": "a019d77c04784f7caf077eabd7b9a786f440072973437d7b739765328a637a14",
-      "size": 10703
+      "sha256": "ae11f9b0513c69b193da0c9fa31b33bea3921f2ed1c31b9f0f2b7001eea9a19a",
+      "size": 11361
     },
     {
       "path": "android/apk/build-web-compat.mjs",
@@ -21,7 +21,7 @@
     },
     {
       "path": "android/apk/prepare.py",
-      "sha256": "a003ff71cbdc0422918a1f10072628d2525e6a924ea2807ab254a0391bc2a4be",
+      "sha256": "aaddc2190064a1dd414606effdd0698e9e5edb55a80a94748070885560a7e2e5",
       "size": 15175
     },
     {
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "96730ffd47d5a0263e16c4dedd4a4cd90ffa77c0",
+    "commit": "0b253e92c9ad66e70f4ae85e49ed6298f2d4579e",
     "path": "runtime.zip",
-    "sha256": "f38a77976fce3864ead3ed6961f56aa91fd431912f6a6fbdddf95b3848aed14c",
-    "size": 15564326
+    "sha256": "212d82b56723c55b3c26eea08d283c677aba9060169dbc9b27cf7d0ca6422b25",
+    "size": 15564573
   }
 }
