@@ -789,9 +789,19 @@ const ZH_PERIOD_SENTENCE = {
   noon: '时间是正午，日光明亮',
   afternoon: '时间是午后，白天的自然光',
 }
-function statusPeriod(body) {
+function statusPeriod(body, mount) {
   const text = String(body ?? '')
-  const bars = [...text.matchAll(/\[时间[|｜]([^\]\n]{0,80})\]/g)]
+  const anchor = String(mount ?? '').trim()
+  let context = text
+  if (anchor) {
+    const offset = text.indexOf(anchor)
+    // A scene can precede a later time jump in the same reply. For a
+    // normalized or repeated anchor, only trust a standalone opening bar.
+    context = offset >= 0 && text.indexOf(anchor, offset + 1) < 0
+      ? text.slice(0, offset + anchor.length)
+      : (/^\s*(\[时间[|｜][^\]\n]{0,80}\])[^\S\n]*(?:\n|$)/.exec(text)?.[1] ?? '')
+  }
+  const bars = [...context.matchAll(/\[时间[|｜]([^\]\n]{0,80})\]/g)]
   let t = bars.at(-1)?.[1] ?? ''
   if (!bars.length) {
     // Some cards open with "地点 · 场合 · 时段 · 日期". A dated,
@@ -812,7 +822,7 @@ function statusPeriod(body) {
   if (/午后|下午|未时|申时/.test(t)) return 'afternoon'
   return ''
 }
-export function addSceneTime(scene, body) {
+export function addSceneTime(scene, body, mount) {
   const original = String(scene ?? '')
   // 先把漏了 $ 的宏补全，否则认不出开头的人物宏，时间句会插进两个宏中间。
   const text = repairMacros(original)
@@ -832,7 +842,7 @@ export function addSceneTime(scene, body) {
   if (conflicting) period = ''
   else if (hasNight) period = explicit(ZH_DARK_WORDS) ? '' : 'night'
   else if (hasDusk) period = explicit(ZH_DARK_WORDS) ? '' : 'dusk'
-  else if (!hasDay) period = statusPeriod(body)
+  else if (!hasDay) period = statusPeriod(body, mount)
   const sentence = ZH_PERIOD_SENTENCE[period]
   if (!sentence) return original
   // 插在开头的人物宏和镜头句之后：「${…}$, 半身近景，正面平视。」+ 时间句 + 其余画面。
@@ -2684,7 +2694,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           }
           // 中文自然语言：画面没写时间时从正文状态栏补一句（夜里补「窗外漆黑」）；三个人以上把竖图改成横图。
           if (rosterStyle(config, plannerWorkflow) === 'natural' && chineseAllowed(config, plannerWorkflow)) {
-            const timed = addSceneTime(image.prompts, body)
+            const timed = addSceneTime(image.prompts, body, image.mount)
             const size = crowdSize(image.size, image.prompts)
             if (timed !== image.prompts || size !== String(image.size ?? '').trim()) image = { ...image, prompts: timed, size, sizeAsked: image.size }
             sceneText = String(image.prompts ?? '')
