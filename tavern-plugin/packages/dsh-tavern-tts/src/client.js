@@ -128,9 +128,14 @@ exports.apply = function(ctx) {
   const Icon = ({name,size = 16}) => h('svg',{className:'dtts-icon',width:size,height:size,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     name === 'more' ? [3.5,8,12.5].map(x => h('circle',{key:x,cx:x,cy:8,r:1.25,fill:'currentColor'})) :
       PATHS[name].map((d,i) => h('path',{key:i,d,stroke:'currentColor',strokeWidth:1.3,strokeLinecap:'round',strokeLinejoin:'round'})))
-  // no grey helper text. Explanations sit behind a small 「?」:
-  // its tooltip shows on hover / keyboard focus and toggles on click or tap; Esc or an outside tap closes it.
+  // no grey helper text. Explanations sit behind a small 「?」. Inside Tavern it is Tavern's HelpTip (one 「?」 for every
+  // panel): its text floats in <body>, flipped and clamped to the viewport, so the narrow sidebar's edge never cuts it.
   function Help({text,label = '说明'}) {
+    const HelpTip = ctx.get('tavernPresentation')?.getHelpTip?.()
+    return HelpTip ? h('span',{className:'dtts-help-anchor'},h(HelpTip,{label},text)) : h(StandaloneHelp,{text,label})
+  }
+  // Without Tavern: the tooltip shows on hover / keyboard focus and toggles on click or tap; Esc or an outside tap closes it.
+  function StandaloneHelp({text,label}) {
     const [open,setOpen] = React.useState(false), root = React.useRef(null), id = React.useId()
     React.useEffect(() => {
       if (!open) return
