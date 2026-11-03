@@ -229,10 +229,13 @@ body.dsh-tavern-shell-active [data-turn-tail] > div:has([data-slot="conversation
    视口里全是“跳过”的行，浏览器找不到滚动锚点，上方各行从估算变回实际高度时目标轮被推走几千到几万像素（小圆往回 10 / 30 轮）。小行常驻布局后
    成为锚点，楼层估算误差由浏览器抵消。最新一层（data-fork-latest-floor，assistant-renderer 标记）打开时就在视口里，不按 800px 估算，否则延迟
    楼层会把上一层当作“临近”提前挂载；它的段落仍由下一条规则跳过。 */
-body.dsh-tavern-shell-active [data-slot="conversation.view"] [class*="_column"] > [class*="_flowItem"][data-chat-flow-kind="assistant-step"]:not([data-fork-latest-floor]) { content-visibility: auto; contain-intrinsic-size: auto 800px; }
+body.dsh-tavern-shell-active [data-slot="conversation.view"] [class*="_column"] > [class*="_flowItem"][data-chat-flow-kind="assistant-step"]:not([data-fork-latest-floor]):not([data-fork-recent-floor]) { content-visibility: auto; contain-intrinsic-size: auto 800px; }
 /* 最新一轮本身常有六七千像素、几十段；打开对话那一帧里宿主还要再读两次布局。段落（.fork-bubbles 的弹性子项，本就是独立格式化上下文，
    不跨界折叠外边距，后代不溢出段落盒）在视口外同样跳过，每次只排视口附近几段。 */
 body.dsh-tavern-shell-active [data-slot="conversation.view"] .dsh-tavern-assistant .fork-bubbles > * { content-visibility: auto; contain-intrinsic-size: auto 120px; }
+/* 刚离开最新位置的几层（data-fork-recent-floor，assistant-renderer 标记，4 轮内）整层与段落都不跳过。发送后上一层仍在视口里，
+   iOS WebKit 只在滚动时不会重算已跳过内容的相关性，正文会留成一块空白，直到下一次布局才回来；最新一层的段落仍按上一条跳过。 */
+body.dsh-tavern-shell-active [data-slot="conversation.view"] [data-fork-recent-floor] .dsh-tavern-assistant .fork-bubbles > * { content-visibility: visible; }
 body.dsh-tavern-shell-active .dsh-tavern-hero-preset-row { display: none !important; }
 /* 会话列表首次加载前不画首页，避免刷新时先闪首页再跳回上次的对话。 */
 body.dsh-tavern-sessions-pending [data-phase="hero"] > *, body.dsh-tavern-sessions-pending [data-phase="hero"]::before { visibility: hidden !important; }
