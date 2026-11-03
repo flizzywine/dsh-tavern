@@ -344,7 +344,7 @@ function GalBacklog(props) {
         // How to use it lives in a ? tip next to the title, not in a permanent hint line.
         h("div", { className: "fork-gal-backlog-head" },
             // The overlay layout has no title row: the name stays the dialog's label, the ? tip goes with the row.
-            looks.layout === "overlay" ? null : h("div", { className: "fork-gal-backlog-title" }, h("i", { className: "fork-gal-backlog-gem", "aria-hidden": true }), h("b", null, "履历"), h("small", null, "BACKLOG"),
+            looks.layout === "overlay" ? null : h("div", { className: "fork-gal-backlog-title" }, h("i", { className: "fork-gal-backlog-gem", "aria-hidden": true }), h("b", null, "履历"),
                 h(HelpTip, { label: "履历操作说明" }, h("span", null, "点击本轮的句子回到那一页"), h("span", null, "滚轮向下到底、右键或 Esc 关闭"))),
             // Close: part of the sheet's title row, at the column's right end in the title's ink — the only
             // visible close; Esc / right click / wheel past the end close too.
