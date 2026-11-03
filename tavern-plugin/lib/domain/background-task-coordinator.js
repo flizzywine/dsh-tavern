@@ -263,7 +263,9 @@ export function createBackgroundTaskCoordinator(options = {}) {
           const state = ++refreshes <= HEADER_RETRIES && store.readRecoveryState ? await store.readRecoveryState(chatId) : undefined
           if (state?.timeline?.schemaVersion === 1 && Number.isSafeInteger(state._storageRevision)
             && !Object.values(state.timeline.operations || {}).some(op => op?.kind === 'body' && op.status === 'foreground-completed')) {
-            source = { ...source, ...state, timeline: { ...state.timeline, checkpoints: source.timeline.checkpoints } }
+            // Header fields only: its empty message slice must not replace the snapshot's floors.
+            const { messages: _messages, ...header } = state
+            source = { ...source, ...header, timeline: { ...state.timeline, checkpoints: source.timeline.checkpoints } }
             continue
           }
           fast = false
