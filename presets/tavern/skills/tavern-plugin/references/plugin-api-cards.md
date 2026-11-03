@@ -215,9 +215,11 @@ ctx.tavern.speechProvider({
 
 用玩家选的渠道和这个人物的声音合成一句，返回 `{ url, mediaType }`，`url` 可以直接交给 `<audio>`。配音关闭、渠道是浏览器朗读（声音在浏览器里合成，宿主侧拿不到音频）、或旁白没有设声音时返回 `null`。`narration: true` 表示旁白，用旁白声音。适合做自己的播放界面、把语音挂进媒体项；只想在浏览器里播放时用 `tavernUi.speak` 更省事。
 
-### `generateImage({ prompt, width, height, background?, quality?, references?, signal? })`
+### `generateImage({ prompt, width, height, background?, quality?, references?, signal?, providerId?, modelId?, gameId?, card? })`
 
 用配图插件给 Tavern 的生图渠道（`imageProvider`，和素材库生图是同一个）画一张图，返回 `{ data, mediaType }`（`data` 是 Uint8Array）。
+
+`imageModels: 1` 可先查询模型列表，再通过 `providerId`、`modelId` 选定渠道；不传时沿用当前渠道。人物卡范围与模型删除后的行为见[生图接口](plugin-api-data.md)。
 
 ```js
 const { data, mediaType } = await ctx.tavern.generateImage({

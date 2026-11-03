@@ -400,8 +400,8 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
     // One picture for a plugin (tavern.generateImage) on the image plugin's current channel, under the same limit of four
     // in flight as the asset pictures. Nothing is kept or retried here. `mayHaveCharged` is false only for a refusal
     // before dispatch or a failure the image plugin marks requestMayHaveSucceeded === false.
-    async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal} = {}) {
-      const source = imageProvider(), status = source ? await source.status() : null
+    async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal} = {}, source = imageProvider()) {
+      const status = source ? await source.status() : null
       assert(source, 'NOT_CONFIGURED', '生图由「配图」插件出图；请先安装并启用配图插件')
       assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
       assert(typeof prompt === 'string' && prompt.trim() && prompt.length <= 32000 && [width, height].every(n => Number.isInteger(n) && n > 0 && n <= 8192), 'INVALID_ARGUMENT', '需要提示词和图片尺寸')

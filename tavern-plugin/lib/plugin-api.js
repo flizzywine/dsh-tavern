@@ -4,6 +4,7 @@ import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
 import { pluginMember, pluginMemberId, registerPluginMember } from './domain/background-members.js'
 import { CUSTOM_EVENT, STORY_EVENTS } from './domain/story-events.js'
 import { bounded, untilAborted } from './domain/plugin-callback.js'
+import { createPluginImageCatalog } from './domain/plugin-image-catalog.js'
 import path from 'node:path'
 import { publicPluginMedia, pluginMediaSession } from './domain/plugin-media.js'
 import { normalizeGameSettings, coerceSetting, settingValues } from './domain/plugin-game-settings.js'
@@ -173,7 +174,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1 })
+  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -211,6 +212,33 @@ export function createTavernPluginApi(deps) {
   function recordError(_gameId, owner, stage, error) {
     const message = String(error?.message || error).slice(0, 500)
     log.warn?.('dsh-tavern: 插件 ' + owner + ' 在「' + stage + '」出错: ' + message)
+  }
+
+  const imageCatalog = createPluginImageCatalog({ imageProviders, reportError: recordError,
+    available: async (owner, context) => {
+      const scopes = deps.cardScope ? await deps.cardScope() : null
+      const scope = scopes?.get(owner)
+      return !scope || Boolean(context.card && scope.cards.includes(context.card))
+    }
+  })
+
+  async function imageContext(caller, input) {
+    const context = {}
+    if (input.gameId !== undefined) {
+      const gameId = gameIdOf(input.gameId)
+      const game = deps.resolveGalleryContext ? await deps.resolveGalleryContext(gameId) : await requireGame(gameId)
+      if (!game || game.sessionId !== gameId) throw Object.assign(new Error('会话不存在'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
+      context.gameId = gameId
+      context.card = game.cardPath || await deps.cardPathOf?.(gameId) || ''
+    }
+    if (input.card !== undefined) {
+      const card = cardIdOf(input.card)
+      if (context.gameId && context.card !== card) throw new Error('card 与 gameId 不匹配')
+      context.card = card
+    }
+    // A card plugin must select its own card even for a global catalog query.
+    await guardScope(ownerOf(caller), { ...context, card: context.card || '' })
+    return context
   }
 
   /**
@@ -551,16 +579,17 @@ export function createTavernPluginApi(deps) {
     // status() → { ready, reason?, model?, maxReferences } describes the plugin's current channel;
     // generate({ prompt, references: [{ data, mediaType }], width, height, background, quality, signal })
     // → { data, mediaType }. A thrown error with requestMayHaveSucceeded === false says nothing was billed.
-    imageProvider({ id, label, status, generate } = {}) {
+    imageProvider({ id, label, status, generate, models } = {}) {
       const owner = ownerOf(this)
       sectionName(id)
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new Error('label 必须是 1–30 字')
       if (typeof status !== 'function') throw new TypeError('imageProvider 需要 status 函数')
       if (typeof generate !== 'function') throw new TypeError('imageProvider 需要 generate 函数')
+      if (models !== undefined && typeof models !== 'function') throw new TypeError('models 必须是函数')
       const key = owner + '/' + id
-      const entry = { id: key, owner, label: label.trim(),
-        status: async () => {
-          const value = await bounded(status(), '生图渠道 ' + key, POOL_TIMEOUT_MS)
+      const entry = { id: key, owner, label: label.trim(), models,
+        status: async (input = {}) => {
+          const value = await bounded(Promise.resolve().then(() => status({ ...input })), '生图渠道 ' + key, POOL_TIMEOUT_MS)
           const maxReferences = Number.isSafeInteger(value?.maxReferences) && value.maxReferences > 0 ? value.maxReferences : 0
           return { ready: value?.ready === true, reason: String(value?.reason || '').slice(0, 200), model: String(value?.model || '').slice(0, 100), maxReferences }
         },
@@ -574,7 +603,26 @@ export function createTavernPluginApi(deps) {
     // UNSUPPORTED_CHANNEL / INVALID_ARGUMENT / BUSY / GENERATION_FAILED; mayHaveCharged === true when a request went out.
     async generateImage(input = {}) {
       if (!deps.generateImage) throw Object.assign(new Error('当前版本不支持生图'), { code: 'TAVERN_PLUGIN_NOT_FOUND' })
-      return await deps.generateImage(input)
+      const context = await imageContext(this, input)
+      const source = await imageCatalog.select(context, input)
+      return await deps.generateImage(input, source)
+    },
+
+    async listImageModels(input = {}) {
+      return imageCatalog.listModels(await imageContext(this, input))
+    },
+
+    registerImageLibrary(input = {}) {
+      const owner = ownerOf(this)
+      return owned(this, () => imageCatalog.registerLibrary(owner, input), 'tavern.registerImageLibrary()')
+    },
+
+    async listImageCharacters(input = {}) {
+      return imageCatalog.list('characters', await imageContext(this, input), input)
+    },
+
+    async listImageOutfits(input = {}) {
+      return imageCatalog.list('outfits', await imageContext(this, input), input)
     },
 
     // What the session's model costs, for the presentation's getModelPricing (one per plugin; the first registered answers):

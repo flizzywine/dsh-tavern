@@ -172,6 +172,8 @@ if ($LASTEXITCODE -ne 0) { throw 'DSH 官方 CLI 未能登记新包；保留备�
 
 ## 生图渠道
 
+支持 `imageModels: 1` / `imageLibrary: 1` 的 Tavern 还能把本插件的已配置模型、人物与服装提供给其他插件复用。模型可以按保存的渠道选择，人物按卡片绑定筛选；通用服装与角色服装都有独立 ID。接口读取当前资料，编辑仍走本插件原有的保存和备份流程。接口定义与示例见 [Tavern 媒体与数据接口](https://github.com/flizzywine/dsh-tavern/blob/main/presets/tavern/skills/tavern-plugin/references/plugin-api-data.md)。
+
 | 提供商 | 接入方式 |
 |---|---|
 | ComfyUI | API 格式工作流，支持 Bearer / Basic 鉴权 |
@@ -186,6 +188,8 @@ if ($LASTEXITCODE -ne 0) { throw 'DSH 官方 CLI 未能登记新包；保留备�
 | 自定义 API | 选择 OpenAI Images、Gemini、Gemini Chat、AtlasCloud 原生异步接口、Seedream、Grok、Qwen、SD WebUI 或 NovelAI 协议 |
 
 同一个提供商可以配置多条渠道，分别保存名称、地址、模型和鉴权；自定义 API 渠道可选择受支持的协议，包括 AtlasCloud。可以在自己的服务和不同中转之间切换，无需把原配置删掉再重新填写。复制渠道后，需要给副本填写自己的密钥。
+
+维护接入代码时，协议请求留在 `lib/image-providers.js`，能力判断留在 `lib/image-provider-capabilities.js`，渠道配置留在 `lib/image-channels.js`；对外模型与人物、服装投影集中在 `lib/image-catalog.js`。新增平台兼容已有协议时，优先配置自定义渠道；新增协议时再实现适配器。适配器不负责写剧情、保存人物或渲染界面。
 
 这里接的是平台 API，网页登录账号不能代替 API Key。第三方服务只有在兼容相应协议时才能使用；单有网址和密钥，并不代表所有平台都能接入。
 

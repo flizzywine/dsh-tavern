@@ -2,6 +2,69 @@
 
 宿主侧 `ctx.tavern` 中挂图片等媒体、保存插件数据、声明本局配置项的接口。
 
+## 生图模型与人物、服装库（`imageModels: 1`、`imageLibrary: 1`）
+
+通过能力版本探测后调用；宿主 API 版本不因新增可选能力递增。资源由来源插件保存，Tavern 提供发现、筛选和隔离，插件之间不读取对方的 JSON 或内部路由。
+
+### 查询并选择已配置的生图模型
+
+```js
+if (ctx.tavern.capabilities?.imageModels >= 1) {
+  const models = await ctx.tavern.listImageModels({ gameId })
+  // 将 models 展示给用户，由用户选定可用项。
+  const selected = models.find(item => item.ready)
+  if (selected) {
+    const image = await ctx.tavern.generateImage({
+      gameId, providerId: selected.providerId,
+      ...(selected.modelId ? { modelId: selected.modelId } : {}),
+      prompt: '雨后的教室', width: 1024, height: 1024,
+    })
+  }
+}
+```
+
+`listImageModels({ gameId?, card? })` 返回数组，每项为 `{ providerId, providerLabel, modelId, label, model, ready, reason, maxReferences }`。`providerId` 是宿主分配的 `插件名/渠道名`，`modelId` 是来源的稳定本地 ID；都应原样保存和传回。列表只描述已经配置的模型，不向在线平台请求远程模型目录，也不验证额度。
+
+`imageProvider({ id, label, status, generate, models? })` 可以增加 `models(context)` 回调，返回 `{ id, label, model, ready, reason?, maxReferences }[]`。`status({ modelId? })` 和 `generate({ ...原参数, modelId? })` 必须使用指定模型。未提供 `models` 的旧来源仍显示当前模型，`modelId` 为空字符串；调用时省略 `modelId`。
+
+- 不指定 `providerId`、`modelId` 时使用首个适用来源的当前渠道；指定 `modelId` 时必须同时指定 `providerId`。
+- 模型删除或来源卸载后返回 `NOT_CONFIGURED`，不会改用其他模型再次收费。生图仍使用原有参数校验、最多四张并发和 `mayHaveCharged` 错误语义。
+- 各来源并行查询，单个回调最多 5 秒；异常来源记日志后跳过。不要把密钥、参考图文件路径放进模型元数据。
+
+### 提供和读取人物、服装库
+
+```js
+ctx.tavern.registerImageLibrary({
+  id: 'my-library', label: '我的人物与服装',
+  characters({ card }) {
+    return [{ id: 'person-a', name: '小雨', aliases: ['Rain'],
+      traits: { face: '黑发，蓝色眼睛' }, outfitIds: ['uniform'] }]
+  },
+  outfits({ card, characterId }) {
+    return [{ id: 'uniform', name: '制服', characterId: 'person-a',
+      parts: { upper: '白色衬衫', lower: '蓝色长裙' }, isDefault: true }]
+  },
+})
+
+const people = await ctx.tavern.listImageCharacters({ gameId, query: '小雨', limit: 50 })
+const person = people.items[0]
+const outfits = person ? await ctx.tavern.listImageOutfits({
+  gameId, providerId: person.providerId, characterId: person.id,
+}) : null
+```
+
+每个插件可按不同 `id` 注册多个库；`characters`、`outfits` 至少提供一个。注册随 Cordis 插件卸载撤销，也返回可主动调用的撤销函数。
+
+`listImageCharacters`、`listImageOutfits` 都接受 `{ gameId?, card?, providerId?, query?, offset?, limit? }`，服装查询另可传 `characterId`（此时必须指定 `providerId`，避免不同库的角色 ID 冲突）。返回 `{ items, total, offset, limit, hasMore, errors }`；默认每页 50 项，最多 200 项。`query` 最多 200 字，匹配名称、说明和人物别名。`errors` 仅报告 `{ providerId, code: 'PROVIDER_FAILED' }`，其他正常来源仍可用。
+
+每项带 `providerId`、`providerLabel`；人物字段为 `{ id, name, aliases, group, description, traits, outfitIds }`，`traits` 支持 `face/faceBack/bodySFW/fullSFW/bodyNSFW/fullNSFW/negative`；服装字段为 `{ id, name, description, characterId, parts, negative, isDefault }`，`parts` 支持 `upper/lower/shoes/accessory/full/back`。通用服装的 `characterId` 是 `null`。`id` 与 `outfitIds` 都是不透明字符串，按 `providerId + id` 标识资源。宿主只返回这些字段的独立副本，不传文件路径或未知字段。
+
+每个来源单次返回最多 2000 项，来源负责按收到的 `{ gameId?, card?, characterId? }` 筛选自己库内的可见项；宿主在合并后搜索、分页。回调并行执行且最多等待 5 秒，不缓存用户资料，卸载后尚未返回的结果会丢弃。
+
+可传 `gameId` 用于游玩或卡片工作台，也可用 `card` 指定人物卡；同时提供时必须指向同一张卡。省略目标时仅显示全局来源与全局人物。卡内插件必须指定自己的卡或会话，无法读取或调用其他人物卡的来源。内置配图插件从当前内存中的人物库、角色服装和通用服装生成投影；隐藏停用项，保留人物卡绑定与通用服装引用，修改后下次查询即生效。
+
+这些接口用于读取与复用。编辑资料仍通过来源插件自己的保存流程，以保留备份和覆盖保护。
+
 ## 把插件自己的图片列入对话画廊（`galleryProvider: 1`）
 
 `attach` 需要 `gameId`、`turn` 和正文版本，适合随剧情走的媒体。卡片工作台或插件自己的本地图库没有这些信息时，用 `registerGalleryProvider` 提供图片列表；这些图片只出现在当前 Tavern 会话的「画廊」里，不会伪装成某轮正文附件。

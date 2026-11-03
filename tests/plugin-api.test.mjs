@@ -68,9 +68,11 @@ test('插件媒体：Range 与文件类型', async () => {
 })
 
 async function loadCordis() {
-  if (!process.env.DSH_BOOT_MODULE) return null
-  const require = createRequire(pathToFileURL(process.env.DSH_BOOT_MODULE))
-  return await import(pathToFileURL(require.resolve('@deepseek-ai/cordis')).href)
+  const require = createRequire(process.env.DSH_BOOT_MODULE ? pathToFileURL(process.env.DSH_BOOT_MODULE) : import.meta.url)
+  let entry
+  try { entry = require.resolve('@deepseek-ai/cordis') }
+  catch (error) { if (process.env.DSH_BOOT_MODULE) throw error; return null }
+  return await import(pathToFileURL(entry).href)
 }
 const cordis = await loadCordis()
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -127,7 +129,7 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, 6)
-  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1 })
+  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)

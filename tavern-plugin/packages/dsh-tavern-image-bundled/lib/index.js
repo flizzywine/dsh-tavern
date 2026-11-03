@@ -32,7 +32,9 @@ import { installTavernBridge, removeMountedPicture } from './tavern-bridge.js'
 import { readImageFileMetadata } from './image-file-metadata.js'
 import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
-import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences, imageReferenceLimit } from './image-provider-capabilities.js'
+import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
+export { stageImageProvider } from './image-catalog.js'
+import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
 import { createCredentialStore } from './credential-store.js'
 import { patchWorkflowGraph, workflowRevision } from './workflow-graph.js'
@@ -1011,6 +1013,10 @@ export function apply(ctx, config = {}) {
           // Tavern's own picture requests (stage asset packs) run on the current online channel.
           if (typeof tavern.imageProvider === 'function') {
             const off = tavern.imageProvider(stageImageProvider(() => engine.currentConfig()))
+            if (typeof off === 'function') lifecycleDisposes.push(off)
+          }
+          if (tavern.capabilities?.imageLibrary >= 1 && typeof tavern.registerImageLibrary === 'function') {
+            const off = tavern.registerImageLibrary(imageLibraryProvider(() => engine.currentDefinitions()))
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           logger.info?.('dsh-tavern-image: Tavern 官方接口桥已安装')
@@ -4974,6 +4980,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       startJob, startReplacement, revisePrompt, cancelJob, refresh, getJob: id => (id ? getJob(id) : null), findJob, publicJob, deleteJob,
       planMessage,
       currentConfig: () => config,
+      currentDefinitions: () => definitions,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -5125,32 +5132,6 @@ function activePresetParams(config) {
  * tavern.imageProvider：Tavern 的素材包（立绘、头像、背景）用当前「在线服务」渠道出图。
  * 不套画风预设与画师串：素材提示词由 Tavern 写好，参考图按顺序原样交给渠道。
  */
-export function stageImageProvider(getConfig, generate = generateImage) {
-  const current = () => {
-    const config = getConfig()
-    if (config?.imageBackend === 'comfyui') return { config, reason: '素材生图暂不支持 ComfyUI；请在 配图 设置里切到「在线服务」渠道' }
-    let channel = null
-    try { channel = activeChannel(config) } catch {}
-    if (!channel) return { config, reason: '请先在 配图 设置里添加并选中一个生图渠道' }
-    return { config, channel }
-  }
-  return {
-    id: 'online', label: '配图',
-    status() {
-      const { channel, reason } = current()
-      if (!channel) return { ready: false, reason, maxReferences: 0 }
-      return { ready: true, model: channel.model || '', maxReferences: imageReferenceLimit(channel) }
-    },
-    async generate({ prompt, references = [], width, height, background, quality, signal } = {}) {
-      const { config, channel, reason } = current()
-      if (!channel) throw Object.assign(new Error(reason), { requestMayHaveSucceeded: false })
-      const result = await generate(structuredClone(channel), { positive: String(prompt || ''), references, width, height, exactSize: true, background, quality },
-        { signal, maxImageBytes: config.maxImageBytes })
-      return { data: result.bytes, mediaType: result.mediaType }
-    },
-  }
-}
-
 /** 生图渠道 + 当前画风预设的参数覆盖；预设没写的键保持渠道原值。 */
 function channelWithPresetParams(config) {
   const channel = activeChannel(config)

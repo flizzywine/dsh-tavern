@@ -13,6 +13,16 @@ function generation(t, provider) {
 }
 const channel = (generate, status = { ready: true, model: 'm', maxReferences: 2 }) => ({ label: '配图', status: async () => status, generate })
 
+test('generateImage uses the explicitly resolved provider under the same validation and concurrency limit', async t => {
+  const service = generation(t, channel(() => { throw new Error('must not fall back') }))
+  let dispatched = 0
+  const selected = channel(async () => { dispatched++; return { data: png, mediaType: 'image/png' } })
+  await assert.rejects(service.image({ prompt: 'cat', width: 0, height: 64 }, selected), { code: 'INVALID_ARGUMENT' })
+  assert.equal(dispatched, 0)
+  assert.deepEqual(await service.image({ prompt: 'cat', width: 64, height: 64 }, selected), { data: png, mediaType: 'image/png' })
+  assert.equal(dispatched, 1)
+})
+
 test('generateImage sends one request with the references and returns the channel bytes', async t => {
   const calls = []
   const service = generation(t, channel(async input => { calls.push(input); return { data: new Uint8Array([9]), mediaType: 'image/png' } }))
