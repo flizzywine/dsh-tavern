@@ -10,13 +10,13 @@ function askTavernCardPassword(options = {}) {
         dialog.setAttribute('aria-label', title.textContent);
         const description = document.createElement('div'); description.textContent = options.name || '加密人物卡';
         const message = document.createElement('div'); message.setAttribute('role', 'alert'); message.textContent = options.error || '';
-        const field = document.createElement('input'); field.type = 'password'; field.required = true;
+        const field = document.createElement('input'); field.type = 'text'; field.required = true;
         field.autocomplete = options.confirm ? 'new-password' : 'current-password'; field.setAttribute('aria-label', '密码');
         field.placeholder = '密码'; field.style.width = '100%'; field.style.boxSizing = 'border-box';
         panel.append(title, description, field);
         let second;
         if (options.confirm) {
-            second = document.createElement('input'); second.type = 'password'; second.required = true;
+            second = document.createElement('input'); second.type = 'text'; second.required = true;
             second.autocomplete = 'new-password'; second.setAttribute('aria-label', '确认密码'); second.placeholder = '再次输入密码';
             second.style.width = '100%'; second.style.boxSizing = 'border-box'; panel.append(second);
         }
@@ -49,6 +49,26 @@ function askTavernCardPassword(options = {}) {
         activeTavernCardPassword = dialog;
         try { document.body.append(dialog); dialog.showModal(); field.focus(); } catch (_) { abort(); }
     });
+}
+
+function beginTavernCardImportProgress(name) {
+    const dialog = document.createElement('dialog'); dialog.className = 'dsh-tavern-prompt';
+    dialog.style.cssText = 'inset:0;margin:auto;height:fit-content;max-height:calc(100vh - 32px);max-width:calc(100vw - 32px)';
+    dialog.setAttribute('aria-label', '正在导入人物卡');
+    const panel = document.createElement('div'); panel.className = 'dsh-tavern-prompt-panel';
+    const title = document.createElement('div'); title.className = 'dsh-tavern-prompt-title'; title.textContent = '正在导入人物卡';
+    const filename = document.createElement('div'); filename.textContent = name; filename.style.overflowWrap = 'anywhere';
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;margin:16px 0';
+    const spinner = document.createElement('span'); spinner.className = 'dsh-tavern-card-import-progress-spinner'; spinner.setAttribute('aria-hidden', 'true');
+    spinner.style.cssText = 'display:block;width:24px;height:24px;box-sizing:border-box;flex:none;border:3px solid #ccc;border-top-color:#c77855;border-radius:50%';
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const animation = !reduced && spinner.animate?.([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 800, iterations: Infinity });
+    const status = document.createElement('div'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); status.textContent = '正在准备导入…';
+    const hint = document.createElement('div'); hint.textContent = '大卡包可能需要一会儿，请保持页面打开。';
+    row.append(spinner, status); panel.append(title, filename, row, hint); dialog.append(panel);
+    dialog.addEventListener('cancel', event => event.preventDefault());
+    document.body.append(dialog); dialog.showModal();
+    return { update(value) { status.textContent = value; }, close() { animation?.cancel(); if (dialog.open) dialog.close(); dialog.remove(); } };
 }
 
 async function importTavernPasswordCard(run, name, cleanup, askPassword = askTavernCardPassword) {

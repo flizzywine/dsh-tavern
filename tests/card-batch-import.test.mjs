@@ -34,7 +34,7 @@ test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡
   const body = source.slice(start, source.indexOf('/** What a card file brought', start))
   const uploads = []
   const fetch = async (_url, { body: file }) => { uploads.push(file.name); return { ok: true, status: 200, json: async () => ({ ok: true, uploadId: 'u' }) } }
-  const importFile = new Function('fetch', 'parseCardFile', 'importTavernPasswordCard', body + '; return importTavernCardFile;')(fetch, async file => ({ parsed: file.name }), run => run(undefined))
+  const importFile = new Function('fetch', 'parseCardFile', 'importTavernPasswordCard', 'beginTavernCardImportProgress', body + '; return importTavernCardFile;')(fetch, async file => ({ parsed: file.name }), run => run(undefined), () => ({ update() {}, close() {} }))
   const calls = []
   const call = async (method, args) => { calls.push([method, args.name || args.payload?.parsed]); return {} }
   // Ordinary PNG and JSON are parsed; native packages upload whole.
@@ -45,4 +45,22 @@ test('导入文件分流：PNG、JSON 在页面里解析；CHARX、DSH 人物卡
   assert.deepEqual(calls, [['importCard', 'a.png'], ['importCard', 'b.JSON'], ['importCardUpload', 'c.charx'], ['importCardUpload', 'd.dshcard'], ['importCardUpload', 'e.vnpack'], ['importCard', 'noext']])
   assert.deepEqual(uploads, ['c.charx', 'd.dshcard', 'e.vnpack'])
   assert.deepEqual(stages.filter(([name]) => name === 'd.dshcard').map(([, phase]) => phase), ['正在上传卡包…', '正在读取卡包并导入素材…'])
+})
+
+test('shared importer keeps its loading dialog open until the host finishes, including callers with no progress callback', async () => {
+  const start = source.indexOf('async function importTavernCardFile(')
+  const body = source.slice(start, source.indexOf('/** What a card file brought', start))
+  let opened = 0, closed = 0, finish
+  const host = new Promise(resolve => { finish = resolve })
+  const importFile = new Function('fetch', 'importTavernPasswordCard', 'beginTavernCardImportProgress', body + '; return importTavernCardFile;')(
+    async () => ({ json: async () => ({ ok: true, uploadId: 'u' }) }), run => run(undefined),
+    () => { opened++; return { update() {}, close() { closed++ } } })
+  const pending = importFile({ name: 'large.dshcard' }, () => host)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(opened, 1); assert.equal(closed, 0)
+  finish({ card: { path: 'cards/large.json' } })
+  await pending
+  assert.equal(closed, 1)
+  await assert.rejects(importFile({ name: 'broken.dshcard' }, async () => { throw new Error('invalid archive') }), /invalid archive/)
+  assert.equal(opened, 2); assert.equal(closed, 2)
 })

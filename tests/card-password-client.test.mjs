@@ -25,10 +25,10 @@ test('normal cards never show a password dialog; wrong password retries and canc
   h.dom.window.close()
 })
 
-test('password fields are masked, confirmed before encryption, emptied and removed when done', async () => {
+test('password fields show plain text, are confirmed before encryption, emptied and removed when done', async () => {
   const h = setup(), promise = h.ask({ name: 'locked.dshcard', confirm: true })
   const form = h.window.document.querySelector('form'), fields = form.querySelectorAll('input')
-  assert.equal(fields.length, 2); assert.ok([...fields].every(field => field.type === 'password'))
+  assert.equal(fields.length, 2); assert.ok([...fields].every(field => field.type === 'text'))
   fields[0].value = 'secret-test'; fields[1].value = 'different'
   form.dispatchEvent(new h.window.Event('submit', { cancelable: true }))
   assert.equal(form.querySelector('[role=alert]').textContent, '两次密码不一致')
