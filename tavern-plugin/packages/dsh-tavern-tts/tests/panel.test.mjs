@@ -20,7 +20,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   // a figure voice page's 「去设置」 / 在线 TTS ＋ leaves this one-shot focus (asset-pack-voice-ui.js).
   if (focus) session.set('dsh-tts:focus-service',JSON.stringify({at:Date.now(),...focus}))
   const window = {sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}}
-  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}
+  let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {dialogueVoice:null,narrator:{enabled:false,voice:null}}
   const keys = new Set(['azure-main','qwen-main','volc-main'])
   let configured = initial ?? [{id:'azure-main',kind:'azure',label:'Test Azure',config:{region:'eastasia'}},{id:'qwen-main',kind:'qwen',label:'Test Qwen',config:{region:'cn'}},{id:'volc-main',kind:'volcengine',label:'Test Volcengine',config:{appId:'test',resourceId:'seed-tts-2.0'}}]
   const checks = new Map()
@@ -49,6 +49,9 @@ export function fixture({sidebar = true, configured: initial, external = true, r
     else if (method === 'deleteService') {configured = configured.filter(p => p.id !== args.id); result = {deleted:true}}
     else if (method === 'providerVoices') result = args.serviceId === 'local:default' ? {status:'ok',source:'live',models:[],voices:[{id:'cast/aoi',label:'葵',engine:'service-engine',revision:'v1',languages:['ja'],state:'ready'}]} : voicesOf(configured.find(p => p.id === args.serviceId).kind)
     else if (method === 'voiceModelStatus') result = modelStatus(args)
+    else if (method === 'listOnlinePresetVoices') result = {provider:args.provider,...voicesOf(args.provider)}
+    else if (method === 'reading') result = structuredClone(reading)
+    else if (method === 'setReading') { reading = {...reading,...('dialogueVoice' in args ? {dialogueVoice:args.dialogueVoice} : {}),narrator:{...reading.narrator,...args.narrator}}; result = structuredClone(reading) }
     else if (method === 'voicePresets') result = presets.map(preset => ({preset,revision:hash(preset)}))
     else if (method === 'saveVoicePreset') {
       try {
@@ -80,7 +83,7 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   }
   function load(source) {const exports = {}; vm.runInNewContext(source,{exports,require:() => React,fetch,EventSource,Set,Date,setTimeout,clearTimeout,setInterval,clearInterval,AbortController,localStorage,window,URL,Blob,document:globalThis.document});exports.apply(ctx)}
   load(source); events.onmessage({data:JSON.stringify({enabled})})
-  return {tabs,slots,calls,services,opened,storage,session,presets:() => presets,dispose:() => {for (const off of effects.reverse()) off?.()}}
+  return {tabs,slots,calls,services,opened,storage,session,presets:() => presets,reading:() => reading,dispose:() => {for (const off of effects.reverse()) off?.()}}
 }
 
 export async function withDom(fn) {
@@ -185,7 +188,7 @@ test('browser speech is a free 语音服务 row: its system voices listed when o
       await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
       const line = row('浏览器朗读')
       assert.ok(line,'listed with the other services')
-      assert.equal(line.closest('.dtts-line').querySelector('.dtts-state').textContent,'免费')
+      assert.equal(line.closest('.dtts-line').querySelector('.dtts-state').textContent,'免费 · 默认')
       assert.equal(byLabel('系统声音'),null,'voices are read when the row opens')
       await click(line); await settle()
       assert.deepEqual([...byLabel('系统声音').querySelectorAll('.dtts-item-title')].map(n => n.textContent),['Microsoft Xiaoxiao','Microsoft Nanami'])
@@ -352,4 +355,40 @@ test('focus hand-over: add opens 添加语音服务 with the type chosen; an id 
     })
     f.dispose()
   }
+})
+
+// one 配音 page — 语音服务 → 朗读 → 发音字典 → 合成缓存; 浏览器朗读 first and
+// fixed; 朗读 writes tts.reading on change through setReading, with the figure voice picker's sources.
+test('unified page: section order, 浏览器朗读 first and fixed, 朗读 saves on change with browser and service voices',async () => {
+  const browserSpeech = {available:() => true,voices:async () => [{id:'Microsoft Yunxi',label:'Microsoft Yunxi',languages:['zh-CN']}],speak:async () => {},stop:() => {}}
+  const f = fixture({browserSpeech,readingsEditor:{render:() => React.createElement('div',null,React.createElement('h3',null,'发音字典'))}})
+  try {
+    await withDom(async root => {
+      await act(async () => root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))); await settle()
+      const headings = [...document.querySelectorAll('section h3')].map(h => h.querySelector('span')?.textContent || h.textContent)
+      assert.deepEqual(headings,['语音服务','朗读','发音字典','合成缓存'])
+      const first = document.querySelector('.dtts-list > li')
+      assert.equal(first.querySelector('.dtts-line-title').textContent,'浏览器朗读')
+      assert.equal(first.querySelector('.dtts-state').textContent,'免费 · 默认')
+      assert.equal(first.querySelector('[aria-haspopup=menu], .dtts-icon-button'),null,'no ⋯: it cannot be removed')
+      const reading = [...document.querySelectorAll('section')].find(s => s.querySelector('h3 span')?.textContent === '朗读')
+      assert.equal(byLabel('旁白配音').checked,false,'narration reading is off on a fresh config')
+      assert.equal(checked('旁白声音'),'未选择'); assert.equal(checked('对白默认声音'),'浏览器 · 系统默认')
+      assert.doesNotMatch(document.body.textContent,/配音渠道|台词朗读/)
+      assert.deepEqual([...reading.querySelectorAll('button')].filter(b => ['保存','试听'].includes(b.textContent)),[],'no 保存 / 试听')
+      // The same sources as the figure voice picker: system voices and each service's voices, read when a menu is reached.
+      assert.equal(f.calls.some(c => ['listOnlinePresetVoices','providerVoices','listRecommendedFishVoices'].includes(c.method)),false,'no service listing on page open')
+      assert.ok(radio('旁白声音','Microsoft Yunxi'))
+      await act(async () => radio('旁白声音','未选择').focus()); await settle()
+      assert.ok(radio('旁白声音','Microsoft Yunxi')); assert.ok(radio('旁白声音','七海')); assert.ok(radio('旁白声音','灿灿'))
+      await click(radio('旁白声音','七海')); await settle()
+      assert.deepEqual(f.calls.filter(c => c.method === 'setReading').map(c => c.args),[{narrator:{voice:{serviceId:'azure-main',voice:'ja-JP-NanamiNeural'}}}])
+      assert.equal(checked('旁白声音'),'七海')
+      await click(byLabel('旁白配音')); await settle()
+      await click(radio('对白默认声音','Microsoft Yunxi')); await settle()
+      assert.deepEqual(JSON.parse(JSON.stringify(f.reading())),{dialogueVoice:{browser:'Microsoft Yunxi'},narrator:{enabled:true,voice:{serviceId:'azure-main',voice:'ja-JP-NanamiNeural'}}})
+      assert.equal(byLabel('旁白配音').checked,true)
+      assert.equal(f.calls.some(c => c.method === 'synthesis'),false)
+    })
+  } finally { f.dispose() }
 })
