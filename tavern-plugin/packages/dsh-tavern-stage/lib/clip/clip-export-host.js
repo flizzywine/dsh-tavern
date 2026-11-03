@@ -11,15 +11,15 @@ import {assetVoiceBinding} from '../../../../lib/domain/figure-voice.js'
 import {foldAssetPackEntries} from '../domain/stage-asset-pack-director.js'
 import {STAGE_PLAYBACK_FIELD} from '../domain/stage-playback.js'
 import {readStageProjection} from '../domain/stage-projection.js'
-import {paragraphSpeech} from './paragraph-speech.js'
 import {TAVERN_CLIENT_ASSET_PREFIX,readTavernClientAsset} from '../../../../lib/domain/tavern-client-assets.js'
 import {readStageClientChunk} from '../client-assets.js'
 import {resolveTavernRuntimeAsset} from '../../../../lib/domain/tavern-runtime-assets.js'
 import {PACK_LEASE_PATH} from '../../../dsh-asset-library/lib/pack-v2/service.js'
 
-// The carrier supplies existing host readers; browser code receives only a frozen export projection.
+// The carrier supplies existing host readers (paragraphSpeech: a paragraph's spoken line, the core's voice selection);
+// browser code receives only a frozen export projection.
 export function createClipHost(options) {
-  const {readChat,readDisplay,readConfig,readWorkspace,readDirection,library,tts,settings,globalPacks,extras,readHostAsset,readStageResource,readWidgets,performanceKinds,exportsRoot,tempRoot,openFolder,checkDisk}=options
+  const {readChat,readDisplay,readConfig,paragraphSpeech,readWorkspace,readDirection,library,tts,settings,globalPacks,extras,readHostAsset,readStageResource,readWidgets,performanceKinds,exportsRoot,tempRoot,openFolder,checkDisk}=options
   function consumer(snapshot) {
     let allowedPackIds=[...snapshot.allowedPacks]
     const presentation=createAssetPackPresentation({raw:snapshot.raw,getEngine:()=>snapshot.engine.values,getService:library,
