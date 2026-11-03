@@ -6,6 +6,7 @@ import test from 'node:test'
 import { createPluginMedia, pluginMediaRange, pluginMediaSession, slicePluginMediaStream, pluginFileMediaType } from '../tavern-plugin/lib/domain/plugin-media.js'
 import { createTavernPluginApi, TAVERN_PLUGIN_API_VERSION } from '../tavern-plugin/lib/plugin-api.js'
 import { createPluginData } from '../tavern-plugin/lib/domain/plugin-data.js'
+import { createSettingsHandlers } from '../tavern-plugin/lib/rpc/settings.js'
 
 function memoryStore() {
   const files = new Map()
@@ -117,7 +118,7 @@ test('provider APIs：capabilities、克隆输入、卡绑定筛选与 Cordis �
   } })
   await tick()
   assert.equal(tavern.apiVersion, 6)
-  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1 })
+  assert.deepEqual(tavern.capabilities, { mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1 })
   assert.equal(Object.isFrozen(tavern.capabilities), true)
   assert.equal(tavern.mvuProviderRegistered, undefined, 'registration guard is internal, not a plugin service method')
   assert.equal(h.api.mvuProviderRegistered('card-provider'), true)
@@ -985,6 +986,40 @@ test('生图渠道：插件注册的出图能力带上归属，状态被规整�
   await assert.rejects(entry.generate({ prompt: 'boom' }), error => error.requestMayHaveSucceeded === false)
   assert.throws(() => tavern.imageProvider({ id: 'online', label: '重复', status() {}, generate() {} }), /已注册/)
   assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', generate() {} }), /status/)
+})
+
+test('价格提供方：getModelPricing 问插件报价，没有提供方就不可用，卸载即撤销', { skip: !cordis }, async t => {
+  const h = await harness(t)
+  const selections = new Map([['game-1', { provider: 'router', model: 'opus', reasoningEffort: 'low' }]])
+  const settings = createSettingsHandlers({ modelSelection: sessionId => selections.get(sessionId) || null, pluginApi: h.api })
+  assert.equal((await settings.getModelPricing({ sessionId: 'game-1' })).available, false, 'no provider, no figure')
+  const seen = []
+  let tavern
+  const fiber = await h.root.plugin({ name: 'gateway-prices', inject: ['tavern'], apply(ctx) {
+    tavern = ctx.tavern
+    ctx.tavern.pricingProvider({ quote(selection) {
+      seen.push(selection)
+      if (!selection) return { available: false, reason: 'no model' }
+      if (selection.model === 'boom') throw new Error('gateway down')
+      selection.model = 'changed'
+      return { available: true, rates: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 } }
+    } })
+  } })
+  await tick()
+  assert.equal(tavern.capabilities.pricingProvider, 1)
+  assert.deepEqual(await settings.getModelPricing({ sessionId: 'game-1' }), { available: true, rates: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 } })
+  assert.deepEqual(seen[0], { provider: 'router', model: 'changed', reasoningEffort: 'low' })
+  assert.equal(selections.get('game-1').model, 'opus', 'the provider only changes its own copy')
+  assert.deepEqual(await settings.getModelPricing({ sessionId: 'other' }), { available: false, reason: 'no model' })
+  selections.set('game-1', { provider: 'router', model: 'boom' })
+  await assert.rejects(settings.getModelPricing({ sessionId: 'game-1' }), /gateway down/)
+  assert.deepEqual(h.errors()[0], { plugin: 'gateway-prices', stage: '价格', message: 'gateway down' })
+  assert.throws(() => tavern.pricingProvider({ quote() {} }), /已提供价格/)
+  assert.throws(() => tavern.pricingProvider({}), /quote/)
+  await fiber.dispose()
+  await tick()
+  assert.equal(h.api.pricingProviders().length, 0)
+  assert.equal((await settings.getModelPricing({ sessionId: 'game-1' })).available, false)
 })
 
 test('卡内插件只在所属人物卡的局里出现：回调不触发、调用被拒、人物卡列表只剩本卡、本局插件面板不列出', { skip: !cordis }, async t => {
