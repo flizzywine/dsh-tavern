@@ -22,6 +22,20 @@ mkdir -p "${WORK_IN}"
 WORK="$(cd -- "${WORK_IN}" && pwd)"
 PNPM_VERSION=11.25.0
 STEPS=7
+# 构建机的 npm 可能是指向包装脚本的 shim，依赖真实 $HOME；下面会隔离 HOME，
+# 隔离后这类 shim 直接起不来。优先用 node 自带的那份 npm，退回 PATH 里的 npm。
+NODE_PREFIX="$(node -p "require('path').dirname(require('path').dirname(require('path').resolve(process.execPath)))" 2>/dev/null || true)"
+NPM_CLI=""
+if [ -n "${NODE_PREFIX}" ] && [ -f "${NODE_PREFIX}/lib/node_modules/npm/bin/npm-cli.js" ]; then
+  NPM_CLI="${NODE_PREFIX}/lib/node_modules/npm/bin/npm-cli.js"
+fi
+npm_install_global() {
+  if [ -n "${NPM_CLI}" ]; then
+    node "${NPM_CLI}" install --global "$@"
+  else
+    npm install --global "$@"
+  fi
+}
 # 采集用与手机一致的 registry；容器内 install.sh 默认也是 npmmirror。
 export npm_config_registry="${DSH_TAVERN_NPM_REGISTRY:-https://registry.npmmirror.com}"
 export pnpm_config_registry="$npm_config_registry"
@@ -54,7 +68,7 @@ if [ -x "${WORK}/pnpm-tool/lib/node_modules/pnpm/bin/pnpm.cjs" ] \
   && [ "$("$(command -v node)" "${WORK}/pnpm-tool/lib/node_modules/pnpm/bin/pnpm.cjs" --version 2>/dev/null || true)" = "${PNPM_VERSION}" ]; then
   log '已存在可用 pnpm，跳过安装'
 else
-  npm install --global --silent --prefix "${WORK}/pnpm-tool" "pnpm@${PNPM_VERSION}"
+  npm_install_global --silent --prefix "${WORK}/pnpm-tool" "pnpm@${PNPM_VERSION}"
 fi
 PNPM_BIN="${WORK}/pnpm-tool/lib/node_modules/pnpm/bin/pnpm.cjs"
 # pnpm 的 --dir 在 v11 上不会切换 node_modules 位置，会在调用者 cwd 的仓库上操作；
