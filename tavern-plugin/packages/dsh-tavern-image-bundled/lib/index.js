@@ -34,6 +34,7 @@ import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
 import { createComfyProgress } from './comfy-progress.js'
+import { wardrobeSection } from './wardrobe-hints.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
 import { normalizeChannels, publicChannels, activeChannel, channelConfigPatch, migrateLegacyImageConfig } from './image-channels.js'
@@ -126,6 +127,7 @@ const DEFAULTS = {
   imageEnabled: true,
   // ---- 生图规划（agent 生图）：另起一次模型调用，决定配几张、插在哪、提示词怎么写 ----
   plannerEnabled: true,
+  wardrobeHints: false,
   plannerProvider: '',
   plannerModel: '',
   // 看图（参考图 / 照片识别）用的模型：必须是支持视觉的模型
@@ -299,6 +301,7 @@ export function normalizeOutfit(raw, index) {
     id: String(raw?.id ?? `outfit-${index + 1}`),
     name: String(raw?.name ?? `通用服装 ${index + 1}`),
     enabled: raw?.enabled !== false,
+    ...(raw?.nsfw === true ? { nsfw: true } : {}),
   }
   for (const key of OUTFIT_FIELDS) item[key] = String(raw?.[key] ?? '')
   return item
@@ -1004,7 +1007,7 @@ export function apply(ctx, config = {}) {
           deps.bridge = installTavernBridge({
             tavern,
             attachments: attachmentApi,
-            engine: { planMessage: engine.planMessage, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
+            engine: { planMessage: engine.planMessage, wardrobePrompt: engine.wardrobePrompt, getJob: id => engine.getJob(id), cancelJob: id => engine.cancelJob(id), deleteJob: id => engine.deleteJob(id, { withMedia: false }) },
             getConfig: () => engine.currentConfig(),
             logger,
             readFileAsBytes: async file => new Uint8Array(await readFile(file)),
@@ -2337,6 +2340,25 @@ function createRuntime(ctx, overrides, logger, deps) {
       return hideGlobalPlayers((list ?? []).filter(character => usableOnCard(character, card)))
     }
 
+    async function wardrobePrompt({ gameId, turn, input } = {}) {
+      if (config.wardrobeHints !== true || config.imageEnabled === false || config.plannerEnabled === false || !gameId) return ''
+      let card = cardCache.get(gameId)
+      if (!card && Number.isSafeInteger(turn) && turn > 1 && typeof deps.tavern?.getTurn === 'function') {
+        // An optional hint must not hold up writing if the card isn't warm yet.
+        let timer
+        try {
+          const prior = await Promise.race([
+            deps.tavern.getTurn({ gameId, turn: turn - 1 }),
+            new Promise(resolve => { timer = setTimeout(resolve, 120) }),
+          ])
+          if (prior?.card?.id) card = { path: prior.card.id, name: prior.card.name }
+        } catch { return '' }
+        finally { clearTimeout(timer) }
+      }
+      if (!card?.path) return ''
+      return wardrobeSection(scopeCharacters(definitions.characters, card), definitions.outfits, input)
+    }
+
     /** 这个角色在这张卡下可用吗（没绑卡的全局角色一直可用）。 */
     function usableOnCard(character, card) {
       const cards = character.cards ?? []
@@ -3323,6 +3345,8 @@ function createRuntime(ctx, overrides, logger, deps) {
           tavernBridge: deps.bridge ? { installed: true, exports: Object.keys(deps.bridge) } : { installed: false },
           tavernApi: deps.tavern ? { apiVersion: deps.tavern.apiVersion, hasAttach: typeof deps.tavern.attach === 'function', hasPromptSection: typeof deps.tavern.promptSection === 'function', hasGetTurn: typeof deps.tavern.getTurn === 'function', hasOnTurnSettled: typeof deps.tavern.onTurnSettled === 'function', hasTurnData: typeof deps.tavern.readTurnData === 'function' } : null,
           plannerEnabled: config.plannerEnabled !== false, plannerProvider: config.plannerProvider ?? '',
+          wardrobeHints: config.wardrobeHints === true,
+          wardrobeHintsAvailable: typeof deps.tavern?.turnSection === 'function',
           visionProvider: config.visionProvider ?? '',
           plannerEffort: String(config.plannerEffort ?? ''),
           visionEffort: String(config.visionEffort ?? ''), visionModel: config.visionModel ?? '',
@@ -4020,7 +4044,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (typeof patch.comfyAuthPass === 'string' && patch.comfyAuthPass !== '') config.comfyAuthPass = patch.comfyAuthPass
         if (patch.clearComfyAuthToken === true) config.comfyAuthToken = ''
         if (patch.clearComfyAuthPass === true) config.comfyAuthPass = ''
-        for (const key of ['lockWorkflow', 'overrideSteps', 'autoImageGen', 'imageEnabled', 'plannerEnabled', 'jpegOutput', 'smartImageSelection', 'characterAutoUpdate', 'closestMountTolerance']) if (typeof patch[key] === 'boolean') config[key] = patch[key]
+        for (const key of ['lockWorkflow', 'overrideSteps', 'autoImageGen', 'imageEnabled', 'plannerEnabled', 'wardrobeHints', 'jpegOutput', 'smartImageSelection', 'characterAutoUpdate', 'closestMountTolerance']) if (typeof patch[key] === 'boolean') config[key] = patch[key]
         if (typeof patch.promptMode === 'string' && ['auto', 'tags', 'natural', 'mixed', 'structured'].includes(patch.promptMode)) config.promptMode = patch.promptMode
         if (typeof patch.designPromptMode === 'string' && ['auto', 'chinese', 'tags'].includes(patch.designPromptMode)) config.designPromptMode = patch.designPromptMode
         for (const key of ['characterDesignRequirements', 'outfitDesignRequirements']) {
@@ -4992,7 +5016,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     return {
       consoleHtml, consoleState, handleConsole, readBody, sendImage,
       startJob, startReplacement, revisePrompt, cancelJob, refresh, getJob: id => (id ? getJob(id) : null), findJob, publicJob, deleteJob,
-      planMessage,
+      planMessage, wardrobePrompt,
       currentConfig: () => config,
       currentDefinitions: () => definitions,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
@@ -5303,6 +5327,7 @@ function normalizeCharacter(raw, index) {
     negative: String(outfit?.negative ?? ''),
     enabled: outfit?.enabled !== false,
     default: outfit?.default === true,
+    ...(outfit?.nsfw === true ? { nsfw: true } : {}),
   }))
   return item
 }

@@ -434,6 +434,15 @@ export function installTavernBridge({ tavern, attachments, engine, getConfig, lo
     warn('注册提示词段落失败：' + (error?.message ?? error))
   }
 
+  if (typeof tavern.turnSection === 'function' && engine.wardrobePrompt) {
+    try {
+      const off = tavern.turnSection({ name: 'outfit-wardrobe', text: engine.wardrobePrompt })
+      if (typeof off === 'function') disposes.push(off)
+    } catch (error) {
+      warn('注册服装提示失败：' + (error?.message ?? error))
+    }
+  }
+
   // ── ② 每轮结算 → 自动配图 ───────────────────────────────────────
   try {
     const off = tavern.onTurnSettled(turn => {
