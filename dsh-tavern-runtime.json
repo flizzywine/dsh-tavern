@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "a12e9827c9cc05f648122107a34a0d85b4a20992",
-  "releaseSequence": 1117,
+  "revision": "d10a71189cbc940f18de72c76200c54e51f6f1ee",
+  "releaseSequence": 1118,
   "version": "3.2.0",
   "files": [
     {
@@ -456,8 +456,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "a7599a6bdff7fe13a2a4e96cf88b28ac8d193084939e3fb8144f00c9e5583560",
-      "size": 3152
+      "sha256": "1c4188d17b8a98c2caba7225136375642cfb580e46391fe30e9e1edee12375cd",
+      "size": 3175
     },
     {
       "path": "patches/dsh-better-sidebar@0.26.0.patch",
@@ -481,8 +481,8 @@
     },
     {
       "path": "pnpm-lock.yaml",
-      "sha256": "0f3acdf88c901fc5edcb820afacfe00f726cc1c240e62815d5c5e7605d67c988",
-      "size": 96610
+      "sha256": "a547ac0e2c48ccafb831de4c3b8ee087eca793e25529182223fa24a766f85e22",
+      "size": 106746
     },
     {
       "path": "pnpm-workspace.yaml",
@@ -9336,9 +9336,9 @@
     }
   ],
   "archive": {
-    "commit": "615a4e80b8a1020a6195addc6e421ae978922dfd",
+    "commit": "f54db861caefc44a6aa21cc1b005e739817ada20",
     "path": "runtime.zip",
-    "sha256": "864c6cb626680f79b19ac27dc061f4c86782f31ff17074d9f0e2be9ed1695374",
-    "size": 15787410
+    "sha256": "e0939d0ad565e94a3399e9cf636b5ec25e339d7d20fccb41039eb6d3594204d5",
+    "size": 15790310
   }
 }
