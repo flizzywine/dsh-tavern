@@ -447,7 +447,8 @@ window.__ModuleLoader__.load({
 
         // @include rpc-transport.cjs
         const presentationRequest = createPresentationQueue();
-
+        // The isolated clip export page answers every request from its frozen export snapshot (clipReplayCore below).
+        let clipExportTransport = null;
 		// A save whose session log cannot be upgraded may not open at all, so this works from the
 		// conversation menu too: the structure goes to the developer, the story text stays home.
 		async function downloadSessionDiagnostics(args, sessionId) {
@@ -456,6 +457,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function rpc(method, args, sessionId, requestOptions) {
+            if (clipExportTransport) return clipExportTransport(method, {...args,sessionId:sessionId || args?.sessionId});
 			// While DSH restarts (after an update) it accepts requests a moment before Tavern's
 			// routes and auth are mounted: they answer 404/401/5xx without running the handler.
 			// Wait that window out instead of reporting it; a lasting failure still surfaces.
@@ -985,6 +987,16 @@ window.__ModuleLoader__.load({
 // @include stage-session-binding.js
 // @include stage-client-loader.cjs
 
+// Clip export: the stage client replays a round on the isolated export page (dsh-tavern-stage clip-render.cjs) over
+// these core names; the setters replace the core bindings the export page swaps out.
+function clipReplayCore() {
+    return {React, ReactDOM, avatarCache, bgManual, bgmPlayer, bindStageNavigation, bindStageViews, bubbleCharacter, bubbleMediaDescriptor, bubbleMoodList, bubbleStore,
+        forkStageAudio, galEnter, galStageLifetime, segmentSpeechInput, spineRuntimeState, STAGE_HISTORY_SETTLE_MS, stageBlockPages, stagePageCards, stageReading, voicePlayer,
+        get stageViews() {return stageViews;},
+        set tavernSessionSignals(value) {tavernSessionSignals = value;}, set forkTtsScope(value) {forkTtsScope = value;},
+        set clipExportTransport(value) {clipExportTransport = value;}, set packTransport(value) {packTransport = value;}};
+}
+
 
 
 		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
@@ -1305,6 +1317,7 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		exports.findTavernQuoteRanges = findTavernQuoteRanges;
         exports.installTavernTextColors = installTavernTextColors;
         exports.TavernColoredMarkdown = TavernColoredMarkdown;
+        exports.clipReplayCore = clipReplayCore;
         exports.apply = apply;
 		exports.createTurnHistoryProjection = createTurnHistoryProjection;
 		exports.createTurnErrorControls = createTurnErrorControls;
@@ -1403,9 +1416,9 @@ cardLibraryFeature.register({ ctx: ctx, appendMention: appendMention });
 		// @include modules/assistant-visibility.js
 		installTavernAssistantVisibilityPatch(require);
 		// @include modules/host-session-patch.js
-		// The page's session history only: the server's headless card runtime has none, and
+		// The page's session history only: the server's headless card runtime and the clip-export page have none, and
 		// would report the missing patch for the whole profile.
-		if (!window.__dshTavernHeadless) installTavernSessionHistoryPatch(require, rpc);
+		if (!window.__dshTavernHeadless && window.location?.hostname !== 'clip-export.invalid') installTavernSessionHistoryPatch(require, rpc);
 		return module.exports;
 	})
 });

@@ -24,11 +24,12 @@ const galHoldLeave = hold => stageNavigation?.holdLeave(hold) || (() => {});
 // Pages that need the stage client for any card (设置 › 舞台) hold the loader (stage-client-loader.cjs hold); main.js binds it.
 let stageClientHold = null;
 const galStageHold = () => stageClientHold ? stageClientHold() : () => {};
-function bindStageNavigation(createNavigation, ctx) {
+// hooks: the isolated clip export page enters its one session silently, with no setup check (clip-render.cjs).
+function bindStageNavigation(createNavigation, ctx, hooks) {
     if (stageNavigation) throw new Error('Stage navigation already mounted');
     const navigation = createNavigation({window, document, navigator:window.navigator,
         playCue:cue => forkUiSfx.play(cue), checkSetup:stageSetupGate,
-        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id)});
+        getSessionId:() => tavernMainSessionId(ctx.sessions), getSettings:id => bubbleStore.get(id), ...hooks});
     const stops = [];
     stageNavigation = navigation;
     for (const [name, signal] of stageNavigationSignals) stops.push(navigation[name].subscribe(signal.emit));
