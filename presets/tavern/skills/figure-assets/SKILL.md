@@ -1,6 +1,6 @@
 ---
 name: figure-assets
-description: "编辑素材包里的人物：新建人物，姓名与别名、人物灯、显示形式、身高与形象色、服装、差分、头像裁切、立绘、Live2D/Spine 模型导入与运行库，上传已有图片和模型。生成新图用 asset-generation；卡片文字里的人设用 edit-card。"
+description: "编辑素材包里的人物：新建人物，姓名与别名、人物灯、显示形式、身高与形象色、服装、差分、头像裁切、立绘、Live2D/Spine 模型导入与运行库，上传已有图片和模型。生成新图用 asset-generation；声音用 figure-voice；卡片文字里的人设用 edit-card。"
 ---
 
 # 素材人物

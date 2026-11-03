@@ -7,7 +7,7 @@ import {featureRequestSchema} from '../tavern-plugin/packages/dsh-tavern-stage/l
 const json=value=>assert.deepEqual(validateJsonSchemaValue({},value),[])
 test('factored validation returns the nearest action and an executable minimal syntax skeleton',async t=>{
   const f=await workbenchFixture();t.after(()=>f.close())
-  const actions={assets_read:'list',assets_patch:'bind',media_upload:'image',assets_transfer:'export-card',stage_read:'director-preview',stage_patch:'engine',mods_read:'mod',mods_patch:'config',asset_generation:'prepare'}
+  const actions={assets_read:'list',assets_patch:'bind',media_upload:'image',assets_transfer:'export-card',stage_read:'director-preview',stage_patch:'engine',mods_read:'mod',mods_patch:'config',voice_read:'figure',voice_patch:'reading-create',asset_generation:'prepare'}
   for(const [name,action] of Object.entries(actions)) {
     const result=await f.tools.get('tavern_'+name).execute({request:{action,unexpected:true}},f.exec)
     assert.equal(result.error.code,'INVALID_ARGS',name)

@@ -1,6 +1,6 @@
 // Card-workbench management tools the stage package owns: one request envelope per tool,
 // one row per action. Syntax only; payload semantics stay with each owner (asset library,
-// asset engine, mods, asset generation).
+// asset engine, mods, asset generation, the voice plugin).
 const s={type:'string'},b={type:'boolean'},i={type:'integer'},n={type:'null'},o={type:'object',additionalProperties:true};
 const a=items=>({type:'array',items}),e=(...values)=>({type:typeof values[0],enum:values}),u=(...oneOf)=>({oneOf});
 export const WORKBENCH_ACTIONS = {
@@ -76,6 +76,33 @@ export const WORKBENCH_ACTIONS = {
     ["config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card"),"value":o}],
     ["clear-config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card")}],
   ],
+  voice_read: [
+    ["services|provider-kinds|presets|choices|templates|engine-services", {}],
+    ["voices|models", {"serviceId":s,"offset?":i,"limit?":i}],
+    ["readings", {"id?":s,"offset?":i,"limit?":i}],
+    ["figure", {"packId":s,"figureId":s}],
+  ],
+  voice_patch: [
+    ["engine-services", {"expectedRevision":s,"voiceServices":o}],
+    ["save-service", {"id":s,"kind":s,"label":s,"config":o,"expectedRevision":u(s,n)}],
+    ["remove-service", {"id":s,"expectedRevision":s}],
+    ["remove-service", {"id":s,"expectedRevision":s,"force":{type:"boolean",const:true},"reason":s}],
+    ["test-service", {"id":s}],
+    ["save-preset", {"preset":o,"expectedRevision":u(s,n)}],
+    ["remove-preset", {"id":s,"expectedRevision":s}],
+    ["reading-create", {"name":s,"from?":s}],
+    ["reading-rename", {"id":s,"name":s}],
+    ["reading-remove|reading-active", {"id":s}],
+    ["reading-edit", {"id":s,"expectedRevision":i,"op":e("add"),"entry":o}],
+    ["reading-edit", {"id":s,"expectedRevision":i,"op":e("set"),"index":i,"entry":o}],
+    ["reading-edit", {"id":s,"expectedRevision":i,"op":e("remove"),"index":i}],
+    ["assign-figure", {"packId":s,"expectedRevision":s,"figureId":s,"choice":o}],
+    ["binding", {"packId":s,"expectedRevision":s,"figureId":s,"binding":u(o,n)}],
+    ["pack-voice", {"packId":s,"expectedRevision":s,"voiceId":s,"voiceSpec":o,"figureId?":s}],
+    ["save-template", {"templateId":s,"expectedRevision":u(s,n),"packId":s,"packRevision":s,"voiceId":s,"binding":o}],
+    ["assign-template", {"templateId":s,"templateRevision":s,"packId":s,"expectedRevision":s,"figureId":s}],
+    ["remove-template", {"templateId":s,"expectedRevision":s}],
+  ],
   asset_generation: [
     ["prepare", {"target":o,"expectedRevision":s,"userPrompt?":s,"references?":a(o),"quality?":e("low","medium","high","auto"),"count?":i,"redrawOf?":s,"note?":s,"useCandidateReference?":b}],
     ["generate", {"planId":s,"consentToken":s,"confirmNewRequestIds?":a(s)}],
@@ -92,6 +119,7 @@ export const WORKBENCH_SKILLS = {
   'stage-directing': ['tavern_assets_read', 'tavern_assets_patch', 'tavern_stage_read', 'tavern_stage_patch'],
   'stage-mods': ['tavern_mods_read', 'tavern_mods_patch', 'tavern_media_upload'],
   'card-sharing': ['tavern_assets_read', 'tavern_assets_transfer'],
-  'asset-generation': ['tavern_assets_read', 'tavern_asset_generation']
+  'asset-generation': ['tavern_assets_read', 'tavern_asset_generation'],
+  'figure-voice': ['tavern_assets_read', 'tavern_voice_read', 'tavern_voice_patch', 'tavern_media_upload']
 }
 export const WORKBENCH_TOOL_NAMES=Object.keys(WORKBENCH_ACTIONS).map(name=>'tavern_'+name)

@@ -56,7 +56,7 @@ export async function workbenchFixture(options={}) {
     if(name)return generation[name](args)
     throw new Error('Unexpected RPC '+method)
   }
-  const host=createWorkbenchHost({chatForSession:async()=>chat,getLibrary:()=>library,getPackSettings:()=>({read:()=>({values:{globalEnabledPackIds:options.globalPack?[pack.manifest.id]:[]}})}),
+  const host=createWorkbenchHost({chatForSession:async()=>chat,getLibrary:()=>library,getPackSettings:()=>({read:()=>({values:{globalEnabledPackIds:options.globalPack?[pack.manifest.id]:[]}})}),getTtsControl:()=>options.tts,
     approval:()=>options.noApproval?undefined:options.approval || {effectivePolicy:()=>options.policy || 'ask',async request(input){approvals.push(input);await approvedHook?.();return approvalOutcome}},readChat:async()=>undefined,cardIdentity:async()=> 'fixture',rpc})
   const tools=new Map();registerWorkbenchTools({tools:{register:t=>tools.set(t.name,t)},host})
   const exec={callId:'fixture-call',agent:{session:{id:'fixture-session',header:{cwd:workspace}}},signal:new AbortController().signal}

@@ -3,12 +3,12 @@ import {registerWorkbenchTools} from './tools.js'
 import {WORKBENCH_SKILLS, WORKBENCH_TOOL_NAMES} from './schema.js'
 
 // The stage's card-workbench management tools (asset packs, media, stage and mod settings,
-// asset generation). They show only in the card workbench, and each only after one of its
+// figure voices, asset generation). They show only in the card workbench, and each only after one of its
 // Skills is loaded (tavern.toolModes / tavern.toolSkills). Calls go through the stage's own
 // requests with its workbench authority. Returns the cleanup that ends every registration.
 export function registerStageWorkbench({ctx, deps, call}) {
   const host = createWorkbenchHost({chatForSession:deps.chatForSession, readChat:deps.readChat, rpc:call,
-    getLibrary:() => ctx.get('assetLibrary'), getPackSettings:() => ctx.get('assetPackSettings'), approval:() => ctx.get('approval'),
+    getLibrary:() => ctx.get('assetLibrary'), getPackSettings:() => ctx.get('assetPackSettings'), getTtsControl:() => ctx.get('ttsControl'), approval:() => ctx.get('approval'),
     cardIdentity:async cardPath => (await deps.readCardWorkspace(cardPath))?.meta.id})
   const tools = ctx.get('tools'), service = ctx.get('tavern'), cleanups = []
   if (tools && service) {
