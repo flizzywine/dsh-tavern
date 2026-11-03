@@ -37,7 +37,7 @@ test('returns only declared ledger sections', async () => {
   const result = await service().read({sessionId:'chat', withHtml:false})
   assert.deepEqual(Object.keys(result.data.ledger), ['items'])
   assert.deepEqual(result.data.ledger.items, ledger.items)
-  assert.deepEqual(projectStatusPanelLedger(ledger, ['items', 'nope']), {items:ledger.items})
+  assert.deepEqual(projectStatusPanelLedger(ledger, ['items']), {items:ledger.items})
   const big = {...ledger, items:Array.from({length:80}, (_, i) => ({name:'物'.repeat(900) + i, qty:i, carried:true}))}
   assert.ok(Buffer.byteLength(JSON.stringify(projectStatusPanelLedger(big, ['items']))) <= 12288)
 })

@@ -2,16 +2,15 @@
 import { rawData } from '../../../../lib/domain/card-preparation.js'
 import { readCardVariableSources } from '../../../../lib/domain/card-variable-bindings.js'
 import { projectWidgetVariableValues } from '../../../../lib/domain/widget-variables.js'
-import { emptyLedger, readLedger } from '../../../../lib/domain/story-ledger.js'
+import { readLedger } from '../../../../lib/domain/story-ledger.js'
 
-const LEDGER_SECTIONS = Object.keys(emptyLedger()).filter(name => name !== 'version')
 const LEDGER_BUDGET = 12288
 const bytes = value => Buffer.byteLength(JSON.stringify(value))
 
-// Only the declared ledger sections; the longest list is trimmed from its end until the projection fits the budget.
+// Only the declared ledger sections (checked when the card was written, card-status-panel.js); the longest list is trimmed from its end until the projection fits the budget.
 export function projectStatusPanelLedger(ledger, sections = []) {
   const out = {}
-  for (const name of sections) if (LEDGER_SECTIONS.includes(name)) out[name] = ledger[name]
+  for (const name of sections) out[name] = ledger[name]
   while (bytes(out) > LEDGER_BUDGET) {
     const longest = Object.values(out).filter(Array.isArray).reduce((a, b) => (b.length > (a?.length ?? 0) ? b : a), null)
     if (!longest?.length) break
