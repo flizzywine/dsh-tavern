@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "cdecede2313e3af0be7ce3ccbcdc2b8cedd0a48b",
-  "releaseSequence": 1128,
+  "revision": "859c2984a4e93a2f0c925beda29f6c093056ef9c",
+  "releaseSequence": 1129,
   "version": "3.2.0",
   "files": [
     {
@@ -2905,6 +2905,11 @@
       "size": 3280
     },
     {
+      "path": "tavern-plugin/lib/domain/speech-recognition.js",
+      "sha256": "1be58ee1425cec1f6401f78c18c9cae9d41a498ca2c3c4fd2226c4c53da1bd84",
+      "size": 14758
+    },
+    {
       "path": "tavern-plugin/lib/domain/speech.js",
       "sha256": "4a5b33965303a70979401f2e3e4cb93dc58c2706bff973b97485810597a31350",
       "size": 10558
@@ -3606,8 +3611,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "19105287f724abb07b20725a30688b964e8f02f1c7a6fc4207c4d28be83dc58e",
-      "size": 260298
+      "sha256": "292f2a3b3be17260426d114507b657cd66e773e2fc323b3d38bcbff3df4da98c",
+      "size": 260823
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -3711,8 +3716,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/media.js",
-      "sha256": "a88f866e86577e016d9386daa320760f6e35395df955f0922a6212b1c60f08b0",
-      "size": 2968
+      "sha256": "3defe42641ae6d7f5734e2e9bbd5d636d9bce31ddd0ad668c9146d78555dc633",
+      "size": 3808
     },
     {
       "path": "tavern-plugin/lib/rpc/opening.js",
@@ -3773,6 +3778,11 @@
       "path": "tavern-plugin/lib/settings-migration.js",
       "sha256": "98a4fb399ed9bad3049d5476741259d49a4dc6bd153652b0c99e109c5ba4b7c8",
       "size": 2066
+    },
+    {
+      "path": "tavern-plugin/lib/speech-recognition-host.js",
+      "sha256": "f7813bbb703f17fcc771f32fe7fa084d92cceba70643db1c76f10fd397e491b7",
+      "size": 3240
     },
     {
       "path": "tavern-plugin/lib/speech-wav.js",
@@ -9366,9 +9376,9 @@
     }
   ],
   "archive": {
-    "commit": "f9c2038e57f9c2da7f42c7f8493fa31375d354e8",
+    "commit": "5794cabb3e0bdb787f710ae5bec9440cf260c4b7",
     "path": "runtime.zip",
-    "sha256": "bda33b03834c9a19acfcd71e0624ee6acae1ae8f001e3670f7fdcecae3ee2262",
-    "size": 15902653
+    "sha256": "77bb3d980c6a61e8838948ea23b54e3211156f39919460f947a05b25e77f0577",
+    "size": 15909425
   }
 }
