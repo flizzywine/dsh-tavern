@@ -50,10 +50,10 @@ test('minimax is a paid service kind with a key credential, a free connection ch
   assert.deepEqual(providerConfig('minimax',{}),{url:'https://api.minimaxi.com',model:'speech-02-hd'})
   assert.throws(() => providerConfig('minimax',{url:'https://u:p@api.minimaxi.com'}))
   const calls = [], registered = []
-  const settings = {enabled:true,defaultServiceId:'',providers:[provider],voices:[]}
+  const settings = {enabled:true,providers:[provider],voices:[]}
   const services = createServiceSettings({get:() => settings,replace:async () => {},credentials:() => ({resolve:async () => ({value:'k'}),describe:async () => ({configured:true})}),
     fetch:async (url, options) => { calls.push({url,body:JSON.parse(options.body)}); return reply({base_resp:{status_code:0}}) },
-    tts:{registerProvider:(_owner, port) => { registered.push(port); return () => {} },registerVoiceSource:() => ({replace() {},dispose() {}}),serviceDefaultsChanged() {}}})
+    tts:{registerProvider:(_owner, port) => { registered.push(port); return () => {} },registerVoiceSource:() => ({replace() {},dispose() {}})}})
   const result = await services.test({id:'minimax'})
   assert.equal(result.ok,true); assert.equal(result.voiceCount > 0,true)
   assert.deepEqual(calls.map(c => [new URL(c.url).pathname,c.body]),[['/v1/get_voice',{voice_type:'system'}]])

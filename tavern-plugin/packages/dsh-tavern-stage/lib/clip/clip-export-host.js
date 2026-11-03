@@ -29,7 +29,7 @@ export function createClipHost(options) {
     // Lazy first binding otherwise invalidates the very first cached-voice read.
     presentation?.available()
     const speech=createAssetPackSpeech({presentation,getEngine:()=>snapshot.engine.values,getTts:tts,scope:'dsh-browser',readOnly:true,
-      getBinding:(_ref,voice,flags)=>assetVoiceBinding(tts(),snapshot.engine.values.voiceServices,voice,flags)})
+      getBinding:(_ref,voice,flags)=>assetVoiceBinding(tts(),voice,flags)})
     return {presentation,speech,allowedPackIds,close(){speech?.dispose();presentation?.dispose()}}
   }
   async function readSnapshot(sessionId,chatId,range,args) {

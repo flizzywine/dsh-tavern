@@ -812,7 +812,8 @@ export function createAssetPackService(options) {
         check(!users.some(f => f.id !== input.figureId) || input.confirmShared === true, '$.confirmShared', 'Confirm shared voice users', 'SHARED_VOICE_CONFIRMATION_REQUIRED')
         library.voices[input.voiceId] = copy(input.voiceSpec)
         return {affectedFigures:users.map(f => ({id:f.id,name:f.name}))}
-      })
+      // a change of metadata only (a source's serviceId, emotion labels) publishes without the pack's media.
+      }, true)
     },
     saveFigureVoiceBinding(input) {
       return edit(input, async (manifest, files, before) => {

@@ -23,7 +23,7 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 
-export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], defaultServiceId = () => '', reading = () => ({dialogueVoice:null,narrator:{enabled:false,voice:null}}), now = Date.now } = {}) {
+export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], reading = () => ({dialogueVoice:null,narrator:{enabled:false,voice:null}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
   let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
   const emit = e => { for (const fn of listeners) fn(e) }
@@ -134,16 +134,16 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     resolveVoiceSpec,
     describeVoiceCapabilities,
     // the stage's sync choice among listed services (card voice-direction flag); the same rule resolveVoiceService uses.
-    chooseService(source,services,defaults = {}) { return chooseService(source,services,defaults,defaultServiceId()) },
-    async resolveVoiceService({voice,binding,defaults = {}}, {readOnly = false} = {}) {
+    chooseService(source,services) { return chooseService(source,services) },
+    async resolveVoiceService({voice,binding}, {readOnly = false} = {}) {
       if (binding.source === null) return {effective:null,issues:[]}
       const source = voice.sources[binding.source ?? voice.defaultSource]
       // a chosen source not set up yet stays chosen and says what it lacks.
       const unset = sourceUnsetIssue(source)
       if (unset) return unset
-      const services = await api.listServices(), browser = browserFallback(source,services,defaultServiceId())
+      const services = await api.listServices(), browser = browserFallback(source,services)
       if (browser) return browser
-      const selected = chooseService(source,services,defaults,defaultServiceId())
+      const selected = chooseService(source,services)
       if (!selected) return {effective:null,issues:[{code:'SERVICE_REQUIRED'}]}
       const provider = providers.get(selected.id).provider
       if (!readOnly) await provider.discover?.()
@@ -153,7 +153,6 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       const validation = provider.validateModel ? await provider.validateModel(source.model, source.voiceName) : {issues:[]}
       return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:structuredClone(provider.capabilities)},issues:validation.issues}
     },
-    serviceDefaultsChanged() { emit({type:'serviceDefaultsChanged'}) },
     reading: () => structuredClone(reading()),
     readingChanged() { emit({type:'readingChanged'}) },
     setEnabled(value) {
@@ -213,7 +212,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       }))
       const presets = await Promise.all((sources.get('voice-presets')?.voices || []).map(async voice => {
         const candidates = [...providers.values()].map(e => e.provider).filter(p => voice.kind === 'service' ? p.capabilities?.serviceVoiceEngines?.includes(voice.engine) : p.kind === voice.kind)
-        const provider = candidates.find(p => p.id === (voice.providerId || defaultServiceId())) || (candidates.length === 1 ? candidates[0] : undefined)
+        const provider = candidates.find(p => p.id === voice.providerId) || (candidates.length === 1 ? candidates[0] : undefined)
         let ready = false
         if (voice.kind === 'service') ready = lists.flat().some(v => v.serviceId === provider?.id && v.id === voice.voiceId && v.state === 'ready')
         else if (provider) { try { ready = ['ready','configured'].includes((await provider.health({})).state) } catch {} }
@@ -261,7 +260,7 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return { ...structuredClone(voice), state: !voice.enabled ? 'disabled' : !source.bindings[voice.id] ? 'service-required' : provider ? 'ready' : 'offline' }
     },
     async listServices() { alive(); return [...providers.values()].map(({provider:p}) => (
-      {id:p.id,kind:p.kind,revision:p.revision,isDefault:p.id === defaultServiceId(),...(p.model ? {model:p.model} : {}),capabilities:structuredClone(p.capabilities || {})}
+      {id:p.id,kind:p.kind,revision:p.revision,...(p.model ? {model:p.model} : {}),capabilities:structuredClone(p.capabilities || {})}
     )) },
     async listProviderCatalog({ serviceId } = {}) {
       if (!serviceId) return api.listServiceVoices()

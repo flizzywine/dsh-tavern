@@ -11,7 +11,7 @@ export function browserSpeechSource(voice, binding) {
   const source = voice.sources[binding.source ?? voice.defaultSource]
   return source?.provider === 'browser' ? source : null
 }
-export async function assetVoiceBinding(tts, defaults, declaration, options) {
+export async function assetVoiceBinding(tts, declaration, options) {
   if (tts?.apiVersion !== 1) return null
-  return (await tts.resolveVoiceService({...declaration,defaults},options)).effective
+  return (await tts.resolveVoiceService(declaration,options)).effective
 }

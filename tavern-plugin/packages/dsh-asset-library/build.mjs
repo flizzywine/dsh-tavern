@@ -21,7 +21,8 @@ function visit(dir, relative = '') {
 }
 // The lightweight validator owns source kinds; publish the same enum in the schema. Read it from this package's vendored
 // copy (refreshed first; the protocol's src is private to it).
-const vendorProtocol = (source, target) => emit(join(root, 'src', target), (source.endsWith('.json') ? '' : '// Generated from dsh-presentation-protocol by build.mjs; do not edit.\n') + readFileSync(join(root, '../dsh-presentation-protocol/src', source), 'utf8').replaceAll("from './asset-packs.js'", "from './asset-pack-refs.js'"))
+// voice-schema.js is copied byte-identically (its own header names the canonical source).
+const vendorProtocol = (source, target) => emit(join(root, 'src', target), (source.endsWith('.json') || source === 'voice-schema.js' ? '' : '// Generated from dsh-presentation-protocol by build.mjs; do not edit.\n') + readFileSync(join(root, '../dsh-presentation-protocol/src', source), 'utf8').replaceAll("from './asset-packs.js'", "from './asset-pack-refs.js'"))
 vendorProtocol('stage-skin.cjs', 'shared/stage-skin.cjs')
 const { STAGE_SKIN_SOURCE_KINDS } = (await import('./src/shared/stage-skin.cjs')).default
 const skinSchemaPath = join(root, '../dsh-presentation-protocol/schema/skin.schema.json')

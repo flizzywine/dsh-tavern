@@ -26,7 +26,7 @@ const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && 
 export function defaultAssetEngineSettings() {
   return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,!['dialogue','stage'].includes(key)])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
     dimensions:Object.fromEntries(ENGINE_DIMENSIONS.map(key => [key, true])), actionCaps:{...ACTION_CAPS},
-    voiceServices:{}, judge:defaultJudgeConfig() }
+    judge:defaultJudgeConfig() }
 }
 // 旁白配音's card layer (stage.narrator) sets only what it overrides; the global layer is the tts plugin's tts.reading.narrator.
 // voice = a figure whose voice speaks the narration ({packId, figureId}) or a browser system voice ({browser}); null = none.
@@ -107,10 +107,6 @@ export function validateAssetEngineSettings(value) {
   for (const key of ['emote','cam','sfx','title','skin']) delete value.actionCaps[key]
   shape(value.actionCaps, Object.keys(ACTION_CAPS), Object.keys(ACTION_CAPS), '$.actionCaps')
   for (const key of Object.keys(ACTION_CAPS)) integer(value.actionCaps[key], 1, 256, '$.actionCaps.' + key)
-  check(value.voiceServices && typeof value.voiceServices === 'object' && !Array.isArray(value.voiceServices), '$.voiceServices')
-  for (const [kind, serviceId] of Object.entries(value.voiceServices)) {
-    id(kind, '$.voiceServices.kind'); id(serviceId, '$.voiceServices.' + kind)
-  }
   return cloneJson(value)
 }
 export function patchAssetEngineSettings(current, patch) {

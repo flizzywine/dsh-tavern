@@ -187,10 +187,6 @@ async function mods(c) {
 }
 async function voice(c) {
   const r=c.input,args=omit(r,'action','offset','limit'),read=c.name==='voice_read'
-  if(r.action==='engine-services') {
-    const result=await c.rpc(read?'getAssetEngineSettings':'saveAssetEngineSettings',read?{}:{expectedRevision:r.expectedRevision,patch:{voiceServices:r.voiceServices}})
-    return {voiceServices:result.values.voiceServices,revision:result.revision,writable:result.writable,live:result.live}
-  }
   if(read) {
     if(r.action==='figure')return c.rpc('getFigureVoiceEditor',args)
     if(r.action==='choices')return c.rpc('listFigureVoiceChoices',{})

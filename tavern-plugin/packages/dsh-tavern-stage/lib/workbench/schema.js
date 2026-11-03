@@ -77,13 +77,12 @@ export const WORKBENCH_ACTIONS = {
     ["clear-config", {"modId":s,"expectedRevision":s,"key":s,"layer":e("global","card")}],
   ],
   voice_read: [
-    ["services|provider-kinds|presets|choices|templates|engine-services", {}],
+    ["services|provider-kinds|presets|choices|templates", {}],
     ["voices|models", {"serviceId":s,"offset?":i,"limit?":i}],
     ["readings", {"id?":s,"offset?":i,"limit?":i}],
     ["figure", {"packId":s,"figureId":s}],
   ],
   voice_patch: [
-    ["engine-services", {"expectedRevision":s,"voiceServices":o}],
     ["save-service", {"id":s,"kind":s,"label":s,"config":o,"expectedRevision":u(s,n)}],
     ["remove-service", {"id":s,"expectedRevision":s}],
     ["remove-service", {"id":s,"expectedRevision":s,"force":{type:"boolean",const:true},"reason":s}],

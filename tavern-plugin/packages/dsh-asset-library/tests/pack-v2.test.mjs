@@ -470,6 +470,19 @@ test('pack voice transcripts use verified revision bytes without changing author
   assert.equal((await service.resolveFigures({refs:[ref]}))[0].voiceSpec.sources.fish.references[1].text,'Changed reference transcript')
 })
 
+test('choosing a voice source service (serviceId) is a metadata edit; changing its clips is not', async t => {
+  const {service,root} = await fixture(t)
+  const saved = snap(await install(service,root)), voiceId = saved.figures[FIGURE_ID].voice.voice
+  const {isMetadataEdit} = await import('../src/pack-v2/metadata-edit.js')
+  const voiceSpec = structuredClone(saved.manifest.voiceLibrary.voices[voiceId]); voiceSpec.sources.fish.serviceId = 'svc-drama'
+  const withVoice = spec => ({...saved.manifest,voiceLibrary:{...saved.manifest.voiceLibrary,voices:{...saved.manifest.voiceLibrary.voices,[voiceId]:spec}}})
+  assert.equal(isMetadataEdit(saved,withVoice(voiceSpec),saved.figures),true)
+  const clips = structuredClone(voiceSpec); clips.sources.fish.references = clips.sources.fish.references.slice(1)
+  assert.equal(isMetadataEdit(saved,withVoice(clips),saved.figures),false)
+  const next = snap(await service.savePackVoice({packId:PACK_ID,figureId:FIGURE_ID,voiceId,expectedRevision:saved.revision,voiceSpec}))
+  assert.equal(next.manifest.voiceLibrary.voices[voiceId].sources.fish.serviceId,'svc-drama')
+  assert.deepEqual(next.manifest.files.filter(file => !file.path.startsWith('figures/')),saved.manifest.files.filter(file => !file.path.startsWith('figures/')))
+})
 test('pack voice transcripts preserve long text and reject invalid publication without truncation', async t => {
   const {service,root} = await fixture(t), pack = await syntheticPack()
   // validate transcripts through the pack-owned voice authoring API.

@@ -32,7 +32,7 @@ description: "配置配音：TTS 语音服务及各类声音默认服务、声�
 - 工具不接收密钥。新服务返回 `credentials-required` 时，请用户到「配音」›「语音服务」里给该服务填写密钥，完成后再继续；不要让用户把密钥贴到对话里。
 - `test-service` 可能发出真实请求并计费，只在用户要求测试时调用，宿主会弹出付费确认。失败时按返回的状态（离线、缺凭据、不支持）给出修法，不换服务重试。
 - 删除仍在使用的服务会返回 `SERVICE_IN_USE` 和引用它的人物。先把这些引用给用户看；用户仍要删除时，才带 `force:true` 和简短理由再删一次。
-- **各类声音默认用哪个服务**是引擎的 `voiceServices`：`tavern_voice_read engine-services` 读取当前映射和引擎 revision，`tavern_voice_patch engine-services {expectedRevision, voiceServices}` 写入。写入会整体替换这个映射，所以先读出现有项，保留不改的再写回；`{}` 表示清空。引擎的其他设置不受影响。这是全局写入，写前按上面的方式向用户说明。
+- **人物的声音自带服务**：音色来源可带 `serviceId`（见 `references/voice-data.md`），没有全局的「默认服务」。同一种服务只装了一个时不用写；装了几个时，在人物「声音」里选对应服务的那一行，或用 `pack-voice` 写来源的 `serviceId`。
 
 ## 人物的声音
 

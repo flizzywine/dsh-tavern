@@ -13,7 +13,7 @@ exports.apply = function(ctx) {
     const result = await request('control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,args})},['probeService','testService'].includes(method) ? 125000 : 15000)
     // a change to the active reading preset changes every line's identity; players drop their decoded audio.
     if (READING_METHODS.has(method)) for (const fn of listeners) fn({type:'readingsChanged'})
-    if (['saveVoicePreset','deleteVoicePreset','importVoicePresets','saveService','deleteService','setDefaultService'].includes(method)) {
+    if (['saveVoicePreset','deleteVoicePreset','importVoicePresets','saveService','deleteService'].includes(method)) {
       for (const fn of listeners) fn({type:'voicesChanged'})
       for (const fn of managementListeners) fn()
     }
@@ -283,8 +283,7 @@ exports.apply = function(ctx) {
         h('span',{className:'dtts-item-main'},h('span',{className:'dtts-item-title'},v.label),v.languages[0] && h('span',{className:'dtts-item-meta'},v.languages[0])),
         h('span',{className:'dtts-item-actions'},h(Button,{'aria-label':(playing === v.id ? '停止' : '试听') + '「' + v.label + '」','aria-pressed':playing === v.id,onClick:() => listen(v)},playing === v.id ? '停止' : '试听')))))))
   }
-  // 浏览器朗读 is the fixed first row — free, nothing to set up, and the
-  // default source while no 默认语音引擎 is chosen; it has no ⋯ (it cannot be removed).
+  // 浏览器朗读 is the fixed first row — free, nothing to set up, always available; it has no ⋯ (it cannot be removed).
   function ServicesSection({data}) {
     const browserSpeech = useBrowserSpeech(), [browserOpen,setBrowserOpen] = React.useState(false)
     const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
@@ -399,7 +398,7 @@ exports.apply = function(ctx) {
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
         browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
-          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready',state.defaultServiceId ? '免费' : '免费 · 默认'])}),
+          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready','免费'])}),
           browserOpen && h(BrowserSpeechVoices,{service:browserSpeech})),
         configured.map(p => { const live = (state.running || []).find(r => r.id === p.id); return h('li',{key:p.id,'data-open':editing(p.id) || undefined},
           h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:StateWord(serviceState(p,descriptor(p.kind),live))},
@@ -410,7 +409,6 @@ exports.apply = function(ctx) {
         unset.map(kind => { const open = editor?.mode === 'add' && editor.fixed && editor.kind === kind; return h('li',{key:'+' + kind,'data-open':open || undefined},
           h(Line,{title:KINDS[kind],open,onOpen:() => startKind(kind),warn:StateWord(['idle','未设置'])}),open && h('div',{className:'dtts-adding-fixed'},Form())) }),
         external.map(p => h('li',{key:p.id},h(Line,{title:runningName(p),warn:StateWord(runningState(p))})))),
-      state && h(Field,{label:'默认语音引擎',help:'参考音频优先使用兼容的默认引擎；云端声音 ID 保留原有协议选择。不选时，没有可用服务的声音由浏览器朗读。所有卡通用。'},menu({label:'默认语音引擎',value:state.defaultServiceId || '',options:[['','按声音协议选择'],...configured.map(p => [p.id,p.label]),...external.map(p => [p.id,runningName(p)])],disabled:busy,onChange:serviceId => run(() => call('setDefaultService',{serviceId,expectedServiceId:state.defaultServiceId || ''}))()})),
       editor?.mode === 'add' && !editor.fixed ? h('div',{className:'dtts-adding'},
           h('div',{className:'dtts-adding-head'},h('span',{className:'dtts-label'},'选择类型'),!editor.kind && h(Button,{link:true,onClick:close},'取消')),
           h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'服务类型'},h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind,
