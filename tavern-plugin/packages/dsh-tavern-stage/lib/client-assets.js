@@ -2,10 +2,12 @@ import {readFile} from 'node:fs/promises'
 
 // Executable stage chunks are first-party client assets of the stage's own lifetime (same origin,
 // registered only while the stage runtime is installed). The core imports `stage-client.mjs` on
-// demand for a session that needs the stage; `skin-overlay.mjs` is the stage's own lazy chunk.
+// demand for a session that needs the stage; `skin-overlay.mjs` is the stage's own lazy chunk, and
+// `live2d-client.mjs` the Live2D module (dsh-tavern-live2d) the stage imports when Live2D is needed.
 export const STAGE_CLIENT_ASSET = 'stage-client.mjs'
 const STAGE_CLIENT_CHUNKS = Object.freeze({
-  'skin-overlay.mjs': new URL('./client/skin-overlay.mjs', import.meta.url)
+  'skin-overlay.mjs': new URL('./client/skin-overlay.mjs', import.meta.url),
+  'live2d-client.mjs': new URL('./client/live2d-client.mjs', import.meta.url)
 })
 const JAVASCRIPT = 'text/javascript; charset=utf-8'
 

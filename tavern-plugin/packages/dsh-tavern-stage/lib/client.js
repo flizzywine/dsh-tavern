@@ -1830,7 +1830,7 @@ return {wheel:galWheelDecision, actionFor:id => GAL_CONTROL_ACTIONS[id] || id, s
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageControls};
 
         'use strict';
-function createStageNotices({React, document, foreground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts}) {
+function createStageNotices({React, document, foreground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts, live2d:live2dRuntime = null}) {
 let disposed = false;
 const notifiedSessions = new Set(), pendingNotices = new Set();
 function useCapabilityNotice(sessionId, live, rows) {
@@ -1975,7 +1975,27 @@ function GalSceneReload({ onReload }) {
 // round = the round's phase, 'body' | 'staging' | null (「正在生成正文…」 / 「正在生成后续演出…」, the round's 停止 when onStop is given).
 // The stop's label is the phrase without the ellipsis, like the text box's 「正在生成选项」.
 const GAL_ROUND_TEXT = { body: '正在生成正文', staging: '正在生成后续演出' };
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], nameOf, scope }) {
+// an on-stage Live2D figure is showing its static sprite (or nothing) because this machine has no Live2D runtime.
+// One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry (the Live2D module's CubismCoreEntry via
+// live2d-loader.cjs, as in 设置 › 舞台 › 运行库) in place. Installing re-reads the stage (session-observation.cjs), so the figures
+// switch to Live2D without a reload; the notice goes as soon as the runtime is in.
+function GalCubismNotice({ icon, request }) {
+    const h = React.createElement, store = live2dRuntime.runtime;
+    React.useSyncExternalStore(store.subscribe, store.snapshot);
+    const [open, setOpen] = React.useState(false), panel = React.useId(), toggle = React.useRef(null);
+    if (store.core) return null;
+    // The stage reads Enter/Space/Esc on window; keys on the notice's own controls stay here, Esc folds the entry first.
+    const keys = event => {
+        if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); toggle.current?.focus(); }
+        else if ([' ', 'Enter'].includes(event.key) && event.target.closest?.('button,a')) event.stopPropagation();
+    };
+    return h('div', { className: 'fork-gal-runtime-status', 'data-tone': 'error', role: 'status', onKeyDown: keys }, icon,
+        h('div', { className: 'fork-gal-runtime-text' },
+            h('div', { className: 'fork-gal-runtime-head' }, h('strong', null, 'Live2D 未安装'), ' · ',
+                h('button', { type: 'button', ref: toggle, className: 'fork-gal-runtime-action', 'aria-expanded': open, 'aria-controls': panel, onClick: () => setOpen(!open) }, '安装')),
+            open ? h('div', { id: panel, className: 'fork-gal-cubism-install' }, h(live2dRuntime.Entry, { request, head: false })) : null));
+}
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -2025,7 +2045,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
             h('dl', null, galShortcuts().map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
         interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
-        null,
+        live2dRequest && live2dRuntime ? h(GalCubismNotice, { key: 'live2d-core', icon, request: live2dRequest }) : null,
         notes.length ? notice('diagnostics', 'debug', icon, '场景诊断', notes.map(note => ({
             text: GAL_DIAGNOSTIC_TEXT[typeof note === 'string' ? note.split(':')[0] : note?.code] || stageDiagnosticText(note), raw: stageDiagnosticText(note, true), always: true }))) : null,
         spriteFallbacks.length ? notice('sprite-fallback', 'error', icon, galSpriteFallbackTitle(spriteFallbacks),
@@ -5576,6 +5596,403 @@ function createStageSpineFigures({rig,bottomFade}) {
     return {prepare,dispose(){if(disposed)return;disposed=true;const errors=[];for(const figure of [...figures])try{figure.destroy();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage Spine cleanup failed');}};
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSpineFigures};
+
+        // Live2D staged actions (scene-math.cjs moves); the stage bundle includes this source (live2d-figures.cjs passes the
+// scene's moves), Node tests require it.
+function live2dActMoves() {
+    return require("./scene-math.cjs").createStageSceneMath({ colorMath: require("../../../../shared/color-math.cjs") });
+}
+// Staged actions without a matching motion group: head params and transform offsets over time.
+// Nod/Shake play the model's own motion group when it has one (some models name theirs
+// motion_000…, so they always use these).
+const LIVE2D_ACTS = { nod: 700, shake: 850, jump: 740, tremble: 1000, turn: 1400, bow: 1300, lean: 1400, "step-back": 1300 };
+function live2dStartAct(entry, name, now) {
+    if (!LIVE2D_ACTS[name]) return;
+    const groups = entry.model.internalModel.settings.motions || {};
+    const own = (name === "nod" || name === "shake") && Object.keys(groups).find(group => group.toLowerCase() === name);
+    if (own) { entry.model.motion(own, 0, 3); return; }
+    entry.act = { name, start: now, duration: LIVE2D_ACTS[name] };
+}
+function live2dActFrame(entry, now, reduced, moves) {
+    const {galHopAt, galShiverAt, galBodyActAt} = moves || live2dActMoves();
+    const frame = { dx: 0, dy: 0, px: 0, flip: 1, angleX: 0, angleY: 0, zoom: 1, scaleX: 1, scaleY: 1 };
+    const act = entry.act;
+    if (!act) return frame;
+    const t = (now - act.start) / act.duration;
+    if (t >= 1 || t < 0) { entry.act = null; return frame; }
+    // Nod: one deep dip and a small second one.
+    if (act.name === "nod") { frame.angleY = t < 0.6 ? -18 * Math.sin(Math.PI * t / 0.6) : -8 * Math.sin(Math.PI * (t - 0.6) / 0.4); frame.dy = 0.008 * Math.sin(Math.PI * t); }
+    else if (act.name === "shake") frame.angleX = 10 * Math.sin(Math.PI * 4 * t) * Math.pow(Math.sin(Math.PI * t), 2);
+    else if (act.name === "jump") { Object.assign(frame, galHopAt(t, reduced)); frame.hop = true; }
+    else if (act.name === "tremble") frame.px = galShiverAt(t);
+    else if (act.name === "turn") frame.flip = t < 0.2 ? Math.cos(Math.PI * t / 0.2) : t < 0.8 ? -1 : -Math.cos(Math.PI * (t - 0.8) / 0.2);
+    // Bow / lean / step-back: body moves shared with static portraits (scene-math.cjs galBodyActAt).
+    else { const body = galBodyActAt(act.name, t); frame.dy = body.dy; frame.zoom = body.zoom; frame.angleY = body.angleY; }
+    return frame;
+}
+
+// Scale the whole model around its bottom center, not its top-left origin.
+function live2dApplyHop(model, act) {
+    const im = model.internalModel;
+    const width = (im.originalWidth || 2400) * model.scale.x;
+    const height = (im.originalHeight || 3100) * model.scale.y;
+    model.x += width * (1 - act.scaleX) / 2;
+    model.y += height * (1 - act.scaleY) + Math.abs(height) * act.dy;
+    model.scale.set(model.scale.x * act.scaleX, model.scale.y * act.scaleY);
+}
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { live2dActMoves, LIVE2D_ACTS, live2dStartAct, live2dActFrame, live2dApplyHop };
+
+        // Live2D figures on the stage scene: the scene.cjs figure renderer for kind 'live2d', beside spine-figures.cjs.
+// The runtime helpers (loader, placement, expression, per-context shaders, the head box) are the Live2D module's
+// (live2d-loader.cjs `runtime`, loaded on demand); the Cubism Core and pixi-live2d-display are the user's imports
+// (cubism-core.cjs), never bundled.
+// Staged actions are live2d-acts.cjs (included beside this file).
+function createStageLive2dFigures({window, math, idle, tap, lipSync, runtime = {}, measure = {}}) {
+const {performance} = window;
+const {galBodyX, galCentredAnatomy, galTextureOwners, galMotionTransitions, galEstimateHeadTop, galInitFace, live2dStartIdle, galApplyStageHead,
+    galLipSyncIds, galApplyLipSync, galBlushStep, galCheekValue, galFlushFace, galDisplayMatrix, galMeshRotation, galMeshHead, galFallbackHead,
+    galFaceUnion, galSmoothHead, galPlayMoodMotion, galBlinkCalm, galHopAt, galShiverAt, galBodyActAt} = math;
+const {loadLive2dRuntime, live2dPlace, live2dHeadFrame, live2dExpress, live2dUseContext, live2dDropContext, syntheticMouth, live2dLoadError, headBox, core:runtimeCore = () => '', ready:runtimeReady = () => true} = runtime;
+const {figureMeasureLive2d, figureMeasurePackLive2d, figureMeasureLive2dHead, figureMeasureLive2dCentre, figureKnowsBody, packFigureAnatomy, packFigureRecord} = measure;
+const moves = {galHopAt, galShiverAt, galBodyActAt};
+const textures = galTextureOwners();
+const scenes = new Set();
+let disposed = false;
+function renderer(scene) {
+    if (disposed) throw new Error('Live2D figures disposed');
+    const {PIXI, app, state, emotes:emotesBox, figures:figuresBox, onError, commit, lifeOn} = scene;
+    const gl = app.renderer.gl;
+    // `ready` without a load: a page that already has the runtime (a preview loaded it first) and its helpers.
+    const live = { core: '', ready: Boolean(PIXI.live2d) && runtimeReady(), loading: false };
+    const entries = new Set();
+    let closed = false;
+    const useContext = () => live2dUseContext(app.renderer.gl);
+    app.renderer.on('prerender', useContext);
+    function load(entry) {
+        if (closed || entry.loading || entry.model || entry.failed || !live.ready) return;
+        entry.loading = true;
+        entries.add(entry);
+        textures.begin();
+        PIXI.live2d.Live2DModel.from(entry.url, { autoInteract: false, autoUpdate: false, idleMotionGroup: '__none__' }).then(function (model) {
+            const releaseTextures = textures.retain(model.textures);
+            textures.end();
+            if (entry.dead || state.destroyed || closed) { model.destroy({ children: true }); releaseTextures(); return; }
+            entry.model = model;
+            // freeze calibration at entry; candidates never switch a running figure.
+            entry.figureSizing = entry.figure.figureSizing;
+            if (entry.figureSizing?.source) {
+                const input = entry.figureSizing, identity = input.source + ':' + input.outfitKey;
+                entry.figureCandidate = input.pack
+                    ? (input.anatomy ? null : figureMeasurePackLive2d(model, identity, app.renderer, PIXI))
+                    : figureMeasureLive2d(model, input.source);
+                if (input.pack) {
+                    // The model's own head sizes it unless its anatomy really knows head and feet (packFigureAnatomy).
+                    const canvas = [model.internalModel.originalWidth, model.internalModel.originalHeight];
+                    const sized = { ...input, head: input.anatomy && figureKnowsBody(input.anatomy) ? null : figureMeasureLive2dHead(model, identity, headBox) };
+                    const anatomy = galCentredAnatomy(packFigureAnatomy(sized, canvas, entry.figureCandidate), canvas, anatomy => figureMeasureLive2dCentre(model, identity, anatomy, headBox));
+                    entry.figureSizing = { ...sized, anatomy, metrics: packFigureRecord({ ...sized, anatomy }, canvas, entry.figureCandidate) };
+                }
+            }
+            // The body's centre in model px (the model canvas is rarely centred on the figure), for the speaker anchor.
+            model.forkBodyX = galBodyX(entry.figureSizing?.metrics, entry.figureCandidate) ?? galBodyX(null, figureMeasureLive2d(model, entry.url)) ?? model.internalModel.originalWidth / 2;
+            entry.releaseTextures = releaseTextures;
+            galMotionTransitions(model.internalModel);
+            // Models without metadata are sampled once in their untransformed canvas bounds.
+            const declared = model.internalModel.settings.json && model.internalModel.settings.json.ForkStage;
+            if (!entry.figureSizing?.pack && !(declared && declared.Chin > declared.HeadTop && declared.HeadTop >= 0)) {
+                let texture;
+                try {
+                    const im = model.internalModel, Wm = im.originalWidth, Hm = im.originalHeight;
+                    model.update(0);
+                    texture = app.renderer.generateTexture(model, { region: new PIXI.Rectangle(0, 0, Wm, Hm), resolution: Math.min(1, 1024 / Math.max(Wm, Hm)) });
+                    const canvas = app.renderer.plugins.extract.canvas(texture), ctx = canvas.getContext('2d');
+                    const top = galEstimateHeadTop(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+                    model.forkStageHeadFrame = { HeadTop: top, Chin: Math.min(1, top + (Hm / Wm < 1.15 ? 0.38 : 0.15)) };
+                } catch (_) {
+                    const im = model.internalModel;
+                    model.forkStageHeadFrame = { HeadTop: 0, Chin: im.originalHeight / im.originalWidth < 1.15 ? 0.38 : 0.15 };
+                } finally { if (texture) texture.destroy(true); }
+            }
+            model.update(0);
+            entry.face = galInitFace(model);
+            live2dStartIdle(model, () => entry.updateSeconds || 0, entry.idle.jitter);
+            model.internalModel.on('afterMotionUpdate', () => galApplyStageHead(model.internalModel.coreModel, entry.lookOn ? entry.look : 0, entry.param));
+            // figure-life (figure-idle.cjs): drift / attention / saccade offsets and the tap flinch, before physics like the head offsets.
+            const idleIds = {};
+            model.internalModel.on('afterMotionUpdate', () => applyIdle(entry, model, idleIds));
+            // Lip sync, including silent syllables (zero), wins over motion/expression mouth curves.
+            const lipSyncIds = galLipSyncIds(model.internalModel.settings);
+            model.internalModel.on('beforeModelUpdate', function () {
+                const core = model.internalModel.coreModel;
+                if (!entry.reducedMotion) galApplyLipSync(core, lipSyncIds, entry);
+                entry.faceAngles = Object.fromEntries(['ParamAngleX', 'ParamAngleY', 'ParamAngleZ', 'ParamBodyAngleX', 'ParamBodyAngleZ'].map(id => [id, core.getParameterValueById(id)]));
+                // The shy emotion's blush (stage input `blush`, asset-pack-presentation.js): this event follows
+                // expressions/saveParameters, so it never accumulates or overwrites an expression's own blush.
+                const cheek = entry.face.cheek, now = state.clock;
+                entry.blushAmount = galBlushStep(entry.blushAmount || 0, entry.figure && (entry.figure.blush || entry.tapBlush > performance.now() && !entry.figure.speaking) ? 1 : 0, Math.max(0, Math.min(0.1, (now - (entry.blushAt ?? now)) / 1000)), entry.reducedMotion);
+                entry.blushAt = now;
+                if (cheek >= 0 && entry.blushAmount > 0) core.setParameterValueByIndex(cheek, galCheekValue(core.getParameterValueByIndex(cheek), entry.blushAmount, typeof core.getParameterDefaultValue === 'function' ? core.getParameterDefaultValue(cheek) : Math.max(0, core.getParameterMinimumValue(cheek)), core.getParameterMaximumValue(cheek)));
+            });
+            entry.container.addChild(model);
+            entry.mood = null;
+            live2dExpress(entry, entry.figure);
+            commit(entry);
+        }, function (error) {
+            textures.end();
+            entry.loading = false; entry.failed = true;
+            if (!entry.dead && !closed) onError(live2dLoadError(error));
+        });
+    }
+    // afterMotionUpdate, after galApplyStageHead: offsets on top of the motion layers and director head, before physics.
+    function applyIdle(entry, model, ids) {
+        const desc = state.desc;
+        if (!lifeOn(desc) || entry.dead || !figuresBox.visible || galBlinkCalm()) return;
+        const core = model.internalModel.coreModel, dt = Math.min(0.05, entry.updateSeconds || 0), figure = entry.figure;
+        const add = (id, value) => {
+            if (!value) return;
+            if (ids[id] === undefined) { const index = core.getParameterIndex(id); ids[id] = index >= 0 && index < core.getParameterCount(); }
+            if (ids[id]) core.addParameterValueById(id, value);
+        };
+        const offsets = idle.galLive2dIdleStep(entry.idle, dt, Boolean(figure.speaking), Boolean(entry.lookOn && entry.look));
+        for (const id in offsets) add(id, offsets[id] * idle.FIGURE_LIFE.live2dGain);
+        const frame = tap.galTapFrame(entry.tapReaction, state.clock, false);
+        if (frame.flinch) {
+            const pat = entry.tapReaction.region === 'head';
+            add('ParamAngleY', (pat ? -9 : 6) * frame.flinch);
+            add('ParamAngleZ', frame.tilt * (pat ? 7 : 4));
+            add('ParamBodyAngleX', -frame.tilt * 4);
+            add('ParamBodyAngleY', (pat ? -3 : 4) * frame.flinch);
+        }
+    }
+    function tapSquash(entry, model, now) {
+        const frame = tap.galTapFrame(entry.tapReaction, now, galBlinkCalm()), body = entry.restBody;
+        if (!body || (frame.scaleY === 1 && frame.scaleX === 1 && !frame.dx)) return;
+        const k = 0.7, sx = 1 + (frame.scaleX - 1) * k, sy = 1 + (frame.scaleY - 1) * k;
+        const px = body.x + body.width / 2, py = body.y + body.height;
+        model.x = px + (model.x - px) * sx + frame.dx * body.width;
+        model.y = py + (model.y - py) * sy;
+        model.scale.set(model.scale.x * sx, model.scale.y * sy);
+    }
+    function tick(entry, figure, desc, {now, W, H, framing, reducedHop}) {
+        const model = entry.model;
+        entry.reducedMotion = desc.reducedMotion === true;
+        if (model.internalModel.motionManager.forkMotionLayers) model.internalModel.motionManager.forkMotionLayers.reduced = entry.reducedMotion;
+        if (figure.act && figure.act.nonce !== entry.actNonce) { entry.actNonce = figure.act.nonce; live2dStartAct(entry, figure.act.name, now); }
+        const act = live2dActFrame(entry, now, reducedHop, moves);
+        entry.param = act;
+        const sizingInput = entry.figureSizing ? { ...entry.figureSizing, ...framing } : null;
+        const physical = live2dPlace(model, W, H, entry.cx.v, false, false, 1, 1, sizingInput);
+        entry.figureResolved = model.forkFigureSizing || { mode: 'legacy' };
+        const im = model.internalModel, hf = live2dHeadFrame(model), mh = im.originalHeight || 3100, s = Math.abs(model.scale.y);
+        entry.restBody = { x: model.x, y: model.y, width: (im.originalWidth || 2400) * s, height: mh * s };
+        entry.restHead = { x: W * entry.cx.v, top: model.y + hf.HeadTop * mh * s, chin: model.y + hf.Chin * mh * s, width: (hf.Chin - hf.HeadTop) * mh * s };
+        if (physical?.restHead) entry.restHead = physical.restHead;
+        // The rest head in the figure's own space, before the stage moves its container: the bust frames it (bust.cjs).
+        entry.localHead = entry.restHead;
+        // REST bounds in model pixels; the clamp applies the actual act/focus/container
+        // transforms without forcing another walk of Cubism's deforming drawables.
+        const head = entry.restHead;
+        entry.clampLocalHead = { x: (head.x - model.x) / model.scale.x, top: (head.top - model.y) / model.scale.y,
+            chin: (head.chin - model.y) / model.scale.y, width: head.width / Math.abs(model.scale.x) };
+        const placed = live2dPlace(model, W, H, entry.cx.v + (physical ? 0 : act.dx), false, false, (act.zoom || 1), act.flip, sizingInput);
+        model.x += act.px;
+        if (placed?.mode === 'physical') {
+            // All physical action displacement uses the pose span, not canvas padding or stage H.
+            model.x += act.dx * physical.poseSpan + placed.supportX * model.scale.x * (1 - (act.scaleX || 1));
+            model.y += act.dy * physical.poseSpan + placed.feet * model.scale.y * (1 - (act.scaleY || 1));
+            model.scale.set(model.scale.x * (act.scaleX || 1), model.scale.y * (act.scaleY || 1));
+        } else if (act.hop) live2dApplyHop(model, act);
+        else model.y += act.dy * H;
+        tapSquash(entry, model, now);
+        galPlayMoodMotion(entry, figure, now, desc.snap || desc.skipping);
+        live2dExpress(entry, figure);
+        // Audio pauses must close the mouth, not fall back to synthetic speech.
+        const voiced = figure.speaking ? lipSync.level(figure.audio) : 0;
+        entry.mouthActive = figure.speaking && (Boolean(figure.audio) || figure.talking);
+        entry.mouth = figure.audio ? voiced : figure.speaking && figure.talking ? syntheticMouth(entry, now) : 0;
+        // A skin that draws no figures (figures.mode none) only animates the one its bust shows (not a sprite source's
+        // picture; and the call view its own).
+        if (entry.container.visible && (desc.figureMode !== 'none' || figure.alias === desc.bust?.alias && !desc.bust.still || figure.offstage)) {
+            entry.updateSeconds = app.ticker.deltaMS * state.timeScale / 1000; model.update(entry.updateSeconds * 1000);
+        }
+    }
+    // Emote-layer pixels: the deforming face mesh with its rotation, else the head frame turned by the face angles.
+    function head(entry, exact) {
+        const model = entry.model, im = model.internalModel, face = entry.face;
+        galFlushFace(model);
+        const Wm = im.originalWidth || 2400, Hm = im.originalHeight || 3100, frame = live2dHeadFrame(model);
+        const local = im.localTransform.clone();
+        const matrix = galDisplayMatrix(model, emotesBox, local);
+        let box;
+        if (face && face.indices.length) {
+            const arrays = face.indices.map(i => im.coreModel.getDrawableVertices(i));
+            const unit = im.pixelsPerUnit;
+            const meshMatrix = { a: matrix.a * unit, b: matrix.b * unit, c: -matrix.c * unit, d: -matrix.d * unit,
+                tx: matrix.a * Wm / 2 + matrix.c * Hm / 2 + matrix.tx, ty: matrix.b * Wm / 2 + matrix.d * Hm / 2 + matrix.ty };
+            const angle = galMeshRotation(face.reference, arrays), x = Math.cos(angle), y = Math.sin(angle);
+            let rotation = Math.atan2(meshMatrix.b * x + meshMatrix.d * y, meshMatrix.a * x + meshMatrix.c * y);
+            if (rotation > Math.PI / 2) rotation -= Math.PI;
+            if (rotation < -Math.PI / 2) rotation += Math.PI;
+            box = galMeshHead(arrays, meshMatrix, rotation);
+        }
+        if (!box) {
+            const hh = (frame.Chin - frame.HeadTop) * Hm;
+            const fallback = galFallbackHead({ x: Wm / 2, top: frame.HeadTop * Hm, chin: frame.Chin * Hm, width: hh * 0.95 }, entry.faceAngles);
+            const cy = (fallback.top + fallback.chin) / 2, c = Math.cos(fallback.rotation), s = Math.sin(fallback.rotation);
+            const vertices = [];
+            for (const x of [-fallback.width / 2, fallback.width / 2]) for (const y of [-hh / 2, hh / 2]) vertices.push(fallback.x + c * x - s * y, cy + s * x + c * y);
+            const rotation = Math.atan2(-matrix.c, matrix.d) + fallback.rotation * Math.sign(matrix.a * matrix.d - matrix.b * matrix.c || 1);
+            box = galMeshHead([vertices], matrix, rotation);
+        }
+        if (exact && entry.figureResolved?.mode === 'physical') {
+            const record = entry.figureSizing?.metrics, m = { ...record?.auto, ...record?.override };
+            const top = m.headTop ?? m.faceRect?.[1], chin = m.chin ?? (m.faceRect && m.faceRect[1] + m.faceRect[3]);
+            if (chin > top) {
+                const left = m.faceRect ? m.faceRect[0] : Wm / 2 - (chin - top) / 2, right = left + (m.faceRect ? m.faceRect[2] : chin - top);
+                const restMatrix = galDisplayMatrix(model, emotesBox, { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 });
+                box = galFaceUnion([box, galMeshHead([[left, top, right, top, left, chin, right, chin]], restMatrix, 0)]);
+            }
+        }
+        return box && face && !exact ? galSmoothHead(face, box, state.clock) : box;
+    }
+    function hit(entry, point) {
+        return tap.galTapHitLive2d(entry.model, point, entry.model && live2dHeadFrame(entry.model), app.renderer, PIXI);
+    }
+    function react(entry, reaction, at, plan) {
+        // Applied by live2dExpress, the one expression path (live2d.cjs).
+        if (reaction.expression) entry.tapExpression = { name: reaction.expression, until: performance.now() + idle.FIGURE_LIFE.expressionMs };
+        // A shy reaction blushes through the same emotion rule as a line's own shy emotion.
+        entry.tapBlush = tap.GAL_TAP_EMOTION[plan.kind] === 'shy' ? performance.now() + idle.FIGURE_LIFE.expressionMs : 0;
+        // The emotion's gesture, else the model's own Tap motion group (model3 TapHead / TapBody / Tap), else none.
+        const motions = entry.model.internalModel.settings.motions || {}, layers = entry.model.internalModel.motionManager.forkMotionLayers;
+        const group = reaction.motion && motions[reaction.motion] && motions[reaction.motion].length ? reaction.motion : tap.galTapMotionGroup(motions, at.region);
+        // Lowest priority, and only on a free gesture track: a director or mood gesture always wins.
+        if (group && !galBlinkCalm() && layers && !layers.gesture && !layers.pending) Promise.resolve(entry.model.motion(group, Math.floor(Math.random() * motions[group].length), 1)).catch(() => {});
+    }
+    function release(entry) {
+        entries.delete(entry);
+        const model = entry.model, releaseTextures = entry.releaseTextures;
+        entry.model = null; entry.releaseTextures = null;
+        if (model) model.destroy({ children: true });
+        releaseTextures?.();
+    }
+    // The Core comes with the scene (desc.core) or from the user's import (runtime.core()); the runtime loads once.
+    function set(desc) {
+        const core = desc.core || runtimeCore();
+        if (!core || core === live.core) return;
+        live.core = core;
+        if (live.ready || live.loading) return;
+        live.loading = true;
+        loadLive2dRuntime(core).then(() => { live.ready = true; live.loading = false; }, error => { live.loading = false; if (!closed) onError(String(error && error.message || error)); });
+    }
+    // A failed runtime load tries again on the next frame; failed models are retried by the scene (entry.failed).
+    function reload() { if (!live.ready && !live.loading) live.core = ''; }
+    function dispose() {
+        if (closed) return;
+        closed = true; scenes.delete(instance);
+        const errors = [];
+        for (const entry of [...entries]) try { release(entry); } catch (error) { errors.push(error); }
+        try { app.renderer.off('prerender', useContext); live2dDropContext(gl); } catch (error) { errors.push(error); }
+        if (errors.length) throw new AggregateError(errors, 'Live2D figure cleanup failed');
+    }
+    const instance = { load, tick, head, hit, react, release, set, reload, dispose };
+    scenes.add(instance);
+    return instance;
+}
+return { renderer, dispose() {
+    if (disposed) return;
+    disposed = true;
+    const errors = [];
+    for (const instance of [...scenes]) try { instance.dispose(); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, 'Stage Live2D cleanup failed');
+} };
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { createStageLive2dFigures };
+
+        // The stage's side of the Live2D module (live2d-module.js → lib/client/live2d-client.mjs, served as a stage client asset).
+// One loader per stage activation. Nothing is downloaded until a Live2D figure gets a Cubism Core, a Live2D preview or
+// snapshot is asked for, or a runtime entry (设置 › 舞台 › 运行库, the 「Live2D 未安装」 notice) is shown: a stage card
+// without Live2D loads none of it, and a card without the stage loads neither this nor the module.
+// The adapters keep the shapes the stage and the core already read: `runtime` (live2d-figures.cjs), `store` + `Entry`
+// (notices.cjs, global-settings.js) and `previews` (the asset-pack closure's live2dKit, asset-pack-ui.js stageScope).
+// `host`: the core names the module uses (gal-stage.js `live2d.host`) plus the stage's scene math.
+let stageLive2dChunk = null;
+function createStageLive2d({React, host, load = () => import('/api/dsh-tavern/client-assets/live2d-client.mjs'), report = error => console.error('[dsh-tavern-stage] Live2D instance', error)}) {
+    const listeners = new Set();
+    let instance = null, loading = null, failed = false, revision = 0, disposed = false, stopStore = null;
+    const notify = () => { revision++; for (const listener of [...listeners]) listener(); };
+    const subscribe = listener => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+    const snapshot = () => revision;
+    function start(chunk) {
+        instance = chunk.createLive2dModule({React, ...host});
+        stopStore = instance.store.subscribe(notify);
+        failed = false;
+        notify();
+        return instance;
+    }
+    // A chunk this page already imported starts at once (no frame without the runtime on a re-activation).
+    if (stageLive2dChunk) start(stageLive2dChunk);
+    function ready() {
+        if (instance) return Promise.resolve(instance);
+        if (disposed) return Promise.reject(new Error('Live2D 模块已卸载'));
+        return loading ||= load().then(chunk => {
+            stageLive2dChunk = chunk;
+            if (disposed) throw new Error('Live2D 模块已卸载');
+            return start(chunk);
+        }).catch(error => { loading = null; if (!disposed) { failed = true; notify(); } throw error; });
+    }
+    function useModule() {
+        React.useSyncExternalStore(subscribe, snapshot);
+        React.useEffect(() => { if (!instance) ready().catch(report); }, []);
+        return instance;
+    }
+    const h = React.createElement;
+    function Entry(props) {
+        const loaded = useModule();
+        return loaded ? h(loaded.Entry, props) : null;
+    }
+    // While the module loads the preview waits as the module's own preview does; a module that cannot load shows the fallback.
+    function Preview(props) {
+        const loaded = useModule();
+        if (loaded) return h(loaded.preview.Preview, props);
+        return h('div', { className: 'fork-live2d-preview', 'data-status': failed ? 'error' : 'loading', role: 'img', 'aria-label': props.label || 'Live2D', 'aria-busy': failed ? undefined : true },
+            failed ? (props.fallback ? h('div', { className: 'fork-live2d-preview-fallback' }, props.fallback) : null)
+                : h(host.Spinner, { fill: true, className: 'fork-live2d-preview-wait' }));
+    }
+    const call = name => (...args) => instance.runtime[name](...args);
+    return Object.freeze({
+        // The scene renderer's helpers. Only the loader and the per-frame GL context swap run before the module is in;
+        // the rest are reached once loadLive2dRuntime resolved. `core`: the Cubism Core the user imported.
+        runtime: Object.freeze({
+            loadLive2dRuntime: core => ready().then(loaded => loaded.runtime.loadLive2dRuntime(core)),
+            live2dUseContext: gl => { instance?.runtime.live2dUseContext(gl); },
+            live2dDropContext: gl => { instance?.runtime.live2dDropContext(gl); },
+            live2dPlace: call('live2dPlace'), live2dHeadFrame: call('live2dHeadFrame'), live2dExpress: call('live2dExpress'),
+            syntheticMouth: call('syntheticMouth'), live2dLoadError: call('live2dLoadError'),
+            headBox: (...args) => instance.headBox(...args),
+            core: () => instance ? instance.store.core : '',
+            ready: () => instance !== null
+        }),
+        store: Object.freeze({ subscribe, snapshot, get core() { return instance ? instance.store.core : ''; } }),
+        Entry,
+        previews: Object.freeze({
+            Preview,
+            snapshots: Object.freeze({
+                peek: (...args) => instance ? instance.preview.snapshots.peek(...args) : {},
+                request: (...args) => ready().then(loaded => loaded.preview.snapshots.request(...args))
+            }),
+            useRevision: () => React.useSyncExternalStore(subscribe, snapshot)
+        }),
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            stopStore?.();
+            listeners.clear();
+            instance?.dispose();
+        }
+    });
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = { createStageLive2d };
 
         function createStageBackgrounds({layers,matrix:galMatrix,ease:galEase,clamp:galClamp01,transition:galBackgroundTransition,correction:galLayerCorrection,timeGrade:galTimeGrade}) {
 let disposed=false;const scenes=new Set();
@@ -14384,8 +14801,8 @@ function GalStage(props) {
         .flatMap(member => !figureLayout ? [member] : member.id in figureLayout.x ? [{...member, x:figureLayout.x[member.id]}] : []);
     const spriteFallbacks = useGalSpriteFallbacks(sessionId, stageViews.speaker.fallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
     // the host projected an on-stage Live2D figure down to its sprite (no Core).
-    
-    
+    const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
+    const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
     const speakerDrawn = alias => figuresShown && (members.some(member => member.id === alias) || standIns.some(member => member.id === alias));
     // on a wide stage a box
@@ -14571,9 +14988,9 @@ function GalStage(props) {
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
-            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length) ?
+            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing) ?
             h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf,
-                scope: sessionId }) : null)),
+                live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
         // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.
@@ -14793,6 +15210,26 @@ const sessions = {
         if(closed)throw new Error('Stage sessions disposed');
         if(stop)throw new Error('Stage sessions already started');
         const {native,io,assets,dialogue,preferences,text,observation}=inputs;
+        // The installed Live2D runtime is app-wide: asked for beside the presentation rather than after it, and one answer
+        // serves a stage visit's reads (a not-ready answer is asked again). The scene draws Live2D figures only with it (scene.core).
+        const live2dReady = status => status && status.installed !== false && status.core || '';
+        let live2dRead = null;
+        const live2dRuntime = sessionId => {
+            if (!live2dRead || live2dRead.sessionId !== sessionId || window.performance.now() - live2dRead.at > 60000) {
+                const value = io.probe('getLive2dRuntime',{sessionId}), entry = {sessionId, at:window.performance.now(), value};
+                value.then(status => { if (!live2dReady(status) && live2dRead === entry) live2dRead = null; }, () => { if (live2dRead === entry) live2dRead = null; });
+                live2dRead = entry;
+            }
+            return live2dRead.value;
+        };
+        const readPresentation = async args => {
+            const runtime = live2dRuntime(args.sessionId);
+            const result = await io.presentation(args);
+            if (result.status === 'ready' && result.value.characters.some(figure => figure.form === 'live2d')) {
+                result.value.scene = {...result.value.scene,core:live2dReady(await runtime)};
+            }
+            return result;
+        };
         stop=startLifetime(({own}) => {
         const resourceOwner = assets.createOwner({service:assets.service,decode:assets.decode});
         this.resourceOwner = resourceOwner;
@@ -14851,7 +15288,7 @@ const sessions = {
             },
             preparePerformance:views.performanceSurface.prepare,
             music:() => views.bgm,
-            read:io.presentation,
+            read:readPresentation,
             progress: views.progress.store,
             owner: resourceOwner
         },direction:{read:io.direction,watch:io.watch},notifications:io.notifications,session:{
@@ -25294,7 +25731,7 @@ function createStageViewScope(build) {
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStageViewScope};
 
         // 设置 › 舞台 (global-settings.js): the core's settings section holds the stage client and renders views.GlobalSettings.
-        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry}) {
+        function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry}) {
     function StageModelSettings() {
         const h = React.createElement;
         const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
@@ -25324,7 +25761,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
             h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
-            h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
+            // the optional runtimes, the same entries as the model previews.
+            h(SettingsGroup, {title:"运行库"}, h("div", {className:"fork-runtime-list"}, CubismCoreEntry ? h(CubismCoreEntry, {request:rpc}) : null, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null)),
             h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
     }
     return {TavernStageSettingsSection};
@@ -29109,6 +29547,9 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     const textcardFonts=own(createStageTextcardFonts({document,...options.textcardFonts}));
                     const textcard=own(createStageTextcard({React:options.React,window,...options.textcard,players:textcardPlayers,fonts:textcardFonts,plan:planTextcard}));
                     const sceneMath=createStageSceneMath({colorMath:options.sceneColorMath,figureScale:options.figureScale,reading:options.entrance?.reading,motion:()=>figureMotion,idle:()=>figureIdle,document,getComputedStyle:window.getComputedStyle});
+                    // Live2D (dsh-tavern-live2d): the stage's on-demand module over the core's names (gal-stage.js live2d.host) and this scene math;
+                    // its adapters feed the figure renderer, the runtime entries (notices, 设置 › 舞台) and the asset library's previews.
+                    const live2d=options.live2d?own(createStageLive2d({React:options.React,host:{...options.live2d.host,galApplyLipSync:sceneMath.galApplyLipSync,galLipSyncIds:sceneMath.galLipSyncIds,live2dStartIdle:sceneMath.live2dStartIdle}})):null;
                     const visualMath={matrix:sceneMath.galMatrix,ease:sceneMath.galEase,clamp:sceneMath.galClamp01};
                     const spineFigures=own(createStageSpineFigures(options.spineFigures||{}));
                     const figureAssets=own(createStageFigureAssets({spineFigures,metrics:{...options.figureMetrics,headTop:sceneMath.galTextureHeadTop,bodyX:sceneMath.galBodyX}}));
@@ -29139,7 +29580,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     const ambience=own(createAmbience({...options.ambience, session:getSession,owner:getResourceOwner,player:() => createSoundscapePlayer(options.soundscape)}));
                     const speech=own(createStageSpeech({...options.speech,allowed:options.runtimeProtocol?.phoneBeatKernel?.phoneModAutoVoiceAllowed}));
                     const displayConsumers=own(createStageDisplayConsumers({React:options.React,displays,sfx,ambience,voice:speech}));
-                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
+                    const views = {resources:stageResources,speech,sceneMath,runtimeKernel,displays,displayConsumers,sessionRuntime:own(createStageSessionRuntime({kernel:runtimeKernel,displays,createObservation:inputs=>createStageSessionObservation({...inputs,voice:speech,media:{...inputs.media,music:views.bgm,ambience}}),createModNotifications:createStageModNotifications,createResourceModule:createStageResourceRunnerModule,resourceDependencies:{...options.resourceDependencies,stageResourceMatches:stageResources.stageResourceMatches,stageRuntimeErrorText:runtimeKernel.stageRuntimeErrorText},createDirectorModule:createStageDirectorModule,directorCommands:options.directorCommands,createStoreModule:createStageRuntimeStoreModule,createSessionModule:createStageSessionModule})),figurePose:own(createStageFigurePose({resolve:options.figureMetrics?.resolve,flatLayout:sceneMath.galFlatLayout,actionAt:sceneMath.galFlatActAt,ease:visualMath.ease})),castLayout:own(createStageCastLayout({calculate:sceneMath.galFigureLayout,mix:sceneMath.galFrameMix})),cast:own(createStageCast()),figureAppearance:own(createStageFigureAppearance({graphics:sceneGraphics,spring:sceneMath.galSpring,springValue:sceneMath.galSpringValue})),figureBlink:own(createStageFigureBlink({...options.figureBlink,clockwork:{blinkUrls,blinkPlacement,blinkTimingFor,createBlinkScheduler}})),callViews:own(createStageCallViews({...options.callViews,cover:sceneMath.galCover,canvasTexture:sceneGraphics.canvasTexture})),bust:own(createStageBust({...visualMath,framedHead:sceneMath.galFramedHead})),monologue:own(createStageMonologue({canvasTexture:sceneGraphics.canvasTexture})),backgrounds,sceneCamera:createStageSceneCamera(visualMath),sceneTextures:own(createStageSceneTextures({Image:window.Image,now:()=>window.performance.now()})),spineFigures,figureAssets,sceneGraphics,entrance,skinPresentation:own(createStageSkinPresentation({React:options.React,Event:window.Event,...options.skinPresentation,files:stageResources.getStageBundleFiles,skin})),skinResources,skin,effects,lookUi:own(createStageLookUi({React:options.React})),looks,effectColors,weather,emotes,figureMotion,figureGeometry,figureIdle,figureWarp,figureTap,textcard,textcardPlayers,textcardCenter,textcardLayout,choices,choiceLayout,regenerate:own(createStageRegenerate({React:options.React,window,document,...options.regenerate})),backlogView,backlogPaging,backlogHistory,backlogVoice, skinFrame, skinCursor:own(createStageSkinCursor({React:options.React, ...options.skinCursor})), backlogRows, configAppearance, configText, configScreen:own(createStageConfigScreen({React:options.React, window, document, Sound:mixer.Sound, Text:configText.Text, Appearance:configAppearance.Appearance, ...options.configScreen})), configFields, phoneLayout, phoneAdjust, widgets:own(createStageWidgets({React:options.React, window, document, adjust:phoneAdjust.useAdjust, ...options.widgets})), cg:own(createStageCg({React:options.React, window, ...options.cg})), gallery:own(createStageGallery({React:options.React, window, document, ...options.gallery,owner:getResourceOwner})), device:own(createStageDevice({React:options.React, ...options.device})), mixer, sfx, transitions:own(createStageTransitions({React:options.React, window, ...options.transitions,ease:skin.stageSkinTxEase})), speaker:createStageSpeaker(options.speaker || {}), chatEntry:own(createStageChatEntry({React:options.React, ...options.chatEntry})), menu:own(createStageMenu({React:options.React, window, document, ...options.menu,getSession})), position:own(createStagePosition({React:options.React, window, ...options.position,sameAnchor:runtimeKernel.sameAnchor,navigate:(...args)=>sessions?.owner?.navigate(...args)})), subtitles:createStageSubtitles({React:options.React, document, window, ...options.subtitles}), controls, loader, admission, progress, notices:own(createStageNotices({React:options.React, document, ...options.notices, shortcuts:controls.shortcuts, live2d:live2d?{Entry:live2d.Entry,runtime:live2d.store}:null})), hints:own(createStageHints({React:options.React, window, document, music, ...options.hints})), music, bgm:own(createBgmPlayer({...options.bgm, music,session:getSession,owner:getResourceOwner})), ambience, video,
                         ...createStageSkinButtons({React:options.React, ...options.presentation}),
                         ...createStagePresentation({React:options.React, document, ...options.presentation}),
                         ...createStagePortraits({React:options.React, document, window, ...options.portraits,emoteDataUrl:emotes.dataUrl,cssColor:effectColors.css}),
@@ -29150,15 +29591,17 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
+                    // Live2D figures draw through the scene's figure renderer seam; the module itself loads with the first Cubism Core a scene names.
+                    if(live2d){const live2dFigures=own(createStageLive2dFigures({window,math:sceneMath,idle:figureIdle,tap:figureTap,lipSync:options.sceneServices?.lipSync,runtime:live2d.runtime,measure:options.live2d.measure}));own({dispose:views.scene.figureRenderers.register('live2d',live2dFigures.renderer)});}
                     stageFeatures.mount({options,views,own,window,document,getResourceOwner});
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:options.controller || {dialogue:{},figures:{}},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
-                    if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings}).TavernStageSettingsSection;
+                    if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
-                    if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);own({dispose:options.assetPack.bind(views.assetPack)});}
+                    if(options.assetPack){views.assetPack=createStageAssetPackViews(options.assetPack.names);if(live2d)views.assetPack.live2dKit=live2d.previews;own({dispose:options.assetPack.bind(views.assetPack)});}
                     activeViews=views;
                     return views;
                 })});
