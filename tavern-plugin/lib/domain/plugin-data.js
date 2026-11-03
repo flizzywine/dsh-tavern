@@ -6,7 +6,6 @@ import { createHash } from 'node:crypto'
 // not follow the story. One file per game; each plugin sees only its own part.
 const hash = value => createHash('sha256').update(String(value)).digest('hex')
 const MAX_RECORD_BYTES = 64 * 1024
-const MAX_GAME_BYTES = 256 * 1024
 const MAX_RECORDS = 2000
 const MAX_OWNER_BYTES = 8 * 1024 * 1024
 
@@ -64,7 +63,9 @@ export function createPluginData({ store, now = Date.now }) {
   }
 
   async function saveGame({ chatId, owner, data }) {
-    const record = data === null ? null : encoded(data, MAX_GAME_BYTES, 'data')
+    // Per-game data also carries embedded apps' saves. Transport limits belong to the caller;
+    // disk-backed snapshots must not inherit the small turn-record quota.
+    const record = data === null ? null : encoded(data, Infinity, 'data')
     await update(chatId, value => { ownerOf(value, owner).game = record ? record.value : null })
   }
 

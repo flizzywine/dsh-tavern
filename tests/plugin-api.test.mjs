@@ -24,6 +24,15 @@ function memoryStore() {
   }
 }
 
+test('按局插件存档支持超过 256 KB 的嵌入应用数据，快照和存档导入保留完整内容', async () => {
+  const data = createPluginData({ store: memoryStore() })
+  const value = { slot: 'manual', state: 'x'.repeat(6 * 1024 * 1024) }
+  await data.saveGame({ chatId: 'source', owner: 'app', data: value })
+  assert.deepEqual(await data.readGame({ chatId: 'source', owner: 'app' }), value)
+  await data.importInto({ source: await data.snapshot('source'), targetChatId: 'restored', keyMap: new Map() })
+  assert.deepEqual(await data.readGame({ chatId: 'restored', owner: 'app' }), value)
+})
+
 const image = { attachmentId: 'a1', mediaType: 'image/png', bytes: 10, width: 2, height: 2 }
 
 test('插件媒体：只接受本轮发出过的正文版本，按插件隔离修改与删除', async () => {
