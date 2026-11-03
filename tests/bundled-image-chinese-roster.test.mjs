@@ -93,6 +93,17 @@ test('上下身分别标注 NSFW 时按部位选择外貌与衣物，不串用�
   assert.match(lowerExposed, /白色纯棉短袖T恤/)
 })
 
+test('中文上半身镜头把 hidden 表达成画外，不推断下装状态', () => {
+  const hidden = { upperBody: 'nsfw', lowerBody: 'hidden' }
+  const half = expandRosterCalls(call(hidden, '半身近景，她站在窗边。'), defs, 'natural', natural)
+  assert.match(half, /下半身在画外/)
+  assert.doesNotMatch(half, /什么都没穿|没有穿裤子|牛仔裤/)
+  const full = expandRosterCalls(call(hidden, '全身，她站在窗边。'), defs, 'natural', natural)
+  assert.doesNotMatch(full, /在画外|什么都没穿/)
+  const dressed = expandRosterCalls(call({ ...hidden, outfit: '格子衬衫牛仔裤' }, '半身近景，她站在窗边。'), defs, 'natural', natural)
+  assert.match(dressed, /牛仔裤/)
+})
+
 test('已经展开过的中文人物，不会按名字再注入一遍', () => {
   const raw = call({ upperBody: 'sfw', lowerBody: 'sfw' }, '全身，许静好站在门口。')
   const expanded = expandRosterCalls(raw, defs, 'natural', natural)

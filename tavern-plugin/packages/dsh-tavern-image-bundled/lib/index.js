@@ -484,6 +484,11 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           const sceneCamera = style === 'natural' && chinesePerson(person) && SCENE_CAMERA_ZH.test(sceneText)
           // 服装名后面括号里的这一刻状态，接在衣服后面写。
           const extras = [outfitState, sceneCamera ? '' : angleTag].filter(Boolean)
+          // A cropped lower body is a framing fact, not a clothing state.
+          if (closeShot && upper === 'nsfw' && lower === 'hidden' && !outfitAsked &&
+              /半身|胸像/.test(sceneText) && !/下半身(?:不入镜|在画外)|下身(?:不入镜|在画外)/.test(sceneText)) {
+            extras.push('该人物只拍到上半身，下半身在画外')
+          }
           if (outfitState) extras.outfitState = outfitState
           // 宏里可以写 "age"（回忆里的童年画面、多年以后），覆盖人物库里的年龄。
           if (parsed.age ?? parsed['年龄']) extras.age = String(parsed.age ?? parsed['年龄'])
