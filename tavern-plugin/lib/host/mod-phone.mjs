@@ -415,7 +415,7 @@ var mod_default = {
       order: 30,
       byteBudget: 4096,
       when: {},
-      markdown: "- Mark each paragraph containing an SMS/chat message or a phone-call line, on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.\n- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.\n- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.\n- Groups: phone-group defines a stable thread id, name and participants ($player when present). Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups."
+      markdown: "- A phone message is sent on a device from one person to a recipient or group: SMS, chat-app messages, calls, voice messages. Mark each such paragraph on kind=line, not narration. Cite its at; keep source text unchanged. Holding a phone alone needs no mark.\n- Livestream danmaku and viewer comments, forum or social posts, broadcasts and narration are not phone messages: leave them unmarked in the prose.\n- Infer the channel from surrounding narration: kind=line identifies a speaker, not face-to-face speech. A reply following typing/sending is still a text message; mark its own at. Keep the exchange through intervening narration until the story ends it or returns to in-person speech.\n- Direct: to is the recipient's handle, or $player for the player. The cited line supplies the sender. Mark both directions of NPC and player exchanges, each with its actual recipient. Text uses form=text; calls/voice messages use form=voice.\n- Groups: phone-group defines a stable thread id, name and participants: listed contacts, plus $player when present. Use only source-established members, never the whole contact roster. Use thread instead of to. Reuse a carried group only if its name and members match the source; otherwise create one. Omission keeps groups."
     }
   ],
   summary: "\u5C06\u5267\u60C5\u4E2D\u7684\u901A\u8BDD\u4E0E\u6D88\u606F\u5448\u73B0\u5728\u624B\u673A\u754C\u9762\u4E2D\u3002"
@@ -705,7 +705,7 @@ var manifest_default = {
     },
     {
       path: "prompts/phone.txt",
-      size: 1039
+      size: 1284
     },
     {
       path: "builtin/device.json",
