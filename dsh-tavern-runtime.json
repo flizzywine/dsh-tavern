@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1ecf5f29186126aaf16972327360ac20c7dd2d74",
-  "releaseSequence": 1085,
+  "revision": "f669f931a855826abeb877e0703ad90106273894",
+  "releaseSequence": 1087,
   "version": "3.2.0",
   "files": [
     {
@@ -1836,8 +1836,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/live-card-update.js",
-      "sha256": "7fb92968dd8c900c16e77b26c006c8d824bdbc4334eecef2d9be1ee0833f6d30",
-      "size": 17966
+      "sha256": "c04077774b4a9d357b479715f7ba35e09585ae6bf149f47f42c288202e708955",
+      "size": 18220
     },
     {
       "path": "tavern-plugin/lib/domain/manual-character-design.js",
@@ -7751,8 +7751,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/index.js",
-      "sha256": "cd5661ef3a9bc39c3d49b89527e665f6f2b6fa035c463ddf92648b7f87b2a54d",
-      "size": 1741
+      "sha256": "e86fa56cbb1e156d1f4a64e17ec2ceadce4f126448e1a8290206965f63f7a02c",
+      "size": 1859
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/workbench/projections.js",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "ec9452aedfd8f2d2d83cc723847016c81b3d3291",
+    "commit": "5d21fb6d929c2c287d5c4d1ce70bb6fc8a765ceb",
     "path": "runtime.zip",
-    "sha256": "66cb89a833ce1433f6b542a63cf339296c1730f62a553e5bcd8d78c1bb39a8ee",
-    "size": 15563611
+    "sha256": "5f09e10439c0bc1975eba374adf3a38b95a917b4db65de3212802bbe73324965",
+    "size": 15563768
   }
 }
