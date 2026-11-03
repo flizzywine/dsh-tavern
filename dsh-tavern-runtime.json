@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "1e45d3240e730b2a182ecd74565f699ce674db5a",
-  "releaseSequence": 1137,
+  "revision": "d1bcc7bbc9af8fbedb4fa750fc6a596c3216ac06",
+  "releaseSequence": 1138,
   "version": "3.2.0",
   "files": [
     {
@@ -446,8 +446,8 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "23d67ad7a079b4849634b2af037014786f179187757917e3519571389779463f",
-      "size": 107045
+      "sha256": "1febdfd01cf07b39d4430f3e9b8f80dc12b937bd2cf961ebc1259ed2586b19f1",
+      "size": 108118
     },
     {
       "path": "install.sh",
@@ -5841,8 +5841,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/package.json",
-      "sha256": "9780cdc8870ea6a92ad6d150a2440470e49719c4db8c1d8fdca703d850c85b88",
-      "size": 1607
+      "sha256": "053c973d9b03c2edb04fb2f4ae587aef0e155b11868e854ec0b097e2a21b349d",
+      "size": 1569
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/README.md",
@@ -8886,8 +8886,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/package.json",
-      "sha256": "613daf72e659fc4c2e685ec29a9970e88a9369f406485b034406b16baaac357c",
-      "size": 1194
+      "sha256": "ad973cf28ed0a3a764bf45713acdc3a084dbe09ac9bedb1f30ba773a190a5cc1",
+      "size": 1137
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/README.md",
@@ -9421,9 +9421,9 @@
     }
   ],
   "archive": {
-    "commit": "6d47c2e98fbc91605a036402587dd12f73eec99d",
+    "commit": "a66e42d525161c95e4503cadb4b01f5470737aad",
     "path": "runtime.zip",
-    "sha256": "eeab4acb125ee3f41d00ad5bf939ee0833d130db5f5d8722fa1351ed5e49602e",
-    "size": 15975143
+    "sha256": "6e9a1778dbf26c4505fbe9ca4ad8d880910b7eb7b68dd312ba8125593994dfc4",
+    "size": 15975570
   }
 }
