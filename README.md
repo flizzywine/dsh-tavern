@@ -153,15 +153,25 @@
 
 ### Android
 
-Android 仅提供 **独立 APK**（Android 11+ / ARM64）：[下载 DSH Tavern Android APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.1/dsh-tavern-android-release.apk)。它内置 DSHA v0.2.0-rc2 与 DSH 0.2.0-rc.2，只运行酒馆自己的 `tavern` Profile，手机上只有一个 DSH 服务，内存和电量开销最低。首次按引导完成环境部署后自动安装并进入；酒馆更新在应用内完成。包名独立，可与旧版 v2.1 APK、原版 DSHA 并存，旧包数据需先导出再导入。详见 [Android 安装说明](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)。
+Android 上有两种跑法：装**独立 APK**，或在 **Termux** 里跑命令行版。**要性能就选 Termux 版** —— 两边都是同一个 Ubuntu 环境，但 Termux 版外面没有 App 壳、没有 WebView 常驻和前台服务那一层，占用更低、长时间跑更稳；APK 是拿这部分性能换掉了命令行门槛。
 
-不想装 APK、或想自己掌控运行环境（Node 版本、数据目录、与电脑上的命令行版共用一套玩法），也可以在 **Termux** 里跑命令行版：
+| | **APK**（大多数人用这个） | **Termux 命令行版**（性能最好） |
+|---|---|---|
+| 做法 | 内置 DSHA 与 DSH，在 proot 容器里跑完整 Ubuntu | Termux + proot-distro Ubuntu，同一套命令行版 |
+| 装机 | 装 APK，按引导自动部署 | 装 Termux，粘一条命令 |
+| 多出来的开销 | App 壳、WebView 常驻与前台服务都在跑 | 只有 Termux 与容器本身，界面交给系统浏览器 |
+| 性能 | 同样负载下多一层应用开销，重负载更容易发热降频 | 占用更低、跑得更快 —— **两种方式里性能最好** |
+| 适合 | 不想碰命令行、要在应用内更新 | 追性能、自己掌控 Node 版本与数据目录、和电脑上的命令行版共用一套玩法 |
+
+**APK**（Android 11+ / ARM64）：[下载 DSH Tavern Android APK](https://github.com/flizzywine/dsh-tavern/releases/download/v3.1/dsh-tavern-android-release.apk)。它内置 DSHA v0.2.0-rc2 与 DSH 0.2.0-rc.2，只运行酒馆自己的 `tavern` Profile，手机上只有一个 DSH 服务，装完即用。首次按引导完成环境部署后自动安装并进入；酒馆更新在应用内完成。包名独立，可与旧版 v2.1 APK、原版 DSHA 并存，旧包数据需先导出再导入。详见 [Android 安装说明](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0)。
+
+**Termux**：不想装 APK、或想自己掌控运行环境，用一条命令装命令行版：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/scripts/termux/termux-tavern.sh -o ~/termux-tavern.sh && bash ~/termux-tavern.sh
 ```
 
-一条命令跑完，始终取 `main` 的最新版；这条命令会完成安装并进入酒馆：脚本会装 Ubuntu 容器、Node、酒馆与移动版布局，启动后打开浏览器。两种方式在手机上的差异、以及 Termux 版的注意事项见 [Termux 一节](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0#termux在手机里跑命令行版)。
+始终取 `main` 的最新版；这条命令会完成安装并进入酒馆：脚本会装 Ubuntu 容器、Node、酒馆与移动版布局，启动后打开浏览器。两种方式在手机上的差异、以及 Termux 版的注意事项见 [Termux 一节](https://github.com/flizzywine/dsh-tavern/wiki/Android-%E5%AE%89%E8%A3%85%E4%B8%8E%E6%9B%B4%E6%96%B0#termux在手机里跑命令行版)。
 
 ### macOS
 
