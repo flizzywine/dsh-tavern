@@ -132,6 +132,8 @@ const data = await ctx.tavern.readGameData({ gameId })
 | `settlementTask`、`manualTask`、`startTask` | 结算、手动任务 | 添加；带 `member` 时在该成员的常驻会话里按顺序跑 |
 | `runTask` | 后台任务 | 默认开一次性临时 Agent；带 `member` 时进该成员的常驻会话排队。示例见 examples/tavern-plugin-diarist |
 | `candidateSection` | 候选 | 添加 |
+| `speechProvider`、`imageProvider` | 配音、生图渠道 | 添加：插件提供渠道，Tavern 自己不保存渠道 |
+| `synthesizeSpeech`、`generateImage` | 配音、生图 | 借用：任何插件用玩家配好的渠道合成一句或画一张图；`generateImage` 与素材库生图共用同时至多四张的限制 |
 | `compactionSection` | 压缩 | 添加 |
 | `tavernUi.registerPanel` | 界面 | 添加 |
 | `tavernUi.openOverlay` | 界面 | 添加 |

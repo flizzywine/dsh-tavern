@@ -2764,6 +2764,7 @@ export async function apply(ctx) {
     },
     synthesizeSpeech: (sessionId, line) => speakLine(sessionId, line),
     speechProvidersChanged: () => speechBridge.sync(),
+    generateImage: input => assetGeneration.image(input),
     readCastAssets: async sessionId => {
       const card = await castCardOf(sessionId)
       return { player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },

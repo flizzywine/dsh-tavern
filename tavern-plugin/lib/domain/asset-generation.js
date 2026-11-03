@@ -397,6 +397,32 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       }
       return {jobs:group.map(publicJob)}
     }),
+    // One picture for a plugin (tavern.generateImage) on the image plugin's current channel, under the same limit of four
+    // in flight as the asset pictures. Nothing is kept or retried here. `mayHaveCharged` is false only for a refusal
+    // before dispatch or a failure the image plugin marks requestMayHaveSucceeded === false.
+    async image({prompt, width, height, background = 'auto', quality = 'auto', references = [], signal} = {}) {
+      const source = imageProvider(), status = source ? await source.status() : null
+      assert(source, 'NOT_CONFIGURED', '生图由「配图」插件出图；请先安装并启用配图插件')
+      assert(status.ready, 'NOT_CONFIGURED', status.reason || '请先在 配图 设置里配置生图渠道')
+      assert(typeof prompt === 'string' && prompt.trim() && prompt.length <= 32000 && [width, height].every(n => Number.isInteger(n) && n > 0 && n <= 8192), 'INVALID_ARGUMENT', '需要提示词和图片尺寸')
+      assert(['auto','transparent','opaque'].includes(background) && ['auto','low','medium','high'].includes(quality), 'INVALID_ARGUMENT', 'background 或 quality 无效')
+      assert(Array.isArray(references) && references.length <= Math.min(4, status.maxReferences), 'UNSUPPORTED_CHANNEL', `当前生图渠道最多带 ${status.maxReferences} 张参考图`)
+      const images = references.map(reference => {
+        const data = reference?.data, kind = data instanceof Uint8Array && data.length <= 8 * 1024 ** 2 ? imageKind(Buffer.from(data.buffer, data.byteOffset, data.byteLength)) : null
+        assert(['png','jpeg','webp'].includes(kind) && reference.mediaType === 'image/' + kind, 'INVALID_ARGUMENT', '参考图须为最多 8 MiB 的 PNG/JPEG/WebP')
+        return {data, mediaType:reference.mediaType}
+      })
+      assert(controllers.size < 4, 'BUSY', '已有生图任务在途（最多四张）')
+      const key = randomUUID(), controller = new AbortController(); controllers.set(key, controller)
+      const failed = (message, mayHaveCharged) => fail('GENERATION_FAILED', String(message || '生图失败').replace(/\s+/g, ' ').trim().slice(0, 300), {mayHaveCharged})
+      try {
+        let reply
+        try { reply = await source.generate({prompt, references:images, width, height, background, quality, signal:AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])}) }
+        catch (error) { failed(error?.message, error?.requestMayHaveSucceeded !== false) }
+        if (!(reply?.data instanceof Uint8Array) || reply.data.length > 20 * 1024 ** 2) failed('生图渠道没有返回有效图片', true)
+        return {data:reply.data, mediaType:String(reply.mediaType || '')}
+      } finally { controllers.delete(key) }
+    },
     // 设置 → 生图: every kind's effective text, whether it is edited, and the {{slots}} an edit must keep.
     prompts: () => serial(async () => promptView(await readPrompts())),
     // One kind, CAS on the file's revision. `text: null`, or the default's own text, removes the override.

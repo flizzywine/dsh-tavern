@@ -975,8 +975,9 @@ test('配音渠道：插件注册的渠道带上归属并通知语音服务接�
   assert.equal(changes, 2, '卸载插件后语音服务移除它的渠道')
 })
 
-test('生图渠道：插件注册的出图能力带上归属，状态被规整，出错记入插件错误', { skip: !cordis }, async t => {
-  const h = await harness(t)
+test('生图渠道：插件注册的出图能力带上归属，状态被规整，出错记入插件错误；别的插件经 generateImage 借用', { skip: !cordis }, async t => {
+  const asked = []
+  const h = await harness(t, { generateImage: async input => { asked.push(input); return { data: new Uint8Array([2]), mediaType: 'image/png' } } })
   let tavern
   await h.root.plugin({ name: 'painter', inject: ['tavern'], apply(ctx) {
     tavern = ctx.tavern
@@ -995,6 +996,9 @@ test('生图渠道：插件注册的出图能力带上归属，状态被规整�
   await assert.rejects(entry.generate({ prompt: 'boom' }), error => error.requestMayHaveSucceeded === false)
   assert.throws(() => tavern.imageProvider({ id: 'online', label: '重复', status() {}, generate() {} }), /已注册/)
   assert.throws(() => tavern.imageProvider({ id: 'other', label: 'x', generate() {} }), /status/)
+
+  assert.deepEqual(await tavern.generateImage({ prompt: '猫', width: 64, height: 64 }), { data: new Uint8Array([2]), mediaType: 'image/png' })
+  assert.deepEqual(asked, [{ prompt: '猫', width: 64, height: 64 }])
 })
 
 test('卡内插件只在所属人物卡的局里出现：回调不触发、调用被拒、人物卡列表只剩本卡、本局插件面板不列出', { skip: !cordis }, async t => {
