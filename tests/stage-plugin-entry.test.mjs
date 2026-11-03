@@ -44,7 +44,7 @@ test('browser stage entry owns deferred startup, unloading and reloading on real
         createElement:(type,props,...children) => ({type,props,children}),
       }
       const views = input.createViews({React,GalStage:forbidden,skinResources:{getSession:forbidden,getResourceOwner:forbidden},backlogPaging:{hydrateText:forbidden,hasOlder:forbidden,loadOlder:forbidden},sceneColorMath:local('../tavern-plugin/shared/color-math.cjs'),navigation:{galEntering:{get:()=>false}},speech:{player:{cancelPrefetch(){}}},loader:{},video:{},music:{foreground:{clearTimeout(){}},audio:{}},bgm:{clock:{clearTimeout(){}}},admission:{performance:{now:() => 0}},
-        text:{defaultTextSpeed:28}})
+        text:{defaultTextSpeed:28},statusPanel:{}})
       assembled.push(views)
       assert.notEqual(views.controller.Stage,forbidden,'the plugin composes its own controller')
       for(const path of [...controllerCalls,...controllerComponents]) {
