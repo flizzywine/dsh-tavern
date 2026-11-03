@@ -32,7 +32,8 @@ export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvali
     lifecycle('service-installed')
     const off = child.get(name)?.subscribe?.(event => {
       if (name !== 'tts') clear(undefined,{kind:event.revision === null ? 'revoked' : 'refresh',scope:{packId:event.packId},reason:'service-event'})
-      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated'].includes(event.type)) {
+      // readingChanged: 旁白配音's global layer (tts.reading) changed, so each card's config.narrator is projected again.
+      else if (['providerChanged','providerRemoved','disposed','cacheInvalidated','readingChanged'].includes(event.type)) {
         for (const entry of consumers.values()) {entry.speech?.dispose(); entry.speech = null}
         clear()
       }

@@ -939,11 +939,12 @@ test('角色素材来源：插件交出的人物经校验后并入本局角色�
   assert.deepEqual(await h.api.castAssetSources({ gameId: 'game-1' }), [])
 })
 
-test('配音渠道：插件注册的渠道带上归属，合成超时或出错记入插件错误；synthesizeSpeech 按本局人物声音合成', { skip: !cordis }, async t => {
+test('配音渠道：插件注册的渠道带上归属并通知语音服务接入，合成超时或出错记入插件错误；synthesizeSpeech 经语音服务合成', { skip: !cordis }, async t => {
   const lines = []
-  const h = await harness(t, { synthesizeSpeech: async (sessionId, line) => { lines.push([sessionId, line]); return line.narration ? { skip: true } : { url: '/api/dsh-tavern/speech-audio?id=x.mp3', mediaType: 'audio/mpeg' } } })
+  let changes = 0
+  const h = await harness(t, { speechProvidersChanged: () => { changes++ }, synthesizeSpeech: async (sessionId, line) => { lines.push([sessionId, line]); return line.narration ? { skip: true, reason: 'narration' } : { url: 'audio:t1', mediaType: 'audio/wav' } } })
   let tavern
-  await h.root.plugin({ name: 'edge-tts', inject: ['tavern'], apply(ctx) {
+  const fiber = await h.root.plugin({ name: 'edge-tts', inject: ['tavern'], apply(ctx) {
     tavern = ctx.tavern
     ctx.tavern.speechProvider({ id: 'edge', label: 'Edge 朗读', voices: ['zh-CN-XiaoxiaoNeural'], synthesize: async ({ text }) => {
       if (text === 'boom') throw new Error('服务挂了')
@@ -954,15 +955,18 @@ test('配音渠道：插件注册的渠道带上归属，合成超时或出错�
   const [entry] = h.api.speechProviders()
   assert.equal(entry.id, 'edge-tts/edge')
   assert.equal(entry.owner, 'edge-tts')
+  assert.equal(changes, 1)
   assert.deepEqual(await entry.synthesize({ text: '你好' }), { data: new Uint8Array([1]), mediaType: 'audio/mpeg' })
   await assert.rejects(entry.synthesize({ text: 'boom' }), /服务挂了/)
   assert.throws(() => tavern.speechProvider({ id: 'edge', label: '重复', synthesize() {} }), /已注册/)
   assert.throws(() => tavern.speechProvider({ id: 'Bad', label: 'x', synthesize() {} }), /name/)
 
-  assert.deepEqual(await tavern.synthesizeSpeech({ gameId: 'game-1', speaker: '林曦', text: '你好', emotion: 'joy' }), { url: '/api/dsh-tavern/speech-audio?id=x.mp3', mediaType: 'audio/mpeg' })
+  assert.deepEqual(await tavern.synthesizeSpeech({ gameId: 'game-1', speaker: '林曦', text: '你好', emotion: 'joy' }), { url: 'audio:t1', mediaType: 'audio/wav' })
   assert.deepEqual(lines[0], ['game-1', { speaker: '林曦', text: '你好', emotion: 'joy', narration: false }])
   assert.equal(await tavern.synthesizeSpeech({ gameId: 'game-1', text: '夜深了。', narration: true }), null)
   await assert.rejects(tavern.synthesizeSpeech({ gameId: 'game-1', text: ' ' }), /text/)
+  await fiber.dispose(); await tick()
+  assert.equal(changes, 2, '卸载插件后语音服务移除它的渠道')
 })
 
 test('生图渠道：插件注册的出图能力带上归属，状态被规整，出错记入插件错误', { skip: !cordis }, async t => {

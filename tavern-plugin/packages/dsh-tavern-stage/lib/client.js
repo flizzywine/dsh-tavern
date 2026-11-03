@@ -27758,7 +27758,7 @@ function useStageWriter(binding,path,state,sessionId) {
   const store=React.useRef(null),queue=React.useRef(Promise.resolve()),[,bump]=React.useState(0),[status,setStatus]=React.useState('idle');
   // `rows` are the list summaries (every installed pack); `packs` the full documents
   // of the packs this page reads entries of (lit for this card, or holding 模组: stageDetailRows), read per pack by revision.
-  if(state.value&&store.current?.loadedFrom!==state.value)store.current={loadedFrom:state.value,server:state.value.card,engine:state.value.engine,pending:[],rows:state.value.packs.filter(p=>!p.error),
+  if(state.value&&store.current?.loadedFrom!==state.value)store.current={loadedFrom:state.value,server:state.value.card,engine:state.value.engine,reading:state.value.reading,pending:[],rows:state.value.packs.filter(p=>!p.error),
     packs:new Map((state.value.details||[]).map(p=>[p.manifest.id,p])),asked:new Map((state.value.details||[]).map(p=>[p.manifest.id,p.revision]))};
   const s=store.current,render=()=>bump(n=>n+1);
   const conflict=e=>e?.code==='REVISION_CONFLICT'||/REVISION_CONFLICT|Card changed/i.test(String(e?.message||''));
@@ -27786,6 +27786,14 @@ function useStageWriter(binding,path,state,sessionId) {
         const save=engine=>binding.rpc('saveAssetEngineSettings',{expectedRevision:engine.revision,patch:{[key]:patch}});
         try{s.engine=await save(s.engine);}catch(e){if(!conflict(e))throw e;s.engine=await save(await binding.rpc('getAssetEngineSettings'));}
         render();return s.engine;
+      });
+    },
+    // 旁白配音's global layer lives in the tts plugin (tts.reading.narrator), written through its control call.
+    get reading(){return s?.reading;},
+    setReading(patch){
+      return enqueue(async()=>{
+        if(!binding.tts)throw new Error('配音插件未启用');
+        s.reading=await binding.tts.call('setReading',patch);render();return s.reading;
       });
     },
     get extension(){if(!s)return null;const base=s.server.extension;return s.pending.length?s.pending.reduce(apply,base||emptyExtension()):base||null;},
@@ -27825,11 +27833,12 @@ function useStageWriter(binding,path,state,sessionId) {
 function StagePage({binding,ready,sessionId,path,cardName,nav,prompts,onEngine,takeEngineFocus,onJudge,onCommands}) {
   const state=useLoad(binding,async()=>{
     const card=await binding.rpc('getCardAssetBindings',{path});
-    if(!ready)return {card,packs:[],details:[],engine:null};
+    if(!ready)return {card,packs:[],details:[],engine:null,reading:null};
     await binding.loadSettings?.();
-    const [packs,engine]=await Promise.all([loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null)]);
+    // reading: the tts plugin's tts.reading (旁白配音's global layer); null while the plugin is off.
+    const [packs,engine,reading]=await Promise.all([loadPackRows(binding),binding.rpc('getAssetEngineSettings').catch(()=>null),binding.tts?binding.tts.call('reading').catch(()=>null):null]);
     const details=await stageReadDetails(binding,stageDetailRows(packs,binding.globalEnabledPackIds||[],card.extension?.assetBindings?.boundPackIds||[]));
-    return {card,packs,details,engine};
+    return {card,packs,details,engine,reading};
   },[path,ready]);
   // portable figure voices do not require any preset in the machine voice catalogue.
   const services=useLoad(binding,async()=>binding.tts?(await binding.rpc('getAssetVoiceServices')).services:null,[binding.tts]);
@@ -28048,18 +28057,21 @@ function StageSwitches({ctx}) {
     h(StageEntranceRow,{key:'entrance',ctx,set})));
 }
 // 旁白配音 — 舞台设置 › 基础设置 「旁白配音 ›」 and its page. Two layers like a mod's settings
-// (ui-design.md R8 / §三.25): the global layer (engine `narrator`, complete) and this card's (stage.narrator, only the keys it
-// overrides). The host reads the same layers (card-stage-settings.js effectiveNarrator); the stage speaks with config.narrator.
+// (ui-design.md R8 / §三.25): the global layer (the tts plugin's tts.reading.narrator, complete) and this card's (stage.narrator,
+// only the keys it overrides). The host reads the same layers (card-stage-settings.js effectiveNarrator); the stage speaks with
+// config.narrator. A global voice is a browser voice or a service voice ({serviceId, voice}); a card's a browser voice or a figure.
 
 const NARRATOR_DEFAULT=Object.freeze({enabled:false,voice:null});
-function narratorLayers(ext,engine) {
-  const global={...NARRATOR_DEFAULT,...engine?.values?.narrator},card=ext?.stage?.narrator||{};
+function narratorLayers(ext,reading) {
+  const global={...NARRATOR_DEFAULT,...reading?.narrator},card=ext?.stage?.narrator||{};
   return {global,card,effective:{enabled:(card.enabled??global.enabled)===true,voice:card.voice!==undefined?card.voice:global.voice}};
 }
-const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:'figure:'+JSON.stringify([voice.packId,voice.figureId]);
+const narratorVoiceKey=voice=>!voice?'':voice.browser?'browser:'+voice.browser:voice.serviceId?'service:'+JSON.stringify([voice.serviceId,voice.voice])
+  :'figure:'+JSON.stringify([voice.packId,voice.figureId]);
 function narratorVoiceFromKey(key) {
   if(!key)return null;
   if(key.startsWith('browser:'))return {browser:key.slice(8)};
+  if(key.startsWith('service:')){const [serviceId,voice]=JSON.parse(key.slice(8));return {serviceId,voice};}
   const [packId,figureId]=JSON.parse(key.slice(7));
   return {packId,figureId};
 }
@@ -28071,20 +28083,22 @@ function narratorCardPatch(ext,changes) {
   for(const key of Object.keys(next))if(next[key]===undefined)delete next[key];
   return stagePatch(ext,{narrator:Object.keys(next).length?next:undefined});
 }
-// The voices a narrator can speak with: every figure voice of the packs this card uses, then the browser's system voices.
-function narratorVoiceOptions(rows,browserVoices) {
-  const figures=rows.filter(row=>row.figure&&row.figure.voice&&row.figure.voice.source!==null&&row.pack?.manifest.voiceLibrary?.voices[row.figure.voice.voice])
-    .map(row=>({value:narratorVoiceKey(row.ref),label:row.figure.name,group:'人物'}));
-  return [{value:'',label:'未选择'},...figures,...(browserVoices||[]).map(voice=>({value:narratorVoiceKey({browser:voice.id}),label:voice.label,group:'浏览器朗读'}))];
+// The voices a narrator can speak with: on the card layer every figure voice of the packs this card uses, then the browser's
+// system voices. The shown service voice (set on the 配音 page) is listed as it is.
+function narratorVoiceOptions(rows,browserVoices,{figures,shown}) {
+  const people=figures?rows.filter(row=>row.figure&&row.figure.voice&&row.figure.voice.source!==null&&row.pack?.manifest.voiceLibrary?.voices[row.figure.voice.voice])
+    .map(row=>({value:narratorVoiceKey(row.ref),label:row.figure.name,group:'人物'})):[];
+  const service=shown?.serviceId?[{value:narratorVoiceKey(shown),label:shown.voice,group:'语音服务'}]:[];
+  return [{value:'',label:'未选择'},...people,...service,...(browserVoices||[]).map(voice=>({value:narratorVoiceKey({browser:voice.id}),label:voice.label,group:'浏览器朗读'}))];
 }
 
 function narratorWrite(ctx,scope,changes) {
   if(scope==='card')return ctx.writer.write(ext=>narratorCardPatch(ext,changes));
   const reset=Object.fromEntries(Object.entries(changes).map(([key,value])=>[key,value===undefined?NARRATOR_DEFAULT[key]:value]));
-  return ctx.writer.global(reset,'narrator');
+  return ctx.writer.setReading({narrator:reset});
 }
 function StageNarratorRow({ctx}) {
-  const jump=React.useRef(null),{effective}=narratorLayers(ctx.ext,ctx.engine),blocked=!ctx.active.voice;
+  const jump=React.useRef(null),{effective}=narratorLayers(ctx.ext,ctx.writer.reading),blocked=!ctx.active.voice;
   React.useEffect(()=>{if(ctx.takeNarratorFocus?.())jump.current?.focus?.();},[]);
   return h(SwitchRow,{label:'旁白配音',icon:'voice',checked:effective.enabled,disabled:blocked,help:blocked?stageNeedText('voice',ctx.active):undefined,
     onChange:v=>narratorWrite(ctx,narratorSwitchScope(ctx.ext),{enabled:v}),onOpen:ctx.onNarrator?pressRowJump:undefined,
@@ -28094,12 +28108,12 @@ function StageNarratorPage({ctx,onBack}) {
   const root=React.useRef(null),[scope,setScope]=React.useState(()=>ctx.ext?.stage?.narrator?'card':'global');
   const browser=useVoiceLoad(()=>typeof window!=='undefined'&&window.speechSynthesis?browserSpeechVoiceList(window.speechSynthesis):[],[]);
   React.useEffect(()=>{root.current?.querySelector('button')?.focus();},[]);
-  const {global,card,effective}=narratorLayers(ctx.ext,ctx.engine);
+  const {global,card,effective}=narratorLayers(ctx.ext,ctx.writer.reading);
   const shown=scope==='card'?effective:global,blocked=!ctx.active.voice;
   const own=key=>scope==='card'?card[key]!==undefined:JSON.stringify(global[key])!==JSON.stringify(NARRATOR_DEFAULT[key]);
   const dot=key=>own(key)?h(OverrideDot,{layer:scope}):null;
   const reset=key=>own(key)?h(ResetButton,{key:'reset',label:scope==='card'?'恢复为全局':'恢复默认',onClick:()=>narratorWrite(ctx,scope,{[key]:undefined})}):null;
-  const options=narratorVoiceOptions(stageFigureRows(ctx),browser.value);
+  const options=narratorVoiceOptions(stageFigureRows(ctx),browser.value,{figures:scope==='card',shown:shown.voice});
   const value=narratorVoiceKey(shown.voice),missing=value&&!options.some(option=>option.value===value);
   return h('article',{ref:root,className:'ap-mod-detail',onKeyDown:subpageKeys(onBack)},
     h(SubpageHead,{parent:'舞台设置',title:'旁白配音',onBack}),
@@ -28109,7 +28123,7 @@ function StageNarratorPage({ctx,onBack}) {
         h(InlineRow,{label:'旁白配音',help:dot('enabled')},
           h(Switch,{bare:true,label:'旁白配音',checked:shown.enabled===true,onChange:v=>narratorWrite(ctx,scope,{enabled:v})}),reset('enabled')),
         h(InlineField,{kind:'menu',label:'声音',help:dot('voice'),value:missing?'':value,options,placeholder:'未选择',
-          onCommit:key=>narratorWrite(ctx,scope,{voice:narratorVoiceFromKey(key)}),
+          onCommit:key=>key!==value&&narratorWrite(ctx,scope,{voice:narratorVoiceFromKey(key)}),
           trail:[missing?h(HintLine,{key:'missing',compact:true,text:'所选声音不可用，请重新选择'}):null,reset('voice')]}))));
 }
 // 「入场演出 ›」 - the one global switch of the stage's opening

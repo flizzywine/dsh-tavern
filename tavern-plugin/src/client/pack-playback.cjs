@@ -353,6 +353,14 @@ function createPackVoicePlayer({ getClient, createAudio = url => new Audio(url),
                 remember(key, clip);
                 return clip;
             }
+            // A line the host already synthesized (台词朗读 speechForLine) arrives as its audio URL.
+            if (descriptor.url) {
+                const audio = createAudio(descriptor.url);
+                audio.preload = 'auto'; prepareAudio(audio, null, {loudness:descriptor.loudness}); audio.load?.();
+                const clip = {url:'', audio, size:0, key:null};
+                remember(key, clip);
+                return clip;
+            }
             // the host-issued source scopes this voice; never fall back to global IDs.
             const result = await service.synthesize({voice:descriptor.voice, text:input.text, mood:input.mood || 'default', selectionKey:input.selectionKey, language:descriptor.language}, {scope:descriptor.scope,signal:abort.signal,onStream:live => {
                 if (abort.signal.aborted || epoch !== generation) return;

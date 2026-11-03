@@ -446,20 +446,6 @@ exports.apply = function(ctx) {
     const render = React.useSyncExternalStore(fn => { readingsListeners.add(fn); return () => readingsListeners.delete(fn) },() => ReadingsEditor)
     return render ? h('section',{className:'dtts-section dtts-readings'},render({call})) : null
   }
-  // the Tavern's own line speech settings (its 🔊 line button and plugin
-  // speak() channel: browser, online and plugin channels, dialogue and narrator voice) are drawn by the Tavern plugin
-  // (ttsLineSpeechSettings) and placed here as 「台词朗读」. Without Tavern the section is absent.
-  let LineSpeech = null
-  const lineSpeechListeners = new Set()
-  ctx.inject(['ttsLineSpeechSettings'], child => child.effect(() => {
-    LineSpeech = child.get('ttsLineSpeechSettings').render
-    for (const fn of lineSpeechListeners) fn()
-    return () => { LineSpeech = null; for (const fn of lineSpeechListeners) fn() }
-  }))
-  function LineSpeechSection() {
-    const render = React.useSyncExternalStore(fn => { lineSpeechListeners.add(fn); return () => lineSpeechListeners.delete(fn) },() => LineSpeech)
-    return render ? h(Section,{title:'台词朗读',className:'dtts-line-speech',help:'正文与台词旁的 🔊 按钮和插件朗读用的渠道与声音（可选免费的浏览器朗读），与上面的舞台配音分开设置。'},render()) : null
-  }
   let sidebar = null
   // generic, short-lived return intent; the destination owns payload consumption.
   const returnKey = 'dsh:settings-return'
@@ -502,8 +488,8 @@ exports.apply = function(ctx) {
           try { await call('setEnabled',{enabled:e.target.checked}); setMessage('') } catch (error) {setMessage(failText(error))}
         }}))),
       h(Status,{label:'配音状态'},message),
-      // 语音服务 → 发音字典 → 合成缓存. → 台词朗读
-      h(ServicesSection),h(ReadingsSection),h(CacheSection),h(LineSpeechSection))
+      // 语音服务 → 发音字典 → 合成缓存.
+      h(ServicesSection),h(ReadingsSection),h(CacheSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))

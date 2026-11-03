@@ -1255,12 +1255,9 @@ window.__ModuleLoader__.load({
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
-			// The voice plugin's 配音 page lists browser speech as its first 语音服务 row; the Tavern owns the speaking (voice.js).
+			// The voice plugin's 配音 page lists browser speech as a 语音服务 row; the 🔊 line button speaks through the voice
+			// service, so the Tavern has no speech settings of its own.
 			ctx.provide("ttsBrowserSpeech", browserSpeechService);
-            ctx.effect(function () {
-                return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
-                    () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });
-            }, "dsh-tavern: speech settings");
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-plugins", order:113, label:() => "酒馆插件" }, TavernPluginsSettingsSection); });
             }, "dsh-tavern: plugins settings section");

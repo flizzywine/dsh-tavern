@@ -74,9 +74,10 @@ export function effectiveCardStage(extension, engine) {
   return value
 }
 
-// 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one (engine narrator).
-export function effectiveNarrator(extension, engine) {
-  const global = engine?.narrator || defaultAssetEngineSettings().narrator, card = extension?.stage?.narrator || {}
+// 旁白配音 in effect for a card: each key of the card layer (stage.narrator) wins over the global one, the tts plugin's
+// tts.reading().narrator (`globalNarrator`; absent = off). The voice is {packId, figureId}, {browser} or {serviceId, voice}.
+export function effectiveNarrator(extension, globalNarrator) {
+  const global = globalNarrator || {enabled:false, voice:null}, card = extension?.stage?.narrator || {}
   return {enabled:(card.enabled ?? global.enabled) === true, voice:card.voice !== undefined ? card.voice : global.voice}
 }
 

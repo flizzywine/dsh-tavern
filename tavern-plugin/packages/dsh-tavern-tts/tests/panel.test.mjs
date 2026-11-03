@@ -12,7 +12,7 @@ import { qwenVoices, QWEN_MODELS } from '../src/providers/qwen.js'
 
 const source = await readFile(new URL('../src/client.js',import.meta.url),'utf8')
 const keyed = {azure:'DSH_AZ',qwen:'DSH_QW',volcengine:'DSH_VO'}
-export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, lineSpeech, browserSpeech, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
+export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, browserSpeech, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
   const services = new Map(), tabs = new Map(), slots = new Map(), effects = [], calls = [], opened = []
   // The panel remembers its basic/advanced mode in localStorage.
   const storage = new Map(), localStorage = {getItem:key => storage.get(key) ?? null,setItem:(key,value) => storage.set(key,String(value))}
@@ -69,8 +69,6 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   }
   // the Tavern plugin provides the 读音词典 editor.
   if (readingsEditor) services.set('ttsReadingsEditor',readingsEditor)
-  // the Tavern's own line speech settings, placed as 「台词朗读」.
-  if (lineSpeech) services.set('ttsLineSpeechSettings',lineSpeech)
   // the Tavern speaks browser speech, a provider row of 语音服务.
   if (browserSpeech) services.set('ttsBrowserSpeech',browserSpeech)
   if (sidebar) services.set('betterSidebar',{registerTab(tab) {assert.equal(tabs.has(tab.id),false);tabs.set(tab.id,tab);return () => tabs.delete(tab.id)},openTab(seed) {if (failNavigation) throw Error('navigation unavailable');opened.push(seed)}})
@@ -174,21 +172,6 @@ test('pronunciation dictionary: the page places the provided editor once (always
       assert.equal(f.calls.some(call=>call.method==='synthesis'),false)
     })
   } finally {f.dispose()}
-})
-
-test('one 配音 page: the provided Tavern line speech settings sit in its own 台词朗读 section, absent without Tavern',async () => {
-  const f=fixture({lineSpeech:{render:() => React.createElement('div',{'aria-label':'渠道表单'},'form')}})
-  try {
-    await withDom(async root => {
-      await act(async()=>root.render(React.createElement(f.tabs.get('dsh-tts:voice').component)));await settle()
-      const section=[...document.querySelectorAll('.dtts-section')].find(node => node.querySelector('h3')?.textContent.startsWith('台词朗读'))
-      assert.ok(section?.querySelector('[aria-label="渠道表单"]'),'the form is inside 台词朗读')
-      assert.equal(document.querySelectorAll('[aria-label="渠道表单"]').length,1)
-    })
-  } finally {f.dispose()}
-  const bare=fixture()
-  try { await withDom(async root => { await act(async()=>root.render(React.createElement(bare.tabs.get('dsh-tts:voice').component)));await settle()
-    assert.equal(document.querySelector('.dtts-line-speech'),null) }) } finally {bare.dispose()}
 })
 
 test('browser speech is a free 语音服务 row: its system voices listed when opened, 试听 through the Tavern, absent without Tavern',async () => {

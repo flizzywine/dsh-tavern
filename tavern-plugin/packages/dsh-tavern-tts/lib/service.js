@@ -23,7 +23,7 @@ const loadWait = p => p?.capabilities?.loadTimeoutMs ?? 0
 // A self-hosted service's voice list changes with the service, so it is read afresh, not kept for a day.
 const selfHosted = p => p?.capabilities?.loadTimeoutMs !== undefined
 
-export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], defaultServiceId = () => '', now = Date.now } = {}) {
+export function createTts({ profileId = '', dataDir, cache = createCache({ dataDir }), voiceLoudness = createVoiceLoudness({ dataDir }), globalReadings = () => [], defaultServiceId = () => '', reading = () => ({dialogueVoice:null,narrator:{enabled:false,voice:null}}), now = Date.now } = {}) {
   const providers = new Map(), sources = new Map(), grants = new Map(), tickets = new Map(), flights = new Map(), lanes = new Map(), catalogs = new Map(), listeners = new Set(), usage = new Map()
   let disposed = false, enabled = true, epoch = 0, waiters = 0, activeSyntheses = 0
   const emit = e => { for (const fn of listeners) fn(e) }
@@ -154,6 +154,8 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
       return {effective:{serviceId:selected.id,serviceRevision:provider.revision,capabilities:structuredClone(provider.capabilities)},issues:validation.issues}
     },
     serviceDefaultsChanged() { emit({type:'serviceDefaultsChanged'}) },
+    reading: () => structuredClone(reading()),
+    readingChanged() { emit({type:'readingChanged'}) },
     setEnabled(value) {
       alive(); enabled = value
       if (!enabled) {

@@ -778,7 +778,7 @@
 					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getCardPacks 需要 gameId"));
 					return rpc("cardPacks", {}, gameId).then(function (reply) { return reply ? reply.packs || [] : []; });
 				},
-				// Say a line in its character's voice on the channel the player chose (apiVersion 2);
+				// Say a line in its character's voice through the voice service (apiVersion 2);
 				// resolves true when it was heard to the end. A new line stops the one being said.
 				speak(input) {
 					if (!input || typeof input.gameId !== "string" || !input.gameId) return Promise.reject(new TypeError("speak 需要 gameId"));
