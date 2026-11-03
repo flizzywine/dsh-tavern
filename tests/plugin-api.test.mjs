@@ -862,6 +862,11 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   assert.equal(h.api.toolModesFor('narrative_anchor_read'), null, '没声明的插件工具保持原样')
   assert.throws(() => tavern.toolModes({ name: 'tavern_read_variables', modes: ['card'] }), /插件自己注册/)
   assert.throws(() => tavern.toolModes({ name: 'x_tool', modes: ['story'] }), /play、card/)
+  tavern.toolSkills({ name: 'wrongbook_lookup', skills: ['wrongbook', 'wrongbook'] })
+  assert.deepEqual(h.api.toolSkillsFor('wrongbook_lookup'), ['wrongbook'])
+  assert.equal(h.api.toolSkillsFor('narrative_anchor_read'), null, '没声明的插件工具始终提供')
+  assert.throws(() => tavern.toolSkills({ name: 'tavern_read_variables', skills: ['x'] }), /插件自己注册/)
+  assert.throws(() => tavern.toolSkills({ name: 'x_tool', skills: ['Bad Name'] }), /Skill 名称/)
 
   assert.deepEqual(await tavern.listSkills(), [{ name: 'debug-card', source: 'builtin', description: '内置' }])
   assert.deepEqual(await tavern.saveSkill({ name: 'my-notes', description: '踩坑', body: '先读参考', references: [{ path: 'references/错题.md', content: '…' }] }), { name: 'my-notes', overwritten: false })
@@ -873,6 +878,7 @@ test('人物卡库、改卡、工具可见范围与 Skill：插件不用读写 T
   fiber.dispose()
   await tick()
   assert.equal(h.api.toolModesFor('wrongbook_lookup'), null, '插件卸载后可见范围撤销')
+  assert.equal(h.api.toolSkillsFor('wrongbook_lookup'), null, '插件卸载后解锁 Skill 撤销')
 })
 
 test('人物设计档案：插件读取本局档案，并能按结算同样的规则保存人物', { skip: !cordis }, async t => {

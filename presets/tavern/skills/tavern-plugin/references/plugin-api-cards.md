@@ -89,6 +89,17 @@ ctx.tavern.toolModes({ name: 'wrongbook_lookup', modes: ['card'] })  // 只给�
 
 只能设置插件自己注册的工具；Tavern 自己的工具由 Tavern 决定。插件卸载时自动撤销。
 
+### `toolSkills({ name, skills })`
+
+只在某些任务里用到的工具，可以等对应 Skill 加载后再出现，平时不占每一步请求的工具清单。`skills` 列出能解锁它的 Skill 名称（加载其中任一个即可，内置 Skill 与插件自己的 Skill 都行）；没声明的插件工具始终提供。
+
+```js
+ctx.tavern.toolModes({ name: 'wrongbook_edit', modes: ['card'] })
+ctx.tavern.toolSkills({ name: 'wrongbook_edit', skills: ['wrongbook'] })  // 加载 wrongbook Skill 后才出现
+```
+
+与 Tavern 自己按 Skill 解锁的工具走同一套判断：Skill 一经加载，本会话内保持解锁；工具清单变化只多一次缓存未命中。只能设置插件自己注册的工具，与 `toolModes` 独立，插件卸载时自动撤销。
+
 ### `listSkills()`、`readSkill({ name })`、`saveSkill({ name, description, body, references?, overwrite? })`、`removeSkill({ name })`
 
 Tavern 的 Skill：`listSkills` 返回 `[{ name, source, description }]`，`source` 为 `builtin`（内置）、`plugin`（插件自带，第 3 版）或 `user`（玩家自己的）。`readSkill` 返回 `{ name, source, description, content, references }`，`references` 是 `[{ path, content }]`。

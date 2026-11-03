@@ -186,6 +186,7 @@ export function createTavernPluginApi(deps) {
   // Task-table jobs plugins declared (tavern.job), by workflow id.
   const jobs = new Map()
   const toolScopes = new Map()
+  const toolSkillGates = new Map()
   const toolNetworks = new Map()
   const reservedToolNames = new Set(deps.reservedToolNames || [])
   const notified = new Set()
@@ -900,6 +901,14 @@ export function createTavernPluginApi(deps) {
       if (typeof name !== 'string' || !name || (deps.isControlledTool && deps.isControlledTool(name))) throw new TypeError('toolModes 只能设置插件自己注册的工具')
       if (!Array.isArray(modes) || !modes.length || modes.some(mode => !TOOL_MODES.includes(mode))) throw new TypeError('modes 只能是 play、card 中的一项或两项')
       return register.call(this, toolScopes, name, { owner: ownerOf(this), modes: [...new Set(modes)] }, 'tavern.toolModes()', '工具 ' + name + ' 的可见范围已被设置')
+    },
+
+    // A task-only tool stays out of the request until one of these Skills is loaded in the
+    // session, like Tavern's own skill-gated tools. Independent of toolModes.
+    toolSkills({ name, skills } = {}) {
+      if (typeof name !== 'string' || !name || (deps.isControlledTool && deps.isControlledTool(name))) throw new TypeError('toolSkills 只能设置插件自己注册的工具')
+      if (!Array.isArray(skills) || !skills.length || skills.some(skill => typeof skill !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill) || skill.length > 64)) throw new TypeError('skills 需要至少一个 Skill 名称（小写字母、数字和连字符）')
+      return register.call(this, toolSkillGates, name, { owner: ownerOf(this), skills: [...new Set(skills)] }, 'tavern.toolSkills()', '工具 ' + name + ' 的解锁 Skill 已被设置')
     },
 
     // A directory of the plugin's own skills (<dir>/<name>/SKILL.md), read-only, after Tavern's built-in ones.
@@ -1625,6 +1634,12 @@ export function createTavernPluginApi(deps) {
     return entry ? entry.modes.slice() : null
   }
 
+  /** Seam: the Skills that unlock a plugin-registered DSH tool; null when it is always offered. */
+  function toolSkillsFor(name) {
+    const entry = toolSkillGates.get(name)
+    return entry ? entry.skills.slice() : null
+  }
+
   async function mvuProvider(input = {}) {
     const gameId = gameIdOf(input.gameId)
     const material = deps.readPendingTurn ? await deps.readPendingTurn(gameId).catch(() => null) : null
@@ -1780,7 +1795,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
+  return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     speechProviders: () => Array.from(speechProviders.values()), imageProviders: () => Array.from(imageProviders.values()), timelineChanged, checkVersions, pluginState, cardChanged, cardImporterFor, convertCard, cardImported, gameForked, forkTurns, promptSections, turnContext, worldbookPoolEntries, settlement, candidate, compactionNotes, replaceSettlement, replaceLedger,
     runSettlementTasks, manualTaskFor, runManualTask, stopTasks: stopAllTasks, runningTask, gamePlugins, setGamePlugin, pluginGameSettings })

@@ -381,3 +381,21 @@ test('style instructions appear only with its offered tool, never inject polish 
   const off = await assemble()
   assert.ok(!off.sections.some(section => section.name === 'tavern:foreground-style-reference'))
 })
+
+test('插件工具声明了解锁 Skill 时，未加载前不进入工作台请求', async () => {
+  const unlocked = new Set()
+  const strategy = createNativePlayOrchestrationStrategy({
+    modeFor: async () => 'card', visibleTools: async () => ['bash'], controlledToolNames: new Set(['bash', 'tavern_save_skill']),
+    workspaceContext: () => '', pluginToolModes: name => name === 'stage_play_only' ? ['play'] : null,
+    pluginToolsUnlocked: async (sessionId, names) => names.filter(name => name !== 'stage_patch' || unlocked.has(sessionId))
+  })
+  const tools = () => ['bash', 'tavern_save_skill', 'stage_patch', 'stage_lookup', 'stage_play_only'].map(name => ({ name }))
+  const input = { sessionId: 'card', chat: { mode: 'card' }, fixedSystemSections: [] }
+  const before = { sections: [], tools: tools() }
+  await strategy.assembleSystemPrompt(before, input)
+  assert.deepEqual(before.tools.map(tool => tool.name), ['bash', 'stage_lookup'])
+  unlocked.add('card')
+  const after = { sections: [], tools: tools() }
+  await strategy.assembleSystemPrompt(after, input)
+  assert.deepEqual(after.tools.map(tool => tool.name), ['bash', 'stage_patch', 'stage_lookup'])
+})
