@@ -35263,7 +35263,8 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     finally { browser.clearTimeout(timer); requests.delete(cancel); }
   }
   function syncProbe() {
-    const key = active && statusValue.phase === 'running' && statusValue.host !== 'desktop' ? statusValue.host || 'cli' : '';
+    const awaitingDesktopRestart = statusValue.host === 'desktop' && statusValue.phase === 'completed' && statusValue.requiresRestart;
+    const key = active && (statusValue.phase === 'running' || awaitingDesktopRestart) ? statusValue.host || 'cli' : '';
     if (key === probeKey) return;
     probeKey = key;
     const generation = ++probeGeneration;
@@ -35307,7 +35308,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         errors.resolve("更新状态");
         const status = result.status;
         const completedInThisPage = status.phase === "completed" && startedAt > 0 && Number(status.completedAt || 0) >= startedAt;
-        const next = status.phase === "completed" && !completedInThisPage ? { ...status, phase: "idle", host: status.host || "cli" } : status;
+        const next = status.phase === "completed" && !completedInThisPage && !status.requiresRestart ? { ...status, phase: "idle", host: status.host || "cli" } : status;
         // Ignore reads begun before an update action, even if they finish afterward.
         publishUpdateStatus(next);
       }
@@ -35316,6 +35317,10 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
         failures += 1;
         // Only this read-only poll gets a startup grace period. Never replay startUpdate.
         if ((err && err.retryable || err instanceof TypeError) && failures < 3) return;
+        if ((err && err.retryable || err instanceof TypeError) && statusValue.host === 'desktop' && statusValue.phase === 'running') {
+          publishUpdateStatus({ ...statusValue, connectionLost: true,
+            error: '桌面连接已断开，安装结果尚未确认。请勿重复安装；安装完成后请手动重启 DeepSeek Harness，连接恢复后页面会自动刷新。' });
+        }
         if (isMissingUpdateApiError(err)) {
           if (!received) publishUpdateStatus({ phase: "restart-required", host: "desktop" });
         } else {
@@ -35327,7 +35332,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
   async function checkUpdate() {
     const status = statusValue;
     if (!active) return;
-    if (action.pending || isUpdateBusy(status) || ["restart-required", "installed-restart-required"].includes(status.phase)) return;
+    if (action.pending || isUpdateBusy(status) || status.requiresRestart || ["restart-required", "installed-restart-required"].includes(status.phase)) return;
     action.pending = true;
     action.generation += 1;
     publishUpdateStatus({ ...status, phase: "checking", host: status.host || "cli", checkedAt: now(), error: "" });
@@ -35352,9 +35357,10 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
     action.generation += 1;
     try {
       const repairing = status.phase === "repair-required";
-      if (!await confirm(repairing
+      const restartHint = status.host === 'desktop' ? '\n桌面版安装完成后需要手动重启 DeepSeek Harness。' : '';
+      if (!await confirm((repairing
         ? "将重新安装当前构建以修复上次未完成的更新，期间会短暂断开。人物卡、资料和对话数据会保留。\n确定修复安装吗？"
-        : "更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？")) return;
+        : "更新期间会短暂断开，人物卡、资料和对话数据不会受到影响。\n确定更新到 GitHub 最新版吗？") + restartHint)) return;
       if (!active) return;
       startedAt = now();
       recovery = { sawOffline: false, reloading: false };
@@ -36611,6 +36617,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 			// 已是最新且无警告时，结果直接写在按钮上，不再单占一行（手机侧栏高度紧张）。
 			const upToDateQuiet = updateStatus.phase === "up-to-date" && !updateStatus.checkWarning;
 			const checkingOrRunning = updater.current?.isBusy(updateStatus) ?? true;
+			const awaitingDesktopRestart = updateStatus.phase === "completed" && updateStatus.host === "desktop" && updateStatus.requiresRestart;
 			const cancelSupported = ["running", "cancelling"].includes(updateStatus.phase) && updateStatus.cancellable === true;
 			const updateActions = updateStatus.phase === "package-managed"
 				? h("details", { className: "dsh-tavern-update-actions" },
@@ -36621,7 +36628,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
 					h("button", { className: "dsh-tavern-update-button", onClick: checkUpdate }, "检查更新"),
 					h("button", { className: "dsh-tavern-update-button primary", onClick: performUpdate }, updateStatus.phase === "repair-required" ? "修复安装" : "进行更新"))
 				: h("div", { className: "dsh-tavern-update-actions" },
-					h("button", { className: "dsh-tavern-update-button", disabled: checkingOrRunning || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: checkUpdate }, updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "cancelling" ? "正在取消…" : (updateStatus.phase === "blocked" ? "等待安全停止" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : (upToDateQuiet ? "✓ 已是最新" : "检查更新"))))))),
+					h("button", { className: "dsh-tavern-update-button", disabled: checkingOrRunning || awaitingDesktopRestart || updateStatus.phase === "restart-required" || updateStatus.phase === "installed-restart-required", onClick: checkUpdate }, awaitingDesktopRestart ? "请重启 Desktop" : updateStatus.phase === "checking" ? "正在检查…" : (updateStatus.phase === "running" ? "正在更新…" : (updateStatus.phase === "cancelling" ? "正在取消…" : (updateStatus.phase === "blocked" ? "等待安全停止" : (updateStatus.phase === "installed-restart-required" ? "请手动重启" : (updateStatus.phase === "restart-required" ? "重启 Desktop 后可用" : (upToDateQuiet ? "✓ 已是最新" : "检查更新"))))))),
 					cancelSupported ? h("button", { className: "dsh-tavern-update-button", disabled: updateStatus.phase === "cancelling", onClick: cancelUpdate }, updateStatus.phase === "cancelling" ? "正在取消…" : "取消更新") : null);
 			return h(React.Fragment, null, h(TavernErrorCenter), collapsedSidebar, h("div", { className: "dsh-tavern-sidebar", style: { display: collapsed ? "none" : undefined, position: "relative", width: props.embedded ? "100%" : props.width + "px" } },
 				h("div", { className: "dsh-tavern-side-head" }, h("div", { className: "dsh-tavern-side-brand dsh-tavern-lockup", role: "img", "aria-label": "DSH Tavern" }), props.embedded ? null : h("button", { className: "dsh-tavern-side-icon", title: "收起侧栏", onClick: props.toggleSidebar }, "◧")),

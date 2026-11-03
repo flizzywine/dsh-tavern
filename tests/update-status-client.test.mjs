@@ -118,10 +118,11 @@ for (const [action, initial, busyPhase] of [
   })
 }
 
-test('恢复探测不重叠，断线恢复只重载一次并在停止时清理', async () => {
+for (const initial of [{ phase: 'running', host: 'cli' }, { phase: 'running', host: 'desktop' },
+  { phase: 'completed', host: 'desktop', requiresRestart: true }]) test(`${initial.host} ${initial.phase} 恢复探测不重叠，断线恢复只重载一次并在停止时清理`, async () => {
   const intervals = new Map(), probes = [], waiting = deferred()
   let reloads = 0, online = false
-  const controller = createUpdateStatusController({ initial: { phase: 'running', host: 'cli' },
+  const controller = createUpdateStatusController({ initial,
     call: async () => ({}), confirm: async () => true, errors: { report() {}, resolve() {} },
     browser: { setTimeout, clearTimeout,
       setInterval(fn, ms) { intervals.set(ms, fn); return ms }, clearInterval(id) { intervals.delete(id) },
@@ -140,4 +141,33 @@ test('恢复探测不重叠，断线恢复只重载一次并在停止时清理',
   assert.equal(reloads, 1)
   controller.stop()
   assert.equal(intervals.size, 0)
+})
+
+test('刷新桌面更新页面后仍提示已安装待重启，不能重复启动更新', async () => {
+  const completed = { phase: 'completed', host: 'desktop', requiresRestart: true, completedAt: 100 }
+  const h = updaterHarness({ polling: true, call: async method => {
+    assert.equal(method, 'getUpdateStatus')
+    return { status: completed }
+  } })
+  await tick()
+  assert.deepEqual(h.status(), completed)
+  await h.checkUpdate()
+  h.stop()
+})
+
+test('桌面更新断线后提供手动恢复提示，不能将断线当作安装完成', async () => {
+  let offline = true
+  const h = updaterHarness({ initial: { phase: 'running', host: 'desktop' }, polling: true,
+    call: async () => { if (offline) throw new TypeError('Failed to fetch'); return { status: { phase: 'failed', host: 'desktop', error: '依赖安装失败' } } } })
+  await tick()
+  await h.poll(); await h.poll()
+  assert.equal(h.status().phase, 'running')
+  assert.equal(h.status().connectionLost, true)
+  assert.match(h.status().error, /尚未确认.*安装完成后.*手动重启/)
+  offline = false
+  await h.poll()
+  assert.equal(h.status().phase, 'failed')
+  assert.equal(h.status().connectionLost, undefined)
+  assert.equal(h.status().error, '依赖安装失败')
+  h.stop()
 })

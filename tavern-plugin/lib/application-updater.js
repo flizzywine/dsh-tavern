@@ -191,6 +191,9 @@ async function readRecordedCommit(sourceRoot, dshHome) {
 }
 
 export function createApplicationUpdater(options) {
+  // A browser remount is not a Desktop restart. Keep the prompt until the host
+  // process itself was started after the verified installation completed.
+  const runtimeStartedAt = options.runtimeStartedAt ?? Date.now() - process.uptime() * 1000
   // 检查更新/下载都走 fetch：先把系统代理（WinINET / Android settings / GNOME）
   // 翻译成 HTTP(S)_PROXY 并切换全局 dispatcher，否则科学上网在进程里等于没开。
   const proxy = applySystemProxy()
@@ -480,7 +483,7 @@ export function createApplicationUpdater(options) {
       async function reconcile(after) {
         const receipt = await readInstallationReceipt({ sourceRoot, dshHome, host: await host(), after })
         if (!receipt) return null
-        const completed = { phase: 'completed', host: await host(), attemptId: receipt.attemptId, completedAt: receipt.verifiedAt, requiresRestart: await host() === 'desktop', reconciled: true }
+        const completed = { phase: 'completed', host: await host(), attemptId: receipt.attemptId, completedAt: receipt.verifiedAt, requiresRestart: await host() === 'desktop' && receipt.verifiedAt >= runtimeStartedAt, reconciled: true }
         return { ...await writeStatus(completed, { expectedAttemptId: current.attemptId }), ...identity }
       }
       if (current.repairRequired) {
@@ -528,6 +531,9 @@ export function createApplicationUpdater(options) {
           await writeStatus(readable, { expectedAttemptId: current.attemptId })
           return { ...readable, ...identity }
         }
+      }
+      if (current.phase === 'completed' && current.host === 'desktop' && current.requiresRestart && Number(current.completedAt) < runtimeStartedAt) {
+        return { ...current, ...identity, requiresRestart: false }
       }
       return { ...current, ...identity }
     }

@@ -50,6 +50,15 @@ const verifiedUpdate = {
   compareCommits: async () => 'ahead',
 }
 
+test('桌面安装完成只在旧运行时要求重启，重启后解除提示', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'update-desktop-restart-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(path.join(root, 'update-status.json'), JSON.stringify({ phase: 'completed', host: 'desktop', requiresRestart: true, completedAt: 200 }))
+  const updater = runtimeStartedAt => createApplicationUpdater({ dataRoot: root, sourceRoot: root, runtimeHost: 'desktop', runtimeStartedAt, ...verifiedUpdate })
+  assert.equal((await updater(100).status()).requiresRestart, true)
+  assert.equal((await updater(300).status()).requiresRestart, false)
+})
+
 test('真实 Git 历史可离线识别新旧，包括 archive 安装的 bare source-cache', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-tavern-order-git-'))
   try {
