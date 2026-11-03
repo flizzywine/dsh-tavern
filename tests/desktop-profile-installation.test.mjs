@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, renameSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, lstatSync, realpathSync, renameSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { beginDesktopProfileInstallation } from '../bin/desktop-profile-installation.mjs'
@@ -45,6 +45,7 @@ test('中断后下一次安装自动恢复未完成的目录事务', t => {
   const next = prepare(r); next.rollback()
   assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
   assert.equal(existsSync(r.tavern), false)
+  assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
 })
 test('旧版占用 desktop：保留酒馆配置并恢复匹配的原版备份', async t => {
   const r = fixture(t)
@@ -97,4 +98,44 @@ test('Windows desktop 持续拒绝移动：限时退出并提示，原版配置�
   assert.equal(readFileSync(path.join(r.home, 'profile-data/tavern/data/story'), 'utf8'), '正文与历史')
   assert.equal(JSON.parse(readFileSync(path.join(r.home, 'profile-bridge/install.json'))).phase, 'rolled-back')
   assert.ok(existsSync(tx.backup))
+  assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
+})
+
+for (const failAt of ['previous-desktop', 'publish-link']) test(`中断后重装恢复临时链接和原版配置：${failAt}`, t => {
+  const r = fixture(t)
+  const tx = prepare({ ...r, rename(from, to) {
+    if ((failAt === 'previous-desktop' && from === r.desktop)
+      || (failAt === 'publish-link' && path.basename(from).startsWith('desktop.switch-stage-'))) throw Error('模拟进程中断')
+    renameSync(from, to)
+  } })
+  assert.throws(() => tx.finish(), /模拟进程中断/)
+  assert.equal(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')).length, 1)
+  // A new installer recovers the on-disk journal without the old transaction.
+  const next = prepare(r)
+  assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
+  assert.equal(JSON.parse(readFileSync(path.join(r.desktop, 'package.json'))).name, 'dsh-profile-desktop')
+  next.finish(); next.commit()
+  assert.equal(realpathSync(r.desktop), realpathSync(r.tavern))
+})
+
+test('回滚清理悬空临时链接，保留后来替换的路径并报告冲突', t => {
+  const r = fixture(t)
+  const tx = prepare({ ...r, rename(from, to) {
+    if (from === r.desktop) throw Error('模拟占用')
+    renameSync(from, to)
+  } })
+  assert.throws(() => tx.finish(), /模拟占用/)
+  const link = path.join(r.profiles, readdirSync(r.profiles).find(name => name.startsWith('desktop.switch-stage-')))
+  renameSync(r.tavern, path.join(tx.backup, 'external-tavern'))
+  assert.equal(existsSync(link), false)
+  assert.ok(lstatSync(link).isSymbolicLink())
+  unlinkSync(link); mkdirSync(link)
+  assert.throws(() => tx.rollback(), /恢复路径冲突/)
+  assert.ok(lstatSync(link).isDirectory())
+  // Restore the journal-owned link and confirm dangling-link cleanup succeeds.
+  // Reuse the stored target rather than following the missing tavern directory.
+  removeTreeSync(link)
+  symlinkSync(r.tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
+  tx.rollback()
+  assert.deepEqual(readdirSync(r.profiles).filter(name => name.startsWith('desktop.switch-stage-')), [])
 })

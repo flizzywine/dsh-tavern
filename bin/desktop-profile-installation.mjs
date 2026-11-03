@@ -1,5 +1,5 @@
 // Offline profile publication. Every rename is journaled; old directories are retained.
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import installationLocation from './installation-location.cjs'
@@ -44,7 +44,15 @@ function installBridge(dir, sourceRoot) {
 function recover(journalFile, journal, rename) {
   for (const action of [...journal.actions].reverse()) {
     if (action.reverted) continue
-    if (present(action.to)) {
+    if (action.type === 'symlink') {
+      if (present(action.path)) {
+        // Inspect the link itself: its target may already be absent. Never remove
+        // a replacement directory or a link that belongs to another operation.
+        if (!lstatSync(action.path).isSymbolicLink()
+          || path.toNamespacedPath(path.resolve(path.dirname(action.path), readlinkSync(action.path))) !== path.toNamespacedPath(path.resolve(action.target))) throw Error(`恢复路径冲突，请保留备份并人工检查：${journalFile}`)
+        unlinkSync(action.path)
+      }
+    } else if (present(action.to)) {
       if (present(action.from)) throw Error(`恢复路径冲突，请保留备份并人工检查：${journalFile}`)
       rename(action.to, action.from)
     }
@@ -114,6 +122,7 @@ export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped
         const originalDir = path.join(profiles, 'desktop.fresh-' + stamp)
         move(desktopStage, originalDir)
         const link = path.join(profiles, 'desktop.switch-stage-' + stamp)
+        journal.actions.push({ type: 'symlink', path: link, target: tavern }); save(journalFile, journal)
         symlinkSync(tavern, link, process.platform === 'win32' ? 'junction' : 'dir')
         move(live, path.join(backup, 'previous-desktop'))
         move(link, live)

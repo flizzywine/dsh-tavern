@@ -3,10 +3,32 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlin
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { importUserHome } from '../bin/import-user-home.mjs'
+import { assertDesktopStopped, importUserHome } from '../bin/import-user-home.mjs'
 import { removeTreeSync } from '../bin/portable-fs.mjs'
 const put = (root, file, text) => { const target = path.join(root, file); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, text) }
 const get = (root, file) => readFileSync(path.join(root, file), 'utf8')
+test('安装前检测带参数的 Windows 和 macOS 桌面主进程', () => {
+  for (const command of [
+    '"C:\\Program Files\\DeepSeek Harness\\DeepSeek Harness.exe" --type=gpu-process',
+    'C:\\Program Files\\DeepSeek Harness\\DeepSeek Harness.exe --no-sandbox',
+    '"C:\\Apps\\DSH Next.exe" --user-data-dir="C:\\Users\\测试 用户\\AppData"',
+    '"C:\\Apps\\DSH Desktop.exe"',
+    '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness --inspect',
+    'DeepSeek Harness',
+  ]) assert.throws(() => assertDesktopStopped([], { requireGuiClosed: true, exec: () => command }), /完整退出 DeepSeek Harness/, command)
+})
+test('普通迁移允许其他桌面，安装检测不把参数中的程序名误判为 GUI', () => {
+  for (const command of [
+    'node /tmp/install.mjs --app "C:\\Apps\\DeepSeek Harness.exe"',
+    '/usr/bin/node /tmp/DeepSeek Harness',
+    '"C:\\Apps\\DeepSeek Harness Helper.exe" --type=renderer',
+    '"C:\\Apps\\DeepSeek Harness.exe.bak"',
+  ]) assert.doesNotThrow(() => assertDesktopStopped([], { requireGuiClosed: true, exec: () => command }))
+  assert.doesNotThrow(() => assertDesktopStopped([], { exec: () => '"C:\\Apps\\DeepSeek Harness.exe" --inspect' }))
+  const home = path.resolve('/tmp/dsh-home')
+  assert.throws(() => assertDesktopStopped([home], { exec: () => `node dsh-desktop-host --profile "${path.join(home, 'profiles/desktop')}"` }), /完整退出使用源目录或目标目录/)
+  assert.throws(() => assertDesktopStopped([], { exec() { throw Error('no process access') } }), /无法确认/)
+})
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'tavern-import-'))
   t.after(() => removeTreeSync(root))

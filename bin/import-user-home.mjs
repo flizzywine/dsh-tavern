@@ -55,17 +55,25 @@ function merge(from, to) {
   }
   if (!sameContent(from, to)) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
-export function assertDesktopStopped(homes, { requireGuiClosed = false } = {}) {
+export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = execFileSync, platform = process.platform } = {}) {
   let commands
   try {
-    commands = process.platform === 'win32'
-      ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine'], { encoding: 'utf8', windowsHide: true, timeout: 15000 })
-      : execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 15000 })
+    commands = platform === 'win32'
+      ? exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine'], { encoding: 'utf8', windowsHide: true, timeout: 15000 })
+      : exec('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 15000 })
   } catch { throw Error('无法确认桌面宿主已退出，尚未迁移数据。请关闭宿主后重试。') }
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
   for (const line of commands.split('\n')) {
-    const command = normalize(line)
-    if (requireGuiClosed && /(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?[\"]?\s*$/.test(command.trim())) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
+    const command = normalize(line).trim()
+    // Match the executable, including quoted Windows paths and Electron's trailing
+    // arguments. A desktop name occurring only inside another program's args is
+    // not evidence that the GUI is running.
+    const executable = command.match(/^"([^"]+)"/)?.[1]
+      || command.match(/^([a-z]:\/[^"\n]+?\.exe)(?=\s|$)/)?.[1]
+      || command.match(/^(\/[^"\n]+?\.app\/contents\/macos\/(?:deepseek harness|dsh next|dsh desktop))(?=\s|$)/)?.[1]
+      || command.match(/^((?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?)(?=\s|$)/)?.[1]
+      || command.split(/\s/)[0]
+    if (requireGuiClosed && /(?:^|\/)(?:deepseek harness|dsh next|dsh desktop)(?:\.exe)?$/.test(executable)) throw Error('请完整退出 DeepSeek Harness 后再安装或迁移数据。')
     if (!command.includes('dsh-desktop-host')) continue
     if (homes.some(home => command.includes(normalize(path.join(home, 'profiles'))))) throw Error('请完整退出使用源目录或目标目录的官方桌面，再迁移用户数据。')
   }
