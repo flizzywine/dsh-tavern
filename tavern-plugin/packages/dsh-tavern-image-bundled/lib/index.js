@@ -2329,20 +2329,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (!cards.length) return true
       // 拿不到"当前卡"时不过滤 —— 否则绑过卡的角色会全军覆没（曾经因此整库失效）
       if (!card) return true
-      const path = String(card.path ?? '')
-      const name = String(card.name ?? '')
-      const bare = path.replace(/^.*\//, '').replace(/\.json$/i, '')
-      return cards.some(entry => {
-        if (!entry) return false
-        const e = String(entry)
-        const eBare = e.replace(/^.*\//, '').replace(/\.json$/i, '')
-        if (path.endsWith(e) || e.endsWith(path) || path.includes(e) || e.includes(path)) return true
-        // 卡名匹配：会话里的 name 和绑定项里的文件名算同一个人
-        // （例如会话叫《某卡》，绑定项写的是《某卡_MVU版本》）
-        if (name && (name === e || eBare === name || eBare.includes(name) || name.includes(eBare))) return true
-        if (bare && (bare === e || eBare === bare || eBare.includes(bare) || bare.includes(eBare))) return true
-        return false
-      })
+      return cardBindingMatches(cards, card)
     }
 
     /**
@@ -5999,6 +5986,24 @@ function containsNameToken(text, key) {
   }
   return false
 }
+// An explicit card path identifies one card. Older records can use a file
+// name or display name, including longer legacy aliases.
+export function cardBindingMatches(cards, card) {
+  const normalizePath = value => String(value ?? '').trim().replace(/\\/g, '/').replace(/^\.\//, '')
+  const path = normalizePath(card?.path)
+  const name = String(card?.name ?? '').trim()
+  const stem = value => value.replace(/^.*\//, '').replace(/\.(?:json|png|charx|dshcard)$/i, '')
+  const bare = stem(path)
+  const contains = (long, short) => [...short].length >= 3 && long.includes(short)
+  return (cards ?? []).some(entry => {
+    const binding = normalizePath(entry)
+    if (!binding) return false
+    if (binding.includes('/')) return binding === path
+    if (/\.(?:json|png|charx|dshcard)$/i.test(binding)) return Boolean(path && path.split('/').at(-1) === binding)
+    return [name, bare].some(value => value && (value === binding || contains(value, binding) || contains(binding, value)))
+  })
+}
+
 export function injectDefinitions(text, definitions, config = {}, options = {}) {
   const source = String(text ?? '')
   const keepNegative = options?.keepNegative === true
@@ -6057,6 +6062,15 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
   // 人物的负面词作用于整张图：多人画面里 A 的「不要短发」会压掉 B 的短发。
   // 所以先按人收集，最后只在画面里只有一个库中人物时才用上。
   const personNegatives = []
+  const unqualifiedName = value => String(value ?? '').replace(/\s*[（(][^）)]*[）)]\s*$/, '').trim()
+  const nameCounts = new Map()
+  if (options?.style === 'natural') {
+    for (const character of definitions.characters ?? []) {
+      if (!character || character.enabled === false) continue
+      const name = unqualifiedName(character.name)
+      nameCounts.set(name, (nameCounts.get(name) || 0) + 1)
+    }
+  }
   for (const character of definitions.characters ?? []) {
     if (!character || character.enabled === false) continue
     if (expanded.includes(character)) {
@@ -6077,7 +6091,17 @@ export function injectDefinitions(text, definitions, config = {}, options = {}) 
       continue
     }
     if (expanded.some(other => sameCharacterFamily(character, other))) continue
-    const keys = structured ? [character.name, character.id, ...splitTags(character.match)].filter(Boolean) : (splitTags(character.match).length ? splitTags(character.match) : [character.name].filter(Boolean))
+    // 中文整句：人物本名（和去掉「（人形）」这类后缀的名字）也算。match 里只写了拼音时，规划忘了写人物宏、
+    // 只在画面里写「许静好站在……」，以前认不出这个人，脸和衣服都补不上。
+    // 只认两个字以上的名字（「晓」会撞上「拂晓」「知晓」）；几种形态同名时不用去掉后缀的名字，免得一起补进来。
+    const matchKeys = splitTags(character.match)
+    let keys = structured ? [character.name, character.id, ...matchKeys].filter(Boolean) : matchKeys.length ? matchKeys : [character.name].filter(Boolean)
+    if (options?.style === 'natural') {
+      const fullName = String(character.name ?? '').trim()
+      const bareName = unqualifiedName(fullName)
+      const nameKeys = [fullName, nameCounts.get(bareName) === 1 ? bareName : ''].filter(value => [...value].length >= 2)
+      keys = [...new Set([...matchKeys, ...nameKeys])]
+    }
     if (!keys.some(key => containsNameToken(source, key))) continue
     hits.push(character.name || character.id)
     // 露的画面（nsfw 或写着洗澡/裸体/内衣）不自动补衣服：既不补「当前穿着」，也不补常穿。
