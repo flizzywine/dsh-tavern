@@ -95,6 +95,49 @@ function figureForm(info) {
 // A pack Live2D emotionMap entry is an expression name or {expression?, motion?} (asset-packs.md).
 const live2dExpression=entry=>typeof entry==='string'?entry:entry&&typeof entry.expression==='string'?entry.expression:'';
 const live2dMotion=entry=>entry&&typeof entry==='object'&&typeof entry.motion==='string'?entry.motion:'';
+// The injected preview kit (client: live2d-preview.js) gets a source that leases the bundle through the pack
+// transport and resolves the Cubism Core URL once per binding. Without the kit (tests, other harnesses) previews
+// fall back to static pictures and an expression list.
+const live2dRuntimes=new WeakMap();
+// Live2D is usable once both imported pieces are in (installed; older hosts report the Core alone).
+const live2dReady=status=>status&&status.installed!==false&&status.core||'';
+// Model bytes and framing own previews, not the pack's metadata/CAS revision.
+const live2dIdentity=(pack,outfit)=>JSON.stringify([pack?.manifest.id,outfit?.live2d?.bundleKey,pack?.manifest.bundles?.[outfit?.live2d?.bundleKey]?.contentHash,outfit?.live2d?.anatomy||null]);
+function live2dSource(ctx,info) {
+  const bundleKey=info.outfit?.live2d?.bundleKey,svc=ctx.binding.service;
+  if(!live2dKit||!bundleKey||typeof svc?.leaseBundle!=='function'||typeof ctx.binding.rpc!=='function')return null;
+  const packId=info.ref.packId;
+  // the outfit's calibrated head anchors the face / bust snapshots (canvas fractions).
+  return {identity:live2dIdentity(info.pack,info.outfit),anatomy:info.outfit.live2d.anatomy||null,
+    async open(){
+      let runtime=live2dRuntimes.get(ctx.binding);
+      if(!runtime){runtime=ctx.binding.rpc('getLive2dRuntime',{});live2dRuntimes.set(ctx.binding,runtime);runtime.then(value=>{if(!live2dReady(value))live2dRuntimes.delete(ctx.binding);},()=>live2dRuntimes.delete(ctx.binding));}
+      const [core,lease]=await Promise.all([runtime.then(live2dReady),svc.leaseBundle({packId,bundleKey})]);
+      return {url:lease.url,core,close:()=>{svc.releaseLease?.(lease.ticket);}};
+    }};
+}
+// Expression face snapshots for the grid: 'loading' → 'ready' (name → url) or 'failed' (the grid becomes a list).
+// `frame`: 'face' (square) or 'bust' (3:4 outfit tile); both use the same head anchor as the static pictures.
+function useLive2dShots(source,names,frame='face') {
+  // an optional Core install retries missing snapshots without reopening the library.
+  const coreRevision=live2dKit?.useRevision?.();
+  const identity=source?.identity||'',key=frame+'\u0002'+[...new Set(names)].sort().join('\u0001');
+  const [state,setState]=React.useState(()=>({key:'',status:'idle',shots:{}}));
+  React.useEffect(()=>{
+    if(!source||!live2dKit?.snapshots){setState({key,status:'failed',shots:{}});return;}
+    const cached=live2dKit.snapshots.peek(identity,names,frame);
+    if(names.every(n=>cached[n||'']))return setState({key,status:'ready',shots:cached});
+    let live=true;setState({key,status:'loading',shots:cached});
+    live2dKit.snapshots.request(source,names,frame).then(shots=>{if(live)setState({key,status:'ready',shots});},error=>{if(live){console.warn('Live2D snapshots',error);setState({key,status:'failed',shots:{}});}});
+    return()=>{live=false;};
+  },[identity,key,coreRevision]);
+  if(state.key===key)return state;
+  // First render (or new names): faces already snapshotted paint now rather than after an empty frame.
+  if(!source||!live2dKit?.snapshots)return {status:'failed',shots:{}};
+  const cached=live2dKit.snapshots.peek(identity,names,frame);
+  return {status:names.every(n=>cached[n||''])?'ready':'loading',shots:cached};
+}
+
 // The one row grammar of the modal: icon + short name in a fixed label column, the control fills the rest
 // (same height and left edge for every control). `htmlFor` makes the name the label of the first native control.
 function Row({icon,label,htmlFor,help,className,children,...rest}) {

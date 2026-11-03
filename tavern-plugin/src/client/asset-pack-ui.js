@@ -43,8 +43,11 @@ function playerErrorText(error,{codes,fallback='出错了，请稍后再试'}={}
   if(raw&&said!==raw&&!playerErrorSeen.has(raw)&&typeof console!=='undefined'){if(playerErrorSeen.size>200)playerErrorSeen.clear();playerErrorSeen.add(raw);console.warn('dsh-tavern:',raw);}
   return said;
 }
-function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, spine: spineKit, timeGrade, autoChoices} = {}) {
+function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, prepareImage: prepareImageOverride, live2d: live2dOption, spine: spineKit, timeGrade, autoChoices} = {}) {
   const h = React.createElement;
+  // The Live2D preview kit: the stage's Live2D module, bound with the stage pages (stageScope.bind, views.live2dKit), else
+  // the one given here. The pages that read it draw only once the stage is bound.
+  let live2dKit = live2dOption;
   // autoChoices is the client's useAutoChoicesPreference hook (auto-choices-preference.js) —
   // the one reader/writer of tavern-settings candidateAutoGenerate — for the 基础设置 row 「自动生成选项」.
   // timeGrade(projection) is the stage's compensating background colour matrix for a time without its
@@ -1373,7 +1376,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const names={React, autoChoices, Actions, BustArt, Button, CAST_FACE, CardImportSheet, CatAddTile, ConfirmDialog, ErrorBox, FigureCastFace, Glyph, Help, HintLine, IconButton, ImageFramer, KIND_ORDER, KindSortTools, LampMenu, Loading, MOD_BUILTIN_PACKS, MOD_GLYPHS, MenuItem, ModEntries, Modal, NewFigurePage, PackImageView, PackList, PackModal, PackRow, PackSearchBox, Popover, RevealImg, STAGE_NAMES, STAGE_REQUIRES, Silhouette, StageItemsPage, StageModPage, StageModSection, StageOpenings, StageSection, StageSetupWizard, SubpageHead, SwitchRow, Thumb, UploadButton, VOICE_PROVIDERS, cellMenuTrigger, clone, downloadPackMedia, emotionMapped, emotionState, errorText, figureAvatar, figureEditorEmotions, figureOutfitView, globalFirst, glyphs, h, holdMedia, keywordProblem, kindGlyphs, kinds, loadPackDetail, loadPackRows, newResourceKey, openingMenuFocus, openingMenuKeys, orderPacks, outfitEmotionRows, outfitHead, outfitImageId, packCount, packFilter, packRowClick, splitKeywords, spriteSlotTakesStill, stageMissing, stageSetupCardPack, stageSetupReady, standInValue, stateBust, subpageKeys, switchRowClick, useLoad, usePackScope, usePackSort, useStageFold, useStageSetupAutoOpen, useTask, useVoiceLoad, useVoiceRefresh, validDraft, voiceIssueText,
       EmptyState, InlineAdd, InlineField, InlineGrid, InlineRow, OverrideDot, ResetButton, ScopeSwitch, Segmented, Spinner, Switch, TextArea, browserSpeechVoiceList, directorCommands, playerErrorText, selectFigureAvatar, selectPackAvatar};
     return {names, get views(){return views;}, bound:()=>views!==null,
-      bind(next){views=next;take(next);notify();return()=>{if(views!==next)return;views=null;take({});notify();};},
+      bind(next){views=next;take(next);live2dKit=next.live2dKit||live2dOption;notify();return()=>{if(views!==next)return;views=null;take({});live2dKit=live2dOption;notify();};},
       // whether the stage pages are bound (a React external store; re-renders the caller on bind / unbind).
       use(){return React.useSyncExternalStore(fn=>{listeners.add(fn);return()=>listeners.delete(fn);},()=>views!==null);}};
   })();

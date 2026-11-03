@@ -2593,7 +2593,8 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
    DSH toolbar language (accent comet over a faint track, surface tokens) sits centred in the card, fades in, and fades
    out as the model fades in. The static fallback picture only when the model cannot load. */
 /* optional runtime entry (cubism-core.js ForkRuntimeEntry) — name (?) state, then one
-   row per missing/present piece (name · 未安装 · official page ↗ | ✓ 已安装) and one quiet accent 「同意许可并导入…」.
+   row per missing/present piece (name · 未安装 · official page ↗ | ✓ 已安装) and one quiet accent action
+   (「下载并安装…」 for Live2D, 「同意许可并导入…」 for Spine).
    No box, no grey paragraph (R2, R3); licence pages are links inside the (?) body. */
 .fork-runtime { display: grid; gap: 2px; min-width: 0; color: var(--fork-ink); font: 400 var(--fork-fs-body)/1.6 var(--fork-font-ui); }
 .fork-runtime:focus { outline: none; }
@@ -2617,6 +2618,10 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .fork-runtime-link:focus-visible, .fork-runtime-import:focus-visible, .fork-runtime-retry:focus-visible { outline: var(--fork-focus); outline-offset: 2px; border-radius: 4px; }
 .fork-runtime-alert { color: var(--fork-warn); overflow-wrap: anywhere; }
 .fork-runtime-retry { appearance: none; min-height: 30px; margin-left: 8px; padding: 0 4px; border: 0; background: none; color: var(--fork-accent); font: inherit; cursor: pointer; }
+/* After a failed download only: the official files dropped here (no picker); the licence dialog is the shared .ap-confirm. */
+.fork-runtime-drop { display: grid; place-items: center; min-height: 64px; margin-top: 4px; padding: 12px 16px; border: 1px dashed var(--fork-hairline); border-radius: var(--fork-radius); color: var(--fork-ink-2); font-size: var(--fork-fs-meta); text-align: center; overflow-wrap: anywhere; }
+.fork-runtime-drop[data-over] { border-color: var(--fork-accent); background: var(--fork-hover); color: var(--fork-ink); }
+.fork-runtime-consent a { color: var(--fork-accent); }
 @media (max-width: 720px) { .fork-runtime-link, .fork-runtime-import, .fork-runtime-retry, .fork-runtime-name, .fork-runtime-piece > .fork-runtime-state { min-height: 36px; } }
 
 /* ==== fork settings page ==== */

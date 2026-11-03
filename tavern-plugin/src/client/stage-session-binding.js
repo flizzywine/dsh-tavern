@@ -40,6 +40,6 @@ function stageSessionInputs(ctx){
         preferences:{get:()=>({reading:stageReading.get(),film:stageFilm.get(),audio:forkStageAudio.get()}),
             subscribe(listener){const stops=[stageReading,stageFilm,forkStageAudio].map(source=>source.subscribe(listener));return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage preferences cleanup failed');};}},
         text:{pageCards:stagePageCards,paginate:stageBlockPages},
-        observation:{packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>spineRuntimeState.subscribe(listener)},portraits:avatarCache,media:{background:bgManual}}
+        observation:{packs:{subscribe:listener=>{packListeners.add(listener);return ()=>packListeners.delete(listener);},runtimeChanged:listener=>vendorRuntimeChanged(listener)},portraits:avatarCache,media:{background:bgManual}}
     };
 }

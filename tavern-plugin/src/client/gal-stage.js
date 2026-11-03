@@ -136,10 +136,6 @@ function galFaceClearMs(...args) { return stageViews.faceClearMs(...args); }
 function galHandoffAutoDelay(...args) { return stageViews.handoffAutoDelay(...args); }
 function useGalSpriteFallbacks(...args) { return stageViews.notices.useSpriteFallbacks(...args); }
 function GalStandIns(props) { return stageViews ? React.createElement(stageViews.StandIns, props) : null; }
-// an on-stage Live2D figure is showing its static sprite (or nothing) because
-// this machine has no Cubism Core (the user imports it: official page, then the file). One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry
-// (CubismCoreEntry, as in 设置 › 舞台 › 运行库) in place. Installing re-reads the stage (stage-session-binding.js),
-// so the figures switch to Live2D without a reload; the notice goes as soon as the Core is in.
 
 // first-run hints, shown in the stage's notice stack (not a modal) once the entry
 // is revealed. keys: the stage's real shortcuts (GAL_SHORTCUTS), once per profile — 「已看过」 is kept in the persisted
@@ -228,6 +224,10 @@ function bindStageViews(createViews) {
         effects:{policy:{STAGE_EFFECT_BEATS, STAGE_EFFECT_LOOKS, STAGE_EFFECTS, stageEffectResolve, stageSafety, stageEffectRed, stageEffectLuma, stageFlashDark, stageFlashSafe, stageFlashGate, stageFlashAt, stageShakeAt, stagePulseAt, stageGlitchAt},loadScript:forkLoadScript,filtersUrl:PIXI_VENDOR+"pixi-filters.js",thunder:(...args)=>stageSfx.thunder(...args)},
         looks:{math:stageLookMath,fade:stageLookFadeMs,Image},
         spineFigures:{rig:spineRig,bottomFade:packSpineBottomFade},
+        // Live2D is the stage's on-demand module (dsh-tavern-live2d, stage live2d-loader.cjs); the core holds no Live2D code.
+        // `host`: the core names the module uses (the shared runtime entry, the pixi loader); `measure`: the core's figure measurement.
+        live2d:{host:{rpc,Spinner,RUNTIMES,RuntimeEntry,vendorRuntimeStore,forkLoadScript,loadPixiRuntime,forkLipSync,galResolution,galFollowResolution,resolveFigureSizing},
+            measure:{figureMeasureLive2d,figureMeasurePackLive2d,figureMeasureLive2dHead,figureMeasureLive2dCentre,figureKnowsBody,packFigureAnatomy,packFigureRecord}},
         sceneServices:{foreground:forkForeground,lipSync:forkLipSync,loadPixi:loadPixiRuntime,resolution:galResolution,subscribeResolution:galResolutionSubscribe,
             layered:{urls:layeredSpriteUrls,paint:layeredSpritePaint,voice:layeredSpriteVoice},canvas:{paint:stagePaintEmpty,palette:stageEmptyPalette}},
         sceneFigureProtocol:{FIGURE_DISPLAY,figureSceneFrame,figureSceneUpdate,figureMixedWarning,resolveFigureSizing},

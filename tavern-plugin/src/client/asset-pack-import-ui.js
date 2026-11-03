@@ -176,6 +176,28 @@ function live2dPreviewMotion(document,value) {
 const MODEL_FIGURE_EMOTIONS=[['joy','喜悦'],['anger','愤怒'],['sad','悲伤'],['anxious','紧张'],['calm','平和'],['shy','害羞'],['disgust','嫌弃'],['love','爱恋'],['crying','哭泣']].map(([id,label])=>({id,label}));
 // end model-import-core
 
+// The Cubism Core URL, asked once per binding (shared with the installed-model previews).
+function live2dCoreUrl(binding) {
+  let runtime=live2dRuntimes.get(binding);
+  if(!runtime){runtime=binding.rpc('getLive2dRuntime',{});live2dRuntimes.set(binding,runtime);runtime.then(value=>{if(!live2dReady(value))live2dRuntimes.delete(binding);},()=>live2dRuntimes.delete(binding));}
+  return runtime.then(live2dReady);
+}
+// A preview source over the picked files: pixi-live2d-display's own File[] loader (each file carries its relative path).
+let modelLocalSerial=0;
+function live2dLocalSource(binding,prepared,document,key) {
+  if(!live2dKit?.Preview||typeof binding?.rpc!=='function'||typeof File!=='function')return null;
+  const text=new TextEncoder().encode(JSON.stringify(document)),serial=++modelLocalSerial;
+  return {identity:'local:'+serial+':'+key,anatomy:null,async open(){
+    const core=await live2dCoreUrl(binding);
+    const files=[...prepared.files].map(([name,bytes])=>{const file=new File([name===prepared.entry?text:bytes],name.split('/').pop());Object.defineProperty(file,'webkitRelativePath',{value:'model/'+name});return file;});
+    return {url:files,core,close(){}};
+  }};
+}
+function useLive2dLocalSource(binding,prepared,idle) {
+  const ref=React.useRef(null),key=prepared?prepared.serial+'\n'+idle:'';
+  if(!ref.current||ref.current.key!==key)ref.current={key,source:prepared?live2dLocalSource(binding,prepared,live2dPreviewDocument(prepared.document,idle),idle):null};
+  return ref.current.source;
+}
 // 选择文件夹… / 选择 ZIP… (hidden inputs out of the tab order) and the sheet-wide drop target.
 function ModelPickers({busy,load}) {
   const folder=React.useRef(null),zip=React.useRef(null);
@@ -296,6 +318,7 @@ function ModelImportSheet({binding,pack,fixed=null,pending=null,onClose,onImport
   React.useEffect(()=>{if(pending)load(()=>pending.entries,pending.name);},[]);
   // A different target figure has its own 差分: Live2D choices restart from the model's declarations.
   React.useEffect(()=>{if(picked?.kind==='live2d')setChoice(c=>({idle:c.idle,map:live2dPrefill(picked.document,rows).map}));if(!rows.some(r=>r.id===shown))setShown(defaultEmotion);},[figureId]);
+  const liveSource=useLive2dLocalSource(binding,kind==='live2d'?picked:null,choice.idle);
   const spineRead=useSpineInfo(kind==='spine'?picked.source:null),names=spineRead.info?.animations||null,spineRuntime=useSpineRuntime(binding);
   React.useEffect(()=>{if(names)setSpine(s=>spineDefaults(s,names));},[names]);
   const block=spineBlock(spine),play=spineEmotionAnimation(block,shown,defaultEmotion);
@@ -310,7 +333,9 @@ function ModelImportSheet({binding,pack,fixed=null,pending=null,onClose,onImport
       onClose();
     }catch(e){setError(modelImportError(e));}finally{setSaving(false);}};
   const entry=kind==='live2d'?choice.map[shown]||choice.map[defaultEmotion]||{}:null;
-  const stage=    kind==='spine'?h(SpineStage,{source:picked.source,config:{...block},play,talking,setTalking,names,label:'Spine 预览'}):h('span',{className:'ap-empty'},'拖入文件夹或 ZIP');
+  const stage=kind==='live2d'?(liveSource?h(live2dKit.Preview,{key:'live2d',source:liveSource,expression:entry.expression||'',motion:live2dPreviewMotion(picked.document,entry.motion),label:'Live2D 预览',
+        fallback:h('span',{className:'ap-hint-chip',role:'alert'},'\u26a0 无法载入这个模型，舞台上也会失败')}):h('span',{className:'ap-empty'},'没有预览')):
+    kind==='spine'?h(SpineStage,{source:picked.source,config:{...block},play,talking,setTalking,names,label:'Spine 预览'}):h('span',{className:'ap-empty'},'拖入文件夹或 ZIP');
   const version=kind==='spine'&&spineRead.info?.version?' · Spine '+spineRead.info.version:kind==='live2d'?' · Live2D':'';
   return h(CatSheet,{title:'导入模型',className:'ap-model-sheet',onClose,busy,frame:modelDropFrame(busy,load),
       foot:h(React.Fragment,null,h(Button,{disabled:busy,onClick:onClose},'取消'),h(Button,{primary:true,disabled:busy||!picked||!ready||!targetOk,onClick:save},saving?'正在导入…':'导入'))},
