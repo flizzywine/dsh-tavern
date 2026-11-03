@@ -18,9 +18,16 @@ export function stageClientModuleAsScript(source) {
   return '"use strict";\n' + source.slice(0, at) + 'stageClientPlugin;' + source.slice(at + STAGE_CLIENT_EXPORT.length)
 }
 
+// One lazy chunk by its asset name, or undefined for any other name. The registry below serves the chunks
+// through it; a page that serves its own assets (an isolated export page) can read them the same way.
+export async function readStageClientChunk(name) {
+  const file = Object.hasOwn(STAGE_CLIENT_CHUNKS, name) ? STAGE_CLIENT_CHUNKS[name] : undefined
+  return file && Object.freeze({body: await readFile(file), mediaType: JAVASCRIPT})
+}
+
 export function registerStageClientAssets(registry) {
   const stops = [
-    ...Object.entries(STAGE_CLIENT_CHUNKS).map(([name, file]) => registry.register(name, {mediaType: JAVASCRIPT, read: () => readFile(file)})),
+    ...Object.keys(STAGE_CLIENT_CHUNKS).map(name => registry.register(name, {mediaType: JAVASCRIPT, read: async () => (await readStageClientChunk(name)).body})),
     registry.register(STAGE_CLIENT_ASSET, {
       mediaType: JAVASCRIPT,
       read:() => readFile(new URL('./client.js', import.meta.url))
