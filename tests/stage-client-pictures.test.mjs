@@ -34,6 +34,15 @@ test('the 正在生成 CG notice shows a number only once the plugin reports one
   assert.match(text({progress:0.27}), /正在生成 CG… 27%/)
 })
 
+test('a late picture on the final paragraph offers a view once the end panel is open', () => {
+  const items = [ready('earlier', 2), ready('last', 4), ready('already-ready', 4)]
+  const pending = new Set(['earlier', 'last'])
+  assert.equal(pictures.late(items, pending, 4, false).id, 'earlier')
+  assert.equal(pictures.late(items, pending, 4, true).id, 'last')
+  assert.equal(pictures.late(items, new Set(['last']), 4, false), null)
+  assert.equal(pictures.late(items, new Set(), 4, true), null)
+})
+
 test('a picture follows the first host paragraph holding its anchor sentence, else the round\'s last', () => {
   const source = readFileSync(new URL('../tavern-plugin/src/client/stage-scene-images.js', import.meta.url), 'utf8')
   const body = source.slice(source.indexOf('function stagePicturePara'), source.indexOf('// { items:'))

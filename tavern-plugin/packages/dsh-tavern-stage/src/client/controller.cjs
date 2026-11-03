@@ -375,12 +375,12 @@ function GalStage(props) {
     const seenPictures = React.useRef(null);
     React.useEffect(() => {
         if (!pictureState) return;
-        const ready = pictureState.items.filter(item => item.state === 'ready' && item.url), pending = new Set(pictureState.items.filter(item => item.state === 'pending').map(item => item.id));
+        const pending = new Set(pictureState.items.filter(item => item.state === 'pending').map(item => item.id));
         const seen = seenPictures.current;
         seenPictures.current = {key:pictureKey, pending};
         if (!seen || seen.key !== pictureKey) return;
-        const passed = ready.filter(item => seen.pending.has(item.id) && item.para < (pages[page]?.para || 1));
-        if (passed.length) setPictureLate({key:pictureKey, picture:passed[passed.length - 1]});
+        const late = stageViews.pictures.late(pictureState.items, seen.pending, pages[page]?.para || 1, atEnd);
+        if (late) setPictureLate({key:pictureKey, picture:late});
     }, [pictureState, pictureKey]);
     const lateShown = pictureLate && pictureLate.key === pictureKey && !insert ? pictureLate : null;
     React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 8000); return () => clearTimeout(timer); }, [lateShown]);

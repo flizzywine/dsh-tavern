@@ -14338,12 +14338,12 @@ function GalStage(props) {
     const seenPictures = React.useRef(null);
     React.useEffect(() => {
         if (!pictureState) return;
-        const ready = pictureState.items.filter(item => item.state === 'ready' && item.url), pending = new Set(pictureState.items.filter(item => item.state === 'pending').map(item => item.id));
+        const pending = new Set(pictureState.items.filter(item => item.state === 'pending').map(item => item.id));
         const seen = seenPictures.current;
         seenPictures.current = {key:pictureKey, pending};
         if (!seen || seen.key !== pictureKey) return;
-        const passed = ready.filter(item => seen.pending.has(item.id) && item.para < (pages[page]?.para || 1));
-        if (passed.length) setPictureLate({key:pictureKey, picture:passed[passed.length - 1]});
+        const late = stageViews.pictures.late(pictureState.items, seen.pending, pages[page]?.para || 1, atEnd);
+        if (late) setPictureLate({key:pictureKey, picture:late});
     }, [pictureState, pictureKey]);
     const lateShown = pictureLate && pictureLate.key === pictureKey && !insert ? pictureLate : null;
     React.useEffect(() => { if (!lateShown) return; const timer = setTimeout(() => setPictureLate(null), 8000); return () => clearTimeout(timer); }, [lateShown]);
@@ -24935,6 +24935,11 @@ function stagePicturesWorking(state) {
     const known = pending.map(item => item.progress).filter(value => typeof value === 'number');
     return {progress:known.length ? Math.min(...known) : null};
 }
+// The final paragraph counts as passed once the end panel opens.
+function stagePictureLate(items, previouslyPending, para, atEnd) {
+    return items.findLast(item => item.state === 'ready' && item.url && previouslyPending.has(item.id) &&
+        (item.para < para || atEnd && item.para === para)) || null;
+}
 // One picture over the whole stage: the art contained, the same picture blurred behind it; the caption bottom left and the
 // 继续 cue bottom right. A picture that does not load is passed (onFailed), never an empty page.
 function StagePicturePage({picture, onFailed}) {
@@ -24945,7 +24950,7 @@ function StagePicturePage({picture, onFailed}) {
         picture.caption ? h('figcaption', null, picture.caption) : null,
         h('span', {className:'fork-gal-picture-next', 'aria-hidden':true}, '点击继续'));
 }
-return {passed:stagePicturesPassed, working:stagePicturesWorking, Page:StagePicturePage};
+return {passed:stagePicturesPassed, working:stagePicturesWorking, late:stagePictureLate, Page:StagePicturePage};
 }
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStagePictures};
 
