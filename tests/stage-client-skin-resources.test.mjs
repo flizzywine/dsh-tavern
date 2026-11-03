@@ -6,6 +6,22 @@ import {createRoot} from 'react-dom/client'
 import {JSDOM} from 'jsdom'
 const require=createRequire(import.meta.url)
 const {createStageSkinResources}=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/skin-resources.cjs')
+const {createStageRuntimeStoreModule}=require('../tavern-plugin/packages/dsh-tavern-stage/lib/client/runtime-store.cjs')
+const runtimeKernel=require('../tavern-plugin/src/client/stage-runtime.cjs')
+test('a packaged skin waits on the real runtime store and reads its bundle once the stage authority arrives',async()=>{
+ const dom=new JSDOM('<div id="root"></div>'),before=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
+ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true
+ const store=createStageRuntimeStoreModule(runtimeKernel).createStageRuntimeStore(),requests=[];let value
+ const module=createStageSkinResources({React,getSession:()=>store,getResourceOwner:()=>({acquire(descriptor,authority){requests.push(authority);return new Promise(()=>{})}}),setTimeout,clearTimeout})
+ function View(){value=module.useConfig('session-1',{document:{id:'skin'},resource:{kind:'bundle',identity:'skin',revision:1}},'default');return null}
+ const root=createRoot(dom.window.document.getElementById('root'))
+ try{
+  await act(async()=>root.render(React.createElement(View)))
+  assert.equal(value.loading,true);assert.equal(requests.length,0)
+  await act(async()=>store.dispatch({type:'SEND_ACK',source:{sessionId:'session-1',authorityEpoch:1,branchId:'b',turn:1,sourceKey:'n',generation:1}}))
+  assert.equal(requests.length,1)
+ }finally{await act(async()=>root.unmount());module.dispose();store.dispose();dom.window.close();[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]=before}
+})
 test('skin bundle ownership survives StrictMode and releases current, held and late pins on unload',async()=>{
  const dom=new JSDOM('<div id="root"></div>'),before=[globalThis.window,globalThis.document,globalThis.IS_REACT_ACT_ENVIRONMENT]
  globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.IS_REACT_ACT_ENVIRONMENT=true

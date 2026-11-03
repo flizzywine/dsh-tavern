@@ -5,9 +5,14 @@ function createStageRuntimeStoreModule(stageRuntimeKernel) {
 // against a half-published snapshot. A runner may synchronously complete an intent.
 function createStageRuntimeStore({initialState = stageRuntimeKernel.createStageRuntimeState(), runEffect = () => {}, observe = () => {}} = {}) {
     let state = initialState, flushing = false;
-    const queue = [], selectors = new Set();
+    const queue = [], selectors = new Set(), listeners = new Set();
     const store = {
         getSnapshot: () => state,
+        // Whole-state change listener (useSyncExternalStore over getSnapshot); narrower readers use select().
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
         dispatch(event) {
             if (state.disposed && !['PROJECTION_READY', 'ONE_SHOT_READY'].includes(event.type)) return;
             queue.push(event);
@@ -26,6 +31,7 @@ function createStageRuntimeStore({initialState = stageRuntimeKernel.createStageR
                     }
                     // Every selector sees the same commit, even from another listener.
                     for (const selector of changed) selector.notify(attempt);
+                    if (state !== previous) for (const listener of [...listeners]) attempt(listener);
                     for (const intent of result.effects) attempt(() => runEffect(intent, store.dispatch, store.getSnapshot));
                     attempt(() => observe(event, previous, state));
                 }
@@ -57,7 +63,7 @@ function createStageRuntimeStore({initialState = stageRuntimeKernel.createStageR
         },
         dispose() {
             try { store.dispatch({type: 'DISPOSE'}); }
-            finally { for (const selector of selectors) selector.dispose(); }
+            finally { listeners.clear(); for (const selector of selectors) selector.dispose(); }
         }
     };
     return store;
