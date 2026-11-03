@@ -7,7 +7,7 @@ import test from 'node:test'
 import { deflateRawSync } from 'node:zlib'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createAssetPacks, packMediaType } from '../tavern-plugin/lib/domain/asset-packs.js'
-import { pngCarriesCardArchive, readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
+import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
 import { createUploads } from '../tavern-plugin/lib/domain/uploads.js'
 import { openZipFile, zipEntryPath } from '../tavern-plugin/lib/domain/zip-file.js'
 import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
@@ -94,30 +94,6 @@ test('从磁盘读 ZIP：逐个流式解压并校验，ZIP64 能读，越界路�
   const big = await openZipFile(join(dir, 'z64.zip'))
   assert.equal((await big.readBuffer(big.entries.get('dsh.json'))).toString(), '{"format":"dshcard"}')
   await big.close()
-})
-
-test('封面 PNG 后接卡档案（.dshcard.png）：偏移整体后移也能读，ZIP64 同样；普通 PNG 和普通 ZIP 不算', async t => {
-  const dir = await temp(t)
-  const archive = writeZipEntries([{ path: 'dsh.json', content: Buffer.from('{"format":"dshcard"}') }, { path: 'card.json', content: Buffer.from('{"a":1}') }])
-  await writeFile(join(dir, 'c.dshcard.png'), Buffer.concat([PNG, archive]))
-  const zip = await openZipFile(join(dir, 'c.dshcard.png'))
-  assert.equal(zip.prefix, PNG.length)
-  assert.equal((await zip.readBuffer(zip.entries.get('card.json'))).toString(), '{"a":1}')
-  await zip.close()
-  assert.equal(await pngCarriesCardArchive(join(dir, 'c.dshcard.png')), true)
-
-  await writeFile(join(dir, 'z64.png'), Buffer.concat([PNG, zip64('dsh.json', '{"format":"dshcard"}')]))
-  const big = await openZipFile(join(dir, 'z64.png'))
-  assert.equal(big.prefix, PNG.length)
-  assert.equal((await big.readBuffer(big.entries.get('dsh.json'))).toString(), '{"format":"dshcard"}')
-  await big.close()
-
-  await writeFile(join(dir, 'plain.png'), PNG)
-  await writeFile(join(dir, 'plain.dshcard'), archive)
-  await writeFile(join(dir, 'other.png'), Buffer.concat([PNG, writeZipEntries([{ path: 'notes.txt', content: Buffer.from('x') }])]))
-  assert.equal(await pngCarriesCardArchive(join(dir, 'plain.png')), false)
-  assert.equal(await pngCarriesCardArchive(join(dir, 'plain.dshcard')), false, '没有前缀的 ZIP 按扩展名走原路径')
-  assert.equal(await pngCarriesCardArchive(join(dir, 'other.png')), false, '后面接的不是卡档案')
 })
 
 test('素材包：每个文件按内容只存一份，同 id 同摘要的包直接复用；只按白名单直接提供', async t => {

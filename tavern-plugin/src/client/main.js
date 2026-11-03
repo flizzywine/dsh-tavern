@@ -90,29 +90,21 @@ window.__ModuleLoader__.load({
 		// @include text-resource-file.js
 		// @include download.js
 
+		// @include modules/card-password.js
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
 		async function importTavernCardFile(file, call) {
+			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			const archive = !/\.(png|json)$/i.test(String(file.name || "")) && /\.[^./\\]+$/.test(String(file.name || ""));
-			// A PNG ending like a ZIP may be a card archive with its cover in front (大肥鱼.dshcard.png): it goes up
-			// as a file too, and the host decides (a plain card PNG that only looked like one still imports).
-			if (archive || /\.png$/i.test(String(file.name || "")) && await tavernPngEndsLikeZip(file)) {
+			if (archive) {
 				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
 				let reply = null;
 				try { reply = await response.json(); } catch (_error) {}
 				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-				return call("importCardUpload", { uploadId: reply.uploadId, name: file.name });
+				return importTavernPasswordCard(password => call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) }), file.name,
+					() => call("discardCardUpload", { uploadId: reply.uploadId }));
 			}
 			return call("importCard", { payload: await parseCardFile(file) });
-		}
-
-		/** Whether a file's last 64 KB hold a ZIP end record. */
-		async function tavernPngEndsLikeZip(file) {
-			const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 65557)).arrayBuffer());
-			for (let index = tail.length - 22; index >= 0; index--) {
-				if (tail[index] === 0x50 && tail[index + 1] === 0x4b && tail[index + 2] === 0x05 && tail[index + 3] === 0x06) return true;
-			}
-			return false;
 		}
 
 		/** What a card file brought into its character material, for the import notice. */
@@ -287,8 +279,8 @@ window.__ModuleLoader__.load({
 				let last = null;
 				for (let index = 0; index < queue.length; index += 1) {
 					setProgress({ done: index + 1, total: queue.length });
-					try { const result = await rpc("importMobileCard", { id: queue[index].id }); last = result.card; }
-					catch (err) { failures.push(mobileImportNameOf(queue[index]) + "：" + String(err && err.message || err)); }
+					try { const result = await importTavernPasswordCard(password => rpc("importMobileCard", { id: queue[index].id, ...(password === undefined ? {} : { password }) }), mobileImportNameOf(queue[index])); last = result.card; }
+					catch (err) { if (err?.code !== 'TAVERN_CARD_IMPORT_CANCELLED') failures.push(mobileImportNameOf(queue[index]) + "：" + String(err && err.message || err)); }
 				}
 				setBusy(false); setProgress(null);
 				if (last) { if (!failures.length) close(); await props.onImported(last); }

@@ -11,7 +11,9 @@ import { createCardPreparation, projectCardSummary } from '../tavern-plugin/lib/
 import { createCardSummaryCache } from '../tavern-plugin/lib/domain/card-summary-cache.js'
 import { createCastAssets } from '../tavern-plugin/lib/domain/cast-assets.js'
 import { createFileResourceStore } from '../tavern-plugin/lib/domain/file-resources.js'
-import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
+import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
+import { encryptCardArchiveFile } from '../tavern-plugin/lib/domain/card-encryption.js'
+import { pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
 
 async function library(t, extra = {}) {
@@ -36,7 +38,28 @@ async function library(t, extra = {}) {
   return { root, files, fileResources, castAssets }
 }
 
-test('a CHARX imports once; the same file again opens the card already imported; a bare card exports as JSON', async t => {
+test('encrypted DSH imports authenticate before saving cards/plugins, and duplicates still require the password', async t => {
+  const { root, files, fileResources, castAssets } = await library(t)
+  const plain = join(root, 'plain.dshcard'), encrypted = join(root, 'locked.dshcard')
+  await writeFile(plain, writeZipEntries([
+    { path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1, plugins: [{ name: 'encrypted-game', path: 'plugins/game/' }] }) },
+    { path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '加密测试卡', description: 'opaque fixture' } }) },
+    { path: 'plugins/game/package.json', content: JSON.stringify({ name: 'encrypted-game', version: '1.0.0' }) },
+    { path: 'plugins/game/index.mjs', content: 'export function apply() {}' },
+    { path: 'plugins/game/assets/data.bin', content: 'fixture bytes' },
+  ]))
+  await encryptCardArchiveFile(plain, encrypted, 'test-only-password')
+  await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
+  await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'wrong' }), { code: 'TAVERN_CARD_PASSWORD_INVALID' })
+  assert.deepEqual(await fileResources.list('card'), [])
+  const card = await files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'test-only-password' })
+  assert.equal(card.name, '加密测试卡')
+  assert.equal((await castAssets.read(card.path)).plugins[0].enabled, true)
+  await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
+  assert.equal((await files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'test-only-password' })).duplicate, true)
+})
+
+test('a CHARX imports once; the same file again opens the card already imported; a bare card exports as DSH', async t => {
   const { root, files } = await library(t)
   const charx = join(root, '鱼.charx')
   await writeFile(charx, writeZipEntries([{ path: 'card.json', content: JSON.stringify({ spec: 'chara_card_v3', data: { name: '鱼', description: '一条鱼' } }) }]))
@@ -50,8 +73,24 @@ test('a CHARX imports once; the same file again opens the card already imported;
   assert.deepEqual(again, { path: first.path, name: '鱼', duplicate: true })
 
   const exported = await files.exportCardFile(first.path)
-  assert.equal(exported.extension, 'json')
-  assert.equal(JSON.parse(exported.bytes.toString()).data.description, '一条鱼')
+  assert.equal(exported.extension, 'dshcard')
+  assert.equal(JSON.parse(readZipEntries(exported.bytes).get('card.json').toString()).data.description, '一条鱼')
+})
+
+test('an encrypted ST PNG imports its cover into the library and exports a single DSH container', async t => {
+  const { root, files, fileResources } = await library(t)
+  const cover = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8V8AAAAASUVORK5CYII=', 'base64')
+  const input = join(root, 'source.png'), locked = join(root, 'locked.dshcard')
+  await writeFile(input, pngWithCard(cover, JSON.stringify({ spec: 'chara_card_v3', data: { name: '封面测试', description: 'private' } })))
+  await encryptCardArchiveFile(input, locked, 'test-password', { name: 'source.png' })
+  const card = await files.importCardArchiveFile(locked, 'locked.dshcard', { password: 'test-password' })
+  assert.ok((await fileResources.readCardImage(card.path)).length >= cover.length)
+  const exported = await files.exportCardFile(card.path)
+  assert.equal(exported.extension, 'dshcard')
+  assert.equal(exported.bytes.readUInt32LE(0), 0x04034b50)
+  const entries = readZipEntries(exported.bytes)
+  assert.equal(JSON.parse(entries.get('dsh.json')).format, 'dshcard')
+  assert.deepEqual(entries.get('assets/icon/image/main.png'), cover)
 })
 
 

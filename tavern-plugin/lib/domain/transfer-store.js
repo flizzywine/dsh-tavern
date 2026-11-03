@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 // 大包导出后落在磁盘等客户端来取。token 就是文件名，元数据放同名 .json，所以服务重启、
@@ -49,6 +49,24 @@ export function createTransferExportStore({ root, now = Date.now, ttlMs = 60 * 6
     return { token, bytes: buffer.length }
   }
 
+  /** Take ownership of a finished export file without reading a large archive into memory. */
+  async function putFile(source, filename) {
+    await mkdir(dir, { recursive: true })
+    await sweep()
+    const token = randomUUID(), file = path.join(dir, token), at = now()
+    const { size: bytes } = await stat(source)
+    try { await rename(source, file) }
+    catch (error) {
+      if (error.code !== 'EXDEV') throw error
+      await copyFile(source, file)
+      await rm(source)
+    }
+    const name = String(filename || '')
+    await writeFile(metaPath(file), JSON.stringify({ filename: name, bytes, at })).catch(() => {})
+    entries.set(token, { at, file, filename: name, bytes })
+    return { token, bytes }
+  }
+
   /** Resolve a token without dropping it: the route needs the path while it streams. */
   async function take(token) {
     const key = String(token)
@@ -82,5 +100,5 @@ export function createTransferExportStore({ root, now = Date.now, ttlMs = 60 * 6
   timer.unref?.()
   const close = () => { clearInterval(timer); void sweep() }
 
-  return Object.freeze({ put, take, remove, sweep, close, dir })
+  return Object.freeze({ put, putFile, take, remove, sweep, close, dir })
 }

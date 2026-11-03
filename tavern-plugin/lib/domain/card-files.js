@@ -7,7 +7,7 @@ import { cardAssetExtensionPointer, validateCardAssetExtension } from './card-as
 import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath, stripPngTextChunks } from './file-resources.js'
-import { openZipFile } from './zip-file.js'
+import { openCardZip } from './card-encryption.js'
 import { writeZipEntries } from './zip-entries.js'
 
 function str(value) {
@@ -57,20 +57,22 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     return notices
   }
-  async function importCardArchiveFile(file, name) {
-    const label = /\.dshcard(\.png)?$/i.test(name) ? 'DSH 人物卡' : 'CHARX'
+  async function importCardArchiveFile(file, name, { password } = {}) {
+    if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
+    const label = /\.dshcard$/i.test(name) ? 'DSH 人物卡' : 'CHARX'
     // The very same file again: open the card already imported from it (if still unchanged), and make sure
     // its packs are in the asset library (cards imported before the library came carry none there).
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
+    const authenticated = await openCardZip(file, { label, password })
     if (existing) {
-      const zip = await openZipFile(file, { label })
+      const zip = authenticated
       let libraryNotices = []
       try { libraryNotices = await installPacksInLibrary(zip, (await readCardArchive(zip)).packs) } finally { await zip.close() }
       return { path: existing, name: (await cardSummaries.read(existing).catch(() => null))?.name || existing.split('/').pop(), duplicate: true,
         ...(libraryNotices.length ? { libraryNotices } : {}) }
     }
-    const zip = await openZipFile(file, { label })
+    const zip = authenticated
     try {
       const archive = await readCardArchive(zip)
       const libraryNotices = await installPacksInLibrary(zip, archive.packs)
@@ -208,7 +210,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   async function exportCardCharx(cardPath, document, { manifest, files }) {
     const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
     const name = str(document?.data?.name || '人物卡')
-    return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file) }) }
+    return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file), dsh: true }) }
   }
   async function presentCardText(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
@@ -226,23 +228,11 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const name = str(document?.data?.name || '人物卡')
     return { name, bytes: pngWithTextChunks(image, [pngCardTextChunk('chara', text), pngCardTextChunk('ccv3', text)]) }
   }
-  // One export, format chosen by content: character material only travels in CHARX,
-  // a cover makes the standard PNG card, and a bare card stays SillyTavern JSON. A CHARX with a cover goes
-  // behind that PNG card (.charx.png): systems show the cover as its icon, other tavern apps read the PNG card,
-  // and Tavern imports the whole CHARX.
+  // Native exports use one container, with the cover and all material inside it.
   async function exportCardFile(input) {
     const cardPath = normalizeResourcePath(input, 'card')
     const { document } = await presentCardText(cardPath)
-    const material = await charxMaterial(cardPath, document), { manifest } = material
-    const hasMaterial = manifest.characters.some(character => character.avatar || Object.values(character.sprites || {}).some(Boolean) || character.voiceReferences?.length)
-      || (manifest.backgrounds || []).some(item => item.file) || (manifest.extras || []).some(item => item.file)
-    if (hasMaterial) {
-      const charx = await exportCardCharx(cardPath, document, material)
-      if (!await fileResources.hasCardImage(cardPath)) return { ...charx, extension: 'charx', contentType: 'application/zip' }
-      return { name: charx.name, bytes: Buffer.concat([(await exportCardPng(cardPath)).bytes, charx.bytes]), extension: 'charx.png', contentType: 'image/png' }
-    }
-    if (await fileResources.hasCardImage(cardPath)) return { ...await exportCardPng(cardPath), extension: 'png', contentType: 'image/png' }
-    return { name: str(document?.data?.name || '人物卡'), bytes: Buffer.from(JSON.stringify(document, null, 2)), extension: 'json', contentType: 'application/json; charset=utf-8' }
+    return { ...await exportCardCharx(cardPath, document, await charxMaterial(cardPath, document)), extension: 'dshcard', contentType: 'application/zip' }
   }
 
   return { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }

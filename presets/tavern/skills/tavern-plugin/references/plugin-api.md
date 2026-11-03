@@ -88,7 +88,7 @@ Tavern 把 `plugins/` 下的插件登记在 DSH 的 Tavern 配置（`~/.dsh/prof
 
 ### 卡内插件
 
-插件也可以放进 DSH 人物卡（`.dshcard`；分发时建议用 `node examples/dshcard-png.mjs` 转成带封面的 `.dshcard.png`，系统和聊天软件会显示封面，导入照常）的 `plugins/<文件夹>/` 随卡分发，写法和上面的插件文件夹完全一样，并在卡的 `dsh.json` 里登记（见[格式设计](https://github.com/flizzywine/dsh-tavern/wiki/%E8%AE%BE%E8%AE%A1%EF%BC%9Adsh-card-format)）：
+插件也可以放进 DSH 人物卡（`.dshcard`）的 `plugins/<文件夹>/` 随卡分发，写法和上面的插件文件夹完全一样，并在卡的 `dsh.json` 里登记（见[格式设计](https://github.com/flizzywine/dsh-tavern/wiki/%E8%AE%BE%E8%AE%A1%EF%BC%9Adsh-card-format)）：
 
 - 导入卡时插件随卡启用：Tavern 把它放进 `plugins/` 加载（宿主侧几秒内生效，浏览器侧刷新页面后生效）。人物卡库的卡片详情里可以随时停用、再启用。
 - **只在这张卡的局里生效**：别的局里，它注册的回调不触发、提示词与结算内容不加入、界面（面板、舞台画面、正文标记、按钮）不出现；带别的局的 `gameId` 或别的卡的 `card` 调用接口会被拒绝；`listCards` 只看得到本卡。

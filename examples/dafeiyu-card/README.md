@@ -7,20 +7,18 @@
 - `compress.mjs`：从原料卡生成压缩后的 `大肥鱼.dshcard`（约 90 MB）。PNG 转 WebP、音乐和音效转 Ogg Opus，`--drop-live2d` 去掉 Live2D 模型，并去掉旧版卡里的卡内插件；每个素材包里写一份 `credits/DSH-CARD-CHANGES.md` 说明改动。
 - `RELEASE.md`：发布说明。
 
-- `../dshcard-png.mjs`：把 `大肥鱼.dshcard` 接在封面后面，生成带封面的 `大肥鱼.dshcard.png`：系统和聊天软件显示封面，Tavern 导入整张卡。Release 里放的就是它。有封面的卡都这样分发，没有封面的保持 `.dshcard`。
 
 这些卡文件都太大，不进仓库（`.gitignore`）。改了预设或打包脚本后重新生成：
 
 ```sh
 node examples/dafeiyu-card/build.mjs dafeiyu.card-bundle.zip examples/dafeiyu-card/大肥鱼.source.dshcard
 node examples/dafeiyu-card/compress.mjs examples/dafeiyu-card/大肥鱼.source.dshcard examples/dafeiyu-card/大肥鱼.dshcard --drop-live2d
-node examples/dshcard-png.mjs examples/dafeiyu-card/大肥鱼.dshcard examples/dafeiyu-card/大肥鱼.dshcard.png
 ```
 
 `compress.mjs` 需要 `cwebp` 和带 libopus 的 `ffmpeg`。
 
-使用：在 Tavern 的人物卡库导入 `.dshcard.png`（或 `.dshcard`），刷新页面；在「舞台设置 › 基础设置」打开「对话气泡」和「舞台」，开一局，点聊天顶部的「舞台」。
+使用：在 Tavern 的人物卡库导入 `.dshcard`，刷新页面；在「舞台设置 › 基础设置」打开「对话气泡」和「舞台」，开一局，点聊天顶部的「舞台」。
 
-`--cast` e2e 在 `大肥鱼.dshcard.png` 存在时会导入它玩一轮（也可以用 `TAVERN_E2E_DSHCARD` 指定别的路径）。
+`--cast` e2e 在 `大肥鱼.dshcard` 存在时会导入它玩一轮（也可以用 `TAVERN_E2E_DSHCARD` 指定别的路径）。
 
 第一版是样板，不复刻分支的全部功能：没有 Live2D、眨眼、口型、镜头、天气和模组。素材的署名与许可见卡内各素材包的 `credits/`。

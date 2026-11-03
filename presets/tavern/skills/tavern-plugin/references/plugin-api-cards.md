@@ -61,7 +61,7 @@ ctx.tavern.cardImporter({
 })
 ```
 
-- `extensions` 1–10 个，写成 `.xxx`，大小写不敏感。`.png`、`.json`、`.charx`、`.dshcard` 始终由 Tavern 自己导入，插件不能接管（`.png` 包括封面后接 DSH 人物卡或 CHARX 的 `.dshcard.png`、`.charx.png`）；同一扩展名只能有一个插件。
+- `extensions` 1–10 个，写成 `.xxx`，大小写不敏感。`.png`、`.json`、`.charx`、`.dshcard` 始终由 Tavern 自己导入，插件不能接管；同一扩展名只能有一个插件。
 - `card` 里 CCv3 的 `data.assets`（封面、表情、背景）按 `files` 里的文件导入，和 CHARX 一样进角色素材；`packs` 存成素材包挂到这张卡上。
 - 同一个文件再次导入时直接打开已导入的卡，不再调用 `convert`。
 - `convert` 抛错、120 秒没返回或交回的东西不合格时，这次导入失败并把原因告诉玩家。`imported` 出错只记进 Tavern 日志，不影响已经导入的卡。

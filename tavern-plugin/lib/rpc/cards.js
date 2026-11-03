@@ -1,8 +1,8 @@
 import { waitForWritableSession } from '../domain/agent-readiness.js'
 import { normalizeResourcePath } from '../domain/file-resources.js'
-import { pngCarriesCardArchive } from '../domain/card-archive.js'
 import { pngPayload } from '../domain/mobile-card-import.js'
-import { readFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
+import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
 
 // Card library, card workspace and card import requests.
 // `deps` carries the services ../index.js builds; dispatchMethod routes by method name.
@@ -62,7 +62,7 @@ export function createCardHandlers(deps) {
     },
     async importMobileCard(args) {
       const archive = await mobileCardImport.archive(args && args.id)
-      return { card: archive ? await importCardArchiveFile(archive.file, archive.name) : await importCard(await mobileCardImport.read(args && args.id)) }
+      return { card: archive ? await importCardArchiveFile(archive.file, archive.name, { password: args?.password }) : await importCard(await mobileCardImport.read(args && args.id)) }
     },
     async importCard(args) {
       return { card: await importCard(args && args.payload) }
@@ -70,15 +70,44 @@ export function createCardHandlers(deps) {
     async importCardUpload(args) {
       const upload = await uploads.take(args && args.uploadId)
       const name = str(args && args.name) || '人物卡.dshcard'
+      let keepForPasswordRetry = false
       try {
-        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name) }
-        // The page uploads a PNG whole when its end looks like an archive: a card archive with its cover in front
-        // imports as the archive; a plain card PNG that only looked like one imports as a PNG card.
-        if (/\.png$/i.test(name)) return { card: await pngCarriesCardArchive(upload.file) ? await importCardArchiveFile(upload.file, name) : await importCard(pngPayload(await readFile(upload.file), name)) }
+        if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password }) }
+        if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
+        if (/\.png$/i.test(name)) return { card: await importCard(pngPayload(await readFile(upload.file), name)) }
         if (await pluginApi.cardImporterFor(name)) return { card: await importPluginCardFile(upload.file, name) }
         throw new Error('无法识别的人物卡文件（需要 PNG、JSON、CHARX、DSH 人物卡 .dshcard，或装上能导入这种文件的插件）')
       }
-      finally { await upload.remove() }
+      catch (error) { keepForPasswordRetry = isCardPasswordError(error); throw error }
+      finally { if (!keepForPasswordRetry) await upload.remove() }
+    },
+    async discardCardUpload(args) {
+      const upload = await uploads.take(args?.uploadId)
+      await upload.remove()
+      return { removed: true }
+    },
+    async encryptCardUpload(args) {
+      const upload = await uploads.take(args?.uploadId)
+      const output = upload.file + '.encrypted'
+      try {
+        const name = str(args?.name) || '人物卡.dshcard'
+        await encryptCardArchiveFile(upload.file, output, args?.password, { name })
+        const filename = name.replace(/\.(dshcard|charx|png|json)(\.png)?$/i, '').replace(/[\\/:*?"<>|\r\n]/g, '_') + '-加密.dshcard'
+        const stored = await deps.transferExports.putFile(output, filename)
+        return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
+      } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
+    },
+    async decryptCardUpload(args) {
+      const upload = await uploads.take(args?.uploadId), output = upload.file + '.decrypted'
+      let retry = false
+      try {
+        const name = str(args?.name) || '人物卡.dshcard'
+        await encryptCardArchiveFile(upload.file, output, args?.password, { name, decrypt: true })
+        const filename = name.replace(/\.(dshcard|charx|png|json)(\.png)?$/i, '').replace(/[\\/:*?"<>|\r\n]/g, '_') + '-已解密.dshcard'
+        const stored = await deps.transferExports.putFile(output, filename)
+        return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
+      } catch (error) { retry = isCardPasswordError(error); throw error }
+      finally { if (!retry) await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
     async cardPacks(args) {
       return { packs: await cardPacksOf(args && args.sessionId) }

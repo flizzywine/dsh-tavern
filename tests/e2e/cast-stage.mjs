@@ -201,7 +201,7 @@ export async function castCardFileChecks({ page, step, report, savedChat }) {
 
 // 大肥鱼.dshcard (examples/dafeiyu-card): it carries no plugin; Tavern's stage draws it from its bound packs.
 // Import it, turn the stage on, open a game and enter the stage. Runs last: it opens a game of another card.
-const DEMO_CARD = fileURLToPath(new URL('../../examples/dafeiyu-card/大肥鱼.dshcard.png', import.meta.url))
+const DEMO_CARD = fileURLToPath(new URL('../../examples/dafeiyu-card/大肥鱼.dshcard', import.meta.url))
 
 export async function dshCardPlayChecks({ page, step, output, report }) {
   const cardFile = process.env.TAVERN_E2E_DSHCARD || (existsSync(DEMO_CARD) ? DEMO_CARD : '')

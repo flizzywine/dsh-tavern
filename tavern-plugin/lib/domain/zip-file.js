@@ -37,7 +37,7 @@ async function read(handle, position, length) {
  * Open a ZIP file. Returns { entries: Map<path, entry>, readBuffer(entry, limit), stream(entry), close() }.
  * Entries: { path, size, compressedSize, method, crc, localOffset }.
  */
-export async function openZipFile(file, { label = 'ZIP' } = {}) {
+export async function openZipFile(file, { label = 'ZIP', allowEncrypted = false } = {}) {
   const handle = await open(file, 'r')
   try {
     const { size: fileSize } = await handle.stat()
@@ -48,8 +48,7 @@ export async function openZipFile(file, { label = 'ZIP' } = {}) {
     for (let offset = tail.length - 22; offset >= 0; offset--) if (tail.readUInt32LE(offset) === 0x06054b50) { eocd = offset; break }
     if (eocd < 0) fail(label, '不是有效的 ZIP')
     let count = tail.readUInt16LE(eocd + 10), directorySize = tail.readUInt32LE(eocd + 12), directoryOffset = tail.readUInt32LE(eocd + 16)
-    // Bytes in front of the archive (a cover PNG before a DSH card or CHARX, as in 大肥鱼.dshcard.png): the
-    // archive's own offsets count from its first byte, so every offset moves by the length of what precedes it.
+    // Generic ZIP readers also support prepended bytes, including self-extracting archives.
     const eocdAt = fileSize - tail.length + eocd
     let prefix = 0
     // ZIP64: the locator sits right before the end record and points at the ZIP64 end record.
@@ -95,9 +94,10 @@ export async function openZipFile(file, { label = 'ZIP' } = {}) {
       offset += 46 + nameLength + extraLength + commentLength
       const entryPath = zipEntryPath(name)
       if (!entryPath) continue
-      if (flags & 1) fail(label, '包含加密文件')
-      if (method !== 0 && method !== 8) fail(label, '包含不支持的压缩格式：' + entryPath)
-      entries.set(entryPath, { path: entryPath, size, compressedSize, method, crc, localOffset: localOffset + prefix })
+      const encrypted = (flags & 1) !== 0
+      if (encrypted && !allowEncrypted) fail(label, '包含加密文件')
+      if (method !== 0 && method !== 8 && !(encrypted && allowEncrypted && method === 99)) fail(label, '包含不支持的压缩格式：' + entryPath)
+      entries.set(entryPath, { path: entryPath, size, compressedSize, method, crc, localOffset: localOffset + prefix, ...(encrypted ? { encrypted: true } : {}) })
     }
 
     async function dataRange(entry) {
@@ -118,6 +118,7 @@ export async function openZipFile(file, { label = 'ZIP' } = {}) {
 
     /** One entry as a stream of its uncompressed bytes; errors on a size or CRC mismatch. */
     async function stream(entry) {
+      if (entry.encrypted) fail(label, '加密文件需要使用人物卡密码导入入口')
       const { start, end } = await dataRange(entry)
       const raw = entry.compressedSize === 0 ? null : createReadStream(file, { start, end: end - 1 })
       let crc = 0, seen = 0

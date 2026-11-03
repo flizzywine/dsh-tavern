@@ -104,7 +104,7 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
 
   // the SillyTavern export writes the library figure back, voice included; importing it opens no new pack
   const exported = await files.exportCardFile(first.path)
-  assert.equal(exported.extension, 'charx.png')
+  assert.equal(exported.extension, 'dshcard')
   const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
   const card = JSON.parse(entries.get('card.json').toString())
   assert.deepEqual(card.data.assets.filter(asset => asset.type === 'emotion').map(asset => asset.name).sort(), ['哭泣', '微笑', '默认'], 'the card\'s own expression names')
@@ -112,9 +112,9 @@ test('a CHARX without packs becomes one bound library pack with its voice; the s
   assert.deepEqual([cast.name, cast.aliases, cast.voiceLanguage, cast.voiceSource], ['彩叶', ['Iroha'], 'ja', undefined], 'the dropped source is not written back')
   assert.deepEqual(cast.voiceReferences.map(clip => entries.get(clip.audio.slice('embeded://'.length))), clips)
   assert.deepEqual(entries.get(cast.avatar.slice('embeded://'.length)), images.avatar)
-  const back = join(root, 'back.charx.png')
+  const back = join(root, 'back.dshcard')
   await writeFile(back, exported.bytes)
-  const again = await files.importCardArchiveFile(back, 'back.charx.png')
+  const again = await files.importCardArchiveFile(back, 'back.dshcard')
   assert.deepEqual([again.libraryPack.id, again.libraryPack.status], [first.libraryPack.id, 'noop'])
   assert.equal((await service.listPacks()).length, 1)
 })
@@ -131,9 +131,9 @@ test('with a matching channel the source is the figure\'s and goes back out on e
   const entries = readZipEntries(exported.bytes.subarray(exported.bytes.indexOf(Buffer.from('PK\u0003\u0004'))))
   const [cast] = JSON.parse(entries.get('card.json').toString()).data.extensions.dsh_tavern.cast.characters
   assert.deepEqual(cast.voiceSource, { provider: 'fish', clone: true })
-  const back = join(root, 'back.charx.png')
+  const back = join(root, 'back.dshcard')
   await writeFile(back, exported.bytes)
-  assert.deepEqual((await files.importCardArchiveFile(back, 'back.charx.png')).libraryPack, { ...first.libraryPack, status: 'noop' })
+  assert.deepEqual((await files.importCardArchiveFile(back, 'back.dshcard')).libraryPack, { ...first.libraryPack, status: 'noop' })
 })
 
 test('a cast with nothing usable makes no pack and the card still imports; a failed card write takes its new pack with it', async t => {

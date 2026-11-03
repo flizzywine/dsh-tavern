@@ -301,7 +301,7 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'])
  * Standard places for what CCv3 has (cover, the main character's expressions, backgrounds,
  * kept extras); the rest of the cast in `extensions.dsh_tavern.cast`.
  */
-export function buildCharx({ document, cover, manifest, characterName, readFile }) {
+export function buildCharx({ document, cover, manifest, characterName, readFile, dsh = false }) {
   const card = structuredClone(document)
   const data = card.data = card.data && typeof card.data === 'object' ? card.data : {}
   card.spec = 'chara_card_v3'
@@ -364,7 +364,7 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
   else delete data.extensions.dsh_tavern.cast
   if (!Object.keys(data.extensions.dsh_tavern).length) delete data.extensions.dsh_tavern
   if (files.length > MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，无法生成可完整导入的 CHARX')
-  return writeZipEntries([{ path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files], { readable: true, label: 'CHARX' })
+  return writeZipEntries([...(dsh ? [{ path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1 }) }] : []), { path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files], { readable: true, label: dsh ? 'DSH 人物卡' : 'CHARX' })
 }
 
 /**
@@ -374,7 +374,7 @@ export function buildCharx({ document, cover, manifest, characterName, readFile 
 export function cardImportFromCard({ card, resolve, name }) {
   const collected = collectCardAssets(card, resolve)
   const text = JSON.stringify(card)
-  const base = String(name || '人物卡').replace(/\.(charx|dshcard|zip)(\.png)?$/i, '') || '人物卡'
+  const base = String(name || '人物卡').replace(/\.(charx|dshcard|zip)$/i, '') || '人物卡'
   if (collected.cover && isPng(collected.cover.bytes)) {
     const png = pngWithCard(collected.cover.bytes, text)
     return { payload: { kind: 'png', name: base + '.png', b64: Buffer.from(text, 'utf8').toString('base64'), fileB64: png.toString('base64') }, collected: { ...collected, cover: null } }

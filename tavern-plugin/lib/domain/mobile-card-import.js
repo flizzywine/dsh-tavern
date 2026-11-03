@@ -2,7 +2,6 @@ import { lstat, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 import { renderPngThumbnail } from './png-thumbnail.js'
-import { pngCarriesCardArchive } from './card-archive.js'
 
 const CARD_EXTENSIONS = new Set(['.json', '.png', '.charx', '.dshcard'])
 const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
@@ -91,8 +90,7 @@ export function createMobileCardImport(options = {}) {
     if (!enabled) throw new Error('当前宿主不允许从手机下载目录导入')
     const entry = await resolve(id)
     const file = path.join(entry.root.path, entry.item.name)
-    // A cover PNG with the archive behind it (大肥鱼.dshcard.png) is read as the archive.
-    return /\.(charx|dshcard)$/i.test(entry.item.name) || /\.png$/i.test(entry.item.name) && await pngCarriesCardArchive(file) ? { file, name: entry.item.name } : null
+    return /\.(charx|dshcard)$/i.test(entry.item.name) ? { file, name: entry.item.name } : null
   }
 
   async function read(id) {
