@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "4663b82be46a2be42ec4d4e4780ad9ff96c57e20",
-  "releaseSequence": 1108,
+  "revision": "c7757a730e7672fe9667e9221e17e0f07715ed6e",
+  "releaseSequence": 1109,
   "version": "3.2.0",
   "files": [
     {
@@ -1196,8 +1196,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/card-plugins.js",
-      "sha256": "8204e599c353c38d6ab4432cf462f55f2105b80edbdade0c33916eef63c5d6d8",
-      "size": 10208
+      "sha256": "8c05dd4546430c6f802d80c19d79861a9ca0ca43c84451780f6709b4f94f655f",
+      "size": 10076
     },
     {
       "path": "tavern-plugin/lib/domain/card-preparation.js",
@@ -2336,8 +2336,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-assets.js",
-      "sha256": "fd1c28e9b56a434369db24a738d8002ff368c3a43e5d5741f85c042e68133544",
-      "size": 3830
+      "sha256": "5a50f03246488abc34bed4cfd38bc79aaadb0dcf05a5b540d2b980d38066f5ec",
+      "size": 4109
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-callback.js",
@@ -2351,8 +2351,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-data.js",
-      "sha256": "2891294f46edee5982def84d694b2d691e36f2bb761c0626297d291ad1ee4797",
-      "size": 6594
+      "sha256": "30c219a5aaae3a708eeab3912e94a7c92038957340f1ed8e99635d2569d4608a",
+      "size": 6724
     },
     {
       "path": "tavern-plugin/lib/domain/plugin-game-settings.js",
@@ -9331,9 +9331,9 @@
     }
   ],
   "archive": {
-    "commit": "376d9308266354220e63c31dee117ee25b8953ea",
+    "commit": "257f90e280f2218441ef43ad1e74d44f90bcfb08",
     "path": "runtime.zip",
-    "sha256": "63d7a3bce5fafb4cea75738225a8c5ff3d3e97fbb0763873e361aa62a5ff6a40",
-    "size": 15757045
+    "sha256": "d837a42266f46b5da75eedf247e3a45923f5bc5abbf4babed0dbcbbb0212752e",
+    "size": 15757202
   }
 }
