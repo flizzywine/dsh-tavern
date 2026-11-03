@@ -369,7 +369,16 @@ const STAGE_SKIN_MENU_PARTS = Object.freeze(['sheet','title','keys','signal']);
 const skinMenuPart = value => skinObject({ms:skinNumber(60,1500),delay:skinNumber(0,1500),ease:skinEase,steps:skinNumber(1,8,true),origin:skinArray(skinNumber(0,1),2,2),
     keys:skinArray(skinObject({...skinPoseFields,at:skinNumber(0,1)},['at']),2,6)},['ms','keys'])(value) && skinMotion({ms:value.ms,keys:value.keys});
 const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:skinPx,on:skinArray(skinEnum(SKIN_MENU_ACTIONS),1,10)},['image','alert','x','y','on']);
-const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,
+// narrow (§18 N28): the bar menu on stages of 640px and less, in portrait - one design px = unit CSS px; only what differs from
+// the wide menu, the rest inherited (merged like art.backlog.narrow). sheet = its own backdrop (covering the screen; default
+// the wide sheet); rows = the bars stacked full width from x (left inset) and y, gap apart, slant px right per bar (each bar
+// that much shorter), at least 44 CSS px tall; title = the title strip centred x px right of the screen's middle at y, scale x
+// its wide size; signal = the lamp at x, y from the title's top-left (none on phones without it). The info and key strips are
+// not drawn (touch has no focus line or keys); the motion is the wide menu's.
+const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,
+    rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256)}),
+    title:skinObject({x:skinPx,y:skinPx,scale:skinNumber(.25,4)}),signal:skinObject({x:skinPx,y:skinPx},['x','y'])},['unit']);
+const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,narrow:skinMenuNarrow,
     // frame / frameOut: the frame (the device) itself rising in and dropping out (a pose of the whole panel); decor: 'hide'
     // puts art.decor away while the menu is open (the HUD belongs to the stage the menu pauses).
     motion:skinObject({enter:skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinNumber(0,200),delay:skinNumber(0,1500),ease:skinEase,fade:value => value === true},['pose','ms']),
@@ -378,7 +387,8 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
         font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y'])},
         ['images','slice','text','font','x','y','gap']),
-    title:skinMenuStrip,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles');
+    title:skinMenuStrip,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
+    && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
 // the stage's own overlays drawn as the original's
 // screens on wide stages. A placed image: its top-left at x, y on the design screen at `scale` design px per image px; focus
 // = the image under the pointer and keyboard focus. Every overlay may carry a sheet (an image over the whole game area),
@@ -753,7 +763,11 @@ const skinConfigSurfaceShape = skinObject({
     section:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.section),plate:skinConfigPlate,sticky:skinFlag,paint:skinObject({bg:skinColor,fg:skinColor},['bg','fg'])}),
     // row.labelAlign end (§18 X4): a side label flush to its column's end (a spine the controls hang from; wide rows only).
     // row.focusPaint (§18 N22): the focused row's words on its focus plate (a red banner), fg / fgMuted >= 4.5 on bg.
+    // row.slant / step (§18 N29): the rows along a leaning column - each row's drawn plate turned slant degrees (the words and
+    // controls stay upright where they are hit) and each row step design px further in than the one above (wide stages; none at
+    // 640px and less).
     row:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.row),label:skinEnum(['start','above']),labelAlign:skinEnum(['start','end']),density:skinEnum(['compact','regular','airy']),columns:skinNumber(1,2,true),plate:skinConfigStates,
+        slant:skinNumber(-10,10),step:skinNumber(0,64),
         focusPaint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted'])}),
     // foot (§18 X15): a strip h design px tall along the frame's foot (a torn skyline), its image tiled across; the page ends
     // above it. close = the ✕ moves onto the strip's middle, drawn on this image (natural size x scale; focus = pointer / keyboard).
@@ -952,7 +966,8 @@ function stageSkinArtFiles(art) {return [...(art?.spinner ? art.spinner.parts ? 
 function stageSkinScreenFiles(art) {
     const placed=item => item ? [item.image,item.focus] : [], b=art?.backlog, c=art?.config, m=art?.menu, k=art?.confirm;
     return [...new Set([...(m ? [m.sheet,m.frame?.image,...Object.values(m.rows?.images || {}),m.rows?.cursor?.image,...['title','info','keys'].flatMap(key => [m[key]?.image,m[key]?.rule?.image]),
-            ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert] : []),
+            ...Object.values(m.tiles?.art || {}).flatMap(tile => [tile.image,tile.focus]),m.tiles?.plain,m.tiles?.hover?.image,m.signal?.image,m.signal?.alert,
+            m.narrow?.sheet,...Object.values(m.narrow?.rows?.images || {})] : []),
         ...(k ? [k.band,k.top,k.bottom,k.button.plain,k.button.focus] : []),
         ...(b ? [b.sheet,b.hover?.image,...placed(b.title),...placed(b.close),...placed(b.name?.frame),...placed(b.name?.rule),b.scrollbar?.track,b.scrollbar?.thumb,...Object.values(b.badges || {})] : []),
         ...(c ? [c.sheet,...placed(c.title),...placed(c.close),c.tabs?.images.plain,c.tabs?.images.on,c.focus,...Object.values(c.slider || {}),...Object.values(c.toggle || {}),c.select?.plain,c.select?.focus] : []),

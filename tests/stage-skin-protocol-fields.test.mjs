@@ -33,3 +33,17 @@ test('drawn quick actions include the shortcut list and a disabled image',()=>{
   valid({buttons:{keys:{image:'art/keys.png',left:20,top:20},auto:{image:'art/auto.png',disabled:'art/auto-off.png',right:20,top:20}}})
   invalid({buttons:{print:{image:'art/print.png',left:20,top:20}}})
 })
+
+const menu=extra=>skin({menu:{sheet:'art/sheet.svg',rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10},
+  title:{image:'art/title.svg',x:240,y:40,text:[150,350,95],font:96},...extra}})
+test('a phone menu (art.menu.narrow) needs its unit and the wide rows, title and signal it refines',()=>{
+  const doc=contract.validateStageSkin(menu({narrow:{unit:0.3,sheet:'art/sheet-m.svg',rows:{images:{plain:'art/row-m.svg',focus:'art/row-m-on.svg'},y:300,gap:20},title:{y:40,scale:0.8}}}))
+  assert.deepEqual(['art/sheet-m.svg','art/row-m.svg','art/row-m-on.svg'].filter(name=>!contract.stageSkinFiles(doc).includes(name)),[])
+  for(const narrow of [{rows:{y:300}},{unit:0.3,signal:{x:0,y:0}}])invalid(menu({narrow}).art)
+})
+
+test('CONFIG rows may lean (row.slant degrees) and step in (row.step design px)',()=>{
+  const config=row=>({...base,config:{frame:{look:'full',paint:{bg:'#0b0b0b',fg:'#ffffff',fgMuted:'#bdbdbd',accent:'#ffffff',onAccent:'#0b0b0b'}},row}})
+  assert.deepEqual(contract.validateStageSkin(config({look:'plain',slant:-3,step:24})).config.row,{look:'plain',slant:-3,step:24})
+  for(const row of [{slant:12},{step:-8},{step:65}])assert.throws(()=>contract.validateStageSkin(config(row)),{code:'INVALID_SKIN'})
+})

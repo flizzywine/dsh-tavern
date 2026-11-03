@@ -3913,6 +3913,56 @@
        ],
        "description": "hide: art.decor put away while the menu is open."
       },
+      "narrow": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["unit"],
+       "description": "§18 N28: the bar menu on stages of 640px and less, in portrait, one design px = unit CSS px; only what differs from the wide menu (the rest inherited, merged like art.backlog.narrow). Needs rows; the info and key strips are not drawn on phones; the motion is the wide menu's.",
+       "properties": {
+        "unit": { "type": "number", "minimum": 0.05, "maximum": 0.5 },
+        "sheet": { "$ref": "#/$defs/image", "description": "The phone's own backdrop, covering the screen (default the wide sheet)." },
+        "rows": {
+         "type": "object",
+         "additionalProperties": false,
+         "description": "The bars stacked full width from x (left inset) and y, gap apart, slant px right per bar (each bar that much shorter), at least 44 CSS px tall.",
+         "properties": {
+          "images": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": ["plain", "focus"],
+           "properties": { "plain": { "$ref": "#/$defs/image" }, "focus": { "$ref": "#/$defs/image" }, "off": { "$ref": "#/$defs/image" } }
+          },
+          "slice": { "$ref": "#/$defs/slice" },
+          "text": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": 0, "maximum": 4096 } },
+          "font": { "type": "number", "minimum": 8, "maximum": 256 },
+          "x": { "type": "number", "minimum": 0, "maximum": 4096 },
+          "y": { "type": "number", "minimum": -4096, "maximum": 4096 },
+          "gap": { "type": "number", "minimum": 0, "maximum": 512 },
+          "slant": { "type": "number", "minimum": -256, "maximum": 256 }
+         }
+        },
+        "title": {
+         "type": "object",
+         "additionalProperties": false,
+         "description": "The title strip centred x px right of the screen's middle at y, scale x its wide size (needs title).",
+         "properties": {
+          "x": { "type": "number", "minimum": -4096, "maximum": 4096 },
+          "y": { "type": "number", "minimum": -4096, "maximum": 4096 },
+          "scale": { "type": "number", "minimum": 0.25, "maximum": 4 }
+         }
+        },
+        "signal": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": ["x", "y"],
+         "description": "The lamp at x, y from the title's top-left (needs signal and title; without it phones draw no lamp).",
+         "properties": {
+          "x": { "type": "number", "minimum": -4096, "maximum": 4096 },
+          "y": { "type": "number", "minimum": -4096, "maximum": 4096 }
+         }
+        }
+       }
+      },
       "signal": {
        "type": "object",
        "additionalProperties": false,
@@ -7574,6 +7624,18 @@
       "labelAlign": {
        "enum": ["start", "end"],
        "description": "§18 X4: end = a side label set flush to its column's end (a spine the controls hang from); wide rows only, a phone keeps it above its control."
+      },
+      "slant": {
+       "type": "number",
+       "minimum": -10,
+       "maximum": 10,
+       "description": "§18 N29: each row's drawn plate turned this many degrees (clockwise); the words and controls stay upright where they are hit."
+      },
+      "step": {
+       "type": "number",
+       "minimum": 0,
+       "maximum": 64,
+       "description": "§18 N29: each row of a section this many design px further in from the start than the one above (a leaning column); wide stages only (none at 640px and less)."
       },
       "focusPaint": {
        "type": "object",
