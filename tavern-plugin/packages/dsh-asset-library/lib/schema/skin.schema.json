@@ -3850,7 +3850,8 @@
          "minimum": 1,
          "maximum": 1.6,
          "description": "§18 N31: the focused label drawn this much larger; its bar and hit area stay."
-        }
+        },
+        "poses": { "$ref": "#/$defs/menuPoses" }
        }
       },
       "title": {
@@ -3923,6 +3924,10 @@
        ],
        "description": "hide: art.decor put away while the menu is open."
       },
+      "topbar": {
+       "enum": ["shown", "hidden"],
+       "description": "§18 N32: hidden = the stage's top bar (mixer, 电影模式, ✕) stays put away while the drawn menu is open (its icons would sit on the art; the menu has 返回主页面)."
+      },
       "narrow": {
        "type": "object",
        "additionalProperties": false,
@@ -3948,7 +3953,8 @@
           "x": { "type": "number", "minimum": 0, "maximum": 4096 },
           "y": { "type": "number", "minimum": -4096, "maximum": 4096 },
           "gap": { "type": "number", "minimum": 0, "maximum": 512 },
-          "slant": { "type": "number", "minimum": -256, "maximum": 256 }
+          "slant": { "type": "number", "minimum": -256, "maximum": 256 },
+          "poses": { "$ref": "#/$defs/menuPoses" }
          }
         },
         "title": {
@@ -4096,7 +4102,13 @@
         "always",
         "off-stage"
        ],
-       "description": "always (the default): every speaker with an avatar shows it. off-stage: on wide stages (over 640px) a speaker drawn on stage shows no face (the figure is the speaker; the page is faceless, as narration); a speaker who is not on stage shows it. Phones show every face."
+       "description": "always (the default): every speaker with an avatar shows it. off-stage: on wide stages (over 640px) a speaker drawn on stage shows no face (the figure is the speaker; the page is faceless, as narration); a speaker who is not on stage shows it. Phones show every face where they show one (phone)."
+      },
+      "phone": {
+       "enum": [
+        true
+       ],
+       "description": "A phone portrait (640px and less) also shows the box face, on its narrow side (needs narrow). Default: none there - no face, no column for it, the lines from the box's left padding at its full width; the speaker's name stays."
       },
       "placeholder": {
        "oneOf": [
@@ -4502,7 +4514,7 @@
         "x",
         "y"
        ],
-       "description": "Stages of 640px and less (§13): the face side (the frame, or the square without one) width CSS px wide, its height by the frame's aspect, x px from the box's left edge and y px from its top edge (negative: above it); the lines start clear of it whether a face shows or not. name = how a frame name reads there: below (one straight line centred under the side, default) or arc (needs frame.name) (with nameMin, its floor in CSS px); flow / left = how the lines clear the side.",
+       "description": "Stages of 640px and less (§13): the face side (the frame, or the square without one) width CSS px wide, its height by the frame's aspect, x px from the box's left edge and y px from its top edge (negative: above it); used only with phone true (otherwise a phone shows no face and keeps no column). The lines start clear of it whether a face shows or not. name = how a frame name reads there: below (one straight line centred under the side, default) or arc (needs frame.name) (with nameMin, its floor in CSS px); flow / left = how the lines clear the side.",
        "properties": {
         "width": {
          "type": "number",
@@ -7490,6 +7502,24 @@
         }
        }
       },
+      "tilt": {
+       "type": "array",
+       "minItems": 1,
+       "maxItems": 8,
+       "items": { "type": "number", "minimum": -8, "maximum": 8 },
+       "description": "§18 N32: each tab turned by its own angle (degrees), cycled by its place (paper tabs pinned at odd angles)."
+      },
+      "lead": {
+       "enum": ["none", "line"],
+       "description": "§18 N32: line = one line under the tabs saying what the open tab holds."
+      },
+      "platePaint": {
+       "type": "object",
+       "description": "§18 N32: the tabs' words on their own plates (white paper tabs on a dark page): fg on the plain plate's ground bg, onFg on the open tab's ground onBg (a focused tab's plate is drawn on bg), each >= 4.5; the tab list keeps no ground of its own.",
+       "additionalProperties": false,
+       "required": ["bg", "fg", "onBg", "onFg"],
+       "properties": { "bg": { "$ref": "#/$defs/color" }, "fg": { "$ref": "#/$defs/color" }, "onBg": { "$ref": "#/$defs/color" }, "onFg": { "$ref": "#/$defs/color" } }
+      },
       "mark": {
        "type": "object",
        "description": "A state image before each tab's name (a lens slot that holds a lens when open, a lamp), drawn whole at the ladder's mark size (1.75 b square) in every layout: plain at rest, on = the open tab, focus = under the pointer or keyboard focus.",
@@ -7556,7 +7586,8 @@
         "caption",
         "rule",
         "band",
-        "numbered"
+        "numbered",
+        "tag"
        ],
        "description": "Closed look; the first word is the engine look of today (the default)."
       },
@@ -7780,7 +7811,8 @@
          "enum": [
           "groove",
           "chips",
-          "stamps"
+          "stamps",
+          "cycler"
          ],
          "description": "Closed look; the first word is the engine look of today (the default)."
         },
@@ -7837,7 +7869,8 @@
          "enum": [
           "switch",
           "lamp",
-          "word"
+          "word",
+          "cycler"
          ],
          "description": "Closed look; the first word is the engine look of today (the default)."
         },
@@ -7894,7 +7927,8 @@
          "enum": [
           "track",
           "ticks",
-          "bar"
+          "bar",
+          "value"
          ],
          "description": "Closed look; the first word is the engine look of today (the default)."
         },
@@ -8317,6 +8351,30 @@
       }
      }
     },
+    "words": {
+     "type": "object",
+     "description": "§18 N32: the labels', tabs', section tags' and lead line's weight (900 = the face's heaviest weight thickened by a stroke of its own ink: no new font), skew (degrees; hit areas stay upright) and lift 1 = every CONFIG word one step up the size ladder (labels and values t1, tabs t2).",
+     "additionalProperties": false,
+     "properties": {
+      "weight": { "enum": [400, 500, 700, 900] },
+      "skew": { "type": "number", "minimum": -12, "maximum": 12 },
+      "lift": { "type": "integer", "minimum": 0, "maximum": 1 }
+     }
+    },
+    "hints": {
+     "type": "object",
+     "description": "§18 N32: the key guide (Esc 返回 / Enter 决定) as stickers at the stage's bottom corner beside the frame, in paint's inks (fg / bg >= 4.5); wide stages with a keyboard only.",
+     "additionalProperties": false,
+     "required": ["paint"],
+     "properties": {
+      "paint": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["bg", "fg"],
+       "properties": { "bg": { "$ref": "#/$defs/color" }, "fg": { "$ref": "#/$defs/color" } }
+      }
+     }
+    },
     "scroll": {
      "type": "object",
      "description": "fade edge = the page fades out on the side that has more rows to scroll to.",
@@ -8729,6 +8787,17 @@
    "maxItems": 2,
    "items": {
     "$ref": "#/$defs/color"
+   }
+  },
+  "menuPoses": {
+   "type": "array",
+   "minItems": 1,
+   "maxItems": 12,
+   "description": "§18 N32: each menu label's own offset (x design px) and turn (rot degrees), cycled by its place - a hand-pasted, staggered column; the bar and hit area stay.",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "x": { "type": "number", "minimum": -256, "maximum": 256 }, "rot": { "type": "number", "minimum": -12, "maximum": 12 } }
    }
   },
   "menuStrip": {

@@ -391,6 +391,9 @@
 			// an IntersectionObserver is the backstop (resize, leaving the stage). Floors only go from placeholder to
 			// mounted. The stage text index, 履历, jumps and voice read the session, not this DOM.
 			const TAVERN_EAGER_FLOORS = 1;
+			// Floors this many turns back (and the newest) stay out of content-visibility. 4 is an assumption:
+			// it covers the floor a send leaves on screen plus the few the reader scrolls back through.
+			const TAVERN_RECENT_FLOORS = 4;
 			const TAVERN_DEFERRED_FLOOR_VIEWPORTS = 1.5;
 			const tavernDeferredFloors = (function () {
 				const pending = new Map(), observers = new WeakMap();
@@ -634,12 +637,16 @@
                 // the newest floor is on screen when the chat opens; tavern.css keeps it out of
                 // content-visibility, so the deferred floors measure it at its real height, not the 800 px estimate.
                 const floorShown = data.status === "running" || data.status === "interrupted" || (data.blocks || []).length > 0;
+                // A floor that just stopped being the newest is still on screen after a send (the host scrolls to the
+                // bottom); tavern.css keeps it, and its paragraphs, out of content-visibility (data-fork-recent-floor).
+                const recentFloor = eagerFloor || turn > 0 && latestDshTurn !== null && turn <= latestDshTurn && latestDshTurn - turn <= TAVERN_RECENT_FLOORS;
                 React.useLayoutEffect(function () {
-                    const item = eagerFloor && historyNode.current ? historyNode.current.closest('[class*="_flowItem"]') : null;
+                    const attribute = eagerFloor ? "data-fork-latest-floor" : "data-fork-recent-floor";
+                    const item = recentFloor && historyNode.current ? historyNode.current.closest('[class*="_flowItem"]') : null;
                     if (!item) return;
-                    item.setAttribute("data-fork-latest-floor", "");
-                    return function () { item.removeAttribute("data-fork-latest-floor"); };
-                }, [eagerFloor, floorShown]);
+                    item.setAttribute(attribute, "");
+                    return function () { item.removeAttribute(attribute); };
+                }, [recentFloor, eagerFloor, floorShown]);
                 const rendered = sessionTransitioning ? [React.createElement("div", { key: "switching", className: "dsh-tavern-session-switching", role: "status" }, "正在完成游戏初始化…")] : waitingForHistory ? [React.createElement("div", {key:"history",role:"status"}, "正在读取历史内容…")] : deferredFloor ? [] : renderTavernAssistantBlocks({
 					// Publish native identity and this node's regeneration decision, not the whole view.
 					forkStageSource,

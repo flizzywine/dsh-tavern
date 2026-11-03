@@ -255,7 +255,7 @@ const skinPortraitFrame = value => skinObject({image:skinImage,left:skinPx,botto
     // swap fade: a new face crossfades in the still window (the one it
     // replaces fading under it) instead of the cut; frame.motion owns the entrance when there is one.
     && !(value.swap && value.motion);
-// narrow (§13, stages of 640px and less): where the face side stands on a phone, in CSS px from the box's top-left corner -
+// narrow (§13, stages of 640px and less; used only with portrait.phone true): where the face side stands on a phone, in CSS px from the box's top-left corner -
 // width (the frame's, or the square's without one; its height by the frame's aspect), x from the box's left edge, y from its
 // top edge (negative: above it). The lines start clear of it whether a face shows or not (no reflow). name = how the frame's
 // name reads at that size: below (one straight line centred under the side; the default) or arc (as drawn); nameMin = the arc's
@@ -269,14 +269,15 @@ const skinPortraitNarrow = skinObject({width:skinNumber(32,240),x:skinNumber(-64
 // bottom, left]: the face picture fades out over that share of its square from each edge (a soft mask, phones too).
 // placeholder: a speaker the avatar resolver gives no face still shows one -
 // initial = the engine's neutral disc (the displayed name's first glyph in nameplate.paint), {image} = the skin's own art.
-// Undeclared: such a page stays faceless as before.
+// Undeclared: such a page stays faceless as before. phone: true = a phone portrait (640px and less) also shows the face, on its
+// narrow side (needs narrow); by default it shows none and the lines take the box's full width.
 const skinPortrait = value => {
-    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,
+    if (!skinObject({left:skinPx,bottom:skinPx,size:skinNumber(32,4096),source:skinPortraitSource,bust:skinBust,frame:skinPortraitFrame,narrow:skinPortraitNarrow,phone:skinEnum([true]),
         when:skinEnum(['always','off-stage']),feather:skinArray(skinNumber(0,.5),4,4),placeholder:placeholder => placeholder === 'initial' || skinObject({image:skinImage},['image'])(placeholder)},['left','bottom','size'])(value)) return false;
     // A framed source (bust, sprite) needs bust and only one has it; only the live cut has a crop; a frame is the square's.
     const order = stageSkinPortraitOrder(value), framed = order.includes('bust') || order.includes('sprite');
     return framed === Object.hasOwn(value,'bust') && (!framed || order.includes('bust') === Object.hasOwn(value.bust,'crop'))
-        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name);
+        && !(value.frame && framed) && !(value.narrow?.name && !value.frame?.name) && !(value.phone && !value.narrow);
 };
 // how the items mod's card looks in this skin - the
 // original's evidence frame. frame = its image, drawn as box [centre x, centre y, width, height] on the design screen; media =
@@ -380,20 +381,26 @@ const skinMenuSignal = skinObject({image:skinImage,alert:skinImage,x:skinPx,y:sk
 // that much shorter), at least 44 CSS px tall; title = the title strip centred x px right of the screen's middle at y, scale x
 // its wide size; signal = the lamp at x, y from the title's top-left (none on phones without it). The info and key strips are
 // not drawn (touch has no focus line or keys); the motion is the wide menu's.
+// rows.poses (§18 N32): each label's own offset (x design px) and turn (rot degrees), cycled by its place - a hand-pasted, staggered
+// column; the bar and hit area stay.
+const skinMenuPoses = skinArray(skinObject({x:skinNumber(-256,256),rot:skinNumber(-12,12)}),1,12);
 const skinMenuNarrow = skinObject({unit:skinNumber(0.05,0.5),sheet:skinImage,
-    rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256)}),
+    rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),font:skinNumber(8,256),x:skinNumber(0,4096),y:skinPx,gap:skinNumber(0,512),slant:skinNumber(-256,256),poses:skinMenuPoses}),
     title:skinObject({x:skinPx,y:skinPx,scale:skinNumber(.25,4)}),signal:skinObject({x:skinPx,y:skinPx},['x','y'])},['unit']);
 const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:skinMenuTiles,dim:skinNumber(0,1),blur:skinNumber(0,64),grey:skinNumber(0,1),signal:skinMenuSignal,narrow:skinMenuNarrow,
     // frame / frameOut: the frame (the device) itself rising in and dropping out (a pose of the whole panel); decor: 'hide'
     // puts art.decor away while the menu is open (the HUD belongs to the stage the menu pauses).
     motion:skinObject({enter:skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinNumber(0,200),delay:skinNumber(0,1500),ease:skinEase,fade:value => value === true},['pose','ms']),
         leave:skinStage,frame:skinStage,frameOut:skinStage,parts:skinObject(Object.fromEntries(STAGE_SKIN_MENU_PARTS.map(part => [part,skinMenuPart])))}),decor:skinEnum(['hide']),
+    // topbar hidden (§18 N32): the stage's top bar (mixer, 电影模式, ✕) stays put away while the drawn menu is open - its
+    // icons would sit on the art; the menu itself has 返回主页面.
+    topbar:skinEnum(['shown','hidden']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
     // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
     // larger (its bar and hit area unchanged), on phones too.
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
         font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y']),
-        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6)},
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6),poses:skinMenuPoses},
         ['images','slice','text','font','x','y','gap']),
     title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
     && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
@@ -718,8 +725,12 @@ const skinMod = skinObject({enabled:value => typeof value === 'boolean',options:
 // or one the engine adds later, takes controls.other. Data only: closed words (the first of each list is the engine's look
 // today), the panel's seed colours (checked like ui) and optional images. What the screen holds, its keys, its focus order and
 // the settings themselves stay the engine's. A skin without `config` draws the screen exactly as before.
-const STAGE_CONFIG_LOOKS = Object.freeze({frame:['sheet','drawer','full'],title:['word','vertical','hidden','crest'],nav:['tabs','index','pills'],section:['caption','rule','band','numbered'],row:['plain','line','card'],
-    controls:Object.freeze({segmented:['groove','chips','stamps'],toggle:['switch','lamp','word'],slider:['track','ticks','bar'],select:['field','plate'],text:['inline','plate'],colour:['swatch','ring'],picker:['row','tile'],other:['row','block']})});
+// cycler (segmented, toggle; §18 N32): one value at a time in the control's box, ← → (or a click: its first third back, the
+// rest on) step through the choices - a multi-way row of any length (a select's too) or 开 / 关. slider value (§18 N32): a slider
+// whose ends are only its min / max numbers shows its value in the box instead of the rail (drag and keys unchanged); a slider
+// with end words keeps the rail. section tag (§18 N32): the head a small tilted tag on section.paint at the label column's end.
+const STAGE_CONFIG_LOOKS = Object.freeze({frame:['sheet','drawer','full'],title:['word','vertical','hidden','crest'],nav:['tabs','index','pills'],section:['caption','rule','band','numbered','tag'],row:['plain','line','card'],
+    controls:Object.freeze({segmented:['groove','chips','stamps','cycler'],toggle:['switch','lamp','word','cycler'],slider:['track','ticks','bar','value'],select:['field','plate'],text:['inline','plate'],colour:['swatch','ring'],picker:['row','tile'],other:['row','block']})});
 const skinFlag = value => typeof value === 'boolean';
 // plate = one image stretched over the part by its nine-slice (image px; scale = CSS px per image px at the edges);
 // states = the same with the part's state images (plain; on = chosen / open; focus = pointer and keyboard focus).
@@ -773,7 +784,13 @@ const skinConfigSurfaceShape = skinObject({
     // mark size in every layout - plain, on = the open tab, focus = pointer and keyboard focus.
     nav:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.nav),place:skinEnum(['start','end','top']),numerals:skinEnum(['none','arabic','roman','kanji']),plate:skinConfigStates,
         mark:skinObject({plain:skinImage,on:skinImage,focus:skinImage},['plain']),
-        paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onBg:skinColor},['bg','fg'])}),
+        paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor,accent:skinColor,onBg:skinColor},['bg','fg']),
+        // nav.tilt / lead (§18 N32): each tab turned by its own angle (degrees, cycled by its place: paper tabs pinned at odd
+        // angles); lead line = one line under the tabs saying what the open tab holds.
+        tilt:skinArray(skinNumber(-8,8),1,8),lead:skinEnum(['none','line']),
+        // nav.platePaint (§18 N32): the tabs' words on their own plates (white paper tabs on a dark page) - fg on the plain plate's
+        // ground bg, onFg on the open tab's ground onBg (a focused tab's plate is drawn on bg), each >= 4.5; the tab list keeps no ground of its own.
+        platePaint:skinObject({bg:skinColor,fg:skinColor,onBg:skinColor,onFg:skinColor},['bg','fg','onBg','onFg'])}),
     // section.paint (§18 N20): the heads' words on their own ground (a white paper strip on a dark page), fg / bg >= 4.5.
     section:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.section),plate:skinConfigPlate,sticky:skinFlag,paint:skinObject({bg:skinColor,fg:skinColor},['bg','fg'])}),
     // row.labelAlign end (§18 X4): a side label flush to its column's end (a spine the controls hang from; wide rows only).
@@ -794,6 +811,13 @@ const skinConfigSurfaceShape = skinObject({
     foot:skinObject({image:skinImage,h:skinNumber(24,400),fit:skinEnum(['tile','stretch','contain']),place:skinEnum(['start','center','end']),
         close:skinObject({plain:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['plain'])},['image','h']),
     controls:skinConfigControls,
+    // words (§18 N32): the labels', tabs', section tags' and lead line's weight (900 = the face's heaviest weight thickened by a
+    // stroke of its own ink: no new font), a slant (skew, degrees; the hit areas stay upright) and lift 1 = every CONFIG word one
+    // step up the size ladder (labels and values t1, tabs t2).
+    words:skinObject({weight:skinEnum([400,500,700,900]),skew:skinNumber(-12,12),lift:skinNumber(0,1,true)}),
+    // hints (§18 N32): the key guide (Esc 返回 / Enter 决定) as stickers at the stage's bottom corner beside the frame, in paint's
+    // inks (fg / bg >= 4.5); wide stages with a keyboard only.
+    hints:skinObject({paint:skinObject({bg:skinColor,fg:skinColor},['bg','fg'])},['paint']),
     scroll:skinObject({fade:skinEnum(['none','edge'])}),
     motion:skinObject({rows:skinEnum(['none','rise','fade']),stagger:skinNumber(0,60,true)}),
     ambient:skinConfigAmbient,
@@ -916,6 +940,8 @@ function validateStageSkin(value) {
         ...(value.config?.section?.paint ? [[value.config.section.paint.fg,value.config.section.paint.bg,4.5]] : []),
         ...(value.config?.row?.focusPaint ? [[value.config.row.focusPaint.fg,value.config.row.focusPaint.bg,4.5],[value.config.row.focusPaint.fgMuted,value.config.row.focusPaint.bg,4.5]] : []),
         ...(value.config?.controls?.paint ? [[value.config.controls.paint.fg,value.config.controls.paint.bg,4.5],[value.config.controls.paint.fgMuted,value.config.controls.paint.bg,4.5]] : []),
+        ...(value.config?.hints ? [[value.config.hints.paint.fg,value.config.hints.paint.bg,4.5]] : []),
+        ...(value.config?.nav?.platePaint ? (pp => [[pp.fg,pp.bg,4.5],[pp.onFg,pp.onBg,4.5]])(value.config.nav.platePaint) : []),
         ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : [])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});

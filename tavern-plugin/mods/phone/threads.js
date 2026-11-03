@@ -18,8 +18,10 @@ export function phonePeople(characters) {
   if(Object.isFrozen(characters))peopleOf.set(characters,Object.freeze(people))
   return people
 }
+// Group members own phones in the player's 切换手机 list, so each is a contact the phone can name: a card figure (ref) or
+// $player. A speaker who exists only in the source (a livestream viewer, a commenter) is never a member.
 export function phoneGroup(params,characters) {
-  const rows=rowsOf(characters),choices=[player,...phonePeople(characters)].map(row=>({value:row.id,label:row.name}))
+  const rows=rowsOf(characters),choices=[player,...phonePeople(characters.filter(row=>row.ref))].map(row=>({value:row.id,label:row.name}))
   if (!params.thread?.trim() || ['__proto__','constructor','prototype'].includes(params.thread)) fail('$.thread','Use a non-empty stable group id, not a reserved property.',[], 'Choose a story-specific group id and retry.')
   if (choices.some(row=>row.value===params.thread)) fail('$.thread','Group id conflicts with a direct contact.',[], 'Choose a distinct stable group id and retry.')
   if (!params.name?.trim()) fail('$.name','Group display name is empty.',[], 'Provide the group name from the story.')
@@ -27,6 +29,7 @@ export function phoneGroup(params,characters) {
     if(value==='$player')return value
     const found=resolution.resolveFigureName(rows,value)
     if(found.status!=='resolved' || !found.row.name?.trim())fail('$.participants','Unknown or nameless group participant.',choices,'Use listed participant handles or $player and retry the group definition.')
+    if(!found.row.ref)fail('$.participants',`${found.row.name} is not a phone contact: group members are card contacts or $player.`,choices,'Phone groups are device chats between contacts. Livestream danmaku, viewer comments and posts are not; leave those lines unmarked.')
     return found.actorKey
   })
   if(new Set(participants).size!==participants.length || participants.length<2)fail('$.participants','A group needs at least two distinct participants.',choices,'Remove duplicate identities and include the player as $player when participating.')

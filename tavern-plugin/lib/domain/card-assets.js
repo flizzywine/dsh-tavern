@@ -267,33 +267,6 @@ export function cardLibraryMaterial(collected, mainName) {
   return { rest, material: { characters: used.map(character => ({ ...character, sprites: emotionRows(character.sprites, character === main ? labels : {}) })), backgrounds: collected.backgrounds.map(({ name, bytes }) => ({ name, bytes })) } }
 }
 
-/**
- * Library cast material (projectCardMaterial) as CHARX character material: emotion ids as cast emotion names (with
- * `emotionNames`, the figure's own label where it names the same emotion, for the main character's expressions), the main
- * character first, and only as many characters and backgrounds as a CHARX can carry next to `used` files of its own.
- */
-export function charxLibraryMaterial({ characters, backgrounds }, mainName, used) {
-  let budget = MAX_ASSETS - used - 1
-  const fit = count => count <= budget && (budget -= count, true)
-  const main = mainCharacter(characters, mainName)
-  const ordered = main ? [main, ...characters.filter(character => character !== main)] : characters
-  const cast = []
-  for (const character of ordered) {
-    const sprites = {}, emotionNames = {}
-    for (const [emotion, file] of Object.entries(character.sprites)) {
-      const slot = emotionSlot(emotion) || emotion, label = character.labels?.[emotion]
-      if (sprites[slot]) continue
-      sprites[slot] = file
-      if (label && emotionSlot(label) === slot) emotionNames[slot] = label
-    }
-    const entry = { name: character.name, aliases: character.aliases, avatar: character.avatar, sprites, emotionNames, voices: character.voices || {},
-      ...(character.references?.length ? { voiceReferences: character.references } : {}),
-      ...(character.voiceSource ? { voiceSource: character.voiceSource } : {}), ...(character.voiceLanguage ? { voiceLanguage: character.voiceLanguage } : {}) }
-    if (fit(Number(Boolean(entry.avatar)) + Object.keys(sprites).length + (entry.voiceReferences || []).length)) cast.push(entry)
-  }
-  return { characters: cast, backgrounds: backgrounds.filter(() => fit(1)) }
-}
-
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'])
 
 /**
@@ -301,7 +274,14 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'])
  * Standard places for what CCv3 has (cover, the main character's expressions, backgrounds,
  * kept extras); the rest of the cast in `extensions.dsh_tavern.cast`.
  */
-export function buildCharx({ document, cover, manifest, characterName, readFile, dsh = false }) {
+export function buildCharx(options) {
+  const { card, files } = buildCharxContents(options)
+  return writeZipEntries([{ path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files], { readable: true, label: 'CHARX' })
+}
+
+/** buildCharx's card and files, for an archive writer of its own (the DSH card export); `resolveFileUri` points a file
+ * another part of that archive already holds at its embeded:// URI instead of copying it. */
+export function buildCharxContents({ document, cover, manifest, characterName, readFile, resolveFileUri = () => null }) {
   const card = structuredClone(document)
   const data = card.data = card.data && typeof card.data === 'object' ? card.data : {}
   card.spec = 'chara_card_v3'
@@ -310,6 +290,8 @@ export function buildCharx({ document, cover, manifest, characterName, readFile,
   const files = [], paths = new Map(), used = new Set()
   function place(type, file, name) {
     if (!file) return null
+    const existing = resolveFileUri(file)
+    if (existing) return existing
     const key = type + '\u0000' + file
     if (paths.has(key)) return paths.get(key)
     const bytes = readFile(file)
@@ -364,7 +346,7 @@ export function buildCharx({ document, cover, manifest, characterName, readFile,
   else delete data.extensions.dsh_tavern.cast
   if (!Object.keys(data.extensions.dsh_tavern).length) delete data.extensions.dsh_tavern
   if (files.length > MAX_ASSETS) throw new Error('人物卡素材超过 ' + MAX_ASSETS + ' 个，无法生成可完整导入的 CHARX')
-  return writeZipEntries([...(dsh ? [{ path: 'dsh.json', content: JSON.stringify({ format: 'dshcard', formatVersion: 1 }) }] : []), { path: 'card.json', content: JSON.stringify(card, null, 2) }, ...files], { readable: true, label: dsh ? 'DSH 人物卡' : 'CHARX' })
+  return { card, files }
 }
 
 /**

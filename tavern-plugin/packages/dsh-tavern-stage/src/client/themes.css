@@ -3954,6 +3954,15 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
   .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-art-name-vertical]:not([data-fk-skin-art-span]):not(.is-film) :is(.fork-gal-box, .fork-gal-box[data-speaker-side]) .fork-gal-name {
     left: calc((var(--art-np-x) - var(--art-body-x)) * var(--art-u-name)); translate: none; }
 }
+/* A phone portrait shows no box face unless the skin opts in (art.portrait.phone with its narrow side): the design's text
+   inset that kept the face window's column is dropped - the lines start at the box's left padding (16px at most, a hanging
+   plate still cleared) and take its full width. */
+@media (max-width: 640px) {
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait]:not([data-fk-skin-portrait-narrow], [data-fk-skin-art-span], [data-fk-skin-layout="slash"], .is-film) .fork-gal-box.fork-gal-box.fork-gal-box {
+    --text-left: min(calc((var(--art-text-l) - var(--art-body-x)) * var(--art-u)), 16px); padding-left: var(--text-left); }
+  .fork-gal-stage[data-theme][data-fk-skin][data-fk-skin-art][data-fk-skin-portrait][data-fk-skin-art-name-vertical]:not([data-fk-skin-portrait-narrow], [data-fk-skin-art-span], [data-fk-skin-layout="slash"], .is-film) .fork-gal-box.fork-gal-box.fork-gal-box {
+    padding-left: max(var(--text-left), calc((var(--art-np-x) + var(--art-np-w) - var(--art-body-x)) * var(--art-u-name) + .5em)); }
+}
 /* art.portrait.narrow (skin-interface.md §13, 「通用部件能力」): on a phone the face side stands at its own place - --art-face-nw
    CSS px wide, --art-face-nx / -ny px from the box's top-left corner (over the box image's top edge when negative) - and
    everything inside it (face, window, back, sheen, frame, name) keeps the frame's proportions: the side's own --art-u is its
@@ -4683,6 +4692,13 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main {
   text-align: center; justify-content: center;
   padding-inline: calc(max(var(--art-choice-l), var(--art-choice-w) - var(--art-choice-r)) * var(--cu) + var(--art-pad)); }
+/* Phones: a bar spans the screen, so its words take the width back - the menu's own rows keep only a small inset, and a
+   numbered suggestion starts just past its numeral and the bar's fixed left slice (its number cell; not at the text column's l, nor mirrored by the ✎'s room). */
+@media (max-width: 640px) {
+  .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main { padding-inline: calc(var(--art-pad) + .6em); }
+  .fork-gal-stage[data-fk-skin-choices-number]:not(.is-film) .fork-gal-choices > .fork-gal-choice[data-index]:not(.is-editing, .is-error, .is-compact) > .fork-gal-choice-main {
+    padding-inline-start: calc(max(var(--art-choice-num-x) + var(--art-choice-num-font) * .5, var(--art-choice-sl)) * var(--cu) + 6px); }
+}
 /* (the letter spacing after its last glyph, balanced before the first) */
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice:not([data-type], .is-editing, .is-error, .is-compact) > .fork-gal-choice-main[data-action="generate"] { text-indent: var(--art-choice-spacing, 0); }
 .fork-gal-stage[data-fk-skin-choices]:not(.is-film) .fork-gal-choices > .fork-gal-choice.is-free:not(.is-editing) > .fork-gal-choice-main > svg { margin-inline-start: calc(-1 * (max(15px, .7em) + .5em)); }

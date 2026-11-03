@@ -113,7 +113,7 @@ test('encrypting the current library card again creates one new password layer a
   let calls = 0
   const handlers = createCardHandlers({ uploads, transferExports: exports, str: String, async exportCardFile(cardPath) {
     assert.equal(cardPath, 'cards/current.json'); calls++
-    return { name: 'Current card', bytes: await readFile(f.plain) }
+    return { name: 'Current card', file: f.plain, dispose: async () => {} }
   } })
   const first = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'first-test-password' })
   const second = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'second-test-password' })

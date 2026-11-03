@@ -1,21 +1,24 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { StoredFile } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
+import { exportDshCardSnapshot } from './dsh-card-export.js'
 import { readCardArchive } from './card-archive.js'
-import { buildCharx, cardImport, cardImportFromCard, cardLibraryMaterial, charxLibraryMaterial, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
+import { buildCharxContents, cardImport, cardImportFromCard, cardLibraryMaterial, pngCardTextChunk, pngWithTextChunks } from './card-assets.js'
 import { cardAssetExtensionPointer, validateCardAssetExtension } from './card-asset-bindings.js'
 import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
-import { normalizeResourcePath, stripPngTextChunks } from './file-resources.js'
+import { normalizeResourcePath } from './file-resources.js'
 import { openCardZip } from './card-encryption.js'
-import { readZipEntries, writeZipEntries } from './zip-entries.js'
+import { writeZipEntries } from './zip-entries.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
-export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null }) {
+export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, exportRoot = os.tmpdir() }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
   async function importCard(input) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
@@ -189,29 +192,6 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}),
       ...(libraryPack ? { libraryPack } : {}), ...(libraryNotices.length ? { libraryNotices } : {}) }
   }
-  // A CHARX's character material: the card's own and, with the asset library, the figures and backgrounds of the packs
-  // it binds (projectCardMaterial; a name both have is the library's).
-  async function charxMaterial(cardPath, document) {
-    const manifest = await castAssets.read(cardPath), files = new Map()
-    for (const file of new Set([...manifest.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(manifest.backgrounds || []).map(item => item.file), ...(manifest.extras || []).map(item => item.file)].filter(Boolean))) {
-      files.set(file, await castAssets.readFile(cardPath, file))
-    }
-    const library = assetLibrary(), packIds = document?.data?.extensions?.dsh_tavern?.assetBindings?.boundPackIds || []
-    if (!packIds.length || typeof library?.projectCardMaterial !== 'function') return { manifest, files }
-    const projected = await library.projectCardMaterial({ packIds })
-    const own = charxLibraryMaterial(projected, str(document?.data?.name), files.size)
-    for (const file of new Set([...own.characters.flatMap(character => [character.avatar, ...Object.values(character.sprites), ...(character.voiceReferences || []).map(clip => clip.file)]), ...own.backgrounds.map(row => row.file)].filter(Boolean))) {
-      files.set(file, await projected.read(file))
-    }
-    const names = new Set(own.characters.map(character => character.name))
-    return { files, manifest: { ...manifest, characters: [...own.characters, ...manifest.characters.filter(character => !names.has(character.name))], backgrounds: [...own.backgrounds, ...(manifest.backgrounds || [])] } }
-  }
-  // The card as CHARX: Character Card V3 with its character material (Wiki「设计：tavern-to-galgame」).
-  async function exportCardCharx(cardPath, document, { manifest, files }) {
-    const image = await fileResources.readCardImage(cardPath).catch(() => undefined)
-    const name = str(document?.data?.name || '人物卡')
-    return { name, bytes: buildCharx({ document, cover: image ? stripPngTextChunks(image) : null, manifest, characterName: name, readFile: file => files.get(file), dsh: true }) }
-  }
   async function presentCardText(cardPath) {
     const workspace = await readCardWorkspace(cardPath)
     if (workspace === undefined) throw Object.assign(new Error('人物卡不存在: ' + cardPath), { code: 'TAVERN_NOT_FOUND' })
@@ -228,20 +208,77 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const name = str(document?.data?.name || '人物卡')
     return { name, bytes: pngWithTextChunks(image, [pngCardTextChunk('chara', text), pngCardTextChunk('ccv3', text)]) }
   }
-  // Native exports use one container, with the cover and all material inside it.
-  async function exportCardFile(input) {
-    const cardPath = normalizeResourcePath(input, 'card')
+  // The card as a DSH card (.dshcard, Wiki「设计：dsh-card-format」): card.json and dsh.json, the cover, the card's own
+  // material, its plugins and start defaults, and the packs that go with it under assets/<pack id>/ — by default every pack
+  // the card binds (and the packs it came with); `packIds` chooses, and a pack left out also leaves the exported card's
+  // bindings. `excludeFigures` leaves figures of the packs out (e.g. the one the player plays) with the media only they
+  // use. Packs can be large, so the archive is written to a spool file under exportRoot and streamed.
+  async function exportCardFile(input, { excludeFigures = [], packIds } = {}) {
+    if (!Array.isArray(excludeFigures) || excludeFigures.some(id => typeof id !== 'string')
+      || packIds !== undefined && (!Array.isArray(packIds) || packIds.some(id => typeof id !== 'string'))) throw Object.assign(new Error('导出参数无效'), { code: 'TAVERN_EXPORT_INVALID' })
+    let cardPath
+    try { cardPath = normalizeResourcePath(input, 'card') }
+    catch (error) { throw Object.assign(error, { code: 'TAVERN_EXPORT_INVALID' }) }
     const { document } = await presentCardText(cardPath)
-    const exported = await exportCardCharx(cardPath, document, await charxMaterial(cardPath, document))
-    const plugins = (await castAssets.read(cardPath)).plugins || []
-    if (plugins.length) {
-      const entries = readZipEntries(exported.bytes), manifest = JSON.parse(entries.get('dsh.json'))
-      manifest.plugins = plugins.map(plugin => ({ name: plugin.name, path: 'plugins/' + plugin.folder + '/', purpose: plugin.purpose || '' }))
-      entries.set('dsh.json', Buffer.from(JSON.stringify(manifest)))
-      exported.bytes = writeZipEntries([...entries].map(([path, content]) => ({ path, content })).concat(await cardPlugins.exportFiles({ cardKey: castAssets.keyOf(cardPath), plugins })))
+    const material = await castAssets.read(cardPath)
+    const pluginFiles = await cardPlugins.exportEntries({ cardKey: castAssets.keyOf(cardPath), plugins: material.plugins || [] })
+    const boundIds = document.data?.extensions?.dsh_tavern?.assetBindings?.boundPackIds || []
+    const chosen = packIds && new Set(packIds)
+    if (chosen && packIds.some(id => !boundIds.includes(id) && !(material.packs || []).some(ref => ref.id === id))) throw Object.assign(new Error('只能选择这张卡用到的素材包'), { code: 'TAVERN_EXPORT_INVALID' })
+    // The packs the card was imported with (card-assets packs) come from their store; the bound library packs from the library.
+    const importedPacks = []
+    for (const ref of (material.packs || []).filter(ref => !chosen || chosen.has(ref.id))) {
+      const stored = await assetPacks.readPack(ref.id, ref.contentHash)
+      if (!stored) throw Object.assign(new Error('绑定素材包不存在'), { code: 'TAVERN_NOT_FOUND' })
+      const files = new Map()
+      for (const [name, row] of Object.entries(stored.files)) files.set(name, new StoredFile(row.size, (await assetPacks.file(ref.id, ref.contentHash, name)).path))
+      const member = files.get('manifest.json')
+      const manifest = member ? JSON.parse(await readFile(member.file, 'utf8')) : { id: ref.id, format: ref.format, contentHash: ref.contentHash, name: ref.title }
+      files.delete('manifest.json')
+      importedPacks.push({ manifest, files, sourceName: ref.name })
     }
-    return { ...exported, extension: 'dshcard', contentType: 'application/zip' }
+    // defaults.stage comes from the card's own stage declaration (dsh-card-export.js).
+    const defaults = {}, entries = [...pluginFiles.entries]
+    if (material.startDefaults?.settings) {
+      const settings = material.startDefaults.settings
+      defaults.settings = { statusBarPlacement: settings.statusBarPlacement, backgroundTasks: settings.backgroundTasks, webSearch: settings.webSearchEnabled }
+    }
+    if (material.startDefaults?.presetPath) {
+      defaults.preset = { path: 'presets/default.json', title: material.startDefaults.presetPath.split('/').pop().replace(/\.json$/i, '') }
+      entries.push({ path: defaults.preset.path, data: Buffer.from(await fileResources.readText(material.startDefaults.presetPath)) })
+    }
+    const cover = await fileResources.readCardImage(cardPath)
+    await mkdir(exportRoot, { recursive: true })
+    const directory = await mkdtemp(path.join(exportRoot, 'dshcard-'))
+    try {
+      const file = path.join(directory, 'card.dshcard')
+      const write = async snapshot => {
+        let raw = snapshot?.raw ? structuredClone(snapshot.raw) : document
+        const data = raw.data || raw
+        if (document.data?.character_book) data.character_book = document.data.character_book
+        const packs = [...(snapshot?.packs || []), ...importedPacks], extraEntries = [...entries]
+        // The card's own material in its CCv3 places; a file a pack already holds is pointed at there, not copied.
+        if ((material.characters || []).length || (material.backgrounds || []).length || (material.extras || []).length) {
+          const reused = new Map()
+          for (const pack of packs) for (const row of pack.manifest.files || []) if (row.sha256) reused.set(row.sha256.slice(0, 32) + path.posix.extname(row.path), 'embeded://assets/' + pack.manifest.id + '/' + row.path)
+          const sources = new Map()
+          for (const name of new Set([...(material.characters || []).flatMap(character => [character.avatar, ...Object.values(character.sprites || {})]), ...(material.backgrounds || []).map(row => row.file), ...(material.extras || []).map(row => row.file)].filter(Boolean))) {
+            if (!reused.has(name)) sources.set(name, await castAssets.readFile(cardPath, name))
+          }
+          const contents = buildCharxContents({ document: raw.data ? raw : { data: raw }, manifest: material, characterName: data.name, readFile: name => sources.get(name), resolveFileUri: name => reused.get(name) })
+          raw = contents.card
+          extraEntries.push(...contents.files.map(({ path, content }) => ({ path, data: content })))
+        }
+        return exportDshCardSnapshot({ file, card: raw, packs, cover, excludeFigures, entries: extraEntries, plugins: pluginFiles.plugins, defaults: Object.keys(defaults).length ? defaults : undefined })
+      }
+      const imported = importedPacks.map(pack => pack.manifest.id)
+      const ids = boundIds.filter(id => !imported.includes(id) && (!chosen || chosen.has(id)))
+      const library = assetLibrary()
+      if ((ids.length || chosen) && !library) throw Object.assign(new Error('素材库尚未就绪'), { code: 'TAVERN_EXPORT_UNAVAILABLE' })
+      const result = library ? await library.withCardExport({ path: cardPath, packIds: ids, keepPackIds: imported }, write) : await write()
+      return { name: result.card.data.name || '人物卡', extension: 'dshcard', contentType: 'application/zip', file, size: result.size,
+        stream: () => createReadStream(file), dispose: () => rm(directory, { recursive: true, force: true }) }
+    } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
   }
-
   return { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
 }

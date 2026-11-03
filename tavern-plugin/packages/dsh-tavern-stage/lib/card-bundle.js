@@ -8,6 +8,7 @@ import { cardAssetWorkspaceRevision } from '../../../lib/card-asset-bindings.js'
 import { check, cloneJson } from '../../dsh-presentation-protocol/src/asset-pack-json.js'
 
 import {withoutPlayerChoices} from '../../../lib/domain/card-export-settings.js'
+import {exportStageDeclaration} from '../../dsh-presentation-protocol/src/card-stage-export.js'
 export {withoutPlayerChoices} from '../../../lib/domain/card-export-settings.js'
 
 // Binding-only commits must not reopen every linked chat to synchronize an unchanged name.
@@ -45,6 +46,12 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
   }
   return Object.freeze({
     inspectRaw,
+    // the card as an export carries it: the stage declaration only (card-stage-export.js).
+    exportRaw(raw) {
+      const value = inspectRaw(raw).raw
+      exportStageDeclaration(rawData(value).extensions?.dsh_tavern)
+      return value
+    },
     remapRaw(raw, mappings) {
       const value = inspectRaw(raw).raw, ext = rawData(value).extensions?.dsh_tavern
       if (!ext?.assetBindings) return value
@@ -80,6 +87,14 @@ export function createCardBundleAdapter({cardPreparation, authorizeTarget, readW
       check(Array.isArray(packIds), '$.packIds')
       const boundIds = new Set(ext.assetBindings.boundPackIds)
       ext.assetBindings.boundPackIds = [...ext.assetBindings.boundPackIds, ...packIds.filter(id => !boundIds.has(id))]
+      return inspectRaw(value).raw
+    },
+    // a DSH card export with a chosen pack list: the exported card stays bound to exactly those packs (and its config pack).
+    retainRaw(raw, packIds) {
+      const value = inspectRaw(raw).raw, ext = rawData(value).extensions?.dsh_tavern
+      if (!ext?.assetBindings) return value
+      const keep = new Set([...packIds, ...(ext.modConfigPackId ? [ext.modConfigPackId] : [])])
+      ext.assetBindings.boundPackIds = ext.assetBindings.boundPackIds.filter(id => keep.has(id))
       return inspectRaw(value).raw
     },
     async snapshot({path}) {

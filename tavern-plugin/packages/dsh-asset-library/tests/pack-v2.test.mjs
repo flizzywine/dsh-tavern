@@ -483,6 +483,18 @@ test('choosing a voice source service (serviceId) is a metadata edit; changing i
   assert.equal(next.manifest.voiceLibrary.voices[voiceId].sources.fish.serviceId,'svc-drama')
   assert.deepEqual(next.manifest.files.filter(file => !file.path.startsWith('figures/')),saved.manifest.files.filter(file => !file.path.startsWith('figures/')))
 })
+test('a metadata-only edit of a shared pack voice still needs confirmShared and names its users', async t => {
+  const {service,root} = await fixture(t)
+  let saved = snap(await install(service,root)); const voiceId = saved.figures[FIGURE_ID].voice.voice
+  const other = await service.createFigure({packId:PACK_ID,expectedRevision:saved.revision,figure:{schemaVersion:1,name:'Other',enabled:true,outfits:[]}})
+  saved = snap(await service.saveFigureVoiceBinding({packId:PACK_ID,expectedRevision:other.snapshot.revision,figureId:other.figureId,binding:{voice:voiceId}}))
+  const voiceSpec = structuredClone(saved.manifest.voiceLibrary.voices[voiceId]); voiceSpec.sources.fish.serviceId = 'svc-drama'
+  const input = {packId:PACK_ID,figureId:FIGURE_ID,voiceId,expectedRevision:saved.revision,voiceSpec}
+  await assert.rejects(service.savePackVoice(input),rejected('SHARED_VOICE_CONFIRMATION_REQUIRED'))
+  const result = await service.savePackVoice({...input,confirmShared:true})
+  assert.deepEqual(result.affectedFigures.map(figure => figure.id).sort(),[FIGURE_ID,other.figureId].sort())
+  assert.equal(result.snapshot.manifest.voiceLibrary.voices[voiceId].sources.fish.serviceId,'svc-drama')
+})
 test('pack voice transcripts preserve long text and reject invalid publication without truncation', async t => {
   const {service,root} = await fixture(t), pack = await syntheticPack()
   // validate transcripts through the pack-owned voice authoring API.

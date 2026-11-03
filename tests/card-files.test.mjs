@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { createHash } from 'node:crypto'
+import { readCardArchive } from '../tavern-plugin/lib/domain/card-archive.js'
+import { openZipFile } from '../tavern-plugin/lib/domain/zip-file.js'
 import { createAssetPacks } from '../tavern-plugin/lib/domain/asset-packs.js'
 import { createMediaStore } from '../tavern-plugin/packages/dsh-asset-library/src/pack-v2/media-store.js'
 import { createCardFiles } from '../tavern-plugin/lib/domain/card-files.js'
@@ -15,6 +18,11 @@ import { readZipEntries, writeZipEntries } from '../tavern-plugin/lib/domain/zip
 import { encryptCardArchiveFile } from '../tavern-plugin/lib/domain/card-encryption.js'
 import { pngWithCard } from '../tavern-plugin/lib/domain/card-assets.js'
 import { createProfileDataStore } from '../tavern-plugin/lib/profile-data-store.js'
+
+// An export is a spool file; read its entries and remove it.
+async function exportedEntries(exported) {
+  try { return readZipEntries(await readFile(exported.file)) } finally { await exported.dispose() }
+}
 
 async function library(t, extra = {}) {
   const root = await mkdtemp(join(tmpdir(), 'card-files-'))
@@ -57,8 +65,7 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   assert.equal((await castAssets.read(card.path)).plugins[0].enabled, true)
   await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
   assert.equal((await files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'test-only-password' })).duplicate, true)
-  const exported = await files.exportCardFile(card.path)
-  const entries = readZipEntries(exported.bytes)
+  const entries = await exportedEntries(await files.exportCardFile(card.path))
   assert.equal(JSON.parse(entries.get('dsh.json')).plugins[0].name, 'encrypted-game')
   assert.equal(entries.get('plugins/game/assets/data.bin').toString(), 'fixture bytes')
 })
@@ -78,7 +85,7 @@ test('a CHARX imports once; the same file again opens the card already imported;
 
   const exported = await files.exportCardFile(first.path)
   assert.equal(exported.extension, 'dshcard')
-  assert.equal(JSON.parse(readZipEntries(exported.bytes).get('card.json').toString()).data.description, '一条鱼')
+  assert.equal(JSON.parse((await exportedEntries(exported)).get('card.json').toString()).data.description, '一条鱼')
 })
 
 test('an encrypted ST PNG imports its cover into the library and exports a single DSH container', async t => {
@@ -91,12 +98,65 @@ test('an encrypted ST PNG imports its cover into the library and exports a singl
   assert.ok((await fileResources.readCardImage(card.path)).length >= cover.length)
   const exported = await files.exportCardFile(card.path)
   assert.equal(exported.extension, 'dshcard')
-  assert.equal(exported.bytes.readUInt32LE(0), 0x04034b50)
-  const entries = readZipEntries(exported.bytes)
+  assert.equal((await readFile(exported.file)).readUInt32LE(0), 0x04034b50)
+  const entries = await exportedEntries(exported)
   assert.equal(JSON.parse(entries.get('dsh.json')).format, 'dshcard')
-  assert.deepEqual(entries.get('assets/icon/image/main.png'), cover)
+  assert.deepEqual(entries.get('assets/icon/images/main.png'), cover)
 })
 
+
+// A DSH card with a pack and a plugin imports and goes back out whole; a figure left out of the export leaves with the
+// media only it uses, from the exported copy only.
+test('v1 card, bound pack and plugin round trip; PNG imports and exclusion only changes the exported copy', async t => {
+  const {root, files, fileResources} = await library(t)
+  const id = '11111111-1111-4111-8111-111111111111', omitted = '22222222-2222-4222-8222-222222222222', kept = '33333333-3333-4333-8333-333333333333'
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX2kAAAAASUVORK5CYII=', 'base64')
+  const hash = 'a'.repeat(64), media = 'media/' + hash + '.png'
+  const manifest = {format:'dsh-asset-pack', schemaVersion:2, id, name:'Fixture pack', contentHash:'b'.repeat(64), figures:[omitted, kept], sprites:{}, bundles:{}, assets:[], blobs:{[hash]:{ext:'png', mime:'image/png', size:png.length}}, files:[]}
+  const figure = (id, name, avatar) => ({id, name, aliases:[], outfits:[], ...(avatar ? {avatar} : {})})
+  const ref = figureId => ({packId:id, figureId})
+  const card = {spec:'chara_card_v3', spec_version:'3.0', data:{name:'Roundtrip', description:'Authored story', character_book:{entries:[{keys:['Removed'],comment:'speaker roster',content:omitted+' Removed\n'+kept+' Retained',enabled:true}]},
+    assets:[{type:'icon',name:'main',ext:'png',uri:'embeded://assets/icon/images/main.png'}],
+    extensions:{dsh_tavern:{schemaVersion:1,assetBindings:{boundPackIds:[id]},speakers:[{name:'Removed',ref:ref(omitted)},{name:'Retained',ref:ref(kept)}],
+      openings:{lead:ref(omitted),scenes:{primary:{greeting:'a'.repeat(16),background:null,timeOfDay:null,music:null,cast:[{figure:ref(omitted),outfitKey:null,emotion:'平静'},{figure:ref(kept),outfitKey:null,emotion:'平静'}]}}}}}}}
+  const entries = [
+    ['card.json',JSON.stringify(card)], ['dsh.json',JSON.stringify({format:'dshcard',formatVersion:1,packs:[{id,path:'assets/'+id+'/',format:'dsh-asset-pack',contentHash:manifest.contentHash}],plugins:[{name:'fixture-plugin',path:'plugins/fixture/'}],defaults:{stage:true,settings:{statusBarPlacement:'sidebar'}}})],
+    ['assets/icon/images/main.png',png], ['assets/'+id+'/manifest.json',JSON.stringify(manifest)], ['assets/'+id+'/'+media,png],
+    ['assets/'+id+'/figures/'+omitted+'.json',JSON.stringify(figure(omitted,'Removed',hash))], ['assets/'+id+'/figures/'+kept+'.json',JSON.stringify(figure(kept,'Retained'))],
+    ['plugins/fixture/package.json',JSON.stringify({name:'fixture-plugin',version:'1.0.0',main:'./index.mjs'})], ['plugins/fixture/index.mjs','export function apply() {}']
+  ]
+  manifest.files = entries.filter(([name]) => name.startsWith('assets/'+id+'/') && !name.endsWith('/manifest.json')).map(([name, content]) => ({path:name.slice(('assets/'+id+'/').length), size:Buffer.byteLength(content), sha256:createHash('sha256').update(content).digest('hex')}))
+  entries.find(([name]) => name === 'assets/'+id+'/manifest.json')[1] = JSON.stringify(manifest)
+  const source = join(root,'source.dshcard')
+  await writeFile(source,writeZipEntries(entries.map(([path,content])=>({path,content}))))
+  const imported = await files.importCardArchiveFile(source,'source.dshcard')
+  const before = await fileResources.readText(imported.path)
+  {
+    const exported = await files.exportCardFile(imported.path,{excludeFigures:[omitted]})
+    try {
+      const zip = await openZipFile(exported.file)
+      try {
+        const archive = await readCardArchive(zip)
+        assert.equal(archive.kind,'dshcard')
+        assert.equal(archive.plugins[0].name,'fixture-plugin')
+        assert.equal(JSON.parse(await zip.readBuffer(zip.entries.get('dsh.json'))).defaults.stage,true)
+        assert.equal(archive.card.data.extensions.dsh_tavern.stage.enabled,true)
+        assert.equal(archive.defaults.settings.statusBarPlacement,'sidebar')
+        assert.equal(JSON.stringify(archive.card).includes(omitted),false)
+        assert.equal(zip.entries.has('assets/'+id+'/'+media),false)
+        assert.equal(zip.entries.has('assets/'+id+'/figures/'+omitted+'.json'),false)
+        assert.ok(zip.entries.has('assets/'+id+'/figures/'+kept+'.json'))
+        assert.equal(archive.card.data.extensions.dsh_tavern.openings.scenes.primary.cast.length,1)
+      } finally { await zip.close() }
+      const target = await files.importCardArchiveFile(exported.file,'copy.dshcard')
+      assert.equal(target.plugins[0].enabled,true)
+      assert.equal(target.packs.length,1)
+    } finally { await exported.dispose() }
+  }
+  await assert.rejects(files.exportCardFile(imported.path,{packIds:['44444444-4444-4444-8444-444444444444']}), error => error.code === 'TAVERN_EXPORT_INVALID')
+  await assert.rejects(files.exportCardFile(imported.path,{packIds:'all'}), error => error.code === 'TAVERN_EXPORT_INVALID')
+  assert.equal(await fileResources.readText(imported.path),before)
+})
 
 test('invalid card plugin identity fails before persistence; retries stay failures and a corrected archive imports normally', async t => {
   const { root, files, fileResources, castAssets } = await library(t)

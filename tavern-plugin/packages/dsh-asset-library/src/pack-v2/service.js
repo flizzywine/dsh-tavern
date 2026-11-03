@@ -44,6 +44,9 @@ import { PACK_LIMITS, jsonBytes, readDocument, cloneFiles, budget, sealPack, sto
 import widgetContract from '../shared/widget-schema.cjs'
 import { createPackLeases } from './leases.js'
 export { PACK_LEASE_PATH } from './leases.js'
+export {StoredFile} from './validation.js'
+export {projectPackFigures} from './export-figures.js'
+export {writeZip as writePackZip} from '../zip.js'
 import { openZip, writeZip } from '../zip.js'
 import { validatePackIdentities, validateAsset, validatePackDocuments, computeContentHash, sha256 } from '../asset-packs/index.js'
 import { shape, check, validateUuid, validateShortId, validateStateId, validateHash, validateAssetRef, validateFigureRef, canonicalJson } from '../asset-packs/common.js'
@@ -368,7 +371,7 @@ export function createAssetPackService(options) {
         check(before, '$.packId', 'Pack missing', 'ASSET_UNAVAILABLE')
         if (!before.diagnostics?.length) {
           const manifest = copy(before.manifest), files = new Map(before.files), figures = {...before.figures}
-          await mutate(manifest, files, before)
+          const extra = await mutate(manifest, files, before)
           const forcedOverrides = triggerOverrides(input, before, manifest, files)
           Object.assign(manifest,normalizePackTags(manifest))
           for(const id of manifest.figures) {
@@ -389,14 +392,14 @@ export function createAssetPackService(options) {
             manifest.contentHash = await computeContentHash(manifest)
             check([...updates.values()].every(bytes => bytes.length <= limits.entrySize) && jsonBytes(manifest).length + manifest.files.reduce((sum, file) => sum + file.size, 0) <= limits.totalSize, '$.files', 'Pack budget exceeded', 'LIMIT_EXCEEDED')
             const migratedLocal = migrateLocal ? migrateLocal(before.local,before.figures) : before.local
-            if (manifest.contentHash === before.manifest.contentHash && canonicalJson(migratedLocal) === canonicalJson(before.local)) return {status:'noop', snapshot:snapshot(before)}
-            if (dryRun) return {status:'dry-run', snapshot:snapshot({...before, manifest, figures, files, local:migratedLocal}), forcedOverrides}
+            if (manifest.contentHash === before.manifest.contentHash && canonicalJson(migratedLocal) === canonicalJson(before.local)) return {status:'noop', snapshot:snapshot(before), ...extra}
+            if (dryRun) return {status:'dry-run', snapshot:snapshot({...before, manifest, figures, files, local:migratedLocal}), ...extra, forcedOverrides}
             const local = nextLocal(retireLocalMouthDebt(migratedLocal, {figures,sprites:before.sprites}))
             await storage.publishMetadata(input.packId, manifest, updates, local)
             const saved = {...before, manifest, figures, files, local};
             for (const asset of manifest.assets) if (asset.variants && before.variantDocuments?.[asset.kind+'/'+asset.id]) saved[asset.kind]={...saved[asset.kind],[asset.id]:before.variantDocuments[asset.kind+'/'+asset.id][asset.variants.default]};
             evictMetadata(input.packId); emit(saved, before)
-            return {status:'updated', snapshot:snapshot(saved), forcedOverrides}
+            return {status:'updated', snapshot:snapshot(saved), ...extra, forcedOverrides}
           }
         }
       }
@@ -806,9 +809,10 @@ export function createAssetPackService(options) {
     },
     savePackVoice(input) {
       validateShortId(input.voiceId, '$.voiceId')
-      return edit(input, async (manifest, files) => {
+      return edit(input, async (manifest, files, before) => {
         const library = manifest.voiceLibrary ||= {version:1,voices:{}}
-        const users = [...files].filter(([p]) => p.startsWith('figures/')).map(([,b]) => readDocument(b)).filter(f => f.voice?.voice === input.voiceId)
+        // the stored figures (the metadata path carries no figure bytes in files).
+        const users = Object.values(before.figures).filter(f => f.voice?.voice === input.voiceId)
         check(!users.some(f => f.id !== input.figureId) || input.confirmShared === true, '$.confirmShared', 'Confirm shared voice users', 'SHARED_VOICE_CONFIRMATION_REQUIRED')
         library.voices[input.voiceId] = copy(input.voiceSpec)
         return {affectedFigures:users.map(f => ({id:f.id,name:f.name}))}
