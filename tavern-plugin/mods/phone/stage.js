@@ -40,6 +40,9 @@ export default {
       const threads=state.modState?.[command.modId]?.threads || {},group=params.thread!==undefined
       const marker=phoneModSourceMarker(params,context.phone?.units[metadata.at - 1],context.phone?.characters || [],threads,context.phone?.playerId)
       check(marker,group ? '$.thread' : '$.to','Choose a destination matching this source speaker.','ARG_INVALID')
+      // A carried group may predate the member rule (threads.js phoneGroup); its source-only members send nothing.
+      if(group)check(marker.sender==='$player' || context.phone.characters.some(row=>row.alias===marker.sender && row.ref),'$.thread',
+        'This speaker exists only in the source, not as a phone contact. Livestream danmaku and viewer comments are not phone messages: leave the line unmarked.','ARG_INVALID')
       const {op:_,...rest}=marker
       params=rest
     }
