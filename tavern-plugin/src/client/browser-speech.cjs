@@ -3,6 +3,8 @@
 // never reaches the WebAudio mixer: no loudness levelling, no ducking of the voice itself, no low-pass, no analyser. Its
 // volume is the utterance volume (master × voice, read when the line starts), and a playing line still ducks the other
 // buses. A clip is an Audio-like object the stage voice player drives like an <audio> element.
+// Whether this browser can speak at all.
+function browserSpeechSupported() { return Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance); }
 function browserSpeechVoices(synth) {
     let list = [];
     try { list = synth ? synth.getVoices() || [] : []; } catch (_) { list = []; }

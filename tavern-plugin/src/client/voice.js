@@ -6,7 +6,7 @@ let forkTtsScope;
 const browserSpeechService = (function () {
     let current = null;
     return Object.freeze({
-        available: () => Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance),
+        available: browserSpeechSupported,
         voices: () => browserSpeechVoiceList(window.speechSynthesis),
         speak(line) {
             current?.pause();
@@ -23,10 +23,12 @@ const voicePlayer = createPackVoicePlayer({now: forkForeground.now, schedule: fo
     prepareAudio:(audio,blob,result) => {if(audio.browserSpeech){audio.playbackRate=stageReading.get().voiceRate;return;}forkForeground.media(audio);forkStageAudio.prepareVoice(audio,blob,result.loudness);audio.preservesPitch=true;audio.playbackRate=stageReading.get().voiceRate;},
     disposeAudio:audio => { if (!audio.browserSpeech) forkStageAudio.release(audio); },
     onAudio:audio => forkStageAudio.voice(Boolean(audio))});
+// Whether the voice service is on for this page (ttsClient): the stage voices and a reply's 🔊 show only then.
+const ttsClientAvailable = () => Boolean(forkTtsScope?.get('ttsClient')?.available());
 function voiceObservedTurn(_session,_turn,running) { return running; }
 // @include voice-speech.cjs
 function useVoiceBubbles(props,segments,_cardPath,config) {
-    usePackRevision(() => Boolean(forkTtsScope?.get('ttsClient')?.available()));
+    usePackRevision(ttsClientAvailable);
     const client=forkTtsScope?.get('ttsClient');
     const owner=String(props.sessionId)+':'+String(props.voiceScope);
     const active = React.useSyncExternalStore(galActive.subscribe,galActive.get);

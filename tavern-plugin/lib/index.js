@@ -207,7 +207,8 @@ import { applyPolishEdits } from './domain/polish-review.js'
 import { createCardAutoReload } from './domain/card-auto-reload.js'
 import { createRuntimeLogBuffer, runtimeHealthReport } from './domain/runtime-health.js'
 import { createCastAssets } from './domain/cast-assets.js'
-import { createSpeech } from './domain/speech.js'
+import { createLineSpeech, createSpeechProviderBridge } from './domain/speech.js'
+import { speechAudioToWav } from './speech-wav.js'
 import { deploymentActivity } from './domain/deployment-activity.js'
 import { buildCharx, cardImport, cardImportFromCard, pngCardTextChunk, pngWithTextChunks } from './domain/card-assets.js'
 import { createAssetPacks } from './domain/asset-packs.js'
@@ -248,7 +249,7 @@ import { createStageChatCache } from './domain/stage-chat-cache.js'
 import { createStageReads, stageReadScope } from './domain/stage-read-projection.js'
 import {createOptionalStage} from './optional-stage.js'
 import {createStageSwitch} from './stage-switch.js'
-import {cardAssetExtensionPointer} from './domain/card-asset-bindings.js'
+import {cardAssetExtensionPointer, readCardAssetExtension} from './domain/card-asset-bindings.js'
 import { createTavernScriptHostAdapter } from './domain/tavern-script-host-adapter.js'
 import { createTavernRemoteAssetPinStore } from './domain/tavern-remote-assets.js'
 import { OFFICIAL_MVU_VERSION, inspectOfficialMvuAsset } from './domain/official-mvu-assets.js'
@@ -755,6 +756,11 @@ export async function apply(ctx) {
     preset: 'card-task-preset',
     'debug-play': 'card-task-debug-play'
   })
+  // A card's stage extension (null without stage settings): the card layer of its narrator.
+  async function cardStageExtension(cardPath) {
+    const raw = (await readCardWorkspace(cardPath))?.raw
+    return raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
+  }
   async function readCardWorkspace(cardPath) {
     if (str(cardPath) === '') return undefined
     const normalized = normalizeResourcePath(cardPath, 'card')
@@ -1155,8 +1161,12 @@ export async function apply(ctx) {
   const userPluginInstaller = createUserPluginInstaller({ dataRoot, sync: () => syncUserPlugins({ dataRoot }) })
   const cardPlugins = createCardPlugins({ dataRoot, pluginsDir: userPluginPaths(dataRoot).plugins, keyOf: castAssets.keyOf })
   void uploads.sweep().catch(() => {})
-  // Voiced dialogue: channels are Tavern's and the plugins' (pluginApi is created later; read lazily).
-  const speech = createSpeech({ store: profileData, credentials: () => ctx.get('credentials'), plugins: () => pluginApi.speechProviders() })
+  // 台词朗读 goes through the voice service; plugin speech providers join it as its providers (pluginApi is created later; read lazily).
+  const voiceService = () => ctx.get('tts')
+  const speech = createLineSpeech({ getTts: voiceService })
+  const speechBridge = createSpeechProviderBridge({ providers: () => pluginApi.speechProviders(), toWav: speechAudioToWav, warn: error => ctx.logger.warn('dsh-tavern: 插件配音渠道无法接入语音服务 %s', error?.message || error) })
+  ctx.inject(['tts'], child => { const detach = speechBridge.attach(voiceService()); child.effect(() => detach) })
+  ctx.effect(() => () => speech.dispose())
   resourceGraph = createResourceGraph({
     castAssets,
     cardPlugins,
@@ -2566,38 +2576,14 @@ export async function apply(ctx) {
       background: background ? '/api/dsh-tavern/cast-asset?' + new URLSearchParams({ card: castAssets.keyOf(card.path), file: background.file }).toString() : '',
       cast: await castView(sessionId, card.path, manifest), turns }
   }
-  // One line in its speaker's voice: its 配音来源 (cast-presentation.md 22/N), else the chosen channel; { skip } when voicing is
-  // off or narration is silent.
-  async function speakLine(sessionId, { speaker, text, emotion, narration } = {}) {
-    const current = await speech.active()
-    if (!current) return { skip: true, reason: 'off' }
+  // One line in its voice through the voice service (domain/speech.js): { url, mediaType, loudness }, { browser, voice, text }
+  // or { skip, reason } (TTS_UNAVAILABLE without a voice service). A figure voice needs the stage's card speech, which only
+  // a page's authenticated origin opens; without it the line uses the 台词朗读 voice.
+  async function speakLine(sessionId, { speaker, text, emotion, narration } = {}, origin) {
     const card = await castCardOf(str(sessionId)).catch(() => null)
-    const name = str(speaker).trim()
-    const character = card && name ? (await castAssets.read(card.path)).characters.find(item => item.name === name || (item.aliases || []).includes(name)) : null
-    const channel = narration === true ? current : await speech.channelFor({ character, current })
-    const voice = speech.voiceFor({ character, provider: channel.provider, config: channel.config, narration: narration === true })
-    if (voice === null) return { skip: true, reason: 'narration' }
-    // A clone sends the character's own clips inline (cast-presentation.md 22/N).
-    const references = speech.referencesFor({ character, provider: channel.provider, narration: narration === true })
-    return speechReply(await speech.synthesize({ provider: channel.provider.id, text, voice, emotion, gameId: str(sessionId), speaker: name, narration: narration === true,
-      ...(references.length ? { references, readReference: file => castAssets.readFile(card.path, file) } : {}) }))
-  }
-  // The stage opening with 配音 on: the voices its cast speaks with on the channel in use, readied when the service offers it
-  // (cast-presentation.md 21/N). Never awaited by a line; a voice that fails to warm is still said when its line comes.
-  async function prepareVoices(sessionId) {
-    const current = await speech.active()
-    if (!current?.provider.prepare) return { prepared: 0 }
-    const card = await castCardOf(str(sessionId)).catch(() => null)
-    const characters = card ? (await castAssets.read(card.path)).characters : []
-    // Only who speaks with this channel's voices: a clone (its own inline clips) has no reference_id to warm.
-    const voices = new Set([...characters.filter(character => (character.voiceSource?.provider || current.provider.id) === current.provider.id && !character.voiceSource?.clone)
-      .map(character => speech.voiceFor({ character, ...current })), current.config.narratorVoice].filter(Boolean))
-    let prepared = 0
-    for (const voice of voices) if (await speech.prepare({ voice }).catch(() => false)) prepared++
-    return { prepared }
-  }
-  function speechReply(result) {
-    return result.browser ? result : { url: '/api/dsh-tavern/speech-audio?id=' + result.id, mediaType: result.mediaType }
+    const figures = card && origin ? await stageRuntime.assets.cardSpeech({ sessionId: str(sessionId), cardPath: card.path }, origin) : null
+    const extension = card && !figures && narration === true ? await cardStageExtension(card.path).catch(() => null) : null
+    return speech.speak({ text, speaker: str(speaker), emotion: str(emotion) || 'neutral', narration: narration === true, figures, extension: extension || undefined })
   }
   // The asset packs this game's card carries, with the base address of their files.
   async function cardPacksOf(sessionId) {
@@ -2775,6 +2761,7 @@ export async function apply(ctx) {
       return { data: await readFile(found.path), mediaType: found.mediaType, size: found.size }
     },
     synthesizeSpeech: (sessionId, line) => speakLine(sessionId, line),
+    speechProvidersChanged: () => speechBridge.sync(),
     readCastAssets: async sessionId => {
       const card = await castCardOf(sessionId)
       return { player: card.player, card: { name: card.name, imageUrl: '/api/dsh-tavern/card-image?path=' + encodeURIComponent(card.path) },
@@ -3561,7 +3548,7 @@ export async function apply(ctx) {
     runtimeGeneration, runtimePresets, runtimePrompt, saveUpgrade, scriptContinuity,
     scriptNavigation, sessionActivity, sessionInventory, sessionOperation, sessionPatch,
     sessionStateForSession, sessionStore, sessionView, sessionViews, setCardPlugins, setPlayerName,
-    skillImportFiles, sleep, speakLine, speech, speechReply, startChat, startPluginTask, stopBackground, str,
+    skillImportFiles, sleep, speakLine, speech, startChat, startPluginTask, stopBackground, str,
     tavernModelCatalog, tavernScriptHostAdapter, tavernSkills, templateHistoryFrom, undoRollbackTurn,
     updateCard, updateChat, updateTavernSettings, uploads, userPluginInstaller, userPreferenceProfile, view,
     withCompactionSession, worldBooks, worldbookRecallLog,
@@ -3742,7 +3729,6 @@ export async function apply(ctx) {
     ctx,
     clientAssets,
     castAssets,
-    speech,
     exportCardFile,
     assetPacks,
     uploads,

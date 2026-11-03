@@ -13,7 +13,11 @@ import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
 import { boundedFetch } from './providers/fetch.js'
 import { createModelValidation } from './model-validation.js'
 
+// 台词朗读: the voice for per-reply 🔊 (null = the browser's system default) and the narration voice (off by default).
+// A voice is the figure picker's binding: {browser:name} or {serviceId, voice}. Schemastery drops null defaults, so readingOf fills them.
+const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }) })
 export const Settings = z.object({ defaultServiceId: z.string().default(''), enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
+  reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
   cacheMaxAgeDays: z.natural().min(1).max(3650).default(30).description('\u7f13\u5b58\u4fdd\u7559\u5929\u6570'),
 })
@@ -34,6 +38,32 @@ export function validateSettings(value) {
   // the dictionary lives in reading presets (readings.json), not settings.
   if (Object.hasOwn(value,'readings') || Object.hasOwn(value,'dictionaryPath')) fail('UNKNOWN_FIELD')
   return value
+}
+export function readingOf(settings) {
+  const r = settings.reading || {}
+  return { dialogueVoice: r.dialogueVoice ?? null, narrator: { enabled: r.narrator?.enabled === true, voice: r.narrator?.voice ?? null } }
+}
+const plainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v)
+const voiceName = v => typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f]/.test(v)
+function readingVoice(v) {
+  if (v === null) return null
+  const keys = plainObject(v) ? Object.keys(v).sort().join() : ''
+  if (keys === 'browser' && voiceName(v.browser)) return { browser: v.browser }
+  if (keys === 'serviceId,voice' && PROVIDER_ID.test(v.serviceId) && voiceName(v.voice)) return { serviceId: v.serviceId, voice: v.voice }
+  fail('INVALID_READING_VOICE')
+}
+// Validated once here, on write; a bad patch is a repairable INVALID_READING_VOICE.
+export function patchReading(current, patch) {
+  const next = readingOf({ reading: current })
+  if (!plainObject(patch) || Object.keys(patch).some(k => !['dialogueVoice','narrator'].includes(k))) fail('INVALID_READING_VOICE')
+  if (Object.hasOwn(patch,'dialogueVoice')) next.dialogueVoice = readingVoice(patch.dialogueVoice)
+  if (patch.narrator !== undefined) {
+    const n = patch.narrator
+    if (!plainObject(n) || Object.keys(n).some(k => !['enabled','voice'].includes(k))) fail('INVALID_READING_VOICE')
+    if (n.enabled !== undefined) { if (typeof n.enabled !== 'boolean') fail('INVALID_READING_VOICE'); next.narrator.enabled = n.enabled }
+    if (Object.hasOwn(n,'voice')) next.narrator.voice = readingVoice(n.voice)
+  }
+  return next
 }
 // Pure migration primitive. No files, credentials, or automatic startup writes.
 export function importProviders(document) {

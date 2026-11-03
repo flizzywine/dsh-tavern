@@ -6,9 +6,9 @@ import { createReadingPresetStore } from './reading-presets.js'
 import { createTts } from './service.js'
 import { createCache } from './cache.js'
 import { createSampleCache } from './sample-cache.js'
-import { Settings, validateSettings, createServiceSettings } from './settings.js'
+import { Settings, validateSettings, createServiceSettings, readingOf, patchReading } from './settings.js'
 import { registerRoutes, registerEnabledRoute } from './routes.js'
-import { fail, hash, id } from './core.js'
+import { fail, hash, id, canonical } from './core.js'
 export const name = 'dsh-tavern-tts'
 export function apply(ctx, config = {}) {
   const settingsReady = installTtsSettingsMigration(ctx)
@@ -20,7 +20,13 @@ export function apply(ctx, config = {}) {
   const cacheLimits = value => ({maxBytes:value.cacheMaxGB * 1024 ** 3, maxAgeDays:value.cacheMaxAgeDays})
   const cache = createCache({dataDir:config.dataDir,...cacheLimits(entry),onBoot:row => ctx.logger.info('TAVERN_BOOT %s',JSON.stringify(row))})
   const tts = createTts({ profileId:config.profileId, dataDir:config.dataDir,
-    cache, defaultServiceId:() => source().defaultServiceId || '', globalReadings:() => readings.activeEntries() })
+    cache, defaultServiceId:() => source().defaultServiceId || '', reading:() => readingOf(source()), globalReadings:() => readings.activeEntries() })
+  // 'readingChanged' fires once per real change, whether written through setReading or edited in the settings document.
+  let lastReading = canonical(readingOf(source()))
+  function syncReading() {
+    const next = canonical(readingOf(source()))
+    if (next !== lastReading) { lastReading = next; tts.readingChanged() }
+  }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
   const services = createServiceSettings({ tts, samples, get:() => source(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
@@ -71,7 +77,7 @@ export function apply(ctx, config = {}) {
   }
   async function changed() {
     const mine = ++generation, value = source(); validateSettings(value)
-    await syncEnabled(); services.sync()
+    await syncEnabled(); services.sync(); syncReading()
     await cache.configure(cacheLimits(value), {lazy:true})
   }
   // the separate 字母词 list (settings
@@ -111,6 +117,13 @@ export function apply(ctx, config = {}) {
         const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
         await settings.replace('tts',validateSettings({...source(),enabled:args.enabled}),settings.describe().find(row => row.ns === 'tts')?.revision); await syncEnabled()
         return {enabled:source().enabled}
+      }
+      case 'reading': return readingOf(source())
+      case 'setReading': {
+        const next = patchReading(source().reading, args)
+        const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE')
+        await settings.replace('tts',validateSettings({...source(),reading:next}),settings.describe().find(row => row.ns === 'tts')?.revision); syncReading()
+        return readingOf(source())
       }
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
@@ -162,6 +175,9 @@ export function apply(ctx, config = {}) {
     }
   }
   ctx.provide('ttsControl',Object.freeze({call:control}))
-  registerRoutes(ctx,'/api/dsh-tts/v1',control, ticket => tts.redeemAudioTicket(ticket), tts.jobs, samples)
+  const root = '/api/dsh-tts/v1'
+  // The browser address of an audio ticket; the HTTP root is the plugin's alone.
+  tts.audioUrl = ticket => root + '/audio?ticket=' + encodeURIComponent(ticket)
+  registerRoutes(ctx,root,control, ticket => tts.redeemAudioTicket(ticket), tts.jobs, samples)
   ctx.effect(() => async () => { disposed = true; generation++; enabledListeners.clear(); services.dispose(); await tts.dispose() })
 }

@@ -25,12 +25,12 @@ const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && 
 export function defaultAssetEngineSettings() {
   return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,true])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
     dimensions:Object.fromEntries(ENGINE_DIMENSIONS.map(key => [key, true])), actionCaps:{...ACTION_CAPS},
-    voiceServices:{}, judge:defaultJudgeConfig(), narrator:{enabled:false, voice:null} }
+    voiceServices:{}, judge:defaultJudgeConfig() }
 }
-// 旁白配音: the global layer is complete, a card layer (stage.narrator) sets only what it overrides.
+// 旁白配音's card layer (stage.narrator) sets only what it overrides; the global layer is the tts plugin's tts.reading.narrator.
 // voice = a figure whose voice speaks the narration ({packId, figureId}) or a browser system voice ({browser}); null = none.
-export function validateNarratorSettings(value, path, complete = false) {
-  shape(value, ['enabled', 'voice'], complete ? ['enabled', 'voice'] : [], path)
+export function validateNarratorSettings(value, path) {
+  shape(value, ['enabled', 'voice'], [], path)
   if (value.enabled !== undefined) bool(value.enabled, path + '.enabled')
   const voice = value.voice
   if (voice === undefined || voice === null) return value
@@ -75,8 +75,6 @@ export function validateAssetEngineSettings(value) {
   shape(value.stageToggles, STAGE_TOGGLES, STAGE_TOGGLES, '$.stageToggles')
   for (const key of STAGE_TOGGLES) bool(value.stageToggles[key], '$.stageToggles.' + key)
   value.judge = validateJudgeConfig(value.judge ?? defaultJudgeConfig())
-  value.narrator ??= defaultAssetEngineSettings().narrator
-  validateNarratorSettings(value.narrator, '$.narrator', true)
   // Retired dimensions have no current command or UI; leave their persisted source untouched.
   if (value.dimensions && typeof value.dimensions === 'object' && !Array.isArray(value.dimensions)) value.dimensions = Object.fromEntries(Object.entries(value.dimensions).filter(([key]) => ENGINE_DIMENSIONS.includes(key)))
   const keys = Object.keys(defaultAssetEngineSettings())
@@ -116,7 +114,7 @@ export function validateAssetEngineSettings(value) {
 export function patchAssetEngineSettings(current, patch) {
   assertJson(patch); shape(patch, Object.keys(defaultAssetEngineSettings()).filter(key => key !== 'schemaVersion'), [], '$.patch')
   const next = {...current, ...cloneJson(patch)}
-  for (const key of ['dimensions', 'actionCaps', 'stageToggles', 'narrator']) if (Object.hasOwn(patch, key)) {
+  for (const key of ['dimensions', 'actionCaps', 'stageToggles']) if (Object.hasOwn(patch, key)) {
     shape(patch[key], Object.keys(current[key]), [], '$.patch.' + key)
     next[key] = {...current[key], ...patch[key]}
   }

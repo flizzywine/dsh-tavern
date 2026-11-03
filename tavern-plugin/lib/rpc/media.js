@@ -3,7 +3,7 @@
 export function createMediaHandlers(deps) {
   const { backgroundConfigForSession, castAssets, castEdit, castStage,
     pluginGalleryItems, pluginMediaForTurn, pluginMediaTurns, removePluginGalleryItems,
-    removePluginMediaVersion, speakLine, speech, speechReply, str } = deps
+    removePluginMediaVersion, speakLine, str } = deps
   return {
     async pluginMediaForTurn(args) {
       return await pluginMediaForTurn(args && args.sessionId, args && args.turn)
@@ -26,21 +26,9 @@ export function createMediaHandlers(deps) {
     async castSetVoice(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.setVoice({ cardPath, name: args.name, provider: args.provider, voice: args.voice }))
     },
-    async getSpeechSettings(args) {
-      return await speech.present()
-    },
-    async updateSpeechSettings(args) {
-      return await speech.save({ enabled: args && args.enabled, provider: args && args.provider, config: args && args.config || {}, apiKey: args && args.apiKey })
-    },
-    async speechTest(args) {
-      return speechReply(await speech.synthesize({ provider: args && args.provider, text: str(args && args.text) || '你好，这是配音试听。', voice: args && args.voice, emotion: args && args.emotion }))
-    },
-    async speechForLine(args) {
-      return await speakLine(args && args.sessionId, args || {})
-    },
-    // A channel's own model list (Fish /v1/info) for 配音 › 模型.
-    async speechServiceInfo(args) {
-      return await speech.serviceInfo({ provider: args && args.provider })
+    // 台词朗读: { url, mediaType, loudness } | { browser, voice, text } | { skip, reason } (TTS_UNAVAILABLE without a voice service).
+    async speechForLine(args, method, serverTemplate, authority) {
+      return await speakLine(args && args.sessionId, args || {}, authority?.origin)
     },
     async castRemoveCharacter(args) {
       return await castEdit(args && args.sessionId, cardPath => castAssets.removeCharacter({ cardPath, name: args.name }))

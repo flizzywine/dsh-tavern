@@ -167,4 +167,5 @@ const data = await ctx.tavern.readGameData({ gameId })
 - **契约唯一来源**：`dsh-presentation-protocol/tts`（`src/types/tts.d.ts`）。插件的类型从这里 re-export；本体与舞台不另抄一份。
 - **三个服务**：`ctx.get('tts')`（宿主侧 `Tts`：合成、缓存、服务列表、素材包声音来源与授权）、`ctx.get('ttsClient')`（浏览器侧 `TtsClient`：`available()`、`synthesize`、`audioUrl`、`jobStatus`、`cancelJob`）与 `ctx.get('ttsControl')`（配音设置页的控制 RPC）。插件未启用时这些服务都不提供，每次使用前重新 `ctx.get`。
 - **没有服务时**：调用方保持安静，以 `TTS_UNAVAILABLE` 作为诊断；正文、存档和聊天照常，错误不进聊天。
+- **台词朗读**：回复上的 🔊 与插件的 `synthesizeSpeech` 都经 `speakLine` 交给语音服务（`domain/speech.js`）；本体没有自己的配音渠道、设置或音频缓存。朗读声音是插件设置 `tts.reading`：`dialogueVoice`（台词）与 `narrator`（旁白的全局层，默认关闭；卡片的 `stage.narrator` 逐键覆盖它）。声音的写法与人物声音选择器一致：`{browser}` 或 `{serviceId, voice}`。`tavern.speechProvider({synthesize})` 注册的渠道作为语音服务的 provider `tavern-plugin:<owner>:<id>` 接入。
 - **边界守门**：`tests/tts-boundary.test.mjs`（只减不增）检查本体与舞台不以相对路径 import 插件、插件的 HTTP 根不出现在本体与舞台，以及 `ctx.get('tts*')` 调用点与本体 `provide('tts*')` 的上限。

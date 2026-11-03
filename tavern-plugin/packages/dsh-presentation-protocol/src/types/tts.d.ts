@@ -59,10 +59,24 @@ export interface ServiceVoice {
 export interface ServiceSynthesis { voiceId: string; text: string; language: string; mood?: string }
 /** Error code when no voice service can speak; callers stay silent and show it as a diagnostic, never throw it to chat. */
 export declare const TTS_UNAVAILABLE: 'TTS_UNAVAILABLE'
+/** A 台词朗读 voice, the same shape the figure voice picker produces: a browser system voice or a voice of a configured service. */
+export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice: string}
+/** Native setting tts.reading. dialogueVoice null = the browser's system default; narration reading is off by default. */
+export interface TtsReading { dialogueVoice: ReadingVoiceBinding | null; narrator: {enabled: boolean; voice: ReadingVoiceBinding | null} }
+/** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
+export interface TtsReadingPatch { dialogueVoice?: ReadingVoiceBinding | null; narrator?: {enabled?: boolean; voice?: ReadingVoiceBinding | null} }
+/** Host control service (ctx.get('ttsControl')); also served at /api/dsh-tts/v1/control. */
+export interface TtsControl {
+  call(method: 'reading'): Promise<TtsReading>
+  call(method: 'setReading', args: TtsReadingPatch): Promise<TtsReading>
+  call(method: string, args?: Record<string, unknown>): Promise<unknown>
+}
 /** Host consumer service; unregistered while native tts.enabled is false. */
 export interface Tts {
   readonly apiVersion: 1
   serviceDefaultsChanged(): void
+  /** Current tts.reading (a copy); subscribe for {type:'readingChanged'}. */
+  reading(): TtsReading
   registerProvider(owner: string, provider: Provider): () => void
   registerVoiceSource(input: VoiceSourceInput): {source: string; replace(next: VoiceSourceInput, expectedRevision: string): void; dispose(): void}
   grantConsumer(input: {principal: string; source: string; scope: string; authorize?: (input: unknown, provider: {serviceId:string;serviceRevision:string}) => void}): {grant: ConsumerGrant; dispose(): void}
@@ -86,10 +100,13 @@ export interface Tts {
   prewarm(input: {voice: VoiceRef; language: string}, options: {grant: ConsumerGrant; scope: string}): Promise<{prewarmed: boolean}>
   readAudio(input: {key: string; grant: ConsumerGrant}): Promise<Uint8Array>
   createAudioTicket(input: {key: string; grant: ConsumerGrant; ttlMs?: number}): Promise<string>
+  /** The same-origin browser address that redeems an audio ticket. */
+  audioUrl(ticket: string): string
   /** Read-only outstanding synthesis flights and browser jobs, including audio-ticket completion. */
   pendingCount(): number
   deleteCacheEntry(input: {key:string}): Promise<{removed:number; keys:string[]}>
   cacheSnapshot(): {count:number; bytes:number; maxBytes:number; maxAgeDays:number; loading:boolean; error?:string}
+  /** Events include 'readingChanged' (tts.reading changed; read it again with reading()). */
   subscribe(listener: (event: {type: string; source?: string; serviceId?: string; epoch?: number; code?:string}) => void): () => void
   dispose(): Promise<void>
 }

@@ -310,11 +310,11 @@ export function createTavernPluginApi(deps) {
   }
 
   /** One registry entry per (plugin, name), removed when the plugin unloads. */
-  function register(registry, key, entry, label, duplicate) {
+  function register(registry, key, entry, label, duplicate, changed = () => {}) {
     return owned(this, () => {
       if (registry.has(key)) throw new Error(duplicate)
-      registry.set(key, entry)
-      return () => { if (registry.get(key) === entry) registry.delete(key) }
+      registry.set(key, entry); changed()
+      return () => { if (registry.get(key) === entry) { registry.delete(key); changed() } }
     }, label)
   }
 
@@ -523,7 +523,8 @@ export function createTavernPluginApi(deps) {
       return await deps.readCardPackFile(game.sessionId, pack, path)
     },
 
-    // A speech channel of the plugin's own; players pick it in Tavern's voicing settings.
+    // A speech channel of the plugin's own: it joins the voice service as provider 'tavern-plugin:<owner>:<id>'
+    // (its voices are the catalogue, version its revision).
     speechProvider({ id, label, description = '', voices = [], defaultVoice = '', version = '', synthesize } = {}) {
       const owner = ownerOf(this)
       sectionName(id)
@@ -534,7 +535,7 @@ export function createTavernPluginApi(deps) {
       const key = owner + '/' + id
       const entry = { id: key, owner, label: label.trim(), description: String(description).slice(0, 300), voices: voices.slice(0, 200), defaultVoice: String(defaultVoice || ''), version,
         synthesize: input => bounded(synthesize(input), '配音渠道 ' + key, REPLACEMENT_TIMEOUT_MS).catch(error => { recordError(null, owner, '配音', error); throw error }) }
-      return register.call(this, speechProviders, key, entry, 'tavern.speechProvider()', '配音渠道 ' + id + ' 已注册')
+      return register.call(this, speechProviders, key, entry, 'tavern.speechProvider()', '配音渠道 ' + id + ' 已注册', () => deps.speechProvidersChanged?.())
     },
 
     // Picture generation Tavern itself asks for (stage asset packs). Tavern keeps no image channels:
@@ -558,8 +559,8 @@ export function createTavernPluginApi(deps) {
       return register.call(this, imageProviders, key, entry, 'tavern.imageProvider()', '生图渠道 ' + id + ' 已注册')
     },
 
-    // Say a line in a character's voice on the channel the player chose: { url, mediaType }, or
-    // null when voicing is off, the channel is the browser's own, or narration is set silent.
+    // Say a line in its voice through the voice service: { url, mediaType }, or null when there is no voice service,
+    // the voice is the browser's own, or narration is off.
     async synthesizeSpeech({ gameId, speaker, text, emotion, narration } = {}) {
       const game = await requireGame(gameId)
       if (typeof text !== 'string' || !text.trim()) throw new TypeError('text 必须是非空字符串')
