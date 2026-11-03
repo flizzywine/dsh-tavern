@@ -11,6 +11,11 @@ export function createStageHandlers(deps) {
       const { widgetVariables } = deps
 return widgetVariables.read({...args,origin:authority?.origin})
     },
+    async readStatusPanel(args, method, serverTemplate, authority) {
+      const { statusPanel } = deps
+      const { sessionId, withHtml } = args || {}
+      return statusPanel.read({ sessionId, withHtml })
+    },
     async proposeWidgetVariables(args, method, serverTemplate, authority) {
       const { widgetVariables } = deps
 return widgetVariables.propose(args)

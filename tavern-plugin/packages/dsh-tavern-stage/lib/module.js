@@ -31,6 +31,7 @@ import {createStagePhoneHost} from './mods/phone/host.js'
 import {createTimerExtension} from './mods/timer/extension.js'
 import {createStageExtensions} from './stage-extensions.js'
 import {createWidgetVariableService} from './domain/widget-variable-service.js'
+import {createStatusPanelService} from './domain/status-panel-service.js'
 import {createCgGallery} from './cg-gallery.js'
 import {readStageProjection, stageProjectionPage} from './domain/stage-projection.js'
 import {readWidgetWindowProjection} from './domain/widget-window-projection.js'
@@ -329,12 +330,13 @@ export function createStageAssets(core) {
 export function createStageServices(core) {
   const {ctx, profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, cardStageSwitch, stageDirector, modService, managedModManagement} = core
   // only the trusted stage host selects a read point and installed widget.
+  const readSessionIndex = async sessionId => {
+    const chatId = (await readSessionMap())[sessionId]
+    return chatId ? chatPersistence.readSessionState(chatId) : null
+  }
   const widgetVariables = createWidgetVariableService({
     prepareCommit:input=>modService.variableCommit(input),
-    index: async sessionId => {
-      const chatId = (await readSessionMap())[sessionId]
-      return chatId ? chatPersistence.readSessionState(chatId) : null
-    },
+    index: readSessionIndex,
     readWindow: chatPersistence.readWindow, timeline: storyTimeline, patch: patchChat,
     execute: input => tavernScriptHostAdapter.editMvuVariables(input),
     availability: sessionId => tavernScriptDispatch.status(sessionId),
@@ -375,10 +377,13 @@ export function createStageServices(core) {
     return () => {ready();settled();widgetVariables.dispose()}
   })
 
+  // The status panel reads the library card's declared paths and ledger sections, never the chat's frozen snapshot.
+  const statusPanel = createStatusPanelService({readWorkspace:cardStorage.readWorkspace, chatForSession, index:readSessionIndex,
+    readWindow:chatPersistence.readWindow, readRevision:chatPersistence.readRevision})
   // no gallery state is exported through cards or asset packs.
   const cgGallery = createCgGallery({profileData,cardStorage,resolveCard:cardStorage.resolve,chatForSession,assets:assetRuntime,
     readDirection:(chat,turn) => stageDirector.get(chat,Number(turn),null,{readOnly:true}),readSettings:() => assetEngineSettings.read()})
 
   const extensions = core.stageExtensions.start({...core,widgetVariables,cgGallery})
-  return {widgetVariables, cgGallery, ...extensions}
+  return {widgetVariables, statusPanel, cgGallery, ...extensions}
 }
