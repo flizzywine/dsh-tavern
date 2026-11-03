@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0a3548f8b1a6fabe81e3a3d47babe93f367e2363",
-  "releaseSequence": 1095,
+  "revision": "32192ec86b8a21a7c5096b8731cc7f4c2fa4302f",
+  "releaseSequence": 1096,
   "version": "3.2.0",
   "files": [
     {
@@ -706,8 +706,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-data.md",
-      "sha256": "1505e10173a6aea070d2e260b799050e3a89ad72710caa0d89902c20bb2fa5ec",
-      "size": 13126
+      "sha256": "42a6db371968c8ce29ca20b7b34271c2bc9bfb71351fb29b52bac05fe3826a00",
+      "size": 14360
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-game.md",
@@ -726,8 +726,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api.md",
-      "sha256": "b425e694838fc5a20b9878ad02b6630261df1179b6cb892dbe477cb7400465db",
-      "size": 15884
+      "sha256": "17da1a9947684789b78c988257d0e729fc461c8876b99601ad27c8f203375075",
+      "size": 15959
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-publishing.md",
@@ -3611,8 +3611,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "500819cc3b4c3ea2f000f66cc6b234e375278e33bf8223c0b60c16c2e5328f6d",
-      "size": 112358
+      "sha256": "737dfa3006262572eb4da5d59119c0efd3605459c361b36b1988452b4a56d09d",
+      "size": 113334
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -3676,8 +3676,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/settings.js",
-      "sha256": "b8f944e406402acc69835da15a0a49f3d61d30e3ff27746f4bd9dad6763f87d8",
-      "size": 7199
+      "sha256": "aadfeb8d3bb5ea02b16cbe4f94e0a84fb36dd9aa4c9361166263ff63c336e613",
+      "size": 7402
     },
     {
       "path": "tavern-plugin/lib/rpc/template.js",
@@ -9281,9 +9281,9 @@
     }
   ],
   "archive": {
-    "commit": "3df45084f408df076f0dd9a338278bb0a479acc6",
+    "commit": "f6891ad499e460de6c156aaf1eba44e94a40691f",
     "path": "runtime.zip",
-    "sha256": "c479e4a9443b8c0645af32e989aa70f9e36401cb1d6a2496d924e30a083e6658",
-    "size": 15629114
+    "sha256": "9a9f8bea6ad16a7a089ec634cf7c8347118f581ed8ca82c7a8a20d241094a6ce",
+    "size": 15630018
   }
 }
