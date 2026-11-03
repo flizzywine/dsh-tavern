@@ -19,14 +19,16 @@
 
 ```html
 <style>
-  body { margin: 0; padding: 16px; font: 15px/1.6 var(--font, serif); color: var(--ink); }
+  .panel { padding: 16px; font: 15px/1.6 var(--font, serif); color: var(--ink); }
   .row { display: flex; gap: 12px; align-items: center; }
   .row img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--surface); }
   ul { padding-left: 1.2em; }
   .muted { color: var(--muted); }
 </style>
+<main class="panel">
 <div class="row"><img id="face" alt=""><div><b>辉夜</b><div id="affinity" class="muted"></div></div></div>
 <ul id="items"></ul>
+</main>
 <script>
   let api = null
   try { api = parent.DshStatusPanel } catch {}
@@ -53,6 +55,7 @@
 - 打开时先用 `data()` 画一次，之后的推送（新回合结算、头像就绪）都走 `onData(render)`，同一个函数处理两种情况。
 - 每个变量先看 `status`，不是 `ready` 就显示占位。
 - 台账文本来自剧情，插进 HTML 前转义。
+- 边距写在外层容器上：卡片 HTML 文档统一把 `html`、`body` 的 margin 和 padding 归零（带 `!important`），写在 `body` 上不生效。
 - 不受信任的会话里没有 `DshStatusPanel`，脚本显示一行说明而不是报错。
 
 ## 写入
