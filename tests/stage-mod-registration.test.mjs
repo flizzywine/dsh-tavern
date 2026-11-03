@@ -22,6 +22,15 @@ test('mod config owner releases validators and refuses registration after dispos
   assert.throws(()=>owner.register(packs),{code:'SOURCE_UNAVAILABLE'})
 })
 
+// A mod still installed in the library after its built-in was removed (owner 2026-11-02: 弹幕, 地图) is named by its own
+// installed manifest; it once took the whole stage runtime down at start (舞台不可用).
+test('installed managed mods are named by their own manifests, not the built-in catalogue',async()=>{
+  const gone={id:'test.gone',name:'已移除',config:{schema:{properties:{note:{type:'string',maxLength:8}}},defaults:{note:''}},preferences:{schema:{properties:{}}}}
+  const owner=createModConfigHost({manifests:[],managedManifests:[gone],store:{},listCards:async()=>[],readCard:async()=>null})
+  const {sources:rows}=await owner.sources.list({mods:{'test.gone':{note:'x'}}})
+  assert.equal(rows.find(row=>row.id==='mod:test.gone')?.label,'已移除')
+})
+
 test('partially failed mod config registration rolls back its earlier validators',()=>{
   let live=0,calls=0
   const packs={apiVersion:2,registerModPrivate(){if(++calls===2)throw Error('registration failed');live++;return()=>live--}}
