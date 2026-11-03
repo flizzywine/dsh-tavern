@@ -22329,7 +22329,11 @@ function tavernModelRefusalNotice(text) {
 		return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, resolveFigureName};
 		})();
 		if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = figureResolution;
-		// Voice directions are projections; the story's raw text remains authoritative.
+		// Voice directions are projections; the story's raw text remains authoritative; the protocol's voice-cues.cjs projects them.
+		// Voice directions (`{…}` cues inside a spoken line) are projections; the story's raw text remains authoritative.
+		// One authority: the bubble parser (bubble-line.cjs, included in the browser, required in Node) and the voice plugin
+		// (dsh-tavern-tts, copied into its src/shared by build.mjs) both read these.
+		const voiceCues = (() => {
 		function projectVoiceCues(text, { cues = false, streaming = false, spoken = value => value } = {}) {
 		    const source = String(text || "");
 		    let result = "", start = 0, depth = 0, open = -1;
@@ -22354,6 +22358,10 @@ function tavernModelRefusalNotice(text) {
 		function hasLeadingVoiceCue(text) {
 		    return /^\s*\{[^{}]{1,80}\}/u.test(text);
 		}
+		return { projectVoiceCues, hasLeadingVoiceCue };
+		})();
+		if (typeof window === "undefined" && typeof module !== "undefined") module.exports = voiceCues;
+		const { projectVoiceCues, hasLeadingVoiceCue } = typeof voiceCues !== 'undefined' ? voiceCues : require('../../packages/dsh-presentation-protocol/src/voice-cues.cjs');
 		// Shared by host parsers and the bundled client. Only whole-line code quotes
 		// are syntax; backticks inside a bracket (including a streaming one) are text.
 		// Body models also wrap a whole bubble line in Markdown emphasis (`*@bubble…]*`, `…]**`); the
@@ -52351,6 +52359,8 @@ if (typeof module !== 'undefined' && typeof window === 'undefined') module.expor
                     children: { "settings.tavern.appearance": { kind: "list", scope: "root" } }
 				}, TavernSettingsSection); });
 			}, "dsh-tavern: settings section");
+			// The voice plugin's 配音 page lists browser speech as its first 语音服务 row; the Tavern owns the speaking (voice.js).
+			ctx.provide("ttsBrowserSpeech", browserSpeechService);
             ctx.effect(function () {
                 return slots.inject("settings.section", function () { return slots.register({ name:"settings.section", id:"dsh-tavern-speech", order:112, label:() => "配音" },
                     () => React.createElement("div", {className:"dsh-tavern-global-settings"}, React.createElement(TavernSpeechSettings))); });

@@ -5,13 +5,13 @@ export interface VoiceLoudness { version: 1; lufs: number | null; truePeak: numb
 /** Opaque provider requirements, bounded JSON without paths or credentials. */
 export interface PortableVoice {
   schemaVersion: 1; id: string; label: string; enabled: boolean
-  kind: 'service' | 'reference' | 'azure' | 'volcengine' | 'qwen' | 'fish-audio' | 'openai-compatible'
+  kind: 'service' | 'reference' | 'azure' | 'volcengine' | 'qwen' | 'fish-audio' | 'openai-compatible' | 'minimax'
   voiceId?: string; engine?: string; revision?: string; modelSetId?: string; modelVersion?: string
   languages: string[]; params: Record<string, unknown> & { moods?: Record<string, string | null>; styles?: boolean }; moodStyles?: Record<string, string>
   /** Ordered clips including repeated entries; byte/count limits are provider capabilities. */
   references?: {sha256: string; transcript: string; language: string; file?: string}[]
 }
-export interface VoicePreset extends PortableVoice { kind: 'service' | 'azure' | 'qwen' | 'fish-audio' | 'volcengine' | 'openai-compatible'; providerId?: string }
+export interface VoicePreset extends PortableVoice { kind: 'service' | 'azure' | 'qwen' | 'fish-audio' | 'volcengine' | 'openai-compatible' | 'minimax'; providerId?: string }
 export interface VoicePresetImportResult { added: string[]; unchanged: string[]; conflicts: string[] }
 declare const consumerGrant: unique symbol
 export type ConsumerGrant = { readonly [consumerGrant]: true }

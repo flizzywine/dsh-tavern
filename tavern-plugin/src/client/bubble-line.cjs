@@ -1,28 +1,6 @@
-// Voice directions are projections; the story's raw text remains authoritative.
-function projectVoiceCues(text, { cues = false, streaming = false, spoken = value => value } = {}) {
-    const source = String(text || "");
-    let result = "", start = 0, depth = 0, open = -1;
-    for (let i = 0; i < source.length; i++) {
-        if (source[i] === "{") {
-            if (!depth) { result += spoken(source.slice(start, i).replace(/[{}]/g, "")); open = i; }
-            depth++;
-        } else if (source[i] === "}" && depth) {
-            if (--depth === 0) {
-                const cue = source.slice(open + 1, i);
-                if (cue.includes("{")) result += spoken(cue.replace(/[{}]/g, ""));
-                else if (cues && cue.trim() && [...cue].length <= 80) result += "[" + cue + "]";
-                start = i + 1;
-            }
-        }
-    }
-    if (depth) {
-        if (!streaming) result += spoken(source.slice(open + 1).replace(/[{}]/g, ""));
-    } else result += spoken(source.slice(start).replace(/[{}]/g, ""));
-    return result;
-}
-function hasLeadingVoiceCue(text) {
-    return /^\s*\{[^{}]{1,80}\}/u.test(text);
-}
+// Voice directions are projections; the story's raw text remains authoritative; the protocol's voice-cues.cjs projects them.
+// @include-protocol voice-cues.cjs
+const { projectVoiceCues, hasLeadingVoiceCue } = typeof voiceCues !== 'undefined' ? voiceCues : require('../../packages/dsh-presentation-protocol/src/voice-cues.cjs');
 // Shared by host parsers and the bundled client. Only whole-line code quotes
 // are syntax; backticks inside a bracket (including a streaming one) are text.
 // Body models also wrap a whole bubble line in Markdown emphasis (`*@bubble…]*`, `…]**`); the
