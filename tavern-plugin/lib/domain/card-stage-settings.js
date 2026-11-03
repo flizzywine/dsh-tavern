@@ -90,7 +90,7 @@ export function cardStageChoice(stored, key) {
 // the stage there is no stage snapshot (asset-runtime.js), and the panel greys them by the same effective state.
 export function effectiveCardStage(extension, engine) {
   const stored = extension?.stage || {}
-  validateCardStage(stored)
+  // read as stored: a card's stage is validated once, when it is written or imported, never on read.
   const global = engine?.stageToggles || defaultAssetEngineSettings().stageToggles, card = stored.switches || {}
   const choice = key => CARD_DECLARED.includes(key) ? cardStageChoice(stored, key) : card[key]
   const value = {widgets:false, ...stored, ...Object.fromEntries(STAGE_TOGGLES.map(key => [key, resolveSwitch(global[key], choice(key))]))}
