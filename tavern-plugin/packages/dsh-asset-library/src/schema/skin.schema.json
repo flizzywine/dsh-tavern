@@ -3840,6 +3840,16 @@
          "minimum": -256,
          "maximum": 256,
          "description": "§18 N19: the bars set along a leaning axis drawn on the sheet: each bar this many design px right of the one above it (negative = left), its label column with it."
+        },
+        "letter": {
+         "enum": ["ransom"],
+         "description": "§18 N31: the labels cut into ransom glyph blocks (each glyph one of a few closed variants of paint, size and tilt picked from the word itself, like the ransom name plate); screen readers read the word."
+        },
+        "focusScale": {
+         "type": "number",
+         "minimum": 1,
+         "maximum": 1.6,
+         "description": "§18 N31: the focused label drawn this much larger; its bar and hit area stay."
         }
        }
       },
@@ -7637,6 +7647,17 @@
        "maximum": 64,
        "description": "§18 N29: each row of a section this many design px further in from the start than the one above (a leaning column); wide stages only (none at 640px and less)."
       },
+      "block": {
+       "type": "object",
+       "description": "§18 N30: on wide stages the rows and section heads stand in one block: label = the label column's width, control = the control column's (design px), the block at the page's start, centre or end (never wider than the page). A phone's rows stay full width.",
+       "additionalProperties": false,
+       "required": ["label", "control"],
+       "properties": {
+        "label": { "type": "number", "minimum": 80, "maximum": 1200 },
+        "control": { "type": "number", "minimum": 120, "maximum": 1600 },
+        "place": { "enum": ["start", "center", "end"] }
+       }
+      },
       "focusPaint": {
        "type": "object",
        "description": "§18 N22: the focused row's words on its focus plate: bg = the plate's ground the inks are checked against (>= 4.5), fg the label, fgMuted the readouts and unselected words while the row has the focus.",
@@ -7710,6 +7731,47 @@
      "description": "One look per control type (data-fk-control on each row). other = every type the skin does not list and every type the engine or a mod adds later (the fallback), and the engine's composite rows.",
      "additionalProperties": false,
      "properties": {
+      "plate": {
+       "type": "object",
+       "description": "§18 N30: the value plate - one plate behind each row's whole control (a segmented group, a rail with its end words and readout, a switch, a field), filling the control column; focus = while its row has the focus. Sliced and scaled like a plate.",
+       "additionalProperties": false,
+       "required": ["plain"],
+       "properties": {
+        "plain": { "$ref": "#/$defs/image" },
+        "on": { "$ref": "#/$defs/image" },
+        "focus": { "$ref": "#/$defs/image" },
+        "slice": { "$ref": "#/$defs/slice" },
+        "scale": { "type": "number", "minimum": 0.25, "maximum": 8 },
+        "outset": {
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": { "enum": ["stretch", "round", "repeat", "space"] }
+       }
+      },
+      "paint": {
+       "type": "object",
+       "description": "§18 N30: the words on the value plate (a white plate on a dark page): fg the values and the chosen option, fgMuted the unchosen options and the rail's end words, bg the plate's ground both are checked against (>= 4.5). The plate keeps these inks on a focused row.",
+       "additionalProperties": false,
+       "required": ["bg", "fg", "fgMuted"],
+       "properties": {
+        "bg": { "$ref": "#/$defs/color" },
+        "fg": { "$ref": "#/$defs/color" },
+        "fgMuted": { "$ref": "#/$defs/color" }
+       }
+      },
+      "font": {
+       "type": "object",
+       "description": "§18 N31: the values' own face - ui (the labels' face) or title (ui.titleFont, a condensed display face) - and weight; the labels keep theirs.",
+       "additionalProperties": false,
+       "required": ["face"],
+       "properties": {
+        "face": { "enum": ["ui", "title"] },
+        "weight": { "enum": [400, 500, 700, 900] }
+       }
+      },
       "segmented": {
        "type": "object",
        "additionalProperties": false,
@@ -8241,6 +8303,8 @@
      "properties": {
       "image": { "$ref": "#/$defs/image" },
       "h": { "type": "number", "minimum": 24, "maximum": 400 },
+      "fit": { "enum": ["tile", "stretch", "contain"], "description": "§18 N31: tile (the default) = repeated across at its own aspect; stretch = one copy across the strip's whole width; contain = one copy at its own aspect." },
+      "place": { "enum": ["start", "center", "end"], "description": "§18 N31: where a tiled or contained image starts along the strip (default start)." },
       "close": {
        "type": "object",
        "additionalProperties": false,
@@ -8715,6 +8779,10 @@
       "center",
       "end"
      ]
+    },
+    "letter": {
+     "enum": ["ransom"],
+     "description": "§18 N31 (title strip only): the words cut into ransom glyph blocks, like art.menu.rows.letter."
     },
     "vertical": {
      "const": true,

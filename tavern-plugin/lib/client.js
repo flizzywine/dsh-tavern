@@ -52369,8 +52369,13 @@ const skinModes = value => value !== null && typeof value === 'object' && !Array
 // vertical: the words run top to bottom, centred on [l, r] and on y (a hanging plaque).
 // rule: a drawn rule hugging the words on both sides - the image as the right-hand one at its natural size (design px),
 // mirrored on the left, gap design px from the words.
-const skinMenuStrip = skinObject({image:skinImage,x:skinPx,y:skinPx,text:skinArray(skinNumber(0,8192),3,3),font:skinNumber(8,256),ink:skinColor,align:skinEnum(['start','center','end']),vertical:value => value === true,
-    rule:skinObject({image:skinImage,gap:skinNumber(0,512)},['image'])},['x','y','text','font']);
+const skinMenuStripFields = {image:skinImage,x:skinPx,y:skinPx,text:skinArray(skinNumber(0,8192),3,3),font:skinNumber(8,256),ink:skinColor,align:skinEnum(['start','center','end']),vertical:value => value === true,
+    rule:skinObject({image:skinImage,gap:skinNumber(0,512)},['image'])};
+const skinMenuStrip = skinObject(skinMenuStripFields,['x','y','text','font']);
+// letter ransom (§18 N31): the words cut into glyph blocks like the ransom name plate (each glyph one of a few closed
+// variants of paint, size and tilt, picked from the word itself) - the title strip and the menu rows (art.menu.rows.letter).
+const STAGE_SKIN_MENU_LETTERS = Object.freeze(['ransom']);
+const skinMenuTitle = skinObject({...skinMenuStripFields,letter:skinEnum(STAGE_SKIN_MENU_LETTERS)},['x','y','text','font']);
 // A highlight drawn behind an element (the current one, or the one under the pointer and keyboard focus): its image stretched
 // over the element (irregular edges: the image's own), out = how far it overhangs the element
 // [top, right, bottom, left] in design px (negative = inset). The original's stains and worn strips, never a flat fill.
@@ -52429,10 +52434,13 @@ const skinMenu = value => skinObject({sheet:skinImage,frame:skinMenuFrame,tiles:
     motion:skinObject({enter:skinObject({pose:skinPose,ms:skinNumber(40,1500),stagger:skinNumber(0,200),delay:skinNumber(0,1500),ease:skinEase,fade:value => value === true},['pose','ms']),
         leave:skinStage,frame:skinStage,frameOut:skinStage,parts:skinObject(Object.fromEntries(STAGE_SKIN_MENU_PARTS.map(part => [part,skinMenuPart])))}),decor:skinEnum(['hide']),
     // rows.slant (§18 N27): each bar this many design px right of the one above (a list along a leaning axis drawn on the sheet).
+    // rows.letter (§18 N31): the labels as ransom glyph blocks (skinMenuTitle); rows.focusScale: the focused label drawn this much
+    // larger (its bar and hit area unchanged), on phones too.
     rows:skinObject({images:skinObject({plain:skinImage,focus:skinImage,off:skinImage},['plain','focus']),slice:skinSlice,text:skinArray(skinNumber(0,4096),3,3),slant:skinNumber(-256,256),
-        font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y'])},
+        font:skinNumber(8,256),x:skinPx,y:skinPx,gap:skinNumber(0,512),ink:skinColor,focusInk:skinColor,weight:skinEnum([400,500,700]),spacing:skinNumber(0,0.5),align:skinEnum(['start','center','end']),cursor:skinObject({image:skinImage,x:skinPx,y:skinPx},['image','x','y']),
+        letter:skinEnum(STAGE_SKIN_MENU_LETTERS),focusScale:skinNumber(1,1.6)},
         ['images','slice','text','font','x','y','gap']),
-    title:skinMenuStrip,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
+    title:skinMenuTitle,info:skinMenuStrip,keys:skinMenuStrip})(value) && Object.hasOwn(value,'rows') !== Object.hasOwn(value,'tiles')
     && (!value.narrow || Boolean(value.rows) && (!value.narrow.title || Boolean(value.title)) && (!value.narrow.signal || Boolean(value.signal && value.title)));
 // the stage's own overlays drawn as the original's
 // screens on wide stages. A placed image: its top-left at x, y on the design screen at `scale` design px per image px; focus
@@ -52778,10 +52786,17 @@ const skinConfigAmbient = value => skinArray(skinConfigAmbientLayer,1,2)(value) 
 // word, no Latin letters (no CONFIG / OPTION), no spaces or separators, and never 设置 paired with anything (R25: no second label).
 const skinConfigWordOne = value => !/[\p{Script=Latin}\s·・/|｜／—–-]/u.test(value) && (value === '设置' || !value.includes('设置'));
 const skinConfigWord = value => typeof value === 'string' && [...value].length >= 1 && [...value].length <= 24 && !/[\r\n"\\]/.test(value) && skinConfigWordOne(value);
-const skinConfigControls = skinObject(Object.fromEntries(Object.entries(STAGE_CONFIG_LOOKS.controls).map(([type,looks]) => [type,type === 'slider'
+// controls.plate / paint (§18 N30): the value plate - one plate behind each row's whole control (a segmented group, a rail with
+// its end words and readout, a switch, a field; focus = while its row has the focus) - and the words on it: fg the values and
+// the chosen option, fgMuted the unchosen options and the rail's end words, bg the plate's ground they are checked against.
+const skinConfigControls = skinObject({...Object.fromEntries(Object.entries(STAGE_CONFIG_LOOKS.controls).map(([type,looks]) => [type,type === 'slider'
     // ends (§18 X7): the plate behind each end word of the rail (a slanted tag), the words upright on it.
     ? skinObject({look:skinEnum(looks),track:skinConfigPlate,fill:skinConfigPlate,thumb:skinObject({image:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['image']),ends:skinConfigPlate})
-    : skinObject({look:skinEnum(looks),plate:skinConfigStates})])));
+    : skinObject({look:skinEnum(looks),plate:skinConfigStates})])),
+    plate:skinConfigStates,paint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted']),
+    // font (§18 N31): the values' own face - ui (the labels' face) or title (ui.titleFont: a condensed display face beside the
+    // labels) - and weight; the labels keep theirs.
+    font:skinObject({face:skinEnum(['ui','title']),weight:skinEnum([400,500,700,900])},['face'])});
 const skinConfigSurfaceShape = skinObject({
     // frame: sheet = the centred sheet, drawer = a full-height panel from one side (the stage visible beside it), full = the
     // whole stage; side = the drawer's side; width = the sheet's / drawer's share of
@@ -52813,10 +52828,16 @@ const skinConfigSurfaceShape = skinObject({
     // 640px and less).
     row:skinObject({look:skinEnum(STAGE_CONFIG_LOOKS.row),label:skinEnum(['start','above']),labelAlign:skinEnum(['start','end']),density:skinEnum(['compact','regular','airy']),columns:skinNumber(1,2,true),plate:skinConfigStates,
         slant:skinNumber(-10,10),step:skinNumber(0,64),
+        // row.block (§18 N30): on wide stages the rows and section heads stand in one block - label design px for the label
+        // column, control for the control's - placed at the page's start, centre or end (never wider than the page).
+        block:skinObject({label:skinNumber(80,1200),control:skinNumber(120,1600),place:skinEnum(['start','center','end'])},['label','control']),
         focusPaint:skinObject({bg:skinColor,fg:skinColor,fgMuted:skinColor},['bg','fg','fgMuted'])}),
     // foot (§18 X15): a strip h design px tall along the frame's foot (a torn skyline), its image tiled across; the page ends
     // above it. close = the ✕ moves onto the strip's middle, drawn on this image (natural size x scale; focus = pointer / keyboard).
-    foot:skinObject({image:skinImage,h:skinNumber(24,400),close:skinObject({plain:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['plain'])},['image','h']),
+    // foot.fit / place (§18 N31): how the image fills the strip - tile (the default: repeated across at its own aspect), stretch (one
+    // copy across the strip's whole width) or contain (one copy at its own aspect) - and where a tiled or contained one starts.
+    foot:skinObject({image:skinImage,h:skinNumber(24,400),fit:skinEnum(['tile','stretch','contain']),place:skinEnum(['start','center','end']),
+        close:skinObject({plain:skinImage,focus:skinImage,scale:skinNumber(.25,8)},['plain'])},['image','h']),
     controls:skinConfigControls,
     scroll:skinObject({fade:skinEnum(['none','edge'])}),
     motion:skinObject({rows:skinEnum(['none','rise','fade']),stagger:skinNumber(0,60,true)}),
@@ -52829,7 +52850,7 @@ const skinConfigSurface = value => skinConfigSurfaceShape(value) && (value.title
 function stageSkinConfigFiles(config) {
     const plate=value => value ? [value.image,value.plain,value.on,value.focus].filter(Boolean) : [];
     return [config?.frame?.plate,config?.frame?.backdrop && {image:config.frame.backdrop.image},config?.frame?.crest,config?.title?.plate,config?.nav?.plate,config?.nav?.mark,config?.section?.plate,config?.row?.plate,
-        ...Object.values(config?.controls || {}).flatMap(control => [control.plate,control.track,control.fill,control.thumb,control.ends]),...(config?.ambient || []),config?.foot,config?.foot?.close].flatMap(plate);
+        ...Object.values(config?.controls || {}).flatMap(control => [control.plate,control.track,control.fill,control.thumb,control.ends]),config?.controls?.plate,...(config?.ambient || []),config?.foot,config?.foot?.close].flatMap(plate);
 }
 // a devices side's patch: the keys it may override, each an object (merged) or null (removed); the merged skin is checked whole.
 // config (§18 N24): a phone may draw the CONFIG screen as the original's handheld layout does.
@@ -52939,6 +52960,7 @@ function validateStageSkin(value) {
         ...(value.config?.nav?.paint ? (np => [[np.fg,np.bg,4.5],[np.fgMuted,np.bg,3],[np.accent,np.bg,4.5],[np.onBg,value.config.frame?.paint?.bg || ui.bg,4.5]])(value.config.nav.paint) : []),
         ...(value.config?.section?.paint ? [[value.config.section.paint.fg,value.config.section.paint.bg,4.5]] : []),
         ...(value.config?.row?.focusPaint ? [[value.config.row.focusPaint.fg,value.config.row.focusPaint.bg,4.5],[value.config.row.focusPaint.fgMuted,value.config.row.focusPaint.bg,4.5]] : []),
+        ...(value.config?.controls?.paint ? [[value.config.controls.paint.fg,value.config.controls.paint.bg,4.5],[value.config.controls.paint.fgMuted,value.config.controls.paint.bg,4.5]] : []),
         ...(value.hud?.plate ? [[value.hud.plate.fg,value.hud.plate.bg,4.5]] : [])];
     if (pairs.some(([a,b,min]) => a && (!b || skinContrast(a,b)+1e-6 < min))) throw Object.assign(new Error('Skin text contrast is unsafe'),{code:'SKIN_CONTRAST'});
     if (stageSkinNarrationGrounds(value.art?.narration).some(ground => skinContrast(value.art.narration.ink || STAGE_NARRATION_INK,ground)+1e-6 < 4.5)) throw Object.assign(new Error('Skin narration contrast is unsafe'),{code:'SKIN_CONTRAST'});
