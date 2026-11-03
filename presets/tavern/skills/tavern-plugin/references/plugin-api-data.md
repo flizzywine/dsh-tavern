@@ -31,6 +31,25 @@ if (ctx.tavern.capabilities?.galleryProvider >= 1) {
 - `remove` 仅收到该 provider 自己列表中的 ID；只有返回 `true` 才报告删除成功。回调超时、插件卸载或卡片作用域变化时，迟到结果会被丢弃。provider 出错只隐藏或跳过它自己的条目。
 - 注册随插件卸载自动撤销；每个插件最多注册一个画廊来源。provider 图片仍由插件自己的存储管理，Tavern 不复制文件，也不让它们进入剧情分叉或存档。
 
+## 提供模型价格（`pricingProvider: 1`）
+
+Tavern 自己不带价格表。知道模型价格的插件（例如读自己网关定价的插件）用 `pricingProvider` 报价；界面经 `tavernPresentation.getModelPricing(sessionId)` 问到的就是它对这个会话当前模型的报价。
+
+```js
+if (ctx.tavern.capabilities?.pricingProvider >= 1) {
+  ctx.tavern.pricingProvider({
+    async quote({ provider, model }) {
+      const price = await myGatewayPrice(provider, model)
+      if (!price) return { available: false, reason: '网关没有 ' + model + ' 的价格' }
+      return { available: true, rates: { input: price.input, output: price.output, cacheRead: price.cached, cacheWrite: price.input } }
+    }
+  })
+}
+```
+
+- `quote` 收到会话当前的模型选择 `{ provider, model, reasoningEffort? }`（会话没有选择时为 `null`），价格以美元 / 百万 Token 计。拿不到价格时返回 `{ available: false, reason }`，不要猜值。
+- 每个插件最多一个，多个插件都提供时只问最先注册的那个；没有插件提供时 `getModelPricing` 返回 `{ available: false }`。超过 30 秒或出错时这次没有价格，错误记进 Tavern 日志。注册随插件卸载自动撤销。
+
 ## `attach({ gameId, turn, textVersion, item })`
 
 把一个媒体项挂到某个版本上，返回 `{ id }`。`textVersion` 必须是 `onTurnSettled` 或 `getTurn` 给出的这一轮的版本，否则拒绝。用户在生成期间切换了版本也没关系：媒体项照样保存，切回那个版本时显示。
