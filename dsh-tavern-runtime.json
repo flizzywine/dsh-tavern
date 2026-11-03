@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "8c51d0664ce1a4010ce4bf7ded675e73ed984f9c",
-  "releaseSequence": 1072,
+  "revision": "f604ff7effb801f678b75b344ca05c2cfb64a224",
+  "releaseSequence": 1073,
   "version": "3.2.0",
   "files": [
     {
@@ -716,8 +716,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "f02a65475cf62c82890fbbbe3933bde7c5d1d7b226b5b4a3af5fbccb022c30fc",
-      "size": 5245323
+      "sha256": "10dd7a109812c91bc8b1303d0ebcbc0063ce536ff30ad75ead22541fd57385b5",
+      "size": 5244740
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6311,8 +6311,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/package.json",
-      "sha256": "842f1ffa5b6e1428e4779b9e8fcd5baf64678711315056a369dcc90374cdf30c",
-      "size": 907
+      "sha256": "35d214e56718deb4aaa52a8ffd15cf83a9987725f1bbb276007d23a272f3543b",
+      "size": 957
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/README.md",
@@ -6543,6 +6543,11 @@
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/soundscape.d.ts",
       "sha256": "1bfabd426a44dc02a42ee601062269b8c0b930888a4ce3d48c7dfe04858e2084",
       "size": 1308
+    },
+    {
+      "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/tts.d.ts",
+      "sha256": "adc9eb2ee435d8a761b7efb3f1dfc535c7566b77508faa38d9e407b1c68e7334",
+      "size": 9548
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/voice-schema.js",
@@ -8636,9 +8641,9 @@
     }
   ],
   "archive": {
-    "commit": "359bde461bc779e814a35d9c7d74e536f2390c08",
+    "commit": "73625efd1717d5cb337f6946722f41a7205cd683",
     "path": "runtime.zip",
-    "sha256": "5ee218b2e07d94619ff0a71b9d8bc680c4e8b24a5a74c8428ef4b41d659db129",
-    "size": 15238010
+    "sha256": "5c3abeee6ec4be44236b7ce240f371e07cf158c29bf721bc72fd4ef7207230ee",
+    "size": 15241360
   }
 }
