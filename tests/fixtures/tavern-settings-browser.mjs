@@ -17,6 +17,9 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
     // the core's on-demand loader imports the built stage client (packages/dsh-tavern-stage/lib/client.js)
     if (stageClient && route.request().url().endsWith('/api/dsh-tavern/client-assets/stage-client.mjs'))
       return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client.js', import.meta.url), 'utf8') })
+    // the stage's Live2D module, imported by 设置 › 舞台 › 运行库 (its Live2D entry)
+    if (stageClient && route.request().url().endsWith('/api/dsh-tavern/client-assets/live2d-client.mjs'))
+      return route.fulfill({ contentType: 'text/javascript', body: await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-stage/lib/client/live2d-client.mjs', import.meta.url), 'utf8') })
     if (!route.request().url().includes('/api/')) return route.fulfill({ contentType: 'text/html', body: '<main></main>' })
     const args = route.request().postDataJSON()
     calls.push({ method, args })
@@ -27,6 +30,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
     if (result === undefined) {
       if (method === 'getTavernSettings') result = { settings: { defaultPlaySettings: { playerName: "你", backgroundTasks: { variables: true, posture: true } } } }
       // optional runtime detection is an offline settings read.
+      else if (method === 'getLive2dRuntime') result = { core: '', installed: false, coreInstalled: false, displayInstalled: false, missing: ['core', 'display'] }
       else if (method === 'getSpineRuntimeStatus') result = { installed: false, runtime: '', importSupported: true }
       else if (method === 'getWebSearchStatus') result = { provider: 'tavern-search', attempts: [] }
       else if (method === 'listPresets') result = { presets: [], activePresetPath: '' }

@@ -1,5 +1,5 @@
 'use strict';
-function createStageNotices({React, document, foreground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts}) {
+function createStageNotices({React, document, foreground, displayPreferences, getSelection, StageWaitStop, Spinner, Icon, providerRefusal:tavernProviderRefusalNotice, errorText:stageRuntimeErrorText, diagnosticText:stageDiagnosticText, shortcuts:galShortcuts, live2d:live2dRuntime = null}) {
 let disposed = false;
 const notifiedSessions = new Set(), pendingNotices = new Set();
 function useCapabilityNotice(sessionId, live, rows) {
@@ -144,7 +144,27 @@ function GalSceneReload({ onReload }) {
 // round = the round's phase, 'body' | 'staging' | null (「正在生成正文…」 / 「正在生成后续演出…」, the round's 停止 when onStop is given).
 // The stop's label is the phrase without the ellipsis, like the text box's 「正在生成选项」.
 const GAL_ROUND_TEXT = { body: '正在生成正文', staging: '正在生成后续演出' };
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], nameOf, scope }) {
+// an on-stage Live2D figure is showing its static sprite (or nothing) because this machine has no Live2D runtime.
+// One ⚠ notice 「Live2D 未安装 · 安装」; 安装 unfolds the shared licence + install entry (the Live2D module's CubismCoreEntry via
+// live2d-loader.cjs, as in 设置 › 舞台 › 运行库) in place. Installing re-reads the stage (session-observation.cjs), so the figures
+// switch to Live2D without a reload; the notice goes as soon as the runtime is in.
+function GalCubismNotice({ icon, request }) {
+    const h = React.createElement, store = live2dRuntime.runtime;
+    React.useSyncExternalStore(store.subscribe, store.snapshot);
+    const [open, setOpen] = React.useState(false), panel = React.useId(), toggle = React.useRef(null);
+    if (store.core) return null;
+    // The stage reads Enter/Space/Esc on window; keys on the notice's own controls stay here, Esc folds the entry first.
+    const keys = event => {
+        if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); toggle.current?.focus(); }
+        else if ([' ', 'Enter'].includes(event.key) && event.target.closest?.('button,a')) event.stopPropagation();
+    };
+    return h('div', { className: 'fork-gal-runtime-status', 'data-tone': 'error', role: 'status', onKeyDown: keys }, icon,
+        h('div', { className: 'fork-gal-runtime-text' },
+            h('div', { className: 'fork-gal-runtime-head' }, h('strong', null, 'Live2D 未安装'), ' · ',
+                h('button', { type: 'button', ref: toggle, className: 'fork-gal-runtime-action', 'aria-expanded': open, 'aria-controls': panel, onClick: () => setOpen(!open) }, '安装')),
+            open ? h('div', { id: panel, className: 'fork-gal-cubism-install' }, h(live2dRuntime.Entry, { request, head: false })) : null));
+}
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -194,7 +214,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
             h('dl', null, galShortcuts().map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
         interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
-        null,
+        live2dRequest && live2dRuntime ? h(GalCubismNotice, { key: 'live2d-core', icon, request: live2dRequest }) : null,
         notes.length ? notice('diagnostics', 'debug', icon, '场景诊断', notes.map(note => ({
             text: GAL_DIAGNOSTIC_TEXT[typeof note === 'string' ? note.split(':')[0] : note?.code] || stageDiagnosticText(note), raw: stageDiagnosticText(note, true), always: true }))) : null,
         spriteFallbacks.length ? notice('sprite-fallback', 'error', icon, galSpriteFallbackTitle(spriteFallbacks),

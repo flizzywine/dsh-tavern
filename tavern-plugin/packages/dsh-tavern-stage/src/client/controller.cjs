@@ -858,8 +858,8 @@ function GalStage(props) {
         .flatMap(member => !figureLayout ? [member] : member.id in figureLayout.x ? [{...member, x:figureLayout.x[member.id]}] : []);
     const spriteFallbacks = useGalSpriteFallbacks(sessionId, stageViews.speaker.fallbacks(pack.characters, alias => castMembers.some(member => member.id === alias), alias => !!portraits.get(alias)?.src));
     // the host projected an on-stage Live2D figure down to its sprite (no Core).
-    
-    
+    const live2dMissing = pack.characters.some(figure => figure.diagnostics?.includes('live2d-core-missing') && castMembers.some(member => member.id === figure.alias));
+    const live2dRequest = React.useCallback((method, args) => rpc(method, args, sessionId), [sessionId]);
     // Who the stage draws (a figure or its stand-in): the box anchors to them, and a skin's off-stage face rule reads it.
     const speakerDrawn = alias => figuresShown && (members.some(member => member.id === alias) || standIns.some(member => member.id === alias));
     // on a wide stage a box
@@ -1045,9 +1045,9 @@ function GalStage(props) {
                 h("button", { type: "button", className: "fork-gal-quit", title: "返回主页面", "aria-label": "返回主页面", onClick: props.onExit }, h(Icon, { name: "close", size: 16 }))),
             // the runtime notice is laid out from the top bar's own box
             // (theme.css ".fork-gal-topbar > .fork-gal-notices"), so it sits under whatever the skin puts top-right.
-            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length) ?
+            (interopNotice || awaitingDirection || roundPhase || firstRun.keys || firstRun.sound || runtime.indicators.error || accepted.scene?.diagnostics?.length || sceneError || cg.notice || spriteFallbacks.length || live2dMissing) ?
             h(GalRuntimeStatus, { interopNotice, page: awaitingDirection, round: roundPhase, onStop: roundPhase ? stopReply : null, stopping, hints: firstRun, bodyFailure, onRetry: bodyRetry, error: runtime.indicators.error, diagnostics: accepted.scene?.diagnostics, sceneError, onReloadScene: () => setSceneReload(n => n + 1), cgNotice:cg.notice, spriteFallbacks, nameOf,
-                scope: sessionId }) : null)),
+                live2dRequest: live2dMissing ? live2dRequest : null, scope: sessionId }) : null)),
         // the skin's own LOG / AUTO / SKIP on the stage;
         // with them the top bar's chips wait behind Esc and the folded menu control (theme.css「stage skin: art」).
         // A skin mode's own buttons (modes.<id>.buttons: the debate's fast-forward) while the mode is on and no title holds the box.

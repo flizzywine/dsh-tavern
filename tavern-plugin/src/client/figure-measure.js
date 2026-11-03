@@ -45,13 +45,22 @@ function figureLive2dRestPose(im) {
 }
 // the model's own head at rest - its head hit area or declared ForkStage head, the
 // box the cast faces frame (live2dHeadBox) - as canvas fractions {top, chin}, for the head-normalised stage size
-// (packFigureAnatomy). null when the model only has an estimate. Once per model identity.
-function figureMeasureLive2dHead(model, identity) {
+// (packFigureAnatomy). null when the model only has an estimate. Once per model identity. headBox(model, anatomy): the
+// Live2D module's head box (the stage hands it over with the model).
+function figureMeasureLive2dHead(model, identity, headBox) {
     return figureCached(identity + ":rest-head-v1", function () {
         const im = model.internalModel, H = im.originalHeight;
         try { figureLive2dRestPose(im); } catch (_) { return null; }
-        const head = live2dHeadBox(model, live2dDrawableBounds(model), null);
+        const head = headBox(model, null);
         return head.source === "hit" || head.source === "declared" ? { top: head.top / H, chin: head.chin / H } : null;
+    });
+}
+// A Live2D figure's head-band ink centre at rest (live2dHeadBox cx, model canvas px), as figure-assets.cjs headCentre for pictures.
+function figureMeasureLive2dCentre(model, identity, anatomy, headBox) {
+    return figureCached(identity + ":rest-head-x:" + (anatomy ? anatomy.headTop + ":" + anatomy.chin : ""), function () {
+        try { figureLive2dRestPose(model.internalModel); } catch (_) { return undefined; }
+        const cx = headBox(model, anatomy).cx;
+        return Number.isFinite(cx) ? cx : undefined;
     });
 }
 function figureMeasureLive2d(model, modelRevision) {

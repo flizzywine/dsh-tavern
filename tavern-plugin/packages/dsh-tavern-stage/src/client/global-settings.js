@@ -1,4 +1,4 @@
-function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, SpineRuntimeEntry, ForkModManagerEntry}) {
+function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernModelSlotGroups, SettingsGroup, StageGenerationSettings, CubismCoreEntry, SpineRuntimeEntry, ForkModManagerEntry}) {
     function StageModelSettings() {
         const h = React.createElement;
         const [state, setState] = React.useState({loading:true, busy:false, slots:[], settings:{}, catalog:[], scoringCatalog:[], error:""});
@@ -28,7 +28,8 @@ function createStageSettingsModule({React, rpc, notifySettingsChanged, TavernMod
         return h("div", {className:"dsh-tavern-settings-section dsh-tavern-global-settings"},
             h(SettingsGroup, {title:"舞台模型"}, h(StageModelSettings)),
             h(SettingsGroup, {title:"素材生图"}, StageGenerationSettings ? h(StageGenerationSettings) : null),
-            h(SettingsGroup, {title:"运行库"}, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null),
+            // the optional runtimes, the same entries as the model previews.
+            h(SettingsGroup, {title:"运行库"}, h("div", {className:"fork-runtime-list"}, CubismCoreEntry ? h(CubismCoreEntry, {request:rpc}) : null, SpineRuntimeEntry ? h(SpineRuntimeEntry, {request:rpc}) : null)),
             h(SettingsGroup, {title:"舞台模组"}, ForkModManagerEntry ? h(ForkModManagerEntry) : null));
     }
     return {TavernStageSettingsSection};

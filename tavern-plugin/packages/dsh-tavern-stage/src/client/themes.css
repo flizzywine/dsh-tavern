@@ -1050,6 +1050,8 @@ body > div:has(> .bgm-host):is(:has(~ .fork-gal-mount), .fork-gal-mount ~ div) {
 .fork-gal-backlog-title .fork-help-tip { align-self: baseline; margin-left: -6px; }
 .fork-gal-backlog .fork-help-tip-button:focus-visible { outline: var(--gal-ui-focus); outline-offset: 2px; color: var(--gal-ui-ink); }
 [data-fork-gal-stage] .fork-popover.fork-help-tip-body { z-index: 2147483002; }
+/* The runtime licence dialog (spine-runtime-entry.js, opened from the stage's 「Live2D 未安装 · 安装」 notice) is portalled to the body: above the stage mount. */
+[data-fork-gal-stage] .ap-modal-scrim:has(> .fork-runtime-consent) { z-index: 2147483002; }
 /* Close: part of the sheet's title row — a bare ✕ at the column's right end, in the BACKLOG caption's ink
    and centred on the title; the sheet's row hover on pointer-over, the stage focus ring on keyboard focus. */
 .fork-gal-stage .fork-gal-backlog-close { position: absolute; right: 2px; bottom: 9px; display: grid; place-items: center; box-sizing: border-box; width: 36px; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--gal-ui-radius); background: transparent; box-shadow: none; color: var(--gal-ui-ink-2); cursor: pointer; transition: background .15s, color .15s; }

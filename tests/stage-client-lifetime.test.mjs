@@ -43,3 +43,22 @@ for (const phase of ['director','session']) test(`plugin session assembly rolls 
   assert.equal(sessions.owner,null);assert.equal(sessions.resourceOwner,null);assert.equal(window.forkStageResourceDebug,undefined);
   sessions.dispose();
 });
+
+test('stage sessions read a Live2D cast with the installed Cubism core, asked beside the presentation and reused', async () => {
+  let spec
+  const views={performanceSurface:{prepare(){}},admission:{shown:{}},progress:{store:{}},sessionRuntime:{createConnection(value){spec=value;throw new Error('captured')}}}
+  const window={performance:{now:()=>0}}
+  const sessions=require('../tavern-plugin/packages/dsh-tavern-stage/src/client/sessions.cjs').createStageSessions({views,window,document:{},startLifetime:startStageClientLifetime,
+    textIndex:require('../tavern-plugin/packages/dsh-tavern-stage/src/client/text-index.cjs').createStageTextIndexModule({})})
+  const calls=[]
+  const live2d={status:'ready',value:{scene:{background:'b'},characters:[{alias:'neuro',form:'live2d'}]}}, sprite={status:'ready',value:{scene:{},characters:[{alias:'a',form:'sprite'}]}}
+  let next=live2d
+  const io={probe:async(method,args)=>{calls.push([method,args.sessionId]);return {installed:true,core:'/core.js'}},presentation:async()=>structuredClone(next)}
+  assert.throws(()=>sessions.start({native:{sessions:{}},io,assets:{createOwner:()=>({dispose(){}})},dialogue:{},text:{},observation:{}}),/captured/)
+  // a Live2D figure is drawn only when the stage read carries the core.
+  assert.deepEqual((await spec.resources.read({sessionId:'s'})).value.scene,{background:'b',core:'/core.js'})
+  next=sprite
+  assert.equal((await spec.resources.read({sessionId:'s'})).value.scene.core,undefined)
+  assert.deepEqual(calls,[['getLive2dRuntime','s']])
+  sessions.dispose()
+})

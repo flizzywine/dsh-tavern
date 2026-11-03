@@ -33,6 +33,7 @@ try {
   assert.equal(tavern?.apiVersion, 6, 'public plugin service provided')
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
+  assert.equal((await host.rpc('getLive2dRuntime', {})).installed, false, 'the stage registers the Live2D runtime; a fresh data directory has none')
   assert.ok((await host.rpc('getTavernSettings', {})).settings)
   assert.deepEqual((await host.rpc('getFrameStorage', {})).values, {})
   assert.ok(await host.rpc('listCards', {}))

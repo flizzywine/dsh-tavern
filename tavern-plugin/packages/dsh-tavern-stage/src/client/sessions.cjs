@@ -9,6 +9,26 @@ const sessions = {
         if(closed)throw new Error('Stage sessions disposed');
         if(stop)throw new Error('Stage sessions already started');
         const {native,io,assets,dialogue,preferences,text,observation}=inputs;
+        // The installed Live2D runtime is app-wide: asked for beside the presentation rather than after it, and one answer
+        // serves a stage visit's reads (a not-ready answer is asked again). The scene draws Live2D figures only with it (scene.core).
+        const live2dReady = status => status && status.installed !== false && status.core || '';
+        let live2dRead = null;
+        const live2dRuntime = sessionId => {
+            if (!live2dRead || live2dRead.sessionId !== sessionId || window.performance.now() - live2dRead.at > 60000) {
+                const value = io.probe('getLive2dRuntime',{sessionId}), entry = {sessionId, at:window.performance.now(), value};
+                value.then(status => { if (!live2dReady(status) && live2dRead === entry) live2dRead = null; }, () => { if (live2dRead === entry) live2dRead = null; });
+                live2dRead = entry;
+            }
+            return live2dRead.value;
+        };
+        const readPresentation = async args => {
+            const runtime = live2dRuntime(args.sessionId);
+            const result = await io.presentation(args);
+            if (result.status === 'ready' && result.value.characters.some(figure => figure.form === 'live2d')) {
+                result.value.scene = {...result.value.scene,core:live2dReady(await runtime)};
+            }
+            return result;
+        };
         stop=startLifetime(({own}) => {
         const resourceOwner = assets.createOwner({service:assets.service,decode:assets.decode});
         this.resourceOwner = resourceOwner;
@@ -67,7 +87,7 @@ const sessions = {
             },
             preparePerformance:views.performanceSurface.prepare,
             music:() => views.bgm,
-            read:io.presentation,
+            read:readPresentation,
             progress: views.progress.store,
             owner: resourceOwner
         },direction:{read:io.direction,watch:io.watch},notifications:io.notifications,session:{

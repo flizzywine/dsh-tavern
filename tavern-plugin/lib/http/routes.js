@@ -198,9 +198,9 @@ export function registerTavernHttpRoutes({
           }
           if (readsRuntimeAsset) {
             const asset = await resolveTavernRuntimeAsset(pathname)
-            // The stage kit is unversioned fork code; pinned vendor files stay immutable.
+            // The stage kit is unversioned fork code and user-installed runtimes (Spine, Live2D) may be replaced; pinned vendor files stay immutable.
             await serveAssetFile(req, res, asset.file, asset.mediaType,
-              pathname.includes('/stage-kit/') || pathname.endsWith('/pixi-spine.js') ? 'no-cache' : 'public, max-age=31536000, immutable',
+              pathname.includes('/stage-kit/') || pathname.endsWith('/pixi-spine.js') || pathname.includes('/runtime-assets/live2d/') ? 'no-cache' : 'public, max-age=31536000, immutable',
               { 'Access-Control-Allow-Origin': '*', 'Cross-Origin-Resource-Policy': 'cross-origin' })
             return
           }

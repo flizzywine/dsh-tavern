@@ -277,13 +277,17 @@ function TileCheck({checked}) { return h('span',{className:'ap-check-mark ap-til
 const FigureOutfitTile=(React.memo||(c=>c))(function FigureOutfitTile({binding,pack,figure,outfit,selected,picking=false,checked=false,onSelect,onFlip,upload,onLamp}) {
   outfit=figureOutfitView(figure,outfit);
   const packId=pack.manifest.id,manifest=pack.sprites?.[outfit.sprite?.manifestKey],bust=outfitHead(outfit,manifest);
-  const face=!bust?selectPackAvatar({outfit,manifest,emotion:outfit.defaultEmotion}):null;
-  const art=bust?h(BustArt,{binding,packId,bust,figure}):face?h(Thumb,{binding,packId,hash:face.hash,crop:face.crop,label:outfit.label,className:'ap-outfit-face-art'}):h(Silhouette,{figure});
+  const face=!bust&&!outfit.live2d?selectPackAvatar({outfit,manifest,emotion:outfit.defaultEmotion}):null;
+  const identity=live2dIdentity(pack,outfit),ref=React.useRef(null);
+  if(ref.current?.identity!==identity)ref.current={identity,source:outfit.live2d&&!bust?live2dSource({binding},{ref:{packId},outfit,pack}):null};
+  const expression=live2dExpression(outfit.live2d?.emotionMap?.[outfit.defaultEmotion]),shots=useLive2dShots(ref.current.source,ref.current.source?[expression]:[],'bust'),url=shots.shots?.[expression];
+  const art=bust?h(BustArt,{binding,packId,bust,figure}):face?h(Thumb,{binding,packId,hash:face.hash,crop:face.crop,label:outfit.label,className:'ap-outfit-face-art'}):
+    url?h(RevealImg,{src:url,alt:'',draggable:false,className:'is-snapshot'}):ref.current.source&&shots.status==='loading'?h(Spinner,{key:identity,fill:true}):h(Silhouette,{figure});
   const lamp=outfitLamp(outfit),empty=!outfit.sprite&&!outfit.live2d&&!outfit.spine&&!face;
   return h('span',{className:'ap-outfit-cell','data-selected':!picking&&selected||undefined},
     h('button',{type:'button',role:picking?'checkbox':'radio','aria-checked':picking?checked:selected,className:'ap-outfit-face','data-disabled':!outfit.enabled||undefined,title:outfit.label+' · '+OUTFIT_LAMPS[lamp],onClick:()=>picking?onFlip(outfit.key):onSelect(outfit.key)},
       // r5: one tile language with the 差分 faces — same corner radius, ring and selected ring.
-      h('span',{className:'ap-outfit-art','data-kind':bust?'bust':face?'face':'none'},art,
+      h('span',{className:'ap-outfit-art','data-kind':bust?'bust':face?'face':url?'live2d':'none'},art,
         picking&&h(TileCheck,{checked}),
         (picking||!onLamp)&&h('span',{className:'ap-outfit-lamp','data-mode':lamp,'aria-hidden':true})),
       h('span',{className:'ap-outfit-name'},outfit.label)),
@@ -342,7 +346,11 @@ function FigureStillPreview({children}) {
 // The Live2D preview keeps its view in the model's own loop; the cluster drives it through `viewRef` and reads it back
 // through `onView` (so 放大 / 缩小 / 复原 know when they apply). the same
 // gestures as the 立绘 / 头像 previews — drag pans, the wheel zooms (no 「look at the cursor」 drag).
-
+function FigureLivePreview(props) {
+  const viewRef=React.useRef(null),[view,setView]=React.useState(VIEW_HOME);
+  return h(React.Fragment,null,h(live2dKit.Preview,{...props,viewRef,onView:v=>setView({scale:v.zoom,x:v.x,y:v.y})}),
+    h(ViewTools,{view,min:0.5,hint:'拖动平移 · 滚轮缩放 · 双击复位',onZoom:f=>viewRef.current?.zoom(f),onReset:()=>viewRef.current?.reset()}));
+}
 // 基础设定 is one InlineGrid of InlineField rows (inline-field.js):
 // 身高 120 cm · 形象色 ● · 声音 大肥鱼（萌宝）› · 触发词 [chips] ＋ — label and value on one line, the value edited in place.
 // 默认外观 left this grid: it is set from the 差分 header's ⋯ of the view on show (FigureViewMenu, same figure.appearance).
@@ -905,7 +913,12 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const spineSource=useSpineBundleSource(binding,pack,kind==='spine'?outfit:null),showSpine=kind==='spine'&&!!outfit?.spine&&!!spineSource;
   // one 差分 list per outfit, whatever the view (outfitEmotionRows: what the outfit declares).
   const rows=outfitEmotionRows(figure,outfit,manifest);
-  // Model metadata stays portable; this build previews sprites, avatars and Spine only.
+  // One source object per bundle identity, so the live preview and the face snapshots never reload on re-render.
+  const sourceKey=showLive?live2dIdentity(pack,outfit):'';
+  const sourceRef=React.useRef(null);if(!sourceRef.current||sourceRef.current.key!==sourceKey)sourceRef.current={key:sourceKey,source:sourceKey?live2dSource({binding},info):null};
+  const source=sourceRef.current.source,live=showLive&&source&&live2dKit?.Preview;
+  const liveEntry=id=>outfit?.live2d?.emotionMap?.[id]||outfit?.live2d?.emotionMap?.[outfit.defaultEmotion];
+  const shots=useLive2dShots(showLive?source:null,showLive?[...new Set(rows.map(r=>live2dExpression(liveEntry(r.id))))]:[]);
   // Uploads: a layered / lip-synced sprite cannot take a single picture (import the pack instead).
   const canSprite=!outfit?.sprite||!!simpleSpriteImages(outfit,manifest);
   // per 差分 — a missing (or still) 差分 of a layered / lip-synced /
@@ -926,7 +939,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   for(const row of rows){
     const mapped=emotionMapped(kind,outfit,manifest,row.id);
     let art=null;
-    if(kind==='live2d'||kind==='spine'){/* no snapshots: the tile is the name; the preview card plays it */}
+    if(kind==='live2d'){if(showLive){const url=shots.shots?.[live2dExpression(liveEntry(row.id))];art=url?h(RevealImg,{src:url,alt:'',draggable:false}):shots.status==='loading'?h(Spinner,{key:sourceKey,fill:true}):null;}}
+    else if(kind==='spine'){/* no snapshots: the tile is the name; the preview card plays it */}
     else if(kind==='sprite'){const bust=outfit?.sprite&&stateBust(outfit,emotionState(outfit,manifest,row.id));if(bust)art=h(BustArt,{binding,packId,bust,figure,frame:CAST_FACE});}
     else if(outfit&&mapped)art=h(Thumb,{binding,packId,hash:outfit.avatars[outfitImageId(outfit,row.id)],crop:null,label:row.label,className:'ap-face-thumb'});
     faces[row.id]={mapped,art,gen:genable(kind,row.id),cell:onGen&&(kind==='sprite'||kind==='avatar')?onGen.cell(kind,row.id):null};
@@ -955,7 +969,7 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
   const headShare=anatomyHeadShare(outfit?.sprite?.anatomy?.[state?.id]||outfit?.sprite?.anatomy?.[outfit.defaultEmotion]),liveFit={share:figureFit({heightCm:figure.heightCm,headShare}).share,spill:aspect=>figureFit({aspect,heightCm:figure.heightCm,headShare}).spill};
   // a talking 立绘 (its 差分 has mouth frames: !takes) moves its mouth over the still
   // while the 声音 page is open and a voice plays; Live2D does it on its model. Anything else has no mouth to move.
-  const talking=voiceOpen&&kind==='sprite'&&!!state&&!takes(picked.id),lipSynced=talking;
+  const talking=voiceOpen&&kind==='sprite'&&!!state&&!takes(picked.id),lipSynced=talking||kind==='live2d'&&!!live;
   const mouth=talking?place=>h(SpriteMouth,{key:outfit.key+':'+state.id,binding,packId,outfit,manifest,state,audio:speech.audio,style:place}):null;
   const sprite=standing?h(StandArt,{key:standing,binding,packId,hash:standing,label:figure.name,heightCm:figure.heightCm,headShare,overlay:mouth}):null;
   // a 差分 without its own picture that another stands in for (回退) previews what
@@ -1190,7 +1204,8 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
         // emotion's loop animation), not a still pose.
         // one card for every Live2D outfit (the model swaps on its canvas, no remount); a switch
         // paints first and the model loads 120 ms later, so outfits clicked past never load.
-        showSpine?h(spineKit.Preview,{key:'spine',source:spineSource,config:outfit.spine,animation:spineEmotionAnimation(outfit.spine,picked.id,outfit.defaultEmotion).animation,label:figure.name}):
+        live?h(FigureLivePreview,{key:'live2d',source,delay:120,fit:liveFit,audio:speaking?speech.audio:null,expression:live2dExpression(liveEntry(picked.id)),motion:picked.id===outfit.defaultEmotion?'':live2dMotion(outfit.live2d.emotionMap?.[picked.id]),fallback:still,label:figure.name,interactive:true}):
+          showSpine?h(spineKit.Preview,{key:'spine',source:spineSource,config:outfit.spine,animation:spineEmotionAnimation(outfit.spine,picked.id,outfit.defaultEmotion).animation,label:figure.name}):
           candidatePreview||(previewEmpty?still:h(FigureStillPreview,{key:(outfit?.key||'')+kind},still)),
         outfit&&tab==='edit'&&!voiceOpen&&tool)),
     h('div',{className:'ap-figure-main'},
