@@ -55054,15 +55054,12 @@ function clipReplayCore() {
 				const state = snapshot.state;
 				if (!state) return;
 				const retiredTabs = [];
-				const expectedTitles = {
-					"dsh-tavern:conversation-settings": "本局设置",
-					"dsh-tavern:user-profile": "长期偏好",
-					"dsh-tavern:cards": "人物卡库",
-					"dsh-tavern:presets": "预设",
-					"dsh-tavern:worldbooks": "世界书库",
-					"dsh-tavern:resources": "剧本库",
-					"dsh-tavern:transfer": "导出与导入"
-				};
+				// A single page's title is its registered type's (the panel registry), so a renamed panel's open tab follows it.
+				function expectedTitle(type) {
+					const descriptor = typeof ctx.betterSidebar.getTab === "function" ? ctx.betterSidebar.getTab(type) : undefined;
+					if (!descriptor || descriptor.single !== true) return undefined;
+					return typeof descriptor.title === "function" ? descriptor.title() : descriptor.title;
+				}
 				function visit(node) {
 					if (!node) return;
 					if (node.kind === "split") {
@@ -55072,7 +55069,7 @@ function clipReplayCore() {
 					(node.tabs || []).forEach(function (tab) {
 						// 系统提示词与长期偏好已并入“预设”标签页。
 						if (tab.type === "dsh-tavern:boundary-prompts" || tab.type === "dsh-tavern:bypass-plans" || tab.type === "dsh-tavern:system-prompts" || tab.type === "dsh-tavern:user-profile") { retiredTabs.push(tab.id); return; }
-						const title = expectedTitles[tab.type];
+						const title = expectedTitle(tab.type);
 						if (title && tab.title !== title) ctx.betterSidebar.updateTab(tab.id, { title: title });
 					});
 				}
