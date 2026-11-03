@@ -129,6 +129,7 @@ const stageClientPlugin = (() => {
         __STAGE_PHONE_LAYOUT__
         __STAGE_CG__
         __STAGE_GALLERY__
+        __STAGE_STATUS_PANEL__
         __STAGE_DEVICE__
         __STAGE_MIXER__
         __STAGE_SFX__
@@ -296,6 +297,7 @@ const stageClientPlugin = (() => {
                     stageFeatures.mount({options,views,own,window,document,getResourceOwner});
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
+                    if(options.statusPanel)views.statusPanel=own(createStageStatusPanel({React:options.React,window,document,...options.statusPanel,useFaces:views.sourceWidgets.useFaces}));
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
                     views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:{...(options.controller || {dialogue:{},figures:{}}),ClipStatus:clipExport?.ClipStatus},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));

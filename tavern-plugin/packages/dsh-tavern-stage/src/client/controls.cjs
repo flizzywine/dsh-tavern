@@ -4,8 +4,9 @@ function createStageControls() {
 // [label, key, action, cap]. One table: the first-run key list shows label / key; a skin's key hints (art.buttons.*.hint,
 // stage-skin-buttons.js) show the action's cap (the key's name on a key cap: 按住 Ctrl -> Ctrl).
 // V replays the line's voice.
-const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
-function galShortcuts() { return GAL_SHORTCUTS; }
+const GAL_SHORTCUTS = [['自动', 'A', 'auto'], ['跳过', '按住 Ctrl', 'skip', 'Ctrl'], ['隐藏', 'H', 'hide'], ['履历', 'L', 'backlog'], ['状态', 'S', 'status'], ['重播配音', 'V', 'replay'], ['菜单', 'Esc', 'menu'], ['重新生成', 'G', 'regenerate'], ['回聊天', 'F12', 'exit']];
+// The 状态 key exists only when the card declares a status panel (options.statusPanel); the key list follows the same rule.
+function galShortcuts(options) { return options?.statusPanel ? GAL_SHORTCUTS : GAL_SHORTCUTS.filter(([, , action]) => action !== 'status'); }
 // G: presses the turn-end menu's 重新生成 badge (gal-choices.js) when it is on screen and can act -
 // the key follows the control's own rule (hidden while the choices generate, disabled while the stage is busy).
 function galPressRegenerate(root) {

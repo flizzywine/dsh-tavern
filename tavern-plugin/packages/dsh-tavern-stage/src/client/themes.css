@@ -5943,3 +5943,39 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-stage[data-look-ui] :is(.fork-performance-under, .fork-performance-over) { filter: url(#fork-gal-look-ui); }
 .fork-gal-stage :is(.fork-gal-scene, .fork-performance-under, .fork-performance-over, .fork-performance-keyframes.is-below) { translate: var(--performance-shake-x, 0px) var(--performance-shake-y, 0px); }
 /* ==== end stage rules after the slot ==== */
+/* ==== stage status panel (状态面板, status-panel.cjs) ====
+   The card draws everything inside the frame; the engine draws only this sheet. Above the box and the top bar, below CONFIG
+   and the menu (the band the backlog takes). A centred sheet on the dimmed stage; a full window at phone widths. */
+.fork-gal-stage > .fork-gal-status { z-index: 8; }
+.fork-gal-status { position: absolute; inset: 0; display: grid; place-items: center; box-sizing: border-box; overflow: hidden; cursor: default;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: var(--gal-ui-dim); color: var(--gal-ui-ink); font-family: var(--gal-ui-font); animation: fork-gal-status-in .2s ease-out backwards; }
+@keyframes fork-gal-status-in { from { opacity: 0; } to { opacity: 1; } }
+.fork-gal-status-sheet { display: flex; flex-direction: column; box-sizing: border-box; width: min(1080px, 100%); height: min(860px, 100%); min-width: 0; min-height: 0; overflow: hidden;
+  border: 1px solid var(--gal-ui-line); border-radius: var(--gal-ui-radius); background: var(--gal-ui-surface); box-shadow: var(--gal-ui-shadow); outline: none;
+  animation: fork-gal-status-sheet-in .24s ease-out backwards; }
+@keyframes fork-gal-status-sheet-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* (the sheet carries data-phase: the shell's narrow "[data-phase] > header" rule must not restyle its head) */
+.fork-gal-stage > .fork-gal-status > .fork-gal-status-sheet > .fork-gal-status-head { position: relative; z-index: auto; display: flex; align-items: center; justify-content: center; flex: none; min-width: 0; margin: 0; padding: 14px 56px 12px; border: 0; background: none; box-shadow: none; }
+.fork-gal-status-head::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 0; border-top: var(--gal-ui-divider-width) var(--gal-ui-divider) var(--gal-ui-thumb); }
+.fork-gal-status-title { overflow: hidden; min-width: 0; color: var(--gal-ui-accent); font-family: var(--gal-ui-title-font); font-size: clamp(18px, 1.5vw, 24px); font-weight: 600; letter-spacing: .2em; text-overflow: ellipsis; white-space: nowrap; text-shadow: var(--gal-ui-title-shadow); }
+.fork-gal-stage .fork-gal-status-close { position: absolute; top: 50%; right: 10px; display: grid; place-items: center; box-sizing: border-box; width: 36px; height: 36px; min-width: 0; min-height: 0; margin: -18px 0 0; padding: 0;
+  border: 0; border-radius: var(--gal-ui-radius); background: transparent; box-shadow: none; color: var(--gal-ui-ink-2); cursor: pointer; transition: background .15s, color .15s; }
+.fork-gal-stage .fork-gal-status-close:hover { background: var(--gal-ui-hover); color: var(--gal-ui-accent); }
+.fork-gal-stage .fork-gal-status-close:focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; color: var(--gal-ui-accent); }
+.fork-gal-status-body { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.fork-gal-status-frame { display: block; flex: 1; width: 100%; min-width: 0; min-height: 0; border: 0; background: transparent; }
+.fork-gal-status-note { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; margin: 0; padding: 32px 20px; color: var(--gal-ui-ink-2); font-size: var(--gal-ui-meta-size); text-align: center; }
+.fork-gal-stage .fork-gal-status-note > button { min-height: 36px; padding: 6px 14px; border: 0; border-radius: var(--gal-ui-radius); background: transparent; color: var(--gal-ui-accent); font: inherit; cursor: pointer; }
+.fork-gal-stage .fork-gal-status-note > button:hover { background: var(--gal-ui-hover); }
+.fork-gal-stage .fork-gal-status-note > button:focus-visible { outline: var(--gal-ui-focus); outline-offset: 1px; }
+@media (max-width: 680px) {
+  .fork-gal-status { padding: 0; place-items: stretch; }
+  .fork-gal-status-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .fork-gal-stage > .fork-gal-status > .fork-gal-status-sheet > .fork-gal-status-head { padding: 10px 52px 8px; }
+  .fork-gal-stage .fork-gal-status-close { width: 44px; height: 44px; margin-top: -22px; right: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .fork-gal-status, .fork-gal-status-sheet { animation: none; } }
+.fork-gal-stage[data-reduced-motion] > .fork-gal-status, .fork-gal-stage[data-reduced-motion] > .fork-gal-status > .fork-gal-status-sheet { animation: none; }
+/* ==== end stage status panel ==== */
