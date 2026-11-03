@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "0f1c10724329d07b3fbe8f2b58ecb30dee9eec56",
-  "releaseSequence": 1131,
+  "revision": "738b86a8991c400f845765862a5dbbf692a788cc",
+  "releaseSequence": 1132,
   "version": "3.2.0",
   "files": [
     {
@@ -221,8 +221,8 @@
     },
     {
       "path": "bin/installation-receipt.mjs",
-      "sha256": "35f5e9eb0af4e492c3f027ead2c0280ad0dede79e52bbd0d7d0f65730ba1ca6f",
-      "size": 3625
+      "sha256": "9b5d9940ad5b916c85c9f221b86e919387180e69fa6325d9b67b996c70a69753",
+      "size": 3974
     },
     {
       "path": "bin/installation-state.cjs",
@@ -231,8 +231,8 @@
     },
     {
       "path": "bin/launcher-environment.mjs",
-      "sha256": "ed13acec2d0125df69fc412c97370a73bd7a2e2bb2a39612c908a6941b8d2474",
-      "size": 12032
+      "sha256": "10226cf441d0834efa9af95f2efec5e54f2cefa429d64315a1de1a2023602e65",
+      "size": 12861
     },
     {
       "path": "bin/launcher-settings.mjs",
@@ -301,8 +301,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "921c742e1f08367f506442a3ebb55d2d04589b04e3f3f727c016b6d5226dafea",
-      "size": 24332
+      "sha256": "4b251aaed81941040591d06e65222ff3336706e002a3db1e5920f040eb613db7",
+      "size": 24295
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -331,8 +331,8 @@
     },
     {
       "path": "bin/service-lifecycle.mjs",
-      "sha256": "8816d0a499fb033672e6665b5f7549c47b9473d43fffe0d1a88cf759b96e4be4",
-      "size": 21044
+      "sha256": "007b9709b4b12335434c7588d28fa30999d5d47cd866e94b2c048b9a87bad829",
+      "size": 21049
     },
     {
       "path": "bin/service-process-identity.mjs",
@@ -9391,9 +9391,9 @@
     }
   ],
   "archive": {
-    "commit": "a479d5c33f1ebacb7a7841a62fb63d79b5c04827",
+    "commit": "5cfdf5280e03ad6f62411df0e0bc01502bdc40c4",
     "path": "runtime.zip",
-    "sha256": "74b0046aeefe50fc9f1b37a5453250d5af802310e0f8315431d77ab11830ba40",
-    "size": 15942363
+    "sha256": "d2df30064a7a5c6e5e4c5e7e2ab38ad02359076328cea2127f48697cae213873",
+    "size": 15942783
   }
 }
