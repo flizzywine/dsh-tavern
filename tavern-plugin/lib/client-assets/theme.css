@@ -2434,29 +2434,23 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 
 
 /* 开场画面: one row per greeting (scene thumbnail + first line); the editor is a single dialog, no inner boxes. */
-/* 开场设置 opens in place. Closed, the head is one button: the title on the left, a
-   compact summary on the right (主角 face + name, the first greeting's picture, BGM, skin) and a chevron. Open, every
-   field shares one label column and one control width (360px), the skin select included. Narrow: the summary wraps
-   under the title. */
-.ap-opening-head > h3 { flex: 1; min-width: 0; margin: 0; }
-.ap-ui button.ap-opening-toggle { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 0; height: auto; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
-.ap-ui button.ap-opening-toggle:hover:not(:disabled) { background: none; }
-.ap-ui button.ap-opening-toggle:focus-visible { outline: 2px solid var(--fork-accent); outline-offset: 2px; border-radius: 6px; }
+/* 开场设置 opens in place. Its head reads like every section's: the title, the chevron and the 「?」, then (closed) a
+   compact summary on the right (主角 face + name, the first greeting's picture, BGM); a click anywhere on the head folds.
+   Open, every field shares one label column and one control width (360px), the skin select included. Narrow: the
+   summary wraps under the title. */
+.ap-opening-head:not(:has(> h3.ap-opening-title)) { cursor: pointer; }
+.ap-opening-head > h3 { flex: none; min-width: 0; margin: 0; }
 .ap-opening-title { flex: none; }
-.ap-opening-summary { display: flex; flex: 1 1 auto; justify-content: flex-end; align-items: center; gap: 16px; min-width: 0; overflow: hidden; color: var(--fork-ink-2); font-size: var(--fork-fs-body); font-weight: 400; }
+.ap-opening-summary { display: flex; flex: 1 1 auto; justify-content: flex-end; align-items: center; gap: 16px; min-width: 0; overflow: hidden; color: var(--fork-ink-2); font-size: var(--fork-fs-body); font-weight: 400; white-space: nowrap; }
 .ap-opening-summary-item { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 6px; min-width: 0; }
 .ap-opening-summary-item > span:last-child { min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .ap-opening-summary-item.is-picture { flex: none; }
 .ap-opening-summary-item > .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-3); }
 .ap-opening-summary-item .ap-avatar.is-mini { flex: none; }
 .ap-opening-summary .ap-opening-summary-thumb { display: block; width: 46px; height: auto; aspect-ratio: 16 / 9; border-radius: 4px; object-fit: cover; }
-.ap-opening-chevron { display: inline-flex; flex: none; color: var(--fork-ink-3); transition: transform .15s; }
-.ap-opening-toggle[aria-expanded=true] .ap-opening-chevron { transform: rotate(180deg); }
-.ap-opening-toggle[aria-expanded=true] .ap-opening-title { margin-right: auto; }
 @container (max-width: 520px) {
-  .ap-ui button.ap-opening-toggle { flex-wrap: wrap; row-gap: 8px; }
-  .ap-opening-title { margin-right: auto; }
-  .ap-opening-summary { order: 3; flex-basis: 100%; justify-content: flex-start; gap: 14px; }
+  .ap-opening-head:has(> .ap-opening-summary) { flex-wrap: wrap; row-gap: 8px; }
+  .ap-opening-summary { flex-basis: 100%; justify-content: flex-start; gap: 14px; }
 }
 /* 开场设置 is one column of inline rows (InlineRow); every picker in an
    inline row (开场 pickers, 皮肤, a widget's 壁纸) reads as its value with a chevron — no box, an underline on hover, like

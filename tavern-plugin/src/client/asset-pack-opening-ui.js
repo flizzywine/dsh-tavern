@@ -129,12 +129,17 @@ function StageOpenings({ctx,embedded=false,pick:held,onPick,onGreetings}) {
   const field=(label,control,help)=>h(InlineRow,{label,className:'ap-opening-field',help:help&&h(Help,{text:help,label:label+' 说明'})},control);
   const configured=g=>!!(drafts[g.id]||value?.scenes?.[g.id]?.configured);
   React.useEffect(()=>{if(value)onGreetings?.(value.greetings);},[value]);
+  // the head reads like every section's (title, chevron, 「?」) with the summary on the right; the button is the keyboard
+  // route, and a click anywhere else on the head row (summary, empty space) folds too — but not on the 「?」 or 去开启.
+  const headClick=e=>{if(e.currentTarget.contains(e.target)&&!e.target.closest('button,a,.ap-help-anchor,.fork-help-tip'))setOpen(!open);};
   return h('section',{className:'ap-section ap-opening-section','data-open':open||undefined},
-    h('header',{className:'ap-section-head ap-opening-head'},
-      embedded?h('h3',{className:'ap-opening-title'},'开场设置',greetings.length>1&&h('span',{className:'ap-section-meta'},(index+1)+' / '+greetings.length)):h('h3',null,h('button',{type:'button',className:'ap-opening-toggle','aria-expanded':open,'aria-controls':bodyId,onClick:()=>setOpen(!open)},
-        h('span',{className:'ap-opening-title'},'开场设置'),
-        !open&&value&&h(OpeningSummary,{ctx,value,scene:greetings[0]&&sceneOf(greetings[0])}),
-        h('span',{className:'ap-opening-chevron','aria-hidden':true},h(Glyph,{name:'chevDown'})))),
+    h('header',{className:'ap-section-head ap-opening-head',onClick:embedded?undefined:headClick},
+      embedded?h('h3',{className:'ap-opening-title'},'开场设置',greetings.length>1&&h('span',{className:'ap-section-meta'},(index+1)+' / '+greetings.length)):h('h3',null,
+        h('button',{type:'button',className:'ap-section-toggle','aria-expanded':open,'aria-controls':bodyId,onClick:()=>setOpen(!open)},
+          h('span',{className:'ap-section-title ap-opening-title'},'开场设置'),
+          h('span',{className:'ap-section-chevron','aria-hidden':true},h(Glyph,{name:'chevDown'}))),
+        h(Help,{text:'新聊天开场时舞台的样子：开场角色、皮肤，以及每段开场白的背景、时段、CG、出场人物和 BGM。未设置的开场白使用主题渐变且不放人物。',label:'开场设置 说明'})),
+      !embedded&&!open&&value&&h(OpeningSummary,{ctx,value,scene:greetings[0]&&sceneOf(greetings[0])}),
       open&&blocked&&h('span',{className:'ap-need'},'需要'+STAGE_NAMES.stage,' · ',h(Button,{className:'ap-inline-link',onClick:()=>ctx.enable('stage')},'去开启'))),
     open&&h('div',{className:'ap-section-body',id:bodyId},
       !value?(data.error?h(ErrorBox,{error:data.error,reload:data.reload}):h(Loading,{shape:'fields'})):h(React.Fragment,null,
