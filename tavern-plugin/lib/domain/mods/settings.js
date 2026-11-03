@@ -66,8 +66,8 @@ export function validateModSettingsSchema(schema, path = '$.settingsSchema', set
   }
   const declaration = (field, at, depth) => {
     check(plain(field) && MOD_FIELD_TYPES.includes(field.type) && depth <= 4, at, 'Unknown field type or nesting limit')
-    const extras = {text:['maxLength','placeholder'],toggle:[],slider:['min','max','step','unit'],segmented:['choices'],colour:['stageToken','palette'], 'asset-picker':['kind','source'], 'sound-picker':['kind'],'asset-ref':['target'],reference:['target'],object:['fields'],list:['item','maxItems']}[field.type]
-    shape(field, ['key','type','label','help','default','bindable','optional',...(settings ? ['scope','dependsOn','presentation'] : []),...extras], ['type','label','default',...(settings ? ['scope'] : []),...extras.filter(k => !['unit','placeholder','stageToken','palette'].includes(k))], at)
+    const extras = {text:['maxLength','placeholder'],toggle:[],slider:['min','max','step','unit','ends'],segmented:['choices'],colour:['stageToken','palette'], 'asset-picker':['kind','source'], 'sound-picker':['kind'],'asset-ref':['target'],reference:['target'],object:['fields'],list:['item','maxItems']}[field.type]
+    shape(field, ['key','type','label','help','default','bindable','optional',...(settings ? ['scope','dependsOn','presentation'] : []),...extras], ['type','label','default',...(settings ? ['scope'] : []),...extras.filter(k => !['unit','ends','placeholder','stageToken','palette'].includes(k))], at)
     if (settings) {
       check(field.scope==='global', at + '.scope', 'Mod settings are global only')
       if(field.presentation!==undefined)check(typeof field.presentation==='boolean',at+'.presentation')
@@ -85,6 +85,8 @@ export function validateModSettingsSchema(schema, path = '$.settingsSchema', set
     if (field.type === 'slider') {
       check([field.min,field.max,field.step].every(Number.isFinite) && field.min < field.max && field.step > 0 && (field.max - field.min) / field.step <= 10000, at)
       if (field.unit !== undefined) check(text(field.unit,24), at + '.unit')
+      // ends: the words at the rail's low and high ends (淡 / 浓) instead of its min / max numbers
+      if (field.ends !== undefined) check(Array.isArray(field.ends) && field.ends.length === 2 && field.ends.every(end => text(end,8)), at + '.ends')
     }
     if (field.type === 'segmented') {
       check(Array.isArray(field.choices) && field.choices.length >= 2 && field.choices.length <= 32, at)

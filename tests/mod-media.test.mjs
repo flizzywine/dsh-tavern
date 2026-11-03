@@ -90,3 +90,8 @@ test('asset-ref fields hold one main-library background, and object children may
   await validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:{id:row.assetId}})))
   await assert.rejects(validateModPackAssetRefs(pack,manifest,async({refs})=>refs.map(row=>({ref:row,value:null}))),{code:'MOD_RESOURCE_UNAVAILABLE'})
 })
+test('a slider field may name the words at its two ends instead of its numbers',()=>{
+  const slider={key:'opacity',type:'slider',label:'Opacity',default:80,min:10,max:100,step:5,ends:['淡','浓']}
+  assert.doesNotThrow(()=>validateModSettingsSchema({fields:[slider]},'$.packSchema',false,'example.mod'))
+  for(const ends of [['淡'],['淡','浓','中'],['淡','很浓很浓很浓很浓很浓'],'淡'])assert.throws(()=>validateModSettingsSchema({fields:[{...slider,ends}]},'$.packSchema',false,'example.mod'))
+})
