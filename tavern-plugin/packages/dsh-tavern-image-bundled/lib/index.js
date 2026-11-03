@@ -489,7 +489,14 @@ export function expandRosterCalls(text, scoped, mode, options = {}) {
           if (expression && !PLACEHOLDER_VALUE.test(expression) && !(back && !backTurn) && !lowerShot) extras.expression = expression
           // 人物库里的招牌发型：这一刻衣服里写了发型、或画面写着散发/湿发时不带。
           extras.dropHair = hairOverridden(sceneText, [wear, ...(picked.origins ?? []).filter(o => o.outfitId).map(o => o.text)].join(' '))
-          if (natural) bits.push(boundCharacterPhrase(person, picked, extras, wear, style) || person.promptLabel || person.name || asked)
+          // 上身 nsfw、下身 hidden、又没有衣服：画面只写了上身是光的，下身一个字没有，模型就自己补一条
+          // 短裤、牛仔裤或白裤子（半身画面里下身常常还是露出来）。补一句「身上什么都没穿」。
+          const bareBelow = natural && chinesePerson(person) && upper === 'nsfw' && lower === 'hidden' && !wear && !libraryHit && !ownsStandalone && !outfitName
+          if (natural) {
+            let phrase = boundCharacterPhrase(person, picked, extras, wear, style) || person.promptLabel || person.name || asked
+            if (bareBelow) phrase = String(phrase).replace(/[。，,\s]*$/, '') + '。' + (person.name || '她') + '身上什么都没穿，没有穿裤子，也没有穿裙子。'
+            bits.push(phrase)
+          }
           else {
             if (picked.tags.length) bits.push(...picked.tags)
             if (wear) bits.push(wear)
