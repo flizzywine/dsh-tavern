@@ -15,6 +15,10 @@
 
 ## 推送
 
+用户说「推送」/「push」/「推一下」时，**默认就是 `origin` = `https://github.com/flizzywine/dsh-tavern.git`**，不必再确认远程。只有用户明确点名别的远程（例如「推到 fork」「推 bigmalove」）才换目标。
+
+仓库里同时存在 `fork` = `https://github.com/bigmalove/dsh-tavern`，那是另一条血统（与本地 `main` 分叉数百个补丁不等价的提交）。**没有明确要求时不对它 rebase、不强推**；真要同步只能 `git merge fork/main`，或经用户明确同意后强推。
+
 ## 分支
 
 - `main`：当前版本，适配 DSH 0.2.1。日常开发在这里。
