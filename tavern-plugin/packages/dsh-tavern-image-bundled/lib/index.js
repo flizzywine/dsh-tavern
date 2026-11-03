@@ -5275,6 +5275,9 @@ function normalizeCharacter(raw, index) {
   if (!outfits.length && raw?.outfit) outfits.push({ id: 'o1', name: '常服', body: String(raw.outfit), default: true })
   item.outfits = outfits.map((outfit, j) => ({
     ...referenceFields(outfit),
+    ...(Object.hasOwn(outfit ?? {}, 'characterOutfitImage') ? {
+      characterOutfitImage: normalizeReferenceImage(outfit.characterOutfitImage),
+    } : {}),
     id: String(outfit?.id ?? `outfit-${index + 1}-${j + 1}`),
     name: String(outfit?.name ?? `服装 ${j + 1}`),
     upper: String(outfit?.upper ?? outfit?.body ?? ''),

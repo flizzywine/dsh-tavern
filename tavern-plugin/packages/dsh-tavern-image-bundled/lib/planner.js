@@ -361,8 +361,8 @@ export function characterRoster(definitions, { fullTraits = false, text = '' } =
     // IDs and reference availability belong on separate lines, never inside a
     // quoted outfit name (the planner must still be able to copy its exact name).
     for (const outfit of outfits) {
-      if (!outfit.id && !outfit.referenceImage && !String(outfit.consistencyText ?? '').trim()) continue
-      lines.push('  服装标识：' + (outfit.name || '未命名') + ' [outfit_id=' + String(outfit.id ?? '') + ']' + (outfit.referenceImage ? '；有服装参考图' : ''))
+      if (!outfit.id && !outfit.referenceImage && !outfit.characterOutfitImage && !String(outfit.consistencyText ?? '').trim()) continue
+      lines.push('  服装标识：' + (outfit.name || '未命名') + ' [outfit_id=' + String(outfit.id ?? '') + ']' + (outfit.characterOutfitImage ? '；有角色×服装设定图' : '') + (outfit.referenceImage ? '；有服装参考图' : ''))
       if (String(outfit.consistencyText ?? '').trim()) lines.push('    服装一致性补充：' + clip(outfit.consistencyText, 700))
     }
     if (String(character.formCues ?? '').trim()) lines.push('  形态线索（画面里有这些就是这个形态，宏里写这个形态的名字）：' + clip(character.formCues, 200))

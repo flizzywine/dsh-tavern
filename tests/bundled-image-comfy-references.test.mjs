@@ -67,6 +67,32 @@ test('ComfyUI binding 仅自动接受唯一 LoadImage，多节点必须明确配
   assert.throws(() => applyComfyReferenceImages(workflow({ loaders: ['8'] }), ['a.png', 'b.png']), /只有 1 个.*有 2 张/)
 })
 
+test('角色×服装图走现有上传流程，使用一个 LoadImage 槽并保留两种用途', async t => {
+  const { runtime, definitions, image } = await setup(t, workflow())
+  definitions.characters[0].outfits = [{ id: 'robe', name: '礼服', upper: 'red dress', characterOutfitImage: image }]
+  definitions.outfits = []
+  assert.equal((await runtime.request('definitions', { definitions })).status, 200)
+  let uploads = 0
+  let submitted
+  globalThis.fetch = async (input, init = {}) => {
+    switch (new URL(input).pathname) {
+      case '/upload/image':
+        uploads++
+        return imageJson({ name: 'sheet.png', type: 'input' })
+      case '/prompt':
+        submitted = JSON.parse(init.body)
+        return imageJson({ prompt_id: submitted.prompt_id })
+      default:
+        return imageJson({})
+    }
+  }
+  const result = await jobInput(runtime, { outfit: true, key: 'paired-reference' })
+  assert.equal(result.status, 200)
+  assert.equal(uploads, 1)
+  assert.equal(submitted.prompt['8'].inputs.image, 'sheet.png')
+  assert.match(submitted.prompt['1'].inputs.text, /角色×服装参考/)
+})
+
 test('真实 runtime 上传不可变快照并保留编译后的完整 prompt graph、output binding 与双图显式映射', { timeout: 20000 }, async t => {
   const graph = workflow({ loaders: ['8', '9'], bindings: [{ node: '9', input: 'image' }, { node: '8', input: 'image' }] })
   const { fixture, runtime } = await setup(t, graph)

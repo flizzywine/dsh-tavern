@@ -334,6 +334,13 @@ function referenceOf(item) {
   if (!image) throw fail('REFERENCE_DESCRIPTOR_INVALID', '参考图描述无效：' + displayName(item))
   return image
 }
+/** 角色×服装设定图: a character's own outfit drawn on that character; fixes identity and clothing together. */
+function sheetOf(item) {
+  if (item?.characterOutfitImage == null || item.characterOutfitImage === '') return null
+  const image = normalizeReferenceImage(item.characterOutfitImage)
+  if (!image) throw fail('REFERENCE_DESCRIPTOR_INVALID', '角色×服装设定图描述无效：' + displayName(item))
+  return image
+}
 function normalizeSubjects(input, lib) {
   if (!Array.isArray(input)) throw fail('REFERENCE_SUBJECTS_INVALID', 'subjects 必须是数组；缺省时才使用兼容识别')
   const result = [], seen = new Map()
@@ -491,6 +498,13 @@ export function resolveImageReferences({ text = '', characters = [], subjects, d
   const { rows, extra } = subjects === undefined ? legacySubjects(source, lib) : { rows: normalizeSubjects(subjects, lib), extra: [] }
   const candidates = []
   for (const row of rows) {
+    // Tier 1: the character×outfit sheet stands alone for both identity and clothing.
+    const sheet = row.person && row.outfit?.owner === row.person ? sheetOf(row.outfit.item) : null
+    if (sheet) {
+      candidates.push({ kind: 'character-outfit', item: row.outfit.item, person: row.person, position: row.position, image: sheet })
+      continue
+    }
+    // Tiers 2–3: the character sheet plus the outfit image; an outfit without one stays text.
     if (row.person) candidates.push({ kind: 'character', item: row.person, person: row.person, position: row.position })
     if (row.outfit) candidates.push({ kind: 'outfit', item: row.outfit.item, person: row.outfit.owner,
       wearer: row.person || (row.subject?.name ? { name: row.subject.name } : null), position: row.outfitPosition })
@@ -499,18 +513,21 @@ export function resolveImageReferences({ text = '', characters = [], subjects, d
   candidates.sort((a, b) => a.position - b.position)
   const references = [], seen = new Map()
   for (const entry of candidates) {
-    const image = referenceOf(entry.item)
+    const image = entry.image ?? referenceOf(entry.item)
     if (!image) continue
     const id = requireId(idOf(entry.item), entry.kind === 'character' ? 'characterId' : 'outfitId')
     if (entry.kind === 'outfit' && !entry.person) unique(lib.outfits.filter(item => !item.owner && idOf(item.item) === id), '通用服装=' + id, true)
-    const key = JSON.stringify([entry.kind, entry.kind === 'outfit' ? idOf(entry.person) : '', id])
+    const key = JSON.stringify([entry.kind, entry.kind !== 'character' ? idOf(entry.person) : '', id])
     let saved = seen.get(key)
     if (!saved) {
       const label = entry.kind === 'character' ? displayName(entry.item) : (entry.person ? displayName(entry.person) + '／' : '通用服装／') + displayName(entry.item)
       const reference = { index: references.length + 1, kind: entry.kind,
         ...(entry.person ? { characterId: idOf(entry.person) } : {}),
-        ...(entry.kind === 'outfit' ? { outfitId: id } : {}),
-        label, consistencyText: normalizeConsistencyText(entry.item.consistencyText), image }
+        ...(entry.kind === 'character-outfit' ? { characterLabel: displayName(entry.person) } : {}),
+        ...(entry.kind !== 'character' ? { outfitId: id } : {}),
+        label, consistencyText: normalizeConsistencyText(entry.kind === 'character-outfit'
+          ? [entry.person.consistencyText, entry.item.consistencyText].map(cleanText).filter(Boolean).join('\n')
+          : entry.item.consistencyText), image }
       references.push(reference); saved = { reference, label, wearers: new Set() }; seen.set(key, saved)
     }
     if (entry.kind === 'outfit' && !entry.person && entry.wearer) {
@@ -524,9 +541,9 @@ export function resolveImageReferences({ text = '', characters = [], subjects, d
 function checkedReferences(value) {
   if (!Array.isArray(value)) throw fail('REFERENCE_LIST_INVALID', 'references 必须是数组')
   return value.map((reference, index) => {
-    if (!record(reference) || reference.index !== index + 1 || !['character', 'outfit'].includes(reference.kind) || !normalizeReferenceImage(reference.image)) throw fail('REFERENCE_LIST_INVALID', '参考图编号、对象或描述无效')
-    if (reference.kind === 'character') requireId(reference.characterId, 'characterId')
-    else requireId(reference.outfitId, 'outfitId')
+    if (!record(reference) || reference.index !== index + 1 || !['character', 'character-outfit', 'outfit'].includes(reference.kind) || !normalizeReferenceImage(reference.image)) throw fail('REFERENCE_LIST_INVALID', '参考图编号、对象或描述无效')
+    if (reference.kind !== 'outfit') requireId(reference.characterId, 'characterId')
+    if (reference.kind !== 'character') requireId(reference.outfitId, 'outfitId')
     return reference
   })
 }
@@ -536,31 +553,42 @@ export function buildReferenceText(references) {
   if (!items.length) return ''
   const lines = ['【参考图绑定与必要一致性约束】',
     '下面的参考图序号严格对应本次上传图片的顺序，不得交换人物身份或服装归属。',
-    '角色身份图只约束面部、发型和体态，不继承其中的衣服、姿势、表情或背景。服装图只约束服饰设计，不继承模特身份、脸、发型、体态、姿势或背景。',
+    '角色身份图只约束面部、发型和体态，不继承其中的衣服、姿势、表情或背景。服装图只约束服饰设计，不继承模特身份、脸、发型、体态、姿势或背景。角色×服装设定图同时约束该人物身份与该套服饰，不继承姿势、表情或背景。',
     '动作、表情、镜头、环境和服装状态以本张剧情描述为准；剧情明确的换装、湿衣、破损、脱衣及外观状态变化优先于参考图中的旧状态。禁止照搬任何参考场景。']
   for (const reference of items) {
     const binding = reference.kind === 'character' ? 'characterId=' + reference.characterId
       : (reference.characterId ? 'characterId=' + reference.characterId + '，' : '通用服装，') + 'outfitId=' + reference.outfitId
-    lines.push('参考图' + reference.index + ' → ' + cleanText(reference.label).replace(/\n/g, ' ') + '（' + binding + '）：' + (reference.kind === 'character' ? '用于该角色身份一致性，不作为服装或场景参考。' : '用于该套服装的一致性，不作为人物身份或场景参考。'))
+    lines.push('参考图' + reference.index + ' → ' + cleanText(reference.label).replace(/\n/g, ' ') + '（' + binding + '）：' + (reference.kind === 'character' ? '用于该角色身份一致性，不作为服装或场景参考。' : reference.kind === 'character-outfit' ? '角色×服装设定图，同时用于该角色身份与该套服装的一致性，不作为场景参考。' : '用于该套服装的一致性，不作为人物身份或场景参考。'))
     const extra = normalizeConsistencyText(reference.consistencyText)
     if (extra) lines.push('该对象的用户补充（仍须服从上述用途边界与剧情变化）：\n' + extra)
   }
   return lines.join('\n')
 }
 
+const cleanReferenceLabel = value => cleanText(value).replace(/\s*\[characterId=[^\]\r\n]*\]/g, '').replace(/\n/g, ' ')
+const identityLabel = item => item.kind === 'character-outfit' ? item.characterLabel : item.label
+
+function structuredIdentityNames(items) {
+  const identities = items.filter(item => item.kind !== 'outfit')
+  return new Map(identities.map(item => {
+    const label = cleanReferenceLabel(identityLabel(item))
+    const duplicate = identities.some(other => other.characterId !== item.characterId && cleanReferenceLabel(identityLabel(other)) === label)
+    return [item.characterId, label + (duplicate ? '（对象' + item.index + '）' : '')]
+  }))
+}
+
 function structuredReferenceLabels(items) {
-  const cleanLabel = value => cleanText(value).replace(/\s*\[characterId=[^\]\r\n]*\]/g, '').replace(/\n/g, ' ')
-  const identities = items.filter(item => item.kind === 'character')
-  const names = new Map(identities.map(item => [item.characterId, cleanLabel(item.label) +
-    (identities.some(other => other !== item && cleanLabel(other.label) === cleanLabel(item.label)) ? '（对象' + item.index + '）' : '')]))
+  const identities = items.filter(item => item.kind !== 'outfit')
+  const names = structuredIdentityNames(items)
   const labels = items.map(item => {
     if (item.kind === 'character') return names.get(item.characterId)
     let label = cleanText(item.label)
     const owner = identities.find(person => person.characterId === item.characterId)
-    if (owner && label.startsWith(owner.label + '／')) label = names.get(owner.characterId) + label.slice(owner.label.length)
+    const ownerLabel = owner && identityLabel(owner)
+    if (ownerLabel && label.startsWith(ownerLabel + '／')) label = names.get(owner.characterId) + label.slice(ownerLabel.length)
     // Shared costumes may belong to several wearers, not to their library owner.
-    for (const person of identities) label = label.replaceAll(person.label + ' [characterId=' + person.characterId + ']', names.get(person.characterId))
-    return cleanLabel(label)
+    for (const person of identities) label = label.replaceAll(identityLabel(person) + ' [characterId=' + person.characterId + ']', names.get(person.characterId))
+    return cleanReferenceLabel(label)
   })
   return labels.map((label, index) => items[index].kind !== 'character' && items.some((other, at) => at !== index && other.kind === items[index].kind && labels[at] === label)
     ? label + '（对象' + (index + 1) + '）' : label)
@@ -573,11 +601,12 @@ export function buildStructuredReferenceText(references) {
   const lines = []
   if (items.some(item => item.kind === 'character')) lines.push('身份图仅约束面部、发型和固有体型比例，不继承其中的服装、姿势、表情或背景。')
   if (items.some(item => item.kind === 'outfit')) lines.push('服装图仅约束服饰设计，不继承模特身份、面部、发型、体型、姿势或背景。')
+  if (items.some(item => item.kind === 'character-outfit')) lines.push('角色×服装设定图同时约束人物身份与该套服饰，不继承姿势、表情或背景。')
   lines.push('服装、表情、姿态、镜头、环境及外观的当前状态以本张描述为准。')
   const labels = structuredReferenceLabels(items)
   for (const [index, item] of items.entries()) {
     const label = labels[index]
-    lines.push('参考图' + item.index + ' → ' + label + '：' + (item.kind === 'character' ? '身份参考。' : '服装参考。'))
+    lines.push('参考图' + item.index + ' → ' + label + '：' + (item.kind === 'character' ? '身份参考。' : item.kind === 'character-outfit' ? '角色×服装参考。' : '服装参考。'))
     const extra = normalizeConsistencyText(item.consistencyText)
     if (extra) lines.push('此对象的一致性补充：\n' + extra)
   }
@@ -593,6 +622,7 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
     '同一角色仅列一次。outfitId 必须对应该角色在这一张画面、这一时刻实际穿的服装；未指定图库服装、裸露、衣物不可见或用纯文字描述衣物时填 ""，不要因此补常穿。未知或未建库人物保留在画面描述中，可在 subjects 中写 {"name":"该人物名称"}，不要编造 characterId；若穿通用服装，可另外填写该通用服装的 outfitId。',
     '服装可以只用文字描述，不必从图库挑一套；当前剧情明确的衣着、状态变化优先，脱下、拿在手中或放在一旁的衣服不作为正在穿着的服装。',
     '有图对象以图片及其一致性补充约束固定外观，不再完整堆叠它的固定 traits 或服装标签；缺图对象继续使用完整文字描述。角色图不继承服装、姿势或背景，服装图不继承模特身份；动作和场景依据当前剧情。',
+    '取图顺序由插件决定，照常填写 characterId 与 outfitId 即可：服装标有 characterOutfitImage（角色×服装设定图）时只用这一张同时约束身份与服装；否则用角色图加服装图；服装没有图时保留服装文字。',
     '后台插件会按实际上传顺序绑定参考图编号，不要自行猜测编号。若整张图没有任何可用参考图，后端会暂停并提示，不自动退回纯文生图。',
     ...(structured ? [
       '有身份参考图的人物，结构化画面正文只写人物名称及本张可见状态，不再描述年龄、性别、面部、发型或固有体型等固定身份属性，不用“年轻男性”“青年男子”等概括词重新定义身份，也不从姓名、正文或人物库复述这些固定属性。剧情明确的外观变化与用户明确的一致性补充仍须保留并归属到具体人物；当前表情、衣着、姿态不是固定身份属性，应按本张描述。',
@@ -606,7 +636,8 @@ export function referencePlannerGuidance(definitions = {}, { structured = false 
     lines.push(JSON.stringify({ characterId: idOf(person), name: displayName(person), referenceImage: image ? '有图' : '无图', consistencyText: normalizeConsistencyText(person.consistencyText) }))
     for (const entry of lib.outfits.filter(entry => entry.owner === person)) {
       outfitById(lib, person, idOf(entry.item))
-      lines.push('  ' + JSON.stringify({ characterId: idOf(person), outfitId: idOf(entry.item), name: displayName(entry.item), referenceImage: referenceOf(entry.item) ? '有图' : '无图', consistencyText: normalizeConsistencyText(entry.item.consistencyText) }))
+      lines.push('  ' + JSON.stringify({ characterId: idOf(person), outfitId: idOf(entry.item), name: displayName(entry.item), referenceImage: referenceOf(entry.item) ? '有图' : '无图',
+        ...(sheetOf(entry.item) ? { characterOutfitImage: '有图' } : {}), consistencyText: normalizeConsistencyText(entry.item.consistencyText) }))
     }
   }
   for (const entry of lib.outfits.filter(entry => !entry.owner)) {
@@ -645,8 +676,9 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
     }
   }
   const original = catalog(result)
-  const characterRefs = new Map(checked.filter(ref => ref.kind === 'character').map(ref => [ref.characterId, ref]))
-  const outfitRefs = new Map(checked.filter(ref => ref.kind === 'outfit').map(ref => [JSON.stringify([ref.characterId || '', ref.outfitId]), ref]))
+  const characterRefs = new Map(checked.filter(ref => ref.kind !== 'outfit').map(ref => [ref.characterId, ref]))
+  const outfitRefs = new Map(checked.filter(ref => ref.kind !== 'character').map(ref => [JSON.stringify([ref.characterId || '', ref.outfitId]), ref]))
+  const identityNames = markers ? null : structuredIdentityNames(checked)
   const trimOutfit = (outfit, reference) => {
     if (!reference) return outfit
     for (const key of ['upper', 'lower', 'shoes', 'accessory', 'full', 'back', 'body', 'bodyBack', 'fullBack', 'negative']) delete outfit[key]
@@ -657,7 +689,7 @@ export function referenceScopedDefinitions(definitions = {}, references = [], { 
   for (const person of original.people) {
     const reference = characterRefs.get(idOf(person))
     if (reference) {
-      if (!markers) person.promptLabel = structuredReferenceLabels(checked)[reference.index - 1]
+      if (!markers) person.promptLabel = identityNames.get(reference.characterId) || displayName(person)
       const feature = person.traits?.feature
       const marker = '角色「' + displayName(person) + '」[characterId=' + idOf(person) + ']身份参照图' + reference.index
       person.traits = { ...(typeof feature === 'string' ? { feature } : {}), ...(markers ? { face: marker, faceBack: marker } : {}) }
