@@ -23,6 +23,7 @@ import { createCardEditor, CARD_PROJECTION_REVISIONS, cardProjectionRevisionOf, 
 import { ensureSessionVariableDirectory } from './domain/session-variable-directory.js'
 import {createTavernClientAssets} from './domain/tavern-client-assets.js'
 import { registerTavernHttpRoutes } from './http/routes.js'
+import { verifyPublicHostname } from './http/public-hostname.js'
 import { installChatAnswerBootPatch } from './domain/chat-answer-boot-patch.js'
 import { registerRequestHooks } from './hooks/request.js'
 import { createWholeReadGuard, scopeTurnHooks } from './domain/whole-read-guard.js'
@@ -500,7 +501,7 @@ export async function apply(ctx) {
     readJson: async function (path) { return await profileData.readJson(path) },
     updateJson: async function (path, updater) { return await profileData.updateJson(path, updater) }
   })
-  const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets' })
+  const tavernStaticResources = createTavernStaticResourceCache({ rootDir: dataRoot + '/cache/static-assets', verifyHostname: verifyPublicHostname })
   void tavernStaticResources.warm(SILLYTAVERN_CSS_COMPAT_URLS).then(function (results) {
     const failures = results.filter(function (result) { return result.status === 'rejected' })
     if (failures.length > 0) console.warn('dsh-tavern: 部分静态运行库暂未缓存，将在使用时重试:', failures.map(function (result) { return str(result.reason && result.reason.message || result.reason) }).join('；'))
