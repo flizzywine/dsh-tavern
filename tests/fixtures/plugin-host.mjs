@@ -44,6 +44,7 @@ export async function createPluginHost({ withTools = false, composition, config 
     register(tool) {
       assert.ok(!registeredTools.has(tool.name), 'duplicate tool: ' + tool.name)
       registeredTools.set(tool.name, tool)
+      return () => registeredTools.delete(tool.name)
     }
   })
   let disableAssets

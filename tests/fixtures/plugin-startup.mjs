@@ -29,6 +29,9 @@ try {
     'submit_story']) {
     assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered')
   }
+  for (const name of ['tavern_assets_read', 'tavern_assets_patch', 'tavern_media_upload', 'tavern_assets_transfer', 'tavern_stage_read', 'tavern_stage_patch', 'tavern_mods_read', 'tavern_mods_patch', 'tavern_asset_generation']) {
+    assert.equal(typeof host.registeredTools.get(name)?.execute, 'function', name + ' registered by the stage')
+  }
   const tavern = host.services.get('tavern')
   assert.equal(tavern?.apiVersion, 6, 'public plugin service provided')
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
