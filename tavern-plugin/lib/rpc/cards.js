@@ -2,6 +2,7 @@ import { waitForWritableSession } from '../domain/agent-readiness.js'
 import { normalizeResourcePath } from '../domain/file-resources.js'
 import { pngPayload } from '../domain/mobile-card-import.js'
 import { readFile, rm } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encryption.js'
 
 // Card library, card workspace and card import requests.
@@ -12,7 +13,7 @@ export function createCardHandlers(deps) {
     importCard, importCardArchiveFile, importPluginCardFile, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
-  return {
+  const handlers = {
     async getCardOrganization(args) {
       return { groups: (await cardOrganization.read()).groups }
     },
@@ -97,6 +98,12 @@ export function createCardHandlers(deps) {
         return { filename, bytes: stored.bytes, downloadUrl: '/api/dsh-tavern/transfer-export/' + encodeURIComponent(filename) + '?token=' + stored.token }
       } finally { await upload.remove(); await rm(output, { force: true }).catch(() => {}) }
     },
+    async encryptLibraryCard(args) {
+      if (typeof args?.password !== 'string' || !args.password.length) throw new Error('请设置人物卡密码')
+      const card = await deps.exportCardFile(normalizeResourcePath(args?.path, 'card'))
+      const upload = await uploads.receive(Readable.from([card.bytes]))
+      return handlers.encryptCardUpload({ uploadId: upload.id, name: card.name + '.dshcard', password: args.password })
+    },
     async decryptCardUpload(args) {
       const upload = await uploads.take(args?.uploadId), output = upload.file + '.decrypted'
       let retry = false
@@ -157,4 +164,5 @@ return { card: await duplicateCard(args && args.path, args && args.name) }
         return { cardName: str(chat.cardName), cardId: await resolveCardId(chat.cardPath), ...(await cardScripts.list(extensions?.helperScripts, chat.cardPath)) }
     },
   }
+  return handlers
 }

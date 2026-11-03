@@ -8,7 +8,7 @@ import { rawData } from './card-preparation.js'
 import { createCardImportIdentity } from './card-import-identity.js'
 import { normalizeResourcePath, stripPngTextChunks } from './file-resources.js'
 import { openCardZip } from './card-encryption.js'
-import { writeZipEntries } from './zip-entries.js'
+import { readZipEntries, writeZipEntries } from './zip-entries.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -232,7 +232,15 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
   async function exportCardFile(input) {
     const cardPath = normalizeResourcePath(input, 'card')
     const { document } = await presentCardText(cardPath)
-    return { ...await exportCardCharx(cardPath, document, await charxMaterial(cardPath, document)), extension: 'dshcard', contentType: 'application/zip' }
+    const exported = await exportCardCharx(cardPath, document, await charxMaterial(cardPath, document))
+    const plugins = (await castAssets.read(cardPath)).plugins || []
+    if (plugins.length) {
+      const entries = readZipEntries(exported.bytes), manifest = JSON.parse(entries.get('dsh.json'))
+      manifest.plugins = plugins.map(plugin => ({ name: plugin.name, path: 'plugins/' + plugin.folder + '/', purpose: plugin.purpose || '' }))
+      entries.set('dsh.json', Buffer.from(JSON.stringify(manifest)))
+      exported.bytes = writeZipEntries([...entries].map(([path, content]) => ({ path, content })).concat(await cardPlugins.exportFiles({ cardKey: castAssets.keyOf(cardPath), plugins })))
+    }
+    return { ...exported, extension: 'dshcard', contentType: 'application/zip' }
   }
 
   return { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }

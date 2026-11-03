@@ -25,16 +25,13 @@ test('normal cards never show a password dialog; wrong password retries and canc
   h.dom.window.close()
 })
 
-test('password fields show plain text, are confirmed before encryption, emptied and removed when done', async () => {
+test('encryption asks for one plaintext password, then empties and removes the field', async () => {
   const h = setup(), promise = h.ask({ name: 'locked.dshcard', confirm: true })
   const form = h.window.document.querySelector('form'), fields = form.querySelectorAll('input')
-  assert.equal(fields.length, 2); assert.ok([...fields].every(field => field.type === 'text'))
-  fields[0].value = 'secret-test'; fields[1].value = 'different'
-  form.dispatchEvent(new h.window.Event('submit', { cancelable: true }))
-  assert.equal(form.querySelector('[role=alert]').textContent, '两次密码不一致')
-  fields[1].value = 'secret-test'; form.dispatchEvent(new h.window.Event('submit', { cancelable: true }))
+  assert.equal(fields.length, 1); assert.equal(fields[0].type, 'text')
+  fields[0].value = 'secret-test'; form.dispatchEvent(new h.window.Event('submit', { cancelable: true }))
   assert.equal(await promise, 'secret-test')
-  assert.equal(fields[0].value, ''); assert.equal(fields[1].value, '')
+  assert.equal(fields[0].value, '')
   assert.equal(h.window.document.querySelector('dialog'), null)
   h.dom.window.close()
 })

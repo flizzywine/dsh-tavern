@@ -107,6 +107,30 @@ test('native encrypt upload produces a downloadable password-protected card with
   await assert.rejects(uploads.take(id), /不存在/)
 })
 
+test('encrypting the current library card again creates one new password layer and leaves the previous export intact', async t => {
+  const f = await fixture(t), uploads = createUploads({ root: f.dir }), exports = createTransferExportStore({ root: path.join(f.dir, 'exports') })
+  t.after(() => exports.close())
+  let calls = 0
+  const handlers = createCardHandlers({ uploads, transferExports: exports, str: String, async exportCardFile(cardPath) {
+    assert.equal(cardPath, 'cards/current.json'); calls++
+    return { name: 'Current card', bytes: await readFile(f.plain) }
+  } })
+  const first = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'first-test-password' })
+  const second = await handlers.encryptLibraryCard({ path: 'cards/current.json', password: 'second-test-password' })
+  assert.equal(calls, 2)
+  for (const [result, password] of [[first, 'first-test-password'], [second, 'second-test-password']]) {
+    const stored = await exports.take(new URL(result.downloadUrl, 'http://localhost').searchParams.get('token'))
+    await assert.rejects(openCardZip(stored.file), { code: CARD_PASSWORD_REQUIRED })
+    const zip = await openCardZip(stored.file, { password })
+    try {
+      assert.equal((await readCardArchive(zip)).plugins[0].name, 'game')
+      assert.equal((await readCardArchive(zip)).card.data.name, 'Encrypted fixture')
+    } finally { await zip.close() }
+  }
+  const stored = await exports.take(new URL(second.downloadUrl, 'http://localhost').searchParams.get('token'))
+  await assert.rejects(openCardZip(stored.file, { password: 'first-test-password' }), { code: CARD_PASSWORD_INVALID })
+})
+
 test('standard AES ZIP interoperability with 7-Zip in both directions', { skip: !process.env.TAVERN_7ZIP_TEST }, async t => {
   const f = await fixture(t)
   // 7-Zip's ZIP password mode restricts its CLI to ASCII; native Tavern Unicode passwords are tested above.

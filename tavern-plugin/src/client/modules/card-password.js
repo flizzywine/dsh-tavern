@@ -14,12 +14,6 @@ function askTavernCardPassword(options = {}) {
         field.autocomplete = options.confirm ? 'new-password' : 'current-password'; field.setAttribute('aria-label', '密码');
         field.placeholder = '密码'; field.style.width = '100%'; field.style.boxSizing = 'border-box';
         panel.append(title, description, field);
-        let second;
-        if (options.confirm) {
-            second = document.createElement('input'); second.type = 'text'; second.required = true;
-            second.autocomplete = 'new-password'; second.setAttribute('aria-label', '确认密码'); second.placeholder = '再次输入密码';
-            second.style.width = '100%'; second.style.boxSizing = 'border-box'; panel.append(second);
-        }
         const actions = document.createElement('div'); actions.className = 'dsh-tavern-prompt-actions';
         const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'dsh-tavern-btn'; cancel.textContent = '取消';
         const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'dsh-tavern-btn primary'; submit.textContent = options.action || (options.confirm ? '加密并下载' : '解锁并导入');
@@ -27,7 +21,7 @@ function askTavernCardPassword(options = {}) {
         let finished = false;
         function finish(value) {
             if (finished) return; finished = true;
-            field.value = ''; if (second) second.value = '';
+            field.value = '';
             window.removeEventListener('pagehide', abort);
             window.removeEventListener('popstate', abort);
             if (dialog.open) dialog.close(); dialog.remove(); activeTavernCardPassword = null;
@@ -41,7 +35,6 @@ function askTavernCardPassword(options = {}) {
         panel.addEventListener('submit', event => {
             event.preventDefault();
             if (!field.value) { message.textContent = '请输入密码'; field.focus(); return; }
-            if (second && field.value !== second.value) { message.textContent = '两次密码不一致'; second.focus(); return; }
             finish(field.value);
         });
         dialog.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault(); });
@@ -51,12 +44,12 @@ function askTavernCardPassword(options = {}) {
     });
 }
 
-function beginTavernCardImportProgress(name) {
+function beginTavernCardImportProgress(name, options = {}) {
     const dialog = document.createElement('dialog'); dialog.className = 'dsh-tavern-prompt';
     dialog.style.cssText = 'inset:0;margin:auto;height:fit-content;max-height:calc(100vh - 32px);max-width:calc(100vw - 32px)';
-    dialog.setAttribute('aria-label', '正在导入人物卡');
+    dialog.setAttribute('aria-label', options.title || '正在导入人物卡');
     const panel = document.createElement('div'); panel.className = 'dsh-tavern-prompt-panel';
-    const title = document.createElement('div'); title.className = 'dsh-tavern-prompt-title'; title.textContent = '正在导入人物卡';
+    const title = document.createElement('div'); title.className = 'dsh-tavern-prompt-title'; title.textContent = options.title || '正在导入人物卡';
     const filename = document.createElement('div'); filename.textContent = name; filename.style.overflowWrap = 'anywhere';
     const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:12px;margin:16px 0';
     const spinner = document.createElement('span'); spinner.className = 'dsh-tavern-card-import-progress-spinner'; spinner.setAttribute('aria-hidden', 'true');

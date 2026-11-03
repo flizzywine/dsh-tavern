@@ -57,6 +57,10 @@ test('encrypted DSH imports authenticate before saving cards/plugins, and duplic
   assert.equal((await castAssets.read(card.path)).plugins[0].enabled, true)
   await assert.rejects(files.importCardArchiveFile(encrypted, 'locked.dshcard'), { code: 'TAVERN_CARD_PASSWORD_REQUIRED' })
   assert.equal((await files.importCardArchiveFile(encrypted, 'locked.dshcard', { password: 'test-only-password' })).duplicate, true)
+  const exported = await files.exportCardFile(card.path)
+  const entries = readZipEntries(exported.bytes)
+  assert.equal(JSON.parse(entries.get('dsh.json')).plugins[0].name, 'encrypted-game')
+  assert.equal(entries.get('plugins/game/assets/data.bin').toString(), 'fixture bytes')
 })
 
 test('a CHARX imports once; the same file again opens the card already imported; a bare card exports as DSH', async t => {

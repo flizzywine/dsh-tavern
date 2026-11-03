@@ -171,9 +171,27 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
     })
   }
 
+  async function exportFiles({ cardKey, plugins }) {
+    const files = []
+    for (const plugin of plugins) {
+      if (!FOLDER.test(plugin.folder)) throw invalid('插件文件夹无效')
+      const root = path.join(stagingRoot, cardKey, plugin.folder)
+      await readPluginManifest(root, plugin.folder)
+      async function walk(folder, relative = '') {
+        for (const entry of (await readdir(folder, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+          if (entry.isSymbolicLink()) throw invalid('插件中包含符号链接，无法导出')
+          const file = path.join(folder, entry.name), name = relative + entry.name
+          if (entry.isDirectory()) await walk(file, name + '/')
+          else if (entry.isFile()) files.push({ path: 'plugins/' + plugin.folder + '/' + name, content: await readFile(file) })
+        }
+      }
+      await walk(root)
+    }
+    return files
+  }
   let managedOwner
   function managed({distributions,cardRoots,retiredIds}) {
     return managedOwner ||= createCardPluginManagedOwner({stagingRoot,pluginsDir,serial,distributions,cardRoots,retiredIds,invalidate:()=>{scopes=null}})
   }
-  return Object.freeze({ stage, enable, disable, remove, movePath, scope, managed })
+  return Object.freeze({ stage, enable, disable, remove, movePath, scope, managed, exportFiles })
 }
