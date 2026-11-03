@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "c6d635b995d643d1a2e98007f418bf0d0760e6c9",
-  "releaseSequence": 1080,
+  "revision": "1a3a685e53781205d7fd72bae7989dcf32a719ab",
+  "releaseSequence": 1081,
   "version": "3.2.0",
   "files": [
     {
@@ -816,18 +816,18 @@
     },
     {
       "path": "tavern-plugin/lib/client-assets/tavern.css",
-      "sha256": "dfb3a48c4d5a2f8b853d10d84ea6942168daa5c3ab229032e080cbf63a40ba33",
-      "size": 372631
+      "sha256": "107e60adb248b240fc8e99b65ecd9af23112bdb13d3d486fb3cd23d25b35a881",
+      "size": 377243
     },
     {
       "path": "tavern-plugin/lib/client-assets/theme.css",
-      "sha256": "18f858e7fb24438c6c5adf8b922e48846ed87adffa678383fa9b07374a7d062b",
-      "size": 688678
+      "sha256": "1d5e831cc210e193b0167ecfa1aee9ef76b83510c27a41fe9b6034b0dfaa5891",
+      "size": 687219
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "2fa14f1858e779de5ffeeba6aa2ed36552813be88f91feb6e93c0d6199003274",
-      "size": 5234416
+      "sha256": "bdc89e37243448b6c2fd8e05814e8d570a174ad55428256dd0ac7e33816c3e46",
+      "size": 5236184
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -6376,8 +6376,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-dream-skin/lib/skins/paper.css",
-      "sha256": "e3cd861be8f0f10aa2ebd789e9b07bfb318d7bd44a5759ff69728f39dc47e588",
-      "size": 173749
+      "sha256": "cc84e8ba70c1cf9c342f01d124c21fee1b9937a3d61f93c96540647c337ce297",
+      "size": 174004
     },
     {
       "path": "tavern-plugin/packages/dsh-dream-skin/LICENSE",
@@ -9261,9 +9261,9 @@
     }
   ],
   "archive": {
-    "commit": "f4ff8a3a0b00ebad80868506f07f53b72d3c204b",
+    "commit": "3d6b9c62cb8d92ecaf31691e485f0f4045f9ab1e",
     "path": "runtime.zip",
-    "sha256": "c9f8e0325ea8d6c337bd607b7f442d5801dd96662a6ec2b7a6febb811eea18d9",
-    "size": 15555335
+    "sha256": "76933827f345dd8620deb6c6540c8e20358e08524983eb741e27ad3ee8005c69",
+    "size": 15557550
   }
 }
