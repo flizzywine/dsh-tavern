@@ -19,7 +19,6 @@ import { pluginManifestProblem } from './plugin-manifest.js'
 
 const MARKER = '.dsh-card.json'
 const FOLDER = /^[a-z0-9][a-z0-9._-]{0,63}$/
-const MAX_PLUGIN_BYTES = 64 * 1024 * 1024
 
 function invalid(message) { return Object.assign(new Error(message), { code: 'TAVERN_CARD_PLUGIN_INVALID' }) }
 
@@ -53,7 +52,6 @@ export function createCardPlugins({ dataRoot, pluginsDir, keyOf = null }) {
       const entries = [...zip.entries.values()].filter(entry => entry.path.startsWith(prefix)).sort((a, b) => a.path.localeCompare(b.path))
       for (const entry of entries) {
         bytes += entry.size
-        if (bytes > MAX_PLUGIN_BYTES) throw invalid('插件 ' + folder + ' 超过 64 MB')
         const relative = entry.path.slice(prefix.length)
         const file = path.join(target, ...relative.split('/'))
         await mkdir(path.dirname(file), { recursive: true })

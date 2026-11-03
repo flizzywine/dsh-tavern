@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -14,6 +14,29 @@ import { writeZipEntries } from '../tavern-plugin/lib/domain/zip-entries.js'
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000049454e44ae426082', 'hex')
 const crc32 = data => { let value = 0xffffffff; for (const byte of data) { value ^= byte; for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1 } return (value ^ 0xffffffff) >>> 0 }
+
+test('卡内插件：超过 64 MB 的资源仍可流式暂存和启用', async t => {
+  const { createCardPlugins } = await import('../tavern-plugin/lib/domain/card-plugins.js')
+  const dir = await temp(t), pluginsDir = join(dir, 'plugins')
+  const manager = createCardPlugins({ dataRoot: dir, pluginsDir })
+  const pkg = Buffer.from(JSON.stringify({ name: 'large-game', version: '1.0.0' }))
+  const size = 65 * 1024 * 1024
+  const packagePath = 'plugins/large-game/package.json', mediaPath = 'plugins/large-game/assets/media.bin'
+  const zip = {
+    entries: new Map([[packagePath, { path: packagePath, size: pkg.length }], [mediaPath, { path: mediaPath, size }]]),
+    async stream(entry) {
+      if (entry.path === packagePath) return Readable.from([pkg])
+      return Readable.from((function* () { const chunk = Buffer.alloc(1024 * 1024, 0x5a); for (let i = 0; i < 65; i++) yield chunk })())
+    },
+  }
+  const plugins = await manager.stage(zip, { cardKey: 'large-game', plugins: [{ path: 'plugins/large-game/' }] })
+  assert.equal(plugins[0].bytes, size + pkg.length)
+  await manager.enable({ cardKey: 'large-game', cardPath: 'cards/large-game.png', plugins })
+  const { folder } = (await manager.scope()).get('large-game')
+  assert.equal((await stat(join(pluginsDir, folder, 'assets/media.bin'))).size, size)
+  await manager.disable({ cardPath: 'cards/large-game.png', plugins })
+  assert.equal((await manager.scope()).size, 0)
+})
 
 async function temp(t) {
   const dir = await mkdtemp(join(tmpdir(), 'dshcard-'))
