@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "45c03c0e822107c6ef11244c962eeb7dab0ecc65",
-  "releaseSequence": 1104,
+  "revision": "4c8041054716b6ab032812af5ab833222e31407d",
+  "releaseSequence": 1105,
   "version": "3.2.0",
   "files": [
     {
@@ -206,8 +206,8 @@
     },
     {
       "path": "bin/import-user-home.mjs",
-      "sha256": "d38695e394e1191394f0440b7bd0f31beb0c55c48357184f9a82d83fd8e27220",
-      "size": 11361
+      "sha256": "07953a1489a2cc1aa685fe71e3deb0428f2d037d8dc8e591fdac872cfd7b1ee7",
+      "size": 11982
     },
     {
       "path": "bin/installation-location.cjs",
@@ -9331,9 +9331,9 @@
     }
   ],
   "archive": {
-    "commit": "952a9f8baa1bb9a751c5b714c5e0a6a8bc0cd4c1",
+    "commit": "e0781346889c0bd9ce0024e8b5701deea3e78a34",
     "path": "runtime.zip",
-    "sha256": "7e1face378a5118e5d8c45e3de421c27545705652993712a52ddcce524292904",
-    "size": 15755970
+    "sha256": "d32d38acca8d576f34a0757cde0ca2da7f2931efce80383daf0db6eea90c137c",
+    "size": 15756248
   }
 }
