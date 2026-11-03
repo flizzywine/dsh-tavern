@@ -829,9 +829,11 @@ export async function apply(ctx) {
     if (workspace === undefined) return undefined
     return cardPreparation.present({ card: workspace, as: 'card-extensions' })
   }
-  async function readCardExtensions(cardPath, chat, settings) {
-    const extensions = await readCardExtensionSources(cardPath, chat)
+  async function readCardExtensions(cardPath, chat, includeMuted = false, settings) {
+    let extensions = await readCardExtensionSources(cardPath, chat)
     if (extensions === undefined) return undefined
+    // shared by views, opening previews and script-work eligibility; no snapshot writes.
+    if (!includeMuted) extensions = { ...extensions, helperScripts: await cardScripts.filter(extensions.helperScripts, cardPath) }
     return withGlobalRegexScripts(extensions, settings ?? await tavernExtensionSettings.read(), chat && chat.regexOverrides)
   }
   function presetRegexScripts(chat) {
@@ -2021,8 +2023,9 @@ export async function apply(ctx) {
       const paths = new Set([chat.cardPath])
       for (const source of binding.sources || [binding]) if (source.path || source.cardPath) paths.add(source.path || source.cardPath)
       const versions = await Promise.all([...paths].map(path => profileData.version('resources/' + path)))
+      // machine-local mute changes invalidate the cached helper-script view.
       // The stage runtime state too: view.stage (readCardStageMode) has no stage until the runtime is there.
-      return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json'), stageRuntime.status()])
+      return JSON.stringify([binding, versions, await profileData.version('tavern-extension-settings.json'), await profileData.version('prompt-template-variables.json'), await cardScripts.version(chat.cardPath), stageRuntime.status()])
     },
     readChanges: chatPersistence.readChangedIndices,
     readViewDelta: chatPersistence.readViewDelta,
