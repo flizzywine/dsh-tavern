@@ -1058,6 +1058,7 @@ export function apply(ctx, config = {}) {
 
   route(`${BASE}/console`, serveConsole)
   route(`${BASE}/state`, (request, response, url, engine) => engine.handleConsole('state', request, response, url))
+  route(`${BASE}/runtime`, (request, response, url, engine) => engine.handleConsole('runtime', request, response, url))
   route(`${BASE}/plugin-update`, (request, response, url, engine) => engine.handleConsole('plugin-update', request, response, url))
   route(`${BASE}/plugin-update/check`, (request, response, url, engine) => engine.handleConsole('plugin-update-check', request, response, url))
   route(`${BASE}/plugin-update/apply`, (request, response, url, engine) => engine.handleConsole('plugin-update-apply', request, response, url))
@@ -3345,6 +3346,11 @@ function createRuntime(ctx, overrides, logger, deps) {
 
     let graphWrite = Promise.resolve()
     async function handleConsole(action, request, response, _url) {
+      if (action === 'runtime') {
+        if (request.method !== 'GET') { sendJson(response, 405, { ok: false, error: 'method-not-allowed' }); return }
+        sendJson(response, 200, { ok: true, tasks: publicTasks() })
+        return
+      }
       if (action === 'character-history') {
         const tavern = deps.tavern
         const api2 = Number(tavern?.apiVersion) >= 2 && typeof tavern?.readTurnData === 'function'

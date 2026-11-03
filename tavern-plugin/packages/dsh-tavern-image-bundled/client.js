@@ -2663,14 +2663,26 @@ function versionsOf(jobId) {
         pluginUpdateMounted.current = true
         return () => { pluginUpdateMounted.current = false; pluginUpdateView.current += 1 }
       }, [])
-      // 任务轮询：依赖写成 [] 并在内部读最新数据（原来依赖 data，
-      // 每轮 refresh 都会让 effect 重建，慢的时候会叠起一堆请求）
+      // Poll only progress while a task runs. Load libraries/worldbooks/diagnostics
+      // once on completion; slow requests never overlap and hidden pages stay idle.
       React.useEffect(() => {
-        const timer = setInterval(() => {
-          const tasks = (dataRef.current?.tasks || [])
-          if (tasks.some(t => t.state === 'running')) refresh()
-        }, 3000)
-        return () => clearInterval(timer)
+        let alive = true
+        let inFlight = false
+        const poll = async () => {
+          if (inFlight || document.hidden || !(dataRef.current?.tasks || []).some(t => t.state === 'running')) return
+          inFlight = true
+          try {
+            const next = await jsonFetch(BASE + '/runtime', { cache: 'no-store' })
+            if (!alive || !Array.isArray(next?.tasks)) return
+            if (!next.tasks.some(t => t.state === 'running')) await refresh()
+            else setData(current => current ? Object.assign({}, current, { tasks: next.tasks }) : current)
+          } catch (error) {
+            if (alive) setNote('读取任务进度失败：' + (error?.message ?? error))
+          } finally { inFlight = false }
+        }
+        const timer = setInterval(poll, 3000)
+        document.addEventListener('visibilitychange', poll)
+        return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', poll) }
       }, [])
       // 画廊也列出 Tavern 原生生图画过的旧图（tavernUi 第 4 版起提供，只读）。
       React.useEffect(() => {
