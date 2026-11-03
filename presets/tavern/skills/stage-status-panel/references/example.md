@@ -63,4 +63,4 @@ tavern_update_card({ rawOperations: [
 ] })
 ```
 
-路径中间缺少的层会自动建出。只 `set` 到 `statusPanel`，不要整个 `set` `dsh_tavern`，否则会覆盖它下面的其他字段（例如 `openingSetup`）。移除面板用 `{ op: 'delete', path: '/data/extensions/dsh_tavern/statusPanel' }`。
+路径中间缺少的层会自动建出。只 `set` 到 `statusPanel`，不要整个 `set` `dsh_tavern`，否则会覆盖它下面的其他字段（例如 `modSystem`）。移除面板用 `{ op: 'delete', path: '/data/extensions/dsh_tavern/statusPanel' }`。

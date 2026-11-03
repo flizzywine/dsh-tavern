@@ -18,11 +18,11 @@
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `version` | 是 | 固定为 `1`。 |
-| `title` | 否 | 覆盖层标题栏的文字，省略时显示「状态」。 |
-| `html` | 是 | 面板内容，见「渲染」。 |
+| `title` | 否 | 覆盖层标题栏的文字，最多 40 字，省略时显示「状态」。 |
+| `html` | 是 | 面板内容，非空字符串，见「渲染」。 |
 | `variables.reads` | 否 | 要读的变量，格式与舞台组件的变量声明相同，只有 `reads`，没有 `writes`。 |
-| `ledger` | 否 | 要读的台账分区名。 |
-| `figures` | 否 | 要显示头像的人物：`name` 是人物名，`emotion` 是可选的表情名。 |
+| `ledger` | 否 | 要读的台账分区名，最多 8 个、不重复。 |
+| `figures` | 否 | 要显示头像的人物，最多 8 个、名字不重复：`name` 是人物名（最多 40 字），`emotion` 是可选的表情名（最多 24 字）。 |
 
 `variables.reads` 的规则：
 
@@ -31,15 +31,15 @@
 - `path` 是 JSON Pointer，以 `/` 开头，从 `stat_data`（或聊天变量）的根算起，最多 16 层、512 字节；不能用 `-`、`*`、`$` 或 `__` 开头的键。
 - 同一来源的两个路径不能互相包含：要整棵子树就只声明父路径。
 
-`ledger` 的分区名：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。不认识的分区名不返回数据。
+`ledger` 的分区名：`location`、`locationPath`、`items`、`npcs`、`scenes`、`itemLog`、`updatedTurn`。
 
 `figures` 的头像由舞台已有的人物头像查找提供，名字写本卡人物的名字；认不出或没有头像时 `avatar` 为 `null`。
 
-声明只在保存时校验一次，报错随 `tavern_update_card` 的保存结果返回，按报错修改后重新保存。
+其他字段一律拒绝。声明只在保存时校验一次：不合格时保存失败，返回 `CARD_STATUS_PANEL_INVALID` 和出错字段的路径（如 `statusPanel.ledger.1`），按报错修改后重新保存。
 
 ## 写入
 
-用 `tavern_update_card` 的 `rawOperations` 只改 `data.extensions.dsh_tavern.statusPanel`，不动卡的其他部分。面板是纯展示数据，不计入卡内容摘要（`cardContentDigest`）。
+用 `tavern_update_card` 的 `rawOperations` 只改 `data.extensions.dsh_tavern.statusPanel`，不动卡的其他部分。面板是纯展示数据，不计入卡内容摘要（`cardContentDigest`），改面板不会让进行中的游戏提示「卡已更新」。
 
 ## 数据
 
