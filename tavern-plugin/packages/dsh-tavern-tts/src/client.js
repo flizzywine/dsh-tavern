@@ -276,7 +276,9 @@ exports.apply = function(ctx) {
         h('span',{className:'dtts-item-main'},h('span',{className:'dtts-item-title'},v.label),v.languages[0] && h('span',{className:'dtts-item-meta'},v.languages[0])),
         h('span',{className:'dtts-item-actions'},h(Button,{'aria-label':(playing === v.id ? '停止' : '试听') + '「' + v.label + '」','aria-pressed':playing === v.id,onClick:() => listen(v)},playing === v.id ? '停止' : '试听')))))))
   }
-  function ServicesSection() {
+  // 浏览器朗读 is the fixed first row — free, nothing to set up, and the
+  // default source while no 默认语音引擎 is chosen; it has no ⋯ (it cannot be removed).
+  function ServicesSection({data}) {
     const browserSpeech = useBrowserSpeech(), [browserOpen,setBrowserOpen] = React.useState(false)
     const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
     const textField = ({label,value,onCommit,secret=false,placeholder=''}) => InlineField
@@ -285,7 +287,7 @@ exports.apply = function(ctx) {
     const menu = props => InlineField ? h(InlineField,{kind:'menu',hideLabel:true,...props,options:props.options.map(([value,label]) => ({value,label})),onCommit:props.onChange}) : h(Choices,props)
     const cloudFish = config => (config?.url || '').replace(/\/+$/, '') === 'https://api.fish.audio'
     const customKind = kind => kind === 'openai-compatible'
-    const [state,loadError] = useServiceData()
+    const [state,loadError] = data
     const [kinds,setKinds] = React.useState([]), [editor,setEditor] = React.useState(null), [message,setMessage] = React.useState(''), [busy,setBusy] = React.useState(false),
       [testing,setTesting] = React.useState(false), [confirm,setConfirm] = React.useState(null)
     React.useEffect(() => { let mounted = true; call('providerKinds').then(k => { if (mounted) setKinds(Array.isArray(k) ? k : []) }).catch(() => {}); return () => { mounted = false } },[])
@@ -387,9 +389,11 @@ exports.apply = function(ctx) {
     },[!!state,kinds.length])
     const count = state ? configured.length + external.length + unset.length + (browserSpeech ? 1 : 0) : undefined
     return h(Section,{title:'语音服务',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
-      state && h(Field,{label:'默认语音引擎',help:'参考音频优先使用兼容的默认引擎；云端声音 ID 保留原有协议选择。所有卡通用。'},menu({label:'默认语音引擎',value:state.defaultServiceId || '',options:[['','按声音协议选择'],...configured.map(p => [p.id,p.label]),...external.map(p => [p.id,runningName(p)])],disabled:busy,onChange:serviceId => run(() => call('setDefaultService',{serviceId,expectedServiceId:state.defaultServiceId || ''}))()})),
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :
       h('ul',{className:'dtts-list',ref:root},
+        browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
+          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(!browserSpeech.available() ? ['warn','这台设备不支持'] : ['ready',state.defaultServiceId ? '免费' : '免费 · 默认'])}),
+          browserOpen && h(BrowserSpeechVoices,{service:browserSpeech})),
         configured.map(p => { const live = (state.running || []).find(r => r.id === p.id); return h('li',{key:p.id,'data-open':editing(p.id) || undefined},
           h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:StateWord(serviceState(p,descriptor(p.kind),live))},
             // no resident delete on the row — 删除… sits in the row's ⋯.
@@ -398,10 +402,8 @@ exports.apply = function(ctx) {
           editing(p.id) && Form()) }),
         unset.map(kind => { const open = editor?.mode === 'add' && editor.fixed && editor.kind === kind; return h('li',{key:'+' + kind,'data-open':open || undefined},
           h(Line,{title:KINDS[kind],open,onOpen:() => startKind(kind),warn:StateWord(['idle','未设置'])}),open && h('div',{className:'dtts-adding-fixed'},Form())) }),
-        external.map(p => h('li',{key:p.id},h(Line,{title:runningName(p),warn:StateWord(runningState(p))}))),
-        browserSpeech && h('li',{key:'browser','data-open':browserOpen || undefined},
-          h(Line,{title:'浏览器朗读',open:browserOpen,onOpen:() => setBrowserOpen(!browserOpen),warn:StateWord(browserSpeech.available() ? ['ready','免费'] : ['warn','这台设备不支持'])}),
-          browserOpen && h(BrowserSpeechVoices,{service:browserSpeech}))),
+        external.map(p => h('li',{key:p.id},h(Line,{title:runningName(p),warn:StateWord(runningState(p))})))),
+      state && h(Field,{label:'默认语音引擎',help:'参考音频优先使用兼容的默认引擎；云端声音 ID 保留原有协议选择。不选时，没有可用服务的声音由浏览器朗读。所有卡通用。'},menu({label:'默认语音引擎',value:state.defaultServiceId || '',options:[['','按声音协议选择'],...configured.map(p => [p.id,p.label]),...external.map(p => [p.id,runningName(p)])],disabled:busy,onChange:serviceId => run(() => call('setDefaultService',{serviceId,expectedServiceId:state.defaultServiceId || ''}))()})),
       editor?.mode === 'add' && !editor.fixed ? h('div',{className:'dtts-adding'},
           h('div',{className:'dtts-adding-head'},h('span',{className:'dtts-label'},'选择类型'),!editor.kind && h(Button,{link:true,onClick:close},'取消')),
           h('div',{className:'dtts-kinds',role:'radiogroup','aria-label':'服务类型'},h('button',{type:'button',role:'radio',className:'dtts-kind','aria-checked':!!editor.custom && editor.kind === 'fish-audio',onClick:() => chooseKind('fish-audio',true)},'自定义 Fish 协议'),kinds.map(k => h('button',{key:k.kind,type:'button',role:'radio',className:'dtts-kind','aria-checked':editor.kind === k.kind,
@@ -409,6 +411,61 @@ exports.apply = function(ctx) {
           editor.kind && Form())
         : state && h(AddRow,{label:'添加其他语音服务',disabled:busy,onClick:startAdd}),
       h(Status,{label:'服务状态'},message))
+  }
+  // 朗读 — tts.reading, written through setReading as soon as it changes (no 保存 / 试听).
+  // A voice is the figure voice picker's shape: {browser} (a system voice) or {serviceId, voice} (a service's preset voice or
+  // a Fish Audio 声音库 voice). The key format matches 舞台设置 › 旁白配音 (asset-pack-card-ui.js narratorVoiceKey).
+  const readingKey = v => !v ? '' : v.browser !== undefined ? 'browser:' + v.browser : 'service:' + JSON.stringify([v.serviceId,v.voice])
+  const readingVoice = key => { if (!key) return null; if (key.startsWith('browser:')) return {browser:key.slice(8)}; const [serviceId,voice] = JSON.parse(key.slice(8)); return {serviceId,voice} }
+  const ONLINE_PRESET_KINDS = ['qwen','azure','volcengine','minimax']
+  // Free listings only (the same calls the figure voice picker makes); a service without its key, or one that cannot list, adds no group.
+  function listServiceVoices(p) {
+    if (ONLINE_PRESET_KINDS.includes(p.kind)) return call('listOnlinePresetVoices',{provider:p.kind,serviceId:p.id})
+    if (p.kind === 'fish-audio' && (p.config?.url || '').replace(/\/+$/, '') === 'https://api.fish.audio') return call('listRecommendedFishVoices',{serviceId:p.id})
+    return call('providerVoices',{serviceId:p.id})
+  }
+  // The service lists are read when a voice menu is first reached (focus or pointer), not on page open.
+  function useReadingVoices([state]) {
+    const browserSpeech = useBrowserSpeech(), [browser,setBrowser] = React.useState([]), [groups,setGroups] = React.useState([]), [wanted,setWanted] = React.useState(false)
+    React.useEffect(() => {
+      if (!browserSpeech) { setBrowser([]); return }
+      let mounted = true; browserSpeech.voices().then(list => { if (mounted) setBrowser(list) },() => { if (mounted) setBrowser([]) }); return () => { mounted = false }
+    },[browserSpeech])
+    const keyless = p => p.check?.status === 'credentials-required' || (state.running || []).some(r => r.id === p.id && r.status?.state === 'credentials-required')
+    const services = state ? [...state.configured.filter(p => !keyless(p)),...(state.running || []).filter(p => !state.configured.some(c => c.id === p.id) && !keyless(p))] : []
+    const signature = services.map(p => p.id + '@' + (p.revision || '')).join()
+    React.useEffect(() => {
+      if (!state || !wanted) return
+      let mounted = true
+      Promise.all(services.map(p => listServiceVoices(p).then(r => ({p,voices:r?.status === 'error' ? [] : r?.voices || []}),() => ({p,voices:[]}))))
+        .then(list => { if (mounted) setGroups(list.filter(g => g.voices.length)) })
+      return () => { mounted = false }
+    },[!!state,wanted,signature])
+    const seen = new Set()
+    return [() => setWanted(true),[...browser.map(v => ({value:readingKey({browser:v.id}),label:v.label || v.id,group:'浏览器朗读'})),
+      ...groups.flatMap(({p,voices}) => voices.map(v => ({value:readingKey({serviceId:p.id,voice:v.voiceId || v.id}),label:v.name || v.label || v.voiceId || v.id,group:p.label || runningName(p)})))]
+      .filter(o => !seen.has(o.value) && seen.add(o.value))]
+  }
+  function VoicePick({label,value,empty,options,onChange,onReach}) {
+    const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
+    // A saved voice the lists do not (yet) offer still reads as itself.
+    const current = value && !options.some(o => o.value === value) ? [{value,label:readingVoice(value).browser ?? readingVoice(value).voice}] : []
+    const all = [{value:'',label:empty},...current,...options]
+    return h('span',{className:'dtts-voice-pick',onFocusCapture:onReach,onPointerDownCapture:onReach},
+      InlineField ? h(InlineField,{kind:'menu',label,hideLabel:true,value,options:all,onCommit:onChange}) : h(Choices,{label,value,options:all.map(o => [o.value,o.label]),onChange}))
+  }
+  function ReadingSection({services}) {
+    const [reading,setReading] = React.useState(null), [message,setMessage] = React.useState(''), [error,setError] = React.useState('')
+    React.useEffect(() => { let mounted = true; call('reading').then(r => { if (mounted) setReading(r) },e => { if (mounted) setError(failText(e)) }); return () => { mounted = false } },[])
+    const [reach,options] = useReadingVoices(services)
+    const write = patch => call('setReading',patch).then(r => { setReading(r); setMessage('') },e => setMessage(failText(e)))
+    return h(Section,{title:'朗读',className:'dtts-reading',help:'正文的 🔊 和舞台按这里的声音朗读：有声音的人物用自己的声音，其他对白用「对白默认声音」；旁白只在打开「旁白配音」时用「旁白声音」读。所有卡通用；某张卡可以在「舞台设置 › 旁白配音」里单独改。'},
+      !reading ? h('p',{className:'dtts-muted dtts-loading',role:error ? 'alert' : undefined},error ? h(Warn,null,error) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) : [
+        h(Field,{key:'dialogue',label:'对白默认声音'},h(VoicePick,{label:'对白默认声音',value:readingKey(reading.dialogueVoice),empty:'浏览器 · 系统默认',options,onReach:reach,onChange:key => write({dialogueVoice:readingVoice(key)})})),
+        h(Field,{key:'narrator',label:'旁白配音'},h('span',{className:'dtts-field-switch'},h('input',{type:'checkbox',role:'switch',className:'dtts-switch','aria-label':'旁白配音',checked:reading.narrator.enabled === true,
+          onChange:e => write({narrator:{enabled:e.target.checked}})}))),
+        h(Field,{key:'narrator-voice',label:'旁白声音'},h(VoicePick,{label:'旁白声音',value:readingKey(reading.narrator.voice),empty:'未选择',options,onReach:reach,onChange:key => write({narrator:{voice:readingVoice(key)}})}))],
+      h(Status,{label:'朗读状态'},message))
   }
   // 上限 / 保留天数 save when a field is left (R17 即改即存; no 「保存缓存设置」). `loading` is a cold
   // snapshot, not the final total: read again until it is done (CONTRACT).
@@ -459,7 +516,7 @@ exports.apply = function(ctx) {
   }
   function VoicePanel() {
     const current = React.useSyncExternalStore(fn => {stateListeners.add(fn);return () => stateListeners.delete(fn)},() => enabled)
-    const [message,setMessage] = React.useState('')
+    const [message,setMessage] = React.useState(''), services = useServiceData()
     const [returnIntent,setReturnIntent] = React.useState(readReturnIntent), root = React.useRef(null)
     React.useEffect(() => {
       if (!returnIntent) return
@@ -488,8 +545,8 @@ exports.apply = function(ctx) {
           try { await call('setEnabled',{enabled:e.target.checked}); setMessage('') } catch (error) {setMessage(failText(error))}
         }}))),
       h(Status,{label:'配音状态'},message),
-      // 语音服务 → 发音字典 → 合成缓存.
-      h(ServicesSection),h(ReadingsSection),h(CacheSection))
+      // 语音服务 → 朗读 → 发音字典 → 合成缓存.
+      h(ServicesSection,{data:services}),h(ReadingSection,{services}),h(ReadingsSection),h(CacheSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))
