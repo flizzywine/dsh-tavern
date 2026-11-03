@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "23e6265691b2a011c0889e597e7d7267c6984a8d",
-  "releaseSequence": 1076,
+  "revision": "9476a83fba7f9823623bbb9a8a7b242c439f8cc6",
+  "releaseSequence": 1077,
   "version": "3.2.0",
   "files": [
     {
@@ -576,8 +576,8 @@
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-cards.md",
-      "sha256": "c88421050392ef978e1b56a1355f942b965ae948175618fe5287583c3eac2197",
-      "size": 17370
+      "sha256": "e9117cfd57c6bc6883dffe74884dccfd431019b3cac209bbecf3b97aab014907",
+      "size": 18148
     },
     {
       "path": "presets/tavern/skills/tavern-plugin/references/plugin-api-data.md",
@@ -1411,8 +1411,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-orchestration-strategies.js",
-      "sha256": "45746244e2c067146e96233256b838aabe3edab8a8daeab4cc0ca1d8b65555cf",
-      "size": 30837
+      "sha256": "04214bd137e250b0baa7f08a46caae36673bca3545827431ee5f25679d4b55a8",
+      "size": 31236
     },
     {
       "path": "tavern-plugin/lib/domain/foreground-tools.js",
@@ -2706,8 +2706,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/skill-gated-tools.js",
-      "sha256": "3624880b8421c85de10d4221ac78a426cebb33e339b260ce4d1fa659de2c503e",
-      "size": 1920
+      "sha256": "2cb799a1dbb07364bc2b5d4da00065d6f2ad7b73ba9232adeb7516eff7e90663",
+      "size": 2165
     },
     {
       "path": "tavern-plugin/lib/domain/skill-text-context.js",
@@ -3416,8 +3416,8 @@
     },
     {
       "path": "tavern-plugin/lib/index.js",
-      "sha256": "82de6295f991a67df29885a25ba02eaaa7417dce19bf3de2e76e7b7b12fdb130",
-      "size": 259387
+      "sha256": "064295063b5527da51c415ec4235016f39d981b1fd7d754286a32dee375ba111",
+      "size": 259616
     },
     {
       "path": "tavern-plugin/lib/mod-builtins.js",
@@ -3486,8 +3486,8 @@
     },
     {
       "path": "tavern-plugin/lib/plugin-api.js",
-      "sha256": "e14786cefbd4750d8b89986d7fa683dcd559c3e47ed12da4de7d6f8a7240c1b2",
-      "size": 109036
+      "sha256": "616e63a866899b1687ea19e4c74a29ea0fb8f2b8d3382a5ce0192078a8262a3a",
+      "size": 110166
     },
     {
       "path": "tavern-plugin/lib/profile-data-store.js",
@@ -9116,9 +9116,9 @@
     }
   ],
   "archive": {
-    "commit": "760ee43a0f1c8641af3c8fd4ee21767ebda69e75",
+    "commit": "0a031d5647ae4396136e95001dc17bdccae60341",
     "path": "runtime.zip",
-    "sha256": "a35e0d4f593c9ee3753fbad99ec540444ddb53ab255b6197ef32b4456d79e671",
-    "size": 15479707
+    "sha256": "c35e69b7cb285e524ed8069d26b4475b2a2211a81f792ae2dc2c7223ef6ab0c2",
+    "size": 15480486
   }
 }
