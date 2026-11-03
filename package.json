@@ -38,6 +38,7 @@
     "dsh-mnemon": "0.5.31",
     "dsh-mnemon-source-runtime": "0.5.14",
     "dsh-mnemon-source-documents": "0.5.10",
+    "sharp": "0.34.5",
     "undici": "6.29.1"
   },
   "dsh": {
