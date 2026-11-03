@@ -415,61 +415,6 @@ exports.apply = function(ctx) {
         : state && h(AddRow,{label:'添加其他语音服务',disabled:busy,onClick:startAdd}),
       h(Status,{label:'服务状态'},message))
   }
-  // 朗读 — tts.reading, written through setReading as soon as it changes (no 保存 / 试听).
-  // A voice is the figure voice picker's shape: {browser} (a system voice) or {serviceId, voice} (a service's preset voice or
-  // a Fish Audio 声音库 voice). The key format matches 舞台设置 › 旁白配音 (asset-pack-card-ui.js narratorVoiceKey).
-  const readingKey = v => !v ? '' : v.browser !== undefined ? 'browser:' + v.browser : 'service:' + JSON.stringify([v.serviceId,v.voice])
-  const readingVoice = key => { if (!key) return null; if (key.startsWith('browser:')) return {browser:key.slice(8)}; const [serviceId,voice] = JSON.parse(key.slice(8)); return {serviceId,voice} }
-  const ONLINE_PRESET_KINDS = ['qwen','azure','volcengine','minimax']
-  // Free listings only (the same calls the figure voice picker makes); a service without its key, or one that cannot list, adds no group.
-  function listServiceVoices(p) {
-    if (ONLINE_PRESET_KINDS.includes(p.kind)) return call('listOnlinePresetVoices',{provider:p.kind,serviceId:p.id})
-    if (p.kind === 'fish-audio' && (p.config?.url || '').replace(/\/+$/, '') === 'https://api.fish.audio') return call('listRecommendedFishVoices',{serviceId:p.id})
-    return call('providerVoices',{serviceId:p.id})
-  }
-  // The service lists are read when a voice menu is first reached (focus or pointer), not on page open.
-  function useReadingVoices([state]) {
-    const browserSpeech = useBrowserSpeech(), [browser,setBrowser] = React.useState([]), [groups,setGroups] = React.useState([]), [wanted,setWanted] = React.useState(false)
-    React.useEffect(() => {
-      if (!browserSpeech) { setBrowser([]); return }
-      let mounted = true; browserSpeech.voices().then(list => { if (mounted) setBrowser(list) },() => { if (mounted) setBrowser([]) }); return () => { mounted = false }
-    },[browserSpeech])
-    const keyless = p => p.check?.status === 'credentials-required' || (state.running || []).some(r => r.id === p.id && r.status?.state === 'credentials-required')
-    const services = state ? [...state.configured.filter(p => !keyless(p)),...(state.running || []).filter(p => !state.configured.some(c => c.id === p.id) && !keyless(p))] : []
-    const signature = services.map(p => p.id + '@' + (p.revision || '')).join()
-    React.useEffect(() => {
-      if (!state || !wanted) return
-      let mounted = true
-      Promise.all(services.map(p => listServiceVoices(p).then(r => ({p,voices:r?.status === 'error' ? [] : r?.voices || []}),() => ({p,voices:[]}))))
-        .then(list => { if (mounted) setGroups(list.filter(g => g.voices.length)) })
-      return () => { mounted = false }
-    },[!!state,wanted,signature])
-    const seen = new Set()
-    return [() => setWanted(true),[...browser.map(v => ({value:readingKey({browser:v.id}),label:v.label || v.id,group:'浏览器朗读'})),
-      ...groups.flatMap(({p,voices}) => voices.map(v => ({value:readingKey({serviceId:p.id,voice:v.voiceId || v.id}),label:v.name || v.label || v.voiceId || v.id,group:p.label || runningName(p)})))]
-      .filter(o => !seen.has(o.value) && seen.add(o.value))]
-  }
-  function VoicePick({label,value,empty,options,onChange,onReach}) {
-    const InlineField = ctx.get('tavernPresentation')?.getInlineField?.()
-    // A saved voice the lists do not (yet) offer still reads as itself.
-    const current = value && !options.some(o => o.value === value) ? [{value,label:readingVoice(value).browser ?? readingVoice(value).voice}] : []
-    const all = [{value:'',label:empty},...current,...options]
-    return h('span',{className:'dtts-voice-pick',onFocusCapture:onReach,onPointerDownCapture:onReach},
-      InlineField ? h(InlineField,{kind:'menu',label,hideLabel:true,value,options:all,onCommit:onChange}) : h(Choices,{label,value,options:all.map(o => [o.value,o.label]),onChange}))
-  }
-  function ReadingSection({services}) {
-    const [reading,setReading] = React.useState(null), [message,setMessage] = React.useState(''), [error,setError] = React.useState('')
-    React.useEffect(() => { let mounted = true; call('reading').then(r => { if (mounted) setReading(r) },e => { if (mounted) setError(failText(e)) }); return () => { mounted = false } },[])
-    const [reach,options] = useReadingVoices(services)
-    const write = patch => call('setReading',patch).then(r => { setReading(r); setMessage('') },e => setMessage(failText(e)))
-    return h(Section,{title:'朗读',className:'dtts-reading',help:'正文的 🔊 和舞台按这里的声音朗读：有声音的人物用自己的声音，其他对白用「对白默认声音」；旁白只在打开「旁白配音」时用「旁白声音」读。所有卡通用；某张卡可以在「舞台设置 › 旁白配音」里单独改。'},
-      !reading ? h('p',{className:'dtts-muted dtts-loading',role:error ? 'alert' : undefined},error ? h(Warn,null,error) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) : [
-        h(Field,{key:'dialogue',label:'对白默认声音'},h(VoicePick,{label:'对白默认声音',value:readingKey(reading.dialogueVoice),empty:'浏览器 · 系统默认',options,onReach:reach,onChange:key => write({dialogueVoice:readingVoice(key)})})),
-        h(Field,{key:'narrator',label:'旁白配音'},h('span',{className:'dtts-field-switch'},h('input',{type:'checkbox',role:'switch',className:'dtts-switch','aria-label':'旁白配音',checked:reading.narrator.enabled === true,
-          onChange:e => write({narrator:{enabled:e.target.checked}})}))),
-        h(Field,{key:'narrator-voice',label:'旁白声音'},h(VoicePick,{label:'旁白声音',value:readingKey(reading.narrator.voice),empty:'未选择',options,onReach:reach,onChange:key => write({narrator:{voice:readingVoice(key)}})}))],
-      h(Status,{label:'朗读状态'},message))
-  }
   // 上限 / 保留天数 save when a field is left (R17 即改即存; no 「保存缓存设置」). `loading` is a cold
   // snapshot, not the final total: read again until it is done (CONTRACT).
   function CacheSection() {
@@ -542,21 +487,21 @@ exports.apply = function(ctx) {
     return h('div',{className:'dtts',ref:root},
       // opened from 舞台设置 › 配音, the page shows the shared sub-page header —
       // a quiet ‹ (its name and tooltip are the return label) right before the title, no separate link line.
-      h('header',{className:'dtts-head'},h('div',{className:'dtts-title'},returnIntent && sidebar && h('button',{type:'button',className:'dtts-back','aria-label':returnIntent.label,title:returnIntent.label,onClick:returnToSettings},h(Icon,{name:'back',size:18})),h('h2',null,'配音'),h(Help,{label:'配音 说明',text:'这台电脑上的配音设置，所有卡通用：先在「语音服务」里设好服务，再到素材编辑器的人物「声音」里给每个人物选配音来源。'})),
+      h('header',{className:'dtts-head'},h('div',{className:'dtts-title'},returnIntent && sidebar && h('button',{type:'button',className:'dtts-back','aria-label':returnIntent.label,title:returnIntent.label,onClick:returnToSettings},h(Icon,{name:'back',size:18})),h('h2',null,'配音后端'),h(Help,{label:'配音后端 说明',text:'这台电脑能用的配音服务，每个单独设置。谁用什么声音在「舞台设置 › 配音」里选。'})),
         // the master switch sits on the title row (no 基础 / 高级 switch any more).
         h('label',{className:'dtts-head-switch',title:'启用配音'},h('input',{type:'checkbox',role:'switch',className:'dtts-switch','aria-label':'启用配音',checked:current === true,disabled:current === null,onChange:async e => {
           try { await call('setEnabled',{enabled:e.target.checked}); setMessage('') } catch (error) {setMessage(failText(error))}
         }}))),
       h(Status,{label:'配音状态'},message),
-      // 语音服务 → 朗读 → 发音字典 → 合成缓存.
-      h(ServicesSection,{data:services}),h(ReadingSection,{services}),h(ReadingsSection),h(CacheSection))
+      // 语音服务 → 发音字典 → 合成缓存. Who speaks with which voice is chosen in 舞台设置 › 配音 (tts.reading through setReading).
+      h(ServicesSection,{data:services}),h(ReadingsSection),h(CacheSection))
   }
   const icon = size => h('svg',{width:size || 16,height:size || 16,viewBox:'0 0 16 16',fill:'none','aria-hidden':true},
     h('path',{d:'M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 5v6M13.5 6.5v3',stroke:'currentColor',strokeWidth:1.2,strokeLinecap:'round'}))
-  ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '配音'},VoicePanel))
+  ctx.slots.inject('settings.section',() => ctx.slots.register({name:'settings.section',id:'tts',order:70,label:() => '配音后端'},VoicePanel))
   ctx.inject(['betterSidebar'], child => child.effect(() => {
     sidebar = child.get('betterSidebar')
-    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'配音',order:10,single:true,icon,component:VoicePanel})
+    const dispose = sidebar.registerTab({id:'dsh-tts:voice',title:'配音后端',order:10,single:true,icon,component:VoicePanel})
     return () => { dispose(); sidebar = null }
   }))
   ctx.inject(['tavernUi'], child => { child.get('tavernUi').registerStartGroup({title:'舞台装置',tabs:['dsh-tts:voice']}) })

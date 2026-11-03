@@ -221,7 +221,11 @@ function characterVoiceLanguage(character) {
 function packSpeechInput(segment, config, character, mood) {
     if (segment.kind !== 'bubble' || segment.streaming || !character?.voice) return null;
     const text = segment.speech ?? segment.text;
-    if (!text || !/[\p{L}\p{N}]/u.test(text) || text.length > 1500) return null;
+    if (!speakableText(text)) return null;
     return {text, mood:mood?.id || character.defaultEmotion || null};
 }
-if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput };
+// A line has something to say: a letter or a number, within one request's length.
+function speakableText(text) {
+    return Boolean(text) && /[\p{L}\p{N}]/u.test(text) && text.length <= 1500;
+}
+if (typeof window === "undefined" && typeof module !== "undefined") module.exports = { bubbleSpeechCut, createBubbleStream, projectVoiceCues, hasLeadingVoiceCue, stripBubbleCodeQuote, parseBubbles, matchBubbleMood, bubbleDisplayName, figureBubbleMoods, bubbleCharacter, stageActorCharacter, effectiveVoiceLanguage, voiceTranslates, characterVoiceLanguage, packSpeechInput, speakableText };

@@ -9,7 +9,8 @@ import { assertJson, check, shape, text, bool, array, unique, cloneJson, canonic
 
 // The global layer of the four-state stage switches (card-stage-settings.js effectiveCardStage). 对话气泡 / 舞台模式 default
 // off: a card turns them on with its own stage.enabled, and the global layer only reaches a card that declares nothing.
-export const STAGE_TOGGLES = Object.freeze(['dialogue','voice','stage','music','sfx','ambience','items','performance','entrance'])
+// fullReading = 全文朗读: the 通用声音 (tts.reading().dialogueVoice) reads a whole reply; while in effect, 角色配音 and 旁白配音 are off.
+export const STAGE_TOGGLES = Object.freeze(['dialogue','voice','stage','music','sfx','ambience','items','performance','entrance','fullReading'])
 export const ENGINE_SECTION = 'tavern-asset-engine'
 // camera.close is the sole close-up dimension.
 export const DIRECTOR_DIMENSIONS = Object.freeze(Object.keys(directorCommands.dimensions))
@@ -24,7 +25,7 @@ export const DIALOGUE_COLOR_TOKENS = Object.freeze(['--gal-ui-ink', '--gal-ui-in
 const id = (value, path) => check(typeof value === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value) && !['constructor', 'prototype', '__proto__'].includes(value), path)
 const integer = (value, min, max, path) => check(Number.isSafeInteger(value) && value >= min && value <= max, path)
 export function defaultAssetEngineSettings() {
-  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,!['dialogue','stage'].includes(key)])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
+  return { schemaVersion:1, stageToggles:Object.fromEntries(STAGE_TOGGLES.map(key => [key,!['dialogue','stage','fullReading'].includes(key)])), dialogue:{emotions:[],injection:normalizeBubbleInjection(null)}, dialogueTheme:'classic', dialogueThemes:[], directorModel:null,
     dimensions:Object.fromEntries(ENGINE_DIMENSIONS.map(key => [key, true])), actionCaps:{...ACTION_CAPS},
     judge:defaultJudgeConfig() }
 }
@@ -71,6 +72,8 @@ export function validateAssetEngineSettings(value) {
   value.stageToggles.performance ??= true
   // 入场演出 - the stage opens with the card's entrance asset (stage-entrance.js); default on.
   value.stageToggles.entrance ??= true
+  // 全文朗读 defaults off.
+  value.stageToggles.fullReading ??= false
   // 对话气泡 / 舞台模式 default off globally; a card's own stage.enabled decides before them.
   value.stageToggles.dialogue ??= false
   value.stageToggles.stage ??= false

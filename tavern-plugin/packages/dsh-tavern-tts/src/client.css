@@ -279,8 +279,6 @@ button.dtts-help:is(:hover, :focus-visible), .dtts-help-anchor[data-open] button
 .dtts-head { align-items: center; }
 .dtts-title { display: flex; align-items: center; gap: 4px; }
 .dtts-head-switch { display: inline-flex; align-items: center; min-height: 32px; cursor: pointer; }
-.dtts-field-switch { display: inline-flex; align-items: center; min-height: 32px; }
-.dtts-voice-pick { display: block; min-width: 0; }
 .dtts-state { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--dtts-ink-2); font-size: 12px; white-space: nowrap; }
 .dtts-state[data-tone=idle] .dtts-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dtts-ink-3); }
 .dtts-state[data-tone=busy] .dtts-dot { animation: dtts-spin .8s linear infinite alternate; }

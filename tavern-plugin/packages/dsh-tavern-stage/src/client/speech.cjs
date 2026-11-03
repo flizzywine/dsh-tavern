@@ -8,16 +8,18 @@ function readVoice(sessionId,input){
 function stageVoiceHandle(sessionId, descriptor, config, paragraphId, availability) {
     if (closed) return null;
     if (descriptor?.narration) return stageNarratorHandle(sessionId, descriptor, config, paragraphId, availability);
-    if (!descriptor || config?.voice?.enabled === false || !(availability ?? available())) return null;
+    if (!descriptor || config?.voice?.enabled === false && !config?.voice?.general || !(availability ?? available())) return null;
     const input = speechInput({...descriptor, kind:'bubble'}, config);
     if (!input) return null;
-    const character = characterOf(config,descriptor);
-    const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.alias, input.text, input.mood,
-        character.voiceKey, language(character)]);
+    // 通用声音 (input.general): the general voice and the line's name, as the transcript keys it (voice.js).
+    const character = input.general ? null : characterOf(config,descriptor);
+    const speaker = input.general ? ['general', config.voice.general, descriptor.name] : [character.alias, character.voiceKey, language(character)];
+    const owner = sessionId + ':stage', id = JSON.stringify([paragraphId, descriptor.alias, input.text, input.mood, ...speaker.slice(1)]);
     // Match transcript identity after authored/legacy names resolve to the same figure.
-    const cacheKey = JSON.stringify([sessionId,character.alias,character.voiceKey,language(character),input.text,input.mood]);
+    const cacheKey = JSON.stringify([sessionId,...speaker,input.text,input.mood]);
     const selectionKey=descriptor.lineIdentity ? JSON.stringify([sessionId,...descriptor.lineIdentity]) : undefined;
-    const request = {...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])}, resource = () => readVoice(sessionId,{alias:character.alias});
+    const request = {...input, owner, id, selectionKey, cacheKey:JSON.stringify([cacheKey,selectionKey])};
+    const resource = () => readVoice(sessionId,input.general ? {general:true} : {alias:character.alias});
     return {...request, prefetch:() => closed ? Promise.resolve() : player.prefetch(resource, request),
         click:options => closed ? Promise.resolve() : player.play(resource, {...request, handoff:options?.handoff === true, automatic:options?.automatic === true})};
 }

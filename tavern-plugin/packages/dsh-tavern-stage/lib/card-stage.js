@@ -33,8 +33,9 @@ const figureVoiceLanguage = (figure, pack) => effectiveVoiceLanguage(figure?.voi
 // Dialogue text is projected from Card Preparation; no card-local media catalogue.
 // services: getTts().listServices(); chooseService: the tts service's sync choice among them (getTts().chooseService) —
 // the source's own serviceId, else the sole service of its provider; none = no voice-direction flag.
-// globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off.
-export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null) {
+// globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off. generalVoice: the 通用声音,
+// getTts().reading().dialogueVoice (null = the browser's default voice).
+export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null, generalVoice = null) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
   const stage = effectiveCardStage(extension, engine), chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
   const dialogue = engine.dialogue, models = []
@@ -74,7 +75,9 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
         hash, outfitKey:selected.avatarOutfitKey, stateId:selected.avatarStateId, crop:selected.avatarCrop, identity:`${ref.packId}:figures:${ref.figureId}:${hash}`} : null
     }
     const promptEmotionIds = (figure.emotions || []).map(row=>row.id)
-    return {...character, promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null}) : null, avatarMedia:{default:media(figure.outfits.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id), moods:Object.fromEntries(effectiveBubbleMoods(config, character.alias).map(mood => [mood.id, media(mood.id)]))},
+    // 通用声音 speaks an enabled figure that has no voice binding (one set to 「不配音」, source null, stays silent).
+    const general = stage.voice && figure.enabled && !figure.voice
+    return {...character, ...(general ? {general:true} : {}), promptEmotionIds, defaultEmotion:figure.outfits.find(outfit=>outfit.enabled)?.defaultEmotion || figure.emotions?.[0]?.id || null, ref, aliases:figure.aliases || [], recall:figure.recall, voiceKey:figure?.voice ? assetPackDigest({ref,voice:figure.voice,voiceSpec:pack?.manifest.voiceLibrary?.voices[figure.voice.voice],readings:extension?.readings || null}) : null, avatarMedia:{default:media(figure.outfits.find(o=>o.enabled)?.defaultEmotion || figure.emotions?.[0]?.id), moods:Object.fromEntries(effectiveBubbleMoods(config, character.alias).map(mood => [mood.id, media(mood.id)]))},
       voiceLanguage:figureVoiceLanguage(figure, pack)}
   })
   config.stage.styles = directionStyles(packSnapshots, extension?.assetBindings.boundPackIds, globalEnabledPackIds)
@@ -113,9 +116,15 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   // the 入场演出 this card's stage opens with (stage-entrance.js), or null.
   config.stage.entrance = extension ? selectStageEntrance(extension, packSnapshots, engine) : null
   config.voice = {enabled:stage.voice && config.characters.some(character => character.voice)}
+  // general: the 通用声音's identity (the clients' clip key) while it speaks NPCs and unbound figures; fullReading: 全文朗读.
+  // Neither reaches the dialogue-format prompt (normalizeBubbleConfig keeps only voice.enabled).
+  const generalKey = generalVoice?.serviceId ? assetPackDigest({general:true, service:generalVoice}) : 'browser:' + (generalVoice?.browser ?? '')
+  if (stage.voice) config.voice.general = generalKey
+  if (stage.fullReading) config.voice.fullReading = true
   // 旁白配音: present only while it speaks on this card (on, 配音 on, its voice usable here). It never changes config.voice,
   // so the dialogue-format prompt is the same with it on or off.
-  const narrator = extension && stage.voice ? cardNarrator(effectiveNarrator(extension, globalNarrator), packSnapshots, extension, services) : null
+  // Under 全文朗读 the narrator's pages (the stage reads them page by page) speak in the 通用声音.
+  const narrator = stage.fullReading ? {voiceKey:generalKey} : extension && stage.voice ? cardNarrator(effectiveNarrator(extension, globalNarrator), packSnapshots, extension, services) : null
   if (narrator) config.narrator = narrator
   config.spriteDialogue = collectSpriteDialogue(config, models)
   return config
@@ -200,7 +209,7 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       if (requireAvailable) assertAvailable()
       for (const result of reads) if (result.status === 'fulfilled' && result.value) packs.push(result.value)
       const services = await measure('bubbles.voiceServices', () => getTts()?.listServices()) || []
-      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), getTts()?.reading().narrator))
+      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), getTts()?.reading().narrator, getTts()?.reading().dialogueVoice))
       // One request may also preview a prompt. Reuse its catalogue, but retain strict admission failures.
       return {config, requireAvailable() { assertAvailable(); return config }}
     },

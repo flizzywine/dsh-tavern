@@ -1,15 +1,16 @@
 function createStageTextIndexModule({pageCards,character}) {
 
 // Host paragraphs are the only text input. The client only lays out reading cards.
+// fullReading (全文朗读, config.voice.fullReading): every bubble, thought and narration page reads in 通用声音 (generalVoice).
 function createStageTextIndex({paginate, storyTurn, superseded, projectionForTurn}) {
-    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, revision = 0;
+    let snapshot = new Map(), bodies = new Map(), activeBranch, activeHistory, general = false, revision = 0;
     function rowFor(turn, nativeTurn, body, old, unloaded) {
-        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded) return old;
+        if (old && old.body === body && old.nativeTurn === nativeTurn && old.unloaded === unloaded && old.general === general) return old;
         const units = [], pages = [];
         for (const paragraph of body?.paragraphs || []) {
-            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1]};
+            const unit = {...paragraph, voiceLine:[nativeTurn,paragraph.para - 1], ...(general ? {generalVoice:true} : {})};
             units.push(unit);
-            const before = old?.units[units.length - 1];
+            const before = old?.general === general && old.units[units.length - 1];
             const same = before && JSON.stringify(paragraph) === JSON.stringify(old.body.paragraphs[units.length - 1]);
             unit.cards = same ? before.cards : pageCards(unit,paginate).map(({text,offset},n,all) => ({
                 kind:unit.kind,text,alias:unit.alias,name:unit.name,mood:unit.mood,thought:unit.thought,
@@ -19,11 +20,12 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
         }
         const parts = [{scope:JSON.stringify([activeBranch,turn]),turn,nativeTurn,index:0,order:0,projected:true,streaming:!!body?.streaming,
             units,segments:units.map(unit => unit.segment),localPages:pages}];
-        return {turn,nativeTurn,body,unloaded,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
+        return {turn,nativeTurn,body,unloaded,general,parts,units,text:{revision:++revision,streaming:!!body?.streaming,pages,
             hasReadableText:pages.some(page => page.text.length > 0),
             units:units.map(unit => ({...unit.source,para:unit.para,paragraphId:unit.paragraphId}))}};
     }
-    function reconcile({chat,view,branchId}) {
+    function reconcile({chat,view,branchId,fullReading}) {
+        general = fullReading === true;
         const history = JSON.stringify(view?.regeneratedDshTurns || null);
         if (activeBranch !== branchId || activeHistory !== history) {
             bodies.clear(); snapshot = new Map(); activeBranch = branchId; activeHistory = history;
@@ -65,8 +67,11 @@ function createStageTextIndex({paginate, storyTurn, superseded, projectionForTur
 
 // 旁白配音: every host narration unit (not a bubble, so never a thought) reads card by card - the text the
 // reader sees on that page, Markdown already stripped by the host. Whether it speaks is the handle's (config.narrator).
+// 全文朗读 (generalVoice): bubbles and thoughts read the same way, their shown text with no speaker, so the narrator's page
+// queue, cache and look-ahead read the whole reply in 通用声音 and no character voice is opened.
 function stageVoiceDescriptor(unit, settings, card) {
-    if (unit.kind === 'narration') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
+    if (unit.generalVoice && unit.kind === 'line') card ||= {text:unit.text, offset:0};
+    if (unit.kind === 'narration' || unit.generalVoice && unit.kind === 'line') return card && !unit.pending && /[\p{L}\p{N}]/u.test(card.text)
         ? {narration:true, paragraphId:unit.paragraphId, lineIdentity:[...unit.voiceLine, card.offset], text:card.text} : null;
     if (unit.kind !== 'line' || unit.pending || !unit.segment) return null;
     const segment = unit.segment;
