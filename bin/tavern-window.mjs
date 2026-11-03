@@ -7,6 +7,7 @@ import path from 'node:path'
 import { DSH_ROOT, RUNTIME_HOST } from './launcher-environment.mjs'
 import { browserOpenCommand, startService } from './service-lifecycle.mjs'
 import officialDesktopRuntime from './official-desktop-runtime.cjs'
+import { startWindowsWindowIcon } from './windows-window-icon.mjs'
 import { relaunchCommand } from '../tavern-plugin/packages/dsh-profile-bridge/lib/helper.mjs'
 
 // 桌面版固定读 profiles/desktop；它链接到 tavern 时，桌面版本身就是酒馆，再起一份会同写一份存档。
@@ -58,6 +59,9 @@ export async function openTavernWindow({ host = RUNTIME_HOST, root = DSH_ROOT, f
   const state = await start()
   if (!state?.webUrl) throw new Error('酒馆已启动，但还没拿到访问地址，请稍后再点一次快捷方式。')
   const browser = appWindowBrowser()
-  if (browser) await open(browser.command, browser.args(state.webUrl))
+  if (browser) {
+    await open(browser.command, browser.args(state.webUrl))
+    startWindowsWindowIcon(browser.command)
+  }
   else { const fallback = browserOpenCommand(state.webUrl); await open(fallback.command, fallback.args) }
 }
