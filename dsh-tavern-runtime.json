@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "859c2984a4e93a2f0c925beda29f6c093056ef9c",
-  "releaseSequence": 1129,
+  "revision": "f51a8025ee6f080e71a44a27fe1d3d7937adf4e4",
+  "releaseSequence": 1130,
   "version": "3.2.0",
   "files": [
     {
@@ -881,8 +881,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "7b4f19a1a8028e2201334a571254507bd03ab94fe2260dda2a760e1cff6f5b23",
-      "size": 5273803
+      "sha256": "2825505dd971c040ca456048c8762837eb23d3adef769aad0fc087b269e389ca",
+      "size": 5347091
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1981,8 +1981,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/model-calls.js",
-      "sha256": "eea20cb47ebb4ee62f2cc6f2ef8cb7cc0cf42c451f702103ab9357420efac83e",
-      "size": 5111
+      "sha256": "76c2f90089fe20e3e541257abd3c139a8c159488a022398b1350a88574a51c9a",
+      "size": 5323
     },
     {
       "path": "tavern-plugin/lib/domain/model-error-presentation.js",
@@ -5000,6 +5000,11 @@
       "size": 6846
     },
     {
+      "path": "tavern-plugin/mods/phone/call-greeting.js",
+      "sha256": "9ea8e57f16bcac5073f4d526774b27dff21ef985d8fa9670ce765805632a6934",
+      "size": 2808
+    },
+    {
       "path": "tavern-plugin/mods/phone/call.js",
       "sha256": "9456b383ec06c299f6cf651be5c3120fb28abb4a572434d2ad5cd61c7a08cf8a",
       "size": 27136
@@ -7800,6 +7805,11 @@
       "size": 9070
     },
     {
+      "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mods/phone/host.js",
+      "sha256": "1877afd90a33a48003e918afba4b9d3d9fd4ac98c4ea51a649937a5ac2f3035e",
+      "size": 19476
+    },
+    {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/mods/timer/extension.js",
       "sha256": "05d14b4402dbf8dd9a64a919530486489c06f59bca5211c8663762e79673dc05",
       "size": 1321
@@ -7821,8 +7831,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/module.js",
-      "sha256": "bce48eeaf68c8e9d3ca427c51fb3dfd2037b58865fa0cefb60a1df473cfe253c",
-      "size": 29826
+      "sha256": "61653093ad2fb2e7787184a68faf26cef28107fa9240d73d01a5a5e0c87e6337",
+      "size": 30924
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/requests.js",
@@ -7831,8 +7841,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/rpc.js",
-      "sha256": "1151e319a9bbc5d65581aef99ca4674a00573c2556b571342be1bd02e81e5c93",
-      "size": 33461
+      "sha256": "85909ee42c0e2d3887dded2261e778c2491bd27d563bd787c4650b607936a9b7",
+      "size": 38349
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/runtime.js",
@@ -9200,6 +9210,11 @@
       "size": 1927
     },
     {
+      "path": "tavern-plugin/prompts/phone-call.md",
+      "sha256": "54f1a67cb28c18368db266e6a57ec682e2a8b3bea1d920d666ee4ffdcc0d05e3",
+      "size": 404
+    },
+    {
       "path": "tavern-plugin/prompts/polish-guidance.md",
       "sha256": "ed5722c05119a26ec56d0292b2e7f787b7754ac331126941b69cde9505363d89",
       "size": 1371
@@ -9376,9 +9391,9 @@
     }
   ],
   "archive": {
-    "commit": "5794cabb3e0bdb787f710ae5bec9440cf260c4b7",
+    "commit": "38a37fc75b70a432478ccf7aa6ba78c9ded749f3",
     "path": "runtime.zip",
-    "sha256": "77bb3d980c6a61e8838948ea23b54e3211156f39919460f947a05b25e77f0577",
-    "size": 15909425
+    "sha256": "d73f417b98cc17e4be191ce85b9a5788ce39011e6733bf258a83e47f6e67320c",
+    "size": 15941587
   }
 }
