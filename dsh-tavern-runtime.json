@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "edd700fdabdffaed560f77007fcb48f80509f188",
-  "releaseSequence": 1110,
+  "revision": "4b3397e1b21048b9910d478724e3f20789f53106",
+  "releaseSequence": 1111,
   "version": "3.2.0",
   "files": [
     {
@@ -1026,8 +1026,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/background-task-coordinator.js",
-      "sha256": "e5f691c63ee71a73808f8ad813cdfa33537f0683d3fc0c6e5b392072f442965d",
-      "size": 29112
+      "sha256": "afad29770bb1aef800f3beb89dc306ce4255764ef91fdb23b0874b7df978cd6c",
+      "size": 29273
     },
     {
       "path": "tavern-plugin/lib/domain/background-tasks.js",
@@ -9331,9 +9331,9 @@
     }
   ],
   "archive": {
-    "commit": "2c2b58b11eb1d4d2ea6b054851bdb541137a824d",
+    "commit": "d6458eae35743a62e4a058faeeeeff336e313345",
     "path": "runtime.zip",
-    "sha256": "aee68019573c2737ecd8cab9a697eaf372f8c8065f9aea7f75acc49fadbc5f1c",
-    "size": 15757228
+    "sha256": "fe0d7b24fcbfc828e8b1e81e3ebd9842be2fb1b9b190d54d6c2fc9d242eba673",
+    "size": 15757246
   }
 }
