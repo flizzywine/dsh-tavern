@@ -2,6 +2,7 @@ import { composeTavernRegexScripts } from './card-extension-reading.js'
 import { projectTavernHostHtml } from './tavern-host-script-projection.js'
 import { cardOpeningChoices, cardOpeningSwipes } from './card-openings.js'
 import { projectOpeningPreview } from './runtime-content-projection.js'
+import { projectDisplayParts, resolveDisplayIdentityMacros } from './reply-presentation.js'
 
 function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
@@ -22,6 +23,10 @@ export async function projectCardOpeningPreviews(input = {}) {
   const presetRegexScripts = Array.isArray(input.presetRegexScripts) ? input.presetRegexScripts : []
   const regexScripts = composeTavernRegexScripts(extensions, presetRegexScripts)
   const { swipes, openingIds } = cardOpeningSwipes(card)
+  // the card's opening form replaces every greeting preview.
+  const setupParts = extensions.openingSetup
+    ? projectDisplayParts(resolveDisplayIdentityMacros(extensions.openingSetup.form, { charName: str(card.name), macroState: { userName } })).parts
+    : []
   return {
     openings: openings.map(function (opening, index) {
       const projection = projectOpeningPreview(opening.text, {
@@ -32,8 +37,10 @@ export async function projectCardOpeningPreviews(input = {}) {
         isEdit: false,
         depth: 0
       })
+      if (setupParts.length) Object.assign(projection, { displayParts: setupParts, displayText: extensions.openingSetup.form, displayMode: 'html' })
       return {
         id: opening.id,
+        openingSetup: setupParts.length > 0,
         text: projection.renderedText,
         usesUser: /\{\{\s*user\s*\}\}/i.test(opening.text),
         presentationOnly: projection.presentationOnly,

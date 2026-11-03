@@ -1,4 +1,5 @@
 import { applyPendingOpeningCommand, parseOpeningCommand, parsePendingOpeningCommand } from './opening-command.js'
+import { parseOpeningScriptStart } from './opening-setup.js'
 import { projectFullPromptTemplateState, applyFullPromptTemplateState } from './full-prompt-template-state.js'
 import { projectTavernHelperScripts } from './tavern-helper-scripts.js'
 import { mutateScriptPrompts } from './tavern-script-prompts.js'
@@ -176,7 +177,8 @@ export function createOpeningPreparation({ readCard, worldBooks, generate, gener
         }
         const command = applyPendingOpeningCommand(parseOpeningCommand(args.line), draft.pendingOpening, args.line)
         draft.pendingOpening = undefined
-        draft.startCommand = { ...command, openingId }
+        const scriptStart = parseOpeningScriptStart(args.scriptStart)
+        draft.startCommand = { ...command, openingId, ...(typeof args.userName === 'string' ? { userName: args.userName } : {}), ...(scriptStart ? { scriptStart } : {}) }
         return { deferred: false, input: command.input }
       }
       if (!draft.runtimeEnabled) throw new Error('准备页脚本运行时未初始化')

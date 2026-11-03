@@ -112,7 +112,14 @@ export function createConversationInitialization(options) {
         })
       }
     }
-    const macroState = { userName: str(userName).trim().slice(0, 80) || defaults.playerName, local: {}, global: {} }
+    const scriptStart = groupOfMode(chatMode) === 'play' ? preparation?.startCommand?.scriptStart : undefined
+    if (scriptStart?.mode === 'story') chatMode = 'story'
+    if (scriptStart?.chunk !== undefined && (!hasScript || scriptStart.chunk > script.chunks.length)) {
+      throw new Error('开局剧本块不存在，请重新选择起点')
+    }
+    // A submitted form owns its name; the picker may still carry the preview default.
+    const openingUserName = groupOfMode(chatMode) === 'play' ? preparation?.startCommand?.userName : undefined
+    const macroState = { userName: str(openingUserName ?? userName).trim().slice(0, 80) || defaults.playerName, local: {}, global: {} }
     const runtimePresetSnapshot = groupOfMode(chatMode) !== 'play' ? null
       : cardDefaults?.presetPath ? await trace.stage('preset', () => presets.fullSnapshot(cardDefaults.presetPath).catch(() => playPresetSnapshot())) : await trace.stage('preset', () => playPresetSnapshot())
     // The card workbench opens empty: no greeting is shown or sent to the model.
@@ -147,7 +154,11 @@ export function createConversationInitialization(options) {
     macroState.userName = openingProjection.macroState.userName
     macroState.local = openingProjection.macroState.local
     macroState.global = openingProjection.macroState.global
-    const greeting = openingProjection.sessionText
+    // a card with an opening form replaces its greeting:
+    // nothing is shown or sent. The greeting floor stays only to own the opening variables; its one
+    // blank character keeps the native opening structure, which the chat and provider requests skip.
+    const formOpening = Boolean(openingExtensions?.openingSetup) && openingProjection.sessionText !== ''
+    const greeting = formOpening ? '\u3000' : openingProjection.sessionText
     // connectWorkspace 返回时，Agent 注册偶尔仍在异步完成。先等到原生会话可写，
     // 再落盘 Tavern 对话，避免失败时留下只有映射、没有原生开场白的半初始化记录。
     const openingTarget = typeof sessionId === 'string' && sessionId !== '' ? await trace.stage('waitSession', () => native.wait(sessionId)) : undefined
@@ -198,14 +209,15 @@ export function createConversationInitialization(options) {
     chat.openingText = greeting
     chat.presentationWarnings = openingProjection.warnings
     if (chat.mode === 'script') {
-      chat.scriptState = scriptContinuity.startAligned(script, greeting, card.script_start)
+      chat.scriptState = scriptContinuity.startAligned(script, greeting,
+        scriptStart?.chunk !== undefined ? scriptStart.chunk - 1 : card.script_start)
       chat.scriptState = scriptContinuity.transition({ script, state: chat.scriptState,
         event: { kind: 'set-chunk-size', chunkSize: currentSettings.scriptChunkSize || 500 } }).state
     }
     if (typeof sessionId === 'string') chat.sessionId = sessionId
     if (greeting !== '') chat.messages.push(Object.assign({
       role: 'assistant',
-      ...replyProse(openingSourceText, openingProjection),
+      ...replyProse(formOpening ? greeting : openingSourceText, formOpening ? { ...openingProjection, projectionText: greeting, renderedText: greeting, sessionText: greeting, displayText: greeting, displayMode: 'markdown' } : openingProjection),
       stagePageVersion: 2,
       ts: now(),
       greeting: true,

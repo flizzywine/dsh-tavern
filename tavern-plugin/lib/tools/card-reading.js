@@ -170,6 +170,7 @@ export function registerCardReadingTools({
     description: '在卡片工作台中按 JSON Pointer 分段读取完整工作 raw。只在标准字段工具无法覆盖正则、脚本、MVU 或未知扩展时使用；pointer 为空可查看根结构。',
     parameters: {
       path: { type: 'string', description: '可选的人物卡相对路径；省略时读取当前人物卡' },
+      source: { type: 'string', enum: ['working', 'original'], description: '默认 working（工作版）；original 只读导入时的原版，用于找回后来被改掉的开局表单、正则或脚本' },
       pointer: { type: 'string', description: 'JSON Pointer，例如 /data/extensions/regex_scripts；V1 卡可使用 /extensions。省略时读取根节点' },
       offset: { type: 'integer', description: '可选的 1 起始字符位置，默认 1' },
       limit: { type: 'integer', description: '本次最多读取字符数，默认 6000，最大 12000' }
@@ -197,7 +198,10 @@ export function registerCardReadingTools({
       if (chat === undefined || (chat.mode || 'story') !== 'card') throw new Error('人物卡 raw 只能在卡片工作台中读取')
       const resourcePath = str(args.path).trim() || str(chat.cardPath)
       if (resourcePath === '') throw new Error('空白工作台还没有正式人物卡 raw')
-      const workspace = await readCardWorkspace(resourcePath)
+      // the original import is read in memory, never written.
+      const original = args.source === 'original' ? await fileResources.originalCardPayload(resourcePath) : undefined
+      if (args.source === 'original' && !original) throw new Error('这张人物卡没有保存导入原版')
+      const workspace = original ? cardPreparation.create({ kind: 'import', payload: original }) : await readCardWorkspace(resourcePath)
       if (workspace === undefined) throw new Error('人物卡资源不存在: ' + resourcePath)
       return cardPreparation.present({ card: workspace, as: 'raw-section', pointer: args.pointer, offset: args.offset, limit: args.limit })
     }
