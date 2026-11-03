@@ -142,10 +142,20 @@ for (const summaryMaxTokens of [128, 1024]) {
   test(`2k window at exactly 80 percent, summary output reservation ${summaryMaxTokens}`, native, async t => {
     const f = await fixture(t, { text: '合成剧情'.repeat(182), summaryMaxTokens })
     assert.equal(f.before, 1600)
-    f.state.limit = 2000
     const nodes = [...f.session.surface.nodes]
-    if (summaryMaxTokens === 128) assert.ok(await f.compact('pressure'))
-    else { await assert.rejects(f.compact('pressure')); f.intact(nodes) }
-    t.diagnostic(JSON.stringify({ usage: f.before, threshold: 1600, summaryMaxTokens, summaryRequest: f.state.summaries.at(-1), capacity: 2000 }))
+    // The fork's summary instructions also consume headroom; output reservation alone is not the request budget.
+    f.state.limit = 0
+    await assert.rejects(f.compact('pressure'), { code: 'CONTEXT_WINDOW_EXCEEDED' })
+    f.intact(nodes)
+    const summaryRequest = f.state.summaries.at(-1)
+    f.state.limit = 2000
+    if (summaryRequest.total <= f.state.limit) assert.ok(await f.compact('pressure'))
+    else {
+      await assert.rejects(f.compact('pressure'), { code: 'CONTEXT_WINDOW_EXCEEDED' })
+      f.intact(nodes)
+      f.state.limit = summaryRequest.total
+      assert.ok(await f.compact('pressure'), 'the exact measured summary budget must fit')
+    }
+    t.diagnostic(JSON.stringify({ usage: f.before, threshold: 1600, summaryMaxTokens, summaryRequest, capacity: 2000 }))
   })
 }

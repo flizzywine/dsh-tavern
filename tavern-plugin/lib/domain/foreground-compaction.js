@@ -5,7 +5,9 @@ export async function compactForegroundIfNeeded({ trigger, native, forced, press
   let result = await native()
   if (!result && trigger !== 'context-overflow') {
     const budget = await pressure()
-    if (budget?.budgetPercent >= 100) result = await forced()
+    // an output *limit* is not occupied context. A near-window
+    // default (DeepSeek: 256k of 258k) must not force compaction at 1% input.
+    if (Number.isFinite(budget?.percent) && budget.percent >= 100) result = await forced()
   }
   if (result) {
     await record()
