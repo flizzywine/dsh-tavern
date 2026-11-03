@@ -318,6 +318,8 @@ import { createPluginHandlers } from './rpc/plugins.js'
 import { createConversationHandlers } from './rpc/conversations.js'
 import { createPlayHandlers } from './rpc/play.js'
 import { createTransferHandlers } from './rpc/transfer.js'
+import { createImageCharacterHandlers } from './rpc/image-characters.js'
+import { appearanceFromImageCharacter } from './domain/image-character-appearance.js'
 import { createTransferExportStore } from './domain/transfer-store.js'
 // dsh-tavern 宿主插件（profile 组合行）
 // RPC：同源 HTTP 路由 /api/dsh-tavern/<method>（客户端 fetch 调用）
@@ -2445,7 +2447,12 @@ export async function apply(ctx) {
   })
   ctx.effect(() => () => backgroundAgentRunner.dispose(), 'dsh-tavern: dispose resident background agents')
   // Asset pictures come from an image plugin (tavern.imageProvider); Tavern keeps no image channels.
-  const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary')})
+  const assetGeneration = createAssetGeneration({store:profileData, imageProvider:() => pluginApi.imageProviders()[0], getLibrary:() => ctx.get('assetLibrary'),
+    // a figure linked to the 配图 人物库 takes its 外貌 from there (the one store); unlinked figures keep the pack text.
+    linkedAppearance: async ({figureId, outfitKey}) => {
+      try { return appearanceFromImageCharacter((await pluginApi.imageCharacters('getCharacter', {figureId})).character, outfitKey) }
+      catch (error) { if (error.code === 'NOT_FOUND' || error.code === 'NOT_CONFIGURED') return null; throw error }
+    }})
   ctx.effect(() => () => assetGeneration.dispose(), 'dsh-tavern: dispose asset generation')
   // Public extension service for third-party DSH plugins (docs/plugin-api.md).
   const pluginMedia = createPluginMedia({ store: profileData })
@@ -3653,7 +3660,8 @@ export async function apply(ctx) {
     createPluginHandlers(rpcDeps),
     createConversationHandlers(rpcDeps),
     createPlayHandlers(rpcDeps),
-    createTransferHandlers(rpcDeps))
+    createTransferHandlers(rpcDeps),
+    createImageCharacterHandlers(rpcDeps))
   const stageSwitch = await createStageSwitch({runtime:stageRuntime,store:profileData,builtin:true})
   rpcHandlers.getStageRuntimeStatus = async () => stageSwitch.read()
   rpcHandlers.setStageEnabled = async args => stageSwitch.setEnabled(args?.enabled)

@@ -1873,6 +1873,9 @@ export function createTavernPluginApi(deps) {
 
   return Object.freeze({ taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
+    // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
+    imageCharacters: (op, input) => imageCatalog.record(op, {}, input),
+    listImageLibrary: (kind, input) => imageCatalog.list(kind, {}, input),
     builtinPromptSection({name,target,text,unbounded = false}) {
       return register.call({ctx:deps.ctx},sections,'dsh-tavern\u0000'+target+'\u0000'+name,
         {owner:'dsh-tavern',name,target,text,unbounded},'tavern builtin prompt section','Duplicate built-in prompt section')

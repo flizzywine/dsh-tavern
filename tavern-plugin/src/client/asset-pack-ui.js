@@ -1353,6 +1353,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
   // @include asset-pack-entry-ui.js
   // @include asset-pack-cg-ui.js
   // @include asset-pack-figure-ui.js
+  // @include asset-pack-image-character.js
   // @include asset-pack-spine-ui.js
   // @include asset-pack-import-ui.js
   // @include asset-pack-voice-ui.js

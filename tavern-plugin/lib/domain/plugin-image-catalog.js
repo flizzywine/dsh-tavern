@@ -4,7 +4,12 @@ const MAX_ITEMS = 2000
 const text = (value, max = 8000) => typeof value === 'string' ? value.slice(0, max) : ''
 const strings = value => Array.isArray(value) ? value.slice(0, 100).map(v => text(v, 256)).filter(Boolean) : []
 const fields = (value, keys) => Object.fromEntries(keys.map(key => [key, text(value?.[key])]))
-const TRAITS = ['face', 'faceBack', 'bodySFW', 'fullSFW', 'bodyNSFW', 'fullNSFW', 'negative']
+// The 配图 人物库 trait keys (schema 4): per view, front and back, clothed (SFW) and bare (NSFW).
+export const IMAGE_CHARACTER_TRAITS = ['feature', 'face', 'faceBack', 'bodySFW', 'bodySFWBack', 'lowerSFW', 'lowerSFWBack', 'bodyNSFW', 'bodyNSFWBack', 'lowerNSFW', 'lowerNSFWBack', 'negative']
+const TRAITS = IMAGE_CHARACTER_TRAITS
+// A library may also offer its full character records (schema 4) for Tavern's asset library to edit in place.
+export const IMAGE_CHARACTER_SCHEMA = 4
+const RECORD_OPS = ['getCharacter', 'patchCharacter', 'createCharacter', 'putReferenceImage']
 const PARTS = ['upper', 'lower', 'shoes', 'accessory', 'full', 'back']
 
 function rows(value) {
@@ -49,14 +54,16 @@ export function createPluginImageCatalog({ imageProviders, available, reportErro
   }
 
   return {
-    registerLibrary(owner, { id, label, characters, outfits } = {}) {
+    registerLibrary(owner, { id, label, characters, outfits, schemaVersion, ...records } = {}) {
       if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) throw new TypeError('图片资源库需要有效的 id')
       if (typeof label !== 'string' || !label.trim() || label.trim().length > 30) throw new TypeError('label 必须是 1–30 字')
       if (typeof characters !== 'function' && typeof outfits !== 'function') throw new TypeError('characters、outfits 至少提供一个函数')
       if (characters !== undefined && typeof characters !== 'function' || outfits !== undefined && typeof outfits !== 'function') throw new TypeError('characters、outfits 必须是函数')
+      if (schemaVersion !== undefined && (!Number.isSafeInteger(schemaVersion) || schemaVersion < 1 || RECORD_OPS.some(op => typeof records[op] !== 'function'))) throw new TypeError('人物记录接口需要整数 schemaVersion 与 ' + RECORD_OPS.join('、'))
       const key = owner + '/' + id
       if (libraries.has(key)) throw new Error('图片资源库 ' + id + ' 已注册')
-      const entry = { id: key, owner, label: label.trim(), characters, outfits }
+      const entry = { id: key, owner, label: label.trim(), characters, outfits,
+        ...(schemaVersion === undefined ? {} : { records: { schemaVersion, ...Object.fromEntries(RECORD_OPS.map(op => [op, records[op]])) } }) }
       libraries.set(key, entry)
       return () => { if (current(libraries, entry)) libraries.delete(key) }
     },
@@ -87,6 +94,16 @@ export function createPluginImageCatalog({ imageProviders, available, reportErro
         async status() { await assertAvailable(); return entry.status(modelId === undefined ? {} : { modelId }) },
         async generate(input) { await assertAvailable(); return entry.generate(modelId === undefined ? input : { ...input, modelId }) },
       }
+    },
+
+    // One 人物库 record operation on the first visible library speaking IMAGE_CHARACTER_SCHEMA. The library validates and
+    // stores; its NOT_FOUND / REVISION_CONFLICT / INVALID_ARGUMENT errors reach the caller unchanged.
+    async record(op, context, { providerId, ...input } = {}) {
+      if (!RECORD_OPS.includes(op)) throw Object.assign(new Error('未知的人物记录操作'), { code: 'INVALID_ARGUMENT' })
+      const entry = (await visible(libraries, context)).find(item => item.records?.schemaVersion === IMAGE_CHARACTER_SCHEMA && (!providerId || item.id === providerId))
+      if (!entry) throw Object.assign(new Error('配图插件未启用，或版本还不支持共用人物记录'), { code: 'NOT_CONFIGURED' })
+      const result = await bounded(Promise.resolve().then(() => entry.records[op](op === 'putReferenceImage' ? input : structuredClone(input))), '人物库 ' + entry.id, 30000)
+      return op === 'putReferenceImage' ? { providerId: entry.id, referenceImage: result } : { providerId: entry.id, ...structuredClone(result) }
     },
 
     async list(kind, context, { providerId, query = '', offset = 0, limit = 50, characterId } = {}) {

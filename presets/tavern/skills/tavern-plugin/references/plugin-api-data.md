@@ -57,13 +57,15 @@ const outfits = person ? await ctx.tavern.listImageOutfits({
 
 `listImageCharacters`、`listImageOutfits` 都接受 `{ gameId?, card?, providerId?, query?, offset?, limit? }`，服装查询另可传 `characterId`（此时必须指定 `providerId`，避免不同库的角色 ID 冲突）。返回 `{ items, total, offset, limit, hasMore, errors }`；默认每页 50 项，最多 200 项。`query` 最多 200 字，匹配名称、说明和人物别名。`errors` 仅报告 `{ providerId, code: 'PROVIDER_FAILED' }`，其他正常来源仍可用。
 
-每项带 `providerId`、`providerLabel`；人物字段为 `{ id, name, aliases, group, description, traits, outfitIds }`，`traits` 支持 `face/faceBack/bodySFW/fullSFW/bodyNSFW/fullNSFW/negative`；服装字段为 `{ id, name, description, characterId, parts, negative, isDefault }`，`parts` 支持 `upper/lower/shoes/accessory/full/back`。通用服装的 `characterId` 是 `null`。`id` 与 `outfitIds` 都是不透明字符串，按 `providerId + id` 标识资源。宿主只返回这些字段的独立副本，不传文件路径或未知字段。
+每项带 `providerId`、`providerLabel`；人物字段为 `{ id, name, aliases, group, description, traits, outfitIds }`，`traits` 沿用配图人物库的分视角键 `feature/face/faceBack/bodySFW/bodySFWBack/lowerSFW/lowerSFWBack/bodyNSFW/bodyNSFWBack/lowerNSFW/lowerNSFWBack/negative`；服装字段为 `{ id, name, description, characterId, parts, negative, isDefault }`，`parts` 支持 `upper/lower/shoes/accessory/full/back`。通用服装的 `characterId` 是 `null`。`id` 与 `outfitIds` 都是不透明字符串，按 `providerId + id` 标识资源。宿主只返回这些字段的独立副本，不传文件路径或未知字段。
 
 每个来源单次返回最多 2000 项，来源负责按收到的 `{ gameId?, card?, characterId? }` 筛选自己库内的可见项；宿主在合并后搜索、分页。回调并行执行且最多等待 5 秒，不缓存用户资料，卸载后尚未返回的结果会丢弃。
 
 可传 `gameId` 用于游玩或卡片工作台，也可用 `card` 指定人物卡；同时提供时必须指向同一张卡。省略目标时仅显示全局来源与全局人物。卡内插件必须指定自己的卡或会话，无法读取或调用其他人物卡的来源。内置配图插件从当前内存中的人物库、角色服装和通用服装生成投影；隐藏停用项，保留人物卡绑定与通用服装引用，修改后下次查询即生效。
 
 这些接口用于读取与复用。编辑资料仍通过来源插件自己的保存流程，以保留备份和覆盖保护。
+
+**共用人物记录（schema 4）。** 来源可在注册时另带 `schemaVersion: 4` 与四个函数 `getCharacter({ characterId | figureId })`、`patchCharacter({ characterId, expected, patch })`、`createCharacter({ character })`、`putReferenceImage({ data: Uint8Array, mediaType, name })`，把完整人物记录交给 Tavern 素材库就地编辑。来源仍是唯一存放处：素材库不缓存、不复制记录；写入带上刚读到的记录，来源按它拒绝过期写入（`REVISION_CONFLICT`），没有记录时返回 `NOT_FOUND`，输入不符时返回 `INVALID_ARGUMENT`。记录字段与三层参考图见内置配图插件 README「共用人物记录」。只提供部分函数、或 `schemaVersion` 不是整数时注册报错；不带 `schemaVersion` 的来源保持只读。
 
 ## 把插件自己的图片列入对话画廊（`galleryProvider: 1`）
 

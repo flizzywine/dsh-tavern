@@ -146,7 +146,7 @@ function inspectImage(bytes, mediaType, max) {
 /** One profile owner. Network work never occupies the short mutation gate. */
 export function createAssetGeneration({store, imageProvider = () => null, getLibrary, now = Date.now,
   readTemplate = kind => readFile(new URL(`../../presets/asset-gen/templates/${kind}.md`, import.meta.url), 'utf8'),
-  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000}) {
+  planTtlMs = 15 * 60_000, candidateTtlMs = 24 * 60 * 60_000, timeoutMs = 5 * 60_000, linkedAppearance = async () => null}) {
   const plans = new Map(), pendingBytes = new Map(), controllers = new Map(), tasks = new Set()
   let jobs, queue = Promise.resolve(), disposed = false
   const save = () => store.updateJson(INDEX, () => jobs)
@@ -253,6 +253,10 @@ export function createAssetGeneration({store, imageProvider = () => null, getLib
       assert(input.preview === true || plans.size < 8 && Object.keys(jobs).length < 128 && Object.values(jobs).filter(j => ['running','candidate','save_failed'].includes(j.status)).length < 32, 'LIMIT_EXCEEDED', '请先丢弃候选或等待记录到期')
       const target = targetInput(input.target), pack = await snapshot(target, input.expectedRevision), ctx = context(pack,target), followUp = followUpInput(input.followUp, target)
       if (target.kind === 'avatar-sheet') target.emotionIds = ctx.emotions.map(emotion => emotion.id)
+      // A figure linked to the 配图 人物库 draws from that record's 外貌; empty views keep the pack text.
+      const linked = ctx.figure && await linkedAppearance({figureId:target.figureId, outfitKey:target.outfitKey})
+      if (linked?.identityAppearance) ctx.figure = {...ctx.figure, identityAppearance:linked.identityAppearance}
+      if (linked?.outfitAppearance && ctx.outfit) ctx.outfit = {...ctx.outfit, outfitAppearance:linked.outfitAppearance}
       if(target.imageId)assert(ctx.outfit.sprite?.imagePools?.[target.emotionId]?.imageIds.includes(target.imageId),'TARGET_CHANGED','Selected image is no longer an active candidate')
       // `preview` builds the exact prompt and reference list without a plan, a channel
       // or a request (free; works before the channel is set up), so the panel can show what ✦ will send.

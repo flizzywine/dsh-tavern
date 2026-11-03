@@ -1216,11 +1216,12 @@ function FigureDetail({binding,pack,figure,commitFigure,assignFigureVoice,commit
       // 「生图」 aims at the 差分 and view picked here (Live2D → 立绘); switching there switches here.
       // 「生图」 is 设定 and this outfit's 生成 records; a record picks its 差分 and view here.
       // gen-ui b5: 「生图」 is the outfits and this outfit's 差分 wall; a tile picks its 差分 in the preview.
-      tab==='gen'?h(FigureGenTab,{binding,pack,figure,outfit,onOutfit:pickOutfit,write,writeOutfit,gen,identityBoard,removeFigureImage,
+      // the 配图 人物库 record of this figure (its 外貌, outfits' text and reference images) sits under the gen tab.
+      tab==='gen'?h(React.Fragment,null,h(FigureGenTab,{binding,pack,figure,outfit,onOutfit:pickOutfit,write,writeOutfit,gen,identityBoard,removeFigureImage,
         settei:{upload:importSettei,remove:removeFigureImage?(figureId,outfitKey)=>removeFigureImage(figureId,outfitKey,null,'settei'):null},
         onPick:id=>{if(kind!=='sprite'&&kind!=='avatar')setKindChoice('sprite');setFace(id);},
         uploadSprite:importFigureImage&&outfit?id=>pickTile({k:'sprite',id}):null,
-        setFallback:figureActions?.setFallback||null}):h(React.Fragment,null,
+        setFallback:figureActions?.setFallback||null}),h(ImageCharacterSection,{binding,pack,figure,outfit})):h(React.Fragment,null,
       // r5: the basic fields get their own small heading, in the 服装 / 差分 heading's style.
       h('section',{className:'ap-fe-section is-basic','aria-label':'基础设定'},
       h('h4',{className:'ap-sub ap-basic-head'},'基础设定',h(Help,{text:BASIC_HELP,label:'基础设定 说明'})),
