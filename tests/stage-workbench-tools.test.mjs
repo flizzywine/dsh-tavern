@@ -9,8 +9,10 @@ import {createSkillGatedTools} from '../tavern-plugin/lib/domain/skill-gated-too
 test('the stage registers its workbench tools for the card workbench only, each behind its Skills, and removes them with the stage',async ()=>{
   const registered=new Map(),modes=new Map(),skills=new Map(),owners=new Set()
   const services={tools:{register(tool){registered.set(tool.name,tool);return ()=>registered.delete(tool.name)}},
-    tavern:{toolModes({name,modes:value}){owners.add(this.ctx.fiber.name);modes.set(name,value);return ()=>modes.delete(name)},
-      toolSkills({name,skills:value}){owners.add(this.ctx.fiber.name);skills.set(name,value);return ()=>skills.delete(name)}}}
+    // Like the Cordis service proxy: writes are refused, and a method called on the proxy gets the caller's ctx as this.
+    tavern:new Proxy({toolModes({name,modes:value}){owners.add(this.ctx.fiber.name);modes.set(name,value);return ()=>modes.delete(name)},
+      toolSkills({name,skills:value}){owners.add(this.ctx.fiber.name);skills.set(name,value);return ()=>skills.delete(name)}},{set:()=>false,
+      get:(target,prop,receiver)=>new Proxy(target[prop],{apply:(method,self,args)=>Reflect.apply(method,self===receiver?{ctx:{fiber:{name:'dsh-tavern'}}}:self,args)})})}
   const dispose=registerStageWorkbench({ctx:{get:name=>services[name]},deps:{},call:async()=>{throw new Error('no request expected')}})
   assert.deepEqual([...owners],['dsh-tavern-stage'])
   const names=[...registered.keys()]
