@@ -23,9 +23,11 @@ function promptHandleStem(value, separator = '_', limit = 24) {
 }
 const speakerKey = row => row.actorKey || row.alias
 const speakerIdentity = row => row.ref ? row.ref.packId + '/' + row.ref.figureId : speakerKey(row)
+// A figure's Latin-letter alias (the first one), or undefined: its readable handle stem and a skin's Latin plate layer.
+const figureLatinAlias = row => (row?.aliases || []).find(value => /^[a-z][a-z0-9 _-]*$/i.test(value))
 function speakerStem(row) {
   const aliases = row.aliases || []
-  const readable = aliases.find(value => /^[a-z][a-z0-9 _-]*$/i.test(value)) || aliases[0]
+  const readable = figureLatinAlias(row) || aliases[0]
   return promptHandleStem(normalizeCatalogueText(readable || (!row.ref && row.alias) || row.name)) || 'speaker'
 }
 // Derive from the full card, not the recalled subset. No stored alias table or turn state.
@@ -84,6 +86,6 @@ function resolveFigureName(rows, segment = {}) {
   if (named.length && !named.some(row => speakerIdentity(row) === speakerIdentity(found))) return {status:'conflict', actorKey:found.actorKey, ref:found.ref};
   return {status:'resolved', actorKey:found.actorKey, ref:found.ref, row:found};
 }
-return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, resolveFigureName};
+return {normalizeCatalogueText, codepointCompare, promptHandleStem, figureSpeakerHandle, resolveFigureName, figureLatinAlias};
 })();
 if (typeof window === 'undefined' && typeof module !== 'undefined') module.exports = figureResolution;

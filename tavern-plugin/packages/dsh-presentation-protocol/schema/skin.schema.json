@@ -866,14 +866,15 @@
       "hide": {
        "type": "array",
        "minItems": 1,
-       "maxItems": 4,
+       "maxItems": 5,
        "uniqueItems": true,
        "items": {
         "enum": [
          "backlog",
          "auto",
          "skip",
-         "menu"
+         "menu",
+         "keys"
         ]
        }
       }
@@ -1562,15 +1563,17 @@
        "enum": [
         "pill",
         "level",
-        "under"
+        "under",
+        "on"
        ],
-       "description": "pill: on phones the name leaves the plate drawn in the box image for a pill in the speaker's colour on the box's top edge, the box showing its narration image. level: on phones the drawn plate (hanging or level) is set as a level tag - the name in one line on a tag in nameplate.paint over the box's top edge at its left, the lines below it. under: on phones the same level tag inside the box, just under the art.portrait.narrow side and centred on its axis (with a face; the side's top without one), kept to the side's column (a long name is set smaller to fit); the box's top edge keeps no room for it. Needs art.portrait.narrow."
+       "description": "on: the under tag set on the face instead of under it (its bottom 4 px above the side's bottom edge, centred on its axis), the face and its name one lockup inside the box. pill: on phones the name leaves the plate drawn in the box image for a pill in the speaker's colour on the box's top edge, the box showing its narration image. level: on phones the drawn plate (hanging or level) is set as a level tag - the name in one line on a tag in nameplate.paint over the box's top edge at its left, the lines below it. under: on phones the same level tag inside the box, just under the art.portrait.narrow side and centred on its axis (with a face; the side's top without one), kept to the side's column (a long name is set smaller to fit); the box's top edge keeps no room for it. Needs art.portrait.narrow."
       },
       "wide": {
        "enum": [
-        "under"
+        "under",
+        "on"
        ],
-       "description": "under (§18 N16): on wide stages (over 640px), while a face shows, the plate stands just under the art.portrait window (6 design px below it), centred on its axis, and the lines keep the box's own top (no room above them for the name); a page without a face keeps x / y (and lead). The skin leaves the room under the window. Needs axis portrait."
+       "description": "on: as under, but the plate stands on the window's lower edge (its bottom 6 design px above the window's bottom), inside the box. under (§18 N16): on wide stages (over 640px), while a face shows, the plate stands just under the art.portrait window (6 design px below it), centred on its axis, and the lines keep the box's own top (no room above them for the name); a page without a face keeps x / y (and lead). The skin leaves the room under the window. Needs axis portrait."
       },
       "lead": {
        "const": true,
@@ -1585,6 +1588,20 @@
         "portrait"
        ],
        "description": "§18 N14: a level plate's name centred on the shown face's vertical axis (art.portrait: its frame window, else its square; on a phone the narrow side), whatever its length - a long name grows the plate both ways (grow), then shrinks; the plate never passes the box's left edge. A page without a face keeps x (or lead). Needs art.portrait; not with vertical, sides or printed."
+      },
+      "latin": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["x", "y", "size"],
+       "description": "bauhaus C01: the speaker's Latin-letter alias (the first alias the resolver reads as a Latin handle, e.g. Haruka) as a second layer of the plate - its top-left x, y design px from the plate's top-left (negative = above / left), size px in the skin's ui.titleFont, in color (default the plate ink), its own letter spacing (em); upper = set in capitals. Decoration: the plate's name stays the accessible name. A speaker without a Latin alias shows no Latin layer. Wide stages (over 640px) only.",
+       "properties": {
+        "x": { "type": "number", "minimum": -4096, "maximum": 4096 },
+        "y": { "type": "number", "minimum": -4096, "maximum": 4096 },
+        "size": { "type": "number", "minimum": 8, "maximum": 256 },
+        "color": { "$ref": "#/$defs/color" },
+        "spacing": { "type": "number", "minimum": -0.2, "maximum": 1 },
+        "upper": { "const": true }
+       }
       }
      },
      "not": {
@@ -2025,6 +2042,25 @@
         }
        }
       },
+      "hover": {
+       "type": "object",
+       "description": "The bar under a hovering pointer only (keyboard focus keeps focus): its image (same size and slices as plain) and its words' colour; alt = the even rows' own hover bar. Omitted = hover is a light ink change with an underline, apart from focus.",
+       "additionalProperties": false,
+       "required": [
+        "image"
+       ],
+       "properties": {
+        "image": {
+         "$ref": "#/$defs/image"
+        },
+        "ink": {
+         "$ref": "#/$defs/color"
+        },
+        "alt": {
+         "$ref": "#/$defs/image"
+        }
+       }
+      },
       "x": {
        "type": "number",
        "minimum": 0,
@@ -2132,7 +2168,7 @@
     },
     "buttons": {
      "type": "object",
-     "description": "Existing quick actions drawn on the stage: backlog (LOG), auto and skip (to the round's end), and menu - the stage menu (Esc), the one entry to everything the original lacks (replaces the quickMenu fold control). On phones (640px and less) they hang from the top edge at a touch size (the smallest 36px): a top button keeps its top, those placed from the bottom keep their arrangement under that side's top buttons.",
+     "description": "Existing quick actions drawn on the stage: backlog (LOG), auto and skip (to the round's end), menu - the stage menu (Esc), the one entry to everything the original lacks (replaces the quickMenu fold control) - and keys - the stage's shortcut list (the menu's 快捷键; a press toggles it). On phones (640px and less) they hang from the top edge at a touch size (the smallest 36px): a top button keeps its top, those placed from the bottom keep their arrangement under that side's top buttons.",
      "additionalProperties": false,
      "properties": {
       "backlog": {
@@ -2145,6 +2181,9 @@
        "$ref": "#/$defs/artButton"
       },
       "menu": {
+       "$ref": "#/$defs/artButton"
+      },
+      "keys": {
        "$ref": "#/$defs/artButton"
       }
      }
@@ -2487,6 +2526,29 @@
          }
         }
        }
+      },
+      "narrow": {
+       "type": "object",
+       "description": "Phones (640px and less): the same sheet, title, close, row head (voice, name, frame, rule) and highlight at unit CSS px per design px; the words keep the reading size from the text column.",
+       "additionalProperties": false,
+       "required": [
+        "unit"
+       ],
+       "properties": {
+        "unit": {
+         "type": "number",
+         "minimum": 0.05,
+         "maximum": 0.5
+        }
+       }
+      },
+      "badges": {
+       "type": "object",
+       "description": "§18 N26: a mod line kind's 履历 badge drawn as this image instead of the mod's icon, keyed by the line kind's dotted id (the phone mod's 「手机」: dsh.phone.message); it keeps the badge's size and its label as the accessible name.",
+       "minProperties": 1,
+       "maxProperties": 8,
+       "propertyNames": { "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-zA-Z0-9_-]+)+$", "maxLength": 128 },
+       "additionalProperties": { "$ref": "#/$defs/image" }
       }
      }
     },
@@ -2760,7 +2822,7 @@
     },
     "voice": {
      "type": "object",
-     "description": "Every voice replay control (the backlog rows' and the box's replay) drawn from these images in its box: idle, focus (hover / keyboard) and active (playing). box false = the textbox shows no replay control (the original's box has none): replay stays on its key (R) and in the backlog. backlog false = the backlog's rows show no replay control (an original whose log has none): replay stays on its key (R) and in the box. waves = the backlog rows' speaker in parts: image / focus / active then hold the speaker body alone, and each wave image (inner arc first, drawn on the same canvas as image) one sound-wave arc; the arcs stand still at rest and light in sequence while the row's line plays (the body never changes; still under the stage's reduced motion). Needs image unless box or backlog is false.",
+     "description": "Every voice replay control (the backlog rows' and the box's replay) drawn from these images in its box: idle, focus (hover / keyboard) and active (playing). box = whether the textbox shows a replay control (opt-in; see box): replay always stays on its key (R) and in the backlog. backlog false = the backlog's rows show no replay control (an original whose log has none): replay stays on its key (R) and in the box. waves = the backlog rows' speaker in parts: image / focus / active then hold the speaker body alone, and each wave image (inner arc first, drawn on the same canvas as image) one sound-wave arc; the arcs stand still at rest and light in sequence while the row's line plays (the body never changes; still under the stage's reduced motion). Needs image unless box is set or backlog is false.",
      "additionalProperties": false,
      "properties": {
       "image": {
@@ -2781,7 +2843,8 @@
        }
       },
       "box": {
-       "const": false
+       "description": "The textbox's replay control is opt-in (most originals keep the box clean; replay is the backlog row's and R's). true = the box shows one: the image, else the name plate's glyph; false = none, not even a failed voice's warning; omitted = the image's when there is one, else none.",
+       "type": "boolean"
       },
       "backlog": {
        "const": false
@@ -3771,6 +3834,12 @@
           "end"
          ],
          "description": "The label's place in its text column."
+        },
+        "slant": {
+         "type": "number",
+         "minimum": -256,
+         "maximum": 256,
+         "description": "§18 N19: the bars set along a leaning axis drawn on the sheet: each bar this many design px right of the one above it (negative = left), its label column with it."
         }
        }
       },
@@ -3789,7 +3858,18 @@
        "description": "The drawn menu's items staged in (enter) and out (leave), in design px.",
        "properties": {
         "enter": {
-         "$ref": "#/$defs/skinStage"
+         "type": "object",
+         "additionalProperties": false,
+         "required": ["pose", "ms"],
+         "description": "The items staged in; delay = ms after the menu opens before the first item starts (the drawn parts lead).",
+         "properties": {
+          "pose": { "$ref": "#/$defs/skinPose" },
+          "ms": { "type": "number", "minimum": 40, "maximum": 1500 },
+          "stagger": { "type": "number", "minimum": 0, "maximum": 200 },
+          "delay": { "type": "number", "minimum": 0, "maximum": 1500 },
+          "ease": { "enum": ["linear", "out", "in-out", "back"] },
+          "fade": { "const": true }
+         }
         },
         "leave": {
          "$ref": "#/$defs/skinStage"
@@ -3801,6 +3881,17 @@
         "frameOut": {
          "$ref": "#/$defs/skinStage",
          "description": "The frame (device) dropping out."
+        },
+        "parts": {
+         "type": "object",
+         "description": "§18 N21: the drawn parts' own entrance after the menu opens: each plays its key poses (dx / dy design px) over ms after delay ms, about origin [x, y] (0..1 of the part), in steps when given; it holds its first pose until its delay.",
+         "additionalProperties": false,
+         "properties": {
+          "sheet": { "$ref": "#/$defs/menuPart" },
+          "title": { "$ref": "#/$defs/menuPart" },
+          "keys": { "$ref": "#/$defs/menuPart" },
+          "signal": { "$ref": "#/$defs/menuPart" }
+         }
         }
        }
       },
@@ -3885,6 +3976,12 @@
       }
      ]
     },
+    "faceChip": {
+     "enum": [
+      true
+     ],
+     "description": "An ADV layout (textbox.layout other than box) without art.portrait shows no speaker face on any width - wide stage, phone portrait or landscape. true opts phones (640px and narrower) into the engine's round face chip standing above the box's top edge at its right end; wide stages stay faceless. Ignored with art.portrait."
+    },
     "portrait": {
      "type": "object",
      "description": "The speaker's portrait for an ADV layout: a square `size` px wide, its left edge at `left`, its bottom `bottom` px above the screen's bottom edge, showing the mood avatar (source avatar, the default). source bust = the speaker's upper body cut from their stage figure, framed by `bust`; the square stays for a speaker without a figure on stage.",
@@ -3911,9 +4008,27 @@
        "maximum": 4096
       },
       "source": {
-       "enum": [
-        "avatar",
-        "bust"
+       "description": "Where the face comes from. avatar (the default) = the mood avatar in the square; bust = the speaker's upper body cut live from their stage figure, framed by bust (a speaker without a figure on stage keeps the square). An ordered list is walked per speaker, the first source they have taken: sprite = their whole static picture (current outfit and mood, whatever their stage form and whether they stand on stage), its head box on bust.head, uncropped - the design screen and the stage clip it, under the box; avatar = the square; bust = the live cut. avatar = [avatar], bust = [bust, avatar]. A skin recreating static corner art lists sprite before bust.",
+       "oneOf": [
+        {
+         "enum": [
+          "avatar",
+          "bust"
+         ]
+        },
+        {
+         "type": "array",
+         "minItems": 1,
+         "maxItems": 3,
+         "uniqueItems": true,
+         "items": {
+          "enum": [
+           "sprite",
+           "avatar",
+           "bust"
+          ]
+         }
+        }
        ]
       },
       "when": {
@@ -4243,16 +4358,25 @@
           "fade"
          ],
          "description": "§18 N14: a new face crossfades in the still window (the face it replaces fading out under it) instead of the cut; not with motion (that owns the entrance)."
+        },
+        "cutout": {
+         "type": "object",
+         "additionalProperties": false,
+         "required": ["color", "width"],
+         "description": "A cut-out edge round the face picture's own silhouette (its alpha): width design px of color outside it, as a photo cut from paper (bauhaus C01). The face itself is not recoloured; the window clips it as it clips the face. Phones too.",
+         "properties": {
+          "color": { "$ref": "#/$defs/color" },
+          "width": { "type": "number", "minimum": 0.5, "maximum": 24 }
+         }
         }
        }
       },
       "bust": {
        "type": "object",
-       "description": "Required with source bust (and only then).",
+       "description": "Required with a framed source - bust or sprite in source (and only then).",
        "additionalProperties": false,
        "required": [
-        "head",
-        "crop"
+        "head"
        ],
        "properties": {
         "head": {
@@ -4275,7 +4399,7 @@
           "minimum": 0,
           "maximum": 8
          },
-         "description": "What of the figure shows, in head heights: above the crown, to each side of the head centre, below the chin (the design screen clips too)."
+         "description": "What of the figure shows, in head heights: above the crown, to each side of the head centre, below the chin (the design screen clips too). Required when source names bust (and only then); a sprite picture is never cropped."
         },
         "enter": {
          "type": "object",
@@ -6381,6 +6505,19 @@
     }
    }
   },
+  "devices": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "Last-resort per-device override (docs/fork/skin-interface.md §13.2): mobile = phones, pc = tablets and desktops. A partial skin document merged over the skin (objects key by key, arrays and values replaced, null removes the key); each merged side is validated as a whole skin. Use only where the engine's device classes and reading minimums cannot express the skin.",
+   "properties": {
+    "mobile": {
+     "$ref": "#/$defs/devicePatch"
+    },
+    "pc": {
+     "$ref": "#/$defs/devicePatch"
+    }
+   }
+  },
   "levels": {
    "type": "object",
    "additionalProperties": false,
@@ -6788,6 +6925,9 @@
        },
        "menu": {
         "$ref": "#/$defs/artButton"
+       },
+       "keys": {
+        "$ref": "#/$defs/artButton"
        }
       }
      },
@@ -6800,14 +6940,15 @@
        "hide": {
         "type": "array",
         "minItems": 1,
-        "maxItems": 4,
+        "maxItems": 5,
         "uniqueItems": true,
         "items": {
          "enum": [
           "backlog",
           "auto",
           "skip",
-          "menu"
+          "menu",
+          "keys"
          ]
         }
        },
@@ -7094,6 +7235,22 @@
          "type": "number",
          "minimum": 0.25,
          "maximum": 8
+        },
+        "outset": {
+         "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": {
+         "enum": [
+          "stretch",
+          "round",
+          "repeat",
+          "space"
+         ],
+         "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
         }
        }
       },
@@ -7137,19 +7294,40 @@
          }
         }
        }
+      },
+      "tilt": {
+       "type": "object",
+       "description": "The frame turned in depth by x / y degrees (a card held in the air): wide frames only, still - not a motion.",
+       "additionalProperties": false,
+       "properties": {
+        "x": { "type": "number", "minimum": -12, "maximum": 12 },
+        "y": { "type": "number", "minimum": -12, "maximum": 12 }
+       }
+      },
+      "crest": {
+       "type": "object",
+       "description": "One image centred on the frame's top edge, over the frame plate (a torii's gakuzuka between its beams, a plaque, a crest): scale = design px per image px (default 1); y = its centre's height above the panel's top edge in design px (negative = below). Not on a phone's full-screen CONFIG.",
+       "additionalProperties": false,
+       "required": ["image"],
+       "properties": {
+        "image": { "$ref": "#/$defs/image" },
+        "scale": { "type": "number", "minimum": 0.25, "maximum": 8 },
+        "y": { "type": "number", "minimum": -160, "maximum": 160 }
+       }
       }
      }
     },
     "title": {
      "type": "object",
-     "description": "The CONFIG title is 设置. word = one replacement word in its place (1-24 characters; no Latin letters, spaces or separators, never paired with 设置 - no second label; the accessible name stays 设置); vertical = set top to bottom beside the tab list; hidden = no visible title.",
+     "description": "The CONFIG title is 设置. word = one replacement word in its place (1-24 characters; no Latin letters, spaces or separators, never paired with 设置 - no second label; the accessible name stays 设置); vertical = set top to bottom beside the tab list; hidden = no visible title; crest = set on frame.crest (a torii's plaque; top to bottom when the crest stands taller than wide) on wide frames and as a word on a phone - needs frame.crest.",
      "additionalProperties": false,
      "properties": {
       "look": {
        "enum": [
         "word",
         "vertical",
-        "hidden"
+        "hidden",
+        "crest"
        ],
        "description": "Closed look; the first word is the engine look of today (the default)."
       },
@@ -7177,6 +7355,22 @@
          "type": "number",
          "minimum": 0.25,
          "maximum": 8
+        },
+        "outset": {
+         "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": {
+         "enum": [
+          "stretch",
+          "round",
+          "repeat",
+          "space"
+         ],
+         "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
         }
        }
       }
@@ -7236,6 +7430,17 @@
         }
        }
       },
+      "mark": {
+       "type": "object",
+       "description": "A state image before each tab's name (a lens slot that holds a lens when open, a lamp), drawn whole at the ladder's mark size (1.75 b square) in every layout: plain at rest, on = the open tab, focus = under the pointer or keyboard focus.",
+       "additionalProperties": false,
+       "required": ["plain"],
+       "properties": {
+        "plain": { "$ref": "#/$defs/image" },
+        "on": { "$ref": "#/$defs/image" },
+        "focus": { "$ref": "#/$defs/image" }
+       }
+      },
       "plate": {
        "type": "object",
        "description": "The part drawn by state images: plain at rest, on = chosen / open, focus = under the pointer or keyboard focus; sliced and scaled like a plate.",
@@ -7260,6 +7465,22 @@
          "type": "number",
          "minimum": 0.25,
          "maximum": 8
+        },
+        "outset": {
+         "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": {
+         "enum": [
+          "stretch",
+          "round",
+          "repeat",
+          "space"
+         ],
+         "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
         }
        }
       }
@@ -7297,11 +7518,37 @@
          "type": "number",
          "minimum": 0.25,
          "maximum": 8
+        },
+        "outset": {
+         "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": {
+         "enum": [
+          "stretch",
+          "round",
+          "repeat",
+          "space"
+         ],
+         "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
         }
        }
       },
       "sticky": {
        "type": "boolean"
+      },
+      "paint": {
+       "type": "object",
+       "description": "§18 N20: the heads' words on their own ground (a paper strip on a dark page): bg is drawn under the words (the plate's edges round it), fg is their ink; fg / bg >= 4.5.",
+       "additionalProperties": false,
+       "required": ["bg", "fg"],
+       "properties": {
+        "bg": { "$ref": "#/$defs/color" },
+        "fg": { "$ref": "#/$defs/color" }
+       }
       }
      }
     },
@@ -7323,6 +7570,21 @@
         "start",
         "above"
        ]
+      },
+      "labelAlign": {
+       "enum": ["start", "end"],
+       "description": "§18 X4: end = a side label set flush to its column's end (a spine the controls hang from); wide rows only, a phone keeps it above its control."
+      },
+      "focusPaint": {
+       "type": "object",
+       "description": "§18 N22: the focused row's words on its focus plate: bg = the plate's ground the inks are checked against (>= 4.5), fg the label, fgMuted the readouts and unselected words while the row has the focus.",
+       "additionalProperties": false,
+       "required": ["bg", "fg", "fgMuted"],
+       "properties": {
+        "bg": { "$ref": "#/$defs/color" },
+        "fg": { "$ref": "#/$defs/color" },
+        "fgMuted": { "$ref": "#/$defs/color" }
+       }
       },
       "density": {
        "enum": [
@@ -7360,6 +7622,22 @@
          "type": "number",
          "minimum": 0.25,
          "maximum": 8
+        },
+        "outset": {
+         "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+         "oneOf": [
+          { "type": "number", "minimum": 0, "maximum": 400 },
+          { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+         ]
+        },
+        "repeat": {
+         "enum": [
+          "stretch",
+          "round",
+          "repeat",
+          "space"
+         ],
+         "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
         }
        }
       }
@@ -7406,6 +7684,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7447,6 +7741,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7482,6 +7792,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         },
@@ -7503,6 +7829,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         },
@@ -7525,6 +7867,24 @@
            "minimum": 0.25,
            "maximum": 8
           }
+         }
+        },
+        "ends": {
+         "type": "object",
+         "description": "§18 X7: the plate behind each end word of the rail (a slanted tag), the words upright on it; stretched by its nine-slice like a plate.",
+         "additionalProperties": false,
+         "required": ["image"],
+         "properties": {
+          "image": { "$ref": "#/$defs/image" },
+          "slice": { "$ref": "#/$defs/slice" },
+          "scale": { "type": "number", "minimum": 0.25, "maximum": 8 },
+          "outset": {
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": { "enum": ["stretch", "round", "repeat", "space"] }
          }
         }
        }
@@ -7564,6 +7924,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7604,6 +7980,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7644,6 +8036,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7684,6 +8092,22 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
@@ -7724,9 +8148,45 @@
            "type": "number",
            "minimum": 0.25,
            "maximum": 8
+          },
+          "outset": {
+           "description": "How far the drawn plate reaches past its part, design px (0-400): one number or [top, right, bottom, left] (pillars or a glow round a panel).",
+           "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 400 },
+            { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number", "minimum": 0, "maximum": 400 } }
+           ]
+          },
+          "repeat": {
+           "enum": [
+            "stretch",
+            "round",
+            "repeat",
+            "space"
+           ],
+           "description": "How the sliced edges and centre fill their length: stretch (the default) or tiled."
           }
          }
         }
+       }
+      }
+     }
+    },
+    "foot": {
+     "type": "object",
+     "description": "§18 X15: a strip h design px tall along the frame's foot (a torn skyline), its image tiled across at its own aspect; the page ends above it, so no row runs under it (every width). close = the ✕ moves from the title row onto the strip's middle, drawn on this image (natural size x scale; focus under the pointer and keyboard focus), its press area never under the ladder's hit.",
+     "additionalProperties": false,
+     "required": ["image", "h"],
+     "properties": {
+      "image": { "$ref": "#/$defs/image" },
+      "h": { "type": "number", "minimum": 24, "maximum": 400 },
+      "close": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": ["plain"],
+       "properties": {
+        "plain": { "$ref": "#/$defs/image" },
+        "focus": { "$ref": "#/$defs/image" },
+        "scale": { "type": "number", "minimum": 0.25, "maximum": 8 }
        }
       }
      }
@@ -7761,6 +8221,44 @@
        "minimum": 0,
        "maximum": 60
       }
+     }
+    },
+    "ambient": {
+     "type": "array",
+     "description": "Up to two looping image layers, one per layer: back (over the backdrop, behind the frame) and panel (over the frame's face, opacity at most 0.5). The image tiles at its size times scale and travels drift [x, y] whole tiles every period seconds; no drift = a still layer. Position only (nothing flashes); none under reduced motion.",
+     "minItems": 1,
+     "maxItems": 2,
+     "items": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+       "image",
+       "layer"
+      ],
+      "properties": {
+       "image": {
+        "$ref": "#/$defs/image"
+       },
+       "layer": {
+        "enum": [
+         "back",
+         "panel"
+        ]
+       },
+       "scale": { "type": "number", "minimum": 0.25, "maximum": 8 },
+       "drift": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": -4, "maximum": 4 } },
+       "period": { "type": "number", "minimum": 2, "maximum": 240 },
+       "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+     }
+    },
+    "scale": {
+     "type": "object",
+     "description": "The one size ladder of CONFIG and the Esc menu. base = the body size on a phone in CSS px (default 16; a wide screen grows it with its width to 1.25x at 1920); ratio = the step between the four type sizes (default 1.25). Every font size, the one control height (at least 44 px), the inset and every CONFIG plate's scale follow it.",
+     "additionalProperties": false,
+     "properties": {
+      "base": { "type": "number", "minimum": 14, "maximum": 20 },
+      "ratio": { "type": "number", "minimum": 1.125, "maximum": 1.5 }
      }
     }
    }
@@ -7805,6 +8303,10 @@
     },
     "narration": {
      "$ref": "#/$defs/shapeBox"
+    },
+    "thought": {
+     "const": true,
+     "description": "§18 N25: an inner-thought line is drawn in the narration box too (Persona 5's thought cloud); needs narration."
     }
    }
   },
@@ -8245,7 +8747,7 @@
   },
   "artButton": {
    "type": "object",
-   "description": "At exactly one of `top` / `bottom` and one of `left` / `right` (px of the design screen, from the stage's edges); `on` = the lit image (AUTO on).",
+   "description": "At exactly one of `top` / `bottom` and one of `left` / `right` (px of the design screen, from the stage's edges); `on` = the lit image (AUTO on); `disabled` = the image while it cannot act (skip at the round's end; omitted = the image dimmed).",
    "additionalProperties": false,
    "required": [
     "image"
@@ -8255,6 +8757,9 @@
      "$ref": "#/$defs/image"
     },
     "on": {
+     "$ref": "#/$defs/image"
+    },
+    "disabled": {
      "$ref": "#/$defs/image"
     },
     "tint": {
@@ -9449,6 +9954,74 @@
     }
    }
   },
+  "devicePatch": {
+   "type": "object",
+   "additionalProperties": false,
+   "description": "A partial skin document for one device side: each key an object merged over the skin's (or null to remove it); the merged skin must be a valid skin.",
+   "properties": {
+    "config": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "description": "§18 N24: the CONFIG screen as the original's handheld layout draws it."
+    },
+    "textbox": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "nameplate": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "font": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "textStyle": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "textFx": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "cursor": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "quickMenu": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "ui": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "art": {
+     "type": [
+      "object",
+      "null"
+     ]
+    }
+   }
+  },
   "levelLook": {
    "type": "object",
    "additionalProperties": false,
@@ -10274,6 +10847,20 @@
     "leave": {
      "$ref": "#/$defs/skinMotion"
     }
+   }
+  },
+  "menuPart": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": ["ms", "keys"],
+   "description": "§18 N21: a drawn menu part's entrance: 2-6 key poses (dx / dy design px) at `at` (0..1 of ms; first 0, last 1, rising), after delay ms, about origin [x, y] (0..1 of the part), in steps when given.",
+   "properties": {
+    "ms": { "type": "number", "minimum": 60, "maximum": 1500 },
+    "delay": { "type": "number", "minimum": 0, "maximum": 1500 },
+    "ease": { "enum": ["linear", "out", "in-out", "back"] },
+    "steps": { "type": "integer", "minimum": 1, "maximum": 8 },
+    "origin": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number", "minimum": 0, "maximum": 1 } },
+    "keys": { "$ref": "#/$defs/skinMotion/properties/keys" }
    }
   },
   "skinStage": {
