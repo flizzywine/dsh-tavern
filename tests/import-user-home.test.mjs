@@ -7,6 +7,8 @@ import { assertDesktopStopped, importUserHome } from '../bin/import-user-home.mj
 import { removeTreeSync } from '../bin/portable-fs.mjs'
 const put = (root, file, text) => { const target = path.join(root, file); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, text) }
 const get = (root, file) => readFileSync(path.join(root, file), 'utf8')
+// Process table rows as the probe prints them: pid, parent pid, command line.
+const ps = (...commands) => () => commands.map((command, index) => `${100 + index} 1 ${command}`).join('\n')
 test('安装前检测带参数的 Windows 和 macOS 桌面主进程', () => {
   for (const command of [
     '"C:\\Program Files\\DeepSeek Harness\\DeepSeek Harness.exe" --type=gpu-process',
@@ -15,7 +17,18 @@ test('安装前检测带参数的 Windows 和 macOS 桌面主进程', () => {
     '"C:\\Apps\\DSH Desktop.exe"',
     '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness --inspect',
     'DeepSeek Harness',
-  ]) assert.throws(() => assertDesktopStopped([], { requireGuiClosed: true, exec: () => command }), /完整退出 DeepSeek Harness/, command)
+  ]) assert.throws(() => assertDesktopStopped([], { requireGuiClosed: true, exec: ps(command) }), /完整退出 DeepSeek Harness/, command)
+})
+test('安装器自身及其启动链以 Electron Node 模式运行桌面程序时不算 GUI 在运行', () => {
+  const exe = '"C:\\Apps\\DeepSeek Harness\\DeepSeek Harness.exe"'
+  const table = [
+    `10 1 ${exe} --remote-debugging-port=9333`,
+    `20 5 ${exe} --expose-internals C:\\Apps\\tavern\\bin\\dsh-tavern.mjs install`,
+    `30 20 ${exe} --expose-internals C:\\Apps\\tavern\\bin\\profile-installation.mjs`,
+  ]
+  const own = { requireGuiClosed: true, pid: 30 }
+  assert.doesNotThrow(() => assertDesktopStopped([], { ...own, exec: () => table.slice(1).join('\r\n') }))
+  assert.throws(() => assertDesktopStopped([], { ...own, exec: () => table.join('\r\n') }), /完整退出 DeepSeek Harness/)
 })
 test('普通迁移允许其他桌面，安装检测不把参数中的程序名误判为 GUI', () => {
   for (const command of [
@@ -23,10 +36,10 @@ test('普通迁移允许其他桌面，安装检测不把参数中的程序名�
     '/usr/bin/node /tmp/DeepSeek Harness',
     '"C:\\Apps\\DeepSeek Harness Helper.exe" --type=renderer',
     '"C:\\Apps\\DeepSeek Harness.exe.bak"',
-  ]) assert.doesNotThrow(() => assertDesktopStopped([], { requireGuiClosed: true, exec: () => command }))
-  assert.doesNotThrow(() => assertDesktopStopped([], { exec: () => '"C:\\Apps\\DeepSeek Harness.exe" --inspect' }))
+  ]) assert.doesNotThrow(() => assertDesktopStopped([], { requireGuiClosed: true, exec: ps(command) }))
+  assert.doesNotThrow(() => assertDesktopStopped([], { exec: ps('"C:\\Apps\\DeepSeek Harness.exe" --inspect') }))
   const home = path.resolve('/tmp/dsh-home')
-  assert.throws(() => assertDesktopStopped([home], { exec: () => `node dsh-desktop-host --profile "${path.join(home, 'profiles/desktop')}"` }), /完整退出使用源目录或目标目录/)
+  assert.throws(() => assertDesktopStopped([home], { exec: ps(`node dsh-desktop-host --profile "${path.join(home, 'profiles/desktop')}"`) }), /完整退出使用源目录或目标目录/)
   assert.throws(() => assertDesktopStopped([], { exec() { throw Error('no process access') } }), /无法确认/)
 })
 function fixture(t) {

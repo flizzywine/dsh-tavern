@@ -55,16 +55,24 @@ function merge(from, to) {
   }
   if (!sameContent(from, to)) throw Error(`存在不同内容的同名存档或附件，已停止迁移：${to}`)
 }
-export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = execFileSync, platform = process.platform } = {}) {
-  let commands
+export function assertDesktopStopped(homes, { requireGuiClosed = false, exec = execFileSync, platform = process.platform, pid = process.pid } = {}) {
+  let output
   try {
-    commands = platform === 'win32'
-      ? exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine'], { encoding: 'utf8', windowsHide: true, timeout: 15000 })
-      : exec('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 15000 })
+    output = platform === 'win32'
+      ? exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }"], { encoding: 'utf8', windowsHide: true, timeout: 15000 })
+      : exec('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 15000 })
   } catch { throw Error('无法确认桌面宿主已退出，尚未迁移数据。请关闭宿主后重试。') }
+  const processes = output.split(/\r?\n/).map(line => line.match(/^\s*(\d+)\s+(\d+)\s?(.*)$/)).filter(Boolean)
+    .map(([, id, parent, command]) => ({ id: Number(id), parent: Number(parent), command }))
+  // The installer itself, and the launchers that started it, may be the desktop
+  // executable in Electron's Node mode. They are not a running GUI.
+  const parents = new Map(processes.map(row => [row.id, row.parent]))
+  const own = new Set()
+  for (let id = pid; id && !own.has(id); id = parents.get(id)) own.add(id)
   const normalize = value => value.replaceAll('\\', '/').toLowerCase()
-  for (const line of commands.split('\n')) {
-    const command = normalize(line).trim()
+  for (const row of processes) {
+    if (own.has(row.id)) continue
+    const command = normalize(row.command).trim()
     // Match the executable, including quoted Windows paths and Electron's trailing
     // arguments. A desktop name occurring only inside another program's args is
     // not evidence that the GUI is running.
