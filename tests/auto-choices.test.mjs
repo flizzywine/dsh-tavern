@@ -15,7 +15,7 @@ function harness() {
   const background = { busy: false, role: '', phase: 'idle' }
   let fail = false
   const scheduler = createAutoChoices({
-    read: async () => structuredClone(state), preferences: async () => settings,
+    read: async () => structuredClone(state), enabled: async chat => chat?.id === 'chat' && settings.candidateAutoGenerate === true,
     activity: () => background,
     submit: async args => { calls.push(args); if (fail) throw new Error('submit failed') },
     defer: callback => { timers.add(callback); return callback }, clear: callback => timers.delete(callback),
@@ -46,6 +46,15 @@ test('turning it off, edits, branches, newer replies and cancellation drop a wai
     assert.equal(h.calls.length, 0)
     assert.equal(h.timers.size, 0)
   }
+})
+
+test('the switch is decided per chat: a card switched off skips its reply', async () => {
+  const h = harness()
+  h.state.chat.id = 'other-card-chat'
+  await h.scheduler.completed(h.event)
+  await h.tick()
+  assert.equal(h.calls.length, 0)
+  assert.equal(h.scheduler.isPending('game'), false)
 })
 
 test('requests: settings save it, turning it off drops waiting replies, manual and edit requests supersede it', async () => {

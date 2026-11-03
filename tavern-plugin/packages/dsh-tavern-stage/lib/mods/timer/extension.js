@@ -2,9 +2,10 @@ import {createStageTimerService} from './stage-service.js'
 import {stageReadCarries} from '../../../../../lib/domain/stage-read-projection.js'
 
 export function createTimerExtension(core) {
-  const {assetEngineSettings,managedModManagement,readRoundView,stageDirector,chatPersistence,modService} = core
+  const {cardStageSwitch,managedModManagement,readRoundView,stageDirector,chatPersistence,modService} = core
+  // core.performance follows the card's stage switch in effect (the card's own choice with the global stageToggles).
   const stageControllerEnabled = (chat, consumer) => consumer === 'core.performance'
-    ? assetEngineSettings.read().values.stageToggles.performance !== false
+    ? cardStageSwitch(chat.cardPath,'performance')
     : managedModManagement.enabled({modId:consumer,cardPath:chat.cardPath})
 
   const stageTimer = createStageTimerService({readChat:(sessionId,turn)=>readRoundView(sessionId,turn),

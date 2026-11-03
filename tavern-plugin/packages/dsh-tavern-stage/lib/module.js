@@ -317,7 +317,7 @@ export function createStageAssets(core) {
 
 // 舞台上的小组件变量、CG 图鉴与舞台计时器：都只读导演的演出、经请求处理表被调用。
 export function createStageServices(core) {
-  const {ctx, profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, stageDirector, modService, managedModManagement} = core
+  const {ctx, profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage, cardStage, assetRuntime, assetEngineSettings, cardStageSwitch, stageDirector, modService, managedModManagement} = core
   // only the trusted stage host selects a read point and installed widget.
   const widgetVariables = createWidgetVariableService({
     prepareCommit:input=>modService.variableCommit(input),
@@ -340,7 +340,7 @@ export function createStageServices(core) {
       const consumer = await assetRuntime.consumer(chat,input.origin)
       if (!consumer?.presentation.available()) return null
       const projection = await readStageProjection({expectedDirectionToken:input.expectedDirectionToken,at:input.at,page:input.page,
-        performanceEnabled:assetEngineSettings.read().values.stageToggles.performance !== false,
+        performanceEnabled:await cardStageSwitch(chat.cardPath,'performance'),
         readDirection:async () => direction,readConsumer:async () => consumer,readSettings:() => assetEngineSettings.read(),revision:() => assetRuntime.revision})
       const matches = item => item.ref?.packId === input.ref.packId && item.ref?.kind === input.ref.kind && item.ref?.assetId === input.ref.assetId
       let widget = [...(projection.value?.widgets || []),...(projection.value?.performance?.executionDependencies || [])].find(matches)

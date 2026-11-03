@@ -105,16 +105,17 @@ function ModConfirmation({ confirmation: c, nameOf, onAnswer }) {
 }
 
 // The switch tag: the checked choice + ⌄; the menu is one selection list with one ✓ — 全局开启 / 全局关闭, and on a card also
-// 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed).
+// 本卡开启 / 本卡关闭. No segmented control (owner: the scope is rarely changed). `disabled`: greyed while an upstream switch is
+// off (舞台设置 › 基础设置 uses the same tag, asset-pack-card-ui.js StageSwitchTag); the stored choice stays shown.
 const MOD_SWITCH_CHOICES = [['全局开启', 'global', true], ['全局关闭', 'global', false], ['本卡开启', 'card', 'on'], ['本卡关闭', 'card', 'off']];
-function ModSwitchTag({ name, switches, cardScoped, busy, onChange }) {
+function ModSwitchTag({ name, switches, cardScoped, busy, disabled, onChange }) {
   const { global, card } = switches || {}, word = modSwitchWord(global, cardScoped ? card : undefined);
   const item = ([label, scope, value]) => { const checked = label === word; return h('button', { key: label, type: 'button', role: 'menuitemradio', 'aria-checked': checked, className: 'ap-state-opt fork-mod-switch-opt', onClick: () => { closeMenu.current?.(); if (!checked) onChange(scope, value); } },
     h('span', { className: 'ap-state-label' }, label), checked && h('span', { className: 'ap-state-check' }, h(Glyph, { name: 'check' }))); };
   const closeMenu = React.useRef(null);
   return h(Popover, { label: name + ' 开关', className: 'fork-mod-switch-anchor', stopClicks: true,
     trigger: ({ toggle, open }) => h('button', { type: 'button', className: 'fork-mod-switch', 'data-on': switches?.effective || undefined, 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
-        'aria-label': name + '：' + word + '，更改', disabled: busy || undefined, onClick: toggle },
+        'aria-label': name + '：' + word + '，更改', disabled: busy || disabled || undefined, onClick: toggle },
       busy ? h(Spinner, { key: 'busy' }) : null, h('span', null, word), h(Glyph, { name: 'chevDown' })),
     content: close => { closeMenu.current = close; return h('div', { role: 'group', 'aria-label': name + ' 开关', className: 'fork-mod-switch-group' }, (cardScoped ? MOD_SWITCH_CHOICES : MOD_SWITCH_CHOICES.slice(0, 2)).map(item)); } });
 }
