@@ -164,7 +164,7 @@ function GalCubismNotice({ icon, request }) {
                 h('button', { type: 'button', ref: toggle, className: 'fork-gal-runtime-action', 'aria-expanded': open, 'aria-controls': panel, onClick: () => setOpen(!open) }, '安装')),
             open ? h('div', { id: panel, className: 'fork-gal-cubism-install' }, h(live2dRuntime.Entry, { request, head: false })) : null));
 }
-function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope }) {
+function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, stopping, hints, statusPanel = false, error, bodyFailure = false, onRetry = null, diagnostics, sceneError, onReloadScene = null, cgNotice, spriteFallbacks = [], live2dRequest = null, nameOf, scope }) {
     const h = React.createElement;
     const notes = diagnostics || [], cancelled = error === 'cancelled';
     const icon = h('svg', { className: 'fork-gal-runtime-icon', width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true },
@@ -211,7 +211,7 @@ function GalRuntimeStatus({ interopNotice, page = false, round = null, onStop, s
     return h('div', { className: 'fork-gal-notices', onWheel: event => event.stopPropagation(), onClick: event => event.stopPropagation() },
         hints?.sound ? notice('sound', 'hint', h('span', { className: 'fork-gal-runtime-icon', 'aria-hidden': true }, h(Icon, { name: 'speaker', size: 15 })), '点任意处开启声音') : null,
         hints?.keys ? h('div', { key: 'keys', className: 'fork-gal-runtime-status fork-gal-runtime-keys', 'data-tone': 'hint', role: 'note', 'aria-label': '快捷键' },
-            h('dl', null, galShortcuts().map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
+            h('dl', null, galShortcuts({ statusPanel }).map(([label, key]) => h(React.Fragment, { key: label }, h('dt', null, h('kbd', null, key)), h('dd', null, label))))) : null,
         direction,
         interopNotice ? notice('interop', 'hint', null, interopNotice) : null,
         live2dRequest && live2dRuntime ? h(GalCubismNotice, { key: 'live2d-core', icon, request: live2dRequest }) : null,
