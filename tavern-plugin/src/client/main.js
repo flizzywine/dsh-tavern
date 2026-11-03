@@ -93,17 +93,24 @@ window.__ModuleLoader__.load({
 		// @include modules/card-password.js
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
-		async function importTavernCardFile(file, call) {
+		async function importTavernCardFile(file, call, onProgress = () => {}) {
 			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			const archive = !/\.(png|json)$/i.test(String(file.name || "")) && /\.[^./\\]+$/.test(String(file.name || ""));
 			if (archive) {
+				onProgress('正在上传卡包…');
 				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
 				let reply = null;
 				try { reply = await response.json(); } catch (_error) {}
 				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-				return importTavernPasswordCard(password => call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) }), file.name,
-					() => call("discardCardUpload", { uploadId: reply.uploadId }));
+				return importTavernPasswordCard(password => {
+					onProgress(password === undefined ? '正在读取卡包并导入素材…' : '正在校验密码并导入素材…');
+					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) });
+				}, file.name, () => call("discardCardUpload", { uploadId: reply.uploadId }), options => {
+					onProgress('等待输入密码…');
+					return askTavernCardPassword(options);
+				});
 			}
+			onProgress('正在读取人物卡…');
 			return call("importCard", { payload: await parseCardFile(file) });
 		}
 
@@ -339,7 +346,7 @@ window.__ModuleLoader__.load({
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
-					h("div", { className: "dsh-tavern-mobile-import-count" }, countText),
+					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
 						h("input", { className: "dsh-tavern-mobile-import-search", type: "search", value: filter, placeholder: "筛选文件名", disabled: busy, onChange: function (event) { setFilter(event.target.value); } }),

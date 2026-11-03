@@ -12962,17 +12962,24 @@ window.__ModuleLoader__.load({
 		}
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
-		async function importTavernCardFile(file, call) {
+		async function importTavernCardFile(file, call, onProgress = () => {}) {
 			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			const archive = !/\.(png|json)$/i.test(String(file.name || "")) && /\.[^./\\]+$/.test(String(file.name || ""));
 			if (archive) {
+				onProgress('正在上传卡包…');
 				const response = await fetch("/api/dsh-tavern/card-upload", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
 				let reply = null;
 				try { reply = await response.json(); } catch (_error) {}
 				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
-				return importTavernPasswordCard(password => call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) }), file.name,
-					() => call("discardCardUpload", { uploadId: reply.uploadId }));
+				return importTavernPasswordCard(password => {
+					onProgress(password === undefined ? '正在读取卡包并导入素材…' : '正在校验密码并导入素材…');
+					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) });
+				}, file.name, () => call("discardCardUpload", { uploadId: reply.uploadId }), options => {
+					onProgress('等待输入密码…');
+					return askTavernCardPassword(options);
+				});
 			}
+			onProgress('正在读取人物卡…');
 			return call("importCard", { payload: await parseCardFile(file) });
 		}
 
@@ -13208,7 +13215,7 @@ window.__ModuleLoader__.load({
 				open ? h("div", { className: "dsh-tavern-mobile-import", role: "dialog", "aria-modal": "true", "aria-label": "从手机下载目录导入人物卡" }, h("div", { className: "dsh-tavern-mobile-import-shell" }, h("div", { className: "dsh-tavern-mobile-import-panel" },
 					h("div", { className: "dsh-tavern-mobile-import-title" }, "从手机下载目录导入"),
 					h("div", { className: "dsh-tavern-question-sub" }, "把 PNG 或 JSON 人物卡放进手机 Download，回到这里点选。"),
-					h("div", { className: "dsh-tavern-mobile-import-count" }, countText),
+					h("div", { className: "dsh-tavern-mobile-import-count", role: 'status', 'aria-busy': !!progress }, progress ? h(Spinner) : null, countText),
 					error ? h("div", { className: "dsh-tavern-dock-error", role: "alert" }, error) : null,
 					h("div", { className: "dsh-tavern-mobile-import-tools" },
 						h("input", { className: "dsh-tavern-mobile-import-search", type: "search", value: filter, placeholder: "筛选文件名", disabled: busy, onChange: function (event) { setFilter(event.target.value); } }),
@@ -40785,6 +40792,7 @@ function cardLibraryDisplayName(card) {
 			const encryptInput = React.useRef(null);
 			const decryptInput = React.useRef(null);
 			const [importStatus, setImportStatus] = React.useState("");
+			const [transferStatus, setTransferStatus] = React.useState("");
 			const importing = React.useRef(false);
 			const cardRequest = React.useRef(0);
 			const visibleRef = React.useRef(Boolean(props.visible));
@@ -40863,6 +40871,7 @@ function cardLibraryDisplayName(card) {
 				}
 				importing.current = true;
 				setBusy(true); if (files.length === picked.length) setError("");
+				setTransferStatus('正在准备导入…');
 				let imported = 0, existing = 0;
 				let lastPath = "";
 				const failures = [], notices = [];
@@ -40871,7 +40880,7 @@ function cardLibraryDisplayName(card) {
 						const file = files[index];
 						setImportStatus("正在导入 " + (index + 1) + "/" + files.length + "：" + file.name);
 						try {
-							const result = await importTavernCardFile(file, rpc);
+							const result = await importTavernCardFile(file, rpc, setTransferStatus);
 							lastPath = result.card.path;
 							if (result.card.duplicate) {
 								existing += 1;
@@ -40886,12 +40895,13 @@ function cardLibraryDisplayName(card) {
 					setImportStatus("已导入 " + imported + " 张" + (existing ? "，" + existing + " 张已在卡库中" : "") + (failures.length ? "，" + failures.length + " 张失败" : "") + (notices.length ? "。" + notices.join("\n") : ""));
 					if (failures.length) setError(failures.join("\n"));
 					if (imported || existing) {
+						setTransferStatus('正在刷新人物卡库…');
 						notifyTavernDataChanged(["cards"], "cards");
 						await refreshCards();
 						if (files.length === 1) await loadCard(lastPath);
 					}
 				} catch (err) { setError(failures.concat("刷新人物卡库失败：" + String(err && err.message || err)).join("\n")); }
-				finally { importing.current = false; setBusy(false); }
+				finally { importing.current = false; setBusy(false); setTransferStatus(''); }
 			}
 			async function renameCard() {
 				if (!card) return;
@@ -40962,9 +40972,11 @@ function cardLibraryDisplayName(card) {
 				h('input', { ref: encryptInput, type: 'file', accept: '.dshcard,.charx,.png,.json', style: { display: 'none' }, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void encryptCardFile(file); } }));
 			// "@" quotes a card into the card workspace conversation; only there does it mean anything.
 			const mentionButton = sessionMode === "card" ? function (item) { return h("button", { type: "button", className: "dsh-tavern-card-mention", title: "在对话中引用", "aria-label": "在对话中引用：" + item.name, onClick: function (event) { event.stopPropagation(); props.appendMention(item.path, item.name); } }, "@"); } : null;
-			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library" },
+			return h("div", { className: "dsh-tavern-library dsh-tavern-card-library", 'aria-busy': !!transferStatus },
 				h("div", { className: "dsh-tavern-status-head" }, h("div", { className: "dsh-tavern-status-title" }, "人物卡库"), h("div", { className: "dsh-tavern-question-sub" }, cards.length + " 张人物卡"), h("div", { className: "dsh-tavern-library-head-actions" }, encryptionControls, h(MobileCardImportButton, { inputRef: importInput, disabled: busy, onImported: async function (imported) { await refreshCards(); await loadCard(imported.path); notifyTavernDataChanged(["cards"], "cards"); } }), forkCardZip ? h("button", { type: "button", className: "dsh-tavern-btn fork-card-url-import", disabled: busy || forkCardZip.busy, onClick: forkCardZip.openUrl }, "从网址导入卡") : null, h("input", { ref: importInput, type: "file", multiple: true, accept: TAVERN_CARD_FILE_ACCEPT, style: { display: "none" }, onChange: function (event) { const files = Array.from(event.target.files || []); importCardFiles(files); event.target.value = ""; } }))),
-				h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status" }, importStatus || (forkCardZip ? "支持 PNG、JSON、CHARX、DSH 人物卡和卡片 ZIP" : "支持多选 PNG、JSON、CHARX、DSH 人物卡一起导入")),
+				h("div", { className: "dsh-tavern-question-sub dsh-tavern-card-import-hint", role: "status", 'aria-live': 'polite', style: { display: 'flex', alignItems: 'center', gap: 10 } },
+					transferStatus ? h('span', { style: { flexShrink: 0 }, 'aria-hidden': true }, h(Spinner)) : null,
+					h('span', { style: { whiteSpace: 'pre-line', overflowWrap: 'anywhere', minWidth: 0 } }, transferStatus ? transferStatus + '\n' + importStatus + '\n大卡包可能需要一会儿，请保持页面打开。' : importStatus || (forkCardZip ? "支持 PNG、JSON、CHARX、DSH 人物卡和卡片 ZIP" : "支持多选 PNG、JSON、CHARX、DSH 人物卡一起导入"))),
 				organization.toolbar(),
 				h("div", { className: "dsh-tavern-resource-body" }, error ? h("div", { className: "dsh-tavern-dock-error" }, error) : null, visible.length ? h(TavernCardList, { place: "library", cards: visible, displayName: cardLibraryDisplayName, batch: cardBatch, busy: busy, open: function (item) { loadCard(item.path); }, menu: organization.rowMenu, mention: mentionButton }) : h(EmptyState, cards.length ? { text: "没有匹配的人物卡", icon: "search" } : { noun: "人物卡" }), organization.addCardsFooter() )
 			);
