@@ -60,11 +60,13 @@ export function createStageRuntime(core, factories = {assets:createStageAssets, 
     },
     requests(bindings, registry) {
       assert('ready')
-      // The user-installed Live2D runtime (Cubism Core + display library) under the data directory, a figure runtime like Spine.
-      if (isAbsolute(String(bindings.dataRoot || ''))) assets.figureRuntimes.register('live2d', live2dFigureRuntime(createLive2dFiles(join(bindings.dataRoot, 'live2d'))))
+      // The user-installed Live2D runtime (Cubism Core + display library) under the data directory, a figure runtime like Spine;
+      // clip export reads it too (deps.live2dFiles: the clip's stage draws the same Live2D figures).
+      const live2dFiles = isAbsolute(String(bindings.dataRoot || '')) ? createLive2dFiles(join(bindings.dataRoot, 'live2d')) : null
+      if (live2dFiles) assets.figureRuntimes.register('live2d', live2dFigureRuntime(live2dFiles))
       assets.figureRuntimes.bind(registry)
       assets.stageExtensions.bind(registry)
-      const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
+      const owned = Object.fromEntries(Object.entries({STAGE_TIMER_FIELD,live2dFiles,describeOpeningScenes,readStageProjection,readWidgetWindowProjection,STAGE_PLAYBACK_FIELD,saveStagePlayback,patchStagePlayback,addStageMeasurement,stageModHistoryTurns,...assets,...cardAssets,...module,...services}).map(([key,value]) => [key,{value,enumerable:true}]))
       return module.requests(Object.create(bindings,owned),registry)
     },
     async dispose() {phase = 'disposed';await scope.dispose()},

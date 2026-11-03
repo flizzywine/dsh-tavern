@@ -3,7 +3,7 @@ function createStageController({React:react,window,document,views:stageViews,nav
 const {useLiveView,storyTurn,useCoordination:useTavernCoordination,rpc,phoneCall:readPhoneCall,
     dialogue:{color:bubbleColor,displayName:bubbleDisplayName,moodBadge:bubbleMoodBadge,moods:bubbleMoodList,actor:stageActorCharacter},
     figures:{layers:createPackSceneLayers,performance:packPerformanceScene,render:packFigureRenderInputs,reactions:packFigureReactions},
-    DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat}=services;
+    DiceRolls,DiceThrow,narration:stageNarrationPresentation,offstage:stageOffstage,skinFigures:stageSkinFigures,phoneBeat:phoneModBeat,ClipStatus}=services;
 const {galActive,galMenuRequest}=navigation;
 const galCurrentEntry=()=>navigation.getEntry(),galHoldLeave=hold=>navigation.holdLeave(hold);
 const voicePlayer=options.speech?.player,bubbleCharacter=options.speaker?.character,galQuoted=options.backlogView?.galQuoted;
@@ -596,7 +596,8 @@ function GalStage(props) {
     }
     // a clip export (clip-render.js) reads the text box pager's cards of
     // the page on screen and turns its cards the way auto does, so the video walks the same cards as the stage.
-    ;
+    if (props.clipPager) props.clipPager.current = { turn, page, card, provisional: subtitles.provisional,
+        cards: subtitles.cards.map(item => ({ text: item.text, start: item.start, end: item.end })), show: next => showCard(page, next, true) };
     // Any manual input stops auto; any input while hidden only brings the box back.
     // the box comes back first and a playing 文字演出 card keeps
     // playing; the next input ends the card. The input that stopped a fast-forward does only that (skipStopped).
@@ -1136,7 +1137,7 @@ function GalStage(props) {
         // §18 E3: after closing, a drawn menu with an exit motion stays mounted (inert) while its items leave.
         menuOpen ? h(stageViews.menu.Menu, menuProps(false)) : menuLeaving ? h(stageViews.menu.Menu, menuProps(true)) : null,
         // a running / finished clip export, while the reader keeps playing.
-        null,
+        !backlog && ClipStatus ? h(ClipStatus, { sessionId, hidden: hidden || film }) : null,
         backlog || backlogLeaving ? h(GalBacklog, { leaving: backlogLeaving, sessionId, config, direction:receivedDirection, readDirection:args=>rpc('getStageDirection',args,sessionId), textIndex:runtime.textIndex, voiceOf:descriptor => stageVoiceHandle(sessionId,descriptor,config,descriptor.paragraphId), turn, pages, page, useChat: props.choiceProps && props.choiceProps.useChat, colorOf, avatarOf, nameOf, quote: classic && !film, onJump: jumpBack, onClose: closeBacklog,
             // the skin's per-role looks; a bubble's side is the speaker's slot in the
             // stage's figure layout (galFigureLayout x, the side rule galShotSubject reads), null when not standing.

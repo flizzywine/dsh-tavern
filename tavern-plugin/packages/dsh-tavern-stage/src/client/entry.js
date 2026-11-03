@@ -141,6 +141,19 @@ const stageClientPlugin = (() => {
         __STAGE_GLOBAL_SETTINGS__
         // dsh-presentation-protocol stage-entrance.cjs: the 入场演出 contract the entrance renderer plays (the core never reads it).
         __STAGE_ENTRANCE_CONTRACT__
+        // Clip export (clip-export.cjs): the backlog's export mode and the stage's export status, over the core names the
+        // core passes as `clipExport` (gal-stage.js); a core that passes none has no clip export.
+        function createStageClipExport({React, rpc, Icon, Spinner, EmptyState, overlayEscape, useOverlay, InlineField, stageWidgetSourcePlace}) {
+            __STAGE_CLIP_EXPORT__
+            return {useClipBacklog, ClipStatus};
+        }
+        // Clip export replay (clip-render.cjs) on the isolated export page: core = the core client's clipReplayCore() (main.js).
+        function createStageClipReplay(core) {
+            const {React, ReactDOM, avatarCache, bgManual, bgmPlayer, bindStageNavigation, bindStageViews, bubbleCharacter, bubbleMediaDescriptor, bubbleMoodList, bubbleStore,
+                forkStageAudio, galEnter, galStageLifetime, segmentSpeechInput, spineRuntimeState, STAGE_HISTORY_SETTLE_MS, stageBlockPages, stagePageCards, stageReading, voicePlayer} = core;
+            __STAGE_CLIP_RENDER__
+            return mountClipReplay;
+        }
         // The asset-pack pages (asset-pack-{gen,card,engine}-ui.js, mod-manager.js) are part of the core's createAssetPackUI closure in
         // source form: they run here over that closure's names (core = packUi.stageScope.names, asset-pack-ui.js) and the core binds
         // the names it uses from them (stageScope.bind). Both lists are exact.
@@ -156,7 +169,7 @@ const stageClientPlugin = (() => {
             return {CandidateArt, CandidateImageView, EnginePage, FigureGenTab, GEN_ART_ROLE, GEN_CELL_WORDS, GEN_PROBLEMS, GEN_REASONS, GEN_REF_LIMIT, GEN_SHEET_FACES, GenCellStatus, GenDialog, GenFaceCandidate, GenFaceMarks, GenGateNote, GenPromptSettings, GenRefChip, GenSheet, GenStageCandidate, GenStageWait, ManagedModSection, ModManager, ModManagerEntry, PackPreviews, PromptAt, PromptCatalogue, PromptOps, PromptPieces, PromptTools, ReadingsEditor, STAGE_RETURN_KEY, StageAvatar, StageKindJump, StagePage, StagePanel, catalogueEntries, commandInfo, directorPieceName, directorPromptRow, directorPromptRows, directorWire, genBasis, genCell, genFailText, genKey, genMenuKeys, genOwnSprite, genPromptFor, genReadUpload, judgeDraftProblem, judgePromptRows, judgeWithProvider, modSwitchWord, promptHeadClick, promptJson, promptJsonText, promptPackScope, promptSources, promptTokenEstimate, promptToolDefs, stageActive, stageBytesText, stageEnable, stageFigure, stageFigureRows, stageKindPacks, stagePackBytes, stagePatch, stagePrefs, storyPromptRows, unbindPatch, useAssetGen, useElapsed, useGenNote, useManagedModControls, useStageWriter, writeStageReturn};
         }
         __STAGE_FEATURES__
-        return ({
+        const plugin = ({
         name: 'dsh-tavern-stage',
         inject: ['tavernStageFrontend'],
         apply(ctx) {
@@ -223,7 +236,9 @@ const stageClientPlugin = (() => {
                     const backlogVoice=own(createStageBacklogVoice(options.backlogVoice || {}));
                     const textIndex=createStageTextIndexModule({pageCards:options.textIndex?.pageCards,character:options.speaker?.character});
                     const backlogRows=createStageBacklogRows({...options.backlogRows,voiceDescriptor:textIndex.voiceDescriptor,textcard:textcardHistory});
-                    const backlogView=own(createStageBacklogView({React:options.React,window,document,...options.backlogView,stageSkinBacklogPlate:skin.stageSkinBacklogPlate,stageSkinBacklogPlateStyle:skin.stageSkinBacklogPlateStyle,stageViews:{backlogPaging,backlogHistory,backlogVoice,backlogRows}}));
+                    // The clip toast places itself with the source widgets' placement (source-widgets.cjs), read once those views exist.
+                    const clipExport=options.clipExport?createStageClipExport({React:options.React,...options.clipExport,stageWidgetSourcePlace:(...args)=>views.sourceWidgets.place(...args)}):null;
+                    const backlogView=own(createStageBacklogView({React:options.React,window,document,...options.backlogView,...(clipExport?{useClipBacklog:clipExport.useClipBacklog}:{}),stageSkinBacklogPlate:skin.stageSkinBacklogPlate,stageSkinBacklogPlateStyle:skin.stageSkinBacklogPlateStyle,stageViews:{backlogPaging,backlogHistory,backlogVoice,backlogRows}}));
                     const choiceLayout=createStageChoiceLayout({React:options.React,...options.choiceLayout});
                     const choices=own(createStageChoices({React:options.React,window,document,...options.choices,layout:choiceLayout}));
                     const textcardCenter=own(createStageTextcardCenter({metrics:TEXTCARD_VERT_INK}));
@@ -282,7 +297,7 @@ const stageClientPlugin = (() => {
                     views.sourceWidgets=own(createStageSourceWidgets({React:options.React,window,document,...options.sourceWidgets,views,sessions:()=>sessions}));
                     views.modSurface=own(createStageModSurface({React:options.React,window,document,...options.modSurface,sessions:()=>sessions,scene:()=>views.scene,runtime:views.sessionRuntime,renderers:modRenderers,core:options.performances?.core,useFaces:views.sourceWidgets.useFaces}));
                     views.sessions=sessions=own(createStageSessions({views,navigation:options.navigation,clock:options.sceneServices?.foreground,window,document,startLifetime:startStageClientLifetime,textIndex}));
-                    views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:options.controller || {dialogue:{},figures:{}},legacy:options.controllerLegacy || {},options}));
+                    views.controller=own(createStageController({React:options.React,window,document,views,navigation:options.navigation,services:{...(options.controller || {dialogue:{},figures:{}}),ClipStatus:clipExport?.ClipStatus},legacy:options.controllerLegacy || {},options}));
                     Object.assign(views,own(createStageViews({...options,GalStage:views.controller.Stage,useGalEntryLoader:admission.useLoader})));
                     if(options.globalSettings)views.GlobalSettings=createStageSettingsModule({React:options.React,...options.globalSettings,CubismCoreEntry:live2d?.Entry}).TavernStageSettingsSection;
                     // 素材库 / 舞台 tab pages: built over the core asset-pack closure and bound into it for this activation.
@@ -307,7 +322,10 @@ const stageClientPlugin = (() => {
                 }
             };
             ctx.effect(() => host?.availability ? watchStageAvailability({source:host.availability,activate}) : activate(), 'dsh-tavern-stage: client lifetime');
-        }
+        },
+        // Clip export (lib/clip/clip-export-browser.js): mounts this plugin on the isolated export page over the core's names.
+        mountClipReplay: (core, snapshot, transport) => createStageClipReplay(core)(snapshot, transport, plugin)
     });
+    return plugin;
 })();
 export default stageClientPlugin;

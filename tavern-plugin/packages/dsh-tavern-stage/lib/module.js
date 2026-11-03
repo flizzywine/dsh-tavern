@@ -37,6 +37,7 @@ import {frozenStageBackground} from '../../../lib/domain/stage-shared-context.js
 import {effectiveCardStage} from '../../../lib/domain/card-stage-settings.js'
 import {readCardAssetExtension} from '../../../lib/domain/card-asset-bindings.js'
 import {hasCardAssetBindings} from '../../../lib/card-asset-bindings.js'
+import {createStageClipExport} from './clip/clip-export-stage.js'
 
 // cardsActive(): false once the plugin is disposed; card writes are refused from then on.
 export async function createStageModule(core) {
@@ -244,7 +245,11 @@ export async function createStageModule(core) {
   })), 'dsh-tavern: stage story observations')
   return {modService, managedModManagement, modConfigHost, stageDirector,
     requests(deps, registry) {
-      const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService})
+      // Clip export replays a chat's rounds in an isolated page; its history timer reads go back through these requests.
+      const clipExport = createStageClipExport({ctx, deps, stageDirector, modService, deploymentWork,
+        cardStageSwitch:core.cardStageSwitch, dialogueBubbles:core.dialogueBubbles, assetEngineSettings:core.assetEngineSettings, live2dFiles:deps.live2dFiles,
+        call:(method, args, authority) => requests.call(method, args, authority)})
+      const requests = createStageRequests(deps, {managedModManagement,modConfigHost,modService,clipExport})
       ctx.effect(() => () => requests.dispose(), 'dsh-tavern: close stage requests')
       ctx.effect(() => registry.register('dsh-tavern-stage', requests), 'dsh-tavern: stage request routes')
       return requests

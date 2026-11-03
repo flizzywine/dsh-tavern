@@ -2,6 +2,7 @@ import {createStageHandlers} from './rpc.js'
 import {MOD_MANAGEMENT_METHODS} from './mod-service.js'
 import {MANAGED_MOD_METHODS} from './mod-system-production.js'
 import {MOD_CONFIG_METHODS} from './mod-config.js'
+import {CLIP_EXPORT_METHODS} from './clip/clip-export.js'
 
 const remoteReads = new Set(['getStageDirection', 'getStageModHistory', 'getDialogueBubbles'])
 const widgetMethods = new Set(['readWidgetVariables', 'proposeWidgetVariables', 'widgetVariableStatus', 'invalidateWidgetVariables'])
@@ -17,7 +18,11 @@ export function createStageRequests(deps, modules = deps) {
   const delegated = new Map([
     ...MANAGED_MOD_METHODS.map(method => [method, (input, authority, serverTemplate) => modules.managedModManagement.call(method,input,authority,{serverTemplate})]),
     ...MOD_CONFIG_METHODS.map(method => [method, (input, authority) => modules.modConfigHost.call(method,input,authority)]),
-    ...MOD_MANAGEMENT_METHODS.map(method => [method, (input, authority) => modules.modService.call(method,input,authority)])
+    ...MOD_MANAGEMENT_METHODS.map(method => [method, (input, authority) => modules.modService.call(method,input,authority)]),
+    ...CLIP_EXPORT_METHODS.map(method => [method, (input, authority, serverTemplate) => {
+      if (!authority?.origin || serverTemplate) throw new Error('片段导出需要已认证的应用界面')
+      return modules.clipExport.call(method,input)
+    }])
   ])
   let active = true
   return Object.freeze({
