@@ -269,14 +269,32 @@ export function registerTavernHttpRoutes({
             stream.on('error', () => res.destroy()).pipe(res)
             return
           }
+          // The DSH card export (card-files.js exportCardFile): packIds (JSON array) chooses the packs that go along, absent
+          // means every bound pack; excludeFigures (JSON array) leaves figures out. The spool file streams and is removed after.
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-export') {
             let file
-            try { file = await exportCardFile(new URL(req.url, 'http://x').searchParams.get('path')) }
-            catch (error) { res.writeHead(error?.code === 'TAVERN_NOT_FOUND' || /路径|不存在/.test(String(error?.message)) ? 404 : 500, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }); res.end(String(error?.message || error)); return }
+            try {
+              const query = new URL(req.url, 'http://x').searchParams
+              let excludeFigures, packIds
+              try { packIds = query.has('packIds') ? JSON.parse(query.get('packIds')) : undefined }
+              catch { throw Object.assign(new Error('packIds 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
+              try { excludeFigures = JSON.parse(query.get('excludeFigures') || '[]') }
+              catch { throw Object.assign(new Error('excludeFigures 不是有效的 JSON 数组'), { code: 'TAVERN_EXPORT_INVALID' }) }
+              file = await exportCardFile(query.get('path'), { excludeFigures, packIds })
+            } catch (error) {
+              const status = error?.code === 'TAVERN_EXPORT_INVALID' ? 400 : error?.code === 'TAVERN_NOT_FOUND' || /路径|不存在/.test(String(error?.message)) ? 404 : error?.code === 'REVISION_CONFLICT' ? 409 : 500
+              res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+              res.end(String(error?.message || error)); return
+            }
             const name = file.name.replace(/[\\/:*?"<>|\r\n]/g, '_') + '.' + file.extension
-            res.writeHead(200, { 'Content-Type': file.contentType, 'Content-Length': file.bytes.byteLength, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+            if (res.destroyed) { await file.dispose(); return }
+            const stream = file.stream()
+            res.once('close', () => stream.destroy())
+            stream.once('close', () => { void file.dispose() })
+            stream.once('error', () => res.destroy())
+            res.writeHead(200, { 'Content-Type': file.contentType, 'Content-Length': file.size, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
               'Content-Disposition': 'attachment; filename="card.' + file.extension + '"; filename*=UTF-8\'\'' + encodeURIComponent(name) })
-            res.end(file.bytes)
+            stream.pipe(res)
             return
           }
           if (req.method === 'GET' && pathname === '/api/dsh-tavern/card-image') {

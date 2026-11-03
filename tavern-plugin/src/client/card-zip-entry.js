@@ -39,7 +39,19 @@ function cardZipErrorText(error) {
     if (code === "DUPLICATE_ID") return "没能开始导入，请重试。";
     return playerErrorText(error, { fallback: "没能开始导入，请重试。" });
 }
-function useCardZipImport(options) {
+// The pack binding a card sheet opened from the card library works through (导入卡片, 导出 DSH 人物卡): the given one,
+// else one over the pack service that exists only while `open`.
+function useCardPackBinding(given, service, sessionId, open) {
+    const binding = React.useMemo(function () {
+        if (given) return given;
+        if (!open || !service || typeof packTransport === "undefined" || !packTransport) return null;
+        return createAssetPackBinding({ service, tts: typeof forkTtsScope !== "undefined" && forkTtsScope && forkTtsScope.get("ttsClient"), rpc: workbenchRpc(sessionId), settings: packTransport.settings,
+            download: function (result) { return packTransport.download(result); }, readExport: function (result) { return packTransport.bytes(result); },
+            onUnavailable: function (fn) { return packTransport.onUnavailable(fn); } });
+    }, [given, service, sessionId, open]);
+    React.useEffect(function () { return function () { if (binding && binding !== given && binding.dispose) binding.dispose(); }; }, [binding]);
+    return binding;
+}function useCardZipImport(options) {
     const opts = options || {};
     const serial = React.useRef(0), lastUrl = React.useRef("");
     const [sheet, setSheet] = React.useState(null), [asking, setAsking] = React.useState(false), [busy, setBusy] = React.useState(false);
@@ -49,14 +61,8 @@ function useCardZipImport(options) {
     if (!opts.binding && typeof usePackRevision === "function") usePackRevision(cardZipServiceReady);
     const service = opts.binding ? opts.binding.service : typeof packClient === "function" ? packClient() : undefined;
     const open_ = !!sheet, sessionId = opts.sessionId || "";
-    const binding = React.useMemo(function () {
-        if (opts.binding) return opts.binding;
-        if (!open_ || !service || typeof packTransport === "undefined" || !packTransport) return null;
-        return createAssetPackBinding({ service, tts: typeof forkTtsScope !== "undefined" && forkTtsScope && forkTtsScope.get("ttsClient"), rpc: workbenchRpc(sessionId), settings: packTransport.settings,
-            download: function (result) { return packTransport.download(result); }, readExport: function (result) { return packTransport.bytes(result); },
-            onUnavailable: function (fn) { return packTransport.onUnavailable(fn); } });
-    }, [opts.binding, service, sessionId, open_]);
-    React.useEffect(function () { return function () { if (binding && binding !== opts.binding && binding.dispose) binding.dispose(); }; }, [binding]);
+    const binding = useCardPackBinding(opts.binding, service, sessionId, open_);
+
     const available = !!target && !!service;
     async function begin(file, url) {
         if (!target) throw new Error("现在不能导入卡片 ZIP。");

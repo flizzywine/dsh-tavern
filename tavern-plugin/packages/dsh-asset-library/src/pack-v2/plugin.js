@@ -19,7 +19,7 @@ export function apply(ctx, config = {}) {
   const settings = createAssetPackSettings(ctx)
   const catalogueSettings = createCatalogueSettings(ctx, config.officialCatalogueUrl)
   // Every CardBundleAdapter method the service calls (service.d.ts); a missing one fails as an uncoded TypeError.
-  const cards = Object.fromEntries(['snapshot','inspectRaw','remapRaw','bindRaw','withPrepared','withConfigPack','withBoundPack','unbindPack','recover'].map(method => [method, (...args) => {
+  const cards = Object.fromEntries(['snapshot','inspectRaw','remapRaw','bindRaw','retainRaw','exportRaw','withPrepared','withConfigPack','withBoundPack','unbindPack','recover'].map(method => [method, (...args) => {
     const adapter = ctx.get('tavernAssetCards')
     check(adapter?.apiVersion === 2 && typeof adapter[method] === 'function', '$.card', 'Card owner unavailable', 'RECOVERY_REQUIRED')
     return adapter[method](...args)

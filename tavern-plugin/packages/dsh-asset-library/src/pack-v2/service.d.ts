@@ -2,6 +2,13 @@ import type { PackManifest, VoiceSpec, Voice, Figure, SpriteManifest, BlobDescri
 import type { CatalogueService, CatalogueSettingsProvider, Distribution, MergeSummary } from '../pack-catalogue/contract.js'
 import type { AssetRef, FigureRef } from '../asset-packs/protocol.js'
 export declare const PACK_LEASE_PATH: '/api/dsh-asset-library/v2/lease/'
+/** Host-created file references, never accepted from an uploaded archive. */
+export declare class StoredFile { readonly length: number; readonly file?: string; constructor(size: number, file?: string) }
+export interface PackExportSnapshot { manifest: PackManifest; files: Map<string, Uint8Array | StoredFile> }
+/** Stream host-owned buffers or files into an archive. */
+export declare function writePackZip(filename: string, entries: Array<{path: string; data?: Uint8Array; file?: string}>): Promise<{size: number; entries: number; uncompressedSize: number}>
+/** Detached export projection; no storage writes. */
+export declare function projectPackFigures<T extends PackExportSnapshot>(packs: T[], excludeFigures: string[]): Promise<{packs: T[]; figures: Array<Figure & {ref: FigureRef}>}>
 type ReadonlyPackValue<T> = T extends object ? {readonly [K in keyof T]: ReadonlyPackValue<T[K]>} : T;
 /** Shared immutable host view. Copy only the fields needed for authoring. */
 export type PackSnapshot = ReadonlyPackValue<{ privateConfig?: true; manifest: PackManifest; figures: Record<string, Figure>; sprites: Record<string, SpriteManifest>; widgets: Record<string,WidgetDocument>; variantDocuments?: Record<string,Record<string,Record<string,unknown>>>; diagnostics?: Array<{ref: AssetRef<'widgets'>; name: string; code: 'WIDGET_UNAVAILABLE'; message: string}>; skins?: Record<string, Record<string, unknown>>; performances?: Record<string, Record<string, unknown>>; revision: string; installedAt: number; updatedAt: number; distribution?: Distribution }>;
@@ -45,6 +52,10 @@ export interface CardBundleAdapter {
   remapRaw(raw: unknown, mappings: Array<PackMapping & {from: string}>): unknown;
   /** the same raw with these packs appended to the card's bound packs (card export of global packs). */
   bindRaw(raw: unknown, packIds: string[]): unknown;
+  /** the same raw bound to exactly these packs plus its config pack (a DSH card export with a chosen pack list). */
+  retainRaw(raw: unknown, packIds: string[]): unknown;
+  /** The card as an export carries it (its stage declaration only, card-stage-export.js). */
+  exportRaw(raw: unknown): unknown;
   withPrepared(input: {path: string; expectedRevision: string | null; raw: unknown; cover?: Uint8Array; packSnapshots?: Array<Omit<PackSnapshot, 'revision' | 'installedAt' | 'updatedAt'>>; disableWidgets?: boolean}, publish: (card: {record: unknown; commit(): Promise<void>; status(): Promise<'before' | 'after' | 'unknown'>}) => Promise<void>): Promise<void>;
   recover(record: unknown): Promise<'before' | 'after' | 'unknown'>;
 }
@@ -161,6 +172,9 @@ export interface AssetPackService extends CatalogueService {
   applyImport(input: {inspectionId: string; expectedRevision: string | null; decision: ImportDecision; acceptScriptRisk?: boolean}): Promise<(PackMutation & {mapping?: PackMapping}) | PackRemoval | {status: 'cancelled'}>;
   exportPack(input: PackWrite): Promise<PackArchive & {contentHash: string; revision: string; warnings: WidgetDefaultExportWarning[]}>;
   exportPacks(input: {packs: PackWrite[]}): Promise<(PackArchive | {archives: PackArchive[]}) & {packs: Array<{packId: string; contentHash: string; revision: string}>; warnings: WidgetDefaultExportWarning[]}>;
+  /** Host-only export callback; absent from the remote method table. */
+  /** packIds: the chosen packs (default: every bound pack); the exported card stays bound to them plus keepPackIds only. */
+  withCardExport<T>(input: {path: string; expectedRevision?: string; packIds?: string[]; keepPackIds?: string[]}, consume: (snapshot: {path: string; revision: string; raw: Record<string, unknown>; packs: PackExportSnapshot[]}) => Promise<T>): Promise<T>;
   exportCardBundle(input: {path: string; expectedRevision: string; packIds: string[]}): Promise<PackArchive & {dependencies: CardBundleInspection['dependencies']}>;
   inspectCardBundleUrl(input: {path: string; url: string}): Promise<CardBundleInspection>;
   inspectCardBundle(input: {path: string; bytes: Uint8Array}): Promise<CardBundleInspection>;
