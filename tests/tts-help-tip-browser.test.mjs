@@ -12,7 +12,7 @@ const mock = `(() => {
   const ok = value => ({ ok: true, json: async () => structuredClone(value) })
   window.fetch = async (url, options = {}) => {
     const { method } = JSON.parse(options.body || '{}')
-    if (method === 'services') return ok({ defaultServiceId: '', configured: [], running: [] })
+    if (method === 'services') return ok({ configured: [], running: [] })
     if (method === 'reading') return ok({ dialogueVoice: null, narrator: { enabled: false, voice: null } })
     if (method === 'voicePresets') return ok([])
     if (method === 'cache') return ok({ bytes: 0, count: 0, maxBytes: 1024 ** 3, maxAgeDays: 30 })

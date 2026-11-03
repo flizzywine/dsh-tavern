@@ -16,7 +16,7 @@ import { createModelValidation } from './model-validation.js'
 // 台词朗读: the voice for per-reply 🔊 (null = the browser's system default) and the narration voice (off by default).
 // A voice is the figure picker's binding: {browser:name} or {serviceId, voice}. Schemastery drops null defaults, so readingOf fills them.
 const Reading = z.object({ dialogueVoice: z.any(), narrator: z.object({ enabled: z.boolean().default(false), voice: z.any() }) })
-export const Settings = z.object({ defaultServiceId: z.string().default(''), enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
+export const Settings = z.object({ enabled: z.boolean().default(true), providers: z.array(z.any()).default([]), voices: z.array(z.any()).default([]),
   reading: Reading,
   cacheMaxGB: z.number().min(0.1).max(100).default(1).description('\u7f13\u5b58\u4e0a\u9650\uff08GB\uff09'),
   cacheMaxAgeDays: z.natural().min(1).max(3650).default(30).description('\u7f13\u5b58\u4fdd\u7559\u5929\u6570'),
@@ -24,7 +24,6 @@ export const Settings = z.object({ defaultServiceId: z.string().default(''), ena
 export function validateSettings(value) {
   if (typeof value.enabled !== 'boolean') fail('INVALID_INPUT')
   if (!Number.isFinite(value.cacheMaxGB) || value.cacheMaxGB < 0.1 || value.cacheMaxGB > 100 || !Number.isInteger(value.cacheMaxAgeDays) || value.cacheMaxAgeDays < 1 || value.cacheMaxAgeDays > 3650) fail('INVALID_INPUT')
-  if (value.defaultServiceId !== undefined && value.defaultServiceId !== '' && !PROVIDER_ID.test(value.defaultServiceId)) fail('INVALID_INPUT')
   const seen = new Set()
   for (const p of value.providers) {
     if (!PROVIDER_ID.test(p.id) || seen.has(p.id)) fail('INVALID_INPUT')
@@ -88,7 +87,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
   const adapters = { 'fish-audio':fish, 'openai-compatible':createOpenAICompatibleAdapter({fetch}), qwen:createQwenAdapter({fetch,warn}), azure:createAzureAdapter({fetch}), volcengine:createVolcengineAdapter({fetch}), minimax:createMinimaxAdapter({fetch}) }
   const registrations = new Map(), validation = createModelValidation(), credentialEpochs = new Map()
   const modelIdentity = (p, model, voiceName) => ({serviceId:p.id,revision:hash([p,credentialEpochs.get(p.id) || 0]),model:model || (p.kind === 'qwen' ? 'qwen3-tts-flash' : ''),voiceName})
-  let chain = Promise.resolve(), voiceSource, voiceRevision, defaultService
+  let chain = Promise.resolve(), voiceSource, voiceRevision
   const serial = fn => { const p = chain.then(fn); chain = p.catch(() => {}); return p }
   // a saved service credential takes precedence over the optional Fish env key.
   const envKey = p => p?.kind === 'fish-audio' && isFishCloud(p.config) ? process.env.FISH_AUDIO_API_KEY : undefined
@@ -215,13 +214,6 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
   }
   const api = {
     kinds() { return structuredClone(PROVIDER_KINDS) },
-    setDefault({serviceId, expectedServiceId}) { return serial(async () => {
-      if ((get().defaultServiceId || '') !== expectedServiceId) fail('REVISION_CONFLICT')
-      if (typeof serviceId !== 'string') fail('INVALID_INPUT')
-      if (serviceId && !(await tts.listServices()).some(p => p.id === serviceId)) fail('SERVICE_OFFLINE')
-      await replace(validateSettings({...get(),defaultServiceId:serviceId})); api.sync()
-      return {defaultServiceId:serviceId}
-    }) },
     listRecommendedFishVoices:fishCatalogue,
     async validateFishVoice(input) {
       const p = record(input.serviceId); if (p.kind !== 'fish-audio') fail('INVALID_INPUT')
@@ -308,7 +300,6 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
       return result
     }) },
     sync() {
-      if (defaultService !== get().defaultServiceId) { defaultService = get().defaultServiceId; tts.serviceDefaultsChanged?.() }
       const voices = (get().voices || []).map(voicePreset), revision = hash(voices)
       if (revision !== voiceRevision) {
         const input = {owner:'dsh-tavern-tts',sourceId:'voice-presets',revision,voices,bindings:{}}
@@ -387,8 +378,8 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     }) },
     delete({ id, expectedRevision, force }) { return serial(async () => {
       const p = record(id); if (expectedRevision !== hash(p)) fail('REVISION_CONFLICT')
-      if (!force && (get().defaultServiceId === id || (await tts.inspectUsage(id)).some(u => u.unknown || u.count > 0))) fail('SERVICE_IN_USE')
-      await replace({ ...get(), ...(get().defaultServiceId === id ? {defaultServiceId:''} : {}), providers:get().providers.filter(p => p.id !== id) }); checks.delete(id); credentialEpochs.set(id,(credentialEpochs.get(id) || 0) + 1); api.sync()
+      if (!force && (await tts.inspectUsage(id)).some(u => u.unknown || u.count > 0)) fail('SERVICE_IN_USE')
+      await replace({ ...get(), providers:get().providers.filter(p => p.id !== id) }); checks.delete(id); credentialEpochs.set(id,(credentialEpochs.get(id) || 0) + 1); api.sync()
       // Existing shared credential refs may still serve Tavern; phase 5 decides removal.
       return { deleted:true, credentialsRetained:true }
     }) },

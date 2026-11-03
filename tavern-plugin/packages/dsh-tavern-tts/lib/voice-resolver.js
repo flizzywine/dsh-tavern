@@ -1,21 +1,17 @@
 export function sourceProvider(voice, binding) {
   return binding.source === null ? null : voice.sources[binding.source ?? voice.defaultSource].provider
 }
-export function chooseService(source, services, defaults = {}, defaultServiceId = '') {
+// A source names its own service instance. An installed compatible serviceId wins; otherwise the sole compatible
+// service speaks it; several without a named one is ambiguous (undefined → SERVICE_REQUIRED).
+export function chooseService(source, services) {
   const compatible = services.filter(s => s.kind === source.provider)
-  const defaultService = compatible.find(s => s.id === defaultServiceId || !defaultServiceId && s.isDefault)
-  // References carry their voice; unlike remote voice IDs they are not owned by a server.
-  if (source.kind === 'reference-list' && defaultService) return defaultService
-  const preferred = defaults[source.provider]
-  if (preferred) return compatible.find(s => s.id === preferred)
-  return defaultService || (compatible.length === 1 ? compatible[0] : undefined)
+  return compatible.find(s => s.id === source.serviceId) ?? (compatible.length === 1 ? compatible[0] : undefined)
 }
-// Zero-config default: with no default service and none of the listed services able to speak this source,
-// the browser speaks it. A browser descriptor binds nothing, so no job is queued and nothing is cached. A chosen default
-// service never yields to it: its failures stay its own.
+// Zero-config default: when none of the listed services can speak this source, the browser speaks it.
+// A browser descriptor binds nothing, so no job is queued and nothing is cached.
 export const BROWSER_SERVICE = Object.freeze({serviceId:'browser',browser:Object.freeze({voice:null}),capabilities:Object.freeze({browser:true,paid:false,billing:'free'})})
-export function browserFallback(source, services, defaultServiceId = '') {
-  return defaultServiceId || services.some(s => s.kind === source.provider) ? null : {effective:structuredClone(BROWSER_SERVICE),issues:[]}
+export function browserFallback(source, services) {
+  return services.some(s => s.kind === source.provider) ? null : {effective:structuredClone(BROWSER_SERVICE),issues:[]}
 }
 // every 配音来源 can be chosen before it is set up. The chosen source then
 // reports what it still lacks and stays silent; nothing falls back to another source.

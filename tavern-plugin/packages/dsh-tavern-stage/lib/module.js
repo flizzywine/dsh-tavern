@@ -314,7 +314,7 @@ export function createStageAssets(core) {
     resolveSelection:async args => {
       return Object.hasOwn(args,'selection') ? args.selection : resolveSlot('dsh.stage','director',args.sessionId)
     }})
-  const figureVoiceAuthoring = createFigureVoiceAuthoring({getLibrary:() => ctx.get('assetLibrary'),getTts:() => ctx.get('tts'),getSettings:() => assetEngineSettings.read().values})
+  const figureVoiceAuthoring = createFigureVoiceAuthoring({getLibrary:() => ctx.get('assetLibrary'),getTts:() => ctx.get('tts')})
   ctx.effect(() => assetEngineSettings.subscribe(() => figureVoiceAuthoring.invalidate()))
   ctx.effect(() => () => figureVoiceAuthoring.dispose())
   for (const name of ['assetLibrary','tts']) ctx.inject([name], child => child.effect(() => () => figureVoiceAuthoring.invalidate()))

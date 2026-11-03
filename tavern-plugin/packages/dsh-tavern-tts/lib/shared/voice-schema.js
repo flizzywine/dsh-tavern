@@ -1,5 +1,5 @@
-// Generated from dsh-presentation-protocol by build.mjs; do not edit.
 // Portable voice data only. No provider implementations, filesystem or credentials.
+// Canonical in dsh-presentation-protocol; the tts and asset-library build.mjs vendor byte-identical copies.
 const own = (v, k) => Object.hasOwn(v, k)
 function check(ok, path, message = 'Invalid voice data') {
   if (!ok) throw Object.assign(new Error(message), {code:'INVALID_INPUT', path})
@@ -38,7 +38,9 @@ export function validateVoiceSpec(v, path = '$.voice') {
   text(v.name,path+'.name'); language(v.language,path+'.language'); id(v.defaultSource,path+'.defaultSource')
   record(v.sources,path+'.sources',(s,p) => {
     const fields = {'voice-id':['voiceId'],preset:['voiceName','model'],'reference-list':['references']}[s?.kind]
-    check(fields,p+'.kind'); shape(s,['kind','provider',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
+    check(fields,p+'.kind'); shape(s,['kind','provider','serviceId',...fields],['kind','provider'],p); id(s.provider,p+'.provider')
+    // the service instance this source speaks through (one of several of its provider); the same name as a reading voice's.
+    if (s.serviceId !== undefined) id(s.serviceId,p+'.serviceId')
     // every source may be chosen before it is set up — a clone without clips,
     // a library voice or online preset without its voice. Resolving it reports what is
     // missing (dsh-tts voice-resolver sourceUnsetIssue) instead of the pack refusing the choice.

@@ -74,7 +74,6 @@ export interface TtsControl {
 /** Host consumer service; unregistered while native tts.enabled is false. */
 export interface Tts {
   readonly apiVersion: 1
-  serviceDefaultsChanged(): void
   /** Current tts.reading (a copy); subscribe for {type:'readingChanged'}. */
   reading(): TtsReading
   registerProvider(owner: string, provider: Provider): () => void
@@ -82,8 +81,9 @@ export interface Tts {
   grantConsumer(input: {principal: string; source: string; scope: string; authorize?: (input: unknown, provider: {serviceId:string;serviceRevision:string}) => void}): {grant: ConsumerGrant; dispose(): void}
   listRecommendedFishVoices(input?: {language?:string;serviceId?:string;selectedVoiceId?:string}): {voices:FishVoice[];refreshing:boolean}
   listServiceVoices(): Promise<ServiceVoice[]>
-  /** Synchronous choice among already-listed services, with the same rule as resolveVoiceService (no network, no binding). */
-  chooseService(source: {kind: string; provider: string}, services: ServiceVoice[], defaults?: Record<string,string>): ServiceVoice | undefined
+  /** Synchronous choice among already-listed services, with the same rule as resolveVoiceService (no network, no binding):
+   *  the source's own installed serviceId, else the sole service of its provider, else undefined. */
+  chooseService(source: {kind: string; provider: string; serviceId?: string}, services: ServiceVoice[]): ServiceVoice | undefined
   exportVoicePresets(ids: string[]): Promise<VoicePreset[]>
   /** A saved or builtin online preset as portable synthesis data (no provider configuration). */
   exportPortableVoice(input: {voiceId: string}): Promise<{voice: PortableVoice}>

@@ -20,7 +20,7 @@ export function apply(ctx, config = {}) {
   const cacheLimits = value => ({maxBytes:value.cacheMaxGB * 1024 ** 3, maxAgeDays:value.cacheMaxAgeDays})
   const cache = createCache({dataDir:config.dataDir,...cacheLimits(entry),onBoot:row => ctx.logger.info('TAVERN_BOOT %s',JSON.stringify(row))})
   const tts = createTts({ profileId:config.profileId, dataDir:config.dataDir,
-    cache, defaultServiceId:() => source().defaultServiceId || '', reading:() => readingOf(source()), globalReadings:() => readings.activeEntries() })
+    cache, reading:() => readingOf(source()), globalReadings:() => readings.activeEntries() })
   // 'readingChanged' fires once per real change, whether written through setReading or edited in the settings document.
   let lastReading = canonical(readingOf(source()))
   function syncReading() {
@@ -127,8 +127,7 @@ export function apply(ctx, config = {}) {
       }
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
-      case 'setDefaultService': return services.setDefault(args)
-      case 'services': return { defaultServiceId:source().defaultServiceId || '', configured:await services.list(), running:await runningStatus(await tts.listServices()) }
+      case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
       case 'validateFishVoice': return services.validateFishVoice(args)

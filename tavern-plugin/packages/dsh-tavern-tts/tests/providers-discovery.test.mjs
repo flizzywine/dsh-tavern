@@ -383,15 +383,15 @@ test('keyless Fish cloud rejection remains an actionable authentication error, n
   await assert.rejects(adapter.synthesize({config:{url:'https://api.fish.audio',model:'s2.1-pro-free'}},{},{text:'hello',language:'en',params:{referenceId:'fixture'}}),{code:'FISH_AUTH_FAILED'})
 })
 
-test('default service resolves an unassigned voice and preserves explicit protocol selection', async t => {
-  const tts = createTts({defaultServiceId:() => 'custom'})
+test('a pack voice source picks its own service instance; no global default service exists', async t => {
+  const tts = createTts()
   t.after(() => tts.dispose())
   for (const id of ['cloud','custom']) tts.registerProvider('test',{id,kind:'fish-audio',revision:'one',capabilities:{voiceKinds:['reference']},synthesize:async () => assert.fail('no synthesis')})
-  const voice = {defaultSource:'pool',sources:{pool:{provider:'fish-audio',kind:'reference-list',references:[{media:'a'.repeat(64),text:'',language:'ja'}]}}}, binding = {voice:'figure'}
+  const voice = {defaultSource:'pool',sources:{pool:{provider:'fish-audio',kind:'reference-list',serviceId:'custom',references:[{media:'a'.repeat(64),text:'',language:'ja'}]}}}, binding = {voice:'figure'}
   assert.equal((await tts.resolveVoiceService({voice,binding},{readOnly:true})).effective.serviceId,'custom')
-  assert.equal((await tts.resolveVoiceService({voice,binding,defaults:{'fish-audio':'cloud'}},{readOnly:true})).effective.serviceId,'custom')
-  voice.sources.pool = {provider:'fish-audio',kind:'voice-id',voiceId:'cloud-only'}
-  assert.equal((await tts.resolveVoiceService({voice,binding,defaults:{'fish-audio':'cloud'}},{readOnly:true})).effective.serviceId,'cloud')
+  voice.sources.pool = {provider:'fish-audio',kind:'voice-id',voiceId:'cloud-only',serviceId:'cloud'}
+  assert.equal((await tts.resolveVoiceService({voice,binding},{readOnly:true})).effective.serviceId,'cloud')
+  assert.equal((await tts.listServices()).some(s => 'isDefault' in s),false)
 })
 test('empty authentication is omitted across Azure, Qwen and Volcengine',async () => {
   const {createAzureAdapter} = await import('../src/providers/azure.js')
@@ -403,20 +403,16 @@ test('empty authentication is omitted across Azure, Qwen and Volcengine',async (
   for (const c of calls) assert.ok(Object.keys(c.headers).every(k => !/authorization|subscription-key|api-key/i.test(k)))
 })
 
-test('default setting uses CAS, notifies consumers and permits empty keys without a credential store',async t => {
+test('saving a service permits empty keys without a credential store; deleting one in use needs force',async t => {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
-  const tts = createTts({defaultServiceId:() => settings.defaultServiceId || ''}), events = []
+  const tts = createTts()
   const services = createServiceSettings({tts,get:() => settings,replace:async v => {settings=v},credentials:() => null})
   t.after(async () => {services.dispose();await tts.dispose()})
-  tts.subscribe(e => events.push(e.type))
+  tts.registerUsageSource({owner:'packs',inspect:async serviceId => ({serviceId,count:1})})
   await services.save({id:'custom',kind:'fish-audio',config:{url:'http://fixture.invalid',model:'server-model'},secrets:{key:''}})
-  assert.deepEqual(await services.setDefault({serviceId:'custom',expectedServiceId:''}),{defaultServiceId:'custom'})
-  assert.equal((await tts.listServices())[0].isDefault,true)
-  assert.ok(events.includes('serviceDefaultsChanged'))
-  await assert.rejects(services.setDefault({serviceId:'',expectedServiceId:''}),{code:'REVISION_CONFLICT'})
-  await assert.rejects(services.setDefault({serviceId:'missing',expectedServiceId:'custom'}),{code:'SERVICE_OFFLINE'})
+  assert.equal('defaultServiceId' in settings,false)
   const expectedRevision = (await services.list())[0].revision
   await assert.rejects(services.delete({id:'custom',expectedRevision}),{code:'SERVICE_IN_USE'})
   await services.delete({id:'custom',expectedRevision,force:true})
-  assert.equal(settings.defaultServiceId,'')
+  assert.deepEqual(settings.providers,[])
 })

@@ -31,7 +31,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
     if (next !== current) {
       offTts?.(); clear(); current = next
       offTts = current?.apiVersion === 1 ? current.subscribe(event => {
-        if (['disposed','providerChanged','providerRemoved','serviceDefaultsChanged','cacheInvalidated','readingChanged'].includes(event.type)) clear()
+        if (['disposed','providerChanged','providerRemoved','cacheInvalidated','readingChanged'].includes(event.type)) clear()
       }) : undefined
     }
     if (current?.apiVersion !== 1) throw failure('TTS_UNAVAILABLE')
@@ -91,7 +91,7 @@ export function createAssetPackSpeech({presentation, getEngine, getTts, getBindi
         : {available:true,browser:{voice:spoken.voiceName},voiceId:figure.voice.voice,language:voice.languages[0],scope,diagnostics:[]}
     }
     const declaration = {voice:resolved.voiceSpec,binding:figure.voice}
-    const binding = getBinding ? await getBinding(ref, declaration, {readOnly}) : await assetVoiceBinding(service, {}, declaration, {readOnly})
+    const binding = getBinding ? await getBinding(ref, declaration, {readOnly}) : await assetVoiceBinding(service, declaration, {readOnly})
     if (!binding) throw failure('SERVICE_REQUIRED')
     // No service can speak her (zero-config): the TTS service hands back the browser, which speaks her line itself.
     if (binding.browser) {

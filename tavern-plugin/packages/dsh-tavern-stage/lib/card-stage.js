@@ -31,9 +31,10 @@ export function stageSkinPreview(document) {
 // the only part the dialogue rules compare.
 const figureVoiceLanguage = (figure, pack) => effectiveVoiceLanguage(figure?.voice?.language, pack?.manifest.voiceLibrary?.voices[figure?.voice?.voice]?.language).split('-')[0].toLowerCase()
 // Dialogue text is projected from Card Preparation; no card-local media catalogue.
-// chooseService: the tts service's sync choice among voiceServices (getTts().chooseService); none = no voice-direction flag.
+// services: getTts().listServices(); chooseService: the tts service's sync choice among them (getTts().chooseService) —
+// the source's own serviceId, else the sole service of its provider; none = no voice-direction flag.
 // globalNarrator: 旁白配音's global layer, getTts().reading().narrator; none = off.
-export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], voiceServices = [], chooseService = () => undefined, globalNarrator = null) {
+export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledPackIds = [], services = [], chooseService = () => undefined, globalNarrator = null) {
   const extension = raw && hasCardAssetBindings(raw) ? readCardAssetExtension(raw) : null
   const stage = effectiveCardStage(extension, engine), chosen = cardStageSkin(extension, engine, packSnapshots.map(pack => pack.manifest))
   const dialogue = engine.dialogue, models = []
@@ -44,7 +45,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
     const pack = packSnapshots.find(pack => pack.manifest.id === ref.packId)
     const voice = pack?.manifest.voiceLibrary?.voices[figure.voice?.voice]
     const source = voice && figure.voice?.source !== null ? voice.sources[figure.voice.source ?? voice.defaultSource] : null
-    const voiceDirection = source?.provider === 'fish-audio' && chooseService(source, voiceServices, engine.voiceServices)?.capabilities?.voiceDirections === true
+    const voiceDirection = source?.provider === 'fish-audio' && chooseService(source, services)?.capabilities?.voiceDirections === true
     const outfits = figure?.enabled ? figure.outfits.filter(outfit => outfit.enabled && outfit.sprite && pack.sprites?.[outfit.sprite.manifestKey]) : []
     // Read-only catalogue keys, not legacy portrait-library bindings or asset aliases.
     const sprites = outfits.map(outfit => {
@@ -114,7 +115,7 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
   config.voice = {enabled:stage.voice && config.characters.some(character => character.voice)}
   // 旁白配音: present only while it speaks on this card (on, 配音 on, its voice usable here). It never changes config.voice,
   // so the dialogue-format prompt is the same with it on or off.
-  const narrator = extension && stage.voice ? cardNarrator(effectiveNarrator(extension, globalNarrator), packSnapshots, extension, voiceServices) : null
+  const narrator = extension && stage.voice ? cardNarrator(effectiveNarrator(extension, globalNarrator), packSnapshots, extension, services) : null
   if (narrator) config.narrator = narrator
   config.spriteDialogue = collectSpriteDialogue(config, models)
   return config
@@ -123,11 +124,11 @@ export function cardBubbleConfig(raw, engine, packSnapshots = [], globalEnabledP
 // The narrator's voice identity (client cache key): a browser system voice, a service voice, or the figure's voice as
 // cardBubbleConfig keys a character's. A figure in a pack this card cannot use, or without a voice, or a service that is not
 // listed leaves the narration silent.
-function cardNarrator(narrator, packSnapshots, extension, voiceServices) {
+function cardNarrator(narrator, packSnapshots, extension, services) {
   const voice = narrator.enabled ? narrator.voice : null
   if (!voice) return null
   if (voice.browser) return {voiceKey:'browser:' + voice.browser}
-  if (voice.serviceId) return voiceServices.some(service => service.id === voice.serviceId) ? {voiceKey:assetPackDigest({narrator:true, service:voice})} : null
+  if (voice.serviceId) return services.some(service => service.id === voice.serviceId) ? {voiceKey:assetPackDigest({narrator:true, service:voice})} : null
   const pack = packSnapshots.find(pack => pack.manifest.id === voice.packId), figure = pack?.figures?.[voice.figureId]
   const spec = figure?.voice && figure.voice.source !== null ? pack.manifest.voiceLibrary?.voices[figure.voice.voice] : null
   return spec ? {voiceKey:assetPackDigest({narrator:true, ref:voice, voice:figure.voice, voiceSpec:spec, readings:extension.readings || null})} : null
@@ -199,7 +200,7 @@ export function createCardStage({cardStorage, getEngine, getAssetLibrary = () =>
       if (requireAvailable) assertAvailable()
       for (const result of reads) if (result.status === 'fulfilled' && result.value) packs.push(result.value)
       const services = await measure('bubbles.voiceServices', () => getTts()?.listServices()) || []
-      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list, defaults) => getTts()?.chooseService(source, list, defaults), getTts()?.reading().narrator))
+      const config = await measure('bubbles.project', () => cardBubbleConfig(raw, getEngine(), packs, getGlobalEnabledPackIds(), services, (source, list) => getTts()?.chooseService(source, list), getTts()?.reading().narrator))
       // One request may also preview a prompt. Reuse its catalogue, but retain strict admission failures.
       return {config, requireAvailable() { assertAvailable(); return config }}
     },

@@ -10,7 +10,7 @@ export { assetVoiceBinding } from '../../../lib/domain/figure-voice.js'
 
 // The authenticated Tavern carrier owns sessions; pack services own bytes and leases.
 export function createAssetRuntime({ctx, readWorkspace, engineSettings, onInvalidate = () => {},
-  getBinding = (_ref, voice, options) => assetVoiceBinding(ctx.get('tts'), engineSettings.read().values.voiceServices, voice, options)}) {
+  getBinding = (_ref, voice, options) => assetVoiceBinding(ctx.get('tts'), voice, options)}) {
   const consumers = new Map(), listeners = new Set()
   let generation = 0, disposed = false
   const service = () => { const value = ctx.get('assetLibrary'); return value?.apiVersion === 2 ? value : undefined }

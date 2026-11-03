@@ -9,7 +9,7 @@ import { canonicalJson } from '../../packages/dsh-presentation-protocol/src/asse
 const MAX_TEXT = 1000
 const PRINCIPAL = 'dsh-browser', SCOPE = 'dsh-browser'
 // Events after which a registered reading voice may name a provider that changed or is gone.
-const RESET_EVENTS = ['disposed', 'providerChanged', 'providerRemoved', 'serviceDefaultsChanged', 'cacheInvalidated']
+const RESET_EVENTS = ['disposed', 'providerChanged', 'providerRemoved', 'cacheInvalidated']
 const failure = code => Object.assign(new Error(code), { code })
 // The card speech's narrator key and voice digest (asset-pack-speech.js NARRATOR_VOICE / assetPackDigest), restated because the core
 // loads without the stage package; a reading voice registers the same source as the stage's narrator.

@@ -20,7 +20,7 @@ function visit(dir, relative = '') {
     }
   }
 }
-emit(join(root,'src/shared/voice-schema.js'), '// Generated from dsh-presentation-protocol by build.mjs; do not edit.\n' + readFileSync(join(root,'../dsh-presentation-protocol/src/voice-schema.js'),'utf8'))
+emit(join(root,'src/shared/voice-schema.js'), readFileSync(join(root,'../dsh-presentation-protocol/src/voice-schema.js'),'utf8'))
 emit(join(root,'src/shared/voice-cues.cjs'), '// Generated from dsh-presentation-protocol by build.mjs; do not edit.\n' + readFileSync(join(root,'../dsh-presentation-protocol/src/voice-cues.cjs'),'utf8'))
 emit(join(root,'src/shared/tts-messages.cjs'), '// Generated from dsh-presentation-protocol by build.mjs; do not edit.\n' + readFileSync(join(root,'../dsh-presentation-protocol/src/tts-messages.cjs'),'utf8'))
 for (const name of ['native-settings.js', 'settings-migration.js']) {
