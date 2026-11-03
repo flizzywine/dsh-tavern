@@ -1,37 +1,23 @@
 ---
 name: tavern-plugin
-description: "编写或修改给 DSH Tavern 用的插件：文生图、文生视频、配音、插图显示、正文标记、插件按钮与面板，以及记忆、状态、世界演进这类参与提示词和后台结算的插件。用户要做这类插件时使用；普通人物卡、世界书和通用工具不使用。"
+description: "编写或修改 DSH Tavern 插件：媒体、正文标记、按钮与面板，以及参与提示词、记忆、状态和后台结算的插件。普通人物卡使用改卡 Skill，通用工具使用 advanced-capabilities。"
 ---
 
 # Tavern 插件
 
-插件只通过 Tavern 开放的接口与 Tavern 交互，Tavern 更新后插件不需要改。
+用 `tavern_read_skill_reference`（name 为 `tavern-plugin`）先读接口总览 `plugin-api.md`，再按功能读 `plugin-api-game.md`（游戏与轮次）、`plugin-api-prompt.md`（提示词与结算）、`plugin-api-data.md`（媒体与数据）、`plugin-api-cards.md`（卡片与资源）、`plugin-api-ui.md`（浏览器界面）。只使用公开接口：宿主 `tavern`、浏览器 `tavernUi` 与 DSH 服务。`plugin-recipes.md`（常见用法）和 `example-plugin.md`（示例）提供起步代码；插件的后台任务要接在 Tavern 的任务后面或在成员上运行时读 `plugin-tasks.md`（`job`、`member`、`needs`）；用户要求分享插件时读 `plugin-publishing.md`，交付前用插件面板实际安装一次。用户只想换外观时读 `interface-skin.md`：皮肤是一个 .css 文件，不是插件。
 
-## 先读文档
+## 实现边界
 
-用 `tavern_read_skill_reference`（name 为 `tavern-plugin`）读取 `references/` 下的文件：
+- 用 `ctx.tavern.方法名()` 调用，服务靠调用上下文识别插件所有者。媒体和异步结果绑定接口给出的 gameId、turn、textVersion，不自行推测版本或将过期结果改绑到新轮次。
+- 插件只用已公开接口，不修改 Tavern 程序、人物卡或会话文件，也不绕过接口访问 Tavern 数据目录。接口缺少能力时报告具体缺口，建议向上游提交接口需求。
+- 设置用 `savePluginData` 保存，密钥用 DSH credentials；两者都不存进会被更新整体替换的插件目录，密钥也不进入代码、普通设置或日志。收费生成失败后报告失败媒体项和原因，不自动重试。
+- 开场与插件加载前的旧轮次不会补发结算通知；需要读取时使用公开读接口，不自动生成或付费。插件数据和媒体不随官方游戏存档导出，不承诺完整往返。
 
-- `plugin-api.md`：接口总览与快速开始，动手前必读；再按需要读分页 `plugin-api-game.md`、`plugin-api-prompt.md`、`plugin-api-data.md`、`plugin-api-cards.md`、`plugin-api-ui.md`。
-- `plugin-recipes.md`：按要做的插件找写法。
-- `plugin-tasks.md`：插件的后台任务要接在 Tavern 的任务后面、或在成员上跑时读（任务表、`job`、`member`、`needs`）。
-- `example-plugin.md`：起步代码。
-- `plugin-publishing.md`：用户要把插件分享出去时读。
-- `interface-skin.md`：用户只想换外观时读；皮肤是一个 .css 文件，不是插件。
+## 安装与验证
 
-## 硬性要求
+一个插件放在持久数据目录 `plugins/<名称>/`，`package.json` 声明宿主入口 `index.mjs` 和可选浏览器入口 `client.js`，按示例使用受保护的入口。不再写入 `tools/` 或 `tools.cordis.yml`，那里不能加载浏览器侧。
 
-- 只用接口文档列出的 `tavern`、`tavernUi` 服务和 DSH 自带服务（`llm`、`credentials`、`attachments` 等），用 `ctx.tavern.方法名()` 的形式调用。
-- 要接管官方 MVU 结算时，先读 `plugin-api-game.md` 的 v4 provider 合约；仅卡内插件可注册，按 `apiVersion` 与 `capabilities.mvuSettlementProvider` 检查能力，不用 `setVariables` 快照冒充 MVU 结算。
-- 除了插件自己的文件夹，不读写 Tavern 程序目录和数据目录，不打补丁。接口做不到的，如实告诉用户，建议到 Tavern 仓库提接口需求。
-- 插件设置用 `savePluginData` 存，密钥用 `credentials`，都不写进插件文件夹（更新插件会整体替换它）。
-- 生图等收费请求不要自动重试；失败时把媒体项标为 `failed` 并写明原因。
+检查 package JSON、Node 语法与入口路径。新目录插件的宿主侧会在几秒内加载，浏览器侧刷新后出现；修改已加载的宿主代码需要完整重启 DSH。只保存文件不能声称已加载；在设置 → DSH Tavern → 插件检查状态与跳过原因，并核对日志，实际验证相应界面、通知或版本切换后再报告可用。付费调用、重启或真实游戏写入必须在当次授权范围内。
 
-## 安装与分发
-
-给用户分发时，按 `references/plugin-publishing.md` 提供可安装的 GitHub 仓库或 ZIP，并在 README 写明：打开 **设置 → DSH Tavern → 插件**，粘贴仓库地址安装，或点「上传 ZIP」。交付前用插件面板实际安装一次，确认包内入口和资源齐全。
-
-本地开发或手动安装时，一个插件一个文件夹，放进数据目录的 `plugins/<名称>/`（写法见接口总览「快速开始」）；插件面板也会自动安装到这里。不要放进 `tools/` 或 `tools.cordis.yml`。
-
-## 验证
-
-新放进去的插件不用重启：宿主侧几秒内加载，浏览器侧刷新页面后出现；改了已加载的 `index.mjs` 要重启 DSH。在一局游戏里实际跑一轮，确认效果出现再报告可用。没加载时，请用户看 设置 → DSH Tavern → 插件 里的状态和原因。
+接管官方 MVU 结算前，阅读 `references/plugin-api-game.md` 的 v4 provider 合同：仅卡内插件可注册，检查 `apiVersion >= 4` 和 `capabilities.mvuSettlementProvider === 1`；返回操作交由官方事务提交，不用变量快照写入冒充结算。

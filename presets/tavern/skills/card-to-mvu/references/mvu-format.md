@@ -46,7 +46,7 @@ MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern
 ]
 ```
 
-面板是完整 HTML，可以自由写样式和脚本（进度条、折叠、动画都行），在独立框架里运行。用 `Mvu.getMvuData({type:'message', message_id:'latest'}).stat_data` 读变量，订阅 `Mvu.events.VARIABLE_UPDATE_ENDED` 等事件刷新。下面的模板用 `data-mvu` 属性绑定，可以直接改样式和结构：
+面板是完整 HTML，可以自由写样式和脚本（进度条、折叠、动画都行），在独立框架里运行。颜色用宿主注入的主题变量 `--dsh-theme-bg` / `-surface` / `-text` / `-muted` / `-accent` / `-border`（明暗主题切换时实时更新），不写固定颜色；第二参数给系统色，在别的宿主里也能读。用 `Mvu.getMvuData({type:'message', message_id:'latest'}).stat_data` 读变量，订阅 `Mvu.events.VARIABLE_UPDATE_ENDED` 等事件刷新。下面的模板用 `data-mvu` 属性绑定，可以直接改样式和结构：
 
 ```html
 <!doctype html>
@@ -55,9 +55,9 @@ MVU 卡就是一张普通人物卡，按下面的约定写几处内容。`tavern
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{margin:0;font:14px/1.6 system-ui,sans-serif;color:#2b2b2b}
-.panel{padding:12px;border:1px solid #c9b99a;border-radius:8px;background:#f6efe1}
-.bar{height:6px;background:#e3d8c3;border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:#8b3a2e}
+body{margin:0;font:14px/1.6 system-ui,sans-serif;color:var(--dsh-theme-text,CanvasText)}
+.panel{padding:12px;border:1px solid var(--dsh-theme-border,GrayText);border-radius:8px}
+.bar{height:6px;background:var(--dsh-theme-border,GrayText);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--dsh-theme-accent,LinkText)}
 </style>
 </head>
 <body>
