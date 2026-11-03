@@ -6,6 +6,8 @@ import { icoFromPng } from '../tavern-plugin/packages/dsh-profile-bridge/lib/sho
 const brand = new URL('../docs/assets/brand/', import.meta.url)
 const assets = new URL('../tavern-plugin/packages/dsh-profile-bridge/assets/', import.meta.url)
 const svg = await readFile(new URL('dsh-tavern-app-icon.svg', brand), 'utf8')
+// Browser application windows take their taskbar icon from the injected favicon.
+await writeFile(new URL('../tavern-plugin/lib/client-assets/logo.svg', import.meta.url), svg)
 const browser = await chromium.launch({ headless: true,
   ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}),
 })
