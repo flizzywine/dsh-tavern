@@ -6,7 +6,6 @@
 // @include phone-beat.cjs
 // @include stage-runtime.cjs
 // @include stage-page-index.cjs
-// @include stage-resources.cjs
 // @include stage-ui.js
 // @include-protocol stage-skin.cjs
 // @include stage-skin-adapter.cjs
@@ -35,7 +34,8 @@ function stageSessionInputs(ctx){
                 catch(error){for(const stop of stops)try{stop();}catch(_){}throw error;}
                 return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage signals cleanup failed');};
             },notifications:{send:input=>rpc('notifyModPresentation',input,input.sessionId),browseMs:STAGE_HISTORY_SETTLE_MS,report:error=>console.warn('Mod presentation notification failed',error)}},
-        assets:{createOwner:createStageResourceOwner,service:()=>packTransport?.service,decode:stageDecodeImage},
+        // The resource owner and image decoding come from the stage client (entry.js, resources.cjs).
+        assets:{service:()=>packTransport?.service},
         dialogue:{character:bubbleCharacter,media:bubbleMediaDescriptor,moods:bubbleMoodList},
         preferences:{get:()=>({reading:stageReading.get(),film:stageFilm.get(),audio:forkStageAudio.get()}),
             subscribe(listener){const stops=[stageReading,stageFilm,forkStageAudio].map(source=>source.subscribe(listener));return ()=>{const errors=[];for(const stop of stops)try{stop();}catch(error){errors.push(error);}if(errors.length)throw new AggregateError(errors,'Stage preferences cleanup failed');};}},

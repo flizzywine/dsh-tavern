@@ -6,17 +6,21 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-test('stage overlay builds and imports with only its own package files', async t => {
-  const root = await mkdtemp(path.join(tmpdir(), 'stage-client-build-'))
-  t.after(() => rm(root, {recursive:true,force:true}))
+test('stage overlay builds and imports with only its own package files and the shared protocol contracts it bundles', async t => {
+  const packages = await mkdtemp(path.join(tmpdir(), 'stage-client-build-'))
+  t.after(() => rm(packages, {recursive:true,force:true}))
+  const root = path.join(packages, 'dsh-tavern-stage')
   const pkg = new URL('../tavern-plugin/packages/dsh-tavern-stage/', import.meta.url)
+  // The sibling protocol package: build.mjs inlines the stage-only contracts (stage-entrance.cjs) into the stage client.
+  await mkdir(path.join(packages, 'dsh-presentation-protocol/src'), {recursive:true})
+  await copyFile(new URL('../tavern-plugin/packages/dsh-presentation-protocol/src/stage-entrance.cjs', import.meta.url), path.join(packages, 'dsh-presentation-protocol/src/stage-entrance.cjs'))
   await cp(new URL('src/',pkg), path.join(root,'src'), {recursive:true})
   await copyFile(new URL('build.mjs',pkg),path.join(root,'build.mjs'))
   await mkdir(path.join(root,'lib/client'),{recursive:true})
   await copyFile(new URL('lib/client-assets.js',pkg),path.join(root,'lib/client-assets.js'))
   await copyFile(new URL('lib/client/skin-overlay-timing.cjs',pkg),path.join(root,'lib/client/skin-overlay-timing.cjs'))
   await copyFile(new URL('lib/client/timer-clock.cjs',pkg),path.join(root,'lib/client/timer-clock.cjs'))
-  for(const name of ['lifetime.cjs','entry.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('lib/client/'+name,pkg),path.join(root,'lib/client',name))
+  for(const name of ['lifetime.cjs','entry.cjs','resources.cjs','runtime-store.cjs','session.cjs','director-source.cjs','resource-runner.cjs','runtime-kernel.cjs'])await copyFile(new URL('lib/client/'+name,pkg),path.join(root,'lib/client',name))
   const run = args => spawnSync(process.execPath,[path.join(root,'build.mjs'),...args],{encoding:'utf8'})
   const built = run([])
   assert.equal(built.status,0,built.stderr)

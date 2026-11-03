@@ -3,7 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require = createRequire(import.meta.url)
-const {createStageResourceOwner} = require('../tavern-plugin/src/client/stage-resources.cjs')
+const {createStageResourceOwner} = require('./helpers/stage-resources.cjs')
 const ref = {packId:'p',kind:'music',assetId:'track'}
 const descriptor = (id = 'a', extra = {}) => ({resource:true,kind:'media',ref,revision:'v1',hash:id,identity:'p:'+id,...extra})
 function bytes({maxBytes, maxItems, block, decode, jsonFiles = {}} = {}) {
@@ -266,7 +266,7 @@ test('projection resources start together, deduplicate shared leaves and release
 })
 
 test('skin SVG waits for intrinsic load, not a throttled raster decode; raster and failure semantics stay intact',async t=>{
-  const {stageDecodeImage}=require('../tavern-plugin/src/client/stage-resources.cjs')
+  const {stageDecodeImage}=require('./helpers/stage-resources.cjs')
   const previous=globalThis.Image;let decoded=0
   globalThis.Image=class {set src(value){this.value=value;if(value)queueMicrotask(()=>value==='bad'?this.onerror?.():this.onload?.())}async decode(){decoded++}}
   t.after(()=>{if(previous===undefined)delete globalThis.Image;else globalThis.Image=previous})
