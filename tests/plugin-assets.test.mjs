@@ -21,6 +21,20 @@ async function fixture(t) {
   return root
 }
 
+test('插件资源：首次请求与目录重扫期间，并发读取都等待完整的插件目录', async t => {
+  const pluginsDir = await fixture(t)
+  let time = 1000
+  const assets = createPluginAssets({ pluginsDir, now: () => time })
+  const file = PLUGIN_ASSET_PREFIX + 'dsh-tavern-battle/map/forest.png'
+  const readTogether = async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, () => assets.read(file)))
+    assert.equal(results.filter(Boolean).length, 20, '目录扫描中的并发请求不应收到临时 404')
+  }
+  await readTogether()
+  time += 1001
+  await readTogether()
+})
+
 test('插件资源：只提供 assets/ 下的文件，按包名或文件夹名找到插件，经 HTTP 支持 Range 与缓存校验', async t => {
   const pluginsDir = await fixture(t)
   const assets = createPluginAssets({ pluginsDir })

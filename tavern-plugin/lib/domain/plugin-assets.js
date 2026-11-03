@@ -32,21 +32,26 @@ export function parsePluginAssetPath(pathname) {
 }
 
 export function createPluginAssets({ pluginsDir, now = Date.now }) {
-  let folders = null, scannedAt = 0
+  let folders = null, scannedAt = 0, scanning = null
   // Package name (and folder name) → folder; rescanned at most once a second as plugins come and go.
   async function folderOf(name) {
-    if (!folders || now() - scannedAt > 1000) {
-      folders = new Map()
-      scannedAt = now()
-      let entries = []
-      try { entries = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')) } catch {}
-      for (const entry of entries) {
-        let packageName = ''
-        try { packageName = String(JSON.parse(await readFile(path.join(pluginsDir, entry.name, 'package.json'), 'utf8')).name || '') } catch {}
-        if (packageName && !folders.has(packageName)) folders.set(packageName, entry.name)
-        if (!folders.has(entry.name)) folders.set(entry.name, entry.name)
-      }
+    if (!scanning && (!folders || now() - scannedAt > 1000)) {
+      scanning = (async () => {
+        const next = new Map()
+        let entries = []
+        try { entries = (await readdir(pluginsDir, { withFileTypes: true })).filter(item => item.isDirectory() && !item.name.startsWith('.')) } catch {}
+        for (const entry of entries) {
+          let packageName = ''
+          try { packageName = String(JSON.parse(await readFile(path.join(pluginsDir, entry.name, 'package.json'), 'utf8')).name || '') } catch {}
+          if (packageName && !next.has(packageName)) next.set(packageName, entry.name)
+          if (!next.has(entry.name)) next.set(entry.name, entry.name)
+        }
+        folders = next
+        scannedAt = now()
+      })().finally(() => { scanning = null })
     }
+    // Every caller joins the same scan, including refreshes; never expose a partially populated map.
+    if (scanning) await scanning
     return folders.get(name)
   }
 
