@@ -366,6 +366,8 @@ function GalStage(props) {
     const pictureState = stageViews.pictures && services.pictures ? services.pictures.use(sessionId, turn, runtime.text.units, !replaying && !streaming) : null;
     const pictureKey = sessionId + ':' + turn + ':' + (runtime.source?.generation ?? '');
     const [inserted, setInserted] = React.useState(null);
+    // Only a page turn holds an insert page: another round, or a jump to another page (履历, a mode change), leaves it behind.
+    React.useEffect(() => { setInserted(null); }, [pictureKey, page]);
     const insert = inserted && inserted.key === pictureKey ? inserted : null, insertPicture = insert ? insert.list[insert.index] : null;
     const pictureWorking = pictureState ? stageViews.pictures.working(pictureState) : null;
     // A picture finished after its page was read: 「CG 已生成 · 查看」 for a while; 查看 opens it where the reader is.
