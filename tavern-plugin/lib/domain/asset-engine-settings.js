@@ -91,7 +91,7 @@ export function validateAssetEngineSettings(value) {
   // Retired dialogue.textLanguage is migrated offline, never read.
   shape(value.dialogue, ['emotions','injection'], ['emotions','injection'], '$.dialogue')
   normalizeBubbleEmotions(value.dialogue.emotions); normalizeBubbleInjection(value.dialogue.injection)
-  // the global default skin (舞台设置 › 基础设置「默认皮肤」) may also be a pack skin.
+  // the global default skin (舞台设置 › 舞台模式 › 皮肤「默认皮肤」) may also be a pack skin.
   if (RETIRED_STAGE_SKINS.includes(value.dialogueTheme)) value.dialogueTheme = 'classic'
   if (value.dialogueTheme && typeof value.dialogueTheme === 'object') validateAssetRef(value.dialogueTheme, '$.dialogueTheme', 'skins')
   else check(builtinThemes.includes(value.dialogueTheme) || value.dialogueThemes.some(item => item.id === value.dialogueTheme), '$.dialogueTheme')
