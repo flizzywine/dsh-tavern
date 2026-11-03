@@ -165,83 +165,17 @@
                 await new Promise(resolve => requestAnimationFrame(() => resolve()));
             }
         }
-		async function expandTavernFrame(root) {
+		// options: { title, wide } — wide fills the window (a card UI sized for the page),
+		// otherwise a centred reading sheet (a status panel).
+		async function expandTavernFrame(root, options) {
             try {
                 const frame = await waitForTavernFrame(root);
                 if (!frame) throw new Error("面板尚未加载，请稍后重试。");
-                // Fullscreen the page, not the iframe: a fullscreened iframe hides every
-                // host control, leaving only Esc to get out. The frame fills the page instead.
-                openTavernPageFullscreen(frame);
-                const pageRoot = frame.ownerDocument.documentElement;
-                try { if (typeof pageRoot.requestFullscreen === "function") await pageRoot.requestFullscreen(); }
-                catch (_) { /* Embedded hosts may deny native fullscreen; the page overlay remains. */ }
+                openTavernFrameSheet(frame, options);
             } catch (error) { tavernErrorHub.report("展开大屏", error); }
         }
 
-        let closeTavernPageFullscreen = null;
-        const TAVERN_FULLSCREEN_BAR = 40;
-        function openTavernPageFullscreen(frame) {
-            closeTavernPageFullscreen?.();
-            const doc = frame.ownerDocument;
-            const previousStyle = frame.getAttribute("style");
-            const previousPopover = frame.getAttribute("popover");
-            const previousFocus = doc.activeElement;
-            // Host controls get their own strip above the frame. Floating them over the
-            // card would cover whatever the card placed in that spot, and no position is
-            // safe for every card.
-            const bar = doc.createElement("div");
-            bar.style.cssText = "position:fixed;inset:0 0 auto 0;width:100vw;height:" + TAVERN_FULLSCREEN_BAR + "px;margin:0;padding:0 12px;box-sizing:border-box;border:0;display:flex;align-items:center;justify-content:flex-end;background:var(--dsw-alias-bg-base, Canvas);z-index:2147483647;";
-            const close = doc.createElement("button");
-            close.type = "button";
-            close.className = "dsh-tavern-btn";
-            close.textContent = "退出大屏";
-            close.style.cssText = "margin:0;padding:4px 12px;";
-            bar.append(close);
-            let observer;
-            const restore = () => {
-                observer?.disconnect();
-                doc.removeEventListener("fullscreenchange", onFullscreenChange);
-                if (doc.fullscreenElement === doc.documentElement) doc.exitFullscreen?.().catch(() => {});
-                frame.removeAttribute("data-dsh-tavern-expanded");
-                if (typeof frame.hidePopover === "function" && frame.matches(":popover-open")) frame.hidePopover();
-                if (previousPopover === null) frame.removeAttribute("popover");
-                else frame.setAttribute("popover", previousPopover);
-                if (previousStyle === null) frame.removeAttribute("style");
-                else frame.setAttribute("style", previousStyle);
-                bar.remove();
-                doc.removeEventListener("keydown", onKey);
-                if (closeTavernPageFullscreen === restore) closeTavernPageFullscreen = null;
-                if (previousFocus?.isConnected) previousFocus.focus();
-            };
-            const onKey = event => { if (event.key === "Escape") { event.preventDefault(); restore(); } };
-            // Esc during native fullscreen is consumed by the browser; leave the overlay with it.
-            let wasFullscreen = false;
-            const onFullscreenChange = () => {
-                if (doc.fullscreenElement) wasFullscreen = true;
-                else if (wasFullscreen) restore();
-            };
-            doc.addEventListener("fullscreenchange", onFullscreenChange);
-            closeTavernPageFullscreen = restore;
-            close.addEventListener("click", restore);
-            doc.addEventListener("keydown", onKey);
-            try {
-                // Keep the live iframe in place: reparenting would reload card scripts.
-                frame.setAttribute("data-dsh-tavern-expanded", "");
-                frame.style.cssText += ";position:fixed!important;inset:" + TAVERN_FULLSCREEN_BAR + "px 0 auto 0!important;width:100vw!important;height:calc(100dvh - " + TAVERN_FULLSCREEN_BAR + "px)!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;box-sizing:border-box!important;border:0!important;z-index:2147483646!important;background:var(--dsw-alias-bg-base, Canvas)!important;";
-                if (typeof frame.showPopover === "function") {
-                    frame.setAttribute("popover", "manual");
-                    frame.showPopover();
-                    bar.setAttribute("popover", "manual");
-                }
-                doc.body.append(bar);
-                if (bar.hasAttribute("popover")) bar.showPopover();
-                close.focus();
-                observer = new doc.defaultView.MutationObserver(() => {
-                    if (!frame.isConnected || frame.getAttribute("aria-hidden") === "true") restore();
-                });
-                observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-hidden"] });
-            } catch (error) { restore(); throw error; }
-        }
+        // @include ui/frame-sheet.js
 
 		function TavernMessageFrame(props) {
             if (props.sessionId && window.document?.body && typeof window.document.body.moveBefore === "function") {
@@ -324,7 +258,7 @@
 					try { setActivated(true); tavernPanelRegistry.pin(panelKey.current, true); }
 					catch (error) { tavernErrorHub.report("固定面板", error); }
 				} }, "固定到右侧") : null,
-                visibleDocument.sizing ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { setActivated(true); return expandTavernFrame(slotRef.current); } }, "展开大屏") : null,
+                visibleDocument.sizing ? React.createElement("button", { type: "button", className: "dsh-tavern-btn", onClick: () => { setActivated(true); return expandTavernFrame(slotRef.current, { wide: true }); } }, "展开大屏") : null,
 				React.createElement("div", { ref: homeRef },
 					React.createElement("div", { ref: slotRef, className: "dsh-tavern-message-frame-slot", style: { position: "relative", height: height + "px" } }, frames)));
 

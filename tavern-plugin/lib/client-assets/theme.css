@@ -2230,6 +2230,21 @@ body[data-ds-dark-theme] .fork-popover { color-scheme: dark; }
 .ap-modal { width: min(720px,100%); max-height: calc(100dvh - 32px); overflow: auto; padding: 22px 24px; border: .5px solid var(--ap-border-strong); border-radius: 14px; background: linear-gradient(var(--fork-surface, transparent), var(--fork-surface, transparent)), Canvas; box-shadow: 0 18px 60px #0000003d; }
 .ap-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
 .ap-modal > header h2 { font-size: 16px; }
+/* 展开大屏 / 放大面板 (ui/frame-sheet.js): the card frame is laid over .dsh-tavern-frame-sheet-body. The scrim is a
+   top-layer popover (undo the UA popover box) and starts below the Windows title bar's native window buttons. */
+.dsh-tavern-frame-sheet-scrim[popover] { inset: 0; width: auto; height: auto; max-width: none; max-height: none; margin: 0; border: 0; overflow: hidden; color: inherit; }
+.dsh-tavern-frame-sheet-scrim { display: flex; align-items: center; justify-content: center; padding: 24px; }
+[data-windows-titlebar] .dsh-tavern-frame-sheet-scrim { padding-top: calc(var(--dsh-windows-titlebar-height, 40px) + 16px); }
+.dsh-tavern-frame-sheet { display: flex; flex-direction: column; box-sizing: border-box; width: min(760px, 100%); max-height: 100%; overflow: hidden; padding: 16px 20px 20px; }
+.dsh-tavern-frame-sheet.is-wide { width: 100%; height: 100%; }
+.dsh-tavern-frame-sheet > header { flex: none; margin: 0 0 12px; }
+.dsh-tavern-frame-sheet-body { flex: 1 1 auto; min-height: 120px; height: var(--dsh-frame-sheet-height, auto); }
+.dsh-tavern-frame-sheet.is-wide .dsh-tavern-frame-sheet-body { height: auto; }
+@media (max-width: 480px) {
+  .dsh-tavern-frame-sheet-scrim { padding: 0; }
+  [data-windows-titlebar] .dsh-tavern-frame-sheet-scrim { padding-top: var(--dsh-windows-titlebar-height, 40px); }
+  .dsh-tavern-frame-sheet { width: 100%; height: 100%; border: 0; border-radius: 0; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+}
 @container (max-width: 560px) {
   .ap-cast-editor { padding-left: 0; }
   .ap-thumb-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
