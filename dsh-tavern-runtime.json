@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "55ab3a3cd8c9cb9b66e93efdbe290f3b541c1932",
-  "releaseSequence": 1185,
+  "revision": "6dde148e34645150385691c3f15c86525a0d36ad",
+  "releaseSequence": 1186,
   "version": "3.2.0",
   "files": [
     {
@@ -166,8 +166,8 @@
     },
     {
       "path": "bin/desktop-profile-installation.mjs",
-      "sha256": "3ae41f33fcb8afd6f33b9d3f8d7cb9415c6f5fd3d9b577c1177e6a47e97fee91",
-      "size": 9223
+      "sha256": "380cf198a455bc7af7e3127f1cf86e52f9727cbe6ec6a94f758b6425b3297a09",
+      "size": 9241
     },
     {
       "path": "bin/dev-sync-cli.sh",
@@ -211,8 +211,8 @@
     },
     {
       "path": "bin/import-user-home.mjs",
-      "sha256": "07953a1489a2cc1aa685fe71e3deb0428f2d037d8dc8e591fdac872cfd7b1ee7",
-      "size": 11982
+      "sha256": "fa12ba4423d1c9830693c75402614afa560b64eb077835281cce12baa7eec911",
+      "size": 12305
     },
     {
       "path": "bin/installation-location.cjs",
@@ -306,8 +306,8 @@
     },
     {
       "path": "bin/profile-installation.mjs",
-      "sha256": "4b251aaed81941040591d06e65222ff3336706e002a3db1e5920f040eb613db7",
-      "size": 24295
+      "sha256": "be75c9d19f1fb319186e542f65fe5605cca2a56ff985c8754ea518f0ef086a74",
+      "size": 24340
     },
     {
       "path": "bin/prune-installed-files.mjs",
@@ -9591,9 +9591,9 @@
     }
   ],
   "archive": {
-    "commit": "419964b9edd49c33229a2025ccd1054a78720efb",
+    "commit": "aee76b8a8891dccc0260caf802b784c8abddca70",
     "path": "runtime.zip",
-    "sha256": "0f990f8823af4f2a1393d6b72aa05f6af5cda3bcc41f2db620b26199c833e003",
-    "size": 16158502
+    "sha256": "8f4d1ab2c72a20cc4b2878369a671c980f24969d861e5c80f370607e5a436479",
+    "size": 16158657
   }
 }
