@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "d82e828b55b0abd0c11156e2e9636410ed0a5486",
-  "releaseSequence": 1202,
+  "revision": "42fecfc605c14dc76d6cbeec8eee1fc1cdd3d2b1",
+  "releaseSequence": 1203,
   "version": "3.2.0",
   "files": [
     {
@@ -2421,8 +2421,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/play-world-book.js",
-      "sha256": "85f69340366377c40f6400b6fa9a42ba3eb4be89872a44c27219b57f63f6ecb0",
-      "size": 2524
+      "sha256": "7217765b45ab65d4e37133ec1d641fe762e3aff9f6f89e0083c2b74b3ef7b1e0",
+      "size": 3227
     },
     {
       "path": "tavern-plugin/lib/domain/player-input-content.js",
@@ -9666,9 +9666,9 @@
     }
   ],
   "archive": {
-    "commit": "f5e33f48d8562f7f7a5e4e464802df22370760da",
+    "commit": "701b625f4df7588eacc95676e4efc33ebea3945e",
     "path": "runtime.zip",
-    "sha256": "100a2de60ce83067afa8a8978ef209a52697b90fe2a647cbd0b8a060210ba0ed",
-    "size": 16196390
+    "sha256": "929f6d66b7b90806a0488a452756186cc33f9b575007add7a2013c5845e7e8ff",
+    "size": 16196635
   }
 }
