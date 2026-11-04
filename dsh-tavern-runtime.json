@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "213428938af4a665a45363348e55827e7c88b536",
-  "releaseSequence": 1189,
+  "revision": "8a1b1c8eb6e09f36129c7ec9bc64a3e8d015c31f",
+  "releaseSequence": 1190,
   "version": "3.2.0",
   "files": [
     {
@@ -7981,8 +7981,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/figure-voice-authoring.js",
-      "sha256": "d32d7bd89221ae60974ce78339a8f28dc735639335019727b414595cbbfbb019",
-      "size": 12338
+      "sha256": "34a58c588aa44779b4d87635b7748528cc7c790ff4beb904c1457e93f94693fe",
+      "size": 12439
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-stage/lib/index.js",
@@ -9646,9 +9646,9 @@
     }
   ],
   "archive": {
-    "commit": "78d11281316e1398fadf47cc240b11950d59da9f",
+    "commit": "3cc0fc5c6253a69ff59c72505e41e5a043ff1a02",
     "path": "runtime.zip",
-    "sha256": "f8a2de8a999e6f38a1228d20fe2212833b565863dba8cacb3fba6f9f138ff616",
-    "size": 16167978
+    "sha256": "d962bf660108fe47a86f5f5e7807fb65001608bd0b471ea205ee6244d2f41e8c",
+    "size": 16168032
   }
 }
