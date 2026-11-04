@@ -1,8 +1,9 @@
 // a figure's 声音. The figure page keeps one compact 「声音」 property — the
 // voice's name (⚠ when it cannot speak), ▶ and the way into the voice page. The voice page replaces the figure column
 // (desktop: the preview card stays pinned beside it; phone: a full-screen sub-page with its own top bar).
-// one 「配音来源」 list — Fish Audio 声音克隆 / 声音库 · 在线 TTS · 不配音 — each with its
-// state and its settings in place; then 「调音」.
+// one 「配音来源」 list — built from the TTS voice services catalog (tts.call('voiceServices')): Fish 声音克隆 / 声音库 and
+// 在线 TTS only for services set up in 配音后端, then 浏览器朗读 · 不配音 (always) — each with its state and its settings in
+// place; then 「调音」.
 // A way picked for a voice gets added to that voice (VoicePage / useVoiceWriter.useSource); a
 // figure without a voice gets a new pack voice; editing a voice that other figures share asks first (copy, or all).
 // Opening, choosing or saving never synthesizes; ▶ does, and a paid or unknown-cost preview asks first (billing confirm).
@@ -48,7 +49,7 @@ const providerName=kind=>VOICE_PROVIDERS[kind]||'语音服务';
 const spacedName=name=>(/^[A-Za-z]/.test(name)?' ':'')+name+(/[A-Za-z0-9]$/.test(name)?' ':'');
 function voiceIssueText(code,source){
   const name=spacedName(providerName(source?.provider));
-  if(code==='SERVICE_REQUIRED')return '还没有配置'+name+'服务';
+  if(code==='SERVICE_REQUIRED')return '还没有在配音后端设置'+name.trimEnd();
   if(code==='CREDENTIALS_REQUIRED')return '缺少'+name+'密钥';
   // a chosen source not set up yet says what to add, never a code.
   if(VOICE_EDIT_CODES.has(code)&&voiceSourceUnset(source))return voiceSourceUnset(source);
@@ -68,6 +69,11 @@ function voiceSourceLanguages(source){
 }
 const voiceSpeaks=(source,language)=>{const list=voiceSourceLanguages(source);return !list||list.includes(primaryLanguage(language));};
 // one rule (bubble-line.cjs), the same words as upstream's 配音语言 control.
+// The voice page's three (?) (the owner asked for them: 配音来源, 调音, 按差分调音) and the one link to 配音后端.
+const VOICE_WAYS_HELP='配音要先在「配音后端」里设置语音服务（填好密钥等连接信息）。这里只列出在那里设置好的服务，外加不用设置的浏览器朗读；选哪一行，这个人物就用它说话。';
+const VOICE_TUNING_HELP='调音预设是这个声音的一套说话参数（语速、音高、风格等，视服务而定）。「原声」是不加调整的原本声音；＋ 复制当前预设做一个新预设，接着就能改名、调参数。点哪个预设，这个人物平时就用哪个。';
+const VOICE_MOOD_TUNING_HELP='让不同的表情差分自动换用不同的调音预设。例如把「生气」设为预设「急促」：台词带生气差分时用「急促」说，没设的差分跟随上面选中的预设。';
+const VOICE_BACKEND_LINK='去配音后端设置 ›';
 const VOICE_LANGUAGE_HELP='不是中文时，AI 会为这个角色额外写一句这门语言的台词用来配音，画面上仍显示中文。';
 const pickVoiceLanguage=(list,fallback='ja')=>(list||[]).map(l=>String(l).toLowerCase()).find(l=>VOICE_LANGUAGE_TAG.test(l))||fallback;
 const figureVoiceSpec=(pack,figure)=>figure.voice?pack.manifest.voiceLibrary?.voices?.[figure.voice.voice]||null:null;
@@ -78,34 +84,43 @@ const voiceUsers=(pack,voiceId)=>Object.values(pack.figures||{}).filter(f=>f.voi
 // (source ids are free).
 // `unset`: the source a choice records before anything is picked (its id and its data). No (?) per way (
 // R25): the service names and the settings that open under them do the explaining.
+// Both 在线 TTS and 浏览器朗读 are `preset` sources; `provider:'browser'` tells them apart (wayHas).
 const VOICE_WAYS=[
   {id:'clone',title:'Fish Audio · 声音克隆',name:'声音克隆',kind:'reference-list',provider:'fish-audio',
     unset:{id:'fish',source:()=>({kind:'reference-list',provider:'fish-audio',references:[]})}},
   {id:'library',title:'Fish Audio · 声音库',name:'声音库',kind:'voice-id',provider:'fish-audio',
     unset:{id:'fish',source:()=>({kind:'voice-id',provider:'fish-audio'})}},
-  // An online choice names no service until a voice is picked; it records the first built-in service (any online voice
-  // picked later replaces it, service and all).
-  {id:'online',title:'在线 TTS',kind:'preset',
-    unset:{id:'online',source:()=>({kind:'preset',provider:'qwen'})}},
+  // An online or browser choice writes nothing until a voice is picked (the pick writes its service and all).
+  {id:'online',title:'在线 TTS',kind:'preset'},
+  {id:'browser',title:'浏览器朗读',kind:'preset',provider:'browser'},
   {id:'off',title:'不配音'}];
 const VOICE_WAY=id=>VOICE_WAYS.find(w=>w.id===id);
+const wayHas=(w,s)=>!!s&&w.kind===s.kind&&(w.kind!=='preset'||(s.provider==='browser')===(w.provider==='browser'));
+// The catalog's services that speak a way's source kind (浏览器朗读 is its own way).
+const catalogServices=(catalog,kind)=>(catalog?.services||[]).filter(s=>s.kind!=='browser'&&s.sources.includes(kind));
 // A service instance's own name in a row title (「Fish Audio（本地 Drama 3）· 声音克隆」).
 const serviceTitle=(c,name)=>{const label=c.label||providerName(c.kind);return label+(/[）)]$/.test(label)?'· ':' · ')+name;};
-// The rows of 配音来源: the Fish ways once per configured Fish service. With one service (or none) they read as
-// VOICE_WAYS and write no serviceId; with several, each row is named by its service and a choice under it writes that
-// service's id into the source (`bind`). `base`: the way's VOICE_WAYS id.
-function voiceWayRows(raw){
-  const fish=(raw?.configured||[]).filter(c=>c.kind==='fish-audio');
-  return VOICE_WAYS.flatMap(w=>w.provider!=='fish-audio'||fish.length<2?[{...w,base:w.id,serviceId:w.provider==='fish-audio'?fish[0]?.id:undefined}]:
-    fish.map(c=>({...w,base:w.id,id:w.id+':'+c.id,title:serviceTitle(c,w.name),serviceId:c.id,bind:true})));
+// The rows of 配音来源, from the catalog: the Fish ways once per configured Fish service, 在线 TTS when an online service
+// is set up, 浏览器朗读 and 不配音 always. With one Fish service they read as VOICE_WAYS and write no serviceId; with
+// several, each row is named by its service and a choice under it writes that service's id into the source (`bind`).
+// A way whose service is not set up shows only while the figure's source (`active`) uses it (`unconfigured`: ⚠ 未设置).
+// `base`: the way's VOICE_WAYS id.
+function voiceWayRows(catalog,active){
+  return VOICE_WAYS.flatMap(w=>{
+    if(w.provider==='browser'||!w.kind)return [{...w,base:w.id}];
+    const list=catalogServices(catalog,w.kind),fish=w.provider==='fish-audio'?list.filter(s=>s.kind==='fish-audio'):list;
+    if(!fish.length)return wayHas(w,active)?[{...w,base:w.id,unconfigured:true}]:[];
+    if(w.provider!=='fish-audio'||fish.length<2)return [{...w,base:w.id,serviceId:w.provider==='fish-audio'?fish[0].id:undefined}];
+    return fish.map(c=>({...w,base:w.id,id:w.id+':'+c.id,title:serviceTitle(c,w.name),serviceId:c.id,bind:true}));
+  });
 }
 // Does a row speak with this source: same kind, and for a row of one of several services, that service.
-const rowHolds=(row,source)=>!!source&&row.kind===source.kind&&(!row.bind||source.serviceId===row.serviceId);
+const rowHolds=(row,source)=>wayHas(row,source)&&(!row.bind||source.serviceId===row.serviceId);
 // A source as a row writes it: a row of one of several services names that service.
 const rowSource=(row,source)=>row.bind?{...source,serviceId:row.serviceId}:source;
-const voiceWayOf=source=>VOICE_WAYS.find(w=>w.kind&&w.kind===source?.kind)||null;
-const voiceWayEntry=(spec,way)=>spec&&way.kind?Object.entries(spec.sources).find(([,s])=>s.kind===way.kind)||null:null;
-const voiceSourceLabel=source=>source.kind==='preset'?'在线 TTS · '+providerName(source.provider):voiceWayOf(source)?.title||'声音';
+const voiceWayOf=source=>VOICE_WAYS.find(w=>w.kind&&wayHas(w,source))||null;
+const voiceWayEntry=(spec,way)=>spec&&way.kind?Object.entries(spec.sources).find(([,s])=>wayHas(way,s))||null:null;
+const voiceSourceLabel=source=>source.kind==='preset'&&source.provider!=='browser'?'在线 TTS · '+providerName(source.provider):voiceWayOf(source)?.title||'声音';
 const voiceSourceShort=voiceSourceLabel;
 // Azure voice names read as the voice (en-US-AshleyNeural → Ashley), not as an internal id.
 const voiceDisplayName=name=>String(name||'').replace(/^[a-z]{2,3}-[A-Z]{2}-/,'').replace(/(?:Multilingual)?Neural$/,'')||name;
@@ -137,33 +152,24 @@ function useVoiceServices(binding){
   const state=useVoiceLoad(()=>binding.rpc('getAssetVoiceServices').then(r=>r.services||[]),[binding]),list=state.value||[];
   return {list,loaded:!!state.value};
 }
-// can a provider speak now — read from the TTS `services` list (configured connections
-// with their secret flags and last check; running services with status). null = nothing wrong
-// known; {warn,setup} = a problem fixed in the 配音 page. Polls once a second while a service still says `checking`.
-// `serviceId`: one service of several of that kind (a row of its own).
-function voiceReadiness(services,provider,serviceId){
+// can a provider speak now — read from the TTS voice services catalog (each set-up service's
+// state from its last check; no request). null = nothing wrong known; {warn,setup} = a problem fixed in 配音后端
+// (`missing`: no such service is set up there). `serviceId`: one service of several of that kind (a row of its own).
+function voiceReadiness(catalog,provider,serviceId){
   // Browser speech needs no service; a device without it says so.
   if(provider==='browser')return typeof window!=='undefined'&&window.speechSynthesis?null:{warn:true,text:'这台设备不支持浏览器朗读'};
-  if(!services||!provider)return null;
-  const configured=services.configured||[],running=services.running||[];
-  const one=s=>s.kind===provider&&(!serviceId||s.id===serviceId);
-  const name=providerName(provider),mine=configured.filter(one),live=running.filter(one);
-  if(!mine.length&&!live.length)return {warn:true,setup:true,text:'还没有设置'+spacedName(name).trimEnd()};
-  // A custom (OpenAI 兼容) service may run without a key (its key field is optional).
-  const keyed=c=>provider==='openai-compatible'||!Object.values(c.secrets||{}).some(x=>x&&x.configured===false);
-  if(mine.length&&!mine.some(keyed)||live.some(r=>r.status?.state==='credentials-required'))return {warn:true,setup:true,text:'需要'+spacedName(name)+'密钥'};
-  const failed=mine.find(c=>c.check?.status==='error')||live.find(r=>['offline','error'].includes(r.status?.state));
-  if(failed&&!live.some(r=>r.status?.state==='ready'))return {warn:true,setup:true,text:spacedName(name).trimStart()+'连不上',title:failed.check?.message||failed.status?.error};
-  if(live.some(r=>r.status?.state==='checking'))return {text:'正在检查…'};
-  return null;
+  if(!catalog||!provider)return null;
+  const name=providerName(provider),mine=catalog.services.filter(s=>s.kind===provider&&(!serviceId||s.id===serviceId));
+  if(!mine.length)return {warn:true,setup:true,missing:true,text:'还没有在配音后端设置'+spacedName(name).trimEnd()};
+  if(mine.some(s=>s.state==='ready'||s.state==='configured'))return null;
+  if(mine.some(s=>s.state==='needs-key'))return {warn:true,setup:true,text:'需要'+spacedName(name)+'密钥'};
+  return {warn:true,setup:true,text:spacedName(name).trimStart()+'连不上'};
 }
+// The catalog (`.services`, null until read or without the TTS plugin), re-read after any TTS event.
 function useVoiceReadiness(binding){
-  const state=useVoiceLoad(()=>binding.tts?.call?binding.tts.call('services'):null,[binding]),value=state.value;
+  const state=useVoiceLoad(()=>binding.tts?.call?binding.tts.call('voiceServices'):null,[binding]),value=state.value;
   useVoiceRefresh(binding,state.reload);
-  const checking=!!value?.running?.some?.(s=>s.status?.state==='checking');
-  React.useEffect(()=>{if(!checking)return;const t=setTimeout(state.reload,1000);return()=>clearTimeout(t);},[value]);
-  // `.services`: the raw snapshot (null until read) for the 在线 TTS rows (one per configured service).
-  return Object.assign((provider,serviceId)=>voiceReadiness(value,provider,serviceId),{services:value});
+  return Object.assign((provider,serviceId)=>voiceReadiness(value,provider,serviceId),{services:value,loaded:!!value||!binding.tts?.call,error:state.error,reload:state.reload});
 }
 // 「去设置」: the 配音 page (right sidebar) opens with that service's row open (dsh-tts reads the same session key once);
 // `id` opens that saved service, `add` opens 添加语音服务 with the kind chosen.
@@ -174,6 +180,7 @@ const VOICE_PAID_ASK_KEY='dsh-tavern:voice-paid-preview-ask';
 const voicePaidAsk={
   get(){try{return localStorage.getItem(VOICE_PAID_ASK_KEY)!=='off';}catch(_){return true;}},
   set(on){try{if(on)localStorage.removeItem(VOICE_PAID_ASK_KEY);else localStorage.setItem(VOICE_PAID_ASK_KEY,'off');}catch(_){}}};
+// 「配音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up).
 function openVoiceSettings(ctx,provider,{id,add}={}){
   try{if(provider)sessionStorage.setItem(VOICE_FOCUS_KEY,JSON.stringify({kind:provider,...(id?{id}:{}),...(add?{add:true}:{}),at:Date.now()}));}catch(_){}
   return ctx.nav.openTab('dsh-tts:voice');
@@ -515,7 +522,7 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
   const head=React.useRef(null),services=useVoiceServices(binding),readiness=useVoiceReadiness(binding),clips=useAudioPreview(binding,packId,speech);
   // One row per Fish service; the row in use is the one that holds the figure's source (none while a source of one of
   // several services names none of them).
-  const ways=voiceWayRows(readiness.services),activeRow=!spec?null:sourceId===null?VOICE_WAY('off'):ways.find(w=>w.kind&&rowHolds(w,active))||null,activeWay=activeRow?.id||null;
+  const ways=voiceWayRows(readiness.services,active),activeRow=!spec?null:sourceId===null?VOICE_WAY('off'):ways.find(w=>w.kind&&rowHolds(w,active))||null,activeWay=activeRow?.id||null;
   const [opened,setOpen]=React.useState(()=>spec?activeWay!=='off'?activeWay:null:'library'),[error,setError]=React.useState(''),[notice,setNotice]=React.useState(''),[shared,setShared]=React.useState(null),[others,setOthers]=React.useState(false);
   // A way opened before the services were read (its VOICE_WAYS id) stays open as its row in use, else its first row.
   const open=ways.some(w=>w.id===opened)?opened:(ways.find(w=>w.base===opened&&w.id===activeWay)||ways.find(w=>w.base===opened))?.id||null;
@@ -533,8 +540,8 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
   // the list. The answer is shown at once (curated picks) and re-read each second while it says `refreshing`.
   const libraryRows=ways.filter(w=>w.base==='library'),fishService=(libraryRows.find(w=>w.id===activeWay)||libraryRows[0])?.serviceId;
   const speakLang=primaryLanguage(spec?effectiveVoiceLanguage(voice.language,spec.language):'ja'),catalogLang=['zh','ja'].includes(speakLang)?speakLang:undefined;
-  const recommended=useVoiceLoad(()=>services.loaded&&(readiness.services||!binding.tts?.call)?voiceTts(binding).call('listRecommendedFishVoices',{...(catalogLang?{language:catalogLang}:{}),...(fishService?{serviceId:fishService}:{}),...(fishId?{selectedVoiceId:fishId}:{})}):null,
-    [binding,services.loaded,!!readiness.services,catalogLang,fishService,fishId],{keep:true});
+  const recommended=useVoiceLoad(()=>services.loaded&&libraryRows.length&&(readiness.services||!binding.tts?.call)?voiceTts(binding).call('listRecommendedFishVoices',{...(catalogLang?{language:catalogLang}:{}),...(fishService?{serviceId:fishService}:{}),...(fishId?{selectedVoiceId:fishId}:{})}):null,
+    [binding,services.loaded,libraryRows.length>0,!!readiness.services,catalogLang,fishService,fishId],{keep:true});
   const common={binding,pack,figure,spec,voice,sourceId,writer,preview:player,services,candidate,choose,setError};
   const openSettings=ctx?.nav?.openTab?(provider,options)=>openVoiceSettings(ctx,provider,options):null;
   const provider=way=>way.provider||(way.id==='online'?entry(way)?.[1].provider:null);
@@ -545,8 +552,9 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
     // Another service's row of the same way: the source names this service (and becomes the figure's if it was not).
     if(found&&!held(way)){preview.stop();writer.useSourceService(found[0],way.serviceId);return;}
     if(found&&found[0]!==sourceId){preview.stop();writer.useSourceId(found[0]);}
-    // A way not set up yet: it is recorded unset and chosen, and its settings open for what it still needs.
-    if(!found){preview.stop();setOpen(way.id);
+    // A way not set up yet: it is recorded unset and chosen, and its settings open for what it still needs. 在线 TTS and
+    // 浏览器朗读 (no `unset`) only open: a voice picked there is what gets written.
+    if(!found){preview.stop();setOpen(way.id);if(!way.unset)return;
       writer.useSource({name:figure.name+'的声音',language:spec?effectiveVoiceLanguage(voice.language,spec.language):'ja',defaultSource:way.unset.id,sources:{[way.unset.id]:rowSource(way,way.unset.source())}});}
   };
   const toggle=way=>setOpen(open===way.id?null:way.id);
@@ -554,6 +562,7 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
   const summary=way=>{const found=entry(way),s=found?.[1];if(!s||voiceSourceUnset(s)||!held(way))return '';
     if(way.base==='clone')return s.references.length+' 段录音';
     if(way.base==='library'){const name=recommended.value?.voices?.find(v=>v.voiceId===s.voiceId)?.name;return name&&name!==s.voiceId?name:spec.name;}
+    if(way.base==='browser')return voiceDisplayName(s.voiceName);
     return onlineSourceName(s,readiness.services)+' · '+voiceDisplayName(s.voiceName);};
   // What the way in use still lacks (screen readers only). Shown as the amber radio and the highlighted field in its settings.
   const incomplete=way=>{const s=entry(way)?.[1];return s?voiceSourceUnset(s):'';};
@@ -561,12 +570,16 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
   // The way's provider problem, once, at the top of its settings (with 去设置 when the 配音 page fixes it).
   const ready=way=>readiness(provider(way),way.bind?way.serviceId:undefined);
   const fix=way=>{const state=way.id==='online'?null:ready(way);
-    return state?.warn?h(VoiceWarn,{action:state.setup&&openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider(way),way.bind?{id:way.serviceId}:undefined)},'去设置')},state.text):null;};
+    return state?.warn?h(VoiceWarn,{action:state.setup&&openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider(way),way.bind?{id:way.serviceId}:undefined)},state.missing?VOICE_BACKEND_LINK:'去设置')},state.text):null;};
   const bodies={
     clone:way=>h(VoiceReferences,{...common,way,entry:entry(way),clips}),
     library:way=>h(VoiceFishLibrary,{...common,way,state:recommended,currentId:held(way)?fishId:null}),
-    online:()=>{const set=s=>s&&!voiceSourceUnset(s)?s:null,own=set(active?.kind==='preset'?active:entry(VOICE_WAY('online'))?.[1]);
-      return h(VoiceOnline,{...common,readiness,openSettings,active:own,inUse:!!own&&active===own,needed:needed(VOICE_WAY('online'))});}};
+    online:()=>{const set=s=>s&&!voiceSourceUnset(s)?s:null,own=set(active?.kind==='preset'&&active.provider!=='browser'?active:entry(VOICE_WAY('online'))?.[1]);
+      return h(VoiceOnline,{...common,readiness,openSettings,active:own,inUse:!!own&&active===own,needed:needed(VOICE_WAY('online'))});},
+    browser:way=>{const s=entry(way)?.[1];
+      return h(VoiceProviderVoices,{...common,row:BROWSER_ROW,state:onlineRowState(null,BROWSER_ROW),active:s&&!voiceSourceUnset(s)?s:null,current:true,openSettings});}};
+  // Only 浏览器朗读 and 不配音: nothing is set up in 配音后端 yet.
+  const none=readiness.loaded&&!catalogServices(readiness.services,'preset').length&&!catalogServices(readiness.services,'reference-list').length;
   return h('div',{className:'ap-voice-page',role:'region','aria-label':figure.name+'的声音',onKeyDown:e=>{if(e.key==='Escape'&&!e.defaultPrevented){e.preventDefault();e.stopPropagation();onClose();}}},
     // the shared sub-page header (‹ 「返回人物」 beside 「声音」).
     h(SubpageHead,{parent:'人物',title:'声音',level:3,titleRef:head,onBack:onClose,className:'ap-voice-head',
@@ -575,15 +588,19 @@ function VoicePage({binding,pack,figure,rows,status,preview,speech,commitVoice,c
     // A candidate preview (a list's ▶) that failed says why here too; the saved voice's own failure sits under 试听.
     preview.state?.phase==='error'&&preview.state.key!=='saved:'+figure.id&&h('div',{role:'alert',className:'ap-alert ap-hint-chip ap-voice-error'},'\u26a0 试听失败：',preview.state.error),
     h(VoiceHero,{...common,rows,status,notice,ctx,setNotice,readiness,openSettings,activeRow,several:!!ways.find(w=>w.bind&&w.kind===active?.kind),summary,onOthers:()=>setOthers(true),onFix:id=>setOpen(id)}),
-    // No (?) on 配音来源 or 调音 (R25): a radio switches, a name with ⌄ opens, the tiles are the tunings.
-    h(StageSection,{title:'配音来源',foldKey:'voice-ways',className:'ap-voice-ways-section'},
+    // 配音来源 (?) says the rows are the services set up in 配音后端; 「配音后端 ›」 sits fixed at the right of its heading.
+    h(StageSection,{title:'配音来源',help:VOICE_WAYS_HELP,foldKey:'voice-ways',className:'ap-voice-ways-section',
+        action:openSettings&&h(Button,{className:'ap-link ap-voice-backend',onClick:()=>openSettings(null)},'配音后端 ›')},
+      !readiness.loaded?(readiness.error?h(VoiceLoadError,{error:readiness.error,retry:readiness.reload}):h(VoiceLoading)):
       h('div',{className:'ap-voice-ways',role:'radiogroup','aria-label':'配音来源'},ways.map(way=>h(VoiceWay,{key:way.id,way,current:activeWay===way.id||way.id==='off'&&!spec,
         incomplete:way.id==='off'?'':incomplete(way),open:open===way.id,onUse:()=>use(way),onToggle:()=>toggle(way),
-        count:way.id==='online'?onlineProviders(readiness.services).length:0,
+        count:way.id==='online'?catalogServices(readiness.services,'preset').length:0,
         // Only a service that cannot speak says so (⚠ and why); the usual states (待机 / 运行中) are not written.
         state:way.id==='off'?null:(r=>r?.warn?r:null)(ready(way)),summary:way.id==='off'?'':summary(way),needed:needed(way),
-        children:bodies[way.base]&&open===way.id?h(React.Fragment,null,fix(way),bodies[way.base](way)):bodies[way.base]?true:null})))),
-    spec&&h(StageSection,{title:'调音',meta:Object.keys(voicePresets(spec)).length,foldKey:'voice-tuning',className:'ap-voice-tuning'},
+        children:bodies[way.base]&&open===way.id?h(React.Fragment,null,fix(way),bodies[way.base](way)):bodies[way.base]?true:null}))),
+      readiness.loaded&&none&&h('p',{className:'ap-voice-empty ap-voice-no-services'},'还没有设置语音服务',
+        openSettings&&h(React.Fragment,null,' · ',h(Button,{className:'ap-link',onClick:()=>openSettings(null)},VOICE_BACKEND_LINK)))),
+    spec&&h(StageSection,{title:'调音',help:VOICE_TUNING_HELP,meta:Object.keys(voicePresets(spec)).length,foldKey:'voice-tuning',className:'ap-voice-tuning'},
       h(VoicePresets,{...common,rows,active})),
     others&&h(VoiceOthers,{...common,onClose:()=>setOthers(false),setNotice}),
     shared&&h(VoiceSharedDialog,{figure,others:shared.others,onPick:pick=>{shared.resolve(pick);setShared(null);}}));
@@ -610,7 +627,7 @@ function VoiceHero({binding,pack,figure,spec,voice,sourceId,status,preview,rows,
   const warn=unset?'':pick?'在下面选一个'+spacedName(providerName(source.provider))+'服务':issue?voiceIssueText(issue.code,source):ready?.warn?ready.text:'';
   // 去设置 for a service problem (the 配音 page); 去修改 for a problem of this voice (its way opens below).
   const serviceFix=issue?['SERVICE_REQUIRED','CREDENTIALS_REQUIRED'].includes(issue.code):ready?.setup;
-  const action=pick?h(Button,{className:'ap-link',onClick:()=>onFix(voiceWayOf(source)?.id)},'去选择'):serviceFix&&openSettings?h(Button,{className:'ap-link',onClick:()=>openSettings(way?.provider||source.provider)},'去设置'):
+  const action=pick?h(Button,{className:'ap-link',onClick:()=>onFix(voiceWayOf(source)?.id)},'去选择'):serviceFix&&openSettings?h(Button,{className:'ap-link',onClick:()=>openSettings(way?.provider||source.provider)},issue?.code==='SERVICE_REQUIRED'||ready?.missing?VOICE_BACKEND_LINK:'去设置'):
     issue?.code==='MISSING_REFERENCE'&&way?h(Button,{className:'ap-link',onClick:()=>onFix(way.id)},'去修改'):null;
   const play=()=>source?.provider==='browser'?preview.playBrowser(key,{voice:source.voiceName,language,text:text!==null&&text.trim()?text.trim():sample},{mood}):preview.play(key,{packId:pack.manifest.id,figureId:figure.id,expectedRevision:pack.revision,...(text!==null&&text.trim()&&text!==sample?{text:text.trim()}:{}),mood},{label:spec.name,mood});
   const menu=h(Popover,{label:'声音操作',className:'ap-voice-menu',trigger:({toggle,open})=>h(IconButton,{icon:'more',label:'声音操作','aria-expanded':open,onClick:toggle}),content:close=>h(React.Fragment,null,
@@ -751,47 +768,38 @@ function VoiceFishLibrary({binding,figure,spec:boundSpec,way,preview,candidate,c
     error&&h(VoiceLoadError,{error}),
     list);
 }
-// (3) 在线 TTS: one row per online service — 通义千问 / Azure / 火山引擎 (listed
-// before they are set up), every other kind configured in 配音 settings (MiniMax …), then every custom (OpenAI 兼容) service added in 配音 settings, under its own name. A row says its
-// state at once from the TTS `services` snapshot (未设置 / 已设置 / 就绪 / 正在检查… / ⚠ 需要密钥 / ⚠ 连不上); its voices are read
-// only when it is opened (▶ previews, 使用 picks). The dashed ＋ adds a custom service in 配音 settings. Several services of one
-// kind are a row each, under their own names, and a voice picked under one names that service (`bind`: serviceId).
-// 浏览器朗读: the system's own voices, free and always set up.
-const ONLINE_BUILTIN=['qwen','azure','volcengine'];
-const customServices=raw=>(raw?.configured||[]).filter(c=>c.kind==='openai-compatible');
-function onlineProviders(raw){
-  const of=kind=>(raw?.configured||[]).filter(c=>c.kind===kind),custom=customServices(raw);
-  // Fish speaks through its own ways (声音克隆 / 声音库); a custom service is a row of its own below.
-  const kinds=[...new Set([...ONLINE_BUILTIN,...(raw?.configured||[]).map(c=>c.kind).filter(k=>k!=='fish-audio'&&k!=='openai-compatible')]),'browser'];
-  const each=(list,custom)=>list.map(c=>({key:'service:'+c.id,kind:c.kind,name:c.label||providerName(c.kind),serviceId:c.id,bind:list.length>1,custom}));
-  return [...kinds.flatMap(kind=>of(kind).length>1?each(of(kind),false):[{key:kind,kind,name:providerName(kind),serviceId:of(kind)[0]?.id}]),...each(custom,true)];
+// (3) 在线 TTS: one row per online service set up in 配音后端 (the voice services catalog) — 通义千问 / Azure / 火山引擎 /
+// MiniMax … by their kind's name, a custom (OpenAI 兼容) service under its own name. A row says its state at once from the
+// catalog (就绪 / 已设置 / ⚠ 需要密钥 / ⚠ 连不上); its voices are read only when it is opened (▶ previews, 使用 picks).
+// Several services of one kind are a row each, under their own names, and a voice picked under one names that service
+// (`bind`: serviceId). The source in use naming a kind not set up gets a row of its own: ⚠ 未设置 and the way to 配音后端.
+// 浏览器朗读 is a way of its own (BROWSER_ROW): the system's own voices, free and always set up.
+const BROWSER_ROW={key:'browser',kind:'browser',name:'浏览器朗读'};
+function onlineProviders(catalog,active){
+  const list=catalogServices(catalog,'preset'),count=kind=>list.filter(s=>s.kind===kind).length;
+  const rows=list.map(s=>({key:'service:'+s.id,kind:s.kind,name:count(s.kind)>1||s.voiceList==='provider'?s.label:providerName(s.kind),serviceId:s.id,bind:count(s.kind)>1,custom:s.voiceList==='provider',service:s}));
+  if(active&&active.provider!=='browser'&&!count(active.provider))rows.push({key:'missing:'+active.provider,kind:active.provider,name:providerName(active.provider),missing:true});
+  return rows;
 }
 // The name a saved online source reads as: the built-in service, or the custom service's own name (and, of several
 // services of one kind, the one it names).
-function onlineSourceName(source,raw){
-  const mine=(raw?.configured||[]).filter(c=>c.kind===source?.provider),named=mine.find(c=>c.id===source?.serviceId)||(mine.length===1?mine[0]:null);
+function onlineSourceName(source,catalog){
+  const mine=catalogServices(catalog,'preset').filter(c=>c.kind===source?.provider),named=mine.find(c=>c.id===source?.serviceId)||(mine.length===1?mine[0]:null);
   return (source?.provider==='openai-compatible'||mine.length>1)&&named?.label||providerName(source?.provider);
 }
-// A row's state (null while the snapshot is read): plain words; ⚠ only when something must be fixed (with the reason).
-function onlineRowState(raw,row){
-  if(row.kind==='browser')return voiceReadiness(raw,'browser')||{text:'免费'};
-  if(!raw)return null;
-  const exact=row.custom||row.bind,mine=(raw.configured||[]).filter(c=>exact?c.id===row.serviceId:c.kind===row.kind),ids=mine.map(c=>c.id);
-  const live=(raw.running||[]).filter(r=>ids.includes(r.id)||!exact&&r.kind===row.kind),is=s=>live.some(r=>r.status?.state===s);
-  if(!mine.length&&!live.length)return {setup:true,missing:true,text:'未设置'};
-  if(is('ready'))return {text:'就绪'};
-  if(is('credentials-required')||!row.custom&&mine.length>0&&mine.every(c=>Object.values(c.secrets||{}).some(x=>x&&x.configured===false)))return {warn:true,setup:true,key:true,text:'需要密钥'};
-  const failed=mine.find(c=>c.check?.status==='error')||live.find(r=>['offline','error'].includes(r.status?.state));
-  if(failed)return {warn:true,setup:true,text:'连不上',reason:failed.check?.message||failed.status?.error||''};
-  if(is('checking'))return {checking:true,text:'正在检查…'};
-  return {text:'已设置'};
+// A row's state: plain words; ⚠ only when something must be fixed.
+function onlineRowState(catalog,row){
+  if(row.kind==='browser')return voiceReadiness(catalog,'browser')||{text:'免费'};
+  if(row.missing)return {warn:true,setup:true,missing:true,text:'未设置'};
+  const state=row.service.state;
+  return state==='ready'?{text:'就绪'}:state==='needs-key'?{warn:true,setup:true,key:true,text:'需要密钥'}:state==='offline'?{warn:true,setup:true,text:'连不上'}:{text:'已设置'};
 }
 function VoiceOnline(props) {
-  const {active,inUse,needed,readiness,openSettings}=props,raw=readiness.services,rows=onlineProviders(raw);
+  const {active,inUse,needed,readiness}=props,raw=readiness.services,rows=onlineProviders(raw,active);
   const mine=row=>!!active&&active.provider===row.kind&&(!row.bind||active.serviceId===row.serviceId);
   // The service in use opens; chosen but no voice picked yet (`needed`), the first service that can speak opens with its
   // voices to pick from (R25: the next step is on screen, not written); any other row opens only when asked.
-  const usable=row=>{const s=onlineRowState(raw,row);return !!s&&!s.warn&&!s.missing;};
+  const usable=row=>{const s=onlineRowState(raw,row);return !s.warn;};
   // '@auto' until a row is opened or closed by hand.
   const [open,setOpen]=React.useState('@auto');
   const openKey=open==='@auto'?(active?rows.find(mine):needed?rows.find(usable):null)?.key||null:open;
@@ -799,23 +807,18 @@ function VoiceOnline(props) {
     h('ul',{className:'ap-voice-providers','aria-label':'在线语音服务'},
       rows.map(row=>{
         const isOpen=openKey===row.key,here=inUse&&mine(row),word=onlineRowState(raw,row);
-        // Written: the voice in use, ⚠ and why, or 正在检查…; a service not set up reads dimmed instead of 「未设置」, and
-        // 已设置 / 就绪 are the normal case, not written (R25).
-        const text=word?.warn?word.text:[here&&active.voiceName?voiceDisplayName(active.voiceName):'',word?.checking?word.text:''].filter(Boolean).join(' · ');
+        // Written: the voice in use, or ⚠ and why; 已设置 / 就绪 are the normal case, not written (R25).
+        const text=word.warn?word.text:here&&active.voiceName?voiceDisplayName(active.voiceName):'';
         const body='ap-voice-provider-'+row.key.replace(/[^A-Za-z0-9_-]/g,'-');
-        return h('li',{key:row.key,className:'ap-voice-provider','data-open':isOpen||undefined,'data-current':here||undefined,'data-missing':word?.missing||undefined},
+        return h('li',{key:row.key,className:'ap-voice-provider','data-open':isOpen||undefined,'data-current':here||undefined},
           h('button',{type:'button',className:'ap-voice-provider-head','aria-expanded':isOpen,'aria-controls':isOpen?body:undefined,
-              'aria-label':row.name+(here?'，使用中':'')+(word?.text?'，'+word.text:''),onClick:()=>setOpen(isOpen?null:row.key)},
+              'aria-label':row.name+(here?'，使用中':'')+(word.text?'，'+word.text:''),onClick:()=>setOpen(isOpen?null:row.key)},
             h('span',{className:'ap-voice-provider-name'},row.name),
-            h('span',{className:'ap-voice-provider-state'+(word?.warn?' is-warn':''),title:word?.reason||undefined},word?.warn&&h(Glyph,{name:'warning'}),text),
+            h('span',{className:'ap-voice-provider-state'+(word.warn?' is-warn':'')},word.warn&&h(Glyph,{name:'warning'}),text),
             h(Glyph,{name:'chevDown'})),
           isOpen&&h('div',{id:body,className:'ap-voice-provider-body'},h(VoiceProviderVoices,{...props,row,state:word,current:mine(row)})));
-      }),
-      openSettings&&h('li',{className:'ap-voice-provider-add-row'},
-        h(CatAddTile,{label:'添加在线语音服务',className:'ap-cat-add-row ap-voice-provider-add',onClick:()=>openSettings('openai-compatible',{add:true})}))));
+      })));
 }
-// One opened service: what stops it (⚠ + 去设置), its 型号, the voice list (▶ · 使用) — or, for a custom service that lists no
-// voices, the 型号 / 音色 typed in by name.
 function VoiceProviderVoices({binding,figure,preview,candidate,choose,active,row,state,current,openSettings}) {
   const provider=row.kind,name=row.name,custom=!!row.custom,serviceId=row.serviceId;
   const own=current&&active?.provider===provider?active:null;
@@ -823,7 +826,8 @@ function VoiceProviderVoices({binding,figure,preview,candidate,choose,active,row
   const [inspectedVoice,setInspectedVoice]=React.useState('');
   const modelStatus=useVoiceModelStatus(binding,{provider,model,voiceName:inspectedVoice||own?.voiceName||''},preview.state?.phase);
   const browser=provider==='browser';
-  const list=useVoiceLoad(()=>browser?browserSpeechVoiceList(window.speechSynthesis).then(voices=>({voices})):custom?voiceTts(binding).call('providerVoices',{serviceId}):voiceTts(binding).call('listOnlinePresetVoices',{provider,...(serviceId?{serviceId}:{})}),[binding,provider,serviceId]);
+  // How the voices are listed is the catalog's (voiceList); a kind not set up lists none.
+  const list=useVoiceLoad(()=>browser?browserSpeechVoiceList(window.speechSynthesis).then(voices=>({voices})):row.missing?{voices:[]}:row.service.voiceList==='provider'?voiceTts(binding).call('providerVoices',{serviceId}):voiceTts(binding).call('listOnlinePresetVoices',{provider,...(serviceId?{serviceId}:{})}),[binding,provider,serviceId,row.missing]);
   const failed=list.value?.status==='error',voices=failed?[]:list.value?.voices||[],models=(failed?[]:list.value?.models||[]).map(m=>typeof m==='string'?{id:m,label:m}:{id:m.id,label:m.label||m.id});
   // A custom service needs a 型号 (OpenAI speech `model`): the listed first one unless another is picked or typed.
   const useModel=model||(custom?models[0]?.id||'':'');
@@ -831,9 +835,9 @@ function VoiceProviderVoices({binding,figure,preview,candidate,choose,active,row
   const sid=custom?'custom':provider;
   const spec=v=>({name:v.label||v.id,language:pickVoiceLanguage(browser?(v.languages||[]).map(primaryLanguage):v.languages,figure.voice?'ja':'zh'),defaultSource:sid,sources:{[sid]:rowSource(row,{kind:'preset',provider,voiceName:v.id,...(useModel?{model:useModel}:{})})}});
   const on=v=>!!own&&own.voiceName===v.id;
-  const goSet=openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider,custom||row.bind?{id:serviceId}:undefined)},'去设置');
+  const goSet=openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(provider,custom||row.bind?{id:serviceId}:undefined)},state?.missing?VOICE_BACKEND_LINK:'去设置');
   const warn=browser&&state?.warn?h(VoiceWarn,null,state.text):
-    state?.missing?h(VoiceWarn,{action:goSet},('还没有配置'+spacedName(name)+'服务').trimEnd()):
+    state?.missing?h(VoiceWarn,{action:goSet},('还没有在配音后端设置'+spacedName(name)).trimEnd()+'，这个人物暂不配音'):
     state?.key||list.value?.status==='credentials-required'?h(VoiceWarn,{action:goSet},('缺少'+spacedName(name)+'密钥').trimEnd()):
     state?.warn?h(VoiceWarn,{action:goSet},spacedName(name).trimStart()+'连不上'+(state.reason?'：'+state.reason:'')):null;
   const row1=v=>{const key=provider+':'+(serviceId||'')+':'+v.id+':'+useModel;
@@ -844,6 +848,7 @@ function VoiceProviderVoices({binding,figure,preview,candidate,choose,active,row
     content:close=>[...(custom?[]:[{id:'',label:'服务默认型号'}]),...models].map(m=>h('button',{key:m.id||'default',type:'button',role:'menuitemradio','aria-checked':useModel===m.id,className:'ap-menu-item',onClick:()=>{close();setModel(m.id);}},h('span',null,m.label),useModel===m.id&&h('span',{className:'ap-state-check'},h(Glyph,{name:'check'}))))});
   // A custom service without a voice list: 型号 and 音色 by name (the endpoint's own words, e.g. tts-1 / alloy).
   const manual=custom&&!!list.value&&!failed&&!voices.length;
+  if(row.missing)return warn;
   return h(React.Fragment,null,
     warn,
     (modelPick||voices.length>12)&&h('div',{className:'ap-voice-tools'},
@@ -960,7 +965,9 @@ function VoicePresets({binding,pack,figure,spec,voice,sourceId,writer,rows,activ
       h('li',{className:'ap-voice-preset-add-row'},h('button',{type:'button',className:'ap-voice-preset-add','aria-label':'把当前设置存为新预设',title:'把当前设置存为新预设',onClick:add},h(Glyph,{name:'plus'})))),
     editing&&h(VoicePresetParams,{binding,spec,voice,sourceId,active,save,preset:currentPreset}),
     h('div',{className:'ap-voice-bymood'},
-      h('button',{type:'button',className:'ap-voice-subhead','aria-expanded':byMood,onClick:()=>setByMood(v=>!v)},h('span',null,'按差分调音'),h('span',{className:'ap-voice-way-sum'},voice.emotionVariants?Object.keys(voice.emotionVariants).length+' 种差分':''),h(Glyph,{name:'chevDown'})),
+      h('div',{className:'ap-voice-subhead-row'},
+        h('button',{type:'button',className:'ap-voice-subhead','aria-expanded':byMood,onClick:()=>setByMood(v=>!v)},h('span',null,'按差分调音'),h('span',{className:'ap-voice-way-sum'},voice.emotionVariants?Object.keys(voice.emotionVariants).length+' 种差分':''),h(Glyph,{name:'chevDown'})),
+        h(Help,{text:VOICE_MOOD_TUNING_HELP,label:'按差分调音 说明'})),
       byMood&&h('ul',{className:'ap-voice-moods','aria-label':'按差分调音'},rows.map(r=>{const value=voice.emotionVariants?.[r.id]||'';
         return h('li',{key:r.id,className:'ap-voice-mood-row'},h('span',{className:'ap-voice-dot','aria-hidden':true}),h('span',{className:'ap-voice-mood-name'},r.label),
           h(Popover,{label:r.label+'调音',trigger:({toggle,open:o})=>h('button',{type:'button',className:'ap-pick-pill ap-quiet-pick','aria-label':r.label+'调音：'+(value?presetName(spec,value):'跟随默认'),'aria-expanded':o,onClick:toggle},h('span',null,value?presetName(spec,value):'跟随默认'),h(Glyph,{name:'chevDown'})),

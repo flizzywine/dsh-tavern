@@ -4947,8 +4947,6 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-provider-head > .ap-glyph { flex: none; width: 14px; height: 14px; color: var(--fork-ink-2); }
 .ap-voice-provider-head[aria-expanded=true] > .ap-glyph { transform: rotate(180deg); }
 .ap-voice-provider-body { display: grid; gap: 12px; min-width: 0; padding: 0 0 16px; }
-.ap-voice-provider-add-row { padding: 10px 0 0; }
-.ap-ui button.ap-cat-add-row.ap-voice-provider-add { margin-top: 0; }
 .ap-voice-search { display: flex; gap: 8px; }
 .ap-ui .ap-voice-search input:not([data-ap-a]):not([data-ap-b]):not([data-ap-c]) { flex: 1; min-width: 0; height: 34px; }
 .ap-ui .ap-voice-search button.ap-voice-find { flex: none; gap: 6px; height: 34px; margin: 0; padding: 0 14px 0 12px; }
@@ -5009,6 +5007,9 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-na { color: var(--fork-ink-2); font-size: var(--fork-fs-body); }
 .ap-voice-bymood { margin-top: 4px; border-top: 1px solid var(--ap-border); }
 .ap-ui button.ap-voice-subhead { min-height: 44px; font-size: var(--fork-fs-body); }
+/* 按差分调音: title → count → (?) on one line; the toggle no longer spans the row. */
+.ap-voice-subhead-row { display: flex; align-items: center; gap: 4px; }
+.ap-ui .ap-voice-subhead-row > button.ap-voice-subhead { width: auto; flex: 0 1 auto; min-width: 0; }
 .ap-voice-moods { display: grid; grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 4px 28px; margin: 0; padding: 0 0 4px; list-style: none; }
 .ap-voice-mood-row { display: flex; align-items: center; gap: 8px; min-height: 40px; }
 .ap-voice-mood-name { min-width: 3em; font-size: var(--fork-fs-body); }
