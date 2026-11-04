@@ -10,6 +10,7 @@ import { redactMvuLoadError } from '../domain/mvu-diagnostics.js'
 import { pluginMediaRange, slicePluginMediaStream } from '../domain/plugin-media.js'
 import { PLUGIN_ASSET_PREFIX } from '../domain/plugin-assets.js'
 import { isTrustedHostRequest } from './host-fence.js'
+import { isSameOriginRequest } from './request-origin.js'
 
 // A 50 MiB save/skill ZIP expands to 69,905,068 base64 bytes, plus its JSON envelope.
 export const DEFAULT_RPC_BODY_LIMIT = 80 * 1024 * 1024
@@ -128,10 +129,11 @@ export function registerTavernHttpRoutes({
           } catch (_) { res.writeHead(403,headers); res.end(JSON.stringify({error:'History unavailable; refresh the session'})) }
           return
         }
-        // Voice grants and paid asset generation still require an explicit same-origin carrier.
+        // Voice grants and paid asset generation also refuse any cross-site browser marker.
+        // The desktop app forwards authenticated requests without Origin or Sec-Fetch-Site.
         const figureVoiceRoute = /^\/api\/dsh-tavern\/(?:getFigureVoiceEditor|listFigureVoiceChoices|assignFigureVoice|previewFigureVoice|openFigureVoicePreview|closeFigureVoicePreview)$/.test(pathname)
         const assetGenerationRoute = /^\/api\/dsh-tavern\/(?:prepareAssetGeneration|generateAssetCandidate|getAssetGenerationJob|cancelAssetGenerationJob|listAssetCandidates|readAssetCandidate|rejectAssetCandidate|retryAssetCandidateSave|acceptAssetCandidate|getAssetGenPrompts|setAssetGenPrompt)$/.test(pathname)
-        if ((figureVoiceRoute || assetGenerationRoute) && (!sameOrigin || req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin')) {
+        if ((figureVoiceRoute || assetGenerationRoute) && !isSameOriginRequest({ host: req.headers.host, origin, fetchSite: req.headers['sec-fetch-site'] })) {
           res.writeHead(403); res.end('forbidden'); return
         }
         const gameplayRoute = pathname.startsWith('/api/dsh-tavern/gameplay.')

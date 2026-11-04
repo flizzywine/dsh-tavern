@@ -124,9 +124,13 @@ test('Azure escapes prepared SSML and uses portable mood mapping',() => {
   const ssml=azureSsml({text:'<&',params:{...voice.params,styles:true},mood:'joy',moodStyles:{joy:'friendly'}})
   assert.match(ssml,/&lt;&amp;/); assert.match(ssml,/style="friendly"/)
 })
-test('route same-origin rejects cross-site, missing markers and oversize bodies',async () => {
+test('route same-origin rejects cross-site markers and oversize bodies, admits the desktop forward',async () => {
   const req=(headers={},body='{"method":"status"}') => new Request('http://localhost:123/api/dsh-tts/v1/control',{method:'POST',headers:{'Content-Type':'application/json',...headers},body})
-  assert.equal(sameOrigin(req()),false); assert.equal(sameOrigin(req({origin:'http://localhost:999'})),false)
+  // Connection has authenticated the request; the desktop app forwards it without Origin or Sec-Fetch-Site.
+  assert.equal(sameOrigin(req()),true); assert.equal(sameOrigin(req({origin:'dsh-app://app'})),true)
+  assert.equal(sameOrigin(req({'sec-fetch-site':'none'})),true)
+  assert.equal(sameOrigin(req({origin:'http://localhost:999'})),false)
+  assert.equal(sameOrigin(req({'sec-fetch-site':'cross-site'})),false); assert.equal(sameOrigin(req({'sec-fetch-site':'same-site'})),false)
   assert.equal((await handleControl(req({origin:'http://localhost:123','sec-fetch-site':'cross-site'}),() => ({}))).status,403)
   assert.equal((await handleControl(req({origin:'http://localhost:123'}),() => ({ok:true}))).status,200)
   assert.equal((await handleControl(req({origin:'http://localhost:123'},'x'.repeat(65537)),() => ({}))).status,400)

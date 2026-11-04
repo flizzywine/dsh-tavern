@@ -27,4 +27,6 @@ for (const name of ['native-settings.js', 'settings-migration.js']) {
   emit(join(root, 'src/shared', name), '// Generated from Tavern host settings by build.mjs; do not edit.\n' +
     readFileSync(join(root, '../../lib', name), 'utf8'))
 }
+emit(join(root, 'src/shared/request-origin.js'), '// Generated from Tavern host HTTP routes by build.mjs; do not edit.\n' +
+  readFileSync(join(root, '../../lib/http/request-origin.js'), 'utf8'))
 visit(join(root,'src'))

@@ -1,13 +1,12 @@
 import { describeTtsError } from './core.js'
+import { isSameOriginRequest } from './shared/request-origin.js'
 
 // Connection owns login-cookie authentication for the shared /api carrier.
 // Keep a stricter same-origin check here, including read-only sensitive actions.
 export function sameOrigin(request) {
-  const url = new URL(request.url), origin = request.headers.get('origin'), site = request.headers.get('sec-fetch-site')
   // Connection's Fetch bridge deliberately uses http://dsh.internal, preserving Host.
-  const authority = request.headers.get('host') || url.host
-  if (site && site !== 'same-origin') return false
-  return origin ? origin === 'http://' + authority || origin === 'https://' + authority : site === 'same-origin'
+  const host = request.headers.get('host') || new URL(request.url).host
+  return isSameOriginRequest({ host, origin: request.headers.get('origin'), fetchSite: request.headers.get('sec-fetch-site') })
 }
 export function json(value, status = 200) { return Response.json(value, { status, headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'} }) }
 // control requests carry whole reading presets on import (up to
