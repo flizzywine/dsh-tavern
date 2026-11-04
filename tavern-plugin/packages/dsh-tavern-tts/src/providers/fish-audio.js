@@ -28,22 +28,29 @@ function failure(status) {
   throw error
 }
 const HOLD_TTL_MS = 120000
-// The official cloud's own metadata: it has no /v1/info, and its API documents the public voice library.
-export const FISH_CLOUD_CAPABILITIES = Object.freeze({prepareVoice:false,voiceLibrary:true})
-// The 配音来源 a Fish-protocol service serves: every one takes reference audio (/v1/tts); voice IDs only with a voice library.
-export const fishVoiceSources = capabilities => ['reference-list', ...(capabilities?.voiceLibrary ? ['voice-id'] : [])]
 export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal})} = {}) {
-  const lanes = new Map(), infos = new Map(), discovery = createFishDiscovery({fetch})
-  async function info(p, secret, refresh = false) {
-    // a self-hosted server says what it serves in /v1/info (cached per URL and key).
-    if (isFishCloud(p.config)) return {models:structuredClone(FISH_MODELS),capabilities:{...FISH_CLOUD_CAPABILITIES},source:'builtin'}
+  const lanes = new Map(), infos = new Map(), libraries = new Map(), discovery = createFishDiscovery({fetch})
+  // a server's own /v1/info, cached per URL and key until a refresh; a failed ask is not kept.
+  function served(p, secret, refresh = false) {
     const key = hash([p.config.url, secret.key || ''])
     if (refresh) infos.delete(key)
-    if (!infos.has(key)) {
-      const pending = discovery.info(p, secret).catch(error => { infos.delete(key); throw error })
-      infos.set(key, pending)
-    }
+    if (!infos.has(key)) infos.set(key, discovery.info(p, secret).catch(error => { infos.delete(key); throw error }))
     return infos.get(key)
+  }
+  async function info(p, secret, refresh = false) {
+    if (isFishCloud(p.config)) return {models:structuredClone(FISH_MODELS),capabilities:{prepareVoice:false},source:'builtin'}
+    return served(p, secret, refresh)
+  }
+  // Whether this service instance serves Fish's voice library (声音库 voice IDs), asked of the server itself and cached per
+  // URL and key: a server with the discovery extension says so in /v1/info (`capabilities.voiceLibrary`); a server without
+  // it (the official cloud) is asked whether its voice library API answers. Unanswered (offline, auth) rejects, not kept.
+  function voiceLibrary(provider, secret) {
+    const p = {...provider,config:providerConfig('fish-audio',provider.config)}, key = hash([p.config.url, secret.key || ''])
+    if (!libraries.has(key)) libraries.set(key, served(p, secret).then(i => i.capabilities.voiceLibrary, error => {
+      if (!['VOICE_NOT_FOUND','API_INCOMPATIBLE'].includes(error.code)) throw error
+      return discovery.library(p, secret).catch(error => { if (error.code === 'VOICE_NOT_FOUND') return false; throw error })
+    }).catch(error => { libraries.delete(key); throw error }))
+    return libraries.get(key)
   }
   async function request(p, key, route, init, signal, onChunk) {
     for (let attempt = 0; ; attempt++) {
@@ -73,6 +80,7 @@ export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, s
     // the curated picks are the starting list; the picker searches Fish's own
     // (free) model listing by name and keeps manual ID entry.
     info,
+    voiceLibrary,
     async voices(p = {config:{url:'https://api.fish.audio'}}, secret = {}) {
       if (!isFishCloud(p.config)) return info(p, secret, true)
       return {voices:recommended.map(v => ({id:v.voiceId,label:v.name,languages:v.languages || [],...(v.gender ? {gender:v.gender} : {}),description:(v.toneTags || []).slice(0,3).join(' · ')})),models:structuredClone(FISH_MODELS),source:'builtin',search:true}

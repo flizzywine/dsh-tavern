@@ -6,7 +6,7 @@ import { createFishDiscovery } from './providers/fish-discovery.js'
 import recommendedFishVoices from './shared/fish-recommended.json' with {type:'json'}
 import { createAzureAdapter, azureVoices } from './providers/azure.js'
 import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } from './providers/qwen.js'
-import { createFishAudioAdapter, fishVoiceSources, FISH_CLOUD_CAPABILITIES } from './providers/fish-audio.js'
+import { createFishAudioAdapter } from './providers/fish-audio.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
@@ -319,22 +319,28 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         const audioRevision = p.kind === 'volcengine' ? hash([revision, 'v3-api-key-json-additions-v2']) : revision
         const customFish = p.kind === 'fish-audio' && !isFishCloud(p.config)
         const model = customFish ? {label:p.config.model,billing:'unknown'} : fishModel(p.config.model)
-        // 配音来源 (Provider.capabilities.voiceSources): a Fish-protocol service by what it serves (a custom server's /v1/info,
-        // refreshed in discover); the online protocols by their fixed semantics (preset voices).
-        const voiceSources = p.kind === 'fish-audio' ? fishVoiceSources(customFish ? {} : FISH_CLOUD_CAPABILITIES) : ['preset']
+        // 配音来源 (Provider.capabilities.voiceSources): what the protocol always serves (its kind's declaration); a Fish
+        // service adds voice IDs in discover, once its own server answers that it serves a voice library.
+        const voiceSources = [...providerKind(p.kind).voiceSources]
         const voiceList = p.kind === 'fish-audio' ? customFish ? 'provider' : 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'
         const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, model:p.config.model ?? null, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:p.kind === 'fish-audio' ? model.billing !== 'free' : providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},model:p.config.model,modelLabel:model.label,billing:model.billing,voiceDirections:model.voiceDirections === true,prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
           validateModel: (model, voiceName) => api.validateVoiceModel({serviceId:p.id,model,voiceName}),
           // A custom Fish server takes the server's own `/v1/hold` lease when it advertises one.
           ...(customFish ? {hold:async () => adapter.hold(p, await secrets(p))} : {}),
           ...(customFish ? {info:async () => adapter.info(p, await secrets(p), true)} : {}),
-          ...(customFish ? {
+          ...(p.kind === 'fish-audio' ? {
             discover: async () => {
+              // the server's answer (asked once per URL and key); unanswered keeps the last one and fails no request that asked.
+              const library = await secrets(p).then(secret => adapter.voiceLibrary(p, secret)).catch(() => null)
+              if (library !== null) port.capabilities.voiceSources = [...providerKind(p.kind).voiceSources, ...(library ? ['voice-id'] : [])]
+              if (!customFish) return
               const info = await adapter.info(p, await secrets(p)), selected = p.config.model ? info.models.find(m => m.id === p.config.model) : info.models[0]
-              Object.assign(port.capabilities, {voiceSources:fishVoiceSources(info.capabilities),prepareVoice:info.capabilities.prepareVoice,voiceDirections:selected?.voiceDirections ?? info.capabilities.voiceDirections,
+              Object.assign(port.capabilities, {prepareVoice:info.capabilities.prepareVoice,voiceDirections:selected?.voiceDirections ?? info.capabilities.voiceDirections,
                 paid:selected?.billing !== 'free',billing:selected?.billing || 'unknown',modelLabel:selected?.label || p.config.model,
                 ...(info.capabilities.concurrency ? {concurrency:info.capabilities.concurrency} : {}),...(info.capabilities.loadTimeoutMs !== undefined ? {loadTimeoutMs:info.capabilities.loadTimeoutMs} : {})})
             },
+          } : {}),
+          ...(customFish ? {
             prewarm: async (spec, options) => adapter.prewarm(p, await secrets(p), {...spec, signal:options.signal}),
           } : {}),
           health: async () => { try { await secrets(p) } catch { return {state:'credentials-required'} }; return {state:'configured', probed:false} },

@@ -41,6 +41,12 @@ export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
       return {voices:[],models,source:'live',state:['loading','ready','sleeping','paused','error'].includes(data.state) ? data.state : 'unknown',capabilities:{prepareVoice:data.capabilities?.prepareVoice === true,voiceDirections:data.capabilities?.voiceDirections === true,
         hold:data.capabilities?.hold === true,voiceLibrary:data.capabilities?.voiceLibrary === true,...(concurrency ? {concurrency} : {}),...(loadTimeoutMs !== undefined ? {loadTimeoutMs} : {}),...(idleUnloadMs !== undefined ? {idleUnloadMs} : {})}}
     },
+    // Whether the server answers Fish's public voice library API (a public listing): asked of a server without `/v1/info`.
+    // A server's own directory of private reference IDs (a local server's `/model`) is not a voice library.
+    async library(provider, secret) {
+      const data = await get(provider, secret, '/model?' + new URLSearchParams({page_size:'1',self:'false'}))
+      return Array.isArray(data.items) && data.items.some(v => v?.visibility === 'public')
+    },
     async catalogue(provider, secret, {language} = {}) {
       const languages = ['zh','ja'].includes(language) ? [language] : ['zh','ja']
       const pages = await Promise.all(languages.map(async language => {

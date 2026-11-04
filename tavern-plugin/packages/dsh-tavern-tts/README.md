@@ -16,7 +16,7 @@ Tavern 通过公开 source/grant 接口消费声音；本包不导入、不迁�
 
 - 宿主：`ctx.get('tts').listVoiceServices()`；浏览器：`ttsClient.call('voiceServices')`。两者返回同一个 `VoiceServiceCatalog`（`types/index.d.ts`）。
 - `services`：每个已保存的服务一项 `{id, kind, label, state, billing, sources, voiceList}`，其他插件注册的、报了配音来源的 provider 各一项，最后固定一项浏览器朗读（`kind:'browser'`，永远 `ready`、免费）。不含密钥、地址和 config 原文；`state` 取本次运行最近一次连接检查的结果（`ready` / `configured` / `needs-key` / `offline`）。
-- `sources`：这个服务能接的配音来源（pack 声音来源的 `kind`）；`voiceList`：它的声音从哪里列（`fish-recommended` / `preset` / `provider` / `browser`）。两者都由该服务实例的 provider 自己回答（`Provider.capabilities.voiceSources` / `voiceList`），不按种类或名字写死：目录每次读取前调用 provider 的 `discover()`（不唤醒），能询问服务器的 provider 按服务配置缓存答案。Fish 协议：官方云端有声音克隆与声音库；自建服务器按 `GET /v1/info` 的 `capabilities.voiceLibrary` 回答，未声明即只有声音克隆。没报 `voiceSources` 的 provider 不进目录。
+- `sources`：这个服务能接的配音来源（pack 声音来源的 `kind`）；`voiceList`：它的声音从哪里列（`fish-recommended` / `preset` / `provider` / `browser`）。两者都由该服务实例的 provider 自己回答（`Provider.capabilities.voiceSources` / `voiceList`），不按种类或名字写死：目录每次读取前调用 provider 的 `discover()`（不唤醒），能询问服务器的 provider 按服务配置缓存答案。Fish 协议：每个服务都有声音克隆；有没有声音库由该服务器自己回答——有 `GET /v1/info` 的服务器看其中的 `capabilities.voiceLibrary`（未声明即没有），没有 `/v1/info` 的服务器（官方云端）看它的声音库接口 `GET /model` 是否列出公开声音；问不到时保留上次的回答，不按地址或名字推断。其他在线协议语义固定，由服务种类声明只有预设声音。没报 `voiceSources` 的 provider 不进目录。
 - `kinds`：所有支持的种类及其名称，用于显示指向未配置服务的来源（「通义千问 · 未设置」）。
 - 目录变化（保存、删除、检查服务）时，`tts.subscribe` 发 `{type:'servicesChanged'}`。
 - 运行时选服务仍用 `listServices()` / `chooseService()`；改名或删字段要走 `apiVersion`。

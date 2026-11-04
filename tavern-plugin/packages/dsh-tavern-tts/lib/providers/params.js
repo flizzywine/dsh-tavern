@@ -2,24 +2,27 @@ import {FISH_DEFAULT_MODEL, FISH_MODELS, fishModelId, isFishCloud} from './fish-
 export const PROVIDER_ID = /^[a-z][a-z0-9-]{0,23}$/
 // `advanced` fields keep their default in 基础 mode; every kind may be added
 // any number of times (instances differ by id, and credentials are keyed by id).
+// `voiceSources`: the 配音来源 the protocol itself always serves (Provider.capabilities.voiceSources), for the protocols
+// with nothing to ask: every online protocol speaks preset voice names; every Fish service takes reference audio, and adds
+// voice IDs when the server answers that it serves a voice library (fish-audio.js voiceLibrary).
 export const PROVIDER_KINDS = [
-  { kind: 'qwen', label: '通义千问', paid: true, fields: [{ key: 'region', label: '区域', type: 'select', required: true, options: [['cn', '中国内地'], ['intl', '国际']], default: 'cn' }, { key: 'key', label: 'API Key', secret: true }] },
-  { kind: 'azure', label: 'Azure', paid: true, fields: [{ key: 'region', label: '区域', required: true, placeholder: 'eastasia' }, { key: 'key', label: '订阅密钥', secret: true }] },
+  { kind: 'qwen', label: '通义千问', paid: true, voiceSources: ['preset'], fields: [{ key: 'region', label: '区域', type: 'select', required: true, options: [['cn', '中国内地'], ['intl', '国际']], default: 'cn' }, { key: 'key', label: 'API Key', secret: true }] },
+  { kind: 'azure', label: 'Azure', paid: true, voiceSources: ['preset'], fields: [{ key: 'region', label: '区域', required: true, placeholder: 'eastasia' }, { key: 'key', label: '订阅密钥', secret: true }] },
   // explicit model allowlist prevents Fish's unknown-model paid fallback.
-  { kind: 'fish-audio', label: 'Fish Audio', paid: true, fields: [
+  { kind: 'fish-audio', label: 'Fish Audio', paid: true, voiceSources: ['reference-list'], fields: [
     { key: 'url', label: 'Base URL', required: true, default: 'https://api.fish.audio', advanced: true },
     { key: 'model', label: '模型', type: 'select', required: true, default: FISH_DEFAULT_MODEL, options: FISH_MODELS.map(m => [m.id, m.label + (m.hint ? '（' + m.hint + '）' : '') + (m.billing === 'free' ? '（免费）' : '（计费）')]) },
     { key: 'key', label: 'API Key', secret: true },
   ] },
-  { kind: 'volcengine', label: '火山引擎', paid: true, fields: [{ key: 'key', label: 'API Key', secret: true }, { key: 'resourceId', label: '资源 ID', required: true, default: 'seed-tts-2.0', advanced: true }] },
-  { kind: 'minimax', label: 'MiniMax', paid: true, fields: [
+  { kind: 'volcengine', label: '火山引擎', paid: true, voiceSources: ['preset'], fields: [{ key: 'key', label: 'API Key', secret: true }, { key: 'resourceId', label: '资源 ID', required: true, default: 'seed-tts-2.0', advanced: true }] },
+  { kind: 'minimax', label: 'MiniMax', paid: true, voiceSources: ['preset'], fields: [
     { key: 'url', label: 'API 根地址', required: true, default: 'https://api.minimaxi.com', advanced: true },
     { key: 'model', label: '模型', required: true, default: 'speech-02-hd' },
     { key: 'groupId', label: 'Group ID（选填）', advanced: true },
     { key: 'key', label: 'API Key', secret: true },
   ] },
   // endpoint paths stay on the configured origin; credentials never enter URLs.
-  { kind: 'openai-compatible', label: 'OpenAI 兼容', paid: true, fields: [
+  { kind: 'openai-compatible', label: 'OpenAI 兼容', paid: true, voiceSources: ['preset'], fields: [
     { key: 'url', label: '服务地址', required: true, placeholder: 'https://api.example.com' },
     { key: 'speechPath', label: '合成路径', default: '/v1/audio/speech', required: true, advanced: true },
     { key: 'modelsPath', label: '模型列表路径', placeholder: '/v1/models', advanced: true },
