@@ -3719,7 +3719,7 @@
       },
       "rows": {
        "type": "object",
-       "description": "Bars: plain, focus (the focused item) and off (cannot act) images, slice [top, right, bottom, left], label column [l, r] centred on y at font px, the first bar's top-left x, y and the gap between bars; cursor = an image beside the focused bar, top-left from the bar's.",
+       "description": "Bars: plain, focus (the focused item) and off (cannot act) images, slice [top, right, bottom, left], label column [l, r] centred on y at font px, the first bar's top-left x, y and the gap between bars; cursor = an image beside the focused label: x px from its right edge to the label's first glyph, y its top from the bar's.",
        "additionalProperties": false,
        "required": [
         "images",

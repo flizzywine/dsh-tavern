@@ -318,7 +318,7 @@ const skinModes = value => value !== null && typeof value === 'object' && !Array
 // wide stages (narrow ones keep the shared panel in the skin's palette). sheet = an image filling the design screen behind it;
 // rows = every item as a bar image (plain; focus = the focused item; off = one that cannot act), 9-sliced [top, right, bottom,
 // left] like the choice bars, its label in the text column [l, r] centred on y at `font` px (ink / focusInk, weight), the
-// first bar's top-left at x, y with `gap` px between bars; cursor = an image beside the focused bar (top-left from the bar's).
+// first bar's top-left at x, y with `gap` px between bars; cursor = an image beside the focused label (x = the gap to its first glyph, y = top from the bar's).
 // title / info / keys = a strip carrying the menu's title, the focused item's description or the key guide: its image at
 // its natural size (none: text only, text[1] wide and 2 * text[2] high) with its top-left at x, y and the words in the text
 // column [l, r] centred on y, aligned start | center | end. Positions in design px.
