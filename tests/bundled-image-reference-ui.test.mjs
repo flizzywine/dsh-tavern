@@ -163,3 +163,14 @@ for (const [backend, protocol, supported] of [
   assert.deepEqual(patches, [{ generationMode: 'text' }])
   assert.equal(config.imageChannels[0].model, 'user/exact-model')
 })
+
+test('global generation selector offers auto (use references when the picture has them)', () => {
+  const config = { generationMode: 'auto', imageBackend: 'custom', activeImageChannel: 'channel', imageChannels: [{ id: 'channel', provider: 'custom', options: { apiProtocol: 'novelai' } }] }, patches = []
+  const context = vm.createContext({ h, config, data: { config }, channelSecretDrafts: {}, uiSupportsImageReferences: () => false, imageBackend: 'custom', S: { card: {}, row: {}, input: {}, label: {} }, save: patch => patches.push(clone(patch)) })
+  const tree = vm.runInContext(`(()=>{${generationCard};return generationModeCard()})()`, context)
+  const select = one(tree, node => node.props['aria-label'] === '默认生图模式')
+  assert.equal(select.props.value, 'auto')
+  assert.equal(one(select, node => node.type === 'option' && node.props.value === 'auto').props.disabled, undefined)
+  assert.match(text(tree), /自动模式下每张都按文生图提交/)
+  assert.equal(patches.length, 0)
+})

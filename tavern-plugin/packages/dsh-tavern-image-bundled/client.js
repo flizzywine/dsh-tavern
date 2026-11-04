@@ -896,7 +896,7 @@ let openImageOverlay = null
       try {
         if (!jobId || typeof openPromptEditor !== 'function') return
         const requestId = openEditorFor.requestId = (openEditorFor.requestId || 0) + 1
-        openPromptEditor({ open: true, openRequestId: requestId, jobId: String(jobId), prompt: '', negative: '', rawPrompt: '', originalPrompt: '', rawPromptSource: '', submittedPromptSource: '', promptAssembly: null, finalPrompt: '', instruction: '', note: '正在读取提示词…', busy: '', loading: true, submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '', generationMode: 'text', refreshReferences: false, references: [], submittedPrompt: '', actualPositive: '', actualNegative: '', sourceBackend: '', providerError: '', inputsLoading: true, inputsError: '', inputsReload: 0, showInputs: false, channels: [], channelLoadFailed: false })
+        openPromptEditor({ open: true, openRequestId: requestId, jobId: String(jobId), prompt: '', negative: '', rawPrompt: '', originalPrompt: '', rawPromptSource: '', submittedPromptSource: '', promptAssembly: null, finalPrompt: '', instruction: '', note: '正在读取提示词…', busy: '', loading: true, submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '', generationMode: 'text', sourceGenerationMode: '', sourceRequestedGenerationMode: '', sourceGenerationModeReason: '', refreshReferences: false, references: [], submittedPrompt: '', actualPositive: '', actualNegative: '', sourceBackend: '', providerError: '', inputsLoading: true, inputsError: '', inputsReload: 0, showInputs: false, channels: [], channelLoadFailed: false })
         jsonFetch(BASE + '/job-detail?id=' + encodeURIComponent(String(jobId)), { cache: 'no-store' })
           .then(r => {
             if (!r?.ok || !r.job) { openPromptEditor({ forJobId: String(jobId), forRequestId: requestId, loading: false, note: '读不到提示词：' + (r?.error || '') }); return }
@@ -1225,6 +1225,7 @@ function versionsOf(jobId) {
           const job = result.job
           openPromptEditor({ forJobId: view.jobId, inputsLoading: false, inputsError: '',
             generationMode: job.generationMode === 'reference' ? 'reference' : 'text',
+            sourceGenerationMode: job.generationMode === 'reference' ? 'reference' : 'text', sourceRequestedGenerationMode: String(job.requestedGenerationMode || ''), sourceGenerationModeReason: String(job.generationModeReason || ''),
             sourceBackend: String(job.backend || ''), sourceChannelId: String(job.channelId || ''),
             references: Array.isArray(job.references) ? job.references : [],
             submittedPrompt: typeof job.submittedPrompt === 'string' ? job.submittedPrompt : '',
@@ -1399,6 +1400,9 @@ function versionsOf(jobId) {
           view.inputsError ? React.createElement('div', { role: 'alert', style: { fontSize: '12px', color: '#f0bf76' } }, view.inputsError,
             React.createElement('button', { type: 'button', disabled: Boolean(view.inputsLoading || view.busy), onClick: () => openPromptEditor({ inputsReload: (view.inputsReload || 0) + 1 }) }, '重新读取输入')) : null,
           React.createElement('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '8px' } }, '下列为原任务记录，不会随上方编辑或模式切换而改写。'),
+          view.sourceGenerationMode ? React.createElement('div', { 'aria-label': '原任务生图模式', style: { fontSize: '12px', marginTop: '8px' } },
+            '实际生图模式：' + (view.sourceGenerationMode === 'reference' ? '参考图生图' : '文生图')
+              + (view.sourceRequestedGenerationMode === 'auto' ? (view.sourceGenerationMode === 'reference' ? '（自动：本张有参考图）' : view.sourceGenerationModeReason === 'unsupported-input' ? '（自动：当前渠道或工作流不支持参考图）' : '（自动：本张没有可用参考图）') : '')) : null,
           React.createElement('div', { style: { fontSize: '12px', marginTop: '8px' } }, view.rawPromptSource && view.rawPromptSource !== 'rawTag' ? '原始输入回退记录（原文缺失）' : '规划原文／原始输入（原任务）'),
           React.createElement('pre', { 'aria-label': '规划原文', style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '220px', overflowY: 'auto', fontSize: '12px' } }, view.loading ? '正在读取原文…' : view.originalPrompt || view.rawPrompt || '未记录原始输入'),
           React.createElement('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, '这里展示原任务保存的场景与角色块，不是完整规划会话；手动任务可能是用户输入，旧任务可能由后端回退为已处理文本。'),
@@ -3477,7 +3481,7 @@ function versionsOf(jobId) {
       }
 
       function generationModeCard() {
-        const mode = config.generationMode === 'reference' ? 'reference' : 'text'
+        const mode = ['reference', 'auto'].includes(config.generationMode) ? config.generationMode : 'text'
         const activeChannel = (Array.isArray(config.imageChannels) ? config.imageChannels : []).find(channel => channel.id === config.activeImageChannel)
         const activeDraft = activeChannel ? channelSecretDrafts[activeChannel.id]?.fields : null
         const effectiveChannel = activeChannel ? Object.assign({}, activeChannel, activeDraft || {}, { options: activeDraft?.options || activeChannel.options || {} }) : null
@@ -3486,11 +3490,13 @@ function versionsOf(jobId) {
           h('label', { style: S.row }, h('span', { style: S.label }, '默认生图模式'),
             h('select', { 'aria-label': '默认生图模式', value: mode, style: S.input, onChange: event => save({ generationMode: event.target.value }) },
               h('option', { value: 'text' }, '文生图'),
+              h('option', { value: 'auto' }, '自动（有参考图就用）'),
               h('option', { value: 'reference', disabled: !available }, '参考图生图'))),
           !available ? h('div', { role: mode === 'reference' ? 'alert' : 'status', style: { fontSize: '12px', color: mode === 'reference' ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-tertiary)' } },
-            mode === 'reference' ? '当前渠道不支持参考图输入；请明确切换到支持参考图的渠道或改为文生图，不会自动降级。' : '当前渠道不支持参考图输入；可在支持参考图的渠道中启用此模式。') : null,
-          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } }, '参考图模式使用人物库中的角色／服装参考图；有图用图、缺图用文字，整张无图时暂停提示。单张重绘可覆盖模式。', imageBackend === 'comfyui' ? ' ComfyUI 工作流需要接入 LoadImage 节点；图片按本张参考图上传顺序对应节点。' : ''),
-          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } }, '切换模式不会更换模型 ID，也不会自动删减参考图；不支持的协议会在提交前明确阻止，不会静默降级。'))
+            mode === 'reference' ? '当前渠道不支持参考图输入；请明确切换到支持参考图的渠道或改为文生图，不会自动降级。'
+              : mode === 'auto' ? '当前渠道不支持参考图输入；自动模式下每张都按文生图提交。' : '当前渠道不支持参考图输入；可在支持参考图的渠道中启用此模式。') : null,
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } }, '参考图模式使用人物库中的角色／服装参考图；有图用图、缺图用文字，整张无图时暂停提示。自动模式在整张无图时（如纯背景）改用文生图画这一张，提示词编辑器里可以看到每张的实际模式。单张重绘可覆盖模式。', imageBackend === 'comfyui' ? ' ComfyUI 工作流需要接入 LoadImage 节点；图片按本张参考图上传顺序对应节点。自动模式无图时需使用文生图工作流，插件不会绕过工作流中的图片输入。' : ''),
+          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } }, '切换模式不会更换模型 ID，也不会自动删减参考图；参考图模式下，不支持的协议会在提交前明确阻止，不会静默降级。'))
       }
 
       function planTab() {

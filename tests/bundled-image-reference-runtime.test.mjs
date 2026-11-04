@@ -213,3 +213,43 @@ test('新Atlas上传中断记录在重启时是未提交失败而非不确定；
   const legacy = await runtime.request('jobs?id=legacy-running')
   assert.equal(legacy.body.job.state, 'uncertain')
 })
+
+test('自动模式规划：有参考图的画面用参考图，纯背景画面这一张改用文生图', async t => {
+  const calls = []
+  const output = '<images><image><regex>林月站在窗边。</regex><prompts>【人物】\n林月\n\n【动作】\n站在窗边。</prompts><subjects>[{"characterId":"lin","outfitId":""}]</subjects></image>'
+    + '<image><regex>窗外是一片森林。</regex><prompts>【环境】\n晨雾中的森林，没有人物。</prompts><subjects>[]</subjects></image></images>'
+  globalThis.fetch = atlasMock(calls)
+  const { runtime } = await prepare(t, { config: { generationMode: 'auto' }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+  const result = await runtime.request('plan', { text: '林月站在窗边。窗外是一片森林。', messageId: 'turn-auto', count: 2, manual: true })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.equal(result.body.plans.length, 2, JSON.stringify(result.body))
+  const [portrait, background] = await Promise.all(result.body.plans.map(plan => runtime.terminal(plan.jobId)))
+  assert.equal(portrait.state, 'done', portrait.error)
+  assert.deepEqual([portrait.generationMode, portrait.requestedGenerationMode, portrait.references.length], ['reference', 'auto', 1])
+  assert.equal(background.state, 'done', background.error)
+  assert.deepEqual([background.generationMode, background.requestedGenerationMode, background.references.length], ['text', 'auto', 0])
+  assert.match(background.submittedPrompt, /森林/)
+  assert.equal(calls.filter(c => c.url.endsWith('/uploadMedia')).length, 1)
+})
+
+test('自动规划在不支持接图的渠道仍记录自动选择，按文生图展开角色', async t => {
+  const calls = []
+  const output = '<images><image><regex>林月站在窗边。</regex><prompts>林月站在窗边。</prompts><subjects>[{"characterId":"lin","outfitId":""}]</subjects></image></images>'
+  const { runtime } = await prepare(t, { config: {
+    generationMode: 'auto', imageBackend: 'custom', activeImageChannel: 'text-only',
+    imageChannels: [{ id: 'text-only', provider: 'custom', name: 'text', baseUrl: 'https://nai.example.test/v1', model: 'nai-diffusion-5-full', options: { apiProtocol: 'novelai', protocol: 'chat' } }],
+  }, llm: { async *stream() { yield { type: 'text-delta', text: output } } } })
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init })
+    assert.match(String(url), /\/chat\/completions$/)
+    return imageJson({ choices: [{ message: { content: `![image](data:image/png;base64,${IMAGE_PNG.toString('base64')})` } }] })
+  }
+  const result = await runtime.request('plan', { text: '林月站在窗边。', messageId: 'auto-text-channel', count: 1, manual: true })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  assert.equal(result.body.plans.length, 1)
+  const job = await runtime.terminal(result.body.plans[0].jobId)
+  assert.equal(job.state, 'done', job.error)
+  assert.deepEqual([job.generationMode, job.requestedGenerationMode, job.generationModeReason], ['text', 'auto', 'unsupported-input'])
+  assert.match(job.submittedPrompt, /red hair/)
+  assert.equal(calls.length, 1)
+})

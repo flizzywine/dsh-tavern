@@ -67,6 +67,46 @@ test('ComfyUI binding 仅自动接受唯一 LoadImage，多节点必须明确配
   assert.throws(() => applyComfyReferenceImages(workflow({ loaders: ['8'] }), ['a.png', 'b.png']), /只有 1 个.*有 2 张/)
 })
 
+test('ComfyUI 自动模式按实际工作流接图，纯文生图工作流不上传参考图', async t => {
+  for (const reference of [false, true]) await t.test(reference ? 'reference graph' : 'text graph', async t => {
+    const { runtime } = await setup(t, workflow({ loaders: reference ? ['8'] : [] }), { extraConfig: { generationMode: 'auto' } })
+    const calls = []
+    globalThis.fetch = async (url, init = {}) => {
+      const path = new URL(url).pathname
+      calls.push({ path, init })
+      return imageJson(path === '/upload/image' ? { name: 'auto-reference.png', type: 'input' }
+        : path === '/prompt' ? { prompt_id: 'auto-' + reference } : { queue_running: [], queue_pending: [] })
+    }
+    const result = await runtime.request('jobs', { tag: '林月在窗边。', subjects: [{ characterId: 'lin', outfitId: '' }] })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    const job = (await runtime.request('jobs?id=' + result.body.id)).body.job
+    assert.deepEqual([job.generationMode, job.requestedGenerationMode], [reference ? 'reference' : 'text', 'auto'])
+    const submitted = JSON.parse(calls.find(call => call.path === '/prompt').init.body).prompt
+    assert.equal(calls.filter(call => call.path === '/upload/image').length, reference ? 1 : 0)
+    if (reference) assert.equal(submitted['8'].inputs.image, 'auto-reference.png')
+    else {
+      assert.equal(job.generationModeReason, 'unsupported-input')
+      assert.match(submitted['1'].inputs.text, /red hair/)
+    }
+  })
+})
+
+test('ComfyUI 自动模式不会把旧 LoadImage 或无效绑定当成安全的文生图回退', async t => {
+  for (const [name, graph, error] of [
+    ['no references', workflow(), /本张没有可用参考图.*LoadImage/],
+    ['ambiguous bindings', workflow({ loaders: ['8', '9'] }), /无法判断.*明确配置 referenceImages/],
+    ['invalid bindings', workflow({ bindings: [{ node: 'missing', input: 'image' }] }), /只能指向不同 LoadImage/],
+  ]) await t.test(name, async t => {
+    const { runtime } = await setup(t, graph, { extraConfig: { generationMode: 'auto' } })
+    const calls = []
+    globalThis.fetch = async url => { calls.push(String(url)); return imageJson({}) }
+    const result = await runtime.request('jobs', { tag: '没有人物的森林', subjects: [] })
+    assert.equal(result.status, 400, JSON.stringify(result.body))
+    assert.match(result.body.error, error)
+    assert.equal(calls.length, 0, 'no uploads or paid submission')
+  })
+})
+
 test('角色×服装图走现有上传流程，使用一个 LoadImage 槽并保留两种用途', async t => {
   const { runtime, definitions, image } = await setup(t, workflow())
   definitions.characters[0].outfits = [{ id: 'robe', name: '礼服', upper: 'red dress', characterOutfitImage: image }]

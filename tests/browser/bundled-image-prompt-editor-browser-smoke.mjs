@@ -93,7 +93,7 @@ try {
   assert.equal(request.refreshReferences, false)
   await page.evaluate(() => {
     window.__jobOverrides['job-reference'] = {
-      generationMode: 'reference', submittedPrompt: '人物：林月，参照图片1\n环境：窗边', error: 'fixture platform warning',
+      generationMode: 'reference', requestedGenerationMode: 'auto', generationModeReason: 'references', submittedPrompt: '人物：林月，参照图片1\n环境：窗边', error: 'fixture platform warning',
       references: [{ image: { id: 'a'.repeat(64), name: 'face.png' }, kind: 'character', characterId: 'person-a', index: 1, label: '林月', consistencyText: '保持脸型' }],
     }
     window.__openEditor('job-reference', { gameId: 'game', turn: 3, textVersion: 'v3', mediaId: 'media-reference', jobId: 'job-reference' })
@@ -103,6 +103,7 @@ try {
   const editableBeforeInspection = await prompt.inputValue()
   await page.getByRole('button', { name: /看展开结果/ }).click()
   assert.equal(await page.getByLabel('实际提交提示词', { exact: true }).textContent(), '人物：林月，参照图片1\n环境：窗边')
+  assert.match(await page.getByLabel('原任务生图模式').textContent(), /参考图生图（自动：本张有参考图）/)
   assert.equal(await prompt.inputValue(), editableBeforeInspection, 'inspecting actual inputs must not replace editable raw prompt')
   assert.ok((await page.getByRole('img', { name: '参考图 1 林月' }).getAttribute('src')).endsWith('/reference-image?id=' + 'a'.repeat(64)))
   assert.match(await page.getByLabel('原任务参考图').textContent(), /保持脸型/)
@@ -123,6 +124,18 @@ try {
   assert.equal(await page.evaluate(() => window.__requests[2].channelId), 'other')
   assert.equal(await page.evaluate(() => window.__requests[2].generationMode), 'text')
   assert.equal(await page.evaluate(() => window.__requests[2].refreshReferences), false)
+
+  for (const [reason, note] of [['no-references', '本张没有可用参考图'], ['unsupported-input', '当前渠道或工作流不支持参考图']]) {
+    await page.evaluate(reason => {
+      window.__jobOverrides['job-auto-text'] = { generationMode: 'text', requestedGenerationMode: 'auto', generationModeReason: reason }
+      window.__openEditor('job-auto-text', null)
+    }, reason)
+    await page.waitForFunction(reason => document.querySelector('[aria-label="本次生图模式"]')?.value === 'text' && document.querySelector('[aria-label="本次生图模式"]')?.disabled === false, reason)
+    await page.getByRole('button', { name: /看展开结果/ }).click()
+    assert.equal(await page.getByLabel('原任务生图模式').textContent(), '实际生图模式：文生图（自动：' + note + '）')
+    await page.getByLabel('本次生图模式').selectOption('reference')
+    assert.equal(await page.getByLabel('原任务生图模式').textContent(), '实际生图模式：文生图（自动：' + note + '）', 'editing the next job does not rewrite original inputs')
+  }
 
   await page.evaluate(() => window.__openEditor('job-legacy', null))
   await page.waitForFunction(() => document.querySelector('[aria-label="本次生图模式"]') && !document.querySelector('[aria-label="本次生图模式"]').disabled)
