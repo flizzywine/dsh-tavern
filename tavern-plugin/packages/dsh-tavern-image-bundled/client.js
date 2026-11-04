@@ -1061,11 +1061,12 @@ let openImageOverlay = null
             characters: (defs.characters ?? []).concat(people),
             outfits: defs.outfits ?? [],
           })
-          await jsonFetch(BASE + '/definitions', {
+          const saved = await jsonFetch(BASE + '/definitions', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ definitions: merged }),
           })
+          if (!saved?.ok) throw new Error(saved?.error || '服务器没有确认保存')
           try { if (typeof onDesignResult === 'function') onDesignResult(people) } catch {}
           openDesignDialog({ note: '已加入 ' + people.length + ' 位角色', busy: '' })
           setTimeout(close, 1200)
@@ -2447,11 +2448,11 @@ function versionsOf(jobId) {
         dataRef.current = next
         setDataState(next)
       }
-      function receiveState(next, requestRevision) {
+      function receiveState(next, requestRevision, savedRevision) {
         if (!next) return
         const current = dataRef.current
         setData((libraryDirty.current || (typeof requestRevision === 'number' && requestRevision !== libraryRevision.current)) && current
-          ? Object.assign({}, next, { definitions: current.definitions, outfits: current.outfits })
+          ? Object.assign({}, next, { definitions: savedRevision && current.definitions?.revision === savedRevision ? Object.assign({}, current.definitions, { revision: next.definitions?.revision }) : current.definitions, outfits: current.outfits })
           : next)
       }
       function setLibraryData(update) {
@@ -2561,6 +2562,7 @@ function versionsOf(jobId) {
       const improveInFlight = React.useRef({})
       // 保存状态：'' 空闲 / 'saving' / 'saved' / 'failed:原因'
       const [saveState, setSaveState] = React.useState('')
+      const [libraryConflict, setLibraryConflict] = React.useState(false)
       // 历史图库
       const [historyJobs, setHistoryJobs] = React.useState([])
       const [legacyImages, setLegacyImages] = React.useState([])
@@ -3555,6 +3557,8 @@ function versionsOf(jobId) {
             outfitRefs: (person.outfitRefs || []).slice(),
             outfits: (person.outfits || []).map(outfit => Object.assign({}, outfit, { id: 'o' + Date.now() + Math.random().toString(36).slice(2, 8) })),
           })
+          delete copy.figureId
+          delete copy.figurePackId
           setCharacters(current => current.concat([copy]))
           setPeopleSearch('')
           setPeopleActiveId(copy.id)
@@ -3604,13 +3608,14 @@ function versionsOf(jobId) {
           setPeopleBatchNote('正在保存删除…')
           try {
             const r = await post('/definitions', { definitions: defs })
-            if (!r?.ok || !r.state) throw new Error(r?.error || '服务器没有确认保存')
-            receiveState(r.state)
+            if (!r?.ok || !r.state) throw Object.assign(new Error(r?.error || '服务器没有确认保存'), { code: r?.code })
+            receiveState(r.state, undefined, defs.revision)
             setCharacters(nextChars)
             setPeoplePicked({})
             setPeopleBatchNote('已删除 ' + ids.length + ' 个角色')
             if (typeof showToast === 'function') showToast('已删除 ' + ids.length + ' 个角色')
           } catch (error) {
+            if (error?.code === 'REVISION_CONFLICT') setLibraryConflict(true)
             const message = '删除失败：' + (error?.message ?? error)
             setPeopleBatchNote(message)
             if (typeof showToast === 'function') showToast(message)
@@ -3683,6 +3688,19 @@ function versionsOf(jobId) {
           }
         }
 
+        async function reloadLibrary() {
+          if (libraryDirty.current && typeof window !== 'undefined' && !window.confirm('重新载入会放弃当前未保存的人物库修改，继续吗？')) return
+          try {
+            const next = await jsonFetch(BASE + '/state')
+            if (!next?.definitions) throw new Error('读取人物库失败')
+            libraryDirty.current = false
+            libraryRevision.current += 1
+            setData(current => Object.assign({}, current, { definitions: next.definitions, outfits: next.outfits }))
+            setLibraryConflict(false)
+            setSaveState('')
+            setNote('已载入最新人物库')
+          } catch (error) { setNote('重新载入失败：' + error.message) }
+        }
         function commit(silent) {
           // 排队写入，并在真正开始时读取最新草稿；并行设计完成不会互相覆盖整库。
           const pending = librarySaveQueue.current.then(async () => {
@@ -3694,15 +3712,17 @@ function versionsOf(jobId) {
             reportHost('save-start', { characters: (defs.characters || []).length, outfits: defs.outfits.length })
             try {
               const r = await post('/definitions', { definitions: defs })
-              if (!r?.ok || !r.state) throw new Error(r?.error || '服务器没有确认保存')
+              if (!r?.ok || !r.state) throw Object.assign(new Error(r?.error || '服务器没有确认保存'), { code: r?.code })
               reportHost('save-ok', { ok: true })
+              setLibraryConflict(false)
               if (libraryRevision.current === revision) libraryDirty.current = false
-              receiveState(r.state)
+              receiveState(r.state, undefined, defs.revision)
               libraryRevision.current += 1
               setSaveState(libraryDirty.current ? '' : 'saved')
               if (!silent) setNote(libraryDirty.current ? '已保存提交的内容；还有新修改，请再保存' : '人物库已保存')
               return true
             } catch (e) {
+              if (e?.code === 'REVISION_CONFLICT') setLibraryConflict(true)
               const msg = e && e.message ? e.message : String(e)
               reportHost('save-failed', { message: msg.slice(0, 200) })
               if (typeof showToast === 'function') showToast('写入角色库失败：' + msg.slice(0, 60), 'fail')
@@ -4367,6 +4387,7 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, onClick: () => setPeopleOverviewOpen(open => !open) }, peopleOverviewOpen ? '收起概览' : '概览'),
             h('button', { style: buttonStyle, onClick: () => setPeopleTidyOpen(open => !open) }, peopleTidyOpen ? '收起整理' : '整理'),
             h('button', { style: buttonStyle, disabled: saveState === 'saving', onClick: () => commit(false) }, saveState === 'saving' ? '正在保存…' : '保存人物库'),
+            libraryConflict ? h('button', { style: buttonStyle, disabled: saveState === 'saving', onClick: reloadLibrary }, '重新载入最新人物库') : null,
             h('button', { style: buttonStyle, onClick: () => setPeopleBatchOpen(current => !current) }, peopleBatchOpen ? '收起批量编辑' : '批量编辑'),
             h('span', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' } }, '已选 ' + picked.length + ' / ' + characters.length + ' 位'),
           ),

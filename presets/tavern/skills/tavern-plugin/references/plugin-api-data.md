@@ -65,6 +65,8 @@ const outfits = person ? await ctx.tavern.listImageOutfits({
 
 这些接口用于读取与复用。编辑资料仍通过来源插件自己的保存流程，以保留备份和覆盖保护。
 
+**共用人物记录（schema 4）。** 来源可在注册时另带 `schemaVersion: 4` 与四个函数 `getCharacter({ characterId } | { figureId, figurePackId })`、`patchCharacter({ characterId, expected, patch })`、`createCharacter({ character })`、`putReferenceImage({ data: Uint8Array, mediaType, name })`，把完整人物记录交给 Tavern 素材库就地编辑。来源仍是唯一存放处：素材库不缓存、不复制记录；写入带上刚读到的记录，来源按它拒绝过期写入（`REVISION_CONFLICT`），没有记录时返回 `NOT_FOUND`，输入不符时返回 `INVALID_ARGUMENT`。记录字段与三层参考图见内置配图插件 README「共用人物记录」。只提供部分函数、或 `schemaVersion` 不是整数时注册报错；不带 `schemaVersion` 的来源保持只读。记录读写仅供宿主素材库内部使用，不是第三方插件的写接口。多来源时必须携带 `providerId`，不会回退到第一个库。关联由 `figurePackId + figureId` 标识，复制包里同名或同 ID 的人物互不串用。
+
 ## 把插件自己的图片列入对话画廊（`galleryProvider: 1`）
 
 `attach` 需要 `gameId`、`turn` 和正文版本，适合随剧情走的媒体。卡片工作台或插件自己的本地图库没有这些信息时，用 `registerGalleryProvider` 提供图片列表；这些图片只出现在当前 Tavern 会话的「画廊」里，不会伪装成某轮正文附件。

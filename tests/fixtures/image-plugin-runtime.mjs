@@ -46,6 +46,10 @@ export async function imagePluginFixture(t, { config = {}, definitions, files = 
     const runtime = {
       close() { for (const dispose of disposers.splice(0).reverse()) dispose() },
       async request(route, body, method = body === undefined ? 'GET' : 'POST', headers = {}) {
+        if (route === 'definitions' && body?.definitions && !Object.hasOwn(body.definitions, 'revision')) {
+          const state = await this.request('state')
+          body = { ...body, definitions: { ...body.definitions, revision: state.body.definitions.revision } }
+        }
         const url = '/plugins/dsh-tavern-image/' + route
         const handler = routes.get(url.split('?')[0])
         if (!handler) throw new Error('unregistered route ' + route)

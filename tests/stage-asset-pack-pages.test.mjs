@@ -6,7 +6,7 @@ import {readFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 
 const require = createRequire(import.meta.url)
-const read = file => readFile(new URL('../tavern-plugin/' + file, import.meta.url), 'utf8')
+const read = file => readFile(new URL('../tavern-plugin/' + file, import.meta.url), 'utf8').then(source => source.replace(/\r\n/g, '\n'))
 const list = text => text.split(',').map(name => name.trim()).filter(Boolean)
 const PAGES = ['StagePanel', 'StagePage', 'EnginePage', 'FigureGenTab', 'GenPromptSettings', 'ReadingsEditor', 'ModManager', 'ModManagerEntry']
 

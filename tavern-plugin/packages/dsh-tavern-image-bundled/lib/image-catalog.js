@@ -48,12 +48,13 @@ const outfit = (item, characterId = null) => ({
 })
 
 /** Read the live in-memory definitions, never the plugin's private JSON from another plugin. */
-export function imageLibraryProvider(getDefinitions) {
+export function imageLibraryProvider(getDefinitions, records) {
   const characters = context => (getDefinitions().characters || []).filter(item => item.enabled !== false &&
     (!item.cards?.length || Boolean(context.card && item.cards.includes(context.card))))
   const shared = () => (getDefinitions().outfits || []).filter(item => item.enabled !== false)
   return {
     id: 'definitions', label: '配图人物与服装',
+    ...records,
     characters(context = {}) {
       const sharedIds = new Set(shared().map(item => item.id))
       return characters(context).map(item => ({

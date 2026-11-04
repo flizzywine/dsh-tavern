@@ -34,6 +34,8 @@ import { createPluginUpdater } from './updater.js'
 import { IMAGE_PROVIDERS, generateImage, testImageChannel, supportsImageTaskResume } from './image-providers.js'
 import { stageImageProvider, imageLibraryProvider } from './image-catalog.js'
 import { createComfyProgress } from './comfy-progress.js'
+import { CHARACTER_LIBRARY_VERSION, createCharacterLibrary } from './character-library.js'
+import { createDefinitionsStore } from './definitions-store.js'
 import { wardrobeSection } from './wardrobe-hints.js'
 export { stageImageProvider } from './image-catalog.js'
 import { IMAGE_API_PROTOCOLS, effectiveImageProvider, supportsImageReferences } from './image-provider-capabilities.js'
@@ -1046,7 +1048,7 @@ export function apply(ctx, config = {}) {
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           if (tavern.capabilities?.imageLibrary >= 1 && typeof tavern.registerImageLibrary === 'function') {
-            const off = tavern.registerImageLibrary(imageLibraryProvider(() => engine.currentDefinitions()))
+            const off = tavern.registerImageLibrary(imageLibraryProvider(() => engine.currentDefinitions(), engine.characterLibrary))
             if (typeof off === 'function') lifecycleDisposes.push(off)
           }
           logger.info?.('dsh-tavern-image: Tavern 官方接口桥已安装')
@@ -1240,7 +1242,12 @@ function createRuntime(ctx, overrides, logger, deps) {
     const diag = createDiagnostics({ root: ROOT, logger, secrets: () => collectSecretValues(config) })
     config.workflows = await scanWorkflows(config)
     let definitions = await loadDefinitions()
+    const definitionStore = createDefinitionsStore({ initial: definitions, persist: saveDefinitions, onCommit: next => { definitions = next } })
     const referenceStore = createReferenceImageStore(join(ROOT, 'reference-images'), { maxBytes: 32 * 1024 * 1024 })
+    const characterLibrary = createCharacterLibrary({
+      getDefinitions: () => definitions, updateDefinitions: change => definitionStore.update(change),
+      normalizeCharacter, traitKeys: CHARACTER_TRAITS.map(([key]) => key), putImage: input => referenceStore.put(input),
+    })
     let workflows = []
     const jobs = new Map()
     const comfyProgress = createComfyProgress()
@@ -4147,7 +4154,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (action === 'reload') {
         config.workflows = await scanWorkflows(config)
         await loadAllWorkflows()
-        definitions = await loadDefinitions()
+        await definitionStore.reload(loadDefinitions)
         sendJson(response, 200, { ok: true, state: await consoleState() })
         return
       }
@@ -4181,7 +4188,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         sendJson(response, 400, { ok: false, error: '没定用哪个模型：Tavern 后台模型是空的，就来插件设置里指定一个' })
         return
       }
-      const definitions = await loadDefinitions()
+      const definitions = structuredClone(await definitionStore.reload(loadDefinitions))
       const characters = Array.isArray(definitions.characters) ? definitions.characters : []
       const results = []
       const missing = []
@@ -4233,7 +4240,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         })
         return
       }
-      const saved = await saveDefinitions(definitions)
+      const saved = await definitionStore.update(() => definitions, { expectedRevision: definitions.revision, requireRevision: true })
       if (saved === false) {
         sendJson(response, 500, { ok: false, error: '保存被拒绝（防清空闸门），未写入' })
         return
@@ -4265,7 +4272,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     const wanted = Math.max(1, Math.min(12, Number.isFinite(Number(body?.count)) ? Math.trunc(Number(body?.count)) : 3))
     try {
       const sessionId = String(body?.sessionId ?? lastSessionId ?? '')
-      const definitions = await loadDefinitions()
+      const definitions = structuredClone(await definitionStore.reload(loadDefinitions))
       const existing = Array.isArray(definitions.characters) ? definitions.characters : []
 
       let cardName = ''
@@ -4365,7 +4372,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
 
       const merged = mergeCharacters(existing, cleaned)
-      const saved = await saveDefinitions(Object.assign({}, definitions, { characters: merged.characters }))
+      const saved = await definitionStore.update(() => Object.assign({}, definitions, { characters: merged.characters }), { expectedRevision: definitions.revision, requireRevision: true })
       if (saved === false) {
         sendJson(response, 500, { ok: false, error: '保存被拒绝（防清空闸门），未写入' })
         return
@@ -4452,7 +4459,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     const skipped = []
     try {
       if (data.definitions && typeof data.definitions === 'object') {
-        await writeJsonSafe(DEFS_PATH, data.definitions, backupDir)
+        await definitionStore.update(() => normalizeDefinitions(data.definitions))
         written.push('角色库')
       } else skipped.push('角色库')
       await queueWorldbookWrite(async () => {
@@ -4520,14 +4527,19 @@ function createRuntime(ctx, overrides, logger, deps) {
           })
           return
         }
-        definitions = {
-          version: 3,
+        const normalized = {
+          version: CHARACTER_LIBRARY_VERSION,
           characters: nextChars.map((item, i) => normalizeDefinition('characters', item, i)),
           settings: (Array.isArray(next.settings) ? next.settings : definitions.settings).map((item, i) => normalizeDefinition('settings', item, i)),
           props: (Array.isArray(next.props) ? next.props : definitions.props).map((item, i) => normalizeDefinition('props', item, i)),
           outfits: nextOutfits.map((item, i) => normalizeOutfit(item, i)),
         }
-        await saveDefinitions(definitions)
+        try {
+          await definitionStore.update(() => normalized, { expectedRevision: next.revision, requireRevision: true })
+        } catch (error) {
+          sendJson(response, error.code === 'REVISION_CONFLICT' ? 409 : 500, { ok: false, code: error.code, error: error.message })
+          return
+        }
         sendJson(response, 200, { ok: true, state: await consoleState() })
         return
       }
@@ -4790,9 +4802,11 @@ function createRuntime(ctx, overrides, logger, deps) {
             })
             return
           }
-          const merged = mergeCharacters(existing, found)
-          definitions = Object.assign({}, definitions, { characters: merged.characters })
-          await saveDefinitions(definitions)
+          let merged
+          await definitionStore.update(current => {
+            merged = mergeCharacters(current.characters, found)
+            return { ...current, characters: merged.characters }
+          })
           sendJson(response, 200, {
             ok: true,
             added: merged.report.added,
@@ -5034,6 +5048,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       planMessage, wardrobePrompt,
       currentConfig: () => config,
       currentDefinitions: () => definitions,
+      characterLibrary,
       // 手动配图：读这一轮的 textVersion 与正文，再交给官方桥 attach
       attachTurn: async ({ gameId, turn, instruction = '' }) => {
         if (typeof instruction !== 'string') throw new Error('instruction 必须是字符串')
@@ -5315,6 +5330,8 @@ function normalizeCharacter(raw, index) {
     // 绑定到哪些卡（空 = 所有卡都能用）；可复用的通用服装 id
     cards: Array.isArray(raw?.cards) ? raw.cards.map(String) : splitTags(raw?.cards),
     outfitRefs: Array.isArray(raw?.outfitRefs) ? raw.outfitRefs.map(String) : splitTags(raw?.outfitRefs),
+    ...(raw?.figureId ? { figureId: String(raw.figureId) } : {}),
+    ...(raw?.figurePackId ? { figurePackId: String(raw.figurePackId) } : {}),
   }
   const traits = raw?.traits && typeof raw.traits === 'object' ? { ...raw.traits } : {}
   // 兼容最老的单字段写法
@@ -5359,10 +5376,13 @@ function normalizeDefinition(kind, raw, index) {
 }
 
 async function loadDefinitions() {
-  const raw = await readJson(DEFS_PATH, null)
+  return normalizeDefinitions(await readJson(DEFS_PATH, null))
+}
+
+function normalizeDefinitions(raw) {
   const source = raw ?? {}
   return {
-    version: 3,
+    version: CHARACTER_LIBRARY_VERSION,
     characters: (source.characters ?? []).map((item, i) => normalizeDefinition('characters', item, i)),
     settings: (source.settings ?? []).map((item, i) => normalizeDefinition('settings', item, i)),
     props: (source.props ?? []).map((item, i) => normalizeDefinition('props', item, i)),
@@ -5522,6 +5542,14 @@ async function writeJsonRetry(path, value, tries = 6) {
 }
 
 async function saveDefinitions(definitions) {
+  definitions = { ...definitions, characters: (definitions.characters || []).filter(ch => !isEmptyCharacter(ch)) }
+  const associations = new Set()
+  for (const character of definitions.characters) {
+    if (!character.figureId || !character.figurePackId) continue
+    const key = JSON.stringify([character.figurePackId, character.figureId])
+    if (associations.has(key)) throw Object.assign(new Error('同一素材库人物不能关联多条人物库记录'), { code: 'INVALID_ARGUMENT' })
+    associations.add(key)
+  }
   // ═══ 防清空闸门（2026-10-07）═══
   // 事故：有脚本带着空 body 调用 definitions 接口，把用户 5 个角色 + 4 套服装
   //       一次性覆盖成空。这里是最底层的写入口，所有路径都经过它，所以闸门放这。
@@ -5544,14 +5572,6 @@ async function saveDefinitions(definitions) {
       return false
     }
     // 读磁盘失败不该阻断正常保存
-  }
-  // 双保险：前端万一漏了，这里再挡一次
-  if (Array.isArray(definitions?.characters)) {
-    const kept = definitions.characters.filter(ch => !isEmptyCharacter(ch))
-    if (kept.length !== definitions.characters.length) {
-      /* 拦下空角色（模块级没日志器，静默处理） */
-      definitions = Object.assign({}, definitions, { characters: kept })
-    }
   }
   // 这里不能打日志：saveDefinitions 是模块级函数，logger / addClientReport 在 runtime 闭包里
   try {
@@ -5587,13 +5607,15 @@ async function saveDefinitions(definitions) {
       }
     }
   } catch {}
-  await writeJsonSafe(DEFS_PATH, {
-    version: 3,
+  const saved = {
+    version: CHARACTER_LIBRARY_VERSION,
     characters: definitions.characters ?? [],
     settings: definitions.settings ?? [],
     props: definitions.props ?? [],
     outfits: definitions.outfits ?? [],
-  }, join(ROOT, 'backups'))
+  }
+  await writeJsonSafe(DEFS_PATH, saved, join(ROOT, 'backups'))
+  return saved
 }
 
 /** 从工作流里读几个"人看得懂"的事实：用了哪个底模、挂了哪些 LoRA、多少节点。 */

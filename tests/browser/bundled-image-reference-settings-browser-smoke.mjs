@@ -14,7 +14,7 @@ const clientSource = await readFile(new URL('../../tavern-plugin/packages/dsh-ta
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jdbsAAAAASUVORK5CYII=', 'base64')
 const clone = value => JSON.parse(JSON.stringify(value))
 const calls = [], errors = []
-let uploads = 0
+let uploads = 0, libraryRevision = 1
 const savedApiKeys = new Map()
 const workflowDetail = { file: 'workflow-a.json', prompt: {
   '2': { class_type: 'LoadImage', inputs: { image: 'pose.png' }, _meta: { title: 'Pose input (not a character ref)' } },
@@ -27,7 +27,7 @@ const state = {
   referenceSupported: true, configurationWarning: '旧版 ComfyUI 简易模式已停用；原配置和数据已保留。', imageProvider: 'openai', config: { imageEnabled: true, imageBackend: 'openai', comfyMode: 'simple', comfySimple: { checkpoint: 'keep-legacy-checkpoint' }, generationMode: 'text', promptMode: 'tags', promptEffectiveFormat: 'tags', activeImageChannel: 'openai-channel',
     designPromptMode: 'auto', characterDesignRequirements: '', outfitDesignRequirements: '',
     imageChannels: [{ id: 'openai-channel', provider: 'openai', name: 'OpenAI 渠道', baseUrl: 'https://openai.mock.invalid/v1', model: 'keep-exact-model', options: {} }], stylePresets: [], promptPresets: [{ id: 'legacy-entry', name: '旧提示词条目', positive: 'legacy positive', negative: 'legacy negative', enabled: true }] },
-  definitions: { characters: [{ id: 'person-a', name: '林月', match: 'Lin Yue', cards: [], traits: { face: 'keep original traits' }, outfits: [{ id: 'outfit-a', name: '白衬衫', upper: 'white shirt', enabled: true }] }], scenes: [], props: [] },
+  definitions: { revision: String(libraryRevision), characters: [{ id: 'person-a', name: '林月', match: 'Lin Yue', cards: [], traits: { face: 'keep original traits' }, outfits: [{ id: 'outfit-a', name: '白衬衫', upper: 'white shirt', enabled: true }] }], scenes: [], props: [] },
   outfits: [{ id: 'shared-a', name: '通用外套', upper: 'coat', enabled: true }],
   worldbookFormat: 'tags', worldbookBooks: clone(worldbooks.tags), tasks: [], workflows: [{ id: 'workflow-a', label: 'Reference workflow', file: 'workflow-a.json', enabled: true, current: true, summary: { nodeCount: 5 } }], imageProviders: [{ id: 'openai', label: 'OpenAI 兼容' }, { id: 'custom', label: '自定义 API' }],
 }
@@ -73,7 +73,11 @@ try {
     else if (path === '/image-channel-test') response = { ok: true, status: 'reachable', message: 'mock connection' }
     else if (path === '/comfy-test') response = { ok: true, version: 'mock' }
     else if (path === '/reference-image') { uploads++; response.referenceImage = { id: uploads.toString(16).repeat(64), name: body.name, mediaType: body.mediaType, byteLength: png.length } }
-    else if (path === '/definitions') { state.definitions = clone(body.definitions); state.outfits = clone(body.definitions.outfits || []); response = { ok: true, state: clone(state) } }
+    else if (path === '/definitions') {
+      if (body.definitions.revision !== state.definitions.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '人物库已在别处修改，请重新载入；当前草稿仍保留' }) })
+      state.definitions = { ...clone(body.definitions), revision: String(++libraryRevision) }
+      state.outfits = clone(body.definitions.outfits || []); response = { ok: true, state: clone(state) }
+    }
     else if (path === '/worldbook') { const format = url.searchParams.get('format'); assert.ok(worldbooks[format]); response = { ok: true, worldbookFormat: format, worldbook: { name: format, entries: clone(worldbooks[format].flatMap(book => book.entries)) }, worldbookBooks: clone(worldbooks[format]) } }
     else if (path === '/worldbook-entry') { const book = worldbooks[body.format]?.find(book => book.key === body.book); assert.ok(book); Object.assign(book.entries[body.index], body.patch) }
     else if (path === '/workflow-bindings') {
@@ -191,6 +195,19 @@ try {
   assert.equal(state.definitions.characters[0].referenceImage, null)
   assert.equal(state.definitions.characters[0].consistencyText, '保持脸型，动作由正文决定')
   assert.equal(calls.some(call => call.method === 'DELETE'), false)
+
+  // A stale draft survives a rejected save; explicit reload obtains the other editor's revision.
+  await page.getByLabel('角色「林月」一致性补充', { exact: true }).fill('未保存的草稿')
+  state.definitions.characters[0].consistencyText = '另一处已保存的文字'
+  state.definitions.revision = String(++libraryRevision)
+  await Promise.all([page.waitForResponse(response => response.url().endsWith('/definitions') && response.status() === 409), page.getByRole('button', { name: '保存人物库', exact: true }).click()])
+  await page.getByRole('button', { name: '重新载入最新人物库', exact: true }).waitFor()
+  assert.equal(await page.getByLabel('角色「林月」一致性补充', { exact: true }).inputValue(), '未保存的草稿')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: '重新载入最新人物库', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('[aria-label="角色「林月」一致性补充"]')?.value === '另一处已保存的文字')
+  await saveLibrary('保存人物库')
+  assert.equal(state.definitions.characters[0].consistencyText, '另一处已保存的文字')
 
   await page.getByRole('button', { name: '设置', exact: true }).click()
   await page.getByLabel('生图提供商').selectOption('custom')
