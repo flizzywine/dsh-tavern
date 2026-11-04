@@ -119,3 +119,42 @@ test('a phone contact keeps one face across rounds, outfit changes and moods',as
  assert.deepEqual([...new Set(drawn)],['card:alice-default-calm'])
  }finally{f.close()}
 })
+test('a real phone that covers the stage stops the 100 ms re-measure until it is put away',async()=>{
+ const phoneProtocol=require('../tavern-plugin/mods/phone/stage-phone.cjs')
+ // A real phone: a narrow viewport with a coarse pointer, so the open phone is the device itself.
+ const f=fixture({phoneProtocol,sessions:()=>({owner:{getWidgetContext:()=>null}}),prepare:window=>{
+  window.matchMedia=query=>({matches:query.includes('coarse'),addEventListener(){},removeEventListener(){}})
+  Object.assign(window,{innerWidth:390,innerHeight:844});Object.defineProperty(window.document,'hidden',{value:false})
+  Object.assign(window,{requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+ }})
+ f.mount.getBoundingClientRect=()=>({left:0,top:0,width:390,height:844})
+ const phone={ref:{modId:'dsh.phone'},modSource:true,sourceOnly:true,state:{},definition:{contentIdentity:'phone',document:{presentation:{open:{width:280,anchor:'corner-right'}}}}}
+ let value
+ function View(){value=f.plugin.useStage({sessionId:'s',rootRef:{current:f.mount},config:{characters:[]},widgets:[phone],turn:1,page:0,
+  pages:[{kind:'line',para:1,name:'Alice',text:'hi'}],enabled:true,mode:'live',readHistory:()=>Promise.resolve(null),phoneThreadsRpc:()=>Promise.resolve(null)});return null}
+ const settle=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,0))})
+ try {
+ act(()=>f.root.render(React.createElement(View)));await settle()
+ assert.equal(f.jobs.size,1,'the stage is in view')
+ assert.equal(value.covered,false)
+ const item=()=>value.items.find(row=>row.ref.modId==='dsh.phone')
+ act(()=>value.action(item().key,'open'));act(()=>value.onReady(item().identity,true));await settle()
+ assert.equal(item().presentation.device?.kind,'phone')
+ assert.equal(f.jobs.size,0,'nothing re-measures under the opaque phone')
+ assert.equal(value.covered,true,'the stage reports the cover to other plugins')
+ act(()=>value.action(item().key,'collapse'));await settle()
+ assert.equal(f.jobs.size,1,'putting it away measures again')
+ assert.equal(value.covered,false)
+ }finally{f.close()}
+})
+test('the stage exports its widget placement and the handheld phone decision',()=>{
+ const f=fixture({prepare:window=>{window.matchMedia=query=>({matches:query.includes('coarse'),addEventListener(){},removeEventListener(){}})}})
+ try {
+ assert.equal(f.plugin.phoneHandheld({width:390,height:844}),true,'a narrow touch screen holds the phone as the device')
+ assert.equal(f.plugin.phoneHandheld({width:1280,height:800}),false,'a wide screen shows the phone on the stage')
+ assert.deepEqual(f.plugin.place({width:800,height:600,size:{width:200,height:100},anchor:'top-center'}),{x:300,y:16,width:200,height:100})
+ const clear=f.plugin.place({width:800,height:600,size:{width:200,height:100},blocked:[{x:250,y:0,width:300,height:120}],anchor:'top-center'})
+ assert.ok(clear.y>=132 || clear.x+clear.width<=238 || clear.x>=562,'it keeps clear of a blocked control')
+ assert.equal(f.plugin.place({width:100,height:100,size:{width:200,height:100}}),null,'no safe space places nothing')
+ }finally{f.close()}
+})
