@@ -123,8 +123,10 @@
 .fork-cg-white { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 /* 回想 (the CG gallery) is a media viewer: dark whatever the stage theme, the pictures fill the space and every control
    is a glass icon over them, named in its hover tip. Grid: tiles edge to edge, titles on the picture. Viewer (「四角」):
-   title top left, ✎ 🗑 ✕ top right, ‹ › at the sides (phones: bottom corners), 差分 mini pictures bottom centre, 构图 bottom right
-   (a labelled 完整 | 特写 pair, only on a CG with focus areas). */
+   title top left, ✎ 🗑 ✕ top right, ‹ › at the sides, 差分 mini pictures bottom centre, 构图 bottom right
+   (a labelled 完整 | 特写 pair, only on a CG with focus areas). The picture is fitted whole (contain) and the controls keep off it
+   where it leaves room: a portrait CG on a wide screen (data-fit=side) is framed between side bands that hold the four corners;
+   on a phone the picture sits between a top row (title, ✎ 🗑 ✕) and a bottom row (‹ 差分 构图 ›). Every group is one line. */
 .fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .52); --cg-glass-hover: rgb(255 255 255 / .2);
   --cg-card: #1b1e2c; --cg-card-line: rgb(255 255 255 / .1); --cg-card-hover: rgb(255 255 255 / .08); --cg-danger: #ff7b86; --cg-danger-ink: #2a0b10; --cg-tile: #171a26; --cg-base: #0b0d14;
   position: absolute; inset: 0; z-index: 80; overflow: hidden; background: var(--cg-base); color: var(--cg-ink); font-family: var(--gal-ui-font); isolation: isolate; outline: none; }
@@ -175,7 +177,10 @@
 .fork-cg-gallery-error > button { margin: 0; padding: 6px 12px; border: 0; border-radius: 8px; background: none; color: var(--cg-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
 .fork-cg-gallery-error > button:hover { background: var(--cg-card-hover); }
 /* viewer */
-.fork-cg-viewer { position: absolute; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+.fork-cg-viewer { position: absolute; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; container: cg-viewer / inline-size; }
+/* the picture's frame: 特写 zooms inside it, so it never reaches under the controls beside it. */
+.fork-cg-viewer > .fork-cg-gallery-picture > .fork-cg-stage { inset: 0; }
+.fork-cg-viewer-bottom { display: contents; }
 .fork-cg-viewer-ui { position: absolute; inset: 0; z-index: 4; pointer-events: none; transition: opacity .2s, visibility .2s; }
 .fork-cg-viewer-ui :is(button, .fork-cg-crop-menu) { pointer-events: auto; }
 @media (hover: hover) {
@@ -193,7 +198,7 @@
 .fork-cg-nav .fork-cg-icon { width: 28px; height: 28px; }
 .fork-cg-variants { position: absolute; left: 50%; bottom: 20px; display: flex; gap: 6px; max-width: calc(100% - 208px); box-sizing: border-box; padding: 6px; transform: translateX(-50%);
   border-radius: 14px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.fork-cg-variant { position: relative; flex: 0 1 72px; width: 72px; min-width: 24px; height: 40px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 8px; background: var(--cg-tile); box-shadow: none;
+.fork-cg-variant { --cg-thumb: clamp(28px, calc(40px * var(--cg-ar, 1.7778)), 72px); position: relative; flex: 0 1 var(--cg-thumb); width: var(--cg-thumb); min-width: 24px; height: 40px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 8px; background: var(--cg-tile); box-shadow: none;
   opacity: .55; cursor: pointer; transition: opacity .15s; }
 .fork-cg-variant > .fork-cg-gallery-picture { border-radius: inherit; }
 .fork-cg-variant .fork-cg-stage > img { object-fit: cover; }
@@ -202,13 +207,19 @@
 .fork-cg-variant[aria-pressed="true"] { opacity: 1; }
 .fork-cg-variant[aria-pressed="true"]::before { box-shadow: inset 0 0 0 2px var(--cg-ink); }
 .fork-cg-variant .fork-cg-gallery-missing .fork-cg-icon { width: 16px; height: 16px; }
-.fork-cg-crop { position: absolute; right: 24px; bottom: 20px; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.fork-cg-crop { position: absolute; right: 24px; bottom: 24px; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--cg-glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .fork-cg-compose-mode { display: flex; align-items: center; gap: 6px; box-sizing: border-box; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0 14px 0 10px; border: 0; border-radius: 18px;
   background: none; box-shadow: none; color: var(--cg-ink-2); font-size: 14px; line-height: 1; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
 .fork-cg-compose-mode .fork-cg-icon { width: 18px; height: 18px; }
 .fork-cg-compose-mode:hover { background: var(--cg-card-hover); color: var(--cg-ink); }
 .fork-cg-compose-mode[aria-pressed="true"] { background: var(--cg-glass-hover); color: var(--cg-ink); font-weight: 600; }
 .fork-cg-viewer-ui:has(.fork-cg-crop) .fork-cg-variants { max-width: calc(100% - 420px); }
+/* side bands (a portrait CG on a wide screen): the picture keeps its column, the corners live in the bands. */
+.fork-cg-viewer[data-fit=side] > .fork-cg-gallery-picture > .fork-cg-stage { left: var(--cg-band); right: var(--cg-band); }
+.fork-cg-viewer[data-fit=side] .fork-cg-viewer-scrim { display: none; }
+.fork-cg-viewer[data-fit=side] .fork-cg-viewer-top h2 { flex: 0 1 auto; max-width: calc(var(--cg-band) - 48px); }
+.fork-cg-viewer[data-fit=side] .fork-cg-viewer-acts { margin-left: auto; }
+.fork-cg-viewer[data-fit=side] .fork-cg-variants { left: 24px; max-width: calc(var(--cg-band) - 48px); transform: none; }
 .fork-cg-crop-menu { position: absolute; right: 0; bottom: calc(100% + 8px); display: flex; flex-direction: column; min-width: 9em; padding: 6px; border: 1px solid var(--cg-card-line); border-radius: 12px;
   background: var(--cg-card); box-shadow: 0 10px 30px rgb(0 0 0 / .5); }
 /* role=menu: the host's menu ground (theme.css) stays off this opaque card. */
@@ -232,18 +243,26 @@
   .fork-cg-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .fork-cg-gallery-cell { border-radius: 8px; }
   .fork-cg-cell-title { padding: 18px 8px 6px; font-size: 12px; }
-  .fork-cg-viewer-scrim { height: 120px; }
-  .fork-cg-viewer-top { gap: 10px; padding: 12px 12px 0; }
-  .fork-cg-viewer-top h2 { font-size: 16px; }
-  .fork-cg-nav { top: auto; bottom: 16px; width: 40px; height: 40px; transform: none; }
-  .fork-cg-nav.is-prev { left: 12px; }
-  .fork-cg-nav.is-next { right: 12px; }
-  .fork-cg-nav .fork-cg-icon { width: 22px; height: 22px; }
-  .fork-cg-variants { bottom: 14px; gap: 4px; padding: 4px; border-radius: 12px; }
-  .fork-cg-variant { flex-basis: 52px; width: 52px; height: 36px; border-radius: 7px; }
-  .fork-cg-crop { right: 12px; bottom: 66px; }
-  .fork-cg-compose-mode { height: 32px; padding: 0 12px 0 8px; font-size: 13px; }
-  .fork-cg-viewer-ui:has(.fork-cg-crop) .fork-cg-variants { max-width: calc(100% - 208px); }
+}
+/* phones: a top row and a bottom row of 44 px, 12 px from the edges; the picture fits between them (64 px each side),
+   in 完整 and 特写 alike. ‹ › are small hints at the bottom row's ends (a swipe changes CG too). */
+@container cg-viewer (max-width: 600px) {
+  .fork-cg-viewer > .fork-cg-gallery-picture > .fork-cg-stage { top: 64px; bottom: 64px; }
+  .fork-cg-viewer .fork-cg-viewer-scrim { display: none; }
+  .fork-cg-viewer .fork-cg-viewer-top { gap: 10px; height: 44px; box-sizing: content-box; padding: 12px 12px 0; }
+  .fork-cg-viewer .fork-cg-viewer-top h2 { flex: 1; max-width: none; font-size: 16px; }
+  .fork-cg-viewer-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px;
+    box-sizing: border-box; padding: 0 40px; }
+  .fork-cg-viewer-bottom > .fork-cg-nav { top: 50%; width: 32px; height: 32px; transform: translateY(-50%); }
+  .fork-cg-viewer-bottom > .fork-cg-nav.is-prev { left: 0; }
+  .fork-cg-viewer-bottom > .fork-cg-nav.is-next { right: 0; }
+  .fork-cg-nav .fork-cg-icon { width: 20px; height: 20px; }
+  .fork-cg-viewer .fork-cg-viewer-ui .fork-cg-variants { position: static; flex: 0 1 auto; min-width: 0; max-width: none; gap: 4px; padding: 4px; overflow-x: auto; transform: none; border-radius: 12px; scrollbar-width: none; }
+  .fork-cg-variant { --cg-thumb: clamp(24px, calc(32px * var(--cg-ar, 1.7778)), 48px); flex-shrink: 0; height: 32px; border-radius: 7px; }
+  .fork-cg-crop { position: relative; right: auto; bottom: auto; flex: none; }
+  /* the pair says its name in words; the icons stay on wider screens. */
+  .fork-cg-compose-mode { height: 32px; padding: 0 12px; font-size: 13px; }
+  .fork-cg-compose-mode .fork-cg-icon { display: none; }
   .fork-cg-remove-error { right: 12px; }
 }
 .fork-gal-stage[data-cg-visible] > :is(.fork-performance-over, .fork-performance-flash) { z-index: 1; }
