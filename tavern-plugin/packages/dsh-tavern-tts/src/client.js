@@ -121,7 +121,7 @@ exports.apply = function(ctx) {
   const COMMON_KINDS = ['fish-audio','qwen','azure']
   // async synthesis jobs expose safe codes, never upstream response bodies.
   const FISH_ERRORS = {FISH_AUTH_FAILED:'服务要求鉴权，请填写或检查 API Key 与访问权限',FISH_BILLING_REQUIRED:'Fish Audio 额度或余额不足（402），未切换付费模型',FISH_RATE_LIMITED:'Fish Audio 请求受限（429），请稍后重试',FISH_REQUEST_FAILED:'Fish Audio 请求失败，请检查声音模型 ID 与服务状态'}
-  const CODES = {SERVICE_IN_USE:'还有声音预设在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个密钥由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
+  const CODES = {SERVICE_IN_USE:'还有人物在用这个服务',REVISION_CONFLICT:'内容已在别处修改，请重新打开',CREDENTIALS_READ_ONLY:'这个密钥由环境变量提供，不能在这里修改',INVALID_PARAMS:'参数超出范围（INVALID_PARAMS）'}
   const failText = e => FISH_ERRORS[e.code || e.message] || CODES[e.code || e.message] || (e instanceof SyntaxError ? 'JSON 格式有误' : /^[A-Z_]+$/.test(e.message) ? '操作失败（' + e.message + '）' : e.message)
   const sizeText = bytes => bytes < 1024 ? bytes + ' B' : bytes < 1024 ** 2 ? (bytes / 1024).toFixed(1) + ' KB' : bytes < 1024 ** 3 ? (bytes / 1024 ** 2).toFixed(1) + ' MB' : (bytes / 1024 ** 3).toFixed(2) + ' GB'
   // Line icons (16 px, currentColor).
@@ -343,7 +343,7 @@ exports.apply = function(ctx) {
     const remove = (p,force) => run(async () => {
       try { await call('deleteService',{id:p.id,expectedRevision:p.revision,...(force ? {force:true} : {})}) }
       // without a registered usage source nobody can tell whether a voice uses the service: ask, never hard-fail.
-      catch(e) { if (!force && ['SERVICE_IN_USE','USAGE_UNKNOWN'].includes(e.code)) { setConfirm({id:p.id,force:e.code}); return } throw e }
+      catch(e) { if (!force && ['SERVICE_IN_USE','USAGE_UNKNOWN'].includes(e.code)) { setConfirm({id:p.id,force:e.code,...(e.code === 'SERVICE_IN_USE' ? await call('serviceUsage',{id:p.id}) : {})}); return } throw e }
       setConfirm(null); if (editor?.id === p.id) close(); setMessage('已删除「' + p.label + '」')
     })
     const fieldView = f => {
@@ -405,7 +405,7 @@ exports.apply = function(ctx) {
           h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:StateWord(serviceState(p,descriptor(p.kind),live))},
             // no resident delete on the row — 删除… sits in the row's ⋯.
             h(Menu,{label:p.label + ' 更多操作',items:[{label:'删除…',danger:true,disabled:busy,onSelect:() => { setConfirm({id:p.id}) }}]})),
-          confirm?.id === p.id && h(Confirm,{text:{SERVICE_IN_USE:'还有声音预设在用「' + p.label + '」，仍要删除？',USAGE_UNKNOWN:'不确定有没有人物在用「' + p.label + '」，仍要删除？'}[confirm.force] || '删除「' + p.label + '」？',
+          confirm?.id === p.id && h(Confirm,{text:{SERVICE_IN_USE:'还有 ' + confirm.count + ' 个人物在用「' + p.label + '」，仍要删除？',USAGE_UNKNOWN:'不确定有没有人物在用「' + p.label + '」，仍要删除？'}[confirm.force] || '删除「' + p.label + '」？',
             yes:confirm.force ? '仍要删除' : '删除',onYes:remove(p,!!confirm.force),onNo:() => setConfirm(null)}),
           editing(p.id) && Form()) }),
         unset.map(kind => { const open = editor?.mode === 'add' && editor.fixed && editor.kind === kind; return h('li',{key:'+' + kind,'data-open':open || undefined},

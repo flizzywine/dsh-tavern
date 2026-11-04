@@ -144,6 +144,8 @@ export function apply(ctx, config = {}) {
       case 'listVoices': { const result = await providerVoices(args); return {...result,models:undefined} }
       case 'saveService': return services.save(args)
       case 'deleteService': return services.delete(args)
+      // how many figures speak with a service (the registered usage sources); asked before deleting one in use.
+      case 'serviceUsage': return {count:(await tts.inspectUsage(id(args.id))).reduce((n,u) => n + u.count,0)}
       case 'testService': return services.test(args)
       case 'voicePresets': return services.listVoicePresets().map(preset => ({preset,revision:hash(preset)}))
       case 'saveVoicePreset': return services.saveVoicePreset(args)

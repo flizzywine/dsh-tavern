@@ -11,6 +11,19 @@ const hash = value => createHash('sha256').update(canonical(value)).digest('hex'
 const same = (a, b) => canonical(a) === canonical(b)
 const fail = code => { throw Object.assign(new Error(code), {code}) }
 
+// 配音后端 asks before deleting a service how many figures speak with it (Tts.registerUsageSource): every figure of the
+// installed packs whose 配音来源 that service speaks, by the same choice synthesis makes (tts.chooseService).
+export async function countServiceUsers({library, tts, serviceId}) {
+  const services = await tts.listServices()
+  let count = 0
+  for (const pack of await library.listPacks()) for (const figure of Object.values(pack.figures || {})) {
+    const binding = figure.voice, voice = binding && pack.manifest.voiceLibrary?.voices?.[binding.voice]
+    if (!voice || binding.source === null) continue
+    const source = voice.sources[binding.source ?? voice.defaultSource]
+    if (source && tts.chooseService(source, services)?.id === serviceId) count++
+  }
+  return {serviceId, count}
+}
 export function createFigureVoiceAuthoring({getLibrary,getTts}) {
   const previews = new Map(), confirmations = new Map()
   let disposed = false, epoch = 0
