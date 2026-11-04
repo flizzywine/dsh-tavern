@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "2b96888cbe2b351c42db24e79c9eea9cd58f7217",
-  "releaseSequence": 1168,
+  "revision": "c04bafc8264e79d2839a750203589906734bccdf",
+  "releaseSequence": 1169,
   "version": "3.2.0",
   "files": [
     {
@@ -91,8 +91,8 @@
     },
     {
       "path": "android/setup.sh",
-      "sha256": "5f4d00970ae18e9028743544495f484bcbb3582df9a56161c53574c090d45531",
-      "size": 20429
+      "sha256": "6e9fdde319a5dde61f2b8ee83c0c43b948ece9a9acd22ab1de8e642d96fa0d20",
+      "size": 20445
     },
     {
       "path": "android/update.sh",
@@ -101,8 +101,8 @@
     },
     {
       "path": "bin/application-update.mjs",
-      "sha256": "6186feea3a0debaa9e3eb36d3cbb9f1e80bbee4c9129f58f28c60f1efcf4f6af",
-      "size": 22102
+      "sha256": "8607077060d778920a58af88e3a4787c323ab42c34b605fdaeeb7cd9298cf56a",
+      "size": 22118
     },
     {
       "path": "bin/build-installer-scripts.mjs",
@@ -456,13 +456,13 @@
     },
     {
       "path": "install.ps1",
-      "sha256": "1febdfd01cf07b39d4430f3e9b8f80dc12b937bd2cf961ebc1259ed2586b19f1",
-      "size": 108118
+      "sha256": "8dc3d008f8ca6188bb8be61716e557fc5e747240ab91be00cc2f851e2fa6a772",
+      "size": 108134
     },
     {
       "path": "install.sh",
-      "sha256": "4ed61c39599fc2ba9da532cbb6a763d9585ccf91b8cadf049dbe8c832360b2cb",
-      "size": 80143
+      "sha256": "c5e10662a7f01c9fae9eba5d2fff8a7f1ad11143d67256669ea3d41f2f0fc06c",
+      "size": 80159
     },
     {
       "path": "package.json",
@@ -791,8 +791,8 @@
     },
     {
       "path": "tavern-plugin/lib/application-updater.js",
-      "sha256": "ef93e20fcea6adb44e9641126e966bf6aebafae7bb67207c5a8b6384bb0c9214",
-      "size": 43070
+      "sha256": "0749be66359ee161989f5383f378d4be501ed0c3a519aeb19774a3c867e900f5",
+      "size": 43086
     },
     {
       "path": "tavern-plugin/lib/background-agent-runner.js",
@@ -9526,9 +9526,9 @@
     }
   ],
   "archive": {
-    "commit": "fc3e180a9a37b89aeedda6dcf187964ff67f34e3",
+    "commit": "b06d1d77a485da91f8e84e2015c8b74f77e953ea",
     "path": "runtime.zip",
-    "sha256": "0dc5d73af9adb569dbde9af07da8f00753440ae4315b197ee5720f87dc59df0c",
-    "size": 16096323
+    "sha256": "1a04f752bd3ee4984d4dee48dd9f84653ab8264a88439c66afef9fdb079d20b2",
+    "size": 16096356
   }
 }
