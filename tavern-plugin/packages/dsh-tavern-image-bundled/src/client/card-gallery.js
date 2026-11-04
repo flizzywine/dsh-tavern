@@ -102,6 +102,7 @@
           setStatus(`已清空 ${value.removed ?? 0} 张`)
           await pull()
         } catch (error) {
+          await pull()
           setStatus('清空失败：' + (error?.message ?? error))
         } finally {
           setBusy(false)

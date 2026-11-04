@@ -1451,7 +1451,7 @@ function versionsOf(jobId) {
         // 主翻页列表：整场对话里出过图的作业（旧 → 新）。拿不到就退回版本链。
         let list = []
         try {
-          const r = await jsonFetch(BASE + '/history')
+          const r = await jsonFetch(BASE + '/history?source=play')
           const history = (r && Array.isArray(r.jobs)) ? r.jobs : []
           list = history
             .filter(job => job && job.id && (job.hasImage || job.byteLength))
@@ -2619,7 +2619,7 @@ function versionsOf(jobId) {
       const [widthSampleJob, setWidthSampleJob] = React.useState(null)
       React.useEffect(() => {
         let alive = true
-        jsonFetch(BASE + '/history').then(r => {
+        jsonFetch(BASE + '/history?source=play').then(r => {
           if (!alive) return
           const jobs = Array.isArray(r && r.jobs) ? r.jobs : []
           const hit = jobs.find(j => j && j.hasImage && ['done', 'ready'].includes(String(j.state)))
@@ -2877,7 +2877,7 @@ function versionsOf(jobId) {
         if (tab !== 'gallery') return undefined
         let alive = true
         setHistoryNote('读取中…')
-        jsonFetch(BASE + '/history', { cache: 'no-store' }).then(r => {
+        jsonFetch(BASE + '/history?source=play', { cache: 'no-store' }).then(r => {
           if (!alive) return
           const list = r?.jobs ?? []
           setHistoryJobs(list)
@@ -2890,7 +2890,7 @@ function versionsOf(jobId) {
             name: String(error?.name ?? ''),
             msg: String(error?.message ?? error),
             stack: String(error?.stack ?? '').slice(0, 400),
-            url: BASE + '/history',
+            url: BASE + '/history?source=play',
           })
         })
         return () => { alive = false }
@@ -5533,7 +5533,7 @@ function versionsOf(jobId) {
 
       // ---- 历史图 ----
       function galleryTab() {
-        const done = historyJobs.filter(function (job) { return job.hasImage })
+        const done = historyJobs.filter(function (job) { return job.hasImage && (job.source === 'play' || job.source !== 'card' && job.label !== '卡片工作台') })
         const tiles = done.map(function (job) {
           return h('div', {
             key: job.id,
@@ -6293,6 +6293,7 @@ function versionsOf(jobId) {
           setStatus(`已清空 ${value.removed ?? 0} 张`)
           await pull()
         } catch (error) {
+          await pull()
           setStatus('清空失败：' + (error?.message ?? error))
         } finally {
           setBusy(false)

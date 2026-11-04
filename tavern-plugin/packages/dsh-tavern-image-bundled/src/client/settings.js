@@ -48,7 +48,7 @@
       const [widthSampleJob, setWidthSampleJob] = React.useState(null)
       React.useEffect(() => {
         let alive = true
-        jsonFetch(BASE + '/history').then(r => {
+        jsonFetch(BASE + '/history?source=play').then(r => {
           if (!alive) return
           const jobs = Array.isArray(r && r.jobs) ? r.jobs : []
           const hit = jobs.find(j => j && j.hasImage && ['done', 'ready'].includes(String(j.state)))
@@ -306,7 +306,7 @@
         if (tab !== 'gallery') return undefined
         let alive = true
         setHistoryNote('读取中…')
-        jsonFetch(BASE + '/history', { cache: 'no-store' }).then(r => {
+        jsonFetch(BASE + '/history?source=play', { cache: 'no-store' }).then(r => {
           if (!alive) return
           const list = r?.jobs ?? []
           setHistoryJobs(list)
@@ -319,7 +319,7 @@
             name: String(error?.name ?? ''),
             msg: String(error?.message ?? error),
             stack: String(error?.stack ?? '').slice(0, 400),
-            url: BASE + '/history',
+            url: BASE + '/history?source=play',
           })
         })
         return () => { alive = false }
@@ -2962,7 +2962,7 @@
 
       // ---- 历史图 ----
       function galleryTab() {
-        const done = historyJobs.filter(function (job) { return job.hasImage })
+        const done = historyJobs.filter(function (job) { return job.hasImage && (job.source === 'play' || job.source !== 'card' && job.label !== '卡片工作台') })
         const tiles = done.map(function (job) {
           return h('div', {
             key: job.id,

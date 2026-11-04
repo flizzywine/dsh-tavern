@@ -390,6 +390,10 @@ NovelAI 原生协议支持分角色提示词；启用世界书第 **11 条「分
 
 内置配图插件 3.9.0 起，卡片工作台提供 `gen_image`、`read_character`、`read_outfit`、`read_image_config`、`find_prompt` 五个工具。设置中的「启用工作台生图」独立控制这组工具；它们只在卡片模式出现。人物、服装、画风、渠道和 ComfyUI 工作流与剧情配图共用，修改后立即生效。
 
+3.10.1 修复工作台对话图片地址与画廊混入问题。`gen_image` 返回完整 HTTP(S) 图片地址和可原样使用的 `markdown`，从宿主 Web 服务读取当次端口；没有可用地址时在提交生图前停止。图片读取支持对话跨来源嵌入，管理接口仍保留同源限制。设置 → 配图 → 画廊中，游玩画廊只显示游玩来源，卡片图片在「卡片画廊」查看；共用队列不会把两边的图片混排。任务历史仍保留所有记录，`GET /history?source=play|card` 可按来源读取；旧工作台记录继续识别，图片不删除、不重新生成。
+
+卡片画廊删除遇到文件占用时会保留失败项供重试；批量清空只移除真正删除成功的记录，不把仍在磁盘上的图片误报为空。
+
 `read_image_config` 返回已保存渠道、精确 ID、实际提示词格式及参考图/种子能力，不联网探测。`gen_image` 的 `channel` 可临时指定任一已保存渠道，或填 `comfyui` 使用现有本地工作流，不改变默认设置。现有 NovelAI（含聊天中转）、OpenAI、Gemini 原生及聊天兼容、Grok、Seedream、Qwen、AtlasCloud、SD WebUI/Forge、自定义协议均复用同一份渠道适配器。标签模型使用标签；自然语言模型可使用中文或英文句子；结构化模式保留分节。
 
 参考图用 `generation_mode: reference` 和 `subjects: [{characterId, outfitId}]`，精确 ID 从查询工具取得，角色×服装成套图沿用共用引擎的优先级。多人物可传 `characters: [{prompt, centers, uc}]`，NovelAI 使用原生分角色输入，其他渠道由引擎合成。接口不支持的参考图、种子或采样器会在提交前报错；只传该渠道实际支持的参数。
