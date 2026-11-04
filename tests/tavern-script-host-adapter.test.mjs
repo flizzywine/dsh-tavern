@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
-import { applyMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
+import { applyMvuSettlementEffect, createMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import { createHelperChatDataHost } from './fixtures/helper-chat-data-host.mjs'
 import { projectAgentContent } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
@@ -84,6 +84,37 @@ for (const sliced of [false, true]) test(`chat player identity is persisted atom
   assert.ok(patches[0].some(change => change.path[0] === 'variables'))
   assert.ok(patches[0].some(change => change.path[0] === 'macroState'))
   assert.equal(before.macroState.userName, '原名', 'a previous snapshot must retain its identity')
+})
+
+for (const hasIdentity of [false, true]) test(`MVU settlement commits the player identity with chat variables: existing=${hasIdentity}`, async () => {
+  const value = chat()
+  if (hasIdentity) value.macroState = { userName: '原名', local: { score: 2 }, global: { keep: true } }
+  const before = structuredClone(value)
+  let adapter
+  adapter = harness(value, { scriptDispatch: { async dispatch(_session, _event, _args, _context, work) {
+    await adapter.updateVariables('session-1', { type: 'chat' }, { playerName: '沈砚' }, 2, work.eventId)
+    return { handled: true }
+  } } }).adapter
+  const result = await adapter.settleMvuUpdate({ operationId: 'identity', sessionId: 'session-1', messageId: 0,
+    swipeId: 0, expectedLifecycleRevision: 2, command: '<UpdateVariable/>' })
+  assert.deepEqual(value, before, 'the live identity must not change before the settlement commits')
+  applyMvuSettlementEffect(value, result.effect)
+  assert.equal(value.variables.playerName, '沈砚')
+  assert.deepEqual(value.macroState, { userName: '沈砚', local: hasIdentity ? { score: 2 } : {}, global: hasIdentity ? { keep: true } : {} })
+})
+
+test('MVU identity effects retain macro counters and reject concurrent renames atomically', () => {
+  const before = { ...chat(), macroState: { userName: '原名', local: { score: 2 }, global: { keep: true } } }
+  const after = { ...before, variables: { playerName: '沈砚' }, macroState: { userName: '沈砚', local: { score: 999 }, global: {} } }
+  const effect = createMvuSettlementEffect({ operationId: 'identity', chatId: before.id, sessionId: before.sessionId,
+    messageId: 0, swipeId: 0, expectedLifecycleRevision: 2, before, after, guardChanges: true })
+  const concurrent = structuredClone(before)
+  concurrent.macroState.userName = '另一个玩家'
+  assert.throws(() => applyMvuSettlementEffect(concurrent, effect), error => error.code === 'STALE_SETTLEMENT_EFFECT')
+  assert.deepEqual(concurrent.variables, {}, 'a conflict must not partially commit the variable write')
+  const target = structuredClone(before)
+  applyMvuSettlementEffect(target, effect)
+  assert.deepEqual(target.macroState, { userName: '沈砚', local: { score: 2 }, global: { keep: true } })
 })
 
 test('同时开始的 MVU 尝试不会在 await 之后互相覆盖事务所有权', async () => {
