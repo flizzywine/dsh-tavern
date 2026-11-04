@@ -9580,8 +9580,8 @@ window.__ModuleLoader__.load({
 		          // Only a service that cannot speak says so (⚠ and why); the usual states (待机 / 运行中) are not written.
 		          state:way.id==='off'?null:(r=>r?.warn?r:null)(ready(way)),summary:way.id==='off'?'':summary(way),needed:needed(way),
 		          children:bodies[way.base]&&open===way.id?h(React.Fragment,null,fix(way),bodies[way.base](way)):bodies[way.base]?true:null}))),
-		        readiness.loaded&&none&&h('p',{className:'ap-voice-empty ap-voice-no-services'},'还没有设置语音服务',
-		          openSettings&&h(React.Fragment,null,' · ',h(Button,{className:'ap-link',onClick:()=>openSettings(null)},VOICE_BACKEND_LINK)))),
+		        readiness.loaded&&none&&h(EmptyState,{compact:true,className:'ap-voice-no-services',text:'还没有设置语音服务',
+		          action:openSettings&&h(Button,{className:'ap-link',onClick:()=>openSettings(null)},VOICE_BACKEND_LINK)})),
 		      spec&&h(StageSection,{title:'调音',help:VOICE_TUNING_HELP,meta:Object.keys(voicePresets(spec)).length,foldKey:'voice-tuning',className:'ap-voice-tuning'},
 		        h(VoicePresets,{...common,rows,active})),
 		      others&&h(VoiceOthers,{...common,onClose:()=>setOthers(false),setNotice}),
