@@ -2701,7 +2701,17 @@ function versionsOf(jobId) {
       const [gallerySource, setGallerySource] = React.useState('play')
 
       const [cardToggleNote, setCardToggleNote] = React.useState('')
-      // 卡片工作台的工具开关：走专用接口，后端读盘后只改 config.enabled 一个字段。
+      // 开关状态单独取：image 的 /state 里没有 enabled 字段，照着它渲染会一直弹回开启。
+      const [cardEnabled, setCardEnabled] = React.useState(null)
+      React.useEffect(() => {
+        let alive = true
+        fetch('/dsh-tavern-gen/api/state', { headers: { accept: 'application/json' } })
+          .then(response => response.json())
+          .then(value => { if (alive) setCardEnabled(value?.config?.enabled !== false) })
+          .catch(() => {})
+        return () => { alive = false }
+      }, [])
+      // 卡片工作台的工具开关：走专用接口，后端只改自己的开关文件。
       const toggleCardStudio = async next => {
         setCardToggleNote('设置中…')
         try {
@@ -2713,7 +2723,7 @@ function versionsOf(jobId) {
           const value = await response.json()
           if (!response.ok || !value.ok) throw new Error(value?.error || ('HTTP ' + response.status))
           const enabled = value.enabled !== false
-          setData(state => Object.assign({}, state, { config: Object.assign({}, state.config, { enabled }) }))
+          setCardEnabled(enabled)
           setCardToggleNote(enabled ? '已启用，工作台生图可用' : '已关闭，工作台生图已撤下')
         } catch (error) {
           setCardToggleNote('没改成：' + (error?.message ?? error))
@@ -6098,10 +6108,10 @@ function versionsOf(jobId) {
           h('span', null,
             h('span', { style: { display: 'block', fontSize: '14px', fontWeight: 600 } }, '启用工作台生图'),
             h('span', { style: { display: 'block', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '2px' } },
-              cardToggleNote || (config.enabled === false
+              cardToggleNote || (cardEnabled === false
                 ? '已关闭：工作台里不提供生图与查库工具'
                 : '为卡片工作台提供生图与人物、服装查询工具；渠道、画风、尺寸与上面共用同一份配置'))),
-          h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用工作台生图', checked: config.enabled !== false, onChange: e => toggleCardStudio(e.target.checked) })),
+          h('input', { type: 'checkbox', role: 'switch', className: 'dti-switch', 'aria-label': '启用工作台生图', checked: cardEnabled !== false, onChange: e => toggleCardStudio(e.target.checked) })),
         taskPanel(),
         h('div', { style: S.row }, tabs.map(([key, label]) => h('button', { key, style: S.tab(tab === key), onClick: () => setTab(key) }, label))),
         // 设置页按第一次配置的顺序排：先接渠道，再定每轮怎么配图，最后是画风。

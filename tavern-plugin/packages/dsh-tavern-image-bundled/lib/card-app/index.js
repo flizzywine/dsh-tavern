@@ -286,6 +286,19 @@ export function apply(ctx, config = {}) {
   /** 配置里没写 enabled 时按开启处理：旧配置升级过来行为不变。 */
   const toolsEnabled = cfg => cfg?.enabled !== false
 
+  /** 读工作台开关。开关文件不存在时兼容旧版写在 config.json 里的 enabled。 */
+  async function readToolsEnabled() {
+    try {
+      const raw = JSON.parse(await readFile(ENABLED_FILE, 'utf8'))
+      return raw?.enabled !== false
+    } catch {
+      try {
+        const cfg = JSON.parse(await readFile(CONFIG_FILE, 'utf8'))
+        return cfg?.enabled !== false
+      } catch { return true }
+    }
+  }
+
   /**
    * 读 config.json 并补上密钥库里的密钥。
    *
@@ -455,6 +468,9 @@ export function apply(ctx, config = {}) {
   const WORLDBOOK_FILE = path.join(ROOT, 'card-worldbook.json')
 // 随包默认书：公开版只带规则骨架，首次安装时拷成本地书，之后用户怎么改都不会动到它。
 const WORLDBOOK_DEFAULT = path.join(ROOT, 'card-worldbook.default.json')
+// 工作台生图开关单独存文件：合并后 config.json 由 image 的运行时整体写回，
+// 它不认识 enabled 字段，每次保存都会抹掉，开关就会自己弹回去。
+const ENABLED_FILE = path.join(ROOT, 'card-enabled.json')
   // 画廊记录也放数据目录：它会一直长，留在插件目录会让宿主每次扫描都读一遍。
   const JOBS_FILE = path.join(DATA_DIR, 'jobs.json')
   const MAX_JOBS = 500
@@ -771,7 +787,7 @@ const WORLDBOOK_DEFAULT = path.join(ROOT, 'card-worldbook.default.json')
             })
           }
           return send(response, 200, {
-            config: publicConfig(cfg),
+            config: { ...publicConfig(cfg), enabled: await readToolsEnabled() },
             worldbook: await loadWorldbook(),
             characters,
             outfits: await loadOutfits(),
@@ -814,16 +830,13 @@ const WORLDBOOK_DEFAULT = path.join(ROOT, 'card-worldbook.default.json')
           return send(response, 200, { ok: true, removed: list.length })
         }
 
-        // 工具开关只改 config 里的 enabled 一个字段：读盘后原地改再写回，
-        // 不碰渠道、密钥引用和其它模块的字段（合并后 config.json 是两边共用的）。
+        // 工具开关写自己的 card-enabled.json，不碰 config.json：
+        // 那份由 image 的运行时整体写回，它不认识 enabled，写进去也会被抹掉。
         if (route === 'tools-enabled' && method === 'POST') {
           const payload = JSON.parse(await readBody(request) || '{}')
           const enabled = payload?.enabled !== false
-          let next
-          try { next = JSON.parse(await readFile(CONFIG_FILE, 'utf8')) }
-          catch (error) { return send(response, 400, { ok: false, error: '读不到配置：' + (error?.message ?? error) }) }
-          next.enabled = enabled
-          await writeConfig(JSON.stringify(next, null, 2))
+          try { await writeFile(ENABLED_FILE, JSON.stringify({ enabled }, null, 2) + '\n', 'utf8') }
+          catch (error) { return send(response, 400, { ok: false, error: '写不了开关文件：' + (error?.message ?? error) }) }
           try { applyTools?.(enabled) } catch (error) {
             logger.warn?.('dsh-tavern-image/card: 应用工具开关失败 ' + (error?.message ?? error))
           }
@@ -867,13 +880,14 @@ const WORLDBOOK_DEFAULT = path.join(ROOT, 'card-worldbook.default.json')
             // 清缓存：下一次 gen_image 与 read_image_config 立刻用新配置，不用重启。
             settings = null
             // 开关改了要当场生效，否则用户得重启才看得出区别。
-            try { applyTools?.(toolsEnabled(next)) } catch (error) {
+            const enabledNow = await readToolsEnabled()
+            try { applyTools?.(enabledNow) } catch (error) {
               logger.warn?.('dsh-tavern-gen: 应用工具开关失败 ' + (error?.message ?? error))
             }
             return send(response, 200, {
               ok: true,
               target,
-              enabled: toolsEnabled(next),
+              enabled: enabledNow,
               bytes: Buffer.byteLength(text, 'utf8'),
               activeImageChannel: next.activeImageChannel ?? '',
               activePreset: next.activePreset ?? '',
@@ -1787,8 +1801,8 @@ const WORLDBOOK_DEFAULT = path.join(ROOT, 'card-worldbook.default.json')
         if (off) { try { off() } catch { /* 已卸载 */ } }
       }
       applyTools = on => { if (on) mount(); else unmount() }
-      // 启动时按配置决定挂不挂。配置读不出来就按开启——宁可多给工具，也不能让插件变哑巴。
-      currentConfig().then(cfg => applyTools?.(toolsEnabled(cfg)), () => applyTools?.(true))
+      // 启动时按开关文件决定挂不挂。读不出来就按开启——宁可多给工具，也不能让插件变哑巴。
+      readToolsEnabled().then(on => applyTools?.(on), () => applyTools?.(true))
       if (typeof scoped.effect === 'function') scoped.effect(() => unmount, 'dsh-tavern-gen: tools')
     })
 
