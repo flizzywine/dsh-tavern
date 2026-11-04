@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "09620ebebaee63b01aab098ba1f1229bc920f681",
-  "releaseSequence": 1166,
+  "revision": "39c7127b5f029766a9cc4843375ca9fafc6e0da2",
+  "releaseSequence": 1167,
   "version": "3.2.0",
   "files": [
     {
@@ -173,6 +173,11 @@
       "path": "bin/dev-sync-cli.sh",
       "sha256": "2aa74b32a253a5ba98915905d560133b00d909fb83bbb01f5d0c333de71612ed",
       "size": 1967
+    },
+    {
+      "path": "bin/dev-sync-desktop.mjs",
+      "sha256": "29d09f3da61bccdf353cd3e19721b27cfb9b221a2429202dae10b3bafffa79f8",
+      "size": 3549
     },
     {
       "path": "bin/download.cjs",
@@ -365,9 +370,14 @@
       "size": 3364
     },
     {
+      "path": "bin/test-runtime.mjs",
+      "sha256": "8465d2a9c3248138233d02ad7afc130e44a8348eecd2ff319fe2b51be4666c1a",
+      "size": 2940
+    },
+    {
       "path": "bin/test-tavern.mjs",
-      "sha256": "89e7b5a0261dfeb3a08e8ea0c2de7e66fa3c08237e0f4425fc8d0f23c84a6d72",
-      "size": 1490
+      "sha256": "026ad51e3139a92b3ac3b4c7bdbd29e10ca9c6060345607707fd442ea5a28d5f",
+      "size": 2209
     },
     {
       "path": "bin/theme-font-limit.mjs",
@@ -456,8 +466,8 @@
     },
     {
       "path": "package.json",
-      "sha256": "1c4188d17b8a98c2caba7225136375642cfb580e46391fe30e9e1edee12375cd",
-      "size": 3175
+      "sha256": "dabc3592da2a028086045b5ab4dd2bd2155bcef1b1633bcfd744e0d9b8ab3a38",
+      "size": 3228
     },
     {
       "path": "patches/dsh-better-sidebar@0.26.0.patch",
@@ -896,8 +906,8 @@
     },
     {
       "path": "tavern-plugin/lib/client.js",
-      "sha256": "d99169a19e0d5f25b672173a6d81f571c933c6115a9ccfc409965ef426bf7d57",
-      "size": 5440954
+      "sha256": "ad430e4da66ead57e9248b235d22deec02d345b58671c8abb4d22b8e6f6c25e8",
+      "size": 5454560
     },
     {
       "path": "tavern-plugin/lib/cordis-inspect.js",
@@ -1446,8 +1456,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-initialization.js",
-      "sha256": "ebf05de9567482a72910de0217c8c9f6ae29f0be9ada125691d29919580da92b",
-      "size": 24391
+      "sha256": "82fe61344571e7d86196de1cda8780db45754db3a0b47b1086161df43b8931e0",
+      "size": 24585
     },
     {
       "path": "tavern-plugin/lib/domain/conversation-page-store.js",
@@ -2321,13 +2331,13 @@
     },
     {
       "path": "tavern-plugin/lib/domain/opening-command.js",
-      "sha256": "eda31e52dc0335b632a358c1f38cee9da3c607829368c8d471d72674c9f326f8",
-      "size": 3206
+      "sha256": "7e92a4504ac794fae9f56d5e21a0cfd1798aa36fcc3fe797219326061305a177",
+      "size": 3318
     },
     {
       "path": "tavern-plugin/lib/domain/opening-preparation.js",
-      "sha256": "fdf25a9d3e9e7a5eda9280532e45293f0bae1b52b7755a1d5c05d62fc83c14a8",
-      "size": 20964
+      "sha256": "e804a9e30f330426250c886df825bfa51e750a66ce4b70b33532cae6b1b44ee1",
+      "size": 21341
     },
     {
       "path": "tavern-plugin/lib/domain/opening-setup.js",
@@ -3241,8 +3251,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-settings.js",
-      "sha256": "fb384e5ae72e61d0c301f5883f34041ac14220a6ffc10083af66fa51a39e5bb3",
-      "size": 25934
+      "sha256": "c801ed59210adca1ed29b77a3d6dd4eebef6202974ccca196f18e73e53aa01b2",
+      "size": 25933
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-skill-provider.js",
@@ -3821,8 +3831,8 @@
     },
     {
       "path": "tavern-plugin/lib/rpc/template.js",
-      "sha256": "2118ea6470f8569c29198a7d93bf1b9b4f5882a4a9f6324271c47dabe43a7c86",
-      "size": 13979
+      "sha256": "13efe0a1fbb4d4e2260d20570f56a3859b102f67eb6fe48e8d992aecbed90bd1",
+      "size": 14038
     },
     {
       "path": "tavern-plugin/lib/rpc/transfer.js",
@@ -9516,9 +9526,9 @@
     }
   ],
   "archive": {
-    "commit": "02adcd4a91a07ca128523632d08ae162ac5c749b",
+    "commit": "0df0e39c4c2ad312bb9a6083abedc0d0ec98267d",
     "path": "runtime.zip",
-    "sha256": "be8a4873e2884e273dff02e3875546a282226b256a1335cd4290a80f0f589b44",
-    "size": 16088792
+    "sha256": "13c1322b05c4ed031850c41c52c94f075542dc77514392701acd874273cbac19",
+    "size": 16095696
   }
 }
