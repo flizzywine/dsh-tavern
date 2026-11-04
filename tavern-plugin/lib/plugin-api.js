@@ -179,7 +179,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -858,6 +858,17 @@ export function createTavernPluginApi(deps) {
       if (!card) return null
       const { path: _where, ...data } = structuredClone(card)
       return data
+    },
+
+    // A card author's portable business identifier, never a host-issued credential.
+    async getCardIdentity({ gameId } = {}) {
+      const game = await requireGame(gameId)
+      const card = await deps.readCard(game.sessionId)
+      const identity = card?.extensions?.dsh_tavern?.identity
+      if (!identity || typeof identity !== 'object' || Array.isArray(identity) ||
+          typeof identity.namespace !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(identity.namespace) || identity.namespace.length > 128 ||
+          typeof identity.id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(identity.id)) return null
+      return { namespace: identity.namespace, id: identity.id }
     },
 
     // The picture of the game's character card, as a URL a page can show.

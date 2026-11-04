@@ -6,6 +6,8 @@ DSH Tavern 把扩展功能交给第三方 **DSH 插件**：文生图、文生视
 
 宿主通过 `ctx.tavern.capabilities` 公布可选能力。插件按能力名和版本探测；新增能力不要求旧插件升级接口版本。当前 `galleryProvider: 1` 可把插件自己保存的图片列入 Tavern 对话画廊，适合没有正文轮次的卡片工作台图库；`pricingProvider: 1` 让插件给界面报会话模型的价格。两者都见[媒体与数据](plugin-api-data.md)。
 
+`cardIdentity: 1` 表示支持读取卡作者声明的业务身份；`turnWrite: 1` 表示现有带正文版本检查的 `setVariables`；`cardPacks: 1` 表示现有 `listCardPacks` / `readCardPackFile`。这些是宿主全局的接口能力，不表示某局、某卡或某资源已授权或可用。宿主生命周期内对象不变；重新加载服务后重新读取。未知能力应忽略，缺少能力的旧宿主可检查方法并降级。`turnWrite` 不表示变量 revision 或跨调用的原子幂等事务。浏览器能力独立探测，不能从宿主版本或本对象推算。
+
 生图扩展另提供 `imageModels: 1`（查询已配置模型、指定来源和模型生成）、`imageLibrary: 1`（提供与查询人物、服装库），用法与数据契约见[生图模型与人物、服装库](plugin-api-data.md)。
 
 独立桌游或多角色玩法使用 `capabilities.gameMode === 1`：通过 `gameMode` 管理状态、行动和玩家投影，通过 `registerGameModeView` 提供大厅与整页界面，并可复用已注册成员的持久子代理。详见[玩法 API](plugin-api-game.md)和[浏览器 API](plugin-api-ui.md)。

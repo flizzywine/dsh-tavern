@@ -301,6 +301,12 @@ await ctx.tavern.setPlayerName({ gameId, playerName: '林岚' }) // 只修改这
 
 读这局正在玩的人物卡，返回 SillyTavern 角色卡的数据（`name`、`description`、`personality`、`scenario`、`first_mes`、`character_book`、`extensions` 等，以卡里实际有的字段为准）。开局时保存了人物卡快照的游戏，读到的是快照，和正文生成用的是同一份。返回的是副本，改它不影响游戏。
 
+## `getCardIdentity({ gameId })`（`capabilities.cardIdentity: 1`）
+
+卡作者可在卡数据的 `extensions.dsh_tavern.identity` 声明 `{ "namespace": "org.example", "id": "adventure-v1" }`。本接口从与 `getCard` 相同的本局卡数据读取，返回仅含这两个字段的新对象；缺失或不符合格式时返回 `null`。namespace 为小写 ASCII 字母和数字组成的至少两段，以点或连字符分隔，最长 128 字符；id 以 ASCII 字母或数字开头，其余只允许字母、数字、点、下划线和连字符，最长 128 字符。
+
+这是作者声明的业务标识，不是宿主签发的 UUID、唯一性证明或授权凭据。作者应使用自己控制的命名空间并维持语义；复制、导出和导入保留卡声明，作者有意制作不同业务身份时应自行更改。已保存快照的游戏读取快照，修改卡库不会追溯改写它。无声明的旧卡可继续用已有兼容判断，不能用名字或路径冒充稳定身份。接口仍执行卡内插件的作用域检查；旧宿主没有此方法时按缺失处理。
+
 ## `getCardImage({ gameId })`（第 2 版）
 
 读这局人物卡的图片，返回 `{ url, mediaType }`，卡没有图片（例如 JSON 格式的卡）时返回 `null`。`url` 是酒馆页面里可以直接显示的地址（例如 `<img src>`），只读；读到的是人物卡库里这张卡当前的图片，卡从卡库删除后返回 `null`。浏览器侧经 `callHost` 让宿主侧调用即可。
