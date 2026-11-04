@@ -8,6 +8,10 @@ import test from 'node:test'
 
 import { installPluginDependencies, resolveDshBootModule, resolveHostDependencies } from '../bin/plugin-dependencies.mjs'
 
+// Synthetic installations must not accidentally discover the real Electron
+// executable used by the desktop-backed test runner.
+const probeExecutable = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
+
 function fixture(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'tavern-host-deps-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -31,7 +35,7 @@ function fixture(t) {
   writeFileSync(path.join(bootDirectory, 'package.json'), '{"name":"@deepseek-ai/dsh-app-boot","version":"0.1.2-rc.1","type":"module","exports":"./index.js"}')
   writeFileSync(path.join(bootDirectory, 'index.js'), 'export function boot() {}\n')
   writeFileSync(path.join(pluginDirectory, 'package.json'), JSON.stringify({ name: 'host-deps-fixture', private: true, dependencies: Object.fromEntries(Object.keys(packages).map(name => [name, '>=0.1.0-rc.7'])) }))
-  return { root, pluginDirectory, original, bootstrap, packages }
+  return { root, pluginDirectory, original, bootstrap, packages, execPath: probeExecutable }
 }
 
 test('真实 pnpm 离线安装本地链接，并由插件解析到宿主原包及其传递依赖', async t => {
@@ -83,15 +87,15 @@ for (const failure of ['missing', 'export', 'transitive']) {
 test('Desktop 无 bootstrap 环境变量时按 app 可执行文件定位，不使用另一套 CLI', t => {
   const f = fixture(t)
   const executable = path.join(f.root, 'DSH Desktop', 'DSH Desktop.exe')
-  const deps = resolveHostDependencies({ host: 'desktop', dsh: '/wrong/cli', platform: 'win32', env: { DSH_DESKTOP_APP_EXECUTABLE: executable } })
+  const deps = resolveHostDependencies({ execPath: probeExecutable, host: 'desktop', dsh: '/wrong/cli', platform: 'win32', env: { DSH_DESKTOP_APP_EXECUTABLE: executable } })
   assert.equal(deps.length, Object.keys(f.packages).length)
   assert.equal(realpathSync(resolveDshBootModule({ host: 'desktop', env: { DSH_DESKTOP_DSH_BOOTSTRAP: f.bootstrap } })), realpathSync(path.resolve(path.dirname(f.bootstrap), '../node_modules/@deepseek-ai/dsh-app-boot/index.js')))
   const macRoot = path.join(f.root, 'Desktop.app/Contents/Resources')
   mkdirSync(macRoot, { recursive: true })
   renameSync(path.resolve(path.dirname(f.bootstrap), '..'), path.join(macRoot, 'app.asar.unpacked'))
-  const macDeps = resolveHostDependencies({ host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } })
+  const macDeps = resolveHostDependencies({ execPath: probeExecutable, host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } })
   assert.ok(macDeps.every(dep => dep.directory.includes('Desktop.app')))
-  assert.ok(resolveDshBootModule({ host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } }).includes('Desktop.app'))
+  assert.ok(resolveDshBootModule({ execPath: probeExecutable, host: 'desktop', platform: 'darwin', env: { DSH_DESKTOP_APP_EXECUTABLE: path.join(f.root, 'Desktop.app/Contents/MacOS/DSH Desktop') } }).includes('Desktop.app'))
 })
 
 function officialUpgradeFixture(t, parentReady = true) {
