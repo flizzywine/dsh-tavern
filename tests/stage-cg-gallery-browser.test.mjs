@@ -1,4 +1,4 @@
-// 回想: the grid opens a CG in the 「四角」 viewer; ←→ / swipe change CG, a deleted CG gives way to its neighbour.
+// 回想: the grid opens a CG in the 「四角」 viewer; ←→ / swipe change CG, mini pictures change 差分, 🗑 deletes at once and gives way to the neighbour.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
@@ -19,9 +19,12 @@ test('the grid opens a CG; arrows change CG and 差分, Esc returns to its cell'
   assert.equal(await page.locator('.fork-cg-gallery-cell').count(), 3)
   await page.locator('.fork-cg-gallery-cell').nth(1).click()
   assert.equal(await title(page), '第 2 张 CG')
-  assert.equal(await page.locator('.fork-cg-dot').count(), 2)
+  assert.equal(await page.locator('.fork-cg-variant').count(), 2)
   await page.keyboard.press('ArrowDown')
-  assert.equal(await page.locator('.fork-cg-dot[aria-pressed="true"]').getAttribute('aria-label'), '差分 2')
+  assert.equal(await page.locator('.fork-cg-variant[aria-pressed="true"]').getAttribute('aria-label'), '差分 2')
+  await page.locator('.fork-cg-variant').first().click()
+  assert.equal(await page.locator('.fork-cg-variant[aria-pressed="true"]').getAttribute('aria-label'), '差分 1', 'a mini picture switches 差分')
+  assert.equal(await page.locator('.fork-cg-variant .fork-cg-gallery-picture').count(), 2, 'each 差分 shows its picture')
   await page.keyboard.press('ArrowRight')
   assert.equal(await title(page), '第 3 张 CG')
   assert.equal(await page.locator('[data-k="next"]').count(), 0, 'no 下一张 on the last CG')
@@ -32,41 +35,38 @@ test('the grid opens a CG; arrows change CG and 差分, Esc returns to its cell'
   assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '第 2 张 CG')
 })
 
-test('✎ 🗑 ✕ sit at equal spacing; a single-variant CG without focus shows no dots or 构图', async t => {
+test('✎ 🗑 ✕ sit at equal spacing; a single-variant CG without focus shows no 差分 strip or 构图', async t => {
   const page = await open(t, galleryItems(2))
   await page.locator('.fork-cg-gallery-cell').first().click()
   const boxes = await page.locator('.fork-cg-viewer-acts > button').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect()).map(r => ({ left: r.left, right: r.right })))
   assert.equal(boxes.length, 3)
   assert.equal(boxes[1].left - boxes[0].right, boxes[2].left - boxes[1].right)
-  assert.equal(await page.locator('.fork-cg-dots, .fork-cg-crop').count(), 0)
+  assert.equal(await page.locator('.fork-cg-variants, .fork-cg-crop').count(), 0)
 })
 
-test('delete asks once, then shows the next CG, the previous after the last, and the grid when none are left', async t => {
+test('🗑 deletes at once, then shows the next CG, the previous after the last, and the grid when none are left', async t => {
   const page = await open(t, galleryItems(3))
   await page.locator('.fork-cg-gallery-cell').nth(1).click()
   await page.locator('[data-k="remove"]').click()
-  assert.equal(await page.evaluate(() => document.activeElement.dataset.k), 'cancel', 'the safe answer holds the focus')
-  await page.keyboard.press('Escape')
-  assert.equal(await page.locator('.fork-cg-confirm').count(), 0)
-  assert.equal(await title(page), '第 2 张 CG')
-  await page.locator('[data-k="remove"]').click()
-  await page.locator('.fork-cg-confirm [data-k="confirm"]').click()
   await page.waitForFunction(() => document.querySelector('.fork-cg-viewer-top h2')?.textContent === '第 3 张 CG')
-  await page.locator('[data-k="remove"]').click(); await page.locator('.fork-cg-confirm [data-k="confirm"]').click()
+  assert.equal(await page.locator('[role="alertdialog"], [role="alert"]').count(), 0, 'no confirmation')
+  await page.locator('[data-k="remove"]').click()
   await page.waitForFunction(() => document.querySelector('.fork-cg-viewer-top h2')?.textContent === '第 1 张 CG')
-  await page.locator('[data-k="remove"]').click(); await page.locator('.fork-cg-confirm [data-k="confirm"]').click()
+  await page.locator('[data-k="remove"]').click()
   await page.waitForSelector('.fork-empty')
   assert.equal(await page.locator('.fork-cg-viewer').count(), 0)
   assert.deepEqual(await page.evaluate(() => galleryState.calls.filter(call => call.method === 'removeSceneCg').map(call => call.args.ref.assetId)), ['cg-2', 'cg-3', 'cg-1'])
 })
 
-test('a failed delete keeps the card open with its warning', async t => {
+test('a failed delete keeps the CG and says so; the next CG clears it', async t => {
   const page = await open(t, galleryItems(2))
   await page.locator('.fork-cg-gallery-cell').first().click()
   await page.evaluate(() => { galleryState.fail = true })
-  await page.locator('[data-k="remove"]').click(); await page.locator('.fork-cg-confirm [data-k="confirm"]').click()
-  await page.waitForSelector('.fork-cg-confirm [role="alert"]')
+  await page.locator('[data-k="remove"]').click()
+  await page.waitForSelector('.fork-cg-remove-error[role="alert"]')
   assert.equal(await title(page), '第 1 张 CG')
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await page.locator('.fork-cg-remove-error').count(), 0)
 })
 
 test('phones: a horizontal swipe changes CG, a tap folds the controls', async t => {

@@ -97,8 +97,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     const [selected,setSelected]=React.useState(null),[variant,setVariant]=React.useState(''),[focus,setFocus]=React.useState(null);
     const [uiOff,setUiOff]=React.useState(false),[active,setActive]=React.useState(false),[cropOpen,setCropOpen]=React.useState(false);
     const revision=usePackRevision(),generation=React.useRef(0),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
-    const wasViewer=React.useRef(false),wasRemoving=React.useRef(null);
-    // a 场景生图 CG (row.scene): 在素材库中编辑 opens its entry in the 素材库; 删除这张 CG… asks once, then removes it everywhere.
+    const wasViewer=React.useRef(false);
+    // a 场景生图 CG (row.scene): 在素材库中编辑 opens its entry in the 素材库; 🗑 removes it everywhere at once (busy | failed).
     const [removing,setRemoving]=React.useState(null);
     const source=store.getSnapshot().source,authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
     const viewable=items.filter(item=>item.unlocked&&item.available);
@@ -130,10 +130,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     },[items,selected]);
     React.useLayoutEffect(()=>{
         if (disposed || !root.current) return;
-        const viewer=!!item,left=wasViewer.current&&!viewer,asked=wasRemoving.current;wasViewer.current=viewer;wasRemoving.current=removing;
-        if (viewer && removing==='ask' && asked!=='ask') root.current.querySelector('.fork-cg-confirm [data-k=cancel]')?.focus();
-        else if (viewer && !removing && asked==='ask') root.current.querySelector('[data-k=remove]')?.focus();
-        else if (viewer && !root.current.contains(document.activeElement)) root.current.focus();
+        const viewer=!!item,left=wasViewer.current&&!viewer;wasViewer.current=viewer;
+        if (viewer && !root.current.contains(document.activeElement)) root.current.focus();
         else if (left) ([...root.current.querySelectorAll('[data-cg-cell]')].find(node=>node.dataset.cgCell===lastCell.current)||root.current).focus();
     },[selected,!!item,removing,uiOff]);
     // more of the list loads when its end scrolls into view.
@@ -148,10 +146,10 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         if (disposed || !next) return;
         lastCell.current=refKey(next);setSelected(refKey(next));setVariant(next.defaultVariant);setFocus(null);setRemoving(null);setCropOpen(false);
     }
-    const go=step=>{if(!removing)show(viewable[index+step]);};
-    const cycle=step=>{if(!item||item.variants.length<2||removing)return;const list=item.variants,at=list.indexOf(shown);setVariant(list[(at+step+list.length)%list.length].key);};
+    const go=step=>{if(removing!=='busy')show(viewable[index+step]);};
+    const cycle=step=>{if(!item||item.variants.length<2||removing==='busy')return;const list=item.variants,at=list.indexOf(shown);setVariant(list[(at+step+list.length)%list.length].key);};
     function leave() {if(disposed)return;setSelected(null);setFocus(null);setRemoving(null);setCropOpen(false);setUiOff(false);}
-    function back() {if(disposed)return;if(cropOpen)setCropOpen(false);else if(removing){if(removing!=='busy')setRemoving(null);}else if(item)leave();else onClose();}
+    function back() {if(disposed)return;if(cropOpen)setCropOpen(false);else if(item)leave();else onClose();}
     function edit() {if(disposed||!item||!openLibrary)return;const ref=item.ref;(onExit||onClose)();void openLibrary(sessionId,{packId:ref.packId,kind:'cg',figureId:ref.assetId});}
     async function remove() {
         if(disposed||!item||removing==='busy')return;
@@ -164,16 +162,14 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         if (disposed) return;
         event.stopPropagation();
         if(event.key==='Escape'){event.preventDefault();back();return;}
-        if(item && !removing && !cropOpen && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) {
+        if(item && !cropOpen && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) {
             event.preventDefault();
             if(event.key==='ArrowLeft'||event.key==='ArrowRight')go(event.key==='ArrowRight'?1:-1);else cycle(event.key==='ArrowDown'?1:-1);
         }
         if(event.key==='Tab') {
             event.preventDefault();
             if(item&&uiOff){setUiOff(false);return;}
-            // the confirm card holds the focus while it is open.
-            const scope=removing&&item?root.current.querySelector('.fork-cg-confirm'):root.current;
-            const buttons=[...scope.querySelectorAll('button:not(:disabled)')].filter(node=>node.checkVisibility({visibilityProperty:true}));
+            const buttons=[...root.current.querySelectorAll('button:not(:disabled)')].filter(node=>node.checkVisibility({visibilityProperty:true}));
             const at=buttons.indexOf(document.activeElement);buttons[(at+(event.shiftKey?buttons.length-1:1))%buttons.length]?.focus();
         }
     }
@@ -187,9 +183,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     }
     function tap(event) {
         if (swiped.current) {swiped.current=false;return;}
-        if (event.target.closest('button, .fork-cg-confirm, .fork-cg-crop-menu')) return;
+        if (event.target.closest('button, .fork-cg-crop-menu')) return;
         if (cropOpen) setCropOpen(false);
-        else if (removing) {if(removing!=='busy')setRemoving(null);}
         else {if(!uiOff)root.current?.focus();setUiOff(!uiOff);}
     }
     // phones: a horizontal swipe changes the CG.
@@ -203,28 +198,22 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     }
     function viewer() {
         const hints=item.focusHints,choices=[{key:null,label:'完整图'},...hints];
-        return h('div',{className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,'data-confirm':removing||undefined,
+        return h('div',{className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,
                 onClick:tap,onPointerMove:wake,onPointerLeave:()=>setActive(false),onPointerDown:swipeStart,onPointerUp:swipeEnd,onPointerCancel:()=>{swipe.current=null;}},
             h(CgGalleryImage,{image:shown?.image,authority,focus}),
-            h('div',{className:'fork-cg-viewer-dim'}),
             h('div',{className:'fork-cg-viewer-ui'},
                 h('div',{className:'fork-cg-viewer-scrim'}),
                 h('header',{className:'fork-cg-viewer-top'},h('h2',null,item.label),
                     h('div',{className:'fork-cg-viewer-acts'},
                         item.scene&&openLibrary?round('edit','在素材库中编辑',edit):null,
-                        item.scene?round('remove','删除这张 CG…',()=>{if(removing!=='busy')setRemoving(removing?null:'ask');},{'aria-expanded':!!removing,'aria-haspopup':'dialog'}):null,
+                        item.scene?round('remove','删除这张 CG',remove,{'aria-busy':removing==='busy'||undefined}):null,
                         round('close','关闭',leave)),
-                    removing?h('div',{className:'fork-cg-confirm',role:'alertdialog','aria-labelledby':'fork-cg-confirm-title','aria-describedby':'fork-cg-confirm-note'},
-                        h('div',{className:'fork-cg-confirm-head'},h('span',{className:'fork-cg-confirm-badge'},icon('remove')),
-                            h('div',null,h('p',{id:'fork-cg-confirm-title'},'删除这张 CG？'),h('p',{id:'fork-cg-confirm-note'},'素材包和回想里都会删掉。'))),
-                        removing==='failed'?h('p',{className:'fork-cg-confirm-error',role:'alert'},icon('warn'),'没能删除，可以再试一次'):null,
-                        h('div',{className:'fork-cg-confirm-row'},
-                            h('button',{type:'button','data-k':'cancel',disabled:removing==='busy',onClick:()=>setRemoving(null)},'取消'),
-                            h('button',{type:'button','data-k':'confirm',className:'is-danger',disabled:removing==='busy','aria-busy':removing==='busy'||undefined,onClick:remove},
-                                removing==='busy'&&Spinner?h(Spinner,null):null,removing==='busy'?'正在删除…':'删除'))):null),
+                    removing==='failed'?h('p',{className:'fork-cg-remove-error',role:'alert'},icon('warn'),'没能删除，可以再试一次'):null),
                 index>0?round('prev','上一张',()=>go(-1),{className:'fork-cg-round fork-cg-nav is-prev'}):null,
                 index<viewable.length-1?round('next','下一张',()=>go(1),{className:'fork-cg-round fork-cg-nav is-next'}):null,
-                item.variants.length>1?h('div',{className:'fork-cg-dots',role:'group','aria-label':'差分'},item.variants.map(v=>h('button',{key:v.key,type:'button',className:'fork-cg-dot','aria-label':v.label,'data-tip':v.label,'aria-pressed':v===shown,onClick:()=>setVariant(v.key)}))):null,
+                // 差分: a strip of mini pictures, bottom centre; the lit one is shown.
+                item.variants.length>1?h('div',{className:'fork-cg-variants',role:'group','aria-label':'差分'},item.variants.map(v=>h('button',{key:v.key,type:'button',className:'fork-cg-variant','aria-label':v.label,'data-tip':v.label,'aria-pressed':v===shown,onClick:()=>setVariant(v.key)},
+                    h(CgGalleryImage,{image:v.image,authority,thumb:true})))):null,
                 hints.length?h('div',{className:'fork-cg-crop'},
                     round('crop','构图',()=>setCropOpen(!cropOpen),{'aria-haspopup':'menu','aria-expanded':cropOpen}),
                     cropOpen?h('div',{className:'fork-cg-crop-menu',role:'menu','aria-label':'构图'},choices.map(choice=>h('button',{key:choice.key||'full',type:'button',role:'menuitemradio','aria-checked':(focus?.key??null)===choice.key,
