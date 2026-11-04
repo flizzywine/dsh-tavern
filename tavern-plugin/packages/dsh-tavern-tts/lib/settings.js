@@ -65,6 +65,8 @@ export function patchReading(current, patch) {
   return next
 }
 // Pure migration primitive. No files, credentials, or automatic startup writes.
+// 浏览器朗读 is always in the voice services catalog: the device's own voices, free, nothing to set up.
+export const BROWSER_VOICE_SERVICE = Object.freeze({id:'browser', kind:'browser', label:'浏览器朗读', state:'ready', billing:'free', sources:Object.freeze(['preset']), voiceList:'browser'})
 export function importProviders(document) {
   if (document?.version !== 1 || !Array.isArray(document.providers)) fail('API_INCOMPATIBLE')
   return validateSettings({ enabled:true, providers: document.providers.map(p => ({ id:p.id, kind:p.kind, label:String(p.label || p.id).slice(0,160), config:providerConfig(p.kind,p.config) })), cacheMaxGB:1, cacheMaxAgeDays:30 })
@@ -80,7 +82,8 @@ export function plainError(error) {
   if (/[\u3400-\u9fff]/.test(message)) return message.slice(0,300)
   return PLAIN_ERRORS[message] || '请求失败'
 }
-export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples }) {
+// \changed\: called when the voice services catalog changes (a service saved, removed or checked).
+export function createServiceSettings({ tts, get, replace, credentials, fetch, warn, samples, changed = () => {} }) {
   // Fish owns its free-only retry policy; do not wrap it in generic retries.
   const fish = createFishAudioAdapter({fetch}), discovery = createFishDiscovery({fetch})
   fetch = boundedFetch(fetch)
@@ -124,7 +127,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
     }
     return {provider,status:'ok',...structuredClone(entry.value),refreshing:entry.refreshing,...(entry.message ? {message:entry.message} : {})}
   }
-  const remember = (p, result) => checks.set(p.id, { revision:hash(p), status:result.status, ...(result.message ? {message:result.message} : {}), voiceCount:result.voices.length, at:Date.now() })
+  const remember = (p, result) => { checks.set(p.id, { revision:hash(p), status:result.status, ...(result.message ? {message:result.message} : {}), voiceCount:result.voices.length, at:Date.now() }); changed() }
   // Typed secrets win; otherwise reuse the stored credential of the same saved service. Never returned.
   async function draftSecrets(kind, id, given = {}, config) {
     const result = {}, c = credentials()
@@ -348,6 +351,19 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         registrations.set(p.id, {revision,dispose})
       }
     },
+    // The configured voice services catalog (ttsControl `voiceServices`, Tts.listVoiceServices): every saved service and
+    // 浏览器朗读, without keys, URLs or config. It reads no network; `state` is the last connection check of this activation.
+    async voiceServices() {
+      const services = await Promise.all(get().providers.map(async p => {
+        const kind = providerKind(p.kind), revision = hash(p), check = checks.get(p.id)?.revision === revision ? checks.get(p.id) : null
+        const fish = p.kind === 'fish-audio', custom = fish && !isFishCloud(p.config) || p.kind === 'openai-compatible'
+        const keyless = !custom && (await Promise.all(kind.fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
+        const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : 'offline'
+        return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:fish ? custom ? 'unknown' : fishModel(p.config.model).billing : kind.paid ? 'paid' : 'free',
+          sources:fish ? ['reference-list','voice-id'] : ['preset'], voiceList:fish ? 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'}
+      }))
+      return {services:[...services, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
+    },
     async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), category:p.kind === 'fish-audio' && !isFishCloud(p.config) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', revision, ...(checks.get(p.id)?.revision === revision ? {check:{...checks.get(p.id)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
     save(input) { return serial(async () => {
       const before = get(), old = before.providers.find(p => p.id === input.id)
@@ -374,12 +390,12 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         fail(failed ? 'ROLLBACK_FAILED' : 'SETTINGS_WRITE_FAILED')
       }
       if (writes.length) { checks.delete(next.id); credentialEpochs.set(next.id,(credentialEpochs.get(next.id) || 0) + 1) }
-      api.sync(); return (await api.list()).find(p => p.id === next.id)
+      api.sync(); changed(); return (await api.list()).find(p => p.id === next.id)
     }) },
     delete({ id, expectedRevision, force }) { return serial(async () => {
       const p = record(id); if (expectedRevision !== hash(p)) fail('REVISION_CONFLICT')
       if (!force && (await tts.inspectUsage(id)).some(u => u.unknown || u.count > 0)) fail('SERVICE_IN_USE')
-      await replace({ ...get(), providers:get().providers.filter(p => p.id !== id) }); checks.delete(id); credentialEpochs.set(id,(credentialEpochs.get(id) || 0) + 1); api.sync()
+      await replace({ ...get(), providers:get().providers.filter(p => p.id !== id) }); checks.delete(id); credentialEpochs.set(id,(credentialEpochs.get(id) || 0) + 1); api.sync(); changed()
       // Existing shared credential refs may still serve Tavern; phase 5 decides removal.
       return { deleted:true, credentialsRetained:true }
     }) },

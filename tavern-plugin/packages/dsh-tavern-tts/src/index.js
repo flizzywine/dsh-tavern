@@ -28,10 +28,10 @@ export function apply(ctx, config = {}) {
     if (next !== lastReading) { lastReading = next; tts.readingChanged() }
   }
   const samples = config.dataDir ? createSampleCache({dataDir:config.dataDir}) : undefined
-  const services = createServiceSettings({ tts, samples, get:() => source(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
+  const services = createServiceSettings({ tts, samples, get:() => source(), changed:() => tts.servicesChanged(), credentials:() => ctx.get('credentials'), warn:message => ctx.logger.warn(message),
     replace: async value => { const settings = settingsSectionProvider(ctx, 'tts'); if (!settings) fail('SETTINGS_UNAVAILABLE'); await settings.replace('tts',validateSettings(value),settings.describe().find(row => row.ns === 'tts')?.revision) },
   })
-  Object.assign(tts, { listRecommendedFishVoices:services.listRecommendedFishVoices, saveService:services.save, deleteService:services.delete, testService:services.test, importVoicePresets:services.importVoicePresets })
+  Object.assign(tts, { listVoiceServices:services.voiceServices, listRecommendedFishVoices:services.listRecommendedFishVoices, saveService:services.save, deleteService:services.delete, testService:services.test, importVoicePresets:services.importVoicePresets })
   // Status is stale-while-revalidate: concurrent panels share one bounded probe per provider.
   const statuses = new Map()
   tts.subscribe(event => {
@@ -128,6 +128,7 @@ export function apply(ctx, config = {}) {
       case 'capabilities': return tts.capabilities()
       case 'settings': return { ...source(), providers:await services.list() }
       case 'services': return { configured:await services.list(), running:await runningStatus(await tts.listServices()) }
+      case 'voiceServices': return services.voiceServices()
       case 'providerKinds': return services.kinds()
       case 'listRecommendedFishVoices': return services.listRecommendedFishVoices(args)
       case 'validateFishVoice': return services.validateFishVoice(args)

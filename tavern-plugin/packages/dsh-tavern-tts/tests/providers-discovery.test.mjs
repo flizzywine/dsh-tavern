@@ -416,3 +416,22 @@ test('saving a service permits empty keys without a credential store; deleting o
   await services.delete({id:'custom',expectedRevision,force:true})
   assert.deepEqual(settings.providers,[])
 })
+
+test('the voice services catalog lists saved services and 浏览器朗读 without keys, URLs or config',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const tts = createTts(), events = []
+  const services = createServiceSettings({tts,get:() => settings,replace:async v => {settings=v},credentials:() => null,changed:() => events.push('servicesChanged')})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  const empty = await services.voiceServices()
+  assert.deepEqual(empty.services.map(s => s.kind),['browser'])
+  assert.equal(empty.kinds.minimax,'MiniMax')
+  await services.save({id:'mm-a',kind:'minimax',label:'我的 MiniMax',config:{groupId:'group-private'},secrets:{key:''}})
+  await services.save({id:'local-fish',kind:'fish-audio',config:{url:'http://fixture.invalid',model:'server-model'},secrets:{key:''}})
+  assert.ok(events.includes('servicesChanged'))
+  const {services:rows} = await services.voiceServices()
+  assert.deepEqual(rows.map(s => [s.id,s.kind,s.label,s.state,s.voiceList,s.sources.join('+')]),[
+    ['mm-a','minimax','我的 MiniMax','needs-key','preset','preset'],
+    ['local-fish','fish-audio','local-fish','configured','fish-recommended','reference-list+voice-id'],
+    ['browser','browser','浏览器朗读','ready','browser','preset']])
+  assert.doesNotMatch(JSON.stringify(rows),/group-private|fixture\.invalid|"config"/)
+})

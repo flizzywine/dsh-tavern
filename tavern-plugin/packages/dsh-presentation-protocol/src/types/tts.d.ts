@@ -65,10 +65,24 @@ export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice:
 export interface TtsReading { dialogueVoice: ReadingVoiceBinding | null; narrator: {enabled: boolean; voice: ReadingVoiceBinding | null} }
 /** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
 export interface TtsReadingPatch { dialogueVoice?: ReadingVoiceBinding | null; narrator?: {enabled?: boolean; voice?: ReadingVoiceBinding | null} }
+/** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed. */
+export interface VoiceServiceEntry {
+  id: string; kind: 'qwen' | 'azure' | 'volcengine' | 'fish-audio' | 'openai-compatible' | 'minimax' | 'browser'; label: string
+  /** From the last connection check of this activation; reading the catalog sends no request. */
+  state: 'ready' | 'configured' | 'needs-key' | 'offline'
+  billing: 'free' | 'paid' | 'unknown'
+  /** The 配音来源 kinds (pack voice source \kind\) this service speaks. */
+  sources: ('reference-list' | 'voice-id' | 'preset')[]
+  /** How its voices are listed: listRecommendedFishVoices, listOnlinePresetVoices, providerVoices, or the browser's own voices. */
+  voiceList: 'fish-recommended' | 'preset' | 'provider' | 'browser'
+}
+/** The configured voice services catalog (ttsControl \oiceServices\, Tts.listVoiceServices); \kinds\: every supported kind's name, for a source whose service is not configured. */
+export interface VoiceServiceCatalog { services: VoiceServiceEntry[]; kinds: Record<VoiceServiceEntry['kind'], string> }
 /** Host control service (ctx.get('ttsControl')); also served at /api/dsh-tts/v1/control. */
 export interface TtsControl {
   call(method: 'reading'): Promise<TtsReading>
   call(method: 'setReading', args: TtsReadingPatch): Promise<TtsReading>
+  call(method: 'voiceServices'): Promise<VoiceServiceCatalog>
   call(method: string, args?: Record<string, unknown>): Promise<unknown>
 }
 /** Host consumer service; unregistered while native tts.enabled is false. */
@@ -81,6 +95,8 @@ export interface Tts {
   grantConsumer(input: {principal: string; source: string; scope: string; authorize?: (input: unknown, provider: {serviceId:string;serviceRevision:string}) => void}): {grant: ConsumerGrant; dispose(): void}
   listRecommendedFishVoices(input?: {language?:string;serviceId?:string;selectedVoiceId?:string}): {voices:FishVoice[];refreshing:boolean}
   listServiceVoices(): Promise<ServiceVoice[]>
+  /** The configured voice services catalog; subscribe for {type:'servicesChanged'}. */
+  listVoiceServices(): Promise<VoiceServiceCatalog>
   /** Synchronous choice among already-listed services, with the same rule as resolveVoiceService (no network, no binding):
    *  the source's own installed serviceId, else the sole service of its provider, else undefined. */
   chooseService(source: {kind: string; provider: string; serviceId?: string}, services: ServiceVoice[]): ServiceVoice | undefined
@@ -106,7 +122,7 @@ export interface Tts {
   pendingCount(): number
   deleteCacheEntry(input: {key:string}): Promise<{removed:number; keys:string[]}>
   cacheSnapshot(): {count:number; bytes:number; maxBytes:number; maxAgeDays:number; loading:boolean; error?:string}
-  /** Events include 'readingChanged' (tts.reading changed; read it again with reading()). */
+  /** Events include 'readingChanged' (tts.reading changed; read it again with reading()) and 'servicesChanged' (read listVoiceServices again). */
   subscribe(listener: (event: {type: string; source?: string; serviceId?: string; epoch?: number; code?:string}) => void): () => void
   dispose(): Promise<void>
 }
@@ -119,7 +135,7 @@ export interface TtsClient {
   readonly apiVersion: 1;
   available(): boolean;
   listVoices(): Promise<ServiceVoice[]>;
-  subscribe(listener: (event: {type: 'unavailable' | 'voicesChanged'}) => void): () => void;
+  subscribe(listener: (event: {type: 'unavailable' | 'voicesChanged' | 'servicesChanged'}) => void): () => void;
   call(method: string, args?: Record<string, unknown>): Promise<unknown>;
   synthesize(input: ServiceSynthesis | {voice: VoiceRef; text: string; language: string; mood?: string}, options: {scope: string; signal?: AbortSignal; priority?: 'call' | 'story'}): Promise<{key: string; ticket: string; mime: string; cacheHit: boolean; durationMs?: number; loudness: VoiceLoudness}>;
   audio(ticket: string, options?: {signal?: AbortSignal}): Promise<Blob>;
