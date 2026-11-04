@@ -38,13 +38,15 @@ for (const [name, file] of [['react', 'react.production.js'], ['scheduler', 'sch
   const code = await readFile(join(dirname(require.resolve(name)), 'cjs', file), 'utf8')
   bundle += `modules[${JSON.stringify(name)}]=(()=>{const module={exports:{}};const exports=module.exports;const require=name=>modules[name];\n${code}\nreturn module.exports;})();\n`
 }
-const script = bundle + `const React=modules.react; const {createRoot}=modules['react-dom/client'];
+const script = bundle + `const React=modules.react; const ReactDOM=modules['react-dom']; const {createRoot}=modules['react-dom/client'];
 const registry = new Map();
 const tavernUiExtensions = {gameModeView: key => registry.get(key)};
-const useTavernUiExtensions = () => {};
+let extensionVersion = 0; const extensionListeners = new Set();
+const useTavernUiExtensions = () => React.useSyncExternalStore(fn => { extensionListeners.add(fn); return () => extensionListeners.delete(fn); }, () => extensionVersion);
+window.activateGamePlugin = () => { window.gamePluginReady = true; extensionVersion++; extensionListeners.forEach(fn => fn()); };
 const tavernSessionSignals = {subscribe: () => () => {}};
 const tavernPluginBoundary = () => function Boundary(p) { return p.children; };
-async function rpc(method, args, sessionId) { const r = await fetch('/rpc/' + method, {method:'POST',body:JSON.stringify({...args,sessionId})}); const result = await r.json(); if (!result.ok) throw Error(result.error); return result; }
+async function rpc(method, args, sessionId) { if (args.op === 'list' && !window.gamePluginReady) { window.emptyListRead = true; return {modes:[]}; } const r = await fetch('/rpc/' + method, {method:'POST',body:JSON.stringify({...args,sessionId})}); const result = await r.json(); if (!result.ok) throw Error(result.error); return result; }
 window.__ModuleLoader__ = {load: descriptor => descriptor.factory(name => modules[name]).apply({tavernUi:{registerGameModeView: input => registry.set('dsh-card-werewolf:' + input.name, {owner:'dsh-card-werewolf',render:input.render})}})};
 ${pluginClient}
 ${surface}
@@ -63,6 +65,11 @@ try {
   page.setDefaultTimeout(10000)
   const errors = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('http://127.0.0.1:' + server.address().port)
+  await page.waitForFunction(() => window.emptyListRead === true)
+  assert.equal(await page.getByRole('button', { name: '开始 六人狼人杀' }).count(), 0)
+  await page.evaluate(() => window.activateGamePlugin())
+  await page.getByRole('button', { name: '开始 六人狼人杀' }).waitFor()
+  await page.screenshot({ path: join(output, 'werewolf-launch.png'), fullPage: true })
   await page.getByRole('button', { name: '开始 六人狼人杀' }).click()
   await page.getByRole('heading', { name: '月下六席 · 狼人杀' }).waitFor()
   const dark = await page.getByRole('main', { name: '月下六席游戏桌面' }).evaluate(el => ({ background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }))
