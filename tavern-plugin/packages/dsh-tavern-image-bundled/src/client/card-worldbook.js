@@ -141,6 +141,7 @@
                 return false
               }
               dropDraft(bucket, id, patch)
+              setNote('已保存')
             }
           }
           return true
@@ -316,18 +317,18 @@
               open[key] && !isEditing ? h('div', { style: WB_PREVIEW }, String(draft.content).trim() || '（这条还没有内容）') : null,
               isEditing ? h('div', { style: { marginTop: '8px' } },
                 h('input', {
-                  type: 'text', value: draft.title, placeholder: '条目标题', disabled: busy,
+                  type: 'text', value: draft.title, placeholder: '条目标题', disabled: busy, 'aria-label': '卡片条目标题 ' + entry.id,
                   style: Object.assign({}, S.input, { width: '100%', marginBottom: '6px' }),
                   onChange: event => patchSoon(current.id, entry.id, { title: event.target.value }),
                 }),
                 h('textarea', {
-                  value: draft.content, placeholder: '条目内容（作为画图规则发给模型）', disabled: busy, style: WB_TEXTAREA,
+                  value: draft.content, placeholder: '条目内容（作为画图规则发给模型）', disabled: busy, 'aria-label': '卡片条目内容 ' + entry.id, style: WB_TEXTAREA,
                   onChange: event => patchSoon(current.id, entry.id, { content: event.target.value }),
                 }),
                 h('div', { style: WB_BOX },
                   h('div', { style: { fontSize: '12px', marginBottom: '6px' } }, '档位'),
                   h('select', {
-                    value: draft.mode, 'aria-label': '档位 ' + entry.id, disabled: busy,
+                    value: draft.mode, 'aria-label': '卡片条目档位 ' + entry.id, disabled: busy,
                     style: Object.assign({}, S.input, { width: '100%', maxWidth: '320px' }),
                     onChange: event => patchNow(current.id, entry.id, { mode: event.target.value }, '档位'),
                   }, CARD_WB_MODES.map(([mode, label]) => h('option', { key: mode, value: mode }, label))),
