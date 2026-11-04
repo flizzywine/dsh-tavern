@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "794804f9eed4593da1a4bc752f0f109e7f850d80",
-  "releaseSequence": 1201,
+  "revision": "d82e828b55b0abd0c11156e2e9636410ed0a5486",
+  "releaseSequence": 1202,
   "version": "3.2.0",
   "files": [
     {
@@ -271,8 +271,8 @@
     },
     {
       "path": "bin/official-desktop-runtime.cjs",
-      "sha256": "744bcf8b312624ed5a513221566c5d898a1366faccdf257f6d2ca6284ecc69a9",
-      "size": 7041
+      "sha256": "65e1e6cc03cbb016f4c98fd10e5e4c139cd954122414149fd487cc75330a5241",
+      "size": 7295
     },
     {
       "path": "bin/original-bridge-update.mjs",
@@ -3301,8 +3301,8 @@
     },
     {
       "path": "tavern-plugin/lib/domain/tavern-token-meter.js",
-      "sha256": "fb8ff76c5e6055eba2edab1652de5aef0a21713552a39a1740cba209ad753a12",
-      "size": 3305
+      "sha256": "c9ae1abc16d63cdd450d78f9876996cc650db981be9fe56e409ee9d5a6cba408",
+      "size": 4337
     },
     {
       "path": "tavern-plugin/lib/domain/template-history-pipe.js",
@@ -3781,8 +3781,8 @@
     },
     {
       "path": "tavern-plugin/lib/native-settings.js",
-      "sha256": "6047c1381ccf02396f887fb035c6013203c21acdef271e198410f3b06b57804f",
-      "size": 1426
+      "sha256": "4dd9820fa619e306db892cb3e387c0c23474a9c25e08781922939218dce3fff4",
+      "size": 1511
     },
     {
       "path": "tavern-plugin/lib/optional-stage.js",
@@ -5866,8 +5866,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/native-settings.js",
-      "sha256": "6c48314fafd5fc268acd38b36e0af61887f654afa5af4548f4e529e85cf6d1b3",
-      "size": 1492
+      "sha256": "ff9e3c8f99f4ce4473fc24b2b596666cf429465251e33dc0e623c9107b384d81",
+      "size": 1577
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/lib/shared/settings-migration.js",
@@ -6451,8 +6451,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/native-settings.js",
-      "sha256": "6c48314fafd5fc268acd38b36e0af61887f654afa5af4548f4e529e85cf6d1b3",
-      "size": 1492
+      "sha256": "ff9e3c8f99f4ce4473fc24b2b596666cf429465251e33dc0e623c9107b384d81",
+      "size": 1577
     },
     {
       "path": "tavern-plugin/packages/dsh-asset-library/src/shared/settings-migration.js",
@@ -9066,8 +9066,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/native-settings.js",
-      "sha256": "6c48314fafd5fc268acd38b36e0af61887f654afa5af4548f4e529e85cf6d1b3",
-      "size": 1492
+      "sha256": "ff9e3c8f99f4ce4473fc24b2b596666cf429465251e33dc0e623c9107b384d81",
+      "size": 1577
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/qwen-voices.json",
@@ -9306,8 +9306,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/shared/native-settings.js",
-      "sha256": "6c48314fafd5fc268acd38b36e0af61887f654afa5af4548f4e529e85cf6d1b3",
-      "size": 1492
+      "sha256": "ff9e3c8f99f4ce4473fc24b2b596666cf429465251e33dc0e623c9107b384d81",
+      "size": 1577
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/shared/qwen-voices.json",
@@ -9666,9 +9666,9 @@
     }
   ],
   "archive": {
-    "commit": "b802d43fc49db49af3e7e3a27b011c536182661f",
+    "commit": "f5e33f48d8562f7f7a5e4e464802df22370760da",
     "path": "runtime.zip",
-    "sha256": "33fe425615a0ac766a9a2f31146fc97b7b04a5d0d9bae9b18bc684f42ffdf18e",
-    "size": 16195928
+    "sha256": "100a2de60ce83067afa8a8978ef209a52697b90fe2a647cbd0b8a060210ba0ed",
+    "size": 16196390
   }
 }
