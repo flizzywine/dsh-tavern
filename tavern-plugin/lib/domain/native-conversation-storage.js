@@ -13,6 +13,10 @@ import {diffJson,applyJsonChangesShared} from './json-mutation.js'
 const pointer=parts=>parts.length?'/'+parts.map(part=>String(part).replace(/~/g,'~0').replace(/\//g,'~1')).join('/'):''
 const failure=(code,message)=>Object.assign(new Error(message),{code})
 const header=({messages,...value})=>value
+// Same JSON contract as the state tree. A value the JSON round-trip cannot
+// reproduce (undefined member, NaN, Date, class instance) is normalized to what
+// the store would read back instead of aborting the whole chat transaction.
+const jsonValue=value=>value===undefined?undefined:JSON.parse(JSON.stringify(value))
 const CHANGE_WINDOW=64
 
 // The page store bounds physical I/O across these independent decoders. Keep
@@ -401,8 +405,8 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    prefix.update(JSON.stringify([row.role,row.turn,row.sourceText??row.text]))
    encoded.set(index,{...reference,scene:{hash:prefix.state(),latest,display:{...display},...(target?{target}:{})}})
   }
-  if(!root)return t.create({turns,latest,display})
-  return (await t.apply(root,[{op:'set',path:'/latest',value:latest},{op:'set',path:'/display',value:display}])).nextRoot
+  if(!root)return t.create(jsonValue({turns,latest,display}))
+  return (await t.apply(root,[{op:'set',path:'/latest',value:jsonValue(latest)},{op:'set',path:'/display',value:jsonValue(display)}])).nextRoot
  }
  async function readIndexedSceneState(id,options){
   const view=await headAtRevision(id,options.revision??Infinity)
@@ -505,7 +509,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   return {position:null,swipe:0,world:{variables:{},...(chat.posture!==undefined?{posture:chat.posture}:{})}}
  }
  async function encode(id,row,previous,changes,t=tree(id)){
-  const runtimeRef=previous?await mutate(t,previous.runtimeRef,changes,row):await t.create(row)
+  const runtimeRef=previous?await mutate(t,previous.runtimeRef,changes,row):await t.create(jsonValue(row))
   // Pages contain identity + references only; large variables/body/extension
   // payloads live in the incremental tree and share unchanged hashed blocks.
   return {runtimeRef,...(previous?.scene?{scene:previous.scene}:{}),session:sessionSummary(row),...(row.id!==undefined?{id:row.id}:{}),...(row.role!==undefined?{role:row.role}:{})}
@@ -514,16 +518,25 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   try{
    for(const change of changes){
     const p=pointer(change.path)
-    if(change.op==='set')root=(await t.apply(root,[{op:'set',path:p,value:change.value}])).nextRoot
+    if(change.op==='set'){
+     if(change.value===undefined){
+      // JSON has no undefined member: an object key disappears, while an array
+      // slot keeps the null hole JSON writes for it.
+      if(!change.path.length)throw Error('Invalid undefined root value')
+      const parent=await t.get(root,pointer(change.path.slice(0,-1)))
+      if(Array.isArray(parent))root=(await t.apply(root,[{op:'set',path:p,value:null}])).nextRoot
+      else if(parent&&typeof parent==='object'&&Object.hasOwn(parent,change.path[change.path.length-1]))root=(await t.apply(root,[{op:'remove',path:p}])).nextRoot
+     }else root=(await t.apply(root,[{op:'set',path:p,value:jsonValue(change.value)}])).nextRoot
+    }
     else if(change.op==='delete')root=(await t.apply(root,[{op:'remove',path:p}])).nextRoot
     else if(change.op==='splice'){
      const length=await t.size(root,p)
      if(change.index===length&&change.deleteCount===0){
-      for(const item of change.items)root=(await t.apply(root,[{op:'set',path:p+'/-',value:item}])).nextRoot
+      for(const item of change.items)root=(await t.apply(root,[{op:'set',path:p+'/-',value:item===undefined?null:jsonValue(item)}])).nextRoot
      }else{
       const array=await t.get(root,p)
-      array.splice(change.index,change.deleteCount,...change.items)
-      root=(await t.apply(root,[{op:'set',path:p,value:array}])).nextRoot
+      array.splice(change.index,change.deleteCount,...change.items.map(item=>item===undefined?null:jsonValue(item)))
+      root=(await t.apply(root,[{op:'set',path:p,value:jsonValue(array)}])).nextRoot
      }
     }else throw Error('Unsupported runtime mutation')
    }
@@ -532,7 +545,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
    // JSON Chat permits null-filled sparse arrays. Keep its exact normalized
    // result when that contract cannot be expressed as strict tree operations.
    if(error.code!=='STATE_DELTA_INVALID')throw error
-   return t.create(next)
+   return t.create(jsonValue(next))
   }
  }
  // Point mutations can be validated against just the header and touched rows.
@@ -621,7 +634,7 @@ export function createNativeConversationStorage({dataRoot,onIO}){
   const encoded=new Map(rows.map((row,i)=>[i,row]))
   const sceneIndexRef=await updateSceneIndex(id,null,encoded,rows.length,0,t,new Map((chat.messages??[]).map((row,i)=>[i,row])))
   for(const [index,row] of encoded)rows[index]=row
-  const chatHeaderRef=await t.create(header(chat)),selected=currentWorld(chat)
+  const chatHeaderRef=await t.create(jsonValue(header(chat))),selected=currentWorld(chat)
   assertCurrent?.()
   await batch.flush([sceneIndexRef,chatHeaderRef,...rows.map(row=>row.runtimeRef)])
   // The initial head is published atomically, including runtime references.

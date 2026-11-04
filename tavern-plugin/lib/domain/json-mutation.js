@@ -6,6 +6,19 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
 }
 
+// A change is persisted through the JSON state tree, which rejects any value
+// its JSON round-trip cannot reproduce. Normalize to the JSON contract here so
+// an undefined member, NaN, Date or class instance becomes the value the store
+// would read back instead of aborting the whole write transaction.
+function jsonValue(value) {
+  if (value === undefined) return undefined
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch (error) {
+    throw new Error('JSON 变更只能包含可序列化值: ' + (error?.message || error), {cause: error})
+  }
+}
+
 function pathLabel(path) {
   return path.length === 0 ? '<root>' : path.map(String).join('.')
 }
@@ -48,7 +61,7 @@ function diffValue(before, after, path, changes) {
 /** Create readable path mutations without carrying unchanged JSON subtrees. */
 export function diffJson(before, after) {
   const changes = []
-  diffValue(before, after, [], changes)
+  diffValue(jsonValue(before), jsonValue(after), [], changes)
   return changes
 }
 
