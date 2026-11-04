@@ -272,7 +272,7 @@ export function replaceTavernHelperVariables(chat, request = {}) {
     const customPlayerName = typeof chat.variables?.playerName === 'string' ? chat.variables.playerName.trim().slice(0, 80) : ''
     if (customPlayerName) {
       if (!chat.macroState || typeof chat.macroState !== 'object') chat.macroState = { userName: customPlayerName, local: {}, global: {} }
-      else chat.macroState.userName = customPlayerName
+      else if (chat.macroState.userName !== customPlayerName) chat.macroState = { ...chat.macroState, userName: customPlayerName }
     }
     return { type: 'chat' }
   }

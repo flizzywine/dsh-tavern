@@ -3,6 +3,8 @@ import test from 'node:test'
 
 import { createTavernScriptHostAdapter } from '../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { applyMvuSettlementEffect } from '../tavern-plugin/lib/domain/mvu-settlement-effect.js'
+import { createHelperChatDataHost } from './fixtures/helper-chat-data-host.mjs'
+import { projectAgentContent } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 
 function chat() {
   return {
@@ -54,6 +56,35 @@ function harness(chatValue = chat(), overrides = {}) {
   })
   return { adapter, chat: chatValue, writes, events, worldbook }
 }
+
+for (const sliced of [false, true]) test(`chat player identity is persisted atomically with variables: sliced=${sliced}`, async t => {
+  const host = await createHelperChatDataHost()
+  t.after(host.cleanup)
+  await host.persistence.update('audit', chat => ({ ...chat, mvu: { enabled: true },
+    macroState: { userName: '原名', local: { score: 2 }, global: { keep: true } } }))
+  const before = await host.persistence.read('audit')
+  const patches = []
+  const adapter = createTavernScriptHostAdapter({
+    resolveChat: id => { assert.equal(sliced, false, 'compact writes must not load the whole chat'); return host.persistence.read(id) },
+    resolveChatSlice: sliced ? (id, indices, fields) => host.persistence.readSlice(id, indices, fields) : undefined,
+    readChatRevision: (...args) => host.persistence.readRevision(...args),
+    patchChat: (...args) => { patches.push(args[2]); return host.persistence.patch(...args) },
+    writeChat() { assert.fail('identity and variables must use the same journal patch') },
+    readCard: async () => ({}), worldBooks: {}, scriptDispatch: {},
+  })
+  const baseline = sliced ? { chatId: before.id, stateRevision: before._storageRevision, lifecycleRevision: 2 } : undefined
+  const result = await adapter.updateVariables('audit', { type: 'chat' }, { playerName: '沈砚', welcomeShown: true }, 2, '', baseline)
+  assert.equal(result.updated, true)
+  assert.equal(Boolean(result.contextDelta), sliced)
+  const saved = await host.open().read('audit')
+  assert.equal(saved.variables.playerName, '沈砚')
+  assert.deepEqual(saved.macroState, { userName: '沈砚', local: { score: 2 }, global: { keep: true } })
+  assert.equal(projectAgentContent('{{user}} / <user>', { macroState: saved.macroState }).agentText, '沈砚 / 沈砚')
+  assert.equal(patches.length, 1)
+  assert.ok(patches[0].some(change => change.path[0] === 'variables'))
+  assert.ok(patches[0].some(change => change.path[0] === 'macroState'))
+  assert.equal(before.macroState.userName, '原名', 'a previous snapshot must retain its identity')
+})
 
 test('同时开始的 MVU 尝试不会在 await 之后互相覆盖事务所有权', async () => {
   let run
