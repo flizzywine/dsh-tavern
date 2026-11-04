@@ -73,13 +73,15 @@ function PackWorkbench({sessionId,cardPath,cardName,cardStamp,loading,page = 'li
         onUnavailable:fn => transport.onUnavailable(fn)
     }) : {rpc:workbenchRpc(sessionId),engineRpc:engineRpc,download:result=>transport.download(result),tts}, [transport,service,sessionId,tts]);
     const nav = React.useMemo(() => stageNav(sessionId), [sessionId]);
+    // the library's deep links (packNav) plus the sidebar tabs its pages open (the voice page's 「配音后端 ›」).
+    const libraryNav = React.useMemo(() => ({ take: packNav.take, subscribe: packNav.subscribe, openTab: nav.openTab }), [nav]);
     React.useEffect(() => () => binding?.dispose?.(),[binding]);
     // the Tavern 舞台 tab is one card-centric page.
     // the host's tab body is a fixed-height column that clips (overflow: hidden) and
     // scrolls nothing itself, so a page taller than the panel was cut off. The page scrolls in its own box (.fork-tab-scroll).
     const page_=!stageBound?React.createElement('div',{className:'ap-ui'},React.createElement(PanelLoading,{shape:'rows',label:'正在加载舞台…'})):
         page==='stage'?React.createElement(packUi.StagePanel,{binding,sessionId,cardPath,cardName,loading,nav,prompts}):
-        React.createElement(packUi.App,{key:service ? 'available' : 'unavailable',enabled:true,binding,nav:packNav,sessionId,cardPath,cardStamp});
+        React.createElement(packUi.App,{key:service ? 'available' : 'unavailable',enabled:true,binding,nav:libraryNav,sessionId,cardPath,cardStamp});
     return React.createElement('div',{className:'fork-tab-scroll'},page_);
 }
 // the library owns no card, but it reads the open chat's card (when there is one) so a

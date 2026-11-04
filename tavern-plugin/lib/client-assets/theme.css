@@ -4888,12 +4888,14 @@ body.dsh-tavern-shell-active [data-sidebar-right-panel="fullscreen"][data-sideba
 .ap-voice-way-sum.is-warn { display: inline-flex; align-items: center; gap: 4px; color: color-mix(in srgb, var(--ap-warn) 80%, var(--fork-ink)); }
 .ap-voice-way-sum.is-warn > .ap-glyph { flex: none; width: 14px; height: 14px; }
 .ap-voice-way-pad { flex: none; width: 14px; }
+.ap-voice-way-heading.has-help > .ap-voice-way-action { position: relative; z-index: 1; flex: none; }
 .ap-voice-ways .ap-voice-way-sum { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
 .ap-voice-ways .ap-voice-way-title { min-width: 0; overflow-wrap: anywhere; }
 /* Narrow: the service name and its state wrap (owner: no horizontal scrolling, never a scrollbar). */
 @media (max-width: 520px) {
   .ap-voice-ways .ap-voice-way-heading { flex-wrap: wrap; row-gap: 0; }
   .ap-voice-ways .ap-voice-way-sum { flex: 1 1 100%; order: 9; padding: 0 0 8px 24px; white-space: normal; text-align: left; }
+  .ap-voice-ways .ap-voice-way-action { margin-left: auto; }
 }
 .ap-voice-ways .ap-voice-way-body { padding-left: 24px; }
 .ap-voice-ways-section .ap-voice-ways { border-top: 0; }
