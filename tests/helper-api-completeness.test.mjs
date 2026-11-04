@@ -124,6 +124,7 @@ test('the original opening API sequence reaches message creation and trigger wit
     assert.equal(call.method, 'createTavernHelperMessages')
     run.reply(call, { updated: true }); await message
     const trigger = w.triggerSlash('/trigger')
+    await new Promise(resolve => setImmediate(resolve))
     assert.equal(run.calls().at(-1).method, 'triggerTavernSlash')
     run.reply(run.calls().at(-1), { pipe: 'started' })
     assert.equal(await trigger, 'started')

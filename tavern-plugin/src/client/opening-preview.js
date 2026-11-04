@@ -23,7 +23,14 @@ function installOpeningPreviewBridge(token, preview) {
   }
   window.triggerSlash = function (line) {
     const command = String(line || '');
-    return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }).then(function (result) {
+    const triggers = /(?:^|\|)\s*\/trigger(?:\s+await=(?:true|false))?\s*$/i.test(command.trim());
+    const send = function () { return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }); };
+    const pendingCall = triggers && typeof window.__dshFlushBeforeGenerate === 'function'
+      ? window.__dshFlushBeforeGenerate().then(send)
+      : (triggers && typeof window.eventEmit === 'function'
+        ? Promise.resolve().then(function () { return window.eventEmit('GENERATION_AFTER_COMMANDS', 'normal', {}, false); }).then(send)
+        : send());
+    return pendingCall.then(function (result) {
       if (result && result.deferred) showPendingFloor(command);
       return result;
     }).catch(function (error) {
@@ -119,7 +126,7 @@ function installOpeningPreviewBridge(token, preview) {
       return copy(worldbook.entries);
     };
   }
-  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames, getGlobalWorldbookNames: window.getGlobalWorldbookNames, getChatWorldbookName: window.getChatWorldbookName,
+  window.TavernHelper = Object.assign({}, window.TavernHelper, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames, getGlobalWorldbookNames: window.getGlobalWorldbookNames, getChatWorldbookName: window.getChatWorldbookName,
     getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
   const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
   // A wizard writes its opening record into "the floor it just sent". The game

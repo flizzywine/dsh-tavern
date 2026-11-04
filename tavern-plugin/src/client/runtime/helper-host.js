@@ -312,6 +312,7 @@
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','
                 + 'installCompatibilityApi:' + installTavernHelperCompatibilityApi.toString() + ','
+                + 'installPromptApi:' + installTavernHelperPromptApi.toString() + ','
                 + 'installMacros:' + installTavernHelperMacroApi.toString() + ','
                 + 'installDisplay:' + installTavernHelperDisplayApi.toString() + ','
                 + 'installGeneration:' + installTavernHelperGenerationApi.toString() + ','

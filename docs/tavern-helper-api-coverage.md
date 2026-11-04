@@ -81,6 +81,8 @@
 
 - 消息 iframe 新增可用的 `eventOnce`、`eventMakeFirst/Last`、`eventRemoveListener`、`eventClearEvent/Listener/All`，支持顺序、去重、一次性、解除监听及重入
 - `eventEmitAndWait` 在两种 iframe 都能等待当前监听器结束；共享脚本保留原有按脚本归属隔离的事件总线
+- 消息 iframe 提供 `injectPrompts` / `uninjectPrompts`（以及 `TavernHelper.injectPrompts` / `TavernHelper.uninjectPrompts`），并在提交生成前触发 `tavern_events.GENERATION_AFTER_COMMANDS`（别名 `generation_after_commands`）并等待挂起的提示词注入回执完成，保证 `once: true` 的 `in_chat` 提示词能在当轮 `prepareTurn` 前写入会话
+- 由宿主选择当前会话最新且注册了生成前事件的消息楼层；旧楼层发起命令不能绕过这个选择。写入失败、等待超时或页面退出会拒绝此次发送；移除事件监听后该楼层不再参与刷新。直接注入后立即调用 `triggerSlash` 也会先等待本帧写入完成。
 - `initializeGlobal` / `waitGlobalInitialized` 在消息帧也真正等待初始化，不再立即返回未定义
 - `eventWaitOnce` 是额外便利接口，返回下一次本地事件参数数组，不冒充上游已有函数
 - 页面退出会拒绝尚未完成的等待并清理本地监听器；这些是同运行文档内的模拟，不承诺任意 iframe 间共享 globals

@@ -1,7 +1,7 @@
 // Serialized into both execution environments. Native operations keep their host
 // transaction boundaries; unsupported library management uses a scoped local
 // compatibility library, rather than pretending to mutate native DSH resources.
-function installTavernHelperCompatibilityApi({ window: w, context, request }) {
+function installTavernHelperCompatibilityApi({ window: w, context, request, installPromptApi }) {
     if (w.__dshTavernHelperCompatibility) return w.__dshTavernHelperCompatibility.refresh();
     const copy = value => {
         if (value === undefined) return undefined;
@@ -393,18 +393,9 @@ function installTavernHelperCompatibilityApi({ window: w, context, request }) {
     expose('reloadIframe', () => { w.location?.reload?.(); });
     // Destructive native history rewrites have no equivalent transaction yet.
     for (const name of ['deleteChatMessages', 'rotateChatMessages']) expose(name, async () => { warn(name); });
-    const injections = new Map();
-    function writeInjections(operation) {
-        if (request) Promise.resolve(request('updateTavernHelperPrompts', { operation })).catch(error => {
-            w.console?.warn?.('[TavernHelper] 提示词注入未保存: ' + String(error?.message || error));
-        });
-    }
-    expose('injectPrompts', (prompts, options) => {
-        for (const p of list(prompts)) injections.set(p.id, copy(p));
-        writeInjections({ kind: 'inject', prompts: copy(list(prompts)), once: !!options?.once });
-        return { uninject: () => w.uninjectPrompts(list(prompts).map(p => p.id)) };
-    });
-    expose('uninjectPrompts', ids => { for (const id of list(ids)) injections.delete(id); writeInjections({ kind: 'remove', ids: copy(list(ids)) }); });
+    if (typeof w.injectPrompts !== 'function') installPromptApi({ window: w, request, copy });
+    expose('injectPrompts', w.injectPrompts);
+    expose('uninjectPrompts', w.uninjectPrompts);
     const macros = new Map();
     expose('registerMacroLike', (regex, replacer) => { macros.set(String(regex), { regex, replacer }); return { unregister: () => macros.delete(String(regex)) }; });
     expose('unregisterMacroLike', regex => { macros.delete(String(regex)); });

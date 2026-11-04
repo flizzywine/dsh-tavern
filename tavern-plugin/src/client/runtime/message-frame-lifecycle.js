@@ -154,6 +154,29 @@
 			});
 		}
 
+		const tavernSessionFrameBeforeGenerate = new Set();
+		function matchingTavernSessionFramesBeforeGenerate(sessionId) {
+			const id = String(sessionId || "");
+			if (!id || !tavernSessionFrameBeforeGenerate.size) return [];
+			const matched = [];
+			let maxTurn = -Infinity;
+			for (const entry of tavernSessionFrameBeforeGenerate) {
+				if (!entry.matches(id)) continue;
+				const turn = typeof entry.turn === "function" ? entry.turn() : 0;
+				if (turn > maxTurn) maxTurn = turn;
+				matched.push({ entry: entry, turn: turn });
+			}
+			return matched.filter(function (item) { return item.turn === maxTurn; }).map(function (item) { return item.entry; });
+		}
+		function flushTavernSessionFramesBeforeGenerate(sessionId) {
+			const entries = matchingTavernSessionFramesBeforeGenerate(sessionId);
+			if (!entries.length) return Promise.resolve();
+			const tasks = entries.map(function (entry) {
+				return Promise.resolve().then(function () { return entry.flush(sessionId); });
+			});
+			return Promise.all(tasks).then(function () {});
+		}
+
 		// Owns document replacement, authenticated frame messages and their cleanup.
 		// React only renders the visible/pending documents and controls lazy activation.
 		function createTavernMessageFrameLifecycle(initial, options) {
@@ -162,8 +185,10 @@
 			const configuredSlashExecutor = options && options.executeSlash;
 			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const channels = new Map();
+			const pendingBeforeGenerate = new Map();
             const generationOwners = new Set();
             function retireGenerations(document) {
+                for (const task of pendingBeforeGenerate.values()) if (task.document === document) task.finish(new Error("消息页面已更换，请重试发送"));
                 if (!document?.generationJobs) return;
                 for (const job of document.generationJobs.values()) void Promise.resolve().then(job.stop).catch(function () {});
                 document.generationJobs.clear();
@@ -343,6 +368,7 @@
 				// a same-session card switch also revokes frozen context and storage
 				const sessionChanged = props.sessionId !== next.sessionId || props.helperContext?.frameStorageScope?.cardPath !== next.helperContext?.frameStorageScope?.cardPath;
 				if (sessionChanged || props.turn !== next.turn || props.partIndex !== next.partIndex) {
+					for (const task of pendingBeforeGenerate.values()) task.finish(new Error("当前会话已变化，请重试发送"));
 					lifetime++;
 					cancelRuntimeReport();
 				}
@@ -409,6 +435,15 @@
 				if (!sourceDocument) return;
 				if (data.type === "dsh-fork-font-wheel") {
 					if (sourceDocument === visible) forkFrameZoom.adjust(sourceDocument.zoomCard, data, hostWindow);
+					return;
+				}
+				if (data.type === "dsh-tavern-frame-before-generate-hook") {
+					sourceDocument.hasBeforeGenerateHook = data.active === true;
+					return;
+				}
+				if (data.type === "dsh-tavern-frame-before-generate-done") {
+					const task = pendingBeforeGenerate.get(data.requestId);
+					if (task?.document === sourceDocument) task.finish(data.ok === true ? null : new Error(data.error || "生成前提示词未准备完成"));
 					return;
 				}
 				const requestProps = props;
@@ -622,10 +657,47 @@
 					});
 				}
 			}
+			const beforeGenerateEntry = {
+				turn: function () {
+					return Number(visible && visible.turn) || 0;
+				},
+				matches: function (targetSessionId) {
+					if (!listener || props.persistent === true || !props.sessionId || props.sessionId !== targetSessionId) return false;
+					if (!visible || !visible.helperContext || !visible.hasBeforeGenerateHook) return false;
+					const channel = channels.get(visible.token);
+					const node = channel && channel.element();
+					return Boolean(node && node.contentWindow);
+				},
+				flush: function (targetSessionId) {
+					if (!beforeGenerateEntry.matches(targetSessionId)) return Promise.reject(new Error("生成前消息页面已变化，请重试发送"));
+					const document = visible;
+					for (const task of pendingBeforeGenerate.values()) if (task.document === document) return task.promise;
+					const channel = channels.get(visible.token);
+					const target = channel.element().contentWindow;
+					let task;
+					const promise = new Promise(function (resolve, reject) {
+						const requestId = "before-gen:" + nextTavernFrameToken();
+						const timer = hostWindow.setTimeout(function () {
+							task.finish(new Error("等待生成前提示词超时，未发送消息，请重试"));
+						}, 15000);
+						task = { document, finish(error) {
+							hostWindow.clearTimeout(timer);
+							pendingBeforeGenerate.delete(requestId);
+							if (error) reject(error); else resolve();
+						} };
+						pendingBeforeGenerate.set(requestId, task);
+						try { target.postMessage({ type: "dsh-tavern-frame-before-generate", token: document.token, requestId: requestId }, "*"); }
+						catch (error) { task.finish(error); }
+					});
+					task.promise = promise;
+					return promise;
+				}
+			};
 			return Object.freeze({
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
 					const openingArtifacts = props.openingPreview && props.trustedCardMode
@@ -649,6 +721,9 @@
 					const unsubscribeTheme = hostWindow.document && typeof hostWindow.MutationObserver === "function"
 						? subscribeTavernHostTheme(hostWindow, function (theme) { sendTextColors(null, theme); }) : null;
 					return function () {
+                        tavernSessionFrameBeforeGenerate.delete(beforeGenerateEntry);
+                        pendingBeforeGenerate.forEach(function (task) { task.finish(new Error("消息页面已关闭，未发送消息")); });
+                        pendingBeforeGenerate.clear();
                         touchRelay.stop();
 						releaseComposer();
 						if (openingArtifacts) {

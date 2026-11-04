@@ -98,6 +98,8 @@
 				} catch (_) {}
 				return "";
 			}
+			const pendingSend = new Map();
+            const submitting = new Set();
 			const execute = function (line, sessionId, options) {
                 if (options && typeof options.inputText === "string") {
                     const text = options.inputText.trim();
@@ -121,9 +123,11 @@
                     error.code = "UNSUPPORTED_SLASH_PIPELINE";
                     return Promise.reject(error);
                 }
-				const match = /^\/send\s+([\s\S]+)\|\s*\/trigger\s*$/.exec(String(line || ""));
-				const triggerOnly = /^\/trigger\s*$/.test(String(line || ""));
-				if (!draftMatch && !triggerOnly && (!match || !match[1].trim())) {
+				const match = /^\/send\s+([\s\S]+?)\s*\|\s*\/trigger(?:\s+await=(true|false))?\s*$/i.exec(String(line || ""));
+				const sendOnly = !pipes.length ? /^\/send\s+([\s\S]+)$/.exec(String(line || "")) : null;
+				const triggerMatch = /^\/trigger(?:\s+await=(true|false))?\s*$/i.exec(String(line || ""));
+				const triggerOnly = Boolean(triggerMatch);
+				if (!draftMatch && !triggerOnly && (!sendOnly || !sendOnly[1].trim()) && (!match || !match[1].trim())) {
                     if (!ctx.remote?.commands?.execute) return Promise.reject(new Error("当前酒馆没有注册这条命令"));
                     return ctx.remote.commands.execute(sessionId, String(line), []).then(function (execution) {
                         if (!execution) throw new Error("当前酒馆没有注册这条命令");
@@ -135,54 +139,100 @@
 				const conversation = ctx.get("conversation");
 				if (!actx || !conversation) return Promise.reject(new Error("当前对话输入框不可用"));
 				const input = conversation.input.for(actx);
-				if (draftMatch) { input.setDraft(draftMatch[1] || ""); return Promise.resolve({ drafted: true }); }
-				const binding = triggerOnly && ctx.sessions.binding(sessionId);
+				if (draftMatch) { pendingSend.delete(sessionId); input.setDraft(draftMatch[1] || ""); return Promise.resolve({ drafted: true }); }
+				if (sendOnly) {
+					pendingSend.set(sessionId, { text: sendOnly[1], at: Date.now() });
+					input.setDraft(sendOnly[1]);
+					return Promise.resolve({ drafted: true, deferred: true, pipe: "" });
+				}
+                if (submitting.has(sessionId)) return Promise.reject(new Error("本局正在提交生成，请等待当前操作完成"));
+                function actualDraft() {
+                    const state = input.state && typeof input.state.getSnapshot === "function" ? input.state.getSnapshot() : null;
+                    return state && typeof state.draft === "string" ? state.draft : undefined;
+                }
+				let pendingEntry = pendingSend.get(sessionId);
+                const draft = actualDraft();
+                if (pendingEntry && (Date.now() - pendingEntry.at > 15000 || (draft !== undefined && draft !== pendingEntry.text))) {
+                    pendingSend.delete(sessionId);
+                    pendingEntry = undefined;
+                }
+				const stagedSend = triggerOnly && pendingEntry ? pendingEntry.text : undefined;
+				const submitDraftText = match ? match[1] : stagedSend;
+				const useNativeTrigger = triggerOnly && submitDraftText === undefined;
+				const binding = useNativeTrigger && ctx.sessions.binding(sessionId);
                 // DSH requires nonempty prompt content. Helper messages are already
                 // persisted; admit a continuation without resending them or touching the draft.
                 const triggerContent = [{ type: "text", text: "继续。" }];
-                // Template execution owns the generation queue; waiting here would deadlock it.
-                if (options?.waitForCompletion === false) {
-                    if (triggerOnly) return Promise.resolve(binding.session.prompt(triggerContent, "queue")).then(function(result) {
-                        if (!result?.ok) throw new Error(result?.error?.message || "生成提交失败");
-                        return {submitted:true};
-                    });
-                    input.setDraft(match[1]);
-                    return Promise.resolve(input.submit("queue")).then(function(){return {submitted:true};});
+                const waitForCompletion = options?.waitForCompletion !== false && String((match && match[2]) || (triggerMatch && triggerMatch[1]) || "").toLowerCase() !== "false";
+                function consumePending() {
+                    if (pendingSend.get(sessionId) === pendingEntry) pendingSend.delete(sessionId);
                 }
-				const sessions = ctx.sessions.list;
-				return new Promise(function (resolve, reject) {
-					let observedRun = false;
-					let settled = false;
-					let stop = function () {};
-					let timer = null;
-					function finish(error) {
-						if (settled) return;
-						settled = true;
-						hostWindow.clearTimeout(timer);
-						stop();
-						if (error) reject(error); else resolve({ submitted: true });
-					}
-					function inspect() {
-						const summary = sessions.getSnapshot().byId[sessionId];
-						if (!summary) { finish(new Error("当前对话已关闭")); return; }
-						if (summary.running === true) observedRun = true;
-						else if (observedRun) finish();
-					}
-					stop = sessions.subscribe(inspect);
-					timer = hostWindow.setTimeout(function () { finish(new Error("等待开局生成完成超时")); }, 15 * 60 * 1000);
-					try {
-						if (triggerOnly) {
-							// Helper messages are already persisted and projected into the next request.
-							Promise.resolve(binding.session.prompt(triggerContent, "queue")).then(function (result) {
-								if (!result || !result.ok) finish(new Error(result && result.error && result.error.message || "开局生成提交失败"));
-							}, finish);
-						} else {
-							input.setDraft(match[1]);
-							input.submit("queue");
-						}
-						inspect();
-					} catch (error) { finish(error); }
-				});
+                function submit() {
+                    if (stagedSend !== undefined) {
+                        const currentDraft = actualDraft();
+                        if (pendingSend.get(sessionId) !== pendingEntry || (currentDraft !== undefined && currentDraft !== stagedSend)) {
+                            throw new Error("输入草稿已变化，请重新发送");
+                        }
+                    }
+                    if (useNativeTrigger) {
+                        if (!binding?.session) throw new Error("当前对话已关闭");
+                        return binding.session.prompt(triggerContent, "queue");
+                    }
+                    input.setDraft(submitDraftText);
+                    return input.submit("queue");
+                }
+                function accept(result) {
+                    if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    consumePending();
+                }
+                function submitTurn() {
+                    // Template execution owns the generation queue; waiting here would deadlock it.
+                    if (!waitForCompletion) {
+                        return Promise.resolve().then(submit).then(function(result) { accept(result); return {submitted:true}; });
+                    }
+                    const sessions = ctx.sessions.list;
+                    return new Promise(function (resolve, reject) {
+                        let observedRun = false;
+                        let accepted = false;
+                        let runFinished = false;
+                        let settled = false;
+                        let stop = function () {};
+                        let timer = null;
+                        function finish(error) {
+                            if (settled) return;
+                            settled = true;
+                            hostWindow.clearTimeout(timer);
+                            stop();
+                            if (error) reject(error); else resolve({ submitted: true });
+                        }
+                        function inspect() {
+                            const summary = sessions.getSnapshot().byId[sessionId];
+                            if (!summary) { finish(new Error("当前对话已关闭")); return; }
+                            if (summary.running === true) observedRun = true;
+                            else if (observedRun) { runFinished = true; if (accepted) finish(); }
+                        }
+                        stop = sessions.subscribe(inspect);
+                        timer = hostWindow.setTimeout(function () { finish(new Error("等待开局生成完成超时")); }, 15 * 60 * 1000);
+                        try {
+                            Promise.resolve(submit()).then(function (result) {
+                                accept(result);
+                                accepted = true;
+                                if (runFinished) finish(); else inspect();
+                            }).catch(finish);
+                            inspect();
+                        } catch (error) { finish(error); }
+                    });
+                }
+                // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
+                submitting.add(sessionId);
+                return Promise.resolve().then(function () {
+                    if (typeof flushTavernSessionFramesBeforeGenerate === "function") return flushTavernSessionFramesBeforeGenerate(sessionId);
+                }).then(submitTurn).catch(function (error) {
+                    // A slow/failed refresh is not a successful send. Give the
+                    // player the normal retry window after the failure is shown.
+                    if (stagedSend !== undefined && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();
+                    throw error;
+                }).finally(function () { submitting.delete(sessionId); });
 			};
 			execute.readInput = readInputDraft;
 			return execute;
@@ -870,8 +920,8 @@
 				function resolveUiWorkspace() {
 					try { return input.ctx.get("uiWorkspace") || null; } catch (_) { return null; }
 				}
-				const scriptOwner = createTavernScriptSessionOwner({ sessions: createSessionCompat(input.ctx.sessions, resolveUiWorkspace()), executeSlash: createTavernFrameSlashExecutor(input.ctx) });
 				const executeSlash = createTavernFrameSlashExecutor(input.ctx);
+				const scriptOwner = createTavernScriptSessionOwner({ sessions: createSessionCompat(input.ctx.sessions, resolveUiWorkspace()), executeSlash: executeSlash });
 				input.ctx.effect(function () {
 					scriptOwner.start();
 					return function () { scriptOwner.dispose(); };

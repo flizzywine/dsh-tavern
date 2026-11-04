@@ -16884,10 +16884,84 @@ function installTavernHelperUtilities(target) {
         return target.jQuery ? target.jQuery(found) : found;
     };
 }
+// Serialized into message and opening frames. Script sandboxes retain their
+// per-script ownership queue; these frames have one document-owned transport.
+function installTavernHelperPromptApi({ window: w, request, copy }) {
+    if (w.__dshTavernPromptApi) return w.__dshTavernPromptApi;
+    if (typeof w.injectPrompts === "function" || typeof w.uninjectPrompts === "function") return null;
+    const pending = new Set(), failures = [];
+    let draining = null, flushing = null;
+    function write(operation) {
+        // Observe synchronous transport throws and async rejection immediately,
+        // since the public API returns a removal handle rather than a Promise.
+        const task = Promise.resolve().then(() => request("updateTavernHelperPrompts", { operation })).then(result => {
+            if (result && result.stale) throw new Error("聊天已变化，提示词未保存");
+        }).then(() => { pending.delete(task); }, error => {
+            pending.delete(task);
+            failures.push(error instanceof Error ? error : new Error(String(error && error.message || error)));
+        });
+        pending.add(task);
+    }
+    function injectPrompts(prompts, options) {
+        if (!Array.isArray(prompts)) throw new TypeError("提示词必须是数组");
+        if (prompts.some(prompt => prompt && prompt.filter !== undefined)) throw new Error("DSH 暂不支持提示词 filter 回调");
+        const ids = prompts.map(prompt => prompt.id);
+        write({ kind: "inject", prompts: copy(prompts), once: !!(options && options.once) });
+        return { uninject: () => w.uninjectPrompts(ids) };
+    }
+    function uninjectPrompts(ids) {
+        if (!Array.isArray(ids)) throw new TypeError("提示词编号必须是数组");
+        write({ kind: "remove", ids: copy(ids) });
+    }
+    function drainPromptWrites() {
+        if (draining) return draining;
+        draining = Promise.resolve().then(async () => {
+            while (pending.size) await Promise.all(Array.from(pending));
+            const errors = failures.splice(0);
+            if (errors.length) throw errors[0];
+        }).finally(() => { draining = null; });
+        return draining;
+    }
+    function flushBeforeGenerate() {
+        if (flushing) return flushing;
+        flushing = Promise.resolve().then(async () => {
+            let eventError, failed = false;
+            try {
+                if (typeof w.eventEmit === "function") await w.eventEmit("GENERATION_AFTER_COMMANDS", "normal", {}, false);
+            } catch (error) { eventError = error; failed = true; }
+            // Even a failed listener may have started a write. Settle its receipt
+            // before rejecting, so it cannot leak into an immediate retry.
+            try { await drainPromptWrites(); }
+            catch (error) { if (!failed) eventError = error; failed = true; }
+            if (failed) throw eventError;
+        }).finally(() => { flushing = null; });
+        return flushing;
+    }
+    const api = { injectPrompts, uninjectPrompts, drainPromptWrites, flushBeforeGenerate };
+    w.injectPrompts = injectPrompts;
+    w.uninjectPrompts = uninjectPrompts;
+    w.__dshFlushPromptWrites = drainPromptWrites;
+    w.__dshFlushBeforeGenerate = flushBeforeGenerate;
+    w.__dshTavernPromptApi = api;
+    return api;
+}
+// Message frames never decide which floor owns generation-time scene state.
+// The host chooses a live floor and asks it to flush before submitting a turn.
+function installTavernMessageGenerationBridge({ window: w, token }) {
+    w.addEventListener('message', event => {
+        const data = event.data;
+        if (event.source !== w.parent || data?.token !== token || data.type !== 'dsh-tavern-frame-before-generate') return;
+        const reply = result => w.parent.postMessage({ type: 'dsh-tavern-frame-before-generate-done', token, requestId: data.requestId, ...result }, '*');
+        Promise.resolve().then(() => w.__dshFlushBeforeGenerate()).then(
+            () => reply({ ok: true }),
+            error => reply({ ok: false, error: String(error?.message || error) })
+        );
+    });
+}
 // Serialized into both execution environments. Native operations keep their host
 // transaction boundaries; unsupported library management uses a scoped local
 // compatibility library, rather than pretending to mutate native DSH resources.
-function installTavernHelperCompatibilityApi({ window: w, context, request }) {
+function installTavernHelperCompatibilityApi({ window: w, context, request, installPromptApi }) {
     if (w.__dshTavernHelperCompatibility) return w.__dshTavernHelperCompatibility.refresh();
     const copy = value => {
         if (value === undefined) return undefined;
@@ -17279,18 +17353,9 @@ function installTavernHelperCompatibilityApi({ window: w, context, request }) {
     expose('reloadIframe', () => { w.location?.reload?.(); });
     // Destructive native history rewrites have no equivalent transaction yet.
     for (const name of ['deleteChatMessages', 'rotateChatMessages']) expose(name, async () => { warn(name); });
-    const injections = new Map();
-    function writeInjections(operation) {
-        if (request) Promise.resolve(request('updateTavernHelperPrompts', { operation })).catch(error => {
-            w.console?.warn?.('[TavernHelper] 提示词注入未保存: ' + String(error?.message || error));
-        });
-    }
-    expose('injectPrompts', (prompts, options) => {
-        for (const p of list(prompts)) injections.set(p.id, copy(p));
-        writeInjections({ kind: 'inject', prompts: copy(list(prompts)), once: !!options?.once });
-        return { uninject: () => w.uninjectPrompts(list(prompts).map(p => p.id)) };
-    });
-    expose('uninjectPrompts', ids => { for (const id of list(ids)) injections.delete(id); writeInjections({ kind: 'remove', ids: copy(list(ids)) }); });
+    if (typeof w.injectPrompts !== 'function') installPromptApi({ window: w, request, copy });
+    expose('injectPrompts', w.injectPrompts);
+    expose('uninjectPrompts', w.uninjectPrompts);
     const macros = new Map();
     expose('registerMacroLike', (regex, replacer) => { macros.set(String(regex), { regex, replacer }); return { unregister: () => macros.delete(String(regex)) }; });
     expose('unregisterMacroLike', regex => { macros.delete(String(regex)); });
@@ -17551,7 +17616,10 @@ function installTavernHelperGenerationApi({window, request, copy}) {
             // to the registering script, including when its stop handle runs later.
             if (options.localEvents === true) {
                 const listeners = new Map();
-                const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+                function subscriptionsChanged() {
+                    options.onSubscriptionsChanged?.(Array.from(listeners.keys()));
+                }
+                const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
                 function eventName(name) {
                     name = String(name);
                     return Object.prototype.hasOwnProperty.call(aliases, name) ? aliases[name] : name;
@@ -17561,6 +17629,7 @@ function installTavernHelperGenerationApi({window, request, copy}) {
                     if (!entries) return;
                     entries.delete(entry);
                     if (!entries.size) listeners.delete(name);
+                    subscriptionsChanged();
                 }
                 function listen(name, handler, position, once) {
                     assertOpen();
@@ -17573,6 +17642,7 @@ function installTavernHelperGenerationApi({window, request, copy}) {
                     if (position === "first") entries = new Set([entry].concat(Array.from(entries)));
                     else entries.add(entry);
                     listeners.set(name, entries);
+                    subscriptionsChanged();
                     return { stop: function () { remove(name, entry); } };
                 }
                 target.eventOn = function (name, handler) { return listen(name, handler); };
@@ -17584,11 +17654,11 @@ function installTavernHelperGenerationApi({window, request, copy}) {
                     for (const entry of Array.from(listeners.get(name) || [])) if (entry.handler === handler) remove(name, entry);
                 };
                 target.eventRemoveListener = target.eventOff;
-                target.eventClearEvent = function (name) { listeners.delete(eventName(name)); };
+                target.eventClearEvent = function (name) { listeners.delete(eventName(name)); subscriptionsChanged(); };
                 target.eventClearListener = function (handler) {
                     for (const [name, entries] of listeners) for (const entry of Array.from(entries)) if (entry.handler === handler) remove(name, entry);
                 };
-                clearLocalEvents = function () { listeners.clear(); };
+                clearLocalEvents = function () { listeners.clear(); subscriptionsChanged(); };
                 target.eventClearAll = clearLocalEvents;
                 target.eventEmit = async function (name) {
                     assertOpen();
@@ -17682,6 +17752,17 @@ function installTavernHelperGenerationApi({window, request, copy}) {
                 GENERATION_ENDED: "js_generation_ended"
             }, target.iframe_events || {}));
             target.tavern_events = Object.assign({
+                MESSAGE_SENT: "MESSAGE_SENT",
+                MESSAGE_RECEIVED: "MESSAGE_RECEIVED",
+                MESSAGE_UPDATED: "MESSAGE_UPDATED",
+                MESSAGE_SWIPED: "MESSAGE_SWIPED",
+                MESSAGE_DELETED: "MESSAGE_DELETED",
+                MESSAGE_EDITED: "MESSAGE_EDITED",
+                CHAT_CHANGED: "CHAT_CHANGED",
+                CHAT_CREATED: "CHAT_CREATED",
+                CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
+                GENERATION_AFTER_COMMANDS: "GENERATION_AFTER_COMMANDS",
+                GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS",
                 USER_MESSAGE_RENDERED: "user_message_rendered",
                 CHARACTER_MESSAGE_RENDERED: "character_message_rendered"
             }, target.tavern_events || {});
@@ -18223,7 +18304,14 @@ function tavernModelRefusalNotice(text) {
 		  }
 		  window.triggerSlash = function (line) {
 		    const command = String(line || '');
-		    return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }).then(function (result) {
+		    const triggers = /(?:^|\|)\s*\/trigger(?:\s+await=(?:true|false))?\s*$/i.test(command.trim());
+		    const send = function () { return request('dsh-tavern-helper-call', { method: 'triggerTavernSlash', args: { line: command } }); };
+		    const pendingCall = triggers && typeof window.__dshFlushBeforeGenerate === 'function'
+		      ? window.__dshFlushBeforeGenerate().then(send)
+		      : (triggers && typeof window.eventEmit === 'function'
+		        ? Promise.resolve().then(function () { return window.eventEmit('GENERATION_AFTER_COMMANDS', 'normal', {}, false); }).then(send)
+		        : send());
+		    return pendingCall.then(function (result) {
 		      if (result && result.deferred) showPendingFloor(command);
 		      return result;
 		    }).catch(function (error) {
@@ -18319,7 +18407,7 @@ function tavernModelRefusalNotice(text) {
 		      return copy(worldbook.entries);
 		    };
 		  }
-		  window.TavernHelper = Object.assign({}, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames, getGlobalWorldbookNames: window.getGlobalWorldbookNames, getChatWorldbookName: window.getChatWorldbookName,
+		  window.TavernHelper = Object.assign({}, window.TavernHelper, original && original.helper, { triggerSlash: window.triggerSlash, generate: window.generate, generateRaw: window.generateRaw, getCharWorldbookNames: window.getCharWorldbookNames, getGlobalWorldbookNames: window.getGlobalWorldbookNames, getChatWorldbookName: window.getChatWorldbookName,
 		    getWorldbook: window.getWorldbook, updateWorldbookWith: window.updateWorldbookWith });
 		  const chat = [{ is_user: false, name: preview.characterName || '', mes: swipes[selected], swipe_id: selected, swipes: swipes.slice() }];
 		  // A wizard writes its opening record into "the floor it just sent". The game
@@ -26504,8 +26592,8 @@ function tavernModelRefusalNotice(text) {
 				? buildTavernHelperScriptParts({ token: input.token, context: input.openingPreview.runtime.context, scripts: input.openingPreview.runtime.scripts, frameStorage: input.frameStorage, previewScope: true }) : null;
 			const helperDependencies = input && input.leanRuntime === true ? "" : input && (input.helperContext || input.openingPreview) ? tavernHelperMessageDependencies() : sillyTavernCssCompatibilityDependencies(sizing) + (/<script\b/i.test(html) ? tavernHelperMessageDependencies() : "");
 			const storageShim = '<script data-dsh-tavern-storage>(function(){try{void window.localStorage;return;}catch(e){}var values=Object.create(null),keys=[];var storage={getItem:function(key){key=String(key);return Object.prototype.hasOwnProperty.call(values,key)?values[key]:null;},setItem:function(key,value){key=String(key);if(!Object.prototype.hasOwnProperty.call(values,key))keys.push(key);values[key]=String(value);},removeItem:function(key){key=String(key);if(!Object.prototype.hasOwnProperty.call(values,key))return;delete values[key];keys.splice(keys.indexOf(key),1);},clear:function(){values=Object.create(null);keys=[];},key:function(index){index=Number(index);return index>=0&&index<keys.length?keys[index]:null;}};Object.defineProperty(storage,"length",{enumerable:true,get:function(){return keys.length;}});try{Object.defineProperty(window,"localStorage",{configurable:true,enumerable:true,value:storage});}catch(e){}})();<\/script>';
-			const helperShim = input && input.helperContext ? '<script data-dsh-tavern-helper>(function(){var token=' + token + ',state=' + helperContext + ',turn=' + helperTurn + ',nextId=1,pending=Object.create(null),listeners=Object.create(null);var readMessage=(' + createTavernHistoryReader.toString() + ')({context:function(){return state;},install:function(row){state.messages[row.message_id]=row;}});window.__dshTavernReadHelperContext=function(){return state;};var applyContextUpdate=' + applyTavernHelperContextUpdate.toString() + ';if(window.Vue)Object.assign(window,window.Vue);window.errorCatched=function(factory){return function(){try{return factory.apply(this,arguments);}catch(error){console.error(error);return {};}};};function copy(value){try{return structuredClone(value);}catch(e){return JSON.parse(JSON.stringify(value));}}function lastId(){return Math.max(-1,(state.messages||[]).length-1);}function normalizeId(value){var id=Number(value);if(!Number.isFinite(id))id=lastId();if(id<0)id=(state.messages||[]).length+id;return Math.max(0,Math.min(lastId(),id));}function currentId(){var mapped=state.turnMessageIds&&state.turnMessageIds[String(turn)];return mapped===undefined?lastId():normalizeId(mapped);}function syncFrameName(){var id=currentId();window.name=id>=0?"TH-message--"+id+"--"+token:"";}function selectedVariables(message){return copy(message&&message.variables&&typeof message.variables==="object"?message.variables:{});}var messagesFor=(' + createTavernHelperMessageReader.toString() + ')({context:function(){return state;},currentId:currentId,copy:copy,readMessage:readMessage});function call(method,args){return new Promise(function(resolve,reject){var requestId=String(nextId++);pending[requestId]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-tavern-helper-call",token:token,requestId:requestId,method:method,args:copy(args||{})},"*");});}function optionOf(option){var value=option&&typeof option==="object"?copy(option):{type:"message"};if(!value.type)value.type="message";if(["message","chat","character","global","script"].indexOf(value.type)<0)throw Object.assign(new Error("尚未支持的变量作用域: "+value.type),{code:"TAVERN_CAPABILITY_UNSUPPORTED"});if(value.type==="message"){if(value.message_id===undefined||value.message_id===null)value.message_id=currentId();else if(value.message_id==="latest")value.message_id=lastId();}return value;}function localReplace(variables,option){option=optionOf(option);if(option.type==="chat")state.chatVariables=copy(variables);else if(option.type==="character")state.characterVariables=copy(variables);else if(option.type==="global")state.globalVariables=copy(variables);else if(option.type==="script"){if(!state.scriptVariables)state.scriptVariables={};state.scriptVariables[option.script_id]=copy(variables);}else{var message=readMessage(normalizeId(option.message_id));if(message){message.variables=copy(variables);if(Array.isArray(message.swipes_data))message.swipes_data[message.swipe_id||0]=copy(variables);}}}function localSetMessages(patches){(patches||[]).forEach(function(patch){var message=readMessage(normalizeId(patch.message_id));if(!message)return;if(patch.swipe_id!==undefined){message.swipe_id=Math.max(0,Math.min((message.swipes||[]).length-1,Number(patch.swipe_id)||0));message.message=(message.swipes||[])[message.swipe_id]||message.message;}if(patch.message!==undefined){message.message=String(patch.message);if(Array.isArray(message.swipes))message.swipes[message.swipe_id||0]=message.message;}if(patch.data!==undefined){message.variables=copy(patch.data||{});if(Array.isArray(message.swipes_data))message.swipes_data[message.swipe_id||0]=copy(patch.data||{});}});}addEventListener("message",function(event){var data=event&&event.data;if(event.source!==parent||!data||data.token!==token)return;if(data.type==="dsh-tavern-helper-context-update"){var previous=copy(state),applied;try{applied=applyContextUpdate(state,data.update);}catch(error){parent.postMessage({type:"dsh-tavern-helper-context-request",token:token},"*");return;}state=applied.context;if(Number.isFinite(Number(applied.turn)))turn=Math.max(0,Number(applied.turn));syncFrameName();Promise.resolve().then(async function(){var names=Array.isArray(applied.events)?applied.events:[];for(var index=0;index<names.length;index+=1){var name=names[index];if(window.Mvu&&name===window.Mvu.events.VARIABLE_UPDATE_ENDED)await window.eventEmit(name,selectedVariables((state.messages||[])[currentId()]),previous);else await window.eventEmit(name,currentId());}}).catch(function(error){console.error(error);});return;}if(data.type!=="dsh-tavern-helper-response")return;if(data.ok&&data.result){if(data.result.context)state=Object.assign({},state,data.result.context);if(Object.prototype.hasOwnProperty.call(data.result,"worldbook"))state.worldbook=copy(data.result.worldbook);}var task=pending[data.requestId];if(!task)return;delete pending[data.requestId];if(data.ok){syncFrameName();task.resolve(data.result);}else task.reject(new Error(String(data.error||"Helper 调用失败")));});syncFrameName();window.getCurrentMessageId=currentId;window.getLastMessageId=lastId;window.getChatMessages=messagesFor;window.getCurrentCharacterName=function(){return String(state.characterName||state.character&&state.character.name||"");};window.getWorldbookNames=function(){return state.worldbook&&state.worldbook.name?[state.worldbook.name]:[];};window.getCharWorldbookNames=function(){return {primary:state.worldbook&&state.worldbook.name||null,additional:[]};};window.getGlobalWorldbookNames=function(){return [];};window.getChatWorldbookName=function(){return null;};window.SillyTavern=Object.assign(window.SillyTavern||{},{substituteParams:function(value){return window.substitudeMacros(value);}});window.getVariables=function(option){option=optionOf(option);if(option.type==="chat")return copy(state.chatVariables||{});if(option.type==="character")return copy(state.characterVariables||{});if(option.type==="global")return copy(state.globalVariables||{});if(option.type==="script")return copy(state.scriptVariables&&state.scriptVariables[option.script_id]||{});return selectedVariables(readMessage(normalizeId(option.message_id)));};window.replaceVariables=function(variables,option){option=optionOf(option);var plain=copy(variables||{}),before=window.getVariables(option);localReplace(plain,option);var task=call("updateTavernHelperVariables",{option:option,variables:plain}).then(function(result){if(result&&result.stale)throw new Error("聊天已变化，变量未保存");return copy(plain);}).catch(function(error){if(JSON.stringify(window.getVariables(option))===JSON.stringify(plain))localReplace(before,option);throw error;});task.catch(function(error){console.error(error);});return task;};window.insertOrAssignVariables=function(variables,option){return window.replaceVariables(window._.mergeWith(window.getVariables(option),copy(variables||{}),function(left,right){return Array.isArray(right)?right:undefined;}),option);};window.insertVariables=function(variables,option){return window.replaceVariables(window._.mergeWith({},copy(variables||{}),window.getVariables(option),function(left,right){return Array.isArray(right)?right:undefined;}),option);};window.updateVariablesWith=async function(updater,option){option=optionOf(option);var current=window.getVariables(option),next=typeof updater==="function"?await updater(copy(current)):current;if(next===undefined)next=current;next=copy(next);return await window.replaceVariables(next,option);};window.deleteVariable=async function(path,option){option=optionOf(option);var next=window.getVariables(option),deleted=window._.unset(next,String(path||""));await window.replaceVariables(next,option);return{variables:copy(next),delete_occurred:deleted};};window.setChatMessages=async function(patches){var plain=copy(patches||[]);localSetMessages(plain);var result=await call("updateTavernHelperMessages",{messages:plain});return result;};window.retrieveDisplayedMessage=function(messageId){return normalizeId(messageId)===currentId()?window.jQuery(document.body):window.jQuery();};window.toastr={success:function(message){console.info(String(message));},info:function(message){console.info(String(message));},warning:function(message){console.warn(String(message));},error:function(message){console.error(String(message));}};window.eventOn=function(name,handler){(listeners[name]||(listeners[name]=new Set())).add(handler);return handler;};window.eventOff=function(name,handler){if(listeners[name])listeners[name].delete(handler);};window.eventEmit=async function(name){var args=Array.prototype.slice.call(arguments,1),items=listeners[name]?Array.from(listeners[name]):[];for(var i=0;i<items.length;i+=1)await items[i].apply(null,args);};window.tavern_events={MESSAGE_SENT:"MESSAGE_SENT",MESSAGE_RECEIVED:"MESSAGE_RECEIVED",MESSAGE_UPDATED:"MESSAGE_UPDATED",MESSAGE_SWIPED:"MESSAGE_SWIPED",MESSAGE_DELETED:"MESSAGE_DELETED",MESSAGE_EDITED:"MESSAGE_EDITED"};if(state.mvuEnabled!==false)window.Mvu={events:{VARIABLE_INITIALIZED:"mag_variable_initialized",VARIABLE_UPDATE_STARTED:"mag_variable_update_started",COMMAND_PARSED:"mag_command_parsed",VARIABLE_UPDATE_ENDED:"mag_variable_update_ended",BEFORE_MESSAGE_UPDATE:"mag_before_message_update"},getMvuData:function(option){return window.getVariables(option);},replaceMvuData:async function(value,option){await window.updateVariablesWith(function(){return value;},option);return copy(value);},parseMessage:async function(){throw new Error("当前兼容层尚未开放 iframe 内手动 MVU 重算");}};window.waitGlobalInitialized=async function(name){if(name==="Mvu")return window.Mvu;return window[name];};(' + installTavernHelperUtilities.toString() + ')(window);(' + installTavernHelperEventApi.toString() + ')(window,{localEvents:true});(' + installTavernHelperMacroApi.toString() + ')({window:window,context:function(){return state;}});(' + installTavernHelperRegexApi.toString() + ')({window:window,context:function(){return state;},createEngine:' + createTavernRegexEngine.toString() + '});(' + installTavernHelperDisplayApi.toString() + ')(window);(' + installTavernHelperGenerationApi.toString() + ')({window:window,request:call,copy:copy});var ready=Promise.all([import(new URL("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs",document.baseURI).href),import(new URL("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs",document.baseURI).href)]).then(function(modules){window.z=modules[0];window.YAML=modules[1];return true;});window.__dshTavernHelperReady=ready;if(window.jQuery&&window.jQuery.fn&&window.jQuery.fn.load&&!window.jQuery.fn.__dshDeferred){var original=window.jQuery.fn.load;var deferred=function(){var self=this,args=arguments;ready.then(function(){original.apply(self,args);});return self;};deferred.__dshDeferred=true;window.jQuery.fn.load=deferred;}})();<\/script>' : '';
-			const interactiveHelperShim = input && input.helperContext ? '<script data-dsh-tavern-interactive-helper>(function(){var token=' + token + ',nextId=1,pending=Object.create(null);function copy(value){try{return structuredClone(value);}catch(e){return JSON.parse(JSON.stringify(value));}}function call(method,args){return new Promise(function(resolve,reject){var requestId="interactive:"+String(nextId++);pending[requestId]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-tavern-helper-call",token:token,requestId:requestId,method:method,args:copy(args||{})},"*");});}addEventListener("message",function(event){var data=event&&event.data;if(event.source!==parent||!data||data.token!==token||data.type!=="dsh-tavern-helper-response")return;var task=pending[data.requestId];if(!task)return;delete pending[data.requestId];if(data.ok)task.resolve(data.result);else task.reject(new Error(String(data.error||"Helper 调用失败")));});function payload(entries){if(!Array.isArray(entries))throw new TypeError("世界书条目必须是数组");return copy(entries).map(function(entry){delete entry.uid;return entry;});}var versions=Object.create(null);async function fresh(name){var result=await call("getTavernHelperWorldbook",{name:String(name||"")});var book=result&&result.worldbook||{};versions[String(name||"")]=book.version||"";return copy(book.entries||[]);}async function replace(name,entries,current,version){if(!Array.isArray(entries))throw new TypeError("世界书条目必须是数组");var before=new Map(),seen=new Set(),upserts=[];current.forEach(function(entry){before.set(String(entry.uid),JSON.stringify(entry));});copy(entries).forEach(function(entry){var key=entry.uid===undefined?"":String(entry.uid);if(key&&seen.has(key))throw new Error("世界书条目编号无效或重复");if(key)seen.add(key);if(!key||before.get(key)!==JSON.stringify(entry))upserts.push(entry);});var deletes=current.filter(function(entry){return!seen.has(String(entry.uid));}).map(function(entry){return entry.uid;});if(!upserts.length&&!deletes.length)return copy(current);var result=await call("patchTavernHelperWorldbook",{name:String(name||""),patch:{version:version,upserts:upserts,deletes:deletes}});var book=result&&result.worldbook||{},byUid=new Map(current.map(function(entry){return[String(entry.uid),entry];}));(book.changed||[]).forEach(function(entry){byUid.set(String(entry.uid),entry);});var written=(book.uids||[]).map(function(uid){return byUid.get(String(uid));});if(written.some(function(entry){return!entry;}))return await fresh(name);versions[String(name||"")]=book.version||"";return copy(written);}window.getWorldbook=async function(name){return await fresh(name);};window.updateWorldbookWith=async function(name,updater){if(typeof updater!=="function")throw new TypeError("世界书更新器必须是函数");var current=await fresh(name),version=versions[String(name||"")],draft=copy(current),next=await updater(draft);return await replace(name,next===undefined?draft:next,current,version);};window.createWorldbookEntries=async function(name,entries){var additions=payload(entries),previous;var worldbook=await window.updateWorldbookWith(name,function(current){previous=new Set(current.map(function(entry){return entry.uid;}));return current.concat(additions);});return{worldbook:worldbook,new_entries:worldbook.filter(function(entry){return!previous.has(entry.uid);})};};window.deleteWorldbookEntries=async function(name,predicate){if(typeof predicate!=="function")throw new TypeError("世界书删除条件必须是函数");var deleted=[];var worldbook=await window.updateWorldbookWith(name,function(current){return current.filter(function(entry){if(!predicate(copy(entry)))return true;deleted.push(copy(entry));return false;});});return{worldbook:worldbook,deleted_entries:deleted};};window.createChatMessages=async function(messages,option){var result=await call("createTavernHelperMessages",{messages:copy(Array.isArray(messages)?messages:[]),option:copy(option&&typeof option==="object"?option:{})});if(result&&result.stale)throw new Error("聊天已变化，消息未创建");};window.triggerSlash=function(line){return call("triggerTavernSlash",{line:window.substitudeMacros(String(line||""))}).then(function(result){return result&&Object.prototype.hasOwnProperty.call(result,"pipe")?result.pipe:result;});};window.TavernHelper=window.TavernHelper||{};["getTavernRegexes","formatAsTavernRegexedString","isCharacterTavernRegexesEnabled","triggerSlash","getMessageId","getIframeName","errorCatched","retrieveDisplayedMessage","waitGlobalInitialized","getCurrentMessageId","getLastMessageId","getChatMessages","setChatMessages","getAllVariables","getCurrentCharacterName","getVariables","deleteVariable","replaceVariables","insertOrAssignVariables","insertVariables","updateVariablesWith","generateRaw","createChatMessages","getWorldbook","getCharWorldbookNames","getGlobalWorldbookNames","getChatWorldbookName","getWorldbookNames","updateWorldbookWith","createWorldbookEntries","deleteWorldbookEntries"].forEach(function(name){Object.defineProperty(window.TavernHelper,name,{enumerable:true,configurable:true,get:function(){return window[name];},set:function(value){window[name]=value;}});});(' + installTavernHelperCompatibilityApi.toString() + ')({window:window,context:window.__dshTavernReadHelperContext,request:call});})();<\/script>' : '';
+			const helperShim = input && input.helperContext ? '<script data-dsh-tavern-helper>(function(){var token=' + token + ',state=' + helperContext + ',turn=' + helperTurn + ',nextId=1,pending=Object.create(null),listeners=Object.create(null);var readMessage=(' + createTavernHistoryReader.toString() + ')({context:function(){return state;},install:function(row){state.messages[row.message_id]=row;}});window.__dshTavernReadHelperContext=function(){return state;};var applyContextUpdate=' + applyTavernHelperContextUpdate.toString() + ';if(window.Vue)Object.assign(window,window.Vue);window.errorCatched=function(factory){return function(){try{return factory.apply(this,arguments);}catch(error){console.error(error);return {};}};};function copy(value){try{return structuredClone(value);}catch(e){return JSON.parse(JSON.stringify(value));}}function lastId(){return Math.max(-1,(state.messages||[]).length-1);}function normalizeId(value){var id=Number(value);if(!Number.isFinite(id))id=lastId();if(id<0)id=(state.messages||[]).length+id;return Math.max(0,Math.min(lastId(),id));}function currentId(){var mapped=state.turnMessageIds&&state.turnMessageIds[String(turn)];return mapped===undefined?lastId():normalizeId(mapped);}function syncFrameName(){var id=currentId();window.name=id>=0?"TH-message--"+id+"--"+token:"";}function selectedVariables(message){return copy(message&&message.variables&&typeof message.variables==="object"?message.variables:{});}var messagesFor=(' + createTavernHelperMessageReader.toString() + ')({context:function(){return state;},currentId:currentId,copy:copy,readMessage:readMessage});function call(method,args){return new Promise(function(resolve,reject){var requestId=String(nextId++);pending[requestId]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-tavern-helper-call",token:token,requestId:requestId,method:method,args:copy(args||{})},"*");});}function optionOf(option){var value=option&&typeof option==="object"?copy(option):{type:"message"};if(!value.type)value.type="message";if(["message","chat","character","global","script"].indexOf(value.type)<0)throw Object.assign(new Error("尚未支持的变量作用域: "+value.type),{code:"TAVERN_CAPABILITY_UNSUPPORTED"});if(value.type==="message"){if(value.message_id===undefined||value.message_id===null)value.message_id=currentId();else if(value.message_id==="latest")value.message_id=lastId();}return value;}function localReplace(variables,option){option=optionOf(option);if(option.type==="chat")state.chatVariables=copy(variables);else if(option.type==="character")state.characterVariables=copy(variables);else if(option.type==="global")state.globalVariables=copy(variables);else if(option.type==="script"){if(!state.scriptVariables)state.scriptVariables={};state.scriptVariables[option.script_id]=copy(variables);}else{var message=readMessage(normalizeId(option.message_id));if(message){message.variables=copy(variables);if(Array.isArray(message.swipes_data))message.swipes_data[message.swipe_id||0]=copy(variables);}}}function localSetMessages(patches){(patches||[]).forEach(function(patch){var message=readMessage(normalizeId(patch.message_id));if(!message)return;if(patch.swipe_id!==undefined){message.swipe_id=Math.max(0,Math.min((message.swipes||[]).length-1,Number(patch.swipe_id)||0));message.message=(message.swipes||[])[message.swipe_id]||message.message;}if(patch.message!==undefined){message.message=String(patch.message);if(Array.isArray(message.swipes))message.swipes[message.swipe_id||0]=message.message;}if(patch.data!==undefined){message.variables=copy(patch.data||{});if(Array.isArray(message.swipes_data))message.swipes_data[message.swipe_id||0]=copy(patch.data||{});}});}addEventListener("message",function(event){var data=event&&event.data;if(event.source!==parent||!data||data.token!==token)return;if(data.type==="dsh-tavern-helper-context-update"){var previous=copy(state),applied;try{applied=applyContextUpdate(state,data.update);}catch(error){parent.postMessage({type:"dsh-tavern-helper-context-request",token:token},"*");return;}state=applied.context;if(Number.isFinite(Number(applied.turn)))turn=Math.max(0,Number(applied.turn));syncFrameName();Promise.resolve().then(async function(){var names=Array.isArray(applied.events)?applied.events:[];for(var index=0;index<names.length;index+=1){var name=names[index];if(window.Mvu&&name===window.Mvu.events.VARIABLE_UPDATE_ENDED)await window.eventEmit(name,selectedVariables((state.messages||[])[currentId()]),previous);else await window.eventEmit(name,currentId());}}).catch(function(error){console.error(error);});return;}if(data.type!=="dsh-tavern-helper-response")return;if(data.ok&&data.result){if(data.result.context)state=Object.assign({},state,data.result.context);if(Object.prototype.hasOwnProperty.call(data.result,"worldbook"))state.worldbook=copy(data.result.worldbook);}var task=pending[data.requestId];if(!task)return;delete pending[data.requestId];if(data.ok){syncFrameName();task.resolve(data.result);}else task.reject(new Error(String(data.error||"Helper 调用失败")));});syncFrameName();window.getCurrentMessageId=currentId;window.getLastMessageId=lastId;window.getChatMessages=messagesFor;window.getCurrentCharacterName=function(){return String(state.characterName||state.character&&state.character.name||"");};window.getWorldbookNames=function(){return state.worldbook&&state.worldbook.name?[state.worldbook.name]:[];};window.getCharWorldbookNames=function(){return {primary:state.worldbook&&state.worldbook.name||null,additional:[]};};window.getGlobalWorldbookNames=function(){return [];};window.getChatWorldbookName=function(){return null;};window.SillyTavern=Object.assign(window.SillyTavern||{},{substituteParams:function(value){return window.substitudeMacros(value);}});window.getVariables=function(option){option=optionOf(option);if(option.type==="chat")return copy(state.chatVariables||{});if(option.type==="character")return copy(state.characterVariables||{});if(option.type==="global")return copy(state.globalVariables||{});if(option.type==="script")return copy(state.scriptVariables&&state.scriptVariables[option.script_id]||{});return selectedVariables(readMessage(normalizeId(option.message_id)));};window.replaceVariables=function(variables,option){option=optionOf(option);var plain=copy(variables||{}),before=window.getVariables(option);localReplace(plain,option);var task=call("updateTavernHelperVariables",{option:option,variables:plain}).then(function(result){if(result&&result.stale)throw new Error("聊天已变化，变量未保存");return copy(plain);}).catch(function(error){if(JSON.stringify(window.getVariables(option))===JSON.stringify(plain))localReplace(before,option);throw error;});task.catch(function(error){console.error(error);});return task;};window.insertOrAssignVariables=function(variables,option){return window.replaceVariables(window._.mergeWith(window.getVariables(option),copy(variables||{}),function(left,right){return Array.isArray(right)?right:undefined;}),option);};window.insertVariables=function(variables,option){return window.replaceVariables(window._.mergeWith({},copy(variables||{}),window.getVariables(option),function(left,right){return Array.isArray(right)?right:undefined;}),option);};window.updateVariablesWith=async function(updater,option){option=optionOf(option);var current=window.getVariables(option),next=typeof updater==="function"?await updater(copy(current)):current;if(next===undefined)next=current;next=copy(next);return await window.replaceVariables(next,option);};window.deleteVariable=async function(path,option){option=optionOf(option);var next=window.getVariables(option),deleted=window._.unset(next,String(path||""));await window.replaceVariables(next,option);return{variables:copy(next),delete_occurred:deleted};};window.setChatMessages=async function(patches){var plain=copy(patches||[]);localSetMessages(plain);var result=await call("updateTavernHelperMessages",{messages:plain});return result;};window.retrieveDisplayedMessage=function(messageId){return normalizeId(messageId)===currentId()?window.jQuery(document.body):window.jQuery();};window.toastr={success:function(message){console.info(String(message));},info:function(message){console.info(String(message));},warning:function(message){console.warn(String(message));},error:function(message){console.error(String(message));}};window.eventOn=function(name,handler){(listeners[name]||(listeners[name]=new Set())).add(handler);return handler;};window.eventOff=function(name,handler){if(listeners[name])listeners[name].delete(handler);};window.eventEmit=async function(name){var args=Array.prototype.slice.call(arguments,1),items=listeners[name]?Array.from(listeners[name]):[];for(var i=0;i<items.length;i+=1)await items[i].apply(null,args);};window.tavern_events={MESSAGE_SENT:"MESSAGE_SENT",MESSAGE_RECEIVED:"MESSAGE_RECEIVED",MESSAGE_UPDATED:"MESSAGE_UPDATED",MESSAGE_SWIPED:"MESSAGE_SWIPED",MESSAGE_DELETED:"MESSAGE_DELETED",MESSAGE_EDITED:"MESSAGE_EDITED"};if(state.mvuEnabled!==false)window.Mvu={events:{VARIABLE_INITIALIZED:"mag_variable_initialized",VARIABLE_UPDATE_STARTED:"mag_variable_update_started",COMMAND_PARSED:"mag_command_parsed",VARIABLE_UPDATE_ENDED:"mag_variable_update_ended",BEFORE_MESSAGE_UPDATE:"mag_before_message_update"},getMvuData:function(option){return window.getVariables(option);},replaceMvuData:async function(value,option){await window.updateVariablesWith(function(){return value;},option);return copy(value);},parseMessage:async function(){throw new Error("当前兼容层尚未开放 iframe 内手动 MVU 重算");}};window.waitGlobalInitialized=async function(name){if(name==="Mvu")return window.Mvu;return window[name];};(' + installTavernHelperUtilities.toString() + ')(window);(' + installTavernHelperEventApi.toString() + ')(window,{localEvents:true,onSubscriptionsChanged:function(names){parent.postMessage({type:"dsh-tavern-frame-before-generate-hook",token:token,active:names.includes("GENERATION_AFTER_COMMANDS")},"*");}});(' + installTavernHelperMacroApi.toString() + ')({window:window,context:function(){return state;}});(' + installTavernHelperRegexApi.toString() + ')({window:window,context:function(){return state;},createEngine:' + createTavernRegexEngine.toString() + '});(' + installTavernHelperDisplayApi.toString() + ')(window);(' + installTavernHelperGenerationApi.toString() + ')({window:window,request:call,copy:copy});var ready=Promise.all([import(new URL("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs",document.baseURI).href),import(new URL("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs",document.baseURI).href)]).then(function(modules){window.z=modules[0];window.YAML=modules[1];return true;});window.__dshTavernHelperReady=ready;if(window.jQuery&&window.jQuery.fn&&window.jQuery.fn.load&&!window.jQuery.fn.__dshDeferred){var original=window.jQuery.fn.load;var deferred=function(){var self=this,args=arguments;ready.then(function(){original.apply(self,args);});return self;};deferred.__dshDeferred=true;window.jQuery.fn.load=deferred;}})();<\/script>' : '';
+			const interactiveHelperShim = input && input.helperContext ? '<script data-dsh-tavern-interactive-helper>(function(){var token=' + token + ',nextId=1,pending=Object.create(null);function copy(value){try{return structuredClone(value);}catch(e){return JSON.parse(JSON.stringify(value));}}function call(method,args){return new Promise(function(resolve,reject){var requestId="interactive:"+String(nextId++);pending[requestId]={resolve:resolve,reject:reject};parent.postMessage({type:"dsh-tavern-helper-call",token:token,requestId:requestId,method:method,args:copy(args||{})},"*");});}addEventListener("message",function(event){var data=event&&event.data;if(event.source!==parent||!data||data.token!==token||data.type!=="dsh-tavern-helper-response")return;var task=pending[data.requestId];if(!task)return;delete pending[data.requestId];if(data.ok)task.resolve(data.result);else task.reject(new Error(String(data.error||"Helper 调用失败")));});function payload(entries){if(!Array.isArray(entries))throw new TypeError("世界书条目必须是数组");return copy(entries).map(function(entry){delete entry.uid;return entry;});}var versions=Object.create(null);async function fresh(name){var result=await call("getTavernHelperWorldbook",{name:String(name||"")});var book=result&&result.worldbook||{};versions[String(name||"")]=book.version||"";return copy(book.entries||[]);}async function replace(name,entries,current,version){if(!Array.isArray(entries))throw new TypeError("世界书条目必须是数组");var before=new Map(),seen=new Set(),upserts=[];current.forEach(function(entry){before.set(String(entry.uid),JSON.stringify(entry));});copy(entries).forEach(function(entry){var key=entry.uid===undefined?"":String(entry.uid);if(key&&seen.has(key))throw new Error("世界书条目编号无效或重复");if(key)seen.add(key);if(!key||before.get(key)!==JSON.stringify(entry))upserts.push(entry);});var deletes=current.filter(function(entry){return!seen.has(String(entry.uid));}).map(function(entry){return entry.uid;});if(!upserts.length&&!deletes.length)return copy(current);var result=await call("patchTavernHelperWorldbook",{name:String(name||""),patch:{version:version,upserts:upserts,deletes:deletes}});var book=result&&result.worldbook||{},byUid=new Map(current.map(function(entry){return[String(entry.uid),entry];}));(book.changed||[]).forEach(function(entry){byUid.set(String(entry.uid),entry);});var written=(book.uids||[]).map(function(uid){return byUid.get(String(uid));});if(written.some(function(entry){return!entry;}))return await fresh(name);versions[String(name||"")]=book.version||"";return copy(written);}window.getWorldbook=async function(name){return await fresh(name);};window.updateWorldbookWith=async function(name,updater){if(typeof updater!=="function")throw new TypeError("世界书更新器必须是函数");var current=await fresh(name),version=versions[String(name||"")],draft=copy(current),next=await updater(draft);return await replace(name,next===undefined?draft:next,current,version);};window.createWorldbookEntries=async function(name,entries){var additions=payload(entries),previous;var worldbook=await window.updateWorldbookWith(name,function(current){previous=new Set(current.map(function(entry){return entry.uid;}));return current.concat(additions);});return{worldbook:worldbook,new_entries:worldbook.filter(function(entry){return!previous.has(entry.uid);})};};window.deleteWorldbookEntries=async function(name,predicate){if(typeof predicate!=="function")throw new TypeError("世界书删除条件必须是函数");var deleted=[];var worldbook=await window.updateWorldbookWith(name,function(current){return current.filter(function(entry){if(!predicate(copy(entry)))return true;deleted.push(copy(entry));return false;});});return{worldbook:worldbook,deleted_entries:deleted};};window.createChatMessages=async function(messages,option){var result=await call("createTavernHelperMessages",{messages:copy(Array.isArray(messages)?messages:[]),option:copy(option&&typeof option==="object"?option:{})});if(result&&result.stale)throw new Error("聊天已变化，消息未创建");};window.triggerSlash=async function(line){if(window.__dshFlushPromptWrites)await window.__dshFlushPromptWrites();return call("triggerTavernSlash",{line:window.substitudeMacros(String(line||""))}).then(function(result){return result&&Object.prototype.hasOwnProperty.call(result,"pipe")?result.pipe:result;});};window.TavernHelper=window.TavernHelper||{};["getTavernRegexes","formatAsTavernRegexedString","isCharacterTavernRegexesEnabled","triggerSlash","getMessageId","getIframeName","errorCatched","retrieveDisplayedMessage","waitGlobalInitialized","getCurrentMessageId","getLastMessageId","getChatMessages","setChatMessages","getAllVariables","getCurrentCharacterName","getVariables","deleteVariable","replaceVariables","insertOrAssignVariables","insertVariables","updateVariablesWith","generateRaw","createChatMessages","getWorldbook","getCharWorldbookNames","getGlobalWorldbookNames","getChatWorldbookName","getWorldbookNames","updateWorldbookWith","createWorldbookEntries","deleteWorldbookEntries"].forEach(function(name){Object.defineProperty(window.TavernHelper,name,{enumerable:true,configurable:true,get:function(){return window[name];},set:function(value){window[name]=value;}});});(' + installTavernHelperCompatibilityApi.toString() + ')({window:window,context:window.__dshTavernReadHelperContext,request:call,installPromptApi:' + installTavernHelperPromptApi.toString() + '});(' + installTavernMessageGenerationBridge.toString() + ')({window:window,token:token});})();<\/script>' : '';
 			const forkStorageShim = '<script data-dsh-tavern-storage>(' + installFrameStorage.toString() + ')(' + frameStorageSeedJson(input && input.frameStorage) + ');<\/script>';
 			const mvuViewObservationShim = input && input.helperContext && input.observeMvuView !== false ? '<script data-dsh-tavern-mvu-view-observer>(function(){var token=' + token + ',reported=false;function report(){if(reported)return;reported=true;window.__dshTavernMvuViewUsed=true;parent.postMessage({type:"dsh-tavern-mvu-view-used",token:token,mvuViewUsed:true},"*");}var getMvuData=window.Mvu&&window.Mvu.getMvuData;if(typeof getMvuData==="function")window.Mvu.getMvuData=function(){report();return getMvuData.apply(window.Mvu,arguments);};var getVariables=window.getVariables;if(typeof getVariables==="function")window.getVariables=function(){report();return getVariables.apply(window,arguments);};})();<\/script>' : '';
 			// parent.Mvu may throw an Error from another iframe: instanceof alone loses its stack.
@@ -26696,7 +26784,7 @@ function bindTavernFontZoom(node, win) {
 			const { currentScript, withScript, reportSubscriptions, post } = options;
 			const listeners = Object.create(null);
 			function eventName(name) {
-				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED" };
+				const aliases = { message_sent: "MESSAGE_SENT", message_received: "MESSAGE_RECEIVED", message_updated: "MESSAGE_UPDATED", message_swiped: "MESSAGE_SWIPED", message_deleted: "MESSAGE_DELETED", message_edited: "MESSAGE_EDITED", chat_id_changed: "CHAT_CHANGED", chat_created: "CHAT_CREATED", character_page_loaded: "CHARACTER_PAGE_LOADED", generation_after_commands: "GENERATION_AFTER_COMMANDS", generate_before_combine_prompts: "GENERATE_BEFORE_COMBINE_PROMPTS" };
 				return aliases[String(name)] || String(name);
 			}
 			function removeEventEntry(name, entry) {
@@ -28114,6 +28202,7 @@ function bindTavernFontZoom(node, win) {
 				MESSAGE_SENT: "MESSAGE_SENT", MESSAGE_RECEIVED: "MESSAGE_RECEIVED", MESSAGE_UPDATED: "MESSAGE_UPDATED",
 				MESSAGE_SWIPED: "MESSAGE_SWIPED", MESSAGE_DELETED: "MESSAGE_DELETED", MESSAGE_EDITED: "MESSAGE_EDITED",
 				CHAT_CHANGED: "CHAT_CHANGED", CHAT_CREATED: "CHAT_CREATED", CHARACTER_PAGE_LOADED: "CHARACTER_PAGE_LOADED",
+				GENERATION_AFTER_COMMANDS: "GENERATION_AFTER_COMMANDS",
 				GENERATE_BEFORE_COMBINE_PROMPTS: "GENERATE_BEFORE_COMBINE_PROMPTS"
 			};
 			window.iframe_events = Object.freeze({
@@ -28232,7 +28321,7 @@ function bindTavernFontZoom(node, win) {
 			}
 			window.toastr.warning = console.warn;
 			window.toastr.error = console.error;
-			modules.installCompatibilityApi({window, context: () => state, request: call});
+			modules.installCompatibilityApi({window, context: () => state, request: call, installPromptApi: modules.installPromptApi});
 			const ready = Promise.all([
 				import(new URL("/api/dsh-tavern/vendor/runtime-assets/zod/index.mjs",document.baseURI).href),
 				import(new URL("/api/dsh-tavern/vendor/runtime-assets/yaml/index.mjs",document.baseURI).href)
@@ -28819,6 +28908,7 @@ function bindTavernFontZoom(node, win) {
 				+ 'createMessageReader:' + createTavernHelperMessageReader.toString() + ','
                 + 'installUtilities:' + installTavernHelperUtilities.toString() + ','
                 + 'installCompatibilityApi:' + installTavernHelperCompatibilityApi.toString() + ','
+                + 'installPromptApi:' + installTavernHelperPromptApi.toString() + ','
                 + 'installMacros:' + installTavernHelperMacroApi.toString() + ','
                 + 'installDisplay:' + installTavernHelperDisplayApi.toString() + ','
                 + 'installGeneration:' + installTavernHelperGenerationApi.toString() + ','
@@ -30626,6 +30716,29 @@ function bindTavernFontZoom(node, win) {
 			});
 		}
 
+		const tavernSessionFrameBeforeGenerate = new Set();
+		function matchingTavernSessionFramesBeforeGenerate(sessionId) {
+			const id = String(sessionId || "");
+			if (!id || !tavernSessionFrameBeforeGenerate.size) return [];
+			const matched = [];
+			let maxTurn = -Infinity;
+			for (const entry of tavernSessionFrameBeforeGenerate) {
+				if (!entry.matches(id)) continue;
+				const turn = typeof entry.turn === "function" ? entry.turn() : 0;
+				if (turn > maxTurn) maxTurn = turn;
+				matched.push({ entry: entry, turn: turn });
+			}
+			return matched.filter(function (item) { return item.turn === maxTurn; }).map(function (item) { return item.entry; });
+		}
+		function flushTavernSessionFramesBeforeGenerate(sessionId) {
+			const entries = matchingTavernSessionFramesBeforeGenerate(sessionId);
+			if (!entries.length) return Promise.resolve();
+			const tasks = entries.map(function (entry) {
+				return Promise.resolve().then(function () { return entry.flush(sessionId); });
+			});
+			return Promise.all(tasks).then(function () {});
+		}
+
 		// Owns document replacement, authenticated frame messages and their cleanup.
 		// React only renders the visible/pending documents and controls lazy activation.
 		function createTavernMessageFrameLifecycle(initial, options) {
@@ -30634,8 +30747,10 @@ function bindTavernFontZoom(node, win) {
 			const configuredSlashExecutor = options && options.executeSlash;
 			const invalidate = options && options.invalidate || function (sessionId) { liveTavernView.invalidate(sessionId); };
 			const channels = new Map();
+			const pendingBeforeGenerate = new Map();
             const generationOwners = new Set();
             function retireGenerations(document) {
+                for (const task of pendingBeforeGenerate.values()) if (task.document === document) task.finish(new Error("消息页面已更换，请重试发送"));
                 if (!document?.generationJobs) return;
                 for (const job of document.generationJobs.values()) void Promise.resolve().then(job.stop).catch(function () {});
                 document.generationJobs.clear();
@@ -30815,6 +30930,7 @@ function bindTavernFontZoom(node, win) {
 				// a same-session card switch also revokes frozen context and storage
 				const sessionChanged = props.sessionId !== next.sessionId || props.helperContext?.frameStorageScope?.cardPath !== next.helperContext?.frameStorageScope?.cardPath;
 				if (sessionChanged || props.turn !== next.turn || props.partIndex !== next.partIndex) {
+					for (const task of pendingBeforeGenerate.values()) task.finish(new Error("当前会话已变化，请重试发送"));
 					lifetime++;
 					cancelRuntimeReport();
 				}
@@ -30881,6 +30997,15 @@ function bindTavernFontZoom(node, win) {
 				if (!sourceDocument) return;
 				if (data.type === "dsh-fork-font-wheel") {
 					if (sourceDocument === visible) forkFrameZoom.adjust(sourceDocument.zoomCard, data, hostWindow);
+					return;
+				}
+				if (data.type === "dsh-tavern-frame-before-generate-hook") {
+					sourceDocument.hasBeforeGenerateHook = data.active === true;
+					return;
+				}
+				if (data.type === "dsh-tavern-frame-before-generate-done") {
+					const task = pendingBeforeGenerate.get(data.requestId);
+					if (task?.document === sourceDocument) task.finish(data.ok === true ? null : new Error(data.error || "生成前提示词未准备完成"));
 					return;
 				}
 				const requestProps = props;
@@ -31094,10 +31219,47 @@ function bindTavernFontZoom(node, win) {
 					});
 				}
 			}
+			const beforeGenerateEntry = {
+				turn: function () {
+					return Number(visible && visible.turn) || 0;
+				},
+				matches: function (targetSessionId) {
+					if (!listener || props.persistent === true || !props.sessionId || props.sessionId !== targetSessionId) return false;
+					if (!visible || !visible.helperContext || !visible.hasBeforeGenerateHook) return false;
+					const channel = channels.get(visible.token);
+					const node = channel && channel.element();
+					return Boolean(node && node.contentWindow);
+				},
+				flush: function (targetSessionId) {
+					if (!beforeGenerateEntry.matches(targetSessionId)) return Promise.reject(new Error("生成前消息页面已变化，请重试发送"));
+					const document = visible;
+					for (const task of pendingBeforeGenerate.values()) if (task.document === document) return task.promise;
+					const channel = channels.get(visible.token);
+					const target = channel.element().contentWindow;
+					let task;
+					const promise = new Promise(function (resolve, reject) {
+						const requestId = "before-gen:" + nextTavernFrameToken();
+						const timer = hostWindow.setTimeout(function () {
+							task.finish(new Error("等待生成前提示词超时，未发送消息，请重试"));
+						}, 15000);
+						task = { document, finish(error) {
+							hostWindow.clearTimeout(timer);
+							pendingBeforeGenerate.delete(requestId);
+							if (error) reject(error); else resolve();
+						} };
+						pendingBeforeGenerate.set(requestId, task);
+						try { target.postMessage({ type: "dsh-tavern-frame-before-generate", token: document.token, requestId: requestId }, "*"); }
+						catch (error) { task.finish(error); }
+					});
+					task.promise = promise;
+					return promise;
+				}
+			};
 			return Object.freeze({
 				update: update, snapshot: snapshot,
 				start: function (onChange) {
 					listener = onChange;
+					tavernSessionFrameBeforeGenerate.add(beforeGenerateEntry);
 					// Preview companions can import modules that append UI to the real host.
 					// Give them the same lifetime cleanup as the conversation script runtime.
 					const openingArtifacts = props.openingPreview && props.trustedCardMode
@@ -31121,6 +31283,9 @@ function bindTavernFontZoom(node, win) {
 					const unsubscribeTheme = hostWindow.document && typeof hostWindow.MutationObserver === "function"
 						? subscribeTavernHostTheme(hostWindow, function (theme) { sendTextColors(null, theme); }) : null;
 					return function () {
+                        tavernSessionFrameBeforeGenerate.delete(beforeGenerateEntry);
+                        pendingBeforeGenerate.forEach(function (task) { task.finish(new Error("消息页面已关闭，未发送消息")); });
+                        pendingBeforeGenerate.clear();
                         touchRelay.stop();
 						releaseComposer();
 						if (openingArtifacts) {
@@ -34742,6 +34907,8 @@ function tavernFloorHeightRecall(key, width) {
 				} catch (_) {}
 				return "";
 			}
+			const pendingSend = new Map();
+            const submitting = new Set();
 			const execute = function (line, sessionId, options) {
                 if (options && typeof options.inputText === "string") {
                     const text = options.inputText.trim();
@@ -34765,9 +34932,11 @@ function tavernFloorHeightRecall(key, width) {
                     error.code = "UNSUPPORTED_SLASH_PIPELINE";
                     return Promise.reject(error);
                 }
-				const match = /^\/send\s+([\s\S]+)\|\s*\/trigger\s*$/.exec(String(line || ""));
-				const triggerOnly = /^\/trigger\s*$/.test(String(line || ""));
-				if (!draftMatch && !triggerOnly && (!match || !match[1].trim())) {
+				const match = /^\/send\s+([\s\S]+?)\s*\|\s*\/trigger(?:\s+await=(true|false))?\s*$/i.exec(String(line || ""));
+				const sendOnly = !pipes.length ? /^\/send\s+([\s\S]+)$/.exec(String(line || "")) : null;
+				const triggerMatch = /^\/trigger(?:\s+await=(true|false))?\s*$/i.exec(String(line || ""));
+				const triggerOnly = Boolean(triggerMatch);
+				if (!draftMatch && !triggerOnly && (!sendOnly || !sendOnly[1].trim()) && (!match || !match[1].trim())) {
                     if (!ctx.remote?.commands?.execute) return Promise.reject(new Error("当前酒馆没有注册这条命令"));
                     return ctx.remote.commands.execute(sessionId, String(line), []).then(function (execution) {
                         if (!execution) throw new Error("当前酒馆没有注册这条命令");
@@ -34779,54 +34948,100 @@ function tavernFloorHeightRecall(key, width) {
 				const conversation = ctx.get("conversation");
 				if (!actx || !conversation) return Promise.reject(new Error("当前对话输入框不可用"));
 				const input = conversation.input.for(actx);
-				if (draftMatch) { input.setDraft(draftMatch[1] || ""); return Promise.resolve({ drafted: true }); }
-				const binding = triggerOnly && ctx.sessions.binding(sessionId);
+				if (draftMatch) { pendingSend.delete(sessionId); input.setDraft(draftMatch[1] || ""); return Promise.resolve({ drafted: true }); }
+				if (sendOnly) {
+					pendingSend.set(sessionId, { text: sendOnly[1], at: Date.now() });
+					input.setDraft(sendOnly[1]);
+					return Promise.resolve({ drafted: true, deferred: true, pipe: "" });
+				}
+                if (submitting.has(sessionId)) return Promise.reject(new Error("本局正在提交生成，请等待当前操作完成"));
+                function actualDraft() {
+                    const state = input.state && typeof input.state.getSnapshot === "function" ? input.state.getSnapshot() : null;
+                    return state && typeof state.draft === "string" ? state.draft : undefined;
+                }
+				let pendingEntry = pendingSend.get(sessionId);
+                const draft = actualDraft();
+                if (pendingEntry && (Date.now() - pendingEntry.at > 15000 || (draft !== undefined && draft !== pendingEntry.text))) {
+                    pendingSend.delete(sessionId);
+                    pendingEntry = undefined;
+                }
+				const stagedSend = triggerOnly && pendingEntry ? pendingEntry.text : undefined;
+				const submitDraftText = match ? match[1] : stagedSend;
+				const useNativeTrigger = triggerOnly && submitDraftText === undefined;
+				const binding = useNativeTrigger && ctx.sessions.binding(sessionId);
                 // DSH requires nonempty prompt content. Helper messages are already
                 // persisted; admit a continuation without resending them or touching the draft.
                 const triggerContent = [{ type: "text", text: "继续。" }];
-                // Template execution owns the generation queue; waiting here would deadlock it.
-                if (options?.waitForCompletion === false) {
-                    if (triggerOnly) return Promise.resolve(binding.session.prompt(triggerContent, "queue")).then(function(result) {
-                        if (!result?.ok) throw new Error(result?.error?.message || "生成提交失败");
-                        return {submitted:true};
-                    });
-                    input.setDraft(match[1]);
-                    return Promise.resolve(input.submit("queue")).then(function(){return {submitted:true};});
+                const waitForCompletion = options?.waitForCompletion !== false && String((match && match[2]) || (triggerMatch && triggerMatch[1]) || "").toLowerCase() !== "false";
+                function consumePending() {
+                    if (pendingSend.get(sessionId) === pendingEntry) pendingSend.delete(sessionId);
                 }
-				const sessions = ctx.sessions.list;
-				return new Promise(function (resolve, reject) {
-					let observedRun = false;
-					let settled = false;
-					let stop = function () {};
-					let timer = null;
-					function finish(error) {
-						if (settled) return;
-						settled = true;
-						hostWindow.clearTimeout(timer);
-						stop();
-						if (error) reject(error); else resolve({ submitted: true });
-					}
-					function inspect() {
-						const summary = sessions.getSnapshot().byId[sessionId];
-						if (!summary) { finish(new Error("当前对话已关闭")); return; }
-						if (summary.running === true) observedRun = true;
-						else if (observedRun) finish();
-					}
-					stop = sessions.subscribe(inspect);
-					timer = hostWindow.setTimeout(function () { finish(new Error("等待开局生成完成超时")); }, 15 * 60 * 1000);
-					try {
-						if (triggerOnly) {
-							// Helper messages are already persisted and projected into the next request.
-							Promise.resolve(binding.session.prompt(triggerContent, "queue")).then(function (result) {
-								if (!result || !result.ok) finish(new Error(result && result.error && result.error.message || "开局生成提交失败"));
-							}, finish);
-						} else {
-							input.setDraft(match[1]);
-							input.submit("queue");
-						}
-						inspect();
-					} catch (error) { finish(error); }
-				});
+                function submit() {
+                    if (stagedSend !== undefined) {
+                        const currentDraft = actualDraft();
+                        if (pendingSend.get(sessionId) !== pendingEntry || (currentDraft !== undefined && currentDraft !== stagedSend)) {
+                            throw new Error("输入草稿已变化，请重新发送");
+                        }
+                    }
+                    if (useNativeTrigger) {
+                        if (!binding?.session) throw new Error("当前对话已关闭");
+                        return binding.session.prompt(triggerContent, "queue");
+                    }
+                    input.setDraft(submitDraftText);
+                    return input.submit("queue");
+                }
+                function accept(result) {
+                    if ((useNativeTrigger && !result?.ok) || result?.ok === false) throw new Error(result?.error?.message || "生成提交失败");
+                    consumePending();
+                }
+                function submitTurn() {
+                    // Template execution owns the generation queue; waiting here would deadlock it.
+                    if (!waitForCompletion) {
+                        return Promise.resolve().then(submit).then(function(result) { accept(result); return {submitted:true}; });
+                    }
+                    const sessions = ctx.sessions.list;
+                    return new Promise(function (resolve, reject) {
+                        let observedRun = false;
+                        let accepted = false;
+                        let runFinished = false;
+                        let settled = false;
+                        let stop = function () {};
+                        let timer = null;
+                        function finish(error) {
+                            if (settled) return;
+                            settled = true;
+                            hostWindow.clearTimeout(timer);
+                            stop();
+                            if (error) reject(error); else resolve({ submitted: true });
+                        }
+                        function inspect() {
+                            const summary = sessions.getSnapshot().byId[sessionId];
+                            if (!summary) { finish(new Error("当前对话已关闭")); return; }
+                            if (summary.running === true) observedRun = true;
+                            else if (observedRun) { runFinished = true; if (accepted) finish(); }
+                        }
+                        stop = sessions.subscribe(inspect);
+                        timer = hostWindow.setTimeout(function () { finish(new Error("等待开局生成完成超时")); }, 15 * 60 * 1000);
+                        try {
+                            Promise.resolve(submit()).then(function (result) {
+                                accept(result);
+                                accepted = true;
+                                if (runFinished) finish(); else inspect();
+                            }).catch(finish);
+                            inspect();
+                        } catch (error) { finish(error); }
+                    });
+                }
+                // Reserve synchronously so concurrent triggers cannot consume one staged send twice.
+                submitting.add(sessionId);
+                return Promise.resolve().then(function () {
+                    if (typeof flushTavernSessionFramesBeforeGenerate === "function") return flushTavernSessionFramesBeforeGenerate(sessionId);
+                }).then(submitTurn).catch(function (error) {
+                    // A slow/failed refresh is not a successful send. Give the
+                    // player the normal retry window after the failure is shown.
+                    if (stagedSend !== undefined && pendingSend.get(sessionId) === pendingEntry) pendingEntry.at = Date.now();
+                    throw error;
+                }).finally(function () { submitting.delete(sessionId); });
 			};
 			execute.readInput = readInputDraft;
 			return execute;
@@ -35514,8 +35729,8 @@ function tavernFloorHeightRecall(key, width) {
 				function resolveUiWorkspace() {
 					try { return input.ctx.get("uiWorkspace") || null; } catch (_) { return null; }
 				}
-				const scriptOwner = createTavernScriptSessionOwner({ sessions: createSessionCompat(input.ctx.sessions, resolveUiWorkspace()), executeSlash: createTavernFrameSlashExecutor(input.ctx) });
 				const executeSlash = createTavernFrameSlashExecutor(input.ctx);
+				const scriptOwner = createTavernScriptSessionOwner({ sessions: createSessionCompat(input.ctx.sessions, resolveUiWorkspace()), executeSlash: executeSlash });
 				input.ctx.effect(function () {
 					scriptOwner.start();
 					return function () { scriptOwner.dispose(); };
