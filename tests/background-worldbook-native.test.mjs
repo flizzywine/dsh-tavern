@@ -22,7 +22,8 @@ test('原生后台按需检索与重启保持缓存前缀且不复制前台召�
     await rm(root, { recursive: true, force: true })
   })
   const config = join(root, 'host.yml')
-  const packages = ['dsh-system-prompt', 'dsh-tools', 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-session-persistence-jsonl', 'dsh-token-meter', 'dsh-agent-loop']
+  const toolExecutor = await import(new URL('../../dsh-tool-executor-native/lib/index.js', bootUrl)).then(() => ['dsh-tool-executor-native'], () => [])
+  const packages = ['dsh-system-prompt', 'dsh-tools', ...toolExecutor, 'dsh-agent', 'dsh-llm', 'dsh-session', 'dsh-session-projection', 'dsh-session-persistence-jsonl', 'dsh-token-meter', 'dsh-agent-loop']
   await writeFile(config, packages.map(name => '- id: ' + name + '\n  name: ' + new URL('../../' + name + '/lib/index.js', bootUrl).href +
     (name === 'dsh-session-persistence-jsonl' ? '\n  config:\n    root: ' + join(root, 'sessions') + '\n    compression: none' : '')).join('\n'))
   ctx = await boot('background-worldbook-native-test', config)

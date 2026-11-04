@@ -21,7 +21,8 @@ export function installTavernTokenMeter(meter) {
     const hadOwnSync = Object.hasOwn(meter, '_sync')
     if (compactSignature && typeof originalSync !== 'function') throw new Error('当前 DSH Token Meter 缺少同步入口')
     const presetCursors = new WeakMap()
-    function presetBefore(session, state, seq) {
+    const syncedSessions = new WeakSet()
+    function presetBefore(session, state, seq, rawEventAt) {
       let cursor = presetCursors.get(state)
       if (!cursor || cursor.session !== session || seq < cursor.nextSeq) {
         cursor = { session, nextSeq: 0, selected: undefined }
@@ -30,24 +31,46 @@ export function installTavernTokenMeter(meter) {
       // Read only the unseen prefix, excluding the event being classified.
       // Reset with the host fold state, or when a replay moves backwards.
       while (cursor.nextSeq < seq) {
-        const previous = session.eventAt(cursor.nextSeq)
+        const previous = rawEventAt ? rawEventAt.call(session, cursor.nextSeq) : session.eventAt(cursor.nextSeq)
         if (previous?.type === 'agent-preset/selected') cursor.selected = previous.data?.agentPreset
         cursor.nextSeq++
       }
       return cursor.selected ?? session.header?.agentPreset
     }
+    function toAccountingEvent(session, state, event, rawEventAt) {
+      return session && state && event && isTavernSurfaceEdit(session, event, state.surface, () => presetBefore(session, state, event.seq, rawEventAt))
+        ? { ...event, type: 'user/message', data: event.data.message }
+        : event
+    }
     let activeSession
     function sync(session, ...args) {
       const previous = activeSession
       activeSession = session
-      try { return originalSync.call(this, session, ...args) }
-      finally { activeSession = previous }
+      if (session && !syncedSessions.has(session)) {
+        this.states?.delete?.(session)
+        syncedSessions.add(session)
+      }
+      const rawEventAt = session?.eventAt
+      const hadOwnEventAt = session ? Object.hasOwn(session, 'eventAt') : false
+      if (typeof rawEventAt === 'function') {
+        session.eventAt = seq => {
+          const event = rawEventAt.call(session, seq)
+          const state = this.states?.get?.(session)
+          return state && seq === state.consumedEvents ? toAccountingEvent(session, state, event, rawEventAt) : event
+        }
+      }
+      try { return originalSync.call(this, session, false, ...args.slice(1)) }
+      finally {
+        if (typeof rawEventAt === 'function') {
+          if (hadOwnEventAt) session.eventAt = rawEventAt
+          else delete session.eventAt
+        }
+        activeSession = previous
+      }
     }
     function fold(...args) {
       const [session, state, event] = compactSignature ? [activeSession, ...args] : args
-      const accountingEvent = session && isTavernSurfaceEdit(session, event, state.surface, () => presetBefore(session, state, event.seq))
-        ? { ...event, type: 'user/message', data: event.data.message }
-        : event
+      const accountingEvent = toAccountingEvent(session, state, event)
       return compactSignature ? original.call(this, state, accountingEvent) : original.call(this, session, state, accountingEvent)
     }
     meter._foldEvent = fold
