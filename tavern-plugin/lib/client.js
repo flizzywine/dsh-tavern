@@ -32107,6 +32107,7 @@ function tavernFloorHeightRecall(key, width) {
 			const listeners = new Set();
 			// Tavern's own context, for the sidebar a plugin panel opens in (set at apply).
 			let host = null;
+			let stagePerformanceReader = null;
 			let version = 0;
 			function changed() { version += 1; Array.from(listeners).forEach(function (listener) { listener(); }); }
 			function ownerOf(service) {
@@ -32488,7 +32489,7 @@ function tavernFloorHeightRecall(key, width) {
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, stagePerformanceStatus: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
 				},
 				// Request a right-hand stage column. Failure is explicit so a caller can use overlay.
 				openStageDock(input) {
@@ -32839,6 +32840,11 @@ function tavernFloorHeightRecall(key, width) {
 						return addTo(composerSlots, entry);
 					}, "tavernUi.registerComposerSlot()");
 				},
+				getStagePerformanceStatus(gameId) {
+					if (typeof gameId !== 'string' || !gameId) throw new TypeError('getStagePerformanceStatus 需要 gameId');
+					if (!tavernPluginAllowed(ownerOf(this), gameId)) return null;
+					return stagePerformanceReader ? stagePerformanceReader(gameId) : null;
+				},
 				// What the stage shows (apiVersion 2): the latest turns with their dialogue annotations, and the card's characters.
 				getStage(gameId, options) {
 					if (typeof gameId !== "string" || !gameId) return Promise.reject(new TypeError("getStage 需要 gameId"));
@@ -33096,6 +33102,10 @@ function tavernFloorHeightRecall(key, width) {
 			return {
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
+				bindStagePerformance: function (reader) {
+					stagePerformanceReader = reader;
+					return function () { if (stagePerformanceReader === reader) stagePerformanceReader = null; };
+				},
 				bindStageDock: function (gameId, bridge) {
 					const old = stageDocks.get(gameId);
 					if (old && old !== bridge) old.shutdown();
@@ -48179,13 +48189,14 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
 		            fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
 		    stageViews = views;
+		    const stopPerformance = tavernUiExtensions.bindStagePerformance(id => views.publicPlayback.get(id));
 		    let stopBgm = null, disposed = false;
 		    const dispose = () => {
 		        if (disposed) return;
 		        disposed = true;
 		        if (stageViews === views) stageViews = null;
 		        const errors = [];
-		        for (const cleanup of [() => stopBgm?.(), bgmChanged, () => views.dispose()]) {
+		        for (const cleanup of [stopPerformance, () => stopBgm?.(), bgmChanged, () => views.dispose()]) {
 		            try { cleanup(); } catch (error) { errors.push(error); }
 		        }
 		        if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');

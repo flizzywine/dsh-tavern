@@ -16225,6 +16225,52 @@ function createStageSessionRuntime({kernel,createStoreModule,createSessionModule
 }
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStageSessionRuntime};
 
+        // Only lifecycle facts from the live session store escape this adapter. No director
+// payload, media lease, text, token, path or mod state is a public playback field.
+function createStagePublicPlayback({getStore, isAllowed}) {
+    let disposed = false;
+    const subscriptions = new Set();
+    function read(gameId, expectedStore) {
+        if (disposed || !isAllowed(gameId)) return null;
+        const store = getStore(gameId);
+        if (!store || (expectedStore && expectedStore !== store)) return null;
+        const state = store.getSnapshot();
+        if (!state || state.disposed || state.source?.sessionId !== gameId) return null;
+        const active = state.opened === true && state.visible === true;
+        const counts = {pending:0, playing:0, played:0, skipped:0};
+        if (active) for (const entry of Object.values(state.ledger || {})) {
+            if (['performance-phase', 'mod-performance'].includes(entry?.descriptor?.kind) && Object.hasOwn(counts, entry.status)) counts[entry.status]++;
+        }
+        return {version:1, turn:Number.isSafeInteger(state.source.turn) ? state.source.turn : null,
+            opened:state.opened === true, visible:state.visible === true,
+            mode:['live','history','replay'].includes(state.cursor?.mode) ? state.cursor.mode : 'unknown',
+            ledger:counts};
+    }
+    function subscribe(gameId, listener) {
+        if (typeof gameId !== 'string' || !gameId || typeof listener !== 'function') throw new TypeError('gameId and listener required');
+        if (disposed || !isAllowed(gameId)) { listener(null); return () => {}; }
+        const store = getStore(gameId);
+        if (!store) { listener(null); return () => {}; }
+        let closed = false, last;
+        function stop() { if (closed) return; closed = true; off(); subscriptions.delete(update); }
+        function update() {
+            if (closed) return;
+            const next = read(gameId, store), serialized = JSON.stringify(next);
+            if (serialized !== last) { last = serialized; try { listener(next); } catch (_) {} }
+            if (next === null) stop();
+        }
+        let off = () => {};
+        off = store.subscribe(update);
+        if (closed) { off(); return () => {}; }
+        subscriptions.add(update);
+        try { update(); } catch (error) { stop(); throw error; }
+        return stop;
+    }
+    return {get:gameId => read(gameId), subscribe, revalidate() { for (const update of [...subscriptions]) update(); },
+        dispose() { if (disposed) return; disposed = true; for (const update of [...subscriptions]) update(); }};
+}
+if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = {createStagePublicPlayback};
+
         'use strict';
 
 function createStageRuntimeStoreModule(stageRuntimeKernel) {
@@ -31123,6 +31169,7 @@ if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={crea
                     views.input=own(createStageInput({React:options.React,window,document,clock:options.sceneServices?.foreground,controls,navigation:options.navigation}));
                     views.playback=own(createStagePlayback({React:options.React,clock:options.sceneServices?.foreground,player:options.speech?.player,subtitles:views.subtitles,timing:options.playbackTiming,handoffDelay:views.handoffAutoDelay}));
                     views.runtimeUi=own(createStageRuntimeUi({React:options.React,sessions:views.sessionRuntime,kernel:runtimeKernel,performances:options.performances}));
+                    views.publicPlayback=own(createStagePublicPlayback({getStore:id=>views.sessionRuntime.get(id),isAllowed:()=>true}));
                     views.scene=own(createStageScene({React:options.React,window,document,math:sceneMath,modules:views,services:options.sceneServices,figureScale:options.sceneFigureProtocol,lighting:options.sceneLighting,lookMath:options.looks?.math,reading:options.entrance?.reading,quality:options.configAppearance?.quality}));
                     // Live2D figures draw through the scene's figure renderer seam; the module itself loads with the first Cubism Core a scene names.
                     if(live2d){const live2dFigures=own(createStageLive2dFigures({window,math:sceneMath,idle:figureIdle,tap:figureTap,lipSync:options.sceneServices?.lipSync,runtime:live2d.runtime,measure:options.live2d.measure}));own({dispose:views.scene.figureRenderers.register('live2d',live2dFigures.renderer)});}

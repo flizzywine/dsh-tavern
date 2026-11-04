@@ -293,13 +293,14 @@ function bindStageViews(createViews) {
         text:{performance, ResizeObserver, getComputedStyle, clock:forkForeground,
             fonts:tavernFonts, sounds:forkUiSfx, defaultTextSpeed:STAGE_READING_DEFAULTS.textSpeed}});
     stageViews = views;
+    const stopPerformance = tavernUiExtensions.bindStagePerformance(id => views.publicPlayback.get(id));
     let stopBgm = null, disposed = false;
     const dispose = () => {
         if (disposed) return;
         disposed = true;
         if (stageViews === views) stageViews = null;
         const errors = [];
-        for (const cleanup of [() => stopBgm?.(), bgmChanged, () => views.dispose()]) {
+        for (const cleanup of [stopPerformance, () => stopBgm?.(), bgmChanged, () => views.dispose()]) {
             try { cleanup(); } catch (error) { errors.push(error); }
         }
         if (errors.length) throw new AggregateError(errors, 'Stage views cleanup failed');

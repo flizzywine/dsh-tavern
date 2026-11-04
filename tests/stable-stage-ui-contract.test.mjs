@@ -44,6 +44,18 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
 })
 
+test('performance ledger snapshot observes card scope and stage lifetime', () => {
+  const f = fixture()
+  assert.equal(f.plugin.getStagePerformanceStatus('game'), null)
+  const unbind = f.ui.bindStagePerformance(id => ({ gameId: id }))
+  assert.equal(f.plugin.getStagePerformanceStatus('game').gameId, 'game')
+  assert.equal(f.plugin.getStagePerformanceStatus('denied'), null)
+  f.deny()
+  assert.equal(f.plugin.getStagePerformanceStatus('game'), null)
+  unbind()
+  assert.equal(f.plugin.getStagePerformanceStatus('game'), null)
+})
+
 test('native stage dock denies unrelated games and cleans up its shared lease', () => {
   const f = fixture(), reasons = []
   assert.equal(f.plugin.openStageDock({ gameId: 'denied', render() {} }).reason, 'denied')

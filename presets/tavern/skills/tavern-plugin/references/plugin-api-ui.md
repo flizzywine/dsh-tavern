@@ -4,6 +4,10 @@
 
 浏览器侧的代码运行在 DSH 页面里，使用 DSH 提供的 `react`。插件的 `render` 函数返回 React 元素；出错时只影响这个元素，正文其余部分照常显示。
 
+`getStagePerformanceStatus(gameId)`（`getCapabilities().stagePerformanceStatus === 1`）返回当前舞台的只读调度账本快照，或在舞台不可用、游戏不属于插件或没有活动实例时返回 `null`。字段包括 `version`、`turn`、`opened`、`visible`、`mode` 和 `ledger` 四个状态的计数；只有 performance-phase 和 mod-performance 纳入，后台隐藏或离开时计数为零。可按需重新读取，宿主卸载时不再提供快照。
+
+账本记录的是舞台调度状态，不是媒体已加载、画面已绘制或演出完整播放的证明：中断中的播放也可能计作 `played`。不得依据这些状态发奖或改写权威游戏状态；计划、路径、媒体凭证及演出参数不会暴露。
+
 ## `registerGameModeView({ name, render, presentation?, lobby? })`
 
 为宿主侧 `gameMode` 注册玩法界面，两端插件归属和 `name` 必须一致。注册随插件卸载撤销。
