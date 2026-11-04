@@ -321,6 +321,11 @@ export function applyTavernSettingsPatch(current, patch) {
     delete next.storyToolCall
     delete next.storyHistoryToolCall
   }
+  // 长按发送键 2 秒直接重新生成本轮正文；默认关闭，避免误触改写正文。
+  if (Object.hasOwn(input, 'longPressSendRegenerate')) {
+    if (typeof input.longPressSendRegenerate !== 'boolean') throw new Error('长按发送键重新生成设置必须是布尔值')
+    next.longPressSendRegenerate = input.longPressSendRegenerate
+  }
   if (Object.hasOwn(input, 'autoOpenStatusPanel')) {
     if (typeof input.autoOpenStatusPanel !== 'boolean') throw new Error('自动打开酒馆状态面板设置必须是布尔值')
     next.autoOpenStatusPanel = input.autoOpenStatusPanel
@@ -422,6 +427,8 @@ export function presentTavernSettings(document, defaults) {
     storyGenerationProvider: typeof document?.storyGenerationProvider === 'string' ? document.storyGenerationProvider : '',
     storyInputToolCall: storyToolCalls.input,
     storyOutputToolCall: storyToolCalls.output,
+    // 长按 2 秒发送键直接重新生成正文；默认关闭。
+    longPressSendRegenerate: object(document).longPressSendRegenerate === true,
     // Only the latest floors run a card's HTML interface; 0 renders every floor.
     autoOpenStatusPanel: object(document).autoOpenStatusPanel !== false,
     // Library edits reach a running game on its next turn; only an explicit

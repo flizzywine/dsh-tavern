@@ -413,6 +413,8 @@
 
         // @include gal-regenerate.js
 
+		// @include features/send-long-press.js
+
 		// A failed turn never committed a story round, so recovering it is not a
 		// rollback: remove the interrupted reply and resend the same input, which
 		// lets the provider reuse the cached prompt prefix.
@@ -1238,6 +1240,11 @@
 				{ name: "conversation.input.dock", id: "dsh-tavern-candidate-guide", order: -115, label: "重新生成候选项" },
 				function (props) { return React.createElement(CandidateGuidePanel, props); }
 			)), "dsh-tavern: candidate guide panel");
+			// 长按发送键 2 秒直接重新生成正文：只装监听，不画界面（开关在 设置 › 高级）。
+			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
+				{ name: "conversation.input.dock", id: "dsh-tavern-send-hold", order: -105, label: "长按发送键重新生成" },
+				function (props) { return React.createElement(TavernSendLongPress, { key: "send-hold:" + props.sessionId, sessionId: props.sessionId, useSession: props.useSession }); }
+			)), "dsh-tavern: long press send key");
 			ctx.effect(() => slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "dsh-fork-session-shell", order: -200, label: "会话外壳" },
 				function (props) { return React.createElement(React.Fragment, null,

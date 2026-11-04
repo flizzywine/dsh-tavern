@@ -5,7 +5,7 @@ import { chromium } from 'playwright'
 // Exercise the public plugin registration and real React effects/events. Only
 // the DSH host and HTTP boundary are fixtures; no component source extraction.
 // stageClient: the page loads the built stage client through the core's hold and loader, as in production.
-export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable } = {}) {
+export async function openTavernSettings(t, { settings, respond, exposeConversationModels = false, section: pageSection, provided, sessionId, beforeRender, stageClient = false, browserExecutable, renderPropsCode } = {}) {
   const executablePath = browserExecutable || process.env.PLAYWRIGHT_EXECUTABLE_PATH
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio'], ...(executablePath ? { executablePath } : {}) })
   t.after(() => browser.close())
@@ -60,7 +60,7 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
   if (exposeConversationModels) source = source.replace('function TavernConversationBackgroundModel(props) {', 'window.__modelSlotsChat = TavernConversationBackgroundModel; function TavernConversationBackgroundModel(props) {')
   await page.addScriptTag({ content: source })
   const section = provided ? '' : pageSection || (sessionId ? 'dsh-tavern: conversation settings tab' : 'dsh-tavern: settings section')
-  await page.evaluate(async ({ section, provided, sessionId, stageClient }) => {
+  await page.evaluate(async ({ section, provided, sessionId, stageClient, renderPropsCode }) => {
     let Settings
     // stageClient: the core's stage client hold and loader run, and the loader's ctx.plugin applies the stage plugin
     // with the core's tavernStageFrontend.
@@ -81,8 +81,9 @@ export async function openTavernSettings(t, { settings, respond, exposeConversat
     // A renamed or removed section would otherwise leave the test waiting forever.
     for (const deadline = Date.now() + 3000; !Settings; await new Promise(resolve => setTimeout(resolve, 10)))
       if (Date.now() > deadline) throw new Error('No settings section ' + JSON.stringify(section || provided))
-    modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null }))
-  }, { section, provided, sessionId, stageClient })
+    const renderProps = renderPropsCode ? new Function('modules', 'return ' + renderPropsCode)(modules) : {};
+    modules['react-dom/client'].createRoot(document.querySelector('main')).render(modules.react.createElement(Settings, { renderSlot: () => null, ...renderProps }))
+  }, { section, provided, sessionId, stageClient, renderPropsCode })
   t.after(() => { if (errors.length) throw Error(errors.join('\n')) })
   return { page, calls }
 }

@@ -111,3 +111,13 @@ test('正文生成方式默认原生，插件模式必须指定生成器且完�
   assert.equal(value.storyGenerationMode, 'plugin-tool-call')
   assert.equal(applyTavernSettingsPatch(value, { storyGenerationMode: 'host' }).storyGenerationProvider, 'p:body')
 })
+
+test('长按发送键重新生成默认关闭，开关往返保存且类型受校验', () => {
+  assert.equal(presentTavernSettings({}, {}).longPressSendRegenerate, false)
+  assert.equal(presentTavernSettings({ longPressSendRegenerate: 'yes' }, {}).longPressSendRegenerate, false)
+  const saved = applyTavernSettingsPatch({}, { longPressSendRegenerate: true })
+  assert.equal(saved.longPressSendRegenerate, true)
+  assert.equal(presentTavernSettings(JSON.parse(JSON.stringify(saved)), {}).longPressSendRegenerate, true)
+  assert.equal(applyTavernSettingsPatch(saved, { longPressSendRegenerate: false }).longPressSendRegenerate, false)
+  for (const longPressSendRegenerate of [null, 'true', 1]) assert.throws(() => applyTavernSettingsPatch({}, { longPressSendRegenerate }), /长按发送键/)
+})

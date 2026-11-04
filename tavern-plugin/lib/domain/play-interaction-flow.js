@@ -99,7 +99,29 @@ function createPlayInteractionFlow({ rpc, coordinationView, coordination, applyB
             }
         });
     }
+    // A body regeneration asked for without the guidance panel (the send key's long press,
+    // and the stage's regenerate): same request and projections as regenerateBody, but no
+    // panel state, so nothing opens and the composer keeps its own feedback.
+    function submitBodyRegeneration(sessionId, options, guidance) {
+        const tail = options && options.tail ? options.tail : null;
+        const text = String(guidance || "").trim();
+        if (text) guidanceBySession.set(sessionId, text); else guidanceBySession.delete(sessionId);
+        return once(pendingBodies, sessionId, async () => {
+            const candidate = candidates.getSnapshot();
+            try {
+                const result = await rpc("regenBody", { guidance: text }, sessionId);
+                applyBodyResult(sessionId, result.view, tail);
+                if (result && result.view && result.view.regenerationWarning) reportError("重新生成提示", new Error(result.view.regenerationWarning));
+                if (candidates.getSnapshot() === candidate) candidates.set(null);
+                return result;
+            } catch (error) {
+                reportError("正文重新生成", error);
+                throw error;
+            }
+        });
+    }
     return Object.freeze({ candidates, guide, regeneration, readyCandidatePanel, submitCandidateTask,
-        regenerateCandidates, cancelGuide, regenerateBody, guidance: sessionId => guidanceBySession.get(sessionId) || "" });
+        regenerateCandidates, cancelGuide, regenerateBody, submitBodyRegeneration,
+        guidance: sessionId => guidanceBySession.get(sessionId) || "" });
 }
 export { createPlayInteractionFlow };
