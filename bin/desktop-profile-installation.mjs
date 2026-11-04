@@ -62,7 +62,7 @@ function recover(journalFile, journal, rename) {
 }
 // Existing installs retain their independent original profile and refresh only its
 // bridge. Tavern-active updates need no Desktop shutdown or profile replacement.
-export function beginDesktopProfileInstallation({ home, sourceRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true }), rename = renameSync, retry = {} }) {
+export function beginDesktopProfileInstallation({ home, sourceRoot, guiRoot, checkStopped = () => assertDesktopStopped([home], { requireGuiClosed: true, guiRoot }), rename = renameSync, retry = {} }) {
   const moveDirectory = (from, to) => renameWithRetrySync(from, to, { ...retry, rename })
   const profiles = path.join(home, 'profiles'), live = path.join(profiles, 'desktop'), tavern = path.join(profiles, 'tavern')
   const interrupted = (() => { try { return JSON.parse(readFileSync(path.join(home, 'profile-bridge', 'install.json'), 'utf8')).phase === 'preparing' } catch { return false } })()
