@@ -32073,6 +32073,7 @@ function tavernFloorHeightRecall(key, width) {
 			const markers = [];
 			const messageActions = [];
 			const composerActions = [];
+			const stageDocks = new Map();
 			const panels = new Map();
 			const gameModeViews = new Map();
 			const startGroups = [];
@@ -32487,7 +32488,47 @@ function tavernFloorHeightRecall(key, width) {
 				apiVersion: 9,
 				// Independent browser feature versions, not resource authorization or host API versions.
 				getCapabilities() {
-					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+					return { openOverlay: 1, overlayLayout: 2, stageInteraction: 1, stageDock: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+				},
+				// Request a right-hand stage column. Failure is explicit so a caller can use overlay.
+				openStageDock(input) {
+					if (!input || typeof input.gameId !== "string" || !input.gameId || typeof input.render !== "function") throw new TypeError("openStageDock 需要 gameId 和 render");
+					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("openStageDock 的 onClose 必须是函数");
+					const owner = ownerOf(this), bridge = stageDocks.get(input.gameId);
+					if (!tavernPluginAllowed(owner, input.gameId)) return { ok: false, reason: "denied" };
+					if (!bridge) return { ok: false, reason: "stage-unavailable" };
+					const key = {}, previousFocus = document.activeElement;
+					let cleanup = function () {}, dispose = null, result;
+					dispose = owned(this, function () {
+						let closed = false, root = null, node = null, lease = null, stopScopes = function () {}, stopView = function () {};
+						const close = function (reason) {
+							if (closed) return; closed = true;
+							document.removeEventListener("keydown", onKey, true);
+							try { stopScopes(); stopView(); } catch (_) {}
+							try { if (root) root.unmount(); } catch (_) {}
+							try { if (node) node.remove(); } catch (_) {}
+							try { if (lease) lease.close(); } catch (_) {}
+							try { if (previousFocus && typeof previousFocus.focus === "function") previousFocus.focus(); } catch (_) {}
+							if (input.onClose) try { input.onClose({ gameId: input.gameId, reason: reason || "closed" }); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+						};
+						function onKey(event) { if (event.key === "Escape") { event.stopPropagation(); close("escape"); } }
+						lease = bridge.open(key, close);
+						if (!lease.ok) { result = lease; return function () {}; }
+						try {
+							node = document.createElement("div"); node.setAttribute("role", "region"); node.setAttribute("aria-label", input.label || "插件舞台区域"); node.setAttribute("tabindex", "-1"); node.style.cssText = "width:100%;height:100%;overflow:auto";
+							lease.node.append(node); root = require("react-dom/client").createRoot(node);
+							const h = React.createElement, handle = { ok: true, close: function () { if (typeof dispose === "function") dispose(); else cleanup(); } };
+							const fallback = h("div", { role: "alert" }, "插件 " + owner + " 的界面出错了", h("button", { type: "button", onClick: handle.close }, "关闭"));
+							function Screen() { return input.render({ gameId: input.gameId, close: handle.close }); }
+							root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
+							const check = function () { if (!tavernPluginAllowed(owner, input.gameId)) close("denied"); };
+							if (typeof tavernCardPluginScopes !== "undefined") stopScopes = tavernCardPluginScopes.subscribe(check);
+							if (typeof liveTavernView !== "undefined") stopView = liveTavernView.subscribe(input.gameId, check, [["card"]]);
+							document.addEventListener("keydown", onKey, true); node.focus?.(); cleanup = function () { close("closed"); }; result = handle;
+							return cleanup;
+						} catch (error) { close("error"); throw error; }
+					}, "tavernUi.openStageDock()");
+					return result;
 				},
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
@@ -33055,6 +33096,12 @@ function tavernFloorHeightRecall(key, width) {
 			return {
 				service: service,
 				attachHost: function (ctx) { host = ctx; },
+				bindStageDock: function (gameId, bridge) {
+					const old = stageDocks.get(gameId);
+					if (old && old !== bridge) old.shutdown();
+					stageDocks.set(gameId, bridge);
+					return function () { if (stageDocks.get(gameId) === bridge) { stageDocks.delete(gameId); bridge.shutdown(); } };
+				},
 				subscribe: function (listener) { listeners.add(listener); return function () { listeners.delete(listener); }; },
 				getSnapshot: function () { return version; },
 				mediaRenderer: function (kind) { return mediaRenderers.get(kind); },
@@ -48032,7 +48079,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        speech:{player:voicePlayer,available:()=>!!forkTtsScope?.get('ttsClient')?.available(),speechInput:segmentSpeechInput,character:bubbleCharacter,language:characterVoiceLanguage,open:(id,args)=>rpc('openAssetPackVoice',args,id)},
 		        sourceWidgets:{storage:(()=>{try{return localStorage;}catch{return null;}})(),foreground:forkForeground,rpc,signals:tavernSessionSignals,characters:{character:bubbleCharacter,mood:bubbleMood,moods:bubbleMoodList,actor:stageActorCharacter},avatarCache,phoneProtocol:{phoneModDirect,phoneModOwnership,run:phoneModRun},figureResolution,playerErrorText,fetch,createImageBitmap,
 		            sandbox:{stopSfx:()=>stageWidgetMediaOwner?.stopSfx(),scroll:(id,...args)=>stageWidgetScrollTargets.get(id)?.wheel(...args),theme:root=>stageWidgetThemeOwners.get(root)}},
-		        modSurface:{timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:(id,args)=>rpc('readStageModMedia',args,id),readItems:(id,turn)=>rpc('getStageItems',{turn},id),readViews:id=>rpc('getModStageViews',{sessionId:id},id),subscribe:(id,...callbacks)=>tavernSessionSignals.subscribe(id,'mod-view',...callbacks),useLiveView:useLiveTavernView},
+		        modSurface:{bindPluginDock:(id,bridge)=>tavernUiExtensions.bindStageDock(id,bridge),timing:{validate:validateStagePerformanceTiming,overlaps:stagePerformanceRegionsOverlap},readMedia:(id,args)=>rpc('readStageModMedia',args,id),readItems:(id,turn)=>rpc('getStageItems',{turn},id),readViews:id=>rpc('getModStageViews',{sessionId:id},id),subscribe:(id,...callbacks)=>tavernSessionSignals.subscribe(id,'mod-view',...callbacks),useLiveView:useLiveTavernView},
 		        performanceSurface:{fonts:tavernFonts,resolution:galResolution,subscribeResolution:galResolutionSubscribe,policy:{stageFlashAt,stageFlashDark,stageFlashGate,stageFlashSafe,stageSafety,stageEffectHex,stageEffectRgb}},
 		        textIndex:{pageCards:stagePageCards},
 		        playbackTiming:{delay:stageAutoDelay,remaining:stageAutoRemaining},

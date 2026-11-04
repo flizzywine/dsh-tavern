@@ -20,16 +20,17 @@ function fixture() {
   const window = events({ visualViewport: viewport, innerWidth: 390, innerHeight: 700,
     getComputedStyle: () => ({ paddingTop: '20px', paddingRight: '0px', paddingBottom: '30px', paddingLeft: '0px' }) })
   const document = events({ body: { append() {} }, createElement: () => ({ style: {}, setAttribute() {}, remove() {} }) })
-  let element, unmounted = 0, disposers = []
+  let element, unmounted = 0, disposers = [], allowed = true, scopeListener
   const context = {
     window, document, React: { createElement: (type, props, ...children) => ({ type, props, children }) },
-    tavernPluginBoundary: () => 'Boundary', tavernErrorHub: { report() {} },
+    tavernPluginBoundary: () => 'Boundary', tavernErrorHub: { report() {} }, tavernPluginAllowed: (_, gameId) => allowed && gameId !== 'denied',
+    tavernCardPluginScopes: { subscribe: fn => { scopeListener = fn; return () => { scopeListener = null } } },
     require: () => ({ createRoot: () => ({ render: value => { element = value }, unmount: () => { unmounted++ } }) })
   }
   const ui = vm.runInNewContext(factory + '; createTavernUiExtensions()', context)
   const plugin = Object.create(ui.service)
   plugin.ctx = { fiber: { name: 'fixture' }, effect(register) { const dispose = register(); disposers.push(dispose); return dispose } }
-  return { ui, plugin, viewport, window, document, element: () => element, unmounted: () => unmounted, unload: () => disposers.forEach(dispose => dispose()) }
+  return { ui, plugin, viewport, window, document, element: () => element, unmounted: () => unmounted, unload: () => disposers.forEach(dispose => dispose()), deny: () => { allowed = false; scopeListener?.() } }
 }
 
 test('browser capability map is independent and returned as a fresh snapshot', () => {
@@ -38,9 +39,53 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   const caps = ui.service.getCapabilities()
   assert.equal(caps.openOverlay, 1)
   assert.equal(caps.overlayLayout, 2)
-  assert.equal(caps.stageDock, undefined)
+  assert.equal(caps.stageDock, 1)
   caps.openOverlay = 99
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
+})
+
+test('native stage dock denies unrelated games and cleans up its shared lease', () => {
+  const f = fixture(), reasons = []
+  assert.equal(f.plugin.openStageDock({ gameId: 'denied', render() {} }).reason, 'denied')
+  assert.equal(f.plugin.openStageDock({ gameId: 'game', render() {} }).reason, 'stage-unavailable')
+  let active = null
+  const bridge = { shutdown() { if (active) active.closed('stage-unavailable') }, open(key, closed) {
+    if (active) return { ok: false, reason: 'busy' }
+    active = { key, closed }
+    return { ok: true, node: { append() {} }, close() { active = null } }
+  } }
+  const unbind = f.ui.bindStageDock('game', bridge)
+  const opened = f.plugin.openStageDock({ gameId: 'game', render: () => null, onClose: ({ reason }) => reasons.push(reason) })
+  assert.equal(opened.ok, true)
+  assert.equal(f.plugin.openStageDock({ gameId: 'game', render() {} }).reason, 'busy')
+  active.closed('too-narrow')
+  opened.close()
+  assert.deepEqual(reasons, ['too-narrow'])
+  assert.equal(f.unmounted(), 1)
+  assert.equal(f.document.count('keydown'), 0)
+  assert.equal(f.plugin.openStageDock({ gameId: 'game', render() {}, onClose: ({reason}) => reasons.push(reason) }).ok, true)
+  f.deny()
+  assert.equal(active, null)
+  assert.deepEqual(reasons, ['too-narrow','denied'])
+  f.unload()
+  unbind()
+})
+
+test('replacing a stage bridge closes the old stage lease without removing the new bridge', () => {
+  const f = fixture(), reasons = []
+  function bridge() {
+    let active
+    return { shutdown() { active?.('stage-unavailable'); active = null },
+      open(key, close) { active = close; return { ok: true, node: { append() {} }, close() { active = null } } } }
+  }
+  const first = bridge(), second = bridge(), unbindFirst = f.ui.bindStageDock('game', first)
+  f.plugin.openStageDock({ gameId: 'game', render() {}, onClose: ({reason}) => reasons.push(reason) })
+  const unbindSecond = f.ui.bindStageDock('game', second)
+  unbindFirst()
+  assert.deepEqual(reasons, ['stage-unavailable'])
+  assert.equal(f.plugin.openStageDock({ gameId: 'game', render() {} }).ok, true)
+  unbindSecond()
+  assert.equal(f.plugin.openStageDock({ gameId: 'game', render() {} }).reason, 'stage-unavailable')
 })
 
 test('a card can ignore unknown capabilities and fall back on an older host', () => {

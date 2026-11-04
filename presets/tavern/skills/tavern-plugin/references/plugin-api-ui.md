@@ -261,7 +261,7 @@ ctx.tavernUi.submitInput({ gameId, text: '我举盾格挡，然后反击。' })
 
 ## `getCapabilities()`（浏览器 API 第 9 版）
 
-返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 2`、`stageInteraction: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
+返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 2`、`stageInteraction: 1`、`stageDock: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
 
 ```js
 const caps = typeof ctx.tavernUi.getCapabilities === 'function' ? ctx.tavernUi.getCapabilities() : {}
@@ -273,6 +273,12 @@ if ((caps.overlayLayout || 0) >= 1) { /* 可使用 overlay 的 layout */ }
 在既有输入框操作栏注册一个入口，点击时打开插件的 overlay，关闭后回到原页面；它不替换原生舞台，也不是原生舞台 dock。按钮遵循 `registerComposerAction` 既有的可见性、权限和忙碌规则，`when` 接收同样的上下文。`render` 接收 overlay 的 `{ gameId, close, layout }`；`onClose` 接收 `{ gameId }`。同一注册和游戏的重复打开复用尚未关闭的 overlay；返回的注销函数和插件卸载都会关闭其界面。关闭后可以重新打开。
 
 旧宿主没有此方法时，卡可用 `registerComposerAction` 的 `run({ gameId })` 调用 `openOverlay` 实现同一交互；不能假定 `registerStageDock` 存在。
+
+## `openStageDock({ gameId, render, label?, onClose? })`（`stageDock: 1`）
+
+向当前已打开的原生舞台请求右侧独占区域。成功返回 `{ ok: true, close }`，`render` 收到 `{ gameId, close }`；宿主提供可滚动的区域，区域尺寸随舞台变化。失败返回 `{ ok: false, reason }`：`stage-unavailable`（舞台未打开或已卸载）、`denied`（卡作用域不匹配）、`too-narrow`（舞台容器宽度小于 900 CSS 像素）、`busy`（区域已由插件或模组占用）。失败时应使用 `openOverlay` 降级。能力存在不代表任何一局的舞台已就绪。
+
+Esc、调用 `close`、插件卸载、切局/舞台卸载、卡作用域不再允许或缩窄到 900 像素以下时关闭；`onClose({gameId, reason})` 最多调用一次，撤销原因分别为 `escape`、`closed`、`stage-unavailable`、`denied` 或 `too-narrow`。失败请求不调用 `onClose`。不可依赖舞台内部 DOM 或样式；这是一个右侧区域，不承诺对白、轮次或 `setInteractive` 状态。它不会打开舞台，也不是尚未发布的 `registerStageDock`/`showStage`。
 
 ## `openOverlay({ gameId?, render, dismissible?, onClose? })`（第 2 版）
 

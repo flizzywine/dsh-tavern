@@ -11989,7 +11989,7 @@ return {useLayer:usePerformanceLayer,createKeyframeLayer:createPerformanceKeyfra
 if(typeof module!=='undefined'&&typeof window==='undefined')module.exports={createStagePerformanceSurface};
 
         // Mod performance cards, docked UI layers and their subscriptions belong to one stage activation.
-function createStageModSurface({React,window,document,sessions,scene,runtime,renderers,timing,core,readMedia,readItems,readViews,subscribe,useLiveView,useFaces}) {
+function createStageModSurface({React,window,document,sessions,scene,runtime,renderers,timing,core,readMedia,readItems,readViews,subscribe,useLiveView,useFaces,bindPluginDock}) {
 const {ResizeObserver,MutationObserver,URL,Blob}=window;
 const setTimeout=(...args)=>window.setTimeout(...args),clearTimeout=id=>window.clearTimeout(id),atob=value=>window.atob(value);
 let closed=false;const owned=new Set();
@@ -12230,7 +12230,12 @@ function rawModUiLayerHost({root,renderers,geometry=()=>modStageViewport(root),d
         }
     }
     register(()=>{disposed=true;latest=null;});
-    return {sync};
+    function refresh() {
+        if(disposed || closed)return;
+        for(const key of [...mounted.keys()])remove(key);
+        if(latest)sync(...latest);
+    }
+    return {sync,refresh};
 }
 
 
@@ -12380,9 +12385,32 @@ function ModStageLayers({sessionId,sourceKey,stage:facts,config}) {
         let live=true,reading=false,dirty=false,version=0;
         const sessionRuntime=runtime;
         const root=marker.current.closest('.fork-gal-stage');
-        host.current=createModUiLayerHost({root,renderers});
+        const dock=createModStageDock(root);
+        host.current=createModUiLayerHost({root,renderers,dock});
         const layerHost=host.current;
         register(()=>layerHost.dispose());
+        // The same dock arbitrates mod and plugin requests. A plugin is evicted when
+        // the stage goes away or becomes too narrow; the shell owns its UI cleanup.
+        if(bindPluginDock) {
+            let lease=null,liveDock=true;
+            const release=reason=>{if(!lease)return;const old=lease;lease=null;dock.request(old.key,null);old.closed(reason);if(liveDock)layerHost.refresh();};
+            const bridge={shutdown(){liveDock=false;release('stage-unavailable');},open(key,closed){
+                if(!liveDock)return {ok:false,reason:'stage-unavailable'};
+                if(lease)return {ok:false,reason:'busy'};
+                if((root.parentElement?.getBoundingClientRect().width || 0)<900)return {ok:false,reason:'too-narrow'};
+                const slots=dock.request(key,{side:'right'});
+                if(!slots)return {ok:false,reason:'busy'};
+                lease={key,closed};return {ok:true,node:slots.column,close:()=>release('closed')};
+            }};
+            const unbind=bindPluginDock(sessionId,bridge);
+            let observer=null;
+            register(()=>{observer?.disconnect();bridge.shutdown();unbind?.();});
+            observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>{
+                if(!lease)return;
+                if(!dock.request(lease.key,{side:'right'}))release('too-narrow');
+            }):null;
+            if(root.parentElement)observer?.observe(root.parentElement);
+        }
         register(()=>{live=false;refresh.current=null;host.current=null;rows.current=[];held.current.clear();clearTimeout(expiry.current);expiry.current=null;});
         // Streaming lines can arrive faster than reads: show each result, then read the latest once.
         const page=()=>JSON.stringify(sessions()?.get(sessionId)?.getSnapshot()?.cursor?.anchor);
