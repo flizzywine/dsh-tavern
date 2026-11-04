@@ -24,9 +24,9 @@ const COMPARE_URL = 'https://api.github.com/repos/flizzywine/dsh-tavern/compare'
 const execFileAsync = promisify(execFile)
 const UPDATE_CHECK_POLICY = 5
 const BUSY_PHASES = new Set(['running', 'cancelling', 'blocked'])
-const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/dsh-tavern-runtime.json'
+const CDN_METADATA_URL = 'https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/dsh-tavern-runtime.json'
 // 检查更新先问 GitHub：commits API 判不了时，再读 GitHub 自己发布的运行清单，
-// 最后才用 jsDelivr（它的 @main 可能滞后十几小时）。
+// 最后才用 jsDelivr（分发分支的缓存可能滞后）。
 const GITHUB_MANIFEST_URL = 'https://raw.githubusercontent.com/flizzywine/dsh-tavern/main/dsh-tavern-runtime.json'
 const RUNTIME_FILES = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'install.ps1', 'install.sh'])
 const RUNTIME_DIRECTORIES = ['android/', 'bin/', 'config/', 'presets/', 'tavern-plugin/', 'patches/']
@@ -357,7 +357,7 @@ export function createApplicationUpdater(options) {
     const settle = promise => promise.then(value => ({ status: 'fulfilled', value }), reason => ({ status: 'rejected', reason }))
     // Start the CDN request in parallel, but only wait for it when GitHub cannot decide.
     const cdn = settle(stage('cdn.fetch', fetchCdnMetadata))
-    // GitHub 自己的清单优先于 jsDelivr：CDN 的 @main 会滞后，GitHub 的 raw 不会。
+    // GitHub 自己的清单优先于 jsDelivr：CDN 分发分支会滞后，GitHub 的 raw 不会。
     // 只有 GitHub 的 commits API 判不了时才取 GitHub 清单：正常检查不多发一次请求。
     let githubManifestPromise = null
     const githubManifest = () => (githubManifestPromise ||= settle(stage('github.manifest', fetchGithubManifest)))
@@ -369,7 +369,7 @@ export function createApplicationUpdater(options) {
       return result.status === 'fulfilled' && String(result.value?.revision || '').toLowerCase() === revision.toLowerCase()
         && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null
     }
-    // jsDelivr 的 @main 能滞后十几小时，滞后时清单提交号对不上 GitHub 的最新提交。
+    // jsDelivr 分发分支的缓存可能滞后，滞后时清单提交号对不上 GitHub 的最新提交。
     // 但清单里的发布序号仍然有效：拿它当「最新版本序号」的下界，旧安装靠序号也能
     // 判断要不要更新，不必等 CDN 与 GitHub 对齐。
     const latestSequenceOf = async revision => (await cdnSequenceFor(revision)) || (async () => {

@@ -29,6 +29,9 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   const root = await mkdtemp(path.join(os.tmpdir(), 'tavern-cdn-upgrade-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const isWindows = process.platform === 'win32'
+  // The suite may run under Electron. A fixture launcher must use plain Node:
+  // Electron identifies its real app and would select the machine's actual pnpm.
+  const fixtureNode = process.env.DSH_TEST_NODE_EXECUTABLE || process.execPath
   const app = path.join(root, 'old app')
   const mocks = path.join(root, 'mock-bin')
   await mkdir(mocks)
@@ -92,8 +95,8 @@ test('旧版 Desktop 经最新安装脚本走 CDN 覆盖升级：运行文件落
   const executable = process.platform === 'darwin' ? path.join(desktop, 'Contents/MacOS/DeepSeek Harness') : path.join(desktop, isWindows ? 'DeepSeek Harness.exe' : 'deepseek-harness')
   const resources = process.platform === 'darwin' ? path.join(desktop, 'Contents/Resources') : path.join(desktop, 'resources')
   await mkdir(path.dirname(executable), { recursive: true })
-  if (isWindows) await link(process.execPath, executable).catch(() => copyFile(process.execPath, executable))
-  else await writeFile(executable, `#!/bin/sh\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 })
+  if (isWindows) await link(fixtureNode, executable).catch(() => copyFile(fixtureNode, executable))
+  else await writeFile(executable, `#!/bin/sh\nexec "${fixtureNode}" "$@"\n`, { mode: 0o755 })
   for (const [file, body] of [
     ['app/package.json', '{"name":"@deepseek-ai/dsh-desktop"}'],
     ['app/dsh/package.json', '{}'],

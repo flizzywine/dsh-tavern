@@ -380,7 +380,7 @@ export function resolveUpdateProgram(host, platform = process.platform, sourceRo
     if (command === '') {
       const hostPrefix = host === 'desktop' ? "$env:DSH_TAVERN_HOST='desktop'; " : ''
       throw new Error(
-        `找不到 Windows PowerShell 或 PowerShell 7。请在当前 PowerShell 中运行：${hostPrefix}irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@main/install.ps1 | iex`,
+        `找不到 Windows PowerShell 或 PowerShell 7。请在当前 PowerShell 中运行：${hostPrefix}irm https://cdn.jsdelivr.net/gh/flizzywine/dsh-tavern@runtime-archive-main/install.ps1 | iex`,
       )
     }
     return { script, command, args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script] }
