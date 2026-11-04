@@ -1219,7 +1219,8 @@ const path = require('node:path');
 const OFFICIAL = '@deepseek-ai/dsh-desktop';
 const APP_NAMES = ['DeepSeek Harness'];
 // Read archive metadata under plain Node as well, so unsupported hosts fail before mutation.
-function asarRead(archive, relative, contents) {
+function withoutAsar(fn) { const prev = process.noAsar; process.noAsar = true; try { return fn(); } finally { process.noAsar = prev; } }
+function asarRead(archive, relative, contents) { return withoutAsar(() => {
   const fd = fs.openSync(archive, 'r');
   try {
     const sizes = Buffer.alloc(16);
@@ -1235,7 +1236,7 @@ function asarRead(archive, relative, contents) {
     const data = Buffer.alloc(entry.size);
     fs.readSync(fd, data, 0, entry.size, 8 + headerSize + Number(entry.offset));
     return data.toString('utf8');
-  } catch { return null; } finally { fs.closeSync(fd); }
+  } catch { return null; } finally { fs.closeSync(fd); } });
 }
 // Split a path at the archive that contains it; null when it is not inside one. A directory named
 // *.asar is not told apart here: exists() finds its files directly, and asarRead fails on it.
@@ -1246,13 +1247,17 @@ function inAsar(file) {
 }
 // A file the runner can load: on disk, or inside app.asar (readable under Electron only).
 function exists(file) {
-  if (fs.existsSync(file)) return true;
+
   const packed = inAsar(file);
-  return packed !== null && fs.existsSync(packed.archive) && asarRead(packed.archive, packed.relative, false) !== null;
+  if (packed !== null) return withoutAsar(() => fs.existsSync(packed.archive)) && asarRead(packed.archive, packed.relative, false) !== null;
+  return withoutAsar(() => fs.existsSync(file));
+
+
 }
 function packageName(app) {
-  try { return JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8')).name || ''; } catch {}
-  try { return app.endsWith('.asar') ? String(JSON.parse(asarRead(app, 'package.json', true) || '{}').name || '') : ''; } catch { return ''; }
+  try { if (app.endsWith('.asar')) return String(JSON.parse(asarRead(app, 'package.json', true) || '{}').name || ''); } catch { return ''; }
+  try { return withoutAsar(() => JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8')).name || ''); } catch { return ''; }
+
 }
 function layout(executable, platform = process.platform) {
   const resources = platform === 'darwin' ? path.resolve(path.dirname(executable), '../Resources') : path.join(path.dirname(executable), 'resources');
@@ -1293,7 +1298,7 @@ function prepare({ executable, home, env = process.env, platform = process.platf
 function discover(env = process.env, platform = process.platform) {
   // A standalone node executable is not a desktop host.
   const node = env.DSH_DESKTOP_NODE_EXECUTABLE && !/^node(\.exe)?$/i.test(path.basename(env.DSH_DESKTOP_NODE_EXECUTABLE)) ? env.DSH_DESKTOP_NODE_EXECUTABLE : undefined;
-  const candidates = [env.DSH_DESKTOP_APP_EXECUTABLE, node, process.versions.electron ? process.execPath : undefined];
+  const candidates = [env.DSH_DESKTOP_APP_EXECUTABLE, node, env === process.env && process.versions.electron ? process.execPath : undefined];
   for (const app of APP_NAMES) {
     if (platform === 'darwin') candidates.push(`/Applications/${app}.app/Contents/MacOS/${app}`, path.join(require('node:os').homedir(), `Applications/${app}.app/Contents/MacOS/${app}`));
     if (platform === 'win32') for (const root of [env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs'), env.ProgramFiles]) if (root) candidates.push(path.join(root, app, app + '.exe'));
