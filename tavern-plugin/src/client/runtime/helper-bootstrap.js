@@ -473,6 +473,7 @@
 			};
 			window.replaceVariables = function (variables, option) {
                 const resolved = optionOf(option), plain = copy(variables || {}), before = getVariables(resolved);
+                const beforePlayerName = state.playerName;
                 const revision = [state.chatId, state.lifecycleRevision, state.stateRevision];
                 localReplace(plain, resolved);
                 return call("updateTavernHelperVariables", { option: resolved, variables: plain }).then(function (result) {
@@ -482,7 +483,10 @@
                     // Preserve a newer context or overlapping edit; roll back only
                     // our own unacknowledged optimistic value on the same revision.
                     if (JSON.stringify(revision) === JSON.stringify([state.chatId, state.lifecycleRevision, state.stateRevision])
-                        && JSON.stringify(getVariables(resolved)) === JSON.stringify(plain)) localReplace(before, resolved);
+                        && JSON.stringify(getVariables(resolved)) === JSON.stringify(plain)) {
+                        localReplace(before, resolved);
+                        if (resolved.type === "chat") state.playerName = beforePlayerName;
+                    }
                     console.error(error);
                     throw error;
                 });
@@ -518,8 +522,7 @@
 				if (next && typeof next.then === "function") next = await next;
 				if (next === undefined) next = current;
 				next = copy(next);
-				localReplace(next, resolved);
-				await call("updateTavernHelperVariables", { option: resolved, variables: next });
+				await window.replaceVariables(next, resolved);
 				return copy(next);
 			};
 			window.deleteVariable = async function (path, option) {

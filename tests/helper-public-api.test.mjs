@@ -118,3 +118,22 @@ for (const kind of ['script', 'message']) test(kind + ' getChatMessages and subs
   else run.receive({type: 'dsh-tavern-helper-response', requestId: call.requestId, ok: true, result: {updated: true}})
   await pending
 })
+
+for (const kind of ['script', 'message']) for (const method of ['replaceVariables', 'updateVariablesWith']) {
+  test(`${kind} ${method} restores player identity when saving fails`, async () => {
+    const state = { playerName: '原名', chatVariables: {}, turnMessageIds: {1: 0},
+      messages: [{message_id: 0, role: 'assistant', message: '<user>', swipes: ['<user>'], swipe_id: 0, variables: {}}] }
+    const run = kind === 'script' ? helperHostHarness(state) : messageFrame(state)
+    const api = run.window.TavernHelper
+    const next = {playerName: '未保存的新名'}
+    const pending = api[method](method === 'updateVariablesWith' ? () => next : next, {type: 'chat'})
+    assert.equal(api.substitudeMacros('{{user}}'), '未保存的新名', 'the synchronous optimistic render is retained')
+    const call = run.sent.find(row => row.type === 'dsh-tavern-helper-call' && row.method === 'updateTavernHelperVariables')
+    if (run.reply) run.reply(call, 'save failed', false)
+    else run.receive({type: 'dsh-tavern-helper-response', requestId: call.requestId, ok: false, error: 'save failed'})
+    await assert.rejects(pending, /save failed/)
+    assert.deepEqual(plain(api.getVariables({type: 'chat'})), {})
+    assert.equal(api.substitudeMacros('<user> / {{user}}'), '原名 / 原名')
+    assert.equal(api.getChatMessages(0)[0].message, '原名')
+  })
+}
