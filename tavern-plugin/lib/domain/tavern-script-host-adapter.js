@@ -117,7 +117,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     if (!baseline || !options.patchChat || !options.resolveChatSlice || !options.readChatRevision || settlement.has(str(sessionId))
       || !['message','chat','script'].includes(option?.type)) return null
     const fields = ['id','sessionId','_storageRevision','tavernHelperLifecycleRevision','mode','cardPath','mvu',
-      ...(option.type === 'chat' ? ['variables'] : option.type === 'script' ? ['tavernHelperScriptVariables'] : [])]
+      ...(option.type === 'chat' ? ['variables', 'macroState'] : option.type === 'script' ? ['tavernHelperScriptVariables'] : [])]
     let selected = await options.resolveChatSlice(str(sessionId), [], fields)
     const matches = value => value?.denseMessages && value.chat.id === baseline.chatId
       && value.chat._storageRevision === baseline.stateRevision
@@ -172,6 +172,7 @@ export function createTavernScriptHostAdapter(options = {}) {
     // Message variable arrays are mutated in place by the compatibility API.
     const before = canPatch ? {
       variables: chat.variables,
+      macroState: chat.macroState,
       scripts: chat.tavernHelperScriptVariables && { ...chat.tavernHelperScriptVariables },
       messages: scoped ? (scoped.messageId === undefined ? {} : { [scoped.messageId]: Array.isArray(chat.messages[scoped.messageId].variables) ? chat.messages[scoped.messageId].variables.slice() : chat.messages[scoped.messageId].variables }) : option?.type === 'message' ? (chat.messages || []).map(message =>
         Array.isArray(message?.variables) ? message.variables.slice() : message?.variables) : []
@@ -198,6 +199,9 @@ export function createTavernScriptHostAdapter(options = {}) {
         // Match the existing JSON store's normalization (including sparse swipes).
         const normalized = JSON.parse(JSON.stringify(current))
         const changes = diffJson(previous, normalized).map(change => ({ ...change, path: [...path, ...change.path] }))
+        if (updated.type === 'chat' && chat.macroState !== before.macroState) {
+          changes.push(...diffJson(before.macroState, chat.macroState).map(change => ({ ...change, path: ['macroState', ...change.path] })))
+        }
         saved = await options.patchChat(chat.id, chat._storageRevision, changes, {
           source: 'tavern-helper.variables',
           assertCurrent: () => settlement.assertEvent(sessionId, eventId)

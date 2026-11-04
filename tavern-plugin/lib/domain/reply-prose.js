@@ -71,7 +71,7 @@ export function replyProseProblems(message, options = {}) {
   if (Object.hasOwn(message, 'sessionText') && message.sessionText !== message.text) problems.push('sessionText 与 text 不一致')
   if (!Object.hasOwn(message, 'sourceText')) return problems
   const source = str(message.sourceText), projection = str(message.projectionText ?? source)
-  if (!source.includes('{{') && projection !== source) problems.push('原文没有宏，projectionText 却不同于 sourceText')
+  if (!source.includes('{{') && !/<(?:user|char)>/i.test(source) && projection !== source) problems.push('原文没有宏，projectionText 却不同于 sourceText')
   if (Array.isArray(message.swipes)) {
     const swipe = message.swipes[Math.max(0, Number(message.swipeId) || 0)]
     if (swipe !== undefined && swipe !== source && swipe !== projection) problems.push('当前 swipe 既不是 sourceText 也不是 projectionText')

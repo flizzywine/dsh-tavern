@@ -12,6 +12,10 @@ function createTavernHelperMessageReader(options) {
         const normalize = value => Math.max(0, Math.min(count - 1, value < 0 ? count + value : value));
         const start = normalize(Number(match[1])), end = normalize(Number(match[2] ?? match[1]));
         const selected = [], filter = settings || {};
+        const customPlayerName = typeof state.chatVariables?.playerName === 'string' ? state.chatVariables.playerName.trim() : '';
+        const userName = customPlayerName || state.playerName || '你';
+        const charName = state.characterName || state.character?.name || '';
+        const resolveIdentity = text => String(text ?? '').replace(/<(user|char)>/gi, (token, kind) => kind.toLowerCase() === 'user' ? userName : (charName || token));
         for (let id = Math.min(start, end); id <= Math.max(start, end); id++) {
             const source = options.readMessage(id);
             if (!source) continue;
@@ -20,13 +24,13 @@ function createTavernHelperMessageReader(options) {
             if (filter.hide_state === 'hidden' && !hidden || filter.hide_state === 'unhidden' && hidden) continue;
             const row = options.copy(source);
             const swipe = Number(row.swipe_id) || 0;
-            row.name = row.name || (row.role === 'user' ? state.playerName || '你' : state.characterName || '角色');
+            row.name = row.name || (row.role === 'user' ? userName : charName || '角色');
             row.is_hidden = hidden;
             row.swipe_id = swipe;
-            row.swipes = Array.isArray(row.swipes) && row.swipes.length ? row.swipes : [String(row.message || '')];
+            row.swipes = (Array.isArray(row.swipes) && row.swipes.length ? row.swipes : [String(row.message || '')]).map(resolveIdentity);
             row.swipes_data = row.swipes.map((_, index) => options.copy(row.swipes_data?.[index] ?? (index === swipe ? row.variables : undefined) ?? {}));
             row.swipes_info = row.swipes.map((_, index) => options.copy(row.swipes_info?.[index] ?? row.pluginData?.swipe_info?.[index] ?? (index === swipe ? row.extra ?? row.pluginData?.extra : undefined) ?? {}));
-            row.message = String(row.message ?? row.swipes[swipe] ?? '');
+            row.message = resolveIdentity(row.message ?? row.swipes[swipe] ?? '');
             row.data = options.copy(row.swipes_data[swipe] || row.variables || {});
             row.extra = options.copy(row.swipes_info[swipe] || {});
             // Retain the existing DSH fields as aliases. Both upstream overloads

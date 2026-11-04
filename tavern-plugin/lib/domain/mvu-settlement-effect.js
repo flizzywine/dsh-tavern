@@ -7,6 +7,11 @@ function str(value) {
 
 const ALLOWED_ROOTS = new Set(['messages', 'variables', 'mvu', 'tavernScriptPrompts', 'openingWorldbookSnapshot'])
 
+function identityChange(change) {
+  return change.path?.length === 2 && change.path[0] === 'macroState' && change.path[1] === 'userName'
+    && change.op === 'set' && typeof change.value === 'string' && change.value.trim() !== '' && change.value.length <= 80
+}
+
 function assertIdentity(chat, effect) {
   if (!effect || effect.version !== 1 || str(effect.operationId) === '') throw new Error('MVU Settlement Effect 不合法')
   if (str(chat && chat.id) !== str(effect.chatId) || str(chat && chat.sessionId) !== str(effect.sessionId)) throw new Error('MVU Settlement Effect 对话目标已变化')
@@ -51,6 +56,10 @@ export function createMvuSettlementEffect(input = {}) {
   const changes = rawChanges.filter(function (change) {
     return Array.isArray(change.path) && ALLOWED_ROOTS.has(String(change.path[0] || ''))
   })
+  // Chat-variable playerName writes also update prompt identity. Carry only
+  // that leaf, never unrelated macro counters or a replacement macroState root.
+  const identity = { op: 'set', path: ['macroState', 'userName'], value: input.after?.macroState?.userName }
+  if (identity.value !== input.before?.macroState?.userName && identityChange(identity)) changes.push(identity)
   return {
     version: 1,
     operationId: str(input.operationId),
@@ -77,7 +86,11 @@ export function applyMvuSettlementEffect(chat, effect, scope) {
       throw error
     }
   }
-  const changes = effect.changes.filter(change => ALLOWED_ROOTS.has(String(change.path?.[0])))
+  const changes = effect.changes.filter(change => ALLOWED_ROOTS.has(String(change.path?.[0])) || identityChange(change))
+  // Legacy chats may lack this parent. Prepare it on a detached base so a
+  // later failed mutation cannot leak a partial identity update.
+  const base = changes.some(identityChange) && (!chat.macroState || typeof chat.macroState !== 'object')
+    ? { ...chat, macroState: { local: {}, global: {} } } : chat
   if (Array.isArray(scope?.messageIndices)) {
     const allowed = new Set(scope.messageIndices)
     const byFloor = new Map(), head = []
@@ -90,7 +103,7 @@ export function applyMvuSettlementEffect(chat, effect, scope) {
     }
     // Prepare all changed rows before publishing any, preserving failure isolation.
     const rows = [...byFloor].map(([id, edits]) => [id, applyJsonChangesShared(chat.messages[id], edits)])
-    const applied = applyJsonChangesShared({...chat, messages: undefined}, head)
+    const applied = applyJsonChangesShared({...base, messages: undefined}, head)
     for (const root of new Set(head.map(change => change.path[0]))) {
       if (Object.hasOwn(applied, root)) chat[root] = applied[root]
       else delete chat[root]
@@ -98,7 +111,7 @@ export function applyMvuSettlementEffect(chat, effect, scope) {
     for (const [id, row] of rows) chat.messages[id] = row
     return chat
   }
-  const applied = applyJsonChangesShared(chat, changes)
+  const applied = applyJsonChangesShared(base, changes)
   for (const root of new Set(changes.map(change => change.path[0]))) {
     if (Object.hasOwn(applied, root)) chat[root] = applied[root]
     else delete chat[root]

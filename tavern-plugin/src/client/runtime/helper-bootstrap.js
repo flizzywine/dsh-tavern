@@ -371,7 +371,10 @@
 				const resolved = optionOf(option);
 				if (resolved.type === "global") state.globalVariables = copy(variables);
 				else if (resolved.type === "character") state.characterVariables = copy(variables);
-				else if (resolved.type === "chat") state.chatVariables = copy(variables);
+				else if (resolved.type === "chat") {
+					state.chatVariables = copy(variables);
+					if (variables && typeof variables.playerName === "string" && variables.playerName.trim()) state.playerName = variables.playerName.trim();
+				}
 				else if (resolved.type === "script") {
 					if (!state.scriptVariables || typeof state.scriptVariables !== "object") state.scriptVariables = {};
 					state.scriptVariables[resolved.script_id] = copy(variables);
@@ -470,6 +473,7 @@
 			};
 			window.replaceVariables = function (variables, option) {
                 const resolved = optionOf(option), plain = copy(variables || {}), before = getVariables(resolved);
+                const beforePlayerName = state.playerName;
                 const revision = [state.chatId, state.lifecycleRevision, state.stateRevision];
                 localReplace(plain, resolved);
                 return call("updateTavernHelperVariables", { option: resolved, variables: plain }).then(function (result) {
@@ -479,7 +483,10 @@
                     // Preserve a newer context or overlapping edit; roll back only
                     // our own unacknowledged optimistic value on the same revision.
                     if (JSON.stringify(revision) === JSON.stringify([state.chatId, state.lifecycleRevision, state.stateRevision])
-                        && JSON.stringify(getVariables(resolved)) === JSON.stringify(plain)) localReplace(before, resolved);
+                        && JSON.stringify(getVariables(resolved)) === JSON.stringify(plain)) {
+                        localReplace(before, resolved);
+                        if (resolved.type === "chat") state.playerName = beforePlayerName;
+                    }
                     console.error(error);
                     throw error;
                 });
@@ -511,11 +518,11 @@
 			window.updateVariablesWith = async function (updater, option) {
 				const resolved = optionOf(option);
 				const current = getVariables(resolved);
-				let next = typeof updater === "function" ? await updater(copy(current)) : current;
+				let next = typeof updater === "function" ? updater(copy(current)) : current;
+				if (next && typeof next.then === "function") next = await next;
 				if (next === undefined) next = current;
 				next = copy(next);
-				localReplace(next, resolved);
-				await call("updateTavernHelperVariables", { option: resolved, variables: next });
+				await window.replaceVariables(next, resolved);
 				return copy(next);
 			};
 			window.deleteVariable = async function (path, option) {

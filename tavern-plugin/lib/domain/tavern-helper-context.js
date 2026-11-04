@@ -269,6 +269,11 @@ export function replaceTavernHelperVariables(chat, request = {}) {
       else Object.defineProperty(next, mutation.key, { value: clone(mutation.value), enumerable: true, writable: true, configurable: true })
       chat.variables = next
     } else chat.variables = value
+    const customPlayerName = typeof chat.variables?.playerName === 'string' ? chat.variables.playerName.trim().slice(0, 80) : ''
+    if (customPlayerName) {
+      if (!chat.macroState || typeof chat.macroState !== 'object') chat.macroState = { userName: customPlayerName, local: {}, global: {} }
+      else if (chat.macroState.userName !== customPlayerName) chat.macroState = { ...chat.macroState, userName: customPlayerName }
+    }
     return { type: 'chat' }
   }
   if (option.type === 'script') {

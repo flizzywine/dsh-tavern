@@ -98,3 +98,42 @@ for (const kind of ['script', 'message']) test(kind + ' installed display/regex/
   await w.eventEmitAndWait('local-ready', 1, 'two')
   assert.deepEqual(plain(await next), [1, 'two'])
 })
+
+for (const kind of ['script', 'message']) test(kind + ' getChatMessages and substitudeMacros resolve legacy <user>/<char> and sync chatVariables.playerName immediately', async () => {
+  const state = {
+    messages: [{message_id: 0, role: 'assistant', message: '晚上七点，<user>与妹妹回到了<char>里。', swipes: ['晚上七点，<user>与妹妹回到了<char>里。'], swipe_id: 0, variables: {}}],
+    turnMessageIds: {1: 0},
+    characterName: '别墅',
+    playerName: '你',
+    chatVariables: {}
+  }
+  const run = kind === 'script' ? helperHostHarness(state) : messageFrame(state), api = run.window.TavernHelper
+  assert.equal(api.getChatMessages(0)[0].message, '晚上七点，你与妹妹回到了别墅里。')
+  assert.equal(api.substitudeMacros('<user> / <char>'), '你 / 别墅')
+  const pending = api.updateVariablesWith(current => ({...current, playerName: '沈砚'}), {type: 'chat'})
+  assert.equal(api.getChatMessages(0)[0].message, '晚上七点，沈砚与妹妹回到了别墅里。')
+  assert.equal(api.substitudeMacros('<user> / {{user}}'), '沈砚 / 沈砚')
+  const call = run.sent.find(row => row.type === 'dsh-tavern-helper-call' && row.method === 'updateTavernHelperVariables')
+  if (run.reply) run.reply(call, {updated: true})
+  else run.receive({type: 'dsh-tavern-helper-response', requestId: call.requestId, ok: true, result: {updated: true}})
+  await pending
+})
+
+for (const kind of ['script', 'message']) for (const method of ['replaceVariables', 'updateVariablesWith']) {
+  test(`${kind} ${method} restores player identity when saving fails`, async () => {
+    const state = { playerName: '原名', chatVariables: {}, turnMessageIds: {1: 0},
+      messages: [{message_id: 0, role: 'assistant', message: '<user>', swipes: ['<user>'], swipe_id: 0, variables: {}}] }
+    const run = kind === 'script' ? helperHostHarness(state) : messageFrame(state)
+    const api = run.window.TavernHelper
+    const next = {playerName: '未保存的新名'}
+    const pending = api[method](method === 'updateVariablesWith' ? () => next : next, {type: 'chat'})
+    assert.equal(api.substitudeMacros('{{user}}'), '未保存的新名', 'the synchronous optimistic render is retained')
+    const call = run.sent.find(row => row.type === 'dsh-tavern-helper-call' && row.method === 'updateTavernHelperVariables')
+    if (run.reply) run.reply(call, 'save failed', false)
+    else run.receive({type: 'dsh-tavern-helper-response', requestId: call.requestId, ok: false, error: 'save failed'})
+    await assert.rejects(pending, /save failed/)
+    assert.deepEqual(plain(api.getVariables({type: 'chat'})), {})
+    assert.equal(api.substitudeMacros('<user> / {{user}}'), '原名 / 原名')
+    assert.equal(api.getChatMessages(0)[0].message, '原名')
+  })
+}
