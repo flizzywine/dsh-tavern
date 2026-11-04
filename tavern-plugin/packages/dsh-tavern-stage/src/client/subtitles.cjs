@@ -232,6 +232,17 @@ function galInputLabelRoom(text, page) {
     box.style.setProperty("--fk-input-room", room + "px");
     return room;
 }
+// The lines a card may hold in the stage's text element as laid out now (its computed style: the font and line height
+// the viewport's floor and CONFIG 文字大小 give it): a skin's art textbox holds up to GAL_PAGE_LINES lines per page, as
+// many whole lines as its text area fits (stageTextLines, galBoxRoom); a box whose height follows its lines (fitMax)
+// holds up to its max lines - a fixed room, never its current height (that would chase the cards).
+function galPageLines(element, style, film) {
+    const lineHeight = parseFloat(style.lineHeight), percent = Math.round((parseFloat(style.getPropertyValue("--fk-text-scale")) || 1) * 100);
+    const box = style.getPropertyValue("--gal-skin-lines-fit").trim() === "box" ? element.closest(".fork-gal-box") : null;
+    const fitMax = !film && box ? parseInt(style.getPropertyValue("--art-fit-max"), 10) || 0 : 0, fitMin = parseInt(style.getPropertyValue("--art-fit-min"), 10) || 1;
+    const boxStyle = box && getComputedStyle(box), room = box ? fitMax || galBoxRoom(box.clientHeight - parseFloat(boxStyle.paddingTop) - parseFloat(boxStyle.paddingBottom), lineHeight, parseFloat(style.fontSize)) : undefined;
+    return {lineHeight, lines: film ? 2 : stageTextLines(parseInt(style.getPropertyValue("--gal-skin-lines"), 10) || 3, percent, room), fitMax, fitMin};
+}
 function useGalSubtitles(film, pages, page, identity, theme, textScales, active = true, limit = 0) {
     const [element, setElement] = React.useState(null);
     const textRef = React.useCallback(node => setElement(node), []);
@@ -295,14 +306,7 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                 const skinLayout = element.closest('.fork-gal-stage')?.dataset.fkSkinLayout;
                 const quoted = !film && (theme || 'classic') === 'classic' && (!skinLayout || skinLayout === 'box');
                 const font = [style.fontFamily, style.fontWeight, style.fontStyle, style.fontStretch, style.letterSpacing, style.lineHeight, style.wordBreak, style.overflowWrap, style.whiteSpace, style.padding, style.boxSizing, quoted].join("|");
-                // a skin's art textbox holds up to GAL_PAGE_LINES lines per page, as many
-                // whole lines of the CONFIG 文字大小 text as its text area fits (stageTextLines, galBoxRoom).
-                const percent = Math.round((parseFloat(style.getPropertyValue("--fk-text-scale")) || 1) * 100), box = style.getPropertyValue("--gal-skin-lines-fit").trim() === "box" ? element.closest(".fork-gal-box") : null;
-                // a box whose height follows
-                // its lines holds up to its max lines - a fixed room, never its current height (that would chase the cards).
-                const fitMax = !film && box ? parseInt(style.getPropertyValue("--art-fit-max"), 10) || 0 : 0, fitMin = parseInt(style.getPropertyValue("--art-fit-min"), 10) || 1;
-                const boxStyle = box && getComputedStyle(box), room = box ? fitMax || galBoxRoom(box.clientHeight - parseFloat(boxStyle.paddingTop) - parseFloat(boxStyle.paddingBottom), lineHeight, parseFloat(style.fontSize)) : undefined;
-                const lines = film ? 2 : stageTextLines(parseInt(style.getPropertyValue("--gal-skin-lines"), 10) || 3, percent, room), near = index => Math.abs(index - pageRef.current) <= 1;
+                const {lines, fitMax, fitMin} = galPageLines(element, style, film), near = index => Math.abs(index - pageRef.current) <= 1;
                 const labelRoom = !film && pages.some(item => item.kind === "transition") ? galInputLabelRoom(element, lineHeight * lines) : 0;
                 const fits = item => text => {
                     // The real inline typewriter/cursor also occupies the line after a trailing newline.
@@ -316,7 +320,7 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                 };
                 // In the same box a page keeps its cards; one whose text changed since (streaming) keeps them as galSubtitleCards' hold.
                 const at = JSON.stringify([width, font, lines, labelRoom, style.fontSize, theme || 'classic']), prev = layoutRef.current && layoutRef.current.at === at ? layoutRef.current : null;
-                const next = { pageTexts: pages.map(item => item.text), pageShown: pages.map(galShownEnd), at, theme, film, cards: pages.map((item, index) => {
+                const next = { pageTexts: pages.map(item => item.text), pageShown: pages.map(galShownEnd), at, theme, film, block: Math.round(lines * lineHeight * 100) / 100, cards: pages.map((item, index) => {
                     if (!near(index)) return null;
                     const before = prev && prev.pageTexts[index], old = prev && prev.cards[index];
                     if (old && before === item.text) return old;
@@ -368,9 +372,10 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
     if (!current || !current.fit) shownFit.current = null;
     else if (current.fit.page === page && current.fit.cards[card]) shownFit.current = current.fit.cards[card];
     const fit = shownFit.current;
-    return { textRef, cards, card, text: cards[card].text, counts: all.map(items => items.length), select, provisional, fit };
+    // block: a full card's lines in px (the room a card still streaming can keep, e.g. to centre its lines in a fixed box)
+    return { textRef, cards, card, text: cards[card].text, counts: all.map(items => items.length), select, provisional, fit, block: current ? current.block : 0 };
 }
 
-return {useSubtitles:useGalSubtitles, step:galSubtitleStep, voiceTime:galSubtitleVoiceTime, inputCards:GAL_INPUT_CARDS, cards:galSubtitleCards, heldCards:galHeldCards};
+return {useSubtitles:useGalSubtitles, pageLines:galPageLines, step:galSubtitleStep, voiceTime:galSubtitleVoiceTime, inputCards:GAL_INPUT_CARDS, cards:galSubtitleCards, heldCards:galHeldCards};
 }
 if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSubtitles};

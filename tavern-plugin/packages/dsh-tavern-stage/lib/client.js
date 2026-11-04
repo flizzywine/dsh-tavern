@@ -398,16 +398,64 @@ function GalTypewriter(props) {
     const done = instant ? visible : stepped ? (landed < 0 ? visible : landed) : Math.min(visible, Math.max(0, settled, visible - tail));
     const h = React.createElement;
     const fx = stepped ? props.skin.textFx : null;
-    return h("span", { className: "fork-gal-type" + (instant ? " is-instant" : ""), 'data-skin-reveal':stepped ? reveal.kind : undefined,
+    // The page's line starts as laid out whole (one run, as the typed page shows it). A revealing page is several runs
+    // (shown, fading glyphs, hidden rest) and text-wrap pretty (themes.css data-fk-skin-wrap="phrase") weighs line ends
+    // by the runs' rounded widths, so the page re-broke its lines as the run boundary moved (a glyph jumped a line while
+    // typing, most often on a phone). While revealing, each laid-out line is one unbreakable run with a break
+    // opportunity between lines, so the page keeps exactly the typed page's breaks.
+    const typeRef = React.useRef(null);
+    const [laid, setLaid] = React.useState(null);
+    const whole = glyphs.join("");
+    React.useLayoutEffect(() => {
+        const type = typeRef.current, host = type && type.parentElement;
+        if (instant || !fontsReady || !host || !host.parentNode || typeof ResizeObserver !== "function") return;
+        const measure = () => { const starts = galTypeLineStarts(type, whole); setLaid(old => old && old.text === whole && old.starts.join() === starts.join() ? old : { text: whole, starts }); };
+        measure();
+        const observer = new ResizeObserver(measure); observer.observe(host);
+        document.fonts?.addEventListener('loadingdone', measure);
+        return () => { observer.disconnect(); document.fonts?.removeEventListener('loadingdone', measure); };
+    }, [whole, instant, fontsReady]);
+    const glyphNode = (glyph, at) => {
+        const jitter = reveal?.jitter ? stageSkinGlyphJitter(at, reveal.jitter) : null;
+        return h("span", { key: at, className: "fork-gal-glyph" }, glyph,
+            stepped ? h('span',{className:'fork-skin-glyph-paint','data-glyph':glyph,'data-hop':Math.min(reveal.poses,Math.floor((skinStep-(hop.current.born[at] ?? skinStep))/reveal.hold)),'aria-hidden':true,
+                style:jitter ? {'--gj-x':jitter[0] + 'em','--gj-y':jitter[1] + 'em'} : undefined}) : null);
+    };
+    // the shown run, the fading glyphs and the hidden rest within [from, to)
+    const runs = (from, to) => {
+        const a = Math.max(from, 0), b = Math.min(to, done), out = [];
+        if (b > a) out.push(h("span", { key: "shown", className: "fork-gal-type-shown" }, glyphs.slice(a, b).join("")));
+        for (let at = Math.max(from, done); at < Math.min(to, visible); at++) out.push(glyphNode(glyphs[at], at));
+        const r = Math.max(from, visible);
+        if (to > r) out.push(h("span", { key: "rest", className: "fork-gal-type-rest" }, glyphs.slice(r, to).join("")));
+        return out;
+    };
+    const lines = !instant && done < glyphs.length && laid && laid.text === whole && laid.starts.length ? [0, ...laid.starts, glyphs.length] : null;
+    return h("span", { ref: typeRef, className: "fork-gal-type" + (instant ? " is-instant" : ""), 'data-skin-reveal':stepped ? reveal.kind : undefined,
             'data-skin-poses':fx?.poses ? fx.poses.length : undefined, 'data-skin-emphasis':fx?.emphasis || undefined },
-        done > 0 ? h("span", { key: "shown", className: "fork-gal-type-shown" }, glyphs.slice(0, done).join("")) : null,
-        glyphs.slice(done, visible).map((glyph, index) => {
-            const at = done + index, jitter = reveal?.jitter ? stageSkinGlyphJitter(at, reveal.jitter) : null;
-            return h("span", { key: at, className: "fork-gal-glyph" }, glyph,
-                stepped ? h('span',{className:'fork-skin-glyph-paint','data-glyph':glyph,'data-hop':Math.min(reveal.poses,Math.floor((skinStep-(hop.current.born[at] ?? skinStep))/reveal.hold)),'aria-hidden':true,
-                    style:jitter ? {'--gj-x':jitter[0] + 'em','--gj-y':jitter[1] + 'em'} : undefined}) : null);
-        }),
-        visible < glyphs.length ? h("span", { key: "rest", className: "fork-gal-type-rest" }, glyphs.slice(visible).join("")) : null);
+        lines ? lines.slice(1).flatMap((end, i) => [i ? h("wbr", { key: "b" + i }) : null, h("span", { key: "l" + i, className: "fork-gal-type-line", style: { whiteSpace: "nowrap" } }, runs(lines[i], end))])
+            : runs(0, glyphs.length));
+}
+// The glyph indexes that start a new line when the page's text is laid out as one run in its text element (a hidden
+// copy of the element, its width and styles, the cue and indicator included, as the pager's measuring clone).
+function galTypeLineStarts(type, text) {
+    const host = type.parentElement, probe = host.cloneNode(true), copy = probe.querySelector(".fork-gal-type");
+    copy.textContent = text;
+    probe.removeAttribute("id"); probe.removeAttribute("aria-live"); probe.setAttribute("aria-hidden", "true");
+    Object.assign(probe.style, { position: "fixed", left: "-100000px", top: "0", width: host.clientWidth + "px", height: "auto", maxHeight: "none", minHeight: "0", boxSizing: "border-box", visibility: "hidden", overflow: "visible", pointerEvents: "none" });
+    host.parentNode.appendChild(probe);
+    const node = copy.firstChild, range = document.createRange(), starts = [], style = getComputedStyle(copy);
+    const half = (parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2) / 2;
+    let offset = 0, top = null;
+    if (node) stageGlyphs(text).forEach((glyph, i) => {
+        range.setStart(node, offset); range.setEnd(node, offset += glyph.length);
+        const rect = range.getClientRects()[0];
+        if (!rect) return;
+        if (top !== null && rect.top > top + half) starts.push(i);
+        if (top === null || rect.top > top + half) top = rect.top;
+    });
+    probe.remove();
+    return starts;
 }
 // The presentation clock (forkForeground: stops while the window is in the background) at the current frame's start.
 // Inside a frame callback document.timeline.currentTime is the frame time shared by every callback of that frame, so
@@ -1304,6 +1352,17 @@ function galInputLabelRoom(text, page) {
     box.style.setProperty("--fk-input-room", room + "px");
     return room;
 }
+// The lines a card may hold in the stage's text element as laid out now (its computed style: the font and line height
+// the viewport's floor and CONFIG 文字大小 give it): a skin's art textbox holds up to GAL_PAGE_LINES lines per page, as
+// many whole lines as its text area fits (stageTextLines, galBoxRoom); a box whose height follows its lines (fitMax)
+// holds up to its max lines - a fixed room, never its current height (that would chase the cards).
+function galPageLines(element, style, film) {
+    const lineHeight = parseFloat(style.lineHeight), percent = Math.round((parseFloat(style.getPropertyValue("--fk-text-scale")) || 1) * 100);
+    const box = style.getPropertyValue("--gal-skin-lines-fit").trim() === "box" ? element.closest(".fork-gal-box") : null;
+    const fitMax = !film && box ? parseInt(style.getPropertyValue("--art-fit-max"), 10) || 0 : 0, fitMin = parseInt(style.getPropertyValue("--art-fit-min"), 10) || 1;
+    const boxStyle = box && getComputedStyle(box), room = box ? fitMax || galBoxRoom(box.clientHeight - parseFloat(boxStyle.paddingTop) - parseFloat(boxStyle.paddingBottom), lineHeight, parseFloat(style.fontSize)) : undefined;
+    return {lineHeight, lines: film ? 2 : stageTextLines(parseInt(style.getPropertyValue("--gal-skin-lines"), 10) || 3, percent, room), fitMax, fitMin};
+}
 function useGalSubtitles(film, pages, page, identity, theme, textScales, active = true, limit = 0) {
     const [element, setElement] = React.useState(null);
     const textRef = React.useCallback(node => setElement(node), []);
@@ -1367,14 +1426,7 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                 const skinLayout = element.closest('.fork-gal-stage')?.dataset.fkSkinLayout;
                 const quoted = !film && (theme || 'classic') === 'classic' && (!skinLayout || skinLayout === 'box');
                 const font = [style.fontFamily, style.fontWeight, style.fontStyle, style.fontStretch, style.letterSpacing, style.lineHeight, style.wordBreak, style.overflowWrap, style.whiteSpace, style.padding, style.boxSizing, quoted].join("|");
-                // a skin's art textbox holds up to GAL_PAGE_LINES lines per page, as many
-                // whole lines of the CONFIG 文字大小 text as its text area fits (stageTextLines, galBoxRoom).
-                const percent = Math.round((parseFloat(style.getPropertyValue("--fk-text-scale")) || 1) * 100), box = style.getPropertyValue("--gal-skin-lines-fit").trim() === "box" ? element.closest(".fork-gal-box") : null;
-                // a box whose height follows
-                // its lines holds up to its max lines - a fixed room, never its current height (that would chase the cards).
-                const fitMax = !film && box ? parseInt(style.getPropertyValue("--art-fit-max"), 10) || 0 : 0, fitMin = parseInt(style.getPropertyValue("--art-fit-min"), 10) || 1;
-                const boxStyle = box && getComputedStyle(box), room = box ? fitMax || galBoxRoom(box.clientHeight - parseFloat(boxStyle.paddingTop) - parseFloat(boxStyle.paddingBottom), lineHeight, parseFloat(style.fontSize)) : undefined;
-                const lines = film ? 2 : stageTextLines(parseInt(style.getPropertyValue("--gal-skin-lines"), 10) || 3, percent, room), near = index => Math.abs(index - pageRef.current) <= 1;
+                const {lines, fitMax, fitMin} = galPageLines(element, style, film), near = index => Math.abs(index - pageRef.current) <= 1;
                 const labelRoom = !film && pages.some(item => item.kind === "transition") ? galInputLabelRoom(element, lineHeight * lines) : 0;
                 const fits = item => text => {
                     // The real inline typewriter/cursor also occupies the line after a trailing newline.
@@ -1388,7 +1440,7 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
                 };
                 // In the same box a page keeps its cards; one whose text changed since (streaming) keeps them as galSubtitleCards' hold.
                 const at = JSON.stringify([width, font, lines, labelRoom, style.fontSize, theme || 'classic']), prev = layoutRef.current && layoutRef.current.at === at ? layoutRef.current : null;
-                const next = { pageTexts: pages.map(item => item.text), pageShown: pages.map(galShownEnd), at, theme, film, cards: pages.map((item, index) => {
+                const next = { pageTexts: pages.map(item => item.text), pageShown: pages.map(galShownEnd), at, theme, film, block: Math.round(lines * lineHeight * 100) / 100, cards: pages.map((item, index) => {
                     if (!near(index)) return null;
                     const before = prev && prev.pageTexts[index], old = prev && prev.cards[index];
                     if (old && before === item.text) return old;
@@ -1440,10 +1492,11 @@ function useGalSubtitles(film, pages, page, identity, theme, textScales, active 
     if (!current || !current.fit) shownFit.current = null;
     else if (current.fit.page === page && current.fit.cards[card]) shownFit.current = current.fit.cards[card];
     const fit = shownFit.current;
-    return { textRef, cards, card, text: cards[card].text, counts: all.map(items => items.length), select, provisional, fit };
+    // block: a full card's lines in px (the room a card still streaming can keep, e.g. to centre its lines in a fixed box)
+    return { textRef, cards, card, text: cards[card].text, counts: all.map(items => items.length), select, provisional, fit, block: current ? current.block : 0 };
 }
 
-return {useSubtitles:useGalSubtitles, step:galSubtitleStep, voiceTime:galSubtitleVoiceTime, inputCards:GAL_INPUT_CARDS, cards:galSubtitleCards, heldCards:galHeldCards};
+return {useSubtitles:useGalSubtitles, pageLines:galPageLines, step:galSubtitleStep, voiceTime:galSubtitleVoiceTime, inputCards:GAL_INPUT_CARDS, cards:galSubtitleCards, heldCards:galHeldCards};
 }
 if (typeof module !== "undefined" && typeof window === "undefined") module.exports = {createStageSubtitles};
 

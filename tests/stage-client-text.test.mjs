@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const {createStageText} = createRequire(import.meta.url)('../tavern-plugin/packages/dsh-tavern-stage/src/client/text.cjs')
+// the text of the typewriter's run span with this class (shown: revealed, rest: still hidden)
+const run = (node, name) => node.children.find(child => child?.props?.className === 'fork-gal-type-' + name)?.children.join('')
 function fixture(fonts) {
   const effects = [], timers = new Map(), updates = []
   let id = 0
@@ -9,7 +11,8 @@ function fixture(fonts) {
     useState:initial => [typeof initial === 'function' ? initial() : initial, value => updates.push(value)],
     useRef:current => ({current}),useMemo:fn => fn(),
     useEffect:fn => effects.push(fn),useLayoutEffect:fn => effects.push(fn),
-    createElement:(type,props,...children) => ({type,props,children}),
+    // React renders a nested child array as its items (Typewriter returns its runs as one array)
+    createElement:(type,props,...children) => ({type,props,children:children.flat(Infinity)}),
   }
   const text = createStageText({
     React,document:{fonts},defaultTextSpeed:28,
@@ -20,8 +23,8 @@ function fixture(fonts) {
 test('streaming typewriter keeps the unfinished Latin tail hidden and cleans timers', () => {
   const {text,effects,timers} = fixture()
   const result = text.Typewriter({text:'你好 hello',pending:true,instant:true})
-  assert.equal(result.children[0].children[0],'你好 ')
-  assert.equal(result.children[2].children[0],'hello')
+  assert.equal(run(result,'shown'),'你好 ')
+  assert.equal(run(result,'rest'),'hello')
   const cleanups = effects.map(fn => fn()).filter(Boolean)
   assert.equal(timers.size,1)
   cleanups.forEach(fn => fn())
@@ -42,8 +45,8 @@ test('font readiness resolving after text unmount cannot update its state', asyn
 test('streaming reveal preserves combining characters and family emoji as whole glyphs', () => {
   const {text} = fixture()
   const result = text.Typewriter({text:'a\u0301👨‍👩‍👧‍👦好呀',pending:true,instant:true})
-  assert.equal(result.children[0].children[0],'a\u0301👨‍👩‍👧‍👦')
-  assert.equal(result.children[2].children[0],'好呀')
+  assert.equal(run(result,'shown'),'a\u0301👨‍👩‍👧‍👦')
+  assert.equal(run(result,'rest'),'好呀')
 })
 test('skin stepped text obeys reduced motion and photosensitive settings', () => {
   const {text} = fixture()
