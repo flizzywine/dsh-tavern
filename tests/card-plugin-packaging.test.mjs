@@ -58,7 +58,9 @@ test('werewolf dshcard imports, stages, enables and loads its packaged game mode
     assert.deepEqual(scoped.cards, ['cards/werewolf.json'])
     const plugin = await import(pathToFileURL(path.join(pluginsDir, scoped.folder, 'index.mjs')))
     let mode
-    plugin.apply({ tavern: { capabilities: { gameMode: 1 }, gameMode: value => { mode = value } } })
+    const members = []
+    plugin.apply({ tavern: { capabilities: { gameMode: 1 }, member: value => members.push(value), gameMode: value => { mode = value } } })
+    assert.deepEqual(members.map(member => member.name), ['npc-1', 'npc-2', 'npc-3', 'npc-4', 'npc-5', 'npc-6'])
     const initial = mode.create({ input: null }).state
     assert.equal(initial.players.length, 6)
     assert.equal(mode.project({ state: initial }).revealed, null)

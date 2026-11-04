@@ -285,8 +285,9 @@ test('browser updates a selected card through the sidebar and real import RPC', 
   const main=await readFile(new URL('../tavern-plugin/src/client/main.js',import.meta.url),'utf8')
   const states=sidebar.slice(sidebar.indexOf('const [updatingCard,'),sidebar.indexOf('const updateInput ='))+'const updateInput = React.useRef(null);'
   const action=sidebar.slice(sidebar.indexOf('async function replaceSelectedCard()'),sidebar.indexOf('async function importCard(file)'))
-  const start=sidebar.indexOf("h('button', { className: 'dsh-tavern-side-new'")
+  const start=sidebar.indexOf("h('input',{ref:updateInput")
   const controls=sidebar.slice(start,sidebar.indexOf('h("div", { className: "dsh-tavern-side-title',start)).trim().replace(/,$/,'')
+  const updateButton=sidebar.slice(sidebar.indexOf("organization.toolbar(h('button'"),sidebar.indexOf("organization.visible.length ?")).trim().replace(/,$/,'')
   const importer=main.slice(main.indexOf('async function importTavernCardFile('),main.indexOf('/** What a card file'))
   const parser=main.slice(main.indexOf('function parseCardFile('),main.indexOf('const MOBILE_IMPORT_SORTS'))
   const require=createRequire(import.meta.url);let bundle='const modules={};'
@@ -297,9 +298,10 @@ test('browser updates a selected card through the sidebar and real import RPC', 
   ${importer}
 ${parser}
   function App(){const [busy,setBusy]=React.useState(false);const cards=[{path:'selected.json'.replace(/^/,'cards/'),name:'Old'}],openingPicker=null;const refresh=async()=>{},notifyDataChanged=()=>{};
+  const cardBatch={paths:cards.map(card=>card.path)},organization={toolbar:button=>button};
   ${states}
 ${action}
-  return h('aside',null,${controls});}
+  return h('aside',null,${updateButton},${controls});}
   modules['react-dom/client'].createRoot(document.getElementById('app')).render(h(App));`
   const css=await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
   const server=createServer(async(req,res)=>{try{
@@ -315,7 +317,6 @@ ${action}
   const errors=[];page.on('pageerror',e=>errors.push(e.message))
   await page.goto('http://127.0.0.1:'+server.address().port)
   await page.getByRole('button',{name:'更新',exact:true}).click().catch(e=>{throw new Error(errors.join('; ') || e.message)})
-  await page.getByLabel('要更新的卡片').selectOption(old.path)
   await page.locator('input[type=file]').setInputFiles({name:'new.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({name:'Updated JSON'}))})
   await page.getByRole('button',{name:'更新并替换'}).click()
   await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
