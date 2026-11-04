@@ -12,8 +12,27 @@ export const SOURCE_FILE = '.tavern-source.json'
 const CARD_MARKER = '.dsh-card.json'
 const SKIP = new Set(['.git', '.github', 'node_modules/.cache', '.tavern-disabled', '.tavern-status.json', '.tavern-restart.json'])
 const RELEASE_TTL = 5 * 60 * 1000
+// codeload 下载不像 GitHub API 那样有超时保护：连不上或 body 一直不发数据时，
+// 安装 RPC 会永远不返回，设置页的「处理中…」也就永久锁住。给整段下载一个有界的截止时间。
+const ARCHIVE_TIMEOUT_MS = 30 * 1000
 
 const fail = message => { throw Object.assign(new Error(message), { code: 'TAVERN_PLUGIN_INSTALL' }) }
+
+async function withDeadline(work, milliseconds, message) {
+  const controller = new AbortController()
+  let timer
+  try {
+    return await Promise.race([
+      work(controller.signal),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort()
+          reject(Object.assign(new Error(message), { code: 'TAVERN_PLUGIN_INSTALL' }))
+        }, milliseconds)
+      }),
+    ])
+  } finally { clearTimeout(timer) }
+}
 
 /** owner/repo、https://github.com/owner/repo(.git)、…/tree/<分支或标签> → { owner, repo, ref } */
 export function parseGithubSource(input) {
@@ -72,7 +91,7 @@ export function comparePluginVersions(left, right) {
 // 有 Release 用最新 Release，否则用默认分支；地址里写了分支或标签就用它。
 // 下载走 codeload.github.com：它不占 GitHub API 的每小时配额，本体 install.sh 也用它。
 // api.github.com 只用来问「最新 Release 是哪个」，问答失败只是退回默认分支，不中断安装。
-export async function downloadGithubPlugin(source, { fetchImpl = fetch } = {}) {
+export async function downloadGithubPlugin(source, { fetchImpl = fetch, timeoutMs = ARCHIVE_TIMEOUT_MS } = {}) {
   const api = `https://api.github.com/repos/${source.owner}/${source.repo}`
   const archive = `https://codeload.github.com/${source.owner}/${source.repo}/zip`
   let ref = source.ref, label = source.ref ? source.ref : '默认分支', warning = ''
@@ -91,14 +110,20 @@ export async function downloadGithubPlugin(source, { fetchImpl = fetch } = {}) {
   }
   // ref 可能是标签也可能是分支（地址里写的是 …/tree/<名>），codeload 的裸 ref 两种都能解析；
   // 写成 refs/tags/ 会把分支名判死（/zip/refs/tags/main → 404）。
-  const response = await fetchOk(fetchImpl, archive + (ref ? '/' + encodeURIComponent(ref) : '/HEAD'))
-  if (response.status === 404) {
-    // 不带 ref 时 /HEAD 已是默认分支，404 只能说明仓库不存在或不是公开的。
-    if (!ref) fail('找不到仓库 ' + source.owner + '/' + source.repo + '，请检查地址，或确认仓库是公开的')
-    fail('找不到仓库 ' + source.owner + '/' + source.repo + ' 的 ' + ref + '，请检查地址，或确认仓库是公开的')
-  }
-  if (!response.ok) fail('下载插件失败（HTTP ' + response.status + '）')
-  return { bytes: Buffer.from(await response.arrayBuffer()), ref: ref || 'HEAD', label, warning }
+  const archiveUrl = archive + (ref ? '/' + encodeURIComponent(ref) : '/HEAD')
+  // signal 同时覆盖「连不上」和「连上了但压缩包 body 一直不发数据」两种情况；
+  // 超时后 abort 底层请求，避免连接一直挂着。
+  const bytes = await withDeadline(async signal => {
+    const response = await fetchOk(fetchImpl, archiveUrl, 'application/zip', signal)
+    if (response.status === 404) {
+      // 不带 ref 时 /HEAD 已是默认分支，404 只能说明仓库不存在或不是公开的。
+      if (!ref) fail('找不到仓库 ' + source.owner + '/' + source.repo + '，请检查地址，或确认仓库是公开的')
+      fail('找不到仓库 ' + source.owner + '/' + source.repo + ' 的 ' + ref + '，请检查地址，或确认仓库是公开的')
+    }
+    if (!response.ok) fail('下载插件失败（HTTP ' + response.status + '）')
+    return Buffer.from(await response.arrayBuffer())
+  }, timeoutMs, '下载插件超时（仓库压缩包一直没下载完）。网络不通时，可以在仓库页面下载 ZIP 后上传')
+  return { bytes, ref: ref || 'HEAD', label, warning }
 }
 
 function hostEntryOf(pkg) {
@@ -145,7 +170,7 @@ function folderFor(pkg, fallback) {
 
 async function readJson(file) { try { return JSON.parse(await readFile(file, 'utf8')) } catch { return null } }
 
-export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = () => new Date(), sync = async () => {} }) {
+export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = () => new Date(), sync = async () => {}, archiveTimeoutMs = ARCHIVE_TIMEOUT_MS }) {
   const paths = userPluginPaths(dataRoot)
   const backups = path.join(path.resolve(dataRoot), 'plugin-backups')
   const installedPackage = name => existsSync(path.join(paths.profile, 'node_modules', ...name.split('/'), 'package.json'))
@@ -325,7 +350,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
     installFromGithub(input) {
       return serial(async () => {
         const source = parseGithubSource(input)
-        const downloaded = await downloadGithubPlugin(source, { fetchImpl })
+        const downloaded = await downloadGithubPlugin(source, { fetchImpl, timeoutMs: archiveTimeoutMs })
         return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.owner + '/' + source.repo, ref: source.ref, resolved: downloaded.label, warning: downloaded.warning }, source.repo)
       })
     },
@@ -338,7 +363,7 @@ export function createUserPluginInstaller({ dataRoot, fetchImpl = fetch, now = (
         if (source?.kind !== 'github') fail('这个插件不是从 GitHub 地址装的，没法自动更新；请重新上传新版 ZIP')
         const parsed = parseGithubSource(source.repo)
         parsed.ref = source.ref || null
-        const downloaded = await downloadGithubPlugin(parsed, { fetchImpl })
+        const downloaded = await downloadGithubPlugin(parsed, { fetchImpl, timeoutMs: archiveTimeoutMs })
         return place(readPluginArchive(downloaded.bytes), { kind: 'github', repo: source.repo, ref: source.ref || null, resolved: downloaded.label, warning: downloaded.warning }, parsed.repo)
       })
     },

@@ -16,13 +16,13 @@ const hello = (version = '1.0.0', extra = {}) => pluginZip({
   '.github/workflows/ci.yml': 'x',
 })
 
-async function setup(t, fetchImpl) {
+async function setup(t, fetchImpl, installerOptions = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'plugin-install-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const dataRoot = path.join(root, 'profile-data', 'tavern', 'data')
   await mkdir(dataRoot, { recursive: true })
   let syncs = 0
-  const installer = createUserPluginInstaller({ dataRoot, fetchImpl, sync: async () => { syncs++ } })
+  const installer = createUserPluginInstaller({ dataRoot, fetchImpl, sync: async () => { syncs++ }, ...installerOptions })
   return { root, dataRoot, installer, plugins: path.join(dataRoot, 'plugins'), syncs: () => syncs }
 }
 
@@ -279,7 +279,8 @@ for (const failure of ['network', 'timeout', 'invalid-json', 429, 500, 503]) {
         return { ok: false, status: failure }
       }
       assert.equal(url, 'https://codeload.github.com/author/dsh-tavern-hello/zip/HEAD')
-      assert.equal(options.signal, undefined, 'Release 查询超时不应取消后续下载')
+      assert.ok(options.signal, '下载也要有自己的超时信号')
+      assert.equal(options.signal.aborted, false, 'Release 查询超时不应取消后续下载')
       return { ok: true, status: 200, arrayBuffer: async () => hello(version) }
     })
     for (const update of [false, true]) {
@@ -296,6 +297,29 @@ for (const failure of ['network', 'timeout', 'invalid-json', 429, 500, 503]) {
     assert.equal(calls.length, 4)
   })
 }
+
+test('下载仓库压缩包挂起会超时失败，不会让安装请求永远不返回', async t => {
+  const { installer } = await setup(t, async (url, options) => {
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    assert.ok(options.signal, '下载请求必须带超时信号')
+    return new Promise(() => {}) // codeload 连上了但永远不发数据
+  }, { archiveTimeoutMs: 20 })
+  await assert.rejects(
+    installer.installFromGithub('https://github.com/author/dsh-tavern-hello'),
+    /下载插件超时.*下载 ZIP 后上传/
+  )
+})
+
+test('body 一直不发数据时也会超时，并取消底层请求', async t => {
+  let aborted = false
+  const { installer } = await setup(t, async (url, options) => {
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    options.signal.addEventListener('abort', () => { aborted = true })
+    return { ok: true, status: 200, arrayBuffer: () => new Promise(() => {}) }
+  }, { archiveTimeoutMs: 20 })
+  await assert.rejects(installer.installFromGithub('author/dsh-tavern-hello'), /下载插件超时/)
+  assert.equal(aborted, true)
+})
 
 test('指定分支时跳过 Release 查询；没有 Release 时正常安装不产生 warning', async t => {
   const calls = []
