@@ -1,6 +1,6 @@
 {
   "name": "dsh-tavern-image",
-  "version": "3.9.0",
+  "version": "3.10.0",
   "description": "DSH Tavern 剧情配图插件，支持 ComfyUI 工作流、NovelAI、OpenAI Images、Gemini、atlas cloud、自定义 API 等渠道。",
   "type": "module",
   "scripts": {
@@ -10,7 +10,22 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./channels": "./lib/api/channels.js",
+    "./generation": {
+      "types": "./lib/api/generation.d.ts",
+      "default": "./lib/model-provider.js"
+    },
+    "./library": {
+      "types": "./lib/api/library.d.ts",
+      "default": "./lib/library-provider.js"
+    },
+    "./prompts": "./lib/prompt-presets.js",
+    "./providers": "./lib/image-providers.js",
+    "./client/transport": {
+      "types": "./lib/api/transport.d.ts",
+      "default": "./lib/client/transport.js"
+    }
   },
   "files": [
     "lib",

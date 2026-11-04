@@ -9,7 +9,7 @@ function fragment(start, end) {
   assert.ok(at >= 0 && until > at)
   return source.slice(at, until)
 }
-const promptCapabilities = fragment('const IMAGE_REFERENCE_PROTOCOLS =', 'function createHistoryRequestEpoch()')
+const promptCapabilities = fragment('const IMAGE_API_PROTOCOLS =', 'function createHistoryRequestEpoch()')
 const editor = fragment('    function PromptEditor() {', '    async function viewImage(')
 const upgrade = fragment('    function WorldbookUpgradePanel(', '    function SettingsPanel() {')
 const h = (type, props, ...children) => ({ type, props: props || {}, children })

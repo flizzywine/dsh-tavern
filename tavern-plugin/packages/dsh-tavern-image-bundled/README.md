@@ -398,6 +398,56 @@ NovelAI 原生协议支持分角色提示词；启用世界书第 **11 条「分
 
 卡片世界书首次从 `card-worldbook.default.json` 初始化，以 `card-worldbook.json` 为准，规则索引按需生成且只在内容变化时写入。保存携带读取时的 `revision`，冲突保留草稿；跨分册编辑可一并保存。工作台规则不会注入普通剧情提示词。更新保留卡片世界书、开关、生成规则投影和用户工作流，下载源码包仅包含默认规则及静态 Skill。旧 `/dsh-tavern-gen/api` 地址继续可用，配置与人物库写入统一经过现有保存流程。
 
+## 其他插件按需复用
+
+3.10.0 将生图能力与完整插件入口分开。其他插件使用用户已保存的模型、人物和服装时，优先通过 Tavern 服务查询，不读取本插件的私有 JSON，也不用复制设置页。
+
+| 需要的能力 | Tavern 接口 |
+| --- | --- |
+| 读取可用模型 | `listImageModels({ gameId })` |
+| 只查人物 | `listImageCharacters({ gameId, query, limit })` |
+| 只查服装 | `listImageOutfits({ gameId, characterId, query, limit })` |
+| 按用户选择的模型出一张图 | `generateImage({ gameId, providerId, modelId, prompt, width, height, references, signal })` |
+
+在 `ctx.inject(['tavern'], scoped => { ... })` 中取得 `scoped.tavern`；以上调用放在用户操作或工具执行中。`gameId` 是当前游玩会话 ID，卡片插件仍受自己的卡片范围约束。模型列表中的 `providerId`、`modelId` 应原样传回；选中的模型被删除时应重新选择，不能悄悄切到另一个收费渠道。目录查询只读本地资料，不探测平台、不启动出图。人物和服装目录是分页的只读投影，修改记录继续使用带版本检查的共用人物接口。
+
+如果插件需要自己管理配置和数据，可以直接引用以下独立入口：
+
+| 包入口 | 用途与边界 |
+| --- | --- |
+| `dsh-tavern-image/channels` | 渠道元数据、协议能力、配置规范化及脱敏；可在浏览器使用 |
+| `dsh-tavern-image/generation` | `createImageGenerator(getConfig)`：在线渠道适配器，真正出图时才加载网络实现 |
+| `dsh-tavern-image/library` | `createImageLibrary(getDefinitions)`：从调用方持有的数据生成只读人物、服装目录 |
+| `dsh-tavern-image/prompts` | 提示词格式选择与组合；可在浏览器使用 |
+| `dsh-tavern-image/providers` | 服务端底层协议调用、平台任务恢复及连接测试 |
+| `dsh-tavern-image/client/transport` | 自定义前端复用 JSON 请求、只读重试与取消；不加载 React 和默认界面 |
+
+例如，一个只提供在线出图能力、没有设置页和图库的服务：
+
+~~~js
+import { createImageGenerator } from 'dsh-tavern-image/generation'
+
+export function createDrawingFeature(getConfig) {
+  const images = createImageGenerator(getConfig)
+  return {
+    models: () => images.models(),
+    draw: input => images.generate(input),
+  }
+}
+~~~
+
+`getConfig()` 返回调用方自己的 `imageBackend/activeImageChannel/imageChannels/maxImageBytes`，渠道可先用 `normalizeChannels` 规范化。`draw` 接受 `prompt/modelId/references/width/height/background/quality/signal`，返回 `{ data: Uint8Array, mediaType }`。出图前快照选中渠道，不修改全局默认；模型目录不读取凭据。`generation` 和 `library` 附带 TypeScript 类型定义，旧 `stageImageProvider/imageLibraryProvider` 名称继续兼容。
+
+独立适配器不登记工具、剧情钩子、HTTP 路由、图库或后台定时器，也不替调用方管理配置、并发、图片持久化和付费任务状态。ComfyUI 的工作流、排队与恢复继续由完整插件的任务引擎管理。需要现成队列和任务记录时复用运行中的插件；自己调用底层适配器时应保留取消信号和 `requestMayHaveSucceeded`，不自动重试结果不确定的付费请求。
+
+### 前后端维护边界
+
+浏览器源码在 `src/client/`：`main.js` 负责宿主注册，`media.js` 负责图片与提示词编辑，`settings-fields.js/settings.js` 负责设置，`card-worldbook.js/card-gallery.js` 负责工作台。`lib/client/transport.js` 只处理请求与取消；协议和参考图能力与后端共用 `lib/image-provider-capabilities.js`。前端通过 HTTP 交换数据，不直接引用服务端配置、凭据、文件存储或任务实现。
+
+服务端 `lib/http/routes.js` 只注册路由，模型目录与出图适配在 `lib/model-provider.js`，人物/服装投影在 `lib/library-provider.js`，剧情任务与持久化仍由 `lib/index.js` 组装。原 HTTP 地址、旧包入口和 Tavern 接口保持兼容。
+
+修改前端后运行 `node bin/build-image-client.mjs`，提交生成的 `client.js`；`pnpm build:client` 和 `pnpm check:client` 也会构建或检查它。运行时仍只加载这一份浏览器文件，不增加模块请求；源码分片不进入运行安装包。错误源码或过期产物会在检查时失败，生成前先验证语法。
+
 ## 共用人物记录
 
 Tavern 内置配图插件 3.8.0 支持素材库「人物 → 生图 → 配图人物库」直接编辑同一条人物记录。可新建记录或选择已有记录，编辑名字、别名、分视角外貌、当前服装，并把素材包设定图写入配图参考图。多个人物库并存时需要选择来源。

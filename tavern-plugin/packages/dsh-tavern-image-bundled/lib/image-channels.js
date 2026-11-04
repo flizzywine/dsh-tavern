@@ -1,4 +1,4 @@
-import { IMAGE_PROVIDERS } from './image-providers.js'
+import { IMAGE_PROVIDERS } from './provider-definitions.js'
 import { IMAGE_API_PROTOCOLS } from './image-provider-capabilities.js'
 
 const providerIds = new Set(IMAGE_PROVIDERS.map(item => item.id))

@@ -659,7 +659,7 @@ test('真实发行副本升级旧版本：保留用户数据和删除状态，�
   const info = readBundledSceneImage(sourceRoot)
   assert.equal(info.ok, true, info.reason)
   const releaseVersion = info.version
-  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0', '3.3.1', '3.4.0', '3.4.1', '3.4.2', '3.5.0', '3.6.0', '3.7.0', '3.8.0']) {
+  for (const installedVersion of ['3.1.9', '3.2.1', '3.3.0', '3.3.1', '3.4.0', '3.4.1', '3.4.2', '3.5.0', '3.6.0', '3.7.0', '3.8.0', '3.9.0']) {
     assert.equal(comparePluginVersions(releaseVersion, installedVersion), 1)
     const dataRoot = makeData(t)
     const target = path.join(dataRoot, 'plugins', BUNDLED_SCENE_IMAGE_FOLDER)
@@ -696,6 +696,9 @@ test('真实发行副本升级旧版本：保留用户数据和删除状态，�
       'lib/comfy-reference-images.js', 'client.js',
       'lib/card-app/index.js', 'lib/card-app/generation.js', 'lib/card-app/gallery.js',
       'lib/card-app/worldbook.js', 'lib/card-app/storage.js', 'card-worldbook.default.json',
+      'lib/model-provider.js', 'lib/library-provider.js', 'lib/provider-definitions.js',
+      'lib/api/channels.js', 'lib/api/generation.d.ts', 'lib/api/library.d.ts', 'lib/api/transport.d.ts',
+      'lib/http/routes.js', 'lib/client/transport.js',
       'skills/image-prompt/SKILL.md', 'skills/character-authoring/SKILL.md', 'skills/character-authoring/references/design-rules.md',
     ]) {
       assert.deepEqual(readFileSync(path.join(target, file)), readFileSync(path.join(source, file)), 'current release code: ' + file)
@@ -703,6 +706,7 @@ test('真实发行副本升级旧版本：保留用户数据和删除状态，�
     for (const [file, text] of preserved) assert.equal(readFileSync(path.join(target, file), 'utf8'), text, 'private data changed: ' + file)
     assert.equal(existsSync(path.join(target, 'workflows', 'seed-deleted.json')), false, 'a removed bundled workflow stays removed')
     assert.equal(existsSync(path.join(target, 'BUNDLED-VERSION.json')), false)
+    assert.equal(existsSync(path.join(target, 'src')), false, 'browser source fragments are build-only')
     const repeated = installBundledSceneImagePlugin(options)
     assert.equal(repeated.action, 'skipped')
     assert.equal(repeated.installedVersion, releaseVersion)

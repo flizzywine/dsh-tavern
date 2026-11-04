@@ -44,7 +44,9 @@ try {
   ].join('\n')
   const componentScript = [
     'const React=modules.react; const useEffect=React.useEffect, useState=React.useState;',
-    'const BASE="http://localhost/plugins/dsh-tavern-image"; let openPromptEditor=null; const IMAGE_REFERENCE_PROTOCOLS=new Set(["openai","gemini","gemini-chat","atlascloud","seedream","grok","qwen","sdwebui"]); function uiSupportsImageReferences(channel,state){ if(!channel)return state?.referenceSupported===true; if(channel.provider==="comfyui")return state?.referenceSupported===true&&state?.config?.imageBackend==="comfyui"; return IMAGE_REFERENCE_PROTOCOLS.has(channel.provider==="custom"?String(channel.options?.apiProtocol||"openai"):channel.provider); }',
+    'const BASE="http://localhost/plugins/dsh-tavern-image"; let openPromptEditor=null;',
+    (await readFile(new URL('../../tavern-plugin/packages/dsh-tavern-image-bundled/lib/image-provider-capabilities.js', import.meta.url), 'utf8')).replace(/^export /gm, ''),
+    declaration('uiSupportsImageReferences'),
     'const mediaPostLocks=new Set(), mediaUncertainActions=new Set(), requests=[]; window.__jobOverrides={}; window.__redrawAttempts=[]; window.__newJobs=0;',
     'const validMediaContext=context=>Boolean(context&&context.gameId&&context.mediaId&&context.jobId&&context.textVersion&&Number.isFinite(Number(context.turn)));',
     `window.fetch=async (url,options={}) => {
@@ -56,13 +58,14 @@ try {
       }
       throw new Error('unexpected browser fetch: '+url);
     };`,
-    declaration('jsonFetchOnce'),
+    declaration('createJsonTransport'),
+    'const redrawTransport=createJsonTransport();',
     `async function jsonFetch(url,options={}) {
       if(url.includes('/job-detail?')) return {ok:true,job:{rawPrompt:'two people in a garden',tag:'two people in a garden',prompt:'expanded',promptText:${JSON.stringify(promptText)},negative:'base uc'}};
       if(url.includes('/jobs?')) return {ok:true,job:{generationMode:'text',backend:'atlascloud',channelId:'atlas',references:[],positive:'expanded',negative:'base uc',submittedPrompt:'expanded',...(window.__jobOverrides[new URL(url).searchParams.get('id')]||{})}};
       if(url.endsWith('/state')) return {config:{imageChannels:[{id:'atlas',name:'atlas cloud',provider:'atlascloud'},{id:'other',name:'other provider',provider:'novelai'}]}};
       if(url.endsWith('/media-action')) { requests.push(JSON.parse(options.body)); return {ok:true,jobId:'replacement'}; }
-      if(url.endsWith('/redraw')) return jsonFetchOnce(url,options);
+      if(url.endsWith('/redraw')) return redrawTransport(url,options);
       if(url.endsWith('/improve-prompt')) return {ok:true,prompt:'后台改写后的提示词'};
       throw new Error('unexpected request');
     }`,

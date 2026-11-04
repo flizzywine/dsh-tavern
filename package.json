@@ -3,8 +3,8 @@
   "version": "3.2.0",
   "scripts": {
     "sync:desktop": "node bin/dev-sync-desktop.mjs",
-    "build:client": "node bin/build-tavern-client.mjs",
-    "check:client": "node bin/build-tavern-client.mjs --check",
+    "build:client": "node bin/build-image-client.mjs && node bin/build-tavern-client.mjs",
+    "check:client": "node bin/build-image-client.mjs --check && node bin/build-tavern-client.mjs --check",
     "install:tavern": "node ./bin/dsh-tavern.mjs install",
     "start:tavern": "node ./bin/dsh-tavern.mjs start",
     "stop:tavern": "node ./bin/dsh-tavern.mjs stop",

@@ -107,6 +107,7 @@ function copyTree(from, to, copied, root = to) {
     const source = path.join(from, entry.name)
     const target = path.join(to, entry.name)
     const relative = path.relative(root, target).split(path.sep).join('/')
+    if (relative === 'src' || relative === 'build.mjs') continue
     // Filter before traversal, not only at upgrade promotion: an accidentally
     // populated source tree must not leak reference images or authored books
     // into a fresh install. Private symlinks are never followed either.

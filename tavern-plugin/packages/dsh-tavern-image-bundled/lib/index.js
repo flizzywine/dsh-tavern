@@ -1,3 +1,4 @@
+import { registerImageRoutes } from './http/routes.js'
 import { resolveCharacterForms, hasPositiveChineseCue } from './character-forms.js'
 import { charactersFromWorldbookText, charactersFromCardBookBody, charactersFromCardBook, charactersFromExtraction, mergeCharacters } from './character-import.js'
 import { buildMinorBatchPrompt, scrubMinorNegatives } from './character-import.js'
@@ -1077,81 +1078,8 @@ export function apply(ctx, config = {}) {
     })
   }
 
-  const route = (path, handler) => {
-    const paths = [path]
-    if (path.startsWith(BASE + '/')) paths.push(LEGACY_BASE + path.slice(BASE.length))
-    for (const routePath of paths) {
-      const install = () => ctx.webServer.register({
-        kind: 'exact',
-        path: routePath,
-        handler: (request, response) => {
-          const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
-          Promise.resolve(ready().then(engine => handler(request, response, url, engine)))
-            .catch(error => {
-              logger.error?.(`dsh-tavern-image: ${error?.message ?? error}`)
-              if (!response.headersSent) sendJson(response, 500, { ok: false, error: error?.message ?? String(error) })
-              else response.end()
-            })
-        },
-      })
-      if (typeof ctx.effect === 'function') ctx.effect(install, `dsh-tavern-image: ${routePath}`)
-      else install()
-    }
-  }
-
-  route(`${BASE}/console`, serveConsole)
-  route(`${BASE}/state`, (request, response, url, engine) => engine.handleConsole('state', request, response, url))
-  route(`${BASE}/runtime`, (request, response, url, engine) => engine.handleConsole('runtime', request, response, url))
-  route(`${BASE}/plugin-update`, (request, response, url, engine) => engine.handleConsole('plugin-update', request, response, url))
-  route(`${BASE}/plugin-update/check`, (request, response, url, engine) => engine.handleConsole('plugin-update-check', request, response, url))
-  route(`${BASE}/plugin-update/apply`, (request, response, url, engine) => engine.handleConsole('plugin-update-apply', request, response, url))
-  route(`${BASE}/config`, (request, response, url, engine) => engine.handleConsole('config', request, response, url))
-  route(`${BASE}/workflow`, (request, response, url, engine) => engine.handleConsole('workflow', request, response, url))
-  route(`${BASE}/reload`, (request, response, url, engine) => engine.handleConsole('reload', request, response, url))
-  route(`${BASE}/reference-image`, (request, response, url, engine) => engine.handleConsole('reference-image', request, response, url))
-  route(`${BASE}/definitions`, (request, response, url, engine) => engine.handleConsole('definitions', request, response, url))
-  route(`${BASE}/export-all`, (request, response, url, engine) => engine.handleConsole('export-all', request, response, url))
-  route(`${BASE}/import-all`, (request, response, url, engine) => engine.handleConsole('import-all', request, response, url))
-  route(`${BASE}/import-characters`, (request, response, url, engine) => engine.handleConsole('import-characters', request, response, url))
-  route(`${BASE}/generate`, (request, response, url, engine) => engine.handleConsole('generate', request, response, url))
-  route(`${BASE}/history`, (request, response, url, engine) => engine.handleConsole('history', request, response, url))
-  route(`${BASE}/character-history`, (request, response, url, engine) => engine.handleConsole('character-history', request, response, url))
-  route(`${BASE}/plan`, (request, response, url, engine) => engine.handleConsole('plan', request, response, url))
-  route(`${BASE}/plans`, (request, response, url, engine) => engine.handleConsole('plans', request, response, url))
-  route(`${BASE}/vision`, (request, response, url, engine) => engine.handleConsole('vision', request, response, url))
-  route(`${BASE}/design`, (request, response, url, engine) => engine.handleConsole('design', request, response, url))
-  route(`${BASE}/cancel`, (request, response, url, engine) => engine.handleConsole('cancel', request, response, url))
-  route(`${BASE}/report`, (request, response, url, engine) => engine.handleConsole('report', request, response, url))
-  route(`${BASE}/img`, (request, response, url, engine) => engine.handleConsole('img', request, response, url))
-  route(`${BASE}/cards`, (request, response, url, engine) => engine.handleConsole('cards', request, response, url))
-  route(`${BASE}/delete-job`, (request, response, url, engine) => engine.handleConsole('delete-job', request, response, url))
-  route(`${BASE}/worldbook`, (request, response, url, engine) => engine.handleConsole('worldbook', request, response, url))
-  route(`${BASE}/worldbook-import`, (request, response, url, engine) => engine.handleConsole('worldbook-import', request, response, url))
-  route(`${BASE}/worldbook-entry`, (request, response, url, engine) => engine.handleConsole('worldbook-entry', request, response, url))
-  route(`${BASE}/worldbook-add`, (request, response, url, engine) => engine.handleConsole('worldbook-add', request, response, url))
-  route(`${BASE}/worldbook-export`, (request, response, url, engine) => engine.handleConsole('worldbook-export', request, response, url))
-  route(`${BASE}/worldbook-upgrade`, (request, response, url, engine) => engine.handleConsole('worldbook-upgrade', request, response, url))
-route(`${BASE}/generate-outfits`, (request, response, url, engine) => engine.handleConsole('generate-outfits', request, response, url))
-  route(`${BASE}/generate-outfits-bulk`, (request, response, url, engine) => engine.handleConsole('generate-outfits-bulk', request, response, url))
-route(`${BASE}/generate-characters-minor`, (request, response, url, engine) => engine.handleConsole('generate-characters-minor', request, response, url))
-  route(`${BASE}/plugin-download`, (request, response, url, engine) => engine.handleConsole('plugin-download', request, response, url))
-  route(`${BASE}/media-action`, (request, response, url, engine) => engine.handleConsole('media-action', request, response, url))
-  route(`${BASE}/workflow-import`, (request, response, url, engine) => engine.handleConsole('workflow-import', request, response, url))
-  route(`${BASE}/workflow-bindings`, (request, response, url, engine) => engine.handleConsole('workflow-bindings', request, response, url))
-  route(`${BASE}/workflow-test`, (request, response, url, engine) => engine.handleConsole('workflow-test', request, response, url))
-  route(`${BASE}/workflow-values`, (request, response, url, engine) => engine.handleConsole('workflow-values', request, response, url))
-  route(`${BASE}/workflow-graph`, (request, response, url, engine) => engine.handleConsole('workflow-graph', request, response, url))
-  route(`${BASE}/image-channel-test`, (request, response, url, engine) => engine.handleConsole('image-channel-test', request, response, url))
-  route(`${BASE}/llm-models`, (request, response, url, engine) => engine.handleConsole('llm-models', request, response, url))
-  route(`${BASE}/comfy-test`, (request, response, url, engine) => engine.handleConsole('comfy-test', request, response, url))
-  route(`${BASE}/loras-available`, (request, response, url, engine) => engine.handleConsole('loras-available', request, response, url))
-  route(`${BASE}/job-detail`, (request, response, url, engine) => engine.handleConsole('job-detail', request, response, url))
-  route(`${BASE}/redraw`, (request, response, url, engine) => engine.handleConsole('redraw', request, response, url))
-  route(`${BASE}/improve-prompt`, (request, response, url, engine) => engine.handleConsole('improve-prompt', request, response, url))
-  route(`${BASE}/jobs`, (request, response, url, engine) => handleJobs(request, response, url, engine))
-  // 手动配图：浏览器侧「🎨 生图」按钮走这条，链路和自动配图完全一致
-  route(`${BASE}/attach-turn`, handleAttachTurn)
-  route(`${BASE}/draw-turn`, handleAttachTurn)
+  registerImageRoutes(ctx, { ready, logger, base: BASE, legacyBase: LEGACY_BASE, sendJson,
+    handlers: { console: serveConsole, jobs: handleJobs, attachTurn: handleAttachTurn } })
 
   // 已停用（改用 Tavern 官方 promptSection + attach 链路）：installAutoImagePrompt(ctx, ready)
   logger.info?.('dsh-tavern-image: 已加载（控制台 ' + BASE + '/console）')
