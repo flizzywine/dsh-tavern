@@ -28,12 +28,28 @@ export interface ResolvedSynthesis {
   /** bytes-list-v1 opt-in; the complete ordered reference set; single-reference providers use index 0. */
   references?: NonNullable<ResolvedSynthesis['reference']>[]
 }
-/** A synthesis backend. Registered by the plugin (`registerProvider`) or by a plugin's speech provider bridge. */
+/** A 配音来源 kind (a pack voice source's `kind`): reference audio to clone, a voice ID from the service's voice library, a preset voice. */
+export type VoiceSourceKind = 'reference-list' | 'voice-id' | 'preset'
+/**
+ * A synthesis backend. Registered by the plugin (`registerProvider`) or by a plugin's speech provider bridge.
+ *
+ * What it supports is the provider's own answer, per registered service instance (never per kind or name): the voice
+ * services catalog (`voiceServices`) lists a provider only with the 配音来源 it reports in `capabilities.voiceSources`,
+ * and UIs offer only those. A provider that can ask its server refreshes the answer in `discover()`, which the catalog
+ * calls (without `wake`) before each read, so the provider caches it per service config; a protocol with nothing to ask
+ * declares it from its fixed semantics or the service config. A provider that reports no `voiceSources` is not listed.
+ */
 export interface Provider {
   id: string; kind: PortableVoice['kind']; revision: string
-  capabilities: {referenceInput?: string[]; serviceVoiceEngines?: string[]; voiceKinds?: string[]; paid?: boolean; billing?: 'free' | 'paid' | 'unknown'; prepareVoice?: boolean; voiceDirections?: boolean; concurrency?: number; loadTimeoutMs?: number}
+  /** The service's name in lists (the catalog's `label`); defaults to `id`. */
+  label?: string
+  capabilities: {referenceInput?: string[]; serviceVoiceEngines?: string[]; voiceKinds?: string[]; paid?: boolean; billing?: 'free' | 'paid' | 'unknown'; prepareVoice?: boolean; voiceDirections?: boolean; concurrency?: number; loadTimeoutMs?: number
+    /** The 配音来源 this service instance serves, as listed by the catalog. */
+    voiceSources?: VoiceSourceKind[]
+    /** How its voices are listed (the catalog's `voiceList`); defaults to `provider` (providerVoices). */
+    voiceList?: VoiceServiceEntry['voiceList']}
   onRequest?(): void
-  /** Refresh server-advertised optional capabilities; never infer them from a model name. */
+  /** Refresh server-advertised optional capabilities (including `voiceSources`); never infer them from a model name. */
   discover?(options?: {wake?: boolean; signal?: AbortSignal}): Promise<void>
   /** Fresh service state from the server (Fish `/v1/info`), for diagnostics only. */
   info?(): Promise<{state?: string}>
@@ -65,18 +81,19 @@ export type ReadingVoiceBinding = {browser: string} | {serviceId: string; voice:
 export interface TtsReading { dialogueVoice: ReadingVoiceBinding | null; narrator: {enabled: boolean; voice: ReadingVoiceBinding | null} }
 /** ttsControl `setReading` input: omitted keys keep their value; null clears a voice. Invalid input rejects with INVALID_READING_VOICE. */
 export interface TtsReadingPatch { dialogueVoice?: ReadingVoiceBinding | null; narrator?: {enabled?: boolean; voice?: ReadingVoiceBinding | null} }
-/** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed. */
+/** One configured voice service as UIs and other plugins list it: no keys, URLs or config. 浏览器朗读 (kind 'browser') is always listed;
+ * so is every other plugin's registered provider that reports `voiceSources`. */
 export interface VoiceServiceEntry {
-  id: string; kind: 'qwen' | 'azure' | 'volcengine' | 'fish-audio' | 'openai-compatible' | 'minimax' | 'browser'; label: string
+  id: string; kind: PortableVoice['kind'] | 'browser'; label: string
   /** From the last connection check of this activation; reading the catalog sends no request. */
   state: 'ready' | 'configured' | 'needs-key' | 'offline'
   billing: 'free' | 'paid' | 'unknown'
-  /** The 配音来源 kinds (pack voice source \kind\) this service speaks. */
-  sources: ('reference-list' | 'voice-id' | 'preset')[]
+  /** The 配音来源 kinds this service speaks: its provider's `capabilities.voiceSources` (see Provider). */
+  sources: VoiceSourceKind[]
   /** How its voices are listed: listRecommendedFishVoices, listOnlinePresetVoices, providerVoices, or the browser's own voices. */
   voiceList: 'fish-recommended' | 'preset' | 'provider' | 'browser'
 }
-/** The configured voice services catalog (ttsControl \oiceServices\, Tts.listVoiceServices); \kinds\: every supported kind's name, for a source whose service is not configured. */
+/** The configured voice services catalog (ttsControl `voiceServices`, Tts.listVoiceServices); `kinds`: every supported kind's name, for a source whose service is not configured. */
 export interface VoiceServiceCatalog { services: VoiceServiceEntry[]; kinds: Record<VoiceServiceEntry['kind'], string> }
 /** Host control service (ctx.get('ttsControl')); also served at /api/dsh-tts/v1/control. */
 export interface TtsControl {

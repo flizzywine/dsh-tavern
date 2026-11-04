@@ -1045,6 +1045,9 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
     const importModelHere=async result=>{const made=await importModel(result);
       setKind('figures');setQuery('');setFilter('all');setSel(made.figureId);setFigureTab('edit');if(narrow)setDetail(true);setNotice({text:'已导入模型'});onPacksChanged?.();};
     const close=()=>{audio.stop();onClose(changed.current);};
+    // A page in the window that opens a sidebar tab (the voice page's 「配音后端 ›」) closes the window first, so the tab it
+    // opens is in front and takes the focus instead of opening behind the window.
+    const tabNav=nav?.openTab?{...nav,openTab:type=>{close();return nav.openTab(type);}}:nav;
     // 演出风格 is the one kind added in place (no file), so its tab also shows while it is empty and asked for.
     const name=pack?.manifest.name||'素材包',present=pack?KIND_ORDER.filter(k=>kindCount(pack.manifest,k)>0||(k==='directions'&&kind==='directions')):[];
     const current=kind&&present.includes(kind)?kind:present[0]||null;
@@ -1240,7 +1243,7 @@ function createAssetPackUI(React, {VoicePicker, AvatarImage, HelpTip, emotions, 
       // in the name row of an entry / style / CG (its name is the page title; cg-editor redesign: a CG has a name row now).
       h(PanelBoundary,{name:'entry-detail',lead:narrowBack&&h('div',{className:'ap-detail-title ap-subhead'},h(SubpageBack,narrowBack)),resetKey:current+'/'+(drafting?'@new':selected?.id||'')+'@'+pack.revision},
       current==='directions'&&(drafting||selected)?h(StyleDetail,{key:drafting?'@new':'directions/'+selected.id,pack,asset:drafting?null:selected,commit,create:createStyle,remove:removeStyle,busy:work.busy,back:narrowBack}):
-      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
+      !selected?null:current==='figures'?h(FigureDetail,{key:selected.id,binding,pack,figure:selected,commitFigure,assignFigureVoice,commitVoice,importFigureImage,importModel,importFigureSpine,figureActions:figureActions(selected.id),nav:tabNav,narrow,onBack:()=>setDetail(false),onClose:close,backLabel:kinds[current],
           gen,importSettei,removeFigureImage,identityBoard:{upload:importIdentitySettei,remove:removeIdentitySettei},tab:figureTab,setTab:setFigureTab,voiceOpen:initial?.tab==='voice'&&selected.id===initial.figureId}):
         current==='cg'?h(CgEntryEditor,{key:current+'/'+selected.id,binding,pack,packs:packs||[],asset:selected,save:saveCg,card:ctx||scope?.ctx||null,back:narrowBack}):
         h(EntryDetail,{key:current+'/'+selected.id,binding,pack,packs,asset:selected,commit,audio,gen,uploadBackground,uploadVariant,card:ctx||scope?.ctx||null,remove:removeEntry,busy:work.busy,back:narrowBack,

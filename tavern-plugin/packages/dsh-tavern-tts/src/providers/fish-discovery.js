@@ -37,8 +37,9 @@ export function createFishDiscovery({fetch = globalThis.fetch} = {}) {
       const limit = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max ? value : undefined
       // idleUnloadMs: 0 = resident; otherwise the model unloads after that long unused unless a `/v1/hold` lease is live.
       const concurrency = limit(data.capabilities?.concurrency, 16), loadTimeoutMs = limit(data.capabilities?.loadTimeoutMs, 600000), idleUnloadMs = limit(data.capabilities?.idleUnloadMs, 86400000)
+      // voiceLibrary: the server serves Fish's voice library API (/model listing, search and ID lookup) for 声音库 voice IDs.
       return {voices:[],models,source:'live',state:['loading','ready','sleeping','paused','error'].includes(data.state) ? data.state : 'unknown',capabilities:{prepareVoice:data.capabilities?.prepareVoice === true,voiceDirections:data.capabilities?.voiceDirections === true,
-        hold:data.capabilities?.hold === true,...(concurrency ? {concurrency} : {}),...(loadTimeoutMs !== undefined ? {loadTimeoutMs} : {}),...(idleUnloadMs !== undefined ? {idleUnloadMs} : {})}}
+        hold:data.capabilities?.hold === true,voiceLibrary:data.capabilities?.voiceLibrary === true,...(concurrency ? {concurrency} : {}),...(loadTimeoutMs !== undefined ? {loadTimeoutMs} : {}),...(idleUnloadMs !== undefined ? {idleUnloadMs} : {})}}
     },
     async catalogue(provider, secret, {language} = {}) {
       const languages = ['zh','ja'].includes(language) ? [language] : ['zh','ja']

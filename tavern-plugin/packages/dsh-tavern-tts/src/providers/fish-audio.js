@@ -28,10 +28,15 @@ function failure(status) {
   throw error
 }
 const HOLD_TTL_MS = 120000
+// The official cloud's own metadata: it has no /v1/info, and its API documents the public voice library.
+export const FISH_CLOUD_CAPABILITIES = Object.freeze({prepareVoice:false,voiceLibrary:true})
+// The 配音来源 a Fish-protocol service serves: every one takes reference audio (/v1/tts); voice IDs only with a voice library.
+export const fishVoiceSources = capabilities => ['reference-list', ...(capabilities?.voiceLibrary ? ['voice-id'] : [])]
 export function createFishAudioAdapter({fetch = globalThis.fetch, sleep = (ms, signal) => delay(ms, undefined, {signal})} = {}) {
   const lanes = new Map(), infos = new Map(), discovery = createFishDiscovery({fetch})
   async function info(p, secret, refresh = false) {
-    if (isFishCloud(p.config)) return {models:structuredClone(FISH_MODELS),capabilities:{prepareVoice:false},source:'builtin'}
+    // a self-hosted server says what it serves in /v1/info (cached per URL and key).
+    if (isFishCloud(p.config)) return {models:structuredClone(FISH_MODELS),capabilities:{...FISH_CLOUD_CAPABILITIES},source:'builtin'}
     const key = hash([p.config.url, secret.key || ''])
     if (refresh) infos.delete(key)
     if (!infos.has(key)) {

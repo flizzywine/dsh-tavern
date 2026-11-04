@@ -6,7 +6,7 @@ import { createFishDiscovery } from './providers/fish-discovery.js'
 import recommendedFishVoices from './shared/fish-recommended.json' with {type:'json'}
 import { createAzureAdapter, azureVoices } from './providers/azure.js'
 import { createQwenAdapter, qwenModelInstructions, qwenVoices, QWEN_MODELS } from './providers/qwen.js'
-import { createFishAudioAdapter } from './providers/fish-audio.js'
+import { createFishAudioAdapter, fishVoiceSources, FISH_CLOUD_CAPABILITIES } from './providers/fish-audio.js'
 import { createVolcengineAdapter } from './providers/volcengine.js'
 import { createMinimaxAdapter } from './providers/minimax.js'
 import { hash, canonical, fail, voicePreset, describeTtsError } from './core.js'
@@ -319,7 +319,11 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         const audioRevision = p.kind === 'volcengine' ? hash([revision, 'v3-api-key-json-additions-v2']) : revision
         const customFish = p.kind === 'fish-audio' && !isFishCloud(p.config)
         const model = customFish ? {label:p.config.model,billing:'unknown'} : fishModel(p.config.model)
-        const port = { id:p.id, kind:p.kind, revision:audioRevision, model:p.config.model ?? null, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:p.kind === 'fish-audio' ? model.billing !== 'free' : providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},model:p.config.model,modelLabel:model.label,billing:model.billing,voiceDirections:model.voiceDirections === true,prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
+        // 配音来源 (Provider.capabilities.voiceSources): a Fish-protocol service by what it serves (a custom server's /v1/info,
+        // refreshed in discover); the online protocols by their fixed semantics (preset voices).
+        const voiceSources = p.kind === 'fish-audio' ? fishVoiceSources(customFish ? {} : FISH_CLOUD_CAPABILITIES) : ['preset']
+        const voiceList = p.kind === 'fish-audio' ? customFish ? 'provider' : 'fish-recommended' : p.kind === 'openai-compatible' ? 'provider' : 'preset'
+        const port = { id:p.id, kind:p.kind, label:p.label || providerKind(p.kind).label, revision:audioRevision, model:p.config.model ?? null, endpoint:p.config.url || p.kind + ':' + (p.config.region || p.config.appId), capabilities:{ voiceSources, voiceList, referenceInput:p.kind === 'fish-audio' ? ['bytes-v1','bytes-list-v1'] : [], paid:p.kind === 'fish-audio' ? model.billing !== 'free' : providerKind(p.kind).paid, ...(p.kind === 'fish-audio' ? {voiceKinds:['fish-audio','reference'],referenceLimits:{count:null,totalBytes:null,formats:['wav','mp3']},model:p.config.model,modelLabel:model.label,billing:model.billing,voiceDirections:model.voiceDirections === true,prepareVoice:false,stream:{sampleRate:44100}} : {}), ...(p.kind === 'qwen' ? {serviceVoiceEngines:['qwen']} : {}), ...(p.kind === 'minimax' ? {billing:'paid'} : {}) },
           validateModel: (model, voiceName) => api.validateVoiceModel({serviceId:p.id,model,voiceName}),
           // A custom Fish server takes the server's own `/v1/hold` lease when it advertises one.
           ...(customFish ? {hold:async () => adapter.hold(p, await secrets(p))} : {}),
@@ -327,7 +331,7 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
           ...(customFish ? {
             discover: async () => {
               const info = await adapter.info(p, await secrets(p)), selected = p.config.model ? info.models.find(m => m.id === p.config.model) : info.models[0]
-              Object.assign(port.capabilities, {prepareVoice:info.capabilities.prepareVoice,voiceDirections:selected?.voiceDirections ?? info.capabilities.voiceDirections,
+              Object.assign(port.capabilities, {voiceSources:fishVoiceSources(info.capabilities),prepareVoice:info.capabilities.prepareVoice,voiceDirections:selected?.voiceDirections ?? info.capabilities.voiceDirections,
                 paid:selected?.billing !== 'free',billing:selected?.billing || 'unknown',modelLabel:selected?.label || p.config.model,
                 ...(info.capabilities.concurrency ? {concurrency:info.capabilities.concurrency} : {}),...(info.capabilities.loadTimeoutMs !== undefined ? {loadTimeoutMs:info.capabilities.loadTimeoutMs} : {})})
             },
@@ -351,18 +355,25 @@ export function createServiceSettings({ tts, get, replace, credentials, fetch, w
         registrations.set(p.id, {revision,dispose})
       }
     },
-    // The configured voice services catalog (ttsControl `voiceServices`, Tts.listVoiceServices): every saved service and
-    // 浏览器朗读, without keys, URLs or config. It reads no network; `state` is the last connection check of this activation.
+    // The configured voice services catalog (ttsControl `voiceServices`, Tts.listVoiceServices): every saved service,
+    // every other plugin's provider that reports its 配音来源, and 浏览器朗读, without keys, URLs or config. Each service's
+    // `sources` / `voiceList` are its registered provider's answer (Provider.capabilities.voiceSources / voiceList, see
+    // tts.d.ts): the provider is asked (discover) and caches it per service config. `state` is the last connection check.
     async voiceServices() {
+      const reported = new Map((await tts.providerVoiceSources()).map(r => [r.id,r]))
       const services = await Promise.all(get().providers.map(async p => {
         const kind = providerKind(p.kind), revision = hash(p), check = checks.get(p.id)?.revision === revision ? checks.get(p.id) : null
         const fish = p.kind === 'fish-audio', custom = fish && !isFishCloud(p.config) || p.kind === 'openai-compatible'
         const keyless = !custom && (await Promise.all(kind.fields.filter(f => f.secret).map(f => describeSecret(p,f)))).some(s => !s.configured)
         const state = keyless || check?.status === 'credentials-required' ? 'needs-key' : !check ? 'configured' : ['connected','reachable'].includes(check.status) ? 'ready' : 'offline'
+        const own = reported.get(p.id); reported.delete(p.id)
         return {id:p.id, kind:p.kind, label:p.label || kind.label, state, billing:fish ? custom ? 'unknown' : fishModel(p.config.model).billing : kind.paid ? 'paid' : 'free',
-          sources:fish ? ['reference-list','voice-id'] : ['preset'], voiceList:custom ? 'provider' : fish ? 'fish-recommended' : 'preset'}
+          sources:own?.sources || [], voiceList:own?.voiceList || 'provider'}
       }))
-      return {services:[...services, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
+      // Another plugin's provider: listed with what it reports; one that reports no 配音来源 is not a voice service here.
+      const plugins = [...reported.values()].filter(r => r.owner !== 'dsh-tavern-tts' && r.sources.length).map(r => ({id:r.id, kind:r.kind, label:r.label,
+        state:'configured', billing:r.billing, sources:r.sources, voiceList:r.voiceList || 'provider'}))
+      return {services:[...services, ...plugins, structuredClone(BROWSER_VOICE_SERVICE)], kinds:Object.fromEntries([...PROVIDER_KINDS.map(k => [k.kind,k.label]), ['browser',BROWSER_VOICE_SERVICE.label]])}
     },
     async list() { return Promise.all(get().providers.map(async p => { const revision = hash(p); return { ...structuredClone(p), category:p.kind === 'fish-audio' && !isFishCloud(p.config) || p.kind === 'openai-compatible' ? 'custom' : 'builtin', revision, ...(checks.get(p.id)?.revision === revision ? {check:{...checks.get(p.id)}} : {}), secrets:Object.fromEntries(await Promise.all(providerKind(p.kind).fields.filter(f => f.secret).map(async f => [f.key, await describeSecret(p,f)])))} })) },
     save(input) { return serial(async () => {

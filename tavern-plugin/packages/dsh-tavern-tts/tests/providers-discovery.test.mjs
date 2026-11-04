@@ -420,7 +420,9 @@ test('saving a service permits empty keys without a credential store; deleting o
 test('the voice services catalog lists saved services and 浏览器朗读 without keys, URLs or config',async t => {
   let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
   const tts = createTts(), events = []
-  const services = createServiceSettings({tts,get:() => settings,replace:async v => {settings=v},credentials:() => null,changed:() => events.push('servicesChanged')})
+  // the self-hosted Fish server has no /v1/info: its provider reports reference audio only.
+  const fetch = async () => new Response('',{status:404})
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => null,changed:() => events.push('servicesChanged')})
   t.after(async () => {services.dispose();await tts.dispose()})
   const empty = await services.voiceServices()
   assert.deepEqual(empty.services.map(s => s.kind),['browser'])
@@ -431,7 +433,45 @@ test('the voice services catalog lists saved services and 浏览器朗读 withou
   const {services:rows} = await services.voiceServices()
   assert.deepEqual(rows.map(s => [s.id,s.kind,s.label,s.state,s.voiceList,s.sources.join('+')]),[
     ['mm-a','minimax','我的 MiniMax','needs-key','preset','preset'],
-    ['local-fish','fish-audio','local-fish','configured','provider','reference-list+voice-id'],
+    ['local-fish','fish-audio','local-fish','configured','provider','reference-list'],
     ['browser','browser','浏览器朗读','ready','browser','preset']])
   assert.doesNotMatch(JSON.stringify(rows),/group-private|fixture\.invalid|"config"/)
+})
+
+// 配音来源 are the provider's answer per service instance: the same Fish protocol backs the official cloud (声音库 included)
+// and self-hosted servers, which say in /v1/info whether they serve a voice library.
+test('the catalog lists each service with the 配音来源 its provider reports, asking a self-hosted server once per config',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const tts = createTts(), asked = []
+  const info = library => ({models:[{id:'drama-3'}],state:'ready',capabilities:{prepareVoice:true,...(library ? {voiceLibrary:true} : {})}})
+  const fetch = async url => { asked.push(String(url)); return Response.json(info(String(url).includes('library.invalid'))) }
+  const services = createServiceSettings({tts,fetch,get:() => settings,replace:async v => {settings=v},credentials:() => null})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  await services.save({id:'fish',kind:'fish-audio',label:'Fish Audio',config:{url:'https://api.fish.audio',model:'s2.1-pro-free'},secrets:{key:''}})
+  await services.save({id:'fish-local',kind:'fish-audio',label:'Fish Audio（本地）',config:{url:'http://local.invalid',model:'drama-3'},secrets:{key:''}})
+  await services.save({id:'fish-lib',kind:'fish-audio',config:{url:'http://library.invalid',model:'drama-3'},secrets:{key:''}})
+  await services.save({id:'qwen',kind:'qwen',config:{region:'cn'},secrets:{key:''}})
+  const sources = async () => Object.fromEntries((await services.voiceServices()).services.map(s => [s.id,s.sources.join('+')]))
+  const expected = {fish:'reference-list+voice-id','fish-local':'reference-list','fish-lib':'reference-list+voice-id',qwen:'preset',browser:'preset'}
+  assert.deepEqual(await sources(),expected)
+  assert.deepEqual(await sources(),expected)
+  // the cloud is not asked; each self-hosted server once (its answer is cached per service config).
+  assert.deepEqual(asked.sort(),['http://library.invalid/v1/info','http://local.invalid/v1/info'])
+})
+
+test('another plugin\'s provider is listed with the 配音来源 it declares; one declaring none is not a voice service',async t => {
+  let settings = {enabled:true,providers:[],voices:[],cacheMaxGB:1,cacheMaxAgeDays:30}
+  const tts = createTts()
+  const services = createServiceSettings({tts,get:() => settings,replace:async v => {settings=v},credentials:() => null})
+  t.after(async () => {services.dispose();await tts.dispose()})
+  let discovered = 0
+  const plugin = (id,capabilities,extra = {}) => tts.registerProvider('voice-plugin',{id,kind:'reference',revision:'1',capabilities,synthesize:async () => assert.fail('no synthesis'),...extra})
+  plugin('clone-box',{paid:false},{label:'克隆盒',discover:async function () { discovered++; this.capabilities.voiceSources = ['reference-list'] }})
+  plugin('speaker-box',{voiceSources:['preset','voice-id'],voiceList:'provider',billing:'paid'})
+  plugin('synth-only',{})
+  const rows = (await services.voiceServices()).services.filter(s => s.kind !== 'browser')
+  assert.deepEqual(rows.map(s => [s.id,s.kind,s.label,s.billing,s.voiceList,s.sources.join('+')]),[
+    ['clone-box','reference','克隆盒','free','provider','reference-list'],
+    ['speaker-box','reference','speaker-box','paid','provider','preset+voice-id']])
+  assert.equal(discovered,1)
 })

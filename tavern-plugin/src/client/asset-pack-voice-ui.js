@@ -96,13 +96,15 @@ const VOICE_WAYS=[
   {id:'off',title:'不配音'}];
 const VOICE_WAY=id=>VOICE_WAYS.find(w=>w.id===id);
 const wayHas=(w,s)=>!!s&&w.kind===s.kind&&(w.kind!=='preset'||(s.provider==='browser')===(w.provider==='browser'));
-// The catalog's services that speak a way's source kind (浏览器朗读 is its own way).
+// The catalog's services that speak a way's source kind (浏览器朗读 is its own way): each service's `sources` is its provider's
+// own answer (Provider.capabilities.voiceSources), so a server without a voice library has no 声音库 row.
 const catalogServices=(catalog,kind)=>(catalog?.services||[]).filter(s=>s.kind!=='browser'&&s.sources.includes(kind));
 // A service instance's own name in a row title (「Fish Audio（本地 Drama 3）· 声音克隆」).
 const serviceTitle=(c,name)=>{const label=c.label||providerName(c.kind);return label+(/[）)]$/.test(label)?'· ':' · ')+name;};
-// The rows of 配音来源, from the catalog: the Fish ways once per configured Fish service, 在线 TTS when an online service
-// is set up, 浏览器朗读 and 不配音 always. With one Fish service they read as VOICE_WAYS and write no serviceId; with
-// several, each row is named by its service and a choice under it writes that service's id into the source (`bind`).
+// The rows of 配音来源, from the catalog: each Fish way once per configured Fish service that serves it, 在线 TTS when an
+// online service is set up, 浏览器朗读 and 不配音 always. With one Fish service they read as VOICE_WAYS and write no serviceId;
+// with several (even if only one serves the way), each row is named by its service and a choice under it writes that
+// service's id into the source (`bind`), since a source without one is ambiguous among them.
 // A way whose service is not set up shows only while the figure's source (`active`) uses it (`unconfigured`: ⚠ 未设置).
 // `base`: the way's VOICE_WAYS id.
 function voiceWayRows(catalog,active){
@@ -110,7 +112,7 @@ function voiceWayRows(catalog,active){
     if(w.provider==='browser'||!w.kind)return [{...w,base:w.id}];
     const list=catalogServices(catalog,w.kind),fish=w.provider==='fish-audio'?list.filter(s=>s.kind==='fish-audio'):list;
     if(!fish.length)return wayHas(w,active)?[{...w,base:w.id,unconfigured:true}]:[];
-    if(w.provider!=='fish-audio'||fish.length<2)return [{...w,base:w.id,serviceId:w.provider==='fish-audio'?fish[0].id:undefined}];
+    if(w.provider!=='fish-audio'||(catalog?.services||[]).filter(s=>s.kind==='fish-audio').length<2)return [{...w,base:w.id,serviceId:w.provider==='fish-audio'?fish[0].id:undefined}];
     return fish.map(c=>({...w,base:w.id,id:w.id+':'+c.id,title:serviceTitle(c,w.name),serviceId:c.id,bind:true}));
   });
 }
@@ -180,10 +182,12 @@ const VOICE_PAID_ASK_KEY='dsh-tavern:voice-paid-preview-ask';
 const voicePaidAsk={
   get(){try{return localStorage.getItem(VOICE_PAID_ASK_KEY)!=='off';}catch(_){return true;}},
   set(on){try{if(on)localStorage.removeItem(VOICE_PAID_ASK_KEY);else localStorage.setItem(VOICE_PAID_ASK_KEY,'off');}catch(_){}}};
-// 「配音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up).
+// 「配音后端 ›」 with no provider opens the page as it is (its unset service kinds are rows to set up). The pack window's nav
+// closes the window first (PackModal tabNav); once the tab is open, the same event tells an already-mounted page to take
+// the request and move the keyboard focus there.
 function openVoiceSettings(nav,provider,{id,add}={}){
-  try{if(provider)sessionStorage.setItem(VOICE_FOCUS_KEY,JSON.stringify({kind:provider,...(id?{id}:{}),...(add?{add:true}:{}),at:Date.now()}));}catch(_){}
-  return nav.openTab('dsh-tts:voice');
+  try{sessionStorage.setItem(VOICE_FOCUS_KEY,JSON.stringify({kind:provider||'',...(id?{id}:{}),...(add?{add:true}:{}),at:Date.now()}));}catch(_){}
+  return Promise.resolve(nav.openTab('dsh-tts:voice')).then(()=>{if(typeof window!=='undefined')window.dispatchEvent(new window.Event(VOICE_FOCUS_KEY));});
 }
 // re-read a useVoiceLoad in place (value kept until the new one arrives) after any
 // TTS event (a synthesis finished, presets changed) or when `deps` change after mount — a refresh never blanks the ⚠.

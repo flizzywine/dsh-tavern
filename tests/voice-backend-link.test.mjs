@@ -33,7 +33,9 @@ test('the library passes its nav from App through the pack modal and figure page
   assert.match(ui, /h\(PackModal,\{[^}]*ctx:null,nav,/)
   // 舞台设置 opens the same modal with its card context, whose nav it uses.
   assert.match(ui, /function PackModal\(\{[^}]*ctx,nav=ctx\?\.nav,/)
-  assert.match(ui, /h\(FigureDetail,\{[^}]*figureActions:figureActions\(selected\.id\),nav,/)
+  // the window's tab nav closes the window before the tab opens (voice-backend-focus.test.mjs).
+  assert.match(ui, /const tabNav=nav\?\.openTab\?\{\.\.\.nav,openTab:type=>\{close\(\);return nav\.openTab\(type\);\}\}:nav;/)
+  assert.match(ui, /h\(FigureDetail,\{[^}]*figureActions:figureActions\(selected\.id\),nav:tabNav,/)
   assert.match(figure, /h\(VoicePage,\{[^}]*nav,onClose:closeVoice\}/)
   assert.match(voice, /const openSettings=nav\?\.openTab\?/)
   assert.match(voice, /action:openSettings&&h\(Button,\{className:'ap-link ap-voice-backend',onClick:\(\)=>openSettings\(null\)\},'配音后端 ›'\)/)
