@@ -324,7 +324,7 @@
    }
   },
   "font": {
-   "description": "Installed font ids (installed catalogue) or ids of the skin's own faces, every field optional. body is the stage role (text box; name, ui and titles fall back to it), film the cinematic subtitles (falls back to body, then the built-in subtitle stack). The user's per-machine override wins over ordinary skins; a director-applied performance skin's stage fonts win over it while active. Size, reduced motion and photosensitivity settings still apply.",
+   "description": "Installed font ids (installed catalogue) or ids of the skin's own faces, every field optional. body is the stage role (text box; name, ui and titles fall back to it), film the cinematic subtitles (falls back to body, then the built-in subtitle stack), menu the drawn Esc menu's ransom words (art.menu letter ransom; a decoration face like ui.titleFont, falls back to body). The user's per-machine override wins over ordinary skins; a director-applied performance skin's stage fonts win over it while active. Size, reduced motion and photosensitivity settings still apply.",
    "type": "object",
    "additionalProperties": false,
    "properties": {
@@ -338,6 +338,9 @@
      "$ref": "#/$defs/fontId"
     },
     "film": {
+     "$ref": "#/$defs/fontId"
+    },
+    "menu": {
      "$ref": "#/$defs/fontId"
     },
     "faces": {
@@ -10485,7 +10488,7 @@
      }
     },
     "font": {
-     "description": "Installed font ids (installed catalogue) or ids of the skin's own faces, every field optional. body is the stage role (text box; name, ui and titles fall back to it), film the cinematic subtitles (falls back to body, then the built-in subtitle stack). The user's per-machine override wins over ordinary skins; a director-applied performance skin's stage fonts win over it while active. Size, reduced motion and photosensitivity settings still apply.",
+     "description": "Installed font ids (installed catalogue) or ids of the skin's own faces, every field optional. body is the stage role (text box; name, ui and titles fall back to it), film the cinematic subtitles (falls back to body, then the built-in subtitle stack), menu the drawn Esc menu's ransom words (art.menu letter ransom; a decoration face like ui.titleFont, falls back to body). The user's per-machine override wins over ordinary skins; a director-applied performance skin's stage fonts win over it while active. Size, reduced motion and photosensitivity settings still apply.",
      "type": "object",
      "additionalProperties": false,
      "properties": {
@@ -10499,6 +10502,9 @@
        "$ref": "#/$defs/fontId"
       },
       "film": {
+       "$ref": "#/$defs/fontId"
+      },
+      "menu": {
        "$ref": "#/$defs/fontId"
       },
       "faces": {

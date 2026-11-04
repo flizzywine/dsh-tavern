@@ -80,3 +80,11 @@ test('CONFIG cycler values, value sliders, tag heads, tilted painted tabs with a
   assert.equal(doc.art.menu.topbar,'hidden')
   for(const poses of [[],[{x:300}],[{rot:13}]])invalid(menu({rows:{images:{plain:'art/row.svg',focus:'art/row-on.svg'},slice:[8,40,8,40],text:[100,950,42],font:46,x:-80,y:250,gap:10,poses}}).art)
 })
+
+test('font.menu names the drawn menu ransom words face; the published schema lists the same font fields',()=>{
+  const doc=contract.validateStageSkin({...base,font:{body:'serif-a',menu:'poster-b'}})
+  assert.equal(doc.font.menu,'poster-b')
+  assert.throws(()=>contract.validateStageSkin({...base,font:{menu:'Bad Id!'}}),{code:'INVALID_SKIN'})
+  const schema=require('../tavern-plugin/packages/dsh-presentation-protocol/schema/skin.schema.json')
+  assert.deepEqual(Object.keys(schema.properties.font.properties),['body','name','ui','film','menu','faces'])
+})
