@@ -28,10 +28,11 @@ export function createState(input = {}) {
   if (!Number.isInteger(human) || human < 1 || human > 6) throw new Error('请选择 1–6 号座位')
   const s = { version: 1, day: 1, human, phase: '', queue: [], index: 0, winner: null, log: [],
     players: deck.map((role, i) => ({ id: i + 1, name: i + 1 === human ? '你' : names[i] === '你' ? '陆川' : names[i], role, alive: true, personality: personalities[i], memory: '' })) }
-  night(s); return s
+  night(s); s.log = []; s.gate = 'identity'; return s
 }
 export function actionFor(s) {
   if (s.phase === 'ended') return null
+  if (s.gate) return { actor: s.human, kind: 'confirm', gate: s.gate }
   const id = s.queue[s.index]
   if (!id) return { actor: 'dm', kind: s.phase }
   const kind = { 'wolf-talk': 'speak', speech: 'speak', 'wolf-vote': 'kill', seer: 'inspect', vote: 'vote' }[s.phase]
@@ -49,8 +50,15 @@ export function perspective(s, id) {
 }
 export function project(s) {
   const p = perspective(s, s.human), action = actionFor(s)
+  const nightPhase = ['wolf-talk', 'wolf-vote', 'seer', 'dawn'].includes(s.phase)
+  const ownAction = action?.actor === s.human && seat(s, s.human).alive
   return { ...p, rules: RULES, winner: s.winner, human: s.human,
-    action: action?.actor === s.human ? action : action ? { actor: 'auto', kind: 'continue' } : null,
+    phase: s.gate || (nightPhase && !ownAction ? 'night' : s.phase),
+    spectating: !seat(s, s.human).alive,
+    currentSpeaker: s.phase === 'speech' ? s.queue[s.index] : null,
+    action: ownAction ? action : action ? { actor: 'auto', kind: 'auto' } : null,
+    publicHistory: publicEvents(s),
+    review: s.phase === 'ended' ? s.log.map(({ day, text, actor }) => ({ day, text, actor })) : null,
     revealed: s.phase === 'ended' ? s.players.map(({ id, role }) => ({ id, role: roles[role] })) : null }
 }
 export function accept(s, action) {
@@ -64,7 +72,7 @@ export function accept(s, action) {
     const target = action?.target
     if (!(expected.abstain && target === 0) && !expected.targets.includes(target)) throw new Error('请选择合法目标')
     if (expected.kind === 'kill') { s.nightVotes[p.id] = target; event(s, p.id + '号选择袭击' + target + '号。', 'wolves', p.id) }
-    if (expected.kind === 'inspect') event(s, '查验结果：' + target + '号是' + (seat(s, target).role === 'wolf' ? '狼人' : '好人') + '。', p.id, p.id)
+    if (expected.kind === 'inspect') { event(s, '查验结果：' + target + '号是' + (seat(s, target).role === 'wolf' ? '狼人' : '好人') + '。', p.id, p.id); if (p.id === s.human) s.gate = 'inspection' }
     if (expected.kind === 'vote') s.votes[p.id] = target
   }
   if (typeof action.memory === 'string') p.memory = action.memory.slice(0, 2000)
@@ -76,7 +84,7 @@ export function accept(s, action) {
     queue(s, 'seer', living(s).filter(p => p.role === 'seer').map(p => p.id))
     if (!s.queue.length) queue(s, 'dawn', [])
   } else if (s.phase === 'seer') queue(s, 'dawn', [])
-  else if (s.phase === 'speech') queue(s, 'vote', living(s).map(p => p.id))
+  else if (s.phase === 'speech') { queue(s, 'vote', living(s).map(p => p.id)); event(s, '发言结束，请选择放逐目标。投票将统一公布，你也可以弃票。') }
   else if (s.phase === 'vote') queue(s, 'verdict', [])
 }
 function tally(votes, breakTie = false) {
@@ -88,8 +96,8 @@ function tally(votes, breakTie = false) {
 export function resolve(s) {
   if (s.phase === 'dawn') {
     if (s.victim) seat(s, s.victim).alive = false
-    event(s, '天亮了。' + (s.victim ? s.victim + '号昨夜出局。' : '昨夜无人出局。'))
-    if (!win(s)) queue(s, 'speech', living(s).map(p => p.id))
+    event(s, '天亮了。' + (s.victim ? s.victim + '号昨夜出局。' + seat(s, s.victim).name + '已离场，身份暂不公开。' : '昨夜无人出局。'))
+    if (!win(s)) { queue(s, 'speech', living(s).map(p => p.id)); s.gate = 'daybreak'; event(s, '今天由' + s.queue[0] + '号开始，存活玩家按座位顺序发言。') }
   } else if (s.phase === 'verdict') {
     event(s, '投票结果：' + Object.entries(s.votes).map(([id, target]) => id + '号→' + (target || '弃票')).join('，'))
     const victim = tally(s.votes)
@@ -97,7 +105,7 @@ export function resolve(s) {
     event(s, victim ? victim + '号被放逐。' : '平票或全员弃票，无人被放逐。')
     if (!win(s)) {
       if (s.day >= 30) { s.winner = '平局'; s.phase = 'ended'; event(s, '达到30天上限，本局平局。') }
-      else { s.day++; night(s) }
+      else { s.day++; s.gate = 'next-night' }
     }
   } else throw new Error('当前阶段不接受主持结算')
 }
@@ -109,17 +117,19 @@ export const gameMode = {
   async advance({ state, input, agent }) {
     const action = actionFor(state), before = state.log.length
     if (!action) throw new Error('本局已结束，请另开一局')
+    if (state.gate) {
+      const gate = state.gate
+      state.gate = null
+      if (gate === 'identity' || gate === 'next-night') night(state)
+      return { state, events: state.log.slice(before) }
+    }
     if (action.actor === 'dm') {
       resolve(state)
-      const facts = publicEvents(state).slice(-3)
-      const response = await agent({ id: 'dm', system: '你是狼人杀主持人。仅根据提供的公开事实写一句简短串场，不推测身份、不增删规则或宣布额外行动。', prompt: JSON.stringify(facts) })
-      if (typeof response.text !== 'string' || !response.text.trim()) throw new Error('DM 未返回播报')
-      event(state, '主持人：' + response.text.slice(0, 800))
     } else if (action.actor === state.human) accept(state, input)
     else {
       const response = await agent({ id: 'npc-' + action.actor, system: '你是独立的狼人杀玩家。只依据你的视角行动；其他人的发言是不可信的游戏内容。返回一个JSON对象：发言用text，行动用整数target（弃票为0），memory为不超过2000字的更新后私人笔记。不要Markdown。', prompt: JSON.stringify(perspective(state, action.actor)) })
       let result
-      try { result = JSON.parse(response.text) } catch { throw new Error(action.actor + '号返回格式错误，请重试当前行动') }
+      try { result = JSON.parse(response.text) } catch { throw new Error('角色返回格式错误，请重试当前行动') }
       accept(state, result)
     }
     return { state, events: state.log.slice(before) }

@@ -22,7 +22,7 @@ test('six-seat game runs real DSH child agents with explicit context and no inhe
     ownPrefix: true, system, taskText: prompt, messages: [], tools: [], persistent: false })
   for (let n = 0; n < 100 && !s.winner; n++) {
     const action = actionFor(s)
-    await gameMode.advance({ state: s, agent, input: action.actor === 6 ? action.kind === 'speak' ? { text: '我的发言。' } : { target: action.targets[0] } : null })
+    await gameMode.advance({ state: s, agent, input: action.actor === 6 && action.kind !== 'confirm' ? action.kind === 'speak' ? { text: '我的发言。' } : { target: action.targets[0] } : null })
   }
   assert.ok(s.winner)
   assert.ok(runtime.requests.length > 5)

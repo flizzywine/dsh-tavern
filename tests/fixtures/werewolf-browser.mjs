@@ -23,11 +23,14 @@ const native = await createBackgroundNativeRuntime(process.env.DSH_BOOT_MODULE, 
 } })
 const host = await createPluginHost({ withTools: true })
 const plugin = Object.create(host.services.get('tavern')); plugin.ctx = { fiber: { name: 'dsh-card-werewolf' } }
+let failNextNpc = true
 plugin.gameMode({ ...gameMode,
   create: args => { const result = gameMode.create(args); result.state.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] }); result.state.queue = [1, 2]; return result },
-  advance: args => gameMode.advance({ ...args, agent: ({ id, system, prompt, signal }) => native.runBackground({
+  advance: args => gameMode.advance({ ...args, agent: ({ id, system, prompt, signal }) => {
+    if (failNextNpc) { failNextNpc = false; throw new Error('测试网络中断') }
+    return native.runBackground({
     task: 'plugin', pluginName: 'werewolf/' + id, sessionId: 'scene-parent', selection: { provider: 'scene-fixture', model: 'fixture-text' },
-    ownPrefix: true, system, taskText: prompt, tools: [], messages: [], signal: args.signal }) }) })
+    ownPrefix: true, system, taskText: prompt, tools: [], messages: [], signal: args.signal }) } }) })
 const source = await readFile(new URL('../../tavern-plugin/src/client/features/reply-observer.js', import.meta.url), 'utf8')
 const surface = source.slice(source.indexOf('function TavernGameModeSurface('), source.indexOf('function TavernComposerSlot('))
 const pluginClient = await readFile(new URL('../../examples/werewolf/plugin/client.js', import.meta.url), 'utf8')
@@ -83,25 +86,36 @@ try {
   await page.getByRole('button', { name: '收起视图' }).waitFor()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '展开视图' }).waitFor()
+  await page.getByRole('button', { name: '我已了解，进入第一晚' }).click()
   await page.getByLabel('你的发言').fill('今晚一起仔细观察。')
-  await page.getByRole('button', { name: '提交发言' }).click()
-  await page.getByRole('button', { name: '继续下一步' }).waitFor()
+  await page.getByRole('button', { name: '发送密谈', exact: true }).click()
+  await page.getByRole('button', { name: '重试当前行动' }).waitFor()
+  const failed = (await host.rpc('gameMode', { sessionId: 'werewolf-game' })).mode
+  assert.equal(failed.data.history.filter(e => e.text === '今晚一起仔细观察。').length, 1, 'committed player speech survives a failed NPC call')
+  await page.getByRole('button', { name: '重试当前行动' }).click()
+  await page.getByRole('button', { name: '3号', exact: true }).waitFor()
   await page.reload()
-  await page.getByRole('button', { name: '继续下一步' }).waitFor()
+  await page.getByRole('button', { name: '3号', exact: true }).waitFor()
   await page.getByRole('button', { name: '回退一步' }).click()
-  await page.getByLabel('你的发言').waitFor()
+  await page.getByRole('button', { name: '恢复游戏' }).waitFor()
   await page.getByRole('button', { name: '撤销回退' }).click()
-  await page.getByRole('button', { name: '继续下一步' }).waitFor()
-  for (let i = 0; i < 100; i++) {
+  await page.getByRole('button', { name: '恢复游戏' }).click()
+  for (let i = 0; i < 150; i++) {
     const view = (await host.rpc('gameMode', { sessionId: 'werewolf-game' })).mode
     if (view.data.winner) break
-    if (view.data.action.kind === 'speak') { await page.getByLabel('你的发言').fill('我的发言：请按投票记录判断。'); await page.getByRole('button', { name: '提交发言' }).click() }
-    else if (view.data.action.kind === 'continue') await page.getByRole('button', { name: '继续下一步' }).click()
-    else await page.getByRole('button', { name: view.data.action.targets[0] + '号', exact: true }).click()
-    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).some(b => b.textContent === '角色正在思考…'))
-    // Wait for the committed revision to reach the actual UI before the next action.
-    await page.waitForFunction(() => document.querySelector('section button')?.disabled === true)
+    const action = view.data.action
+    if (action.kind === 'speak') {
+      await page.getByLabel('你的发言').fill('我的发言：请按投票记录判断。')
+      await page.getByRole('button', { name: view.data.phase === 'wolf-talk' ? '发送密谈' : '结束发言', exact: true }).click()
+    } else if (action.kind === 'confirm') {
+      await page.getByRole('button', { name: ({identity:'我已了解，进入第一晚',inspection:'记住结果，闭眼等待',daybreak:'进入白天讨论','next-night':'进入第'+view.data.day+'晚'})[action.gate], exact:true }).click()
+    } else if (action.kind !== 'auto') {
+      await page.getByRole('button', { name: action.targets[0] + '号', exact: true }).click()
+      await page.getByRole('button', { name: ({kill:'确认袭击',inspect:'确认查验',vote:'确认投票'})[action.kind], exact:true }).click()
+    }
+    await page.waitForFunction(revision => Number(document.querySelector('.dsh-tavern-game-mode')?.dataset.revision) > revision, view.revision)
   }
+  await page.getByRole('region', { name: '终局复盘' }).waitFor()
   const final = (await host.rpc('gameMode', { sessionId: 'werewolf-game' })).mode
   assert.ok(final.data.winner); assert.deepEqual(errors, [])
   await page.screenshot({ path: join(output, 'werewolf-desktop.png'), fullPage: true })

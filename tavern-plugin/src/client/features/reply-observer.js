@@ -83,12 +83,14 @@
 				const launchRef = React.useCallback(function (node) { if (node) setLaunchRoot(node.shadowRoot || node.attachShadow({ mode: 'open' })); }, []);
 				const [snapshot, setSnapshot] = React.useState(null), [modes, setModes] = React.useState([]);
 				const [error, setError] = React.useState(''), [pending, setPending] = React.useState(false);
+				const [paused, setPaused] = React.useState(false);
+				const actionLock = React.useRef(false);
 				React.useEffect(function () {
 					let disposed = false;
 					async function refresh() {
 						try {
 							const result = await rpc('gameMode', { op: 'view' }, sessionId);
-							if (!disposed) { setSnapshot(result.mode); setError(''); }
+							if (!disposed) setSnapshot(result.mode);
 							if (!result.mode) { const list = await rpc('gameMode', { op: 'list' }, sessionId); if (!disposed) setModes(list.modes); }
 						} catch (e) { if (!disposed) setError(e.message); }
 					}
@@ -97,14 +99,17 @@
 					return function () { disposed = true; stop(); };
 				}, [sessionId, extensionsVersion]);
 				async function act(input) {
+					if (input.op === 'stop' || input.op === 'seek') setPaused(true);
+					if (actionLock.current && input.op !== 'stop') return false;
+					if (input.op !== 'stop') actionLock.current = true;
 					setPending(true); setError('');
-					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); }
-					catch (e) { setError(e.message); }
-					finally { setPending(false); }
+					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); return true; }
+					catch (e) { setError(e.message); setPaused(true); return false; }
+					finally { if (input.op !== 'stop') actionLock.current = false; setPending(false); }
 				}
 				if (!snapshot && !modes.length && !error) return null;
 				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
-				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法' },
+				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法', 'data-revision': snapshot && snapshot.revision },
 					error ? h('p', { role: 'alert' }, error) : null,
 					!snapshot ? h('div', { ref: launchRef }, launchRoot && ReactDOM.createPortal(h(React.Fragment, null,
 						h('style', null, ':host{display:block;margin:24px 0}*{box-sizing:border-box}.launch{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px;border:1px solid #bda16c66;border-radius:16px;background:linear-gradient(120deg,#101a2c,#1e2940);color:#f2eadb;font:14px/1.6 system-ui;box-shadow:0 12px 32px #07102018}.title{font-size:20px;font-weight:650}.hint{color:#b9c5d7;margin-top:4px;font-size:12px}button{flex-shrink:0;border:1px solid #eddbb6;border-radius:10px;padding:13px 24px;background:linear-gradient(120deg,#efdcaf,#c4a36c);color:#1b2230;font:650 15px/1.5 system-ui;cursor:pointer;box-shadow:0 4px 18px #0003}button:hover{filter:brightness(1.1)}button:focus-visible{outline:3px solid #fff;outline-offset:4px}button:disabled{opacity:.6;cursor:wait}@media(max-width:600px){.launch{flex-wrap:wrap;padding:20px}button{width:100%}}'),
@@ -114,7 +119,7 @@
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor < 1, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor - 1 }); } }, '回退一步'),
 						h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'),
 						renderer ? h(tavernPluginBoundary(), { owner: renderer.owner, fallback: h('p', null, '玩法界面出错，请恢复插件') },
-							h(renderer.render, { gameId: sessionId, data: snapshot.data, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+							h(renderer.render, { gameId: sessionId, data: snapshot.data, revision: snapshot.revision, paused: paused, error: error, resume: function () { setError(''); setPaused(false); }, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
 			}
 
 			function TavernComposerSlot(props) {

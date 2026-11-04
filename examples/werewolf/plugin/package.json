@@ -1,6 +1,6 @@
 {
   "name": "dsh-card-werewolf",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "六人狼人杀：五个独立NPC与DM主持，支持节点回退与恢复",
   "type": "module",
   "exports": { ".": "./index.mjs", "./client": "./client.js" },

@@ -5,7 +5,7 @@ import { createState, actionFor, perspective, project, accept, resolve, gameMode
 function state() {
   const s = createState({ seat: 6 })
   s.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] })
-  s.queue = [1, 2]; return s
+  s.queue = [1, 2]; s.gate = null; return s
 }
 test('hidden roles, wolf chat and inspection never enter a villager view', () => {
   const s = state()
@@ -19,7 +19,40 @@ test('hidden roles, wolf chat and inspection never enter a villager view', () =>
   resolve(s)
   assert.equal(s.players[2].alive, false)
   assert.equal(s.phase, 'speech')
-  assert.equal(actionFor(s).actor, 1)
+  assert.equal(actionFor(s).gate, 'daybreak')
+})
+
+test('player journey reveals identity before night and pauses on private inspection result', async () => {
+  const s = createState({ seat: 3 })
+  s.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] })
+  const agent = async request => {
+    if (request.id === 'dm') return { text: '天亮了，请听公告。' }
+    const a = JSON.parse(request.prompt).action
+    return { text: JSON.stringify(a.kind === 'speak' ? { text: '狼队秘密' } : { target: 4 }) }
+  }
+  assert.equal(project(s).phase, 'identity')
+  assert.deepEqual(project(s).publicHistory, [])
+  await gameMode.advance({ state: s, input: null, agent })
+  assert.equal(project(s).phase, 'night')
+  assert.equal(project(s).action.kind, 'auto')
+  while (project(s).action.kind === 'auto') await gameMode.advance({ state: s, input: null, agent })
+  assert.equal(project(s).action.kind, 'inspect')
+  await gameMode.advance({ state: s, input: { target: 1 }, agent })
+  assert.equal(project(s).phase, 'inspection')
+  assert.match(JSON.stringify(project(s).history), /1号是狼人/)
+  assert.doesNotMatch(JSON.stringify(project(s).publicHistory), /查验结果|狼队秘密/)
+  await gameMode.advance({ state: s, input: null, agent })
+  await gameMode.advance({ state: s, input: null, agent })
+  assert.equal(project(s).phase, 'daybreak')
+  assert.match(JSON.stringify(project(s).publicHistory), /4号昨夜出局/)
+  await gameMode.advance({ state: s, input: null, agent })
+  assert.equal(project(s).currentSpeaker, 1)
+})
+
+test('dead players spectate through phase gates without manual decisions', () => {
+  const s = state(); s.players[5].alive = false; s.gate = 'daybreak'
+  assert.equal(project(s).spectating, true)
+  assert.equal(project(s).action.kind, 'auto')
 })
 test('illegal target does not advance; tie vote exiles nobody; votes remain private until resolution', () => {
   const s = state(); s.phase = 'vote'; s.queue = [1, 2, 3, 4, 5, 6]; s.index = 0
@@ -31,7 +64,7 @@ test('illegal target does not advance; tie vote exiles nobody; votes remain priv
   assert.equal(s.players.filter(p => p.alive).length, 6)
   assert.equal(s.day, 2)
 })
-test('a complete six-player game runs through isolated NPC and DM calls', async () => {
+test('a complete six-player game uses models only for NPC decisions, never DM rules', async () => {
   const s = state(), requests = []
   const agent = async request => {
     requests.push(request)
@@ -41,11 +74,11 @@ test('a complete six-player game runs through isolated NPC and DM calls', async 
   }
   for (let steps = 0; steps < 100 && s.phase !== 'ended'; steps++) {
     const a = actionFor(s)
-    const input = a.actor === s.human ? a.kind === 'speak' ? { text: '我是好人。' } : { target: a.targets[0] } : null
+    const input = a.actor === s.human && a.kind !== 'confirm' ? a.kind === 'speak' ? { text: '我是好人。' } : { target: a.targets[0] } : null
     await gameMode.advance({ state: s, input, agent })
   }
   assert.ok(s.winner)
-  assert.ok(requests.some(r => r.id === 'dm'))
+  assert.equal(requests.some(r => r.id === 'dm'), false)
   assert.ok(requests.some(r => r.id.startsWith('npc-')))
   for (const r of requests.filter(r => r.id === 'dm')) assert.doesNotMatch(r.prompt, /查验结果|狼队标记/)
   assert.equal(project(s).revealed.length, 6)
