@@ -259,6 +259,21 @@ ctx.tavernUi.registerComposerSlot({
 ctx.tavernUi.submitInput({ gameId, text: '我举盾格挡，然后反击。' })
 ```
 
+## `getCapabilities()`（浏览器 API 第 9 版）
+
+返回新的能力快照，键是能力名，值是各能力独立的正整数版本。目前包含 `openOverlay: 1`、`overlayLayout: 1`、`stageInteraction: 1`、`watchStage: 1`、`watchTurnState: 1` 和 `callHost: 1`。能力表示浏览器接口存在，并不表示当前游戏或素材已获授权；实际调用仍由宿主检查。每次调用返回新对象，可在当前页面生命周期缓存。未知键应忽略，缺失或版本不足时使用旧路径；旧宿主没有此方法时先检测方法是否存在。浏览器 `apiVersion` 和服务端 `tavern.apiVersion` 独立，不能互相推断。
+
+```js
+const caps = typeof ctx.tavernUi.getCapabilities === 'function' ? ctx.tavernUi.getCapabilities() : {}
+if ((caps.overlayLayout || 0) >= 1) { /* 可使用 overlay 的 layout */ }
+```
+
+## `registerStageInteraction({ id?, label, render, when?, dismissible?, onClose? })`（第 9 版）
+
+在既有输入框操作栏注册一个入口，点击时打开插件的 overlay，关闭后回到原页面；它不替换原生舞台，也不是原生舞台 dock。按钮遵循 `registerComposerAction` 既有的可见性、权限和忙碌规则，`when` 接收同样的上下文。`render` 接收 overlay 的 `{ gameId, close, layout }`；`onClose` 接收 `{ gameId }`。同一注册和游戏的重复打开复用尚未关闭的 overlay；返回的注销函数和插件卸载都会关闭其界面。关闭后可以重新打开。
+
+旧宿主没有此方法时，卡可用 `registerComposerAction` 的 `run({ gameId })` 调用 `openOverlay` 实现同一交互；不能假定 `registerStageDock` 存在。
+
 ## `openOverlay({ gameId?, render, dismissible?, onClose? })`（第 2 版）
 
 打开一层盖住整个页面的插件界面，适合战斗、地图这类需要大空间的玩法。返回 `{ close }`。
@@ -271,7 +286,8 @@ const overlay = ctx.tavernUi.openOverlay({
 })
 ```
 
-- `render` 收到 `{ gameId, close }`，返回 React 元素；界面自己负责提供关闭的按钮。
+- `render` 收到 `{ gameId, close }`，返回 React 元素；界面自己负责提供关闭的按钮。第 9 版还提供 `layout`：`layout.get()` 返回 `{ left, top, width, height }`，单位为 CSS 像素，相对于布局视口；`layout.subscribe(listener)` 在视觉视口变化时通知，返回取消订阅函数。初值通过 `get()` 读取。关闭或插件卸载时宿主取消监听并清空订阅，关闭后不再通知。无 VisualViewport 时使用窗口尺寸。
+- 这是视觉视口范围，可反映常见缩放和键盘引起的视口变化，但不保证避开所有宿主浮层、设备安全区或输入法。界面仍应使用 CSS 安全区 inset 并自行处理内容溢出。旧宿主上的 `layout` 不存在，请按能力探测后降级。
 - 按 Esc 关闭；`dismissible: false` 时 Esc 不关闭，只能调用 `close`。
 - 关闭时调用一次 `onClose`。插件卸载时界面自动关闭。界面出错时显示一行错误和关闭按钮。
 
@@ -378,7 +394,7 @@ ctx.tavernUi.registerTurnView({
 
 ## `registerStageView`（已停用）
 
-插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会直接报错。
+插件不能再替换舞台画面。舞台由 Tavern 按人物卡绑定的素材包绘制：给人物卡绑定素材包并打开对话气泡即可。调用 `registerStageView` 会返回空清理函数并在控制台提示一次，不会接管舞台。`registerStageDock` 目前不是公开接口；可以通过既有的 `registerComposerAction` 或 `registerPanel` 打开 `openOverlay`，关闭后回到原页面。
 
 ## `speak({ gameId, speaker?, text, emotion?, narration? })`、`stopSpeech()`（第 2 版）
 

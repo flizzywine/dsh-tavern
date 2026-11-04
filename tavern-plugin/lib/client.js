@@ -10215,7 +10215,11 @@ window.__ModuleLoader__.load({
 		  function OpeningScene({ctx,greeting,label,scene,onEdit,field}) {
 		    const addTrigger=React.useRef(null),backToAdd=()=>setTimeout(()=>addTrigger.current?.focus?.(),0);
 		    const draft=openingDraft(scene),cast=draft.cast,staged=openingStaged(ctx);
-		    const name=alias=>stageFigure(ctx,alias).figure?.name||alias;
+		    const name=alias=>{
+		      const value=stageFigure(ctx,alias).figure?.name;
+		      if(typeof value==='string'&&value)return value;
+		      return typeof alias==='string'?alias:'角色资料暂不可用';
+		    };
 		    const setCast=next=>onEdit({cast:next});
 		    const move=(index,delta)=>{const next=[...cast];[next[index],next[index+delta]]=[next[index+delta],next[index]];setCast(next);};
 		    const picker=(kind,label,value,onChange,art)=>{
@@ -32480,7 +32484,11 @@ function tavernFloorHeightRecall(key, width) {
 
 			const service = {
 				ctx: undefined,
-				apiVersion: 8,
+				apiVersion: 9,
+				// Independent browser feature versions, not resource authorization or host API versions.
+				getCapabilities() {
+					return { openOverlay: 1, overlayLayout: 1, stageInteraction: 1, watchStage: 1, watchTurnState: 1, callHost: 1 };
+				},
 				registerMediaRenderer(kind, render) {
 					if (typeof kind !== "string" || !/^[a-z0-9][a-z0-9._-]{0,63}\/[a-z0-9][a-z0-9._-]{0,63}$/.test(kind)) throw new TypeError("只能为插件自定义的 <插件名>/<类型> 注册显示方式");
 					if (typeof render !== "function") throw new TypeError("registerMediaRenderer 需要 render 函数");
@@ -32504,6 +32512,27 @@ function tavernFloorHeightRecall(key, width) {
 				registerComposerAction(input) {
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
+				},
+				// A composer action that opens a plugin-owned overlay, without replacing the native stage.
+				registerStageInteraction(input) {
+					if (!input || typeof input.render !== "function") throw new TypeError("registerStageInteraction 需要 render 函数");
+					if (input.onClose !== undefined && typeof input.onClose !== "function") throw new TypeError("registerStageInteraction 的 onClose 必须是函数");
+					const plugin = this, open = new Map();
+					const entry = Object.assign({ owner: ownerOf(this) }, action({ id: input.id, label: input.label, when: input.when, run: function (context) {
+						const gameId = String(context && context.gameId || "");
+						if (!gameId) throw new TypeError("registerStageInteraction 需要当前游戏");
+						if (open.has(gameId)) return open.get(gameId);
+						const handle = plugin.openOverlay({ gameId: gameId, render: input.render, dismissible: input.dismissible, onClose: function () {
+							open.delete(gameId);
+							if (input.onClose) input.onClose({ gameId: gameId });
+						} });
+						open.set(gameId, handle);
+						return handle;
+					} }, "registerStageInteraction"));
+					return owned(this, function () {
+						const remove = addTo(composerActions, entry);
+						return function () { remove(); Array.from(open.values()).forEach(function (handle) { handle.close(); }); open.clear(); };
+					}, "tavernUi.registerStageInteraction()");
 				},
 				registerGameModeView(input) {
 					if (!input || !/^[a-z][a-z0-9._-]{0,63}$/.test(input.name) || typeof input.render !== 'function') throw new Error('玩法界面需要 name 和 render');
@@ -32914,12 +32943,40 @@ function tavernFloorHeightRecall(key, width) {
 						document.body.append(container);
 						const root = require("react-dom/client").createRoot(container);
 						let closed = false;
+						const layoutListeners = new Set();
+						const viewport = typeof window !== "undefined" ? window.visualViewport : null;
+						const layoutTarget = typeof window !== "undefined" ? window : null;
+						function readLayout() {
+							return { left: viewport ? viewport.offsetLeft : 0, top: viewport ? viewport.offsetTop : 0,
+								width: viewport ? viewport.width : (layoutTarget ? layoutTarget.innerWidth : 0),
+								height: viewport ? viewport.height : (layoutTarget ? layoutTarget.innerHeight : 0) };
+						}
+						function layoutChanged() {
+							if (closed) return;
+							Array.from(layoutListeners).forEach(function (listener) {
+								try { listener(readLayout()); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
+							});
+						}
+						const layout = {
+							get: readLayout,
+							subscribe: function (listener) {
+								if (typeof listener !== "function") throw new TypeError("layout.subscribe 需要 listener 函数");
+								if (closed) return function () {};
+								layoutListeners.add(listener);
+								return function () { layoutListeners.delete(listener); };
+							}
+						};
+						if (layoutTarget) layoutTarget.addEventListener("resize", layoutChanged);
+						if (viewport) { viewport.addEventListener("resize", layoutChanged); viewport.addEventListener("scroll", layoutChanged); }
 						function onKey(event) { if (event.key === "Escape" && input.dismissible !== false) { event.stopPropagation(); handle.close(); } }
 						document.addEventListener("keydown", onKey, true);
 						cleanup = function () {
 							if (closed) return;
 							closed = true;
 							document.removeEventListener("keydown", onKey, true);
+							if (layoutTarget) layoutTarget.removeEventListener("resize", layoutChanged);
+							if (viewport) { viewport.removeEventListener("resize", layoutChanged); viewport.removeEventListener("scroll", layoutChanged); }
+							layoutListeners.clear();
 							root.unmount();
 							container.remove();
 							if (input.onClose) try { input.onClose(); } catch (error) { try { tavernErrorHub.report("插件 " + owner, error); } catch (_) {} }
@@ -32927,7 +32984,7 @@ function tavernFloorHeightRecall(key, width) {
 						const h = React.createElement;
 						const fallback = h("div", { className: "dsh-tavern-plugin-overlay-error" }, "插件 " + owner + " 的界面出错了",
 							h("button", { type: "button", onClick: handle.close }, "关闭"));
-						function Screen() { return input.render({ gameId: String(input.gameId || ""), close: handle.close }); }
+						function Screen() { return input.render({ gameId: String(input.gameId || ""), close: handle.close, layout: layout }); }
 						root.render(h(tavernPluginBoundary(), { owner: owner, fallback: fallback }, h(Screen)));
 						return function () { cleanup(); };
 					}, "tavernUi.openOverlay()");
