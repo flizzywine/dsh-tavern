@@ -25,6 +25,9 @@ const host = await createPluginHost({ withTools: true })
 const plugin = Object.create(host.services.get('tavern')); plugin.ctx = { fiber: { name: 'dsh-card-werewolf' } }
 let failNextNpc = true
 plugin.gameMode({ ...gameMode,
+  // This fixture hosts the standalone board, not the native conversation graph.
+  // Native foreground projection and concurrent rows have separate regressions.
+  foreground: undefined,
   create: args => { const result = gameMode.create(args); result.state.players.forEach((p, i) => { p.role = ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager'][i] }); result.state.queue = [1, 2]; return result },
   advance: args => gameMode.advance({ ...args, agent: ({ id, system, prompt, signal }) => {
     if (failNextNpc) { failNextNpc = false; throw new Error('测试网络中断') }
