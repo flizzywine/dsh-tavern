@@ -4,7 +4,7 @@
 import {createHash, randomBytes} from 'node:crypto'
 
 const EXT = {'image/png':'png','image/jpeg':'jpeg','image/webp':'webp'}
-// The entry's origin; only these entries offer 删除此 CG in 回想.
+// The entry's origin; only these entries offer 删除这张 CG in 回想.
 export const scenePictureOf = asset => asset?.kind === 'cg' ? asset.extensions?.dsh_tavern?.scenePicture || null : null
 const clip = (text, max) => [...String(text || '').trim()].slice(0, max).join('')
 
@@ -66,7 +66,7 @@ export function createSceneCg({library, attachments, chatForSession, cardAssetBi
       return {...ref, changed:true}
     })
   }
-  // 回想 › 删除此 CG: only an entry this sync made, in a pack bound to the playing card.
+  // 回想 › 删除这张 CG: only an entry this sync made, in a pack bound to the playing card.
   async function remove({sessionId, ref}) {
     const service = library(), context = await cardOf(sessionId)
     if (!service || !context) throw Object.assign(new Error('当前游戏不存在'), {code:'NOT_FOUND'})

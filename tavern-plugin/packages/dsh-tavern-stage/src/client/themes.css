@@ -121,28 +121,133 @@
 .fork-cg-stage > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: center; will-change: transform, opacity; }
 /* artwork transition and isolated gallery; theme tokens remain the stage's. */
 .fork-cg-white { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
-.fork-cg-gallery { position: absolute; inset: 0; z-index: 80; display: flex; flex-direction: column; background: var(--gal-base-bg); color: var(--gal-ui-ink); font-family: var(--gal-ui-font); isolation: isolate; }
-.fork-cg-gallery > header, .fork-cg-gallery > footer { position: relative; z-index: 3; padding: 16px 24px; background: var(--gal-base-bg); }
-.fork-cg-gallery > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.fork-cg-gallery h2 { margin: 0; font-family: var(--gal-ui-title-font); }
-.fork-cg-gallery button { border: 1px solid currentColor; border-radius: var(--gal-ui-radius); padding: 8px 12px; color: inherit; background: var(--gal-base-bg); cursor: pointer; }
-.fork-cg-gallery button:focus-visible { outline: 2px solid var(--gal-ui-accent); outline-offset: 2px; }
-.fork-cg-gallery button[aria-pressed=true] { color: var(--gal-ui-accent); }
-.fork-cg-gallery button:disabled { cursor: default; }
-.fork-cg-gallery-scroll { overflow-y: auto; min-height: 0; padding: 16px 24px; }
-.fork-cg-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 16px; }
-.fork-cg-gallery-cell { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-width: 0; min-height: 130px; overflow: hidden; }
-.fork-cg-gallery-cell > span { overflow: hidden; text-overflow: ellipsis; }
-.fork-cg-gallery-picture { position: relative; flex: 1; min-height: 0; width: 100%; aspect-ratio: 16/9; overflow: hidden; }
-.fork-cg-gallery > .fork-cg-gallery-picture { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; }
-.fork-cg-gallery > footer { margin-top: auto; }
-.fork-cg-gallery-strip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; }
-.fork-cg-gallery-strip > button { flex-shrink: 0; }
-.fork-cg-gallery-reveal { position: absolute; right: 16px; bottom: 16px; z-index: 3; }
+/* 回想 (the CG gallery) is a media viewer: dark whatever the stage theme, the pictures fill the space and every control
+   is a glass icon over them, named in its hover tip. Grid: tiles edge to edge, titles on the picture. Viewer (「四角」):
+   title top left, ✎ 🗑 ✕ top right, ‹ › at the sides (phones: bottom corners), 差分 dots bottom centre, 构图 bottom right. */
+.fork-cg-gallery { --cg-ink: #f4f5f9; --cg-ink-2: rgb(244 245 249 / .7); --cg-glass: rgb(12 14 24 / .52); --cg-glass-hover: rgb(255 255 255 / .2);
+  --cg-card: #1b1e2c; --cg-card-line: rgb(255 255 255 / .1); --cg-card-hover: rgb(255 255 255 / .08); --cg-danger: #ff7b86; --cg-danger-ink: #2a0b10; --cg-tile: #171a26; --cg-base: #0b0d14;
+  position: absolute; inset: 0; z-index: 80; overflow: hidden; background: var(--cg-base); color: var(--cg-ink); font-family: var(--gal-ui-font); isolation: isolate; outline: none; }
+.fork-cg-gallery h2 { margin: 0; min-width: 0; overflow: hidden; font: 600 22px/1.3 var(--gal-ui-title-font, var(--gal-ui-font)); letter-spacing: .03em; white-space: nowrap; text-overflow: ellipsis; }
+.fork-cg-gallery button { font-family: inherit; }
+.fork-cg-gallery button:focus-visible { outline: 2px solid var(--cg-ink); outline-offset: 2px; }
+.fork-cg-icon { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fork-cg-round { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 44px; height: 44px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%;
+  background: var(--cg-glass); box-shadow: none; color: var(--cg-ink); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); cursor: pointer; transition: background .15s, color .15s, opacity .2s; }
+.fork-cg-round:hover, .fork-cg-round[aria-expanded="true"] { background: var(--cg-glass-hover); }
+.fork-cg-round[data-k="remove"]:is(:hover, [aria-expanded="true"]) { color: var(--cg-danger); }
+@media (hover: hover) {
+  .fork-cg-gallery [data-tip]:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; z-index: 5; transform: translateX(-50%); padding: 5px 10px; border-radius: 6px;
+    background: var(--cg-card); box-shadow: 0 4px 14px rgb(0 0 0 / .4); color: var(--cg-ink); font-size: 13px; font-weight: 400; line-height: 1.4; white-space: nowrap; pointer-events: none; }
+  .fork-cg-gallery :is(.fork-cg-dot, .fork-cg-crop .fork-cg-round)[data-tip]:is(:hover, :focus-visible)::after { top: auto; bottom: calc(100% + 8px); }
+}
+/* the picture: contain, with the same picture blurred into the letterbox. */
+.fork-cg-gallery-picture { position: absolute; inset: 0; overflow: hidden; }
+.fork-cg-gallery .fork-cg-stage { background: none; }
+.fork-cg-gallery-fill { position: absolute; inset: -48px; width: calc(100% + 96px); height: calc(100% + 96px); object-fit: cover; filter: blur(36px) brightness(.5) saturate(1.1); pointer-events: none; }
+.fork-cg-gallery-fill:not([src]) { display: none; }
+.fork-cg-gallery-loading, .fork-cg-gallery-missing { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--cg-ink-2); font-size: 15px; pointer-events: none; }
+/* grid */
+.fork-cg-grid-page { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.fork-cg-grid-top { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; }
+.fork-cg-grid-top .fork-cg-round { background: var(--cg-card-hover); }
+.fork-cg-grid-top .fork-cg-round:hover { background: var(--cg-glass-hover); }
+.fork-cg-gallery-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 0 24px 24px; }
+.fork-cg-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 8px; }
+.fork-cg-gallery-cell { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; min-width: 0; min-height: 0; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 10px;
+  background: var(--cg-tile); box-shadow: none; color: var(--cg-ink-2); cursor: pointer; }
+.fork-cg-gallery-cell:disabled { cursor: default; }
+.fork-cg-gallery-cell:disabled > .fork-cg-icon { width: 26px; height: 26px; opacity: .55; }
+.fork-cg-gallery-cell .fork-cg-gallery-picture { transition: transform .35s ease; }
+.fork-cg-gallery-cell .fork-cg-stage > img { object-fit: cover; }
+.fork-cg-cell-title { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; overflow: hidden; padding: 30px 12px 9px; background: linear-gradient(transparent, rgb(0 0 0 / .72)); color: var(--cg-ink);
+  font-size: 14px; font-weight: 500; line-height: 1.35; text-align: left; text-overflow: ellipsis; text-shadow: 0 1px 2px rgb(0 0 0 / .6); white-space: nowrap; opacity: 0; transition: opacity .2s; }
+.fork-cg-gallery-cell:is(:hover, :focus-visible) .fork-cg-cell-title { opacity: 1; }
+.fork-cg-gallery-cell:hover .fork-cg-gallery-picture { transform: scale(1.04); }
+@media (hover: none) { .fork-cg-cell-title { opacity: 1; } }
+.fork-cg-more { display: grid; flex: none; place-items: center; min-height: 64px; }
+.fork-cg-gallery .fork-empty { color: var(--cg-ink); }
+.fork-cg-gallery .fork-empty-icon { background: var(--cg-card-hover); color: var(--cg-ink-2); }
+.fork-cg-gallery-wait { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--cg-ink-2); pointer-events: none; }
+.fork-cg-gallery-error { position: absolute; left: 50%; bottom: 24px; z-index: 7; display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 6px 6px 14px; transform: translateX(-50%);
+  border: 1px solid var(--cg-card-line); border-radius: 12px; background: var(--cg-card); box-shadow: 0 10px 30px rgb(0 0 0 / .5); font-size: 14px; white-space: nowrap; }
+.fork-cg-gallery-error > .fork-cg-icon { width: 18px; height: 18px; color: var(--cg-danger); }
+.fork-cg-gallery-error > button { margin: 0; padding: 6px 12px; border: 0; border-radius: 8px; background: none; color: var(--cg-ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+.fork-cg-gallery-error > button:hover { background: var(--cg-card-hover); }
+/* viewer */
+.fork-cg-viewer { position: absolute; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+.fork-cg-viewer-dim { position: absolute; inset: 0; z-index: 3; background: rgb(0 0 0 / .42); opacity: 0; transition: opacity .2s; pointer-events: none; }
+.fork-cg-viewer[data-confirm] .fork-cg-viewer-dim { opacity: 1; }
+.fork-cg-viewer-ui { position: absolute; inset: 0; z-index: 4; pointer-events: none; transition: opacity .2s, visibility .2s; }
+.fork-cg-viewer-ui :is(button, .fork-cg-confirm, .fork-cg-crop-menu) { pointer-events: auto; }
+@media (hover: hover) {
+  .fork-cg-viewer-ui { opacity: .38; }
+  .fork-cg-viewer:is([data-active], [data-confirm], :has(:focus-visible)) .fork-cg-viewer-ui { opacity: 1; }
+}
+.fork-cg-viewer[data-ui="off"] .fork-cg-viewer-ui { opacity: 0; visibility: hidden; }
+.fork-cg-viewer-scrim { position: absolute; left: 0; right: 0; top: 0; height: 160px; background: linear-gradient(rgb(0 0 0 / .55), transparent); }
+.fork-cg-viewer-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 16px; padding: 20px 24px 0; }
+.fork-cg-viewer-top h2 { flex: 1; text-shadow: 0 1px 3px rgb(0 0 0 / .7); }
+.fork-cg-viewer-acts { display: flex; flex: none; gap: 8px; }
+.fork-cg-nav { position: absolute; top: 50%; width: 56px; height: 56px; transform: translateY(-50%); }
+.fork-cg-nav.is-prev { left: 24px; }
+.fork-cg-nav.is-next { right: 24px; }
+.fork-cg-nav .fork-cg-icon { width: 28px; height: 28px; }
+.fork-cg-dots { position: absolute; left: 50%; bottom: 20px; display: flex; transform: translateX(-50%); }
+.fork-cg-dot { position: relative; display: grid; place-items: center; width: 30px; height: 44px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; background: none; box-shadow: none; cursor: pointer; }
+.fork-cg-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: rgb(255 255 255 / .45); box-shadow: 0 0 3px rgb(0 0 0 / .6); }
+.fork-cg-dot[aria-pressed="true"]::before { width: 10px; height: 10px; background: var(--cg-ink); }
+.fork-cg-crop { position: absolute; right: 24px; bottom: 20px; }
+.fork-cg-crop-menu { position: absolute; right: 0; bottom: calc(100% + 8px); display: flex; flex-direction: column; min-width: 9em; padding: 6px; border: 1px solid var(--cg-card-line); border-radius: 12px;
+  background: var(--cg-card); box-shadow: 0 10px 30px rgb(0 0 0 / .5); }
+/* role=menu: the host's menu ground (theme.css) stays off this opaque card. */
+.fork-cg-viewer-ui .fork-cg-crop .fork-cg-crop-menu { background: var(--cg-card); }
+.fork-cg-crop-menu > button { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 14px 8px 8px; border: 0; border-radius: 8px; background: none; color: var(--cg-ink); font-size: 14px; line-height: 1.3; text-align: left; white-space: nowrap; cursor: pointer; }
+.fork-cg-crop-menu > button:hover { background: var(--cg-card-hover); }
+.fork-cg-crop-menu .fork-cg-icon { width: 16px; height: 16px; visibility: hidden; }
+.fork-cg-crop-menu [aria-checked="true"] .fork-cg-icon { visibility: visible; }
+/* 删除这张 CG？: a card hanging from 🗑 over the darkened picture; everything else steps back until it is answered. */
+.fork-cg-viewer[data-confirm] :is(.fork-cg-nav, .fork-cg-dots, .fork-cg-crop, .fork-cg-viewer-acts > :not([data-k="remove"])) { opacity: .35; pointer-events: none; }
+.fork-cg-viewer[data-confirm] [data-tip]::after { display: none; }
+.fork-cg-confirm { position: absolute; top: calc(100% + 14px); right: 24px; z-index: 6; box-sizing: border-box; width: min(304px, calc(100vw - 24px)); padding: 18px 16px 16px; border: 1px solid var(--cg-card-line);
+  border-radius: 16px; background: var(--cg-card); box-shadow: 0 18px 48px rgb(0 0 0 / .55); color: var(--cg-ink); cursor: default; transform-origin: calc(100% - 74px) 0; animation: fork-cg-pop .16s ease-out; }
+.fork-cg-confirm::before { content: ""; position: absolute; top: -7px; right: 67px; width: 12px; height: 12px; border: solid var(--cg-card-line); border-width: 1px 0 0 1px; border-radius: 3px 0 0 0; background: var(--cg-card); transform: rotate(45deg); }
+.fork-cg-confirm-head { display: flex; align-items: center; gap: 12px; }
+.fork-cg-confirm-badge { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: color-mix(in srgb, var(--cg-danger) 16%, transparent); color: var(--cg-danger); }
+.fork-cg-confirm-badge .fork-cg-icon { width: 20px; height: 20px; }
+.fork-cg-confirm p { margin: 0; }
+#fork-cg-confirm-title { font-size: 16px; font-weight: 600; line-height: 1.4; }
+#fork-cg-confirm-note { margin-top: 2px; color: var(--cg-ink-2); font-size: 13px; line-height: 1.45; }
+.fork-cg-confirm-error { display: flex; align-items: center; gap: 6px; margin-top: 12px !important; color: var(--cg-danger); font-size: 13px; }
+.fork-cg-confirm-error .fork-cg-icon { width: 16px; height: 16px; }
+.fork-cg-confirm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.fork-cg-confirm-row > button { display: flex; align-items: center; justify-content: center; gap: 6px; height: 40px; min-width: 0; min-height: 0; margin: 0; padding: 0 12px; border: 0; border-radius: 10px;
+  background: var(--cg-card-hover); box-shadow: none; color: var(--cg-ink); font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, filter .15s; }
+.fork-cg-confirm-row > button:hover:not(:disabled) { background: rgb(255 255 255 / .14); }
+.fork-cg-confirm-row > button.is-danger { background: var(--cg-danger); color: var(--cg-danger-ink); }
+.fork-cg-confirm-row > button.is-danger:hover:not(:disabled) { background: var(--cg-danger); filter: brightness(1.08); }
+.fork-cg-confirm-row > button:disabled { cursor: default; }
+.fork-cg-confirm-row > button:disabled:not([aria-busy]) { opacity: .5; }
+@keyframes fork-cg-pop { from { opacity: 0; transform: translateY(-4px) scale(.97); } }
+.fork-gal-stage[data-reduced-motion] :is(.fork-cg-viewer-ui, .fork-cg-viewer-dim, .fork-cg-round, .fork-cg-cell-title, .fork-cg-gallery-cell .fork-cg-gallery-picture, .fork-cg-confirm) { transition: none; animation: none; }
 @media (max-width: 600px) {
-  .fork-cg-gallery > header, .fork-cg-gallery > footer, .fork-cg-gallery-scroll { padding: 12px; }
-  .fork-cg-gallery-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
-  .fork-cg-gallery-cell { min-height: 100px; }
+  .fork-cg-gallery h2 { font-size: 17px; }
+  .fork-cg-round { width: 40px; height: 40px; }
+  .fork-cg-grid-top { padding: 12px 12px 10px 16px; }
+  .fork-cg-gallery-scroll { padding: 0 8px 8px; }
+  .fork-cg-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .fork-cg-gallery-cell { border-radius: 8px; }
+  .fork-cg-cell-title { padding: 18px 8px 6px; font-size: 12px; }
+  .fork-cg-viewer-scrim { height: 120px; }
+  .fork-cg-viewer-top { gap: 10px; padding: 12px 12px 0; }
+  .fork-cg-viewer-top h2 { font-size: 16px; }
+  .fork-cg-nav { top: auto; bottom: 16px; width: 40px; height: 40px; transform: none; }
+  .fork-cg-nav.is-prev { left: 12px; }
+  .fork-cg-nav.is-next { right: 12px; }
+  .fork-cg-nav .fork-cg-icon { width: 22px; height: 22px; }
+  .fork-cg-dots { bottom: 14px; }
+  .fork-cg-crop { right: 60px; bottom: 16px; }
+  .fork-cg-confirm { right: 12px; transform-origin: calc(100% - 68px) 0; }
+  .fork-cg-confirm::before { right: 61px; }
 }
 .fork-gal-stage[data-cg-visible] > :is(.fork-performance-over, .fork-performance-flash) { z-index: 1; }
 .fork-live2d-error { position: absolute; top: 12px; left: 12px; margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--fk-current-mediaChip, #16141c); color: #ffb4b4; font: 12px/1.4 var(--fork-font-ui); }
@@ -1890,8 +1995,6 @@ img.fork-gal-side-img, .fork-gal-side-img > :is(img, canvas) { filter: drop-shad
 .fork-gal-picture-next::after { content: " \25B8"; }
 @keyframes fork-gal-picture-in { from { opacity: 0; } }
 .fork-gal-stage[data-reduced-motion] .fork-gal-picture-page { animation: none; }
-.fork-cg-gallery .fork-cg-gallery-scene { align-items: center; }
-.fork-cg-gallery .fork-cg-gallery-scene > button.is-danger { color: var(--gal-ui-widget-warning); }
 /* Layer rows (shared by the popover and the Config 音量 tab). */
 .fork-gal-mix { display: grid; gap: 2px; }
 .fork-gal-mix-row { display: grid; grid-template-columns: 30px 5.8em minmax(0, 1fr) 2.2em; align-items: center; column-gap: 8px; min-height: 42px; }
