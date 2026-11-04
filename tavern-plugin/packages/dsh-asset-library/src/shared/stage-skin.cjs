@@ -853,9 +853,10 @@ const stageSkinShape = skinObject({
     // motion (§18 E4): the plate's entrance when the speaker changes (dx / dy in em of the name; it turns about its top).
     nameplate:skinObject({shape:skinEnum(['pill','tag','torn','jagged','plate','plain','ribbon','underline','ransom','fade','emblem','chamfer','outline']),tint:skinEnum(['figure']),enter:skinEnum(['unfold']),paint:skinObject({bg:skinColor,fg:skinColor,border:skinColor},['bg','fg']),rotate:skinNumber(-3,3),size:skinNumber(18,40),letterSpacing:skinNumber(0,0.2),rings:skinRings(2,8),motion:skinMotion},['shape','paint']),
     // the skin's stage-mode fonts, every field optional. body = the stage role (text
-    // box; name / ui fall back to it), film = cinematic subtitles (falls back to body).
+    // box; name / ui fall back to it), film = cinematic subtitles (falls back to body), menu (§18 N33) = the drawn Esc menu's
+    // ransom words (art.menu letter ransom; a decoration face like ui.titleFont, falls back to body).
     // faces: the skin's own font files (skinFontFaces above); an id in body / name / ui / film may name one of them.
-    font:skinObject({body:skinId,name:skinId,ui:skinId,film:skinId,faces:skinFontFaces}),
+    font:skinObject({body:skinId,name:skinId,ui:skinId,film:skinId,menu:skinId,faces:skinFontFaces}),
     // textStyle.narration (§18 N9): the ink of narration pages (no speaker) in the box and the backlog, >= 7:1 on the box.
     textStyle:skinObject({weight:skinEnum([400,500,700]),sizeScale:skinNumber(0.85,1.2),lineHeight:skinNumber(1.4,1.9),letterSpacing:skinNumber(0,0.12),emphasis:skinColor,wrap:skinEnum(['phrase']),narration:skinColor}),
     // (§18 E1): the stepped reveals' glyph track on the fixed 12/s clock. poses = the glyph's own entrance poses
