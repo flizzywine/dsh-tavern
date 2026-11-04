@@ -116,17 +116,38 @@ function imageClosure(outfit, sprite, imageId) {
   if (image.mouthSet !== undefined) document.mouthSets = {[image.mouthSet]:sprite.mouthSets[image.mouthSet]}
 
   // Shared rigs/atlases used by this descriptor belong to its immutable content closure.
+  // Avatar crop boxes are derived framing metadata (isMetadataEdit already lets avatar-crops change them), not the image.
   return {image,mouthAtlas:document.mouthAtlas || null,mouthSets:document.mouthSets || null,rig:document.rig || null,rigs:document.rigs || null,
     assets:Object.fromEntries(spriteResourcePaths(document).map(path=>[path,outfit.sprite.assets[path]])),
-    avatar:outfit.avatars?.[imageId] || null,avatarCrop:outfit.sprite.avatarCrop?.[imageId] || outfit.avatarCrop || null,avatarCropAuto:outfit.sprite.avatarCropAuto?.[imageId] || null,anatomy:outfit.sprite.anatomy?.[imageId] || null}
+    avatar:outfit.avatars?.[imageId] || null,anatomy:outfit.sprite.anatomy?.[imageId] || null}
+}
+
+// An explicit removal withdraws a published image that no pool offers any more (owner decision, unused retired image).
+// It must leave no image, avatar, crop or calibration row behind.
+function validateImageRemovals(before,after,rows) {
+  check(Array.isArray(rows),'$.imageRemovals','Expected an array')
+  const removed=new Set()
+  for(const row of rows) {
+    check(row&&Object.keys(row).length===3&&['figureId','outfitKey','imageId'].every(key=>typeof row[key]==='string'),'$.imageRemovals','Invalid image removal declaration')
+    const {figureId,outfitKey,imageId}=row,key=figureId+'/'+outfitKey+'/'+imageId,path='$.figures.'+figureId+'.outfits.'+outfitKey+'.images.'+imageId
+    const oldOutfit=before?.figures[figureId]?.outfits.find(o=>o.key===outfitKey),newOutfit=after.figures[figureId]?.outfits.find(o=>o.key===outfitKey)
+    check(oldOutfit?.sprite?.imagePools,path,'Image removal needs a published image-pool outfit','REVISION_CONFLICT')
+    // A replay of the applied removal finds the image already gone.
+    check(!Object.values(oldOutfit.sprite.imagePools).some(pool=>pool.imageIds.includes(imageId)),path,'Only an image in no pool can be removed')
+    check(newOutfit?.sprite&&!imageContract.spriteImageTable(after.sprites[newOutfit.sprite.manifestKey])?.[imageId]&&!newOutfit.avatars?.[imageId]&&['avatarCrop','avatarCropAuto','anatomy'].every(field=>!newOutfit.sprite[field]?.[imageId]),path,'Removed image still has an image, avatar, crop or anatomy row')
+    removed.add(key)
+  }
+  return removed
 }
 
 // All published image descriptors are conservative historical roots, including retired pool members.
 // An avatar is a derived crop of its image, not part of the pose: an explicit avatarReplacements
-// row may re-cut it in place; the image, its resources, crops and calibration stay immutable.
-export function retainPublishedStateImages(before, after, avatarRewrites = new Map(), imageResolutions = [], avatarReplacements = []) {
+// row may re-cut it in place; the image, its resources and calibration stay immutable. An explicit imageRemovals row
+// withdraws an image no pool offers.
+export function retainPublishedStateImages(before, after, avatarRewrites = new Map(), imageResolutions = [], avatarReplacements = [], imageRemovals = []) {
   const resolved = validateImageResolutions(before, after, imageResolutions)
   const avatars = validateAvatarReplacements(before, after, avatarReplacements)
+  const removed = validateImageRemovals(before, after, imageRemovals)
   if (before?.manifest.schemaVersion !== 2) return
   for (const [id, figure] of Object.entries(before.figures)) {
     const next = after.figures[id]
@@ -138,14 +159,16 @@ export function retainPublishedStateImages(before, after, avatarRewrites = new M
       check(target.sprite?.manifestKey === outfit.sprite.manifestKey,'$.sprite.manifestKey','Published image manifests are immutable; add a new outfit to withdraw an old one')
       const oldSprite = before.sprites[outfit.sprite.manifestKey], newSprite = after.sprites[target.sprite.manifestKey]
       for (const imageId of Object.keys(imageContract.spriteImageTable(oldSprite))) {
-        if (resolved.has(id+'/'+outfit.key+'/'+imageId)) continue
-        check(Object.hasOwn(imageContract.spriteImageTable(newSprite),imageId),'$.images.'+imageId,'Retired images remain historical roots')
+        if (resolved.has(id+'/'+outfit.key+'/'+imageId) || removed.has(id+'/'+outfit.key+'/'+imageId)) continue
+        const path = '$.figures.'+id+'.outfits.'+outfit.key+'.images.'+imageId
+        check(Object.hasOwn(imageContract.spriteImageTable(newSprite),imageId),path,'Retired images remain historical roots; remove an image in no pool only by an explicit imageRemovals row')
         const original=imageClosure(outfit,oldSprite,imageId)
         // Only the native technical-resolution transaction can supply this map.
         // Every other image, mouth/eye, crop and anatomy field stays immutable.
         if(avatarRewrites.has(original.avatar))original.avatar=avatarRewrites.get(original.avatar)
         if(avatars.has(id+'/'+outfit.key+'/'+imageId))original.avatar=avatars.get(id+'/'+outfit.key+'/'+imageId)
-        check(canonicalJson(original) === canonicalJson(imageClosure(target,newSprite,imageId)),'$.images.'+imageId,'Published image closure changed; replace with a new image identity','IMMUTABLE_IMAGE')
+        const next = imageClosure(target,newSprite,imageId), changed = Object.keys(original).filter(key=>canonicalJson(original[key]) !== canonicalJson(next[key]))
+        check(!changed.length,path+'.'+changed[0],'Published image closure changed ('+changed.join(', ')+'); replace with a new image identity','IMMUTABLE_IMAGE')
       }
     }
   }
