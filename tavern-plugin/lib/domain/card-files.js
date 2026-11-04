@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { StoredFile } from '../../packages/dsh-asset-library/lib/pack-v2/service.js'
@@ -20,9 +21,9 @@ function str(value) {
 // Card files in and out of the card library. pluginApi is a getter: it is built after the library.
 export function createCardFiles({ cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset, readCardWorkspace, worldBooks, pluginApi, assetLibrary = () => null, exportRoot = os.tmpdir() }) {
   const cardImportIdentity = createCardImportIdentity({ cardPaths: () => fileResources.list('card'), castAssets, readCardText: cardPath => fileResources.readText(cardPath) })
-  async function importCard(input) {
+  async function importCard(input, options = {}) {
     // A CHARX is stored as PNG or JSON; the material any card file carries goes to its character material.
-    return await storeImportedCard(cardImport(input))
+    return await storeImportedCard(cardImport(input), options)
   }
   // A CHARX, DSH card or card bundle read from disk: its packs first, so a failure leaves no card behind.
   // The stage reads packs from the asset library (dsh-asset-library), so a card's packs install there too:
@@ -60,7 +61,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     }
     return notices
   }
-  async function importCardArchiveFile(file, name, { password } = {}) {
+  async function importCardArchiveFile(file, name, { password, replacePath, pluginChoices } = {}) {
     if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
     const label = /\.dshcard$/i.test(name) ? 'DSH 人物卡' : 'CHARX'
     // The very same file again: open the card already imported from it (if still unchanged), and make sure
@@ -68,7 +69,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     const archiveSha256 = await cardImportIdentity.fileSha256(file)
     const existing = await cardImportIdentity.find(archiveSha256)
     const authenticated = await openCardZip(file, { label, password })
-    if (existing) {
+    if (existing && !replacePath) {
       const zip = authenticated
       let libraryNotices = []
       try { libraryNotices = await installPacksInLibrary(zip, (await readCardArchive(zip)).packs) } finally { await zip.close() }
@@ -84,7 +85,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         const { pack: stored, reused } = await assetPacks.importFromZip(zip, pack)
         packs.push({ id: stored.id, contentHash: stored.contentHash, format: stored.format, title: stored.title, name: pack.prefix.split('/')[1], files: Object.keys(stored.files).length, reused })
       }
-      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length })
+      const imported = await storeImportedCard(cardImportFromCard({ card: archive.card, resolve: archive.resolve, name }), { unique: true, library: !archive.packs.length, replacePath })
       if (packs.length) await castAssets.bindPacks(imported.path, packs)
       libraryNotices.push(...(imported.libraryNotices || []))
       await cardImportIdentity.remember(imported.path, archiveSha256)
@@ -93,13 +94,14 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
       let pluginError = ''
       const defaults = archive.defaults ? await storeStartDefaults(imported.path, archive.defaults) : null
       if (plugins.length) {
-        try { await cardPlugins.enable({ cardKey: castAssets.keyOf(imported.path), cardPath: imported.path, plugins }) }
-        catch (error) { pluginError = str(error?.message || error) }
-        await castAssets.setPlugins(imported.path, plugins.map(plugin => ({ ...plugin, enabled: !pluginError })))
+        if (replacePath) await castAssets.setPlugins(imported.path, plugins)
+        try { await cardPlugins.enable({ cardKey: castAssets.keyOf(imported.path), cardPath: imported.path, plugins: plugins.filter(plugin => pluginChoices?.get(plugin.name) !== false) }) }
+        catch (error) { if (replacePath) throw error; pluginError = str(error?.message || error) }
+        await castAssets.setPlugins(imported.path, plugins.map(plugin => ({ ...plugin, enabled: !pluginError && pluginChoices?.get(plugin.name) !== false })))
       }
       return { ...imported, format: archive.kind, ...(archive.info ? { info: archive.info } : {}),
         ...(packs.length ? { packs: packs.map(({ id, contentHash, title, format, files, reused }) => ({ id, contentHash, title, format, files, reused })) } : {}),
-        ...(plugins.length ? { plugins: plugins.map(({ name, purpose, files, bytes }) => ({ name, purpose, files, bytes, enabled: !pluginError })) } : {}),
+        ...(plugins.length ? { plugins: plugins.map(({ name, purpose, files, bytes }) => ({ name, purpose, files, bytes, enabled: !pluginError && pluginChoices?.get(name) !== false })) } : {}),
         ...(pluginError ? { pluginError } : {}),
         ...(libraryNotices.length ? { libraryNotices } : {}),
         ...(defaults ? { startDefaults: { preset: defaults.presetPath ? defaults.presetPath.split('/').pop() : '', settings: defaults.settings || null } } : {}) }
@@ -187,7 +189,7 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
     let assets = null
     if (material && (material.emotions.length || material.backgrounds.length || material.cover || material.extras.length || material.cast.length || material.skipped)) {
       try { assets = { ...await castAssets.importCardAssets({ cardPath, name: card.name || '主角', collected: material }), skipped: material.skipped } }
-      catch (error) { assets = { error: str(error?.message || error) } }
+      catch (error) { if (options.replacePath) throw error; assets = { error: str(error?.message || error) } }
     }
     return { path: cardPath, name: card.name, description: card.description, tags: card.tags, ...(assets ? { assets } : {}),
       ...(libraryPack ? { libraryPack } : {}), ...(libraryNotices.length ? { libraryNotices } : {}) }
@@ -280,5 +282,49 @@ export function createCardFiles({ cardPreparation, fileResources, castAssets, as
         stream: () => createReadStream(file), dispose: () => rm(directory, { recursive: true, force: true }) }
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error }
   }
-  return { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
+  let replacementTail = Promise.resolve()
+  function replaceCard(cardPath, input) {
+    const operation = replacementTail.catch(() => {}).then(async () => {
+      const target = normalizeResourcePath(cardPath, 'card')
+      const workspace = await readCardWorkspace(target)
+      if (!workspace) throw new Error('要更新的人物卡不存在')
+      // Validate and authenticate before disabling anything or taking a backup.
+      if (input.file) {
+        const zip = await openCardZip(input.file, { label: '人物卡更新', password: input.password })
+        try { await readCardArchive(zip) } finally { await zip.close() }
+      } else cardPreparation.create({ kind: 'import', payload: cardImport(input.payload).payload })
+      const original = await fileResources.originalCardPayload(target)
+      const material = await castAssets.read(target)
+      const plugins = material.plugins || []
+      const choices = new Map(plugins.map(p => [p.name, p.enabled !== false]))
+      const backup = await exportCardFile(target)
+      const recovery = path.join(path.dirname(exportRoot), 'recovery', 'card-updates')
+      await mkdir(recovery, { recursive: true })
+      const backupPath = path.join(recovery, path.basename(target, '.json') + '-' + Date.now() + '-' + randomUUID().slice(0, 8) + '.dshcard')
+      try { await copyFile(backup.file, backupPath) } finally { await backup.dispose() }
+      try {
+        await cardPlugins.disable({ cardPath: target, plugins })
+        await castAssets.replaceManifest(target, null)
+        const card = input.file
+          ? await importCardArchiveFile(input.file, input.name, { password: input.password, replacePath: target, pluginChoices: choices })
+          : await importCard(input.payload, { replacePath: target })
+        return { ...card, updated: true, backupPath }
+      } catch (error) {
+        try {
+          const current = await castAssets.read(target)
+          await cardPlugins.disable({ cardPath: target, plugins: current.plugins || [] })
+          await importCardArchiveFile(backupPath, 'backup.dshcard', { replacePath: target, pluginChoices: choices })
+          if (original) await fileResources.importCard(original, workspace, { replacePath: target })
+          else await fileResources.writeWorking(target, JSON.stringify(workspace, null, 2))
+          await castAssets.replaceManifest(target, material)
+        } catch (restoreError) {
+          throw new Error('更新失败且自动恢复未完成。备份：' + backupPath + '；' + restoreError.message, { cause: error })
+        }
+        throw new Error('更新失败，已恢复原卡：' + error.message, { cause: error })
+      }
+    })
+    replacementTail = operation
+    return operation
+  }
+  return { replaceCard, importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile }
 }

@@ -1205,7 +1205,7 @@ export async function apply(ctx) {
     }
   })
   // Card files in and out: imports (JSON, PNG, CHARX, DSH card, plugin formats) and exports.
-  const { importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
+  const { replaceCard, importCard, importCardArchiveFile, importPluginCardFile, presentCardText, exportCardPng, exportCardFile } = createCardFiles({
     cardPreparation, fileResources, castAssets, assetPacks, cardPlugins, cardSummaries, presetLibrary, importPreset,
     readCardWorkspace, worldBooks, pluginApi: () => pluginApi, assetLibrary: () => ctx.get('assetLibrary'), exportRoot: path.join(dataRoot, 'exports')
   })
@@ -3587,7 +3587,7 @@ export async function apply(ctx) {
     ensureNativeOpening, exportConversation, exportGameSave, exportSettingsBundle, exportTavernLogs,
     fileResources, forkChat, fullTemplateRuntime, getCardOpenings, groupOfMode, guideLibrary,
     helperGenerationPreset, helperGenerationTasks, helperHistoryAccess, hostCompatibility, importCard, exportCardFile,
-    importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
+    replaceCard, importCardArchiveFile, importChatHistoryText, importGameSave, importPluginCardFile, importPreset,
     importScript, importSettingsBundle, importSource, ledgerEditor, listCards, listTavernResources,
     listTavernSessions, liveCardUpdate, llm, manualCharacterDesign, manualLedger, mobileCardImport,
     modelRequestLog, mvuDiagnostics, notifyPluginTimeline, openingPreparation, pagesInFront,

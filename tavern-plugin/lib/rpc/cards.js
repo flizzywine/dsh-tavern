@@ -9,7 +9,7 @@ import { encryptCardArchiveFile, isCardPasswordError } from '../domain/card-encr
 export function createCardHandlers(deps) {
   const { agentRegistry, cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation,
     cardTaskPrompts, castAssets, chatForSession, deleteCard, ensureNativeCardWorkspace, fileResources,
-    importCard, importCardArchiveFile, importPluginCardFile, listCards, mobileCardImport, pluginApi,
+    importCard, importCardArchiveFile, importPluginCardFile, replaceCard, listCards, mobileCardImport, pluginApi,
     readCardWorkspace, runtimePrompt, sessionStore, setCardPlugins, sleep, str, updateCard, uploads,
     worldBooks } = deps
   return {
@@ -65,13 +65,18 @@ export function createCardHandlers(deps) {
       return { card: archive ? await importCardArchiveFile(archive.file, archive.name, { password: args?.password }) : await importCard(await mobileCardImport.read(args && args.id)) }
     },
     async importCard(args) {
-      return { card: await importCard(args && args.payload) }
+      return { card: args?.replacePath ? await replaceCard(args.replacePath, { payload: args.payload }) : await importCard(args && args.payload) }
     },
     async importCardUpload(args) {
       const upload = await uploads.take(args && args.uploadId)
       const name = str(args && args.name) || '人物卡.dshcard'
       let keepForPasswordRetry = false
       try {
+        if (args?.replacePath) {
+          if (/\.(charx|dshcard)$/i.test(name)) return { card: await replaceCard(args.replacePath, { file: upload.file, name, password: args.password }) }
+          if (/\.png$/i.test(name)) return { card: await replaceCard(args.replacePath, { payload: pngPayload(await readFile(upload.file), name) }) }
+          throw new Error('更新支持 PNG、JSON、CHARX 和 DSHCARD 人物卡')
+        }
         if (/\.(charx|dshcard)$/i.test(name)) return { card: await importCardArchiveFile(upload.file, name, { password: args?.password }) }
         if (/\.(dshcard|charx)\.png$/i.test(name)) throw new Error('卡包请使用 .dshcard 文件')
         if (/\.png$/i.test(name)) return { card: await importCard(pngPayload(await readFile(upload.file), name)) }

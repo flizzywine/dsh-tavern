@@ -290,5 +290,5 @@ export function createCastAssets({ store }) {
     return bytes ? { bytes, mediaType: IMAGE_TYPES[file.split('.').pop()] } : undefined
   }
 
-  return Object.freeze({ read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
+  return Object.freeze({ replaceManifest: (cardPath, manifest) => store.writeJson(dirOf(cardPath) + "/cast.json", manifest || empty()), read, movePath, setImage, removeImage, setCharacter, setVoice, removeCharacter, importSpritePack, importCardAssets, bindPacks, setPlugins, setStartDefaults, setSource, readFile, readImage, keyOf: cardPath => hash(String(cardPath)) })
 }

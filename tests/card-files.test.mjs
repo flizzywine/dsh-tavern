@@ -39,6 +39,7 @@ async function library(t, extra = {}) {
   }
   const cardSummaries = createCardSummaryCache({ absolute: cardPath => fileResources.absolute(cardPath), read: async cardPath => projectCardSummary(await readCardWorkspace(cardPath)) })
   const files = createCardFiles({
+    exportRoot: join(root, "exports"),
     cardPreparation, fileResources, castAssets, assetPacks: createAssetPacks({ root, store: profileData, mediaStore: createMediaStore({ root: join(root, 'asset-packs') }) }), cardSummaries, readCardWorkspace,
     worldBooks: { characterBookForCard: async () => undefined },
     cardPlugins: createCardPlugins({ dataRoot: root, pluginsDir: join(root, 'plugins') }), presetLibrary: {}, importPreset: () => assert.fail('no start defaults'), ...extra, pluginApi: () => assert.fail('not a plugin format')
@@ -219,4 +220,111 @@ test('DSH 人物卡的素材包装进素材库：新包安装、相同的不动�
   const again = await files.importCardArchiveFile(card, '鱼.dshcard')
   assert.equal(again.duplicate, true)
   assert.deepEqual(applied, [[fresh, 'noop'], [changed, 'cancel']], 'the same file again checks its packs')
+})
+
+
+test('manual replacement keeps the selected path and identity across JSON and PNG, with a usable backup', async t => {
+  const { files, fileResources } = await library(t)
+  const original = await files.importCard({kind:'text',name:'old.json',text:JSON.stringify({name:'Old',description:'before'})})
+  const id = (await fileResources.readCard(original.path)).meta.id
+  const updated = await files.replaceCard(original.path,{payload:{kind:'text',name:'different.json',text:JSON.stringify({name:'New',description:'after'})}})
+  assert.equal(updated.path,original.path)
+  assert.equal((await fileResources.readCard(original.path)).meta.id,id)
+  assert.deepEqual(await fileResources.list('card'),[original.path])
+  const backup = await openZipFile(updated.backupPath)
+  try { assert.equal((await readCardArchive(backup)).card.data.name,'Old') } finally { await backup.close() }
+  const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8V8AAAAASUVORK5CYII=','base64')
+  const text=JSON.stringify({name:'PNG replacement'})
+  await files.replaceCard(original.path,{payload:{kind:'png',name:'another.png',text,b64:Buffer.from(text).toString('base64'),fileB64:pngWithCard(image,text).toString('base64')}})
+  assert.ok(await fileResources.readCardImage(original.path))
+  await assert.rejects(files.replaceCard(original.path,{payload:{kind:'text',name:'bad.json',text:'{broken'}}))
+  assert.equal((await fileResources.readCard(original.path)).raw.name,'PNG replacement')
+})
+
+test('dshcard replacement preserves disabled plugins and rolls back a post-write failure', async t => {
+  let fail=false
+  const {root,files,fileResources,castAssets}=await library(t,{importPreset:async()=>{if(fail)throw Error('injected preset failure');return {path:'presets/default.json'}},presetLibrary:{catalog:async()=>({presets:[]})}})
+  const archive=join(root,'update.dshcard')
+  async function write(version,defaults) {
+    await writeFile(archive,writeZipEntries([
+      {path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Version '+version}})},
+      {path:'dsh.json',content:JSON.stringify({format:'dshcard',formatVersion:1,plugins:[{name:'update-game',path:'plugins/game/'}],...(defaults?{defaults:{preset:{path:'presets/default.json'}}}:{})})},
+      {path:'plugins/game/package.json',content:JSON.stringify({name:'update-game',version:version+'.0.0'})},
+      {path:'plugins/game/index.mjs',content:'export function apply() {}'},
+      ...(defaults?[{path:'presets/default.json',content:JSON.stringify({name:'Default',prompts:[]})}]:[])
+    ]))
+  }
+  await write(1)
+  const old=await files.importCardArchiveFile(archive,'one.dshcard')
+  const oldId=(await fileResources.readCard(old.path)).meta.id
+  const plugin=(await castAssets.read(old.path)).plugins[0]
+  await castAssets.setPlugins(old.path,[{...plugin,enabled:false}])
+  await write(2)
+  await files.replaceCard(old.path,{file:archive,name:'two.dshcard'})
+  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Version 2')
+  assert.equal((await castAssets.read(old.path)).plugins[0].enabled,false)
+  assert.equal((await fileResources.readCard(old.path)).meta.id,oldId)
+  fail=true; await write(3,true)
+  await assert.rejects(files.replaceCard(old.path,{file:archive,name:'three.dshcard'}),/已恢复原卡/)
+  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Version 2')
+  assert.equal((await castAssets.read(old.path)).plugins[0].enabled,false)
+  assert.deepEqual(await fileResources.list('card'),[old.path])
+})
+
+
+test('browser updates a selected card through the sidebar and real import RPC', { skip: !process.env.TAVERN_BROWSER_CHANNEL, timeout:60000 }, async t => {
+  const {createServer}=await import('node:http')
+  const {createRequire}=await import('node:module')
+  const {dirname}=await import('node:path')
+  const {chromium}=await import('playwright')
+  const {createCardHandlers}=await import('../tavern-plugin/lib/rpc/cards.js')
+  const {root,files,fileResources}=await library(t)
+  const old=await files.importCard({kind:'text',name:'selected.json',text:JSON.stringify({name:'Old'})})
+  const handlers=createCardHandlers({...files,str:String,uploads:{take:async()=>({file:join(root,'upload'),remove:async()=>{}})}})
+  const sidebar=await readFile(new URL('../tavern-plugin/src/client/features/sidebar.js',import.meta.url),'utf8')
+  const main=await readFile(new URL('../tavern-plugin/src/client/main.js',import.meta.url),'utf8')
+  const states=sidebar.slice(sidebar.indexOf('const [updatingCard,'),sidebar.indexOf('const updateInput ='))+'const updateInput = React.useRef(null);'
+  const action=sidebar.slice(sidebar.indexOf('async function replaceSelectedCard()'),sidebar.indexOf('async function importCard(file)'))
+  const start=sidebar.indexOf("h('button', { className: 'dsh-tavern-side-new'")
+  const controls=sidebar.slice(start,sidebar.indexOf('h("div", { className: "dsh-tavern-side-title',start)).trim().replace(/,$/,'')
+  const importer=main.slice(main.indexOf('async function importTavernCardFile('),main.indexOf('/** What a card file'))
+  const parser=main.slice(main.indexOf('function parseCardFile('),main.indexOf('const MOBILE_IMPORT_SORTS'))
+  const require=createRequire(import.meta.url);let bundle='const modules={};'
+  for(const [name,file] of [['react','react.production.js'],['scheduler','scheduler.production.js'],['react-dom','react-dom.production.js'],['react-dom/client','react-dom-client.production.js']]) bundle+='modules['+JSON.stringify(name)+']=(()=>{const module={exports:{}};const exports=module.exports;const require=n=>modules[n];'+await readFile(join(dirname(require.resolve(name)),'cjs',file),'utf8')+';return module.exports;})();'
+  const script=bundle+`const React=modules.react,h=React.createElement;
+  const beginTavernCardImportProgress=()=>({update(){},close(){}}),importTavernPasswordCard=run=>run();
+  async function call(method,args){const r=await fetch('/rpc/'+method,{method:'POST',body:JSON.stringify(args)}).then(r=>r.json());if(!r.ok)throw Error(r.error);return r;}
+  ${importer}
+${parser}
+  function App(){const [busy,setBusy]=React.useState(false);const cards=[{path:'selected.json'.replace(/^/,'cards/'),name:'Old'}],openingPicker=null;const refresh=async()=>{},notifyDataChanged=()=>{};
+  ${states}
+${action}
+  return h('aside',null,${controls});}
+  modules['react-dom/client'].createRoot(document.getElementById('app')).render(h(App));`
+  const css=await readFile(new URL('../tavern-plugin/lib/client-assets/tavern.css',import.meta.url),'utf8')
+  const server=createServer(async(req,res)=>{try{
+    if(req.url==='/')return res.writeHead(200,{'content-type':'text/html; charset=utf-8'}).end('<meta charset="utf-8"><style>'+css+'</style><div id="app"></div><script src="/app.js"></script>')
+    if(req.url==='/app.js')return res.writeHead(200,{'content-type':'text/javascript; charset=utf-8'}).end(script)
+    const chunks=[];for await(const c of req)chunks.push(c);const bytes=Buffer.concat(chunks)
+    if(req.url==='/api/dsh-tavern/card-upload'){await writeFile(join(root,'upload'),bytes);return res.end(JSON.stringify({ok:true,uploadId:'fixture'}))}
+    const result=await handlers[req.url.split('/').at(-1)](JSON.parse(bytes.toString()));res.end(JSON.stringify({ok:true,...result}))
+  }catch(e){res.end(JSON.stringify({ok:false,error:e.message}))}})
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)))
+  const browser=await chromium.launch({channel:process.env.TAVERN_BROWSER_CHANNEL,headless:true});t.after(()=>browser.close())
+  const page=await browser.newPage({viewport:{width:1000,height:760}});page.setDefaultTimeout(10000)
+  const errors=[];page.on('pageerror',e=>errors.push(e.message))
+  await page.goto('http://127.0.0.1:'+server.address().port)
+  await page.getByRole('button',{name:'更新',exact:true}).click().catch(e=>{throw new Error(errors.join('; ') || e.message)})
+  await page.getByLabel('要更新的卡片').selectOption(old.path)
+  await page.locator('input[type=file]').setInputFiles({name:'new.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({name:'Updated JSON'}))})
+  await page.getByRole('button',{name:'更新并替换'}).click()
+  await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
+  assert.equal((await fileResources.readCard(old.path)).raw.name,'Updated JSON')
+  const bytes=writeZipEntries([{path:'card.json',content:JSON.stringify({spec:'chara_card_v3',data:{name:'Updated archive'}})}])
+  await page.locator('input[type=file]').setInputFiles({name:'different.charx',mimeType:'application/zip',buffer:bytes})
+  await page.getByRole('button',{name:'更新并替换'}).click()
+  await page.getByRole('status').filter({hasText:'更新完成'}).waitFor()
+  assert.equal((await fileResources.readCard(old.path)).raw.data.name,'Updated archive')
+  assert.deepEqual(await fileResources.list('card'),[old.path]);assert.deepEqual(errors,[])
+  await page.screenshot({path:join(process.cwd(),'output/card-update-browser.png'),fullPage:true})
 })

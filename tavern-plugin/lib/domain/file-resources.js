@@ -417,6 +417,24 @@ export function createFileResourceStore(options = {}) {
 
   async function writeImportedCard(payload, card, options) {
     await ensure()
+    if (options.replacePath) {
+      const relative = normalizeResourcePath(options.replacePath, 'card')
+      const previous = await readCard(relative)
+      if (!previous) throw new Error('要更新的人物卡不存在: ' + relative)
+      const saved = clone(card)
+      if (saved.meta && previous.meta) saved.meta.id = previous.meta.id
+      const oldName = await originalCardName(relative)
+      const originalDir = path.dirname(absolute(relative, true))
+      const stem = path.basename(relative, '.json')
+      const original = path.join(originalDir, stem + (payload.kind === 'png' ? '.png' : '.json'))
+      const bytes = payload.kind === 'png' ? Buffer.from(payload.fileB64, 'base64') : payload.text || JSON.stringify(card)
+      await mutations.run('replace-card:' + relative, async plan => {
+        if (oldName && path.join(originalDir, oldName) !== original) await plan.remove(path.join(originalDir, oldName))
+        await plan.write(original, bytes)
+        await plan.write(absolute(relative), JSON.stringify(saved, null, 2))
+      })
+      return relative
+    }
     let rawName = safeResourceName(payload && payload.name || '未命名人物卡.json')
     if (options.unique) {
       const parsed = path.parse(rawName)

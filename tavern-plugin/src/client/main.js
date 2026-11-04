@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
 		// @include modules/card-password.js
 		/** Import one card file: PNG and JSON go as parsed JSON; archives (CHARX, DSH cards) and other
 		 * formats (a plugin's importer, tavern.cardImporter) go up as raw files. */
-		async function importTavernCardFile(file, call, onProgress = () => {}) {
+		async function importTavernCardFile(file, call, onProgress = () => {}, replacePath) {
 			if (/\.(dshcard|charx)\.png$/i.test(String(file.name || ''))) throw new Error('卡包请使用 .dshcard 文件');
 			const progress = beginTavernCardImportProgress(file.name);
 			const report = value => { progress.update(value); onProgress(value); };
@@ -107,14 +107,14 @@ window.__ModuleLoader__.load({
 				if (!reply || !reply.ok) throw new Error(reply && reply.error || "上传失败（HTTP " + response.status + "）");
 				return await importTavernPasswordCard(password => {
 					report(password === undefined ? '正在读取卡包并导入素材…' : '正在校验密码并导入素材…');
-					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(password === undefined ? {} : { password }) });
+					return call("importCardUpload", { uploadId: reply.uploadId, name: file.name, ...(replacePath ? { replacePath } : {}), ...(password === undefined ? {} : { password }) });
 				}, file.name, () => call("discardCardUpload", { uploadId: reply.uploadId }), options => {
 					report('等待输入密码…');
 					return askTavernCardPassword(options);
 				});
 			}
 			report('正在读取人物卡…');
-			return await call("importCard", { payload: await parseCardFile(file) });
+			return await call("importCard", { payload: await parseCardFile(file), ...(replacePath ? { replacePath } : {}) });
 			} finally { progress.close(); }
 		}
 
