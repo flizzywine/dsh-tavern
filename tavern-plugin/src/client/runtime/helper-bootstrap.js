@@ -371,7 +371,10 @@
 				const resolved = optionOf(option);
 				if (resolved.type === "global") state.globalVariables = copy(variables);
 				else if (resolved.type === "character") state.characterVariables = copy(variables);
-				else if (resolved.type === "chat") state.chatVariables = copy(variables);
+				else if (resolved.type === "chat") {
+					state.chatVariables = copy(variables);
+					if (variables && typeof variables.playerName === "string" && variables.playerName.trim()) state.playerName = variables.playerName.trim();
+				}
 				else if (resolved.type === "script") {
 					if (!state.scriptVariables || typeof state.scriptVariables !== "object") state.scriptVariables = {};
 					state.scriptVariables[resolved.script_id] = copy(variables);
@@ -511,7 +514,8 @@
 			window.updateVariablesWith = async function (updater, option) {
 				const resolved = optionOf(option);
 				const current = getVariables(resolved);
-				let next = typeof updater === "function" ? await updater(copy(current)) : current;
+				let next = typeof updater === "function" ? updater(copy(current)) : current;
+				if (next && typeof next.then === "function") next = await next;
 				if (next === undefined) next = current;
 				next = copy(next);
 				localReplace(next, resolved);

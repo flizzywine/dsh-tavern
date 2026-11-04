@@ -28,9 +28,9 @@ function installTavernHelperMacroApi({window, context}) {
     window.substitudeMacros = function (input, options = {}) {
         const state = context() || {};
         const id = options.message_id === undefined ? window.getCurrentMessageId?.() : options.message_id;
-        return String(input ?? '').replace(/{{\s*(user|char|lastMessageId|messageId)\s*}}/gi, function (_match, name) {
-            switch (name.toLowerCase()) {
-                case 'user': return String(state.playerName || '你');
+        return String(input ?? '').replace(/{{\s*(user|char|lastMessageId|messageId)\s*}}|<(user|char)>/gi, function (_match, name, legacy) {
+            switch ((name || legacy).toLowerCase()) {
+                case 'user': return String((typeof state.chatVariables?.playerName === 'string' && state.chatVariables.playerName.trim()) || state.playerName || '你');
                 case 'char': return String(options.character_name ?? state.characterName ?? state.character?.name ?? '角色');
                 case 'lastmessageid': return String(window.getLastMessageId?.() ?? -1);
                 default: return String(id ?? -1);

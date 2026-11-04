@@ -3,7 +3,7 @@ import test from 'node:test'
 import { projectOpeningCommit } from '../tavern-plugin/lib/domain/runtime-content-projection.js'
 import { projectReplyHistory } from '../tavern-plugin/lib/domain/reply-presentation.js'
 
-import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext, replaceTavernHelperMessages } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
+import { appendTavernHelperMessages, lastTavernHelperVariables, projectTavernHelperContext, replaceTavernHelperMessages, replaceTavernHelperVariables } from "../tavern-plugin/lib/domain/tavern-helper-context.js"
 
 test('Helper edits retain provider-final prose without replaying output macros or regexes', () => {
   const chat = { macroState: { local: { x: 'before' } }, messages: [{ role: 'assistant', turn: 2,
@@ -69,4 +69,10 @@ test('verified tail append visits only appended floors and preserves turn mappin
     assert.equal(previous.turnMessageIds[String(length + 1)],undefined)
     assert.deepEqual(JSON.parse(JSON.stringify(next)),JSON.parse(JSON.stringify(projectTavernHelperContext({id:'append',messages:rows}))))
   }
+})
+
+test('chatVariables.playerName write updates chat.macroState.userName for subsequent prompt/worldbook macro rendering', () => {
+  const chat = { macroState: { userName: '你', local: {}, global: {} }, variables: {} }
+  replaceTavernHelperVariables(chat, { option: { type: 'chat' }, variables: { playerName: '沈砚', welcomeShown: true } })
+  assert.equal(chat.macroState.userName, '沈砚')
 })
