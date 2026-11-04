@@ -26,7 +26,7 @@ export function createCardHandlers(deps) {
       const cardPath = normalizeResourcePath(args && args.path, 'card')
       const workspace = await readCardWorkspace(cardPath)
       if (workspace === undefined) throw new Error('人物卡不存在: ' + cardPath)
-      return { card: Object.assign(cardPreparation.present({ card: workspace, as: 'detail' }), { path: cardPath }) }
+      return { replacementSupported: true, card: Object.assign(cardPreparation.present({ card: workspace, as: 'detail' }), { path: cardPath }) }
     },
     async getCardTaskPrompt(args) {
       const task = str(args && args.task)
