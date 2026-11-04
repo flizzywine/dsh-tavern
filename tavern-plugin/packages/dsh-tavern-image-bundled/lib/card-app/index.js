@@ -35,6 +35,16 @@ export function apply(ctx, { ready }) {
   const data = join(ROOT, '../../image-cache/dsh-tavern-gen'), enabledFile = join(ROOT, 'card-enabled.json')
   const gallery = createCardGallery(data), worldbook = createCardWorldbook(ROOT), mutate = serialQueue(), seedGate = serialQueue()
   let closed = false, enabled = true, applyTools
+  let getOrigin
+  const imageOrigin = () => {
+    try {
+      const origin = new URL(getOrigin?.())
+      if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/') throw new Error('invalid origin')
+      if (origin.hostname === '0.0.0.0') origin.hostname = '127.0.0.1'
+      if (origin.hostname === '[::]') origin.hostname = '[::1]'
+      return origin.origin
+    } catch { throw Object.assign(fail('NOT_CONFIGURED', '尚未取得生图图片服务的完整地址，请确认 Web 服务已启动后再生成；本次未提交生图'), { submissionNotStarted: true, requestMayHaveSucceeded: false }) }
+  }
   const enabledReady = readJson(enabledFile, null).then(async value => {
     enabled = value ? value.enabled !== false : (await readJson(join(ROOT, 'config.json'), {})).enabled !== false
     return enabled
@@ -72,7 +82,7 @@ export function apply(ctx, { ready }) {
 
   const generate = {
     name: 'gen_image',
-    description: '在卡片工作台生成图片，返回可直接显示的 Markdown。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。失败或任务不确定时先查配图记录，不能自动重复提交。',
+    description: '在卡片工作台生成图片，返回带完整 HTTP(S) 地址的 Markdown。把返回的 markdown 原样写进回复，不要省略域名、端口或改成相对路径。先用 read_image_config 查看渠道及提示词格式，按 image-prompt Skill 描述用户要求的一个画面。使用当前配图渠道或临时指定渠道，支持现有全部在线协议和 ComfyUI。用户已授权直接出图时直接提交。失败或任务不确定时先查配图记录，不能自动重复提交。',
     parameters: schema({
       prompt: { type: 'string', description: '画面描述。自然语言渠道可用中文或英文完整句；标签模型用其支持的 tag；structured 按设置保留分节。画风与参考图绑定由引擎追加。' },
       negative: { type: 'string', description: '本张额外排除项，由渠道适配原生负面参数或合入描述。' },
@@ -95,6 +105,8 @@ export function apply(ctx, { ready }) {
       if (!Number.isSafeInteger(count) || count < 1 || count > 4) throw fail('INVALID_ARGUMENT', 'count 必须是 1–4 的整数')
       if (typeof args.prompt !== 'string' || !args.prompt.trim() || args.prompt.length > 16000) throw fail('INVALID_ARGUMENT', 'prompt 必须是 1–16000 字')
       if (args.negative !== undefined && (typeof args.negative !== 'string' || args.negative.length > 8000)) throw fail('INVALID_ARGUMENT', 'negative 最多 8000 字')
+      // Resolve lazily: the service may register before listen(), and its port may change after restart.
+      const origin = imageOrigin()
       const engine = await ready(), picked = cardSelection(engine.currentConfig(), engine.cardWorkflows(), args)
       const values = await seeds(picked, args, count), images = [], started = Date.now(), options = context(exec)
       for (let index = 0; index < count; index++) {
@@ -103,7 +115,8 @@ export function apply(ctx, { ready }) {
           options.signal.throwIfAborted()
           const result = await engine.generateCardImage({ ...args, seed: values[index] }, { ...options, key: 'card-' + randomUUID() })
           const item = await gallery.add(result, { sessionId: options.sessionId, preset: args.preset })
-          images.push({ url: item.url, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size })
+          const url = new URL(item.url, origin).href
+          images.push({ url, markdown: `![图片](${url})`, jobId: result.jobId, mediaType: result.mediaType, seed: result.seed, size: result.size })
         } catch (error) {
           if (!images.length) throw error
           return { ok: false, images, error: error.message, jobId: error.jobId, requestMayHaveSucceeded: error.requestMayHaveSucceeded === true, elapsedMs: Date.now() - started }
@@ -246,7 +259,9 @@ export function apply(ctx, { ready }) {
   const image = async (request, response) => {
     try {
       const url = new URL(request.url || '/', 'http://' + (request.headers.host || 'localhost'))
-      check(request, url)
+      // Read-only image embeds also come from the desktop origin or a localhost/127.0.0.1 alias.
+      // Management APIs keep their same-origin checks; image names still require a gallery record.
+      if (closed) throw fail('NOT_CONFIGURED', '工作台模块已关闭')
       if (!['GET', 'HEAD'].includes(request.method || 'GET')) return send(response, 405, { error: 'method-not-allowed' })
       const item = await gallery.file(decodeURIComponent(url.pathname.slice((BASE + '/img/').length)))
       let start = 0, end = item.size - 1, status = 200
@@ -267,8 +282,10 @@ export function apply(ctx, { ready }) {
 
   ctx.inject(['webServer'], scoped => {
     const install = () => {
+      const readOrigin = () => scoped.webServer.getOrigin()
+      getOrigin = readOrigin
       const offs = [scoped.webServer.register({ kind: 'prefix', path: BASE + '/api', handler: api }), scoped.webServer.register({ kind: 'prefix', path: BASE + '/img', handler: image })]
-      return () => offs.forEach(off => off?.())
+      return () => { if (getOrigin === readOrigin) getOrigin = null; offs.forEach(off => off?.()) }
     }
     if (scoped.effect) scoped.effect(install, 'dsh-tavern-image: card routes'); else install()
   })

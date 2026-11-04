@@ -21,7 +21,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 function persistence(jobs, writer) {
   const warnings = [], snapshots = []
-  const persist = vm.runInNewContext(persistenceSource + '\npersistJobs;', {
+  const persist = vm.runInNewContext(section('function jobSource(job)', '\n    function publicJob(') + '\n' + persistenceSource + '\npersistJobs;', {
     jobs, JOBS_STORE: 'virtual-jobs-store',
     writeJsonAtomic: async (_path, snapshot) => { snapshots.push(copy(snapshot)); await writer?.(snapshot, snapshots.length) },
     logger: { warn: message => warnings.push(message) },

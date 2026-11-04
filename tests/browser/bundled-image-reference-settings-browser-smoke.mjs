@@ -54,6 +54,7 @@ try {
     const url = new URL(route.request().url()), path = url.pathname.replace('/plugins/dsh-tavern-image', ''), method = route.request().method()
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="root"></div>' })
     if (path === '/reference-image' && method === 'GET') return route.fulfill({ contentType: 'image/png', body: png })
+    if (path === '/jobs' && url.searchParams.has('image') || url.pathname.startsWith('/dsh-tavern-gen/img/')) return route.fulfill({ contentType: 'image/png', body: png })
     const body = method === 'POST' ? route.request().postDataJSON() : null
     calls.push({ path, method, query: Object.fromEntries(url.searchParams), body })
     let response = { ok: true }
@@ -62,6 +63,7 @@ try {
       response = { ok: true, enabled: cardEnabled }
     }
     else if (url.pathname === '/dsh-tavern-gen/api/state' || url.pathname === '/dsh-tavern-gen/api/worldbook') response = { worldbook: clone(cardBook), config: { enabled: cardEnabled } }
+    else if (url.pathname === '/dsh-tavern-gen/api/gallery') response = { items: [{ id: 'card-only', file: 'card-only.png', url: '/dsh-tavern-gen/img/card-only.png', prompt: '卡片专用图片', session: 'card-session', at: 1 }] }
     else if (url.pathname === '/dsh-tavern-gen/api/save') {
       if (body.content.revision !== cardBook.revision) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REVISION_CONFLICT', error: '卡片世界书已在别处修改' }) })
       cardBook = { ...clone(body.content), revision: 'card-' + (++cardRevision) }
@@ -98,7 +100,10 @@ try {
     }
     else if (path === '/workflow-values') response = { ok: true, values: { positive: '', negative: '' } }
     else if (path === '/loras-available') response = { ok: true, loras: [] }
-    else if (path === '/history') response = { ok: true, jobs: [] }
+    else if (path === '/history') response = { ok: true, jobs: [
+      { id: 'play-only', source: 'play', label: '剧情配图', hasImage: true, state: 'done', gameId: 'play-session', createdAt: 2 },
+      { id: 'card-only', source: 'card', label: '卡片工作台', hasImage: true, state: 'done', gameId: 'card-session', createdAt: 1 },
+    ] }
     else if (path === '/tasks') response = { tasks: [] }
     else if (path === '/cards') response = { ok: true, cards: [] }
     else if (path === '/providers' || path === '/llm-models') response = { ok: true, providers: [], models: [] }
@@ -310,7 +315,18 @@ try {
   await page.waitForFunction(() => !document.querySelector('[aria-label="启用工作台生图"]').disabled)
   assert.equal(cardEnabled, false)
   assert.equal(calls.some(call => call.path === '/dsh-tavern-gen/api/worldbook' && call.method === 'GET'), true)
+  await page.getByRole('button', { name: '画廊', exact: true }).click()
+  await page.getByRole('button', { name: '游玩画廊', exact: true }).click()
+  await page.getByRole('img', { name: '剧情配图', exact: true }).waitFor()
+  assert.equal(await page.getByRole('img', { name: '卡片工作台', exact: true }).count(), 0)
+  assert.ok(calls.some(call => call.path === '/history' && call.query.source === 'play'))
+  await page.getByRole('button', { name: '卡片画廊', exact: true }).click()
+  await page.getByRole('img', { name: '卡片专用图片', exact: true }).waitFor()
+  assert.equal(await page.getByRole('img', { name: '剧情配图', exact: true }).count(), 0)
   assert.deepEqual(errors, [])
   console.log('PASS Chromium full settings: custom URL/model/key save and masking, protocol reference capability, character/nested/shared reference drafts and saving, ordered Comfy LoadImage mapping, recoverable simple-mode migration, local-only unlink, worldbook format isolation')
   console.log('SCREENSHOT ' + screenshotPath)
 } finally { await browser.close() }
+
+// Keep the CLI image URL regression in the existing image-only browser check.
+await import('./bundled-image-card-render-browser-smoke.mjs')

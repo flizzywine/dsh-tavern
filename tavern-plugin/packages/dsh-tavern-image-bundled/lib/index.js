@@ -1272,9 +1272,14 @@ function createRuntime(ctx, overrides, logger, deps) {
         try {
           const dir = cacheRoot(config)
           const names = await readdir(dir).catch(() => [])
+          const cardIds = new Set()
+          try {
+            const gallery = await readJson(join(ROOT, '../../image-cache/dsh-tavern-gen/jobs.json'), [])
+            if (Array.isArray(gallery)) for (const item of gallery) if (typeof item?.id === 'string') cardIds.add(item.id)
+          } catch { /* A damaged optional card index must not block ordinary cache recovery. */ }
           let added = 0
           for (const name of names) {
-            const hit = /^([0-9a-f-]{36})\.(?:img|png|jpe?g|webp)$/i.exec(name)
+            const hit = /^((?:card-)?[0-9a-f-]{36})\.(?:img|png|jpe?g|webp)$/i.exec(name)
             if (!hit) continue
             const id = hit[1]
             if (jobs.has(id)) continue
@@ -1291,7 +1296,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               if (imageMetadata.width !== null && imageMetadata.height !== null) size = { width: imageMetadata.width, height: imageMetadata.height }
               createdAt = imageMetadata.mtimeMs || createdAt
             } catch { /* 读不到尺寸就算了 */ }
-            jobs.set(id, { id, state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
+            jobs.set(id, { id, source: id.startsWith('card-') || cardIds.has(id) ? 'card' : 'play', state: 'done', percent: 100, createdAt, fromCache: true, file: join(dir, name), size, params: {}, label: '历史图片', byteLength: bytes, mediaType: imageMetadata?.mediaType || (/\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.webp$/i.test(name) ? 'image/webp' : 'image/png') })
             added++
           }
           if (added) logger.info?.('dsh-tavern-image: 从 cache 补回 ' + added + ' 张历史图片')
@@ -1321,7 +1326,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             plain[id] = {
               id: job.id, state: job.state, percent: job.backend === 'comfyui' && job.state !== 'done' ? 0 : (job.percent ?? 0), createdAt: job.createdAt,
               workflowId: job.workflowId, outputNode: job.outputNode,
-              file: job.file, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '',
+              file: job.file, size: job.size ?? null, params: job.params ?? {}, label: job.label ?? '', source: jobSource(job),
               positive: job.positive ?? '', negative: job.negative ?? '',
               byteLength: job.byteLength ?? 0, mediaType: job.mediaType ?? '', seed: job.seed ?? null,
               error: job.error ?? undefined,
@@ -1961,7 +1966,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
       const control = new AbortController()
       const job = {
-        id: randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: workflow?.outputNode,
+        id: (cardRequest ? 'card-' : '') + randomUUID(), comfyId: channel ? null : randomUUID(), workflowId: workflow?.id ?? '', outputNode: workflow?.outputNode,
         backend: channel?.provider ?? 'comfyui', channelId: channel?.id ?? '', channelName: channel?.name ?? '',
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
@@ -1974,7 +1979,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         gameId: String(rawParams?.sessionId ?? ''), turn: Number(rawParams?.turn) || null, textVersion: String(rawParams?.textVersion ?? ''),
         // 记住这张用了哪些 LoRA —— 事后在历史里能查
         loras: Array.isArray(compiled.loras) ? compiled.loras : [],
-        positive: compiled.positive, negative: compiled.negative, label, controller: control,
+        positive: compiled.positive, negative: compiled.negative, label, source: cardRequest ? 'card' : 'play', controller: control,
       }
       jobs.set(job.id, job)
       onCreated?.(job)
@@ -2172,7 +2177,7 @@ function createRuntime(ctx, overrides, logger, deps) {
           textVersion,
           sessionId: session, turn,
           key: 'media-replacement:' + randomUUID(),
-        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences })
+        }, { label: '单图重绘', jobConfig, forceWorkflow: workflow || null, referenceSnapshot: frozenReferences, cardRequest: jobSource(source) === 'card' })
       } catch (error) {
         if (error.requestMayHaveSucceeded !== true) error.submissionNotStarted = true
         throw error
@@ -3051,9 +3056,14 @@ function createRuntime(ctx, overrides, logger, deps) {
       }
     }
 
+    function jobSource(job) {
+      if (job.source === 'card' || job.source === 'play') return job.source
+      return String(job.id || '').startsWith('card-') || job.label === '卡片工作台' && String(job.key || '').startsWith('card-') ? 'card' : 'play'
+    }
+
     function publicJob(job) {
       return {
-        id: job.id, status: job.state, state: job.state, percent: job.percent ?? 0,
+        id: job.id, status: job.state, state: job.state, source: jobSource(job), percent: job.percent ?? 0,
         comfyId: job.comfyId || '',
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
         seed: job.seed, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
@@ -3530,7 +3540,9 @@ function createRuntime(ctx, overrides, logger, deps) {
           return
         }
         if (action === 'history') {
-          sendJson(response, 200, { ok: true, jobs: [...jobs.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob) })
+          const source = _url?.searchParams?.get('source') || ''
+          if (source && !['play', 'card'].includes(source)) { sendJson(response, 400, { ok: false, error: 'source 必须是 play 或 card' }); return }
+          sendJson(response, 200, { ok: true, jobs: [...jobs.values()].filter(job => !source || jobSource(job) === source).sort((a, b) => b.createdAt - a.createdAt).slice(0, 60).map(consoleJob) })
           return
         }
         if (action === 'plans') {

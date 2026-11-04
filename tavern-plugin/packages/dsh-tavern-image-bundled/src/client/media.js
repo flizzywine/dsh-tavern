@@ -1157,7 +1157,7 @@ function versionsOf(jobId) {
         // 主翻页列表：整场对话里出过图的作业（旧 → 新）。拿不到就退回版本链。
         let list = []
         try {
-          const r = await jsonFetch(BASE + '/history')
+          const r = await jsonFetch(BASE + '/history?source=play')
           const history = (r && Array.isArray(r.jobs)) ? r.jobs : []
           list = history
             .filter(job => job && job.id && (job.hasImage || job.byteLength))

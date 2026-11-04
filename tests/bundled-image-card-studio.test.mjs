@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, readdir, rm, mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdtemp, readFile, writeFile, readdir, rm, mkdir, copyFile } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createServer, request as httpRequest } from 'node:http'
 import { imagePluginFixture, IMAGE_PNG as PNG, imageJson as json } from './fixtures/image-plugin-runtime.mjs'
 import { cardSelection } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/generation.js'
 import { createCardGallery } from '../tavern-plugin/packages/dsh-tavern-image-bundled/lib/card-app/gallery.js'
@@ -48,6 +49,55 @@ test('workbench tools are scoped to card mode and do not install a global prompt
   assert.equal(f.tools.size, 0)
 })
 
+test('card tool returns reachable absolute image Markdown on CLI HTTP, including alternate and desktop origins', async t => {
+  let origin, calls = 0
+  const f = await studio(t, { webOrigin: () => { if (!origin) throw new Error('not listening'); return origin },
+    config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  globalThis.fetch = async () => { calls++; return json({ data: [{ b64_json: b64 }] }) }
+  const tool = f.tools.get('gen_image')
+  await assert.rejects(tool.execute({ prompt: 'one traveler' }, own), { code: 'NOT_CONFIGURED' })
+  assert.equal(calls, 0, 'origin failures must stop before a paid submission')
+  const serve = () => createServer((req, res) => {
+    const path = new URL(req.url, 'http://localhost').pathname
+    const handler = f.runtime.routes.get(path) || [...f.runtime.routes].find(([prefix]) => path.startsWith(prefix + '/'))?.[1]
+    if (!handler) { res.writeHead(404); res.end(); return }
+    Promise.resolve(handler(req, res)).catch(error => { res.writeHead(500); res.end(error.message) })
+  })
+  const servers = [serve(), serve()]
+  t.after(async () => { for (const server of servers) { server.closeIdleConnections(); await new Promise(resolve => server.close(resolve)) } })
+  for (const server of servers) await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  origin = 'http://127.0.0.1:' + servers[0].address().port
+  const result = await tool.execute({ prompt: 'one traveler' }, own), image = result.images[0]
+  assert.equal(new URL(image.url).origin, origin)
+  assert.equal(image.markdown, `![图片](${image.url})`)
+  assert.ok(tool.output.render({}, result)[0].text.includes(image.markdown))
+  const read = (url, headers = {}, method = 'GET') => new Promise((resolve, reject) => {
+    const request = httpRequest(url, { method, headers }, response => {
+      const parts = []; response.on('data', part => parts.push(part)); response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, bytes: Buffer.concat(parts) }))
+    }); request.on('error', reject); request.end()
+  })
+  for (const from of ['http://localhost:' + servers[0].address().port, 'dsh-app://app']) {
+    const response = await read(image.url, { origin: from, 'sec-fetch-site': 'cross-site' })
+    assert.equal(response.status, 200)
+    assert.deepEqual(response.bytes, PNG)
+    assert.equal(response.headers['access-control-allow-origin'], undefined, 'embedding does not open cross-origin API reads')
+  }
+  const head = await read(image.url, {}, 'HEAD')
+  assert.equal(head.status, 200); assert.equal(head.bytes.length, 0)
+  assert.equal(Number(head.headers['content-length']), PNG.length)
+  const range = await read(image.url, { range: 'bytes=0-7' })
+  assert.equal(range.status, 206); assert.deepEqual(range.bytes, PNG.subarray(0, 8))
+  assert.equal((await read(image.url, {}, 'DELETE')).status, 405)
+  assert.equal((await read(origin + '/dsh-tavern-gen/img/not-a-gallery-file.png')).status, 404)
+  assert.equal((await read(origin + '/dsh-tavern-gen/api/gallery', { origin: 'https://evil.invalid', 'sec-fetch-site': 'cross-site' })).status, 403)
+  origin = 'http://127.0.0.1:' + servers[1].address().port
+  const next = await tool.execute({ prompt: 'second traveler' }, own)
+  assert.equal(new URL(next.images[0].url).origin, origin, 'read the current listener address for each tool call')
+  assert.equal((await read(next.images[0].url)).status, 200)
+  assert.ok((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.every(item => item.url.startsWith('/')), 'saved gallery paths survive port changes')
+  assert.equal(calls, 2)
+})
+
 test('all built-in and custom protocols run from the card tool through the shared job engine', { timeout: 45000 }, async t => {
   const protocols = ['novelai', 'openai', 'gemini', 'gemini-chat', 'grok', 'seedream', 'qwen', 'atlascloud', 'sdwebui']
   const channels = protocols.flatMap(protocol => [
@@ -72,7 +122,8 @@ test('all built-in and custom protocols run from the card tool through the share
     const result = await f.tools.get('gen_image').execute({ channel: item.id, prompt: 'one adult traveler beside a window' }, own)
     assert.equal(result.ok, true, item.id)
     assert.equal(result.images.length, 1, item.id)
-    assert.match(result.images[0].url, /^\/dsh-tavern-gen\/img\//)
+    assert.match(result.images[0].url, /^http:\/\/127\.0\.0\.1:31867\/dsh-tavern-gen\/img\//)
+    assert.equal(result.images[0].markdown, `![图片](${result.images[0].url})`)
     const history = await f.runtime.request('job-detail?id=' + result.images[0].jobId)
     assert.equal(history.body.job.state, 'done', item.id)
     assert.equal(history.body.job.channelId, item.id, item.id)
@@ -213,6 +264,45 @@ test('card requests and story images share the configured concurrency limit', as
   assert.equal(calls, 3)
 })
 
+test('card and play galleries stay separate while task history, reload and legacy records preserve both pictures', async t => {
+  const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
+  globalThis.fetch = async () => json({ data: [{ b64_json: b64 }] })
+  const card = await f.tools.get('gen_image').execute({ prompt: 'card portrait' }, own)
+  const play = await f.runtime.request('jobs', { tag: 'story scene', key: 'play-scene', sessionId: 'play-session' })
+  await f.runtime.terminal(play.body.id)
+  const cardId = card.images[0].jobId
+  assert.deepEqual((await f.runtime.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
+  assert.deepEqual((await f.runtime.request('history?source=card')).body.jobs.map(job => job.id), [cardId])
+  assert.equal((await f.runtime.request('history')).body.jobs.length, 2, 'shared task diagnostics retain both sources')
+  assert.deepEqual((await f.runtime.request('/dsh-tavern-gen/api/gallery')).body.items.map(job => job.id), [cardId])
+  assert.deepEqual(await f.galleries[0].list({ sessionId: 'play-session' }), [], 'card provider does not add pictures to a play session')
+  assert.equal((await f.runtime.request('history?source=invalid')).status, 400)
+  let saved
+  for (let i = 0; i < 100; i++) {
+    saved = await f.read('jobs-store.json')
+    if (saved[cardId]?.source === 'card' && saved[play.body.id]?.source === 'play') break
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  assert.equal(saved[cardId].source, 'card')
+  f.runtime.close()
+  delete saved[cardId].source; delete saved[play.body.id].source
+  const legacyId = '11111111-2222-4333-8444-555555555555'
+  const legacyFile = join(dirname(saved[cardId].file), legacyId + '.png')
+  await copyFile(saved[cardId].file, legacyFile)
+  await createCardGallery(join(f.pluginRoot, '../../image-cache/dsh-tavern-gen')).add({ jobId: legacyId, file: legacyFile, mediaType: 'image/png', prompt: 'older card portrait' }, { sessionId: 'card-session-a' })
+  saved[legacyId] = { ...saved[cardId], id: legacyId, file: legacyFile, key: 'card-older-version' }
+  await writeFile(join(f.pluginRoot, 'jobs-store.json'), JSON.stringify(saved))
+  const restarted = await f.start()
+  assert.deepEqual((await restarted.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
+  assert.deepEqual(new Set((await restarted.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'pre-fix UUID card jobs are recognized without deleting or regenerating them')
+  assert.equal((await restarted.request('/dsh-tavern-gen/api/gallery')).body.items.length, 2)
+  restarted.close()
+  await writeFile(join(f.pluginRoot, 'jobs-store.json'), '{}')
+  const recovered = await f.start()
+  assert.deepEqual((await recovered.request('history?source=play')).body.jobs.map(job => job.id), [play.body.id])
+  assert.deepEqual(new Set((await recovered.request('history?source=card')).body.jobs.map(job => job.id)), new Set([cardId, legacyId]), 'cache-only recovery retains card sources for prefixed IDs and old gallery UUIDs')
+})
+
 test('tool cancellation stops local waiting and never retries an accepted ambiguous request', async t => {
   const f = await studio(t, { config: { imageBackend: 'openai', activeImageChannel: 'openai', imageChannels: [channel('openai')] } })
   let submitted, calls = 0
@@ -248,6 +338,26 @@ test('gallery writes do not lose concurrent additions and remove compares stable
   assert.equal((await gallery.list('a')).length, 19)
   assert.equal(await gallery.remove('job-4', 'b'), false)
   await assert.rejects(gallery.file('../output.png'))
+})
+
+test('a locked image keeps its gallery record for retry, including partial clear failures', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'card-gallery-delete-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = join(root, 'output.png'); await writeFile(file, PNG)
+  let locked = true
+  const gallery = createCardGallery(join(root, 'gallery'), { removeFile: async (file, options) => {
+    if (locked && file.endsWith('one.png')) throw Object.assign(new Error('file in use'), { code: 'EPERM' })
+    return rm(file, options)
+  } })
+  for (const jobId of ['one', 'two']) await gallery.add({ jobId, file, mediaType: 'image/png' }, { sessionId: 'a' })
+  await assert.rejects(gallery.remove('one', 'a'), { code: 'EPERM' })
+  assert.equal((await gallery.list()).length, 2)
+  await assert.rejects(gallery.clear(), { code: 'GALLERY_DELETE_FAILED', removed: 1 })
+  assert.deepEqual((await gallery.list()).map(item => item.id), ['one'])
+  assert.deepEqual((await gallery.read('one', 'a')).data, PNG)
+  locked = false
+  assert.equal(await gallery.clear(), 1)
+  assert.deepEqual(await gallery.list(), [])
 })
 
 test('worldbook projections preserve Unicode identities, reject stale saves and never replace malformed user books', async t => {

@@ -7,7 +7,7 @@ const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'i
 const validFile = value => typeof value === 'string' && value === basename(value) && /^[\w-]+\.(png|jpe?g|webp|gif)$/i.test(value)
 
 /** One mutation gate covers append, delete and clear, including calls from the host gallery. */
-export function createCardGallery(directory) {
+export function createCardGallery(directory, { removeFile = rm } = {}) {
   const images = join(directory, 'images'), index = join(directory, 'jobs.json'), serial = serialQueue()
   let loading
   const load = () => loading ||= readJson(index, []).then(value => {
@@ -42,16 +42,22 @@ export function createCardGallery(directory) {
       return serial(async () => {
         const list = await load(), target = await find(id, sessionId)
         if (!target) return false
+        // Keep the record available for retry when Windows still holds the image file.
+        await removeFile(join(images, target.file), { force: true })
         await publish(list.filter(item => item.id !== target.id))
-        await rm(join(images, target.file), { force: true })
         return true
       })
     },
     clear() {
       return serial(async () => {
         const list = await load()
-        await publish([])
-        for (const item of list) await rm(join(images, item.file), { force: true }).catch(() => {})
+        const failed = []
+        for (const item of list) {
+          try { await removeFile(join(images, item.file), { force: true }) }
+          catch { failed.push(item) }
+        }
+        await publish(failed)
+        if (failed.length) throw Object.assign(new Error(`还有 ${failed.length} 张图片暂时无法删除，记录已保留，请稍后重试`), { code: 'GALLERY_DELETE_FAILED', removed: list.length - failed.length })
         return list.length
       })
     },
