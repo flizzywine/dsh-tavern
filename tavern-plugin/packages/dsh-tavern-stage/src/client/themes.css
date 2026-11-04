@@ -180,6 +180,10 @@
 .fork-cg-viewer { position: absolute; inset: 0; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; container: cg-viewer / inline-size; }
 /* the picture's frame: 特写 zooms inside it, so it never reaches under the controls beside it. */
 .fork-cg-viewer > .fork-cg-gallery-picture > .fork-cg-stage { inset: 0; }
+/* 手势缩放: pinch, drag and wheel belong to the picture (never the page's zoom); zoomed, it can be grabbed. */
+.fork-cg-viewer > .fork-cg-gallery-picture { touch-action: none; }
+.fork-cg-viewer[data-zoomed] > .fork-cg-gallery-picture { cursor: grab; }
+.fork-cg-viewer[data-zoomed] > .fork-cg-gallery-picture:active { cursor: grabbing; }
 .fork-cg-viewer-bottom { display: contents; }
 .fork-cg-viewer-ui { position: absolute; inset: 0; z-index: 4; pointer-events: none; transition: opacity .2s, visibility .2s; }
 .fork-cg-viewer-ui :is(button, .fork-cg-crop-menu) { pointer-events: auto; }
