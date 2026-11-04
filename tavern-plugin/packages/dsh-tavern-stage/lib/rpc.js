@@ -98,7 +98,7 @@ return modService.builtinImages('dsh.timer')
       const { cgGallery } = deps
 return cgGallery.list(args,authority?.origin)
     },
-    // 回想 › 删除此 CG: a 场景生图 entry leaves the card's pack, the gallery and its turn (scene-cg.js).
+    // 回想 › 删除这张 CG: a 场景生图 entry leaves the card's pack, the gallery and its turn (scene-cg.js).
     async removeSceneCg(args) {
       return deps.sceneCg.remove({sessionId:args.sessionId, ref:args.ref})
     },
