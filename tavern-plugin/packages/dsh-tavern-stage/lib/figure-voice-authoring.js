@@ -124,7 +124,8 @@ export function createFigureVoiceAuthoring({getLibrary,getTts}) {
       if (!origin) fail('FORBIDDEN')
       const started = epoch, {library,tts} = services(), pack = await current(library,input,policy?.standalone), figure = pack.figures[input.figureId]
       const voiceBinding = policy?.voiceBinding || figure.voice
-      if (!figure.enabled || !voiceBinding) fail('VOICE_NOT_FOUND')
+      // The figure lamp is the stage's: a figure switched off (or the new-figure page's hidden draft) still auditions.
+      if (!voiceBinding) fail('VOICE_NOT_FOUND')
       const spec = policy?.spec || pack.manifest.voiceLibrary.voices[voiceBinding.voice]
       const binding = await assetVoiceBinding(tts,{voice:spec,binding:voiceBinding})
       if (policy && !same(binding, policy.binding)) fail('PREVIEW_CONFIRMATION_REQUIRED')
