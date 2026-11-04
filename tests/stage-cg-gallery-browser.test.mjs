@@ -84,7 +84,108 @@ test('phones: a horizontal swipe changes CG, a tap folds the controls', async t 
   assert.equal(await title(page), '第 1 张 CG')
   assert.equal(await page.locator('.fork-cg-viewer').getAttribute('data-ui'), 'on', 'a swipe is not a tap')
   await page.locator('.fork-cg-viewer').tap({ position: { x: 195, y: 420 } })
-  assert.equal(await page.locator('.fork-cg-viewer').getAttribute('data-ui'), 'off')
+  await page.waitForSelector('.fork-cg-viewer[data-ui="off"]')
+})
+
+// 手势缩放: real touches (CDP) on a phone; the drawn picture is measured on screen.
+async function touchPage(t, items) {
+  const page = await open(t, items, { phone: true })
+  await page.locator('.fork-cg-gallery-cell').first().tap()
+  await page.waitForFunction(() => document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1]?.style.transform)
+  const cdp = await page.context().newCDPSession(page)
+  const send = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) })
+  // each finger moves from its start to its end in steps.
+  const gesture = async (...fingers) => {
+    await send('touchStart', fingers.map(f => f[0]))
+    for (let step = 1; step <= 8; step++) await send('touchMove', fingers.map(([a, b]) => [a[0] + (b[0] - a[0]) * step / 8, a[1] + (b[1] - a[1]) * step / 8]))
+    await send('touchEnd', [])
+  }
+  const tap = async point => { await send('touchStart', [point]); await send('touchEnd', []) }
+  const drawn = () => page.evaluate(() => {
+    const frame = document.querySelector('.fork-cg-viewer .fork-cg-stage'), image = frame.querySelectorAll('img')[1], f = frame.getBoundingClientRect(), r = image.getBoundingClientRect()
+    const k = Math.min(r.width / image.naturalWidth, r.height / image.naturalHeight), w = image.naturalWidth * k, h = image.naturalHeight * k
+    const left = r.left + (r.width - w) / 2, top = r.top + (r.height - h) / 2
+    return { scale: image.style.scale || '1', picture: { left, top, right: left + w, bottom: top + h }, frame: { left: f.left, top: f.top, right: f.right, bottom: f.bottom } }
+  })
+  return { page, gesture, tap, drawn }
+}
+const covers = ({ picture, frame }) => picture.left <= frame.left + 0.5 && picture.right >= frame.right - 0.5 && picture.top <= frame.top + 0.5 && picture.bottom >= frame.bottom - 0.5
+
+test('phones: a pinch zooms up to 4× covering the frame, one finger then pans to its edge, not a swipe', async t => {
+  const { page, gesture, tap, drawn } = await touchPage(t, galleryItems(2))
+  await gesture([[175, 420], [60, 380]], [[215, 420], [330, 460]])
+  let now = await drawn()
+  assert.equal(now.scale, '4', 'clamped at 4×')
+  assert.ok(covers(now), 'zoomed, the picture covers its frame')
+  assert.equal(await page.locator('.fork-cg-viewer').getAttribute('data-ui'), 'on', 'a pinch is not a tap')
+  for (let i = 0; i < 3; i++) await gesture([[100, 420], [380, 420]])
+  now = await drawn()
+  assert.equal(await title(page), '第 1 张 CG', 'zoomed, a drag pans instead of turning the page')
+  assert.ok(Math.abs(now.picture.left - now.frame.left) < 0.5, 'the pan stops at the picture\'s edge ')
+  assert.ok(covers(now))
+  await gesture([[300, 300], [300, 700]])
+  assert.ok(covers(await drawn()), 'still covered after a vertical pan')
+  await tap([195, 420]); await tap([195, 420])
+  await page.waitForTimeout(400)
+  assert.equal((await drawn()).scale, '1', 'after a pan, a double tap returns to 1×')
+  assert.equal(await page.locator('.fork-cg-viewer').getAttribute('data-ui'), 'on')
+  await gesture([[175, 420], [60, 420]], [[215, 420], [330, 420]])
+  await page.locator('[data-k="next"]').tap()
+  assert.equal((await drawn()).scale, '1', 'another CG starts at 1×')
+})
+
+test('phones: double tap toggles 1× and 2.5× at the tap point; at 1× a swipe turns the page', async t => {
+  const { page, gesture, tap, drawn } = await touchPage(t, galleryItems(3, { variants: 2 }))
+  const before = await drawn(), at = [100, 400]
+  const u = (at[0] - before.picture.left) / (before.picture.right - before.picture.left), v = (at[1] - before.picture.top) / (before.picture.bottom - before.picture.top)
+  await tap(at); await tap(at)
+  await page.waitForTimeout(400)
+  let now = await drawn()
+  assert.equal(now.scale, '2.5')
+  const under = [now.picture.left + u * (now.picture.right - now.picture.left), now.picture.top + v * (now.picture.bottom - now.picture.top)]
+  assert.ok(Math.abs(under[0] - at[0]) < 1, 'the tapped point stays under the finger')
+  assert.equal(await page.locator('.fork-cg-viewer').getAttribute('data-ui'), 'on', 'a double tap does not fold the controls')
+  await page.locator('.fork-cg-variant').nth(1).tap()
+  assert.equal((await drawn()).scale, '1', 'another 差分 starts at 1×')
+  await tap(at); await tap(at)
+  await page.waitForTimeout(400)
+  assert.equal((await drawn()).scale, '2.5')
+  await tap(at); await tap(at)
+  await page.waitForTimeout(400)
+  assert.equal((await drawn()).scale, '1', 'a second double tap returns to 1×')
+  await gesture([[320, 420], [80, 430]])
+  assert.equal(await title(page), '第 2 张 CG', 'at 1× a swipe changes CG')
+})
+
+test('phones: 特写 then a pinch zooms from the close-up; 完整 returns to the whole picture', async t => {
+  const { page, gesture, drawn } = await touchPage(t, galleryItems(2, { focus: true }))
+  await page.locator('.fork-cg-compose-mode[data-k="zoom"]').tap()
+  await page.waitForFunction(() => /scale\(2\)/.test(document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1].style.transform))
+  const close = await drawn()
+  await gesture([[175, 420], [135, 420]], [[215, 420], [255, 420]])
+  const now = await drawn()
+  assert.ok(Number(now.scale) > 2, 'the pinch scales the close-up ')
+  assert.ok(now.picture.right - now.picture.left > 2 * (close.picture.right - close.picture.left))
+  await page.locator('.fork-cg-compose-mode[data-k="full"]').tap()
+  assert.equal((await drawn()).scale, '1')
+})
+
+test('desktop: the wheel zooms about the pointer and a drag pans', async t => {
+  const page = await open(t, galleryItems(2))
+  await page.locator('.fork-cg-gallery-cell').first().click()
+  await page.waitForFunction(() => document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1]?.style.transform)
+  await page.mouse.move(400, 300)
+  await page.mouse.wheel(0, -400)
+  const scale = () => page.evaluate(() => document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1].style.scale || '1')
+  await page.waitForFunction(() => Number(document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1].style.scale) > 1.5)
+  const translate = () => page.evaluate(() => document.querySelectorAll('.fork-cg-viewer .fork-cg-stage > img')[1].style.translate)
+  const from = await translate()
+  await page.mouse.down(); await page.mouse.move(500, 350, { steps: 5 }); await page.mouse.up()
+  assert.notEqual(await translate(), from, 'the drag moved the view')
+  assert.ok(Number(await scale()) > 1.5)
+  assert.equal(await page.locator('.fork-cg-viewer').count(), 1)
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await scale(), '1')
 })
 
 test('构图 shows only with focus areas, as a labelled 完整 | 特写 pair; several areas open a menu under 特写', async t => {

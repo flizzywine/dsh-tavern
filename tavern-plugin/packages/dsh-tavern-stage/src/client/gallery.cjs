@@ -101,7 +101,9 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     // the viewer's size and the shown picture's aspect decide where its controls go (fork-cg-viewer data-fit).
     const viewerNode=React.useRef(null),[box,setBox]=React.useState(null),[aspect,setAspect]=React.useState(0);
     const revision=usePackRevision(),generation=React.useRef(0),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
-    const wasViewer=React.useRef(false);
+    const wasViewer=React.useRef(false),taps=React.useRef(null),toggleUi=React.useRef(null);
+    // 手势缩放: the player's own view over the 完整/特写 composition, 1–4×: translate + scale on the pictures (the painter writes transform).
+    const view=React.useRef({s:1,x:0,y:0}),pointers=React.useRef(new Map()),gesture=React.useRef(null),[zoomed,setZoomed]=React.useState(false);
     // a 场景生图 CG (row.scene): 在素材库中编辑 opens its entry in the 素材库; 🗑 removes it everywhere at once (busy | failed).
     const [removing,setRemoving]=React.useState(null);
     const source=store.getSnapshot().source,authority=JSON.stringify([source.sessionId,source.authorityEpoch]);
@@ -192,30 +194,114 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         if (idle.current) window.clearTimeout(idle.current);
         idle.current=window.setTimeout(()=>{idle.current=0;if(!disposed)setActive(false);},3000);
     }
-    function tap(event) {
-        if (swiped.current) {swiped.current=false;return;}
-        if (event.target.closest('button, .fork-cg-crop-menu')) return;
-        if (cropOpen) setCropOpen(false);
-        else {if(!uiOff)root.current?.focus();setUiOff(!uiOff);}
+    // a tap folds the controls once no second tap follows; a double tap toggles 1× and 2.5× at its point.
+    toggleUi.current=()=>{if(!uiOff)root.current?.focus();setUiOff(!uiOff);};
+    // a tap is read from the pointer itself (a press released in place), as a browser does not click after every touch.
+    function tap(point) {
+        if (cropOpen) {setCropOpen(false);return;}
+        const last=taps.current;
+        if (last && Math.hypot(point.x-last.x,point.y-last.y)<40) {
+            window.clearTimeout(last.timer);taps.current=null;
+            setView(view.current.s>1?{s:1,x:0,y:0}:zoomAt(view.current,point,point,2.5),true);return;
+        }
+        if (last) window.clearTimeout(last.timer);
+        taps.current={...point,timer:window.setTimeout(()=>{taps.current=null;if(!disposed)toggleUi.current();},280)};
     }
-    // phones: a horizontal swipe changes the CG.
-    const swipeStart=event=>{swiped.current=false;swipe.current=event.pointerType==='mouse'||event.target.closest('button')?null:{x:event.clientX,y:event.clientY};};
-    function swipeEnd(event) {
+    const frame=()=>viewerNode.current?.querySelector(':scope > .fork-cg-gallery-picture > .fork-cg-stage');
+    // the view that keeps the picture's point under `anchor` at `point`, zoomed to s.
+    function zoomAt(from,point,anchor,s) {
+        const r=frame().getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;s=Math.min(4,Math.max(1,s));
+        return {s,x:point.x-cx-s*(anchor.x-cx-from.x)/from.s,y:point.y-cy-s*(anchor.y-cy-from.y)/from.s};
+    }
+    // zoomed, the picture covers its frame on each axis it outgrows and stays centred on the others; 1× is the composition itself.
+    function setView(next,animate=false) {
+        const stage=frame();
+        if (!stage) return;
+        const images=stage.querySelectorAll('img'),image=images[1],old=view.current;
+        let {s,x,y}=next;
+        if (s<=1.001 || !image.naturalWidth) {s=1;x=0;y=0;}
+        else {
+            const f=stage.getBoundingClientRect(),r=image.getBoundingClientRect(),k=Math.min(r.width/image.naturalWidth,r.height/image.naturalHeight);
+            // per axis: the picture's centre at 1× (from the frame's centre), its half size at s, and how far it may move.
+            const axis=(next,shift,drawn,start,size,from,to)=>{
+                const base=((from+to)/2-start-size/2-shift)/old.s,room=s*drawn/old.s/2-size/2,d=s*base;
+                return room>0?Math.min(room-d,Math.max(-room-d,next)):-d;
+            };
+            x=axis(x,old.x,image.naturalWidth*k,f.left,f.width,r.left,r.right);
+            y=axis(y,old.y,image.naturalHeight*k,f.top,f.height,r.top,r.bottom);
+        }
+        view.current={s,x,y};
+        const motion=animate&&!stage.closest('[data-reduced-motion]')?'translate .22s ease-out, scale .22s ease-out':'';
+        for (const node of images) {node.style.transition=motion;node.style.translate=s>1?`${x}px ${y}px`:'';node.style.scale=s>1?String(s):'';}
+        setZoomed(s>1);
+    }
+    // switching CG, 差分 or 构图, or resizing the viewer, starts again from the composition.
+    React.useLayoutEffect(()=>{if(!disposed)setView({s:1,x:0,y:0});},[selected,variant,focus,box?.width,box?.height]);
+    // pinch zooms about the fingers' midpoint; one finger pans only while zoomed; at 1× a horizontal swipe changes the CG.
+    function press(event) {
+        if (event.target.closest('button, .fork-cg-crop-menu') || event.pointerType==='mouse'&&event.button!==0) return;
+        if (!pointers.current.size) swiped.current=false;
+        pointers.current.set(event.pointerId,{x:event.clientX,y:event.clientY,from:{x:event.clientX,y:event.clientY}});
+        const list=[...pointers.current.values()];
+        if (list.length===2) {
+            swipe.current=null;swiped.current=true;
+            gesture.current={type:'pinch',view:view.current,mid:{x:(list[0].x+list[1].x)/2,y:(list[0].y+list[1].y)/2},dist:Math.hypot(list[0].x-list[1].x,list[0].y-list[1].y)||1};
+        } else if (list.length===1) {
+            gesture.current=view.current.s>1?{type:'pan',view:view.current,x:event.clientX,y:event.clientY}:null;
+            swipe.current=view.current.s>1||event.pointerType==='mouse'?null:{x:event.clientX,y:event.clientY};
+        }
+    }
+    function drag(event) {
+        wake(event);
+        const at=pointers.current.get(event.pointerId),g=gesture.current;
+        if (!at) return;
+        at.x=event.clientX;at.y=event.clientY;
+        if (g?.type==='pinch' && pointers.current.size===2) {
+            const [a,b]=[...pointers.current.values()],dist=Math.hypot(a.x-b.x,a.y-b.y);
+            setView(zoomAt(g.view,{x:(a.x+b.x)/2,y:(a.y+b.y)/2},g.mid,g.view.s*dist/g.dist));
+        } else if (g?.type==='pan') {
+            const dx=event.clientX-g.x,dy=event.clientY-g.y;
+            if (Math.hypot(dx,dy)>6) swiped.current=true;
+            setView({s:g.view.s,x:g.view.x+dx,y:g.view.y+dy});
+        }
+    }
+    function lift(event) {
+        const at=pointers.current.get(event.pointerId);
+        if (!at) return;
+        pointers.current.delete(event.pointerId);
+        const rest=[...pointers.current.values()];
+        if (!rest.length && !swiped.current && Math.hypot(event.clientX-at.from.x,event.clientY-at.from.y)<10) {swipe.current=null;tap({x:event.clientX,y:event.clientY});return;}
+        gesture.current=rest.length===1&&view.current.s>1?{type:'pan',view:view.current,...rest[0]}:null;
         const start=swipe.current;swipe.current=null;
-        if (!start) return;
+        if (!start || rest.length) return;
         const dx=event.clientX-start.x,dy=event.clientY-start.y;
         if (Math.abs(dx)<48 || Math.abs(dx)<Math.abs(dy)*1.5) return;
         swiped.current=true;go(dx<0?1:-1);
     }
+    function drop(event) {pointers.current.delete(event.pointerId);gesture.current=null;swipe.current=null;}
+    // wheel or a trackpad pinch zooms about the pointer (not the page).
+    useEffect(()=>{
+        const node=viewerNode.current;
+        if (!node) return;
+        const wheel=event=>{
+            if (event.target.closest('.fork-cg-viewer-ui button, .fork-cg-variants, .fork-cg-crop-menu')) return;
+            event.preventDefault();
+            const step=event.deltaY*(event.deltaMode===1?16:1)*(event.ctrlKey?0.01:0.002),point={x:event.clientX,y:event.clientY};
+            setView(zoomAt(view.current,point,point,view.current.s*Math.exp(-step)));
+        };
+        node.addEventListener('wheel',wheel,{passive:false});
+        return ()=>node.removeEventListener('wheel',wheel);
+    },[!!item]);
+    useEffect(()=>()=>{if(taps.current)window.clearTimeout(taps.current.timer);},[]);
     function viewer() {
         // 构图 only when the CG has focus areas: 「完整」|「特写」, a labelled pair; several areas put them in a menu under 特写.
         const hints=item.focusHints,many=hints.length>1;
         const mode=(k,label,pressed,onClick,props)=>h('button',{type:'button',className:'fork-cg-compose-mode','data-k':k,'aria-pressed':pressed,onClick,...props},icon(k),h('span',null,label));
         // a picture narrower than the viewer leaves side bands; wide enough ones (side) hold the controls beside it.
         const band=aspect&&box?Math.floor((box.width-box.height*aspect)/2):0,fit=band>=280?'side':'over';
-        return h('div',{ref:viewerNode,className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,'data-fit':fit,
+        return h('div',{ref:viewerNode,className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,'data-fit':fit,'data-zoomed':zoomed||undefined,
                 style:aspect?{'--cg-ar':aspect,'--cg-band':band+'px'}:undefined,
-                onClick:tap,onPointerMove:wake,onPointerLeave:()=>setActive(false),onPointerDown:swipeStart,onPointerUp:swipeEnd,onPointerCancel:()=>{swipe.current=null;}},
+                onPointerMove:drag,onPointerLeave:()=>setActive(false),onPointerDown:press,onPointerUp:lift,onPointerCancel:drop},
             h(CgGalleryImage,{image:shown?.image,authority,focus,onAspect:setAspect}),
             h('div',{className:'fork-cg-viewer-ui'},
                 h('div',{className:'fork-cg-viewer-scrim'}),
