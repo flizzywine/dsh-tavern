@@ -237,6 +237,22 @@ test('没有 Release 用默认分支；仓库不存在、连不上都给出办�
   await assert.rejects(offline.installer.installFromGithub('a/b'), /连不上 GitHub（ECONNRESET）.*下载 ZIP 后上传/)
 })
 
+test('下载插件 ZIP 的请求头：Accept 是 ZIP 类型，任何请求头都不会是字面量 undefined（#592）', async t => {
+  const requests = []
+  const { installer } = await setup(t, async (url, init) => {
+    requests.push({ url, headers: new Headers(init?.headers) })
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    const zip = hello()
+    return { ok: true, status: 200, arrayBuffer: async () => zip }
+  })
+  await installer.installFromGithub('author/dsh-tavern-hello')
+  const archive = requests.find(request => request.url.startsWith('https://codeload.github.com/'))
+  assert.equal(archive.headers.get('accept'), 'application/zip, application/octet-stream')
+  for (const { headers } of requests) {
+    for (const [name, value] of headers) assert.notEqual(value, 'undefined', name)
+  }
+})
+
 test('GitHub API 限流（403）不中断安装：退回默认分支并带上说明', async t => {
   const calls = []
   const { installer, plugins } = await setup(t, async url => {
