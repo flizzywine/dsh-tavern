@@ -320,7 +320,7 @@ export function createAssetPackService(options) {
         pack=await verify(pack.manifest,pack.files,before,true)
       }
     }
-    retainPublishedStateImages(before,pack,resolution.technical?new Map(resolution.changes.map(row=>[row.previous,row.hash])):undefined,resolution.imageResolutions)
+    retainPublishedStateImages(before,pack,resolution.technical?new Map(resolution.changes.map(row=>[row.previous,row.hash])):undefined,resolution.imageResolutions,resolution.avatarReplacements)
     // Removing or reordering existing identities cannot introduce a library-wide collision.
     // Do not hydrate every installed pack while holding the publication fence for a deletion.
     const previousFigureIds = new Set(before?.manifest.figures || [])
@@ -363,7 +363,7 @@ export function createAssetPackService(options) {
     }).filter(([, figure]) => figure))
     return enforceTriggers(before, {manifest, figures}, input.force)
   }
-  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions) {
+  async function edit(input, mutate, tryMetadata = false, migrateLocal, dryRun = false, resolutionTargets, resolutionRestore, imageResolutions, avatarReplacements) {
     validateUuid(input.packId)
     return run([input.packId], async () => {
       if (tryMetadata) {
@@ -424,6 +424,7 @@ export function createAssetPackService(options) {
         read:(name,size)=>storage.read(`packs/${manifest.id}/${name}`,size),compare:resolutionTargets&&input.compare===true})
       resolution.technical=Boolean(resolutionTargets||resolutionRestore)
       resolution.imageResolutions=imageResolutions
+      resolution.avatarReplacements=avatarReplacements
       await sealPack(manifest, files, before, hashed)
       const verified = await verify(manifest, files, before, true)
       for (const [id, document] of Object.entries(verified.widgets)) {
@@ -781,6 +782,7 @@ export function createAssetPackService(options) {
     patchPack(input) {
       check(input.dryRun === undefined || typeof input.dryRun === 'boolean', '$.dryRun', 'Expected boolean')
       check(input.imageResolutions === undefined || Array.isArray(input.imageResolutions), '$.imageResolutions', 'Expected an array')
+      check(input.avatarReplacements === undefined || Array.isArray(input.avatarReplacements), '$.avatarReplacements', 'Expected an array')
       // Full author-field replacement patch, plus exact byte updates. Never a revision/hash patch.
       const patch = copy(input.patch || {}), updates = input.fileUpdates ? cloneFilesWithDeletes(input.fileUpdates) : new Map()
       return edit(input, async (manifest, files, before) => {
@@ -805,7 +807,7 @@ export function createAssetPackService(options) {
         }
         trimAuthoringImages(manifest, files, before.figures)
       // a batch of existing figure documents can use the same metadata transaction.
-      }, !input.imageResolutions?.length && [...updates].every(([name, bytes]) => bytes !== null && /^figures\/[0-9a-f-]+\.json$/.test(name)), undefined, input.dryRun === true, undefined, undefined, input.imageResolutions)
+      }, !input.imageResolutions?.length && [...updates].every(([name, bytes]) => bytes !== null && /^figures\/[0-9a-f-]+\.json$/.test(name)), undefined, input.dryRun === true, undefined, undefined, input.imageResolutions, input.avatarReplacements)
     },
     savePackVoice(input) {
       validateShortId(input.voiceId, '$.voiceId')
