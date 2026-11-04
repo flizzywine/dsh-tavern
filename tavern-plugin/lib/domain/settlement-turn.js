@@ -6,6 +6,19 @@ function str(value) {
   return typeof value === 'string' ? value : (value === undefined || value === null ? '' : String(value))
 }
 
+// Setup belongs to the first reply after its floor, including retries of that reply.
+// A later assistant floor closes the window without another persisted flag.
+export function openingSettlementContext(messages, messageId) {
+  for (let index = messageId - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role === 'assistant') break
+    if (message?.role === 'system' && message.openingSetup === true) {
+      return '【开局设定】（玩家本局的起始状态；按其中陈述的事实结算变量，可以超出初始基线。每轮进度与互动限制从下一轮起才适用）\n' + str(message.text)
+    }
+  }
+  return ''
+}
+
 // `knownPosture`: the posture the background history already shows; the block is
 // repeated only when that differs (new session, compaction, rewind).
 export function settleUserText(chat, includePosture = true, knownPosture = '') {
@@ -16,6 +29,7 @@ export function settleUserText(chat, includePosture = true, knownPosture = '') {
   const lines = [
     ...(repeatPosture ? ['【上一轮结算姿势】',
     str(chat.posture) !== '' ? projectAgentContent(chat.posture, { charName: chat.cardName, macroState: chat.macroState }).agentText : '（无）'] : []),
+    ...[openingSettlementContext(chat.messages || [], (chat.messages || []).lastIndexOf(msgs.at(-1)))].filter(Boolean),
     '【最新一轮对话】'
   ]
   for (let i = 0; i < msgs.length; i++) {

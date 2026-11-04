@@ -133,7 +133,7 @@ test('inline and live rosters share names, variants and a single voice-language 
   assert.match(entries[0].text,/A `\[Voice language: \.\.\.\]` tag after the name gives the translation language/)
   const plain = bubbleInstructionPreview({...config,voice:{enabled:false}}).sections.find(section=>section.key==='characters').text
   assert.equal(plain,resolved.sections.find(section=>section.key==='characters').text)
-  assert.ok(plain.startsWith('<speaker_roster>\nEach `Variants:` line gives the options for the speakers listed under it. Parentheses after a variant give guidance, not part of its value.\nVariants: '))
+  assert.ok(plain.startsWith('<speaker_roster>\nEach `Variants:` line gives the options for the speakers listed under it. Parentheses after a variant give guidance, not part of its value.\nThe player is 你; the player\'s own lines use the name 你, never another roster entry.\nVariants: '))
 })
 
 // A roster line lists handle and name in the same order and with the same separator as a marked line,
@@ -384,7 +384,7 @@ test('writer figure entries use display labels and preserve ID-only figures with
     {alias:'guest',name:'来客',ref:{packId:'pack',figureId:'guest'},aliases:[],recall:{mode:'keyword'},emotions:moods.map(({note,...row})=>row)},
     {alias:'other',name:'另一位',ref:{packId:'pack',figureId:'other'},aliases:[],recall:{mode:'constant'},emotions:moods.map(({note,...row})=>row)}
   ]}
-  const injected = bubbleInjection(config), text = injected.map(row => row.text).join('\n\n')
+  const injected = bubbleInjection(config, { userName: '{{user}}' }), text = injected.map(row => row.text).join('\n\n')
   // one stable roster, grouped by available labels, with compact authored guidance.
   assert.equal(injected.length, 1)
   assert.doesNotMatch(text, /未配置角色表|人物情绪|smug:|eating:|通用差分/)
@@ -438,7 +438,7 @@ test('one managed entry replaces both legacy entries without treating a figure d
   const entries = docs.get(JSON.stringify(cardSource)).entries
   assert.equal(entries.length,2)
   assert.equal(entries[0].comment,BUBBLE_WORLDBOOK_COMMENT)
-  assert.equal(entries[0].content,parts[0].text)
+  assert.equal(entries[0].content,bubbleInjection(config, { userName: '{{user}}' })[0].text)
   assert.deepEqual(entries[1],user)
   assert.equal((await syncDialogueBubbleWorldbook(books,cardSource.cardPath,config)).changed,false)
 })

@@ -211,6 +211,23 @@ export function createTavernScriptDispatch(options = {}) {
     })
   }
 
+  // Startup consumers must not create story floors until the normal runtime has
+  // persisted its initialization. Reuse the same readiness/error authority as work claims.
+  function waitUntilReady(sessionId) {
+    const id = str(sessionId)
+    return new Promise((resolve, reject) => {
+      const finish = error => { clearTimeout(timer); stop(); error ? reject(error) : resolve() }
+      const check = () => {
+        const state = status(id)
+        if (state.initializationError) finish(new Error(state.initializationError))
+        else if (state.ready) finish()
+      }
+      const timer = setTimeout(() => finish(new Error('人物卡变量初始化尚未完成，请等待加载完成后再发送。')), executionTimeoutMs)
+      const stop = subscribeSettled(changedId => { if (changedId === id) check() })
+      check()
+    })
+  }
+
   function subscribeReady(listener) {
     if (typeof listener !== 'function') return function () {}
     readyListeners.add(listener)
@@ -240,5 +257,5 @@ export function createTavernScriptDispatch(options = {}) {
       ...(present && current.initializationError ? { initializationError: current.initializationError } : {}) }
   }
 
-  return Object.freeze({ supportsContextProjection: true, touch, available, claim, claimWithContext, start, workState, complete, dispatch, subscribeReady, subscribeSettled, dispose, status })
+  return Object.freeze({ supportsContextProjection: true, touch, available, claim, claimWithContext, start, workState, complete, dispatch, waitUntilReady, subscribeReady, subscribeSettled, dispose, status })
 }

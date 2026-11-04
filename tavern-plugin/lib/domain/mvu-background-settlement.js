@@ -1,3 +1,4 @@
+import { openingSettlementContext } from './settlement-turn.js'
 import { keyForms } from './encoded-keys.js'
 import { createBackgroundTaskFrame } from './agent-input-frame.js'
 import {
@@ -233,7 +234,7 @@ function auditMvuSettlement(before, after, operations) {
       failures.push({
         operation: operation.op,
         path: operation.path,
-        message: '未观察到对应变量变化；请通过“日志”导出执行记录'
+        message: '提交后该路径没有变化；请对照当前变量结构、提交值与运行时诊断修正操作'
       })
     }
   }
@@ -449,9 +450,9 @@ export function collectMvuHelperContext(messages, messageId) {
   if (!Array.isArray(messages) || !Number.isInteger(messageId) || messageId < 0 || messageId >= messages.length) return []
   let start = messageId - 1
   while (start >= 0 && messages[start]?.role !== 'assistant') start--
-  return messages.slice(start + 1, messageId)
+  return [openingSettlementContext(messages, messageId), ...messages.slice(start + 1, messageId)
     .filter(message => message?.role === 'tavern-helper')
-    .map(message => str(message.text).trim()).filter(Boolean)
+    .map(message => str(message.text).trim())].filter(Boolean)
 }
 
 export function createMvuBackgroundTaskFrame(input = {}) {
@@ -522,7 +523,7 @@ export function projectMvuBackgroundRequest(frame) {
       '若本轮出现值得长期保留的重要人物，可先调用 skill 加载 character-design，再按 Skill 读取或保存人物档案。人物设计独立保存，不属于 MVU operations。'] : [])
     ].join('\n'),
     system: [
-      '只根据【正文】中已经确认发生的事实结算变量，不得读取或推断玩家意图。',
+      '根据【正文】中已经确认发生的事实，以及本轮【开局设定】或人物卡 Helper 交接中明确的初始化事实结算变量；不得读取或推断玩家尚未实现的意图。',
       '不得根据旧轮剧情、隐藏思考、候选项或未发生事件更新变量。',
       ...(tasks.characterDesign ? ['若确实需要人物设计，在当前后台 Agent 内先加载 character-design 并调用人物档案工具；无需也不得创建另一个 Agent。完成后继续本轮结算。'] : []),
       tasks.posture ? '在同一次回复中同时调用 posture_submit 和 mvu_submit_update，分别提交本轮结束时可见的人物姿势与变量变化；两者互不依赖，无需等待前一个工具返回。不得在回复正文输出 JSON。' : '本轮姿势结算已关闭，直接提交变量，不生成姿势。',
@@ -554,7 +555,8 @@ export function createMvuSettlementModule(options = {}) {
       sessionId: input.sessionId, messageId: input.messageId, swipeId: input.swipeId,
       expectedLifecycleRevision: input.expectedLifecycleRevision, diagnosticId,
       baselineVariables: input.currentVariables,
-      storyText: frame.foregroundOutput.storyText,
+      // Card constraints must see the same setup/Helper facts as the model, including durable retries.
+      storyText: [...frame.taskRules.helperContext, frame.foregroundOutput.storyText].filter(Boolean).join('\n\n'),
       command: formatMvuUpdateCommand(submission),
       validate: ({ before, after }) => auditMvuSettlement(before, after, submission.operations)
     })

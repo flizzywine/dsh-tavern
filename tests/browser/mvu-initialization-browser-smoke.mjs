@@ -8,9 +8,18 @@
 // mode=opening starts without variables. Optional MVU_SMOKE_CARD_PATH plus
 // MVU_SMOKE_OPERATIONS (JSON array) exercises a real card in mode=opening-card,
 // reading it without modifying any live chat or invoking a paid model.
+// mode=opening-card-flow drives preparation -> start -> immediate foreground ->
+// settlement on that card. mode=opening-flow uses the same shape with different
+// greeting and worldbook defaults. MVU_SMOKE_OPENING_NOTE overrides the setup text;
+// MVU_SMOKE_REPORT saves the flow's evidence.
 // mode=opening-card-replay additionally reads MVU_SMOKE_DIAGNOSTICS_PATH and
 // MVU_SMOKE_DATA_ROOT to clone a failed chat in memory. MVU_SMOKE_EXPECT_ERROR
 // asserts a diagnostic substring instead of success; operations can be overridden.
+import { initializationFixture } from '../fixtures/conversation-initialization.mjs'
+import { createOpeningPreparation } from '../../tavern-plugin/lib/domain/opening-preparation.js'
+import { createForegroundHandoff } from '../../tavern-plugin/lib/domain/foreground-handoff.js'
+import { collectMvuHelperContext } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
+import { applyOpeningCommand } from '../../tavern-plugin/lib/domain/opening-command.js'
 import { instrumentInitializationAwaits, instrumentInitializationClient } from '../fixtures/mvu-initialization-trace.mjs'
 import { createServer } from 'node:http'
 import { readFile, mkdtemp } from 'node:fs/promises'
@@ -20,6 +29,7 @@ import assert from 'node:assert/strict'
 import { readOfficialMvuBundle, createOfficialMvuBundleReader } from '../../tavern-plugin/lib/domain/official-mvu-assets.js'
 import { createMvuDiagnosticStore, createMvuDiagnosticExport, sanitizeMvuLoadDiagnostic, redactMvuLoadError } from '../../tavern-plugin/lib/domain/mvu-diagnostics.js'
 import { createMvuSettlementModule } from '../../tavern-plugin/lib/domain/mvu-background-settlement.js'
+import { applyMvuSettlementEffect } from '../../tavern-plugin/lib/domain/mvu-settlement-effect.js'
 import { createTavernScriptHostAdapter } from '../../tavern-plugin/lib/domain/tavern-script-host-adapter.js'
 import { createTavernScriptDispatch } from '../../tavern-plugin/lib/domain/tavern-script-dispatch.js'
 import { createSessionSignalTransport } from '../../tavern-plugin/lib/domain/session-signal-transport.js'
@@ -29,12 +39,18 @@ import { inspectWorldBookDocument, updateWorldBookDocument, exportSillyTavernWor
 import { projectTavernHelperWorldbook } from '../../tavern-plugin/lib/domain/tavern-helper-worldbook.js'
 import { createCardPreparation } from '../../tavern-plugin/lib/domain/card-preparation.js'
 import { projectTavernHelperScripts } from '../../tavern-plugin/lib/domain/tavern-helper-scripts.js'
-import { projectTavernHelperContext } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
+import { projectTavernHelperContext, lastTavernHelperVariables } from '../../tavern-plugin/lib/domain/tavern-helper-context.js'
+import { createTurnOrchestrator } from '../../tavern-plugin/lib/domain/turn-orchestration.js'
+import { createStoryTimeline } from '../../tavern-plugin/lib/domain/story-timeline.js'
+import { createForegroundFrameBuilder } from '../../tavern-plugin/lib/domain/agent-input-frame.js'
+import { projectReplyLayers } from '../../tavern-plugin/lib/domain/reply-presentation.js'
 import { createTavernStaticResourceCache, rewriteCachedModuleImports } from '../../tavern-plugin/lib/domain/tavern-static-resource-cache.js'
 
 const tracing = process.env.MVU_SMOKE_TRACE === '1'
 const rawClient = await readFile(new URL('../../tavern-plugin/lib/client.js', import.meta.url), 'utf8')
 const client = tracing ? instrumentInitializationClient(rawClient) : rawClient
+const sidebar = await readFile(new URL('../../tavern-plugin/src/client/features/sidebar.js', import.meta.url), 'utf8')
+const startConversation = sidebar.slice(sidebar.indexOf('async function newConversation('), sidebar.indexOf('async function preparePlayConversation('))
 const bundle = await readOfficialMvuBundle()
 const executionBundle = tracing ? instrumentInitializationAwaits(bundle.body.toString(), 'official').source : bundle.body
 const assets = createTavernStaticResourceCache({ rootDir: process.env.MVU_SMOKE_ASSET_CACHE || await mkdtemp(path.join(tmpdir(), 'mvu-init-assets-')) })
@@ -58,6 +74,7 @@ function bookFor(id) {
   if (!template) return null
   if (!books.has(id)) {
     const document = structuredClone(template)
+    if (id.startsWith('opening-flow')) document.entries[0].content = 'hp: 0\naffection: 0\nstage: uninitialized'
     books.set(id, { source: { kind: 'card', cardPath: id }, document, view: inspectWorldBookDocument(document) })
   }
   return books.get(id)
@@ -75,6 +92,14 @@ function state(id) {
       const swipes = [realCard.first_mes, ...(realCard.alternate_greetings || [])]
       const swipeId = Math.min(2, swipes.length - 1)
       states.get(id).chat.messages[0] = { role: 'assistant', greeting: true, turn: 1, text: swipes[swipeId], swipeId, swipes, variables: swipes.map(() => ({})) }
+    }
+    if (id.startsWith('opening-setup')) {
+      const chat = states.get(id).chat
+      const swipes = ['Unused scene<initvar>{"hp":0}</initvar>',
+        'Selected scene<initvar>{"hp":10,"figures":{"figure-42":{"name":"Mira","affinity":5}}}</initvar>']
+      chat.messages[0] = { role: 'assistant', greeting: true, text: swipes[1], swipeId: 1, swipes, variables: [{}, {}] }
+      chat.mvu.openingInitialization = { version: 2, status: 'pending' }
+      applyOpeningCommand(chat, { removeGreeting: true, systemText: 'Mira starts at affinity 25.' }, {}, Date.now)
     }
     if (id.includes('replay') && replayChat) states.get(id).chat = { ...structuredClone(replayChat), id, sessionId: id }
   }
@@ -124,9 +149,62 @@ const settlement = createMvuSettlementModule({ runtime: adapter, diagnostics, mo
   const s = state(request.sessionId)
   await request.onToolCall({ name: 'posture_submit', arguments: { posture: '站立' } })
   s.calls++
+  s.prompt = request.turnContext
   s.feedback = JSON.parse(await request.onToolCall({ name: 'mvu_submit_update', arguments: { operations: s.operations || [{ op: 'replace', path: '/hp', value: 9 }] } }))
   return {}
 } } })
+// The start page sends immediately, before the runtime has finished loading. Do not
+// seed variables or wait for ready here: that hid the real opening race in older fixtures.
+async function startOpeningFlow(id) {
+  const s = state(id)
+  const h = initializationFixture()
+  if (realCard) Object.assign(h.card, realCard, { path: 'cards/flow.json' })
+  else {
+    h.card.first_mes = 'Greeting<initvar>{"hp":10,"affection":5,"stage":"early"}</initvar>'
+    h.card.character_book = openingBook
+  }
+  h.state.extensions = realCard ? cardPreparation.present({ card: cardWorkspace, as: 'card-extensions' }) : { mvuResources: [{ enabled: true }] }
+  const preparation = createOpeningPreparation({ readCard: async () => h.card, worldBooks: { bound: async () => bookFor(id) } })
+  const draft = await preparation.create(h.card.path)
+  const note = process.env.MVU_SMOKE_OPENING_NOTE || 'The player starts with affection 25 in the friends stage.'
+  // A no-greeting start is the wizard command "/sys <setup> | /cut 0 | /trigger"; a greeting start sends none.
+  if (!id.includes('greeting')) await preparation.callRuntime(draft.id, 'prepareOpeningCommand', { openingId: 'primary', line: '/sys ' + note + ' | /cut 0 | /trigger' })
+  s.chat = { ...await h.make().start({ ...h.input, cardPath: h.card.path, openingId: 'primary', preparation: preparation.resolve(draft.id, h.card.path, 'primary') }), id, sessionId: id }
+  preparation.dispose()
+  const turns = createTurnOrchestrator({
+    store: { chatForSession: async () => structuredClone(s.chat), readCard: async () => h.card,
+      writeChat: async chat => { s.chat = structuredClone(chat) } },
+    timeline: createStoryTimeline(), frameBuilder: createForegroundFrameBuilder(), projectReply: projectReplyLayers,
+    planner: { plan: async ({ chat }) => {
+      s.foregroundVariables = lastTavernHelperVariables(chat.messages, chat.variables) || {}
+      return { text: 'Scripted first scene', sections: [] }
+    } }, queueSettlement: async () => {}
+  })
+  s.handoff = createForegroundHandoff({ turns, store: { chatForSession: async () => structuredClone(s.chat) },
+    tasks: { activity: () => ({ phase: 'idle' }) }, queueBackground: async () => {}, scriptDispatch: gate })
+}
+async function runOpeningFlow(id) {
+  const s = state(id)
+  await s.handoff.prepare({ sessionId: id, turn: 2, userText: 'Continue.' })
+  await s.handoff.finalize({ sessionId: id, turn: 2, userText: 'Continue.', assistantText: 'The friends gather.' })
+  const messageId = s.chat.messages.length - 1, message = s.chat.messages[messageId]
+  const variables = structuredClone(message.variables[0])
+  s.operations = realOperations || [{ op: 'replace', path: '/affection', value: 25 }, { op: 'replace', path: '/stage', value: 'friends' }]
+  // Model latency normally lets the runtime finish loading; reproduce that ordering
+  // without letting initialization rewrite the already captured foreground baseline.
+  if (!gate.status(id).ready) await new Promise(resolve => {
+    const stop = gate.subscribeReady(sessionId => { if (sessionId === id) { stop(); resolve() } })
+  })
+  // Submission is scripted; the runtime and its validation are the production ones.
+  const result = await settlement.settleVariables({ sessionId: id, chatId: id, operationId: 'flow-op',
+    branchId: s.chat.timeline.branchId, basedOnRevision: s.chat.timeline.revision, messageId, swipeId: 0,
+    storyText: message.text, currentVariables: variables, variableSchema: variables.schema,
+    helperContext: collectMvuHelperContext(s.chat.messages, messageId) })
+  if (result.effect) applyMvuSettlementEffect(s.chat, result.effect)
+  return { foregroundVariables: s.foregroundVariables, before: variables, prompt: s.prompt, feedback: s.feedback,
+    receipt: result.receipt, after: s.chat.messages[messageId].variables[0], calls: s.calls,
+    opening: s.chat.messages[0] }
+}
 function settlementInput(id) {
   const s = state(id)
   return { sessionId: id, operationId: 'op', chatId: id, branchId: 'b', basedOnRevision: 0,
@@ -193,7 +271,7 @@ const server = createServer(async (req, res) => {
       const chunks = []; for await (const part of req) chunks.push(part)
       const { method, args = {}, sessionId } = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       let result = {}
-      if (method === 'claimTavernScriptWork') result = adapter.claimWork(sessionId, args.runtimeId, args.ready, args.initializationError)
+      if (method === 'claimTavernScriptWork') result = await adapter.claimWork(sessionId, args.runtimeId, args.ready, args.initializationError, args.contextBaseline)
       else if (method === 'startTavernScriptWork') result = adapter.startWork(sessionId, args.eventId, args.leaseToken, args.runtimeId)
       else if (method === 'heartbeatTavernScriptRuntime') result = adapter.heartbeatRuntime(sessionId, args.runtimeId, args.ready, args.initializationError)
       else if (method === 'completeTavernHelperEvent') result = gate.complete(sessionId, args.eventId, args.args, args.runtimeId, args.leaseToken, args.error, args.diagnostics)
@@ -253,6 +331,8 @@ const server = createServer(async (req, res) => {
           hp: s.chat.messages[0].variables[0].stat_data?.hp, variableKeys: Object.keys(s.chat.messages[0].variables[0].stat_data || {}), initialized: s.chat.mvu.openingInitialization,
           capture: sessionId.startsWith('capture') ? s.chat.messages[0].displayRuntime : undefined, receipt: s.result?.receipt, resumeError: s.resumeError }
       }
+      else if (method === 'flow-context') result = projectTavernHelperContext(state(sessionId).chat)
+      else if (method === 'run-opening-flow') result = await runOpeningFlow(sessionId)
       else if (method === 'run') {
         const s = state(sessionId); s.writes = 0; s.hpWrites = 0
         let input = settlementInput(sessionId), openingBefore
@@ -262,6 +342,16 @@ const server = createServer(async (req, res) => {
           if (sessionId.startsWith('opening-card')) {
             assert.ok(Array.isArray(realOperations) && realOperations.length > 0, 'set MVU_SMOKE_OPERATIONS for the chosen card')
             s.operations = realOperations
+          }
+          if (sessionId.startsWith('opening-setup')) {
+            assert.equal(s.chat.messages.length, 1)
+            assert.equal(s.chat.messages[0].role, 'system')
+            assert.equal(s.chat.messages[0].text, 'Mira starts at affinity 25.')
+            const initial = s.chat.messages[0].variables[0]
+            assert.equal(initial.stat_data.figures['figure-42'].affinity, 5)
+            assert.equal(initial.stat_data.figures['figure-42'].name, 'Mira')
+            assert.ok(initial.schema.properties.figures, 'initvar must generate the schema')
+            s.operations = [{ op: 'replace', path: '/figures/figure-42/affinity', value: 25 }]
           }
           openingBefore = structuredClone(s.chat.messages[0])
           const variables = structuredClone(openingBefore.variables[openingBefore.swipeId])
@@ -311,6 +401,7 @@ const server = createServer(async (req, res) => {
       return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
     }
     const mode = url.searchParams.get('mode') || 'normal', id = mode + (url.searchParams.has('sandbox') ? '-sandbox' : '-trusted')
+    if (mode.includes('-flow')) await startOpeningFlow(id)
     const view = { chatId: id, card: { name: '测试卡' }, tavernHelper: projectTavernHelperContext(state(id).chat),
       tavernRuntimePolicy: { trustedCardMode: !url.searchParams.has('sandbox') }, tavernHelperScripts: [],
       tavernHelperWorldbook: bookFor(id) ? projectTavernHelperWorldbook(bookFor(id).view) : null,
@@ -321,6 +412,7 @@ const server = createServer(async (req, res) => {
       assert.ok(realCard, 'set MVU_SMOKE_CARD_PATH for mode=opening-card')
       view.card = realCard; view.tavernHelperScripts = realScripts
     }
+    if (mode.includes('-flow')) view.tavernHelperScripts.unshift({ id: 'loading-companion', name: 'Opening startup ordering', content: 'await new Promise(resolve=>setTimeout(resolve,250));', data: {}, enabled: true })
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><meta charset="utf-8"><title>MVU 初始化验证</title>
       <div id="recovery"></div><button id="network">恢复下载服务</button><button id="run" disabled>验证结算</button><button id="diagnostics">验证诊断包</button><pre id="logs"></pre><pre id="trace"></pre><pre id="result">加载中</pre>
       ${url.searchParams.has('navigation') ? '<button id="child">查看子代理</button><button id="parent">返回主对话</button><button id="other">切换另一游戏</button><p id="navigation">主对话</p>' : ''}
@@ -331,9 +423,33 @@ const server = createServer(async (req, res) => {
       const id=${JSON.stringify(id)},output=document.querySelector('#result');
       async function rpc(method,args={},sessionId=id){const r=await fetch('/rpc',{method:'POST',body:JSON.stringify({method,args,sessionId})});const v=await r.json();if(!r.ok)throw Error(v.error);return v;}
       const view=${JSON.stringify(view)};
+      // Exercise the actual sidebar start, including the transition gate used by
+      // the session owner. Direct execution.sync() bypassed that gate and hid the deadlock.
+      function startFlow() {
+        let active = null, current = '', flow;
+        const transitionListeners = new Set(), sessionListeners = new Set();
+        const tavernSessionTransition = { getSnapshot:()=>active, subscribe(fn){transitionListeners.add(fn);return()=>transitionListeners.delete(fn)},
+          begin(value){active=value;transitionListeners.forEach(fn=>fn())}, end(){active=null;transitionListeners.forEach(fn=>fn())} };
+        const sessions = { list:{getSnapshot:()=>({current}), subscribe(fn){sessionListeners.add(fn);return()=>sessionListeners.delete(fn)}}, subagentAddress(){} };
+        const owner = client.createTavernScriptSessionOwner({sessions,rpc,transition:tavernSessionTransition,
+          signals:{subscribe(id,kind,run){const timer=setInterval(run,100);return()=>clearInterval(timer)}},
+          liveView:{invalidate(){},subscribe(id,fn){fn({phase:'ready',view});return()=>{}}}});
+        owner.start();
+        const openingPicker={openings:[]}, uiMode='play', setBusy=()=>{}, setError=()=>{}, setOpeningPicker=()=>{};
+        const openingPerformance={begin:()=>({measure:(_name,run)=>run(),finish(){}})};
+        const playPrewarmRef={current:{claim:async()=>''}};
+        const substituteTavernIdentityMacros=text=>text;
+        const conversationLifecycle={start:async()=>{current=id;sessionListeners.forEach(fn=>fn());return {sessionId:id}}};
+        const props={executeSlash(){if(tavernSessionTransition.getSnapshot())throw Error('Initial send still holds the session transition');flow=rpc('run-opening-flow');return flow}};
+        ${startConversation}
+        return newConversation(view.card,'story','primary','Player',id.includes('greeting')?'':'Continue.').then(()=>flow || rpc('run-opening-flow'));
+      }
       function display(state,retry){const node=client.TavernMvuLoadRecovery({state,retry});document.querySelector('#recovery').replaceChildren(...(node?[node]:[]));}
       let execution, page='parent';
-      if (${url.searchParams.has('navigation')}) {
+      if (${mode.includes('-flow')}) {
+        window.openingFlow = startFlow();
+        window.openingFlow.catch(error=>{document.querySelector('#logs').textContent=error.message});
+      } else if (${url.searchParams.has('navigation')}) {
         let current=id;const listeners=new Set();
         const sessions={list:{getSnapshot:()=>({current}),subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);}},subagentAddress(sessionId){return sessionId===id+'-child'?{parentSessionId:id,childSessionId:sessionId}:undefined;}};
         execution=client.createTavernScriptSessionOwner({sessions,rpc,transition:{getSnapshot:()=>false,subscribe:()=>()=>{}},liveView:{invalidate(){},subscribe(sessionId,fn){fn({phase:'ready',view:sessionId===id?view:{}});return()=>{};}}});

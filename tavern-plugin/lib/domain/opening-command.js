@@ -42,15 +42,20 @@ export function applyPendingOpeningCommand(command, pending, line) {
 
 export function applyOpeningCommand(chat, command, variables, now) {
   if (!command?.systemText) return
+  let initialization = ''
   if (command.removeGreeting) {
+    const greeting = chat.messages.find(message => message.greeting)
+    const source = greeting?.swipes?.[greeting.swipeId || 0] ?? greeting?.sourceText ?? ''
+    // Keep the selected card defaults in the runtime carrier, not its story or commands.
+    initialization = [...source.matchAll(/<initvar>[\s\S]*?<\/initvar>/gi)].map(match => match[0]).join('\n')
     chat.messages = chat.messages.filter(message => !message.greeting)
     chat.openingText = ''
   }
   // A system floor is preparation state, not an assistant-authored story round.
   // Keep its MVU baseline after removing the wizard that originally owned it.
   const text = command.systemText
-  chat.messages.push({ role: 'system', text, sourceText: text, ts: now(),
-    swipeId: 0, swipes: [text], variables: [structuredClone(variables || {})] })
+  chat.messages.push({ role: 'system', openingSetup: true, text, sourceText: text, ts: now(),
+    swipeId: 0, swipes: [[text, initialization].filter(Boolean).join('\n\n')], variables: [structuredClone(variables || {})] })
   mutateScriptPrompts(chat, { kind: 'inject', once: true, prompts: [{
     id: 'dsh-opening-system', content: text, role: 'system', position: 'in_chat', depth: 0
   }] })
