@@ -934,6 +934,7 @@ window.__ModuleLoader__.load({
 
 // @include ui/message-frame.js
 
+// @include features/message-deletion.js
 // @include features/assistant-renderer.js
 
 // @include features/card-list.js
@@ -1005,7 +1006,7 @@ function clipReplayCore() {
 
 
 
-		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
+		const inject = ["slots", "sessions", "workspaces", "layout", "connection", "conversation", "commandUi", "betterSidebar", "remote", "remote.commands", "remote.session", "tavernSessionSignals", "theme", "modelDirectories", "remote.settings"]; // host theme, shared model directory, settings writes (「能看图」)
 
 		// @include tavern-presentation.js
 
@@ -1252,6 +1253,7 @@ function clipReplayCore() {
 			registerTavernStartPage(ctx, slots);
 			registerTavernPhonePanel(ctx);
 			playControlsFeature.register({ ctx: ctx, slots: slots });
+			messageDeletionFeature.register({ ctx: ctx, slots: slots });
 			assistantRendererFeature.register({ ctx: ctx, slots: slots });
 			tavernReplyObserverFeature.register({ ctx: ctx, slots: slots });
 			ctx.effect(function () {

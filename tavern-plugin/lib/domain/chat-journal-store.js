@@ -676,7 +676,7 @@ export function createChatJournalStore(options = {}) {
       if (changes.every(change => change.path.length === 1 && STAMPS.has(change.path[0]))) return copyJsonTree(current)
       if(currentState.native){
         const recent=knownChanges(chatId,currentState)
-        const saved=await native.write(chatId,currentState,next,changes,metadata.assertCurrent)
+        const saved=await native.write(chatId,currentState,next,changes,metadata.assertCurrent,metadata.worldSelection)
         rememberState(chatId,await version(chatId),saved,rememberChanges(recent,saved.revision,changes))
         committed(chatId,saved.revision)
         return copyJsonTree(next)

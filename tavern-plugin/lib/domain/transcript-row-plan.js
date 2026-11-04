@@ -39,7 +39,9 @@ export function createTranscriptFold() {
   // From the save: one entry per floor.
   const floors = []
   const usersBefore = [] // player inputs before each floor (for floors without a turn)
-  const rounds = new Map() // story -> floors that hold it
+  const rounds = new Map() // story -> assistant floors that hold its reply
+  const inputs = new Map() // story -> user floors that hold its input
+  const openingInputs = new Set() // legacy openings whose input exists only in the native log
   // Derived.
   const replyStories = new Map() // native turn -> rounds drawn there
   const dirty = new Set()
@@ -74,6 +76,46 @@ export function createTranscriptFold() {
     rounds.delete(story)
     link(story, replyOf(story), false)
     dirty.add(story)
+  }
+  function addInput(story) {
+    inputs.set(story, (inputs.get(story) || 0) + 1)
+    dirty.add(story)
+  }
+  function removeInput(story) {
+    const count = (inputs.get(story) || 0) - 1
+    if (count > 0) inputs.set(story, count)
+    else inputs.delete(story)
+    dirty.add(story)
+  }
+  function removeFloor(floor) {
+    if (floor.openingInput) {
+      openingInputs.delete(floor.story)
+      dirty.add(floor.story)
+    }
+    if (floor.story === null) return
+    if (floor.role === 'assistant') removeRound(floor.story)
+    else if (floor.role === 'user') removeInput(floor.story)
+  }
+  // Ordinary user floors inherit the following reply's story number. A user floor
+  // whose reply was deleted carries an explicit turn instead, so it neither disappears
+  // with that reply nor becomes attached to the next round.
+  function unlinkInheritedInputs(story) {
+    for (let index = floors.length - 1; index >= 0; index--) {
+      const floor = floors[index]
+      if (floor.role === 'assistant') break
+      if (floor.role !== 'user' || floor.explicitStory || floor.story !== story) continue
+      removeInput(story)
+      floor.story = null
+    }
+  }
+  function linkPendingInputs(story) {
+    for (let index = floors.length - 2; index >= 0; index--) {
+      const floor = floors[index]
+      if (floor.role === 'assistant') break
+      if (floor.role !== 'user' || floor.explicitStory || floor.story !== null) continue
+      floor.story = story
+      addInput(story)
+    }
   }
   function flushStep(key) {
     const rewrites = pending.get(key)
@@ -153,18 +195,29 @@ export function createTranscriptFold() {
   function setFloors(from, rows) {
     const start = Math.max(0, Math.min(from, floors.length))
     for (let index = floors.length - 1; index >= start; index--) {
-      if (floors[index].story !== null) removeRound(floors[index].story)
+      const floor = floors[index]
+      const removedReply = floor.role === 'assistant' ? floor.story : null
+      removeFloor(floor)
       floors.pop(); usersBefore.pop()
+      if (removedReply !== null && !rounds.has(removedReply)) unlinkInheritedInputs(removedReply)
     }
     for (const row of rows) {
       const index = floors.length
       const before = index === 0 ? 0 : usersBefore[index - 1] + (floors[index - 1].role === 'user' ? 1 : 0)
       // Floors without a turn (old saves) count the way the reply projection does
       // (projectReplyHistory): the opening is round 1, each player input starts the next.
-      const story = row?.role === 'assistant' ? (Number(row.turn) || (row.greeting === true ? 1 : before + 1)) : null
-      const floor = { role: row?.role, story: Number.isSafeInteger(story) && story > 0 ? story : null }
+      // A standalone user floor retains the deleted reply's turn explicitly.
+      const explicitStory = row?.role === 'user' && Number.isSafeInteger(Number(row.turn)) && Number(row.turn) > 0
+      const story = row?.role === 'assistant' ? (Number(row.turn) || (row.greeting === true ? 1 : before + 1))
+        : explicitStory ? Number(row.turn) : null
+      const floor = { role: row?.role, story: Number.isSafeInteger(story) && story > 0 ? story : null, explicitStory,
+        openingInput: row?.role === 'assistant' && row.greeting === true && row.openingInputDeleted !== true }
       floors.push(floor); usersBefore.push(before)
-      if (floor.story !== null) addRound(floor.story)
+      if (floor.role === 'assistant' && floor.story !== null) {
+        addRound(floor.story)
+        if (floor.openingInput) openingInputs.add(floor.story)
+        linkPendingInputs(floor.story)
+      } else if (floor.role === 'user' && floor.story !== null) addInput(floor.story)
     }
   }
 
@@ -202,12 +255,12 @@ export function createTranscriptFold() {
     // The old reply a regeneration is replacing: the round shows its input only, so the
     // page does not read as two replies or as a regeneration that did nothing. The save
     // may hold the round out while it regenerates: the player's input still shows.
-    if (replacing.has(turn)) return { input: rounds.has(turn) || inputTurns.has(turn) ? 1 : 0, reply: 0 }
+    if (replacing.has(turn)) return { input: inputs.has(turn) || inputTurns.has(turn) ? 1 : 0, reply: 0 }
     // A failed turn's player input adopted by a retry: the round's reply is drawn in
     // another native turn, but hiding this turn whole would take the player's own words
     // with it. Draw his message only; the residue and trigger card stay hidden.
     if (keepInput.has(turn) && !rounds.has(turn) && !replyStories.has(turn)) return { input: 1, reply: 0, kept: 1 }
-    const input = rounds.has(turn)
+    const input = inputs.has(turn) || openingInputs.has(turn)
     const stories = replyStories.get(turn)
     const reply = Boolean(stories?.size)
     const story = reply ? Math.max(...stories) : turn

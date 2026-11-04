@@ -127,6 +127,7 @@ import { generateHelper, generateHelperRaw, defaultOrderedRawConfig } from './do
 import { validateHelperGenerateConfig, resolveHelperGenerationPreset } from './domain/helper-generation-prompts.js'
 import { createHelperGenerationTasks } from './domain/helper-generation-tasks.js'
 import { createBodyEditor } from './domain/body-editor.js'
+import { createMessageDeletion } from './domain/message-deletion.js'
 import { appendHelperUserSessionContext } from './domain/helper-user-session-context.js'
 import { userMessageForTurn, requestIdForTurn, requestIdForMessages } from './domain/session-turn-input.js'
 import { createStoryReconciliation } from './domain/story-reconciliation.js'
@@ -3473,6 +3474,14 @@ export async function apply(ctx) {
     repairNative: (sessionId, session) => repairNativeStory(sessionId, session, '编辑正文时找不到原生位置'),
   })
 
+  const messageDeletion = createMessageDeletion({
+    chats: { forSession: hookChatForSession, update: updateChat },
+    sessions: { get: id => ctx.get('agents')?.get(id), flush: session => sessionStore.flush(session) },
+    activity: chat => backgroundTasks.activity(chat),
+    view: sessionView,
+    sessionPatch,
+  })
+
   // 小组件变量、CG 图鉴、舞台计时器（stage-module.js）。
   stageRuntime.services({profileData, sessionSignals, conversationRegistry, tavernScriptDispatch, tavernScriptHostAdapter, readSessionMap, chatForSession, readRoundView, chatPersistence, storyTimeline, patchChat, cardStorage})
 
@@ -3569,7 +3578,7 @@ export async function apply(ctx) {
   // paragraphSpeech: a paragraph's spoken line, the core's voice selection (the stage's clip export reads it).
   const rpcDeps = { frameStorage, worldbookSkillProvider, sessionDebugEvidence, TAVERN_PACKAGE_VERSION, agentCompaction, agentRegistry, appendStoryRounds, paragraphSpeech,
     applicationUpdater, autoChoices, attachPlayChatDebug, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow,
-    backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload,
+    backgroundConfigForSession, bindScript, bodyEditor, branchOrigin, callModel, candidateGenerator, candidateTasks, polishPrereview, polishRecords, polishReviewer, chatHeaderWithLatestFloors, applyCardUpdate, cardAutoReload, messageDeletion,
     cardMemory, cardOrganization, cardPacksOf, cardPlugins, cardPreparation, cardSummaries, cardTaskPrompts, castAssets,
     castCardOf, castEdit, castStage, castView, chatForSession, chatHeaderForSession,
     chatHistoryImporter, chatPersistence, commands, compactionAbort, compatibilityDiagnostics,

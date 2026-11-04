@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 export function createPlayHandlers(deps) {
   const { agentCompaction, agentRegistry, autoChoices, backgroundAgentRunner, backgroundCatalog, storyEvents, workflow, pluginApi, bodyEditor, branchOrigin, polishPrereview, polishRecords, polishReviewer, applyCardUpdate, cardAutoReload,
     candidateGenerator, candidateTasks, chatForSession, compactionAbort, conversationGuides, ctx,
-    ledgerEditor, manualCharacterDesign, manualLedger, notifyPluginTimeline, phoneChat,
+    ledgerEditor, manualCharacterDesign, manualLedger, messageDeletion, notifyPluginTimeline, phoneChat,
     pluginSettlementProgress, readBackgroundSuppression, readTavernSettings,
     reconcileStory, reconcileWhenIdle, regenBody, replayFailedTurn, requestPerformance, retrySettlement,
     retryStyleReference, rollbackTurn, rollbackToTurn, runtimeGeneration, sessionActivity, sessionOperation,
@@ -121,6 +121,13 @@ export function createPlayHandlers(deps) {
     },
     async deleteGuide(args) {
       return { guides: await conversationGuides.remove(args?.sessionId, args) }
+    },
+    async deleteMessages(args) {
+      autoChoices.cancel(args && args.sessionId)
+      if (reconcileStory) await reconcileStory(args && args.sessionId)
+      const result = await messageDeletion.remove(args || {})
+      notifyPluginTimeline(args && args.sessionId, 'edit', { settled: true })
+      return { view: result.view, deletedCount: result.deletedCount }
     },
     async getBodyEdit(args) {
       // Editing or regenerating the reply drops its waiting automatic candidates.

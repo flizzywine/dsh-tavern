@@ -119,6 +119,16 @@ test('failed foreground resume leaves rollback data intact and permits retry', a
   assert.equal(h.chat.messages.length,1)
 })
 
+test('前面回合只剩 AI 正文时，重新生成后面的回合仍保留前面正文', async () => {
+  for (const checkpoint of [false, true]) {
+    const h = harness({ checkpoint })
+    h.chat.messages.splice(1, 0, { role: 'assistant', turn: 90, text: '前面独立正文', sourceText: '前面独立正文' })
+    await h.create().regenerate('chat', '', 'session')
+    assert.ok(h.chat.messages.some(message => message.role === 'assistant' && message.text === '前面独立正文'), 'checkpoint=' + checkpoint)
+    assert.match(h.chat.messages.at(-1).text, /新正文/)
+  }
+})
+
 test('rc.1 snapshot-only history supports regeneration and rollback without rewriting native events', async () => {
   for (const operation of ['regenerate', 'rollback']) {
     const h = harness({ checkpoint: true })

@@ -347,7 +347,8 @@
 					React.createElement("div", { className: "dsh-tavern-user-actions" }, time ? React.createElement("span", null, time) : null,
 						canEdit ? React.createElement(DshUi.Tooltip, { label: "编辑这条输入", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-edit", "aria-label": "编辑这条输入", disabled: editBusy, onClick: edit }, React.createElement(DshUi.IconEditOutlineRegular, null))) : null,
 						canFork ? React.createElement(DshUi.Tooltip, { label: forking ? "正在分叉…" : "从这一轮分叉", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-fork", "aria-label": "从这一轮分叉", disabled: forking, onClick: fork }, React.createElement(DshUi.IconBranchOutlineRegular, null))) : null,
-						React.createElement(DshUi.Tooltip, { label: copied ? "已复制" : "复制", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-copy", "aria-label": copied ? "已复制" : "复制", onClick: copy }, React.createElement(copied ? DshUi.IconCheckOutlineRegular : DshUi.IconCopyOutlineRegular, null))))
+						React.createElement(DshUi.Tooltip, { label: copied ? "已复制" : "复制", side: "bottom" }, React.createElement("button", { type: "button", className: "dsh-tavern-user-copy", "aria-label": copied ? "已复制" : "复制", onClick: copy }, React.createElement(copied ? DshUi.IconCheckOutlineRegular : DshUi.IconCopyOutlineRegular, null))),
+						React.createElement(messageDeletionFeature.Checkbox, { sessionId: props.sessionId, selector: messageDeletionFeature.userSelector(turn, data) }))
 				);
 			}
 			function tavernAssistantViewPaths(turn, eager = true) {
@@ -746,14 +747,16 @@
 					: null;
 				const foldKey = props.sessionId + ":" + turn;
 				const foldOpen = fold !== null && tavernReplyFoldOpen.has(foldKey);
+				const deletionNode = data.finalNode ? React.createElement(messageDeletionFeature.Checkbox, { sessionId: props.sessionId,
+					selector: messageDeletionFeature.assistantSelector(turn, storyTurn, data) }) : null;
 				if (fold !== null && !foldOpen) {
-					return React.createElement("button", {
+					return React.createElement("div", { ref: historyNode, className: "dsh-tavern-assistant" }, deletionNode, React.createElement("button", {
 						type: "button", className: "dsh-tavern-assistant-fold", "aria-expanded": false, title: "展开这一轮的原文",
 						onClick: function () { tavernReplyFoldOpen.add(foldKey); setFoldRevision(function (value) { return value + 1; }); }
 					},
 						React.createElement("span", { className: "dsh-tavern-assistant-fold-paw", "aria-hidden": true }, "🐾"),
 						React.createElement("b", null, fold.summary),
-						React.createElement("span", { className: "dsh-tavern-assistant-fold-hint" }, "· 展开"));
+						React.createElement("span", { className: "dsh-tavern-assistant-fold-hint" }, "· 展开")));
 				}
 				const foldBack = foldOpen ? React.createElement("button", {
 					type: "button", className: "dsh-tavern-assistant-fold-back", "aria-expanded": true, title: "收起到一行",
@@ -789,7 +792,7 @@
 				// the round's tavern_roll results lead its story text (dice-roll.js).
 				const diceNode = typeof props.useChat === "function" ? tavernStageBoundary("骰子", React.createElement(DiceRolls, { useChat: props.useChat, nativeTurn: turn, nodeKey: props.node.key })) : null;
 				const illustrationDraft = playView && settled ? React.createElement(TavernIllustrationDraft, { sessionId: props.sessionId, turn: storyTurn, items: pluginMedia.items }) : null;
-				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, foldBack, diceNode, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
+				return React.createElement("div", { ref:historyNode, className: "dsh-tavern-assistant", "data-streaming": data.status === "running" || undefined }, deletionNode, foldBack, diceNode, body, refusalNode, pendingMessage, pluginMediaNode, illustrationDraft, pluginActions, mvuReceiptNode, inlineStatus);
 			}
 			function TavernForkAssistantAction(props) {
 				const liveState = useScopedLiveTavernView(props.sessionId, String(props.messageId || ""), [["mode"], ["forkTurnsByMessageId", String(props.messageId || "")]]);

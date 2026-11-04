@@ -6,7 +6,7 @@ import { replaceSessionSurface } from '../tavern-plugin/lib/domain/session-surfa
 import { roundAnchor } from '../tavern-plugin/lib/domain/round-anchor.js'
 import { locateRollbackSurface } from '../tavern-plugin/lib/domain/rollback-surface.js'
 import { nativeOpeningMessageId } from '../tavern-plugin/lib/domain/native-opening.js'
-import { planNativeSurfaceRepair, repairNativeSurface } from '../tavern-plugin/lib/domain/native-surface-repair.js'
+import { planNativeSurfaceRepair, recordNativeSurfaceRepair, repairNativeSurface } from '../tavern-plugin/lib/domain/native-surface-repair.js'
 
 const model = { kind: 'model', provider: 'test', model: 'test' }
 const textOf = event => (event.data.message?.content || event.data.content || []).map(block => block.text).join('')
@@ -34,7 +34,7 @@ const nodeTexts = session => { const bySeq = new Map(sessionEvents(session).map(
 const plan = ({ session, chat }) => planNativeSurfaceRepair({ chat, events: sessionEvents(session), nodes: session.surface.nodes })
 function repair(h, repairId = 'r1') {
   const result = repairNativeSurface(h.session, h.chat, { repairId })
-  for (const { messageIndex, anchor } of result.anchors) if (anchor) h.chat.messages[messageIndex].nativeAnchor = anchor
+  recordNativeSurfaceRepair(h.chat, h.chat, result.anchors)
   return result
 }
 
@@ -69,6 +69,47 @@ test('回退后 Chat 少了一轮、原生却留着：去掉原生多出的那�
   repair(h)
   assert.deepEqual(h.session.surface.nodes.slice(0, kept.length), kept)
   assert.deepEqual(nodeTexts(h.session).slice(kept.length), [''], 'only an empty placeholder stands for the removed round')
+  assert.equal(plan(h).status, 'intact')
+})
+
+test('删除末尾回复后：独立 user 保留在 Surface，旧回复被遮掉', () => {
+  const h = game(1)
+  h.chat.messages.pop()
+  const result = repair(h)
+  assert.equal(result.applied, true)
+  assert.deepEqual(nodeTexts(h.session).filter(Boolean), ['前缀', '开场', '本轮上下文', '行动2'])
+  assert.equal(nodeTexts(h.session).includes('正文2'), false)
+  assert.equal(plan(h).status, 'intact')
+})
+
+test('删除输入后：独立 assistant 写回，不带旧 user', () => {
+  const h = game(1)
+  h.chat.messages.splice(-2, 1)
+  const result = repair(h)
+  assert.equal(result.plan.rounds.length, 1)
+  assert.equal(result.plan.rounds[0].userText, null)
+  assert.deepEqual(nodeTexts(h.session), ['前缀', '开场', '正文2'])
+  assert.equal(plan(h).status, 'intact')
+})
+
+test('独立 assistant 修复后清除旧成对锚点，不再误定位到其它正文', () => {
+  const h = game(2)
+  h.chat.messages.splice(1, 1)
+  const standalone = h.chat.messages[1]
+  assert.ok(standalone.nativeAnchor)
+  repair(h)
+  assert.equal(standalone.nativeAnchor, undefined)
+  assert.equal(plan(h).status, 'intact')
+})
+
+test('删除中间回复后：连续 user 分别保留，不并入下一条 assistant', () => {
+  const h = game(2)
+  h.chat.messages.splice(2, 1)
+  const result = repair(h)
+  assert.equal(result.plan.rounds.length, 1)
+  assert.equal(result.plan.rounds[0].userText, '行动3')
+  assert.deepEqual(nodeTexts(h.session), ['前缀', '开场', '本轮上下文', '行动2', '行动3', '正文3'])
+  assert.equal(nodeTexts(h.session).includes('行动2\n\n行动3'), false)
   assert.equal(plan(h).status, 'intact')
 })
 

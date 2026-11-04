@@ -210,6 +210,24 @@ body.dsh-tavern-shell-active,
 .dsh-tavern-user-copy:hover, .dsh-tavern-user-edit:hover, .dsh-tavern-user-fork:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }
 .dsh-tavern-user-edit:disabled, .dsh-tavern-user-fork:disabled { cursor: wait; opacity: .55; }
 .dsh-tavern-user-edit svg, .dsh-tavern-user-fork svg { width: 15px; height: 15px; }
+.dsh-tavern-message-select { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 24px; height: 24px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.dsh-tavern-message-select input { width: 16px; height: 16px; margin: 0; accent-color: var(--dsh-tavern-accent); cursor: inherit; }
+.dsh-tavern-message-select:has(input:disabled) { cursor: wait; opacity: .55; }
+.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant) { position: relative; box-sizing: border-box; padding-right: 30px; }
+.dsh-tavern-message-select.assistant { position: absolute; z-index: 1; top: 0; right: 0; }
+/* 勾选不仅改变小框：整条楼层用主题色底和双层描边，跨轮检查时已选目标一眼可辨。 */
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked),
+.dsh-tavern-assistant:has(> .dsh-tavern-message-select.assistant input:checked) {
+  border-radius: 12px;
+  background: var(--dsh-tavern-accent-soft);
+  box-shadow: 0 0 0 2px var(--dsh-tavern-accent), 0 0 0 6px var(--dsh-tavern-accent-soft);
+}
+.dsh-tavern-user-row:has(.dsh-tavern-message-select.user input:checked) .dsh-tavern-user-bubble { box-shadow: 0 0 0 1px var(--dsh-tavern-accent); }
+.dsh-tavern-message-deletion-dock { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; box-sizing: border-box; width: 100%; padding: 9px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-specific-input-major); color: var(--dsw-alias-label-primary); }
+.dsh-tavern-message-deletion-count { flex: 1; min-width: 80px; color: var(--dsw-alias-label-secondary); font-size: 13px; }
+.dsh-tavern-message-deletion-actions { display: flex; align-items: center; gap: 7px; }
+.dsh-tavern-message-deletion-actions .dsh-tavern-btn { min-height: 30px; padding: 4px 12px; }
+.dsh-tavern-message-deletion-error { flex: 0 0 100%; color: var(--dsh-tavern-accent-error, #c45f5f); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .dsh-tavern-sidebar { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-specific-sidebar-fill); }
 .dsh-tavern-sidebar.collapsed { padding: 12px 10px; align-items: center; }
 body.dsh-tavern-shell-active button[aria-label="新建会话"], body.dsh-tavern-shell-active button[aria-label="New session"] { display: none !important; }
