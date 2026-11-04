@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "revision": "ac55f0a197086418755f57966073ecbad9310cae",
-  "releaseSequence": 1173,
+  "revision": "5355b457623301b8eed5b915f06174ce6d8f39cc",
+  "releaseSequence": 1174,
   "version": "3.2.0",
   "files": [
     {
@@ -6876,8 +6876,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/types/tts.d.ts",
-      "sha256": "c6d9d2e5d80651c717f094b427c8ab037bb8dbe4516491ee91ab314dd9c75109",
-      "size": 13694
+      "sha256": "c544383d7082c8d13b578c7850421e5dc638e94387fde30c7b352b538c505477",
+      "size": 14098
     },
     {
       "path": "tavern-plugin/packages/dsh-presentation-protocol/src/voice-cues.cjs",
@@ -8836,13 +8836,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-audio.js",
-      "sha256": "308720de94be44359370357c2048b4b6b705a49998ef6cc6dee13f5abdadaef5",
-      "size": 10282
+      "sha256": "8afbeebea0021b4dccdbcda78850bfbddfffcefcf6a1dda24bf07699e3d8cd22",
+      "size": 10888
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-discovery.js",
-      "sha256": "33767e7a4f2c9876f57aa6336c5c73c58d74e01d3ba94762fd08907348ee2d76",
-      "size": 6976
+      "sha256": "8ef3f0eb50bf27ae9ce2947b4e027c7a60f5c22946e2290593a0519e0f54b493",
+      "size": 7455
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/fish-messagepack.js",
@@ -8866,8 +8866,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/params.js",
-      "sha256": "4796db3fed033fe7daaed4b402a4125de3473ee752163dbbc8ea086e68c1a9a5",
-      "size": 11841
+      "sha256": "ddfd52cd83ad1737325f5373ca1e2e05fa5360dbe728f526cd373e2f5aad50b7",
+      "size": 12353
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/providers/presets.js",
@@ -8926,8 +8926,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/settings.js",
-      "sha256": "f058eef6d1728d74973cf01ba684800584a246b7bd9e5fdd4c13ee973c852d02",
-      "size": 31942
+      "sha256": "7b382886ce269ecdd7db264f09ed5863a3eb6e4909517f0c5313d18c66f28bdd",
+      "size": 32277
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/lib/shared/azure-voices.json",
@@ -9001,8 +9001,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/README.md",
-      "sha256": "f35de807dc2b8bc0b10b53a6e2bc996dc4084df522879acc3b9ebbc931cd7f77",
-      "size": 3808
+      "sha256": "e95e2b1c49dceb2f198cc4c4b9ad7851f047a8644a5d331c31dbbff5f922a9c8",
+      "size": 4094
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/cache.js",
@@ -9071,13 +9071,13 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/providers/fish-audio.js",
-      "sha256": "308720de94be44359370357c2048b4b6b705a49998ef6cc6dee13f5abdadaef5",
-      "size": 10282
+      "sha256": "8afbeebea0021b4dccdbcda78850bfbddfffcefcf6a1dda24bf07699e3d8cd22",
+      "size": 10888
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/providers/fish-discovery.js",
-      "sha256": "33767e7a4f2c9876f57aa6336c5c73c58d74e01d3ba94762fd08907348ee2d76",
-      "size": 6976
+      "sha256": "8ef3f0eb50bf27ae9ce2947b4e027c7a60f5c22946e2290593a0519e0f54b493",
+      "size": 7455
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/providers/fish-messagepack.js",
@@ -9101,8 +9101,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/providers/params.js",
-      "sha256": "4796db3fed033fe7daaed4b402a4125de3473ee752163dbbc8ea086e68c1a9a5",
-      "size": 11841
+      "sha256": "ddfd52cd83ad1737325f5373ca1e2e05fa5360dbe728f526cd373e2f5aad50b7",
+      "size": 12353
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/providers/presets.js",
@@ -9161,8 +9161,8 @@
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/settings.js",
-      "sha256": "f058eef6d1728d74973cf01ba684800584a246b7bd9e5fdd4c13ee973c852d02",
-      "size": 31942
+      "sha256": "7b382886ce269ecdd7db264f09ed5863a3eb6e4909517f0c5313d18c66f28bdd",
+      "size": 32277
     },
     {
       "path": "tavern-plugin/packages/dsh-tavern-tts/src/shared/azure-voices.json",
@@ -9531,9 +9531,9 @@
     }
   ],
   "archive": {
-    "commit": "3356d16e30110d43ff5042f61ddae237010111dd",
+    "commit": "4b0cac6b7f9352881a96dc7ca6fee4e56ad43dca",
     "path": "runtime.zip",
-    "sha256": "e47e3b1ee0e27045b7502a82a5566ef3ef15afca91ed0477703bb2724f983512",
-    "size": 16113941
+    "sha256": "a1a1b37fbc927b300cf0fe1f14ff1243572d123068210caf2b7123f34a17be91",
+    "size": 16115206
   }
 }
