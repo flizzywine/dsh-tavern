@@ -82,6 +82,16 @@ export function hostRequireCandidates({ names, pluginAnchor, env = process.env, 
   // 0.1.5 的 <resources>\app 真目录布局，以及归档旁解包出的宿主根。
   if (resources) push('resources-app', path.join(resources, 'app', 'package.json'))
   if (resources) push('resources-app-unpacked', path.join(resources, 'app.asar.unpacked', 'package.json'))
+  // Electron's asar realpath preserves the launcher's casing on Windows, while
+  // its native module loader may use the on-disk spelling. Keep both candidates
+  // and let the caller prove class identity before patching any live service.
+  if (resources && process.platform === 'win32') {
+    try {
+      const archive = realpathSync.native(path.join(resources, APP_ARCHIVE))
+      const canonical = path.join(archive, HOST_RUNTIME_DIRECTORY, 'package.json')
+      if (!anchors.some(item => item.anchor === canonical)) push('desktop-archive-canonical', canonical)
+    } catch { /* A synthetic probe or an older unpacked installation. */ }
+  }
   push('plugin-package', pluginAnchor || fileURLToPath(new URL('../../package.json', import.meta.url)))
   const candidates = anchors.map(entry => ({ ...entry, require: resolveAnchorRequire(entry.anchor) }))
   const resolvable = candidates.filter(candidate => resolvesAll(candidate.require, wanted))
