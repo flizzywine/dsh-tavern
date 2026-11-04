@@ -179,7 +179,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1, stageAssetStatus: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1, cardIdentity: 1, turnWrite: 1, cardPacks: 1, stageAssetStatus: 1, ...(deps.writeVariables?.commit && deps.writeVariables?.snapshot ? { variableCommit: 1 } : {}) })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -1094,6 +1094,31 @@ export function createTavernPluginApi(deps) {
       await deps.writeVariables(material, JSON.parse(json), { taskOperation })
       await changed(material.sessionId)
       return { turn: material.turn, textVersion: material.key }
+    },
+
+    async getVariableSnapshot({ gameId, turn, textVersion } = {}) {
+      const owner = ownerOf(this)
+      const material = await writableTurn(owner, gameId, turn, textVersion, 'getVariableSnapshot')
+      if (!deps.writeVariables?.snapshot) throw new Error('当前版本不支持变量快照提交')
+      const taskOperation = taskExecution.writeGuard(owner, material)
+      taskOperation()
+      return { turn: material.turn, textVersion: material.key, ...await deps.writeVariables.snapshot(material, { taskOperation }) }
+    },
+
+    async commitVariables({ gameId, turn, textVersion, variables, variablesRevision, operationId } = {}) {
+      const owner = ownerOf(this)
+      const material = await writableTurn(owner, gameId, turn, textVersion, 'commitVariables')
+      if (!deps.writeVariables?.commit) throw new Error('当前版本不支持变量快照提交')
+      if (variables === null || typeof variables !== 'object' || Array.isArray(variables)) throw new TypeError('variables 必须是对象')
+      if (typeof variablesRevision !== 'string' || !/^[a-f0-9]{64}$/.test(variablesRevision)) throw new TypeError('variablesRevision 无效')
+      if (typeof operationId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(operationId)) throw new TypeError('operationId 无效')
+      const json = JSON.stringify(variables)
+      if (json.length > MAX_VARIABLES) throw new Error('variables 不能超过 1 MB')
+      const taskOperation = taskExecution.writeGuard(owner, material)
+      taskOperation()
+      const result = await deps.writeVariables.commit(material, JSON.parse(json), { owner, operationId, variablesRevision, taskOperation })
+      if (!result.replayed) await changed(material.sessionId)
+      return { turn: material.turn, textVersion: material.key, ...result }
     },
 
     // Replace the latest turn's text; HTML blocks in it must stay as they are. Plugins then get onTurnSettled again.

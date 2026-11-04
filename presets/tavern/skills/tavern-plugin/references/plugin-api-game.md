@@ -387,6 +387,12 @@ ctx.tavern.onTurnSettled(async ({ gameId, turn, textVersion, variables }) => {
 - Tavern 不检查变量结构，写错了会直接影响状态栏和后续结算，请按这张卡的变量结构写。最大 1 MB。
 - 这一轮的后台结算还没结束时报 `TAVERN_PLUGIN_TURN_UNAVAILABLE`，下一轮正文已经在生成时报 `TAVERN_PLUGIN_BUSY`，都是稍后再试；在 `onTurnSettled` 里调用就不会遇到。
 
+### `getVariableSnapshot` / `commitVariables`（`capabilities.variableCommit === 1`）
+
+针对一次变量替换，可以先用 `getVariableSnapshot({ gameId, turn, textVersion })` 获取 `{ variables, variablesRevision }`，再用 `commitVariables({ gameId, turn, textVersion, variablesRevision, operationId, variables })` 提交。新变量与操作收据在同一个聊天日志条件写中保存；成功返回新的 `variablesRevision` 和 `replayed`。同一插件在同一正文版本以相同参数重试同一个 `operationId` 时返回原收据；同 ID 不同参数报 `TAVERN_PLUGIN_OPERATION_CONFLICT`。快照不匹配报 `TAVERN_PLUGIN_VARIABLE_CONFLICT`，应重新读取并由调用方重新计算。`operationId` 由调用方生成，只能含字母、数字、点、下划线、连字符，最长 128 字符。
+
+**限制：不要用此接口保证奖励或外部副作用的幂等。** `variablesRevision` 是变量内容的 SHA-256 指纹，不是单调递增计数；变量先改变又恢复为完全相同内容时无法识别中间变化（ABA）。每个正文版本最多保留 128 个收据，满后拒绝新提交并报 `TAVERN_PLUGIN_RECEIPTS_FULL`，不会静默淘汰。收据跟随该消息和正文版本：替换、删除或恢复旧存档可能移除收据，因此不能用它保证跨回退、重生成、存档导入或其他外部操作的去重。写超时结果未知，可在同一版本和相同参数下重试查询收据；旧版本或禁用插件仍会被拒绝。它不包括 `saveTurnData`、外部副作用或其他 API 的跨调用事务。
+
 ### `editTurn({ gameId, turn, textVersion, text })`
 
 用 `text` 替换这一轮的正文，走的是玩家「编辑正文」同一条路：回退、分叉照常，宏、脚本和结算不会重跑。返回改后这一轮的内容（同 `getTurn`），里面有新的 `textVersion`。
