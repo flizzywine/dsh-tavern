@@ -31,3 +31,13 @@ export function projectGameModeForeground(session, { key, text }) {
   })
   return true
 }
+
+export async function restoreGameModeForeground({ sessions, agents }, gameId, projection) {
+  let handle
+  let session = sessions.get(gameId) || agents.get(gameId)?.session
+  if (!session) { handle = await agents.resume({ resumeSessionId: gameId }); session = handle.agent.session }
+  try {
+    projectGameModeForeground(session, projection)
+    await sessions.flush(session)
+  } finally { if (handle) await handle.dispose() }
+}

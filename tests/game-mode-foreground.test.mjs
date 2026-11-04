@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Session } from './fixtures/dsh-session-host.mjs'
-import { projectGameModeForeground, GAME_FOREGROUND_PREFIX } from '../tavern-plugin/lib/domain/game-mode-foreground.js'
+import { projectGameModeForeground, restoreGameModeForeground, GAME_FOREGROUND_PREFIX } from '../tavern-plugin/lib/domain/game-mode-foreground.js'
 import { createPluginGameModes } from '../tavern-plugin/lib/domain/plugin-game-mode.js'
 import { planTranscriptRows, planShowsRow } from '../tavern-plugin/lib/domain/transcript-row-plan.js'
 import { nativeStoryTurns } from '../tavern-plugin/lib/domain/story-alignment.js'
@@ -64,4 +64,16 @@ test('game foreground stays visible outside story floors and survives story repa
   const repair = planNativeSurfaceRepair({ chat: { id, messages: [{ role: 'assistant', greeting: true, text: '开场' }] },
     events: [greeting, ...events], nodes: [-1, ...session.surface.nodes] })
   assert.equal(repair.status, 'intact')
+})
+
+test('cold game view restores an unloaded native session before projecting saved state', async () => {
+  const id = 'cold-game'
+  const session = Session.create(id, undefined, { id, version: 4, createdAt: 0, isSeeded: false, delegationDepth: 0 })
+  let resumed = 0, disposed = 0, flushed = 0
+  const sessions = { get: () => undefined, flush: async value => { assert.equal(value, session); flushed++ } }
+  const agents = { get: () => undefined, resume: async ({resumeSessionId}) => { assert.equal(resumeSessionId,id); resumed++; return {agent:{session},dispose:async()=>{disposed++}} } }
+  const modes = createPluginGameModes({read:async()=>({key:'test:game',version:1,revision:3,cursor:0,frames:[{state:{ended:true}}]}), allowed:async()=>{}, foreground:(id,p)=>restoreGameModeForeground({sessions,agents},id,p)})
+  modes.register('test',{name:'game',version:1,create:()=>({state:{}}),advance:()=>{throw new Error('must not advance')},project:({state})=>state,foreground:()=> 'DM · 已结束'})
+  assert.equal((await modes.view(id)).data.ended,true)
+  assert.equal(resumed,1); assert.equal(flushed,1); assert.equal(disposed,1)
 })

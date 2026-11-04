@@ -12,7 +12,7 @@ import { resolveWorldbookSkillChat } from './domain/worldbook-skill-scope.js'
 import { appendWorldbookSkillChanges } from './domain/worldbook-skill-changes.js'
 // Must stay first: it has to run before anything loads jsdom.
 import { createSessionViewProjection, sessionViewMessageFields } from './domain/session-view-projection.js'
-import { projectGameModeForeground } from './domain/game-mode-foreground.js'
+import { restoreGameModeForeground } from './domain/game-mode-foreground.js'
 import { createNetworkToolPolicy, installNetworkToolPolicy } from './domain/network-tools.js'
 import { clearRetiredSearchProvider } from './domain/retired-search-provider.js'
 import { createConversationBackgroundSettings } from './domain/conversation-background-settings.js'
@@ -2704,10 +2704,7 @@ export async function apply(ctx) {
         const latest = chat && await pluginData.readMode(chat.id)
         if (!latest || latest.revision !== projection.revision) return
         if (!sessionPatch.serverReady) throw new Error('玩法前台记录需要会话兼容模块，请重启酒馆后重试')
-        const session = sessionStore.get(gameId) || agentRegistry.get(gameId)?.session
-        if (!session) throw new Error('玩法前台会话尚未打开，请重新进入本局')
-        projectGameModeForeground(session, projection)
-        await sessionStore.flush(session)
+        await restoreGameModeForeground({ sessions: sessionStore, agents: agentRegistry }, gameId, projection)
       })
       gameForegroundQueues.set(gameId, work)
       void work.finally(() => { if (gameForegroundQueues.get(gameId) === work) gameForegroundQueues.delete(gameId) }).catch(() => {})
