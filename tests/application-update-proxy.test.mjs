@@ -73,6 +73,7 @@ for (const [name, original, attempts = 1] of lifecycleCases) for (const rollback
       childProcess.execFileSync = (command, args, options) => {
         if (command === 'reg') return '    ProxyEnable    REG_DWORD    0x1\\n    ProxyServer    REG_SZ    127.0.0.1:18997\\n';
         if (command === 'gsettings') return args.at(-1) === 'mode' ? "'manual'" : args.at(-1) === 'host' ? "'127.0.0.1'" : '18997';
+        if (command === 'scutil') return '  HTTPEnable : 1\\n  HTTPProxy : 127.0.0.1\\n  HTTPPort : 18997\\n';
         return originalExec(command, args, options);
       };
       // Do not change the runner's dispatcher; only inspect environment transfer.
@@ -90,7 +91,7 @@ for (const [name, original, attempts = 1] of lifecycleCases) for (const rollback
       }
       const canonical = value => Object.fromEntries(Object.entries(value).map(([key, item]) => [key.toUpperCase(), item]));
       assert.deepEqual(canonical(JSON.parse(readFileSync(${JSON.stringify(serviceOutput)}, 'utf8'))), canonical(${JSON.stringify(original)}));
-      if (${attempts} > 1 && ['win32', 'linux'].includes(process.platform)) {
+      if (${attempts} > 1 && ['win32', 'linux', 'darwin'].includes(process.platform)) {
         const installer = JSON.parse(readFileSync(${JSON.stringify(installerOutput)}, 'utf8'));
         assert.equal(installer.HTTPS_PROXY, 'http://127.0.0.1:18997');
         assert.equal(installer.NODE_USE_ENV_PROXY, '1');
@@ -107,7 +108,7 @@ for (const [name, original, attempts = 1] of lifecycleCases) for (const rollback
     assert.deepEqual(canonical(await read(serviceOutput)), canonical(original))
     const installer = canonical(await read(installerOutput))
     const hasOriginalProxy = !!(original.HTTPS_PROXY || original.HTTP_PROXY || original.https_proxy)
-    const systemDetected = ['linux', 'win32'].includes(process.platform)
+    const systemDetected = ['linux', 'win32', 'darwin'].includes(process.platform)
     if (!hasOriginalProxy && systemDetected) {
       assert.equal(installer.HTTP_PROXY, 'http://127.0.0.1:18997')
       assert.equal(installer.HTTPS_PROXY, 'http://127.0.0.1:18997')

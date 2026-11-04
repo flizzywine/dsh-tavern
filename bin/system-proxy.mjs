@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import http from 'node:http'
+import { createRequire } from 'node:module'
 
-// Node 的 fetch / undici 只认 HTTP(S)_PROXY 环境变量（而且要 NODE_USE_ENV_PROXY=1
-// 或 setGlobalProxyFromEnv 才会真的用），看不到各平台的「系统代理」设置。
+// Node 的 fetch 看不到各平台的「系统代理」设置；Node 22 也不会在运行中
+// 自动使用新增的 HTTP(S)_PROXY，需要显式配置 undici dispatcher。
 // 酒馆的插件侧检查更新、插件市场检查同样走 fetch，所以这里把系统代理翻译成环境变量，
-// 并在当前进程里直接切换全局代理 dispatcher。安装器的 bin/download.cjs 里有同一套
-// 逻辑（那份必须是零依赖 CommonJS，会被嵌进 install.sh / install.ps1），两处保持一致。
+// 并在当前进程里直接切换全局代理 dispatcher。安装器的 bin/download.cjs
+// 必须保持零依赖；这里可使用已安装的插件依赖兼容旧 Node / Electron。
 const PROXY_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY']
 const INTERNET_SETTINGS = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
 const LOCAL_BYPASS = ['localhost', '127.0.0.1', '::1']
@@ -80,8 +81,26 @@ function gnomeProxy(exec) {
   return { http: `${host}:${port}`, https: `${host}:${port}`, source: 'system' }
 }
 
+function macProxy(exec) {
+  const output = String(exec('scutil', ['--proxy']))
+  const settings = Object.fromEntries([...output.matchAll(/^\s+(\w+)\s*:\s*([^\r\n{}]+)$/gm)].map(match => [match[1], match[2].trim()]))
+  const address = scheme => Number(settings[`${scheme}Enable`]) === 1 && validHost(settings[`${scheme}Proxy`]) && validPort(settings[`${scheme}Port`])
+    ? `${settings[`${scheme}Proxy`]}:${settings[`${scheme}Port`]}` : ''
+  const http = address('HTTP')
+  const https = address('HTTPS') || http
+  if (http || https) {
+    const exceptions = output.match(/ExceptionsList\s*:\s*<array>\s*\{([^}]+)\}/)?.[1] || ''
+    const bypass = [...exceptions.matchAll(/^\s*\d+\s*:\s*(\S+)/gm)].map(match => match[1])
+      .filter(item => !item.includes('/') && !item.slice(1).includes('*')).map(item => item.replace(/^\*/, ''))
+    return { http, https, bypass, source: 'system' }
+  }
+  if (Number(settings.ProxyAutoConfigEnable) === 1 || Number(settings.ProxyAutoDiscoveryEnable) === 1) return { source: 'pac', summary: '系统代理使用 PAC 自动配置，程序无法读取；请开启 TUN 模式或设置 HTTPS_PROXY' }
+  if (Number(settings.SOCKSEnable) === 1) return { source: 'unsupported', summary: '系统代理只提供 SOCKS，Node 无法使用；请在代理软件里开启 HTTP 代理或 TUN 模式' }
+  return null
+}
+
 function systemProxy(platform, exec) {
-  const readers = platform === 'win32' ? [windowsProxy] : platform === 'android' ? [androidProxy] : platform === 'linux' ? [gnomeProxy] : []
+  const readers = platform === 'win32' ? [windowsProxy] : platform === 'darwin' ? [macProxy] : platform === 'android' ? [androidProxy] : platform === 'linux' ? [gnomeProxy] : []
   for (const read of readers) {
     try {
       const result = read(exec)
@@ -127,7 +146,7 @@ export function withoutAppliedSystemProxy(env = process.env) {
 }
 
 // Apply proxyEnvironment() to `env` and to this process's own fetch.
-// Node >= 24 exposes setGlobalProxyFromEnv(); older runtimes only get the variables.
+// Prefer Node's native API when available. Node 22 / older Electron need undici.
 export function applySystemProxy(env = process.env, options = {}) {
   if (applied !== null && env === process.env) return applied
   let result
@@ -137,8 +156,23 @@ export function applySystemProxy(env = process.env, options = {}) {
     env[key] = value
     if (env === process.env) appliedEnvironment.set(key, value)
   }
-  if (result.added.HTTPS_PROXY || result.added.HTTP_PROXY) {
-    try { http.setGlobalProxyFromEnv?.(env) } catch { /* 老版本 Node 没有这个接口 */ }
+  if (result.source === 'system' || result.source === 'environment') {
+    try {
+      const value = name => env[name.toLowerCase()] ?? env[name]
+      const httpProxy = value('HTTP_PROXY') || value('ALL_PROXY') || ''
+      const httpsProxy = value('HTTPS_PROXY') || httpProxy
+      const noProxy = value('NO_PROXY') ?? ''
+      if (typeof http.setGlobalProxyFromEnv === 'function') {
+        http.setGlobalProxyFromEnv({ HTTP_PROXY: httpProxy, HTTPS_PROXY: httpsProxy, NO_PROXY: noProxy })
+      } else {
+        // bin/ is outside the plugin's pnpm dependency links in CLI installations.
+        const { EnvHttpProxyAgent, setGlobalDispatcher } = createRequire(new URL('../tavern-plugin/package.json', import.meta.url))('undici')
+        setGlobalDispatcher(new EnvHttpProxyAgent({ httpProxy, httpsProxy, noProxy }))
+      }
+    } catch (error) {
+      result.activationFailed = true
+      result.summary = `代理启用失败：${error?.code || error?.name || '未知错误'}`
+    }
   }
   if (env === process.env) applied = result
   return result
@@ -147,6 +181,7 @@ export function applySystemProxy(env = process.env, options = {}) {
 // 只给日志/诊断用：不含账号密码。
 export function describeProxy(result) {
   if (!result || !result.source) return '未检测到系统代理'
+  if (result.activationFailed) return result.summary
   if (result.summary && result.source !== 'system') return result.summary
   return result.source === 'environment' ? '使用环境变量里的代理' : `使用系统代理 ${result.summary || ''}`.trim()
 }
