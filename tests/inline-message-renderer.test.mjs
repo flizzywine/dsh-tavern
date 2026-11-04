@@ -772,3 +772,13 @@ test('多楼层会话仅对最新且注册了 GENERATION_AFTER_COMMANDS 的消�
   }
 
 })
+
+test('iframe 默认元素样式放入底层 @layer dsh-tavern-base，避免无层 height:auto 覆盖 Tailwind v4 的 @layer utilities (.h-full)', () => {
+  const doc = client.buildTavernFrameDocument({
+    content: '<div class="relative w-full h-full"><img class="w-full h-full object-cover"></div>',
+    token: 'layer-token',
+    helperContext: { messages: [] }
+  })
+  assert.match(doc, /@layer dsh-tavern-base,theme,base,components,utilities;/)
+  assert.match(doc, /@layer dsh-tavern-base\{[\s\S]*?img,video,svg,canvas\{max-width:100%;height:auto\}[\s\S]*?\}<\/style>/)
+})
