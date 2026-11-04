@@ -19,7 +19,8 @@ export function fixture({sidebar = true, configured: initial, external = true, r
   const session = new Map(returnIntent === undefined ? [] : [['dsh:settings-return',typeof returnIntent === 'string' ? returnIntent : JSON.stringify(returnIntent)]])
   // a figure voice page's 「去设置」 / 在线 TTS ＋ leaves this one-shot focus (asset-pack-voice-ui.js).
   if (focus) session.set('dsh-tts:focus-service',JSON.stringify({at:Date.now(),...focus}))
-  const window = {sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}}
+  // an EventTarget: the page also takes a focus request sent while it is mounted (the key's window event).
+  const window = Object.assign(new EventTarget(),{sessionStorage:{getItem:key => {if (blockedStorage) throw Error('storage unavailable');return session.get(key) ?? null},setItem:(key,value) => session.set(key,value),removeItem:key => session.delete(key)}})
   let events, enabled = true, bytes = 42, presets = [], cacheSettings = {cacheMaxGB:1,cacheMaxAgeDays:30}, reading = {dialogueVoice:null,narrator:{enabled:false,voice:null}}
   const keys = new Set(['azure-main','qwen-main','volc-main'])
   let configured = initial ?? [{id:'azure-main',kind:'azure',label:'Test Azure',config:{region:'eastasia'}},{id:'qwen-main',kind:'qwen',label:'Test Qwen',config:{region:'cn'}},{id:'volc-main',kind:'volcengine',label:'Test Volcengine',config:{appId:'test',resourceId:'seed-tts-2.0'}}]

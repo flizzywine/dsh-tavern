@@ -263,6 +263,17 @@ export function createTts({ profileId = '', dataDir, cache = createCache({ dataD
     async listServices() { alive(); return [...providers.values()].map(({provider:p}) => (
       {id:p.id,kind:p.kind,revision:p.revision,...(p.model ? {model:p.model} : {}),capabilities:structuredClone(p.capabilities || {})}
     )) },
+    // What each registered provider reports it serves (the voice services catalog's `sources`): the provider is asked first
+    // (discover, no wake; it caches its server's answer per service config), and a failed ask keeps its last answer.
+    async providerVoiceSources() {
+      alive()
+      return Promise.all([...providers.values()].map(async ({owner, provider:p}) => {
+        try { await p.discover?.() } catch {}
+        const c = p.capabilities || {}
+        return {owner, id:p.id, kind:p.kind, label:p.label || p.id, sources:[...(c.voiceSources || [])], ...(c.voiceList ? {voiceList:c.voiceList} : {}),
+          billing:c.billing || (c.paid === false ? 'free' : c.paid ? 'paid' : 'unknown')}
+      }))
+    },
     async listProviderCatalog({ serviceId } = {}) {
       if (!serviceId) return api.listServiceVoices()
       alive(); const p = providers.get(serviceId)?.provider, cached = catalogs.get(serviceId)

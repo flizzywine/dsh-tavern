@@ -387,13 +387,20 @@ exports.apply = function(ctx) {
     const startKind = kind => { if (editor?.mode === 'add' && editor.fixed && editor.kind === kind) return close(); setMessage(''); setConfirm(null)
       setEditor({mode:'add',kind:'',id:'',label:'',config:{},secrets:{},probe:null,fixed:true}); chooseKind(kind) }
     const root = React.useRef(null)
+    // A request also arrives while this page is already mounted (the same key's window event, after the tab opened).
+    const [focusAsked,setFocusAsked] = React.useState(0)
+    React.useEffect(() => { const ask = () => setFocusAsked(n => n + 1); window.addEventListener(FOCUS_KEY,ask); return () => window.removeEventListener(FOCUS_KEY,ask) },[])
     React.useEffect(() => {
       if (!state || !kinds.length) return
       const focus = takeFocus(); if (!focus) return
-      const kind = focus.kind, own = kind === 'local' ? null : configured.find(c => focus.id ? c.id === focus.id : c.kind === kind)
-      if (focus.add && descriptor(kind)) { startAdd(); chooseKind(kind) } else if (kind === 'local') setLocalOpen(true); else if (own) toggleEdit(own); else startKind(kind)
-      setTimeout(() => (root.current?.querySelector('[data-open] .dtts-line-main, .dtts-adding-fixed') || root.current?.parentElement?.querySelector('.dtts-adding'))?.scrollIntoView?.({block:'center'}),50)
-    },[!!state,kinds.length])
+      // kind '' (「配音后端 ›」): the page as it is, with the keyboard focus on its first service.
+      const kind = focus.kind, own = !kind || kind === 'local' ? null : configured.find(c => focus.id ? c.id === focus.id : c.kind === kind)
+      if (!kind) {} else if (focus.add && descriptor(kind)) { startAdd(); chooseKind(kind) } else if (kind === 'local') setLocalOpen(true); else if (own) { if (!editing(own.id)) toggleEdit(own) } else startKind(kind)
+      setTimeout(() => {
+        const target = kind ? root.current?.querySelector('[data-open] .dtts-line-main, .dtts-adding-fixed') || root.current?.parentElement?.querySelector('.dtts-adding') : root.current?.querySelector('.dtts-line-main')
+        target?.scrollIntoView?.({block:'center'}); target?.focus?.({preventScroll:true})
+      },50)
+    },[!!state,kinds.length,focusAsked])
     const count = state ? configured.length + external.length + unset.length + (browserSpeech ? 1 : 0) : undefined
     return h(Section,{title:'语音服务',meta:count,help:'合成声音的服务，这台电脑设一次，所有卡通用。人物用哪一个，在素材编辑器的人物「声音」里选。'},
       !state ? h('p',{className:'dtts-muted dtts-loading',role:loadError ? 'alert' : undefined},loadError ? h(Warn,null,loadError) : h('span',{className:'dtts-spinner','aria-label':'正在载入'})) :

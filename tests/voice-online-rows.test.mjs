@@ -38,6 +38,18 @@ test('在线 TTS lists every configured online service (MiniMax included) by its
   assert.deepEqual(two.map(r => [r.name, r.serviceId, r.bind]), [['我的 MiniMax', 'mm-1', true], ['备用', 'mm-2', true]])
 })
 
+// 声音库 is a row only under a service whose provider reports voice IDs (catalog `sources`); with several Fish services the
+// rows stay bound to their service, so a pick never writes a source that is ambiguous among them.
+test('a Fish service whose provider reports no voice library has no 声音库 row', async () => {
+  const {voiceWayRows} = await load()
+  const cloud = service('fish', 'fish-audio', 'Fish Audio'), local = service('fish-local', 'fish-audio', 'Fish Audio（本地 Drama 3）', {sources:['reference-list'], voiceList:'provider'})
+  const rows = plain(voiceWayRows({services:[cloud, local, browser]}, null))
+  assert.deepEqual(rows.map(w => [w.id, w.title, w.serviceId, !!w.bind]), [
+    ['clone:fish', 'Fish Audio · 声音克隆', 'fish', true], ['clone:fish-local', 'Fish Audio（本地 Drama 3）· 声音克隆', 'fish-local', true],
+    ['library:fish', 'Fish Audio · 声音库', 'fish', true], ['browser', '浏览器朗读', undefined, false], ['off', '不配音', undefined, false]])
+  assert.deepEqual(plain(voiceWayRows({services:[local, browser]}, null)).map(w => w.id), ['clone', 'browser', 'off'])
+})
+
 test('a source naming a service that is not set up keeps its way, with a row of its own marked missing', async () => {
   const {voiceWayRows, onlineProviders} = await load()
   const catalog = {services:[browser]}

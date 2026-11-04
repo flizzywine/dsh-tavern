@@ -1,5 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 // The 语音服务 contract (Tts, TtsClient, Provider, ...) is authored once in dsh-presentation-protocol; re-exported here.
+// A third-party plugin's provider says what it supports there: `Provider.capabilities.voiceSources` (the 配音来源 it serves,
+// refreshed in `discover()`) and `voiceList`; the voice services catalog lists it with exactly those (VoiceServiceEntry).
 export * from '../../../dsh-presentation-protocol/src/types/tts'
 
 // normalized at the dictionary entry boundary.
