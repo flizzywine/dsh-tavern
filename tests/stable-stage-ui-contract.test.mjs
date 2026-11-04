@@ -42,6 +42,32 @@ test('browser capability map is independent and returned as a fresh snapshot', (
   assert.equal(ui.service.getCapabilities().openOverlay, 1)
 })
 
+test('a card can ignore unknown capabilities and fall back on an older host', () => {
+  function install(ui) {
+    const capabilities = ui.getCapabilities?.() || {}
+    const options = { id: 'battle', label: 'Battle', render: () => null }
+    if (capabilities.stageInteraction === 1 && typeof ui.registerStageInteraction === 'function') {
+      return ui.registerStageInteraction(options)
+    }
+    return ui.registerComposerAction({ id: options.id, label: options.label,
+      run: ({ gameId }) => ui.openOverlay({ gameId, render: options.render }) })
+  }
+  const f = fixture()
+  const old = Object.create(f.plugin)
+  old.getCapabilities = undefined
+  old.registerStageInteraction = undefined
+  const stopOld = install(old)
+  const handle = f.ui.composerActions()[0].run({ gameId: 'old-game' })
+  assert.equal(typeof handle.close, 'function')
+  handle.close()
+  stopOld()
+  const newer = Object.create(f.plugin)
+  newer.getCapabilities = () => ({ stageInteraction: 1, futureOptionalFeature: 99 })
+  const stopNew = install(newer)
+  assert.equal(f.ui.composerActions().length, 1)
+  stopNew()
+})
+
 test('overlay retains old render parameters, tracks viewport, and cleans up on unload', () => {
   const f = fixture()
   let screen, closes = 0
