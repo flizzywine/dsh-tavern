@@ -40,7 +40,8 @@ const icon = name => React.createElement('svg',{className:'fork-cg-icon',viewBox
 const round = (k,label,onClick,props) => React.createElement('button',{type:'button',className:'fork-cg-round','data-k':k,'aria-label':label,'data-tip':label,onClick,...props},icon(k));
 const refKey = item => JSON.stringify(item.ref);
 // isolated gallery preview. No canonical state writes or played acknowledgements.
-function CgGalleryImage({image,authority,focus,thumb=false}) {
+// onAspect hears the picture's width / height once it has loaded (the viewer fits its controls around it).
+function CgGalleryImage({image,authority,focus,thumb=false,onAspect}) {
     const root=React.useRef(null),fill=React.useRef(null),[status,setStatus]=React.useState('loading');
     useEffect(()=>{
         const element=root.current,owner=getOwner();
@@ -56,7 +57,7 @@ function CgGalleryImage({image,authority,focus,thumb=false}) {
             if (!active || disposed) return;
             consumer.redraw();
             if(thumb&&visible&&JSON.stringify(preview())!==previewKey)void load();
-        });resize.observe(element.parentElement);
+        });resize.observe(element.parentElement);if(!thumb)resize.observe(element);
         async function load() {
             if (!active || disposed) return;
             const token=++generation;pending?.abort();pending=new AbortController();
@@ -86,7 +87,7 @@ function CgGalleryImage({image,authority,focus,thumb=false}) {
     },[image,authority,focus,thumb]);
     const h=React.createElement;
     return h('div',{className:'fork-cg-gallery-picture','data-status':status},
-        thumb?null:h('img',{ref:fill,className:'fork-cg-gallery-fill',alt:'',draggable:false}),
+        thumb?null:h('img',{ref:fill,className:'fork-cg-gallery-fill',alt:'',draggable:false,onLoad:onAspect?event=>onAspect(event.currentTarget.naturalWidth/event.currentTarget.naturalHeight):undefined}),
         h('div',{ref:root,className:'fork-cg-stage'},h('img',{draggable:false}),h('img',{draggable:false})),
         status==='error'?h('span',{className:'fork-cg-gallery-missing',role:'status'},icon('warn'),thumb?null:'素材不可用'):
         status==='loading'&&!thumb&&Spinner?h('span',{className:'fork-cg-gallery-loading',role:'status','aria-label':'正在载入'},h(Spinner,null)):null);
@@ -97,6 +98,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
     // the viewer shows the CG whose ref key is selected; the item itself is read from the latest list.
     const [selected,setSelected]=React.useState(null),[variant,setVariant]=React.useState(''),[focus,setFocus]=React.useState(null);
     const [uiOff,setUiOff]=React.useState(false),[active,setActive]=React.useState(false),[cropOpen,setCropOpen]=React.useState(false);
+    // the viewer's size and the shown picture's aspect decide where its controls go (fork-cg-viewer data-fit).
+    const viewerNode=React.useRef(null),[box,setBox]=React.useState(null),[aspect,setAspect]=React.useState(0);
     const revision=usePackRevision(),generation=React.useRef(0),lastIndex=React.useRef(0),idle=React.useRef(0),swipe=React.useRef(null),swiped=React.useRef(false);
     const wasViewer=React.useRef(false);
     // a 场景生图 CG (row.scene): 在素材库中编辑 opens its entry in the 素材库; 🗑 removes it everywhere at once (busy | failed).
@@ -135,6 +138,13 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         if (viewer && !root.current.contains(document.activeElement)) root.current.focus();
         else if (left) ([...root.current.querySelectorAll('[data-cg-cell]')].find(node=>node.dataset.cgCell===lastCell.current)||root.current).focus();
     },[selected,!!item,removing,uiOff]);
+    useEffect(()=>{
+        const node=viewerNode.current;
+        if (!node) return;
+        const observer=new ResizeObserver(()=>{if(!disposed)setBox({width:node.clientWidth,height:node.clientHeight});});
+        observer.observe(node);
+        return ()=>observer.disconnect();
+    },[!!item]);
     // more of the list loads when its end scrolls into view.
     useEffect(()=>{
         const node=more.current;
@@ -201,9 +211,12 @@ function CgGallery({sessionId,store,onClose,onExit}) {
         // 构图 only when the CG has focus areas: 「完整」|「特写」, a labelled pair; several areas put them in a menu under 特写.
         const hints=item.focusHints,many=hints.length>1;
         const mode=(k,label,pressed,onClick,props)=>h('button',{type:'button',className:'fork-cg-compose-mode','data-k':k,'aria-pressed':pressed,onClick,...props},icon(k),h('span',null,label));
-        return h('div',{className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,
+        // a picture narrower than the viewer leaves side bands; wide enough ones (side) hold the controls beside it.
+        const band=aspect&&box?Math.floor((box.width-box.height*aspect)/2):0,fit=band>=280?'side':'over';
+        return h('div',{ref:viewerNode,className:'fork-cg-viewer','data-ui':uiOff?'off':'on','data-active':active||undefined,'data-fit':fit,
+                style:aspect?{'--cg-ar':aspect,'--cg-band':band+'px'}:undefined,
                 onClick:tap,onPointerMove:wake,onPointerLeave:()=>setActive(false),onPointerDown:swipeStart,onPointerUp:swipeEnd,onPointerCancel:()=>{swipe.current=null;}},
-            h(CgGalleryImage,{image:shown?.image,authority,focus}),
+            h(CgGalleryImage,{image:shown?.image,authority,focus,onAspect:setAspect}),
             h('div',{className:'fork-cg-viewer-ui'},
                 h('div',{className:'fork-cg-viewer-scrim'}),
                 h('header',{className:'fork-cg-viewer-top'},h('h2',null,item.label),
@@ -212,6 +225,8 @@ function CgGallery({sessionId,store,onClose,onExit}) {
                         item.scene?round('remove','删除这张 CG',remove,{'aria-busy':removing==='busy'||undefined}):null,
                         round('close','关闭',leave)),
                     removing==='failed'?h('p',{className:'fork-cg-remove-error',role:'alert'},icon('warn'),'没能删除，可以再试一次'):null),
+                // the bottom row: on phones ‹ 差分 构图 › in one line; wider, its parts take their own places (display: contents).
+                h('div',{className:'fork-cg-viewer-bottom'},
                 index>0?round('prev','上一张',()=>go(-1),{className:'fork-cg-round fork-cg-nav is-prev'}):null,
                 index<viewable.length-1?round('next','下一张',()=>go(1),{className:'fork-cg-round fork-cg-nav is-next'}):null,
                 // 差分: a strip of mini pictures, bottom centre; the lit one is shown.
@@ -221,7 +236,7 @@ function CgGallery({sessionId,store,onClose,onExit}) {
                     mode('full','完整',!focus,()=>{setFocus(null);setCropOpen(false);}),
                     mode('zoom','特写',!!focus,()=>{if(many)setCropOpen(!cropOpen);else setFocus(hints[0]);},many?{'aria-haspopup':'menu','aria-expanded':cropOpen}:{}),
                     cropOpen?h('div',{className:'fork-cg-crop-menu',role:'menu','aria-label':'特写'},hints.map(choice=>h('button',{key:choice.key,type:'button',role:'menuitemradio','aria-checked':focus?.key===choice.key,
-                        onClick:()=>{setFocus(choice);setCropOpen(false);}},icon('check'),choice.label))):null):null));
+                        onClick:()=>{setFocus(choice);setCropOpen(false);}},icon('check'),choice.label))):null):null)));
     }
     function grid() {
         return h('div',{className:'fork-cg-grid-page'},

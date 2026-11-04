@@ -5,12 +5,13 @@ import { browserReactScript } from '../fixtures/browser-react.mjs'
 
 const read = path => readFile(new URL('../../' + path, import.meta.url), 'utf8')
 
-// A 16:9 picture per CG, painted in the page (no network).
-export function galleryItems(count, { scene = true, variants = 1, focus = false } = {}) {
+// A 16:9 picture per CG (portrait: 2:3), painted in the page (no network).
+export function galleryItems(count, { scene = true, variants = 1, focus = false, portrait = false } = {}) {
+  const size = portrait ? { width: 240, height: 360 } : { width: 320, height: 180 }
   return Array.from({ length: count }, (_, i) => ({
     ref: { packId: 'pack-a', kind: 'cg', assetId: `cg-${i + 1}` }, unlocked: true, available: true, label: `第 ${i + 1} 张 CG`, scene,
     defaultVariant: 'v1', focusHints: focus ? [{ key: 'face', label: '特写', x: 0.5, y: 0.35, zoom: 2 }] : [],
-    variants: Array.from({ length: variants }, (_, v) => ({ key: `v${v + 1}`, label: `差分 ${v + 1}`, image: { paint: [i, v] } })),
+    variants: Array.from({ length: variants }, (_, v) => ({ key: `v${v + 1}`, label: `差分 ${v + 1}`, image: { paint: [i, v], ...size } })),
   }))
 }
 
@@ -25,10 +26,10 @@ export async function mountGallery(page, { items, imageUrl = null } = {}) {
   await page.addScriptTag({ content: effects + '\n' + consumer + '\n' + stage + '\n' + gallery })
   await page.evaluate(({ items, imageUrl }) => {
     const h = React.createElement
-    const picture = ([i, v]) => {
+    const picture = ({ paint: [i, v], width, height }) => {
       if (imageUrl) return [imageUrl].flat()[(i + v) % [imageUrl].flat().length]
-      const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180
-      const g = canvas.getContext('2d'); g.fillStyle = `hsl(${(i * 67 + v * 25) % 360} 55% 45%)`; g.fillRect(0, 0, 320, 180)
+      const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
+      const g = canvas.getContext('2d'); g.fillStyle = `hsl(${(i * 67 + v * 25) % 360} 55% 45%)`; g.fillRect(0, 0, width, height)
       g.fillStyle = '#fff'; g.font = '48px sans-serif'; g.fillText(`${i + 1}${v ? '·' + (v + 1) : ''}`, 24, 110)
       return canvas.toDataURL()
     }
@@ -42,7 +43,7 @@ export async function mountGallery(page, { items, imageUrl = null } = {}) {
       }
       throw new Error(method)
     }
-    const owner = { prepare: async image => ({ value: { media: { url: picture(image.paint), identity: String(image.paint) }, label: 'CG' }, release() {} }) }
+    const owner = { prepare: async image => ({ value: { media: { url: picture(image), identity: String(image.paint) }, label: 'CG' }, release() {} }) }
     const clock = { now: () => performance.now(), isForeground: () => true, requestAnimationFrame: fn => requestAnimationFrame(fn), cancelAnimationFrame: id => cancelAnimationFrame(id) }
     const Spinner = () => h('span', { className: 'test-spinner' })
     const EmptyState = ({ text }) => h('div', { className: 'fork-empty', role: 'status' }, text)

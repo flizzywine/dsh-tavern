@@ -6,7 +6,7 @@ import { galleryItems, mountGallery } from './helpers/stage-gallery-browser.mjs'
 
 async function open(t, items, options = {}) {
   const browser = await chromium.launch({ headless: true }); t.after(() => browser.close())
-  const context = await browser.newContext(options.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: { width: 1280, height: 720 } })
+  const context = await browser.newContext(options.phone ? { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true } : { viewport: options.viewport || { width: 1280, height: 720 } })
   const page = await context.newPage(); page.setDefaultTimeout(5000)
   const errors = []; page.on('pageerror', error => errors.push(error.message)); t.after(() => assert.deepEqual(errors, []))
   await mountGallery(page, { items })
@@ -108,3 +108,54 @@ test('构图 shows only with focus areas, as a labelled 完整 | 特写 pair; se
   assert.equal(await modes.nth(1).getAttribute('aria-pressed'), 'true')
   assert.equal(await page.locator('.fork-cg-crop-menu').count(), 0)
 })
+// The four fits (wide or phone screen × landscape or portrait CG): each control group is one line, no control covers another,
+// and where the fitted picture leaves bands (a portrait CG on a wide screen, any CG on a phone) none covers the picture.
+async function layout(page) {
+  await page.waitForFunction(() => {
+    const viewer = document.querySelector('.fork-cg-viewer'), image = viewer?.querySelectorAll(':scope > .fork-cg-gallery-picture > .fork-cg-stage > img')[1]
+    return viewer?.style.getPropertyValue('--cg-ar') && image?.naturalWidth > 0 && image.style.transform
+  })
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  return page.evaluate(() => {
+    const box = node => { const r = node.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom } }
+    const viewer = document.querySelector('.fork-cg-viewer'), title = document.createRange()
+    title.selectNodeContents(viewer.querySelector('.fork-cg-viewer-top h2'))
+    const parts = { title: box(title), ...Object.fromEntries([...viewer.querySelectorAll('.fork-cg-round, .fork-cg-variants, .fork-cg-crop')].map(node => [node.dataset.k || node.classList[0], box(node)])) }
+    const frame = viewer.querySelector(':scope > .fork-cg-gallery-picture > .fork-cg-stage'), image = frame.querySelectorAll('img')[1]
+    const drawn = box(image), clip = box(frame), scale = Math.min((drawn.right - drawn.left) / image.naturalWidth, (drawn.bottom - drawn.top) / image.naturalHeight)
+    const cx = (drawn.left + drawn.right) / 2, cy = (drawn.top + drawn.bottom) / 2, w = image.naturalWidth * scale / 2, h = image.naturalHeight * scale / 2
+    const picture = { left: Math.max(clip.left, cx - w), right: Math.min(clip.right, cx + w), top: Math.max(clip.top, cy - h), bottom: Math.min(clip.bottom, cy + h) }
+    const lines = [...viewer.querySelectorAll('.fork-cg-viewer-acts, .fork-cg-variants, .fork-cg-crop')].map(group => new Set([...group.children].filter(node => node.tagName === 'BUTTON').map(node => Math.round(node.getBoundingClientRect().top))).size)
+    const strip = viewer.querySelector('.fork-cg-variants')
+    return { parts, picture, lines, fit: viewer.dataset.fit, stripFits: strip.scrollWidth <= strip.clientWidth }
+  })
+}
+const overlap = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5
+const middle = r => (r.top + r.bottom) / 2
+function assertLaid({ parts, picture, lines }, { bands }) {
+  assert.deepEqual(lines, lines.map(() => 1), 'each group is one line')
+  const names = Object.keys(parts)
+  for (const [i, a] of names.entries()) for (const b of names.slice(i + 1)) assert.ok(!overlap(parts[a], parts[b]), `${a} clear of ${b}`)
+  if (bands) for (const name of names) assert.ok(!overlap(parts[name], picture), `${name} clear of the picture`)
+  assert.ok(Math.abs(middle(parts['fork-cg-variants']) - middle(parts['fork-cg-crop'])) < 1, '差分 and 构图 share one row')
+}
+for (const [name, phone, portrait] of [['wide screen, landscape CG', false, false], ['wide screen, portrait CG', false, true], ['phone, landscape CG', true, false], ['phone, portrait CG', true, true]]) {
+  test(`${name}: the controls keep their own line${phone || portrait ? ' and stay off the picture' : ''}`, async t => {
+    const page = await open(t, galleryItems(3, { variants: 3, focus: true, portrait }), { phone, viewport: phone ? null : { width: 1920, height: 1080 } })
+    await page.locator('.fork-cg-gallery-cell').nth(1).click()
+    const laid = await layout(page)
+    assert.equal(laid.fit, !phone && portrait ? 'side' : 'over')
+    assertLaid(laid, { bands: phone || portrait })
+    if (phone) {
+      const row = ['prev', 'fork-cg-variants', 'fork-cg-crop', 'next'].map(part => middle(laid.parts[part]))
+      assert.ok(Math.max(...row) - Math.min(...row) < 1, '‹ 差分 构图 › are one row')
+      assert.ok(laid.parts.prev.right < laid.parts['fork-cg-variants'].left && laid.parts['fork-cg-crop'].right < laid.parts.next.left, 'in that order')
+      assert.ok(laid.stripFits, 'three 差分 fit the row whole')
+    }
+    if (phone) {
+      await page.locator('.fork-cg-compose-mode[data-k="zoom"]').click()
+      await page.waitForFunction(() => /scale\(2\)/.test(document.querySelectorAll('.fork-cg-viewer > .fork-cg-gallery-picture > .fork-cg-stage > img')[1].style.transform))
+      assertLaid(await layout(page), { bands: true })
+    }
+  })
+}
