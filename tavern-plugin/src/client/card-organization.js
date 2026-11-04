@@ -109,7 +109,7 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}) {
     return [h('option', { key: '', value: 'group:' }, '未分组'), ...groups.map(group => h('option', { key: group, value: 'group:' + group }, group))];
   }
   function closeMenu() { if (menu.current) menu.current.open = false; }
-  function toolbar() {
+  function toolbar(extraActions) {
     const choices = [{ value: '*', label: '全部' }, { value: 'favorites', label: '收藏' },
       { value: 'group:', label: '未分组' }, ...groups.map(group => ({ value: 'group:' + group, label: group }))];
     const selected = choices.find(choice => choice.value === filter)?.label || '全部';
@@ -140,9 +140,9 @@ function useCardOrganization(cards, busy, refresh, onError, batch = {}) {
               h('button', { type: 'button', onClick: () => { closeMenu(); setManaging(true); } }, '管理分组')))),
         h('input', { className: 'dsh-tavern-library-search', value: query, placeholder: '搜索人物卡', 'aria-label': '搜索人物卡', onChange: event => setQuery(event.target.value) })),
       batch.managing ? h('div', { className: 'dsh-tavern-card-batch-panel' }, batch.toolbar(visible,
-        h('select', { className: 'dsh-tavern-card-batch-move', value: '', disabled: disabled || !batch.paths.length, 'aria-label': '移动所选人物卡到分组', onChange: event => {
+        h(React.Fragment, null, extraActions, h('select', { className: 'dsh-tavern-card-batch-move', value: '', disabled: disabled || !batch.paths.length, 'aria-label': '移动所选人物卡到分组', onChange: event => {
           submit({ action: 'cards', paths: batch.paths, group: event.target.value.slice(6) });
-        } }, h('option', { value: '', disabled: true }, '移动到分组…'), options()))) : null,
+        } }, h('option', { value: '', disabled: true }, '移动到分组…'), options())))) : null,
       managing ? h('dialog', { className: 'dsh-tavern-group-manager', 'aria-label': '管理分组',
         ref: element => { manager.current = element; if (element && !element.open) element.showModal(); },
         onCancel: () => setManaging(false), onClick: event => { if (event.target === event.currentTarget && !disabled) setManaging(false); }
