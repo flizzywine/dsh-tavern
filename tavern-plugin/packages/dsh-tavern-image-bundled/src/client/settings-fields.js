@@ -359,5 +359,3 @@
         note ? h('div', { role: 'status', style: { fontSize: '12px', marginTop: '8px' } }, note) : null)
     }
 
-    // 卡片模式的世界书（原 dsh-tavern-gen）：分册 + 档位，数据在 /dsh-tavern-gen/api。
-    // 和游玩模式的世界书是两份独立文件（card-worldbook.json），同一页里切换入口，互不覆盖。

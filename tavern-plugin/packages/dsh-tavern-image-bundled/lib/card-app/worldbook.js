@@ -70,18 +70,77 @@ export function createCardWorldbook(root) {
     })().finally(() => { initializing = null })
     return initializing
   }
+  /** 结构定位：分册和条目都必须出现在当前磁盘版本里，找不到按参数错误报给面板。 */
+  const bucketOf = (book, bucketId) => {
+    const bucket = (book.buckets || []).find(item => item.id === bucketId)
+    if (!bucket) throw invalid('分册不存在，请刷新后重试')
+    return bucket
+  }
+  const entryOf = (book, bucketId, id) => {
+    const bucket = bucketOf(book, bucketId)
+    const at = bucket.entries.findIndex(entry => entry.id === id)
+    if (at < 0) throw invalid('条目不存在，可能已在别处删除，请刷新')
+    return { bucket, at }
+  }
+  /** 全量落盘：投影失败就回滚投影；写完同步缓存与 mtime，让下一次 load 直接命中。 */
+  async function commit(next) {
+    const book = normalize(next)
+    try { await project(book); await atomicWrite(file, book) }
+    catch (error) { await project(cached).catch(() => {}); throw error }
+    cached = book
+    stamp = (await stat(file)).mtimeMs
+    return snapshot(book)
+  }
   return {
     load: () => serial(load),
     save(value) {
       return serial(async () => {
         const current = await load()
         if (value?.revision !== current.revision) throw Object.assign(new Error('卡片世界书已在别处修改，请重新载入后再保存；当前草稿仍保留'), { code: 'REVISION_CONFLICT' })
-        const book = normalize(value)
-        try { await project(book); await atomicWrite(file, book) }
-        catch (error) { await project(cached).catch(() => {}); throw error }
-        cached = book
-        stamp = (await stat(file)).mtimeMs
-        return snapshot(book)
+        return commit(value)
+      })
+    },
+    /** 面板逐条编辑：一次只显式改给定字段，写完把最新整本还回去，面板直接换掉本地副本。 */
+    updateEntry(bucketId, id, patch = {}) {
+      return serial(async () => {
+        const current = await load()
+        const { bucket, at } = entryOf(current, bucketId, id)
+        const entry = bucket.entries[at]
+        if (patch.title !== undefined) entry.title = String(patch.title)
+        if (patch.content !== undefined) entry.content = String(patch.content)
+        if (patch.mode !== undefined) {
+          if (!MODES.includes(patch.mode)) throw invalid('档位只能选 ' + MODES.join('、'))
+          entry.mode = patch.mode
+        }
+        if (patch.enabled !== undefined) entry.enabled = patch.enabled !== false
+        const book = await commit(current)
+        const { bucket: after, at: index } = entryOf(book, bucketId, id)
+        return { book, entry: after.entries[index] }
+      })
+    },
+    addEntry(bucketId, value = {}) {
+      return serial(async () => {
+        const current = await load()
+        const bucket = bucketOf(current, bucketId)
+        const draft = {
+          id: randomUUID(),
+          title: String(value.title || '新条目'),
+          content: String(value.content || ''),
+          mode: MODES.includes(value.mode) ? value.mode : 'always',
+          enabled: value.enabled !== false,
+        }
+        bucket.entries.push(draft)
+        const book = await commit(current)
+        const { bucket: next, at } = entryOf(book, bucketId, draft.id)
+        return { book, entry: next.entries[at] }
+      })
+    },
+    removeEntry(bucketId, id) {
+      return serial(async () => {
+        const current = await load()
+        const { bucket, at } = entryOf(current, bucketId, id)
+        bucket.entries.splice(at, 1)
+        return { book: await commit(current) }
       })
     },
   }

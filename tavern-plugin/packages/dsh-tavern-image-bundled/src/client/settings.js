@@ -2792,7 +2792,7 @@
           }
         }
 
-        const ta = Object.assign({}, S.input, { width: '100%', minHeight: '130px', fontFamily: 'inherit', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box' })
+        const ta = WB_TEXTAREA
 
         return h('fieldset', { disabled: wbLoading, 'aria-busy': wbLoading, style: Object.assign({}, S.card, { minWidth: 0 }) },
           h('label', { style: S.row }, h('span', { style: S.label }, '世界书格式'),
@@ -2823,13 +2823,7 @@
               return h('button', {
                 key: book.key,
                 title: book.file ? ('保存到 ' + book.file) : '',
-                style: Object.assign({}, buttonStyle, {
-                  fontSize: '12px',
-                  padding: '5px 12px',
-                  borderColor: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)',
-                  background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
-                  color: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)',
-                }),
+                style: wbPillStyle(on),
                 onClick: () => changeWorldbook(activeFormat, book.key),
               }, '📖 ' + (book.name || book.key) + '（' + (book.count ?? 0) + ' 条）')
             }),
@@ -2843,7 +2837,7 @@
             h('button', { style: buttonStyle, onClick: addEntry }, '➕ 新条目'),
             h('button', { style: buttonStyle, onClick: exportWb }, '📤 导出（复制 JSON）'),
             h('button', { style: buttonStyle, onClick: async () => { try { if (await flushWbPending()) await refreshWb() } catch (error) { setWbNote('刷新失败：' + (error?.message || error)) } } }, '🔄 刷新'),
-            wbNote ? h('span', { style: { fontSize: '12px', color: /失败/.test(wbNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } }, wbNote) : null,
+            wbNote ? h('span', { style: wbNoteStyle(wbNote) }, wbNote) : null,
           ),
 
           wbImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' } },
@@ -2865,7 +2859,7 @@
           h('div', { style: { marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' } },
             list.length ? list.map(entry => h('div', {
               key: entry.index,
-              style: { borderRadius: '10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent)', background: entry.enabled === false ? 'var(--dsw-specific-input-major)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', padding: '9px 11px' },
+              style: WB_ROW,
             },
               h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
                 h('input', {
@@ -2882,24 +2876,10 @@
                   title: '只读预览这条内容，不影响编辑',
                   onClick: () => setWbOpen(current => ({ ...current, [entry.index]: !current[entry.index] })),
                 }, wbOpen[entry.index] ? '▾ 收起' : '▸ 内容'),
-                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px' }), onClick: () => setWbEditing(wbEditing === entry.index ? -1 : entry.index) }, wbEditing === entry.index ? '收起' : '编辑'),
-                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
+                h('button', { style: WB_EDIT_BUTTON, onClick: () => setWbEditing(wbEditing === entry.index ? -1 : entry.index) }, wbEditing === entry.index ? '收起' : '编辑'),
+                h('button', { style: WB_DANGER_BUTTON, onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
               ),
-              wbOpen[entry.index] && wbEditing !== entry.index ? h('div', {
-                style: {
-                  marginTop: '8px',
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  background: 'var(--dsw-specific-input-major)',
-                  color: 'var(--dsw-alias-label-primary)',
-                  fontSize: '12px',
-                  lineHeight: '1.75',
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: '340px',
-                  overflow: 'auto',
-                  border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
-                },
-              }, String(entry.content ?? '').trim() || '（这条还没有内容）') : null,
+              wbOpen[entry.index] && wbEditing !== entry.index ? h('div', { style: WB_PREVIEW }, String(entry.content ?? '').trim() || '（这条还没有内容）') : null,
               wbEditing === entry.index ? h('div', { style: { marginTop: '8px' } },
                 h('input', {
                   type: 'text', value: wbDrafts[entry.index]?.comment ?? entry.comment ?? '', placeholder: '条目标题',
@@ -2911,7 +2891,7 @@
                   style: ta,
                   onChange: e => patchEntrySoon(entry.index, { content: e.target.value }, '内容'),
                 }),
-                h('div', { style: { marginTop: '10px', padding: '9px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent)' } },
+                h('div', { style: WB_BOX },
                   h('div', { style: { fontSize: '12px', marginBottom: '6px' } }, '触发方式'),
                   h('label', { style: Object.assign({}, S.row, { fontSize: '12px', marginBottom: '6px' }) },
                     h('input', { type: 'radio', name: 'wb-activation-' + entry.index, value: 'always', checked: (wbDrafts[entry.index]?.activation ?? entry.activation ?? 'always') === 'always', onChange: () => patchEntry(entry.index, { activation: 'always' }, false, '触发方式') }),
