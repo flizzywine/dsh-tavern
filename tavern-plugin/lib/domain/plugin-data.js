@@ -74,6 +74,17 @@ export function createPluginData({ store, now = Date.now }) {
     return own && own.game !== undefined ? structuredClone(own.game) : null
   }
 
+  // Host-owned game-mode journal travels with the existing save/fork package.
+  const modeOwner = '@tavern/game-mode'
+  const readMode = chatId => readGame({ chatId, owner: modeOwner })
+  async function writeMode(chatId, expectedRevision, document) {
+    return update(chatId, value => {
+      const own = ownerOf(value, modeOwner)
+      if ((own.game?.revision ?? null) !== expectedRevision) throw new Error('玩法状态已变化，请刷新后重试')
+      own.game = structuredClone(document)
+    })
+  }
+
   /** Carry a fork's visible history: records whose version maps into the new game. */
   async function copyForFork({ sourceChatId, targetChatId, keyMap }) {
     return importInto({ source: await read(sourceChatId), targetChatId, keyMap })
@@ -119,5 +130,5 @@ export function createPluginData({ store, now = Date.now }) {
 
   async function removeChat(chatId) { await store.remove(pathFor(chatId)) }
 
-  return Object.freeze({ saveTurn, turnsUpTo, saveGame, readGame, copyForFork, snapshot, importInto, turns, readSettings, updateSettings, removeChat, pathFor })
+  return Object.freeze({ readMode, writeMode, saveTurn, turnsUpTo, saveGame, readGame, copyForFork, snapshot, importInto, turns, readSettings, updateSettings, removeChat, pathFor })
 }

@@ -9,6 +9,7 @@
 			const messageActions = [];
 			const composerActions = [];
 			const panels = new Map();
+			const gameModeViews = new Map();
 			const startGroups = [];
 			const cardListViews = [];
 			const statusSections = [];
@@ -442,6 +443,15 @@
 				registerComposerAction(input) {
 					const entry = Object.assign({ owner: ownerOf(this) }, action(input, "registerComposerAction"));
 					return owned(this, function () { return addTo(composerActions, entry); }, "tavernUi.registerComposerAction()");
+				},
+				registerGameModeView(input) {
+					if (!input || !/^[a-z][a-z0-9._-]{0,63}$/.test(input.name) || typeof input.render !== 'function') throw new Error('玩法界面需要 name 和 render');
+					const owner = ownerOf(this), key = owner + ':' + input.name;
+					return owned(this, function () {
+						if (gameModeViews.has(key)) throw new Error('玩法界面已注册');
+						gameModeViews.set(key, { owner: owner, render: input.render }); changed();
+						return function () { gameModeViews.delete(key); changed(); };
+					}, 'tavernUi.registerGameModeView()');
 				},
 				// Call a host handler registered with tavern.handle(name, handler); JSON in, JSON out.
 				callHost(name, args) {
@@ -933,6 +943,7 @@
 				presentReply: presentReply,
 				replyPresenters: function () { return replyPresenters.slice(); },
 				composerSlotFor: function (mode) { for (const slot of composerSlots) if (slot.modes.indexOf(mode) >= 0) return slot; return null; },
+				gameModeView: function (key) { return gameModeViews.get(key); },
 				composerSlots: function () { return composerSlots.slice(); }
 			};
 		}

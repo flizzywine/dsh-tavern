@@ -8,6 +8,13 @@ import { mkdir, readFile } from 'node:fs/promises'
 export function createPluginHandlers(deps) {
   const { dataRoot, pluginApi, pluginDataStore, startPluginTask, str, uploads, userPluginInstaller } = deps
   return {
+    async gameMode(args) {
+      const id = str(args?.sessionId)
+      if (args?.op === 'list') return { modes: await pluginApi.gameModes.list(id) }
+      if (args?.op === 'stop') { pluginApi.gameModes.stop(id); return { stopped: true } }
+      if (!args?.op || args.op === 'view') return { mode: await pluginApi.gameModes.view(id) }
+      return { mode: await pluginApi.gameModes.execute(id, args) }
+    },
     // The page side of a plugin reads and writes the same data as its host side (tavernUi.savePluginData).
     async pluginData(args) {
       const plugin = str(args && args.plugin)

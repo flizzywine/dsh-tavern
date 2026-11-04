@@ -76,6 +76,43 @@
 			}
 
 			// The first registered plugin slot that asks for this mode, in its own boundary.
+			function TavernGameModeSurface(props) {
+				useTavernUiExtensions();
+				const h = React.createElement, sessionId = props.sessionId;
+				const [snapshot, setSnapshot] = React.useState(null), [modes, setModes] = React.useState([]);
+				const [error, setError] = React.useState(''), [pending, setPending] = React.useState(false);
+				React.useEffect(function () {
+					let disposed = false;
+					async function refresh() {
+						try {
+							const result = await rpc('gameMode', { op: 'view' }, sessionId);
+							if (!disposed) { setSnapshot(result.mode); setError(''); }
+							if (!result.mode) { const list = await rpc('gameMode', { op: 'list' }, sessionId); if (!disposed) setModes(list.modes); }
+						} catch (e) { if (!disposed) setError(e.message); }
+					}
+					refresh();
+					const stop = tavernSessionSignals.subscribe(sessionId, 'plugin-state:@tavern:game-mode', refresh);
+					return function () { disposed = true; stop(); };
+				}, [sessionId]);
+				async function act(input) {
+					setPending(true); setError('');
+					try { const result = await rpc('gameMode', Object.assign({ revision: snapshot && snapshot.revision, actionId: crypto.randomUUID() }, input), sessionId); if (result.mode) setSnapshot(result.mode); }
+					catch (e) { setError(e.message); }
+					finally { setPending(false); }
+				}
+				if (!snapshot && !modes.length && !error) return null;
+				const renderer = snapshot && tavernUiExtensions.gameModeView(snapshot.key);
+				return h('section', { className: 'dsh-tavern-game-mode', 'aria-label': '自定义玩法' },
+					error ? h('p', { role: 'alert' }, error) : null,
+					!snapshot ? modes.map(function (mode) { return h('button', { key: mode.key, disabled: pending, onClick: function () { act({ op: 'create', key: mode.key }); } }, '开始 ' + mode.title); }) : null,
+					snapshot ? h('div', null,
+						h('button', { disabled: !pending && !snapshot.busy, onClick: function () { act({ op: 'stop' }); } }, '停止'),
+						h('button', { disabled: pending || snapshot.busy || snapshot.cursor < 1, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor - 1 }); } }, '回退一步'),
+						h('button', { disabled: pending || snapshot.busy || snapshot.cursor + 1 >= snapshot.length, onClick: function () { act({ op: 'seek', cursor: snapshot.cursor + 1 }); } }, '撤销回退'),
+						renderer ? h(tavernPluginBoundary(), { owner: renderer.owner, fallback: h('p', null, '玩法界面出错，请恢复插件') },
+							h(renderer.render, { gameId: sessionId, data: snapshot.data, busy: pending || snapshot.busy, advance: function (input) { return act({ op: 'advance', input: input }); } })) : h('p', null, '请加载对应的玩法界面插件')) : null);
+			}
+
 			function TavernComposerSlot(props) {
 				useTavernUiExtensions();
 				const sessionId = String(props.sessionId || "");
@@ -83,12 +120,13 @@
 				const mode = live && live.view && typeof live.view.mode === "string" ? live.view.mode : "";
 				const slot = mode === "" ? null : tavernUiExtensions.composerSlotFor(mode);
 				const busy = props.useSession(function (snapshot) { return snapshot.running === true; });
-				if (sessionId === "" || !slot || !tavernPluginAllowed(slot.owner, sessionId)) return null;
+				const gameSurface = sessionId && isPlayMode(mode) ? React.createElement(TavernGameModeSurface, { key: sessionId, sessionId: sessionId }) : null;
+				if (sessionId === "" || !slot || !tavernPluginAllowed(slot.owner, sessionId)) return gameSurface;
 				const h = React.createElement;
 				const fallback = h("div", { className: "dsh-tavern-plugin-slot-error" }, "插件 " + slot.owner + " 的界面出错了");
-				return h("div", { className: "dsh-tavern-composer-slot", "data-plugin": slot.owner },
+				return h(React.Fragment, null, gameSurface, h("div", { className: "dsh-tavern-composer-slot", "data-plugin": slot.owner },
 					h(tavernPluginBoundary(), { owner: slot.owner, fallback: fallback },
-						h(slot.render, { sessionId: sessionId, busy: busy === true })));
+						h(slot.render, { sessionId: sessionId, busy: busy === true }))));
 			}
 
 			function register(input) {

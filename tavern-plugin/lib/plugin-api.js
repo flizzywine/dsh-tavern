@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto'
 import { isMvuUpdateEntry } from './domain/worldbook-recall.js'
+import { createHash } from 'node:crypto'
+import { createPluginGameModes } from './domain/plugin-game-mode.js'
 import { createPluginTaskExecution } from './domain/plugin-task-execution.js'
 import { createBodyGenerationProviders } from './domain/body-generation-providers.js'
 import { pluginMember, pluginMemberId, registerPluginMember } from './domain/background-members.js'
@@ -177,7 +178,7 @@ export function createTavernPluginApi(deps) {
   const pricingProviders = new Map()
   const galleryProviders = new Map()
   const mvuSettlementProviders = new Map()
-  const capabilities = Object.freeze({ mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
+  const capabilities = Object.freeze({ gameMode: 1, mvuSettlementProvider: 1, worldbookStrategy: 1, galleryProvider: 1, pricingProvider: 1, imageModels: 1, imageLibrary: 1, bodyGeneration: 1 })
   const sections = new Map()
   const turnSections = new Map()
   const settlementSections = new Map()
@@ -203,6 +204,17 @@ export function createTavernPluginApi(deps) {
   // The latest state each plugin published for its page side, per game and name (memory only).
   const publishedStates = new Map()
   const log = deps.logger || console
+  const gameModes = createPluginGameModes({
+    read: async gameId => deps.data.readMode((await requireGame(gameId)).chatId),
+    write: async (gameId, revision, doc) => deps.data.writeMode((await requireGame(gameId)).chatId, revision, doc),
+    allowed: async (owner, gameId) => {
+      await requireGame(gameId)
+      await guardScope(owner, { gameId })
+      if ((await choicesFor(gameId)).disabled.has(owner)) throw new Error('本局已停用玩法插件')
+    },
+    runAgent: input => deps.runTask({ ...input, tools: [], call: () => { throw new Error('玩法 Agent 没有工具') } }),
+    changed: gameId => deps.publishState?.(gameId, '@tavern', 'game-mode'),
+  })
 
   const taskExecution = createPluginTaskExecution({
     runTask: deps.runTask, currentKey: deps.currentKey,
@@ -374,6 +386,10 @@ export function createTavernPluginApi(deps) {
   }
 
   const service = {
+    gameMode(input) {
+      const owner = ownerOf(this)
+      return owned(this, () => gameModes.register(owner, input), 'tavern.gameMode()')
+    },
     ctx: deps.ctx,
     apiVersion: TAVERN_PLUGIN_API_VERSION,
     // Managed modules opt in; ordinary plugins keep their existing API and card scope.
@@ -1903,7 +1919,7 @@ export function createTavernPluginApi(deps) {
     return results.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0))
   }
 
-  return Object.freeze({ bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
+  return Object.freeze({ gameModes, bodyGenerators, taskCatalog, service, mvuProvider, mvuProviderActive, mvuProviderRegistered, capabilities, toolModesFor, toolSkillsFor, toolNetworkFor: name => toolNetworks.get(name)?.capability, callHandler, turnState, exportGame, importGame, turnSettled, castAnnotated, castAssetSources, gameRemoved, mediaRemoved, onPictureReady,
     listGalleryProviderItems, readGalleryProviderImage, removeGalleryProviderItems,
     // The asset library's access to the 配图 人物库 records (registerImageLibrary schema 4); outside any card.
     imageCharacters: (op, input) => imageCatalog.record(op, {}, input),

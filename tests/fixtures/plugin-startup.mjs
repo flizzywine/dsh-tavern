@@ -34,6 +34,18 @@ try {
   }
   const tavern = host.services.get('tavern')
   assert.equal(tavern?.apiVersion, 7, 'public plugin service provided')
+  const plugin = Object.create(tavern)
+  plugin.ctx = { fiber: { name: 'mode-smoke' } }
+  const unregister = plugin.gameMode({ name: 'counter', version: 1,
+    create: () => ({ state: { count: 0, secret: 'private' } }),
+    advance: ({ state }) => ({ state: { ...state, count: state.count + 1 } }),
+    project: ({ state }) => ({ count: state.count }) })
+  const modeArgs = { sessionId: 'stage-session' }
+  assert.equal((await host.rpc('gameMode', { ...modeArgs, op: 'list' })).modes[0].key, 'mode-smoke:counter')
+  assert.deepEqual((await host.rpc('gameMode', { ...modeArgs, op: 'create', key: 'mode-smoke:counter' })).mode.data, { count: 0 })
+  assert.equal((await host.rpc('gameMode', { ...modeArgs, op: 'advance', revision: 1 })).mode.data.count, 1)
+  assert.equal((await host.rpc('gameMode', { ...modeArgs, op: 'seek', revision: 2, cursor: 0 })).mode.data.count, 0)
+  unregister()
   assert.deepEqual((await host.rpc('pluginMediaTurns', { sessionId: 'missing-game' })).turns, [])
   assert.deepEqual((await host.rpc('pluginMediaForTurn', { sessionId: 'missing-game', turn: 1 })).items, [])
   assert.equal((await host.rpc('getLive2dRuntime', {})).installed, false, 'the stage registers the Live2D runtime; a fresh data directory has none')

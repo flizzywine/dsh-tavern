@@ -2664,7 +2664,7 @@ export async function apply(ctx) {
   // A plugin's one-off task: a fresh background Session, never the resident one settlement uses.
   // A member with a prefix of its own (`system`): that prefix, and the prompt as the task's one
   // message; the plugin hands it whatever story it needs.
-  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system }) {
+  async function runPluginTask({ gameId, owner, prompt, tools, call, signal, member = '', system, id = '' }) {
     const selection = backgroundModelSelection(await backgroundConfigForSession(gameId))
     if (!selection) throw new Error('这局没有可用的后台模型')
     const chat = await storyContext({ sessionId: gameId })
@@ -2672,7 +2672,7 @@ export async function apply(ctx) {
       .map(message => ({ role: message.role, content: [{ type: 'text', text: pluginSource(message).slice(-2400) }] }))
     // With a plugin member, its resident Session (one per game) instead of a fresh one.
     const own = system !== undefined ? { ownPrefix: true, system, taskText: prompt, messages: [] } : { system: prompt, messages: recent }
-    return await backgroundAgentRunner.run({ task: 'plugin', pluginName: owner, member, persistent: Boolean(member), sessionId: gameId, selection, signal,
+    return await backgroundAgentRunner.run({ task: 'plugin', pluginName: id ? owner + '/' + id : owner, member, persistent: Boolean(member), sessionId: gameId, selection, signal,
       turn: Number(chat?.messages?.at(-1)?.turn) || 0, ...own, tools, maxToolCalls: 16,
       onToolCall: request => call(request.name, typeof request.arguments === 'string' ? JSON.parse(request.arguments || '{}') : request.arguments) })
   }
@@ -3952,6 +3952,7 @@ export async function apply(ctx) {
   })
 
   registerRequestHooks({
+    gameModes: pluginApi.gameModes,
     projectWorldbookRecovery: async (chat, options) => nativeWorldBookTemplateContext(chat, await readChatCard(chat), options),
     backgroundAgentRunner,
     cardMemory,
