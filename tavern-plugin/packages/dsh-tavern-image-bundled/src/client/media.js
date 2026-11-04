@@ -602,7 +602,7 @@
       try {
         if (!jobId || typeof openPromptEditor !== 'function') return
         const requestId = openEditorFor.requestId = (openEditorFor.requestId || 0) + 1
-        openPromptEditor({ open: true, openRequestId: requestId, jobId: String(jobId), prompt: '', negative: '', rawPrompt: '', originalPrompt: '', rawPromptSource: '', submittedPromptSource: '', promptAssembly: null, finalPrompt: '', instruction: '', note: '正在读取提示词…', busy: '', loading: true, submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '', generationMode: 'text', refreshReferences: false, references: [], submittedPrompt: '', actualPositive: '', actualNegative: '', sourceBackend: '', providerError: '', inputsLoading: true, inputsError: '', inputsReload: 0, showInputs: false, channels: [], channelLoadFailed: false })
+        openPromptEditor({ open: true, openRequestId: requestId, jobId: String(jobId), prompt: '', negative: '', rawPrompt: '', originalPrompt: '', rawPromptSource: '', submittedPromptSource: '', promptAssembly: null, finalPrompt: '', instruction: '', note: '正在读取提示词…', busy: '', loading: true, submitted: false, uncertain: false, mediaContext: validMediaContext(mediaContext) ? mediaContext : null, channelId: '', generationMode: 'text', sourceGenerationMode: '', sourceRequestedGenerationMode: '', sourceGenerationModeReason: '', refreshReferences: false, references: [], submittedPrompt: '', actualPositive: '', actualNegative: '', sourceBackend: '', providerError: '', inputsLoading: true, inputsError: '', inputsReload: 0, showInputs: false, channels: [], channelLoadFailed: false })
         jsonFetch(BASE + '/job-detail?id=' + encodeURIComponent(String(jobId)), { cache: 'no-store' })
           .then(r => {
             if (!r?.ok || !r.job) { openPromptEditor({ forJobId: String(jobId), forRequestId: requestId, loading: false, note: '读不到提示词：' + (r?.error || '') }); return }
@@ -931,6 +931,7 @@ function versionsOf(jobId) {
           const job = result.job
           openPromptEditor({ forJobId: view.jobId, inputsLoading: false, inputsError: '',
             generationMode: job.generationMode === 'reference' ? 'reference' : 'text',
+            sourceGenerationMode: job.generationMode === 'reference' ? 'reference' : 'text', sourceRequestedGenerationMode: String(job.requestedGenerationMode || ''), sourceGenerationModeReason: String(job.generationModeReason || ''),
             sourceBackend: String(job.backend || ''), sourceChannelId: String(job.channelId || ''),
             references: Array.isArray(job.references) ? job.references : [],
             submittedPrompt: typeof job.submittedPrompt === 'string' ? job.submittedPrompt : '',
@@ -1105,6 +1106,9 @@ function versionsOf(jobId) {
           view.inputsError ? React.createElement('div', { role: 'alert', style: { fontSize: '12px', color: '#f0bf76' } }, view.inputsError,
             React.createElement('button', { type: 'button', disabled: Boolean(view.inputsLoading || view.busy), onClick: () => openPromptEditor({ inputsReload: (view.inputsReload || 0) + 1 }) }, '重新读取输入')) : null,
           React.createElement('div', { style: { fontSize: '11px', color: '#9aa3b2', marginTop: '8px' } }, '下列为原任务记录，不会随上方编辑或模式切换而改写。'),
+          view.sourceGenerationMode ? React.createElement('div', { 'aria-label': '原任务生图模式', style: { fontSize: '12px', marginTop: '8px' } },
+            '实际生图模式：' + (view.sourceGenerationMode === 'reference' ? '参考图生图' : '文生图')
+              + (view.sourceRequestedGenerationMode === 'auto' ? (view.sourceGenerationMode === 'reference' ? '（自动：本张有参考图）' : view.sourceGenerationModeReason === 'unsupported-input' ? '（自动：当前渠道或工作流不支持参考图）' : '（自动：本张没有可用参考图）') : '')) : null,
           React.createElement('div', { style: { fontSize: '12px', marginTop: '8px' } }, view.rawPromptSource && view.rawPromptSource !== 'rawTag' ? '原始输入回退记录（原文缺失）' : '规划原文／原始输入（原任务）'),
           React.createElement('pre', { 'aria-label': '规划原文', style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '220px', overflowY: 'auto', fontSize: '12px' } }, view.loading ? '正在读取原文…' : view.originalPrompt || view.rawPrompt || '未记录原始输入'),
           React.createElement('div', { style: { fontSize: '11px', color: '#9aa3b2' } }, '这里展示原任务保存的场景与角色块，不是完整规划会话；手动任务可能是用户输入，旧任务可能由后端回退为已处理文本。'),

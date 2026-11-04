@@ -906,7 +906,7 @@
       }
 
       function generationModeCard() {
-        const mode = config.generationMode === 'reference' ? 'reference' : 'text'
+        const mode = ['reference', 'auto'].includes(config.generationMode) ? config.generationMode : 'text'
         const activeChannel = (Array.isArray(config.imageChannels) ? config.imageChannels : []).find(channel => channel.id === config.activeImageChannel)
         const activeDraft = activeChannel ? channelSecretDrafts[activeChannel.id]?.fields : null
         const effectiveChannel = activeChannel ? Object.assign({}, activeChannel, activeDraft || {}, { options: activeDraft?.options || activeChannel.options || {} }) : null
@@ -915,11 +915,13 @@
           h('label', { style: S.row }, h('span', { style: S.label }, '默认生图模式'),
             h('select', { 'aria-label': '默认生图模式', value: mode, style: S.input, onChange: event => save({ generationMode: event.target.value }) },
               h('option', { value: 'text' }, '文生图'),
+              h('option', { value: 'auto' }, '自动（有参考图就用）'),
               h('option', { value: 'reference', disabled: !available }, '参考图生图'))),
           !available ? h('div', { role: mode === 'reference' ? 'alert' : 'status', style: { fontSize: '12px', color: mode === 'reference' ? 'var(--dsw-alias-state-warning-primary)' : 'var(--dsw-alias-label-tertiary)' } },
-            mode === 'reference' ? '当前渠道不支持参考图输入；请明确切换到支持参考图的渠道或改为文生图，不会自动降级。' : '当前渠道不支持参考图输入；可在支持参考图的渠道中启用此模式。') : null,
-          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } }, '参考图模式使用人物库中的角色／服装参考图；有图用图、缺图用文字，整张无图时暂停提示。单张重绘可覆盖模式。', imageBackend === 'comfyui' ? ' ComfyUI 工作流需要接入 LoadImage 节点；图片按本张参考图上传顺序对应节点。' : ''),
-          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } }, '切换模式不会更换模型 ID，也不会自动删减参考图；不支持的协议会在提交前明确阻止，不会静默降级。'))
+            mode === 'reference' ? '当前渠道不支持参考图输入；请明确切换到支持参考图的渠道或改为文生图，不会自动降级。'
+              : mode === 'auto' ? '当前渠道不支持参考图输入；自动模式下每张都按文生图提交。' : '当前渠道不支持参考图输入；可在支持参考图的渠道中启用此模式。') : null,
+          h('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' } }, '参考图模式使用人物库中的角色／服装参考图；有图用图、缺图用文字，整张无图时暂停提示。自动模式在整张无图时（如纯背景）改用文生图画这一张，提示词编辑器里可以看到每张的实际模式。单张重绘可覆盖模式。', imageBackend === 'comfyui' ? ' ComfyUI 工作流需要接入 LoadImage 节点；图片按本张参考图上传顺序对应节点。自动模式无图时需使用文生图工作流，插件不会绕过工作流中的图片输入。' : ''),
+          h('div', { style: { fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '4px' } }, '切换模式不会更换模型 ID，也不会自动删减参考图；参考图模式下，不支持的协议会在提交前明确阻止，不会静默降级。'))
       }
 
       function planTab() {

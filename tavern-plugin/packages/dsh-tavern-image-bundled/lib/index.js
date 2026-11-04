@@ -74,6 +74,12 @@ const WORKFLOW_DIR = join(ROOT, 'workflows')
 const CONSOLE_PATH = join(ROOT, 'console.html')
 const AUTO_SECTION = 'dsh-tavern-image:auto-image'
 const AUTO_SECTION_ORDER = 10150
+// text = 文生图；reference = 必须用参考图；auto = 有参考图就用，没有就按文生图画这一张
+const GENERATION_MODES = ['text', 'reference', 'auto']
+function workflowAcceptsReferences(workflow) {
+  if (!workflow) return false
+  try { return comfyLoadImageBindings(workflow).length > 0 } catch { return false }
+}
 let configWriteQueue = Promise.resolve()
 // 密钥存 DSH 凭据服务；宿主没有这个服务时照旧明文留在 config.json。
 const credentialStore = createCredentialStore({ save: config => saveConfig(config) })
@@ -1342,7 +1348,7 @@ function createRuntime(ctx, overrides, logger, deps) {
               channelEndpoint: job.channelEndpoint ?? '', comfyEndpoint: job.comfyEndpoint ?? '',
               providerTaskProvider: job.providerTaskProvider ?? '',
               characterSnapshot: job.characterSnapshot ?? null, comfySimple: job.comfySimple ?? null,
-              generationMode: job.generationMode ?? 'text', promptMode: job.promptMode,
+              generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode,
               referenceSnapshot: job.referenceSnapshot ?? null, submittedPrompt: job.submittedPrompt ?? '', promptAssembly: job.promptAssembly ?? null,
               submissionTracked: job.submissionTracked === true,
               gameId: job.gameId ?? '', turn: job.turn ?? null, textVersion: job.textVersion ?? '',
@@ -1430,9 +1436,7 @@ function createRuntime(ctx, overrides, logger, deps) {
     const referenceCapability = () => {
       if (config.imageBackend === 'comfyui') {
         if (config.comfyMode === 'simple') return false
-        const workflow = styleWorkflow(config)
-        if (!workflow) return false
-        try { return comfyLoadImageBindings(workflow).length > 0 } catch { return false }
+        return workflowAcceptsReferences(styleWorkflow(config))
       }
       try { return supportsImageReferences(activeChannel(config)) } catch { return false }
     }
@@ -1908,19 +1912,31 @@ function createRuntime(ctx, overrides, logger, deps) {
         if (existing && (existing.state === 'pending' || existing.state === 'running' || existing.state === 'done')) return publicJob(existing)
       }
       const channel = forceWorkflow ? null : channelWithPresetParams(jobConfig)
-      const generationMode = rawParams?.generationMode ?? jobConfig.generationMode ?? 'text'
-      if (!['text', 'reference'].includes(generationMode)) throw Object.assign(new Error('生图模式无效'), { submissionNotStarted: true })
+      // 'auto' = 有参考图就用：本张选得到参考图走参考图生图，否则这一张按文生图提交。
+      // 明确的 'reference' 仍然要求参考图，选不到就拒绝。
+      const requestedGenerationMode = rawParams?.generationMode ?? jobConfig.generationMode ?? 'text'
+      if (!GENERATION_MODES.includes(requestedGenerationMode)) throw Object.assign(new Error('生图模式无效'), { submissionNotStarted: true })
       const effectiveProvider = channel ? effectiveImageProvider(channel) : 'comfyui'
-      if (generationMode === 'reference' && channel && !supportsImageReferences(channel)) throw Object.assign(new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图'), { submissionNotStarted: true })
+      if (requestedGenerationMode === 'reference' && channel && !supportsImageReferences(channel)) throw Object.assign(new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图'), { submissionNotStarted: true })
       if (!channel && jobConfig.comfyMode === 'simple') throw Object.assign(new Error('旧版 ComfyUI 简易模式已停用，原配置和简易模式数据已保留；请导入完整 ComfyUI API workflow 后再生成'), { submissionNotStarted: true, code: 'COMFY_SIMPLE_RETIRED' })
-      params.generationMode = generationMode
       const workflow = forceWorkflow || (!channel ? pickWorkflow(usable(), jobConfig, params.model) : null)
       if (!channel && !workflow) throw new Error('没有可用的 ComfyUI 工作流；请导入完整 workflow，或选择其他生图渠道')
+      let generationMode = requestedGenerationMode
+      let generationModeReason = ''
+      if (generationMode === 'auto') {
+        // Unlike the settings hint, submission must surface invalid workflow bindings.
+        let acceptsReferences
+        try { acceptsReferences = channel ? supportsImageReferences(channel) : comfyLoadImageBindings(workflow).length > 0 }
+        catch (error) { error.submissionNotStarted = true; throw error }
+        generationMode = acceptsReferences ? 'reference' : 'text'
+        generationModeReason = acceptsReferences ? 'references' : 'unsupported-input'
+      }
       const defsForTurn = applyCharacterSnapshot(definitions, rawParams?.characterSnapshot)
       const card = await currentCard(rawParams?.sessionId || lastSessionId, rawParams?.turn)
-      let scopedDefs = card
+      const cardDefs = card
         ? { ...defsForTurn, characters: scopeCharacters(defsForTurn.characters, card) }
         : defsForTurn
+      let scopedDefs = cardDefs
       let referenceState = null
       if (generationMode === 'reference') {
         const sectioned = rosterStyle(jobConfig, workflow) === 'structured'
@@ -1934,12 +1950,27 @@ function createRuntime(ctx, overrides, logger, deps) {
           scopedDefs = referenceScopedDefinitions(scopedDefs, selected.references, { subjects: selected.subjects, markers: !sectioned })
           referenceState = { version: sectioned ? 2 : 1, ...selected, definitions: structuredClone(scopedDefs) }
         }
-        if (!referenceState.references?.length) throw Object.assign(new Error('本张图片没有可用的角色或服装参考图；请添加参考图，或明确切换为文生图'), { submissionNotStarted: true, code: 'REFERENCE_IMAGES_REQUIRED' })
-        params.subjects = structuredClone(referenceState.subjects)
-        if (sectioned) params.referenceText = buildStructuredReferenceText(referenceState.references)
+        if (!referenceState.references?.length && requestedGenerationMode !== 'auto') throw Object.assign(new Error('本张图片没有可用的角色或服装参考图；请添加参考图，或明确切换为文生图'), { submissionNotStarted: true, code: 'REFERENCE_IMAGES_REQUIRED' })
+        if (referenceState.references?.length) {
+          params.subjects = structuredClone(referenceState.subjects)
+          if (sectioned) params.referenceText = buildStructuredReferenceText(referenceState.references)
+        } else {
+          // 自动模式本张没有参考图：按文生图提交，用完整人物库展开外貌。
+          generationMode = 'text'
+          generationModeReason = 'no-references'
+          referenceState = null
+          scopedDefs = cardDefs
+        }
         const style = rosterStyle(jobConfig, workflow)
         params.tag = normalizePrompts(expandRosterCalls(params.rawTag, scopedDefs, jobConfig.traitMode, { style }), scopedDefs, { backend: effectiveProvider, style, allowChinese: chineseAllowed(jobConfig, workflow) })
       }
+      // A generic graph cannot safely bypass image conditioning. Retaining its
+      // imported filenames would silently use stale images for a "text" job.
+      if (requestedGenerationMode === 'auto' && generationMode === 'text' && !channel
+        && Object.values(workflow.prompt).some(node => node?.class_type === 'LoadImage')) {
+        throw Object.assign(new Error('本张没有可用参考图，但当前 ComfyUI 工作流仍有 LoadImage 输入；请选择文生图工作流或为本张添加参考图，本次未提交'), { submissionNotStarted: true, code: 'COMFY_AUTO_TEXT_UNAVAILABLE' })
+      }
+      params.generationMode = generationMode
       // 这里可以打日志（runtime 里能拿到 logger）
       const compileConfig = forceWorkflow ? { ...jobConfig, imageBackend: 'comfyui' } : jobConfig
       const traceStages = diagTrace?.traceId ? [] : null
@@ -1947,6 +1978,7 @@ function createRuntime(ctx, overrides, logger, deps) {
       const compiled = workflow ? compileJob({ workflow, params, config: compileConfig, definitions: scopedDefs, onStage })
         : compileChannelJob({ params, config: jobConfig, definitions: scopedDefs, channel, onStage })
       if (referenceState && compiled.promptMode !== 'structured') compiled.positive = [compiled.positive, buildReferenceText(referenceState.references)].filter(Boolean).join('\n\n')
+      if (compiled.promptAssembly) Object.assign(compiled.promptAssembly, { generationMode, requestedGenerationMode, generationModeReason })
       if (traceStages) {
         const T = diag.text
         const at = { imageIndex: diagTrace.imageIndex }
@@ -1971,7 +2003,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         channelEndpoint: channel ? channelEndpointOf(channel) : '', comfyEndpoint: endpointOf(jobConfig.comfyUrl),
         state: 'pending', percent: 0, seed: compiled.seed, createdAt: Date.now(), queryAt: 0, requestStarted: false,
         params: { ...params }, key, size: compiled.size, hits: compiled.hits,
-        generationMode, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
+        generationMode, requestedGenerationMode, generationModeReason, promptMode: compiled.promptMode, promptAssembly: compiled.promptAssembly ?? null,
         referenceSnapshot: referenceState,
         submissionTracked: Boolean(channel),
         submittedPrompt: channel && effectiveImageProvider(channel) === 'atlascloud' ? (compiled.promptMode === 'structured' ? combineStructuredPrompt(compiled.positive, compiled.negative) : [compiled.positive, compiled.negative ? 'Avoid: ' + compiled.negative : ''].filter(Boolean).join('\n\n')) : compiled.positive,
@@ -2497,7 +2529,9 @@ function createRuntime(ctx, overrides, logger, deps) {
       if (!provider || !model) throw new Error('规划用的模型没定：Tavern 设置里的「默认后台模型」是空的，或者在本插件设置里单独指定一个')
       const body = String(text ?? '').trim()
       if (!body) throw new Error('正文是空的')
-      const planningGenerationMode = config.generationMode === 'reference' ? 'reference' : 'text'
+      // 自动模式在渠道能接参考图时按参考图规划；每张图是否真的用参考图由 startJob 按本张选图决定。
+      const planningGenerationMode = config.generationMode === 'reference' || (config.generationMode === 'auto' && referenceCapability()) ? 'reference' : 'text'
+      const plannedJobMode = config.generationMode === 'auto' ? 'auto' : planningGenerationMode
       if (imageGeneration && planningGenerationMode === 'reference' && config.imageBackend !== 'comfyui' && !supportsImageReferences(activeChannel(config))) throw new Error('当前生图协议不支持参考图；请切换支持参考图的渠道，或明确改用文生图')
 
       const entries = await worldbook()
@@ -2683,7 +2717,7 @@ function createRuntime(ctx, overrides, logger, deps) {
             }
             const job = await startJob({
               tag: normalizedTag,
-              rawTag: sceneText, characters, subjects: image.subjects, generationMode: planningGenerationMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
+              rawTag: sceneText, characters, subjects: image.subjects, generationMode: plannedJobMode, size: image.size, key, sessionId, turn, textVersion, characterSnapshot: visualSnapshot,
             }, { label: 'agent 规划', diagTrace: traceId ? { traceId, imageIndex } : null })
             if (traceId) diag.record(traceId, 'image-job', { jobId: job.id, status: job.status }, { imageIndex })
             // startJob 返回的是 publicJob，size 已经是 "896x1152" 这样的文字。
@@ -3068,7 +3102,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         queuePosition: job.queuePosition ?? 0, queuedCount: job.queuedCount ?? 0,
         seed: job.seed, workflow: job.workflowId, error: job.error ?? undefined, createdAt: job.createdAt,
         backend: job.backend ?? 'comfyui', channelId: job.channelId ?? '', channelName: job.channelName ?? '',
-        generationMode: job.generationMode ?? 'text', promptMode: job.promptMode ?? '',
+        generationMode: job.generationMode ?? 'text', requestedGenerationMode: job.requestedGenerationMode ?? job.generationMode ?? 'text', generationModeReason: job.generationModeReason ?? '', promptMode: job.promptMode ?? '',
         references: structuredClone(job.referenceSnapshot?.references ?? []),
         positive: job.positive ?? '', negative: job.negative ?? '', submittedPrompt: job.submittedPrompt ?? job.positive ?? '',
         mediaType: job.mediaType ?? '', imageOutputWarning: job.imageOutputWarning ?? '',
@@ -3270,7 +3304,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         pluginDownloads: { ...PLUGIN_DOWNLOADS, local: `${BASE}/plugin-download` },
         config: {
           imageBackend: config.imageBackend,
-          generationMode: config.generationMode === 'reference' ? 'reference' : 'text',
+          generationMode: GENERATION_MODES.includes(config.generationMode) ? config.generationMode : 'text',
           activeImageChannel: config.activeImageChannel,
           imageChannels: publicChannels(config.imageChannels),
           imageConcurrency: config.imageConcurrency,
@@ -4002,7 +4036,7 @@ function createRuntime(ctx, overrides, logger, deps) {
         try { Object.assign(config, channelConfigPatch(config, patch)) }
         catch (error) { sendJson(response, 400, { ok: false, error: error.message }); return }
         if (patch.generationMode !== undefined) {
-          if (!['text', 'reference'].includes(patch.generationMode)) { sendJson(response, 400, { ok: false, error: '生图模式无效' }); return }
+          if (!GENERATION_MODES.includes(patch.generationMode)) { sendJson(response, 400, { ok: false, error: '生图模式无效' }); return }
           config.generationMode = patch.generationMode
         }
         if (patch.imageConcurrency !== undefined) config.imageConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(patch.imageConcurrency)) || 2))
@@ -5228,7 +5262,7 @@ async function loadConfig(overrides) {
   config.comfyUrl = String(config.comfyUrl || DEFAULTS.comfyUrl).replace(/\/+$/, '')
   // 这个开关主要在配置文件里手改，string "true" 一律当成 false，避免手误以为打开了
   config.allowChinesePrompt = config.allowChinesePrompt === true
-  config.generationMode = config.generationMode === 'reference' ? 'reference' : 'text'
+  if (!GENERATION_MODES.includes(config.generationMode)) config.generationMode = 'text'
   config.promptPresets = normalizePromptPresets(config.promptPresets)
   if (!['auto', 'tags', 'natural', 'mixed', 'structured'].includes(config.promptMode)) config.promptMode = 'auto'
   if (!['auto', 'chinese', 'tags'].includes(config.designPromptMode)) config.designPromptMode = 'auto'
