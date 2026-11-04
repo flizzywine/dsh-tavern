@@ -46990,7 +46990,7 @@ const {GAL_LOOK_ID, GAL_LOOK_MS, GAL_LEAK_FROM, GAL_MOTE_KINDS, GAL_LUMA, galLoo
 		        configFields:{HelpTip, Segmented, Slider, ResetButton, FontPicker, InlineField, sounds:forkUiSfx, classify:type=>type===GalConfigSwitch?"toggle":null},
 		        phoneLayout:{storage:(() => {try {return localStorage;} catch (_) {return null;}})(), width:()=>innerWidth, ResetButton, sections:STAGE_CONFIG_SECTIONS},
 		        cg:{ResizeObserver, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, policy:cgMotionPolicy, rpc},
-		        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner,
+		        gallery:{ResizeObserver, IntersectionObserver, AbortController, clock:forkForeground, consumer:createCgConsumer, paint:cgPaintFrame, revision:usePackRevision, rpc, Spinner, EmptyState,
 		            // 回想 › 在素材库中编辑: the 素材库 tab opened at that CG entry (asset-launcher.js stageNav).
 		            openLibrary:(sessionId,target)=>stageNav(sessionId).openLibrary(target)},
 		        // 状态面板 (stage status-panel.cjs): the card's panel html through the card-HTML frame builder, its data and close
