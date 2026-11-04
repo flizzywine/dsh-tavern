@@ -374,3 +374,92 @@ test('内置配图默认启用，标注内置来源且拒绝删除', async t => 
   await assert.rejects(installer.remove('dsh-tavern-image'),/内置配图插件/)
   assert.equal(JSON.parse(await readFile(path.join(dir,'package.json'),'utf8')).name,'dsh-tavern-image')
 })
+
+// 国内网络经常只封 github.com：连不上时换 jsDelivr（它按「文件列表 + 单文件」取代码）。
+const jsdelivrTree = files => ({ files: Object.entries(files).map(([name, content]) => ({ name, size: Buffer.byteLength(content) })) })
+const jsdelivrPlugin = version => ({
+  '/package.json': JSON.stringify({ name: 'dsh-tavern-hello', version, type: 'module', exports: { '.': './index.mjs' } }),
+  '/index.mjs': 'export function apply() {}',
+  '/README.md': '# hello',
+  '/.github/workflows/ci.yml': 'x',
+  '/node_modules/.cache/blob.js': 'cache',
+})
+const offline = () => { throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNRESET' } }) }
+
+test('连不上 GitHub 时改走 jsDelivr：按文件列表逐个下载，装成同一套插件目录', async t => {
+  const calls = []
+  let version = '1.0.0'
+  const files = () => jsdelivrPlugin(version)
+  const { installer, plugins } = await setup(t, async (url, options) => {
+    calls.push(url)
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    if (url.startsWith('https://codeload.github.com/')) return offline()
+    if (url.startsWith('https://data.jsdelivr.com/v1/packages/gh/author/dsh-tavern-hello@HEAD')) return { ok: true, status: 200, json: async () => jsdelivrTree(files()) }
+    const relative = url.replace('https://cdn.jsdelivr.net/gh/author/dsh-tavern-hello@HEAD', '')
+    assert.ok(options.signal, 'jsDelivr 的每个文件请求也要有自己的超时信号')
+    const content = files()[relative]
+    if (content === undefined) return { ok: false, status: 404 }
+    return { ok: true, status: 200, arrayBuffer: async () => Buffer.from(content) }
+  })
+  const installed = await installer.installFromGithub('https://github.com/author/dsh-tavern-hello')
+  assert.equal(installed.version, '1.0.0')
+  assert.match(installed.warning, /连不上 GitHub，已改用 jsDelivr（HEAD）/)
+  assert.ok(calls.includes('https://data.jsdelivr.com/v1/packages/gh/author/dsh-tavern-hello@HEAD?structure=flat'))
+  assert.ok(calls.includes('https://cdn.jsdelivr.net/gh/author/dsh-tavern-hello@HEAD/index.mjs'))
+  assert.equal(await readFile(path.join(plugins, 'dsh-tavern-hello', 'index.mjs'), 'utf8'), 'export function apply() {}')
+  // 来源记录里要写清楚这次是走备用线路装的。
+  const source = JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', '.tavern-source.json'), 'utf8'))
+  assert.equal(source.resolved, 'jsDelivr HEAD')
+  assert.match(source.warning, /已改用 jsDelivr/)
+
+  // 更新照旧：GitHub 还是不通，就再从 jsDelivr 拉一遍新版。
+  version = '1.1.0'
+  const updated = await installer.update('dsh-tavern-hello')
+  assert.equal(updated.version, '1.1.0')
+  assert.match(updated.warning, /已改用 jsDelivr/)
+  assert.equal(JSON.parse(await readFile(path.join(plugins, 'dsh-tavern-hello', 'package.json'), 'utf8')).version, '1.1.0')
+})
+
+test('jsDelivr 只取插件需要的文件：.github、缓存目录都不落地；地址里写了分支就下同一分支', async t => {
+  const calls = []
+  const content = jsdelivrPlugin('1.0.0')
+  const { installer, plugins } = await setup(t, async url => {
+    calls.push(url)
+    if (url.startsWith('https://codeload.github.com/')) return offline()
+    if (url.includes('data.jsdelivr.com')) return { ok: true, status: 200, json: async () => jsdelivrTree(content) }
+    const relative = decodeURIComponent(url.replace('https://cdn.jsdelivr.net/gh/author/dsh-tavern-hello@dev%2Fx', ''))
+    const bytes = content[relative]
+    return bytes === undefined ? { ok: false, status: 404 } : { ok: true, status: 200, arrayBuffer: async () => Buffer.from(bytes) }
+  })
+  await installer.installFromGithub('https://github.com/author/dsh-tavern-hello/tree/dev/x')
+  const entries = (await readdir(path.join(plugins, 'dsh-tavern-hello'))).sort()
+  assert.deepEqual(entries, ['.tavern-source.json', 'README.md', 'index.mjs', 'package.json'])
+  assert.ok(calls.includes('https://data.jsdelivr.com/v1/packages/gh/author/dsh-tavern-hello@dev%2Fx?structure=flat'))
+  // 指定分支时不问 Release，直接换线路下载。
+  assert.ok(!calls.some(url => url.endsWith('/releases/latest')))
+})
+
+test('两条线路都不通时说清两边原因，并留 ZIP 上传的办法；仓库 404 不会去试备用线路', async t => {
+  const calls = []
+  await setup(t, async url => {
+    calls.push(url)
+    if (url.startsWith('https://codeload.github.com/')) return offline()
+    return offline()
+  }).then(async ({ installer }) => {
+    await assert.rejects(
+      installer.installFromGithub('author/dsh-tavern-hello'),
+      /连不上 GitHub（ECONNRESET）；备用线路 jsDelivr 也没成功（连不上 jsDelivr（ECONNRESET））。.*下载 ZIP 后上传/
+    )
+  })
+  assert.ok(calls.some(url => url.includes('data.jsdelivr.com')), '备用线路确实被试过')
+
+  const missing = []
+  await setup(t, async url => {
+    missing.push(url)
+    if (url.endsWith('/releases/latest')) return { ok: false, status: 404 }
+    return { ok: false, status: 404 }
+  }).then(async ({ installer }) => {
+    await assert.rejects(installer.installFromGithub('author/missing'), /找不到仓库 author\/missing/)
+  })
+  assert.ok(!missing.some(url => url.includes('jsdelivr')), '仓库不存在换线路也没用，别多发请求')
+})

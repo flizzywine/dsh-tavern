@@ -38682,7 +38682,9 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
             }
             const installed = function (result) {
                 const plugin = result.plugin;
-                return (plugin.replaced ? "已更新 " : "已安装 ") + plugin.name + (plugin.version ? " " + plugin.version : "") + (plugin.replaced ? "，重启 DSH 后生效。" : "，刷新页面后生效。");
+                // warning 说明这次走了备用线路（jsDelivr）或退回了默认分支，得让用户看见。
+                const note = plugin.warning ? "（" + plugin.warning + "）" : "";
+                return (plugin.replaced ? "已更新 " : "已安装 ") + plugin.name + (plugin.version ? " " + plugin.version : "") + (plugin.replaced ? "，重启 DSH 后生效。" : "，刷新页面后生效。") + note;
             };
             function installUrl() {
                 if (!url.trim()) return;
@@ -38739,7 +38741,7 @@ function createUpdateStatusController({ call, confirm, errors, browser, initial 
                     h("button", { type: "button", className: "dsh-tavern-btn primary", disabled: busy, onClick: installUrl }, busy ? "处理中…" : "安装"),
                     h("button", { type: "button", className: "dsh-tavern-btn", disabled: busy, onClick: function () { if (zipInput.current) zipInput.current.click(); } }, "上传 ZIP"),
                     h("input", { ref: zipInput, type: "file", accept: ".zip,application/zip", style: { display: "none" }, onChange: installZip })),
-                h("p", { className: "dsh-tavern-settings-desc" }, "插件会运行在你的电脑上，只装信任的作者发布的插件。有 Release 时安装最新 Release，否则安装默认分支；连不上 GitHub 时，可以在仓库页面下载 ZIP 后上传。"),
+                h("p", { className: "dsh-tavern-settings-desc" }, "插件会运行在你的电脑上，只装信任的作者发布的插件。有 Release 时安装最新 Release，否则安装默认分支；连不上 GitHub 时会自动改用 jsDelivr，两边都不通时可以在仓库页面下载 ZIP 后上传。"),
                 notice ? h("p", { className: "dsh-tavern-user-plugins-notice", role: "status" }, notice) : null,
                 error ? h("p", { className: "dsh-tavern-settings-error", role: "alert" }, error) : null,
                 plugins.length ? h("div", { className: "dsh-tavern-user-plugins-head" },
