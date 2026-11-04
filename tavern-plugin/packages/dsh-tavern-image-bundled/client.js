@@ -2468,64 +2468,67 @@ function versionsOf(jobId) {
         note ? h('div', { role: 'status', style: { fontSize: '12px', marginTop: '8px' } }, note) : null)
     }
 
-    // 两套世界书面板共用这组外壳：只放布局尺寸和颜色变量，两边引用同一份，
-    // 以后改一处两边一起变，不再各长各的。
-    const WB_ROW = {
-      borderRadius: '10px',
-      border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent)',
-      background: 'var(--dsw-specific-input-major)',
-      color: 'var(--dsw-alias-label-primary)',
-      padding: '9px 11px',
-    }
-    const WB_PREVIEW = {
-      marginTop: '8px',
-      padding: '10px 12px',
-      borderRadius: '8px',
-      background: 'var(--dsw-specific-input-major)',
-      color: 'var(--dsw-alias-label-primary)',
-      fontSize: '12px',
-      lineHeight: '1.75',
-      whiteSpace: 'pre-wrap',
-      maxHeight: '340px',
-      overflow: 'auto',
-      border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
-    }
-    const WB_BOX = {
-      marginTop: '10px',
-      padding: '9px',
-      borderRadius: '8px',
-      background: 'var(--dsw-specific-input-major)',
-      color: 'var(--dsw-alias-label-primary)',
-      border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent)',
-    }
-    const WB_TEXTAREA = Object.assign({}, S.input, { width: '100%', minHeight: '130px', fontFamily: 'inherit', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box' })
-    const WB_EDIT_BUTTON = Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px' })
-    const WB_DANGER_BUTTON = Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' })
-    const wbPillStyle = on => Object.assign({}, buttonStyle, {
-      fontSize: '12px',
-      padding: '5px 12px',
-      borderColor: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)',
-      background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
-      color: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)',
-    })
-    const wbNoteStyle = text => ({ fontSize: '12px', color: /失败/.test(String(text || '')) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' })
-
     // 卡片模式的世界书（原 dsh-tavern-gen）：分册 + 档位，数据在 /dsh-tavern-gen/api。
     // 和游玩模式的世界书是两份独立文件（card-worldbook.json），同一页里切换入口，互不覆盖。
-    // 布局与交互和游玩那套对齐：分册 pill + 工具行 + 行式条目（预览 / 编辑两态），逐条即时保存；
-    // 字段差异只在编辑态里体现——这里用档位（mode）替代触发方式和适用渠道。
-    const CARD_WB_API = '/dsh-tavern-gen/api'
-    const CARD_WB_MODES = [['always', 'always · 任何题材都读'], ['nsfw', 'nsfw · 性场景加读'], ['gore', 'gore · 猎奇加读'], ['lookup', 'lookup · 按词检索'], ['manual', 'manual · 改库时读'], ['prescan', 'prescan · 提交前扫']]
-    const CARD_WB_HINT = {
-      always: '任何题材都读：编写提示词前先套用。',
-      nsfw: '只在性场景加读。',
-      gore: '只在猎奇场景加读。',
-      lookup: '不进常驻规则，工具按关键词查（素材表用这个）。',
-      manual: '改人物库、服装库之前读。',
-      prescan: '提交生成前扫一遍。',
-    }
-
     function CardWorldbookPanel() {
+      // 这些样式常量留在函数内部：上游 UI 测试会把本函数源码整段切出来，在只提供 React 与 h 的
+      // 隔离环境里执行；放到片段外层会被一起切走，并因缺少 S / buttonStyle 直接 ReferenceError。
+      // 两套世界书面板共用这组外壳：只放布局尺寸和颜色变量，两边引用同一份，
+      // 以后改一处两边一起变，不再各长各的。
+      const WB_ROW = {
+        borderRadius: '10px',
+        border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent)',
+        background: 'var(--dsw-specific-input-major)',
+        color: 'var(--dsw-alias-label-primary)',
+        padding: '9px 11px',
+      }
+      const WB_PREVIEW = {
+        marginTop: '8px',
+        padding: '10px 12px',
+        borderRadius: '8px',
+        background: 'var(--dsw-specific-input-major)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: '12px',
+        lineHeight: '1.75',
+        whiteSpace: 'pre-wrap',
+        maxHeight: '340px',
+        overflow: 'auto',
+        border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+      }
+      const WB_BOX = {
+        marginTop: '10px',
+        padding: '9px',
+        borderRadius: '8px',
+        background: 'var(--dsw-specific-input-major)',
+        color: 'var(--dsw-alias-label-primary)',
+        border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent)',
+      }
+      const WB_TEXTAREA = Object.assign({}, S.input, { width: '100%', minHeight: '130px', fontFamily: 'inherit', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box' })
+      const WB_EDIT_BUTTON = Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px' })
+      const WB_DANGER_BUTTON = Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' })
+      const wbPillStyle = on => Object.assign({}, buttonStyle, {
+        fontSize: '12px',
+        padding: '5px 12px',
+        borderColor: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)',
+        background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
+        color: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)',
+      })
+      const wbNoteStyle = text => ({ fontSize: '12px', color: /失败/.test(String(text || '')) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' })
+      // 卡片模式的世界书（原 dsh-tavern-gen）：分册 + 档位，数据在 /dsh-tavern-gen/api。
+      // 和游玩模式的世界书是两份独立文件（card-worldbook.json），同一页里切换入口，互不覆盖。
+      // 布局与交互和游玩那套对齐：分册 pill + 工具行 + 行式条目（预览 / 编辑两态），逐条即时保存；
+      // 字段差异只在编辑态里体现——这里用档位（mode）替代触发方式和适用渠道。
+      const CARD_WB_API = '/dsh-tavern-gen/api'
+      const CARD_WB_MODES = [['always', 'always · 任何题材都读'], ['nsfw', 'nsfw · 性场景加读'], ['gore', 'gore · 猎奇加读'], ['lookup', 'lookup · 按词检索'], ['manual', 'manual · 改库时读'], ['prescan', 'prescan · 提交前扫']]
+      const CARD_WB_HINT = {
+        always: '任何题材都读：编写提示词前先套用。',
+        nsfw: '只在性场景加读。',
+        gore: '只在猎奇场景加读。',
+        lookup: '不进常驻规则，工具按关键词查（素材表用这个）。',
+        manual: '改人物库、服装库之前读。',
+        prescan: '提交生成前扫一遍。',
+      }
+
       const [book, setBook] = React.useState(null)
       const [bucketId, setBucketId] = React.useState('')
       const [editing, setEditing] = React.useState('')
@@ -5603,7 +5606,7 @@ function versionsOf(jobId) {
           }
         }
 
-        const ta = WB_TEXTAREA
+        const ta = Object.assign({}, S.input, { width: '100%', minHeight: '130px', fontFamily: 'inherit', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box' })
 
         return h('fieldset', { disabled: wbLoading, 'aria-busy': wbLoading, style: Object.assign({}, S.card, { minWidth: 0 }) },
           h('label', { style: S.row }, h('span', { style: S.label }, '世界书格式'),
@@ -5634,7 +5637,13 @@ function versionsOf(jobId) {
               return h('button', {
                 key: book.key,
                 title: book.file ? ('保存到 ' + book.file) : '',
-                style: wbPillStyle(on),
+                style: Object.assign({}, buttonStyle, {
+                  fontSize: '12px',
+                  padding: '5px 12px',
+                  borderColor: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, transparent)' : 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 35%, transparent)',
+                  background: on ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
+                  color: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)',
+                }),
                 onClick: () => changeWorldbook(activeFormat, book.key),
               }, '📖 ' + (book.name || book.key) + '（' + (book.count ?? 0) + ' 条）')
             }),
@@ -5648,7 +5657,7 @@ function versionsOf(jobId) {
             h('button', { style: buttonStyle, onClick: addEntry }, '➕ 新条目'),
             h('button', { style: buttonStyle, onClick: exportWb }, '📤 导出（复制 JSON）'),
             h('button', { style: buttonStyle, onClick: async () => { try { if (await flushWbPending()) await refreshWb() } catch (error) { setWbNote('刷新失败：' + (error?.message || error)) } } }, '🔄 刷新'),
-            wbNote ? h('span', { style: wbNoteStyle(wbNote) }, wbNote) : null,
+            wbNote ? h('span', { style: { fontSize: '12px', color: /失败/.test(wbNote) ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } }, wbNote) : null,
           ),
 
           wbImportOpen ? h('div', { style: { marginTop: '10px', padding: '12px', borderRadius: '10px', background: 'color-mix(in srgb, var(--dsw-alias-label-tertiary) 3%, transparent)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)' } },
@@ -5670,7 +5679,7 @@ function versionsOf(jobId) {
           h('div', { style: { marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' } },
             list.length ? list.map(entry => h('div', {
               key: entry.index,
-              style: WB_ROW,
+              style: { borderRadius: '10px', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 28%, transparent)', background: entry.enabled === false ? 'var(--dsw-specific-input-major)' : 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', padding: '9px 11px' },
             },
               h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
                 h('input', {
@@ -5687,10 +5696,24 @@ function versionsOf(jobId) {
                   title: '只读预览这条内容，不影响编辑',
                   onClick: () => setWbOpen(current => ({ ...current, [entry.index]: !current[entry.index] })),
                 }, wbOpen[entry.index] ? '▾ 收起' : '▸ 内容'),
-                h('button', { style: WB_EDIT_BUTTON, onClick: () => setWbEditing(wbEditing === entry.index ? -1 : entry.index) }, wbEditing === entry.index ? '收起' : '编辑'),
-                h('button', { style: WB_DANGER_BUTTON, onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
+                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px' }), onClick: () => setWbEditing(wbEditing === entry.index ? -1 : entry.index) }, wbEditing === entry.index ? '收起' : '编辑'),
+                h('button', { style: Object.assign({}, buttonStyle, { fontSize: '12px', padding: '3px 10px', borderColor: 'color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent)', color: 'var(--dsw-alias-state-error-primary)' }), onClick: () => { if (confirm('删除这条世界书条目？')) patchEntry(entry.index, null, true) } }, '删'),
               ),
-              wbOpen[entry.index] && wbEditing !== entry.index ? h('div', { style: WB_PREVIEW }, String(entry.content ?? '').trim() || '（这条还没有内容）') : null,
+              wbOpen[entry.index] && wbEditing !== entry.index ? h('div', {
+                style: {
+                  marginTop: '8px',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: 'var(--dsw-specific-input-major)',
+                  color: 'var(--dsw-alias-label-primary)',
+                  fontSize: '12px',
+                  lineHeight: '1.75',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '340px',
+                  overflow: 'auto',
+                  border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 22%, transparent)',
+                },
+              }, String(entry.content ?? '').trim() || '（这条还没有内容）') : null,
               wbEditing === entry.index ? h('div', { style: { marginTop: '8px' } },
                 h('input', {
                   type: 'text', value: wbDrafts[entry.index]?.comment ?? entry.comment ?? '', placeholder: '条目标题',
@@ -5702,7 +5725,7 @@ function versionsOf(jobId) {
                   style: ta,
                   onChange: e => patchEntrySoon(entry.index, { content: e.target.value }, '内容'),
                 }),
-                h('div', { style: WB_BOX },
+                h('div', { style: { marginTop: '10px', padding: '9px', borderRadius: '8px', background: 'var(--dsw-specific-input-major)', color: 'var(--dsw-alias-label-primary)', border: '1px solid color-mix(in srgb, var(--dsw-alias-label-tertiary) 24%, transparent)' } },
                   h('div', { style: { fontSize: '12px', marginBottom: '6px' } }, '触发方式'),
                   h('label', { style: Object.assign({}, S.row, { fontSize: '12px', marginBottom: '6px' }) },
                     h('input', { type: 'radio', name: 'wb-activation-' + entry.index, value: 'always', checked: (wbDrafts[entry.index]?.activation ?? entry.activation ?? 'always') === 'always', onChange: () => patchEntry(entry.index, { activation: 'always' }, false, '触发方式') }),
