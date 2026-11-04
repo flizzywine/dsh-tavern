@@ -12,7 +12,7 @@ import { qwenVoices, QWEN_MODELS } from '../src/providers/qwen.js'
 
 const source = await readFile(new URL('../src/client.js',import.meta.url),'utf8')
 const keyed = {azure:'DSH_AZ',qwen:'DSH_QW',volcengine:'DSH_VO'}
-export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, browserSpeech, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
+export function fixture({sidebar = true, configured: initial, external = true, returnIntent, focus, failNavigation = false, blockedStorage = false, readingsEditor, browserSpeech, deleteGuard, modelStatus = () => ({issues:[],modelInstructions:null})} = {}) {
   const services = new Map(), tabs = new Map(), slots = new Map(), effects = [], calls = [], opened = []
   // The panel remembers its basic/advanced mode in localStorage.
   const storage = new Map(), localStorage = {getItem:key => storage.get(key) ?? null,setItem:(key,value) => storage.set(key,String(value))}
@@ -46,6 +46,8 @@ export function fixture({sidebar = true, configured: initial, external = true, r
       configured = [...configured.filter(p => p.id !== args.id),next]; if (args.secrets?.key) keys.add(args.id); result = listed().find(p => p.id === args.id)
     }
     else if (method === 'testService') { const p = configured.find(p => p.id === args.id); checks.set(args.id,{status:'connected',voiceCount:voicesOf(p.kind).voices.length}); result = {reachable:true} }
+    // the route answers a code plus a sentence (routes.js); the panel must branch on the code.
+    else if (method === 'deleteService' && deleteGuard && !args.force) return {ok:false,status:409,json:async () => ({error:deleteGuard,message:'服务器文案'})}
     else if (method === 'deleteService') {configured = configured.filter(p => p.id !== args.id); result = {deleted:true}}
     else if (method === 'providerVoices') result = args.serviceId === 'local:default' ? {status:'ok',source:'live',models:[],voices:[{id:'cast/aoi',label:'葵',engine:'service-engine',revision:'v1',languages:['ja'],state:'ready'}]} : voicesOf(configured.find(p => p.id === args.serviceId).kind)
     else if (method === 'voiceModelStatus') result = modelStatus(args)
@@ -251,6 +253,20 @@ test('add service: dashed ＋ → type → name / region / key; explicit test sh
     assert.equal(f.calls.some(c => c.method === 'synthesis'),false)
   })
   f.dispose()
+})
+
+test('delete: unknown or existing usage asks again and then deletes with force',async () => {
+  for (const [deleteGuard,question] of [['USAGE_UNKNOWN','不确定有没有人物在用「Test Qwen」，仍要删除？'],['SERVICE_IN_USE','还有声音预设在用「Test Qwen」，仍要删除？']]) {
+    const f = fixture({external:false,deleteGuard})
+    await withDom(async root => {
+      await act(async () => {root.render(React.createElement(f.tabs.get('dsh-tts:voice').component))}); await settle()
+      await click(byLabel('Test Qwen 更多操作')); await click(menuItem('删除…')); await click('删除'); await settle()
+      assert.equal(document.querySelector('.dtts-confirm').textContent.startsWith(question),true,deleteGuard)
+      await click('仍要删除'); await settle()
+      assert.deepEqual(f.calls.filter(c => c.method === 'deleteService').map(c => c.args.force),[undefined,true]); assert.ok(row('Test Qwen') === undefined)
+    })
+    f.dispose()
+  }
 })
 
 test('generic return intent keeps payload for destination and marks consumption only on click',async () => {

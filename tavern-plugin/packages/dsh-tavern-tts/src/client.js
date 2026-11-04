@@ -340,7 +340,8 @@ exports.apply = function(ctx) {
     })
     const remove = (p,force) => run(async () => {
       try { await call('deleteService',{id:p.id,expectedRevision:p.revision,...(force ? {force:true} : {})}) }
-      catch(e) { if (!force && e.message === 'SERVICE_IN_USE') { setConfirm({id:p.id,inUse:true}); return } throw e }
+      // without a registered usage source nobody can tell whether a voice uses the service: ask, never hard-fail.
+      catch(e) { if (!force && ['SERVICE_IN_USE','USAGE_UNKNOWN'].includes(e.code)) { setConfirm({id:p.id,force:e.code}); return } throw e }
       setConfirm(null); if (editor?.id === p.id) close(); setMessage('已删除「' + p.label + '」')
     })
     const fieldView = f => {
@@ -402,7 +403,8 @@ exports.apply = function(ctx) {
           h(Line,{title:p.label,open:editing(p.id),onOpen:() => toggleEdit(p),warn:StateWord(serviceState(p,descriptor(p.kind),live))},
             // no resident delete on the row — 删除… sits in the row's ⋯.
             h(Menu,{label:p.label + ' 更多操作',items:[{label:'删除…',danger:true,disabled:busy,onSelect:() => { setConfirm({id:p.id}) }}]})),
-          confirm?.id === p.id && h(Confirm,{text:confirm.inUse ? '还有声音预设在用「' + p.label + '」，仍要删除？' : '删除「' + p.label + '」？',yes:confirm.inUse ? '仍要删除' : '删除',onYes:remove(p,confirm.inUse),onNo:() => setConfirm(null)}),
+          confirm?.id === p.id && h(Confirm,{text:{SERVICE_IN_USE:'还有声音预设在用「' + p.label + '」，仍要删除？',USAGE_UNKNOWN:'不确定有没有人物在用「' + p.label + '」，仍要删除？'}[confirm.force] || '删除「' + p.label + '」？',
+            yes:confirm.force ? '仍要删除' : '删除',onYes:remove(p,!!confirm.force),onNo:() => setConfirm(null)}),
           editing(p.id) && Form()) }),
         unset.map(kind => { const open = editor?.mode === 'add' && editor.fixed && editor.kind === kind; return h('li',{key:'+' + kind,'data-open':open || undefined},
           h(Line,{title:KINDS[kind],open,onOpen:() => startKind(kind),warn:StateWord(['idle','未设置'])}),open && h('div',{className:'dtts-adding-fixed'},Form())) }),

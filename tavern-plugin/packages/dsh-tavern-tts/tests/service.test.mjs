@@ -10,6 +10,7 @@ import { createTts } from '../src/service.js'
 import { createCache } from '../src/cache.js'
 import { lexicon, hash, portableVoice } from '../src/core.js'
 import { pcmWav } from '../src/providers/audio.js'
+import ttsMessages from '../src/shared/tts-messages.cjs'
 import { importProviders, createServiceSettings } from '../src/settings.js'
 import { azureSsml } from '../src/providers/azure.js'
 import { sameOrigin, handleControl, registerRoutes, CONTROL_BODY_LIMIT } from '../src/routes.js'
@@ -112,7 +113,12 @@ test('settings writes and credentials roll back together; test never synthesizes
   const saved=(await service.list())[0]; reject=true
   await assert.rejects(service.save({id:'azure',kind:'azure',config:{region:'eastasia'},expectedRevision:saved.revision,secrets:{key:'changed'}}),{code:'SETTINGS_WRITE_FAILED'})
   assert.equal(stored.get('DSH_TAVERN_TTS_AZURE_KEY'),'private'); assert.equal((await service.test({id:'azure'})).synthesisTested,false); assert.equal(calls,1)
-  await assert.rejects(service.delete({id:'azure',expectedRevision:saved.revision}),{code:'USAGE_UNKNOWN'}); service.dispose(); await f.tts.dispose()
+  // no usage source: the delete asks first (USAGE_UNKNOWN), then a confirmed force deletes.
+  await assert.rejects(service.delete({id:'azure',expectedRevision:saved.revision}),{code:'USAGE_UNKNOWN'})
+  assert.doesNotMatch(ttsMessages.describeTtsError('USAGE_UNKNOWN'),/配音请求失败/)
+  reject=false
+  assert.deepEqual(await service.delete({id:'azure',expectedRevision:saved.revision,force:true}),{deleted:true,credentialsRetained:true}); assert.deepEqual(settings.providers,[])
+  service.dispose(); await f.tts.dispose()
 })
 test('Azure escapes prepared SSML and uses portable mood mapping',() => {
   const ssml=azureSsml({text:'<&',params:{...voice.params,styles:true},mood:'joy',moodStyles:{joy:'friendly'}})
